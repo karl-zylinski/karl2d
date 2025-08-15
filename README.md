@@ -10,4 +10,4 @@ Big upcoming tasks:
 
 ## Why does it wrap Raylib?
 
-I know Raylib very well and it made sense for me to create a wrapper for it, tweak the API and at some point rewrite the implementation without Raylib.
+I know Raylib very well and it made sense for me to create a wrapper for it, tweak the API and at some point rewrite the implementation without Raylib. That way we get a native, easy-to-use Odin library for making 2D games.
