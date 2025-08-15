@@ -1,8 +1,9 @@
-package karlib
+package karl2d
 
 import rl "raylib"
 import "raylib/rlgl"
 import "core:log"
+import "core:strings"
 import "base:runtime"
 
 _init :: proc(width: int, height: int, title: string,
@@ -256,4 +257,8 @@ _present :: proc(do_flush := true) {
 		rlgl.DrawRenderBatchActive()
 	}
 	rl.SwapScreenBuffer()
+}
+
+temp_cstring :: proc(str: string) -> cstring {
+	return strings.clone_to_cstring(str, context.temp_allocator)
 }

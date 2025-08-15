@@ -1,6 +1,6 @@
 package snake
 
-import kl "../.."
+import k2 "../.."
 import "core:math"
 import "core:fmt"
 import "core:time"
@@ -56,40 +56,40 @@ restart :: proc() {
 }
 
 main :: proc() {
-	kl.init(WINDOW_SIZE, WINDOW_SIZE, "Snake")
+	k2.init(WINDOW_SIZE, WINDOW_SIZE, "Snake")
 	prev_time := time.now()
 
 	restart()
 
-	food_sprite := kl.load_texture_from_file("food.png")
-	head_sprite := kl.load_texture_from_file("head.png")
-	body_sprite := kl.load_texture_from_file("body.png")
-	tail_sprite := kl.load_texture_from_file("tail.png")
+	food_sprite := k2.load_texture_from_file("food.png")
+	head_sprite := k2.load_texture_from_file("head.png")
+	body_sprite := k2.load_texture_from_file("body.png")
+	tail_sprite := k2.load_texture_from_file("tail.png")
 
-	for !kl.window_should_close() {
+	for !k2.window_should_close() {
 		time_now := time.now()
 		dt := f32(time.duration_seconds(time.diff(prev_time, time_now)))
 		prev_time = time_now
-		kl.process_events()
+		k2.process_events()
 
-		if kl.key_is_held(.Up) {
+		if k2.key_is_held(.Up) {
 			move_direction = {0, -1}
 		}
 
-		if kl.key_is_held(.Down) {
+		if k2.key_is_held(.Down) {
 			move_direction = {0, 1}
 		}
 
-		if kl.key_is_held(.Left) {
+		if k2.key_is_held(.Left) {
 			move_direction = {-1, 0}
 		}
 
-		if kl.key_is_held(.Right) {
+		if k2.key_is_held(.Right) {
 			move_direction = {1, 0}
 		}
 
 		if game_over {
-			if kl.key_went_down(.Enter) {
+			if k2.key_went_down(.Enter) {
 				restart()
 			}
 		} else {
@@ -125,14 +125,14 @@ main :: proc() {
 			tick_timer = TICK_RATE + tick_timer
 		}
 
-		kl.clear({76, 53, 83, 255})
+		k2.clear({76, 53, 83, 255})
 
-		camera := kl.Camera {
+		camera := k2.Camera {
 			zoom = f32(WINDOW_SIZE) / CANVAS_SIZE,
 		}
 
-		kl.set_camera(camera)
-		kl.draw_texture(food_sprite, {f32(food_pos.x), f32(food_pos.y)}*CELL_SIZE)
+		k2.set_camera(camera)
+		k2.draw_texture(food_sprite, {f32(food_pos.x), f32(food_pos.y)}*CELL_SIZE)
 
 		for i in 0..<snake_length {
 			part_sprite := body_sprite
@@ -150,38 +150,38 @@ main :: proc() {
 
 			rot := math.atan2(f32(dir.y), f32(dir.x)) * math.DEG_PER_RAD
 
-			source := kl.Rect {
+			source := k2.Rect {
 				0, 0,
 				f32(part_sprite.width), f32(part_sprite.height),
 			}
 
-			dest := kl.Rect {
+			dest := k2.Rect {
 				f32(snake[i].x)*CELL_SIZE + 0.5*CELL_SIZE,
 				f32(snake[i].y)*CELL_SIZE + 0.5*CELL_SIZE,
 				CELL_SIZE,
 				CELL_SIZE,
 			}
 
-			kl.draw_texture_ex(part_sprite, source, dest, {CELL_SIZE, CELL_SIZE}*0.5, rot)
+			k2.draw_texture_ex(part_sprite, source, dest, {CELL_SIZE, CELL_SIZE}*0.5, rot)
 		}
 
 		if game_over {
-			kl.draw_text("Game Over!", {4, 4}, 25, kl.RED)
-			kl.draw_text("Press Enter to play again", {4, 30}, 15, kl.BLACK)
+			k2.draw_text("Game Over!", {4, 4}, 25, k2.RED)
+			k2.draw_text("Press Enter to play again", {4, 30}, 15, k2.BLACK)
 		}
 
 		score := snake_length - 3
 		score_str := fmt.tprintf("Score: %v", score)
-		kl.draw_text(score_str, {4, CANVAS_SIZE - 14}, 10, kl.GRAY)
-		kl.present()
+		k2.draw_text(score_str, {4, CANVAS_SIZE - 14}, 10, k2.GRAY)
+		k2.present()
 
 		free_all(context.temp_allocator)
 	}
 
-	kl.destroy_texture(head_sprite)
-	kl.destroy_texture(food_sprite)
-	kl.destroy_texture(body_sprite)
-	kl.destroy_texture(tail_sprite)
+	k2.destroy_texture(head_sprite)
+	k2.destroy_texture(food_sprite)
+	k2.destroy_texture(body_sprite)
+	k2.destroy_texture(tail_sprite)
 
-	kl.shutdown()
+	k2.shutdown()
 }

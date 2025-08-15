@@ -1,4 +1,4 @@
-package karlib
+package karl2d
 
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory. The return value can be ignored unless you need to later call
