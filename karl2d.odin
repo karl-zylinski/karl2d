@@ -60,6 +60,7 @@ destroy_shader: proc(shader: Shader) : _destroy_shader
 
 get_shader_location: proc(shader: Shader, uniform_name: string) -> int : _get_shader_location
 
+// Not sure if we should use an enum for the uniform types as in raylib
 set_shader_value_f32: proc(shader: Shader, loc: int, val: f32) : _set_shader_value_f32
 set_shader_value_vec2: proc(shader: Shader, loc: int, val: Vec2) : _set_shader_value_vec2
 
