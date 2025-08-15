@@ -247,7 +247,7 @@ _process_events :: proc() {
 	rl.PollInputEvents()
 }
 
-_flush_batch :: proc() {
+_flush :: proc() {
 	rlgl.DrawRenderBatchActive()
 }
 

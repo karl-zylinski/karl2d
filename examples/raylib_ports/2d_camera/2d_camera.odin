@@ -70,9 +70,7 @@ main :: proc() {
         }
 
         kl.clear({ 245, 245, 245, 255 })
-
         kl.set_camera(camera)
-
         kl.draw_rect({-6000, 320, 13000, 8000}, kl.DARKGRAY)
 
         for i in 0..<MAX_BUILDINGS {
@@ -82,8 +80,8 @@ main :: proc() {
         kl.draw_rect(player, kl.RED)
         kl.draw_line({camera.target.x, -SCREEN_HEIGHT * 10}, {camera.target.x, SCREEN_HEIGHT * 10 }, 1, kl.GREEN)
         kl.draw_line({-SCREEN_WIDTH*10, camera.target.y}, {SCREEN_WIDTH*10, camera.target.y}, 1, kl.GREEN)
-        kl.set_camera(nil)
 
+        kl.set_camera(nil)
         kl.draw_text("SCREEN AREA", {640, 10}, 20, kl.RED)
 
         kl.draw_rect({0, 0, SCREEN_WIDTH, 5}, kl.RED)
