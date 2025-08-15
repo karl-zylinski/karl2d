@@ -5,6 +5,7 @@ import "raylib/rlgl"
 import "core:log"
 import "core:strings"
 import "base:runtime"
+import "core:slice"
 
 _init :: proc(width: int, height: int, title: string,
               allocator := context.allocator, loc := #caller_location) -> ^State {
@@ -244,6 +245,14 @@ _set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 	}
 }
 
+_set_shader :: proc(shader: Maybe(Shader)) {
+	if s, s_ok := shader.?; s_ok {
+		rlgl.SetShader(s.id, raw_data(s.locs))
+	} else {
+		rlgl.SetShader(rlgl.GetShaderIdDefault(), rlgl.GetShaderLocsDefault())
+	}
+}
+
 _process_events :: proc() {
 	rl.PollInputEvents()
 }
@@ -257,6 +266,40 @@ _present :: proc(do_flush := true) {
 		rlgl.DrawRenderBatchActive()
 	}
 	rl.SwapScreenBuffer()
+}
+
+_load_shader :: proc(vs: string, fs: string) -> Shader {
+	s := rl.LoadShader(temp_cstring(vs), temp_cstring(fs))
+
+	return {
+		id = s.id,
+		locs = slice.from_ptr(s.locs, 32),
+	}
+}
+
+_destroy_shader :: proc(shader: Shader) {
+	rl.UnloadShader(rl_shader(shader))
+}
+
+_get_shader_location :: proc(shader: Shader, uniform_name: string) -> int {
+	return int(rl.GetShaderLocation(rl_shader(shader), temp_cstring(uniform_name)))
+}
+
+_set_shader_value_f32 :: proc(shader: Shader, loc: int, val: f32) {
+	val := val
+	rl.SetShaderValue(rl_shader(shader), loc, &val, .FLOAT)
+}
+
+_set_shader_value_vec2 :: proc(shader: Shader, loc: int, val: Vec2) {
+	val := val
+	rl.SetShaderValue(rl_shader(shader), loc, &val, .VEC2)
+}
+
+rl_shader :: proc(s: Shader) -> rl.Shader {
+	return {
+		id = s.id,
+		locs = raw_data(s.locs),
+	}
 }
 
 temp_cstring :: proc(str: string) -> cstring {
