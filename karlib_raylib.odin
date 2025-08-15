@@ -167,7 +167,7 @@ rl_color :: proc(c: Color) -> rl.Color {
 }
 
 _draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
-	rl.DrawTextEx(rl.GetFontDefault(), temp_cstring(text), pos, font_size, 0, rl_color(color))
+	rl.DrawTextEx(rl.GetFontDefault(), temp_cstring(text), pos, font_size, 1, rl_color(color))
 }
 
 _mouse_button_pressed  :: proc(button: Mouse_Button) -> bool {

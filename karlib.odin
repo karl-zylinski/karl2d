@@ -104,6 +104,8 @@ RED :: Color { 230, 41, 55, 255 }
 YELLOW :: Color { 253, 249, 0, 255 }
 BLUE :: Color { 0, 121, 241, 255 }
 MAGENTA :: Color { 255, 0, 255, 255 }
+DARKGRAY :: Color{ 80, 80, 80, 255 }
+GREEN :: Color{ 0, 228, 48, 255 }
 
 // Based on Raylib / GLFW
 Keyboard_Key :: enum {
