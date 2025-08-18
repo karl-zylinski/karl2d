@@ -5,8 +5,10 @@ import "base:runtime"
 import win "core:sys/windows"
 import D3D11 "vendor:directx/d3d11"
 import DXGI "vendor:directx/dxgi"
+import D3D "vendor:directx/d3d_compiler"
 import "core:strings"
 import "core:log"
+import "core:math/linalg"
 
 _ :: log
 //import "core:math"
@@ -19,6 +21,9 @@ _init :: proc(width: int, height: int, title: string,
 	instance := win.HINSTANCE(win.GetModuleHandleW(nil))
 
 	s.run = true
+
+	s.width = width
+	s.height = height
 
 	cls := win.WNDCLASSW {
 		lpfnWndProc = window_proc,
@@ -33,10 +38,17 @@ _init :: proc(width: int, height: int, title: string,
 
 	_ = class
 
+	r: win.RECT
+	r.right = i32(width)
+	r.bottom = i32(height)
+
+	style := win.WS_OVERLAPPEDWINDOW | win.WS_VISIBLE
+	win.AdjustWindowRect(&r, style, false)
+
 	hwnd := win.CreateWindowW(CLASS_NAME,
 		win.utf8_to_wstring(title),
-		win.WS_OVERLAPPEDWINDOW | win.WS_VISIBLE,
-		100, 100, i32(width), i32(height),
+		style,
+		100, 10, r.right - r.left, r.bottom - r.top,
 		nil, nil, instance, nil)
 
 	feature_levels := [?]D3D11.FEATURE_LEVEL{ ._11_0 }
@@ -93,22 +105,110 @@ _init :: proc(width: int, height: int, title: string,
 
 	device->CreateDepthStencilView(depth_buffer, nil, &s.depth_buffer_view)
 
+
+	//////////
+
+	vs_blob: ^D3D11.IBlob
+	D3D.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, nil)
+	assert(vs_blob != nil)
+
+	device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &vertex_shader)
+
+	input_element_desc := [?]D3D11.INPUT_ELEMENT_DESC{
+		{ "POS", 0, .R32G32B32_FLOAT, 0,                            0, .VERTEX_DATA, 0 },
+	}
+
+	device->CreateInputLayout(&input_element_desc[0], len(input_element_desc), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &input_layout)
+
+	ps_blob: ^D3D11.IBlob
+	D3D.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, nil)
+
+	device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nil, &pixel_shader)
+
+	//////////
+
+	rasterizer_desc := D3D11.RASTERIZER_DESC{
+		FillMode = .SOLID,
+		CullMode = .BACK,
+	}
+	device->CreateRasterizerState(&rasterizer_desc, &rasterizer_state)
+
+	depth_stencil_desc := D3D11.DEPTH_STENCIL_DESC{
+		DepthEnable    = true,
+		DepthWriteMask = .ALL,
+		DepthFunc      = .LESS,
+	}
+	device->CreateDepthStencilState(&depth_stencil_desc, &depth_stencil_state)
+
+	constant_buffer_desc := D3D11.BUFFER_DESC{
+		ByteWidth      = size_of(Constants),
+		Usage          = .DYNAMIC,
+		BindFlags      = {.CONSTANT_BUFFER},
+		CPUAccessFlags = {.WRITE},
+	}
+	device->CreateBuffer(&constant_buffer_desc, nil, &constant_buffer)
+
+	vertex_data := [?]Vec3 {
+		{0, 320, 0.1},
+		{320, 320, 0.1},
+		{0, 0, 0.1},
+	}
+
+	index_data := [?]u32 {
+		0, 1, 2,
+	}
+
+	vertex_buffer_desc := D3D11.BUFFER_DESC{
+		ByteWidth = size_of(vertex_data),
+		Usage     = .IMMUTABLE,
+		BindFlags = {.VERTEX_BUFFER},
+	}
+	device->CreateBuffer(&vertex_buffer_desc, &D3D11.SUBRESOURCE_DATA{pSysMem = &vertex_data[0], SysMemPitch = size_of(vertex_data)}, &s.vertex_buffer)
+
+	index_buffer_desc := D3D11.BUFFER_DESC{
+		ByteWidth = size_of(index_data),
+		Usage     = .IMMUTABLE,
+		BindFlags = {.INDEX_BUFFER},
+	}
+	device->CreateBuffer(&index_buffer_desc, &D3D11.SUBRESOURCE_DATA{pSysMem = &index_data[0], SysMemPitch = size_of(index_data)}, &s.index_buffer)
+
+	s.proj_matrix = make_default_projection(s.width, s.height)
+
 	return s
 }
 
+Vec3 :: [3]f32
+
+shader_hlsl :: #load("shader.hlsl")
+
 s: ^State
+
+constant_buffer: ^D3D11.IBuffer
+vertex_shader: ^D3D11.IVertexShader
+pixel_shader: ^D3D11.IPixelShader
+depth_stencil_state: ^D3D11.IDepthStencilState
+rasterizer_state: ^D3D11.IRasterizerState
+input_layout: ^D3D11.IInputLayout
 
 State :: struct {
 	swapchain: ^DXGI.ISwapChain1,
 	framebuffer_view: ^D3D11.IRenderTargetView,
 	depth_buffer_view: ^D3D11.IDepthStencilView,
 	device_context: ^D3D11.IDeviceContext,
+	vertex_buffer: ^D3D11.IBuffer,
+	index_buffer: ^D3D11.IBuffer,
+
 	run: bool,
 	custom_context: runtime.Context,
+
+	width: int,
+	height: int,
 
 	keys_went_down: #sparse [Keyboard_Key]bool,
 	keys_went_up: #sparse [Keyboard_Key]bool,
 	keys_is_held: #sparse [Keyboard_Key]bool,
+
+	proj_matrix: matrix[4,4]f32,
 }
 
 VK_MAP := [255]Keyboard_Key {
@@ -288,7 +388,13 @@ _screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 }
 
 _set_camera :: proc(camera: Maybe(Camera)) {
-
+	if c, c_ok := camera.?; c_ok {
+		s.proj_matrix = make_default_projection(s.width, s.height)
+		s.proj_matrix[0, 0] *= c.zoom
+		s.proj_matrix[1, 1] *= c.zoom
+	} else {
+		s.proj_matrix = make_default_projection(s.width, s.height)
+	}
 }
 
 _set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
@@ -314,7 +420,58 @@ _process_events :: proc() {
 _flush :: proc() {
 }
 
+Constants :: struct #align (16) {
+	projection: matrix[4, 4]f32,
+}
+
+make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
+	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+}
+
 _present :: proc(do_flush := true) {
+	viewport := D3D11.VIEWPORT{
+		0, 0,
+		f32(s.width), f32(s.height),
+		0, 1,
+	}
+
+	dc := s.device_context
+
+	mapped_subresource: D3D11.MAPPED_SUBRESOURCE
+
+
+	// matrix[0.002, 0, -0, -1; 0, 0.002, -0, -1; 0, 0, -1.0005003, -1.0010005; 0, 0, -0, 1]
+	// matrix[0.002, 0, -0, -1; 0, 0.002, -0, 1; 0, 0, 1.0005002, -1.0010005; 0, 0, -0, 1]
+
+
+	dc->Map(constant_buffer, 0, .WRITE_DISCARD, {}, &mapped_subresource)
+	{
+		constants := (^Constants)(mapped_subresource.pData)
+		constants.projection = s.proj_matrix
+	}
+	dc->Unmap(constant_buffer, 0)
+
+	dc->IASetPrimitiveTopology(.TRIANGLELIST)
+	dc->IASetInputLayout(input_layout)
+	vertex_buffer_offset := u32(0)
+	vertex_buffer_stride := u32(3*4)
+	dc->IASetVertexBuffers(0, 1, &s.vertex_buffer, &vertex_buffer_stride, &vertex_buffer_offset)
+	dc->IASetIndexBuffer(s.index_buffer, .R32_UINT, 0)
+
+	dc->VSSetShader(vertex_shader, nil, 0)
+	dc->VSSetConstantBuffers(0, 1, &constant_buffer)
+
+	dc->RSSetViewports(1, &viewport)
+	dc->RSSetState(rasterizer_state)
+
+	dc->PSSetShader(pixel_shader, nil, 0)
+
+	dc->OMSetRenderTargets(1, &s.framebuffer_view, s.depth_buffer_view)
+	dc->OMSetDepthStencilState(depth_stencil_state, 0)
+	dc->OMSetBlendState(nil, nil, ~u32(0)) // use default blend mode (i.e. disable)
+
+	dc->DrawIndexed(3, 0, 0)
+
 	s.swapchain->Present(1, {})
 }
 

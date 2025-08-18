@@ -1,0 +1,4 @@
+* Make 0, 0 be at top left (should vertex data be flipped, or is it a transformation thingy?)
+* Construct vertex buffer from k2.draw_blabla calls. Do we need index buffer? 🤷‍
+* Organize the d3d11 things neatly. It's just a hack right now!
+* Load textures and somehow bind to shader -- split draw calls on texture switch -- needs a start of a batch system.
