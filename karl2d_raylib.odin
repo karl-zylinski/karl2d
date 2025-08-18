@@ -1,3 +1,5 @@
+#+ignore
+
 package karl2d
 
 import rl "raylib"

@@ -74,9 +74,9 @@ draw_text: proc(text: string, pos: Vec2, font_size: f32, color: Color) : _draw_t
 
 screen_to_world: proc(pos: Vec2, camera: Camera) -> Vec2 : _screen_to_world
 
-key_went_down: proc(key: Keyboard_Key) -> bool : _key_pressed
-key_went_up: proc(key: Keyboard_Key) -> bool : _key_released
-key_is_held: proc(key: Keyboard_Key) -> bool : _key_held
+key_went_down: proc(key: Keyboard_Key) -> bool : _key_went_down
+key_went_up: proc(key: Keyboard_Key) -> bool : _key_went_up
+key_is_held: proc(key: Keyboard_Key) -> bool : _key_is_held
 
 mouse_button_went_down: proc(button: Mouse_Button) -> bool : _mouse_button_pressed
 mouse_button_went_up: proc(button: Mouse_Button) -> bool : _mouse_button_released

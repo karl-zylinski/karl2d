@@ -5,6 +5,8 @@ import "core:math"
 import "core:fmt"
 import "core:time"
 import "core:math/rand"
+import "base:intrinsics"
+import "core:log"
 
 WINDOW_SIZE :: 1000
 GRID_WIDTH :: 20
@@ -42,6 +44,7 @@ place_food :: proc() {
 		random_cell_index := rand.int31_max(i32(len(free_cells)))
 		food_pos = free_cells[random_cell_index]
 	}
+
 }
 
 restart :: proc() {
@@ -56,6 +59,7 @@ restart :: proc() {
 }
 
 main :: proc() {
+	context.logger = log.create_console_logger()
 	k2.init(WINDOW_SIZE, WINDOW_SIZE, "Snake")
 	prev_time := time.now()
 
