@@ -136,7 +136,7 @@ _init :: proc(width: int, height: int, title: string,
 	device->CreateRasterizerState(&rasterizer_desc, &rasterizer_state)
 
 	depth_stencil_desc := D3D11.DEPTH_STENCIL_DESC{
-		DepthEnable    = true,
+		DepthEnable    = false,
 		DepthWriteMask = .ALL,
 		DepthFunc      = .LESS,
 	}
