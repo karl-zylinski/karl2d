@@ -229,6 +229,7 @@ State :: struct {
 	run: bool,
 	custom_context: runtime.Context,
 
+	camera: Maybe(Camera),
 	width: int,
 	height: int,
 
@@ -532,6 +533,11 @@ vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
 }
 
 _set_camera :: proc(camera: Maybe(Camera)) {
+	if camera == s.camera {
+		return
+	}
+
+	s.camera = camera
 	maybe_draw_current_batch()
 
 	if c, c_ok := camera.?; c_ok {
