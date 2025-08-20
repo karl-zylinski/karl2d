@@ -116,7 +116,8 @@ _init :: proc(width: int, height: int, title: string,
 	device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &vertex_shader)
 
 	input_element_desc := [?]D3D11.INPUT_ELEMENT_DESC{
-		{ "POS", 0, .R32G32B32_FLOAT, 0,                            0, .VERTEX_DATA, 0 },
+		{ "POS", 0, .R32G32B32_FLOAT, 0, 0, .VERTEX_DATA, 0 },
+		{ "COL", 0, .R8G8B8A8_UNORM , 0, D3D11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
 	}
 
 	device->CreateInputLayout(&input_element_desc[0], len(input_element_desc), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &input_layout)
@@ -150,7 +151,7 @@ _init :: proc(width: int, height: int, title: string,
 	device->CreateBuffer(&constant_buffer_desc, nil, &constant_buffer)
 
 	vertex_buffer_desc := D3D11.BUFFER_DESC{
-		ByteWidth = VERTEX_BUFFER_MAX,
+		ByteWidth = VERTEX_BUFFER_MAX * size_of(Vertex),
 		Usage     = .DYNAMIC,
 		BindFlags = {.VERTEX_BUFFER},
 		CPUAccessFlags = {.WRITE},
@@ -159,7 +160,7 @@ _init :: proc(width: int, height: int, title: string,
 
 	vb_data: D3D11.MAPPED_SUBRESOURCE
 	s.device_context->Map(s.vertex_buffer, 0, .WRITE_NO_OVERWRITE, {}, &vb_data)
-	s.vertex_buffer_map = slice.from_ptr((^Vec3)(vb_data.pData), VERTEX_BUFFER_MAX)
+	s.vertex_buffer_map = slice.from_ptr((^Vertex)(vb_data.pData), VERTEX_BUFFER_MAX)
 
 	s.proj_matrix = make_default_projection(s.width, s.height)
 
@@ -171,6 +172,11 @@ VERTEX_BUFFER_MAX :: 10000
 Vec3 :: [3]f32
 
 shader_hlsl :: #load("shader.hlsl")
+
+Vertex :: struct {
+	pos: Vec3,
+	color: Color,
+}
 
 s: ^State
 
@@ -188,7 +194,7 @@ State :: struct {
 	device_context: ^D3D11.IDeviceContext,
 	vertex_buffer: ^D3D11.IBuffer,
 	vertex_buffer_count: int,
-	vertex_buffer_map: []Vec3,
+	vertex_buffer_map: []Vertex,
 
 	run: bool,
 	custom_context: runtime.Context,
@@ -315,6 +321,15 @@ _draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 	)
 }
 
+add_vertex :: proc(v: Vec3, color: Color) {
+	s.vertex_buffer_map[s.vertex_buffer_count] = {
+		pos = v,
+		color = color,
+	}
+
+	s.vertex_buffer_count += 1
+}
+
 _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: f32, tint := WHITE) {
 	p := Vec2 {
 		dst.x, dst.y,
@@ -322,16 +337,21 @@ _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: 
 
 	p -= origin
 
-	s.vertex_buffer_map[s.vertex_buffer_count + 0] = {p.x, p.y, 0.1}
-	s.vertex_buffer_map[s.vertex_buffer_count + 1] = {p.x + dst.w, p.y, 0.1}
-	s.vertex_buffer_map[s.vertex_buffer_count + 2] = {p.x + dst.w, p.y + dst.h, 0.1}
-	s.vertex_buffer_map[s.vertex_buffer_count + 3] = {p.x, p.y, 0.1}
-	s.vertex_buffer_map[s.vertex_buffer_count + 4] = {p.x + dst.w, p.y + dst.h, 0.1}
-	s.vertex_buffer_map[s.vertex_buffer_count + 5] = {p.x, p.y + dst.h, 0.1}
-	s.vertex_buffer_count += 6
+	add_vertex({p.x, p.y, 0.1}, tint)
+	add_vertex({p.x + dst.w, p.y, 0.1}, tint)
+	add_vertex({p.x + dst.w, p.y + dst.h, 0.1}, tint)
+	add_vertex({p.x, p.y, 0.1}, tint)
+	add_vertex({p.x + dst.w, p.y + dst.h, 0.1}, tint)
+	add_vertex({p.x, p.y + dst.h, 0.1}, tint)
 }
 
-_draw_rectangle :: proc(rect: Rect, color: Color) {
+_draw_rectangle :: proc(r: Rect, color: Color) {
+	add_vertex({r.x, r.y, 0.1}, color)
+	add_vertex({r.x + r.w, r.y, 0.1}, color)
+	add_vertex({r.x + r.w, r.y + r.h, 0.1}, color)
+	add_vertex({r.x, r.y, 0.1}, color)
+	add_vertex({r.x + r.w, r.y + r.h, 0.1}, color)
+	add_vertex({r.x, r.y + r.h, 0.1}, color)
 }
 
 _draw_rectangle_outline :: proc(rect: Rect, thickness: f32, color: Color) {
@@ -470,7 +490,7 @@ _present :: proc(do_flush := true) {
 	dc->IASetPrimitiveTopology(.TRIANGLELIST)
 	dc->IASetInputLayout(input_layout)
 	vertex_buffer_offset := u32(0)
-	vertex_buffer_stride := u32(3*4)
+	vertex_buffer_stride := u32(size_of(Vertex))
 	dc->IASetVertexBuffers(0, 1, &s.vertex_buffer, &vertex_buffer_stride, &vertex_buffer_offset)
 
 	dc->VSSetShader(vertex_shader, nil, 0)
