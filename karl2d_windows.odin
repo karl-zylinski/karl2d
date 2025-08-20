@@ -2,10 +2,10 @@
 
 package karl2d
 import "base:runtime"
-import win "core:sys/windows"
-import D3D11 "vendor:directx/d3d11"
-import DXGI "vendor:directx/dxgi"
-import D3D "vendor:directx/d3d_compiler"
+import win32 "core:sys/windows"
+import d3d11 "vendor:directx/d3d11"
+import dxgi "vendor:directx/dxgi"
+import "vendor:directx/d3d_compiler"
 import "core:strings"
 import "core:log"
 import "core:math/linalg"
@@ -17,45 +17,45 @@ _init :: proc(width: int, height: int, title: string,
 	s = new(State, allocator, loc)
 	s.custom_context = context
 	CLASS_NAME :: "karl2d"
-	instance := win.HINSTANCE(win.GetModuleHandleW(nil))
+	instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
 
 	s.run = true
 	s.width = width
 	s.height = height
 
-	cls := win.WNDCLASSW {
+	cls := win32.WNDCLASSW {
 		lpfnWndProc = window_proc,
 		lpszClassName = CLASS_NAME,
 		hInstance = instance,
-		hCursor = win.LoadCursorA(nil, win.IDC_ARROW),
+		hCursor = win32.LoadCursorA(nil, win32.IDC_ARROW),
 	}
 
-	win.RegisterClassW(&cls)
+	win32.RegisterClassW(&cls)
 
-	r: win.RECT
+	r: win32.RECT
 	r.right = i32(width)
 	r.bottom = i32(height)
 
-	style := win.WS_OVERLAPPEDWINDOW | win.WS_VISIBLE
-	win.AdjustWindowRect(&r, style, false)
+	style := win32.WS_OVERLAPPEDWINDOW | win32.WS_VISIBLE
+	win32.AdjustWindowRect(&r, style, false)
 
-	hwnd := win.CreateWindowW(CLASS_NAME,
-		win.utf8_to_wstring(title),
+	hwnd := win32.CreateWindowW(CLASS_NAME,
+		win32.utf8_to_wstring(title),
 		style,
 		100, 10, r.right - r.left, r.bottom - r.top,
 		nil, nil, instance, nil)
 
 	assert(hwnd != nil, "Failed creating window")
 
-	feature_levels := [?]D3D11.FEATURE_LEVEL{
+	feature_levels := [?]d3d11.FEATURE_LEVEL{
 		._11_1,
 		._11_0,
 	}
 
-	base_device: ^D3D11.IDevice
-	base_device_context: ^D3D11.IDeviceContext
+	base_device: ^d3d11.IDevice
+	base_device_context: ^d3d11.IDeviceContext
 
-	device_flags := D3D11.CREATE_DEVICE_FLAGS {
+	device_flags := d3d11.CREATE_DEVICE_FLAGS {
 		.BGRA_SUPPORT,
 	}
 
@@ -63,31 +63,31 @@ _init :: proc(width: int, height: int, title: string,
 		device_flags += { .DEBUG }
 	}
 
-	ch(D3D11.CreateDevice(
+	ch(d3d11.CreateDevice(
 		nil,
 		.HARDWARE,
 		nil,
 		device_flags,
 		&feature_levels[0], len(feature_levels),
-		D3D11.SDK_VERSION, &base_device, nil, &base_device_context))
+		d3d11.SDK_VERSION, &base_device, nil, &base_device_context))
 
-	ch(base_device->QueryInterface(D3D11.IInfoQueue_UUID, (^rawptr)(&s.info_queue)))
-	ch(base_device->QueryInterface(D3D11.IDevice_UUID, (^rawptr)(&s.device)))
-	ch(base_device_context->QueryInterface(D3D11.IDeviceContext_UUID, (^rawptr)(&s.device_context)))
-	dxgi_device: ^DXGI.IDevice
-	ch(s.device->QueryInterface(DXGI.IDevice_UUID, (^rawptr)(&dxgi_device)))
+	ch(base_device->QueryInterface(d3d11.IInfoQueue_UUID, (^rawptr)(&s.info_queue)))
+	ch(base_device->QueryInterface(d3d11.IDevice_UUID, (^rawptr)(&s.device)))
+	ch(base_device_context->QueryInterface(d3d11.IDeviceContext_UUID, (^rawptr)(&s.device_context)))
+	dxgi_device: ^dxgi.IDevice
+	ch(s.device->QueryInterface(dxgi.IDevice_UUID, (^rawptr)(&dxgi_device)))
 	base_device->Release()
 	base_device_context->Release()
 
-	dxgi_adapter: ^DXGI.IAdapter
+	dxgi_adapter: ^dxgi.IAdapter
 	
 	ch(dxgi_device->GetAdapter(&dxgi_adapter))
 	dxgi_device->Release()
 
-	dxgi_factory: ^DXGI.IFactory2
-	ch(dxgi_adapter->GetParent(DXGI.IFactory2_UUID, (^rawptr)(&dxgi_factory)))
+	dxgi_factory: ^dxgi.IFactory2
+	ch(dxgi_adapter->GetParent(dxgi.IFactory2_UUID, (^rawptr)(&dxgi_factory)))
 
-	swapchain_desc := DXGI.SWAP_CHAIN_DESC1 {
+	swapchain_desc := dxgi.SWAP_CHAIN_DESC1 {
 		Format = .B8G8R8A8_UNORM,
 		SampleDesc = {
 			Count   = 1,
@@ -99,10 +99,10 @@ _init :: proc(width: int, height: int, title: string,
 	}
 
 	ch(dxgi_factory->CreateSwapChainForHwnd(s.device, hwnd, &swapchain_desc, nil, nil, &s.swapchain))
-	ch(s.swapchain->GetBuffer(0, D3D11.ITexture2D_UUID, (^rawptr)(&s.framebuffer)))
+	ch(s.swapchain->GetBuffer(0, d3d11.ITexture2D_UUID, (^rawptr)(&s.framebuffer)))
 	ch(s.device->CreateRenderTargetView(s.framebuffer, nil, &s.framebuffer_view))
 
-	depth_buffer_desc: D3D11.TEXTURE2D_DESC
+	depth_buffer_desc: d3d11.TEXTURE2D_DESC
 	s.framebuffer->GetDesc(&depth_buffer_desc)
 	depth_buffer_desc.Format = .D24_UNORM_S8_UINT
 	depth_buffer_desc.BindFlags = {.DEPTH_STENCIL}
@@ -110,9 +110,9 @@ _init :: proc(width: int, height: int, title: string,
 	ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &s.depth_buffer))
 	ch(s.device->CreateDepthStencilView(s.depth_buffer, nil, &s.depth_buffer_view))
 
-	vs_blob: ^D3D11.IBlob
-	vs_blob_errors: ^D3D11.IBlob
-	ch(D3D.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
+	vs_blob: ^d3d11.IBlob
+	vs_blob_errors: ^d3d11.IBlob
+	ch(d3d_compiler.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
 
 	if vs_blob_errors != nil {
 		log.error("Failed compiling shader:")
@@ -121,16 +121,16 @@ _init :: proc(width: int, height: int, title: string,
 
 	ch(s.device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &s.vertex_shader))
 
-	input_element_desc := [?]D3D11.INPUT_ELEMENT_DESC{
+	input_element_desc := [?]d3d11.INPUT_ELEMENT_DESC{
 		{ "POS", 0, .R32G32_FLOAT, 0, 0, .VERTEX_DATA, 0 },
-		{ "COL", 0, .R8G8B8A8_UNORM , 0, D3D11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
+		{ "COL", 0, .R8G8B8A8_UNORM , 0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
 	}
 
 	ch(s.device->CreateInputLayout(&input_element_desc[0], len(input_element_desc), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &s.input_layout))
 
-	ps_blob: ^D3D11.IBlob
-	ps_blob_errors: ^D3D11.IBlob
-	ch(D3D.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, &ps_blob_errors))
+	ps_blob: ^d3d11.IBlob
+	ps_blob_errors: ^d3d11.IBlob
+	ch(d3d_compiler.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, &ps_blob_errors))
 
 	if ps_blob_errors != nil {
 		log.error("Failed compiling shader:")
@@ -139,20 +139,20 @@ _init :: proc(width: int, height: int, title: string,
 
 	ch(s.device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nil, &s.pixel_shader))
 
-	rasterizer_desc := D3D11.RASTERIZER_DESC{
+	rasterizer_desc := d3d11.RASTERIZER_DESC{
 		FillMode = .SOLID,
 		CullMode = .BACK,
 	}
 	ch(s.device->CreateRasterizerState(&rasterizer_desc, &s.rasterizer_state))
 
-	depth_stencil_desc := D3D11.DEPTH_STENCIL_DESC{
+	depth_stencil_desc := d3d11.DEPTH_STENCIL_DESC{
 		DepthEnable    = false,
 		DepthWriteMask = .ALL,
 		DepthFunc      = .LESS,
 	}
 	ch(s.device->CreateDepthStencilState(&depth_stencil_desc, &s.depth_stencil_state))
 
-	constant_buffer_desc := D3D11.BUFFER_DESC{
+	constant_buffer_desc := d3d11.BUFFER_DESC{
 		ByteWidth      = size_of(Constants),
 		Usage          = .DYNAMIC,
 		BindFlags      = {.CONSTANT_BUFFER},
@@ -160,7 +160,7 @@ _init :: proc(width: int, height: int, title: string,
 	}
 	ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &s.constant_buffer))
 
-	vertex_buffer_desc := D3D11.BUFFER_DESC{
+	vertex_buffer_desc := d3d11.BUFFER_DESC{
 		ByteWidth = VERTEX_BUFFER_MAX * size_of(Vertex),
 		Usage     = .DYNAMIC,
 		BindFlags = {.VERTEX_BUFFER},
@@ -186,22 +186,22 @@ s: ^State
 VERTEX_BUFFER_MAX :: 10000
 
 State :: struct {
-	swapchain: ^DXGI.ISwapChain1,
-	framebuffer_view: ^D3D11.IRenderTargetView,
-	depth_buffer_view: ^D3D11.IDepthStencilView,
-	device_context: ^D3D11.IDeviceContext,
-	constant_buffer: ^D3D11.IBuffer,
-	vertex_shader: ^D3D11.IVertexShader,
-	pixel_shader: ^D3D11.IPixelShader,
-	depth_stencil_state: ^D3D11.IDepthStencilState,
-	rasterizer_state: ^D3D11.IRasterizerState,
-	input_layout: ^D3D11.IInputLayout,
-	device: ^D3D11.IDevice,
-	depth_buffer: ^D3D11.ITexture2D,
-	framebuffer: ^D3D11.ITexture2D,
+	swapchain: ^dxgi.ISwapChain1,
+	framebuffer_view: ^d3d11.IRenderTargetView,
+	depth_buffer_view: ^d3d11.IDepthStencilView,
+	device_context: ^d3d11.IDeviceContext,
+	constant_buffer: ^d3d11.IBuffer,
+	vertex_shader: ^d3d11.IVertexShader,
+	pixel_shader: ^d3d11.IPixelShader,
+	depth_stencil_state: ^d3d11.IDepthStencilState,
+	rasterizer_state: ^d3d11.IRasterizerState,
+	input_layout: ^d3d11.IInputLayout,
+	device: ^d3d11.IDevice,
+	depth_buffer: ^d3d11.ITexture2D,
+	framebuffer: ^d3d11.ITexture2D,
 
-	info_queue: ^D3D11.IInfoQueue,
-	vertex_buffer_gpu: ^D3D11.IBuffer,
+	info_queue: ^d3d11.IInfoQueue,
+	vertex_buffer_gpu: ^d3d11.IBuffer,
 	vertex_buffer_cpu: []Vertex,
 	vertex_buffer_cpu_count: int,
 
@@ -219,60 +219,60 @@ State :: struct {
 }
 
 VK_MAP := [255]Keyboard_Key {
-	win.VK_A = .A,
-	win.VK_B = .B,
-	win.VK_C = .C,
-	win.VK_D = .D,
-	win.VK_E = .E,
-	win.VK_F = .F,
-	win.VK_G = .G,
-	win.VK_H = .H,
-	win.VK_I = .I,
-	win.VK_J = .J,
-	win.VK_K = .K,
-	win.VK_L = .L,
-	win.VK_M = .M,
-	win.VK_N = .N,
-	win.VK_O = .O,
-	win.VK_P = .P,
-	win.VK_Q = .Q,
-	win.VK_R = .R,
-	win.VK_S = .S,
-	win.VK_T = .T,
-	win.VK_U = .U,
-	win.VK_V = .V,
-	win.VK_W = .W,
-	win.VK_X = .X,
-	win.VK_Y = .Y,
-	win.VK_Z = .Z,
-	win.VK_LEFT = .Left,
-	win.VK_RIGHT = .Right,
-	win.VK_UP = .Up,
-	win.VK_DOWN = .Down,
+	win32.VK_A = .A,
+	win32.VK_B = .B,
+	win32.VK_C = .C,
+	win32.VK_D = .D,
+	win32.VK_E = .E,
+	win32.VK_F = .F,
+	win32.VK_G = .G,
+	win32.VK_H = .H,
+	win32.VK_I = .I,
+	win32.VK_J = .J,
+	win32.VK_K = .K,
+	win32.VK_L = .L,
+	win32.VK_M = .M,
+	win32.VK_N = .N,
+	win32.VK_O = .O,
+	win32.VK_P = .P,
+	win32.VK_Q = .Q,
+	win32.VK_R = .R,
+	win32.VK_S = .S,
+	win32.VK_T = .T,
+	win32.VK_U = .U,
+	win32.VK_V = .V,
+	win32.VK_W = .W,
+	win32.VK_X = .X,
+	win32.VK_Y = .Y,
+	win32.VK_Z = .Z,
+	win32.VK_LEFT = .Left,
+	win32.VK_RIGHT = .Right,
+	win32.VK_UP = .Up,
+	win32.VK_DOWN = .Down,
 }
 
-window_proc :: proc "stdcall" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM) -> win.LRESULT {
+window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
 	context = s.custom_context
 	switch msg {
-	case win.WM_DESTROY:
-		win.PostQuitMessage(0)
+	case win32.WM_DESTROY:
+		win32.PostQuitMessage(0)
 		s.run = false
 
-	case win.WM_CLOSE:
+	case win32.WM_CLOSE:
 		s.run = false
 
-	case win.WM_KEYDOWN:
+	case win32.WM_KEYDOWN:
 		key := VK_MAP[wparam]
 		s.keys_went_down[key] = true
 		s.keys_is_held[key] = true
 
-	case win.WM_KEYUP:
+	case win32.WM_KEYUP:
 		key := VK_MAP[wparam]
 		s.keys_is_held[key] = false
 		s.keys_went_up[key] = true
 	}
 
-	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
+	return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
 _shutdown :: proc() {
@@ -291,9 +291,9 @@ _shutdown :: proc() {
 	s.swapchain->Release()
 
 	when ODIN_DEBUG {
-		debug: ^D3D11.IDebug
+		debug: ^d3d11.IDebug
 
-		if ch(s.device->QueryInterface(D3D11.IDebug_UUID, (^rawptr)(&debug))) >= 0 {
+		if ch(s.device->QueryInterface(d3d11.IDebug_UUID, (^rawptr)(&debug))) >= 0 {
 			ch(debug->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL}))
 			log_messages()
 		}
@@ -487,11 +487,11 @@ _process_events :: proc() {
 	s.keys_went_up = {}
 	s.keys_went_down = {}
 
-	msg: win.MSG
+	msg: win32.MSG
 
-	for win.PeekMessageW(&msg, nil, 0, 0, win.PM_REMOVE) {
-		win.TranslateMessage(&msg)
-		win.DispatchMessageW(&msg)			
+	for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
+		win32.TranslateMessage(&msg)
+		win32.DispatchMessageW(&msg)			
 	}
 }
 
@@ -507,7 +507,7 @@ make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 }
 
 _present :: proc(do_flush := true) {
-	viewport := D3D11.VIEWPORT{
+	viewport := d3d11.VIEWPORT{
 		0, 0,
 		f32(s.width), f32(s.height),
 		0, 1,
@@ -515,7 +515,7 @@ _present :: proc(do_flush := true) {
 
 	dc := s.device_context
 
-	vb_data: D3D11.MAPPED_SUBRESOURCE
+	vb_data: d3d11.MAPPED_SUBRESOURCE
 	ch(dc->Map(s.vertex_buffer_gpu, 0, .WRITE_NO_OVERWRITE, {}, &vb_data))
 	{
 		gpu_map := slice.from_ptr((^Vertex)(vb_data.pData), VERTEX_BUFFER_MAX)
@@ -523,7 +523,7 @@ _present :: proc(do_flush := true) {
 	}
 	dc->Unmap(s.vertex_buffer_gpu, 0)
 
-	cb_data: D3D11.MAPPED_SUBRESOURCE
+	cb_data: d3d11.MAPPED_SUBRESOURCE
 	ch(dc->Map(s.constant_buffer, 0, .WRITE_DISCARD, {}, &cb_data))
 	{
 		constants := (^Constants)(cb_data.pData)
@@ -579,12 +579,12 @@ temp_cstring :: proc(str: string, loc := #caller_location) -> cstring {
 }
 
 // CHeck win errors and print message log if there is any error
-ch :: proc(hr: win.HRESULT, loc := #caller_location) -> win.HRESULT {
+ch :: proc(hr: win32.HRESULT, loc := #caller_location) -> win32.HRESULT {
 	if hr >= 0 {
 		return hr
 	}
 
-	log.errorf("D3D11 error: %0x", u32(hr), location = loc)
+	log.errorf("d3d11 error: %0x", u32(hr), location = loc)
 	log_messages(loc)
 	return hr
 }
@@ -597,10 +597,10 @@ log_messages :: proc(loc := #caller_location) {
 	}
 
 	n := iq->GetNumStoredMessages()
-	longest_msg: D3D11.SIZE_T
+	longest_msg: d3d11.SIZE_T
 
 	for i in 0..=n {
-		msglen: D3D11.SIZE_T
+		msglen: d3d11.SIZE_T
 		iq->GetMessage(i, nil, &msglen)
 
 		if msglen > longest_msg {
@@ -612,11 +612,11 @@ log_messages :: proc(loc := #caller_location) {
 		msg_raw_ptr, _ := (mem.alloc(int(longest_msg), allocator = context.temp_allocator))
 
 		for i in 0..=n {
-			msglen: D3D11.SIZE_T
+			msglen: d3d11.SIZE_T
 			iq->GetMessage(i, nil, &msglen)
 
 			if msglen > 0 {
-				msg := (^D3D11.MESSAGE)(msg_raw_ptr)
+				msg := (^d3d11.MESSAGE)(msg_raw_ptr)
 				iq->GetMessage(i, msg, &msglen)
 				log.error(msg.pDescription, location = loc)
 			}
