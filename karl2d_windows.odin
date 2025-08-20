@@ -12,44 +12,6 @@ import "core:math/linalg"
 import "core:slice"
 import "core:mem"
 
-_ :: slice
-_ :: log
-//import "core:math"
-
-check_messages :: proc(loc := #caller_location) {
-	iq := s.info_queue
-	if iq != nil {
-		n := iq->GetNumStoredMessages()
-		longest_msg: D3D11.SIZE_T
-
-		for i in 0..=n {
-			msglen: D3D11.SIZE_T
-			iq->GetMessage(i, nil, &msglen)
-
-			if msglen > longest_msg {
-				longest_msg = msglen
-			}
-		}
-
-		if longest_msg > 0 {
-			msg_raw_ptr, _ := (mem.alloc(int(longest_msg), allocator = context.temp_allocator))
-
-			for i in 0..=n {
-				msglen: D3D11.SIZE_T
-				iq->GetMessage(i, nil, &msglen)
-
-				if msglen > 0 {
-					msg := (^D3D11.MESSAGE)(msg_raw_ptr)
-					iq->GetMessage(i, msg, &msglen)
-					log.error(msg.pDescription, location = loc)
-				}
-			}
-		}
-
-		iq->ClearStoredMessages()
-	}
-}
-
 _init :: proc(width: int, height: int, title: string,
               allocator := context.allocator, loc := #caller_location) -> ^State {
 	s = new(State, allocator, loc)
@@ -58,7 +20,6 @@ _init :: proc(width: int, height: int, title: string,
 	instance := win.HINSTANCE(win.GetModuleHandleW(nil))
 
 	s.run = true
-
 	s.width = width
 	s.height = height
 
@@ -84,6 +45,8 @@ _init :: proc(width: int, height: int, title: string,
 		100, 10, r.right - r.left, r.bottom - r.top,
 		nil, nil, instance, nil)
 
+	assert(hwnd != nil, "Failed creating window")
+
 	feature_levels := [?]D3D11.FEATURE_LEVEL{
 		._11_1,
 		._11_0,
@@ -100,32 +63,29 @@ _init :: proc(width: int, height: int, title: string,
 		device_flags += { .DEBUG }
 	}
 
-	D3D11.CreateDevice(
+	ch(D3D11.CreateDevice(
 		nil,
 		.HARDWARE,
 		nil,
 		device_flags,
 		&feature_levels[0], len(feature_levels),
-		D3D11.SDK_VERSION, &base_device, nil, &base_device_context)
+		D3D11.SDK_VERSION, &base_device, nil, &base_device_context))
 
-
-	base_device->QueryInterface(D3D11.IInfoQueue_UUID, (^rawptr)(&s.info_queue))
-
-	base_device->QueryInterface(D3D11.IDevice_UUID, (^rawptr)(&s.device))
-
-	base_device_context->QueryInterface(D3D11.IDeviceContext_UUID, (^rawptr)(&s.device_context))
-
+	ch(base_device->QueryInterface(D3D11.IInfoQueue_UUID, (^rawptr)(&s.info_queue)))
+	ch(base_device->QueryInterface(D3D11.IDevice_UUID, (^rawptr)(&s.device)))
+	ch(base_device_context->QueryInterface(D3D11.IDeviceContext_UUID, (^rawptr)(&s.device_context)))
 	dxgi_device: ^DXGI.IDevice
-	s.device->QueryInterface(DXGI.IDevice_UUID, (^rawptr)(&dxgi_device))
-
+	ch(s.device->QueryInterface(DXGI.IDevice_UUID, (^rawptr)(&dxgi_device)))
 	base_device->Release()
 	base_device_context->Release()
 
 	dxgi_adapter: ^DXGI.IAdapter
-	dxgi_device->GetAdapter(&dxgi_adapter)
+	
+	ch(dxgi_device->GetAdapter(&dxgi_adapter))
+	dxgi_device->Release()
 
 	dxgi_factory: ^DXGI.IFactory2
-	dxgi_adapter->GetParent(DXGI.IFactory2_UUID, (^rawptr)(&dxgi_factory))
+	ch(dxgi_adapter->GetParent(DXGI.IFactory2_UUID, (^rawptr)(&dxgi_factory)))
 
 	swapchain_desc := DXGI.SWAP_CHAIN_DESC1 {
 		Format = .B8G8R8A8_UNORM,
@@ -138,56 +98,59 @@ _init :: proc(width: int, height: int, title: string,
 		SwapEffect  = .DISCARD,
 	}
 
-	dxgi_factory->CreateSwapChainForHwnd(s.device, hwnd, &swapchain_desc, nil, nil, &s.swapchain)
-	
-	s.swapchain->GetBuffer(0, D3D11.ITexture2D_UUID, (^rawptr)(&s.framebuffer))
-
-	s.device->CreateRenderTargetView(s.framebuffer, nil, &s.framebuffer_view)
+	ch(dxgi_factory->CreateSwapChainForHwnd(s.device, hwnd, &swapchain_desc, nil, nil, &s.swapchain))
+	ch(s.swapchain->GetBuffer(0, D3D11.ITexture2D_UUID, (^rawptr)(&s.framebuffer)))
+	ch(s.device->CreateRenderTargetView(s.framebuffer, nil, &s.framebuffer_view))
 
 	depth_buffer_desc: D3D11.TEXTURE2D_DESC
 	s.framebuffer->GetDesc(&depth_buffer_desc)
 	depth_buffer_desc.Format = .D24_UNORM_S8_UINT
 	depth_buffer_desc.BindFlags = {.DEPTH_STENCIL}
 
-	s.device->CreateTexture2D(&depth_buffer_desc, nil, &s.depth_buffer)
-
-	s.device->CreateDepthStencilView(s.depth_buffer, nil, &s.depth_buffer_view)
-
-
-	//////////
+	ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &s.depth_buffer))
+	ch(s.device->CreateDepthStencilView(s.depth_buffer, nil, &s.depth_buffer_view))
 
 	vs_blob: ^D3D11.IBlob
-	D3D.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, nil)
-	assert(vs_blob != nil)
+	vs_blob_errors: ^D3D11.IBlob
+	ch(D3D.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
 
-	s.device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &s.vertex_shader)
+	if vs_blob_errors != nil {
+		log.error("Failed compiling shader:")
+		log.error(strings.string_from_ptr((^u8)(vs_blob_errors->GetBufferPointer()), int(vs_blob_errors->GetBufferSize())))
+	}
+
+	ch(s.device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &s.vertex_shader))
 
 	input_element_desc := [?]D3D11.INPUT_ELEMENT_DESC{
 		{ "POS", 0, .R32G32_FLOAT, 0, 0, .VERTEX_DATA, 0 },
 		{ "COL", 0, .R8G8B8A8_UNORM , 0, D3D11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
 	}
 
-	s.device->CreateInputLayout(&input_element_desc[0], len(input_element_desc), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &s.input_layout)
+	ch(s.device->CreateInputLayout(&input_element_desc[0], len(input_element_desc), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &s.input_layout))
 
 	ps_blob: ^D3D11.IBlob
-	D3D.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, nil)
+	ps_blob_errors: ^D3D11.IBlob
+	ch(D3D.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, &ps_blob_errors))
 
-	s.device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nil, &s.pixel_shader)
+	if ps_blob_errors != nil {
+		log.error("Failed compiling shader:")
+		log.error(strings.string_from_ptr((^u8)(ps_blob_errors->GetBufferPointer()), int(ps_blob_errors->GetBufferSize())))
+	}
 
-	//////////
+	ch(s.device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nil, &s.pixel_shader))
 
 	rasterizer_desc := D3D11.RASTERIZER_DESC{
 		FillMode = .SOLID,
 		CullMode = .BACK,
 	}
-	s.device->CreateRasterizerState(&rasterizer_desc, &s.rasterizer_state)
+	ch(s.device->CreateRasterizerState(&rasterizer_desc, &s.rasterizer_state))
 
 	depth_stencil_desc := D3D11.DEPTH_STENCIL_DESC{
 		DepthEnable    = false,
 		DepthWriteMask = .ALL,
 		DepthFunc      = .LESS,
 	}
-	s.device->CreateDepthStencilState(&depth_stencil_desc, &s.depth_stencil_state)
+	ch(s.device->CreateDepthStencilState(&depth_stencil_desc, &s.depth_stencil_state))
 
 	constant_buffer_desc := D3D11.BUFFER_DESC{
 		ByteWidth      = size_of(Constants),
@@ -195,7 +158,7 @@ _init :: proc(width: int, height: int, title: string,
 		BindFlags      = {.CONSTANT_BUFFER},
 		CPUAccessFlags = {.WRITE},
 	}
-	s.device->CreateBuffer(&constant_buffer_desc, nil, &s.constant_buffer)
+	ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &s.constant_buffer))
 
 	vertex_buffer_desc := D3D11.BUFFER_DESC{
 		ByteWidth = VERTEX_BUFFER_MAX * size_of(Vertex),
@@ -203,12 +166,9 @@ _init :: proc(width: int, height: int, title: string,
 		BindFlags = {.VERTEX_BUFFER},
 		CPUAccessFlags = {.WRITE},
 	}
-	s.device->CreateBuffer(&vertex_buffer_desc, nil, &s.vertex_buffer_gpu)
+	ch(s.device->CreateBuffer(&vertex_buffer_desc, nil, &s.vertex_buffer_gpu))
 	s.vertex_buffer_cpu = make([]Vertex, VERTEX_BUFFER_MAX)
-
-	
 	s.proj_matrix = make_default_projection(s.width, s.height)
-
 	return s
 }
 
@@ -222,8 +182,6 @@ Vertex :: struct {
 }
 
 s: ^State
-
-
 
 VERTEX_BUFFER_MAX :: 10000
 
@@ -334,12 +292,10 @@ _shutdown :: proc() {
 
 	when ODIN_DEBUG {
 		debug: ^D3D11.IDebug
-		hr := s.device->QueryInterface(D3D11.IDebug_UUID, (^rawptr)(&debug))
-		
 
-		if hr >= 0 {
-			debug->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
-			check_messages()
+		if ch(s.device->QueryInterface(D3D11.IDebug_UUID, (^rawptr)(&debug))) >= 0 {
+			ch(debug->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL}))
+			log_messages()
 		}
 
 		debug->Release()
@@ -560,7 +516,7 @@ _present :: proc(do_flush := true) {
 	dc := s.device_context
 
 	vb_data: D3D11.MAPPED_SUBRESOURCE
-	dc->Map(s.vertex_buffer_gpu, 0, .WRITE_NO_OVERWRITE, {}, &vb_data)
+	ch(dc->Map(s.vertex_buffer_gpu, 0, .WRITE_NO_OVERWRITE, {}, &vb_data))
 	{
 		gpu_map := slice.from_ptr((^Vertex)(vb_data.pData), VERTEX_BUFFER_MAX)
 		copy(gpu_map, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_count])
@@ -568,7 +524,7 @@ _present :: proc(do_flush := true) {
 	dc->Unmap(s.vertex_buffer_gpu, 0)
 
 	cb_data: D3D11.MAPPED_SUBRESOURCE
-	dc->Map(s.constant_buffer, 0, .WRITE_DISCARD, {}, &cb_data)
+	ch(dc->Map(s.constant_buffer, 0, .WRITE_DISCARD, {}, &cb_data))
 	{
 		constants := (^Constants)(cb_data.pData)
 		constants.projection = s.proj_matrix
@@ -594,8 +550,9 @@ _present :: proc(do_flush := true) {
 	dc->OMSetBlendState(nil, nil, ~u32(0)) // use default blend mode (i.e. disable)
 
 	dc->Draw(u32(s.vertex_buffer_cpu_count), 0)
+	log_messages()
 
-	s.swapchain->Present(1, {})
+	ch(s.swapchain->Present(1, {}))
 
 	s.vertex_buffer_cpu_count = 0
 }
@@ -617,6 +574,54 @@ _set_shader_value_f32 :: proc(shader: Shader, loc: int, val: f32) {
 _set_shader_value_vec2 :: proc(shader: Shader, loc: int, val: Vec2) {
 }
 
-temp_cstring :: proc(str: string) -> cstring {
+temp_cstring :: proc(str: string, loc := #caller_location) -> cstring {
 	return strings.clone_to_cstring(str, context.temp_allocator)
+}
+
+// CHeck win errors and print message log if there is any error
+ch :: proc(hr: win.HRESULT, loc := #caller_location) -> win.HRESULT {
+	if hr >= 0 {
+		return hr
+	}
+
+	log.errorf("D3D11 error: %0x", u32(hr), location = loc)
+	log_messages(loc)
+	return hr
+}
+
+log_messages :: proc(loc := #caller_location) {
+	iq := s.info_queue
+	
+	if iq == nil {
+		return
+	}
+
+	n := iq->GetNumStoredMessages()
+	longest_msg: D3D11.SIZE_T
+
+	for i in 0..=n {
+		msglen: D3D11.SIZE_T
+		iq->GetMessage(i, nil, &msglen)
+
+		if msglen > longest_msg {
+			longest_msg = msglen
+		}
+	}
+
+	if longest_msg > 0 {
+		msg_raw_ptr, _ := (mem.alloc(int(longest_msg), allocator = context.temp_allocator))
+
+		for i in 0..=n {
+			msglen: D3D11.SIZE_T
+			iq->GetMessage(i, nil, &msglen)
+
+			if msglen > 0 {
+				msg := (^D3D11.MESSAGE)(msg_raw_ptr)
+				iq->GetMessage(i, msg, &msglen)
+				log.error(msg.pDescription, location = loc)
+			}
+		}
+	}
+
+	iq->ClearStoredMessages()
 }
