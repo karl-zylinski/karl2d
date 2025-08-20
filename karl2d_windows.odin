@@ -168,11 +168,27 @@ _init :: proc(width: int, height: int, title: string,
 	}
 	ch(s.device->CreateBuffer(&vertex_buffer_desc, nil, &s.vertex_buffer_gpu))
 	s.vertex_buffer_cpu = make([]Vertex, VERTEX_BUFFER_MAX)
+
+	blend_desc := d3d11.BLEND_DESC {
+		RenderTarget = {
+			0 = {
+				BlendEnable = true,
+				SrcBlend = .SRC_ALPHA,
+				DestBlend = .INV_SRC_ALPHA,
+				BlendOp = .ADD,
+				SrcBlendAlpha = .ONE,
+				DestBlendAlpha = .ZERO,
+				BlendOpAlpha = .ADD,
+				RenderTargetWriteMask = u8(d3d11.COLOR_WRITE_ENABLE_ALL),
+			},
+		},
+	}
+
+	ch(s.device->CreateBlendState(&blend_desc, &s.blend_state))
+
 	s.proj_matrix = make_default_projection(s.width, s.height)
 	return s
 }
-
-
 
 shader_hlsl :: #load("shader.hlsl")
 
@@ -199,6 +215,7 @@ State :: struct {
 	device: ^d3d11.IDevice,
 	depth_buffer: ^d3d11.ITexture2D,
 	framebuffer: ^d3d11.ITexture2D,
+	blend_state: ^d3d11.IBlendState,
 
 	info_queue: ^d3d11.IInfoQueue,
 	vertex_buffer_gpu: ^d3d11.IBuffer,
@@ -393,7 +410,43 @@ _draw_rectangle :: proc(r: Rect, color: Color) {
 	add_vertex({r.x, r.y + r.h}, color)
 }
 
-_draw_rectangle_outline :: proc(rect: Rect, thickness: f32, color: Color) {
+_draw_rectangle_outline :: proc(r: Rect, thickness: f32, color: Color) {
+	t := thickness
+	
+	// Based on DrawRectangleLinesEx from Raylib
+
+	top := Rect {
+		r.x,
+		r.y,
+		r.w,
+		t,
+	}
+
+	bottom := Rect {
+		r.x,
+		r.y + r.h - t,
+		r.w,
+		t,
+	}
+
+	left := Rect {
+		r.x,
+		r.y + t,
+		t,
+		r.h - t * 2,
+	}
+
+	right := Rect {
+		r.x + r.w - t,
+		r.y + t,
+		t,
+		r.h - t * 2,
+	}
+
+	_draw_rectangle(top, color)
+	_draw_rectangle(bottom, color)
+	_draw_rectangle(left, color)
+	_draw_rectangle(right, color)
 }
 
 _draw_circle :: proc(center: Vec2, radius: f32, color: Color) {
@@ -547,7 +600,7 @@ _present :: proc(do_flush := true) {
 
 	dc->OMSetRenderTargets(1, &s.framebuffer_view, s.depth_buffer_view)
 	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
-	dc->OMSetBlendState(nil, nil, ~u32(0)) // use default blend mode (i.e. disable)
+	dc->OMSetBlendState(s.blend_state, nil, ~u32(0))
 
 	dc->Draw(u32(s.vertex_buffer_cpu_count), 0)
 	log_messages()

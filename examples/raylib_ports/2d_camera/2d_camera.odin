@@ -5,12 +5,14 @@ package raylib_example_2d_camera
 import k2 "../../.."
 import "core:math/rand"
 import "core:math"
+import "core:log"
 
 MAX_BUILDINGS :: 100
 SCREEN_WIDTH :: 800
 SCREEN_HEIGHT :: 450
 
 main :: proc() {
+	context.logger = log.create_console_logger()
 	k2.init(SCREEN_WIDTH, SCREEN_HEIGHT, "Karl2D: 2d camera (raylib [core] example - 2d camera)")
 
 	player := k2.Rect { 400, 280, 40, 40 }
