@@ -10,9 +10,45 @@ import "core:strings"
 import "core:log"
 import "core:math/linalg"
 import "core:slice"
+import "core:mem"
 
+_ :: slice
 _ :: log
 //import "core:math"
+
+check_messages :: proc(loc := #caller_location) {
+	iq := s.info_queue
+	if iq != nil {
+		n := iq->GetNumStoredMessages()
+		longest_msg: D3D11.SIZE_T
+
+		for i in 0..=n {
+			msglen: D3D11.SIZE_T
+			iq->GetMessage(i, nil, &msglen)
+
+			if msglen > longest_msg {
+				longest_msg = msglen
+			}
+		}
+
+		if longest_msg > 0 {
+			msg_raw_ptr, _ := (mem.alloc(int(longest_msg), allocator = context.temp_allocator))
+
+			for i in 0..=n {
+				msglen: D3D11.SIZE_T
+				iq->GetMessage(i, nil, &msglen)
+
+				if msglen > 0 {
+					msg := (^D3D11.MESSAGE)(msg_raw_ptr)
+					iq->GetMessage(i, msg, &msglen)
+					log.error(msg.pDescription, location = loc)
+				}
+			}
+		}
+
+		iq->ClearStoredMessages()
+	}
+}
 
 _init :: proc(width: int, height: int, title: string,
               allocator := context.allocator, loc := #caller_location) -> ^State {
@@ -52,25 +88,42 @@ _init :: proc(width: int, height: int, title: string,
 		100, 10, r.right - r.left, r.bottom - r.top,
 		nil, nil, instance, nil)
 
-	feature_levels := [?]D3D11.FEATURE_LEVEL{ ._11_0 }
+	feature_levels := [?]D3D11.FEATURE_LEVEL{
+		._11_1,
+		._11_0,
+	}
 
 	base_device: ^D3D11.IDevice
 	base_device_context: ^D3D11.IDeviceContext
+
+	device_flags := D3D11.CREATE_DEVICE_FLAGS {
+		.BGRA_SUPPORT,
+	}
+
+	when ODIN_DEBUG {
+		device_flags += { .DEBUG }
+	}
+
 	D3D11.CreateDevice(
 		nil,
 		.HARDWARE,
 		nil,
-		{.BGRA_SUPPORT},
+		device_flags,
 		&feature_levels[0], len(feature_levels),
 		D3D11.SDK_VERSION, &base_device, nil, &base_device_context)
 
-	device: ^D3D11.IDevice
+
+	base_device->QueryInterface(D3D11.IInfoQueue_UUID, (^rawptr)(&s.info_queue))
+
 	base_device->QueryInterface(D3D11.IDevice_UUID, (^rawptr)(&device))
-	
+
 	base_device_context->QueryInterface(D3D11.IDeviceContext_UUID, (^rawptr)(&s.device_context))
 
 	dxgi_device: ^DXGI.IDevice
 	device->QueryInterface(DXGI.IDevice_UUID, (^rawptr)(&dxgi_device))
+
+
+
 
 	dxgi_adapter: ^DXGI.IAdapter
 	dxgi_device->GetAdapter(&dxgi_adapter)
@@ -156,18 +209,16 @@ _init :: proc(width: int, height: int, title: string,
 		BindFlags = {.VERTEX_BUFFER},
 		CPUAccessFlags = {.WRITE},
 	}
-	device->CreateBuffer(&vertex_buffer_desc, nil, &s.vertex_buffer)
+	device->CreateBuffer(&vertex_buffer_desc, nil, &s.vertex_buffer_gpu)
+	s.vertex_buffer_cpu = make([]Vertex, VERTEX_BUFFER_MAX)
 
-	vb_data: D3D11.MAPPED_SUBRESOURCE
-	s.device_context->Map(s.vertex_buffer, 0, .WRITE_NO_OVERWRITE, {}, &vb_data)
-	s.vertex_buffer_map = slice.from_ptr((^Vertex)(vb_data.pData), VERTEX_BUFFER_MAX)
-
+	
 	s.proj_matrix = make_default_projection(s.width, s.height)
 
 	return s
 }
 
-VERTEX_BUFFER_MAX :: 10000
+
 
 shader_hlsl :: #load("shader.hlsl")
 
@@ -184,15 +235,21 @@ pixel_shader: ^D3D11.IPixelShader
 depth_stencil_state: ^D3D11.IDepthStencilState
 rasterizer_state: ^D3D11.IRasterizerState
 input_layout: ^D3D11.IInputLayout
+device: ^D3D11.IDevice
+
+VERTEX_BUFFER_MAX :: 10000
 
 State :: struct {
 	swapchain: ^DXGI.ISwapChain1,
 	framebuffer_view: ^D3D11.IRenderTargetView,
 	depth_buffer_view: ^D3D11.IDepthStencilView,
 	device_context: ^D3D11.IDeviceContext,
-	vertex_buffer: ^D3D11.IBuffer,
-	vertex_buffer_count: int,
-	vertex_buffer_map: []Vertex,
+	
+	info_queue: ^D3D11.IInfoQueue,
+	vertex_buffer_gpu: ^D3D11.IBuffer,
+	vertex_buffer_cpu: []Vertex,
+	vertex_buffer_cpu_count: int,
+	
 
 	run: bool,
 	custom_context: runtime.Context,
@@ -265,7 +322,17 @@ window_proc :: proc "stdcall" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM
 }
 
 _shutdown :: proc() {
+	when ODIN_DEBUG {
+		debug: ^D3D11.IDebug
+		hr := device->QueryInterface(D3D11.IDebug_UUID, (^rawptr)(&debug))
 
+		if hr >= 0 {
+			debug->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
+			check_messages()
+		}
+
+		debug->Release()
+	}
 }
 
 _set_internal_state :: proc(new_state: ^State) {
@@ -320,12 +387,16 @@ _draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 }
 
 add_vertex :: proc(v: Vec2, color: Color) {
-	s.vertex_buffer_map[s.vertex_buffer_count] = {
+	if s.vertex_buffer_cpu_count == len(s.vertex_buffer_cpu) {
+		panic("Must dispatch here")
+	}
+
+	s.vertex_buffer_cpu[s.vertex_buffer_cpu_count] = {
 		pos = v,
 		color = color,
 	}
 
-	s.vertex_buffer_count += 1
+	s.vertex_buffer_cpu_count += 1
 }
 
 _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: f32, tint := WHITE) {
@@ -474,8 +545,15 @@ _present :: proc(do_flush := true) {
 
 	dc := s.device_context
 
-	// matrix[0.002, 0, -0, -1; 0, 0.002, -0, -1; 0, 0, -1.0005003, -1.0010005; 0, 0, -0, 1]
-	// matrix[0.002, 0, -0, -1; 0, 0.002, -0, 1; 0, 0, 1.0005002, -1.0010005; 0, 0, -0, 1]
+
+	vb_data: D3D11.MAPPED_SUBRESOURCE
+	dc->Map(s.vertex_buffer_gpu, 0, .WRITE_NO_OVERWRITE, {}, &vb_data)
+	{
+		gpu_map := slice.from_ptr((^Vertex)(vb_data.pData), VERTEX_BUFFER_MAX)
+		copy(gpu_map, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_count])
+	}
+	
+	dc->Unmap(s.vertex_buffer_gpu, 0)
 
 	cb_data: D3D11.MAPPED_SUBRESOURCE
 	dc->Map(constant_buffer, 0, .WRITE_DISCARD, {}, &cb_data)
@@ -489,7 +567,7 @@ _present :: proc(do_flush := true) {
 	dc->IASetInputLayout(input_layout)
 	vertex_buffer_offset := u32(0)
 	vertex_buffer_stride := u32(size_of(Vertex))
-	dc->IASetVertexBuffers(0, 1, &s.vertex_buffer, &vertex_buffer_stride, &vertex_buffer_offset)
+	dc->IASetVertexBuffers(0, 1, &s.vertex_buffer_gpu, &vertex_buffer_stride, &vertex_buffer_offset)
 
 	dc->VSSetShader(vertex_shader, nil, 0)
 	dc->VSSetConstantBuffers(0, 1, &constant_buffer)
@@ -503,11 +581,11 @@ _present :: proc(do_flush := true) {
 	dc->OMSetDepthStencilState(depth_stencil_state, 0)
 	dc->OMSetBlendState(nil, nil, ~u32(0)) // use default blend mode (i.e. disable)
 
-	dc->Draw(u32(s.vertex_buffer_count), 0)
+	dc->Draw(u32(s.vertex_buffer_cpu_count), 0)
 
 	s.swapchain->Present(1, {})
 
-	s.vertex_buffer_count = 0
+	s.vertex_buffer_cpu_count = 0
 }
 
 _load_shader :: proc(vs: string, fs: string) -> Shader {
