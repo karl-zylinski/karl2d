@@ -312,6 +312,7 @@ _shutdown :: proc() {
 	s.rasterizer_state->Release()
 	s.input_layout->Release()
 	s.swapchain->Release()
+	s.blend_state->Release()
 
 	when ODIN_DEBUG {
 		debug: ^d3d11.IDebug
