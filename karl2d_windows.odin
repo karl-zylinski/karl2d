@@ -116,7 +116,7 @@ _init :: proc(width: int, height: int, title: string,
 	device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &vertex_shader)
 
 	input_element_desc := [?]D3D11.INPUT_ELEMENT_DESC{
-		{ "POS", 0, .R32G32B32_FLOAT, 0, 0, .VERTEX_DATA, 0 },
+		{ "POS", 0, .R32G32_FLOAT, 0, 0, .VERTEX_DATA, 0 },
 		{ "COL", 0, .R8G8B8A8_UNORM , 0, D3D11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
 	}
 
@@ -169,12 +169,10 @@ _init :: proc(width: int, height: int, title: string,
 
 VERTEX_BUFFER_MAX :: 10000
 
-Vec3 :: [3]f32
-
 shader_hlsl :: #load("shader.hlsl")
 
 Vertex :: struct {
-	pos: Vec3,
+	pos: Vec2,
 	color: Color,
 }
 
@@ -321,7 +319,7 @@ _draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 	)
 }
 
-add_vertex :: proc(v: Vec3, color: Color) {
+add_vertex :: proc(v: Vec2, color: Color) {
 	s.vertex_buffer_map[s.vertex_buffer_count] = {
 		pos = v,
 		color = color,
@@ -337,21 +335,21 @@ _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: 
 
 	p -= origin
 
-	add_vertex({p.x, p.y, 0.1}, tint)
-	add_vertex({p.x + dst.w, p.y, 0.1}, tint)
-	add_vertex({p.x + dst.w, p.y + dst.h, 0.1}, tint)
-	add_vertex({p.x, p.y, 0.1}, tint)
-	add_vertex({p.x + dst.w, p.y + dst.h, 0.1}, tint)
-	add_vertex({p.x, p.y + dst.h, 0.1}, tint)
+	add_vertex({p.x, p.y}, tint)
+	add_vertex({p.x + dst.w, p.y}, tint)
+	add_vertex({p.x + dst.w, p.y + dst.h}, tint)
+	add_vertex({p.x, p.y}, tint)
+	add_vertex({p.x + dst.w, p.y + dst.h}, tint)
+	add_vertex({p.x, p.y + dst.h}, tint)
 }
 
 _draw_rectangle :: proc(r: Rect, color: Color) {
-	add_vertex({r.x, r.y, 0.1}, color)
-	add_vertex({r.x + r.w, r.y, 0.1}, color)
-	add_vertex({r.x + r.w, r.y + r.h, 0.1}, color)
-	add_vertex({r.x, r.y, 0.1}, color)
-	add_vertex({r.x + r.w, r.y + r.h, 0.1}, color)
-	add_vertex({r.x, r.y + r.h, 0.1}, color)
+	add_vertex({r.x, r.y}, color)
+	add_vertex({r.x + r.w, r.y}, color)
+	add_vertex({r.x + r.w, r.y + r.h}, color)
+	add_vertex({r.x, r.y}, color)
+	add_vertex({r.x + r.w, r.y + r.h}, color)
+	add_vertex({r.x, r.y + r.h}, color)
 }
 
 _draw_rectangle_outline :: proc(rect: Rect, thickness: f32, color: Color) {

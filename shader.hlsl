@@ -2,7 +2,7 @@ cbuffer constants : register(b0) {
 	float4x4 projection;
 }
 struct vs_in {
-	float3 position : POS;
+	float2 position : POS;
 	float4 color    : COL;
 };
 struct vs_out {
@@ -11,7 +11,7 @@ struct vs_out {
 };
 vs_out vs_main(vs_in input) {
 	vs_out output;
-	output.position = mul(projection, float4(input.position, 1.0f));
+	output.position = mul(projection, float4(input.position, 0, 1.0f));
 	output.color = input.color;
 	return output;
 }
