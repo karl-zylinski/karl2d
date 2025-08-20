@@ -11,6 +11,7 @@ import "core:log"
 import "core:math/linalg"
 import "core:slice"
 import "core:mem"
+import "core:math"
 
 _init :: proc(width: int, height: int, title: string,
               allocator := context.allocator, loc := #caller_location) -> ^State {
@@ -232,6 +233,7 @@ State :: struct {
 	keys_went_up: #sparse [Keyboard_Key]bool,
 	keys_is_held: #sparse [Keyboard_Key]bool,
 
+	view_matrix: matrix[4,4]f32,
 	proj_matrix: matrix[4,4]f32,
 }
 
@@ -518,8 +520,22 @@ _screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return pos
 }
 
+Vec3 :: [3]f32
+
+vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
+	return {
+		v.x, v.y, 0,
+	}
+}
+
 _set_camera :: proc(camera: Maybe(Camera)) {
 	if c, c_ok := camera.?; c_ok {
+		origin_trans :=linalg.matrix4_translate(vec3_from_vec2(-c.origin))
+		translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
+		rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
+		camera_matrix := translate * rot * origin_trans
+		s.view_matrix = linalg.inverse(camera_matrix)
+
 		s.proj_matrix = make_default_projection(s.width, s.height)
 		s.proj_matrix[0, 0] *= c.zoom
 		s.proj_matrix[1, 1] *= c.zoom
@@ -552,7 +568,7 @@ _flush :: proc() {
 }
 
 Constants :: struct #align (16) {
-	projection: matrix[4, 4]f32,
+	mvp: matrix[4, 4]f32,
 }
 
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
@@ -580,7 +596,7 @@ _present :: proc(do_flush := true) {
 	ch(dc->Map(s.constant_buffer, 0, .WRITE_DISCARD, {}, &cb_data))
 	{
 		constants := (^Constants)(cb_data.pData)
-		constants.projection = s.proj_matrix
+		constants.mvp = s.proj_matrix * s.view_matrix
 	}
 	dc->Unmap(s.constant_buffer, 0)
 
