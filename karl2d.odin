@@ -18,12 +18,12 @@ clear: proc(color: Color) : _clear
 process_events: proc() : _process_events
 
 // Present the backbuffer. Call at end of frame to make everything you've drawn appear on the screen.
-present: proc(do_flush := true) : _present
+present: proc() : _present
 
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Done automatically by `present` (possible to disable). Also done by `set_camera`
 // and `set_scissor_rect` since the batch depends on those options.
-flush: proc() : _flush
+draw_current_batch: proc() : _draw_current_batch
 
 // Returns true if the user has tried to close the window.
 window_should_close : proc() -> bool : _window_should_close

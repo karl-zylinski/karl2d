@@ -188,6 +188,7 @@ _init :: proc(width: int, height: int, title: string,
 	ch(s.device->CreateBlendState(&blend_desc, &s.blend_state))
 
 	s.proj_matrix = make_default_projection(s.width, s.height)
+	s.view_matrix = 1
 	return s
 }
 
@@ -222,6 +223,8 @@ State :: struct {
 	vertex_buffer_gpu: ^d3d11.IBuffer,
 	vertex_buffer_cpu: []Vertex,
 	vertex_buffer_cpu_count: int,
+
+	vertex_buffer_offset: int,
 
 	run: bool,
 	custom_context: runtime.Context,
@@ -529,6 +532,8 @@ vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
 }
 
 _set_camera :: proc(camera: Maybe(Camera)) {
+	maybe_draw_current_batch()
+
 	if c, c_ok := camera.?; c_ok {
 		origin_trans :=linalg.matrix4_translate(vec3_from_vec2(-c.origin))
 		translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
@@ -541,6 +546,7 @@ _set_camera :: proc(camera: Maybe(Camera)) {
 		s.proj_matrix[1, 1] *= c.zoom
 	} else {
 		s.proj_matrix = make_default_projection(s.width, s.height)
+		s.view_matrix = 1
 	}
 }
 
@@ -564,18 +570,15 @@ _process_events :: proc() {
 	}
 }
 
-_flush :: proc() {
+maybe_draw_current_batch :: proc() {
+	if s.vertex_buffer_cpu_count == 0 {
+		return
+	}
+
+	_draw_current_batch()
 }
 
-Constants :: struct #align (16) {
-	mvp: matrix[4, 4]f32,
-}
-
-make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
-	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
-}
-
-_present :: proc(do_flush := true) {
+_draw_current_batch :: proc() {
 	viewport := d3d11.VIEWPORT{
 		0, 0,
 		f32(s.width), f32(s.height),
@@ -588,7 +591,10 @@ _present :: proc(do_flush := true) {
 	ch(dc->Map(s.vertex_buffer_gpu, 0, .WRITE_NO_OVERWRITE, {}, &vb_data))
 	{
 		gpu_map := slice.from_ptr((^Vertex)(vb_data.pData), VERTEX_BUFFER_MAX)
-		copy(gpu_map, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_count])
+		copy(
+			gpu_map[s.vertex_buffer_offset:s.vertex_buffer_cpu_count],
+			s.vertex_buffer_cpu[s.vertex_buffer_offset:s.vertex_buffer_cpu_count],
+		)
 	}
 	dc->Unmap(s.vertex_buffer_gpu, 0)
 
@@ -618,11 +624,23 @@ _present :: proc(do_flush := true) {
 	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
 	dc->OMSetBlendState(s.blend_state, nil, ~u32(0))
 
-	dc->Draw(u32(s.vertex_buffer_cpu_count), 0)
+	dc->Draw(u32(s.vertex_buffer_cpu_count), u32(s.vertex_buffer_offset))
+	s.vertex_buffer_offset += s.vertex_buffer_cpu_count
 	log_messages()
+}
 
+Constants :: struct #align (16) {
+	mvp: matrix[4, 4]f32,
+}
+
+make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
+	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+}
+
+_present :: proc() {
+	maybe_draw_current_batch()
 	ch(s.swapchain->Present(1, {}))
-
+	s.vertex_buffer_offset = 0
 	s.vertex_buffer_cpu_count = 0
 }
 
