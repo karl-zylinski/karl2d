@@ -69,11 +69,7 @@ _init :: proc(width: int, height: int, title: string,
 		hCursor = win.LoadCursorA(nil, win.IDC_ARROW),
 	}
 
-	_ = cls
-
-	class := win.RegisterClassW(&cls)
-
-	_ = class
+	win.RegisterClassW(&cls)
 
 	r: win.RECT
 	r.right = i32(width)
@@ -115,15 +111,15 @@ _init :: proc(width: int, height: int, title: string,
 
 	base_device->QueryInterface(D3D11.IInfoQueue_UUID, (^rawptr)(&s.info_queue))
 
-	base_device->QueryInterface(D3D11.IDevice_UUID, (^rawptr)(&device))
+	base_device->QueryInterface(D3D11.IDevice_UUID, (^rawptr)(&s.device))
 
 	base_device_context->QueryInterface(D3D11.IDeviceContext_UUID, (^rawptr)(&s.device_context))
 
 	dxgi_device: ^DXGI.IDevice
-	device->QueryInterface(DXGI.IDevice_UUID, (^rawptr)(&dxgi_device))
+	s.device->QueryInterface(DXGI.IDevice_UUID, (^rawptr)(&dxgi_device))
 
-
-
+	base_device->Release()
+	base_device_context->Release()
 
 	dxgi_adapter: ^DXGI.IAdapter
 	dxgi_device->GetAdapter(&dxgi_adapter)
@@ -142,22 +138,20 @@ _init :: proc(width: int, height: int, title: string,
 		SwapEffect  = .DISCARD,
 	}
 
-	dxgi_factory->CreateSwapChainForHwnd(device, hwnd, &swapchain_desc, nil, nil, &s.swapchain)
+	dxgi_factory->CreateSwapChainForHwnd(s.device, hwnd, &swapchain_desc, nil, nil, &s.swapchain)
 	
-	framebuffer: ^D3D11.ITexture2D
-	s.swapchain->GetBuffer(0, D3D11.ITexture2D_UUID, (^rawptr)(&framebuffer))
+	s.swapchain->GetBuffer(0, D3D11.ITexture2D_UUID, (^rawptr)(&s.framebuffer))
 
-	device->CreateRenderTargetView(framebuffer, nil, &s.framebuffer_view)
+	s.device->CreateRenderTargetView(s.framebuffer, nil, &s.framebuffer_view)
 
 	depth_buffer_desc: D3D11.TEXTURE2D_DESC
-	framebuffer->GetDesc(&depth_buffer_desc)
+	s.framebuffer->GetDesc(&depth_buffer_desc)
 	depth_buffer_desc.Format = .D24_UNORM_S8_UINT
 	depth_buffer_desc.BindFlags = {.DEPTH_STENCIL}
 
-	depth_buffer: ^D3D11.ITexture2D
-	device->CreateTexture2D(&depth_buffer_desc, nil, &depth_buffer)
+	s.device->CreateTexture2D(&depth_buffer_desc, nil, &s.depth_buffer)
 
-	device->CreateDepthStencilView(depth_buffer, nil, &s.depth_buffer_view)
+	s.device->CreateDepthStencilView(s.depth_buffer, nil, &s.depth_buffer_view)
 
 
 	//////////
@@ -166,19 +160,19 @@ _init :: proc(width: int, height: int, title: string,
 	D3D.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, nil)
 	assert(vs_blob != nil)
 
-	device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &vertex_shader)
+	s.device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &s.vertex_shader)
 
 	input_element_desc := [?]D3D11.INPUT_ELEMENT_DESC{
 		{ "POS", 0, .R32G32_FLOAT, 0, 0, .VERTEX_DATA, 0 },
 		{ "COL", 0, .R8G8B8A8_UNORM , 0, D3D11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
 	}
 
-	device->CreateInputLayout(&input_element_desc[0], len(input_element_desc), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &input_layout)
+	s.device->CreateInputLayout(&input_element_desc[0], len(input_element_desc), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &s.input_layout)
 
 	ps_blob: ^D3D11.IBlob
 	D3D.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, nil)
 
-	device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nil, &pixel_shader)
+	s.device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nil, &s.pixel_shader)
 
 	//////////
 
@@ -186,14 +180,14 @@ _init :: proc(width: int, height: int, title: string,
 		FillMode = .SOLID,
 		CullMode = .BACK,
 	}
-	device->CreateRasterizerState(&rasterizer_desc, &rasterizer_state)
+	s.device->CreateRasterizerState(&rasterizer_desc, &s.rasterizer_state)
 
 	depth_stencil_desc := D3D11.DEPTH_STENCIL_DESC{
 		DepthEnable    = false,
 		DepthWriteMask = .ALL,
 		DepthFunc      = .LESS,
 	}
-	device->CreateDepthStencilState(&depth_stencil_desc, &depth_stencil_state)
+	s.device->CreateDepthStencilState(&depth_stencil_desc, &s.depth_stencil_state)
 
 	constant_buffer_desc := D3D11.BUFFER_DESC{
 		ByteWidth      = size_of(Constants),
@@ -201,7 +195,7 @@ _init :: proc(width: int, height: int, title: string,
 		BindFlags      = {.CONSTANT_BUFFER},
 		CPUAccessFlags = {.WRITE},
 	}
-	device->CreateBuffer(&constant_buffer_desc, nil, &constant_buffer)
+	s.device->CreateBuffer(&constant_buffer_desc, nil, &s.constant_buffer)
 
 	vertex_buffer_desc := D3D11.BUFFER_DESC{
 		ByteWidth = VERTEX_BUFFER_MAX * size_of(Vertex),
@@ -209,7 +203,7 @@ _init :: proc(width: int, height: int, title: string,
 		BindFlags = {.VERTEX_BUFFER},
 		CPUAccessFlags = {.WRITE},
 	}
-	device->CreateBuffer(&vertex_buffer_desc, nil, &s.vertex_buffer_gpu)
+	s.device->CreateBuffer(&vertex_buffer_desc, nil, &s.vertex_buffer_gpu)
 	s.vertex_buffer_cpu = make([]Vertex, VERTEX_BUFFER_MAX)
 
 	
@@ -229,13 +223,7 @@ Vertex :: struct {
 
 s: ^State
 
-constant_buffer: ^D3D11.IBuffer
-vertex_shader: ^D3D11.IVertexShader
-pixel_shader: ^D3D11.IPixelShader
-depth_stencil_state: ^D3D11.IDepthStencilState
-rasterizer_state: ^D3D11.IRasterizerState
-input_layout: ^D3D11.IInputLayout
-device: ^D3D11.IDevice
+
 
 VERTEX_BUFFER_MAX :: 10000
 
@@ -244,12 +232,20 @@ State :: struct {
 	framebuffer_view: ^D3D11.IRenderTargetView,
 	depth_buffer_view: ^D3D11.IDepthStencilView,
 	device_context: ^D3D11.IDeviceContext,
-	
+	constant_buffer: ^D3D11.IBuffer,
+	vertex_shader: ^D3D11.IVertexShader,
+	pixel_shader: ^D3D11.IPixelShader,
+	depth_stencil_state: ^D3D11.IDepthStencilState,
+	rasterizer_state: ^D3D11.IRasterizerState,
+	input_layout: ^D3D11.IInputLayout,
+	device: ^D3D11.IDevice,
+	depth_buffer: ^D3D11.ITexture2D,
+	framebuffer: ^D3D11.ITexture2D,
+
 	info_queue: ^D3D11.IInfoQueue,
 	vertex_buffer_gpu: ^D3D11.IBuffer,
 	vertex_buffer_cpu: []Vertex,
 	vertex_buffer_cpu_count: int,
-	
 
 	run: bool,
 	custom_context: runtime.Context,
@@ -322,9 +318,24 @@ window_proc :: proc "stdcall" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM
 }
 
 _shutdown :: proc() {
+	s.framebuffer_view->Release()
+	s.depth_buffer_view->Release()
+	s.depth_buffer->Release()
+	s.framebuffer->Release()
+	s.device_context->Release()
+	s.vertex_buffer_gpu->Release()
+	s.constant_buffer->Release()
+	s.vertex_shader->Release()
+	s.pixel_shader->Release()
+	s.depth_stencil_state->Release()
+	s.rasterizer_state->Release()
+	s.input_layout->Release()
+	s.swapchain->Release()
+
 	when ODIN_DEBUG {
 		debug: ^D3D11.IDebug
-		hr := device->QueryInterface(D3D11.IDebug_UUID, (^rawptr)(&debug))
+		hr := s.device->QueryInterface(D3D11.IDebug_UUID, (^rawptr)(&debug))
+		
 
 		if hr >= 0 {
 			debug->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
@@ -333,6 +344,9 @@ _shutdown :: proc() {
 
 		debug->Release()
 	}
+
+	s.device->Release()
+	s.info_queue->Release()
 }
 
 _set_internal_state :: proc(new_state: ^State) {
@@ -545,40 +559,38 @@ _present :: proc(do_flush := true) {
 
 	dc := s.device_context
 
-
 	vb_data: D3D11.MAPPED_SUBRESOURCE
 	dc->Map(s.vertex_buffer_gpu, 0, .WRITE_NO_OVERWRITE, {}, &vb_data)
 	{
 		gpu_map := slice.from_ptr((^Vertex)(vb_data.pData), VERTEX_BUFFER_MAX)
 		copy(gpu_map, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_count])
 	}
-	
 	dc->Unmap(s.vertex_buffer_gpu, 0)
 
 	cb_data: D3D11.MAPPED_SUBRESOURCE
-	dc->Map(constant_buffer, 0, .WRITE_DISCARD, {}, &cb_data)
+	dc->Map(s.constant_buffer, 0, .WRITE_DISCARD, {}, &cb_data)
 	{
 		constants := (^Constants)(cb_data.pData)
 		constants.projection = s.proj_matrix
 	}
-	dc->Unmap(constant_buffer, 0)
+	dc->Unmap(s.constant_buffer, 0)
 
 	dc->IASetPrimitiveTopology(.TRIANGLELIST)
-	dc->IASetInputLayout(input_layout)
+	dc->IASetInputLayout(s.input_layout)
 	vertex_buffer_offset := u32(0)
 	vertex_buffer_stride := u32(size_of(Vertex))
 	dc->IASetVertexBuffers(0, 1, &s.vertex_buffer_gpu, &vertex_buffer_stride, &vertex_buffer_offset)
 
-	dc->VSSetShader(vertex_shader, nil, 0)
-	dc->VSSetConstantBuffers(0, 1, &constant_buffer)
+	dc->VSSetShader(s.vertex_shader, nil, 0)
+	dc->VSSetConstantBuffers(0, 1, &s.constant_buffer)
 
 	dc->RSSetViewports(1, &viewport)
-	dc->RSSetState(rasterizer_state)
+	dc->RSSetState(s.rasterizer_state)
 
-	dc->PSSetShader(pixel_shader, nil, 0)
+	dc->PSSetShader(s.pixel_shader, nil, 0)
 
 	dc->OMSetRenderTargets(1, &s.framebuffer_view, s.depth_buffer_view)
-	dc->OMSetDepthStencilState(depth_stencil_state, 0)
+	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
 	dc->OMSetBlendState(nil, nil, ~u32(0)) // use default blend mode (i.e. disable)
 
 	dc->Draw(u32(s.vertex_buffer_cpu_count), 0)
