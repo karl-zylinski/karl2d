@@ -9,6 +9,7 @@ import D3D "vendor:directx/d3d_compiler"
 import "core:strings"
 import "core:log"
 import "core:math/linalg"
+import "core:slice"
 
 _ :: log
 //import "core:math"
@@ -148,34 +149,24 @@ _init :: proc(width: int, height: int, title: string,
 	}
 	device->CreateBuffer(&constant_buffer_desc, nil, &constant_buffer)
 
-	vertex_data := [?]Vec3 {
-		{0, 320, 0.1},
-		{320, 320, 0.1},
-		{0, 0, 0.1},
-	}
-
-	index_data := [?]u32 {
-		0, 1, 2,
-	}
-
 	vertex_buffer_desc := D3D11.BUFFER_DESC{
-		ByteWidth = size_of(vertex_data),
-		Usage     = .IMMUTABLE,
+		ByteWidth = VERTEX_BUFFER_MAX,
+		Usage     = .DYNAMIC,
 		BindFlags = {.VERTEX_BUFFER},
+		CPUAccessFlags = {.WRITE},
 	}
-	device->CreateBuffer(&vertex_buffer_desc, &D3D11.SUBRESOURCE_DATA{pSysMem = &vertex_data[0], SysMemPitch = size_of(vertex_data)}, &s.vertex_buffer)
+	device->CreateBuffer(&vertex_buffer_desc, nil, &s.vertex_buffer)
 
-	index_buffer_desc := D3D11.BUFFER_DESC{
-		ByteWidth = size_of(index_data),
-		Usage     = .IMMUTABLE,
-		BindFlags = {.INDEX_BUFFER},
-	}
-	device->CreateBuffer(&index_buffer_desc, &D3D11.SUBRESOURCE_DATA{pSysMem = &index_data[0], SysMemPitch = size_of(index_data)}, &s.index_buffer)
+	vb_data: D3D11.MAPPED_SUBRESOURCE
+	s.device_context->Map(s.vertex_buffer, 0, .WRITE_NO_OVERWRITE, {}, &vb_data)
+	s.vertex_buffer_map = slice.from_ptr((^Vec3)(vb_data.pData), VERTEX_BUFFER_MAX)
 
 	s.proj_matrix = make_default_projection(s.width, s.height)
 
 	return s
 }
+
+VERTEX_BUFFER_MAX :: 10000
 
 Vec3 :: [3]f32
 
@@ -196,7 +187,8 @@ State :: struct {
 	depth_buffer_view: ^D3D11.IDepthStencilView,
 	device_context: ^D3D11.IDeviceContext,
 	vertex_buffer: ^D3D11.IBuffer,
-	index_buffer: ^D3D11.IBuffer,
+	vertex_buffer_count: int,
+	vertex_buffer_map: []Vec3,
 
 	run: bool,
 	custom_context: runtime.Context,
@@ -302,14 +294,41 @@ _destroy_texture :: proc(tex: Texture) {
 }
 
 _draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
+	_draw_texture_ex(
+		tex,
+		{0, 0, f32(tex.width), f32(tex.height)},
+		{pos.x, pos.y, f32(tex.width), f32(tex.height)},
+		{},
+		0,
+		tint,
+	)
 }
 
 _draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
-
+	_draw_texture_ex(
+		tex,
+		rect,
+		{pos.x, pos.y, rect.w, rect.h},
+		{},
+		0,
+		tint,
+	)
 }
 
 _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: f32, tint := WHITE) {
-	
+	p := Vec2 {
+		dst.x, dst.y,
+	}
+
+	p -= origin
+
+	s.vertex_buffer_map[s.vertex_buffer_count + 0] = {p.x, p.y, 0.1}
+	s.vertex_buffer_map[s.vertex_buffer_count + 1] = {p.x + dst.w, p.y, 0.1}
+	s.vertex_buffer_map[s.vertex_buffer_count + 2] = {p.x + dst.w, p.y + dst.h, 0.1}
+	s.vertex_buffer_map[s.vertex_buffer_count + 3] = {p.x, p.y, 0.1}
+	s.vertex_buffer_map[s.vertex_buffer_count + 4] = {p.x + dst.w, p.y + dst.h, 0.1}
+	s.vertex_buffer_map[s.vertex_buffer_count + 5] = {p.x, p.y + dst.h, 0.1}
+	s.vertex_buffer_count += 6
 }
 
 _draw_rectangle :: proc(rect: Rect, color: Color) {
@@ -437,16 +456,13 @@ _present :: proc(do_flush := true) {
 
 	dc := s.device_context
 
-	mapped_subresource: D3D11.MAPPED_SUBRESOURCE
-
-
 	// matrix[0.002, 0, -0, -1; 0, 0.002, -0, -1; 0, 0, -1.0005003, -1.0010005; 0, 0, -0, 1]
 	// matrix[0.002, 0, -0, -1; 0, 0.002, -0, 1; 0, 0, 1.0005002, -1.0010005; 0, 0, -0, 1]
 
-
-	dc->Map(constant_buffer, 0, .WRITE_DISCARD, {}, &mapped_subresource)
+	cb_data: D3D11.MAPPED_SUBRESOURCE
+	dc->Map(constant_buffer, 0, .WRITE_DISCARD, {}, &cb_data)
 	{
-		constants := (^Constants)(mapped_subresource.pData)
+		constants := (^Constants)(cb_data.pData)
 		constants.projection = s.proj_matrix
 	}
 	dc->Unmap(constant_buffer, 0)
@@ -456,7 +472,6 @@ _present :: proc(do_flush := true) {
 	vertex_buffer_offset := u32(0)
 	vertex_buffer_stride := u32(3*4)
 	dc->IASetVertexBuffers(0, 1, &s.vertex_buffer, &vertex_buffer_stride, &vertex_buffer_offset)
-	dc->IASetIndexBuffer(s.index_buffer, .R32_UINT, 0)
 
 	dc->VSSetShader(vertex_shader, nil, 0)
 	dc->VSSetConstantBuffers(0, 1, &constant_buffer)
@@ -470,9 +485,11 @@ _present :: proc(do_flush := true) {
 	dc->OMSetDepthStencilState(depth_stencil_state, 0)
 	dc->OMSetBlendState(nil, nil, ~u32(0)) // use default blend mode (i.e. disable)
 
-	dc->DrawIndexed(3, 0, 0)
+	dc->Draw(u32(s.vertex_buffer_count), 0)
 
 	s.swapchain->Present(1, {})
+
+	s.vertex_buffer_count = 0
 }
 
 _load_shader :: proc(vs: string, fs: string) -> Shader {

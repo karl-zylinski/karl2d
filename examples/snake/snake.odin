@@ -136,7 +136,9 @@ main :: proc() {
 		}
 
 		k2.set_camera(camera)
-		k2.draw_texture(food_sprite, {f32(food_pos.x), f32(food_pos.y)}*CELL_SIZE)
+		food_sprite.width = CELL_SIZE
+		food_sprite.height = CELL_SIZE
+		k2.draw_texture(food_sprite, {f32(food_pos.x), f32(food_pos.y)}*CELL_SIZE, k2.RED)
 
 		for i in 0..<snake_length {
 			part_sprite := body_sprite
