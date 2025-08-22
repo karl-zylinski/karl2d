@@ -9,7 +9,7 @@ The API is based on Raylib because I like that API. But the implementation is me
 * 3D
 * Some maths things that can be found in Odin's core libs
 
-Might no be included:
+Might not be included:
 * Time management (use `core:time` instead)
 
 ## TODO
