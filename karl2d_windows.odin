@@ -12,6 +12,15 @@ import "core:math/linalg"
 import "core:slice"
 import "core:mem"
 import "core:math"
+import "core:image"
+
+import "core:image/bmp"
+import "core:image/png"
+import "core:image/tga"
+
+_ :: bmp
+_ :: png
+_ :: tga
 
 _init :: proc(width: int, height: int, title: string,
               allocator := context.allocator, loc := #caller_location) -> ^State {
@@ -123,8 +132,9 @@ _init :: proc(width: int, height: int, title: string,
 	ch(s.device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &s.vertex_shader))
 
 	input_element_desc := [?]d3d11.INPUT_ELEMENT_DESC{
-		{ "POS", 0, .R32G32_FLOAT, 0, 0, .VERTEX_DATA, 0 },
-		{ "COL", 0, .R8G8B8A8_UNORM , 0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
+		{ "POS", 0, .R32G32_FLOAT,   0, 0,                            .VERTEX_DATA, 0 },
+		{ "UV",  0, .R32G32_FLOAT,   0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
+		{ "COL", 0, .R8G8B8A8_UNORM, 0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
 	}
 
 	ch(s.device->CreateInputLayout(&input_element_desc[0], len(input_element_desc), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &s.input_layout))
@@ -189,6 +199,17 @@ _init :: proc(width: int, height: int, title: string,
 
 	s.proj_matrix = make_default_projection(s.width, s.height)
 	s.view_matrix = 1
+
+
+	sampler_desc := d3d11.SAMPLER_DESC{
+		Filter         = .MIN_MAG_MIP_POINT,
+		AddressU       = .WRAP,
+		AddressV       = .WRAP,
+		AddressW       = .WRAP,
+		ComparisonFunc = .NEVER,
+	}
+	s.device->CreateSamplerState(&sampler_desc, &s.sampler_state)
+
 	return s
 }
 
@@ -196,6 +217,7 @@ shader_hlsl :: #load("shader.hlsl")
 
 Vertex :: struct {
 	pos: Vec2,
+	uv: Vec2,
 	color: Color,
 }
 
@@ -218,6 +240,11 @@ State :: struct {
 	depth_buffer: ^d3d11.ITexture2D,
 	framebuffer: ^d3d11.ITexture2D,
 	blend_state: ^d3d11.IBlendState,
+
+	// these need to be generalized
+	sampler_state: ^d3d11.ISamplerState,
+
+	set_tex: Texture,
 
 	info_queue: ^d3d11.IInfoQueue,
 	vertex_buffer_gpu: ^d3d11.IBuffer,
@@ -350,8 +377,55 @@ _clear :: proc(color: Color) {
 	s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 1, 0)
 }
 
-_load_texture :: proc(filename: string) -> Texture {
-	return {}
+_Texture_Type :: struct {
+	tex: ^d3d11.ITexture2D,
+	view: ^d3d11.IShaderResourceView,
+}
+
+
+
+_load_texture_from_file :: proc(filename: string) -> Texture {
+	img, img_err := image.load_from_file(filename, allocator = context.temp_allocator)
+
+	if img_err != nil {
+		log.errorf("Error loading texture %v: %v", filename, img_err)
+		return {}
+	}
+
+	return _load_texture_from_memory(img.pixels.buf[:], img.width, img.height)
+}
+
+_load_texture_from_memory :: proc(data: []u8, width: int, height: int) -> Texture {
+	texture_desc := d3d11.TEXTURE2D_DESC{
+		Width      = u32(width),
+		Height     = u32(height),
+		MipLevels  = 1,
+		ArraySize  = 1,
+		// TODO: _SRGB or not?
+		Format     = .R8G8B8A8_UNORM_SRGB,
+		SampleDesc = {Count = 1},
+		Usage      = .IMMUTABLE,
+		BindFlags  = {.SHADER_RESOURCE},
+	}
+
+	texture_data := d3d11.SUBRESOURCE_DATA{
+		pSysMem     = raw_data(data),
+		SysMemPitch = u32(width * 4),
+	}
+
+	texture: ^d3d11.ITexture2D
+	s.device->CreateTexture2D(&texture_desc, &texture_data, &texture)
+
+	texture_view: ^d3d11.IShaderResourceView
+	s.device->CreateShaderResourceView(texture, nil, &texture_view)
+	return {
+		id = {
+			tex = texture,
+			view = texture_view,
+		},
+		width = width,
+		height = height,
+	}
 }
 
 _destroy_texture :: proc(tex: Texture) {
@@ -380,13 +454,14 @@ _draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 	)
 }
 
-add_vertex :: proc(v: Vec2, color: Color) {
+add_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	if s.vertex_buffer_cpu_count == len(s.vertex_buffer_cpu) {
 		panic("Must dispatch here")
 	}
 
 	s.vertex_buffer_cpu[s.vertex_buffer_cpu_count] = {
 		pos = v,
+		uv = uv,
 		color = color,
 	}
 
@@ -394,27 +469,31 @@ add_vertex :: proc(v: Vec2, color: Color) {
 }
 
 _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: f32, tint := WHITE) {
-	p := Vec2 {
-		dst.x, dst.y,
+	if s.set_tex.id.tex != nil && s.set_tex.id.tex != tex.id.tex {
+		maybe_draw_current_batch()
 	}
 
-	p -= origin
+	r := dst
 
-	add_vertex({p.x, p.y}, tint)
-	add_vertex({p.x + dst.w, p.y}, tint)
-	add_vertex({p.x + dst.w, p.y + dst.h}, tint)
-	add_vertex({p.x, p.y}, tint)
-	add_vertex({p.x + dst.w, p.y + dst.h}, tint)
-	add_vertex({p.x, p.y + dst.h}, tint)
+	r.x -= origin.x
+	r.y -= origin.y
+
+	s.set_tex = tex
+	add_rect(r, tint)
+}
+
+add_rect :: proc(r: Rect, color: Color) {
+	c := color
+	add_vertex({r.x, r.y}, {0, 0}, c)
+	add_vertex({r.x + r.w, r.y}, {1, 0}, c)
+	add_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	add_vertex({r.x, r.y}, {0, 0}, c)
+	add_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	add_vertex({r.x, r.y + r.h}, {0, 1}, c)
 }
 
 _draw_rectangle :: proc(r: Rect, color: Color) {
-	add_vertex({r.x, r.y}, color)
-	add_vertex({r.x + r.w, r.y}, color)
-	add_vertex({r.x + r.w, r.y + r.h}, color)
-	add_vertex({r.x, r.y}, color)
-	add_vertex({r.x + r.w, r.y + r.h}, color)
-	add_vertex({r.x, r.y + r.h}, color)
+	add_rect(r, color)
 }
 
 _draw_rectangle_outline :: proc(r: Rect, thickness: f32, color: Color) {
@@ -626,13 +705,15 @@ _draw_current_batch :: proc() {
 	dc->RSSetState(s.rasterizer_state)
 
 	dc->PSSetShader(s.pixel_shader, nil, 0)
+	dc->PSSetShaderResources(0, 1, &s.set_tex.id.view)
+	dc->PSSetSamplers(0, 1, &s.sampler_state)
 
 	dc->OMSetRenderTargets(1, &s.framebuffer_view, s.depth_buffer_view)
 	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
 	dc->OMSetBlendState(s.blend_state, nil, ~u32(0))
 
 	dc->Draw(u32(s.vertex_buffer_cpu_count), u32(s.vertex_buffer_offset))
-	s.vertex_buffer_offset += s.vertex_buffer_cpu_count
+	s.vertex_buffer_offset = s.vertex_buffer_cpu_count
 	log_messages()
 }
 
@@ -669,7 +750,7 @@ _set_shader_value_vec2 :: proc(shader: Shader, loc: int, val: Vec2) {
 }
 
 temp_cstring :: proc(str: string, loc := #caller_location) -> cstring {
-	return strings.clone_to_cstring(str, context.temp_allocator)
+	return strings.clone_to_cstring(str, context.temp_allocator, loc)
 }
 
 // CHeck win errors and print message log if there is any error

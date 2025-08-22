@@ -38,7 +38,8 @@ set_window_position: proc(x: int, y: int) : _set_window_position
 get_screen_width: proc() -> int : _get_screen_width
 get_screen_height: proc() -> int : _get_screen_height
 
-load_texture_from_file: proc(filename: string) -> Texture : _load_texture
+load_texture_from_file: proc(filename: string) -> Texture : _load_texture_from_file
+load_texture_from_memory: proc(data: []u8, width: int, height: int) -> Texture : _load_texture_from_memory
 // load_texture_from_bytes or buffer or something ()
 destroy_texture: proc(tex: Texture) : _destroy_texture
 
@@ -95,10 +96,8 @@ Rect :: struct {
 	w, h: f32,
 }
 
-Texture_Handle :: distinct int
-
 Texture :: struct {
-	id: Texture_Handle,
+	id: _Texture_Type,
 	width: int,
 	height: int,
 }
