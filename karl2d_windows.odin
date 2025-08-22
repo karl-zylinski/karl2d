@@ -455,6 +455,8 @@ _draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 }
 
 add_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
+	v := v
+
 	if s.vertex_buffer_cpu_count == len(s.vertex_buffer_cpu) {
 		panic("Must dispatch here")
 	}
@@ -479,21 +481,61 @@ _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: 
 	r.y -= origin.y
 
 	s.set_tex = tex
-	add_rect(r, tint)
+	tl, tr, bl, br: Vec2
+
+	// Rotation adapted from Raylib's "DrawTexturePro"
+	if rot == 0 {
+		x := dst.x - origin.x
+		y := dst.y - origin.y
+		tl = { x,         y }
+		tr = { x + dst.w, y }
+		bl = { x,         y + dst.h}
+		br = { x + dst.w, y + dst.h}
+	} else {
+		sin_rot := math.sin(rot * math.RAD_PER_DEG)
+		cos_rot := math.cos(rot * math.RAD_PER_DEG)
+		x := dst.x
+		y := dst.y
+		dx := -origin.x
+		dy := -origin.y
+
+		tl = {
+			x + dx * cos_rot - dy * sin_rot,
+			y + dx * sin_rot + dy * cos_rot,
+		}
+
+		tr = {
+			x + (dx + dst.w) * cos_rot - dy * sin_rot,
+			y + (dx + dst.w) * sin_rot + dy * cos_rot,
+		}
+
+		bl = {
+			x + dx * cos_rot - (dy + dst.h) * sin_rot,
+			y + dx * sin_rot + (dy + dst.h) * cos_rot,
+		}
+
+		br = {
+			x + (dx + dst.w) * cos_rot - (dy + dst.h) * sin_rot,
+			y + (dx + dst.w) * sin_rot + (dy + dst.h) * cos_rot,
+		}
+	}
+	
+	c := tint
+	add_vertex(tl, {0, 0}, c)
+	add_vertex(tr, {1, 0}, c)
+	add_vertex(br, {1, 1}, c)
+	add_vertex(tl, {0, 0}, c)
+	add_vertex(br, {1, 1}, c)
+	add_vertex(bl, {0, 1}, c)
 }
 
-add_rect :: proc(r: Rect, color: Color) {
-	c := color
+_draw_rectangle :: proc(r: Rect, c: Color) {
 	add_vertex({r.x, r.y}, {0, 0}, c)
 	add_vertex({r.x + r.w, r.y}, {1, 0}, c)
 	add_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
 	add_vertex({r.x, r.y}, {0, 0}, c)
 	add_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
 	add_vertex({r.x, r.y + r.h}, {0, 1}, c)
-}
-
-_draw_rectangle :: proc(r: Rect, color: Color) {
-	add_rect(r, color)
 }
 
 _draw_rectangle_outline :: proc(r: Rect, thickness: f32, color: Color) {
