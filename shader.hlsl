@@ -21,5 +21,12 @@ vs_out vs_main(vs_in input) {
 	return output;
 }
 float4 ps_main(vs_out input) : SV_TARGET {
-	return tex.Sample(smp, input.uv) * input.color;
+	float4 c = tex.Sample(smp, input.uv);
+
+	// TODO this is a hack because we don't have a "rectangle drawing texture".
+	if (c.r == 0 && c.g == 0 && c.b == 0 && c.a == 0) {
+		return input.color;
+	}
+
+	return c * input.color;
 }
