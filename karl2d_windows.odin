@@ -754,7 +754,7 @@ _draw_current_batch :: proc() {
 	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
 	dc->OMSetBlendState(s.blend_state, nil, ~u32(0))
 
-	dc->Draw(u32(s.vertex_buffer_cpu_count), u32(s.vertex_buffer_offset))
+	dc->Draw(u32(s.vertex_buffer_cpu_count - s.vertex_buffer_offset), u32(s.vertex_buffer_offset))
 	s.vertex_buffer_offset = s.vertex_buffer_cpu_count
 	log_messages()
 }
