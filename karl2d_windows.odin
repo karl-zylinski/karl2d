@@ -454,7 +454,7 @@ _draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 	)
 }
 
-add_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
+batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
 
 	if s.vertex_buffer_cpu_count == len(s.vertex_buffer_cpu) {
@@ -489,8 +489,8 @@ _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: 
 		y := dst.y - origin.y
 		tl = { x,         y }
 		tr = { x + dst.w, y }
-		bl = { x,         y + dst.h}
-		br = { x + dst.w, y + dst.h}
+		bl = { x,         y + dst.h }
+		br = { x + dst.w, y + dst.h }
 	} else {
 		sin_rot := math.sin(rot * math.RAD_PER_DEG)
 		cos_rot := math.cos(rot * math.RAD_PER_DEG)
@@ -521,21 +521,21 @@ _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: 
 	}
 	
 	c := tint
-	add_vertex(tl, {0, 0}, c)
-	add_vertex(tr, {1, 0}, c)
-	add_vertex(br, {1, 1}, c)
-	add_vertex(tl, {0, 0}, c)
-	add_vertex(br, {1, 1}, c)
-	add_vertex(bl, {0, 1}, c)
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(tr, {1, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(bl, {0, 1}, c)
 }
 
 _draw_rectangle :: proc(r: Rect, c: Color) {
-	add_vertex({r.x, r.y}, {0, 0}, c)
-	add_vertex({r.x + r.w, r.y}, {1, 0}, c)
-	add_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	add_vertex({r.x, r.y}, {0, 0}, c)
-	add_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	add_vertex({r.x, r.y + r.h}, {0, 1}, c)
+	batch_vertex({r.x, r.y}, {0, 0}, c)
+	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
+	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	batch_vertex({r.x, r.y}, {0, 0}, c)
+	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
 }
 
 _draw_rectangle_outline :: proc(r: Rect, thickness: f32, color: Color) {
