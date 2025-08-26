@@ -402,12 +402,14 @@ _Texture :: struct {
 }
 
 _load_texture_from_file :: proc(filename: string) -> Texture {
-	img, img_err := image.load_from_file(filename, allocator = context.temp_allocator)
+	img, img_err := image.load_from_file(filename, options = {.alpha_add_if_missing}, allocator = context.temp_allocator)
 
 	if img_err != nil {
 		log.errorf("Error loading texture %v: %v", filename, img_err)
 		return {}
 	}
+
+	log.info(img.channels)
 
 	return _load_texture_from_memory(img.pixels.buf[:], img.width, img.height)
 }
