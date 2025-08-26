@@ -250,13 +250,9 @@ State :: struct {
 	framebuffer: ^d3d11.ITexture2D,
 	blend_state: ^d3d11.IBlendState,
 	shape_drawing_texture: Texture,
-
-	// these need to be generalized
 	sampler_state: ^d3d11.ISamplerState,
 
 	textures: hm.Handle_Map(_Texture, Texture_Handle, 1024*10),
-
-	
 
 	info_queue: ^d3d11.IInfoQueue,
 	vertex_buffer_gpu: ^d3d11.IBuffer,
