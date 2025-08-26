@@ -419,7 +419,7 @@ _load_texture_from_memory :: proc(data: []u8, width: int, height: int) -> Textur
 		MipLevels  = 1,
 		ArraySize  = 1,
 		// TODO: _SRGB or not?
-		Format     = .R8G8B8A8_UNORM_SRGB,
+		Format     = .R8G8B8A8_UNORM,
 		SampleDesc = {Count = 1},
 		Usage      = .IMMUTABLE,
 		BindFlags  = {.SHADER_RESOURCE},
