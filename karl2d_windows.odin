@@ -210,6 +210,10 @@ _init :: proc(width: int, height: int, title: string,
 	}
 	s.device->CreateSamplerState(&sampler_desc, &s.sampler_state)
 
+	white_rect: [16*16*4]u8
+	slice.fill(white_rect[:], 255)
+	s.shape_drawing_texture = _load_texture_from_memory(white_rect[:], 16, 16)
+
 	return s
 }
 
@@ -240,6 +244,7 @@ State :: struct {
 	depth_buffer: ^d3d11.ITexture2D,
 	framebuffer: ^d3d11.ITexture2D,
 	blend_state: ^d3d11.IBlendState,
+	shape_drawing_texture: Texture,
 
 	// these need to be generalized
 	sampler_state: ^d3d11.ISamplerState,
@@ -326,6 +331,8 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 }
 
 _shutdown :: proc() {
+	_destroy_texture(s.shape_drawing_texture)
+	s.sampler_state->Release()
 	s.framebuffer_view->Release()
 	s.depth_buffer_view->Release()
 	s.depth_buffer->Release()
@@ -429,7 +436,8 @@ _load_texture_from_memory :: proc(data: []u8, width: int, height: int) -> Textur
 }
 
 _destroy_texture :: proc(tex: Texture) {
-
+	tex.id.tex->Release()
+	tex.id.view->Release()
 }
 
 _draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
@@ -471,6 +479,10 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 }
 
 _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: f32, tint := WHITE) {
+	if tex.width == 0 || tex.height == 0 || tex.id.tex == nil {
+		return
+	}
+
 	if s.set_tex.id.tex != nil && s.set_tex.id.tex != tex.id.tex {
 		maybe_draw_current_batch()
 	}
@@ -520,16 +532,25 @@ _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: 
 		}
 	}
 	
+	ts := Vec2{f32(tex.width), f32(tex.height)}
+	up := Vec2{src.x, src.y} / ts
+	us := Vec2{src.w, src.h} / ts
 	c := tint
-	batch_vertex(tl, {0, 0}, c)
-	batch_vertex(tr, {1, 0}, c)
-	batch_vertex(br, {1, 1}, c)
-	batch_vertex(tl, {0, 0}, c)
-	batch_vertex(br, {1, 1}, c)
-	batch_vertex(bl, {0, 1}, c)
+	batch_vertex(tl, up, c)
+	batch_vertex(tr, up + {us.x, 0}, c)
+	batch_vertex(br, up + us, c)
+	batch_vertex(tl, up, c)
+	batch_vertex(br, up + us, c)
+	batch_vertex(bl, up + {0, us.y}, c)
 }
 
 _draw_rectangle :: proc(r: Rect, c: Color) {
+	if s.set_tex.id.tex != nil && s.set_tex.id.tex != s.shape_drawing_texture.id.tex {
+		maybe_draw_current_batch()
+	}
+
+	s.set_tex = s.shape_drawing_texture
+
 	batch_vertex({r.x, r.y}, {0, 0}, c)
 	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
 	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
