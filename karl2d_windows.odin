@@ -455,6 +455,8 @@ _destroy_texture :: proc(tex: Texture) {
 		t.tex->Release()
 		t.view->Release()	
 	}
+
+	hm.remove(&s.textures, tex.id)
 }
 
 _draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
