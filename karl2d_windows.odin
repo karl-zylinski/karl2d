@@ -256,7 +256,7 @@ State :: struct {
 
 	textures: hm.Handle_Map(_Texture, Texture_Handle, 1024*10),
 
-	set_tex: Texture_Handle,
+	
 
 	info_queue: ^d3d11.IInfoQueue,
 	vertex_buffer_gpu: ^d3d11.IBuffer,
@@ -268,8 +268,10 @@ State :: struct {
 	run: bool,
 	custom_context: runtime.Context,
 	allocator: runtime.Allocator,
+	
+	batch_texture: Texture_Handle,
+	batch_camera: Maybe(Camera),
 
-	camera: Maybe(Camera),
 	width: int,
 	height: int,
 
@@ -502,7 +504,7 @@ _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: 
 		return
 	}
 
-	if s.set_tex != TEXTURE_NONE && s.set_tex != tex.id {
+	if s.batch_texture != TEXTURE_NONE && s.batch_texture != tex.id {
 		_draw_current_batch()
 	}
 
@@ -511,7 +513,7 @@ _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: 
 	r.x -= origin.x
 	r.y -= origin.y
 
-	s.set_tex = tex.id
+	s.batch_texture = tex.id
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
@@ -564,11 +566,11 @@ _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: 
 }
 
 _draw_rectangle :: proc(r: Rect, c: Color) {
-	if s.set_tex != TEXTURE_NONE && s.set_tex != s.shape_drawing_texture.id {
+	if s.batch_texture != TEXTURE_NONE && s.batch_texture != s.shape_drawing_texture.id {
 		_draw_current_batch()
 	}
 
-	s.set_tex = s.shape_drawing_texture.id
+	s.batch_texture = s.shape_drawing_texture.id
 
 	batch_vertex({r.x, r.y}, {0, 0}, c)
 	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
@@ -695,11 +697,11 @@ vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
 }
 
 _set_camera :: proc(camera: Maybe(Camera)) {
-	if camera == s.camera {
+	if camera == s.batch_camera {
 		return
 	}
 
-	s.camera = camera
+	s.batch_camera = camera
 	_draw_current_batch()
 
 	if c, c_ok := camera.?; c_ok {
@@ -784,7 +786,7 @@ _draw_current_batch :: proc() {
 
 	dc->PSSetShader(s.pixel_shader, nil, 0)
 
-	if t := hm.get(&s.textures, s.set_tex); t != nil {
+	if t := hm.get(&s.textures, s.batch_texture); t != nil {
 		dc->PSSetShaderResources(0, 1, &t.view)	
 	}
 	
