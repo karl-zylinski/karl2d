@@ -13,6 +13,7 @@ import "core:slice"
 import "core:mem"
 import "core:math"
 import "core:image"
+import hm "handle_map"
 
 import "core:image/bmp"
 import "core:image/png"
@@ -25,6 +26,7 @@ _ :: tga
 _init :: proc(width: int, height: int, title: string,
               allocator := context.allocator, loc := #caller_location) -> ^State {
 	s = new(State, allocator, loc)
+	s.allocator = allocator
 	s.custom_context = context
 	CLASS_NAME :: "karl2d"
 	instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
@@ -178,7 +180,7 @@ _init :: proc(width: int, height: int, title: string,
 		CPUAccessFlags = {.WRITE},
 	}
 	ch(s.device->CreateBuffer(&vertex_buffer_desc, nil, &s.vertex_buffer_gpu))
-	s.vertex_buffer_cpu = make([]Vertex, VERTEX_BUFFER_MAX)
+	s.vertex_buffer_cpu = make([]Vertex, VERTEX_BUFFER_MAX, allocator, loc)
 
 	blend_desc := d3d11.BLEND_DESC {
 		RenderTarget = {
@@ -229,6 +231,9 @@ s: ^State
 
 VERTEX_BUFFER_MAX :: 10000
 
+Texture_Handle :: distinct hm.Handle
+TEXTURE_NONE :: Texture_Handle {}
+
 State :: struct {
 	swapchain: ^dxgi.ISwapChain1,
 	framebuffer_view: ^d3d11.IRenderTargetView,
@@ -249,7 +254,9 @@ State :: struct {
 	// these need to be generalized
 	sampler_state: ^d3d11.ISamplerState,
 
-	set_tex: Texture,
+	textures: hm.Handle_Map(_Texture, Texture_Handle, 1024*10),
+
+	set_tex: Texture_Handle,
 
 	info_queue: ^d3d11.IInfoQueue,
 	vertex_buffer_gpu: ^d3d11.IBuffer,
@@ -260,6 +267,7 @@ State :: struct {
 
 	run: bool,
 	custom_context: runtime.Context,
+	allocator: runtime.Allocator,
 
 	camera: Maybe(Camera),
 	width: int,
@@ -347,6 +355,7 @@ _shutdown :: proc() {
 	s.input_layout->Release()
 	s.swapchain->Release()
 	s.blend_state->Release()
+	delete(s.vertex_buffer_cpu, s.allocator)
 
 	when ODIN_DEBUG {
 		debug: ^d3d11.IDebug
@@ -361,6 +370,10 @@ _shutdown :: proc() {
 
 	s.device->Release()
 	s.info_queue->Release()
+
+	a := s.allocator
+	free(s, a)
+	s = nil
 }
 
 _set_internal_state :: proc(new_state: ^State) {
@@ -384,12 +397,11 @@ _clear :: proc(color: Color) {
 	s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 1, 0)
 }
 
-_Texture_Type :: struct {
+_Texture :: struct {
+	handle: Texture_Handle,
 	tex: ^d3d11.ITexture2D,
 	view: ^d3d11.IShaderResourceView,
 }
-
-
 
 _load_texture_from_file :: proc(filename: string) -> Texture {
 	img, img_err := image.load_from_file(filename, allocator = context.temp_allocator)
@@ -425,19 +437,26 @@ _load_texture_from_memory :: proc(data: []u8, width: int, height: int) -> Textur
 
 	texture_view: ^d3d11.IShaderResourceView
 	s.device->CreateShaderResourceView(texture, nil, &texture_view)
+
+	tex := _Texture {
+		tex = texture,
+		view = texture_view,
+	}
+
+	handle := hm.add(&s.textures, tex)
+
 	return {
-		id = {
-			tex = texture,
-			view = texture_view,
-		},
+		id = handle,
 		width = width,
 		height = height,
 	}
 }
 
 _destroy_texture :: proc(tex: Texture) {
-	tex.id.tex->Release()
-	tex.id.view->Release()
+	if t := hm.get(&s.textures, tex.id); t != nil {
+		t.tex->Release()
+		t.view->Release()	
+	}
 }
 
 _draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
@@ -479,12 +498,12 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 }
 
 _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: f32, tint := WHITE) {
-	if tex.width == 0 || tex.height == 0 || tex.id.tex == nil {
+	if tex.width == 0 || tex.height == 0 {
 		return
 	}
 
-	if s.set_tex.id.tex != nil && s.set_tex.id.tex != tex.id.tex {
-		maybe_draw_current_batch()
+	if s.set_tex != TEXTURE_NONE && s.set_tex != tex.id {
+		_draw_current_batch()
 	}
 
 	r := dst
@@ -492,7 +511,7 @@ _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: 
 	r.x -= origin.x
 	r.y -= origin.y
 
-	s.set_tex = tex
+	s.set_tex = tex.id
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
@@ -545,11 +564,11 @@ _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: 
 }
 
 _draw_rectangle :: proc(r: Rect, c: Color) {
-	if s.set_tex.id.tex != nil && s.set_tex.id.tex != s.shape_drawing_texture.id.tex {
-		maybe_draw_current_batch()
+	if s.set_tex != TEXTURE_NONE && s.set_tex != s.shape_drawing_texture.id {
+		_draw_current_batch()
 	}
 
-	s.set_tex = s.shape_drawing_texture
+	s.set_tex = s.shape_drawing_texture.id
 
 	batch_vertex({r.x, r.y}, {0, 0}, c)
 	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
@@ -681,7 +700,7 @@ _set_camera :: proc(camera: Maybe(Camera)) {
 	}
 
 	s.camera = camera
-	maybe_draw_current_batch()
+	_draw_current_batch()
 
 	if c, c_ok := camera.?; c_ok {
 		origin_trans :=linalg.matrix4_translate(vec3_from_vec2(-c.origin))
@@ -719,15 +738,11 @@ _process_events :: proc() {
 	}
 }
 
-maybe_draw_current_batch :: proc() {
+_draw_current_batch :: proc() {
 	if s.vertex_buffer_cpu_count == 0 {
 		return
 	}
 
-	_draw_current_batch()
-}
-
-_draw_current_batch :: proc() {
 	viewport := d3d11.VIEWPORT{
 		0, 0,
 		f32(s.width), f32(s.height),
@@ -768,7 +783,11 @@ _draw_current_batch :: proc() {
 	dc->RSSetState(s.rasterizer_state)
 
 	dc->PSSetShader(s.pixel_shader, nil, 0)
-	dc->PSSetShaderResources(0, 1, &s.set_tex.id.view)
+
+	if t := hm.get(&s.textures, s.set_tex); t != nil {
+		dc->PSSetShaderResources(0, 1, &t.view)	
+	}
+	
 	dc->PSSetSamplers(0, 1, &s.sampler_state)
 
 	dc->OMSetRenderTargets(1, &s.framebuffer_view, s.depth_buffer_view)
@@ -789,7 +808,7 @@ make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 }
 
 _present :: proc() {
-	maybe_draw_current_batch()
+	_draw_current_batch()
 	ch(s.swapchain->Present(1, {}))
 	s.vertex_buffer_offset = 0
 	s.vertex_buffer_cpu_count = 0

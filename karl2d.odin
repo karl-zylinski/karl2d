@@ -97,7 +97,7 @@ Rect :: struct {
 }
 
 Texture :: struct {
-	id: _Texture_Type,
+	id: Texture_Handle,
 	width: int,
 	height: int,
 }

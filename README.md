@@ -16,17 +16,18 @@ Might not be included:
 
 Here follows my near-future TODO list
 
-* Do proper checks of vertex count and dispatch rendering when full
-	* What happens when list is full? We can't just empty the vertex list due to being used by input assembler etc.
-* Make a texture for drawing a rectangle and remove the hack in `shader.hlsl`
-* Should we sort by depth? Maybe we should use Vec3 because some 2D games rely on it?
 * Texture things are a bit of a hack
 	* Make the sampler state configurable
 	* Group set_tex, camera etc into a section of things that cause a render batch dispatch when changed.
 	* Do we need the SRV in the texture?
+* Do proper checks of vertex count and dispatch rendering when full
+	* What happens when list is full? We can't just empty the vertex list due to being used by input assembler etc.
+* Should we sort by depth? Maybe we should use Vec3 because some 2D games rely on it?
+
 
 ## DONE
 
+* Make a texture for drawing a rectangle and remove the hack in `shader.hlsl`
 * Load textures and somehow bind to shader -- split draw calls on texture switch -- needs a start of a batch system.
 * Make 0, 0 be at top left (should vertex data be flipped, or is it a transformation thingy?)
 * Construct vertex buffer from k2.draw_blabla calls. Do we need index buffer? 🤷‍
