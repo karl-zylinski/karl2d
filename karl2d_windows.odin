@@ -23,8 +23,11 @@ _ :: bmp
 _ :: png
 _ :: tga
 
+MAX_CONSTANTS_SIZE :: 2048
+
 _init :: proc(width: int, height: int, title: string,
               allocator := context.allocator, loc := #caller_location) -> ^State {
+	win32.SetProcessDPIAware()
 	s = new(State, allocator, loc)
 	s.allocator = allocator
 	s.custom_context = context
@@ -122,35 +125,6 @@ _init :: proc(width: int, height: int, title: string,
 	ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &s.depth_buffer))
 	ch(s.device->CreateDepthStencilView(s.depth_buffer, nil, &s.depth_buffer_view))
 
-	vs_blob: ^d3d11.IBlob
-	vs_blob_errors: ^d3d11.IBlob
-	ch(d3d_compiler.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
-
-	if vs_blob_errors != nil {
-		log.error("Failed compiling shader:")
-		log.error(strings.string_from_ptr((^u8)(vs_blob_errors->GetBufferPointer()), int(vs_blob_errors->GetBufferSize())))
-	}
-
-	ch(s.device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &s.vertex_shader))
-
-	input_element_desc := [?]d3d11.INPUT_ELEMENT_DESC{
-		{ "POS", 0, .R32G32_FLOAT,   0, 0,                            .VERTEX_DATA, 0 },
-		{ "UV",  0, .R32G32_FLOAT,   0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
-		{ "COL", 0, .R8G8B8A8_UNORM, 0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
-	}
-
-	ch(s.device->CreateInputLayout(&input_element_desc[0], len(input_element_desc), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &s.input_layout))
-
-	ps_blob: ^d3d11.IBlob
-	ps_blob_errors: ^d3d11.IBlob
-	ch(d3d_compiler.Compile(raw_data(shader_hlsl), len(shader_hlsl), "shader.hlsl", nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, &ps_blob_errors))
-
-	if ps_blob_errors != nil {
-		log.error("Failed compiling shader:")
-		log.error(strings.string_from_ptr((^u8)(ps_blob_errors->GetBufferPointer()), int(ps_blob_errors->GetBufferSize())))
-	}
-
-	ch(s.device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nil, &s.pixel_shader))
 
 	rasterizer_desc := d3d11.RASTERIZER_DESC{
 		FillMode = .SOLID,
@@ -164,14 +138,6 @@ _init :: proc(width: int, height: int, title: string,
 		DepthFunc      = .LESS,
 	}
 	ch(s.device->CreateDepthStencilState(&depth_stencil_desc, &s.depth_stencil_state))
-
-	constant_buffer_desc := d3d11.BUFFER_DESC{
-		ByteWidth      = size_of(Constants),
-		Usage          = .DYNAMIC,
-		BindFlags      = {.CONSTANT_BUFFER},
-		CPUAccessFlags = {.WRITE},
-	}
-	ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &s.constant_buffer))
 
 	vertex_buffer_desc := d3d11.BUFFER_DESC{
 		ByteWidth = VERTEX_BUFFER_MAX * size_of(Vertex),
@@ -202,7 +168,6 @@ _init :: proc(width: int, height: int, title: string,
 	s.proj_matrix = make_default_projection(s.width, s.height)
 	s.view_matrix = 1
 
-
 	sampler_desc := d3d11.SAMPLER_DESC{
 		Filter         = .MIN_MAG_MIP_POINT,
 		AddressU       = .WRAP,
@@ -211,6 +176,8 @@ _init :: proc(width: int, height: int, title: string,
 		ComparisonFunc = .NEVER,
 	}
 	s.device->CreateSamplerState(&sampler_desc, &s.sampler_state)
+
+	s.default_shader = _load_shader(string(shader_hlsl))
 
 	white_rect: [16*16*4]u8
 	slice.fill(white_rect[:], 255)
@@ -231,28 +198,46 @@ s: ^State
 
 VERTEX_BUFFER_MAX :: 10000
 
+Handle :: hm.Handle
 Texture_Handle :: distinct hm.Handle
 TEXTURE_NONE :: Texture_Handle {}
+
+Shader_Constant_Buffer :: struct {
+	gpu_data: ^d3d11.IBuffer,
+	cpu_data: []u8,
+}
+
+Shader_Builtin_Constant :: enum {
+	MVP,
+}
+
+Shader :: struct {
+	handle: Shader_Handle,
+	vertex_shader: ^d3d11.IVertexShader,
+	pixel_shader: ^d3d11.IPixelShader,
+	input_layout: ^d3d11.IInputLayout,
+	constant_buffers: []Shader_Constant_Buffer,
+	constant_lookup: map[string]Shader_Constant_Location,
+	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
+}
 
 State :: struct {
 	swapchain: ^dxgi.ISwapChain1,
 	framebuffer_view: ^d3d11.IRenderTargetView,
 	depth_buffer_view: ^d3d11.IDepthStencilView,
 	device_context: ^d3d11.IDeviceContext,
-	constant_buffer: ^d3d11.IBuffer,
-	vertex_shader: ^d3d11.IVertexShader,
-	pixel_shader: ^d3d11.IPixelShader,
 	depth_stencil_state: ^d3d11.IDepthStencilState,
 	rasterizer_state: ^d3d11.IRasterizerState,
-	input_layout: ^d3d11.IInputLayout,
 	device: ^d3d11.IDevice,
 	depth_buffer: ^d3d11.ITexture2D,
 	framebuffer: ^d3d11.ITexture2D,
 	blend_state: ^d3d11.IBlendState,
 	shape_drawing_texture: Texture,
 	sampler_state: ^d3d11.ISamplerState,
+	default_shader: Shader_Handle,
 
 	textures: hm.Handle_Map(_Texture, Texture_Handle, 1024*10),
+	shaders: hm.Handle_Map(Shader, Shader_Handle, 1024*10),
 
 	info_queue: ^d3d11.IInfoQueue,
 	vertex_buffer_gpu: ^d3d11.IBuffer,
@@ -267,6 +252,9 @@ State :: struct {
 	
 	batch_texture: Texture_Handle,
 	batch_camera: Maybe(Camera),
+	batch_shader: Shader_Handle,
+	batch_constants: [MAX_CONSTANTS_SIZE]u8,
+	batch_constants_size: int,
 
 	width: int,
 	height: int,
@@ -338,6 +326,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 _shutdown :: proc() {
 	_destroy_texture(s.shape_drawing_texture)
+	_destroy_shader(s.default_shader)
 	s.sampler_state->Release()
 	s.framebuffer_view->Release()
 	s.depth_buffer_view->Release()
@@ -345,12 +334,9 @@ _shutdown :: proc() {
 	s.framebuffer->Release()
 	s.device_context->Release()
 	s.vertex_buffer_gpu->Release()
-	s.constant_buffer->Release()
-	s.vertex_shader->Release()
-	s.pixel_shader->Release()
+	//s.constant_buffer->Release()
 	s.depth_stencil_state->Release()
 	s.rasterizer_state->Release()
-	s.input_layout->Release()
 	s.swapchain->Release()
 	s.blend_state->Release()
 	delete(s.vertex_buffer_cpu, s.allocator)
@@ -408,8 +394,6 @@ _load_texture_from_file :: proc(filename: string) -> Texture {
 		log.errorf("Error loading texture %v: %v", filename, img_err)
 		return {}
 	}
-
-	log.info(img.channels)
 
 	return _load_texture_from_memory(img.pixels.buf[:], img.width, img.height)
 }
@@ -626,11 +610,11 @@ _draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 }
 
 _get_screen_width :: proc() -> int {
-	return 0
+	return s.width
 }
 
 _get_screen_height :: proc() -> int {
-	return 0
+	return s.height
 }
 
 _key_went_down :: proc(key: Keyboard_Key) -> bool {
@@ -701,11 +685,11 @@ _set_camera :: proc(camera: Maybe(Camera)) {
 		return
 	}
 
-	s.batch_camera = camera
 	_draw_current_batch()
+	s.batch_camera = camera
 
 	if c, c_ok := camera.?; c_ok {
-		origin_trans :=linalg.matrix4_translate(vec3_from_vec2(-c.origin))
+		origin_trans := linalg.matrix4_translate(vec3_from_vec2(-c.origin))
 		translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
 		rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
 		camera_matrix := translate * rot * origin_trans
@@ -724,9 +708,52 @@ _set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 
 }
 
-_set_shader :: proc(shader: Maybe(Shader)) {
+_set_shader :: proc(shader: Shader_Handle) {
+	if shader == s.batch_shader {
+		return
+	}
 
+	_draw_current_batch()
+	s.batch_shader = shader
 }
+
+_set_shader_constant :: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: $T) {
+	_draw_current_batch()
+
+	shd := hm.get(&s.shaders, shader)
+
+	if shd == nil {
+		return
+	}
+
+	if int(loc.buffer_idx) >= len(shd.constant_buffers) {
+		log.warnf("Constant buffer idx %v is out of bounds", loc.buffer_idx)
+		return
+	}
+
+	b := &shd.constant_buffers[loc.buffer_idx]
+
+	if int(loc.offset) + size_of(val) > len(b.cpu_data) {
+		log.warnf("Constant buffer idx %v is trying to be written out of bounds by at offset %v with %v bytes", loc.buffer_idx, loc.offset, size_of(val))
+		return
+	}
+
+	dst := (^T)(&b.cpu_data[loc.offset])
+	dst^ = val
+}
+
+_set_shader_constant_mat4 :: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: matrix[4,4]f32) {
+	_set_shader_constant(shader, loc, val)
+}
+
+_set_shader_constant_f32 :: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: f32) {
+	_set_shader_constant(shader, loc, val)
+}
+
+_set_shader_constant_vec2 :: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: Vec2) {
+	_set_shader_constant(shader, loc, val)
+}
+
 
 _process_events :: proc() {
 	s.keys_went_up = {}
@@ -741,7 +768,7 @@ _process_events :: proc() {
 }
 
 _draw_current_batch :: proc() {
-	if s.vertex_buffer_cpu_count == 0 {
+	if s.vertex_buffer_cpu_count == s.vertex_buffer_offset {
 		return
 	}
 
@@ -764,27 +791,53 @@ _draw_current_batch :: proc() {
 	}
 	dc->Unmap(s.vertex_buffer_gpu, 0)
 
-	cb_data: d3d11.MAPPED_SUBRESOURCE
-	ch(dc->Map(s.constant_buffer, 0, .WRITE_DISCARD, {}, &cb_data))
-	{
-		constants := (^Constants)(cb_data.pData)
-		constants.mvp = s.proj_matrix * s.view_matrix
-	}
-	dc->Unmap(s.constant_buffer, 0)
 
 	dc->IASetPrimitiveTopology(.TRIANGLELIST)
-	dc->IASetInputLayout(s.input_layout)
+	shd := hm.get(&s.shaders, s.batch_shader)
+
+	if shd == nil {
+		shd = hm.get(&s.shaders, s.default_shader)
+		assert(shd != nil, "Failed fetching default shader")
+	}
+
+	dc->IASetInputLayout(shd.input_layout)
 	vertex_buffer_offset := u32(0)
 	vertex_buffer_stride := u32(size_of(Vertex))
 	dc->IASetVertexBuffers(0, 1, &s.vertex_buffer_gpu, &vertex_buffer_stride, &vertex_buffer_offset)
 
-	dc->VSSetShader(s.vertex_shader, nil, 0)
-	dc->VSSetConstantBuffers(0, 1, &s.constant_buffer)
+	for mloc, builtin in shd.constant_builtin_locations {
+		loc, loc_ok := mloc.?
+
+		if !loc_ok {
+			continue
+		}
+
+		switch builtin {
+		case .MVP:
+			dst := (^matrix[4,4]f32)(&shd.constant_buffers[loc.buffer_idx].cpu_data[loc.offset])
+			dst^ = s.proj_matrix * s.view_matrix
+		}
+	}
+
+	dc->VSSetShader(shd.vertex_shader, nil, 0)
+
+	for &c, c_idx in shd.constant_buffers {
+		if c.gpu_data == nil {
+			continue
+		}
+
+		cb_data: d3d11.MAPPED_SUBRESOURCE
+		ch(dc->Map(c.gpu_data, 0, .WRITE_DISCARD, {}, &cb_data))
+		mem.copy(cb_data.pData, raw_data(c.cpu_data), len(c.cpu_data))
+		dc->Unmap(c.gpu_data, 0)
+		dc->VSSetConstantBuffers(u32(c_idx), 1, &c.gpu_data)
+		dc->PSSetConstantBuffers(u32(c_idx), 1, &c.gpu_data)
+	}
 
 	dc->RSSetViewports(1, &viewport)
 	dc->RSSetState(s.rasterizer_state)
 
-	dc->PSSetShader(s.pixel_shader, nil, 0)
+	dc->PSSetShader(shd.pixel_shader, nil, 0)
 
 	if t := hm.get(&s.textures, s.batch_texture); t != nil {
 		dc->PSSetShaderResources(0, 1, &t.view)	
@@ -816,21 +869,168 @@ _present :: proc() {
 	s.vertex_buffer_cpu_count = 0
 }
 
-_load_shader :: proc(vs: string, fs: string) -> Shader {
-	return {}
+Shader_Constant_Location :: struct {
+	buffer_idx: u32,
+	offset: u32,
 }
 
-_destroy_shader :: proc(shader: Shader) {
+_load_shader :: proc(shader: string) -> Shader_Handle {
+	vs_blob: ^d3d11.IBlob
+	vs_blob_errors: ^d3d11.IBlob
+	ch(d3d_compiler.Compile(raw_data(shader), len(shader), nil, nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
+
+	if vs_blob_errors != nil {
+		log.error("Failed compiling shader:")
+		log.error(strings.string_from_ptr((^u8)(vs_blob_errors->GetBufferPointer()), int(vs_blob_errors->GetBufferSize())))
+	}
+
+	vertex_shader: ^d3d11.IVertexShader
+
+	ch(s.device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &vertex_shader))
+
+	ref: ^d3d11.IShaderReflection
+	ch(d3d_compiler.Reflect(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), d3d11.ID3D11ShaderReflection_UUID, (^rawptr)(&ref)))
+
+	constant_buffers: []Shader_Constant_Buffer
+	constant_lookup: map[string]Shader_Constant_Location
+	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location)
+	{
+		context.allocator = s.allocator
+		d: d3d11.SHADER_DESC
+		ch(ref->GetDesc(&d))
+
+		constant_buffers = make([]Shader_Constant_Buffer, d.ConstantBuffers)
+
+		for cb_idx in 0..<d.ConstantBuffers {
+			cb_info := ref->GetConstantBufferByIndex(cb_idx)
+
+			if cb_info == nil {
+				continue
+			}
+
+			cb_desc: d3d11.SHADER_BUFFER_DESC
+			cb_info->GetDesc(&cb_desc)
+
+			if cb_desc.Size == 0 {
+				continue
+			}
+
+			b := &constant_buffers[cb_idx]
+			b.cpu_data = make([]u8, cb_desc.Size, s.allocator)
+
+			constant_buffer_desc := d3d11.BUFFER_DESC{
+				ByteWidth      = cb_desc.Size,
+				Usage          = .DYNAMIC,
+				BindFlags      = {.CONSTANT_BUFFER},
+				CPUAccessFlags = {.WRITE},
+			}
+			ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &b.gpu_data))
+
+			for var_idx in 0..<cb_desc.Variables {
+				var_info := cb_info->GetVariableByIndex(var_idx)
+
+				if var_info == nil {
+					continue
+				}
+
+				var_desc: d3d11.SHADER_VARIABLE_DESC
+				var_info->GetDesc(&var_desc)
+
+				if var_desc.Name != "" {
+					loc := Shader_Constant_Location {
+						buffer_idx = cb_idx,
+						offset = var_desc.StartOffset,
+					}
+
+					constant_lookup[strings.clone_from_cstring(var_desc.Name)] = loc
+
+					switch var_desc.Name {
+					case "mvp":
+						constant_builtin_locations[.MVP] = loc
+					}
+				}
+
+				// TODO add the size or type somewhere so we set it correctly
+
+				/*log.info(var_desc)
+
+				type_info := var_info->GetType()
+
+				type_info_desc: d3d11.SHADER_TYPE_DESC
+				type_info->GetDesc(&type_info_desc)
+				log.info(type_info_desc)*/
+			}
+		}
+	}
+
+	input_element_desc := [?]d3d11.INPUT_ELEMENT_DESC{
+		{ "POS", 0, .R32G32_FLOAT,   0, 0,                            .VERTEX_DATA, 0 },
+		{ "UV",  0, .R32G32_FLOAT,   0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
+		{ "COL", 0, .R8G8B8A8_UNORM, 0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
+	}
+
+	input_layout: ^d3d11.IInputLayout
+	ch(s.device->CreateInputLayout(&input_element_desc[0], len(input_element_desc), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &input_layout))
+
+	ps_blob: ^d3d11.IBlob
+	ps_blob_errors: ^d3d11.IBlob
+	ch(d3d_compiler.Compile(raw_data(shader), len(shader), nil, nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, &ps_blob_errors))
+
+	if ps_blob_errors != nil {
+		log.error("Failed compiling shader:")
+		log.error(strings.string_from_ptr((^u8)(ps_blob_errors->GetBufferPointer()), int(ps_blob_errors->GetBufferSize())))
+	}
+
+	pixel_shader: ^d3d11.IPixelShader
+	ch(s.device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nil, &pixel_shader))
+
+	shd := Shader {
+		vertex_shader = vertex_shader,
+		pixel_shader = pixel_shader,
+		input_layout = input_layout,
+		constant_buffers = constant_buffers,
+		constant_lookup = constant_lookup,
+		constant_builtin_locations = constant_builtin_locations,
+	}
+
+	h := hm.add(&s.shaders, shd)
+	return h
 }
 
-_get_shader_location :: proc(shader: Shader, uniform_name: string) -> int {
-	return 0
+_destroy_shader :: proc(shader: Shader_Handle) {
+	if shd := hm.get(&s.shaders, shader); shd != nil {
+		shd.input_layout->Release()
+		shd.vertex_shader->Release()
+		shd.pixel_shader->Release()
+
+		for c in shd.constant_buffers {
+			if c.gpu_data != nil {
+				c.gpu_data->Release()
+			}
+
+			delete(c.cpu_data)
+		}
+
+		delete(shd.constant_buffers)
+
+		for k,_ in shd.constant_lookup {
+			delete(k)
+		}
+
+		delete(shd.constant_lookup)
+	}
+
+	hm.remove(&s.shaders, shader)
 }
 
-_set_shader_value_f32 :: proc(shader: Shader, loc: int, val: f32) {
-}
+_get_shader_constant_location :: proc(shader: Shader_Handle, name: string) -> Shader_Constant_Location {
+	shd := hm.get(&s.shaders, shader)
 
-_set_shader_value_vec2 :: proc(shader: Shader, loc: int, val: Vec2) {
+	if shd == nil {
+		return {}
+	}
+
+	return shd.constant_lookup[name]
 }
 
 temp_cstring :: proc(str: string, loc := #caller_location) -> cstring {

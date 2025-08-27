@@ -45,7 +45,7 @@ destroy_texture: proc(tex: Texture) : _destroy_texture
 
 set_camera: proc(camera: Maybe(Camera)) : _set_camera
 set_scissor_rect: proc(scissor_rect: Maybe(Rect)) : _set_scissor_rect
-set_shader: proc(shader: Maybe(Shader)) : _set_shader
+set_shader: proc(shader: Shader_Handle) : _set_shader
 
 draw_texture: proc(tex: Texture, pos: Vec2, tint := WHITE) : _draw_texture
 draw_texture_rect: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) : _draw_texture_rect
@@ -55,20 +55,14 @@ draw_rect_outline: proc(rect: Rect, thickness: f32, color: Color) : _draw_rectan
 draw_circle: proc(center: Vec2, radius: f32, color: Color) : _draw_circle
 draw_line: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) : _draw_line
 
+load_shader: proc(shader_source: string) -> Shader_Handle : _load_shader
+destroy_shader: proc(shader: Shader_Handle) : _destroy_shader
 
-load_shader: proc(vertex_shader_filename: string, fragment_shader_filename: string) -> Shader : _load_shader
-destroy_shader: proc(shader: Shader) : _destroy_shader
-
-get_shader_location: proc(shader: Shader, uniform_name: string) -> int : _get_shader_location
-
-// Not sure if we should use an enum for the uniform types as in raylib
-set_shader_value_f32: proc(shader: Shader, loc: int, val: f32) : _set_shader_value_f32
-set_shader_value_vec2: proc(shader: Shader, loc: int, val: Vec2) : _set_shader_value_vec2
-
-set_shader_value :: proc {
-	set_shader_value_f32,
-	set_shader_value_vec2,
-}
+get_shader_constant_location: proc(shader: Shader_Handle, name: string) -> Shader_Constant_Location : _get_shader_constant_location
+set_shader_constant :: _set_shader_constant
+set_shader_constant_mat4: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: matrix[4,4]f32) : _set_shader_constant_mat4
+set_shader_constant_f32: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: f32) : _set_shader_constant_f32
+set_shader_constant_vec2: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: Vec2) : _set_shader_constant_vec2
 
 // WARNING: Not proper text rendering yet... No font support etc
 draw_text: proc(text: string, pos: Vec2, font_size: f32, color: Color) : _draw_text
@@ -129,11 +123,8 @@ MAGENTA :: Color { 255, 0, 255, 255 }
 DARKGRAY :: Color{ 80, 80, 80, 255 }
 GREEN :: Color{ 0, 228, 48, 255 }
 
-// This is plain raylib shader for now, until I rewrite the shader system
-Shader :: struct {
-	id: u32,
-	locs: []i32,
-}
+Shader_Handle :: distinct Handle
+SHADER_NONE :: Shader_Handle {}
 
 // Based on Raylib / GLFW
 Keyboard_Key :: enum {

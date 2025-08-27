@@ -15,15 +15,17 @@ main :: proc() {
     k2.init(SCREEN_WIDTH, SCREEN_HEIGHT, "Karl2D: texture waves (raylib [shaders] example - texture waves)")
 
     texture := k2.load_texture_from_file("space.png")
-    shader := k2.load_shader("", "wave.fs")
 
-    seconds_loc := k2.get_shader_location(shader, "seconds")
-    freq_x_loc := k2.get_shader_location(shader, "freqX")
-    freq_y_loc := k2.get_shader_location(shader, "freqY")
-    amp_x_loc := k2.get_shader_location(shader, "ampX")
-    amp_y_loc := k2.get_shader_location(shader, "ampY")
-    speed_x_loc := k2.get_shader_location(shader, "speedX")
-    speed_y_loc := k2.get_shader_location(shader, "speedY")
+    WAVE_SHADER_DATA :: #load("wave.hlsl")
+
+    shader := k2.load_shader(string(WAVE_SHADER_DATA))
+    seconds_loc := k2.get_shader_constant_location(shader, "seconds")
+    freq_x_loc := k2.get_shader_constant_location(shader, "freqX")
+    freq_y_loc := k2.get_shader_constant_location(shader, "freqY")
+    amp_x_loc := k2.get_shader_constant_location(shader, "ampX")
+    amp_y_loc := k2.get_shader_constant_location(shader, "ampY")
+    speed_x_loc := k2.get_shader_constant_location(shader, "speedX")
+    speed_y_loc := k2.get_shader_constant_location(shader, "speedY")
 
     freq_x := f32(25)
     freq_y := f32(25)
@@ -33,13 +35,13 @@ main :: proc() {
     speed_y := f32(8)
 
     screen_size := [2]f32 { f32(k2.get_screen_width()),	f32(k2.get_screen_height()) }
-    k2.set_shader_value(shader, k2.get_shader_location(shader, "size"), screen_size)
-    k2.set_shader_value(shader, freq_x_loc, freq_x)
-    k2.set_shader_value(shader, freq_y_loc, freq_y)
-    k2.set_shader_value(shader, amp_x_loc, amp_x)
-    k2.set_shader_value(shader, amp_y_loc, amp_y)
-    k2.set_shader_value(shader, speed_x_loc, speed_x)
-    k2.set_shader_value(shader, speed_y_loc, speed_y)
+    k2.set_shader_constant(shader, k2.get_shader_constant_location(shader, "size"), screen_size)
+    k2.set_shader_constant(shader, freq_x_loc, freq_x)
+    k2.set_shader_constant(shader, freq_y_loc, freq_y)
+    k2.set_shader_constant(shader, amp_x_loc, amp_x)
+    k2.set_shader_constant(shader, amp_y_loc, amp_y)
+    k2.set_shader_constant(shader, speed_x_loc, speed_x)
+    k2.set_shader_constant(shader, speed_y_loc, speed_y)
 
     seconds: f32
 
@@ -52,13 +54,13 @@ main :: proc() {
     	last_frame_time = now
     	seconds += dt
 
-		k2.set_shader_value(shader, seconds_loc, seconds)
+		k2.set_shader_constant_f32(shader, seconds_loc, seconds)
 		k2.set_shader(shader)
 
 		k2.draw_texture(texture, {0, 0})
 		k2.draw_texture(texture, {f32(texture.width), 0})
 
-		k2.set_shader(nil)
+		k2.set_shader(k2.SHADER_NONE)
 		k2.present()
     }
 
