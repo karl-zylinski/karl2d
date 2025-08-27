@@ -23,8 +23,6 @@ _ :: bmp
 _ :: png
 _ :: tga
 
-MAX_CONSTANTS_SIZE :: 2048
-
 _init :: proc(width: int, height: int, title: string,
               allocator := context.allocator, loc := #caller_location) -> ^State {
 	win32.SetProcessDPIAware()
@@ -253,8 +251,6 @@ State :: struct {
 	batch_texture: Texture_Handle,
 	batch_camera: Maybe(Camera),
 	batch_shader: Shader_Handle,
-	batch_constants: [MAX_CONSTANTS_SIZE]u8,
-	batch_constants_size: int,
 
 	width: int,
 	height: int,
@@ -852,10 +848,6 @@ _draw_current_batch :: proc() {
 	dc->Draw(u32(s.vertex_buffer_cpu_count - s.vertex_buffer_offset), u32(s.vertex_buffer_offset))
 	s.vertex_buffer_offset = s.vertex_buffer_cpu_count
 	log_messages()
-}
-
-Constants :: struct #align (16) {
-	mvp: matrix[4, 4]f32,
 }
 
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
