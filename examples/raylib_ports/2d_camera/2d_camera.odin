@@ -14,6 +14,7 @@ SCREEN_HEIGHT :: 450
 main :: proc() {
 	context.logger = log.create_console_logger()
 	k2.init(SCREEN_WIDTH, SCREEN_HEIGHT, "Karl2D: 2d camera (raylib [core] example - 2d camera)")
+	k2.set_window_position(500, 100)
 
 	player := k2.Rect { 400, 280, 40, 40 }
 	buildings: [MAX_BUILDINGS]k2.Rect

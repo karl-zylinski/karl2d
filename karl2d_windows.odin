@@ -58,6 +58,8 @@ _init :: proc(width: int, height: int, title: string,
 		100, 10, r.right - r.left, r.bottom - r.top,
 		nil, nil, instance, nil)
 
+	s.window = hwnd
+
 	assert(hwnd != nil, "Failed creating window")
 
 	feature_levels := [?]d3d11.FEATURE_LEVEL{
@@ -209,6 +211,19 @@ Shader_Builtin_Constant :: enum {
 	MVP,
 }
 
+Shader_Input_Type :: enum {
+	F32,
+	Vec2,
+	Vec3,
+	Vec4,
+}
+
+Shader_Input :: struct {
+	name: string,
+	register: int,
+	type: Shader_Input_Type,
+}
+
 Shader :: struct {
 	handle: Shader_Handle,
 	vertex_shader: ^d3d11.IVertexShader,
@@ -217,6 +232,8 @@ Shader :: struct {
 	constant_buffers: []Shader_Constant_Buffer,
 	constant_lookup: map[string]Shader_Constant_Location,
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
+
+	inputs: []Shader_Input,
 }
 
 State :: struct {
@@ -252,6 +269,7 @@ State :: struct {
 	batch_camera: Maybe(Camera),
 	batch_shader: Shader_Handle,
 
+	window: win32.HWND,
 	width: int,
 	height: int,
 
@@ -662,6 +680,16 @@ _set_window_size :: proc(width: int, height: int) {
 }
 
 _set_window_position :: proc(x: int, y: int) {
+	// TODO: Does x, y respect monitor DPI?
+	win32.SetWindowPos(
+		s.window,
+		{},
+		i32(x),
+		i32(y),
+		0,
+		0,
+		win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOSIZE,
+	)
 }
 
 _screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2 {
@@ -886,10 +914,49 @@ _load_shader :: proc(shader: string) -> Shader_Handle {
 	constant_buffers: []Shader_Constant_Buffer
 	constant_lookup: map[string]Shader_Constant_Location
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location)
+	inputs: []Shader_Input
 	{
 		context.allocator = s.allocator
 		d: d3d11.SHADER_DESC
 		ch(ref->GetDesc(&d))
+
+		inputs = make([]Shader_Input, d.InputParameters)
+
+		for in_idx in 0..<d.InputParameters {
+			in_desc: d3d11.SIGNATURE_PARAMETER_DESC
+			
+			if ch(ref->GetInputParameterDesc(in_idx, &in_desc)) < 0 {
+				log.errorf("Invalid input: %v in shader %v", in_idx, shader)
+				continue
+			}
+
+			type: Shader_Input_Type
+
+			if in_desc.SemanticIndex > 0 {
+				log.errorf("Matrix shader input types not yet implemented")
+				continue
+			}
+
+			switch in_desc.ComponentType {
+			case .UNKNOWN: log.errorf("Unknown component type")
+			case .UINT32: log.errorf("Not implemented")
+			case .SINT32: log.errorf("Not implemented")
+			case .FLOAT32:
+				switch in_desc.Mask {
+				case 0: log.errorf("Invalid input mask"); continue
+				case 1: type = .F32
+				case 3: type = .Vec2
+				case 7: type = .Vec3
+				case 15: type = .Vec4
+				}
+			}
+
+			inputs[in_idx] = {
+				name = strings.clone_from_cstring(in_desc.SemanticName),
+				register = int(in_idx),
+				type = type,
+			}
+		}
 
 		constant_buffers = make([]Shader_Constant_Buffer, d.ConstantBuffers)
 
@@ -983,6 +1050,7 @@ _load_shader :: proc(shader: string) -> Shader_Handle {
 		constant_buffers = constant_buffers,
 		constant_lookup = constant_lookup,
 		constant_builtin_locations = constant_builtin_locations,
+		inputs = inputs,
 	}
 
 	h := hm.add(&s.shaders, shd)
@@ -1010,6 +1078,7 @@ _destroy_shader :: proc(shader: Shader_Handle) {
 		}
 
 		delete(shd.constant_lookup)
+		delete(shd.inputs)
 	}
 
 	hm.remove(&s.shaders, shader)
