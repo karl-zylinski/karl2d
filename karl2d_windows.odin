@@ -140,13 +140,13 @@ _init :: proc(width: int, height: int, title: string,
 	ch(s.device->CreateDepthStencilState(&depth_stencil_desc, &s.depth_stencil_state))
 
 	vertex_buffer_desc := d3d11.BUFFER_DESC{
-		ByteWidth = VERTEX_BUFFER_MAX * size_of(Vertex),
+		ByteWidth = VERTEX_BUFFER_MAX,
 		Usage     = .DYNAMIC,
 		BindFlags = {.VERTEX_BUFFER},
 		CPUAccessFlags = {.WRITE},
 	}
 	ch(s.device->CreateBuffer(&vertex_buffer_desc, nil, &s.vertex_buffer_gpu))
-	s.vertex_buffer_cpu = make([]Vertex, VERTEX_BUFFER_MAX, allocator, loc)
+	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, allocator, loc)
 
 	blend_desc := d3d11.BLEND_DESC {
 		RenderTarget = {
@@ -188,15 +188,9 @@ _init :: proc(width: int, height: int, title: string,
 
 shader_hlsl :: #load("shader.hlsl")
 
-Vertex :: struct {
-	pos: Vec2,
-	uv: Vec2,
-	color: Color,
-}
-
 s: ^State
 
-VERTEX_BUFFER_MAX :: 10000
+VERTEX_BUFFER_MAX :: 1000000
 
 Handle :: hm.Handle
 Texture_Handle :: distinct hm.Handle
@@ -222,6 +216,13 @@ Shader_Input :: struct {
 	name: string,
 	register: int,
 	type: Shader_Input_Type,
+	format: Shader_Input_Format,
+}
+
+Shader_Default_Inputs :: enum {
+	Position,
+	UV,
+	Color,
 }
 
 Shader :: struct {
@@ -234,6 +235,8 @@ Shader :: struct {
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
 
 	inputs: []Shader_Input,
+	default_input_offsets: [Shader_Default_Inputs]int,
+	vertex_size: int,
 }
 
 State :: struct {
@@ -256,8 +259,8 @@ State :: struct {
 
 	info_queue: ^d3d11.IInfoQueue,
 	vertex_buffer_gpu: ^d3d11.IBuffer,
-	vertex_buffer_cpu: []Vertex,
-	vertex_buffer_cpu_count: int,
+	vertex_buffer_cpu: []u8,
+	vertex_buffer_cpu_used: int,
 
 	vertex_buffer_offset: int,
 
@@ -484,17 +487,35 @@ _draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
 
-	if s.vertex_buffer_cpu_count == len(s.vertex_buffer_cpu) {
+	if s.vertex_buffer_cpu_used == len(s.vertex_buffer_cpu) {
 		panic("Must dispatch here")
 	}
 
-	s.vertex_buffer_cpu[s.vertex_buffer_cpu_count] = {
-		pos = v,
-		uv = uv,
-		color = color,
+	shd := hm.get(&s.shaders, s.batch_shader)
+
+	if shd == nil {
+		shd = hm.get(&s.shaders, s.default_shader)
+		assert(shd != nil, "Failed fetching default shader")
 	}
 
-	s.vertex_buffer_cpu_count += 1
+	base_offset := s.vertex_buffer_cpu_used
+	pos_offset := shd.default_input_offsets[.Position]
+	uv_offset := shd.default_input_offsets[.UV]
+	color_offset := shd.default_input_offsets[.Color]
+	
+	if pos_offset != -1 {
+		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
+	}
+
+	if uv_offset != -1 {
+		(^Vec2)(&s.vertex_buffer_cpu[base_offset + uv_offset])^ = uv
+	}
+
+	if color_offset != -1 {
+		(^Color)(&s.vertex_buffer_cpu[base_offset + color_offset])^ = color
+	}
+	
+	s.vertex_buffer_cpu_used += shd.vertex_size
 }
 
 _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: f32, tint := WHITE) {
@@ -741,6 +762,28 @@ _set_shader :: proc(shader: Shader_Handle) {
 	s.batch_shader = shader
 }
 
+_set_shader_vertex_layout :: proc(shader: Shader_Handle, layout: []Shader_Input_Format) {
+	shd := hm.get(&s.shaders, shader)
+
+	if shd == nil {
+		log.error("Invalid shader")
+		return
+	}
+
+	if len(layout) != len(shd.inputs) {
+		log.error("Shader has %v inputs but layout only specifies %v. The inputs are:", len(shd.inputs), len(layout))
+
+		for i in shd.inputs {
+			log.error(i)
+		}
+		return
+	}
+
+	for _, idx in shd.inputs {
+		shd.inputs[idx].format = layout[idx]
+	}
+}
+
 _set_shader_constant :: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: $T) {
 	_draw_current_batch()
 
@@ -792,7 +835,7 @@ _process_events :: proc() {
 }
 
 _draw_current_batch :: proc() {
-	if s.vertex_buffer_cpu_count == s.vertex_buffer_offset {
+	if s.vertex_buffer_cpu_used == s.vertex_buffer_offset {
 		return
 	}
 
@@ -807,10 +850,10 @@ _draw_current_batch :: proc() {
 	vb_data: d3d11.MAPPED_SUBRESOURCE
 	ch(dc->Map(s.vertex_buffer_gpu, 0, .WRITE_NO_OVERWRITE, {}, &vb_data))
 	{
-		gpu_map := slice.from_ptr((^Vertex)(vb_data.pData), VERTEX_BUFFER_MAX)
+		gpu_map := slice.from_ptr((^u8)(vb_data.pData), VERTEX_BUFFER_MAX)
 		copy(
-			gpu_map[s.vertex_buffer_offset:s.vertex_buffer_cpu_count],
-			s.vertex_buffer_cpu[s.vertex_buffer_offset:s.vertex_buffer_cpu_count],
+			gpu_map[s.vertex_buffer_offset:s.vertex_buffer_cpu_used],
+			s.vertex_buffer_cpu[s.vertex_buffer_offset:s.vertex_buffer_cpu_used],
 		)
 	}
 	dc->Unmap(s.vertex_buffer_gpu, 0)
@@ -826,7 +869,7 @@ _draw_current_batch :: proc() {
 
 	dc->IASetInputLayout(shd.input_layout)
 	vertex_buffer_offset := u32(0)
-	vertex_buffer_stride := u32(size_of(Vertex))
+	vertex_buffer_stride := u32(shd.vertex_size)
 	dc->IASetVertexBuffers(0, 1, &s.vertex_buffer_gpu, &vertex_buffer_stride, &vertex_buffer_offset)
 
 	for mloc, builtin in shd.constant_builtin_locations {
@@ -873,8 +916,8 @@ _draw_current_batch :: proc() {
 	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
 	dc->OMSetBlendState(s.blend_state, nil, ~u32(0))
 
-	dc->Draw(u32(s.vertex_buffer_cpu_count - s.vertex_buffer_offset), u32(s.vertex_buffer_offset))
-	s.vertex_buffer_offset = s.vertex_buffer_cpu_count
+	dc->Draw(u32((s.vertex_buffer_cpu_used - s.vertex_buffer_offset)/shd.vertex_size), u32(s.vertex_buffer_offset/shd.vertex_size))
+	s.vertex_buffer_offset = s.vertex_buffer_cpu_used
 	log_messages()
 }
 
@@ -886,7 +929,7 @@ _present :: proc() {
 	_draw_current_batch()
 	ch(s.swapchain->Present(1, {}))
 	s.vertex_buffer_offset = 0
-	s.vertex_buffer_cpu_count = 0
+	s.vertex_buffer_cpu_used = 0
 }
 
 Shader_Constant_Location :: struct {
@@ -1022,14 +1065,48 @@ _load_shader :: proc(shader: string) -> Shader_Handle {
 		}
 	}
 
-	input_element_desc := [?]d3d11.INPUT_ELEMENT_DESC{
-		{ "POS", 0, .R32G32_FLOAT,   0, 0,                            .VERTEX_DATA, 0 },
-		{ "UV",  0, .R32G32_FLOAT,   0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
-		{ "COL", 0, .R8G8B8A8_UNORM, 0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
+	default_input_offsets: [Shader_Default_Inputs]int
+	for &d in default_input_offsets {
+		d = -1
+	}
+	input_offset: int
+
+	for &i in inputs {
+		if i.name == "POS" && i.type == .Vec2 {
+			i.format = .RG32_Float
+			default_input_offsets[.Position] = input_offset
+		} else if i.name == "UV" && i.type == .Vec2 {
+			i.format = .RG32_Float
+			default_input_offsets[.UV] = input_offset
+		} else if i.name == "COL" && i.type == .Vec4 {
+			i.format = .RGBA8_Norm
+			default_input_offsets[.Color] = input_offset
+		} else {
+			switch i.type {
+			case .F32: i.format = .R32_Float
+			case .Vec2: i.format = .RG32_Float
+			case .Vec3: i.format = .RGBA32_Float
+			case .Vec4: i.format = .RGBA32_Float
+			}
+		}
+
+		input_offset += shader_input_format_size(i.format)
+	}
+
+	input_layout_desc := make([]d3d11.INPUT_ELEMENT_DESC, len(inputs), context.temp_allocator)
+
+	for idx in 0..<len(inputs) {
+		input := inputs[idx]
+		input_layout_desc[idx] = {
+			SemanticName = temp_cstring(input.name),
+			Format = dxgi_format_from_shader_input_format(input.format),
+			AlignedByteOffset = idx == 0 ? 0 : d3d11.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .VERTEX_DATA,
+		}
 	}
 
 	input_layout: ^d3d11.IInputLayout
-	ch(s.device->CreateInputLayout(&input_element_desc[0], len(input_element_desc), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &input_layout))
+	ch(s.device->CreateInputLayout(raw_data(input_layout_desc), u32(len(input_layout_desc)), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &input_layout))
 
 	ps_blob: ^d3d11.IBlob
 	ps_blob_errors: ^d3d11.IBlob
@@ -1051,10 +1128,37 @@ _load_shader :: proc(shader: string) -> Shader_Handle {
 		constant_lookup = constant_lookup,
 		constant_builtin_locations = constant_builtin_locations,
 		inputs = inputs,
+		default_input_offsets = default_input_offsets,
+		vertex_size = input_offset,
 	}
 
 	h := hm.add(&s.shaders, shd)
 	return h
+}
+
+dxgi_format_from_shader_input_format :: proc(f: Shader_Input_Format) -> dxgi.FORMAT {
+	switch f {
+	case .RGBA32_Float: return .R32G32B32A32_FLOAT
+	case .RGBA8_Norm: return .R8G8B8A8_UNORM
+	case .RGBA8_Norm_SRGB: return .R8G8B8A8_UNORM_SRGB
+	case .RG32_Float: return .R32G32_FLOAT
+	case .R32_Float: return .R32_FLOAT
+	}
+
+	log.error("Unknown format")
+	return .UNKNOWN
+}
+
+shader_input_format_size :: proc(f: Shader_Input_Format) -> int {
+	switch f {
+	case .RGBA32_Float: return 32
+	case .RGBA8_Norm: return 4
+	case .RGBA8_Norm_SRGB: return 4
+	case .RG32_Float: return 8
+	case .R32_Float: return 4
+	}
+
+	return 0
 }
 
 _destroy_shader :: proc(shader: Shader_Handle) {

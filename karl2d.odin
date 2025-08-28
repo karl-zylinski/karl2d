@@ -64,6 +64,16 @@ set_shader_constant_mat4: proc(shader: Shader_Handle, loc: Shader_Constant_Locat
 set_shader_constant_f32: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: f32) : _set_shader_constant_f32
 set_shader_constant_vec2: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: Vec2) : _set_shader_constant_vec2
 
+Shader_Input_Format :: enum {
+	RGBA32_Float,
+	RGBA8_Norm,
+	RGBA8_Norm_SRGB,
+	RG32_Float,
+	R32_Float,
+}
+
+set_shader_vertex_layout: proc(shader: Shader_Handle, layout: []Shader_Input_Format) : _set_shader_vertex_layout
+
 // WARNING: Not proper text rendering yet... No font support etc
 draw_text: proc(text: string, pos: Vec2, font_size: f32, color: Color) : _draw_text
 
