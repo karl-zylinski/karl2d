@@ -1182,6 +1182,9 @@ _destroy_shader :: proc(shader: Shader_Handle) {
 		}
 
 		delete(shd.constant_lookup)
+		for i in shd.inputs {
+			delete(i.name)
+		}
 		delete(shd.inputs)
 	}
 

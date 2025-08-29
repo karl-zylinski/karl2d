@@ -64,6 +64,8 @@ set_shader_constant_mat4: proc(shader: Shader_Handle, loc: Shader_Constant_Locat
 set_shader_constant_f32: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: f32) : _set_shader_constant_f32
 set_shader_constant_vec2: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: Vec2) : _set_shader_constant_vec2
 
+set_vertex_field :: proc(input: Shader_Input)
+
 Shader_Input_Format :: enum {
 	RGBA32_Float,
 	RGBA8_Norm,

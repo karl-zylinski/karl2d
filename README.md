@@ -22,7 +22,11 @@ Here follows my near-future TODO list
 * Do proper checks of vertex count and dispatch rendering when full
 	* What happens when list is full? We can't just empty the vertex list due to being used by input assembler etc.
 * Should we sort by depth? Maybe we should use Vec3 because some 2D games rely on it?
-* Shader loading
+* Shaders
+	* Basic loading
+	* Constants that you can set
+	* Dynamic vertex creation
+	* Feed extra vertex field values using some kind of context
 
 
 ## DONE
