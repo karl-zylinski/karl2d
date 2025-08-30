@@ -10,18 +10,9 @@ import "core:log"
 import "core:math/linalg"
 import "core:slice"
 import "core:mem"
-import "core:math"
-import "core:image"
 import hm "handle_map"
 import "base:runtime"
 
-import "core:image/bmp"
-import "core:image/png"
-import "core:image/tga"
-
-_ :: bmp
-_ :: png
-_ :: tga
 
 BACKEND_D3D11 :: Rendering_Backend {
 	state_size = d3d11_state_size,
@@ -34,8 +25,14 @@ BACKEND_D3D11 :: Rendering_Backend {
 	get_swapchain_width = d3d11_get_swapchain_width,
 	get_swapchain_height = d3d11_get_swapchain_height,
 
+	set_view_projection_matrix = d3d11_set_view_projection_matrix,
 
 	set_internal_state = d3d11_set_internal_state,
+
+	load_texture = d3d11_load_texture,
+	destroy_texture = d3d11_destroy_texture,
+
+	batch_vertex = d3d11_batch_vertex,
 }
 
 @(private="file")
@@ -155,9 +152,6 @@ d3d11_init :: proc(state: rawptr, window_handle: uintptr, swapchain_width, swapc
 
 	ch(s.device->CreateBlendState(&blend_desc, &s.blend_state))
 
-	s.proj_matrix = make_default_projection(swapchain_width, swapchain_height)
-	s.view_matrix = 1
-
 	sampler_desc := d3d11.SAMPLER_DESC{
 		Filter         = .MIN_MAG_MIP_POINT,
 		AddressU       = .WRAP,
@@ -173,13 +167,10 @@ d3d11_init :: proc(state: rawptr, window_handle: uintptr, swapchain_width, swapc
 		.RGBA8_Norm,
 	})
 
-	white_rect: [16*16*4]u8
-	slice.fill(white_rect[:], 255)
-	s.shape_drawing_texture = _load_texture_from_memory(white_rect[:], 16, 16)
+	
 }
 
 d3d11_shutdown :: proc() {
-	_destroy_texture(s.shape_drawing_texture)
 	_destroy_shader(s.default_shader)
 	s.sampler_state->Release()
 	s.framebuffer_view->Release()
@@ -220,6 +211,10 @@ d3d11_get_swapchain_width :: proc() -> int {
 
 d3d11_get_swapchain_height :: proc() -> int {
 	return s.height
+}
+
+d3d11_set_view_projection_matrix :: proc(m: Mat4) {
+	s.view_proj = m
 }
 
 shader_hlsl :: #load("shader.hlsl")
@@ -290,7 +285,6 @@ D3D11_State :: struct {
 	depth_buffer: ^d3d11.ITexture2D,
 	framebuffer: ^d3d11.ITexture2D,
 	blend_state: ^d3d11.IBlendState,
-	shape_drawing_texture: Texture,
 	sampler_state: ^d3d11.ISamplerState,
 	default_shader: Shader_Handle,
 
@@ -304,12 +298,9 @@ D3D11_State :: struct {
 
 	vertex_buffer_offset: int,
 	
-	batch_texture: Texture_Handle,
-	batch_camera: Maybe(Camera),
 	batch_shader: Shader_Handle,
 
-	view_matrix: matrix[4,4]f32,
-	proj_matrix: matrix[4,4]f32,
+	view_proj: Mat4,
 }
 
 
@@ -338,18 +329,7 @@ _Texture :: struct {
 	view: ^d3d11.IShaderResourceView,
 }
 
-_load_texture_from_file :: proc(filename: string) -> Texture {
-	img, img_err := image.load_from_file(filename, options = {.alpha_add_if_missing}, allocator = context.temp_allocator)
-
-	if img_err != nil {
-		log.errorf("Error loading texture %v: %v", filename, img_err)
-		return {}
-	}
-
-	return _load_texture_from_memory(img.pixels.buf[:], img.width, img.height)
-}
-
-_load_texture_from_memory :: proc(data: []u8, width: int, height: int) -> Texture {
+d3d11_load_texture :: proc(data: []u8, width: int, height: int) -> Texture_Handle {
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
 		Height     = u32(height),
@@ -378,44 +358,16 @@ _load_texture_from_memory :: proc(data: []u8, width: int, height: int) -> Textur
 		view = texture_view,
 	}
 
-	handle := hm.add(&s.textures, tex)
-
-	return {
-		id = handle,
-		width = width,
-		height = height,
-	}
+	return hm.add(&s.textures, tex)
 }
 
-_destroy_texture :: proc(tex: Texture) {
-	if t := hm.get(&s.textures, tex.id); t != nil {
+d3d11_destroy_texture :: proc(th: Texture_Handle) {
+	if t := hm.get(&s.textures, th); t != nil {
 		t.tex->Release()
 		t.view->Release()	
 	}
 
-	hm.remove(&s.textures, tex.id)
-}
-
-_draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
-	_draw_texture_ex(
-		tex,
-		{0, 0, f32(tex.width), f32(tex.height)},
-		{pos.x, pos.y, f32(tex.width), f32(tex.height)},
-		{},
-		0,
-		tint,
-	)
-}
-
-_draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
-	_draw_texture_ex(
-		tex,
-		rect,
-		{pos.x, pos.y, rect.w, rect.h},
-		{},
-		0,
-		tint,
-	)
+	hm.remove(&s.textures, th)
 }
 
 Shader_Input_Value_Override :: struct {
@@ -447,7 +399,7 @@ set_vertex_input_override :: proc(shader: Shader_Handle, input_idx: int, overrid
 	shd.input_overrides[input_idx] = override
 }
 
-batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
+d3d11_batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
 
 	if s.vertex_buffer_cpu_used == len(s.vertex_buffer_cpu) {
@@ -493,126 +445,6 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	s.vertex_buffer_cpu_used += shd.vertex_size
 }
 
-_draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: f32, tint := WHITE) {
-	if tex.width == 0 || tex.height == 0 {
-		return
-	}
-
-	if s.batch_texture != TEXTURE_NONE && s.batch_texture != tex.id {
-		d3d11_draw_current_batch()
-	}
-
-	r := dst
-
-	r.x -= origin.x
-	r.y -= origin.y
-
-	s.batch_texture = tex.id
-	tl, tr, bl, br: Vec2
-
-	// Rotation adapted from Raylib's "DrawTexturePro"
-	if rot == 0 {
-		x := dst.x - origin.x
-		y := dst.y - origin.y
-		tl = { x,         y }
-		tr = { x + dst.w, y }
-		bl = { x,         y + dst.h }
-		br = { x + dst.w, y + dst.h }
-	} else {
-		sin_rot := math.sin(rot * math.RAD_PER_DEG)
-		cos_rot := math.cos(rot * math.RAD_PER_DEG)
-		x := dst.x
-		y := dst.y
-		dx := -origin.x
-		dy := -origin.y
-
-		tl = {
-			x + dx * cos_rot - dy * sin_rot,
-			y + dx * sin_rot + dy * cos_rot,
-		}
-
-		tr = {
-			x + (dx + dst.w) * cos_rot - dy * sin_rot,
-			y + (dx + dst.w) * sin_rot + dy * cos_rot,
-		}
-
-		bl = {
-			x + dx * cos_rot - (dy + dst.h) * sin_rot,
-			y + dx * sin_rot + (dy + dst.h) * cos_rot,
-		}
-
-		br = {
-			x + (dx + dst.w) * cos_rot - (dy + dst.h) * sin_rot,
-			y + (dx + dst.w) * sin_rot + (dy + dst.h) * cos_rot,
-		}
-	}
-	
-	ts := Vec2{f32(tex.width), f32(tex.height)}
-	up := Vec2{src.x, src.y} / ts
-	us := Vec2{src.w, src.h} / ts
-	c := tint
-	batch_vertex(tl, up, c)
-	batch_vertex(tr, up + {us.x, 0}, c)
-	batch_vertex(br, up + us, c)
-	batch_vertex(tl, up, c)
-	batch_vertex(br, up + us, c)
-	batch_vertex(bl, up + {0, us.y}, c)
-}
-
-_draw_rectangle :: proc(r: Rect, c: Color) {
-	if s.batch_texture != TEXTURE_NONE && s.batch_texture != s.shape_drawing_texture.id {
-		d3d11_draw_current_batch()
-	}
-
-	s.batch_texture = s.shape_drawing_texture.id
-
-	batch_vertex({r.x, r.y}, {0, 0}, c)
-	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
-	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	batch_vertex({r.x, r.y}, {0, 0}, c)
-	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
-}
-
-_draw_rectangle_outline :: proc(r: Rect, thickness: f32, color: Color) {
-	t := thickness
-	
-	// Based on DrawRectangleLinesEx from Raylib
-
-	top := Rect {
-		r.x,
-		r.y,
-		r.w,
-		t,
-	}
-
-	bottom := Rect {
-		r.x,
-		r.y + r.h - t,
-		r.w,
-		t,
-	}
-
-	left := Rect {
-		r.x,
-		r.y + t,
-		t,
-		r.h - t * 2,
-	}
-
-	right := Rect {
-		r.x + r.w - t,
-		r.y + t,
-		t,
-		r.h - t * 2,
-	}
-
-	_draw_rectangle(top, color)
-	_draw_rectangle(bottom, color)
-	_draw_rectangle(left, color)
-	_draw_rectangle(right, color)
-}
-
 _draw_circle :: proc(center: Vec2, radius: f32, color: Color) {
 }
 
@@ -652,10 +484,6 @@ _enable_scissor :: proc(x, y, w, h: int) {
 _disable_scissor :: proc() {
 }
 
-_set_window_size :: proc(width: int, height: int) {
-}
-
-
 _screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return pos
 }
@@ -665,30 +493,6 @@ Vec3 :: [3]f32
 vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
 	return {
 		v.x, v.y, 0,
-	}
-}
-
-_set_camera :: proc(camera: Maybe(Camera)) {
-	if camera == s.batch_camera {
-		return
-	}
-
-	d3d11_draw_current_batch()
-	s.batch_camera = camera
-
-	if c, c_ok := camera.?; c_ok {
-		origin_trans := linalg.matrix4_translate(vec3_from_vec2(-c.origin))
-		translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
-		rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
-		camera_matrix := translate * rot * origin_trans
-		s.view_matrix = linalg.inverse(camera_matrix)
-
-		s.proj_matrix = make_default_projection(s.width, s.height)
-		s.proj_matrix[0, 0] *= c.zoom
-		s.proj_matrix[1, 1] *= c.zoom
-	} else {
-		s.proj_matrix = make_default_projection(s.width, s.height)
-		s.view_matrix = 1
 	}
 }
 
@@ -742,7 +546,6 @@ _set_shader_constant_vec2 :: proc(shader: Shader_Handle, loc: Shader_Constant_Lo
 	_set_shader_constant(shader, loc, val)
 }
 
-
 d3d11_draw_current_batch :: proc() {
 	if s.vertex_buffer_cpu_used == s.vertex_buffer_offset {
 		return
@@ -791,7 +594,7 @@ d3d11_draw_current_batch :: proc() {
 		switch builtin {
 		case .MVP:
 			dst := (^matrix[4,4]f32)(&shd.constant_buffers[loc.buffer_idx].cpu_data[loc.offset])
-			dst^ = s.proj_matrix * s.view_matrix
+			dst^ = s.view_proj
 		}
 	}
 
@@ -815,7 +618,7 @@ d3d11_draw_current_batch :: proc() {
 
 	dc->PSSetShader(shd.pixel_shader, nil, 0)
 
-	if t := hm.get(&s.textures, s.batch_texture); t != nil {
+	if t := hm.get(&s.textures, batch_texture); t != nil {
 		dc->PSSetShaderResources(0, 1, &t.view)	
 	}
 	
@@ -832,6 +635,13 @@ d3d11_draw_current_batch :: proc() {
 
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+}
+
+@(private="file")
+batch_texture: Texture_Handle
+
+_tmp_set_batch_texture  :: proc(t: Texture_Handle) {
+	batch_texture = t
 }
 
 d3d11_present :: proc() {

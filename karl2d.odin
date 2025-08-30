@@ -4,6 +4,18 @@ import win32 "core:sys/windows"
 import "base:runtime"
 import "core:mem"
 import "core:log"
+import "core:math"
+import "core:math/linalg"
+import "core:slice"
+
+import "core:image"
+import "core:image/bmp"
+import "core:image/png"
+import "core:image/tga"
+
+_ :: bmp
+_ :: png
+_ :: tga
 
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory. The return value can be ignored unless you need to later call
@@ -76,12 +88,18 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	rb_alloc_error: runtime.Allocator_Error
 	s.rb_state, rb_alloc_error = mem.alloc(s.rb.state_size())
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
+	s.proj_matrix = make_default_projection(window_width, window_height)
+	s.view_matrix = 1
 	s.rb.init(s.rb_state, uintptr(hwnd), window_width, window_height, allocator, loc)
+	white_rect: [16*16*4]u8
+	slice.fill(white_rect[:], 255)
+	s.shape_drawing_texture = s.rb.load_texture(white_rect[:], 16, 16)
 	return s
 }
 
 // Closes the window and cleans up the internal state.
 shutdown :: proc() {
+	s.rb.destroy_texture(s.shape_drawing_texture)
 	s.rb.shutdown()
 
 	win32.DestroyWindow(s.window)
@@ -177,6 +195,201 @@ set_window_position :: proc(x: int, y: int) {
 	)
 }
 
+set_window_size :: proc(width: int, height: int) {
+	panic("Not implemented")
+}
+
+set_camera :: proc(camera: Maybe(Camera)) {
+	if camera == s.batch_camera {
+		return
+	}
+
+	s.rb.draw_current_batch()
+	s.batch_camera = camera
+	s.proj_matrix = make_default_projection(s.width, s.height)
+
+	if c, c_ok := camera.?; c_ok {
+		origin_trans := linalg.matrix4_translate(vec3_from_vec2(-c.origin))
+		translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
+		rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
+		camera_matrix := translate * rot * origin_trans
+		s.view_matrix = linalg.inverse(camera_matrix)
+		
+		s.proj_matrix[0, 0] *= c.zoom
+		s.proj_matrix[1, 1] *= c.zoom
+	} else {
+		s.view_matrix = 1
+	}
+
+	s.rb.set_view_projection_matrix(s.proj_matrix * s.view_matrix)
+}
+
+load_texture_from_file :: proc(filename: string) -> Texture {
+	img, img_err := image.load_from_file(filename, options = {.alpha_add_if_missing}, allocator = context.temp_allocator)
+
+	if img_err != nil {
+		log.errorf("Error loading texture %v: %v", filename, img_err)
+		return {}
+	}
+
+	backend_tex := s.rb.load_texture(img.pixels.buf[:], img.width, img.height)
+
+	return {
+		handle = backend_tex,
+		width = img.width,
+		height = img.height,
+	}
+}
+
+destroy_texture :: proc(tex: Texture) {
+	s.rb.destroy_texture(tex.handle)
+}
+
+draw_rect :: proc(r: Rect, c: Color) {
+	if s.batch_texture != TEXTURE_NONE && s.batch_texture != s.shape_drawing_texture {
+		s.rb.draw_current_batch()
+	}
+
+	s.batch_texture = s.shape_drawing_texture
+	_tmp_set_batch_texture(s.batch_texture)
+
+	s.rb.batch_vertex({r.x, r.y}, {0, 0}, c)
+	s.rb.batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
+	s.rb.batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	s.rb.batch_vertex({r.x, r.y}, {0, 0}, c)
+	s.rb.batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	s.rb.batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
+}
+
+draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
+	t := thickness
+	
+	// Based on DrawRectangleLinesEx from Raylib
+
+	top := Rect {
+		r.x,
+		r.y,
+		r.w,
+		t,
+	}
+
+	bottom := Rect {
+		r.x,
+		r.y + r.h - t,
+		r.w,
+		t,
+	}
+
+	left := Rect {
+		r.x,
+		r.y + t,
+		t,
+		r.h - t * 2,
+	}
+
+	right := Rect {
+		r.x + r.w - t,
+		r.y + t,
+		t,
+		r.h - t * 2,
+	}
+
+	draw_rect(top, color)
+	draw_rect(bottom, color)
+	draw_rect(left, color)
+	draw_rect(right, color)
+}
+
+draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
+	draw_texture_ex(
+		tex,
+		{0, 0, f32(tex.width), f32(tex.height)},
+		{pos.x, pos.y, f32(tex.width), f32(tex.height)},
+		{},
+		0,
+		tint,
+	)
+}
+
+draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
+	draw_texture_ex(
+		tex,
+		rect,
+		{pos.x, pos.y, rect.w, rect.h},
+		{},
+		0,
+		tint,
+	)
+}
+
+draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE) {
+	if tex.width == 0 || tex.height == 0 {
+		return
+	}
+
+	if s.batch_texture != TEXTURE_NONE && s.batch_texture != tex.handle {
+		s.rb.draw_current_batch()
+	}
+
+	r := dst
+
+	r.x -= origin.x
+	r.y -= origin.y
+
+	s.batch_texture = tex.handle
+	_tmp_set_batch_texture(tex.handle)
+	tl, tr, bl, br: Vec2
+
+	// Rotation adapted from Raylib's "DrawTexturePro"
+	if rotation == 0 {
+		x := dst.x - origin.x
+		y := dst.y - origin.y
+		tl = { x,         y }
+		tr = { x + dst.w, y }
+		bl = { x,         y + dst.h }
+		br = { x + dst.w, y + dst.h }
+	} else {
+		sin_rot := math.sin(rotation * math.RAD_PER_DEG)
+		cos_rot := math.cos(rotation * math.RAD_PER_DEG)
+		x := dst.x
+		y := dst.y
+		dx := -origin.x
+		dy := -origin.y
+
+		tl = {
+			x + dx * cos_rot - dy * sin_rot,
+			y + dx * sin_rot + dy * cos_rot,
+		}
+
+		tr = {
+			x + (dx + dst.w) * cos_rot - dy * sin_rot,
+			y + (dx + dst.w) * sin_rot + dy * cos_rot,
+		}
+
+		bl = {
+			x + dx * cos_rot - (dy + dst.h) * sin_rot,
+			y + dx * sin_rot + (dy + dst.h) * cos_rot,
+		}
+
+		br = {
+			x + (dx + dst.w) * cos_rot - (dy + dst.h) * sin_rot,
+			y + (dx + dst.w) * sin_rot + (dy + dst.h) * cos_rot,
+		}
+	}
+	
+	ts := Vec2{f32(tex.width), f32(tex.height)}
+	up := Vec2{src.x, src.y} / ts
+	us := Vec2{src.w, src.h} / ts
+	c := tint
+
+	s.rb.batch_vertex(tl, up, c)
+	s.rb.batch_vertex(tr, up + {us.x, 0}, c)
+	s.rb.batch_vertex(br, up + us, c)
+	s.rb.batch_vertex(tl, up, c)
+	s.rb.batch_vertex(br, up + us, c)
+	s.rb.batch_vertex(bl, up + {0, us.y}, c)
+}
+
 Rendering_Backend :: struct {
 	state_size: proc() -> int,
 	init: proc(state: rawptr, window_handle: uintptr, swapchain_width, swapchain_height: int,
@@ -187,9 +400,15 @@ Rendering_Backend :: struct {
 	draw_current_batch: proc(),
 	set_internal_state: proc(state: rawptr),
 
+	load_texture: proc(data: []u8, width: int, height: int) -> Texture_Handle,
+	destroy_texture: proc(handle: Texture_Handle),
+
 	get_swapchain_width: proc() -> int,
 	get_swapchain_height: proc() -> int,
 
+	set_view_projection_matrix: proc(m: Mat4),
+
+	batch_vertex: proc(v: Vec2, uv: Vec2, color: Color),
 }
 
 State :: struct {
@@ -207,6 +426,13 @@ State :: struct {
 	height: int,
 
 	run: bool,
+
+	shape_drawing_texture: Texture_Handle,
+	batch_camera: Maybe(Camera),
+	batch_texture: Texture_Handle,
+
+	view_matrix: Mat4,
+	proj_matrix: Mat4,
 }
 
 VK_MAP := [255]Keyboard_Key {
@@ -252,27 +478,18 @@ s: ^State
 
 
 
-set_window_size: proc(width: int, height: int) : _set_window_size
+
 
 
 get_default_shader: proc() -> Shader_Handle : _get_default_shader
 
-load_texture_from_file: proc(filename: string) -> Texture : _load_texture_from_file
-load_texture_from_memory: proc(data: []u8, width: int, height: int) -> Texture : _load_texture_from_memory
-// load_texture_from_bytes or buffer or something ()
-destroy_texture: proc(tex: Texture) : _destroy_texture
 
-set_camera: proc(camera: Maybe(Camera)) : _set_camera
+
 set_scissor_rect: proc(scissor_rect: Maybe(Rect)) : _set_scissor_rect
 set_shader: proc(shader: Shader_Handle) : _set_shader
 
 //set_vertex_value :: _set_vertex_value
 
-draw_texture: proc(tex: Texture, pos: Vec2, tint := WHITE) : _draw_texture
-draw_texture_rect: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) : _draw_texture_rect
-draw_texture_ex: proc(tex: Texture, src: Rect, dest: Rect, origin: Vec2, rotation: f32, tint := WHITE) : _draw_texture_ex
-draw_rect: proc(rect: Rect, color: Color) : _draw_rectangle
-draw_rect_outline: proc(rect: Rect, thickness: f32, color: Color) : _draw_rectangle_outline
 draw_circle: proc(center: Vec2, radius: f32, color: Color) : _draw_circle
 draw_line: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) : _draw_line
 
@@ -311,6 +528,8 @@ Color :: [4]u8
 
 Vec2 :: [2]f32
 
+Mat4 :: matrix[4,4]f32
+
 Vec2i :: [2]int
 
 Rect :: struct {
@@ -319,7 +538,7 @@ Rect :: struct {
 }
 
 Texture :: struct {
-	id: Texture_Handle,
+	handle: Texture_Handle,
 	width: int,
 	height: int,
 }
