@@ -78,6 +78,16 @@ main :: proc() {
 	}
 
 	k2.init(WINDOW_SIZE, WINDOW_SIZE, "Snake")
+
+	SHADER_SOURCE :: #load("shader.hlsl")
+
+	shader := k2.load_shader(string(SHADER_SOURCE), {
+		.RG32_Float,
+		.RG32_Float,
+		.RGBA8_Norm,
+		.RGBA8_Norm,
+	})
+
 	prev_time := time.now()
 
 	restart()
@@ -147,10 +157,13 @@ main :: proc() {
 		}
 
 		k2.clear({76, 53, 83, 255})
+		k2.set_shader(shader)
 
 		camera := k2.Camera {
 			zoom = f32(WINDOW_SIZE) / CANVAS_SIZE,
 		}
+
+		k2.set_vertex_input_override(shader, 3, k2.create_vertex_input_override(k2.Color{255, 255, 255, 128}))
 
 		k2.set_camera(camera)
 		food_sprite.width = CELL_SIZE

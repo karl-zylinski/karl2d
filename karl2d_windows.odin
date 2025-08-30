@@ -177,7 +177,11 @@ _init :: proc(width: int, height: int, title: string,
 	}
 	s.device->CreateSamplerState(&sampler_desc, &s.sampler_state)
 
-	s.default_shader = _load_shader(string(shader_hlsl))
+	s.default_shader = _load_shader(string(shader_hlsl), {
+		.RG32_Float,
+		.RG32_Float,
+		.RGBA8_Norm,
+	})
 
 	white_rect: [16*16*4]u8
 	slice.fill(white_rect[:], 255)
@@ -235,6 +239,7 @@ Shader :: struct {
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
 
 	inputs: []Shader_Input,
+	input_overrides: []Shader_Input_Value_Override,
 	default_input_offsets: [Shader_Default_Inputs]int,
 	vertex_size: int,
 }
@@ -484,6 +489,35 @@ _draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 	)
 }
 
+Shader_Input_Value_Override :: struct {
+	val: [256]u8,
+	used: int,
+}
+
+create_vertex_input_override :: proc(val: $T) -> Shader_Input_Value_Override {
+	assert(size_of(T) < 256)
+	res: Shader_Input_Value_Override
+	((^T)(raw_data(&res.val)))^ = val
+	res.used = size_of(T)
+	return res
+}
+
+set_vertex_input_override :: proc(shader: Shader_Handle, input_idx: int, override: Shader_Input_Value_Override) {
+	shd := hm.get(&s.shaders, shader)
+
+	if shd == nil {
+		log.error("Valid shader")
+		return
+	}
+
+	if input_idx < 0 || input_idx >= len(shd.input_overrides) {
+		log.error("Override input idx out of bounds")
+		return
+	}
+
+	shd.input_overrides[input_idx] = override
+}
+
 batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
 
@@ -513,6 +547,18 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 
 	if color_offset != -1 {
 		(^Color)(&s.vertex_buffer_cpu[base_offset + color_offset])^ = color
+	}
+
+	override_offset: int
+	for &o, idx in shd.input_overrides {
+		input := &shd.inputs[idx]
+		sz := shader_input_format_size(input.format)
+
+		if o.used != 0 {
+			mem.copy(&s.vertex_buffer_cpu[base_offset + override_offset], raw_data(&o.val), o.used)
+		}
+
+		override_offset += sz
 	}
 	
 	s.vertex_buffer_cpu_used += shd.vertex_size
@@ -652,6 +698,10 @@ _get_screen_height :: proc() -> int {
 	return s.height
 }
 
+_get_default_shader :: proc() -> Shader_Handle {
+	return s.default_shader
+}
+
 _key_went_down :: proc(key: Keyboard_Key) -> bool {
 	return s.keys_went_down[key]
 }
@@ -760,28 +810,6 @@ _set_shader :: proc(shader: Shader_Handle) {
 
 	_draw_current_batch()
 	s.batch_shader = shader
-}
-
-_set_shader_vertex_layout :: proc(shader: Shader_Handle, layout: []Shader_Input_Format) {
-	shd := hm.get(&s.shaders, shader)
-
-	if shd == nil {
-		log.error("Invalid shader")
-		return
-	}
-
-	if len(layout) != len(shd.inputs) {
-		log.error("Shader has %v inputs but layout only specifies %v. The inputs are:", len(shd.inputs), len(layout))
-
-		for i in shd.inputs {
-			log.error(i)
-		}
-		return
-	}
-
-	for _, idx in shd.inputs {
-		shd.inputs[idx].format = layout[idx]
-	}
 }
 
 _set_shader_constant :: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: $T) {
@@ -937,7 +965,7 @@ Shader_Constant_Location :: struct {
 	offset: u32,
 }
 
-_load_shader :: proc(shader: string) -> Shader_Handle {
+_load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format = {}) -> Shader_Handle {
 	vs_blob: ^d3d11.IBlob
 	vs_blob_errors: ^d3d11.IBlob
 	ch(d3d_compiler.Compile(raw_data(shader), len(shader), nil, nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
@@ -1071,26 +1099,46 @@ _load_shader :: proc(shader: string) -> Shader_Handle {
 	}
 	input_offset: int
 
-	for &i in inputs {
-		if i.name == "POS" && i.type == .Vec2 {
-			i.format = .RG32_Float
-			default_input_offsets[.Position] = input_offset
-		} else if i.name == "UV" && i.type == .Vec2 {
-			i.format = .RG32_Float
-			default_input_offsets[.UV] = input_offset
-		} else if i.name == "COL" && i.type == .Vec4 {
-			i.format = .RGBA8_Norm
-			default_input_offsets[.Color] = input_offset
+	if len(layout_formats) > 0 {
+		if len(layout_formats) != len(inputs) {
+			log.error("Passed number of layout formats isn't same as number of shader inputs")
 		} else {
-			switch i.type {
-			case .F32: i.format = .R32_Float
-			case .Vec2: i.format = .RG32_Float
-			case .Vec3: i.format = .RGBA32_Float
-			case .Vec4: i.format = .RGBA32_Float
+			for &i, idx in inputs {
+				i.format = layout_formats[idx]
+
+				if i.name == "POS" && i.type == .Vec2 {
+					default_input_offsets[.Position] = input_offset
+				} else if i.name == "UV" && i.type == .Vec2 {
+					default_input_offsets[.UV] = input_offset
+				} else if i.name == "COL" && i.type == .Vec4 {
+					default_input_offsets[.Color] = input_offset
+				}
+
+				input_offset += shader_input_format_size(i.format)
 			}
 		}
+	} else {
+		for &i in inputs {
+			if i.name == "POS" && i.type == .Vec2 {
+				i.format = .RG32_Float
+				default_input_offsets[.Position] = input_offset
+			} else if i.name == "UV" && i.type == .Vec2 {
+				i.format = .RG32_Float
+				default_input_offsets[.UV] = input_offset
+			} else if i.name == "COL" && i.type == .Vec4 {
+				i.format = .RGBA8_Norm
+				default_input_offsets[.Color] = input_offset
+			} else {
+				switch i.type {
+				case .F32: i.format = .R32_Float
+				case .Vec2: i.format = .RG32_Float
+				case .Vec3: i.format = .RGBA32_Float
+				case .Vec4: i.format = .RGBA32_Float
+				}
+			}
 
-		input_offset += shader_input_format_size(i.format)
+			input_offset += shader_input_format_size(i.format)
+		}
 	}
 
 	input_layout_desc := make([]d3d11.INPUT_ELEMENT_DESC, len(inputs), context.temp_allocator)
@@ -1128,6 +1176,7 @@ _load_shader :: proc(shader: string) -> Shader_Handle {
 		constant_lookup = constant_lookup,
 		constant_builtin_locations = constant_builtin_locations,
 		inputs = inputs,
+		input_overrides = make([]Shader_Input_Value_Override, len(inputs)),
 		default_input_offsets = default_input_offsets,
 		vertex_size = input_offset,
 	}
@@ -1138,6 +1187,7 @@ _load_shader :: proc(shader: string) -> Shader_Handle {
 
 dxgi_format_from_shader_input_format :: proc(f: Shader_Input_Format) -> dxgi.FORMAT {
 	switch f {
+	case .Unknown: return .UNKNOWN
 	case .RGBA32_Float: return .R32G32B32A32_FLOAT
 	case .RGBA8_Norm: return .R8G8B8A8_UNORM
 	case .RGBA8_Norm_SRGB: return .R8G8B8A8_UNORM_SRGB
@@ -1151,6 +1201,7 @@ dxgi_format_from_shader_input_format :: proc(f: Shader_Input_Format) -> dxgi.FOR
 
 shader_input_format_size :: proc(f: Shader_Input_Format) -> int {
 	switch f {
+	case .Unknown: return 0
 	case .RGBA32_Float: return 32
 	case .RGBA8_Norm: return 4
 	case .RGBA8_Norm_SRGB: return 4

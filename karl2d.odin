@@ -38,6 +38,8 @@ set_window_position: proc(x: int, y: int) : _set_window_position
 get_screen_width: proc() -> int : _get_screen_width
 get_screen_height: proc() -> int : _get_screen_height
 
+get_default_shader: proc() -> Shader_Handle : _get_default_shader
+
 load_texture_from_file: proc(filename: string) -> Texture : _load_texture_from_file
 load_texture_from_memory: proc(data: []u8, width: int, height: int) -> Texture : _load_texture_from_memory
 // load_texture_from_bytes or buffer or something ()
@@ -47,6 +49,8 @@ set_camera: proc(camera: Maybe(Camera)) : _set_camera
 set_scissor_rect: proc(scissor_rect: Maybe(Rect)) : _set_scissor_rect
 set_shader: proc(shader: Shader_Handle) : _set_shader
 
+//set_vertex_value :: _set_vertex_value
+
 draw_texture: proc(tex: Texture, pos: Vec2, tint := WHITE) : _draw_texture
 draw_texture_rect: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) : _draw_texture_rect
 draw_texture_ex: proc(tex: Texture, src: Rect, dest: Rect, origin: Vec2, rotation: f32, tint := WHITE) : _draw_texture_ex
@@ -55,7 +59,7 @@ draw_rect_outline: proc(rect: Rect, thickness: f32, color: Color) : _draw_rectan
 draw_circle: proc(center: Vec2, radius: f32, color: Color) : _draw_circle
 draw_line: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) : _draw_line
 
-load_shader: proc(shader_source: string) -> Shader_Handle : _load_shader
+load_shader: proc(shader_source: string, layout_formats: []Shader_Input_Format = {}) -> Shader_Handle : _load_shader
 destroy_shader: proc(shader: Shader_Handle) : _destroy_shader
 
 get_shader_constant_location: proc(shader: Shader_Handle, name: string) -> Shader_Constant_Location : _get_shader_constant_location
@@ -64,9 +68,8 @@ set_shader_constant_mat4: proc(shader: Shader_Handle, loc: Shader_Constant_Locat
 set_shader_constant_f32: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: f32) : _set_shader_constant_f32
 set_shader_constant_vec2: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: Vec2) : _set_shader_constant_vec2
 
-set_vertex_field :: proc(input: Shader_Input)
-
 Shader_Input_Format :: enum {
+	Unknown,
 	RGBA32_Float,
 	RGBA8_Norm,
 	RGBA8_Norm_SRGB,
@@ -74,7 +77,6 @@ Shader_Input_Format :: enum {
 	R32_Float,
 }
 
-set_shader_vertex_layout: proc(shader: Shader_Handle, layout: []Shader_Input_Format) : _set_shader_vertex_layout
 
 // WARNING: Not proper text rendering yet... No font support etc
 draw_text: proc(text: string, pos: Vec2, font_size: f32, color: Color) : _draw_text
