@@ -85,7 +85,7 @@ main :: proc() {
 		.RG32_Float,
 		.RG32_Float,
 		.RGBA8_Norm,
-		.RGBA8_Norm,
+		.RG32_Float,
 	})
 
 	prev_time := time.now()
@@ -96,11 +96,14 @@ main :: proc() {
 	head_sprite := k2.load_texture_from_file("head.png")
 	body_sprite := k2.load_texture_from_file("body.png")
 	tail_sprite := k2.load_texture_from_file("tail.png")
+	food_eaten_at := time.now()
+	started_at := time.now()
 
 	for !k2.window_should_close() {
 		time_now := time.now()
 		dt := f32(time.duration_seconds(time.diff(prev_time, time_now)))
 		prev_time = time_now
+		total_time := time.duration_seconds(time.diff(started_at, time_now))
 		k2.process_events()
 
 		if k2.key_is_held(.Up) {
@@ -151,6 +154,7 @@ main :: proc() {
 				snake_length += 1
 				snake[snake_length - 1] = next_part_pos
 				place_food()
+				food_eaten_at = time.now()
 			}
 
 			tick_timer = TICK_RATE + tick_timer
@@ -163,7 +167,14 @@ main :: proc() {
 			zoom = f32(WINDOW_SIZE) / CANVAS_SIZE,
 		}
 
-		k2.set_vertex_input_override(shader, 3, k2.create_vertex_input_override(k2.Color{255, 255, 255, 128}))
+
+		time_since_food := time.duration_seconds(time.diff(food_eaten_at, time_now))
+
+		if time_since_food < 0.5 && total_time > 1 {
+			k2.set_vertex_input_override(shader, 3, k2.create_vertex_input_override(k2.Vec2{f32(math.cos(total_time*100)), f32(math.sin(total_time*120 + 3))}))
+		} else {
+			k2.set_vertex_input_override(shader, 3, {})
+		}
 
 		k2.set_camera(camera)
 		food_sprite.width = CELL_SIZE
