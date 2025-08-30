@@ -13,9 +13,14 @@ import "core:image/bmp"
 import "core:image/png"
 import "core:image/tga"
 
+import hm "handle_map"
+
 _ :: bmp
 _ :: png
 _ :: tga
+
+Handle :: hm.Handle
+Texture_Handle :: distinct Handle
 
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory. The return value can be ignored unless you need to later call

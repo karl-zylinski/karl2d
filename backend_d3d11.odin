@@ -221,8 +221,6 @@ shader_hlsl :: #load("shader.hlsl")
 
 VERTEX_BUFFER_MAX :: 1000000
 
-Handle :: hm.Handle
-Texture_Handle :: distinct hm.Handle
 TEXTURE_NONE :: Texture_Handle {}
 
 Shader_Constant_Buffer :: struct {
