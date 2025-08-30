@@ -1,10 +1,199 @@
 package karl2d
 
+import win32 "core:sys/windows"
+import "base:runtime"
+import "core:mem"
+import "core:log"
+
+Rendering_Backend :: struct {
+	state_size: proc() -> int,
+	init: proc(state: rawptr, window_handle: uintptr, swapchain_width, swapchain_height: int,
+		allocator := context.allocator, loc := #caller_location),
+	set_internal_state: proc(state: rawptr),
+}
+
+State :: struct {
+	allocator: runtime.Allocator,
+	custom_context: runtime.Context,
+	rb: Rendering_Backend,
+	rb_state: rawptr,
+	
+
+	keys_went_down: #sparse [Keyboard_Key]bool,
+	keys_went_up: #sparse [Keyboard_Key]bool,
+	keys_is_held: #sparse [Keyboard_Key]bool,
+
+	window: win32.HWND,
+	width: int,
+	height: int,
+
+	run: bool,
+}
+
+VK_MAP := [255]Keyboard_Key {
+	win32.VK_A = .A,
+	win32.VK_B = .B,
+	win32.VK_C = .C,
+	win32.VK_D = .D,
+	win32.VK_E = .E,
+	win32.VK_F = .F,
+	win32.VK_G = .G,
+	win32.VK_H = .H,
+	win32.VK_I = .I,
+	win32.VK_J = .J,
+	win32.VK_K = .K,
+	win32.VK_L = .L,
+	win32.VK_M = .M,
+	win32.VK_N = .N,
+	win32.VK_O = .O,
+	win32.VK_P = .P,
+	win32.VK_Q = .Q,
+	win32.VK_R = .R,
+	win32.VK_S = .S,
+	win32.VK_T = .T,
+	win32.VK_U = .U,
+	win32.VK_V = .V,
+	win32.VK_W = .W,
+	win32.VK_X = .X,
+	win32.VK_Y = .Y,
+	win32.VK_Z = .Z,
+	win32.VK_LEFT = .Left,
+	win32.VK_RIGHT = .Right,
+	win32.VK_UP = .Up,
+	win32.VK_DOWN = .Down,
+}
+
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory. The return value can be ignored unless you need to later call
 // `set_state`.
-init: proc(window_width: int, window_height: int, window_title: string,
-           allocator := context.allocator, loc := #caller_location) -> ^State : _init
+init :: proc(window_width: int, window_height: int, window_title: string,
+             allocator := context.allocator, loc := #caller_location) -> ^State {
+	win32.SetProcessDPIAware()
+	s = new(State, allocator, loc)
+	s.allocator = allocator
+	s.custom_context = context
+
+	CLASS_NAME :: "karl2d"
+	instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
+
+	s.run = true
+	s.width = window_width
+	s.height = window_height
+
+	cls := win32.WNDCLASSW {
+		lpfnWndProc = window_proc,
+		lpszClassName = CLASS_NAME,
+		hInstance = instance,
+		hCursor = win32.LoadCursorA(nil, win32.IDC_ARROW),
+	}
+
+	window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
+		context = s.custom_context
+		switch msg {
+		case win32.WM_DESTROY:
+			win32.PostQuitMessage(0)
+			s.run = false
+
+		case win32.WM_CLOSE:
+			s.run = false
+
+		case win32.WM_KEYDOWN:
+			key := VK_MAP[wparam]
+			s.keys_went_down[key] = true
+			s.keys_is_held[key] = true
+
+		case win32.WM_KEYUP:
+			key := VK_MAP[wparam]
+			s.keys_is_held[key] = false
+			s.keys_went_up[key] = true
+		}
+
+		return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
+	}
+
+	win32.RegisterClassW(&cls)
+
+	r: win32.RECT
+	r.right = i32(window_width)
+	r.bottom = i32(window_height)
+
+	style := win32.WS_OVERLAPPEDWINDOW | win32.WS_VISIBLE
+	win32.AdjustWindowRect(&r, style, false)
+
+	hwnd := win32.CreateWindowW(CLASS_NAME,
+		win32.utf8_to_wstring(window_title),
+		style,
+		100, 10, r.right - r.left, r.bottom - r.top,
+		nil, nil, instance, nil)
+
+	s.window = hwnd
+
+	assert(hwnd != nil, "Failed creating window")
+
+	s.rb = make_backend_d3d11()
+	rb_alloc_error: runtime.Allocator_Error
+	s.rb_state, rb_alloc_error = mem.alloc(s.rb.state_size())
+	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
+	s.rb.init(s.rb_state, uintptr(hwnd), window_width, window_height, allocator, loc)
+	return s
+}
+
+// Call at start or end of frame to process all events that have arrived to the window.
+//
+// WARNING: Not calling this will make your program impossible to interact with.
+process_events :: proc() {
+	s.keys_went_up = {}
+	s.keys_went_down = {}
+
+	msg: win32.MSG
+
+	for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
+		win32.TranslateMessage(&msg)
+		win32.DispatchMessageW(&msg)			
+	}
+}
+
+get_screen_width :: proc() -> int {
+	return s.width
+}
+
+get_screen_height :: proc() -> int  {
+	return s.height
+}
+
+key_went_down :: proc(key: Keyboard_Key) -> bool {
+	return s.keys_went_down[key]
+}
+
+key_went_up :: proc(key: Keyboard_Key) -> bool {
+	return s.keys_went_up[key]
+}
+
+key_is_held :: proc(key: Keyboard_Key) -> bool {
+	return s.keys_is_held[key]
+}
+
+window_should_close :: proc() -> bool {
+	return !s.run
+}
+
+set_window_position :: proc(x: int, y: int) {
+	// TODO: Does x, y respect monitor DPI?
+
+	win32.SetWindowPos(
+		s.window,
+		{},
+		i32(x),
+		i32(y),
+		0,
+		0,
+		win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOSIZE,
+	)
+}
+
+
+@(private="file")
+s: ^State
 
 // Closes the window and cleans up the internal state.
 shutdown: proc() : _shutdown
@@ -12,10 +201,6 @@ shutdown: proc() : _shutdown
 // Clear the backbuffer with supplied color.
 clear: proc(color: Color) : _clear
 
-// Call at start or end of frame to process all events that have arrived to the window.
-//
-// WARNING: Not calling this will make your program impossible to interact with.
-process_events: proc() : _process_events
 
 // Present the backbuffer. Call at end of frame to make everything you've drawn appear on the screen.
 present: proc() : _present
@@ -26,17 +211,17 @@ present: proc() : _present
 draw_current_batch: proc() : _draw_current_batch
 
 // Returns true if the user has tried to close the window.
-window_should_close : proc() -> bool : _window_should_close
+
 
 // Can be used to restore the internal state using the pointer returned by `init`. Useful after
 // reloading the library (for example, when doing code hot reload).
-set_internal_state: proc(ks: ^State) : _set_internal_state
+set_internal_state :: proc(state: ^State) {
+	s = state
+	s.rb.set_internal_state(s.rb_state)
+}
 
 set_window_size: proc(width: int, height: int) : _set_window_size
-set_window_position: proc(x: int, y: int) : _set_window_position
 
-get_screen_width: proc() -> int : _get_screen_width
-get_screen_height: proc() -> int : _get_screen_height
 
 get_default_shader: proc() -> Shader_Handle : _get_default_shader
 
@@ -83,9 +268,6 @@ draw_text: proc(text: string, pos: Vec2, font_size: f32, color: Color) : _draw_t
 
 screen_to_world: proc(pos: Vec2, camera: Camera) -> Vec2 : _screen_to_world
 
-key_went_down: proc(key: Keyboard_Key) -> bool : _key_went_down
-key_went_up: proc(key: Keyboard_Key) -> bool : _key_went_up
-key_is_held: proc(key: Keyboard_Key) -> bool : _key_is_held
 
 mouse_button_went_down: proc(button: Mouse_Button) -> bool : _mouse_button_pressed
 mouse_button_went_up: proc(button: Mouse_Button) -> bool : _mouse_button_released

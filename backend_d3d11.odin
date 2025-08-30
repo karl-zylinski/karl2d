@@ -1,7 +1,6 @@
 #+build windows
 
 package karl2d
-import "base:runtime"
 import win32 "core:sys/windows"
 import d3d11 "vendor:directx/d3d11"
 import dxgi "vendor:directx/dxgi"
@@ -14,6 +13,7 @@ import "core:mem"
 import "core:math"
 import "core:image"
 import hm "handle_map"
+import "base:runtime"
 
 import "core:image/bmp"
 import "core:image/png"
@@ -23,45 +23,28 @@ _ :: bmp
 _ :: png
 _ :: tga
 
-_init :: proc(width: int, height: int, title: string,
-              allocator := context.allocator, loc := #caller_location) -> ^State {
-	win32.SetProcessDPIAware()
-	s = new(State, allocator, loc)
-	s.allocator = allocator
-	s.custom_context = context
-	CLASS_NAME :: "karl2d"
-	instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
-
-	s.run = true
-	s.width = width
-	s.height = height
-
-	cls := win32.WNDCLASSW {
-		lpfnWndProc = window_proc,
-		lpszClassName = CLASS_NAME,
-		hInstance = instance,
-		hCursor = win32.LoadCursorA(nil, win32.IDC_ARROW),
+make_backend_d3d11 :: proc() -> Rendering_Backend {
+	return {
+		state_size = d3d11_state_size,
+		init = d3d11_init,
+		set_internal_state = d3d11_set_internal_state,
 	}
+}
 
-	win32.RegisterClassW(&cls)
+@(private="file")
+s: ^D3D11_State
 
-	r: win32.RECT
-	r.right = i32(width)
-	r.bottom = i32(height)
+d3d11_state_size :: proc() -> int {
+	return size_of(D3D11_State)
+}
 
-	style := win32.WS_OVERLAPPEDWINDOW | win32.WS_VISIBLE
-	win32.AdjustWindowRect(&r, style, false)
-
-	hwnd := win32.CreateWindowW(CLASS_NAME,
-		win32.utf8_to_wstring(title),
-		style,
-		100, 10, r.right - r.left, r.bottom - r.top,
-		nil, nil, instance, nil)
-
-	s.window = hwnd
-
-	assert(hwnd != nil, "Failed creating window")
-
+d3d11_init :: proc(state: rawptr, window_handle: uintptr, swapchain_width, swapchain_height: int,
+	allocator := context.allocator, loc := #caller_location) {
+	hwnd := win32.HWND(window_handle)
+	s = (^D3D11_State)(state)
+	s.allocator = allocator
+	s.width = swapchain_width
+	s.height = swapchain_height
 	feature_levels := [?]d3d11.FEATURE_LEVEL{
 		._11_1,
 		._11_0,
@@ -165,7 +148,7 @@ _init :: proc(width: int, height: int, title: string,
 
 	ch(s.device->CreateBlendState(&blend_desc, &s.blend_state))
 
-	s.proj_matrix = make_default_projection(s.width, s.height)
+	s.proj_matrix = make_default_projection(swapchain_width, swapchain_height)
 	s.view_matrix = 1
 
 	sampler_desc := d3d11.SAMPLER_DESC{
@@ -186,13 +169,13 @@ _init :: proc(width: int, height: int, title: string,
 	white_rect: [16*16*4]u8
 	slice.fill(white_rect[:], 255)
 	s.shape_drawing_texture = _load_texture_from_memory(white_rect[:], 16, 16)
+}
 
-	return s
+d3d11_set_internal_state :: proc(state: rawptr) {
+	s = (^D3D11_State)(state)
 }
 
 shader_hlsl :: #load("shader.hlsl")
-
-s: ^State
 
 VERTEX_BUFFER_MAX :: 1000000
 
@@ -244,7 +227,12 @@ Shader :: struct {
 	vertex_size: int,
 }
 
-State :: struct {
+D3D11_State :: struct {
+	allocator: runtime.Allocator,
+
+	width: int,
+	height: int,
+
 	swapchain: ^dxgi.ISwapChain1,
 	framebuffer_view: ^d3d11.IRenderTargetView,
 	depth_buffer_view: ^d3d11.IDepthStencilView,
@@ -268,83 +256,15 @@ State :: struct {
 	vertex_buffer_cpu_used: int,
 
 	vertex_buffer_offset: int,
-
-	run: bool,
-	custom_context: runtime.Context,
-	allocator: runtime.Allocator,
 	
 	batch_texture: Texture_Handle,
 	batch_camera: Maybe(Camera),
 	batch_shader: Shader_Handle,
 
-	window: win32.HWND,
-	width: int,
-	height: int,
-
-	keys_went_down: #sparse [Keyboard_Key]bool,
-	keys_went_up: #sparse [Keyboard_Key]bool,
-	keys_is_held: #sparse [Keyboard_Key]bool,
-
 	view_matrix: matrix[4,4]f32,
 	proj_matrix: matrix[4,4]f32,
 }
 
-VK_MAP := [255]Keyboard_Key {
-	win32.VK_A = .A,
-	win32.VK_B = .B,
-	win32.VK_C = .C,
-	win32.VK_D = .D,
-	win32.VK_E = .E,
-	win32.VK_F = .F,
-	win32.VK_G = .G,
-	win32.VK_H = .H,
-	win32.VK_I = .I,
-	win32.VK_J = .J,
-	win32.VK_K = .K,
-	win32.VK_L = .L,
-	win32.VK_M = .M,
-	win32.VK_N = .N,
-	win32.VK_O = .O,
-	win32.VK_P = .P,
-	win32.VK_Q = .Q,
-	win32.VK_R = .R,
-	win32.VK_S = .S,
-	win32.VK_T = .T,
-	win32.VK_U = .U,
-	win32.VK_V = .V,
-	win32.VK_W = .W,
-	win32.VK_X = .X,
-	win32.VK_Y = .Y,
-	win32.VK_Z = .Z,
-	win32.VK_LEFT = .Left,
-	win32.VK_RIGHT = .Right,
-	win32.VK_UP = .Up,
-	win32.VK_DOWN = .Down,
-}
-
-window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
-	context = s.custom_context
-	switch msg {
-	case win32.WM_DESTROY:
-		win32.PostQuitMessage(0)
-		s.run = false
-
-	case win32.WM_CLOSE:
-		s.run = false
-
-	case win32.WM_KEYDOWN:
-		key := VK_MAP[wparam]
-		s.keys_went_down[key] = true
-		s.keys_is_held[key] = true
-
-	case win32.WM_KEYUP:
-		key := VK_MAP[wparam]
-		s.keys_is_held[key] = false
-		s.keys_went_up[key] = true
-	}
-
-	return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
-}
 
 _shutdown :: proc() {
 	_destroy_texture(s.shape_drawing_texture)
@@ -380,10 +300,6 @@ _shutdown :: proc() {
 	a := s.allocator
 	free(s, a)
 	s = nil
-}
-
-_set_internal_state :: proc(new_state: ^State) {
-	s = new_state
 }
 
 Color_F32 :: [4]f32
@@ -690,32 +606,8 @@ _draw_circle :: proc(center: Vec2, radius: f32, color: Color) {
 _draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 }
 
-_get_screen_width :: proc() -> int {
-	return s.width
-}
-
-_get_screen_height :: proc() -> int {
-	return s.height
-}
-
 _get_default_shader :: proc() -> Shader_Handle {
 	return s.default_shader
-}
-
-_key_went_down :: proc(key: Keyboard_Key) -> bool {
-	return s.keys_went_down[key]
-}
-
-_key_went_up :: proc(key: Keyboard_Key) -> bool {
-	return s.keys_went_up[key]
-}
-
-_key_is_held :: proc(key: Keyboard_Key) -> bool {
-	return s.keys_is_held[key]
-}
-
-_window_should_close :: proc() -> bool {
-	return !s.run
 }
 
 _draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
@@ -750,18 +642,6 @@ _disable_scissor :: proc() {
 _set_window_size :: proc(width: int, height: int) {
 }
 
-_set_window_position :: proc(x: int, y: int) {
-	// TODO: Does x, y respect monitor DPI?
-	win32.SetWindowPos(
-		s.window,
-		{},
-		i32(x),
-		i32(y),
-		0,
-		0,
-		win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOSIZE,
-	)
-}
 
 _screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return pos
@@ -849,18 +729,6 @@ _set_shader_constant_vec2 :: proc(shader: Shader_Handle, loc: Shader_Constant_Lo
 	_set_shader_constant(shader, loc, val)
 }
 
-
-_process_events :: proc() {
-	s.keys_went_up = {}
-	s.keys_went_down = {}
-
-	msg: win32.MSG
-
-	for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
-		win32.TranslateMessage(&msg)
-		win32.DispatchMessageW(&msg)			
-	}
-}
 
 _draw_current_batch :: proc() {
 	if s.vertex_buffer_cpu_used == s.vertex_buffer_offset {
