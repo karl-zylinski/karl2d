@@ -23,12 +23,19 @@ _ :: bmp
 _ :: png
 _ :: tga
 
-make_backend_d3d11 :: proc() -> Rendering_Backend {
-	return {
-		state_size = d3d11_state_size,
-		init = d3d11_init,
-		set_internal_state = d3d11_set_internal_state,
-	}
+BACKEND_D3D11 :: Rendering_Backend {
+	state_size = d3d11_state_size,
+	init = d3d11_init,
+	shutdown = d3d11_shutdown,
+	clear = d3d11_clear,
+	present = d3d11_present,
+	draw_current_batch = d3d11_draw_current_batch,
+	
+	get_swapchain_width = d3d11_get_swapchain_width,
+	get_swapchain_height = d3d11_get_swapchain_height,
+
+
+	set_internal_state = d3d11_set_internal_state,
 }
 
 @(private="file")
@@ -171,8 +178,48 @@ d3d11_init :: proc(state: rawptr, window_handle: uintptr, swapchain_width, swapc
 	s.shape_drawing_texture = _load_texture_from_memory(white_rect[:], 16, 16)
 }
 
+d3d11_shutdown :: proc() {
+	_destroy_texture(s.shape_drawing_texture)
+	_destroy_shader(s.default_shader)
+	s.sampler_state->Release()
+	s.framebuffer_view->Release()
+	s.depth_buffer_view->Release()
+	s.depth_buffer->Release()
+	s.framebuffer->Release()
+	s.device_context->Release()
+	s.vertex_buffer_gpu->Release()
+	//s.constant_buffer->Release()
+	s.depth_stencil_state->Release()
+	s.rasterizer_state->Release()
+	s.swapchain->Release()
+	s.blend_state->Release()
+	delete(s.vertex_buffer_cpu, s.allocator)
+
+	when ODIN_DEBUG {
+		debug: ^d3d11.IDebug
+
+		if ch(s.device->QueryInterface(d3d11.IDebug_UUID, (^rawptr)(&debug))) >= 0 {
+			ch(debug->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL}))
+			log_messages()
+		}
+
+		debug->Release()
+	}
+
+	s.device->Release()
+	s.info_queue->Release()
+}
+
 d3d11_set_internal_state :: proc(state: rawptr) {
 	s = (^D3D11_State)(state)
+}
+
+d3d11_get_swapchain_width :: proc() -> int {
+	return s.width
+}
+
+d3d11_get_swapchain_height :: proc() -> int {
+	return s.height
 }
 
 shader_hlsl :: #load("shader.hlsl")
@@ -266,41 +313,7 @@ D3D11_State :: struct {
 }
 
 
-_shutdown :: proc() {
-	_destroy_texture(s.shape_drawing_texture)
-	_destroy_shader(s.default_shader)
-	s.sampler_state->Release()
-	s.framebuffer_view->Release()
-	s.depth_buffer_view->Release()
-	s.depth_buffer->Release()
-	s.framebuffer->Release()
-	s.device_context->Release()
-	s.vertex_buffer_gpu->Release()
-	//s.constant_buffer->Release()
-	s.depth_stencil_state->Release()
-	s.rasterizer_state->Release()
-	s.swapchain->Release()
-	s.blend_state->Release()
-	delete(s.vertex_buffer_cpu, s.allocator)
 
-	when ODIN_DEBUG {
-		debug: ^d3d11.IDebug
-
-		if ch(s.device->QueryInterface(d3d11.IDebug_UUID, (^rawptr)(&debug))) >= 0 {
-			ch(debug->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL}))
-			log_messages()
-		}
-
-		debug->Release()
-	}
-
-	s.device->Release()
-	s.info_queue->Release()
-
-	a := s.allocator
-	free(s, a)
-	s = nil
-}
 
 Color_F32 :: [4]f32
 
@@ -313,7 +326,7 @@ f32_color_from_color :: proc(color: Color) -> Color_F32 {
 	}
 }
 
-_clear :: proc(color: Color) {
+d3d11_clear :: proc(color: Color) {
 	c := f32_color_from_color(color)
 	s.device_context->ClearRenderTargetView(s.framebuffer_view, &c)
 	s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 1, 0)
@@ -486,7 +499,7 @@ _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: 
 	}
 
 	if s.batch_texture != TEXTURE_NONE && s.batch_texture != tex.id {
-		_draw_current_batch()
+		d3d11_draw_current_batch()
 	}
 
 	r := dst
@@ -548,7 +561,7 @@ _draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rot: 
 
 _draw_rectangle :: proc(r: Rect, c: Color) {
 	if s.batch_texture != TEXTURE_NONE && s.batch_texture != s.shape_drawing_texture.id {
-		_draw_current_batch()
+		d3d11_draw_current_batch()
 	}
 
 	s.batch_texture = s.shape_drawing_texture.id
@@ -660,7 +673,7 @@ _set_camera :: proc(camera: Maybe(Camera)) {
 		return
 	}
 
-	_draw_current_batch()
+	d3d11_draw_current_batch()
 	s.batch_camera = camera
 
 	if c, c_ok := camera.?; c_ok {
@@ -688,12 +701,12 @@ _set_shader :: proc(shader: Shader_Handle) {
 		return
 	}
 
-	_draw_current_batch()
+	d3d11_draw_current_batch()
 	s.batch_shader = shader
 }
 
 _set_shader_constant :: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: $T) {
-	_draw_current_batch()
+	d3d11_draw_current_batch()
 
 	shd := hm.get(&s.shaders, shader)
 
@@ -730,7 +743,7 @@ _set_shader_constant_vec2 :: proc(shader: Shader_Handle, loc: Shader_Constant_Lo
 }
 
 
-_draw_current_batch :: proc() {
+d3d11_draw_current_batch :: proc() {
 	if s.vertex_buffer_cpu_used == s.vertex_buffer_offset {
 		return
 	}
@@ -821,8 +834,8 @@ make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
 }
 
-_present :: proc() {
-	_draw_current_batch()
+d3d11_present :: proc() {
+	d3d11_draw_current_batch()
 	ch(s.swapchain->Present(1, {}))
 	s.vertex_buffer_offset = 0
 	s.vertex_buffer_cpu_used = 0

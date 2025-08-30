@@ -5,64 +5,6 @@ import "base:runtime"
 import "core:mem"
 import "core:log"
 
-Rendering_Backend :: struct {
-	state_size: proc() -> int,
-	init: proc(state: rawptr, window_handle: uintptr, swapchain_width, swapchain_height: int,
-		allocator := context.allocator, loc := #caller_location),
-	set_internal_state: proc(state: rawptr),
-}
-
-State :: struct {
-	allocator: runtime.Allocator,
-	custom_context: runtime.Context,
-	rb: Rendering_Backend,
-	rb_state: rawptr,
-	
-
-	keys_went_down: #sparse [Keyboard_Key]bool,
-	keys_went_up: #sparse [Keyboard_Key]bool,
-	keys_is_held: #sparse [Keyboard_Key]bool,
-
-	window: win32.HWND,
-	width: int,
-	height: int,
-
-	run: bool,
-}
-
-VK_MAP := [255]Keyboard_Key {
-	win32.VK_A = .A,
-	win32.VK_B = .B,
-	win32.VK_C = .C,
-	win32.VK_D = .D,
-	win32.VK_E = .E,
-	win32.VK_F = .F,
-	win32.VK_G = .G,
-	win32.VK_H = .H,
-	win32.VK_I = .I,
-	win32.VK_J = .J,
-	win32.VK_K = .K,
-	win32.VK_L = .L,
-	win32.VK_M = .M,
-	win32.VK_N = .N,
-	win32.VK_O = .O,
-	win32.VK_P = .P,
-	win32.VK_Q = .Q,
-	win32.VK_R = .R,
-	win32.VK_S = .S,
-	win32.VK_T = .T,
-	win32.VK_U = .U,
-	win32.VK_V = .V,
-	win32.VK_W = .W,
-	win32.VK_X = .X,
-	win32.VK_Y = .Y,
-	win32.VK_Z = .Z,
-	win32.VK_LEFT = .Left,
-	win32.VK_RIGHT = .Right,
-	win32.VK_UP = .Up,
-	win32.VK_DOWN = .Down,
-}
-
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory. The return value can be ignored unless you need to later call
 // `set_state`.
@@ -130,12 +72,34 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 
 	assert(hwnd != nil, "Failed creating window")
 
-	s.rb = make_backend_d3d11()
+	s.rb = BACKEND_D3D11
 	rb_alloc_error: runtime.Allocator_Error
 	s.rb_state, rb_alloc_error = mem.alloc(s.rb.state_size())
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
 	s.rb.init(s.rb_state, uintptr(hwnd), window_width, window_height, allocator, loc)
 	return s
+}
+
+// Closes the window and cleans up the internal state.
+shutdown :: proc() {
+	s.rb.shutdown()
+
+	win32.DestroyWindow(s.window)
+
+	a := s.allocator
+	free(s.rb_state, a)
+	free(s, a)
+	s = nil
+}
+
+// Clear the backbuffer with supplied color.
+clear :: proc(color: Color) {
+	s.rb.clear(color)
+}
+
+// Present the backbuffer. Call at end of frame to make everything you've drawn appear on the screen.
+present :: proc() {
+	s.rb.present()
 }
 
 // Call at start or end of frame to process all events that have arrived to the window.
@@ -153,12 +117,33 @@ process_events :: proc() {
 	}
 }
 
+/* Flushes the current batch. This sends off everything to the GPU that has been queued in the
+current batch. Normally, you do not need to do this manually. It is done automatically when these
+procedures run:
+	present
+	set_camera
+	set_shader
+
+TODO: complete this list and motivate why it needs to happen on those procs (or do that in the
+docs for those procs).
+*/   
+draw_current_batch :: proc() {
+	s.rb.draw_current_batch()
+}
+
+// Can be used to restore the internal state using the pointer returned by `init`. Useful after
+// reloading the library (for example, when doing code hot reload).
+set_internal_state :: proc(state: ^State) {
+	s = state
+	s.rb.set_internal_state(s.rb_state)
+}
+
 get_screen_width :: proc() -> int {
-	return s.width
+	return s.rb.get_swapchain_width()
 }
 
 get_screen_height :: proc() -> int  {
-	return s.height
+	return s.rb.get_swapchain_height()
 }
 
 key_went_down :: proc(key: Keyboard_Key) -> bool {
@@ -173,6 +158,7 @@ key_is_held :: proc(key: Keyboard_Key) -> bool {
 	return s.keys_is_held[key]
 }
 
+// Returns true if the user has tried to close the window.
 window_should_close :: proc() -> bool {
 	return !s.run
 }
@@ -191,34 +177,80 @@ set_window_position :: proc(x: int, y: int) {
 	)
 }
 
+Rendering_Backend :: struct {
+	state_size: proc() -> int,
+	init: proc(state: rawptr, window_handle: uintptr, swapchain_width, swapchain_height: int,
+		allocator := context.allocator, loc := #caller_location),
+	shutdown: proc(),
+	clear: proc(color: Color),
+	present: proc(),
+	draw_current_batch: proc(),
+	set_internal_state: proc(state: rawptr),
+
+	get_swapchain_width: proc() -> int,
+	get_swapchain_height: proc() -> int,
+
+}
+
+State :: struct {
+	allocator: runtime.Allocator,
+	custom_context: runtime.Context,
+	rb: Rendering_Backend,
+	rb_state: rawptr,
+	
+	keys_went_down: #sparse [Keyboard_Key]bool,
+	keys_went_up: #sparse [Keyboard_Key]bool,
+	keys_is_held: #sparse [Keyboard_Key]bool,
+
+	window: win32.HWND,
+	width: int,
+	height: int,
+
+	run: bool,
+}
+
+VK_MAP := [255]Keyboard_Key {
+	win32.VK_A = .A,
+	win32.VK_B = .B,
+	win32.VK_C = .C,
+	win32.VK_D = .D,
+	win32.VK_E = .E,
+	win32.VK_F = .F,
+	win32.VK_G = .G,
+	win32.VK_H = .H,
+	win32.VK_I = .I,
+	win32.VK_J = .J,
+	win32.VK_K = .K,
+	win32.VK_L = .L,
+	win32.VK_M = .M,
+	win32.VK_N = .N,
+	win32.VK_O = .O,
+	win32.VK_P = .P,
+	win32.VK_Q = .Q,
+	win32.VK_R = .R,
+	win32.VK_S = .S,
+	win32.VK_T = .T,
+	win32.VK_U = .U,
+	win32.VK_V = .V,
+	win32.VK_W = .W,
+	win32.VK_X = .X,
+	win32.VK_Y = .Y,
+	win32.VK_Z = .Z,
+	win32.VK_LEFT = .Left,
+	win32.VK_RIGHT = .Right,
+	win32.VK_UP = .Up,
+	win32.VK_DOWN = .Down,
+}
 
 @(private="file")
 s: ^State
 
-// Closes the window and cleans up the internal state.
-shutdown: proc() : _shutdown
-
-// Clear the backbuffer with supplied color.
-clear: proc(color: Color) : _clear
+// --------------------------------
+// old, non migrated API below
 
 
-// Present the backbuffer. Call at end of frame to make everything you've drawn appear on the screen.
-present: proc() : _present
-
-// Flushes the current batch. This sends off everything to the GPU that has been queued in the
-// current batch. Done automatically by `present` (possible to disable). Also done by `set_camera`
-// and `set_scissor_rect` since the batch depends on those options.
-draw_current_batch: proc() : _draw_current_batch
-
-// Returns true if the user has tried to close the window.
 
 
-// Can be used to restore the internal state using the pointer returned by `init`. Useful after
-// reloading the library (for example, when doing code hot reload).
-set_internal_state :: proc(state: ^State) {
-	s = state
-	s.rb.set_internal_state(s.rb_state)
-}
 
 set_window_size: proc(width: int, height: int) : _set_window_size
 
