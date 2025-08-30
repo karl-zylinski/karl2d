@@ -27,6 +27,7 @@ Here follows my near-future TODO list
 	* Constants that you can set
 	* Dynamic vertex creation
 	* Feed extra vertex field values using some kind of context
+		* Do we need one for all corners of a rect or possibilty to supply different value for the different corners?
 
 
 ## DONE
