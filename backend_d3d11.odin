@@ -742,6 +742,7 @@ d3d11_destroy_shader :: proc(shd: Shader) {
 		delete(i.name)
 	}
 	delete(shd.inputs)
+	delete(shd.input_overrides)
 }
 
 temp_cstring :: proc(str: string, loc := #caller_location) -> cstring {

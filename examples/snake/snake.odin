@@ -225,6 +225,7 @@ main :: proc() {
 		free_all(context.temp_allocator)
 	}
 
+	k2.destroy_shader(shader)
 	k2.destroy_texture(head_sprite)
 	k2.destroy_texture(food_sprite)
 	k2.destroy_texture(body_sprite)
