@@ -20,7 +20,7 @@ BACKEND_D3D11 :: Rendering_Backend {
 	shutdown = d3d11_shutdown,
 	clear = d3d11_clear,
 	present = d3d11_present,
-	draw_current_batch = d3d11_draw_current_batch,
+	draw = d3d11_draw,
 	
 	get_swapchain_width = d3d11_get_swapchain_width,
 	get_swapchain_height = d3d11_get_swapchain_height,
@@ -32,7 +32,8 @@ BACKEND_D3D11 :: Rendering_Backend {
 	load_texture = d3d11_load_texture,
 	destroy_texture = d3d11_destroy_texture,
 
-	batch_vertex = d3d11_batch_vertex,
+	load_shader = d3d11_load_shader,
+	destroy_shader = d3d11_destroy_shader,
 }
 
 @(private="file")
@@ -133,7 +134,7 @@ d3d11_init :: proc(state: rawptr, window_handle: uintptr, swapchain_width, swapc
 		CPUAccessFlags = {.WRITE},
 	}
 	ch(s.device->CreateBuffer(&vertex_buffer_desc, nil, &s.vertex_buffer_gpu))
-	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, allocator, loc)
+	
 
 	blend_desc := d3d11.BLEND_DESC {
 		RenderTarget = {
@@ -161,17 +162,12 @@ d3d11_init :: proc(state: rawptr, window_handle: uintptr, swapchain_width, swapc
 	}
 	s.device->CreateSamplerState(&sampler_desc, &s.sampler_state)
 
-	s.default_shader = _load_shader(string(shader_hlsl), {
-		.RG32_Float,
-		.RG32_Float,
-		.RGBA8_Norm,
-	})
+	
 
 	
 }
 
 d3d11_shutdown :: proc() {
-	_destroy_shader(s.default_shader)
 	s.sampler_state->Release()
 	s.framebuffer_view->Release()
 	s.depth_buffer_view->Release()
@@ -184,7 +180,6 @@ d3d11_shutdown :: proc() {
 	s.rasterizer_state->Release()
 	s.swapchain->Release()
 	s.blend_state->Release()
-	delete(s.vertex_buffer_cpu, s.allocator)
 
 	when ODIN_DEBUG {
 		debug: ^d3d11.IDebug
@@ -216,8 +211,6 @@ d3d11_get_swapchain_height :: proc() -> int {
 d3d11_set_view_projection_matrix :: proc(m: Mat4) {
 	s.view_proj = m
 }
-
-shader_hlsl :: #load("shader.hlsl")
 
 VERTEX_BUFFER_MAX :: 1000000
 
@@ -252,19 +245,11 @@ Shader_Default_Inputs :: enum {
 	Color,
 }
 
-Shader :: struct {
+D3D11_Shader :: struct {
 	handle: Shader_Handle,
 	vertex_shader: ^d3d11.IVertexShader,
 	pixel_shader: ^d3d11.IPixelShader,
 	input_layout: ^d3d11.IInputLayout,
-	constant_buffers: []Shader_Constant_Buffer,
-	constant_lookup: map[string]Shader_Constant_Location,
-	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
-
-	inputs: []Shader_Input,
-	input_overrides: []Shader_Input_Value_Override,
-	default_input_offsets: [Shader_Default_Inputs]int,
-	vertex_size: int,
 }
 
 D3D11_State :: struct {
@@ -287,12 +272,10 @@ D3D11_State :: struct {
 	default_shader: Shader_Handle,
 
 	textures: hm.Handle_Map(_Texture, Texture_Handle, 1024*10),
-	shaders: hm.Handle_Map(Shader, Shader_Handle, 1024*10),
+	shaders: hm.Handle_Map(D3D11_Shader, Shader_Handle, 1024*10),
 
 	info_queue: ^d3d11.IInfoQueue,
 	vertex_buffer_gpu: ^d3d11.IBuffer,
-	vertex_buffer_cpu: []u8,
-	vertex_buffer_cpu_used: int,
 
 	vertex_buffer_offset: int,
 	
@@ -381,67 +364,6 @@ create_vertex_input_override :: proc(val: $T) -> Shader_Input_Value_Override {
 	return res
 }
 
-set_vertex_input_override :: proc(shader: Shader_Handle, input_idx: int, override: Shader_Input_Value_Override) {
-	shd := hm.get(&s.shaders, shader)
-
-	if shd == nil {
-		log.error("Valid shader")
-		return
-	}
-
-	if input_idx < 0 || input_idx >= len(shd.input_overrides) {
-		log.error("Override input idx out of bounds")
-		return
-	}
-
-	shd.input_overrides[input_idx] = override
-}
-
-d3d11_batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
-	v := v
-
-	if s.vertex_buffer_cpu_used == len(s.vertex_buffer_cpu) {
-		panic("Must dispatch here")
-	}
-
-	shd := hm.get(&s.shaders, s.batch_shader)
-
-	if shd == nil {
-		shd = hm.get(&s.shaders, s.default_shader)
-		assert(shd != nil, "Failed fetching default shader")
-	}
-
-	base_offset := s.vertex_buffer_cpu_used
-	pos_offset := shd.default_input_offsets[.Position]
-	uv_offset := shd.default_input_offsets[.UV]
-	color_offset := shd.default_input_offsets[.Color]
-	
-	if pos_offset != -1 {
-		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
-	}
-
-	if uv_offset != -1 {
-		(^Vec2)(&s.vertex_buffer_cpu[base_offset + uv_offset])^ = uv
-	}
-
-	if color_offset != -1 {
-		(^Color)(&s.vertex_buffer_cpu[base_offset + color_offset])^ = color
-	}
-
-	override_offset: int
-	for &o, idx in shd.input_overrides {
-		input := &shd.inputs[idx]
-		sz := shader_input_format_size(input.format)
-
-		if o.used != 0 {
-			mem.copy(&s.vertex_buffer_cpu[base_offset + override_offset], raw_data(&o.val), o.used)
-		}
-
-		override_offset += sz
-	}
-	
-	s.vertex_buffer_cpu_used += shd.vertex_size
-}
 
 _draw_circle :: proc(center: Vec2, radius: f32, color: Color) {
 }
@@ -498,56 +420,22 @@ _set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 
 }
 
-_set_shader :: proc(shader: Shader_Handle) {
-	if shader == s.batch_shader {
+d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, vertex_buffer: []u8) {
+	if len(vertex_buffer) == 0 {
 		return
 	}
 
-	d3d11_draw_current_batch()
-	s.batch_shader = shader
-}
+	d3d_shd := hm.get(&s.shaders, shd.handle)
 
-_set_shader_constant :: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: $T) {
-	d3d11_draw_current_batch()
-
-	shd := hm.get(&s.shaders, shader)
-
-	if shd == nil {
+	if d3d_shd == nil {
 		return
 	}
 
-	if int(loc.buffer_idx) >= len(shd.constant_buffers) {
-		log.warnf("Constant buffer idx %v is out of bounds", loc.buffer_idx)
-		return
-	}
+	/*if shd == nil {
+		shd = hm.get(&s.shaders, s.default_shader)
+		assert(shd != nil, "Failed fetching default shader")
+	}*/
 
-	b := &shd.constant_buffers[loc.buffer_idx]
-
-	if int(loc.offset) + size_of(val) > len(b.cpu_data) {
-		log.warnf("Constant buffer idx %v is trying to be written out of bounds by at offset %v with %v bytes", loc.buffer_idx, loc.offset, size_of(val))
-		return
-	}
-
-	dst := (^T)(&b.cpu_data[loc.offset])
-	dst^ = val
-}
-
-_set_shader_constant_mat4 :: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: matrix[4,4]f32) {
-	_set_shader_constant(shader, loc, val)
-}
-
-_set_shader_constant_f32 :: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: f32) {
-	_set_shader_constant(shader, loc, val)
-}
-
-_set_shader_constant_vec2 :: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: Vec2) {
-	_set_shader_constant(shader, loc, val)
-}
-
-d3d11_draw_current_batch :: proc() {
-	if s.vertex_buffer_cpu_used == s.vertex_buffer_offset {
-		return
-	}
 
 	viewport := d3d11.VIEWPORT{
 		0, 0,
@@ -562,22 +450,16 @@ d3d11_draw_current_batch :: proc() {
 	{
 		gpu_map := slice.from_ptr((^u8)(vb_data.pData), VERTEX_BUFFER_MAX)
 		copy(
-			gpu_map[s.vertex_buffer_offset:s.vertex_buffer_cpu_used],
-			s.vertex_buffer_cpu[s.vertex_buffer_offset:s.vertex_buffer_cpu_used],
+			gpu_map[s.vertex_buffer_offset:s.vertex_buffer_offset+len(vertex_buffer)],
+			vertex_buffer,
 		)
 	}
 	dc->Unmap(s.vertex_buffer_gpu, 0)
 
 
 	dc->IASetPrimitiveTopology(.TRIANGLELIST)
-	shd := hm.get(&s.shaders, s.batch_shader)
 
-	if shd == nil {
-		shd = hm.get(&s.shaders, s.default_shader)
-		assert(shd != nil, "Failed fetching default shader")
-	}
-
-	dc->IASetInputLayout(shd.input_layout)
+	dc->IASetInputLayout(d3d_shd.input_layout)
 	vertex_buffer_offset := u32(0)
 	vertex_buffer_stride := u32(shd.vertex_size)
 	dc->IASetVertexBuffers(0, 1, &s.vertex_buffer_gpu, &vertex_buffer_stride, &vertex_buffer_offset)
@@ -596,7 +478,7 @@ d3d11_draw_current_batch :: proc() {
 		}
 	}
 
-	dc->VSSetShader(shd.vertex_shader, nil, 0)
+	dc->VSSetShader(d3d_shd.vertex_shader, nil, 0)
 
 	for &c, c_idx in shd.constant_buffers {
 		if c.gpu_data == nil {
@@ -614,9 +496,9 @@ d3d11_draw_current_batch :: proc() {
 	dc->RSSetViewports(1, &viewport)
 	dc->RSSetState(s.rasterizer_state)
 
-	dc->PSSetShader(shd.pixel_shader, nil, 0)
+	dc->PSSetShader(d3d_shd.pixel_shader, nil, 0)
 
-	if t := hm.get(&s.textures, batch_texture); t != nil {
+	if t := hm.get(&s.textures, texture); t != nil {
 		dc->PSSetShaderResources(0, 1, &t.view)	
 	}
 	
@@ -626,8 +508,8 @@ d3d11_draw_current_batch :: proc() {
 	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
 	dc->OMSetBlendState(s.blend_state, nil, ~u32(0))
 
-	dc->Draw(u32((s.vertex_buffer_cpu_used - s.vertex_buffer_offset)/shd.vertex_size), u32(s.vertex_buffer_offset/shd.vertex_size))
-	s.vertex_buffer_offset = s.vertex_buffer_cpu_used
+	dc->Draw(u32(len(vertex_buffer)/shd.vertex_size), u32(s.vertex_buffer_offset/shd.vertex_size))
+	s.vertex_buffer_offset += len(vertex_buffer)
 	log_messages()
 }
 
@@ -635,18 +517,9 @@ make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
 }
 
-@(private="file")
-batch_texture: Texture_Handle
-
-_tmp_set_batch_texture  :: proc(t: Texture_Handle) {
-	batch_texture = t
-}
-
 d3d11_present :: proc() {
-	d3d11_draw_current_batch()
 	ch(s.swapchain->Present(1, {}))
 	s.vertex_buffer_offset = 0
-	s.vertex_buffer_cpu_used = 0
 }
 
 Shader_Constant_Location :: struct {
@@ -654,7 +527,7 @@ Shader_Constant_Location :: struct {
 	offset: u32,
 }
 
-_load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format = {}) -> Shader_Handle {
+d3d11_load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format = {}) -> Shader {
 	vs_blob: ^d3d11.IBlob
 	vs_blob_errors: ^d3d11.IBlob
 	ch(d3d_compiler.Compile(raw_data(shader), len(shader), nil, nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
@@ -857,10 +730,15 @@ _load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format = {})
 	pixel_shader: ^d3d11.IPixelShader
 	ch(s.device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nil, &pixel_shader))
 
-	shd := Shader {
+	shd := D3D11_Shader {
 		vertex_shader = vertex_shader,
 		pixel_shader = pixel_shader,
 		input_layout = input_layout,
+	}
+
+	h := hm.add(&s.shaders, shd)
+	return {
+		handle = h,
 		constant_buffers = constant_buffers,
 		constant_lookup = constant_lookup,
 		constant_builtin_locations = constant_builtin_locations,
@@ -869,9 +747,6 @@ _load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format = {})
 		default_input_offsets = default_input_offsets,
 		vertex_size = input_offset,
 	}
-
-	h := hm.add(&s.shaders, shd)
-	return h
 }
 
 dxgi_format_from_shader_input_format :: proc(f: Shader_Input_Format) -> dxgi.FORMAT {
@@ -901,44 +776,33 @@ shader_input_format_size :: proc(f: Shader_Input_Format) -> int {
 	return 0
 }
 
-_destroy_shader :: proc(shader: Shader_Handle) {
-	if shd := hm.get(&s.shaders, shader); shd != nil {
-		shd.input_layout->Release()
-		shd.vertex_shader->Release()
-		shd.pixel_shader->Release()
+d3d11_destroy_shader :: proc(shd: Shader) {
+	if d3d_shd := hm.get(&s.shaders, shd.handle); d3d_shd != nil {
+		d3d_shd.input_layout->Release()
+		d3d_shd.vertex_shader->Release()
+		d3d_shd.pixel_shader->Release()
+	}
+	hm.remove(&s.shaders, shd.handle)
 
-		for c in shd.constant_buffers {
-			if c.gpu_data != nil {
-				c.gpu_data->Release()
-			}
-
-			delete(c.cpu_data)
+	for c in shd.constant_buffers {
+		if c.gpu_data != nil {
+			c.gpu_data->Release()
 		}
 
-		delete(shd.constant_buffers)
-
-		for k,_ in shd.constant_lookup {
-			delete(k)
-		}
-
-		delete(shd.constant_lookup)
-		for i in shd.inputs {
-			delete(i.name)
-		}
-		delete(shd.inputs)
+		delete(c.cpu_data)
 	}
 
-	hm.remove(&s.shaders, shader)
-}
+	delete(shd.constant_buffers)
 
-_get_shader_constant_location :: proc(shader: Shader_Handle, name: string) -> Shader_Constant_Location {
-	shd := hm.get(&s.shaders, shader)
-
-	if shd == nil {
-		return {}
+	for k,_ in shd.constant_lookup {
+		delete(k)
 	}
 
-	return shd.constant_lookup[name]
+	delete(shd.constant_lookup)
+	for i in shd.inputs {
+		delete(i.name)
+	}
+	delete(shd.inputs)
 }
 
 temp_cstring :: proc(str: string, loc := #caller_location) -> cstring {

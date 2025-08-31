@@ -96,16 +96,28 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	s.proj_matrix = make_default_projection(window_width, window_height)
 	s.view_matrix = 1
 	s.rb.init(s.rb_state, uintptr(hwnd), window_width, window_height, allocator, loc)
+	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, allocator, loc)
 	white_rect: [16*16*4]u8
 	slice.fill(white_rect[:], 255)
 	s.shape_drawing_texture = s.rb.load_texture(white_rect[:], 16, 16)
+
+	s.default_shader = s.rb.load_shader(string(DEFAULT_SHADER_SOURCE), {
+		.RG32_Float,
+		.RG32_Float,
+		.RGBA8_Norm,
+	})
+
 	return s
 }
+
+DEFAULT_SHADER_SOURCE :: #load("shader.hlsl")
 
 // Closes the window and cleans up the internal state.
 shutdown :: proc() {
 	s.rb.destroy_texture(s.shape_drawing_texture)
+	destroy_shader(s.default_shader)
 	s.rb.shutdown()
+	delete(s.vertex_buffer_cpu, s.allocator)
 
 	win32.DestroyWindow(s.window)
 
@@ -122,6 +134,7 @@ clear :: proc(color: Color) {
 
 // Present the backbuffer. Call at end of frame to make everything you've drawn appear on the screen.
 present :: proc() {
+	draw_current_batch()
 	s.rb.present()
 }
 
@@ -151,7 +164,9 @@ TODO: complete this list and motivate why it needs to happen on those procs (or 
 docs for those procs).
 */   
 draw_current_batch :: proc() {
-	s.rb.draw_current_batch()
+	shader := s.batch_shader.? or_else s.default_shader
+	s.rb.draw(shader, s.batch_texture, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
+	s.vertex_buffer_cpu_used = 0
 }
 
 // Can be used to restore the internal state using the pointer returned by `init`. Useful after
@@ -209,7 +224,7 @@ set_camera :: proc(camera: Maybe(Camera)) {
 		return
 	}
 
-	s.rb.draw_current_batch()
+	draw_current_batch()
 	s.batch_camera = camera
 	s.proj_matrix = make_default_projection(s.width, s.height)
 
@@ -252,18 +267,17 @@ destroy_texture :: proc(tex: Texture) {
 
 draw_rect :: proc(r: Rect, c: Color) {
 	if s.batch_texture != TEXTURE_NONE && s.batch_texture != s.shape_drawing_texture {
-		s.rb.draw_current_batch()
+		draw_current_batch()
 	}
 
 	s.batch_texture = s.shape_drawing_texture
-	_tmp_set_batch_texture(s.batch_texture)
 
-	s.rb.batch_vertex({r.x, r.y}, {0, 0}, c)
-	s.rb.batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
-	s.rb.batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	s.rb.batch_vertex({r.x, r.y}, {0, 0}, c)
-	s.rb.batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	s.rb.batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
+	_batch_vertex({r.x, r.y}, {0, 0}, c)
+	_batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
+	_batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	_batch_vertex({r.x, r.y}, {0, 0}, c)
+	_batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	_batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
 }
 
 draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
@@ -333,7 +347,7 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	}
 
 	if s.batch_texture != TEXTURE_NONE && s.batch_texture != tex.handle {
-		s.rb.draw_current_batch()
+		draw_current_batch()
 	}
 
 	r := dst
@@ -342,7 +356,6 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	r.y -= origin.y
 
 	s.batch_texture = tex.handle
-	_tmp_set_batch_texture(tex.handle)
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
@@ -387,12 +400,116 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	us := Vec2{src.w, src.h} / ts
 	c := tint
 
-	s.rb.batch_vertex(tl, up, c)
-	s.rb.batch_vertex(tr, up + {us.x, 0}, c)
-	s.rb.batch_vertex(br, up + us, c)
-	s.rb.batch_vertex(tl, up, c)
-	s.rb.batch_vertex(br, up + us, c)
-	s.rb.batch_vertex(bl, up + {0, us.y}, c)
+	_batch_vertex(tl, up, c)
+	_batch_vertex(tr, up + {us.x, 0}, c)
+	_batch_vertex(br, up + us, c)
+	_batch_vertex(tl, up, c)
+	_batch_vertex(br, up + us, c)
+	_batch_vertex(bl, up + {0, us.y}, c)
+}
+
+load_shader :: proc(shader_source: string, layout_formats: []Shader_Input_Format = {}) -> Shader {
+	return s.rb.load_shader(shader_source, layout_formats)
+}
+
+destroy_shader :: proc(shader: Shader) {
+	s.rb.destroy_shader(shader)
+}
+
+set_shader :: proc(shader: Maybe(Shader)) {
+	if maybe_handle_equal(shader, s.batch_shader) {
+		return
+	}
+
+	draw_current_batch()
+	s.batch_shader = shader
+}
+
+maybe_handle_equal :: proc(m1: Maybe($T), m2: Maybe(T)) -> bool {
+	if m1 == nil && m2 == nil {
+		return true
+	}
+
+	m1v, m1v_ok := m1.?
+	m2v, m2v_ok := m2.?
+
+	if !m1v_ok || !m2v_ok {
+		return false
+	}
+
+	return m1v.handle == m2v.handle
+}
+
+set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: $T) {
+	draw_current_batch()
+
+	if int(loc.buffer_idx) >= len(shd.constant_buffers) {
+		log.warnf("Constant buffer idx %v is out of bounds", loc.buffer_idx)
+		return
+	}
+
+	b := &shd.constant_buffers[loc.buffer_idx]
+
+	if int(loc.offset) + size_of(val) > len(b.cpu_data) {
+		log.warnf("Constant buffer idx %v is trying to be written out of bounds by at offset %v with %v bytes", loc.buffer_idx, loc.offset, size_of(val))
+		return
+	}
+
+	dst := (^T)(&b.cpu_data[loc.offset])
+	dst^ = val
+}
+
+set_shader_constant_mat4 :: proc(shader: Shader, loc: Shader_Constant_Location, val: matrix[4,4]f32) {
+	set_shader_constant(shader, loc, val)
+}
+
+set_shader_constant_f32 :: proc(shader: Shader, loc: Shader_Constant_Location, val: f32) {
+	set_shader_constant(shader, loc, val)
+}
+
+set_shader_constant_vec2 :: proc(shader: Shader, loc: Shader_Constant_Location, val: Vec2) {
+	set_shader_constant(shader, loc, val)
+}
+
+_batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
+	v := v
+
+	if s.vertex_buffer_cpu_used == len(s.vertex_buffer_cpu) {
+		panic("Must dispatch here")
+	}
+
+	shd := s.batch_shader.? or_else s.default_shader
+
+	base_offset := s.vertex_buffer_cpu_used
+	pos_offset := shd.default_input_offsets[.Position]
+	uv_offset := shd.default_input_offsets[.UV]
+	color_offset := shd.default_input_offsets[.Color]
+	
+	if pos_offset != -1 {
+		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
+	}
+
+	if uv_offset != -1 {
+		(^Vec2)(&s.vertex_buffer_cpu[base_offset + uv_offset])^ = uv
+	}
+
+	if color_offset != -1 {
+		(^Color)(&s.vertex_buffer_cpu[base_offset + color_offset])^ = color
+	}
+
+	override_offset: int
+	for &o, idx in shd.input_overrides {
+		input := &shd.inputs[idx]
+		sz := shader_input_format_size(input.format)
+
+		if o.used != 0 {
+			mem.copy(&s.vertex_buffer_cpu[base_offset + override_offset], raw_data(&o.val), o.used)
+		}
+
+		override_offset += sz
+	}
+	
+	s.vertex_buffer_cpu_used += shd.vertex_size
 }
 
 Rendering_Backend :: struct {
@@ -402,11 +519,14 @@ Rendering_Backend :: struct {
 	shutdown: proc(),
 	clear: proc(color: Color),
 	present: proc(),
-	draw_current_batch: proc(),
+	draw: proc(shader: Shader, texture: Texture_Handle, vertex_buffer: []u8),
 	set_internal_state: proc(state: rawptr),
 
 	load_texture: proc(data: []u8, width: int, height: int) -> Texture_Handle,
 	destroy_texture: proc(handle: Texture_Handle),
+
+	load_shader: proc(shader: string, layout_formats: []Shader_Input_Format = {}) -> Shader,
+	destroy_shader: proc(shader: Shader),
 
 	get_swapchain_width: proc() -> int,
 	get_swapchain_height: proc() -> int,
@@ -434,10 +554,15 @@ State :: struct {
 
 	shape_drawing_texture: Texture_Handle,
 	batch_camera: Maybe(Camera),
+	batch_shader: Maybe(Shader),
 	batch_texture: Texture_Handle,
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
+
+	vertex_buffer_cpu: []u8,
+	vertex_buffer_cpu_used: int,
+	default_shader: Shader,
 }
 
 VK_MAP := [255]Keyboard_Key {
@@ -491,21 +616,12 @@ get_default_shader: proc() -> Shader_Handle : _get_default_shader
 
 
 set_scissor_rect: proc(scissor_rect: Maybe(Rect)) : _set_scissor_rect
-set_shader: proc(shader: Shader_Handle) : _set_shader
 
 //set_vertex_value :: _set_vertex_value
 
 draw_circle: proc(center: Vec2, radius: f32, color: Color) : _draw_circle
 draw_line: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) : _draw_line
 
-load_shader: proc(shader_source: string, layout_formats: []Shader_Input_Format = {}) -> Shader_Handle : _load_shader
-destroy_shader: proc(shader: Shader_Handle) : _destroy_shader
-
-get_shader_constant_location: proc(shader: Shader_Handle, name: string) -> Shader_Constant_Location : _get_shader_constant_location
-set_shader_constant :: _set_shader_constant
-set_shader_constant_mat4: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: matrix[4,4]f32) : _set_shader_constant_mat4
-set_shader_constant_f32: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: f32) : _set_shader_constant_f32
-set_shader_constant_vec2: proc(shader: Shader_Handle, loc: Shader_Constant_Location, val: Vec2) : _set_shader_constant_vec2
 
 Shader_Input_Format :: enum {
 	Unknown,
@@ -546,6 +662,18 @@ Texture :: struct {
 	handle: Texture_Handle,
 	width: int,
 	height: int,
+}
+
+Shader :: struct {
+	handle: Shader_Handle,
+	constant_buffers: []Shader_Constant_Buffer,
+	constant_lookup: map[string]Shader_Constant_Location,
+	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
+
+	inputs: []Shader_Input,
+	input_overrides: []Shader_Input_Value_Override,
+	default_input_offsets: [Shader_Default_Inputs]int,
+	vertex_size: int,
 }
 
 Camera :: struct {

@@ -96,6 +96,7 @@ main :: proc() {
 	head_sprite := k2.load_texture_from_file("head.png")
 	body_sprite := k2.load_texture_from_file("body.png")
 	tail_sprite := k2.load_texture_from_file("tail.png")
+
 	food_eaten_at := time.now()
 	started_at := time.now()
 
@@ -175,7 +176,7 @@ main :: proc() {
 		time_since_food := time.duration_seconds(time.diff(food_eaten_at, time_now))
 
 		if time_since_food < 0.5 && total_time > 1 {
-			k2.set_vertex_input_override(shader, 3, k2.create_vertex_input_override(k2.Vec2{f32(math.cos(total_time*100)), f32(math.sin(total_time*120 + 3))}))
+			shader.input_overrides[3] = k2.create_vertex_input_override(k2.Vec2{f32(math.cos(total_time*100)), f32(math.sin(total_time*120 + 3))})
 		}
 
 		for i in 0..<snake_length {
@@ -214,7 +215,7 @@ main :: proc() {
 			k2.draw_text("Press Enter to play again", {4, 30}, 15, k2.BLACK)
 		}
 
-		k2.set_vertex_input_override(shader, 3, {})
+		shader.input_overrides[3] = {}
 
 		score := snake_length - 3
 		score_str := fmt.tprintf("Score: %v", score)
