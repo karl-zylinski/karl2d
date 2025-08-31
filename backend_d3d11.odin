@@ -1,7 +1,6 @@
 #+build windows
 
 package karl2d
-import win32 "core:sys/windows"
 import d3d11 "vendor:directx/d3d11"
 import dxgi "vendor:directx/dxgi"
 import "vendor:directx/d3d_compiler"
@@ -45,7 +44,7 @@ d3d11_state_size :: proc() -> int {
 
 d3d11_init :: proc(state: rawptr, window_handle: uintptr, swapchain_width, swapchain_height: int,
 	allocator := context.allocator, loc := #caller_location) {
-	hwnd := win32.HWND(window_handle)
+	hwnd := dxgi.HWND(window_handle)
 	s = (^D3D11_State)(state)
 	s.allocator = allocator
 	s.width = swapchain_width
@@ -750,7 +749,7 @@ temp_cstring :: proc(str: string, loc := #caller_location) -> cstring {
 }
 
 // CHeck win errors and print message log if there is any error
-ch :: proc(hr: win32.HRESULT, loc := #caller_location) -> win32.HRESULT {
+ch :: proc(hr: dxgi.HRESULT, loc := #caller_location) -> dxgi.HRESULT {
 	if hr >= 0 {
 		return hr
 	}

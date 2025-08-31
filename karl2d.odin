@@ -324,7 +324,7 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color) {
 }
 
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
-	panic("not implemented")
+	
 }
 
 draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
@@ -509,7 +509,7 @@ mouse_button_is_held :: proc(button: Mouse_Button) -> bool {
 }
 
 get_mouse_wheel_delta :: proc() -> f32 {
-	panic("not implemented")
+	return 0
 }
 
 get_mouse_position :: proc() -> Vec2 {
