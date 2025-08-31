@@ -269,9 +269,8 @@ D3D11_State :: struct {
 	framebuffer: ^d3d11.ITexture2D,
 	blend_state: ^d3d11.IBlendState,
 	sampler_state: ^d3d11.ISamplerState,
-	default_shader: Shader_Handle,
 
-	textures: hm.Handle_Map(_Texture, Texture_Handle, 1024*10),
+	textures: hm.Handle_Map(D3D11_Texture, Texture_Handle, 1024*10),
 	shaders: hm.Handle_Map(D3D11_Shader, Shader_Handle, 1024*10),
 
 	info_queue: ^d3d11.IInfoQueue,
@@ -284,8 +283,11 @@ D3D11_State :: struct {
 	view_proj: Mat4,
 }
 
-
-
+vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
+	return {
+		v.x, v.y, 0,
+	}
+}
 
 Color_F32 :: [4]f32
 
@@ -304,7 +306,7 @@ d3d11_clear :: proc(color: Color) {
 	s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 1, 0)
 }
 
-_Texture :: struct {
+D3D11_Texture :: struct {
 	handle: Texture_Handle,
 	tex: ^d3d11.ITexture2D,
 	view: ^d3d11.IShaderResourceView,
@@ -334,7 +336,7 @@ d3d11_load_texture :: proc(data: []u8, width: int, height: int) -> Texture_Handl
 	texture_view: ^d3d11.IShaderResourceView
 	s.device->CreateShaderResourceView(texture, nil, &texture_view)
 
-	tex := _Texture {
+	tex := D3D11_Texture {
 		tex = texture,
 		view = texture_view,
 	}
@@ -364,62 +366,6 @@ create_vertex_input_override :: proc(val: $T) -> Shader_Input_Value_Override {
 	return res
 }
 
-
-_draw_circle :: proc(center: Vec2, radius: f32, color: Color) {
-}
-
-_draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
-}
-
-_get_default_shader :: proc() -> Shader_Handle {
-	return s.default_shader
-}
-
-_draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
-}
-
-_mouse_button_pressed  :: proc(button: Mouse_Button) -> bool {
-	return false
-}
-
-_mouse_button_released :: proc(button: Mouse_Button) -> bool {
-	return false
-}
-
-_mouse_button_held     :: proc(button: Mouse_Button) -> bool {
-	return false
-}
-
-_mouse_wheel_delta :: proc() -> f32 {
-	return 0
-}
-
-_mouse_position :: proc() -> Vec2 {
-	return {}
-}
-
-_enable_scissor :: proc(x, y, w, h: int) {
-}
-
-_disable_scissor :: proc() {
-}
-
-_screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2 {
-	return pos
-}
-
-Vec3 :: [3]f32
-
-vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
-	return {
-		v.x, v.y, 0,
-	}
-}
-
-_set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
-
-}
-
 d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, vertex_buffer: []u8) {
 	if len(vertex_buffer) == 0 {
 		return
@@ -430,12 +376,6 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, vertex_buffer: []u8) {
 	if d3d_shd == nil {
 		return
 	}
-
-	/*if shd == nil {
-		shd = hm.get(&s.shaders, s.default_shader)
-		assert(shd != nil, "Failed fetching default shader")
-	}*/
-
 
 	viewport := d3d11.VIEWPORT{
 		0, 0,

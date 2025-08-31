@@ -319,6 +319,14 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 	draw_rect(right, color)
 }
 
+draw_circle :: proc(center: Vec2, radius: f32, color: Color) {
+	panic("not implemented")
+}
+
+draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
+	panic("not implemented")
+}
+
 draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
 	draw_texture_ex(
 		tex,
@@ -471,6 +479,43 @@ set_shader_constant_vec2 :: proc(shader: Shader, loc: Shader_Constant_Location, 
 	set_shader_constant(shader, loc, val)
 }
 
+get_default_shader :: proc() -> Shader {
+	return s.default_shader
+}
+
+set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
+	panic("not implemented")
+}
+
+
+screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2 {
+	panic("not implemented")
+}
+
+draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
+	
+}
+
+mouse_button_went_down :: proc(button: Mouse_Button) -> bool {
+	panic("not implemented")
+}
+
+mouse_button_went_up :: proc(button: Mouse_Button) -> bool {
+	panic("not implemented")
+}
+
+mouse_button_is_held :: proc(button: Mouse_Button) -> bool {
+	panic("not implemented")
+}
+
+get_mouse_wheel_delta :: proc() -> f32 {
+	panic("not implemented")
+}
+
+get_mouse_position :: proc() -> Vec2 {
+	panic("not implemented")
+}
+
 _batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
 
@@ -511,31 +556,6 @@ _batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	
 	s.vertex_buffer_cpu_used += shd.vertex_size
 }
-
-Rendering_Backend :: struct {
-	state_size: proc() -> int,
-	init: proc(state: rawptr, window_handle: uintptr, swapchain_width, swapchain_height: int,
-		allocator := context.allocator, loc := #caller_location),
-	shutdown: proc(),
-	clear: proc(color: Color),
-	present: proc(),
-	draw: proc(shader: Shader, texture: Texture_Handle, vertex_buffer: []u8),
-	set_internal_state: proc(state: rawptr),
-
-	load_texture: proc(data: []u8, width: int, height: int) -> Texture_Handle,
-	destroy_texture: proc(handle: Texture_Handle),
-
-	load_shader: proc(shader: string, layout_formats: []Shader_Input_Format = {}) -> Shader,
-	destroy_shader: proc(shader: Shader),
-
-	get_swapchain_width: proc() -> int,
-	get_swapchain_height: proc() -> int,
-
-	set_view_projection_matrix: proc(m: Mat4),
-
-	batch_vertex: proc(v: Vec2, uv: Vec2, color: Color),
-}
-
 State :: struct {
 	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
@@ -601,28 +621,6 @@ VK_MAP := [255]Keyboard_Key {
 @(private="file")
 s: ^State
 
-// --------------------------------
-// old, non migrated API below
-
-
-
-
-
-
-
-
-get_default_shader: proc() -> Shader_Handle : _get_default_shader
-
-
-
-set_scissor_rect: proc(scissor_rect: Maybe(Rect)) : _set_scissor_rect
-
-//set_vertex_value :: _set_vertex_value
-
-draw_circle: proc(center: Vec2, radius: f32, color: Color) : _draw_circle
-draw_line: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) : _draw_line
-
-
 Shader_Input_Format :: enum {
 	Unknown,
 	RGBA32_Float,
@@ -632,22 +630,10 @@ Shader_Input_Format :: enum {
 	R32_Float,
 }
 
-
-// WARNING: Not proper text rendering yet... No font support etc
-draw_text: proc(text: string, pos: Vec2, font_size: f32, color: Color) : _draw_text
-
-screen_to_world: proc(pos: Vec2, camera: Camera) -> Vec2 : _screen_to_world
-
-
-mouse_button_went_down: proc(button: Mouse_Button) -> bool : _mouse_button_pressed
-mouse_button_went_up: proc(button: Mouse_Button) -> bool : _mouse_button_released
-mouse_button_is_held: proc(button: Mouse_Button) -> bool : _mouse_button_held
-get_mouse_wheel_delta: proc() -> f32 : _mouse_wheel_delta
-get_mouse_position: proc() -> Vec2 : _mouse_position
-
 Color :: [4]u8
 
 Vec2 :: [2]f32
+Vec3 :: [3]f32
 
 Mat4 :: matrix[4,4]f32
 
