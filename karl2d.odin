@@ -107,7 +107,7 @@ process_events :: proc() {
 	for &event in events {
 		switch &e in event {
 		case Window_Event_Close_Wanted:
-			s.close_window_wanted = true
+			s.shutdown_wanted = true
 
 		case Window_Event_Key_Went_Down:
 			s.keys_went_down[e.key] = true
@@ -165,9 +165,8 @@ key_is_held :: proc(key: Keyboard_Key) -> bool {
 	return s.keys_is_held[key]
 }
 
-// Returns true if the user has tried to close the window.
-close_window_wanted :: proc() -> bool {
-	return s.close_window_wanted
+shutdown_wanted :: proc() -> bool {
+	return s.shutdown_wanted
 }
 
 set_window_position :: proc(x: int, y: int) {
@@ -525,7 +524,7 @@ State :: struct {
 	rb: Rendering_Backend,
 	rb_state: rawptr,
 	
-	close_window_wanted: bool,
+	shutdown_wanted: bool,
 
 	keys_went_down: #sparse [Keyboard_Key]bool,
 	keys_went_up: #sparse [Keyboard_Key]bool,

@@ -48,7 +48,7 @@ main :: proc() {
 		zoom = 1,
 	}
 
-	for !k2.close_window_wanted() {
+	for !k2.shutdown_wanted() {
 		k2.process_events()
 
 		if k2.key_is_held(.Right) { player.x += 2 }

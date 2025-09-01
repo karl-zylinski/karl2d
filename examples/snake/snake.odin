@@ -100,7 +100,7 @@ main :: proc() {
 	food_eaten_at := time.now()
 	started_at := time.now()
 
-	for !k2.close_window_wanted() {
+	for !k2.shutdown_wanted() {
 		time_now := time.now()
 		dt := f32(time.duration_seconds(time.diff(prev_time, time_now)))
 		prev_time = time_now
