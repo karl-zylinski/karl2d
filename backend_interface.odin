@@ -2,8 +2,7 @@ package karl2d
 
 Rendering_Backend :: struct {
 	state_size: proc() -> int,
-	init: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int,
-		allocator := context.allocator, loc := #caller_location),
+	init: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator),
 	shutdown: proc(),
 	clear: proc(color: Color),
 	present: proc(),

@@ -1,6 +1,7 @@
 #+build windows
 
 package karl2d
+
 import d3d11 "vendor:directx/d3d11"
 import dxgi "vendor:directx/dxgi"
 import "vendor:directx/d3d_compiler"
@@ -42,8 +43,7 @@ d3d11_state_size :: proc() -> int {
 	return size_of(D3D11_State)
 }
 
-d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int,
-	allocator := context.allocator, loc := #caller_location) {
+d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator) {
 	hwnd := dxgi.HWND(window_handle)
 	s = (^D3D11_State)(state)
 	s.allocator = allocator

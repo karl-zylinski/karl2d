@@ -1,42 +1,42 @@
+#+build windows
+
 package karl2d
 
 import win32 "core:sys/windows"
 import "base:runtime"
-import "core:slice"
 
-Window_Handle :: distinct uintptr
+WINDOW_INTERFACE_WIN32 :: Window_Interface {
+	state_size = win32_state_size,
+	init = win32_init,
+	shutdown = win32_shutdown,
+	window_handle = win32_window_handle,
+	process_events = win32_process_events,
+	get_events = win32_get_events,
+	clear_events = win32_clear_events,
+	set_position = win32_set_position,
+}
 
-Window_State :: struct {
+Win32_State :: struct {
+	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
 	hwnd: win32.HWND,
 	window_should_close: bool,
 	events: [dynamic]Window_Event,
 }
 
-Window_Event_Key_Went_Down :: struct {
-	key: Keyboard_Key,
-}
-
-Window_Event_Key_Went_Up :: struct {
-	key: Keyboard_Key,
-}
-
-Window_Event :: union  {
-	Window_Event_Key_Went_Down,
-	Window_Event_Key_Went_Up,
-}
-
-window_state_size :: proc() -> int {
-	return size_of(Window_State)
+win32_state_size :: proc() -> int {
+	return size_of(Win32_State)
 }
 
 // TODO rename to "ws"
 @(private="file")
-s: ^Window_State
+s: ^Win32_State
 
-window_init :: proc(ws_in: rawptr, window_width: int, window_height: int, window_title: string) {
-	assert(ws_in != nil)
-	s = (^Window_State)(ws_in)
+win32_init :: proc(window_state: rawptr, window_width: int, window_height: int, window_title: string, allocator := context.allocator) {
+	assert(window_state != nil)
+	s = (^Win32_State)(window_state)
+	s.allocator = allocator
+	s.events = make([dynamic]Window_Event, allocator)
 	s.custom_context = context
 	win32.SetProcessDPIAware()
 	CLASS_NAME :: "karl2d"
@@ -70,11 +70,12 @@ window_init :: proc(ws_in: rawptr, window_width: int, window_height: int, window
 	s.hwnd = hwnd
 }
 
-window_shutdown :: proc() {
+win32_shutdown :: proc() {
+	delete(s.events)
 	win32.DestroyWindow(s.hwnd)
 }
 
-window_set_position :: proc(x: int, y: int) {
+win32_set_position :: proc(x: int, y: int) {
 	// TODO: Does x, y respect monitor DPI?
 
 	win32.SetWindowPos(
@@ -88,44 +89,45 @@ window_set_position :: proc(x: int, y: int) {
 	)
 }
 
-window_handle :: proc() -> Window_Handle {
+win32_window_handle :: proc() -> Window_Handle {
 	return Window_Handle(s.hwnd)
 }
 
-// TODO: perhaps this should be split into several procs later
-window_process_events :: proc(allocator := context.temp_allocator) -> []Window_Event {
+win32_process_events :: proc() {
 	msg: win32.MSG
 
 	for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
 		win32.TranslateMessage(&msg)
 		win32.DispatchMessageW(&msg)
 	}
-
-	return slice.clone(s.events[:], allocator)
 }
 
-_window_should_close :: proc() -> bool {
-	return s.window_should_close
+win32_get_events :: proc() -> []Window_Event {
+	return s.events[:]
 }
+
+win32_clear_events :: proc() {
+	runtime.clear(&s.events)
+}
+
 
 _win32_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
 	context = s.custom_context
 	switch msg {
 	case win32.WM_DESTROY:
 		win32.PostQuitMessage(0)
-		s.window_should_close = true
 
 	case win32.WM_CLOSE:
-		s.window_should_close = true
+		append(&s.events, Window_Event_Close_Wanted{})
 
 	case win32.WM_KEYDOWN:
-		key := VK_MAP[wparam]
+		key := WIN32_VK_MAP[wparam]
 		append(&s.events, Window_Event_Key_Went_Down {
 			key = key,
 		})
 
 	case win32.WM_KEYUP:
-		key := VK_MAP[wparam]
+		key := WIN32_VK_MAP[wparam]
 		append(&s.events, Window_Event_Key_Went_Up {
 			key = key,
 		})
@@ -134,7 +136,7 @@ _win32_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam:
 	return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
-VK_MAP := [255]Keyboard_Key {
+WIN32_VK_MAP := [255]Keyboard_Key {
 	win32.VK_A = .A,
 	win32.VK_B = .B,
 	win32.VK_C = .C,

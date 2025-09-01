@@ -5,7 +5,7 @@ import k2 "../.."
 main :: proc() {
 	k2.init(1280, 720, "Karl2D Minimal Program")
 
-	for !k2.window_should_close() {
+	for !k2.close_window_wanted() {
 		k2.process_events()
 		k2.clear(k2.BLUE)
 		k2.present()

@@ -33,15 +33,15 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	s.width = window_width
 	s.height = window_height
 
+	s.wi = WINDOW_INTERFACE_WIN32
+	wi = s.wi
+
 	window_state_alloc_error: runtime.Allocator_Error
-	s.window_state, window_state_alloc_error = mem.alloc(window_state_size())
+	s.window_state, window_state_alloc_error = mem.alloc(wi.state_size())
 	log.assertf(window_state_alloc_error == nil, "Failed allocating memory for window state: %v", window_state_alloc_error)
 
-	window_init(s.window_state, window_width, window_height, window_title)
-
-	
-
-	s.window = window_handle()
+	wi.init(s.window_state, window_width, window_height, window_title, allocator)
+	s.window = wi.window_handle()
 
 	s.rb = BACKEND_D3D11
 	rb_alloc_error: runtime.Allocator_Error
@@ -49,7 +49,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
 	s.proj_matrix = make_default_projection(window_width, window_height)
 	s.view_matrix = 1
-	s.rb.init(s.rb_state, s.window, window_width, window_height, allocator, loc)
+	s.rb.init(s.rb_state, s.window, window_width, window_height, allocator)
 	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, allocator, loc)
 	white_rect: [16*16*4]u8
 	slice.fill(white_rect[:], 255)
@@ -73,7 +73,7 @@ shutdown :: proc() {
 	s.rb.shutdown()
 	delete(s.vertex_buffer_cpu, s.allocator)
 
-	window_shutdown()
+	wi.shutdown()
 
 	a := s.allocator
 	free(s.window_state, a)
@@ -100,10 +100,15 @@ process_events :: proc() {
 	s.keys_went_up = {}
 	s.keys_went_down = {}
 
-	events := window_process_events()
+	wi.process_events()
+
+	events := wi.get_events()
 
 	for &event in events {
 		switch &e in event {
+		case Window_Event_Close_Wanted:
+			s.close_window_wanted = true
+
 		case Window_Event_Key_Went_Down:
 			s.keys_went_down[e.key] = true
 			s.keys_is_held[e.key] = true
@@ -113,6 +118,8 @@ process_events :: proc() {
 			s.keys_went_up[e.key] = true
 		}
 	}
+
+	wi.clear_events()
 }
 
 /* Flushes the current batch. This sends off everything to the GPU that has been queued in the
@@ -159,12 +166,12 @@ key_is_held :: proc(key: Keyboard_Key) -> bool {
 }
 
 // Returns true if the user has tried to close the window.
-window_should_close :: proc() -> bool {
-	return _window_should_close()
+close_window_wanted :: proc() -> bool {
+	return s.close_window_wanted
 }
 
 set_window_position :: proc(x: int, y: int) {
-	window_set_position(x, y)
+	wi.set_position(x, y)
 }
 
 set_window_size :: proc(width: int, height: int) {
@@ -513,10 +520,13 @@ _batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 State :: struct {
 	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
+	wi: Window_Interface,
 	window_state: rawptr,
 	rb: Rendering_Backend,
 	rb_state: rawptr,
 	
+	close_window_wanted: bool,
+
 	keys_went_down: #sparse [Keyboard_Key]bool,
 	keys_went_up: #sparse [Keyboard_Key]bool,
 	keys_is_held: #sparse [Keyboard_Key]bool,
@@ -540,6 +550,7 @@ State :: struct {
 
 @(private="file")
 s: ^State
+wi: Window_Interface
 
 Shader_Input_Format :: enum {
 	Unknown,

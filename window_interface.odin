@@ -1,0 +1,30 @@
+package karl2d
+
+Window_Interface :: struct {
+	state_size: proc() -> int,
+	init: proc(window_state: rawptr, window_width: int, window_height: int, window_title: string, allocator := context.allocator),
+	shutdown: proc(),
+	window_handle: proc() -> Window_Handle,
+	process_events: proc(),
+	get_events: proc() -> []Window_Event,
+	clear_events: proc(),
+	set_position: proc(x: int, y: int),
+}
+
+Window_Handle :: distinct uintptr
+
+Window_Event :: union  {
+	Window_Event_Close_Wanted,
+	Window_Event_Key_Went_Down,
+	Window_Event_Key_Went_Up,
+}
+
+Window_Event_Key_Went_Down :: struct {
+	key: Keyboard_Key,
+}
+
+Window_Event_Key_Went_Up :: struct {
+	key: Keyboard_Key,
+}
+
+Window_Event_Close_Wanted :: struct {}
