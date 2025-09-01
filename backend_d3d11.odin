@@ -42,7 +42,7 @@ d3d11_state_size :: proc() -> int {
 	return size_of(D3D11_State)
 }
 
-d3d11_init :: proc(state: rawptr, window_handle: uintptr, swapchain_width, swapchain_height: int,
+d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int,
 	allocator := context.allocator, loc := #caller_location) {
 	hwnd := dxgi.HWND(window_handle)
 	s = (^D3D11_State)(state)

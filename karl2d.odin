@@ -1,6 +1,5 @@
 package karl2d
 
-import win32 "core:sys/windows"
 import "base:runtime"
 import "core:mem"
 import "core:log"
@@ -27,67 +26,22 @@ Texture_Handle :: distinct Handle
 // `set_state`.
 init :: proc(window_width: int, window_height: int, window_title: string,
              allocator := context.allocator, loc := #caller_location) -> ^State {
-	win32.SetProcessDPIAware()
 	s = new(State, allocator, loc)
 	s.allocator = allocator
 	s.custom_context = context
 
-	CLASS_NAME :: "karl2d"
-	instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
-
-	s.run = true
 	s.width = window_width
 	s.height = window_height
 
-	cls := win32.WNDCLASSW {
-		lpfnWndProc = window_proc,
-		lpszClassName = CLASS_NAME,
-		hInstance = instance,
-		hCursor = win32.LoadCursorA(nil, win32.IDC_ARROW),
-	}
+	window_state_alloc_error: runtime.Allocator_Error
+	s.window_state, window_state_alloc_error = mem.alloc(window_state_size())
+	log.assertf(window_state_alloc_error == nil, "Failed allocating memory for window state: %v", window_state_alloc_error)
 
-	window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
-		context = s.custom_context
-		switch msg {
-		case win32.WM_DESTROY:
-			win32.PostQuitMessage(0)
-			s.run = false
+	window_init(s.window_state, window_width, window_height, window_title)
 
-		case win32.WM_CLOSE:
-			s.run = false
+	
 
-		case win32.WM_KEYDOWN:
-			key := VK_MAP[wparam]
-			s.keys_went_down[key] = true
-			s.keys_is_held[key] = true
-
-		case win32.WM_KEYUP:
-			key := VK_MAP[wparam]
-			s.keys_is_held[key] = false
-			s.keys_went_up[key] = true
-		}
-
-		return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
-	}
-
-	win32.RegisterClassW(&cls)
-
-	r: win32.RECT
-	r.right = i32(window_width)
-	r.bottom = i32(window_height)
-
-	style := win32.WS_OVERLAPPEDWINDOW | win32.WS_VISIBLE
-	win32.AdjustWindowRect(&r, style, false)
-
-	hwnd := win32.CreateWindowW(CLASS_NAME,
-		win32.utf8_to_wstring(window_title),
-		style,
-		100, 10, r.right - r.left, r.bottom - r.top,
-		nil, nil, instance, nil)
-
-	s.window = hwnd
-
-	assert(hwnd != nil, "Failed creating window")
+	s.window = window_handle()
 
 	s.rb = BACKEND_D3D11
 	rb_alloc_error: runtime.Allocator_Error
@@ -95,7 +49,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
 	s.proj_matrix = make_default_projection(window_width, window_height)
 	s.view_matrix = 1
-	s.rb.init(s.rb_state, uintptr(hwnd), window_width, window_height, allocator, loc)
+	s.rb.init(s.rb_state, s.window, window_width, window_height, allocator, loc)
 	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, allocator, loc)
 	white_rect: [16*16*4]u8
 	slice.fill(white_rect[:], 255)
@@ -119,9 +73,10 @@ shutdown :: proc() {
 	s.rb.shutdown()
 	delete(s.vertex_buffer_cpu, s.allocator)
 
-	win32.DestroyWindow(s.window)
+	window_shutdown()
 
 	a := s.allocator
+	free(s.window_state, a)
 	free(s.rb_state, a)
 	free(s, a)
 	s = nil
@@ -145,11 +100,18 @@ process_events :: proc() {
 	s.keys_went_up = {}
 	s.keys_went_down = {}
 
-	msg: win32.MSG
+	events := window_process_events()
 
-	for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
-		win32.TranslateMessage(&msg)
-		win32.DispatchMessageW(&msg)			
+	for &event in events {
+		switch &e in event {
+		case Window_Event_Key_Went_Down:
+			s.keys_went_down[e.key] = true
+			s.keys_is_held[e.key] = true
+
+		case Window_Event_Key_Went_Up:
+			s.keys_is_held[e.key] = false
+			s.keys_went_up[e.key] = true
+		}
 	}
 }
 
@@ -198,21 +160,11 @@ key_is_held :: proc(key: Keyboard_Key) -> bool {
 
 // Returns true if the user has tried to close the window.
 window_should_close :: proc() -> bool {
-	return !s.run
+	return _window_should_close()
 }
 
 set_window_position :: proc(x: int, y: int) {
-	// TODO: Does x, y respect monitor DPI?
-
-	win32.SetWindowPos(
-		s.window,
-		{},
-		i32(x),
-		i32(y),
-		0,
-		0,
-		win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOSIZE,
-	)
+	window_set_position(x, y)
 }
 
 set_window_size :: proc(width: int, height: int) {
@@ -556,9 +508,12 @@ _batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	
 	s.vertex_buffer_cpu_used += shd.vertex_size
 }
+
+
 State :: struct {
 	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
+	window_state: rawptr,
 	rb: Rendering_Backend,
 	rb_state: rawptr,
 	
@@ -566,11 +521,9 @@ State :: struct {
 	keys_went_up: #sparse [Keyboard_Key]bool,
 	keys_is_held: #sparse [Keyboard_Key]bool,
 
-	window: win32.HWND,
+	window: Window_Handle,
 	width: int,
 	height: int,
-
-	run: bool,
 
 	shape_drawing_texture: Texture_Handle,
 	batch_camera: Maybe(Camera),
@@ -583,39 +536,6 @@ State :: struct {
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
 	default_shader: Shader,
-}
-
-VK_MAP := [255]Keyboard_Key {
-	win32.VK_A = .A,
-	win32.VK_B = .B,
-	win32.VK_C = .C,
-	win32.VK_D = .D,
-	win32.VK_E = .E,
-	win32.VK_F = .F,
-	win32.VK_G = .G,
-	win32.VK_H = .H,
-	win32.VK_I = .I,
-	win32.VK_J = .J,
-	win32.VK_K = .K,
-	win32.VK_L = .L,
-	win32.VK_M = .M,
-	win32.VK_N = .N,
-	win32.VK_O = .O,
-	win32.VK_P = .P,
-	win32.VK_Q = .Q,
-	win32.VK_R = .R,
-	win32.VK_S = .S,
-	win32.VK_T = .T,
-	win32.VK_U = .U,
-	win32.VK_V = .V,
-	win32.VK_W = .W,
-	win32.VK_X = .X,
-	win32.VK_Y = .Y,
-	win32.VK_Z = .Z,
-	win32.VK_LEFT = .Left,
-	win32.VK_RIGHT = .Right,
-	win32.VK_UP = .Up,
-	win32.VK_DOWN = .Down,
 }
 
 @(private="file")
