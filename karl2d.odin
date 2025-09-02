@@ -488,6 +488,8 @@ _batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	uv_offset := shd.default_input_offsets[.UV]
 	color_offset := shd.default_input_offsets[.Color]
 	
+	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
+
 	if pos_offset != -1 {
 		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
 	}

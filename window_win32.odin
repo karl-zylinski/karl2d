@@ -167,4 +167,5 @@ WIN32_VK_MAP := [255]Keyboard_Key {
 	win32.VK_RIGHT = .Right,
 	win32.VK_UP = .Up,
 	win32.VK_DOWN = .Down,
+	win32.VK_RETURN = .Enter,
 }
