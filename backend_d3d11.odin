@@ -25,8 +25,6 @@ BACKEND_D3D11 :: Rendering_Backend {
 	get_swapchain_width = d3d11_get_swapchain_width,
 	get_swapchain_height = d3d11_get_swapchain_height,
 
-	set_view_projection_matrix = d3d11_set_view_projection_matrix,
-
 	set_internal_state = d3d11_set_internal_state,
 
 	load_texture = d3d11_load_texture,
@@ -207,10 +205,6 @@ d3d11_get_swapchain_height :: proc() -> int {
 	return s.height
 }
 
-d3d11_set_view_projection_matrix :: proc(m: Mat4) {
-	s.view_proj = m
-}
-
 VERTEX_BUFFER_MAX :: 1000000
 
 TEXTURE_NONE :: Texture_Handle {}
@@ -365,7 +359,7 @@ create_vertex_input_override :: proc(val: $T) -> Shader_Input_Value_Override {
 	return res
 }
 
-d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, vertex_buffer: []u8) {
+d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex_buffer: []u8) {
 	if len(vertex_buffer) == 0 {
 		return
 	}
@@ -413,7 +407,7 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, vertex_buffer: []u8) {
 		switch builtin {
 		case .MVP:
 			dst := (^matrix[4,4]f32)(&shd.constant_buffers[loc.buffer_idx].cpu_data[loc.offset])
-			dst^ = s.view_proj
+			dst^ = view_proj
 		}
 	}
 

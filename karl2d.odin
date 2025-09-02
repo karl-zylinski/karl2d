@@ -134,7 +134,7 @@ docs for those procs).
 */   
 draw_current_batch :: proc() {
 	shader := s.batch_shader.? or_else s.default_shader
-	s.rb.draw(shader, s.batch_texture, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
+	s.rb.draw(shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
 	s.vertex_buffer_cpu_used = 0
 }
 
@@ -198,8 +198,6 @@ set_camera :: proc(camera: Maybe(Camera)) {
 	} else {
 		s.view_matrix = 1
 	}
-
-	s.rb.set_view_projection_matrix(s.proj_matrix * s.view_matrix)
 }
 
 load_texture_from_file :: proc(filename: string) -> Texture {
@@ -236,6 +234,64 @@ draw_rect :: proc(r: Rect, c: Color) {
 	_batch_vertex({r.x, r.y}, {0, 0}, c)
 	_batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
 	_batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
+}
+
+draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
+	if s.batch_texture != TEXTURE_NONE && s.batch_texture != s.shape_drawing_texture {
+		draw_current_batch()
+	}
+
+	r := r
+
+	r.x -= origin.x
+	r.y -= origin.y
+
+	s.batch_texture = s.shape_drawing_texture
+	tl, tr, bl, br: Vec2
+
+	// Rotation adapted from Raylib's "DrawTexturePro"
+	if rot == 0 {
+		x := r.x - origin.x
+		y := r.y - origin.y
+		tl = { x,         y }
+		tr = { x + r.w, y }
+		bl = { x,         y + r.h }
+		br = { x + r.w, y + r.h }
+	} else {
+		sin_rot := math.sin(rot * math.RAD_PER_DEG)
+		cos_rot := math.cos(rot * math.RAD_PER_DEG)
+		x := r.x
+		y := r.y
+		dx := -origin.x
+		dy := -origin.y
+
+		tl = {
+			x + dx * cos_rot - dy * sin_rot,
+			y + dx * sin_rot + dy * cos_rot,
+		}
+
+		tr = {
+			x + (dx + r.w) * cos_rot - dy * sin_rot,
+			y + (dx + r.w) * sin_rot + dy * cos_rot,
+		}
+
+		bl = {
+			x + dx * cos_rot - (dy + r.h) * sin_rot,
+			y + dx * sin_rot + (dy + r.h) * cos_rot,
+		}
+
+		br = {
+			x + (dx + r.w) * cos_rot - (dy + r.h) * sin_rot,
+			y + (dx + r.w) * sin_rot + (dy + r.h) * cos_rot,
+		}
+	}
+	
+	_batch_vertex(tl, {0, 0}, c)
+	_batch_vertex(tr, {1, 0}, c)
+	_batch_vertex(br, {1, 1}, c)
+	_batch_vertex(tl, {0, 0}, c)
+	_batch_vertex(br, {1, 1}, c)
+	_batch_vertex(bl, {0, 1}, c)
 }
 
 draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
@@ -282,7 +338,15 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color) {
 }
 
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
-	
+	p := Vec2{start.x, start.y + thickness*0.5}
+	s := Vec2{linalg.length(end - start), thickness}
+
+	origin := Vec2 {0, thickness*0.5}
+	r := Rect {p.x, p.y, s.x, s.y}
+
+	rot := math.atan2(end.y - start.y, end.x - start.x)
+
+	draw_rect_ex(r, origin, rot * math.DEG_PER_RAD, color)
 }
 
 draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {

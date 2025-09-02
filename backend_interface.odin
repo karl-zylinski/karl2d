@@ -6,7 +6,7 @@ Rendering_Backend :: struct {
 	shutdown: proc(),
 	clear: proc(color: Color),
 	present: proc(),
-	draw: proc(shader: Shader, texture: Texture_Handle, vertex_buffer: []u8),
+	draw: proc(shader: Shader, texture: Texture_Handle, view_proj: Mat4, vertex_buffer: []u8),
 	set_internal_state: proc(state: rawptr),
 
 	load_texture: proc(data: []u8, width: int, height: int) -> Texture_Handle,
@@ -17,8 +17,6 @@ Rendering_Backend :: struct {
 
 	get_swapchain_width: proc() -> int,
 	get_swapchain_height: proc() -> int,
-
-	set_view_projection_matrix: proc(m: Mat4),
 
 	batch_vertex: proc(v: Vec2, uv: Vec2, color: Color),
 }
