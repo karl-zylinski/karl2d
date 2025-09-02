@@ -110,7 +110,6 @@ win32_clear_events :: proc() {
 	runtime.clear(&s.events)
 }
 
-
 _win32_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
 	context = s.custom_context
 	switch msg {
@@ -126,11 +125,24 @@ _win32_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam:
 			key = key,
 		})
 
+		return 0
+
 	case win32.WM_KEYUP:
 		key := WIN32_VK_MAP[wparam]
 		append(&s.events, Window_Event_Key_Went_Up {
 			key = key,
 		})
+
+		return 0
+
+	case win32.WM_MOUSEMOVE:
+		x := win32.GET_X_LPARAM(lparam)
+		y := win32.GET_Y_LPARAM(lparam)
+		append(&s.events, Window_Event_Mouse_Move {
+			position = {f32(x), f32(y)},
+		})
+
+		return 0
 	}
 
 	return win32.DefWindowProcW(hwnd, msg, wparam, lparam)

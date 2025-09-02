@@ -99,6 +99,7 @@ present :: proc() {
 process_events :: proc() {
 	s.keys_went_up = {}
 	s.keys_went_down = {}
+	s.mouse_delta = {}
 
 	wi.process_events()
 
@@ -116,6 +117,11 @@ process_events :: proc() {
 		case Window_Event_Key_Went_Up:
 			s.keys_is_held[e.key] = false
 			s.keys_went_up[e.key] = true
+
+		case Window_Event_Mouse_Move:
+			prev_pos := s.mouse_position
+			s.mouse_position = e.position
+			s.mouse_delta = prev_pos - s.mouse_position
 		}
 	}
 
@@ -241,11 +247,6 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 		draw_current_batch()
 	}
 
-	r := r
-
-	r.x -= origin.x
-	r.y -= origin.y
-
 	s.batch_texture = s.shape_drawing_texture
 	tl, tr, bl, br: Vec2
 
@@ -333,8 +334,26 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 	draw_rect(right, color)
 }
 
-draw_circle :: proc(center: Vec2, radius: f32, color: Color) {
-	panic("not implemented")
+draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
+	if s.batch_texture != TEXTURE_NONE && s.batch_texture != s.shape_drawing_texture {
+		draw_current_batch()
+	}
+
+	s.batch_texture = s.shape_drawing_texture
+
+	prev := center + {radius, 0}
+	for s in 1..=segments {
+		sr := (f32(s)/f32(segments)) * 2*math.PI
+		rot := linalg.matrix2_rotate(sr)
+		p := center + rot * Vec2{radius, 0}
+			
+
+		_batch_vertex(prev, {0, 0}, color)
+		_batch_vertex(p, {1, 0}, color)
+		_batch_vertex(center, {1, 1}, color)
+
+		prev = p
+	}
 }
 
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
@@ -379,11 +398,6 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	if s.batch_texture != TEXTURE_NONE && s.batch_texture != tex.handle {
 		draw_current_batch()
 	}
-
-	r := dst
-
-	r.x -= origin.x
-	r.y -= origin.y
 
 	s.batch_texture = tex.handle
 	tl, tr, bl, br: Vec2
@@ -535,7 +549,7 @@ get_mouse_wheel_delta :: proc() -> f32 {
 }
 
 get_mouse_position :: proc() -> Vec2 {
-	panic("not implemented")
+	return s.mouse_position
 }
 
 _batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
@@ -591,6 +605,9 @@ State :: struct {
 	rb_state: rawptr,
 	
 	shutdown_wanted: bool,
+
+	mouse_position: Vec2,
+	mouse_delta: Vec2,
 
 	keys_went_down: #sparse [Keyboard_Key]bool,
 	keys_went_up: #sparse [Keyboard_Key]bool,

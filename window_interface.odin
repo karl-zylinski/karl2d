@@ -17,6 +17,7 @@ Window_Event :: union  {
 	Window_Event_Close_Wanted,
 	Window_Event_Key_Went_Down,
 	Window_Event_Key_Went_Up,
+	Window_Event_Mouse_Move,
 }
 
 Window_Event_Key_Went_Down :: struct {
@@ -28,3 +29,7 @@ Window_Event_Key_Went_Up :: struct {
 }
 
 Window_Event_Close_Wanted :: struct {}
+
+Window_Event_Mouse_Move :: struct {
+	position: Vec2,
+}
