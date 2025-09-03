@@ -200,9 +200,9 @@ set_camera :: proc(camera: Maybe(Camera)) {
 	if c, c_ok := camera.?; c_ok {
 		origin_trans := linalg.matrix4_translate(vec3_from_vec2(-c.origin))
 		translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
-		scale := linalg.matrix4_scale(Vec3{c.zoom, c.zoom, 1})
+		scale := linalg.matrix4_scale(Vec3{1/c.zoom, 1/c.zoom, 1})
 		rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
-		camera_matrix := translate * rot *scale* origin_trans
+		camera_matrix := translate * scale * rot * origin_trans
 		s.view_matrix = linalg.inverse(camera_matrix)
 	} else {
 		s.view_matrix = 1
@@ -402,6 +402,28 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		draw_current_batch()
 	}
 
+	flip_x, flip_y: bool
+	src := src
+	dst := dst
+
+	if src.w < 0 {
+		flip_x = true
+		src.w = -src.w
+	}
+
+	if src.h < 0 {
+		flip_y = true
+		src.h = -src.h
+	}
+
+	if dst.w < 0 {
+		dst.w *= -1
+	}
+
+	if dst.h < 0 {
+		dst.h *= -1
+	}
+
 	s.batch_texture = tex.handle
 	tl, tr, bl, br: Vec2
 
@@ -447,12 +469,37 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	us := Vec2{src.w, src.h} / ts
 	c := tint
 
-	_batch_vertex(tl, up, c)
-	_batch_vertex(tr, up + {us.x, 0}, c)
-	_batch_vertex(br, up + us, c)
-	_batch_vertex(tl, up, c)
-	_batch_vertex(br, up + us, c)
-	_batch_vertex(bl, up + {0, us.y}, c)
+	uv0 := up
+	uv1 := up + {us.x, 0}
+	uv2 := up + us
+	uv3 := up
+	uv4 := up + us
+	uv5 := up + {0, us.y}
+
+	if flip_x {
+		uv0.x += us.x
+		uv1.x -= us.x
+		uv2.x -= us.x
+		uv3.x += us.x
+		uv4.x -= us.x
+		uv5.x += us.x		
+	}
+
+	if flip_y {
+		uv0.y += us.y
+		uv1.y += us.y
+		uv2.y -= us.y
+		uv3.y += us.y
+		uv4.y -= us.y
+		uv5.y -= us.y		
+	}
+
+	_batch_vertex(tl, uv0, c)
+	_batch_vertex(tr, uv1, c)
+	_batch_vertex(br, uv2, c)
+	_batch_vertex(tl, uv3, c)
+	_batch_vertex(br, uv4, c)
+	_batch_vertex(bl, uv5, c)
 }
 
 load_shader :: proc(shader_source: string, layout_formats: []Shader_Input_Format = {}) -> Shader {

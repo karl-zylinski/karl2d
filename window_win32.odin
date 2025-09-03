@@ -184,6 +184,7 @@ WIN32_VK_MAP := [255]Keyboard_Key {
 	win32.VK_X = .X,
 	win32.VK_Y = .Y,
 	win32.VK_Z = .Z,
+	win32.VK_SPACE = .Space,
 	win32.VK_LEFT = .Left,
 	win32.VK_RIGHT = .Right,
 	win32.VK_UP = .Up,
