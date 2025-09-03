@@ -153,7 +153,10 @@ draw_current_batch :: proc() {
 // reloading the library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State) {
 	s = state
+	rb = s.rb
+	win = s.win
 	rb.set_internal_state(s.rb_state)
+	win.set_internal_state(s.window_state)
 }
 
 get_screen_width :: proc() -> int {

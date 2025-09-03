@@ -16,6 +16,7 @@ WINDOW_INTERFACE_WIN32 :: Window_Interface {
 	get_events = win32_get_events,
 	clear_events = win32_clear_events,
 	set_position = win32_set_position,
+	set_internal_state = win32_set_internal_state,
 }
 
 Win32_State :: struct {
@@ -89,6 +90,11 @@ win32_set_position :: proc(x: int, y: int) {
 		0,
 		win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOSIZE,
 	)
+}
+
+win32_set_internal_state :: proc(state: rawptr) {
+	assert(state != nil)
+	s = (^Win32_State)(state)
 }
 
 win32_window_handle :: proc() -> Window_Handle {

@@ -9,6 +9,8 @@ Window_Interface :: struct {
 	get_events: proc() -> []Window_Event,
 	clear_events: proc(),
 	set_position: proc(x: int, y: int),
+
+	set_internal_state: proc(state: rawptr),
 }
 
 Window_Handle :: distinct uintptr
