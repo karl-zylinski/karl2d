@@ -16,22 +16,22 @@ Might not be included:
 
 Here follows my near-future TODO list
 
-* Texture things are a bit of a hack
-	* Make the sampler state configurable
-	* Do we need the SRV in the texture?
+* Is the 1/zoom in set_camera wrong? Is the matrix multiply order wrong? Hmmmm...
+* Textures: Make the sampler state configurable
+* Textures D3D11: Do we need the SRV in the texture?
+* Flashing textures in Abyss
 * Do proper checks of vertex count and dispatch rendering when full
 	* What happens when list is full? We can't just empty the vertex list due to being used by input assembler etc.
 * Should we sort by depth? Maybe we should use Vec3 because some 2D games rely on it?
-* Shaders
-	* Basic loading
-	* Constants that you can set
-	* Dynamic vertex creation
-	* Feed extra vertex field values using some kind of context
-		* Do we need one for all corners of a rect or possibilty to supply different value for the different corners?
-
+	* I think we should.
+* Shaders: Reflect and expose samplers
 
 ## DONE
-
+* Shaders: Basic loading
+* Shaders: Constants that you can set
+* Shaders: Dynamic vertex creation
+* Shaders: Feed extra vertex field values using some kind of context
+	* Do we need one for all corners of a rect or possibilty to supply different value for the different corners?
 * Group set_tex, camera etc into a section of things that cause a render batch dispatch when changed.
 * Make a texture for drawing a rectangle and remove the hack in `shader.hlsl`
 * Load textures and somehow bind to shader -- split draw calls on texture switch -- needs a start of a batch system.
