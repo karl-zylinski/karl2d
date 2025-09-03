@@ -101,6 +101,7 @@ process_events :: proc() {
 	s.keys_went_up = {}
 	s.keys_went_down = {}
 	s.mouse_delta = {}
+	s.mouse_wheel_delta = 0
 
 	win.process_events()
 
@@ -123,6 +124,9 @@ process_events :: proc() {
 			prev_pos := s.mouse_position
 			s.mouse_position = e.position
 			s.mouse_delta = prev_pos - s.mouse_position
+
+		case Window_Event_Mouse_Wheel:
+			s.mouse_wheel_delta = e.delta
 		}
 	}
 
@@ -196,12 +200,10 @@ set_camera :: proc(camera: Maybe(Camera)) {
 	if c, c_ok := camera.?; c_ok {
 		origin_trans := linalg.matrix4_translate(vec3_from_vec2(-c.origin))
 		translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
+		scale := linalg.matrix4_scale(Vec3{c.zoom, c.zoom, 1})
 		rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
-		camera_matrix := translate * rot * origin_trans
+		camera_matrix := translate * rot *scale* origin_trans
 		s.view_matrix = linalg.inverse(camera_matrix)
-		
-		s.proj_matrix[0, 0] *= c.zoom
-		s.proj_matrix[1, 1] *= c.zoom
 	} else {
 		s.view_matrix = 1
 	}
@@ -546,7 +548,7 @@ mouse_button_is_held :: proc(button: Mouse_Button) -> bool {
 }
 
 get_mouse_wheel_delta :: proc() -> f32 {
-	return 0
+	return s.mouse_wheel_delta
 }
 
 get_mouse_position :: proc() -> Vec2 {
@@ -609,6 +611,7 @@ State :: struct {
 
 	mouse_position: Vec2,
 	mouse_delta: Vec2,
+	mouse_wheel_delta: f32,
 
 	keys_went_down: #sparse [Keyboard_Key]bool,
 	keys_went_up: #sparse [Keyboard_Key]bool,

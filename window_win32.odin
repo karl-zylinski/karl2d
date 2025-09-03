@@ -4,6 +4,8 @@ package karl2d
 
 import win32 "core:sys/windows"
 import "base:runtime"
+import "core:log"
+_ :: log
 
 WINDOW_INTERFACE_WIN32 :: Window_Interface {
 	state_size = win32_state_size,
@@ -143,6 +145,13 @@ _win32_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam:
 		})
 
 		return 0
+
+	case win32.WM_MOUSEWHEEL:
+		delta := -f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
+
+		append(&s.events, Window_Event_Mouse_Wheel {
+			delta = delta,
+		})
 	}
 
 	return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
