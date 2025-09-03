@@ -164,6 +164,18 @@ _win32_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam:
 }
 
 WIN32_VK_MAP := [255]Keyboard_Key {
+	win32.VK_F1 = .F1,
+	win32.VK_F2 = .F2,
+	win32.VK_F3 = .F3,
+	win32.VK_F4 = .F4,
+	win32.VK_F5 = .F5,
+	win32.VK_F6 = .F6,
+	win32.VK_F7 = .F7,
+	win32.VK_F8 = .F8,
+	win32.VK_F9 = .F9,
+	win32.VK_F10 = .F10,
+	win32.VK_F11 = .F11,
+	win32.VK_F12 = .F12,
 	win32.VK_A = .A,
 	win32.VK_B = .B,
 	win32.VK_C = .C,
