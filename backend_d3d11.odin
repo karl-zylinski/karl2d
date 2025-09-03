@@ -14,7 +14,7 @@ import hm "handle_map"
 import "base:runtime"
 
 
-BACKEND_D3D11 :: Rendering_Backend {
+BACKEND_D3D11 :: Rendering_Backend_Interface {
 	state_size = d3d11_state_size,
 	init = d3d11_init,
 	shutdown = d3d11_shutdown,

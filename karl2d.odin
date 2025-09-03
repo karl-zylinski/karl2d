@@ -33,29 +33,30 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	s.width = window_width
 	s.height = window_height
 
-	s.wi = WINDOW_INTERFACE_WIN32
-	wi = s.wi
+	s.win = WINDOW_INTERFACE_WIN32
+	win = s.win
 
 	window_state_alloc_error: runtime.Allocator_Error
-	s.window_state, window_state_alloc_error = mem.alloc(wi.state_size())
+	s.window_state, window_state_alloc_error = mem.alloc(win.state_size())
 	log.assertf(window_state_alloc_error == nil, "Failed allocating memory for window state: %v", window_state_alloc_error)
 
-	wi.init(s.window_state, window_width, window_height, window_title, allocator)
-	s.window = wi.window_handle()
+	win.init(s.window_state, window_width, window_height, window_title, allocator)
+	s.window = win.window_handle()
 
 	s.rb = BACKEND_D3D11
+	rb = s.rb
 	rb_alloc_error: runtime.Allocator_Error
-	s.rb_state, rb_alloc_error = mem.alloc(s.rb.state_size())
+	s.rb_state, rb_alloc_error = mem.alloc(rb.state_size())
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
 	s.proj_matrix = make_default_projection(window_width, window_height)
 	s.view_matrix = 1
-	s.rb.init(s.rb_state, s.window, window_width, window_height, allocator)
+	rb.init(s.rb_state, s.window, window_width, window_height, allocator)
 	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, allocator, loc)
 	white_rect: [16*16*4]u8
 	slice.fill(white_rect[:], 255)
-	s.shape_drawing_texture = s.rb.load_texture(white_rect[:], 16, 16)
+	s.shape_drawing_texture = rb.load_texture(white_rect[:], 16, 16)
 
-	s.default_shader = s.rb.load_shader(string(DEFAULT_SHADER_SOURCE), {
+	s.default_shader = rb.load_shader(string(DEFAULT_SHADER_SOURCE), {
 		.RG32_Float,
 		.RG32_Float,
 		.RGBA8_Norm,
@@ -68,12 +69,12 @@ DEFAULT_SHADER_SOURCE :: #load("shader.hlsl")
 
 // Closes the window and cleans up the internal state.
 shutdown :: proc() {
-	s.rb.destroy_texture(s.shape_drawing_texture)
+	rb.destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
-	s.rb.shutdown()
+	rb.shutdown()
 	delete(s.vertex_buffer_cpu, s.allocator)
 
-	wi.shutdown()
+	win.shutdown()
 
 	a := s.allocator
 	free(s.window_state, a)
@@ -84,13 +85,13 @@ shutdown :: proc() {
 
 // Clear the backbuffer with supplied color.
 clear :: proc(color: Color) {
-	s.rb.clear(color)
+	rb.clear(color)
 }
 
 // Present the backbuffer. Call at end of frame to make everything you've drawn appear on the screen.
 present :: proc() {
 	draw_current_batch()
-	s.rb.present()
+	rb.present()
 }
 
 // Call at start or end of frame to process all events that have arrived to the window.
@@ -101,9 +102,9 @@ process_events :: proc() {
 	s.keys_went_down = {}
 	s.mouse_delta = {}
 
-	wi.process_events()
+	win.process_events()
 
-	events := wi.get_events()
+	events := win.get_events()
 
 	for &event in events {
 		switch &e in event {
@@ -125,7 +126,7 @@ process_events :: proc() {
 		}
 	}
 
-	wi.clear_events()
+	win.clear_events()
 }
 
 /* Flushes the current batch. This sends off everything to the GPU that has been queued in the
@@ -140,7 +141,7 @@ docs for those procs).
 */   
 draw_current_batch :: proc() {
 	shader := s.batch_shader.? or_else s.default_shader
-	s.rb.draw(shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
+	rb.draw(shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
 	s.vertex_buffer_cpu_used = 0
 }
 
@@ -148,15 +149,15 @@ draw_current_batch :: proc() {
 // reloading the library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State) {
 	s = state
-	s.rb.set_internal_state(s.rb_state)
+	rb.set_internal_state(s.rb_state)
 }
 
 get_screen_width :: proc() -> int {
-	return s.rb.get_swapchain_width()
+	return rb.get_swapchain_width()
 }
 
 get_screen_height :: proc() -> int  {
-	return s.rb.get_swapchain_height()
+	return rb.get_swapchain_height()
 }
 
 key_went_down :: proc(key: Keyboard_Key) -> bool {
@@ -176,7 +177,7 @@ shutdown_wanted :: proc() -> bool {
 }
 
 set_window_position :: proc(x: int, y: int) {
-	wi.set_position(x, y)
+	win.set_position(x, y)
 }
 
 set_window_size :: proc(width: int, height: int) {
@@ -214,7 +215,7 @@ load_texture_from_file :: proc(filename: string) -> Texture {
 		return {}
 	}
 
-	backend_tex := s.rb.load_texture(img.pixels.buf[:], img.width, img.height)
+	backend_tex := rb.load_texture(img.pixels.buf[:], img.width, img.height)
 
 	return {
 		handle = backend_tex,
@@ -224,7 +225,7 @@ load_texture_from_file :: proc(filename: string) -> Texture {
 }
 
 destroy_texture :: proc(tex: Texture) {
-	s.rb.destroy_texture(tex.handle)
+	rb.destroy_texture(tex.handle)
 }
 
 draw_rect :: proc(r: Rect, c: Color) {
@@ -453,11 +454,11 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 }
 
 load_shader :: proc(shader_source: string, layout_formats: []Shader_Input_Format = {}) -> Shader {
-	return s.rb.load_shader(shader_source, layout_formats)
+	return rb.load_shader(shader_source, layout_formats)
 }
 
 destroy_shader :: proc(shader: Shader) {
-	s.rb.destroy_shader(shader)
+	rb.destroy_shader(shader)
 }
 
 set_shader :: proc(shader: Maybe(Shader)) {
@@ -599,9 +600,9 @@ _batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 State :: struct {
 	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
-	wi: Window_Interface,
+	win: Window_Interface,
 	window_state: rawptr,
-	rb: Rendering_Backend,
+	rb: Rendering_Backend_Interface,
 	rb_state: rawptr,
 	
 	shutdown_wanted: bool,
@@ -632,7 +633,8 @@ State :: struct {
 
 @(private="file")
 s: ^State
-wi: Window_Interface
+win: Window_Interface
+rb: Rendering_Backend_Interface
 
 Shader_Input_Format :: enum {
 	Unknown,
