@@ -158,10 +158,6 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 		ComparisonFunc = .NEVER,
 	}
 	s.device->CreateSamplerState(&sampler_desc, &s.sampler_state)
-
-	
-
-	
 }
 
 d3d11_shutdown :: proc() {
@@ -270,10 +266,6 @@ D3D11_State :: struct {
 	vertex_buffer_gpu: ^d3d11.IBuffer,
 
 	vertex_buffer_offset: int,
-	
-	batch_shader: Shader_Handle,
-
-	view_proj: Mat4,
 }
 
 vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
@@ -627,7 +619,7 @@ d3d11_load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format 
 				switch i.type {
 				case .F32: i.format = .R32_Float
 				case .Vec2: i.format = .RG32_Float
-				case .Vec3: i.format = .RGBA32_Float
+				case .Vec3: i.format = .RGB32_Float
 				case .Vec4: i.format = .RGBA32_Float
 				}
 			}
@@ -688,6 +680,7 @@ dxgi_format_from_shader_input_format :: proc(f: Shader_Input_Format) -> dxgi.FOR
 	case .RGBA32_Float: return .R32G32B32A32_FLOAT
 	case .RGBA8_Norm: return .R8G8B8A8_UNORM
 	case .RGBA8_Norm_SRGB: return .R8G8B8A8_UNORM_SRGB
+	case .RGB32_Float: return .R32G32B32_FLOAT
 	case .RG32_Float: return .R32G32_FLOAT
 	case .R32_Float: return .R32_FLOAT
 	}
@@ -702,6 +695,7 @@ shader_input_format_size :: proc(f: Shader_Input_Format) -> int {
 	case .RGBA32_Float: return 32
 	case .RGBA8_Norm: return 4
 	case .RGBA8_Norm_SRGB: return 4
+	case .RGB32_Float: return 12
 	case .RG32_Float: return 8
 	case .R32_Float: return 4
 	}

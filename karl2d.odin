@@ -56,11 +56,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	slice.fill(white_rect[:], 255)
 	s.shape_drawing_texture = rb.load_texture(white_rect[:], 16, 16)
 
-	s.default_shader = rb.load_shader(string(DEFAULT_SHADER_SOURCE), {
-		.RG32_Float,
-		.RG32_Float,
-		.RGBA8_Norm,
-	})
+	s.default_shader = rb.load_shader(string(DEFAULT_SHADER_SOURCE))
 
 	return s
 }
@@ -622,7 +618,7 @@ _batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
 
 	if pos_offset != -1 {
-		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
+		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = {v.x, v.y}
 	}
 
 	if uv_offset != -1 {
@@ -694,6 +690,7 @@ Shader_Input_Format :: enum {
 	RGBA32_Float,
 	RGBA8_Norm,
 	RGBA8_Norm_SRGB,
+	RGB32_Float,
 	RG32_Float,
 	R32_Float,
 }
