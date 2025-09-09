@@ -15,10 +15,6 @@ import "core:image/tga"
 
 import hm "handle_map"
 
-_ :: bmp
-_ :: png
-_ :: tga
-
 Handle :: hm.Handle
 Texture_Handle :: distinct Handle
 TEXTURE_NONE :: Texture_Handle {}
@@ -760,7 +756,6 @@ _batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	s.vertex_buffer_cpu_used += shd.vertex_size
 }
 
-
 shader_input_format_size :: proc(f: Shader_Input_Format) -> int {
 	switch f {
 	case .Unknown: return 0
@@ -809,6 +804,9 @@ State :: struct {
 	vertex_buffer_cpu_used: int,
 	default_shader: Shader,
 }
+
+// Used by API builder. Everything after this constant will not be in karl2d_api.txt
+API_END :: true
 
 @(private="file")
 s: ^State
@@ -1059,3 +1057,7 @@ create_vertex_input_override :: proc(val: $T) -> Shader_Input_Value_Override {
 temp_cstring :: proc(str: string, loc := #caller_location) -> cstring {
 	return strings.clone_to_cstring(str, context.temp_allocator, loc)
 }
+
+_ :: bmp
+_ :: png
+_ :: tga
