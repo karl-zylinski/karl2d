@@ -1,15 +1,12 @@
 package karl2d_api_doc_builder
 
 import os "core:os/os2"
-import os1 "core:os"
 import vmem "core:mem/virtual"
 import "core:log"
 import "core:fmt"
 import "core:odin/parser"
 import "core:odin/ast"
 import "core:strings"
-import "core:slice"
-import "core:hash"
 
 main :: proc() {
 	arena: vmem.Arena
@@ -43,7 +40,6 @@ main :: proc() {
 					case ^ast.Proc_Lit:
 						name := f.src[dd.names[vi].pos.offset:dd.names[vi].end.offset]
 						type := f.src[vd.type.pos.offset:vd.type.end.offset]
-						docs := dd.docs == nil ? "" : f.src[dd.docs.pos.offset:dd.docs.end.offset]
 						val = fmt.tprintf("%v :: %v", name, type)
 					}
 				}
