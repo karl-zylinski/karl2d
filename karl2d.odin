@@ -58,7 +58,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	slice.fill(white_rect[:], 255)
 	s.shape_drawing_texture = rb.load_texture(white_rect[:], 16, 16)
 
-	s.default_shader = rb.load_shader(string(DEFAULT_SHADER_SOURCE))
+	s.default_shader = load_shader(string(DEFAULT_SHADER_SOURCE))
 
 	return s
 }
@@ -510,11 +510,119 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 }
 
 load_shader :: proc(shader_source: string, layout_formats: []Shader_Input_Format = {}) -> Shader {
-	return rb.load_shader(shader_source, layout_formats)
+	handle, desc := rb.load_shader(shader_source, context.temp_allocator, layout_formats)
+
+	if handle == SHADER_NONE {
+		log.error("Failed loading shader")
+		return {}
+	}
+
+	shd := Shader {
+		handle = handle,
+		constant_buffers = make([]Shader_Constant_Buffer, len(desc.constant_buffers), s.allocator),
+		constant_lookup = make(map[string]Shader_Constant_Location, s.allocator),
+		inputs = slice.clone(desc.inputs, s.allocator),
+		input_overrides = make([]Shader_Input_Value_Override, len(desc.inputs), s.allocator),
+	}
+
+	for &input in shd.inputs {
+		input.name = strings.clone(input.name, s.allocator)
+	}
+
+	for cb_idx in 0..<len(desc.constant_buffers) {
+		cb_desc := &desc.constant_buffers[cb_idx]
+
+		shd.constant_buffers[cb_idx] = {
+			cpu_data = make([]u8, desc.constant_buffers[cb_idx].size, s.allocator),
+		}
+
+		for &v in cb_desc.variables {
+			if v.name == "" {
+				continue
+			}
+
+			shd.constant_lookup[strings.clone(v.name, s.allocator)] = v.loc
+
+			switch v.name {
+			case "mvp":
+				shd.constant_builtin_locations[.MVP] = v.loc
+			}
+		}
+	}
+
+	for &d in shd.default_input_offsets {
+		d = -1
+	}
+	input_offset: int
+
+	for &input in shd.inputs {
+		default_format := get_shader_input_default_type(input.name, input.type)
+
+		if default_format != .Unknown {
+			shd.default_input_offsets[default_format] = input_offset
+		}
+		
+		input_offset += shader_input_format_size(input.format)
+	}
+
+	shd.vertex_size = input_offset
+
+	return shd
+}
+
+get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> Shader_Default_Inputs {
+	if name == "POS" && type == .Vec2 {
+		return .Position
+	} else if name == "UV" && type == .Vec2 {
+		return .UV
+	} else if name == "COL" && type == .Vec4 {
+		return .Color
+	}
+
+	return .Unknown
+}
+
+get_shader_input_format :: proc(name: string, type: Shader_Input_Type) -> Shader_Input_Format {
+	default_type := get_shader_input_default_type(name, type)
+
+	if default_type != .Unknown {
+		switch default_type {
+		case .Position: return .RG32_Float
+		case .UV: return .RG32_Float
+		case .Color: return .RGBA8_Norm
+		case .Unknown: unreachable()
+		}
+	}
+
+	switch type {
+	case .F32: return .R32_Float
+	case .Vec2: return .RG32_Float
+	case .Vec3: return .RGB32_Float
+	case .Vec4: return .RGBA32_Float
+	}
+
+	return .Unknown
 }
 
 destroy_shader :: proc(shader: Shader) {
-	rb.destroy_shader(shader)
+	rb.destroy_shader(shader.handle)
+
+	for c in shader.constant_buffers {
+		delete(c.cpu_data)
+	}
+	
+	delete(shader.constant_buffers)
+
+	for k, _ in shader.constant_lookup {
+		delete(k)
+	}
+
+	delete(shader.constant_lookup)
+	for i in shader.inputs {
+		delete(i.name)
+	}
+	delete(shader.inputs)
+	delete(shader.input_overrides)
 }
 
 set_shader :: proc(shader: Maybe(Shader)) {
@@ -770,6 +878,7 @@ Shader_Builtin_Constant :: enum {
 }
 
 Shader_Default_Inputs :: enum {
+	Unknown,
 	Position,
 	UV,
 	Color,

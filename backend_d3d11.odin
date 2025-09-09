@@ -111,7 +111,6 @@ init = proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapch
 	}
 	ch(s.device->CreateBuffer(&vertex_buffer_desc, nil, &s.vertex_buffer_gpu))
 	
-
 	blend_desc := d3d11.BLEND_DESC {
 		RenderTarget = {
 			0 = {
@@ -147,7 +146,6 @@ shutdown = proc() {
 	s.framebuffer->Release()
 	s.device_context->Release()
 	s.vertex_buffer_gpu->Release()
-	//s.constant_buffer->Release()
 	s.depth_stencil_state->Release()
 	s.rasterizer_state->Release()
 	s.swapchain->Release()
@@ -324,14 +322,15 @@ destroy_texture = proc(th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 },
 
-load_shader = proc(shader: string, layout_formats: []Shader_Input_Format = {}) -> Shader {
+load_shader = proc(shader_source: string, desc_allocator := context.temp_allocator, layout_formats: []Shader_Input_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
 	vs_blob: ^d3d11.IBlob
 	vs_blob_errors: ^d3d11.IBlob
-	ch(d3d_compiler.Compile(raw_data(shader), len(shader), nil, nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
+	ch(d3d_compiler.Compile(raw_data(shader_source), len(shader_source), nil, nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
 
 	if vs_blob_errors != nil {
 		log.error("Failed compiling shader:")
 		log.error(strings.string_from_ptr((^u8)(vs_blob_errors->GetBufferPointer()), int(vs_blob_errors->GetBufferSize())))
+		return
 	}
 
 	vertex_shader: ^d3d11.IVertexShader
@@ -340,24 +339,20 @@ load_shader = proc(shader: string, layout_formats: []Shader_Input_Format = {}) -
 
 	ref: ^d3d11.IShaderReflection
 	ch(d3d_compiler.Reflect(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), d3d11.ID3D11ShaderReflection_UUID, (^rawptr)(&ref)))
+	
+	d3d_shd: D3D11_Shader
+	d3d_desc: d3d11.SHADER_DESC
+	ch(ref->GetDesc(&d3d_desc))
 
-	constant_buffers: []Shader_Constant_Buffer
-	d3d11_constant_buffers: []D3D11_Shader_Constant_Buffer
-	constant_lookup: map[string]Shader_Constant_Location
-	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location)
-	inputs: []Shader_Input
 	{
-		context.allocator = s.allocator
-		d: d3d11.SHADER_DESC
-		ch(ref->GetDesc(&d))
+		desc.inputs = make([]Shader_Input, d3d_desc.InputParameters, desc_allocator)
+		assert(len(layout_formats) == 0 || len(layout_formats) == len(desc.inputs))
 
-		inputs = make([]Shader_Input, d.InputParameters)
-
-		for in_idx in 0..<d.InputParameters {
+		for in_idx in 0..<d3d_desc.InputParameters {
 			in_desc: d3d11.SIGNATURE_PARAMETER_DESC
 			
 			if ch(ref->GetInputParameterDesc(in_idx, &in_desc)) < 0 {
-				log.errorf("Invalid input: %v in shader %v", in_idx, shader)
+				log.errorf("Invalid shader input: %v", in_idx)
 				continue
 			}
 
@@ -382,17 +377,23 @@ load_shader = proc(shader: string, layout_formats: []Shader_Input_Format = {}) -
 				}
 			}
 
-			inputs[in_idx] = {
-				name = strings.clone_from_cstring(in_desc.SemanticName),
+			name := strings.clone_from_cstring(in_desc.SemanticName, desc_allocator)
+
+			format := len(layout_formats) > 0 ? layout_formats[in_idx] : get_shader_input_format(name, type)
+			desc.inputs[in_idx] = {
+				name = name,
 				register = int(in_idx),
+				format = format,
 				type = type,
 			}
 		}
+	}
 
-		constant_buffers = make([]Shader_Constant_Buffer, d.ConstantBuffers)
-		d3d11_constant_buffers = make([]D3D11_Shader_Constant_Buffer, d.ConstantBuffers)
+	{
+		desc.constant_buffers = make([]Shader_Constant_Buffer_Desc, d3d_desc.ConstantBuffers, desc_allocator)
+		d3d_shd.constant_buffers = make([]D3D11_Shader_Constant_Buffer, d3d_desc.ConstantBuffers, s.allocator)
 
-		for cb_idx in 0..<d.ConstantBuffers {
+		for cb_idx in 0..<d3d_desc.ConstantBuffers {
 			cb_info := ref->GetConstantBufferByIndex(cb_idx)
 
 			if cb_info == nil {
@@ -406,17 +407,18 @@ load_shader = proc(shader: string, layout_formats: []Shader_Input_Format = {}) -
 				continue
 			}
 
-			b := &constant_buffers[cb_idx]
-			d3d_b := &d3d11_constant_buffers[cb_idx]
-			b.cpu_data = make([]u8, cb_desc.Size, s.allocator)
-
 			constant_buffer_desc := d3d11.BUFFER_DESC{
 				ByteWidth      = cb_desc.Size,
 				Usage          = .DYNAMIC,
 				BindFlags      = {.CONSTANT_BUFFER},
 				CPUAccessFlags = {.WRITE},
 			}
-			ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &d3d_b.gpu_data))
+
+			ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &d3d_shd.constant_buffers[cb_idx].gpu_data))
+
+			variables := make([]Shader_Constant_Buffer_Variable_Desc, cb_desc.Variables, desc_allocator)
+			desc.constant_buffers[cb_idx].variables = variables
+			desc.constant_buffers[cb_idx].size = int(cb_desc.Size)
 
 			for var_idx in 0..<cb_desc.Variables {
 				var_info := cb_info->GetVariableByIndex(var_idx)
@@ -429,84 +431,22 @@ load_shader = proc(shader: string, layout_formats: []Shader_Input_Format = {}) -
 				var_info->GetDesc(&var_desc)
 
 				if var_desc.Name != "" {
-					loc := Shader_Constant_Location {
-						buffer_idx = cb_idx,
-						offset = var_desc.StartOffset,
-					}
-
-					constant_lookup[strings.clone_from_cstring(var_desc.Name)] = loc
-
-					switch var_desc.Name {
-					case "mvp":
-						constant_builtin_locations[.MVP] = loc
+					variables[var_idx] = {
+						name = strings.clone_from_cstring(var_desc.Name),
+						loc = {
+							buffer_idx = cb_idx,
+							offset = var_desc.StartOffset,
+						},
 					}
 				}
-
-				// TODO add the size or type somewhere so we set it correctly
-
-				/*log.info(var_desc)
-
-				type_info := var_info->GetType()
-
-				type_info_desc: d3d11.SHADER_TYPE_DESC
-				type_info->GetDesc(&type_info_desc)
-				log.info(type_info_desc)*/
 			}
 		}
 	}
 
-	default_input_offsets: [Shader_Default_Inputs]int
-	for &d in default_input_offsets {
-		d = -1
-	}
-	input_offset: int
+	input_layout_desc := make([]d3d11.INPUT_ELEMENT_DESC, len(desc.inputs), context.temp_allocator)
 
-	if len(layout_formats) > 0 {
-		if len(layout_formats) != len(inputs) {
-			log.error("Passed number of layout formats isn't same as number of shader inputs")
-		} else {
-			for &i, idx in inputs {
-				i.format = layout_formats[idx]
-
-				if i.name == "POS" && i.type == .Vec2 {
-					default_input_offsets[.Position] = input_offset
-				} else if i.name == "UV" && i.type == .Vec2 {
-					default_input_offsets[.UV] = input_offset
-				} else if i.name == "COL" && i.type == .Vec4 {
-					default_input_offsets[.Color] = input_offset
-				}
-
-				input_offset += shader_input_format_size(i.format)
-			}
-		}
-	} else {
-		for &i in inputs {
-			if i.name == "POS" && i.type == .Vec2 {
-				i.format = .RG32_Float
-				default_input_offsets[.Position] = input_offset
-			} else if i.name == "UV" && i.type == .Vec2 {
-				i.format = .RG32_Float
-				default_input_offsets[.UV] = input_offset
-			} else if i.name == "COL" && i.type == .Vec4 {
-				i.format = .RGBA8_Norm
-				default_input_offsets[.Color] = input_offset
-			} else {
-				switch i.type {
-				case .F32: i.format = .R32_Float
-				case .Vec2: i.format = .RG32_Float
-				case .Vec3: i.format = .RGB32_Float
-				case .Vec4: i.format = .RGBA32_Float
-				}
-			}
-
-			input_offset += shader_input_format_size(i.format)
-		}
-	}
-
-	input_layout_desc := make([]d3d11.INPUT_ELEMENT_DESC, len(inputs), context.temp_allocator)
-
-	for idx in 0..<len(inputs) {
-		input := inputs[idx]
+	for idx in 0..<len(desc.inputs) {
+		input := desc.inputs[idx]
 		input_layout_desc[idx] = {
 			SemanticName = temp_cstring(input.name),
 			Format = dxgi_format_from_shader_input_format(input.format),
@@ -520,7 +460,7 @@ load_shader = proc(shader: string, layout_formats: []Shader_Input_Format = {}) -
 
 	ps_blob: ^d3d11.IBlob
 	ps_blob_errors: ^d3d11.IBlob
-	ch(d3d_compiler.Compile(raw_data(shader), len(shader), nil, nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, &ps_blob_errors))
+	ch(d3d_compiler.Compile(raw_data(shader_source), len(shader_source), nil, nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, &ps_blob_errors))
 
 	if ps_blob_errors != nil {
 		log.error("Failed compiling shader:")
@@ -530,61 +470,37 @@ load_shader = proc(shader: string, layout_formats: []Shader_Input_Format = {}) -
 	pixel_shader: ^d3d11.IPixelShader
 	ch(s.device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nil, &pixel_shader))
 
-	shd := D3D11_Shader {
-		vertex_shader = vertex_shader,
-		pixel_shader = pixel_shader,
-		input_layout = input_layout,
-		constant_buffers = d3d11_constant_buffers,
-	}
+	d3d_shd.vertex_shader = vertex_shader
+	d3d_shd.pixel_shader = pixel_shader
+	d3d_shd.input_layout = input_layout
 
-	h := hm.add(&s.shaders, shd)
-	return {
-		handle = h,
-		constant_buffers = constant_buffers,
-		constant_lookup = constant_lookup,
-		constant_builtin_locations = constant_builtin_locations,
-		inputs = inputs,
-		input_overrides = make([]Shader_Input_Value_Override, len(inputs)),
-		default_input_offsets = default_input_offsets,
-		vertex_size = input_offset,
-	}
+	h := hm.add(&s.shaders, d3d_shd)
+	return h, desc
 },
 
-destroy_shader = proc(shd: Shader) {
-	if d3d_shd := hm.get(&s.shaders, shd.handle); d3d_shd != nil {
-		d3d_shd.input_layout->Release()
-		d3d_shd.vertex_shader->Release()
-		d3d_shd.pixel_shader->Release()
+destroy_shader = proc(h: Shader_Handle) {
+	shd := hm.get(&s.shaders, h)
 
-		for c in d3d_shd.constant_buffers {
-			if c.gpu_data != nil {
-				c.gpu_data->Release()
-			}
-		}
-
-		delete(d3d_shd.constant_buffers)
+	if shd == nil {
+		log.error("Invalid shader %v", h)
+		return
 	}
-	hm.remove(&s.shaders, shd.handle)
+
+	shd.input_layout->Release()
+	shd.vertex_shader->Release()
+	shd.pixel_shader->Release()
 
 	for c in shd.constant_buffers {
-		delete(c.cpu_data)
-	}
-	
-	delete(shd.constant_buffers)
-
-	for k,_ in shd.constant_lookup {
-		delete(k)
+		if c.gpu_data != nil {
+			c.gpu_data->Release()
+		}
 	}
 
-	delete(shd.constant_lookup)
-	for i in shd.inputs {
-		delete(i.name)
-	}
-	delete(shd.inputs)
-	delete(shd.input_overrides)
+	delete(shd.constant_buffers, s.allocator)
+	hm.remove(&s.shaders, h)
 },
 
-// end d3d11 backend interface
+// end BACKEND_D3D11
 }
 
 s: ^D3D11_State

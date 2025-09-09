@@ -1,5 +1,21 @@
 package karl2d
 
+Shader_Constant_Buffer_Desc :: struct {
+	name: string,
+	size: int,
+	variables: []Shader_Constant_Buffer_Variable_Desc,
+}
+
+Shader_Constant_Buffer_Variable_Desc :: struct {
+	name: string,
+	loc: Shader_Constant_Location,
+}
+
+Shader_Desc :: struct {
+	constant_buffers: []Shader_Constant_Buffer_Desc,
+	inputs: []Shader_Input,
+}
+
 Rendering_Backend_Interface :: struct {
 	state_size: proc() -> int,
 	init: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator),
@@ -12,8 +28,8 @@ Rendering_Backend_Interface :: struct {
 	load_texture: proc(data: []u8, width: int, height: int) -> Texture_Handle,
 	destroy_texture: proc(handle: Texture_Handle),
 
-	load_shader: proc(shader: string, layout_formats: []Shader_Input_Format = {}) -> Shader,
-	destroy_shader: proc(shader: Shader),
+	load_shader: proc(shader_source: string, desc_allocator := context.temp_allocator, layout_formats: []Shader_Input_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc),
+	destroy_shader: proc(shader: Shader_Handle),
 
 	get_swapchain_width: proc() -> int,
 	get_swapchain_height: proc() -> int,
