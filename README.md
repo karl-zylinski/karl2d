@@ -16,7 +16,6 @@ Might not be included:
 
 Here follows my near-future TODO list
 
-* Fix the depedency on D3D stuff so we can move load_shader etc
 * Is the 1/zoom in set_camera wrong? Is the matrix multiply order wrong? Hmmmm...
 * Textures: Make the sampler state configurable
 * Textures D3D11: Do we need the SRV in the texture?
@@ -28,6 +27,7 @@ Here follows my near-future TODO list
 * Shaders: Reflect and expose samplers
 
 ## DONE
+* Fix the depedency on D3D stuff so we can move load_shader etc
 * Shaders: Basic loading
 * Shaders: Constants that you can set
 * Shaders: Dynamic vertex creation
