@@ -6,6 +6,7 @@ import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:slice"
+import "core:strings"
 
 import "core:image"
 import "core:image/bmp"
@@ -936,4 +937,16 @@ vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
 	return {
 		v.x, v.y, 0,
 	}
+}
+
+create_vertex_input_override :: proc(val: $T) -> Shader_Input_Value_Override {
+	assert(size_of(T) < 256)
+	res: Shader_Input_Value_Override
+	((^T)(raw_data(&res.val)))^ = val
+	res.used = size_of(T)
+	return res
+}
+
+temp_cstring :: proc(str: string, loc := #caller_location) -> cstring {
+	return strings.clone_to_cstring(str, context.temp_allocator, loc)
 }

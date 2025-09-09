@@ -13,36 +13,14 @@ import "core:mem"
 import hm "handle_map"
 import "base:runtime"
 
-
 @(private="package")
 BACKEND_D3D11 :: Rendering_Backend_Interface {
-	state_size = d3d11_state_size,
-	init = d3d11_init,
-	shutdown = d3d11_shutdown,
-	clear = d3d11_clear,
-	present = d3d11_present,
-	draw = d3d11_draw,
-	
-	get_swapchain_width = d3d11_get_swapchain_width,
-	get_swapchain_height = d3d11_get_swapchain_height,
 
-	set_internal_state = d3d11_set_internal_state,
-
-	load_texture = d3d11_load_texture,
-	destroy_texture = d3d11_destroy_texture,
-
-	load_shader = d3d11_load_shader,
-	destroy_shader = d3d11_destroy_shader,
-}
-
-@(private="file")
-s: ^D3D11_State
-
-d3d11_state_size :: proc() -> int {
+state_size = proc() -> int {
 	return size_of(D3D11_State)
-}
+},
 
-d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+init = proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator) {
 	hwnd := dxgi.HWND(window_handle)
 	s = (^D3D11_State)(state)
 	s.allocator = allocator
@@ -159,9 +137,9 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 		ComparisonFunc = .NEVER,
 	}
 	s.device->CreateSamplerState(&sampler_desc, &s.sampler_state)
-}
+},
 
-d3d11_shutdown :: proc() {
+shutdown = proc() {
 	s.sampler_state->Release()
 	s.framebuffer_view->Release()
 	s.depth_buffer_view->Release()
@@ -188,133 +166,20 @@ d3d11_shutdown :: proc() {
 
 	s.device->Release()
 	s.info_queue->Release()
-}
+},
 
-d3d11_set_internal_state :: proc(state: rawptr) {
-	s = (^D3D11_State)(state)
-}
-
-d3d11_get_swapchain_width :: proc() -> int {
-	return s.width
-}
-
-d3d11_get_swapchain_height :: proc() -> int {
-	return s.height
-}
-
-D3D11_Shader_Constant_Buffer :: struct {
-	gpu_data: ^d3d11.IBuffer,
-}
-
-D3D11_Shader :: struct {
-	handle: Shader_Handle,
-	vertex_shader: ^d3d11.IVertexShader,
-	pixel_shader: ^d3d11.IPixelShader,
-	input_layout: ^d3d11.IInputLayout,
-	constant_buffers: []D3D11_Shader_Constant_Buffer,
-}
-
-D3D11_State :: struct {
-	allocator: runtime.Allocator,
-
-	width: int,
-	height: int,
-
-	swapchain: ^dxgi.ISwapChain1,
-	framebuffer_view: ^d3d11.IRenderTargetView,
-	depth_buffer_view: ^d3d11.IDepthStencilView,
-	device_context: ^d3d11.IDeviceContext,
-	depth_stencil_state: ^d3d11.IDepthStencilState,
-	rasterizer_state: ^d3d11.IRasterizerState,
-	device: ^d3d11.IDevice,
-	depth_buffer: ^d3d11.ITexture2D,
-	framebuffer: ^d3d11.ITexture2D,
-	blend_state: ^d3d11.IBlendState,
-	sampler_state: ^d3d11.ISamplerState,
-
-	textures: hm.Handle_Map(D3D11_Texture, Texture_Handle, 1024*10),
-	shaders: hm.Handle_Map(D3D11_Shader, Shader_Handle, 1024*10),
-
-	info_queue: ^d3d11.IInfoQueue,
-	vertex_buffer_gpu: ^d3d11.IBuffer,
-
-	vertex_buffer_offset: int,
-}
-
-Color_F32 :: [4]f32
-
-f32_color_from_color :: proc(color: Color) -> Color_F32 {
-	return {
-		f32(color.r) / 255,
-		f32(color.g) / 255,
-		f32(color.b) / 255,
-		f32(color.a) / 255,
-	}
-}
-
-d3d11_clear :: proc(color: Color) {
+clear = proc(color: Color) {
 	c := f32_color_from_color(color)
 	s.device_context->ClearRenderTargetView(s.framebuffer_view, &c)
 	s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 1, 0)
-}
+},
 
-D3D11_Texture :: struct {
-	handle: Texture_Handle,
-	tex: ^d3d11.ITexture2D,
-	view: ^d3d11.IShaderResourceView,
-}
+present = proc() {
+	ch(s.swapchain->Present(1, {}))
+	s.vertex_buffer_offset = 0
+},
 
-d3d11_load_texture :: proc(data: []u8, width: int, height: int) -> Texture_Handle {
-	texture_desc := d3d11.TEXTURE2D_DESC{
-		Width      = u32(width),
-		Height     = u32(height),
-		MipLevels  = 1,
-		ArraySize  = 1,
-		// TODO: _SRGB or not?
-		Format     = .R8G8B8A8_UNORM,
-		SampleDesc = {Count = 1},
-		Usage      = .IMMUTABLE,
-		BindFlags  = {.SHADER_RESOURCE},
-	}
-
-	texture_data := d3d11.SUBRESOURCE_DATA{
-		pSysMem     = raw_data(data),
-		SysMemPitch = u32(width * 4),
-	}
-
-	texture: ^d3d11.ITexture2D
-	s.device->CreateTexture2D(&texture_desc, &texture_data, &texture)
-
-	texture_view: ^d3d11.IShaderResourceView
-	s.device->CreateShaderResourceView(texture, nil, &texture_view)
-
-	tex := D3D11_Texture {
-		tex = texture,
-		view = texture_view,
-	}
-
-	return hm.add(&s.textures, tex)
-}
-
-d3d11_destroy_texture :: proc(th: Texture_Handle) {
-	if t := hm.get(&s.textures, th); t != nil {
-		t.tex->Release()
-		t.view->Release()	
-	}
-
-	hm.remove(&s.textures, th)
-}
-
-
-create_vertex_input_override :: proc(val: $T) -> Shader_Input_Value_Override {
-	assert(size_of(T) < 256)
-	res: Shader_Input_Value_Override
-	((^T)(raw_data(&res.val)))^ = val
-	res.used = size_of(T)
-	return res
-}
-
-d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex_buffer: []u8) {
+draw = proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex_buffer: []u8) {
 	if len(vertex_buffer) == 0 {
 		return
 	}
@@ -404,16 +269,62 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex
 	dc->Draw(u32(len(vertex_buffer)/shd.vertex_size), u32(s.vertex_buffer_offset/shd.vertex_size))
 	s.vertex_buffer_offset += len(vertex_buffer)
 	log_messages()
-}
+},
 
+get_swapchain_width = proc() -> int {
+	return s.width
+},
 
-d3d11_present :: proc() {
-	ch(s.swapchain->Present(1, {}))
-	s.vertex_buffer_offset = 0
-}
+get_swapchain_height = proc() -> int {
+	return s.height
+},
 
+set_internal_state = proc(state: rawptr) {
+	s = (^D3D11_State)(state)
+},
 
-d3d11_load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format = {}) -> Shader {
+load_texture = proc(data: []u8, width: int, height: int) -> Texture_Handle {
+	texture_desc := d3d11.TEXTURE2D_DESC{
+		Width      = u32(width),
+		Height     = u32(height),
+		MipLevels  = 1,
+		ArraySize  = 1,
+		// TODO: _SRGB or not?
+		Format     = .R8G8B8A8_UNORM,
+		SampleDesc = {Count = 1},
+		Usage      = .IMMUTABLE,
+		BindFlags  = {.SHADER_RESOURCE},
+	}
+
+	texture_data := d3d11.SUBRESOURCE_DATA{
+		pSysMem     = raw_data(data),
+		SysMemPitch = u32(width * 4),
+	}
+
+	texture: ^d3d11.ITexture2D
+	s.device->CreateTexture2D(&texture_desc, &texture_data, &texture)
+
+	texture_view: ^d3d11.IShaderResourceView
+	s.device->CreateShaderResourceView(texture, nil, &texture_view)
+
+	tex := D3D11_Texture {
+		tex = texture,
+		view = texture_view,
+	}
+
+	return hm.add(&s.textures, tex)
+},
+
+destroy_texture = proc(th: Texture_Handle) {
+	if t := hm.get(&s.textures, th); t != nil {
+		t.tex->Release()
+		t.view->Release()	
+	}
+
+	hm.remove(&s.textures, th)
+},
+
+load_shader = proc(shader: string, layout_formats: []Shader_Input_Format = {}) -> Shader {
 	vs_blob: ^d3d11.IBlob
 	vs_blob_errors: ^d3d11.IBlob
 	ch(d3d_compiler.Compile(raw_data(shader), len(shader), nil, nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
@@ -637,24 +548,9 @@ d3d11_load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format 
 		default_input_offsets = default_input_offsets,
 		vertex_size = input_offset,
 	}
-}
+},
 
-dxgi_format_from_shader_input_format :: proc(f: Shader_Input_Format) -> dxgi.FORMAT {
-	switch f {
-	case .Unknown: return .UNKNOWN
-	case .RGBA32_Float: return .R32G32B32A32_FLOAT
-	case .RGBA8_Norm: return .R8G8B8A8_UNORM
-	case .RGBA8_Norm_SRGB: return .R8G8B8A8_UNORM_SRGB
-	case .RGB32_Float: return .R32G32B32_FLOAT
-	case .RG32_Float: return .R32G32_FLOAT
-	case .R32_Float: return .R32_FLOAT
-	}
-
-	log.error("Unknown format")
-	return .UNKNOWN
-}
-
-d3d11_destroy_shader :: proc(shd: Shader) {
+destroy_shader = proc(shd: Shader) {
 	if d3d_shd := hm.get(&s.shaders, shd.handle); d3d_shd != nil {
 		d3d_shd.input_layout->Release()
 		d3d_shd.vertex_shader->Release()
@@ -686,10 +582,82 @@ d3d11_destroy_shader :: proc(shd: Shader) {
 	}
 	delete(shd.inputs)
 	delete(shd.input_overrides)
+},
+
+// end d3d11 backend interface
 }
 
-temp_cstring :: proc(str: string, loc := #caller_location) -> cstring {
-	return strings.clone_to_cstring(str, context.temp_allocator, loc)
+s: ^D3D11_State
+
+D3D11_Shader_Constant_Buffer :: struct {
+	gpu_data: ^d3d11.IBuffer,
+}
+
+D3D11_Shader :: struct {
+	handle: Shader_Handle,
+	vertex_shader: ^d3d11.IVertexShader,
+	pixel_shader: ^d3d11.IPixelShader,
+	input_layout: ^d3d11.IInputLayout,
+	constant_buffers: []D3D11_Shader_Constant_Buffer,
+}
+
+D3D11_State :: struct {
+	allocator: runtime.Allocator,
+
+	width: int,
+	height: int,
+
+	swapchain: ^dxgi.ISwapChain1,
+	framebuffer_view: ^d3d11.IRenderTargetView,
+	depth_buffer_view: ^d3d11.IDepthStencilView,
+	device_context: ^d3d11.IDeviceContext,
+	depth_stencil_state: ^d3d11.IDepthStencilState,
+	rasterizer_state: ^d3d11.IRasterizerState,
+	device: ^d3d11.IDevice,
+	depth_buffer: ^d3d11.ITexture2D,
+	framebuffer: ^d3d11.ITexture2D,
+	blend_state: ^d3d11.IBlendState,
+	sampler_state: ^d3d11.ISamplerState,
+
+	textures: hm.Handle_Map(D3D11_Texture, Texture_Handle, 1024*10),
+	shaders: hm.Handle_Map(D3D11_Shader, Shader_Handle, 1024*10),
+
+	info_queue: ^d3d11.IInfoQueue,
+	vertex_buffer_gpu: ^d3d11.IBuffer,
+
+	vertex_buffer_offset: int,
+}
+
+Color_F32 :: [4]f32
+
+f32_color_from_color :: proc(color: Color) -> Color_F32 {
+	return {
+		f32(color.r) / 255,
+		f32(color.g) / 255,
+		f32(color.b) / 255,
+		f32(color.a) / 255,
+	}
+}
+
+D3D11_Texture :: struct {
+	handle: Texture_Handle,
+	tex: ^d3d11.ITexture2D,
+	view: ^d3d11.IShaderResourceView,
+}
+
+dxgi_format_from_shader_input_format :: proc(f: Shader_Input_Format) -> dxgi.FORMAT {
+	switch f {
+	case .Unknown: return .UNKNOWN
+	case .RGBA32_Float: return .R32G32B32A32_FLOAT
+	case .RGBA8_Norm: return .R8G8B8A8_UNORM
+	case .RGBA8_Norm_SRGB: return .R8G8B8A8_UNORM_SRGB
+	case .RGB32_Float: return .R32G32B32_FLOAT
+	case .RG32_Float: return .R32G32_FLOAT
+	case .R32_Float: return .R32_FLOAT
+	}
+
+	log.error("Unknown format")
+	return .UNKNOWN
 }
 
 // CHeck win errors and print message log if there is any error

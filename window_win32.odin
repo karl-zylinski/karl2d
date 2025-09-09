@@ -8,92 +8,95 @@ import "base:runtime"
 
 @(private="package")
 WINDOW_INTERFACE_WIN32 :: Window_Interface {
-	state_size = proc() -> int {
-		return size_of(Win32_State)
-	},
 
-	init = proc(window_state: rawptr, window_width: int, window_height: int, window_title: string, allocator := context.allocator) {
-		assert(window_state != nil)
-		s = (^Win32_State)(window_state)
-		s.allocator = allocator
-		s.events = make([dynamic]Window_Event, allocator)
-		s.custom_context = context
-		win32.SetProcessDPIAware()
-		CLASS_NAME :: "karl2d"
-		instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
+state_size = proc() -> int {
+	return size_of(Win32_State)
+},
 
-		cls := win32.WNDCLASSW {
-			lpfnWndProc = window_proc,
-			lpszClassName = CLASS_NAME,
-			hInstance = instance,
-			hCursor = win32.LoadCursorA(nil, win32.IDC_ARROW),
-		}
+init = proc(window_state: rawptr, window_width: int, window_height: int, window_title: string, allocator := context.allocator) {
+	assert(window_state != nil)
+	s = (^Win32_State)(window_state)
+	s.allocator = allocator
+	s.events = make([dynamic]Window_Event, allocator)
+	s.custom_context = context
+	win32.SetProcessDPIAware()
+	CLASS_NAME :: "karl2d"
+	instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
 
-		win32.RegisterClassW(&cls)
+	cls := win32.WNDCLASSW {
+		lpfnWndProc = window_proc,
+		lpszClassName = CLASS_NAME,
+		hInstance = instance,
+		hCursor = win32.LoadCursorA(nil, win32.IDC_ARROW),
+	}
 
-		r: win32.RECT
-		r.right = i32(window_width)
-		r.bottom = i32(window_height)
+	win32.RegisterClassW(&cls)
 
-		style := win32.WS_OVERLAPPEDWINDOW | win32.WS_VISIBLE
-		win32.AdjustWindowRect(&r, style, false)
+	r: win32.RECT
+	r.right = i32(window_width)
+	r.bottom = i32(window_height)
 
-		hwnd := win32.CreateWindowW(CLASS_NAME,
-			win32.utf8_to_wstring(window_title),
-			style,
-			100, 10, r.right - r.left, r.bottom - r.top,
-			nil, nil, instance, nil,
-		)
+	style := win32.WS_OVERLAPPEDWINDOW | win32.WS_VISIBLE
+	win32.AdjustWindowRect(&r, style, false)
 
-		assert(hwnd != nil, "Failed creating window")
+	hwnd := win32.CreateWindowW(CLASS_NAME,
+		win32.utf8_to_wstring(window_title),
+		style,
+		100, 10, r.right - r.left, r.bottom - r.top,
+		nil, nil, instance, nil,
+	)
 
-		s.hwnd = hwnd
-	},
+	assert(hwnd != nil, "Failed creating window")
 
-	shutdown = proc() {
-		delete(s.events)
-		win32.DestroyWindow(s.hwnd)
-	},
+	s.hwnd = hwnd
+},
 
-	window_handle = proc() -> Window_Handle {
-		return Window_Handle(s.hwnd)
-	},
+shutdown = proc() {
+	delete(s.events)
+	win32.DestroyWindow(s.hwnd)
+},
 
-	process_events = proc() {
-		msg: win32.MSG
+window_handle = proc() -> Window_Handle {
+	return Window_Handle(s.hwnd)
+},
 
-		for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
-			win32.TranslateMessage(&msg)
-			win32.DispatchMessageW(&msg)
-		}
-	},
+process_events = proc() {
+	msg: win32.MSG
 
-	get_events = proc() -> []Window_Event {
-		return s.events[:]
-	},
+	for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
+		win32.TranslateMessage(&msg)
+		win32.DispatchMessageW(&msg)
+	}
+},
 
-	clear_events = proc() {
-		runtime.clear(&s.events)
-	},
+get_events = proc() -> []Window_Event {
+	return s.events[:]
+},
 
-	set_position = proc(x: int, y: int) {
-		// TODO: Does x, y respect monitor DPI?
+clear_events = proc() {
+	runtime.clear(&s.events)
+},
 
-		win32.SetWindowPos(
-			s.hwnd,
-			{},
-			i32(x),
-			i32(y),
-			0,
-			0,
-			win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOSIZE,
-		)
-	},
+set_position = proc(x: int, y: int) {
+	// TODO: Does x, y respect monitor DPI?
 
-	set_internal_state = proc(state: rawptr) {
-		assert(state != nil)
-		s = (^Win32_State)(state)
-	},
+	win32.SetWindowPos(
+		s.hwnd,
+		{},
+		i32(x),
+		i32(y),
+		0,
+		0,
+		win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOSIZE,
+	)
+},
+
+set_internal_state = proc(state: rawptr) {
+	assert(state != nil)
+	s = (^Win32_State)(state)
+},
+
+// end WINDOW_INTERFACE_WIN32
 }
 
 Win32_State :: struct {
