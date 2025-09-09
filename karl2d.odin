@@ -20,6 +20,7 @@ _ :: tga
 
 Handle :: hm.Handle
 Texture_Handle :: distinct Handle
+TEXTURE_NONE :: Texture_Handle {}
 
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory. The return value can be ignored unless you need to later call
@@ -59,6 +60,12 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	s.default_shader = rb.load_shader(string(DEFAULT_SHADER_SOURCE))
 
 	return s
+}
+
+VERTEX_BUFFER_MAX :: 1000000
+
+make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
+	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
 }
 
 DEFAULT_SHADER_SOURCE :: #load("shader.hlsl")
@@ -645,6 +652,20 @@ _batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 }
 
 
+shader_input_format_size :: proc(f: Shader_Input_Format) -> int {
+	switch f {
+	case .Unknown: return 0
+	case .RGBA32_Float: return 32
+	case .RGBA8_Norm: return 4
+	case .RGBA8_Norm_SRGB: return 4
+	case .RGB32_Float: return 12
+	case .RG32_Float: return 8
+	case .R32_Float: return 4
+	}
+
+	return 0
+}
+
 State :: struct {
 	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
@@ -715,6 +736,10 @@ Texture :: struct {
 	height: int,
 }
 
+Shader_Constant_Buffer :: struct {
+	cpu_data: []u8,
+}
+
 Shader :: struct {
 	handle: Shader_Handle,
 	constant_buffers: []Shader_Constant_Buffer,
@@ -725,6 +750,40 @@ Shader :: struct {
 	input_overrides: []Shader_Input_Value_Override,
 	default_input_offsets: [Shader_Default_Inputs]int,
 	vertex_size: int,
+}
+
+Shader_Input_Value_Override :: struct {
+	val: [256]u8,
+	used: int,
+}
+
+Shader_Input_Type :: enum {
+	F32,
+	Vec2,
+	Vec3,
+	Vec4,
+}
+
+Shader_Builtin_Constant :: enum {
+	MVP,
+}
+
+Shader_Default_Inputs :: enum {
+	Position,
+	UV,
+	Color,
+}
+
+Shader_Input :: struct {
+	name: string,
+	register: int,
+	type: Shader_Input_Type,
+	format: Shader_Input_Format,
+}
+
+Shader_Constant_Location :: struct {
+	buffer_idx: u32,
+	offset: u32,
 }
 
 Camera :: struct {
@@ -871,4 +930,10 @@ Keyboard_Key :: enum {
 	KP_Add          = 334,
 	KP_Enter        = 335,
 	KP_Equal        = 336,
+}
+
+vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
+	return {
+		v.x, v.y, 0,
+	}
 }

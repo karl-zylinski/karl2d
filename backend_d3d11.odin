@@ -1,4 +1,5 @@
 #+build windows
+#+private file
 
 package karl2d
 
@@ -7,13 +8,13 @@ import dxgi "vendor:directx/dxgi"
 import "vendor:directx/d3d_compiler"
 import "core:strings"
 import "core:log"
-import "core:math/linalg"
 import "core:slice"
 import "core:mem"
 import hm "handle_map"
 import "base:runtime"
 
 
+@(private="package")
 BACKEND_D3D11 :: Rendering_Backend_Interface {
 	state_size = d3d11_state_size,
 	init = d3d11_init,
@@ -201,37 +202,8 @@ d3d11_get_swapchain_height :: proc() -> int {
 	return s.height
 }
 
-VERTEX_BUFFER_MAX :: 1000000
-
-TEXTURE_NONE :: Texture_Handle {}
-
-Shader_Constant_Buffer :: struct {
+D3D11_Shader_Constant_Buffer :: struct {
 	gpu_data: ^d3d11.IBuffer,
-	cpu_data: []u8,
-}
-
-Shader_Builtin_Constant :: enum {
-	MVP,
-}
-
-Shader_Input_Type :: enum {
-	F32,
-	Vec2,
-	Vec3,
-	Vec4,
-}
-
-Shader_Input :: struct {
-	name: string,
-	register: int,
-	type: Shader_Input_Type,
-	format: Shader_Input_Format,
-}
-
-Shader_Default_Inputs :: enum {
-	Position,
-	UV,
-	Color,
 }
 
 D3D11_Shader :: struct {
@@ -239,6 +211,7 @@ D3D11_Shader :: struct {
 	vertex_shader: ^d3d11.IVertexShader,
 	pixel_shader: ^d3d11.IPixelShader,
 	input_layout: ^d3d11.IInputLayout,
+	constant_buffers: []D3D11_Shader_Constant_Buffer,
 }
 
 D3D11_State :: struct {
@@ -266,12 +239,6 @@ D3D11_State :: struct {
 	vertex_buffer_gpu: ^d3d11.IBuffer,
 
 	vertex_buffer_offset: int,
-}
-
-vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
-	return {
-		v.x, v.y, 0,
-	}
 }
 
 Color_F32 :: [4]f32
@@ -338,10 +305,6 @@ d3d11_destroy_texture :: proc(th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 }
 
-Shader_Input_Value_Override :: struct {
-	val: [256]u8,
-	used: int,
-}
 
 create_vertex_input_override :: proc(val: $T) -> Shader_Input_Value_Override {
 	assert(size_of(T) < 256)
@@ -405,17 +368,22 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex
 
 	dc->VSSetShader(d3d_shd.vertex_shader, nil, 0)
 
-	for &c, c_idx in shd.constant_buffers {
-		if c.gpu_data == nil {
+	assert(len(shd.constant_buffers) == len(d3d_shd.constant_buffers))
+
+	for cb_idx in 0..<len(shd.constant_buffers) {
+		cpu_data := shd.constant_buffers[cb_idx].cpu_data
+		gpu_data := d3d_shd.constant_buffers[cb_idx].gpu_data
+		
+		if gpu_data == nil {
 			continue
 		}
 
 		cb_data: d3d11.MAPPED_SUBRESOURCE
-		ch(dc->Map(c.gpu_data, 0, .WRITE_DISCARD, {}, &cb_data))
-		mem.copy(cb_data.pData, raw_data(c.cpu_data), len(c.cpu_data))
-		dc->Unmap(c.gpu_data, 0)
-		dc->VSSetConstantBuffers(u32(c_idx), 1, &c.gpu_data)
-		dc->PSSetConstantBuffers(u32(c_idx), 1, &c.gpu_data)
+		ch(dc->Map(gpu_data, 0, .WRITE_DISCARD, {}, &cb_data))
+		mem.copy(cb_data.pData, raw_data(cpu_data), len(cpu_data))
+		dc->Unmap(gpu_data, 0)
+		dc->VSSetConstantBuffers(u32(cb_idx), 1, &gpu_data)
+		dc->PSSetConstantBuffers(u32(cb_idx), 1, &gpu_data)
 	}
 
 	dc->RSSetViewports(1, &viewport)
@@ -438,19 +406,12 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex
 	log_messages()
 }
 
-make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
-	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
-}
 
 d3d11_present :: proc() {
 	ch(s.swapchain->Present(1, {}))
 	s.vertex_buffer_offset = 0
 }
 
-Shader_Constant_Location :: struct {
-	buffer_idx: u32,
-	offset: u32,
-}
 
 d3d11_load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format = {}) -> Shader {
 	vs_blob: ^d3d11.IBlob
@@ -470,6 +431,7 @@ d3d11_load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format 
 	ch(d3d_compiler.Reflect(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), d3d11.ID3D11ShaderReflection_UUID, (^rawptr)(&ref)))
 
 	constant_buffers: []Shader_Constant_Buffer
+	d3d11_constant_buffers: []D3D11_Shader_Constant_Buffer
 	constant_lookup: map[string]Shader_Constant_Location
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location)
 	inputs: []Shader_Input
@@ -517,6 +479,7 @@ d3d11_load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format 
 		}
 
 		constant_buffers = make([]Shader_Constant_Buffer, d.ConstantBuffers)
+		d3d11_constant_buffers = make([]D3D11_Shader_Constant_Buffer, d.ConstantBuffers)
 
 		for cb_idx in 0..<d.ConstantBuffers {
 			cb_info := ref->GetConstantBufferByIndex(cb_idx)
@@ -533,6 +496,7 @@ d3d11_load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format 
 			}
 
 			b := &constant_buffers[cb_idx]
+			d3d_b := &d3d11_constant_buffers[cb_idx]
 			b.cpu_data = make([]u8, cb_desc.Size, s.allocator)
 
 			constant_buffer_desc := d3d11.BUFFER_DESC{
@@ -541,7 +505,7 @@ d3d11_load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format 
 				BindFlags      = {.CONSTANT_BUFFER},
 				CPUAccessFlags = {.WRITE},
 			}
-			ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &b.gpu_data))
+			ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &d3d_b.gpu_data))
 
 			for var_idx in 0..<cb_desc.Variables {
 				var_info := cb_info->GetVariableByIndex(var_idx)
@@ -659,6 +623,7 @@ d3d11_load_shader :: proc(shader: string, layout_formats: []Shader_Input_Format 
 		vertex_shader = vertex_shader,
 		pixel_shader = pixel_shader,
 		input_layout = input_layout,
+		constant_buffers = d3d11_constant_buffers,
 	}
 
 	h := hm.add(&s.shaders, shd)
@@ -689,36 +654,26 @@ dxgi_format_from_shader_input_format :: proc(f: Shader_Input_Format) -> dxgi.FOR
 	return .UNKNOWN
 }
 
-shader_input_format_size :: proc(f: Shader_Input_Format) -> int {
-	switch f {
-	case .Unknown: return 0
-	case .RGBA32_Float: return 32
-	case .RGBA8_Norm: return 4
-	case .RGBA8_Norm_SRGB: return 4
-	case .RGB32_Float: return 12
-	case .RG32_Float: return 8
-	case .R32_Float: return 4
-	}
-
-	return 0
-}
-
 d3d11_destroy_shader :: proc(shd: Shader) {
 	if d3d_shd := hm.get(&s.shaders, shd.handle); d3d_shd != nil {
 		d3d_shd.input_layout->Release()
 		d3d_shd.vertex_shader->Release()
 		d3d_shd.pixel_shader->Release()
+
+		for c in d3d_shd.constant_buffers {
+			if c.gpu_data != nil {
+				c.gpu_data->Release()
+			}
+		}
+
+		delete(d3d_shd.constant_buffers)
 	}
 	hm.remove(&s.shaders, shd.handle)
 
 	for c in shd.constant_buffers {
-		if c.gpu_data != nil {
-			c.gpu_data->Release()
-		}
-
 		delete(c.cpu_data)
 	}
-
+	
 	delete(shd.constant_buffers)
 
 	for k,_ in shd.constant_lookup {
