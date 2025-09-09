@@ -1,24 +1,23 @@
 // This file is purely documentational and never built.
-#+ignore
+#+build ignore
 package karl2d
 
-Handle :: hm.Handle
+// --------------------- //
+// KARL2D API PROCEDURES //
+// --------------------- //
 
-Texture_Handle :: distinct Handle
-
-TEXTURE_NONE :: Texture_Handle {}
-
-// Opens a window and initializes some internal state. The internal state will use `allocator` for
-// all dynamically allocated memory. The return value can be ignored unless you need to later call
-// `set_state`.
+/* Opens a window and initializes some internal state. The internal state will use `allocator` for
+all dynamically allocated memory. The return value can be ignored unless you need to later call
+`set_internal_state`. */
 init :: proc(window_width: int, window_height: int, window_title: string,
              allocator := context.allocator, loc := #caller_location) -> ^State
 
-VERTEX_BUFFER_MAX :: 1000000
+/* Returns true if the program wants to shut down. This happens when for example pressing the close
+button on the window. The application can decide if it wants to shut down or if it wants to show
+some kind of confirmation dialogue and shut down later.
 
-make_default_projection :: proc(w, h: int) -> matrix[4,4]f32
-
-DEFAULT_SHADER_SOURCE :: #load("shader.hlsl")
+Commonly used for creating the "main loop" of a game.*/
+shutdown_wanted :: proc() -> bool
 
 // Closes the window and cleans up the internal state.
 shutdown :: proc()
@@ -29,9 +28,9 @@ clear :: proc(color: Color)
 // Present the backbuffer. Call at end of frame to make everything you've drawn appear on the screen.
 present :: proc()
 
-// Call at start or end of frame to process all events that have arrived to the window.
-//
-// WARNING: Not calling this will make your program impossible to interact with.
+/* Call at start or end of frame to process all events that have arrived to the window.
+
+WARNING: Not calling this will make your program impossible to interact with. */
 process_events :: proc()
 
 /* Flushes the current batch. This sends off everything to the GPU that has been queued in the
@@ -42,13 +41,8 @@ procedures run:
 	set_shader
 
 TODO: complete this list and motivate why it needs to happen on those procs (or do that in the
-docs for those procs).
-*/
+docs for those procs). */
 draw_current_batch :: proc()
-
-// Can be used to restore the internal state using the pointer returned by `init`. Useful after
-// reloading the library (for example, when doing code hot reload).
-set_internal_state :: proc(state: ^State)
 
 get_screen_width :: proc() -> int
 
@@ -59,8 +53,6 @@ key_went_down :: proc(key: Keyboard_Key) -> bool
 key_went_up :: proc(key: Keyboard_Key) -> bool
 
 key_is_held :: proc(key: Keyboard_Key) -> bool
-
-shutdown_wanted :: proc() -> bool
 
 set_window_position :: proc(x: int, y: int)
 
@@ -108,6 +100,8 @@ set_shader_constant_f32 :: proc(shader: Shader, loc: Shader_Constant_Location, v
 
 set_shader_constant_vec2 :: proc(shader: Shader, loc: Shader_Constant_Location, val: Vec2)
 
+create_vertex_input_override :: proc(val: $T) -> Shader_Input_Value_Override
+
 get_default_shader :: proc() -> Shader
 
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect))
@@ -126,10 +120,123 @@ get_mouse_wheel_delta :: proc() -> f32
 
 get_mouse_position :: proc() -> Vec2
 
-_batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color)
-
 shader_input_format_size :: proc(f: Shader_Input_Format) -> int
 
+/* Restore the internal state using the pointer returned by `init`. Useful after reloading the
+library (for example, when doing code hot reload). */
+set_internal_state :: proc(state: ^State)
+
+// ---------------------------- //
+// KARL2D API TYPES & CONSTANTS //
+// ---------------------------- //
+
+// A RGBA (Red, Greeen, Blue, Alpha) color. Each channel can have a value between 0 and 255.
+Color :: [4]u8
+
+// A two dimensinal vector.
+Vec2 :: [2]f32
+
+// A three dimensinal vector.
+Vec3 :: [3]f32
+
+// A 4x4 column-major matrix.
+Mat4 :: matrix[4,4]f32
+
+// A two dimensional vector of integer numeric type.
+Vec2i :: [2]int
+
+// A rectangle that sits at position (x, y) and has size (w, h).
+Rect :: struct {
+	x, y: f32,
+	w, h: f32,
+}
+
+Texture :: struct {
+	handle: Texture_Handle,
+	width: int,
+	height: int,
+}
+
+Camera :: struct {
+	target: Vec2,
+	origin: Vec2,
+	rotation: f32,
+	zoom: f32,
+}
+
+Shader_Handle :: distinct Handle
+
+SHADER_NONE :: Shader_Handle {}
+
+Shader :: struct {
+	handle: Shader_Handle,
+	constant_buffers: []Shader_Constant_Buffer,
+	constant_lookup: map[string]Shader_Constant_Location,
+	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
+
+	inputs: []Shader_Input,
+	input_overrides: []Shader_Input_Value_Override,
+	default_input_offsets: [Shader_Default_Inputs]int,
+	vertex_size: int,
+}
+
+Shader_Constant_Buffer :: struct {
+	cpu_data: []u8,
+}
+
+Shader_Input_Value_Override :: struct {
+	val: [256]u8,
+	used: int,
+}
+
+Shader_Input_Type :: enum {
+	F32,
+	Vec2,
+	Vec3,
+	Vec4,
+}
+
+Shader_Builtin_Constant :: enum {
+	MVP,
+}
+
+Shader_Default_Inputs :: enum {
+	Unknown,
+	Position,
+	UV,
+	Color,
+}
+
+Shader_Input :: struct {
+	name: string,
+	register: int,
+	type: Shader_Input_Type,
+	format: Shader_Input_Format,
+}
+
+Shader_Constant_Location :: struct {
+	buffer_idx: u32,
+	offset: u32,
+}
+
+Shader_Input_Format :: enum {
+	Unknown,
+	RGBA32_Float,
+	RGBA8_Norm,
+	RGBA8_Norm_SRGB,
+	RGB32_Float,
+	RG32_Float,
+	R32_Float,
+}
+
+Handle :: hm.Handle
+Texture_Handle :: distinct Handle
+TEXTURE_NONE :: Texture_Handle {}
+
+/* This keeps track of the internal state of the library. Usually, you do not need to poke at it.
+It is created and kept as a global variable when 'init' is called. However, 'init' also returns the
+pointer to it, so you can later use 'set_internal_state' to restore it (after for example hot
+reload). */
 State :: struct {
 	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
@@ -165,3 +272,138 @@ State :: struct {
 	default_shader: Shader,
 }
 
+// Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
+// options presented here.
+Mouse_Button :: enum {
+	Left,
+	Right,
+	Middle,
+	Max = 255,
+}
+
+// TODO: These are just copied from raylib, we probably want a list of our own "default colors"
+WHITE :: Color { 255, 255, 255, 255 }
+BLACK :: Color { 0, 0, 0, 255 }
+GRAY :: Color{ 130, 130, 130, 255 }
+RED :: Color { 230, 41, 55, 255 }
+YELLOW :: Color { 253, 249, 0, 255 }
+BLUE :: Color { 0, 121, 241, 255 }
+MAGENTA :: Color { 255, 0, 255, 255 }
+DARKGRAY :: Color{ 80, 80, 80, 255 }
+GREEN :: Color{ 0, 228, 48, 255 }
+
+// Based on Raylib / GLFW
+Keyboard_Key :: enum {
+	None            = 0,
+
+	// Alphanumeric keys
+	Apostrophe      = 39,
+	Comma           = 44,
+	Minus           = 45,
+	Period          = 46,
+	Slash           = 47,
+	Zero            = 48,
+	One             = 49,
+	Two             = 50,
+	Three           = 51,
+	Four            = 52,
+	Five            = 53,
+	Six             = 54,
+	Seven           = 55,
+	Eight           = 56,
+	Nine            = 57,
+	Semicolon       = 59,
+	Equal           = 61,
+	A               = 65,
+	B               = 66,
+	C               = 67,
+	D               = 68,
+	E               = 69,
+	F               = 70,
+	G               = 71,
+	H               = 72,
+	I               = 73,
+	J               = 74,
+	K               = 75,
+	L               = 76,
+	M               = 77,
+	N               = 78,
+	O               = 79,
+	P               = 80,
+	Q               = 81,
+	R               = 82,
+	S               = 83,
+	T               = 84,
+	U               = 85,
+	V               = 86,
+	W               = 87,
+	X               = 88,
+	Y               = 89,
+	Z               = 90,
+	Left_Bracket    = 91,
+	Backslash       = 92,
+	Right_Bracket   = 93,
+	Grave           = 96,
+
+	// Function keys
+	Space           = 32,
+	Escape          = 256,
+	Enter           = 257,
+	Tab             = 258,
+	Backspace       = 259,
+	Insert          = 260,
+	Delete          = 261,
+	Right           = 262,
+	Left            = 263,
+	Down            = 264,
+	Up              = 265,
+	Page_Up         = 266,
+	Page_Down       = 267,
+	Home            = 268,
+	End             = 269,
+	Caps_Lock       = 280,
+	Scroll_Lock     = 281,
+	Num_Lock        = 282,
+	Print_Screen    = 283,
+	Pause           = 284,
+	F1              = 290,
+	F2              = 291,
+	F3              = 292,
+	F4              = 293,
+	F5              = 294,
+	F6              = 295,
+	F7              = 296,
+	F8              = 297,
+	F9              = 298,
+	F10             = 299,
+	F11             = 300,
+	F12             = 301,
+	Left_Shift      = 340,
+	Left_Control    = 341,
+	Left_Alt        = 342,
+	Left_Super      = 343,
+	Right_Shift     = 344,
+	Right_Control   = 345,
+	Right_Alt       = 346,
+	Right_Super     = 347,
+	Menu            = 348,
+
+	// Keypad keys
+	KP_0            = 320,
+	KP_1            = 321,
+	KP_2            = 322,
+	KP_3            = 323,
+	KP_4            = 324,
+	KP_5            = 325,
+	KP_6            = 326,
+	KP_7            = 327,
+	KP_8            = 328,
+	KP_9            = 329,
+	KP_Decimal      = 330,
+	KP_Divide       = 331,
+	KP_Multiply     = 332,
+	KP_Subtract     = 333,
+	KP_Add          = 334,
+	KP_Enter        = 335,
+	KP_Equal        = 336,
+}

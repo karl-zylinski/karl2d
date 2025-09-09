@@ -432,7 +432,7 @@ load_shader = proc(shader_source: string, desc_allocator := context.temp_allocat
 
 				if var_desc.Name != "" {
 					variables[var_idx] = {
-						name = strings.clone_from_cstring(var_desc.Name),
+						name = strings.clone_from_cstring(var_desc.Name, desc_allocator),
 						loc = {
 							buffer_idx = cb_idx,
 							offset = var_desc.StartOffset,

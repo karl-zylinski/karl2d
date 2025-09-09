@@ -15,15 +15,17 @@ import "core:image/tga"
 
 import hm "handle_map"
 
-Handle :: hm.Handle
-Texture_Handle :: distinct Handle
-TEXTURE_NONE :: Texture_Handle {}
+// --------------------- //
+// KARL2D API PROCEDURES //
+// --------------------- //
 
-// Opens a window and initializes some internal state. The internal state will use `allocator` for
-// all dynamically allocated memory. The return value can be ignored unless you need to later call
-// `set_state`.
+/* Opens a window and initializes some internal state. The internal state will use `allocator` for
+all dynamically allocated memory. The return value can be ignored unless you need to later call
+`set_internal_state`. */
 init :: proc(window_width: int, window_height: int, window_title: string,
              allocator := context.allocator, loc := #caller_location) -> ^State {
+	assert(s == nil, "Don't call 'init' twice.")
+
 	s = new(State, allocator, loc)
 	s.allocator = allocator
 	s.custom_context = context
@@ -59,16 +61,19 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	return s
 }
 
-VERTEX_BUFFER_MAX :: 1000000
+/* Returns true if the program wants to shut down. This happens when for example pressing the close
+button on the window. The application can decide if it wants to shut down or if it wants to show
+some kind of confirmation dialogue and shut down later.
 
-make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
-	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+Commonly used for creating the "main loop" of a game.*/
+shutdown_wanted :: proc() -> bool {
+	return s.shutdown_wanted
 }
-
-DEFAULT_SHADER_SOURCE :: #load("shader.hlsl")
 
 // Closes the window and cleans up the internal state.
 shutdown :: proc() {
+	assert(s != nil, "You've called 'shutdown' without calling 'init' first")
+
 	rb.destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
 	rb.shutdown()
@@ -94,9 +99,9 @@ present :: proc() {
 	rb.present()
 }
 
-// Call at start or end of frame to process all events that have arrived to the window.
-//
-// WARNING: Not calling this will make your program impossible to interact with.
+/* Call at start or end of frame to process all events that have arrived to the window.
+
+WARNING: Not calling this will make your program impossible to interact with. */
 process_events :: proc() {
 	s.keys_went_up = {}
 	s.keys_went_down = {}
@@ -141,22 +146,11 @@ procedures run:
 	set_shader
 
 TODO: complete this list and motivate why it needs to happen on those procs (or do that in the
-docs for those procs).
-*/   
+docs for those procs). */   
 draw_current_batch :: proc() {
 	shader := s.batch_shader.? or_else s.default_shader
 	rb.draw(shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
 	s.vertex_buffer_cpu_used = 0
-}
-
-// Can be used to restore the internal state using the pointer returned by `init`. Useful after
-// reloading the library (for example, when doing code hot reload).
-set_internal_state :: proc(state: ^State) {
-	s = state
-	rb = s.rb
-	win = s.win
-	rb.set_internal_state(s.rb_state)
-	win.set_internal_state(s.window_state)
 }
 
 get_screen_width :: proc() -> int {
@@ -177,10 +171,6 @@ key_went_up :: proc(key: Keyboard_Key) -> bool {
 
 key_is_held :: proc(key: Keyboard_Key) -> bool {
 	return s.keys_is_held[key]
-}
-
-shutdown_wanted :: proc() -> bool {
-	return s.shutdown_wanted
 }
 
 set_window_position :: proc(x: int, y: int) {
@@ -240,12 +230,12 @@ draw_rect :: proc(r: Rect, c: Color) {
 
 	s.batch_texture = s.shape_drawing_texture
 
-	_batch_vertex({r.x, r.y}, {0, 0}, c)
-	_batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
-	_batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	_batch_vertex({r.x, r.y}, {0, 0}, c)
-	_batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	_batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
+	batch_vertex({r.x, r.y}, {0, 0}, c)
+	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
+	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	batch_vertex({r.x, r.y}, {0, 0}, c)
+	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
 }
 
 draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
@@ -293,12 +283,12 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 		}
 	}
 	
-	_batch_vertex(tl, {0, 0}, c)
-	_batch_vertex(tr, {1, 0}, c)
-	_batch_vertex(br, {1, 1}, c)
-	_batch_vertex(tl, {0, 0}, c)
-	_batch_vertex(br, {1, 1}, c)
-	_batch_vertex(bl, {0, 1}, c)
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(tr, {1, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(bl, {0, 1}, c)
 }
 
 draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
@@ -354,9 +344,9 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 		p := center + rot * Vec2{radius, 0}
 			
 
-		_batch_vertex(prev, {0, 0}, color)
-		_batch_vertex(p, {1, 0}, color)
-		_batch_vertex(center, {1, 1}, color)
+		batch_vertex(prev, {0, 0}, color)
+		batch_vertex(p, {1, 0}, color)
+		batch_vertex(center, {1, 1}, color)
 
 		prev = p
 	}
@@ -497,12 +487,12 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		uv5.y -= us.y		
 	}
 
-	_batch_vertex(tl, uv0, c)
-	_batch_vertex(tr, uv1, c)
-	_batch_vertex(br, uv2, c)
-	_batch_vertex(tl, uv3, c)
-	_batch_vertex(br, uv4, c)
-	_batch_vertex(bl, uv5, c)
+	batch_vertex(tl, uv0, c)
+	batch_vertex(tr, uv1, c)
+	batch_vertex(br, uv2, c)
+	batch_vertex(tl, uv3, c)
+	batch_vertex(br, uv4, c)
+	batch_vertex(bl, uv5, c)
 }
 
 load_shader :: proc(shader_source: string, layout_formats: []Shader_Input_Format = {}) -> Shader {
@@ -676,6 +666,14 @@ set_shader_constant_vec2 :: proc(shader: Shader, loc: Shader_Constant_Location, 
 	set_shader_constant(shader, loc, val)
 }
 
+create_vertex_input_override :: proc(val: $T) -> Shader_Input_Value_Override {
+	assert(size_of(T) < 256)
+	res: Shader_Input_Value_Override
+	((^T)(raw_data(&res.val)))^ = val
+	res.used = size_of(T)
+	return res
+}
+
 get_default_shader :: proc() -> Shader {
 	return s.default_shader
 }
@@ -713,49 +711,6 @@ get_mouse_position :: proc() -> Vec2 {
 	return s.mouse_position
 }
 
-_batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
-	v := v
-
-	if s.vertex_buffer_cpu_used == len(s.vertex_buffer_cpu) {
-		panic("Must dispatch here")
-	}
-
-	shd := s.batch_shader.? or_else s.default_shader
-
-	base_offset := s.vertex_buffer_cpu_used
-	pos_offset := shd.default_input_offsets[.Position]
-	uv_offset := shd.default_input_offsets[.UV]
-	color_offset := shd.default_input_offsets[.Color]
-	
-	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
-
-	if pos_offset != -1 {
-		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = {v.x, v.y}
-	}
-
-	if uv_offset != -1 {
-		(^Vec2)(&s.vertex_buffer_cpu[base_offset + uv_offset])^ = uv
-	}
-
-	if color_offset != -1 {
-		(^Color)(&s.vertex_buffer_cpu[base_offset + color_offset])^ = color
-	}
-
-	override_offset: int
-	for &o, idx in shd.input_overrides {
-		input := &shd.inputs[idx]
-		sz := shader_input_format_size(input.format)
-
-		if o.used != 0 {
-			mem.copy(&s.vertex_buffer_cpu[base_offset + override_offset], raw_data(&o.val), o.used)
-		}
-
-		override_offset += sz
-	}
-	
-	s.vertex_buffer_cpu_used += shd.vertex_size
-}
-
 shader_input_format_size :: proc(f: Shader_Input_Format) -> int {
 	switch f {
 	case .Unknown: return 0
@@ -770,6 +725,128 @@ shader_input_format_size :: proc(f: Shader_Input_Format) -> int {
 	return 0
 }
 
+/* Restore the internal state using the pointer returned by `init`. Useful after reloading the
+library (for example, when doing code hot reload). */
+set_internal_state :: proc(state: ^State) {
+	s = state
+	rb = s.rb
+	win = s.win
+	rb.set_internal_state(s.rb_state)
+	win.set_internal_state(s.window_state)
+}
+
+// ---------------------------- //
+// KARL2D API TYPES & CONSTANTS //
+// ---------------------------- //
+
+// A RGBA (Red, Greeen, Blue, Alpha) color. Each channel can have a value between 0 and 255.
+Color :: [4]u8
+
+// A two dimensinal vector.
+Vec2 :: [2]f32
+
+// A three dimensinal vector.
+Vec3 :: [3]f32
+
+// A 4x4 column-major matrix.
+Mat4 :: matrix[4,4]f32
+
+// A two dimensional vector of integer numeric type.
+Vec2i :: [2]int
+
+// A rectangle that sits at position (x, y) and has size (w, h).
+Rect :: struct {
+	x, y: f32,
+	w, h: f32,
+}
+
+Texture :: struct {
+	handle: Texture_Handle,
+	width: int,
+	height: int,
+}
+
+Camera :: struct {
+	target: Vec2,
+	origin: Vec2,
+	rotation: f32,
+	zoom: f32,
+}
+
+Shader_Handle :: distinct Handle
+
+SHADER_NONE :: Shader_Handle {}
+
+Shader :: struct {
+	handle: Shader_Handle,
+	constant_buffers: []Shader_Constant_Buffer,
+	constant_lookup: map[string]Shader_Constant_Location,
+	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
+
+	inputs: []Shader_Input,
+	input_overrides: []Shader_Input_Value_Override,
+	default_input_offsets: [Shader_Default_Inputs]int,
+	vertex_size: int,
+}
+
+Shader_Constant_Buffer :: struct {
+	cpu_data: []u8,
+}
+
+Shader_Input_Value_Override :: struct {
+	val: [256]u8,
+	used: int,
+}
+
+
+Shader_Input_Type :: enum {
+	F32,
+	Vec2,
+	Vec3,
+	Vec4,
+}
+
+Shader_Builtin_Constant :: enum {
+	MVP,
+}
+
+Shader_Default_Inputs :: enum {
+	Unknown,
+	Position,
+	UV,
+	Color,
+}
+
+Shader_Input :: struct {
+	name: string,
+	register: int,
+	type: Shader_Input_Type,
+	format: Shader_Input_Format,
+}
+
+Shader_Constant_Location :: struct {
+	buffer_idx: u32,
+	offset: u32,
+}
+
+Shader_Input_Format :: enum {
+	Unknown,
+	RGBA32_Float,
+	RGBA8_Norm,
+	RGBA8_Norm_SRGB,
+	RGB32_Float,
+	RG32_Float,
+	R32_Float,
+}
+
+Handle :: hm.Handle
+Texture_Handle :: distinct Handle
+TEXTURE_NONE :: Texture_Handle {}
+
+/* This keeps track of the internal state of the library. Usually, you do not need to poke at it.
+It is created and kept as a global variable when 'init' is called. However, 'init' also returns the
+pointer to it, so you can later use 'set_internal_state' to restore it (after for example hot
+reload). */
 State :: struct {
 	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
@@ -805,102 +882,6 @@ State :: struct {
 	default_shader: Shader,
 }
 
-// Used by API builder. Everything after this constant will not be in karl2d_api.txt
-API_END :: true
-
-@(private="file")
-s: ^State
-win: Window_Interface
-rb: Rendering_Backend_Interface
-
-Shader_Input_Format :: enum {
-	Unknown,
-	RGBA32_Float,
-	RGBA8_Norm,
-	RGBA8_Norm_SRGB,
-	RGB32_Float,
-	RG32_Float,
-	R32_Float,
-}
-
-Color :: [4]u8
-
-Vec2 :: [2]f32
-Vec3 :: [3]f32
-
-Mat4 :: matrix[4,4]f32
-
-Vec2i :: [2]int
-
-Rect :: struct {
-	x, y: f32,
-	w, h: f32,
-}
-
-Texture :: struct {
-	handle: Texture_Handle,
-	width: int,
-	height: int,
-}
-
-Shader_Constant_Buffer :: struct {
-	cpu_data: []u8,
-}
-
-Shader :: struct {
-	handle: Shader_Handle,
-	constant_buffers: []Shader_Constant_Buffer,
-	constant_lookup: map[string]Shader_Constant_Location,
-	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
-
-	inputs: []Shader_Input,
-	input_overrides: []Shader_Input_Value_Override,
-	default_input_offsets: [Shader_Default_Inputs]int,
-	vertex_size: int,
-}
-
-Shader_Input_Value_Override :: struct {
-	val: [256]u8,
-	used: int,
-}
-
-Shader_Input_Type :: enum {
-	F32,
-	Vec2,
-	Vec3,
-	Vec4,
-}
-
-Shader_Builtin_Constant :: enum {
-	MVP,
-}
-
-Shader_Default_Inputs :: enum {
-	Unknown,
-	Position,
-	UV,
-	Color,
-}
-
-Shader_Input :: struct {
-	name: string,
-	register: int,
-	type: Shader_Input_Type,
-	format: Shader_Input_Format,
-}
-
-Shader_Constant_Location :: struct {
-	buffer_idx: u32,
-	offset: u32,
-}
-
-Camera :: struct {
-	target: Vec2,
-	origin: Vec2,
-	rotation: f32,
-	zoom: f32,
-}
-
 // Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
 // options presented here.
 Mouse_Button :: enum {
@@ -920,9 +901,6 @@ BLUE :: Color { 0, 121, 241, 255 }
 MAGENTA :: Color { 255, 0, 255, 255 }
 DARKGRAY :: Color{ 80, 80, 80, 255 }
 GREEN :: Color{ 0, 228, 48, 255 }
-
-Shader_Handle :: distinct Handle
-SHADER_NONE :: Shader_Handle {}
 
 // Based on Raylib / GLFW
 Keyboard_Key :: enum {
@@ -1040,22 +1018,76 @@ Keyboard_Key :: enum {
 	KP_Equal        = 336,
 }
 
+// Used by API builder. Everything after this constant will not be in karl2d_api.txt
+API_END :: true
+
+batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
+	v := v
+
+	if s.vertex_buffer_cpu_used == len(s.vertex_buffer_cpu) {
+		panic("Must dispatch here")
+	}
+
+	shd := s.batch_shader.? or_else s.default_shader
+
+	base_offset := s.vertex_buffer_cpu_used
+	pos_offset := shd.default_input_offsets[.Position]
+	uv_offset := shd.default_input_offsets[.UV]
+	color_offset := shd.default_input_offsets[.Color]
+	
+	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
+
+	if pos_offset != -1 {
+		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = {v.x, v.y}
+	}
+
+	if uv_offset != -1 {
+		(^Vec2)(&s.vertex_buffer_cpu[base_offset + uv_offset])^ = uv
+	}
+
+	if color_offset != -1 {
+		(^Color)(&s.vertex_buffer_cpu[base_offset + color_offset])^ = color
+	}
+
+	override_offset: int
+	for &o, idx in shd.input_overrides {
+		input := &shd.inputs[idx]
+		sz := shader_input_format_size(input.format)
+
+		if o.used != 0 {
+			mem.copy(&s.vertex_buffer_cpu[base_offset + override_offset], raw_data(&o.val), o.used)
+		}
+
+		override_offset += sz
+	}
+	
+	s.vertex_buffer_cpu_used += shd.vertex_size
+}
+
+
+VERTEX_BUFFER_MAX :: 1000000
+DEFAULT_SHADER_SOURCE :: #load("shader.hlsl")
+
+@(private="file")
+s: ^State
+win: Window_Interface
+rb: Rendering_Backend_Interface
+
+
+
+
 vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
 	return {
 		v.x, v.y, 0,
 	}
 }
 
-create_vertex_input_override :: proc(val: $T) -> Shader_Input_Value_Override {
-	assert(size_of(T) < 256)
-	res: Shader_Input_Value_Override
-	((^T)(raw_data(&res.val)))^ = val
-	res.used = size_of(T)
-	return res
-}
-
 temp_cstring :: proc(str: string, loc := #caller_location) -> cstring {
 	return strings.clone_to_cstring(str, context.temp_allocator, loc)
+}
+
+make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
+	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
 }
 
 _ :: bmp

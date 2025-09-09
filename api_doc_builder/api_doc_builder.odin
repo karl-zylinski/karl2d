@@ -24,8 +24,10 @@ main :: proc() {
 	b := strings.builder_make()
 
 	strings.write_string(&b, "// This file is purely documentational and never built.\n")
-	strings.write_string(&b, "#+ignore\n")
-	strings.write_string(&b, "package karl2d\n\n")
+	strings.write_string(&b, "#+build ignore\n")
+	strings.write_string(&b, "package karl2d\n")
+
+	prev_line: int
 
 	for n, &f in plug_ast.files {
 		if !strings.ends_with(n, "karl2d.odin") {
@@ -55,13 +57,19 @@ main :: proc() {
 				}
 
 				if dd.docs != nil {
+					strings.write_rune(&b, '\n')
 					strings.write_string(&b, f.src[dd.docs.pos.offset:dd.docs.end.offset])
 					strings.write_rune(&b, '\n')
+				} else {
+					if prev_line != dd.pos.line - 1 {
+						strings.write_rune(&b, '\n')
+					}
 				}
 
 				strings.write_string(&b, val)
 				strings.write_rune(&b, '\n')
-				strings.write_rune(&b, '\n')
+
+				prev_line = dd.pos.line
 			}
 		}
 	}
