@@ -98,7 +98,7 @@ main :: proc() {
 		k2.process_events()
 		k2.clear(k2.BLACK)
 
-		k2.draw_rect(ground, k2.RED)
+		k2.draw_rect(ground, k2.RL_RED)
 		mouse_pos := k2.get_mouse_position()
 
 		b2.Body_SetTransform(body_id, {mouse_pos.x, -mouse_pos.y}, {})
@@ -113,10 +113,10 @@ main :: proc() {
 			r := b2.Body_GetRotation(b)
 			a := math.atan2(r.s, r.c)
 			// Y position is flipped because raylib has Y down and box2d has Y up.
-			k2.draw_rect_ex({position.x, -position.y, 40, 40}, {20, 20}, a*(180/3.14), k2.YELLOW)
+			k2.draw_rect_ex({position.x, -position.y, 40, 40}, {20, 20}, a*(180/3.14), k2.RL_YELLOW)
 		}
 
-		k2.draw_circle(mouse_pos, 40, k2.MAGENTA)
+		k2.draw_circle(mouse_pos, 40, k2.RL_MAGENTA)
 		k2.present()
 
 		free_all(context.temp_allocator)

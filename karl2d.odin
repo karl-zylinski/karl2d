@@ -755,7 +755,8 @@ Color :: [4]u8
 
 WHITE :: Color { 255, 255, 255, 255 }
 BLACK :: Color { 0, 0, 0, 255 }
-BLANK :: Color { 0, 0, 0, 0}
+BLANK :: Color { 0, 0, 0, 0 }
+BLUE  :: Color { 30, 116, 240, 255 }
 
 // These are from Raylib. They are here so you can easily port a Raylib program to Karl2D.
 RL_LIGHTGRAY  :: Color { 200, 200, 200, 255 }
