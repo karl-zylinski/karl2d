@@ -1,6 +1,6 @@
 package karl2d_api_doc_builder
 
-import os "core:os/os2"
+import os "core:os"
 import vmem "core:mem/virtual"
 import "core:log"
 import "core:fmt"
@@ -18,11 +18,14 @@ main :: proc() {
 	plug_ast, plug_ast_ok := parser.parse_package_from_path(".")
 	log.ensuref(plug_ast_ok, "Could not generate AST for package")
 
-	b := strings.builder_make()
+	o, o_err := os.open("karl2d.doc.odin", os.O_CREATE | os.O_TRUNC, 0o644)
+	log.assertf(o_err == nil, "Couldn't open karl2d.doc.odin: %v", o_err)
 
-	strings.write_string(&b, "// This file is purely documentational and never built.\n")
-	strings.write_string(&b, "#+build ignore\n")
-	strings.write_string(&b, "package karl2d\n")
+	pln :: fmt.fprintln
+
+	pln(o, "// This file is purely documentational and never built.")
+	pln(o, "#+build ignore")
+	pln(o, "package karl2d")
 
 	prev_line: int
 
@@ -53,22 +56,20 @@ main :: proc() {
 				}
 
 				if dd.docs != nil {
-					strings.write_rune(&b, '\n')
-					strings.write_string(&b, f.src[dd.docs.pos.offset:dd.docs.end.offset])
-					strings.write_rune(&b, '\n')
+					pln(o, "")
+					pln(o, f.src[dd.docs.pos.offset:dd.docs.end.offset])
 				} else {
 					if prev_line != dd.pos.line - 1 {
-						strings.write_rune(&b, '\n')
+						pln(o, "")
 					}
 				}
 
-				strings.write_string(&b, val)
-				strings.write_rune(&b, '\n')
+				pln(o, val)
 
 				prev_line = dd.pos.line
 			}
 		}
 	}
 
-	_ = os.write_entire_file("karl2d.doc.odin", transmute([]u8)(strings.to_string(b)))
+	os.close(o)
 }
