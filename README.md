@@ -19,7 +19,7 @@ Here follows my near-future TODO list
 * Is the 1/zoom in set_camera wrong? Is the matrix multiply order wrong? Hmmmm...
 * Textures: Make the sampler state configurable
 * Textures D3D11: Do we need the SRV in the texture?
-* Flashing textures in Abyss
+* Flashing textures in Abyss -- Better now but still flashes when you use nose... Check the "odd_frame" stuff in d3d backend
 * Do proper checks of vertex count and dispatch rendering when full
 	* What happens when list is full? We can't just empty the vertex list due to being used by input assembler etc.
 * Should we sort by depth? Maybe we should use Vec3 because some 2D games rely on it?

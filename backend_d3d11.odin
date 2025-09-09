@@ -174,7 +174,10 @@ clear = proc(color: Color) {
 
 present = proc() {
 	ch(s.swapchain->Present(1, {}))
-	s.vertex_buffer_offset = 0
+	if s.odd_frame {
+		s.vertex_buffer_offset = 0
+	}
+	s.odd_frame = !s.odd_frame
 },
 
 draw = proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex_buffer: []u8) {
@@ -534,6 +537,9 @@ D3D11_State :: struct {
 	framebuffer: ^d3d11.ITexture2D,
 	blend_state: ^d3d11.IBlendState,
 	sampler_state: ^d3d11.ISamplerState,
+
+	// 0 or 1
+	odd_frame: bool,
 
 	textures: hm.Handle_Map(D3D11_Texture, Texture_Handle, 1024*10),
 	shaders: hm.Handle_Map(D3D11_Shader, Shader_Handle, 1024*10),
