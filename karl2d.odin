@@ -158,12 +158,24 @@ set_window_size :: proc(width: int, height: int) {
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
 // procedures run:
-// 	present
-// 	set_camera
-// 	set_shader
 // 
-// TODO: complete this list and motivate why it needs to happen on those procs (or do that in the
-// docs for those procs).
+// - present
+// - set_camera
+// - set_shader
+// - set_shader_constant
+// - draw_texture_* IF previous draw did not use the same texture (1)
+// - draw_rect_*, draw_circle_* IF previous draw did not use the shapes drawing texture (2)
+// 
+// (1) When drawing textures, the current texture is fed into the active shader. Everything within
+//     the same batch must use the same texture. So drawing with a new texture will draw the current
+//     batch. You can combine several textures into an atlas to get bigger batches.
+//
+// (2) In order to use the same shader for shapes drawing and textured drawing, the shapes drawing
+//     uses a blank, white texture. For the same reasons as (1), drawing something else than shapes
+//     before drawing a shape will break up the batches. TODO: Add possibility to customize shape
+//     drawing texture so that you can put it into an atlas.
+//
+// TODO: Name of this proc? submit_current_batch, flush_current_batch, draw_current_batch
 draw_current_batch :: proc() {
 	shader := s.batch_shader.? or_else s.default_shader
 	rb.draw(shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
