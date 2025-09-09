@@ -20,9 +20,9 @@ import hm "handle_map"
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
-/* Opens a window and initializes some internal state. The internal state will use `allocator` for
-all dynamically allocated memory. The return value can be ignored unless you need to later call
-`set_internal_state`. */
+// Opens a window and initializes some internal state. The internal state will use `allocator` for
+// all dynamically allocated memory. The return value can be ignored unless you need to later call
+// `set_internal_state`.
 init :: proc(window_width: int, window_height: int, window_title: string,
              allocator := context.allocator, loc := #caller_location) -> ^State {
 	assert(s == nil, "Don't call 'init' twice.")
@@ -62,11 +62,11 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	return s
 }
 
-/* Returns true if the program wants to shut down. This happens when for example pressing the close
-button on the window. The application can decide if it wants to shut down or if it wants to show
-some kind of confirmation dialogue and shut down later.
-
-Commonly used for creating the "main loop" of a game.*/
+// Returns true if the program wants to shut down. This happens when for example pressing the close
+// button on the window. The application can decide if it wants to shut down or if it wants to show
+// some kind of confirmation dialogue and shut down later.
+//
+// Commonly used for creating the "main loop" of a game.
 shutdown_wanted :: proc() -> bool {
 	return s.shutdown_wanted
 }
@@ -100,9 +100,9 @@ present :: proc() {
 	rb.present()
 }
 
-/* Call at start or end of frame to process all events that have arrived to the window.
-
-WARNING: Not calling this will make your program impossible to interact with. */
+// Call at start or end of frame to process all events that have arrived to the window.
+//
+// WARNING: Not calling this will make your program impossible to interact with.
 process_events :: proc() {
 	s.keys_went_up = {}
 	s.keys_went_down = {}
@@ -155,15 +155,15 @@ set_window_size :: proc(width: int, height: int) {
 	panic("Not implemented")
 }
 
-/* Flushes the current batch. This sends off everything to the GPU that has been queued in the
-current batch. Normally, you do not need to do this manually. It is done automatically when these
-procedures run:
-	present
-	set_camera
-	set_shader
-
-TODO: complete this list and motivate why it needs to happen on those procs (or do that in the
-docs for those procs). */   
+// Flushes the current batch. This sends off everything to the GPU that has been queued in the
+// current batch. Normally, you do not need to do this manually. It is done automatically when these
+// procedures run:
+// 	present
+// 	set_camera
+// 	set_shader
+// 
+// TODO: complete this list and motivate why it needs to happen on those procs (or do that in the
+// docs for those procs).
 draw_current_batch :: proc() {
 	shader := s.batch_shader.? or_else s.default_shader
 	rb.draw(shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
@@ -174,20 +174,20 @@ draw_current_batch :: proc() {
 // INPUT //
 //-------//
 
-/* Returns true if a keyboard key went down between the current and the previous frame. Set when
-'process_events' runs (probably once per frame). */
+// Returns true if a keyboard key went down between the current and the previous frame. Set when
+// 'process_events' runs (probably once per frame).
 key_went_down :: proc(key: Keyboard_Key) -> bool {
 	return s.keys_went_down[key]
 }
 
-/* Returns true if a keyboard key went up (was released) between the current and the previous frame.
-Set when 'process_events' runs (probably once per frame). */
+// Returns true if a keyboard key went up (was released) between the current and the previous frame.
+// Set when 'process_events' runs (probably once per frame).
 key_went_up :: proc(key: Keyboard_Key) -> bool {
 	return s.keys_went_up[key]
 }
 
-/* Returns true if a keyboard is currently being held down. Set when 'process_events' runs (probably
-once per frame). */
+// Returns true if a keyboard is currently being held down. Set when 'process_events' runs (probably
+// once per frame).
 key_is_held :: proc(key: Keyboard_Key) -> bool {
 	return s.keys_is_held[key]
 }
@@ -706,8 +706,8 @@ set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 	panic("not implemented")
 }
 
-/* Restore the internal state using the pointer returned by `init`. Useful after reloading the
-library (for example, when doing code hot reload). */
+// Restore the internal state using the pointer returned by `init`. Useful after reloading the
+// library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State) {
 	s = state
 	rb = s.rb
@@ -826,10 +826,10 @@ Handle :: hm.Handle
 Texture_Handle :: distinct Handle
 TEXTURE_NONE :: Texture_Handle {}
 
-/* This keeps track of the internal state of the library. Usually, you do not need to poke at it.
-It is created and kept as a global variable when 'init' is called. However, 'init' also returns the
-pointer to it, so you can later use 'set_internal_state' to restore it (after for example hot
-reload). */
+// This keeps track of the internal state of the library. Usually, you do not need to poke at it.
+// It is created and kept as a global variable when 'init' is called. However, 'init' also returns
+// the pointer to it, so you can later use 'set_internal_state' to restore it (after for example hot
+// reload).
 State :: struct {
 	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
