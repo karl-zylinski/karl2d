@@ -19,13 +19,13 @@ main :: proc() {
     WAVE_SHADER_DATA :: #load("wave.hlsl")
 
     shader := k2.load_shader(string(WAVE_SHADER_DATA))
-    seconds_loc := k2.get_shader_constant_location(shader, "seconds")
-    freq_x_loc := k2.get_shader_constant_location(shader, "freqX")
-    freq_y_loc := k2.get_shader_constant_location(shader, "freqY")
-    amp_x_loc := k2.get_shader_constant_location(shader, "ampX")
-    amp_y_loc := k2.get_shader_constant_location(shader, "ampY")
-    speed_x_loc := k2.get_shader_constant_location(shader, "speedX")
-    speed_y_loc := k2.get_shader_constant_location(shader, "speedY")
+    seconds_loc := shader.constant_lookup["seconds"]
+    freq_x_loc := shader.constant_lookup["freqX"]
+    freq_y_loc := shader.constant_lookup["freqY"]
+    amp_x_loc := shader.constant_lookup["ampX"]
+    amp_y_loc := shader.constant_lookup["ampY"]
+    speed_x_loc := shader.constant_lookup["speedX"]
+    speed_y_loc := shader.constant_lookup["speedY"]
 
     freq_x := f32(25)
     freq_y := f32(25)
@@ -35,7 +35,7 @@ main :: proc() {
     speed_y := f32(8)
 
     screen_size := [2]f32 { f32(k2.get_screen_width()),	f32(k2.get_screen_height()) }
-    k2.set_shader_constant(shader, k2.get_shader_constant_location(shader, "size"), screen_size)
+    k2.set_shader_constant(shader, shader.constant_lookup["size"], screen_size)
     k2.set_shader_constant(shader, freq_x_loc, freq_x)
     k2.set_shader_constant(shader, freq_y_loc, freq_y)
     k2.set_shader_constant(shader, amp_x_loc, amp_x)
@@ -47,20 +47,20 @@ main :: proc() {
 
     last_frame_time := time.now()
 
-    for !k2.window_should_close() {
+    for !k2.shutdown_wanted() {
     	k2.process_events()
     	now := time.now()
     	dt := f32(time.duration_seconds(time.diff(last_frame_time, now)))
     	last_frame_time = now
     	seconds += dt
 
-		k2.set_shader_constant_f32(shader, seconds_loc, seconds)
+		k2.set_shader_constant(shader, seconds_loc, seconds)
 		k2.set_shader(shader)
 
 		k2.draw_texture(texture, {0, 0})
 		k2.draw_texture(texture, {f32(texture.width), 0})
 
-		k2.set_shader(k2.SHADER_NONE)
+		k2.set_shader(nil)
 		k2.present()
     }
 

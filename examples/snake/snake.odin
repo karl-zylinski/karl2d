@@ -175,12 +175,12 @@ main :: proc() {
 		time_since_food := time.duration_seconds(time.diff(food_eaten_at, time_now))
 
 		if time_since_food < 0.5 && total_time > 1 {
-			shader.input_overrides[3] = k2.create_vertex_input_override(k2.Vec2{f32(math.cos(total_time*100)*4), f32(math.sin(total_time*120 + 3)*4)})
+			k2.override_shader_input(shader, 3, k2.Vec2{f32(math.cos(total_time*100)*4), f32(math.sin(total_time*120 + 3)*4)})
 		}
 
 		k2.draw_texture(food_sprite, {f32(food_pos.x), f32(food_pos.y)}*CELL_SIZE)
 
-		shader.input_overrides[3] = {}
+		k2.override_shader_input(shader, 3, nil)
 
 		for i in 0..<snake_length {
 			part_sprite := body_sprite
@@ -214,13 +214,13 @@ main :: proc() {
 		}
 
 		if game_over {
-			k2.draw_text("Game Over!", {4, 4}, 25, k2.RED)
+			k2.draw_text("Game Over!", {4, 4}, 25, k2.RL_RED)
 			k2.draw_text("Press Enter to play again", {4, 30}, 15, k2.BLACK)
 		}
 
 		score := snake_length - 3
 		score_str := fmt.tprintf("Score: %v", score)
-		k2.draw_text(score_str, {4, CANVAS_SIZE - 14}, 10, k2.GRAY)
+		k2.draw_text(score_str, {4, CANVAS_SIZE - 14}, 10, k2.RL_GRAY)
 		k2.present()
 
 		free_all(context.temp_allocator)

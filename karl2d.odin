@@ -7,6 +7,7 @@ import "core:math"
 import "core:math/linalg"
 import "core:slice"
 import "core:strings"
+import "core:reflect"
 
 import "core:image"
 import "core:image/bmp"
@@ -15,9 +16,9 @@ import "core:image/tga"
 
 import hm "handle_map"
 
-// --------------------- //
-// KARL2D API PROCEDURES //
-// --------------------- //
+//-----------------------------------------------//
+// SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
+//-----------------------------------------------//
 
 /* Opens a window and initializes some internal state. The internal state will use `allocator` for
 all dynamically allocated memory. The return value can be ignored unless you need to later call
@@ -138,6 +139,22 @@ process_events :: proc() {
 	win.clear_events()
 }
 
+get_screen_width :: proc() -> int {
+	return rb.get_swapchain_width()
+}
+
+get_screen_height :: proc() -> int  {
+	return rb.get_swapchain_height()
+}
+
+set_window_position :: proc(x: int, y: int) {
+	win.set_position(x, y)
+}
+
+set_window_size :: proc(width: int, height: int) {
+	panic("Not implemented")
+}
+
 /* Flushes the current batch. This sends off everything to the GPU that has been queued in the
 current batch. Normally, you do not need to do this manually. It is done automatically when these
 procedures run:
@@ -153,75 +170,51 @@ draw_current_batch :: proc() {
 	s.vertex_buffer_cpu_used = 0
 }
 
-get_screen_width :: proc() -> int {
-	return rb.get_swapchain_width()
-}
+//-------//
+// INPUT //
+//-------//
 
-get_screen_height :: proc() -> int  {
-	return rb.get_swapchain_height()
-}
-
+/* Returns true if a keyboard key went down between the current and the previous frame. Set when
+'process_events' runs (probably once per frame). */
 key_went_down :: proc(key: Keyboard_Key) -> bool {
 	return s.keys_went_down[key]
 }
 
+/* Returns true if a keyboard key went up (was released) between the current and the previous frame.
+Set when 'process_events' runs (probably once per frame). */
 key_went_up :: proc(key: Keyboard_Key) -> bool {
 	return s.keys_went_up[key]
 }
 
+/* Returns true if a keyboard is currently being held down. Set when 'process_events' runs (probably
+once per frame). */
 key_is_held :: proc(key: Keyboard_Key) -> bool {
 	return s.keys_is_held[key]
 }
 
-set_window_position :: proc(x: int, y: int) {
-	win.set_position(x, y)
+mouse_button_went_down :: proc(button: Mouse_Button) -> bool {
+	panic("not implemented")
 }
 
-set_window_size :: proc(width: int, height: int) {
-	panic("Not implemented")
+mouse_button_went_up :: proc(button: Mouse_Button) -> bool {
+	panic("not implemented")
 }
 
-set_camera :: proc(camera: Maybe(Camera)) {
-	if camera == s.batch_camera {
-		return
-	}
-
-	draw_current_batch()
-	s.batch_camera = camera
-	s.proj_matrix = make_default_projection(s.width, s.height)
-
-	if c, c_ok := camera.?; c_ok {
-		origin_trans := linalg.matrix4_translate(vec3_from_vec2(-c.origin))
-		translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
-		scale := linalg.matrix4_scale(Vec3{1/c.zoom, 1/c.zoom, 1})
-		rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
-		camera_matrix := translate * scale * rot * origin_trans
-		s.view_matrix = linalg.inverse(camera_matrix)
-	} else {
-		s.view_matrix = 1
-	}
+mouse_button_is_held :: proc(button: Mouse_Button) -> bool {
+	panic("not implemented")
 }
 
-load_texture_from_file :: proc(filename: string) -> Texture {
-	img, img_err := image.load_from_file(filename, options = {.alpha_add_if_missing}, allocator = context.temp_allocator)
-
-	if img_err != nil {
-		log.errorf("Error loading texture %v: %v", filename, img_err)
-		return {}
-	}
-
-	backend_tex := rb.load_texture(img.pixels.buf[:], img.width, img.height)
-
-	return {
-		handle = backend_tex,
-		width = img.width,
-		height = img.height,
-	}
+get_mouse_wheel_delta :: proc() -> f32 {
+	return s.mouse_wheel_delta
 }
 
-destroy_texture :: proc(tex: Texture) {
-	rb.destroy_texture(tex.handle)
+get_mouse_position :: proc() -> Vec2 {
+	return s.mouse_position
 }
+
+//---------//
+// DRAWING //
+//---------//
 
 draw_rect :: proc(r: Rect, c: Color) {
 	if s.batch_texture != TEXTURE_NONE && s.batch_texture != s.shape_drawing_texture {
@@ -495,6 +488,40 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	batch_vertex(bl, uv5, c)
 }
 
+draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
+	
+}
+
+//--------------------//
+// TEXTURE MANAGEMENT //
+//--------------------//
+
+load_texture_from_file :: proc(filename: string) -> Texture {
+	img, img_err := image.load_from_file(filename, options = {.alpha_add_if_missing}, allocator = context.temp_allocator)
+
+	if img_err != nil {
+		log.errorf("Error loading texture %v: %v", filename, img_err)
+		return {}
+	}
+
+	backend_tex := rb.load_texture(img.pixels.buf[:], img.width, img.height)
+
+	return {
+		handle = backend_tex,
+		width = img.width,
+		height = img.height,
+	}
+}
+
+destroy_texture :: proc(tex: Texture) {
+	rb.destroy_texture(tex.handle)
+}
+
+
+//---------//
+// SHADERS //
+//---------//
+
 load_shader :: proc(shader_source: string, layout_formats: []Shader_Input_Format = {}) -> Shader {
 	handle, desc := rb.load_shader(shader_source, context.temp_allocator, layout_formats)
 
@@ -556,40 +583,6 @@ load_shader :: proc(shader_source: string, layout_formats: []Shader_Input_Format
 	return shd
 }
 
-get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> Shader_Default_Inputs {
-	if name == "POS" && type == .Vec2 {
-		return .Position
-	} else if name == "UV" && type == .Vec2 {
-		return .UV
-	} else if name == "COL" && type == .Vec4 {
-		return .Color
-	}
-
-	return .Unknown
-}
-
-get_shader_input_format :: proc(name: string, type: Shader_Input_Type) -> Shader_Input_Format {
-	default_type := get_shader_input_default_type(name, type)
-
-	if default_type != .Unknown {
-		switch default_type {
-		case .Position: return .RG32_Float
-		case .UV: return .RG32_Float
-		case .Color: return .RGBA8_Norm
-		case .Unknown: unreachable()
-		}
-	}
-
-	switch type {
-	case .F32: return .R32_Float
-	case .Vec2: return .RG32_Float
-	case .Vec3: return .RGB32_Float
-	case .Vec4: return .RGBA32_Float
-	}
-
-	return .Unknown
-}
-
 destroy_shader :: proc(shader: Shader) {
 	rb.destroy_shader(shader.handle)
 
@@ -611,6 +604,10 @@ destroy_shader :: proc(shader: Shader) {
 	delete(shader.input_overrides)
 }
 
+get_default_shader :: proc() -> Shader {
+	return s.default_shader
+}
+
 set_shader :: proc(shader: Maybe(Shader)) {
 	if maybe_handle_equal(shader, s.batch_shader) {
 		return
@@ -620,22 +617,7 @@ set_shader :: proc(shader: Maybe(Shader)) {
 	s.batch_shader = shader
 }
 
-maybe_handle_equal :: proc(m1: Maybe($T), m2: Maybe(T)) -> bool {
-	if m1 == nil && m2 == nil {
-		return true
-	}
-
-	m1v, m1v_ok := m1.?
-	m2v, m2v_ok := m2.?
-
-	if !m1v_ok || !m2v_ok {
-		return false
-	}
-
-	return m1v.handle == m2v.handle
-}
-
-set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: $T) {
+set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any) {
 	draw_current_batch()
 
 	if int(loc.buffer_idx) >= len(shd.constant_buffers) {
@@ -643,72 +625,34 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: $T)
 		return
 	}
 
+	sz := reflect.size_of_typeid(val.id)
 	b := &shd.constant_buffers[loc.buffer_idx]
 
-	if int(loc.offset) + size_of(val) > len(b.cpu_data) {
+	if int(loc.offset) + sz > len(b.cpu_data) {
 		log.warnf("Constant buffer idx %v is trying to be written out of bounds by at offset %v with %v bytes", loc.buffer_idx, loc.offset, size_of(val))
 		return
 	}
 
-	dst := (^T)(&b.cpu_data[loc.offset])
-	dst^ = val
+	mem.copy(&b.cpu_data[loc.offset], val.data, sz)
 }
 
-set_shader_constant_mat4 :: proc(shader: Shader, loc: Shader_Constant_Location, val: matrix[4,4]f32) {
-	set_shader_constant(shader, loc, val)
-}
+override_shader_input :: proc(shader: Shader, input: int, val: any) {
+	sz := reflect.size_of_typeid(val.id)
+	assert(sz < SHADER_INPUT_VALUE_MAX_SIZE)
+	if input >= len(shader.input_overrides) {
+		log.errorf("Input override out of range. Wanted to override input %v, but shader only has %v inputs", input, len(shader.input_overrides))
+		return
+	}
 
-set_shader_constant_f32 :: proc(shader: Shader, loc: Shader_Constant_Location, val: f32) {
-	set_shader_constant(shader, loc, val)
-}
+	o := &shader.input_overrides[input]
 
-set_shader_constant_vec2 :: proc(shader: Shader, loc: Shader_Constant_Location, val: Vec2) {
-	set_shader_constant(shader, loc, val)
-}
+	o.val = {}
 
-create_vertex_input_override :: proc(val: $T) -> Shader_Input_Value_Override {
-	assert(size_of(T) < 256)
-	res: Shader_Input_Value_Override
-	((^T)(raw_data(&res.val)))^ = val
-	res.used = size_of(T)
-	return res
-}
+	if sz > 0 {
+		mem.copy(raw_data(&o.val), val.data, sz)
+	}
 
-get_default_shader :: proc() -> Shader {
-	return s.default_shader
-}
-
-set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
-	panic("not implemented")
-}
-
-
-screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2 {
-	panic("not implemented")
-}
-
-draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
-	
-}
-
-mouse_button_went_down :: proc(button: Mouse_Button) -> bool {
-	panic("not implemented")
-}
-
-mouse_button_went_up :: proc(button: Mouse_Button) -> bool {
-	panic("not implemented")
-}
-
-mouse_button_is_held :: proc(button: Mouse_Button) -> bool {
-	panic("not implemented")
-}
-
-get_mouse_wheel_delta :: proc() -> f32 {
-	return s.mouse_wheel_delta
-}
-
-get_mouse_position :: proc() -> Vec2 {
-	return s.mouse_position
+	o.used = sz
 }
 
 shader_input_format_size :: proc(f: Shader_Input_Format) -> int {
@@ -725,6 +669,43 @@ shader_input_format_size :: proc(f: Shader_Input_Format) -> int {
 	return 0
 }
 
+//-------------------------------//
+// CAMERA AND COORDINATE SYSTEMS //
+//-------------------------------//
+
+set_camera :: proc(camera: Maybe(Camera)) {
+	if camera == s.batch_camera {
+		return
+	}
+
+	draw_current_batch()
+	s.batch_camera = camera
+	s.proj_matrix = make_default_projection(s.width, s.height)
+
+	if c, c_ok := camera.?; c_ok {
+		origin_trans := linalg.matrix4_translate(vec3_from_vec2(-c.origin))
+		translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
+		scale := linalg.matrix4_scale(Vec3{1/c.zoom, 1/c.zoom, 1})
+		rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
+		camera_matrix := translate * scale * rot * origin_trans
+		s.view_matrix = linalg.inverse(camera_matrix)
+	} else {
+		s.view_matrix = 1
+	}
+}
+
+screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2 {
+	panic("not implemented")
+}
+
+//------//
+// MISC //
+//------//
+
+set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
+	panic("not implemented")
+}
+
 /* Restore the internal state using the pointer returned by `init`. Useful after reloading the
 library (for example, when doing code hot reload). */
 set_internal_state :: proc(state: ^State) {
@@ -735,9 +716,9 @@ set_internal_state :: proc(state: ^State) {
 	win.set_internal_state(s.window_state)
 }
 
-// ---------------------------- //
-// KARL2D API TYPES & CONSTANTS //
-// ---------------------------- //
+//---------------------//
+// TYPES AND CONSTANTS //
+//---------------------//
 
 // A RGBA (Red, Greeen, Blue, Alpha) color. Each channel can have a value between 0 and 255.
 Color :: [4]u8
@@ -793,8 +774,10 @@ Shader_Constant_Buffer :: struct {
 	cpu_data: []u8,
 }
 
+SHADER_INPUT_VALUE_MAX_SIZE :: 256
+
 Shader_Input_Value_Override :: struct {
-	val: [256]u8,
+	val: [SHADER_INPUT_VALUE_MAX_SIZE]u8,
 	used: int,
 }
 
@@ -891,16 +874,38 @@ Mouse_Button :: enum {
 	Max = 255,
 }
 
-// TODO: These are just copied from raylib, we probably want a list of our own "default colors"
 WHITE :: Color { 255, 255, 255, 255 }
 BLACK :: Color { 0, 0, 0, 255 }
-GRAY :: Color{ 130, 130, 130, 255 }
-RED :: Color { 230, 41, 55, 255 }
-YELLOW :: Color { 253, 249, 0, 255 }
-BLUE :: Color { 0, 121, 241, 255 }
-MAGENTA :: Color { 255, 0, 255, 255 }
-DARKGRAY :: Color{ 80, 80, 80, 255 }
-GREEN :: Color{ 0, 228, 48, 255 }
+BLANK :: Color { 0, 0, 0, 0}
+
+// These are from Raylib. They are here so you can easily port a Raylib program to Karl2D.
+RL_LIGHTGRAY  :: Color { 200, 200, 200, 255 }
+RL_GRAY       :: Color { 130, 130, 130, 255 }
+RL_DARKGRAY   :: Color { 80, 80, 80, 255 }
+RL_YELLOW     :: Color { 253, 249, 0, 255 }
+RL_GOLD       :: Color { 255, 203, 0, 255 }
+RL_ORANGE     :: Color { 255, 161, 0, 255 }
+RL_PINK       :: Color { 255, 109, 194, 255 }
+RL_RED        :: Color { 230, 41, 55, 255 }
+RL_MAROON     :: Color { 190, 33, 55, 255 }
+RL_GREEN      :: Color { 0, 228, 48, 255 }
+RL_LIME       :: Color { 0, 158, 47, 255 }
+RL_DARKGREEN  :: Color { 0, 117, 44, 255 }
+RL_SKYBLUE    :: Color { 102, 191, 255, 255 }
+RL_BLUE       :: Color { 0, 121, 241, 255 }
+RL_DARKBLUE   :: Color { 0, 82, 172, 255 }
+RL_PURPLE     :: Color { 200, 122, 255, 255 }
+RL_VIOLET     :: Color { 135, 60, 190, 255 }
+RL_DARKPURPLE :: Color { 112, 31, 126, 255 }
+RL_BEIGE      :: Color { 211, 176, 131, 255 }
+RL_BROWN      :: Color { 127, 106, 79, 255 }
+RL_DARKBROWN  :: Color { 76, 63, 47, 255 }
+RL_WHITE      :: WHITE
+RL_BLACK      :: BLACK
+RL_BLANK      :: BLANK
+RL_MAGENTA    :: Color { 255, 0, 255, 255 }
+RL_RAYWHITE   :: Color { 245, 245, 245, 255 }
+
 
 // Based on Raylib / GLFW
 Keyboard_Key :: enum {
@@ -1073,8 +1078,54 @@ s: ^State
 win: Window_Interface
 rb: Rendering_Backend_Interface
 
+maybe_handle_equal :: proc(m1: Maybe($T), m2: Maybe(T)) -> bool {
+	if m1 == nil && m2 == nil {
+		return true
+	}
 
+	m1v, m1v_ok := m1.?
+	m2v, m2v_ok := m2.?
 
+	if !m1v_ok || !m2v_ok {
+		return false
+	}
+
+	return m1v.handle == m2v.handle
+}
+
+get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> Shader_Default_Inputs {
+	if name == "POS" && type == .Vec2 {
+		return .Position
+	} else if name == "UV" && type == .Vec2 {
+		return .UV
+	} else if name == "COL" && type == .Vec4 {
+		return .Color
+	}
+
+	return .Unknown
+}
+
+get_shader_input_format :: proc(name: string, type: Shader_Input_Type) -> Shader_Input_Format {
+	default_type := get_shader_input_default_type(name, type)
+
+	if default_type != .Unknown {
+		switch default_type {
+		case .Position: return .RG32_Float
+		case .UV: return .RG32_Float
+		case .Color: return .RGBA8_Norm
+		case .Unknown: unreachable()
+		}
+	}
+
+	switch type {
+	case .F32: return .R32_Float
+	case .Vec2: return .RG32_Float
+	case .Vec3: return .RGB32_Float
+	case .Vec4: return .RGBA32_Float
+	}
+
+	return .Unknown
+}
 
 vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
 	return {

@@ -1,10 +1,10 @@
-// This file is purely documentational and never built.
+/* This file is purely documentational. It is generated from the contents of 'karl2d.odin'.*/
 #+build ignore
 package karl2d
 
-// --------------------- //
-// KARL2D API PROCEDURES //
-// --------------------- //
+//-----------------------------------------------//
+// SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
+//-----------------------------------------------//
 
 /* Opens a window and initializes some internal state. The internal state will use `allocator` for
 all dynamically allocated memory. The return value can be ignored unless you need to later call
@@ -33,6 +33,14 @@ present :: proc()
 WARNING: Not calling this will make your program impossible to interact with. */
 process_events :: proc()
 
+get_screen_width :: proc() -> int
+
+get_screen_height :: proc() -> int
+
+set_window_position :: proc(x: int, y: int)
+
+set_window_size :: proc(width: int, height: int)
+
 /* Flushes the current batch. This sends off everything to the GPU that has been queued in the
 current batch. Normally, you do not need to do this manually. It is done automatically when these
 procedures run:
@@ -44,26 +52,35 @@ TODO: complete this list and motivate why it needs to happen on those procs (or 
 docs for those procs). */
 draw_current_batch :: proc()
 
-get_screen_width :: proc() -> int
+//-------//
+// INPUT //
+//-------//
 
-get_screen_height :: proc() -> int
-
+/* Returns true if a keyboard key went down between the current and the previous frame. Set when
+'process_events' runs (probably once per frame). */
 key_went_down :: proc(key: Keyboard_Key) -> bool
 
+/* Returns true if a keyboard key went up (was released) between the current and the previous frame.
+Set when 'process_events' runs (probably once per frame). */
 key_went_up :: proc(key: Keyboard_Key) -> bool
 
+/* Returns true if a keyboard is currently being held down. Set when 'process_events' runs (probably
+once per frame). */
 key_is_held :: proc(key: Keyboard_Key) -> bool
 
-set_window_position :: proc(x: int, y: int)
+mouse_button_went_down :: proc(button: Mouse_Button) -> bool
 
-set_window_size :: proc(width: int, height: int)
+mouse_button_went_up :: proc(button: Mouse_Button) -> bool
 
-set_camera :: proc(camera: Maybe(Camera))
+mouse_button_is_held :: proc(button: Mouse_Button) -> bool
 
-load_texture_from_file :: proc(filename: string) -> Texture
+get_mouse_wheel_delta :: proc() -> f32
 
-destroy_texture :: proc(tex: Texture)
+get_mouse_position :: proc() -> Vec2
 
+//---------//
+// DRAWING //
+//---------//
 draw_rect :: proc(r: Rect, c: Color)
 
 draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color)
@@ -80,55 +97,51 @@ draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE)
 
 draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE)
 
+draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color)
+
+//--------------------//
+// TEXTURE MANAGEMENT //
+//--------------------//
+load_texture_from_file :: proc(filename: string) -> Texture
+
+destroy_texture :: proc(tex: Texture)
+
+//---------//
+// SHADERS //
+//---------//
 load_shader :: proc(shader_source: string, layout_formats: []Shader_Input_Format = {}) -> Shader
-
-get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> Shader_Default_Inputs
-
-get_shader_input_format :: proc(name: string, type: Shader_Input_Type) -> Shader_Input_Format
 
 destroy_shader :: proc(shader: Shader)
 
-set_shader :: proc(shader: Maybe(Shader))
-
-maybe_handle_equal :: proc(m1: Maybe($T), m2: Maybe(T)) -> bool
-
-set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: $T)
-
-set_shader_constant_mat4 :: proc(shader: Shader, loc: Shader_Constant_Location, val: matrix[4,4]f32)
-
-set_shader_constant_f32 :: proc(shader: Shader, loc: Shader_Constant_Location, val: f32)
-
-set_shader_constant_vec2 :: proc(shader: Shader, loc: Shader_Constant_Location, val: Vec2)
-
-create_vertex_input_override :: proc(val: $T) -> Shader_Input_Value_Override
-
 get_default_shader :: proc() -> Shader
 
-set_scissor_rect :: proc(scissor_rect: Maybe(Rect))
+set_shader :: proc(shader: Maybe(Shader))
+
+set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any)
+
+override_shader_input :: proc(shader: Shader, input: int, val: any)
+
+shader_input_format_size :: proc(f: Shader_Input_Format) -> int
+
+//-------------------------------//
+// CAMERA AND COORDINATE SYSTEMS //
+//-------------------------------//
+set_camera :: proc(camera: Maybe(Camera))
 
 screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2
 
-draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color)
-
-mouse_button_went_down :: proc(button: Mouse_Button) -> bool
-
-mouse_button_went_up :: proc(button: Mouse_Button) -> bool
-
-mouse_button_is_held :: proc(button: Mouse_Button) -> bool
-
-get_mouse_wheel_delta :: proc() -> f32
-
-get_mouse_position :: proc() -> Vec2
-
-shader_input_format_size :: proc(f: Shader_Input_Format) -> int
+//------//
+// MISC //
+//------//
+set_scissor_rect :: proc(scissor_rect: Maybe(Rect))
 
 /* Restore the internal state using the pointer returned by `init`. Useful after reloading the
 library (for example, when doing code hot reload). */
 set_internal_state :: proc(state: ^State)
 
-// ---------------------------- //
-// KARL2D API TYPES & CONSTANTS //
-// ---------------------------- //
+//---------------------//
+// TYPES AND CONSTANTS //
+//---------------------//
 
 // A RGBA (Red, Greeen, Blue, Alpha) color. Each channel can have a value between 0 and 255.
 Color :: [4]u8
@@ -184,8 +197,10 @@ Shader_Constant_Buffer :: struct {
 	cpu_data: []u8,
 }
 
+SHADER_INPUT_VALUE_MAX_SIZE :: 256
+
 Shader_Input_Value_Override :: struct {
-	val: [256]u8,
+	val: [SHADER_INPUT_VALUE_MAX_SIZE]u8,
 	used: int,
 }
 
@@ -281,16 +296,37 @@ Mouse_Button :: enum {
 	Max = 255,
 }
 
-// TODO: These are just copied from raylib, we probably want a list of our own "default colors"
 WHITE :: Color { 255, 255, 255, 255 }
 BLACK :: Color { 0, 0, 0, 255 }
-GRAY :: Color{ 130, 130, 130, 255 }
-RED :: Color { 230, 41, 55, 255 }
-YELLOW :: Color { 253, 249, 0, 255 }
-BLUE :: Color { 0, 121, 241, 255 }
-MAGENTA :: Color { 255, 0, 255, 255 }
-DARKGRAY :: Color{ 80, 80, 80, 255 }
-GREEN :: Color{ 0, 228, 48, 255 }
+BLANK :: Color { 0, 0, 0, 0}
+
+// These are from Raylib. They are here so you can easily port a Raylib program to Karl2D.
+RL_LIGHTGRAY  :: Color { 200, 200, 200, 255 }
+RL_GRAY       :: Color { 130, 130, 130, 255 }
+RL_DARKGRAY   :: Color { 80, 80, 80, 255 }
+RL_YELLOW     :: Color { 253, 249, 0, 255 }
+RL_GOLD       :: Color { 255, 203, 0, 255 }
+RL_ORANGE     :: Color { 255, 161, 0, 255 }
+RL_PINK       :: Color { 255, 109, 194, 255 }
+RL_RED        :: Color { 230, 41, 55, 255 }
+RL_MAROON     :: Color { 190, 33, 55, 255 }
+RL_GREEN      :: Color { 0, 228, 48, 255 }
+RL_LIME       :: Color { 0, 158, 47, 255 }
+RL_DARKGREEN  :: Color { 0, 117, 44, 255 }
+RL_SKYBLUE    :: Color { 102, 191, 255, 255 }
+RL_BLUE       :: Color { 0, 121, 241, 255 }
+RL_DARKBLUE   :: Color { 0, 82, 172, 255 }
+RL_PURPLE     :: Color { 200, 122, 255, 255 }
+RL_VIOLET     :: Color { 135, 60, 190, 255 }
+RL_DARKPURPLE :: Color { 112, 31, 126, 255 }
+RL_BEIGE      :: Color { 211, 176, 131, 255 }
+RL_BROWN      :: Color { 127, 106, 79, 255 }
+RL_DARKBROWN  :: Color { 76, 63, 47, 255 }
+RL_WHITE      :: WHITE
+RL_BLACK      :: BLACK
+RL_BLANK      :: BLANK
+RL_MAGENTA    :: Color { 255, 0, 255, 255 }
+RL_RAYWHITE   :: Color { 245, 245, 245, 255 }
 
 // Based on Raylib / GLFW
 Keyboard_Key :: enum {

@@ -74,32 +74,32 @@ main :: proc() {
 
 		k2.clear({ 245, 245, 245, 255 })
 		k2.set_camera(camera)
-		k2.draw_rect({-6000, 320, 13000, 8000}, k2.DARKGRAY)
+		k2.draw_rect({-6000, 320, 13000, 8000}, k2.RL_DARKGRAY)
 
 		for i in 0..<MAX_BUILDINGS {
 			k2.draw_rect(buildings[i], building_colors[i])
 		}
 
-		k2.draw_rect(player, k2.RED)
-		k2.draw_line({camera.target.x, -SCREEN_HEIGHT * 10}, {camera.target.x, SCREEN_HEIGHT * 10 }, 1, k2.GREEN)
-		k2.draw_line({-SCREEN_WIDTH*10, camera.target.y}, {SCREEN_WIDTH*10, camera.target.y}, 1, k2.GREEN)
+		k2.draw_rect(player, k2.RL_RED)
+		k2.draw_line({camera.target.x, -SCREEN_HEIGHT * 10}, {camera.target.x, SCREEN_HEIGHT * 10 }, 1, k2.RL_GREEN)
+		k2.draw_line({-SCREEN_WIDTH*10, camera.target.y}, {SCREEN_WIDTH*10, camera.target.y}, 1, k2.RL_GREEN)
 
 		k2.set_camera(nil)
-		k2.draw_text("SCREEN AREA", {640, 10}, 20, k2.RED)
+		k2.draw_text("SCREEN AREA", {640, 10}, 20, k2.RL_RED)
 
-		k2.draw_rect({0, 0, SCREEN_WIDTH, 5}, k2.RED)
-		k2.draw_rect({0, 5, 5, SCREEN_HEIGHT - 10}, k2.RED)
-		k2.draw_rect({SCREEN_WIDTH - 5, 5, 5, SCREEN_HEIGHT - 10}, k2.RED)
-		k2.draw_rect({0, SCREEN_HEIGHT - 5, SCREEN_WIDTH, 5}, k2.RED)
+		k2.draw_rect({0, 0, SCREEN_WIDTH, 5}, k2.RL_RED)
+		k2.draw_rect({0, 5, 5, SCREEN_HEIGHT - 10}, k2.RL_RED)
+		k2.draw_rect({SCREEN_WIDTH - 5, 5, 5, SCREEN_HEIGHT - 10}, k2.RL_RED)
+		k2.draw_rect({0, SCREEN_HEIGHT - 5, SCREEN_WIDTH, 5}, k2.RL_RED)
 
 		k2.draw_rect({10, 10, 250, 113}, {102, 191, 255, 128})
-		k2.draw_rect_outline({10, 10, 250, 113}, 1, k2.BLUE)
+		k2.draw_rect_outline({10, 10, 250, 113}, 1, k2.RL_BLUE)
 
 		k2.draw_text("Free 2d camera controls:", {20, 20}, 10, k2.BLACK)
-		k2.draw_text("- Right/Left to move Offset", {40, 40}, 10, k2.DARKGRAY)
-		k2.draw_text("- Mouse Wheel to Zoom in-out", {40, 60}, 10, k2.DARKGRAY)
-		k2.draw_text("- A / S to Rotate", {40, 80}, 10, k2.DARKGRAY)
-		k2.draw_text("- R to reset Zoom and Rotation", {40, 100}, 10, k2.DARKGRAY)
+		k2.draw_text("- Right/Left to move Offset", {40, 40}, 10, k2.RL_DARKGRAY)
+		k2.draw_text("- Mouse Wheel to Zoom in-out", {40, 60}, 10, k2.RL_DARKGRAY)
+		k2.draw_text("- A / S to Rotate", {40, 80}, 10, k2.RL_DARKGRAY)
+		k2.draw_text("- R to reset Zoom and Rotation", {40, 100}, 10, k2.RL_DARKGRAY)
 
 		k2.present()
 	}
