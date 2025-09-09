@@ -732,9 +732,6 @@ set_internal_state :: proc(state: ^State) {
 // TYPES AND CONSTANTS //
 //---------------------//
 
-// A RGBA (Red, Greeen, Blue, Alpha) color. Each channel can have a value between 0 and 255.
-Color :: [4]u8
-
 // A two dimensinal vector.
 Vec2 :: [2]f32
 
@@ -752,6 +749,41 @@ Rect :: struct {
 	x, y: f32,
 	w, h: f32,
 }
+
+// An RGBA (Red, Green, Blue, Alpha) color. Each channel can have a value between 0 and 255.
+Color :: [4]u8
+
+WHITE :: Color { 255, 255, 255, 255 }
+BLACK :: Color { 0, 0, 0, 255 }
+BLANK :: Color { 0, 0, 0, 0}
+
+// These are from Raylib. They are here so you can easily port a Raylib program to Karl2D.
+RL_LIGHTGRAY  :: Color { 200, 200, 200, 255 }
+RL_GRAY       :: Color { 130, 130, 130, 255 }
+RL_DARKGRAY   :: Color { 80, 80, 80, 255 }
+RL_YELLOW     :: Color { 253, 249, 0, 255 }
+RL_GOLD       :: Color { 255, 203, 0, 255 }
+RL_ORANGE     :: Color { 255, 161, 0, 255 }
+RL_PINK       :: Color { 255, 109, 194, 255 }
+RL_RED        :: Color { 230, 41, 55, 255 }
+RL_MAROON     :: Color { 190, 33, 55, 255 }
+RL_GREEN      :: Color { 0, 228, 48, 255 }
+RL_LIME       :: Color { 0, 158, 47, 255 }
+RL_DARKGREEN  :: Color { 0, 117, 44, 255 }
+RL_SKYBLUE    :: Color { 102, 191, 255, 255 }
+RL_BLUE       :: Color { 0, 121, 241, 255 }
+RL_DARKBLUE   :: Color { 0, 82, 172, 255 }
+RL_PURPLE     :: Color { 200, 122, 255, 255 }
+RL_VIOLET     :: Color { 135, 60, 190, 255 }
+RL_DARKPURPLE :: Color { 112, 31, 126, 255 }
+RL_BEIGE      :: Color { 211, 176, 131, 255 }
+RL_BROWN      :: Color { 127, 106, 79, 255 }
+RL_DARKBROWN  :: Color { 76, 63, 47, 255 }
+RL_WHITE      :: WHITE
+RL_BLACK      :: BLACK
+RL_BLANK      :: BLANK
+RL_MAGENTA    :: Color { 255, 0, 255, 255 }
+RL_RAYWHITE   :: Color { 245, 245, 245, 255 }
 
 Texture :: struct {
 	handle: Texture_Handle,
@@ -792,7 +824,6 @@ Shader_Input_Value_Override :: struct {
 	val: [SHADER_INPUT_VALUE_MAX_SIZE]u8,
 	used: int,
 }
-
 
 Shader_Input_Type :: enum {
 	F32,
@@ -885,39 +916,6 @@ Mouse_Button :: enum {
 	Middle,
 	Max = 255,
 }
-
-WHITE :: Color { 255, 255, 255, 255 }
-BLACK :: Color { 0, 0, 0, 255 }
-BLANK :: Color { 0, 0, 0, 0}
-
-// These are from Raylib. They are here so you can easily port a Raylib program to Karl2D.
-RL_LIGHTGRAY  :: Color { 200, 200, 200, 255 }
-RL_GRAY       :: Color { 130, 130, 130, 255 }
-RL_DARKGRAY   :: Color { 80, 80, 80, 255 }
-RL_YELLOW     :: Color { 253, 249, 0, 255 }
-RL_GOLD       :: Color { 255, 203, 0, 255 }
-RL_ORANGE     :: Color { 255, 161, 0, 255 }
-RL_PINK       :: Color { 255, 109, 194, 255 }
-RL_RED        :: Color { 230, 41, 55, 255 }
-RL_MAROON     :: Color { 190, 33, 55, 255 }
-RL_GREEN      :: Color { 0, 228, 48, 255 }
-RL_LIME       :: Color { 0, 158, 47, 255 }
-RL_DARKGREEN  :: Color { 0, 117, 44, 255 }
-RL_SKYBLUE    :: Color { 102, 191, 255, 255 }
-RL_BLUE       :: Color { 0, 121, 241, 255 }
-RL_DARKBLUE   :: Color { 0, 82, 172, 255 }
-RL_PURPLE     :: Color { 200, 122, 255, 255 }
-RL_VIOLET     :: Color { 135, 60, 190, 255 }
-RL_DARKPURPLE :: Color { 112, 31, 126, 255 }
-RL_BEIGE      :: Color { 211, 176, 131, 255 }
-RL_BROWN      :: Color { 127, 106, 79, 255 }
-RL_DARKBROWN  :: Color { 76, 63, 47, 255 }
-RL_WHITE      :: WHITE
-RL_BLACK      :: BLACK
-RL_BLANK      :: BLANK
-RL_MAGENTA    :: Color { 255, 0, 255, 255 }
-RL_RAYWHITE   :: Color { 245, 245, 245, 255 }
-
 
 // Based on Raylib / GLFW
 Keyboard_Key :: enum {
@@ -1035,7 +1033,7 @@ Keyboard_Key :: enum {
 	KP_Equal        = 336,
 }
 
-// Used by API builder. Everything after this constant will not be in karl2d_api.txt
+// Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
 
 batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
