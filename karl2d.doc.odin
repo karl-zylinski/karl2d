@@ -330,6 +330,7 @@ State :: struct {
 	shape_drawing_texture: Texture_Handle,
 	batch_camera: Maybe(Camera),
 	batch_shader: Maybe(Shader),
+	batch_scissor: Maybe(Rect),
 	batch_texture: Texture_Handle,
 
 	view_matrix: Mat4,
