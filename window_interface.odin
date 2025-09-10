@@ -21,6 +21,7 @@ Window_Event :: union  {
 	Window_Event_Key_Went_Up,
 	Window_Event_Mouse_Move,
 	Window_Event_Mouse_Wheel,
+	Window_Event_Resize,
 }
 
 Window_Event_Key_Went_Down :: struct {
@@ -39,4 +40,8 @@ Window_Event_Mouse_Move :: struct {
 
 Window_Event_Mouse_Wheel :: struct {
 	delta: f32,
+}
+
+Window_Event_Resize :: struct {
+	width, height: int,
 }

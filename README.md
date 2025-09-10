@@ -16,13 +16,14 @@ Might not be included:
 
 Here follows my near-future TODO list
 
-* Textures: Make the sampler state configurable
-* Textures D3D11: Do we need the SRV in the texture?
-
+* win32: Gamepad support
+* win32: Resizable window
 * Do proper checks of vertex count and dispatch rendering when full
 	* What happens when list is full? We can't just empty the vertex list due to being used by input assembler etc.
 * Should we sort by depth? Maybe we should use Vec3 because some 2D games rely on it?
 	* I think we should.
+* Textures: Make the sampler state configurable
+* Textures D3D11: Do we need the SRV in the texture?
 * Shaders: Reflect and expose samplers
 
 ## DONE

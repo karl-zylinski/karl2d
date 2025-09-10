@@ -133,6 +133,13 @@ process_events :: proc() {
 
 		case Window_Event_Mouse_Wheel:
 			s.mouse_wheel_delta = e.delta
+
+		case Window_Event_Resize:
+			s.width = e.width
+			s.height = e.height
+
+			rb.resize_swapchain(s.width, s.height)
+			s.proj_matrix = make_default_projection(s.width, s.height)
 		}
 	}
 
@@ -140,11 +147,11 @@ process_events :: proc() {
 }
 
 get_screen_width :: proc() -> int {
-	return rb.get_swapchain_width()
+	return s.width
 }
 
 get_screen_height :: proc() -> int  {
-	return rb.get_swapchain_height()
+	return s.height
 }
 
 set_window_position :: proc(x: int, y: int) {

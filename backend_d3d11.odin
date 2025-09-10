@@ -21,9 +21,9 @@ state_size = proc() -> int {
 },
 
 init = proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator) {
-	hwnd := dxgi.HWND(window_handle)
 	s = (^D3D11_State)(state)
 	s.allocator = allocator
+	s.window_handle = dxgi.HWND(window_handle)
 	s.width = swapchain_width
 	s.height = swapchain_height
 	feature_levels := [?]d3d11.FEATURE_LEVEL{
@@ -57,38 +57,10 @@ init = proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapch
 	ch(s.device->QueryInterface(dxgi.IDevice_UUID, (^rawptr)(&dxgi_device)))
 	base_device->Release()
 	base_device_context->Release()
-
-	dxgi_adapter: ^dxgi.IAdapter
 	
-	ch(dxgi_device->GetAdapter(&dxgi_adapter))
-	dxgi_device->Release()
+	ch(dxgi_device->GetAdapter(&s.dxgi_adapter))
 
-	dxgi_factory: ^dxgi.IFactory2
-	ch(dxgi_adapter->GetParent(dxgi.IFactory2_UUID, (^rawptr)(&dxgi_factory)))
-
-	swapchain_desc := dxgi.SWAP_CHAIN_DESC1 {
-		Format = .B8G8R8A8_UNORM,
-		SampleDesc = {
-			Count   = 1,
-		},
-		BufferUsage = {.RENDER_TARGET_OUTPUT},
-		BufferCount = 2,
-		Scaling     = .STRETCH,
-		SwapEffect  = .DISCARD,
-	}
-
-	ch(dxgi_factory->CreateSwapChainForHwnd(s.device, hwnd, &swapchain_desc, nil, nil, &s.swapchain))
-	ch(s.swapchain->GetBuffer(0, d3d11.ITexture2D_UUID, (^rawptr)(&s.framebuffer)))
-	ch(s.device->CreateRenderTargetView(s.framebuffer, nil, &s.framebuffer_view))
-
-	depth_buffer_desc: d3d11.TEXTURE2D_DESC
-	s.framebuffer->GetDesc(&depth_buffer_desc)
-	depth_buffer_desc.Format = .D24_UNORM_S8_UINT
-	depth_buffer_desc.BindFlags = {.DEPTH_STENCIL}
-
-	ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &s.depth_buffer))
-	ch(s.device->CreateDepthStencilView(s.depth_buffer, nil, &s.depth_buffer_view))
-
+	create_swapchain(swapchain_width, swapchain_height)
 
 	rasterizer_desc := d3d11.RASTERIZER_DESC{
 		FillMode = .SOLID,
@@ -150,6 +122,7 @@ shutdown = proc() {
 	s.rasterizer_state->Release()
 	s.swapchain->Release()
 	s.blend_state->Release()
+	s.dxgi_adapter->Release()
 
 	when ODIN_DEBUG {
 		debug: ^d3d11.IDebug
@@ -161,7 +134,7 @@ shutdown = proc() {
 
 		debug->Release()
 	}
-
+	
 	s.device->Release()
 	s.info_queue->Release()
 },
@@ -269,6 +242,18 @@ draw = proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex_buffer
 	dc->Draw(u32(len(vertex_buffer)/shd.vertex_size), 0)
 	s.vertex_buffer_offset += len(vertex_buffer)
 	log_messages()
+},
+
+resize_swapchain = proc(w, h: int) {
+	s.depth_buffer->Release()
+	s.depth_buffer_view->Release()
+	s.framebuffer->Release()
+	s.framebuffer_view->Release()
+	s.swapchain->Release()
+	s.width = w
+	s.height = h
+
+	create_swapchain(w, h)
 },
 
 get_swapchain_width = proc() -> int {
@@ -522,9 +507,11 @@ D3D11_Shader :: struct {
 D3D11_State :: struct {
 	allocator: runtime.Allocator,
 
+	window_handle: dxgi.HWND,
 	width: int,
 	height: int,
 
+	dxgi_adapter: ^dxgi.IAdapter,
 	swapchain: ^dxgi.ISwapChain1,
 	framebuffer_view: ^d3d11.IRenderTargetView,
 	depth_buffer_view: ^d3d11.IDepthStencilView,
@@ -547,6 +534,35 @@ D3D11_State :: struct {
 	vertex_buffer_gpu: ^d3d11.IBuffer,
 
 	vertex_buffer_offset: int,
+}
+
+create_swapchain :: proc(w, h: int) {
+	swapchain_desc := dxgi.SWAP_CHAIN_DESC1 {
+		Width = u32(w),
+		Height = u32(h),
+		Format = .B8G8R8A8_UNORM,
+		SampleDesc = {
+			Count   = 1,
+		},
+		BufferUsage = {.RENDER_TARGET_OUTPUT},
+		BufferCount = 2,
+		Scaling     = .STRETCH,
+		SwapEffect  = .DISCARD,
+	}
+
+	dxgi_factory: ^dxgi.IFactory2
+	ch(s.dxgi_adapter->GetParent(dxgi.IFactory2_UUID, (^rawptr)(&dxgi_factory)))
+	ch(dxgi_factory->CreateSwapChainForHwnd(s.device, s.window_handle, &swapchain_desc, nil, nil, &s.swapchain))
+	ch(s.swapchain->GetBuffer(0, d3d11.ITexture2D_UUID, (^rawptr)(&s.framebuffer)))
+	ch(s.device->CreateRenderTargetView(s.framebuffer, nil, &s.framebuffer_view))
+
+	depth_buffer_desc: d3d11.TEXTURE2D_DESC
+	s.framebuffer->GetDesc(&depth_buffer_desc)
+	depth_buffer_desc.Format = .D24_UNORM_S8_UINT
+	depth_buffer_desc.BindFlags = {.DEPTH_STENCIL}
+
+	ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &s.depth_buffer))
+	ch(s.device->CreateDepthStencilView(s.depth_buffer, nil, &s.depth_buffer_view))
 }
 
 Color_F32 :: [4]f32

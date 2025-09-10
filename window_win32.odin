@@ -149,6 +149,15 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		append(&s.events, Window_Event_Mouse_Wheel {
 			delta = delta,
 		})
+
+	case win32.WM_SIZE:
+		width := win32.LOWORD(lparam)
+		height := win32.HIWORD(lparam)
+
+		append(&s.events, Window_Event_Resize {
+			width = int(width),
+			height = int(height),
+		})
 	}
 
 	return win32.DefWindowProcW(hwnd, msg, wparam, lparam)

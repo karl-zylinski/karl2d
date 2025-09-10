@@ -217,7 +217,7 @@ Texture :: struct {
 
 Camera :: struct {
 	target: Vec2,
-	origin: Vec2,
+	offset: Vec2,
 	rotation: f32,
 	zoom: f32,
 }
