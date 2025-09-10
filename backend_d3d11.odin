@@ -200,7 +200,7 @@ draw = proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex_buffer
 	dc := s.device_context
 
 	vb_data: d3d11.MAPPED_SUBRESOURCE
-	ch(dc->Map(s.vertex_buffer_gpu, 0, .WRITE_NO_OVERWRITE, {}, &vb_data))
+	ch(dc->Map(s.vertex_buffer_gpu, 0, .WRITE_DISCARD, {}, &vb_data))
 	{
 		gpu_map := slice.from_ptr((^u8)(vb_data.pData), VERTEX_BUFFER_MAX)
 		copy(
@@ -210,11 +210,10 @@ draw = proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex_buffer
 	}
 	dc->Unmap(s.vertex_buffer_gpu, 0)
 
-
 	dc->IASetPrimitiveTopology(.TRIANGLELIST)
 
 	dc->IASetInputLayout(d3d_shd.input_layout)
-	vertex_buffer_offset := u32(0)
+	vertex_buffer_offset := u32(s.vertex_buffer_offset)
 	vertex_buffer_stride := u32(shd.vertex_size)
 	dc->IASetVertexBuffers(0, 1, &s.vertex_buffer_gpu, &vertex_buffer_stride, &vertex_buffer_offset)
 
@@ -267,7 +266,7 @@ draw = proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex_buffer
 	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
 	dc->OMSetBlendState(s.blend_state, nil, ~u32(0))
 
-	dc->Draw(u32(len(vertex_buffer)/shd.vertex_size), u32(s.vertex_buffer_offset/shd.vertex_size))
+	dc->Draw(u32(len(vertex_buffer)/shd.vertex_size), 0)
 	s.vertex_buffer_offset += len(vertex_buffer)
 	log_messages()
 },
