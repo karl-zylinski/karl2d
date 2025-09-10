@@ -44,7 +44,7 @@ main :: proc() {
 	}
 
 	camera := k2.Camera {
-		origin = { SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2},
+		offset = { SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2},
 		zoom = 1,
 	}
 

@@ -695,12 +695,20 @@ set_camera :: proc(camera: Maybe(Camera)) {
 	s.proj_matrix = make_default_projection(s.width, s.height)
 
 	if c, c_ok := camera.?; c_ok {
-		origin_trans := linalg.matrix4_translate(vec3_from_vec2(c.origin))
-		rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
-		translate := linalg.matrix4_translate(vec3_from_vec2(-c.target))
-		scale := linalg.matrix4_scale(Vec3{c.zoom, c.zoom, 1})
-		camera_matrix := origin_trans * scale * rot *  translate 
-		s.view_matrix = camera_matrix
+		inv_target_translate := linalg.matrix4_translate(vec3_from_vec2(-c.target))
+		inv_rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
+		inv_scale := linalg.matrix4_scale(Vec3{c.zoom, c.zoom, 1})
+		inv_offset_translate := linalg.matrix4_translate(vec3_from_vec2(c.offset))
+
+		// A view matrix is essentially the world transform matrix of the camera, but inverted. We
+		// bring everything in the world "in front of the camera".
+		//
+		// Instead of constructing the camera matrix and doing a matrix inverse, here we just do the
+		// maths in "backwards order". I.e. a camera transform matrix would be:
+		//
+		//    target_translate * rot * scale * offset_translate
+
+		s.view_matrix = inv_offset_translate * inv_scale * inv_rot * inv_target_translate 
 	} else {
 		s.view_matrix = 1
 	}
@@ -794,7 +802,7 @@ Texture :: struct {
 
 Camera :: struct {
 	target: Vec2,
-	origin: Vec2,
+	offset: Vec2,
 	rotation: f32,
 	zoom: f32,
 }
