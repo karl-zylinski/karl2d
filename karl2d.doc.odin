@@ -142,6 +142,12 @@ set_camera :: proc(camera: Maybe(Camera))
 
 screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2
 
+world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
+
+get_camera_view_matrix :: proc(c: Camera) -> Mat4
+
+get_camera_world_matrix :: proc(c: Camera) -> Mat4
+
 //------//
 // MISC //
 //------//
@@ -154,14 +160,12 @@ set_internal_state :: proc(state: ^State)
 //---------------------//
 // TYPES AND CONSTANTS //
 //---------------------//
-
-// A two dimensinal vector.
 Vec2 :: [2]f32
 
-// A three dimensinal vector.
 Vec3 :: [3]f32
 
-// A 4x4 column-major matrix.
+Vec4 :: [4]f32
+
 Mat4 :: matrix[4,4]f32
 
 // A two dimensional vector of integer numeric type.
@@ -302,7 +306,7 @@ State :: struct {
 	custom_context: runtime.Context,
 	win: Window_Interface,
 	window_state: rawptr,
-	rb: Rendering_Backend_Interface,
+	rb: Render_Backend_Interface,
 	rb_state: rawptr,
 	
 	shutdown_wanted: bool,
@@ -314,6 +318,10 @@ State :: struct {
 	keys_went_down: #sparse [Keyboard_Key]bool,
 	keys_went_up: #sparse [Keyboard_Key]bool,
 	keys_is_held: #sparse [Keyboard_Key]bool,
+
+	mouse_button_went_down: #sparse [Mouse_Button]bool,
+	mouse_button_went_up: #sparse [Mouse_Button]bool,
+	mouse_button_is_held: #sparse [Mouse_Button]bool,
 
 	window: Window_Handle,
 	width: int,

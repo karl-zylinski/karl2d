@@ -16,8 +16,9 @@ Might not be included:
 
 Here follows my near-future TODO list
 
+* get_camera_view_matrix returns Mat4... should we go hardcore 2D and return Mat3 so you can do
+    mat * Vec3{pos.x, pos.y, 1} for positions and mat * Vec3{dir.x, dir.y, 0} for dirs?
 * win32: Gamepad support
-* win32: Resizable window
 * Do proper checks of vertex count and dispatch rendering when full
 	* What happens when list is full? We can't just empty the vertex list due to being used by input assembler etc.
 * Should we sort by depth? Maybe we should use Vec3 because some 2D games rely on it?
@@ -27,6 +28,7 @@ Here follows my near-future TODO list
 * Shaders: Reflect and expose samplers
 
 ## DONE
+* win32: Resizable window
 * Flashing textures in Abyss -- Better now but still flashes when you use nose... Check the "odd_frame" stuff in d3d backend
 * Is the 1/zoom in set_camera wrong? Is the matrix multiply order wrong? Hmmmm...
 * Fix the depedency on D3D stuff so we can move load_shader etc

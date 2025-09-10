@@ -714,27 +714,44 @@ set_camera :: proc(camera: Maybe(Camera)) {
 	s.proj_matrix = make_default_projection(s.width, s.height)
 
 	if c, c_ok := camera.?; c_ok {
-		inv_target_translate := linalg.matrix4_translate(vec3_from_vec2(-c.target))
-		inv_rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
-		inv_scale := linalg.matrix4_scale(Vec3{c.zoom, c.zoom, 1})
-		inv_offset_translate := linalg.matrix4_translate(vec3_from_vec2(c.offset))
-
-		// A view matrix is essentially the world transform matrix of the camera, but inverted. We
-		// bring everything in the world "in front of the camera".
-		//
-		// Instead of constructing the camera matrix and doing a matrix inverse, here we just do the
-		// maths in "backwards order". I.e. a camera transform matrix would be:
-		//
-		//    target_translate * rot * scale * offset_translate
-
-		s.view_matrix = inv_offset_translate * inv_scale * inv_rot * inv_target_translate 
+		s.view_matrix = get_camera_view_matrix(c)
 	} else {
 		s.view_matrix = 1
 	}
 }
 
 screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2 {
-	panic("not implemented")
+	return (get_camera_world_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
+}
+
+world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
+	return (get_camera_view_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
+}
+
+get_camera_view_matrix :: proc(c: Camera) -> Mat4 {
+	inv_target_translate := linalg.matrix4_translate(vec3_from_vec2(-c.target))
+	inv_rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
+	inv_scale := linalg.matrix4_scale(Vec3{c.zoom, c.zoom, 1})
+	inv_offset_translate := linalg.matrix4_translate(vec3_from_vec2(c.offset))
+
+	// A view matrix is essentially the world transform matrix of the camera, but inverted. We
+	// bring everything in the world "in front of the camera".
+	//
+	// Instead of constructing the camera matrix and doing a matrix inverse, here we just do the
+	// maths in "backwards order". I.e. a camera transform matrix would be:
+	//
+	//    target_translate * rot * scale * offset_translate
+
+	return inv_offset_translate * inv_scale * inv_rot * inv_target_translate
+}
+
+get_camera_world_matrix :: proc(c: Camera) -> Mat4 {
+	offset_translate := linalg.matrix4_translate(vec3_from_vec2(-c.offset))
+	rot := linalg.matrix4_rotate_f32(-c.rotation * math.RAD_PER_DEG, {0, 0, 1})
+	scale := linalg.matrix4_scale(Vec3{1/c.zoom, 1/c.zoom, 1})
+	target_translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
+
+	return target_translate * rot * scale * offset_translate
 }
 
 //------//
@@ -759,13 +776,12 @@ set_internal_state :: proc(state: ^State) {
 // TYPES AND CONSTANTS //
 //---------------------//
 
-// A two dimensinal vector.
 Vec2 :: [2]f32
 
-// A three dimensinal vector.
 Vec3 :: [3]f32
 
-// A 4x4 column-major matrix.
+Vec4 :: [4]f32
+
 Mat4 :: matrix[4,4]f32
 
 // A two dimensional vector of integer numeric type.
