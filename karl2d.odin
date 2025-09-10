@@ -44,7 +44,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	win.init(s.window_state, window_width, window_height, window_title, allocator)
 	s.window = win.window_handle()
 
-	s.rb = BACKEND_D3D11
+	s.rb = RENDER_BACKEND_D3D11
 	rb = s.rb
 	rb_alloc_error: runtime.Allocator_Error
 	s.rb_state, rb_alloc_error = mem.alloc(rb.state_size())
@@ -894,7 +894,7 @@ State :: struct {
 	custom_context: runtime.Context,
 	win: Window_Interface,
 	window_state: rawptr,
-	rb: Rendering_Backend_Interface,
+	rb: Render_Backend_Interface,
 	rb_state: rawptr,
 	
 	shutdown_wanted: bool,
@@ -1102,7 +1102,7 @@ DEFAULT_SHADER_SOURCE :: #load("shader.hlsl")
 @(private="file")
 s: ^State
 win: Window_Interface
-rb: Rendering_Backend_Interface
+rb: Render_Backend_Interface
 
 maybe_handle_equal :: proc(m1: Maybe($T), m2: Maybe(T)) -> bool {
 	if m1 == nil && m2 == nil {

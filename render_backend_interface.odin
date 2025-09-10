@@ -16,7 +16,7 @@ Shader_Desc :: struct {
 	inputs: []Shader_Input,
 }
 
-Rendering_Backend_Interface :: struct {
+Render_Backend_Interface :: struct {
 	state_size: proc() -> int,
 	init: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator),
 	shutdown: proc(),
