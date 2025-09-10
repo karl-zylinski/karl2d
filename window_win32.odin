@@ -122,7 +122,6 @@ Win32_State :: struct {
 	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
 	hwnd: win32.HWND,
-	window_should_close: bool,
 	events: [dynamic]Window_Event,
 }
 
