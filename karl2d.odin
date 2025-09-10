@@ -159,7 +159,9 @@ set_window_position :: proc(x: int, y: int) {
 }
 
 set_window_size :: proc(width: int, height: int) {
-	panic("Not implemented")
+	// TODO not sure if we should resize swapchain here. On windows the WM_SIZE event fires and
+	// it all works out. But perhaps not on all platforms?
+	win.set_size(width, height)
 }
 
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the

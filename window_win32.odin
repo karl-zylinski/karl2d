@@ -12,6 +12,7 @@ WINDOW_INTERFACE_WIN32 :: Window_Interface {
 	get_events = win32_get_events,
 	clear_events = win32_clear_events,
 	set_position = win32_set_position,
+	set_size = win32_set_size,
 	set_internal_state = win32_set_internal_state,
 }
 
@@ -97,6 +98,18 @@ win32_set_position :: proc(x: int, y: int) {
 		0,
 		0,
 		win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOSIZE,
+	)
+}
+
+win32_set_size :: proc(w, h: int) {
+	win32.SetWindowPos(
+		s.hwnd,
+		{},
+		0,
+		0,
+		i32(w),
+		i32(h),
+		win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOMOVE,
 	)
 }
 
