@@ -44,7 +44,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	win.init(s.window_state, window_width, window_height, window_title, allocator)
 	s.window = win.window_handle()
 
-	s.rb = RENDER_BACKEND_D3D11
+	s.rb = RENDER_BACKEND_INTERFACE_D3D11
 	rb = s.rb
 	rb_alloc_error: runtime.Allocator_Error
 	s.rb_state, rb_alloc_error = mem.alloc(rb.state_size())
