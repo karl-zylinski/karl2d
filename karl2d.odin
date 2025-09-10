@@ -106,6 +106,8 @@ present :: proc() {
 process_events :: proc() {
 	s.keys_went_up = {}
 	s.keys_went_down = {}
+	s.mouse_button_went_up = {}
+	s.mouse_button_went_down = {}
 	s.mouse_delta = {}
 	s.mouse_wheel_delta = 0
 
@@ -123,8 +125,16 @@ process_events :: proc() {
 			s.keys_is_held[e.key] = true
 
 		case Window_Event_Key_Went_Up:
-			s.keys_is_held[e.key] = false
 			s.keys_went_up[e.key] = true
+			s.keys_is_held[e.key] = false
+
+		case Window_Event_Mouse_Button_Went_Down:
+			s.mouse_button_went_down[e.button] = true
+			s.mouse_button_is_held[e.button] = true
+
+		case Window_Event_Mouse_Button_Went_Up:
+			s.mouse_button_went_up[e.button] = true
+			s.mouse_button_is_held[e.button] = false
 
 		case Window_Event_Mouse_Move:
 			prev_pos := s.mouse_position
@@ -214,15 +224,15 @@ key_is_held :: proc(key: Keyboard_Key) -> bool {
 }
 
 mouse_button_went_down :: proc(button: Mouse_Button) -> bool {
-	panic("not implemented")
+	return s.mouse_button_went_down[button]
 }
 
 mouse_button_went_up :: proc(button: Mouse_Button) -> bool {
-	panic("not implemented")
+	return s.mouse_button_went_up[button]
 }
 
 mouse_button_is_held :: proc(button: Mouse_Button) -> bool {
-	panic("not implemented")
+	return s.mouse_button_is_held[button]
 }
 
 get_mouse_wheel_delta :: proc() -> f32 {
@@ -908,6 +918,10 @@ State :: struct {
 	keys_went_down: #sparse [Keyboard_Key]bool,
 	keys_went_up: #sparse [Keyboard_Key]bool,
 	keys_is_held: #sparse [Keyboard_Key]bool,
+
+	mouse_button_went_down: #sparse [Mouse_Button]bool,
+	mouse_button_went_up: #sparse [Mouse_Button]bool,
+	mouse_button_is_held: #sparse [Mouse_Button]bool,
 
 	window: Window_Handle,
 	width: int,

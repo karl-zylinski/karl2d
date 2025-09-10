@@ -23,6 +23,8 @@ Window_Event :: union  {
 	Window_Event_Mouse_Move,
 	Window_Event_Mouse_Wheel,
 	Window_Event_Resize,
+	Window_Event_Mouse_Button_Went_Down,
+	Window_Event_Mouse_Button_Went_Up,
 }
 
 Window_Event_Key_Went_Down :: struct {
@@ -31,6 +33,14 @@ Window_Event_Key_Went_Down :: struct {
 
 Window_Event_Key_Went_Up :: struct {
 	key: Keyboard_Key,
+}
+
+Window_Event_Mouse_Button_Went_Down :: struct {
+	button: Mouse_Button,
+}
+
+Window_Event_Mouse_Button_Went_Up :: struct {
+	button: Mouse_Button,
 }
 
 Window_Event_Close_Wanted :: struct {}

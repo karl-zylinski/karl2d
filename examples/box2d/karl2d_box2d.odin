@@ -99,9 +99,10 @@ main :: proc() {
 		k2.clear(k2.BLACK)
 
 		k2.draw_rect(ground, k2.RL_RED)
-		mouse_pos := k2.get_mouse_position()
 
-		b2.Body_SetTransform(body_id, {mouse_pos.x, -mouse_pos.y}, {})
+		pos := k2.get_mouse_position()
+
+		b2.Body_SetTransform(body_id, {pos.x, -pos.y}, {})
 
 		for time_acc >= time_step {
 			b2.World_Step(world_id, time_step, sub_steps)
@@ -116,7 +117,7 @@ main :: proc() {
 			k2.draw_rect_ex({position.x, -position.y, 40, 40}, {20, 20}, a*(180/3.14), k2.RL_YELLOW)
 		}
 
-		k2.draw_circle(mouse_pos, 40, k2.RL_MAGENTA)
+		k2.draw_circle(pos, 40, k2.RL_MAGENTA)
 		k2.present()
 
 		free_all(context.temp_allocator)

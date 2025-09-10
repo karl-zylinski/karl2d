@@ -168,6 +168,36 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			delta = delta,
 		})
 
+	case win32.WM_LBUTTONDOWN:
+		append(&s.events, Window_Event_Mouse_Button_Went_Down {
+			button = .Left,
+		})
+
+	case win32.WM_LBUTTONUP:
+		append(&s.events, Window_Event_Mouse_Button_Went_Up {
+			button = .Left,
+		})
+
+	case win32.WM_MBUTTONDOWN:
+		append(&s.events, Window_Event_Mouse_Button_Went_Down {
+			button = .Middle,
+		})
+
+	case win32.WM_MBUTTONUP:
+		append(&s.events, Window_Event_Mouse_Button_Went_Up {
+			button = .Middle,
+		})
+
+	case win32.WM_RBUTTONDOWN:
+		append(&s.events, Window_Event_Mouse_Button_Went_Down {
+			button = .Right,
+		})
+
+	case win32.WM_RBUTTONUP:
+		append(&s.events, Window_Event_Mouse_Button_Went_Up {
+			button = .Right,
+		})
+
 	case win32.WM_SIZE:
 		width := win32.LOWORD(lparam)
 		height := win32.HIWORD(lparam)
