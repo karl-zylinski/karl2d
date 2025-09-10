@@ -144,7 +144,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		return 0
 
 	case win32.WM_MOUSEWHEEL:
-		delta := -f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
+		delta := f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
 
 		append(&s.events, Window_Event_Mouse_Wheel {
 			delta = delta,

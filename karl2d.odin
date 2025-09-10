@@ -695,12 +695,12 @@ set_camera :: proc(camera: Maybe(Camera)) {
 	s.proj_matrix = make_default_projection(s.width, s.height)
 
 	if c, c_ok := camera.?; c_ok {
-		origin_trans := linalg.matrix4_translate(vec3_from_vec2(-c.origin))
-		translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
-		scale := linalg.matrix4_scale(Vec3{1/c.zoom, 1/c.zoom, 1})
+		origin_trans := linalg.matrix4_translate(vec3_from_vec2(c.origin))
 		rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
-		camera_matrix := translate * scale * rot * origin_trans
-		s.view_matrix = linalg.inverse(camera_matrix)
+		translate := linalg.matrix4_translate(vec3_from_vec2(-c.target))
+		scale := linalg.matrix4_scale(Vec3{c.zoom, c.zoom, 1})
+		camera_matrix := origin_trans * scale * rot *  translate 
+		s.view_matrix = camera_matrix
 	} else {
 		s.view_matrix = 1
 	}
