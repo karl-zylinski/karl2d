@@ -16,6 +16,9 @@ Might not be included:
 
 Here follows my near-future TODO list
 
+* window flags such as resizable etc.
+	* feed into init
+	* make possible to change ... should it be separate procs for different settings or possible to set all of them usin a single proc, or both?
 * get_camera_view_matrix returns Mat4... should we go hardcore 2D and return Mat3 so you can do
     mat * Vec3{pos.x, pos.y, 1} for positions and mat * Vec3{dir.x, dir.y, 0} for dirs?
 * win32: Gamepad support
