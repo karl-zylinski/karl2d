@@ -80,6 +80,7 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 	rasterizer_desc := d3d11.RASTERIZER_DESC{
 		FillMode = .SOLID,
 		CullMode = .BACK,
+		ScissorEnable = true,
 	}
 	ch(s.device->CreateRasterizerState(&rasterizer_desc, &s.rasterizer_state))
 
@@ -168,7 +169,7 @@ d3d11_present :: proc() {
 	s.odd_frame = !s.odd_frame
 }
 
-d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex_buffer: []u8) {
+d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: Maybe(Rect), vertex_buffer: []u8) {
 	if len(vertex_buffer) == 0 {
 		return
 	}
@@ -241,6 +242,22 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex
 
 	dc->RSSetViewports(1, &viewport)
 	dc->RSSetState(s.rasterizer_state)
+
+	scissor_rect := d3d11.RECT {
+		right = i32(s.width),
+		bottom = i32(s.height),
+	}
+
+	if sciss, sciss_ok := scissor.?; sciss_ok {
+		scissor_rect = d3d11.RECT {
+			left = i32(sciss.x),
+			top = i32(sciss.y),
+			right = i32(sciss.x + sciss.w),
+			bottom = i32(sciss.y + sciss.h),
+		}
+	}
+	
+	dc->RSSetScissorRects(1, &scissor_rect)
 
 	dc->PSSetShader(d3d_shd.pixel_shader, nil, 0)
 

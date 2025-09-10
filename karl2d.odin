@@ -197,7 +197,7 @@ set_window_size :: proc(width: int, height: int) {
 // TODO: Name of this proc? submit_current_batch, flush_current_batch, draw_current_batch
 draw_current_batch :: proc() {
 	shader := s.batch_shader.? or_else s.default_shader
-	rb.draw(shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
+	rb.draw(shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.batch_scissor, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
 	s.vertex_buffer_cpu_used = 0
 }
 
@@ -759,7 +759,8 @@ get_camera_world_matrix :: proc(c: Camera) -> Mat4 {
 //------//
 
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
-	panic("not implemented")
+	draw_current_batch()
+	s.batch_scissor = scissor_rect
 }
 
 // Restore the internal state using the pointer returned by `init`. Useful after reloading the
@@ -946,6 +947,7 @@ State :: struct {
 	shape_drawing_texture: Texture_Handle,
 	batch_camera: Maybe(Camera),
 	batch_shader: Maybe(Shader),
+	batch_scissor: Maybe(Rect),
 	batch_texture: Texture_Handle,
 
 	view_matrix: Mat4,
