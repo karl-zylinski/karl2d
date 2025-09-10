@@ -3,6 +3,24 @@
 
 package karl2d
 
+@(private="package")
+BACKEND_D3D11 :: Rendering_Backend_Interface {
+	state_size = d3d11_state_size,
+	init = d3d11_init,
+	shutdown = d3d11_shutdown,
+	clear = d3d11_clear,
+	present = d3d11_present,
+	draw = d3d11_draw,
+	resize_swapchain = d3d11_resize_swapchain,
+	get_swapchain_width = d3d11_get_swapchain_width,
+	get_swapchain_height = d3d11_get_swapchain_height,
+	set_internal_state = d3d11_set_internal_state,
+	load_texture = d3d11_load_texture,
+	destroy_texture = d3d11_destroy_texture,
+	load_shader = d3d11_load_shader,
+	destroy_shader = d3d11_destroy_shader,
+}
+
 import d3d11 "vendor:directx/d3d11"
 import dxgi "vendor:directx/dxgi"
 import "vendor:directx/d3d_compiler"
@@ -13,14 +31,11 @@ import "core:mem"
 import hm "handle_map"
 import "base:runtime"
 
-@(private="package")
-BACKEND_D3D11 :: Rendering_Backend_Interface {
-
-state_size = proc() -> int {
+d3d11_state_size :: proc() -> int {
 	return size_of(D3D11_State)
-},
+}
 
-init = proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator) {
 	s = (^D3D11_State)(state)
 	s.allocator = allocator
 	s.window_handle = dxgi.HWND(window_handle)
@@ -108,9 +123,9 @@ init = proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapch
 		ComparisonFunc = .NEVER,
 	}
 	s.device->CreateSamplerState(&sampler_desc, &s.sampler_state)
-},
+}
 
-shutdown = proc() {
+d3d11_shutdown :: proc() {
 	s.sampler_state->Release()
 	s.framebuffer_view->Release()
 	s.depth_buffer_view->Release()
@@ -137,23 +152,23 @@ shutdown = proc() {
 	
 	s.device->Release()
 	s.info_queue->Release()
-},
+}
 
-clear = proc(color: Color) {
+d3d11_clear :: proc(color: Color) {
 	c := f32_color_from_color(color)
 	s.device_context->ClearRenderTargetView(s.framebuffer_view, &c)
 	s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 1, 0)
-},
+}
 
-present = proc() {
+d3d11_present :: proc() {
 	ch(s.swapchain->Present(1, {}))
 	if s.odd_frame {
 		s.vertex_buffer_offset = 0
 	}
 	s.odd_frame = !s.odd_frame
-},
+}
 
-draw = proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex_buffer: []u8) {
+d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex_buffer: []u8) {
 	if len(vertex_buffer) == 0 {
 		return
 	}
@@ -242,9 +257,9 @@ draw = proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, vertex_buffer
 	dc->Draw(u32(len(vertex_buffer)/shd.vertex_size), 0)
 	s.vertex_buffer_offset += len(vertex_buffer)
 	log_messages()
-},
+}
 
-resize_swapchain = proc(w, h: int) {
+d3d11_resize_swapchain :: proc(w, h: int) {
 	s.depth_buffer->Release()
 	s.depth_buffer_view->Release()
 	s.framebuffer->Release()
@@ -254,21 +269,21 @@ resize_swapchain = proc(w, h: int) {
 	s.height = h
 
 	create_swapchain(w, h)
-},
+}
 
-get_swapchain_width = proc() -> int {
+d3d11_get_swapchain_width :: proc() -> int {
 	return s.width
-},
+}
 
-get_swapchain_height = proc() -> int {
+d3d11_get_swapchain_height :: proc() -> int {
 	return s.height
-},
+}
 
-set_internal_state = proc(state: rawptr) {
+d3d11_set_internal_state :: proc(state: rawptr) {
 	s = (^D3D11_State)(state)
-},
+}
 
-load_texture = proc(data: []u8, width: int, height: int) -> Texture_Handle {
+d3d11_load_texture :: proc(data: []u8, width: int, height: int) -> Texture_Handle {
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
 		Height     = u32(height),
@@ -298,18 +313,18 @@ load_texture = proc(data: []u8, width: int, height: int) -> Texture_Handle {
 	}
 
 	return hm.add(&s.textures, tex)
-},
+}
 
-destroy_texture = proc(th: Texture_Handle) {
+d3d11_destroy_texture :: proc(th: Texture_Handle) {
 	if t := hm.get(&s.textures, th); t != nil {
 		t.tex->Release()
 		t.view->Release()	
 	}
 
 	hm.remove(&s.textures, th)
-},
+}
 
-load_shader = proc(shader_source: string, desc_allocator := context.temp_allocator, layout_formats: []Shader_Input_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
+d3d11_load_shader :: proc(shader_source: string, desc_allocator := context.temp_allocator, layout_formats: []Shader_Input_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
 	vs_blob: ^d3d11.IBlob
 	vs_blob_errors: ^d3d11.IBlob
 	ch(d3d_compiler.Compile(raw_data(shader_source), len(shader_source), nil, nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
@@ -463,9 +478,9 @@ load_shader = proc(shader_source: string, desc_allocator := context.temp_allocat
 
 	h := hm.add(&s.shaders, d3d_shd)
 	return h, desc
-},
+}
 
-destroy_shader = proc(h: Shader_Handle) {
+d3d11_destroy_shader :: proc(h: Shader_Handle) {
 	shd := hm.get(&s.shaders, h)
 
 	if shd == nil {
@@ -485,10 +500,9 @@ destroy_shader = proc(h: Shader_Handle) {
 
 	delete(shd.constant_buffers, s.allocator)
 	hm.remove(&s.shaders, h)
-},
-
-// end BACKEND_D3D11
 }
+
+// API END
 
 s: ^D3D11_State
 
