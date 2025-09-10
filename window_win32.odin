@@ -3,17 +3,26 @@
 
 package karl2d
 
+@(private="package")
+WINDOW_INTERFACE_WIN32 :: Window_Interface {
+	state_size = win32_state_size,
+	init = win32_init,
+	window_handle = win32_window_handle,
+	process_events = win32_process_events,
+	get_events = win32_get_events,
+	clear_events = win32_clear_events,
+	set_position = win32_set_position,
+	set_internal_state = win32_set_internal_state,
+}
+
 import win32 "core:sys/windows"
 import "base:runtime"
 
-@(private="package")
-WINDOW_INTERFACE_WIN32 :: Window_Interface {
-
-state_size = proc() -> int {
+win32_state_size :: proc() -> int {
 	return size_of(Win32_State)
-},
+}
 
-init = proc(window_state: rawptr, window_width: int, window_height: int, window_title: string, allocator := context.allocator) {
+win32_init :: proc(window_state: rawptr, window_width: int, window_height: int, window_title: string, allocator := context.allocator) {
 	assert(window_state != nil)
 	s = (^Win32_State)(window_state)
 	s.allocator = allocator
@@ -49,35 +58,35 @@ init = proc(window_state: rawptr, window_width: int, window_height: int, window_
 	assert(hwnd != nil, "Failed creating window")
 
 	s.hwnd = hwnd
-},
+}
 
-shutdown = proc() {
+win32_shutdown :: proc() {
 	delete(s.events)
 	win32.DestroyWindow(s.hwnd)
-},
+}
 
-window_handle = proc() -> Window_Handle {
+win32_window_handle :: proc() -> Window_Handle {
 	return Window_Handle(s.hwnd)
-},
+}
 
-process_events = proc() {
+win32_process_events :: proc() {
 	msg: win32.MSG
 
 	for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
 		win32.TranslateMessage(&msg)
 		win32.DispatchMessageW(&msg)
 	}
-},
+}
 
-get_events = proc() -> []Window_Event {
+win32_get_events :: proc() -> []Window_Event {
 	return s.events[:]
-},
+}
 
-clear_events = proc() {
+win32_clear_events :: proc() {
 	runtime.clear(&s.events)
-},
+}
 
-set_position = proc(x: int, y: int) {
+win32_set_position :: proc(x: int, y: int) {
 	// TODO: Does x, y respect monitor DPI?
 
 	win32.SetWindowPos(
@@ -89,14 +98,11 @@ set_position = proc(x: int, y: int) {
 		0,
 		win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOSIZE,
 	)
-},
+}
 
-set_internal_state = proc(state: rawptr) {
+win32_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Win32_State)(state)
-},
-
-// end WINDOW_INTERFACE_WIN32
 }
 
 Win32_State :: struct {
