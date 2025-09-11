@@ -28,7 +28,7 @@ Render_Backend_Interface :: struct {
 	load_texture: proc(data: []u8, width: int, height: int) -> Texture_Handle,
 	destroy_texture: proc(handle: Texture_Handle),
 
-	load_shader: proc(shader_source: string, desc_allocator := context.temp_allocator, layout_formats: []Shader_Input_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc),
+	load_shader: proc(shader_source: string, desc_allocator := context.temp_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc),
 	destroy_shader: proc(shader: Shader_Handle),
 
 	resize_swapchain: proc(width, height: int),

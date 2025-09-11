@@ -124,7 +124,7 @@ destroy_texture :: proc(tex: Texture)
 //---------//
 // SHADERS //
 //---------//
-load_shader :: proc(shader_source: string, layout_formats: []Shader_Input_Format = {}) -> Shader
+load_shader :: proc(shader_source: string, layout_formats: []Pixel_Format = {}) -> Shader
 
 destroy_shader :: proc(shader: Shader)
 
@@ -136,7 +136,7 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 
 override_shader_input :: proc(shader: Shader, input: int, val: any)
 
-shader_input_format_size :: proc(f: Shader_Input_Format) -> int
+pixel_format_size :: proc(f: Pixel_Format) -> int
 
 //-------------------------------//
 // CAMERA AND COORDINATE SYSTEMS //
@@ -284,7 +284,7 @@ Shader_Input :: struct {
 	name: string,
 	register: int,
 	type: Shader_Input_Type,
-	format: Shader_Input_Format,
+	format: Pixel_Format,
 }
 
 Shader_Constant_Location :: struct {
@@ -292,14 +292,17 @@ Shader_Constant_Location :: struct {
 	offset: u32,
 }
 
-Shader_Input_Format :: enum {
+Pixel_Format :: enum {
 	Unknown,
-	RGBA32_Float,
-	RGBA8_Norm,
-	RGBA8_Norm_SRGB,
-	RGB32_Float,
-	RG32_Float,
-	R32_Float,
+	
+	RGBA_32_Float,
+	RGB_32_Float,
+	RG_32_Float,
+	R_32_Float,
+
+	RGBA_8_Norm,
+	RG_8_Norm,
+	R_8_Norm,
 }
 
 Handle :: hm.Handle

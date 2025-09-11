@@ -341,7 +341,7 @@ d3d11_destroy_texture :: proc(th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 }
 
-d3d11_load_shader :: proc(shader_source: string, desc_allocator := context.temp_allocator, layout_formats: []Shader_Input_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
+d3d11_load_shader :: proc(shader_source: string, desc_allocator := context.temp_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
 	vs_blob: ^d3d11.IBlob
 	vs_blob_errors: ^d3d11.IBlob
 	ch(d3d_compiler.Compile(raw_data(shader_source), len(shader_source), nil, nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
@@ -468,7 +468,7 @@ d3d11_load_shader :: proc(shader_source: string, desc_allocator := context.temp_
 		input := desc.inputs[idx]
 		input_layout_desc[idx] = {
 			SemanticName = temp_cstring(input.name),
-			Format = dxgi_format_from_shader_input_format(input.format),
+			Format = dxgi_format_from_pixel_format(input.format),
 			AlignedByteOffset = idx == 0 ? 0 : d3d11.APPEND_ALIGNED_ELEMENT,
 			InputSlotClass = .VERTEX_DATA,
 		}
@@ -613,15 +613,17 @@ D3D11_Texture :: struct {
 	view: ^d3d11.IShaderResourceView,
 }
 
-dxgi_format_from_shader_input_format :: proc(f: Shader_Input_Format) -> dxgi.FORMAT {
+dxgi_format_from_pixel_format :: proc(f: Pixel_Format) -> dxgi.FORMAT {
 	switch f {
 	case .Unknown: return .UNKNOWN
-	case .RGBA32_Float: return .R32G32B32A32_FLOAT
-	case .RGBA8_Norm: return .R8G8B8A8_UNORM
-	case .RGBA8_Norm_SRGB: return .R8G8B8A8_UNORM_SRGB
-	case .RGB32_Float: return .R32G32B32_FLOAT
-	case .RG32_Float: return .R32G32_FLOAT
-	case .R32_Float: return .R32_FLOAT
+	case .RGBA_32_Float: return .R32G32B32A32_FLOAT
+	case .RGB_32_Float: return .R32G32B32_FLOAT
+	case .RG_32_Float: return .R32G32_FLOAT
+	case .R_32_Float: return .R32_FLOAT
+
+	case .RGBA_8_Norm: return .R8G8B8A8_UNORM
+	case .RG_8_Norm: return .R8G8_UNORM
+	case .R_8_Norm: return .R8_UNORM
 	}
 
 	log.error("Unknown format")

@@ -558,7 +558,7 @@ destroy_texture :: proc(tex: Texture) {
 // SHADERS //
 //---------//
 
-load_shader :: proc(shader_source: string, layout_formats: []Shader_Input_Format = {}) -> Shader {
+load_shader :: proc(shader_source: string, layout_formats: []Pixel_Format = {}) -> Shader {
 	handle, desc := rb.load_shader(shader_source, context.temp_allocator, layout_formats)
 
 	if handle == SHADER_NONE {
@@ -611,7 +611,7 @@ load_shader :: proc(shader_source: string, layout_formats: []Shader_Input_Format
 			shd.default_input_offsets[default_format] = input_offset
 		}
 		
-		input_offset += shader_input_format_size(input.format)
+		input_offset += pixel_format_size(input.format)
 	}
 
 	shd.vertex_size = input_offset
@@ -691,15 +691,18 @@ override_shader_input :: proc(shader: Shader, input: int, val: any) {
 	o.used = sz
 }
 
-shader_input_format_size :: proc(f: Shader_Input_Format) -> int {
+pixel_format_size :: proc(f: Pixel_Format) -> int {
 	switch f {
 	case .Unknown: return 0
-	case .RGBA32_Float: return 32
-	case .RGBA8_Norm: return 4
-	case .RGBA8_Norm_SRGB: return 4
-	case .RGB32_Float: return 12
-	case .RG32_Float: return 8
-	case .R32_Float: return 4
+
+	case .RGBA_32_Float: return 32
+	case .RGB_32_Float: return 12
+	case .RG_32_Float: return 8
+	case .R_32_Float: return 4
+
+	case .RGBA_8_Norm: return 4
+	case .RG_8_Norm: return 2
+	case .R_8_Norm: return 1
 	}
 
 	return 0
@@ -903,7 +906,7 @@ Shader_Input :: struct {
 	name: string,
 	register: int,
 	type: Shader_Input_Type,
-	format: Shader_Input_Format,
+	format: Pixel_Format,
 }
 
 Shader_Constant_Location :: struct {
@@ -911,14 +914,17 @@ Shader_Constant_Location :: struct {
 	offset: u32,
 }
 
-Shader_Input_Format :: enum {
+Pixel_Format :: enum {
 	Unknown,
-	RGBA32_Float,
-	RGBA8_Norm,
-	RGBA8_Norm_SRGB,
-	RGB32_Float,
-	RG32_Float,
-	R32_Float,
+	
+	RGBA_32_Float,
+	RGB_32_Float,
+	RG_32_Float,
+	R_32_Float,
+
+	RGBA_8_Norm,
+	RG_8_Norm,
+	R_8_Norm,
 }
 
 Handle :: hm.Handle
@@ -1128,7 +1134,7 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	override_offset: int
 	for &o, idx in shd.input_overrides {
 		input := &shd.inputs[idx]
-		sz := shader_input_format_size(input.format)
+		sz := pixel_format_size(input.format)
 
 		if o.used != 0 {
 			mem.copy(&s.vertex_buffer_cpu[base_offset + override_offset], raw_data(&o.val), o.used)
@@ -1176,23 +1182,23 @@ get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> 
 	return .Unknown
 }
 
-get_shader_input_format :: proc(name: string, type: Shader_Input_Type) -> Shader_Input_Format {
+get_shader_input_format :: proc(name: string, type: Shader_Input_Type) -> Pixel_Format {
 	default_type := get_shader_input_default_type(name, type)
 
 	if default_type != .Unknown {
 		switch default_type {
-		case .Position: return .RG32_Float
-		case .UV: return .RG32_Float
-		case .Color: return .RGBA8_Norm
+		case .Position: return .RG_32_Float
+		case .UV: return .RG_32_Float
+		case .Color: return .RGBA_8_Norm
 		case .Unknown: unreachable()
 		}
 	}
 
 	switch type {
-	case .F32: return .R32_Float
-	case .Vec2: return .RG32_Float
-	case .Vec3: return .RGB32_Float
-	case .Vec4: return .RGBA32_Float
+	case .F32: return .R_32_Float
+	case .Vec2: return .RG_32_Float
+	case .Vec3: return .RGB_32_Float
+	case .Vec4: return .RGBA_32_Float
 	}
 
 	return .Unknown

@@ -82,10 +82,10 @@ main :: proc() {
 	SHADER_SOURCE :: #load("shader.hlsl")
 
 	shader := k2.load_shader(string(SHADER_SOURCE), {
-		.RG32_Float,
-		.RG32_Float,
-		.RGBA8_Norm,
-		.RG32_Float,
+		.RG_32_Float,
+		.RG_32_Float,
+		.RGBA_8_Norm,
+		.RG_32_Float,
 	})
 
 	prev_time := time.now()
