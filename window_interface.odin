@@ -20,7 +20,7 @@ Window_Interface :: struct {
 
 Window_Handle :: distinct uintptr
 
-Window_Event :: union  {
+Window_Event :: union {
 	Window_Event_Close_Wanted,
 	Window_Event_Key_Went_Down,
 	Window_Event_Key_Went_Up,
@@ -29,6 +29,8 @@ Window_Event :: union  {
 	Window_Event_Resize,
 	Window_Event_Mouse_Button_Went_Down,
 	Window_Event_Mouse_Button_Went_Up,
+	Window_Event_Gamepad_Button_Went_Down,
+	Window_Event_Gamepad_Button_Went_Up,
 }
 
 Window_Event_Key_Went_Down :: struct {
@@ -45,6 +47,16 @@ Window_Event_Mouse_Button_Went_Down :: struct {
 
 Window_Event_Mouse_Button_Went_Up :: struct {
 	button: Mouse_Button,
+}
+
+Window_Event_Gamepad_Button_Went_Down :: struct {
+	gamepad: int,
+	button: Gamepad_Button,
+}
+
+Window_Event_Gamepad_Button_Went_Up :: struct {
+	gamepad: int,
+	button: Gamepad_Button,
 }
 
 Window_Event_Close_Wanted :: struct {}

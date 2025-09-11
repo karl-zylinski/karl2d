@@ -93,6 +93,12 @@ get_mouse_wheel_delta :: proc() -> f32
 
 get_mouse_position :: proc() -> Vec2
 
+gamepad_button_went_down :: proc(gamepad: int, button: Gamepad_Button) -> bool
+
+gamepad_button_went_up :: proc(gamepad: int, button: Gamepad_Button) -> bool
+
+gamepad_button_is_held :: proc(gamepad: int, button: Gamepad_Button) -> bool
+
 //---------//
 // DRAWING //
 //---------//
@@ -309,6 +315,8 @@ Handle :: hm.Handle
 Texture_Handle :: distinct Handle
 TEXTURE_NONE :: Texture_Handle {}
 
+MAX_GAMEPADS :: 4
+
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
 // It is created and kept as a global variable when 'init' is called. However, 'init' also returns
 // the pointer to it, so you can later use 'set_internal_state' to restore it (after for example hot
@@ -327,13 +335,17 @@ State :: struct {
 	mouse_delta: Vec2,
 	mouse_wheel_delta: f32,
 
-	keys_went_down: #sparse [Keyboard_Key]bool,
-	keys_went_up: #sparse [Keyboard_Key]bool,
-	keys_is_held: #sparse [Keyboard_Key]bool,
+	key_went_down: #sparse [Keyboard_Key]bool,
+	key_went_up: #sparse [Keyboard_Key]bool,
+	key_is_held: #sparse [Keyboard_Key]bool,
 
 	mouse_button_went_down: #sparse [Mouse_Button]bool,
 	mouse_button_went_up: #sparse [Mouse_Button]bool,
 	mouse_button_is_held: #sparse [Mouse_Button]bool,
+
+	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
+	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
+	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 
 	window: Window_Handle,
 	width: int,
@@ -476,4 +488,30 @@ Keyboard_Key :: enum {
 	KP_Add          = 334,
 	KP_Enter        = 335,
 	KP_Equal        = 336,
+}
+
+Gamepad_Button :: enum {
+	// DPAD buttons
+	Left_Face_Up,
+	Left_Face_Down,
+	Left_Face_Left,
+	Left_Face_Right,
+
+	Right_Face_Up, // XBOX: Y, PS: Triangle
+	Right_Face_Down, // XBOX: A, PS: X
+	Right_Face_Left, // XBOX: X, PS: Square
+	Right_Face_Right, // XBOX: B, PS: Circle
+
+	Left_Shoulder,
+	Left_Trigger,
+
+	Right_Shoulder,
+	Right_Trigger,
+
+	Left_Stick_Press, // Clicking the left analogue stick
+	Right_Stick_Press, // Clicking the right analogue stick
+
+	Middle_Face_Left, // Select / back / options button
+	Middle_Face_Middle, // PS button (not available on XBox)
+	Middle_Face_Right, // Start
 }

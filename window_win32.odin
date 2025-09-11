@@ -61,6 +61,8 @@ win32_init :: proc(window_state: rawptr, window_width: int, window_height: int, 
 		nil, nil, instance, nil,
 	)
 
+	win32.XInputEnable(true)
+
 	assert(hwnd != nil, "Failed creating window")
 
 	s.hwnd = hwnd
@@ -82,6 +84,59 @@ win32_process_events :: proc() {
 		win32.TranslateMessage(&msg)
 		win32.DispatchMessageW(&msg)
 	}
+
+	for gamepad in 0..<4 {
+		gp_event: win32.XINPUT_KEYSTROKE
+
+		for win32.XInputGetKeystroke(win32.XUSER(gamepad), 0, &gp_event) == .SUCCESS {
+			button: Maybe(Gamepad_Button)
+
+			#partial switch gp_event.VirtualKey {
+			case .DPAD_UP:    button = .Left_Face_Up
+			case .DPAD_DOWN:  button = .Left_Face_Down
+			case .DPAD_LEFT:  button = .Left_Face_Left
+			case .DPAD_RIGHT: button = .Left_Face_Right
+
+			case .Y: button = .Right_Face_Up
+			case .A: button = .Right_Face_Down
+			case .X: button = .Right_Face_Left
+			case .B: button = .Right_Face_Right
+
+			case .LSHOULDER: button = .Left_Shoulder
+			case .LTRIGGER:  button = .Left_Trigger
+
+			case .RSHOULDER: button = .Right_Shoulder
+			case .RTRIGGER:  button = .Right_Trigger
+
+			case .BACK: button = .Middle_Face_Left
+			// Not sure you can get the "middle button" with XInput
+			case .START: button = .Middle_Face_Right
+
+			case .LTHUMB_PRESS: button = .Left_Stick_Press
+			case .RTHUMB_PRESS: button = .Right_Stick_Press
+			}
+
+			b := button.? or_continue
+			evt: Window_Event
+
+			if .KEYDOWN in gp_event.Flags {
+				evt = Window_Event_Gamepad_Button_Went_Down {
+					gamepad = gamepad,
+					button = b,
+				}
+			} else if .KEYUP in gp_event.Flags {
+				evt = Window_Event_Gamepad_Button_Went_Up {
+					gamepad = gamepad,
+					button = b,
+				}
+			}
+
+			if evt != nil {
+				append(&s.events, evt)
+			}
+		}
+	}
+	
 }
 
 win32_get_events :: proc() -> []Window_Event {

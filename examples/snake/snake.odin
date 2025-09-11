@@ -107,19 +107,19 @@ main :: proc() {
 		total_time := time.duration_seconds(time.diff(started_at, time_now))
 		k2.process_events()
 
-		if k2.key_is_held(.Up) {
+		if k2.key_is_held(.Up) || k2.gamepad_button_is_held(0, .Left_Face_Up) {
 			move_direction = {0, -1}
 		}
 
-		if k2.key_is_held(.Down) {
+		if k2.key_is_held(.Down) || k2.gamepad_button_is_held(0, .Left_Face_Down) {
 			move_direction = {0, 1}
 		}
 
-		if k2.key_is_held(.Left) {
+		if k2.key_is_held(.Left) || k2.gamepad_button_is_held(0, .Left_Face_Left) {
 			move_direction = {-1, 0}
 		}
 
-		if k2.key_is_held(.Right) {
+		if k2.key_is_held(.Right) || k2.gamepad_button_is_held(0, .Left_Face_Right) {
 			move_direction = {1, 0}
 		}
 
