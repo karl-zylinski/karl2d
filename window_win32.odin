@@ -14,6 +14,7 @@ WINDOW_INTERFACE_WIN32 :: Window_Interface {
 	set_position = win32_set_position,
 	set_size = win32_set_size,
 	set_flags = win32_set_flags,
+	get_gamepad_axis = win32_get_gamepad_axis,
 	set_internal_state = win32_set_internal_state,
 }
 
@@ -179,6 +180,32 @@ win32_set_flags :: proc(flags: Window_Flags) {
 	s.flags = flags
 	style := style_from_flags(flags)
 	win32.SetWindowLongW(s.hwnd, win32.GWL_STYLE, i32(style))
+}
+
+win32_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
+	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
+		return 0
+	}
+
+	gp_state: win32.XINPUT_STATE
+	if win32.XInputGetState(win32.XUSER(gamepad), &gp_state) == .SUCCESS {
+		gp := gp_state.Gamepad
+
+		// Numbers from https://learn.microsoft.com/en-us/windows/win32/api/xinput/ns-xinput-xinput_gamepad
+		STICK_MAX   :: 32767
+		TRIGGER_MAX :: 255
+
+		switch axis {
+		case .Left_Stick_X: return f32(gp.sThumbLX) / STICK_MAX
+		case .Left_Stick_Y: return -f32(gp.sThumbLY) / STICK_MAX
+		case .Right_Stick_X: return f32(gp.sThumbRX) / STICK_MAX
+		case .Right_Stick_Y: return -f32(gp.sThumbRY) / STICK_MAX
+		case .Left_Trigger: return f32(gp.bLeftTrigger) / TRIGGER_MAX
+		case .Right_Trigger: return f32(gp.bRightTrigger) / TRIGGER_MAX
+		}
+	}
+
+	return 0
 }
 
 win32_set_internal_state :: proc(state: rawptr) {

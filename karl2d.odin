@@ -260,7 +260,7 @@ get_mouse_position :: proc() -> Vec2 {
 	return s.mouse_position
 }
 
-gamepad_button_went_down :: proc(gamepad: int, button: Gamepad_Button) -> bool {
+gamepad_button_went_down :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
 	}
@@ -268,7 +268,7 @@ gamepad_button_went_down :: proc(gamepad: int, button: Gamepad_Button) -> bool {
 	return s.gamepad_button_went_down[gamepad][button]
 }
 
-gamepad_button_went_up :: proc(gamepad: int, button: Gamepad_Button) -> bool {
+gamepad_button_went_up :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
 	}
@@ -276,12 +276,16 @@ gamepad_button_went_up :: proc(gamepad: int, button: Gamepad_Button) -> bool {
 	return s.gamepad_button_went_up[gamepad][button]
 }
 
-gamepad_button_is_held :: proc(gamepad: int, button: Gamepad_Button) -> bool {
+gamepad_button_is_held :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
 	}
 
 	return s.gamepad_button_is_held[gamepad][button]
+}
+
+get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32 {
+	return win.get_gamepad_axis(gamepad, axis)
 }
 
 //---------//
@@ -301,6 +305,10 @@ draw_rect :: proc(r: Rect, c: Color) {
 	batch_vertex({r.x, r.y}, {0, 0}, c)
 	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
 	batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
+}
+
+draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color) {
+	draw_rect({pos.x, pos.y, size.x, size.y}, c)
 }
 
 draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
@@ -843,6 +851,8 @@ Color :: [4]u8
 
 WHITE :: Color { 255, 255, 255, 255 }
 BLACK :: Color { 0, 0, 0, 255 }
+GRAY  :: Color { 127, 127, 127, 255 }
+RED   :: Color { 198, 80, 90, 255 }
 BLANK :: Color { 0, 0, 0, 0 }
 BLUE  :: Color { 30, 116, 240, 255 }
 
@@ -967,7 +977,6 @@ Handle :: hm.Handle
 Texture_Handle :: distinct Handle
 TEXTURE_NONE :: Texture_Handle {}
 
-MAX_GAMEPADS :: 4
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
 // It is created and kept as a global variable when 'init' is called. However, 'init' also returns
@@ -1144,6 +1153,20 @@ Keyboard_Key :: enum {
 	NP_Add          = 334,
 	NP_Enter        = 335,
 	NP_Equal        = 336,
+}
+
+MAX_GAMEPADS :: 4
+
+// A value between 0 and MAX_GAMEPADS - 1
+Gamepad_Index :: int
+
+Gamepad_Axis :: enum {
+	Left_Stick_X,
+	Left_Stick_Y,
+	Right_Stick_X,
+	Right_Stick_Y,
+	Left_Trigger,
+	Right_Trigger,
 }
 
 Gamepad_Button :: enum {

@@ -14,6 +14,7 @@ Window_Interface :: struct {
 	set_position: proc(x: int, y: int),
 	set_size: proc(w, h: int),
 	set_flags: proc(flags: Window_Flags),
+	get_gamepad_axis: proc(gamepad: int, axis: Gamepad_Axis) -> f32,
 
 	set_internal_state: proc(state: rawptr),
 }
