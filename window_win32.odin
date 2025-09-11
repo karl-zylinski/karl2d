@@ -109,7 +109,9 @@ win32_process_events :: proc() {
 			case .RTRIGGER:  button = .Right_Trigger
 
 			case .BACK: button = .Middle_Face_Left
-			// Not sure you can get the "middle button" with XInput
+			
+			// Not sure you can get the "middle button" with XInput (the one that goe to dashboard)
+
 			case .START: button = .Middle_Face_Right
 
 			case .LTHUMB_PRESS: button = .Left_Stick_Press
@@ -215,7 +217,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		append(&s.events, Window_Event_Close_Wanted{})
 
 	case win32.WM_KEYDOWN:
-		key := WIN32_VK_MAP[wparam]
+		key := key_from_event_params(wparam, lparam)
 		append(&s.events, Window_Event_Key_Went_Down {
 			key = key,
 		})
@@ -223,7 +225,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		return 0
 
 	case win32.WM_KEYUP:
-		key := WIN32_VK_MAP[wparam]
+		key := key_from_event_params(wparam, lparam)
 		append(&s.events, Window_Event_Key_Went_Up {
 			key = key,
 		})
@@ -289,19 +291,26 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
+key_from_event_params :: proc(wparam: win32.WPARAM, lparam: win32.LPARAM) -> Keyboard_Key{
+	if wparam == win32.VK_RETURN && win32.HIWORD(lparam) & win32.KF_EXTENDED != 0 {
+		return .NP_Enter
+	}
+
+	return WIN32_VK_MAP[wparam]
+}
+
 WIN32_VK_MAP := [255]Keyboard_Key {
-	win32.VK_F1 = .F1,
-	win32.VK_F2 = .F2,
-	win32.VK_F3 = .F3,
-	win32.VK_F4 = .F4,
-	win32.VK_F5 = .F5,
-	win32.VK_F6 = .F6,
-	win32.VK_F7 = .F7,
-	win32.VK_F8 = .F8,
-	win32.VK_F9 = .F9,
-	win32.VK_F10 = .F10,
-	win32.VK_F11 = .F11,
-	win32.VK_F12 = .F12,
+	win32.VK_0 = .N0,
+	win32.VK_1 = .N1,
+	win32.VK_2 = .N2,
+	win32.VK_3 = .N3,
+	win32.VK_4 = .N4,
+	win32.VK_5 = .N5,
+	win32.VK_6 = .N6,
+	win32.VK_7 = .N7,
+	win32.VK_8 = .N8,
+	win32.VK_9 = .N9,
+
 	win32.VK_A = .A,
 	win32.VK_B = .B,
 	win32.VK_C = .C,
@@ -328,10 +337,82 @@ WIN32_VK_MAP := [255]Keyboard_Key {
 	win32.VK_X = .X,
 	win32.VK_Y = .Y,
 	win32.VK_Z = .Z,
-	win32.VK_SPACE = .Space,
-	win32.VK_LEFT = .Left,
-	win32.VK_RIGHT = .Right,
-	win32.VK_UP = .Up,
-	win32.VK_DOWN = .Down,
-	win32.VK_RETURN = .Enter,
+
+	win32.VK_OEM_7      = .Apostrophe,
+	win32.VK_OEM_COMMA  = .Comma,
+	win32.VK_OEM_MINUS  = .Minus,
+	win32.VK_OEM_PERIOD = .Period,
+	win32.VK_OEM_2      = .Slash,
+	win32.VK_OEM_1      = .Semicolon,
+	win32.VK_OEM_PLUS   = .Equal,
+	win32.VK_OEM_4      = .Left_Bracket,
+	win32.VK_OEM_5      = .Backslash,
+	win32.VK_OEM_6      = .Right_Bracket,
+	win32.VK_OEM_3      = .Grave_Accent,
+
+	win32.VK_SPACE   = .Space,
+	win32.VK_ESCAPE  = .Escape,
+	win32.VK_RETURN  = .Enter,
+	win32.VK_TAB     = .Tab,
+	win32.VK_BACK    = .Backspace,
+	win32.VK_INSERT  = .Insert,
+	win32.VK_DELETE  = .Delete,
+	win32.VK_RIGHT   = .Right,
+	win32.VK_LEFT    = .Left,
+	win32.VK_DOWN    = .Down,
+	win32.VK_UP      = .Up,
+	win32.VK_PRIOR   = .Page_Up,
+	win32.VK_NEXT    = .Page_Down,
+	win32.VK_HOME    = .Home,
+	win32.VK_END     = .End,
+	win32.VK_CAPITAL = .Caps_Lock,
+	win32.VK_SCROLL  = .Scroll_Lock,
+	win32.VK_NUMLOCK = .Num_Lock,
+	win32.VK_PRINT   = .Print_Screen,
+	win32.VK_PAUSE   = .Pause,
+
+	win32.VK_F1  = .F1,
+	win32.VK_F2  = .F2,
+	win32.VK_F3  = .F3,
+	win32.VK_F4  = .F4,
+	win32.VK_F5  = .F5,
+	win32.VK_F6  = .F6,
+	win32.VK_F7  = .F7,
+	win32.VK_F8  = .F8,
+	win32.VK_F9  = .F9,
+	win32.VK_F10 = .F10,
+	win32.VK_F11 = .F11,
+	win32.VK_F12 = .F12,
+
+	win32.VK_LSHIFT   = .Left_Shift,
+	win32.VK_LCONTROL = .Left_Control,
+	win32.VK_LMENU    = .Left_Alt,
+	win32.VK_MENU     = .Left_Alt,
+	win32.VK_LWIN     = .Left_Super,
+	win32.VK_RSHIFT   = .Right_Shift,
+	win32.VK_RCONTROL = .Right_Control,
+	win32.VK_RMENU    = .Right_Alt,
+	win32.VK_RWIN     = .Right_Super,
+	win32.VK_APPS     = .Menu,
+
+	win32.VK_NUMPAD0 = .NP_0,
+	win32.VK_NUMPAD1 = .NP_1,
+	win32.VK_NUMPAD2 = .NP_2,
+	win32.VK_NUMPAD3 = .NP_3,
+	win32.VK_NUMPAD4 = .NP_4,
+	win32.VK_NUMPAD5 = .NP_5,
+	win32.VK_NUMPAD6 = .NP_6,
+	win32.VK_NUMPAD7 = .NP_7,
+	win32.VK_NUMPAD8 = .NP_8,
+	win32.VK_NUMPAD9 = .NP_9,
+	
+	win32.VK_DECIMAL = .NP_Decimal,
+	win32.VK_DIVIDE  = .NP_Divide,
+	win32.VK_MULTIPLY = .NP_Multiply,
+	win32.VK_SUBTRACT = .NP_Subtract,
+	win32.VK_ADD = .NP_Add,
+
+	// NP_Enter is handled separately
+
+	win32.VK_OEM_NEC_EQUAL = .NP_Equal,
 }
