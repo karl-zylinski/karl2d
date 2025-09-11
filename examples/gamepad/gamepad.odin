@@ -5,8 +5,8 @@ import "core:log"
 
 Vec2 :: [2]f32
 
-button_color :: proc(button: k2.Gamepad_Button) -> k2.Color {
-	return k2.gamepad_button_is_held(0, button) ? k2.WHITE : k2.GRAY
+button_color :: proc(button: k2.Gamepad_Button, active := k2.WHITE, inactive := k2.GRAY) -> k2.Color {
+	return k2.gamepad_button_is_held(0, button) ? active : inactive
 }
 
 main :: proc() {
@@ -45,12 +45,12 @@ main :: proc() {
 		right_trigger := k2.get_gamepad_axis(0, .Right_Trigger)
 
 		k2.draw_rect_vec({80, 50}, {20, 10}, button_color(.Left_Shoulder))
-		k2.draw_rect_vec({50, 50} + {0, left_trigger * 20}, {20, 10}, k2.WHITE)
+		k2.draw_rect_vec({50, 50} + {0, left_trigger * 20}, {20, 10}, button_color(.Left_Trigger, k2.WHITE, k2.GRAY))
 
 		k2.draw_rect_vec({420, 50}, {20, 10}, button_color(.Right_Shoulder))
-		k2.draw_rect_vec({450, 50} + {0, right_trigger * 20}, {20, 10}, k2.WHITE)
-		k2.draw_circle({200, 200} + 20 * left_stick, 20, k2.gamepad_button_is_held(0, .Left_Stick_Press) ? k2.RED : k2.WHITE)
-		k2.draw_circle({300, 200} + 20 * right_stick, 20, k2.gamepad_button_is_held(0, .Right_Stick_Press) ? k2.RED : k2.WHITE)
+		k2.draw_rect_vec({450, 50} + {0, right_trigger * 20}, {20, 10}, button_color(.Right_Trigger, k2.WHITE, k2.GRAY))
+		k2.draw_circle({200, 200} + 20 * left_stick, 20, button_color(.Left_Stick_Press, k2.WHITE, k2.GRAY))
+		k2.draw_circle({300, 200} + 20 * right_stick, 20, button_color(.Right_Stick_Press, k2.WHITE, k2.GRAY))
 
 		k2.present()
 		free_all(context.temp_allocator)
