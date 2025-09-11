@@ -13,6 +13,7 @@ WINDOW_INTERFACE_WIN32 :: Window_Interface {
 	clear_events = win32_clear_events,
 	set_position = win32_set_position,
 	set_size = win32_set_size,
+	set_flags = win32_set_flags,
 	set_internal_state = win32_set_internal_state,
 }
 
@@ -23,7 +24,8 @@ win32_state_size :: proc() -> int {
 	return size_of(Win32_State)
 }
 
-win32_init :: proc(window_state: rawptr, window_width: int, window_height: int, window_title: string, allocator := context.allocator) {
+win32_init :: proc(window_state: rawptr, window_width: int, window_height: int, window_title: string,
+	               flags: Window_Flags, allocator: runtime.Allocator) {
 	assert(window_state != nil)
 	s = (^Win32_State)(window_state)
 	s.allocator = allocator
@@ -46,7 +48,10 @@ win32_init :: proc(window_state: rawptr, window_width: int, window_height: int, 
 	r.right = i32(window_width)
 	r.bottom = i32(window_height)
 
-	style := win32.WS_OVERLAPPEDWINDOW | win32.WS_VISIBLE
+	s.flags = flags
+
+	style := style_from_flags(flags)
+
 	win32.AdjustWindowRect(&r, style, false)
 
 	hwnd := win32.CreateWindowW(CLASS_NAME,
@@ -113,6 +118,12 @@ win32_set_size :: proc(w, h: int) {
 	)
 }
 
+win32_set_flags :: proc(flags: Window_Flags) {
+	s.flags = flags
+	style := style_from_flags(flags)
+	win32.SetWindowLongW(s.hwnd, win32.GWL_STYLE, i32(style))
+}
+
 win32_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Win32_State)(state)
@@ -122,7 +133,19 @@ Win32_State :: struct {
 	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
 	hwnd: win32.HWND,
+	flags: Window_Flags,
 	events: [dynamic]Window_Event,
+}
+
+style_from_flags :: proc(flags: Window_Flags) -> win32.DWORD {
+	style := win32.WS_OVERLAPPED | win32.WS_CAPTION | win32.WS_SYSMENU |
+	         win32.WS_MINIMIZEBOX | win32.WS_MAXIMIZEBOX | win32.WS_VISIBLE
+
+	if .Resizable in flags {
+		style |= win32.WS_THICKFRAME
+	}
+
+	return style
 }
 
 s: ^Win32_State

@@ -10,7 +10,8 @@ package karl2d
 // all dynamically allocated memory. The return value can be ignored unless you need to later call
 // `set_internal_state`.
 init :: proc(window_width: int, window_height: int, window_title: string,
-             allocator := context.allocator, loc := #caller_location) -> ^State
+            window_creation_flags := Window_Flags {},
+            allocator := context.allocator, loc := #caller_location) -> ^State
 
 // Returns true if the program wants to shut down. This happens when for example pressing the close
 // button on the window. The application can decide if it wants to shut down or if it wants to show
@@ -40,6 +41,8 @@ get_screen_height :: proc() -> int
 set_window_position :: proc(x: int, y: int)
 
 set_window_size :: proc(width: int, height: int)
+
+set_window_flags :: proc(flags: Window_Flags)
 
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
@@ -225,6 +228,12 @@ Camera :: struct {
 	rotation: f32,
 	zoom: f32,
 }
+
+Window_Flag :: enum {
+	Resizable,
+}
+
+Window_Flags :: bit_set[Window_Flag]
 
 Shader_Handle :: distinct Handle
 

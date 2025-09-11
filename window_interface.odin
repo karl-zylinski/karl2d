@@ -1,8 +1,11 @@
 package karl2d
 
+import "base:runtime"
+
 Window_Interface :: struct {
 	state_size: proc() -> int,
-	init: proc(window_state: rawptr, window_width: int, window_height: int, window_title: string, allocator := context.allocator),
+	init: proc(window_state: rawptr, window_width: int, window_height: int, window_title: string, 
+	           flags: Window_Flags, allocator: runtime.Allocator),
 	shutdown: proc(),
 	window_handle: proc() -> Window_Handle,
 	process_events: proc(),
@@ -10,6 +13,7 @@ Window_Interface :: struct {
 	clear_events: proc(),
 	set_position: proc(x: int, y: int),
 	set_size: proc(w, h: int),
+	set_flags: proc(flags: Window_Flags),
 
 	set_internal_state: proc(state: rawptr),
 }
