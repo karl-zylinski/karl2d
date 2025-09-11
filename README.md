@@ -23,9 +23,9 @@ Here follows my near-future TODO list
 * get_camera_view_matrix returns Mat4... should we go hardcore 2D and return Mat3 so you can do
     mat * Vec3{pos.x, pos.y, 1} for positions and mat * Vec3{dir.x, dir.y, 0} for dirs?
 * win32: Gamepad support
-	* axes
 	* check status of gamepad
 	* what happens when you pull one out?
+	* playstation
 * basic text rendering
 * Do proper checks of vertex count and dispatch rendering when full
 	* What happens when list is full? We can't just empty the vertex list due to being used by input assembler etc.
