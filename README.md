@@ -26,6 +26,7 @@ Here follows my near-future TODO list
 	* check status of gamepad
 	* what happens when you pull one out?
 	* playstation
+	* vibration
 * basic text rendering
 * Do proper checks of vertex count and dispatch rendering when full
 	* What happens when list is full? We can't just empty the vertex list due to being used by input assembler etc.
