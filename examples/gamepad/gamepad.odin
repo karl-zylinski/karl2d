@@ -44,6 +44,8 @@ main :: proc() {
 		left_trigger  := k2.get_gamepad_axis(0, .Left_Trigger)
 		right_trigger := k2.get_gamepad_axis(0, .Right_Trigger)
 
+		k2.set_gamepad_vibration(0, left_trigger, right_trigger)
+
 		k2.draw_rect_vec({80, 50}, {20, 10}, button_color(.Left_Shoulder))
 		k2.draw_rect_vec({50, 50} + {0, left_trigger * 20}, {20, 10}, button_color(.Left_Trigger, k2.WHITE, k2.GRAY))
 

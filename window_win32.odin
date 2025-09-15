@@ -15,6 +15,8 @@ WINDOW_INTERFACE_WIN32 :: Window_Interface {
 	set_size = win32_set_size,
 	set_flags = win32_set_flags,
 	get_gamepad_axis = win32_get_gamepad_axis,
+	set_gamepad_vibration = win32_set_gamepad_vibration,
+
 	set_internal_state = win32_set_internal_state,
 }
 
@@ -206,6 +208,19 @@ win32_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	}
 
 	return 0
+}
+
+win32_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
+	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
+		return
+	}
+
+	vib := win32.XINPUT_VIBRATION {
+		wLeftMotorSpeed = win32.WORD(left * 65535),
+		wRightMotorSpeed = win32.WORD(right * 65535),
+	}
+
+	win32.XInputSetState(win32.XUSER(gamepad), &vib)
 }
 
 win32_set_internal_state :: proc(state: rawptr) {

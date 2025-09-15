@@ -288,6 +288,10 @@ get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32 {
 	return win.get_gamepad_axis(gamepad, axis)
 }
 
+set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
+	win.set_gamepad_vibration(gamepad, left, right)
+}
+
 //---------//
 // DRAWING //
 //---------//
