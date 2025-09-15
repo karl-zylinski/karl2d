@@ -288,6 +288,9 @@ get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32 {
 	return win.get_gamepad_axis(gamepad, axis)
 }
 
+// Set the left and right vibration motor speed. The range of left and right is 0 to 1. Note that on
+// most gamepads, the left motor is "low frequency" and the right motor is "high frequency". They do
+// not vibrate with the same speed.
 set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 	win.set_gamepad_vibration(gamepad, left, right)
 }
