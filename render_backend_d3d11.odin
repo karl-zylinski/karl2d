@@ -49,24 +49,42 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 	base_device: ^d3d11.IDevice
 	base_device_context: ^d3d11.IDeviceContext
 
-	device_flags := d3d11.CREATE_DEVICE_FLAGS {
+	base_device_flags := d3d11.CREATE_DEVICE_FLAGS {
 		.BGRA_SUPPORT,
 	}
 
 	when ODIN_DEBUG {
-		device_flags += { .DEBUG }
-	}
+		device_flags := base_device_flags + { .DEBUG }
+	
+		device_err := ch(d3d11.CreateDevice(
+			nil,
+			.HARDWARE,
+			nil,
+			device_flags,
+			&feature_levels[0], len(feature_levels),
+			d3d11.SDK_VERSION, &base_device, nil, &base_device_context))
 
-	ch(d3d11.CreateDevice(
-		nil,
-		.HARDWARE,
-		nil,
-		device_flags,
-		&feature_levels[0], len(feature_levels),
-		d3d11.SDK_VERSION, &base_device, nil, &base_device_context))
+		if u32(device_err) == 0x887a002d {
+			log.error("You're running in debug mode. So we are trying to create a debug D3D11 device. But you don't have DirectX SDK installed, so we can't enable debug layers. Creating a device without debug layers (you'll get no good D3D11 errors).")
 
-	when ODIN_DEBUG {
-		ch(base_device->QueryInterface(d3d11.IInfoQueue_UUID, (^rawptr)(&s.info_queue)))
+			ch(d3d11.CreateDevice(
+				nil,
+				.HARDWARE,
+				nil,
+				base_device_flags,
+				&feature_levels[0], len(feature_levels),
+				d3d11.SDK_VERSION, &base_device, nil, &base_device_context))
+		} else {
+			ch(base_device->QueryInterface(d3d11.IInfoQueue_UUID, (^rawptr)(&s.info_queue)))
+		}
+	} else {
+		ch(d3d11.CreateDevice(
+			nil,
+			.HARDWARE,
+			nil,
+			base_device_flags,
+			&feature_levels[0], len(feature_levels),
+			d3d11.SDK_VERSION, &base_device, nil, &base_device_context))
 	}
 	
 	ch(base_device->QueryInterface(d3d11.IDevice_UUID, (^rawptr)(&s.device)))
