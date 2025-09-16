@@ -65,7 +65,10 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 		&feature_levels[0], len(feature_levels),
 		d3d11.SDK_VERSION, &base_device, nil, &base_device_context))
 
-	ch(base_device->QueryInterface(d3d11.IInfoQueue_UUID, (^rawptr)(&s.info_queue)))
+	when ODIN_DEBUG {
+		ch(base_device->QueryInterface(d3d11.IInfoQueue_UUID, (^rawptr)(&s.info_queue)))
+	}
+	
 	ch(base_device->QueryInterface(d3d11.IDevice_UUID, (^rawptr)(&s.device)))
 	ch(base_device_context->QueryInterface(d3d11.IDeviceContext_UUID, (^rawptr)(&s.device_context)))
 	dxgi_device: ^dxgi.IDevice
