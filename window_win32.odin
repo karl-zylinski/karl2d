@@ -13,6 +13,7 @@ WINDOW_INTERFACE_WIN32 :: Window_Interface {
 	clear_events = win32_clear_events,
 	set_position = win32_set_position,
 	set_size = win32_set_size,
+	get_window_scale = win32_get_window_scale,
 	set_flags = win32_set_flags,
 	get_gamepad_axis = win32_get_gamepad_axis,
 	set_gamepad_vibration = win32_set_gamepad_vibration,
@@ -34,6 +35,8 @@ win32_init :: proc(window_state: rawptr, window_width: int, window_height: int, 
 	s.allocator = allocator
 	s.events = make([dynamic]Window_Event, allocator)
 	s.custom_context = context
+	
+	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 	win32.SetProcessDPIAware()
 	CLASS_NAME :: "karl2d"
 	instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
@@ -176,6 +179,10 @@ win32_set_size :: proc(w, h: int) {
 		i32(h),
 		win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOMOVE,
 	)
+}
+
+win32_get_window_scale :: proc() -> f32 {
+	return f32(win32.GetDpiForWindow(s.hwnd))/96.0
 }
 
 win32_set_flags :: proc(flags: Window_Flags) {

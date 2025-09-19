@@ -18,6 +18,8 @@ main :: proc() {
 		k2.process_events()
 		k2.clear(k2.BLACK)
 
+		log.info(k2.get_window_scale())
+
 		k2.draw_circle({120, 120}, 10, button_color(.Left_Face_Up))
 		k2.draw_circle({120, 160}, 10, button_color(.Left_Face_Down))
 		k2.draw_circle({100, 140}, 10, button_color(.Left_Face_Left))

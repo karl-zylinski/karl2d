@@ -187,6 +187,11 @@ set_window_size :: proc(width: int, height: int) {
 	win.set_size(width, height)
 }
 
+// Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
+get_window_scale :: proc() -> f32 {
+	return win.get_window_scale()
+}
+
 set_window_flags :: proc(flags: Window_Flags) {
 	win.set_flags(flags)
 }
