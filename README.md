@@ -16,6 +16,7 @@ Might not be included:
 
 Here follows my near-future TODO list
 
+* bunnymark
 * should gamepad come from separate interface than window?
 	* keyboard input could also come from some input interface, but
 	  it is tightly bound to window in windows, so we'll see.
@@ -34,6 +35,8 @@ Here follows my near-future TODO list
 * Textures: Make the sampler state configurable
 * Textures D3D11: Do we need the SRV in the texture?
 * Shaders: Reflect and expose samplers
+* mipmap support
+* set filtering: for scaling up, down and mipmap
 
 ## DONE
 * win32: Resizable window

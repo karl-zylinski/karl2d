@@ -438,6 +438,17 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 	}
 }
 
+draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16) {
+	prev := center + {radius, 0}
+	for s in 1..=segments {
+		sr := (f32(s)/f32(segments)) * 2*math.PI
+		rot := linalg.matrix2_rotate(sr)
+		p := center + rot * Vec2{radius, 0}
+		draw_line(prev, p, thickness, color)
+		prev = p
+	}
+}
+
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 	p := Vec2{start.x, start.y + thickness*0.5}
 	s := Vec2{linalg.length(end - start), thickness}

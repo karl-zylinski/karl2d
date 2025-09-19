@@ -123,6 +123,8 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color)
 
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16)
 
+draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16)
+
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
 
 draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE)
