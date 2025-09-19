@@ -42,6 +42,10 @@ set_window_position :: proc(x: int, y: int)
 
 set_window_size :: proc(width: int, height: int)
 
+// Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
+// 1 means 100% scale, 1.5 means 150% etc.
+get_window_scale :: proc() -> f32
+
 set_window_flags :: proc(flags: Window_Flags)
 
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
@@ -100,6 +104,11 @@ gamepad_button_went_up :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -
 gamepad_button_is_held :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool
 
 get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32
+
+// Set the left and right vibration motor speed. The range of left and right is 0 to 1. Note that on
+// most gamepads, the left motor is "low frequency" and the right motor is "high frequency". They do
+// not vibrate with the same speed.
+set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32)
 
 //---------//
 // DRAWING //
