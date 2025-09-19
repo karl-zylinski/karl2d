@@ -1,0 +1,50 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+
+jobs:
+  build_windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: laytan/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release: false
+
+      - name: minimal
+        run: odin run examples/minimal -vet -strict-style
+
+      - name: minimal (debug)
+        run: odin run examples/minimal -vet -strict-style -debug
+
+      - name: snake
+        run: odin run examples/snake -vet -strict-style
+
+      - name: snake (debug)
+        run: odin run examples/snake -vet -strict-style -debug
+
+      - name: 2d_camera
+        run: odin run examples/raylib_ports/2d_camera -vet -strict-style
+
+      - name: 2d_camera (debug)
+        run: odin run examples/raylib_ports/2d_camera -vet -strict-style -debug
+
+      - name: shaders_texture_waves
+        run: odin run examples/raylib_ports/shaders_texture_waves -vet -strict-style
+
+      - name: shaders_texture_waves (debug)
+        run: odin run examples/raylib_ports/shaders_texture_waves -vet -strict-style -debug
+
+      - name: gamepad
+        run: odin run examples/gamepad -vet -strict-style
+
+      - name: gamepad (debug)
+        run: odin run examples/gamepad -vet -strict-style -debug
