@@ -9,6 +9,8 @@ import "base:intrinsics"
 import "core:log"
 import "core:mem"
 
+_ :: mem
+
 WINDOW_SIZE :: 1000
 GRID_WIDTH :: 20
 CELL_SIZE :: 16
