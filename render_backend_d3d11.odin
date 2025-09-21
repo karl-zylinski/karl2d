@@ -184,10 +184,6 @@ d3d11_clear :: proc(color: Color) {
 
 d3d11_present :: proc() {
 	ch(s.swapchain->Present(1, {}))
-	if s.odd_frame {
-		s.vertex_buffer_offset = 0
-	}
-	s.odd_frame = !s.odd_frame
 }
 
 d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: Maybe(Rect), vertex_buffer: []u8) {
@@ -214,7 +210,7 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scisso
 	{
 		gpu_map := slice.from_ptr((^u8)(vb_data.pData), VERTEX_BUFFER_MAX)
 		copy(
-			gpu_map[s.vertex_buffer_offset:s.vertex_buffer_offset+len(vertex_buffer)],
+			gpu_map,
 			vertex_buffer,
 		)
 	}
@@ -223,7 +219,7 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scisso
 	dc->IASetPrimitiveTopology(.TRIANGLELIST)
 
 	dc->IASetInputLayout(d3d_shd.input_layout)
-	vertex_buffer_offset := u32(s.vertex_buffer_offset)
+	vertex_buffer_offset: u32
 	vertex_buffer_stride := u32(shd.vertex_size)
 	dc->IASetVertexBuffers(0, 1, &s.vertex_buffer_gpu, &vertex_buffer_stride, &vertex_buffer_offset)
 
@@ -293,7 +289,6 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scisso
 	dc->OMSetBlendState(s.blend_state, nil, ~u32(0))
 
 	dc->Draw(u32(len(vertex_buffer)/shd.vertex_size), 0)
-	s.vertex_buffer_offset += len(vertex_buffer)
 	log_messages()
 }
 
@@ -576,16 +571,11 @@ D3D11_State :: struct {
 	blend_state: ^d3d11.IBlendState,
 	sampler_state: ^d3d11.ISamplerState,
 
-	// 0 or 1
-	odd_frame: bool,
-
 	textures: hm.Handle_Map(D3D11_Texture, Texture_Handle, 1024*10),
 	shaders: hm.Handle_Map(D3D11_Shader, Shader_Handle, 1024*10),
 
 	info_queue: ^d3d11.IInfoQueue,
 	vertex_buffer_gpu: ^d3d11.IBuffer,
-
-	vertex_buffer_offset: int,
 }
 
 create_swapchain :: proc(w, h: int) {
