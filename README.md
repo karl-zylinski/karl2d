@@ -16,7 +16,13 @@ Might not be included:
 
 Here follows my near-future TODO list
 
-* bunnymark
+* basic text rendering
+	* make draw_text and load_default_font do somethig more sensible
+	* look at how to properly get the scale from stb_ttf
+	* compare if we are doing the same as raylib by loading its default font and drawing some things, can we make it look similar?
+	* font smoothing -> make it look crisp by disabling filtering on "pixel fonts"
+	* next stage: Look into something more fancy than just loading bitmaps. What can we do?
+
 * should gamepad come from separate interface than window?
 	* keyboard input could also come from some input interface, but
 	  it is tightly bound to window in windows, so we'll see.
@@ -27,7 +33,6 @@ Here follows my near-future TODO list
 	* check status of gamepad
 	* what happens when you pull one out?
 	* playstation
-* basic text rendering
 * Do proper checks of vertex count and dispatch rendering when full
 	* What happens when list is full? We can't just empty the vertex list due to being used by input assembler etc.
 * Should we sort by depth? Maybe we should use Vec3 because some 2D games rely on it?
@@ -39,6 +44,7 @@ Here follows my near-future TODO list
 * set filtering: for scaling up, down and mipmap
 
 ## DONE
+* bunnymark
 * win32: Resizable window
 * Flashing textures in Abyss -- Better now but still flashes when you use nose... Check the "odd_frame" stuff in d3d backend
 * Is the 1/zoom in set_camera wrong? Is the matrix multiply order wrong? Hmmmm...

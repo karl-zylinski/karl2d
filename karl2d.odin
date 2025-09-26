@@ -622,13 +622,26 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	batch_vertex(bl, uv5, c)
 }
 
+measure_text :: proc(text: string, font_size: f32) -> Vec2 {
+	res: Vec2
+	res.y = font_size
+	scl := (font_size / s.default_font.size)
+
+	for t in text {
+		chr := s.default_font.chars[int(t)]
+		res.x += chr.xadvance * scl
+	}
+
+	return res
+}
+
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
 	if font_size == 0 || s.default_font.size == 0 {
 		return
 	}
 
 	x := pos.x
-	scl := 1.5 * (font_size / s.default_font.size)
+	scl := (font_size / s.default_font.size)
 
 	for t in text {
 		if t >= FONT_MAX_CHARS {
@@ -640,7 +653,7 @@ draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
 
 		dst := Rect {
 			x = x + chr.offset.x * scl,
-			y = pos.y + chr.offset.y * scl + font_size,
+			y = pos.y + chr.offset.y * scl + font_size*0.5,
 			w = src.w * scl,
 			h = src.h * scl,
 		}
