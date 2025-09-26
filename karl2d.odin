@@ -61,12 +61,14 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, allocator, loc)
 	white_rect: [16*16*4]u8
 	slice.fill(white_rect[:], 255)
-	s.shape_drawing_texture = rb.load_texture(white_rect[:], 16, 16)
+	s.shape_drawing_texture = rb.load_texture(white_rect[:], 16, 16, .RGBA_8_Norm)
 
 	s.default_shader = load_shader(string(DEFAULT_SHADER_SOURCE))
 	s.batch_shader = s.default_shader
 	if font, font_err := load_default_font(); font_err == .OK {
 		s.default_font = font
+	} else {
+		log.infof("Loading of 'default_font.ttf' failed: %v", font_err)
 	}
 
 	return s
@@ -621,7 +623,34 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 }
 
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
-	
+	if font_size == 0 || s.default_font.size == 0 {
+		return
+	}
+
+	x := pos.x
+	scl := 1.5 * (font_size / s.default_font.size)
+
+	for t in text {
+		if t >= FONT_MAX_CHARS {
+			continue
+		}
+
+		chr := s.default_font.chars[int(t)]
+		src := chr.rect
+
+		dst := Rect {
+			x = x + chr.offset.x * scl,
+			y = pos.y + chr.offset.y * scl + font_size,
+			w = src.w * scl,
+			h = src.h * scl,
+		}
+
+		x += chr.xadvance * scl
+
+		if t != ' ' {
+			draw_texture_ex(s.default_font.texture, src, dst, {}, 0, color)
+		}
+	}
 }
 
 //--------------------//
@@ -636,12 +665,21 @@ load_texture_from_file :: proc(filename: string) -> Texture {
 		return {}
 	}
 
-	backend_tex := rb.load_texture(img.pixels.buf[:], img.width, img.height)
+	return load_texture_from_bytes(img.pixels.buf[:], img.width, img.height, .RGBA_8_Norm)
+}
+
+// TODO should we have an error here or rely on check the handle of the texture?
+load_texture_from_bytes :: proc(bytes: []u8, width: int, height: int, format: Pixel_Format) -> Texture {
+	backend_tex := rb.load_texture(bytes[:], width, height, format)
+
+	if backend_tex == TEXTURE_NONE {
+		return {}
+	}
 
 	return {
 		handle = backend_tex,
-		width = img.width,
-		height = img.height,
+		width = width,
+		height = height,
 	}
 }
 
@@ -1031,8 +1069,19 @@ Pixel_Format :: enum {
 	R_8_Norm,
 }
 
+FONT_MAX_CHARS :: 128
+
+Font_Char :: struct {
+	rect: Rect,
+	offset: Vec2,
+	xadvance: f32,
+	r: rune,
+}
+
 Font :: struct {
 	texture: Texture,
+	chars: []Font_Char,
+	size: f32,
 }
 
 Handle :: hm.Handle
@@ -1368,24 +1417,63 @@ make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 Load_Font_Error :: enum {
 	OK,
 	Load_File_Failed,
+	Bitmap_Bake_Failed,
+	Load_Texture_Failed,
 }
 
 // wip procedure
 load_default_font :: proc() -> (Font, Load_Font_Error) {
-	/*font_data, font_data_ok := os.read_entire_file("default_font.ttf")
+	font_data := #load("roboto.ttf")
 
-	if !font_data_ok {
-		return {}, .Load_File_Failed
+	PW :: 2048
+	PH :: 2048
+	SIZE :: 64
+	pixels := make([]u8, PW*PH, frame_allocator)
+	baked_chars := make([]tt.bakedchar, FONT_MAX_CHARS, frame_allocator)
+	bake_res := tt.BakeFontBitmap(raw_data(font_data), 0, SIZE, raw_data(pixels), PW, PH, 0, FONT_MAX_CHARS, raw_data(baked_chars))
+
+	if bake_res == 0 {
+		return {}, .Bitmap_Bake_Failed
 	}
 
-	pixels := make([]u8, 512*512, )
-	tt.BakeFontBitmap(raw_data(font_data), 0, 32)
-	pc: tt.pack_context
-	tt.PackFontRange(&pc, raw_data(font_data), 0, 32, 0, 128,)*/
+	expanded_pixels := make([]Color, PW*PH, frame_allocator)
 
-	_ :: tt
-	return {}, nil
+	for p, i in pixels {
+		expanded_pixels[i] = {255,255,255,p}
+	}
 
+	tex := load_texture_from_bytes(slice.reinterpret([]u8, expanded_pixels), PW, PH, .RGBA_8_Norm)
+
+	if tex.handle == TEXTURE_NONE {
+		return {}, .Load_Texture_Failed
+	}
+
+	chars := make([]Font_Char, FONT_MAX_CHARS, s.allocator)
+
+	for i in 0..<FONT_MAX_CHARS {
+		b := baked_chars[i]
+		chars[i] = {
+			rect = {
+				x = f32(b.x0),
+				y = f32(b.y0),
+				w = f32(b.x1 - b.x0),
+				h = f32(b.y1 - b.y0),
+			},
+			offset = {
+				f32(b.xoff), f32(b.yoff),
+			},
+			xadvance = f32(b.xadvance),
+			r = rune(i),
+		}
+	}
+
+	log.info(chars)
+
+	return {
+		texture = tex,
+		chars = chars,
+		size = SIZE,
+	}, .OK
 }
 
 _ :: bmp

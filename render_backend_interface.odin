@@ -25,7 +25,7 @@ Render_Backend_Interface :: struct {
 	draw: proc(shader: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: Maybe(Rect), vertex_buffer: []u8),
 	set_internal_state: proc(state: rawptr),
 
-	load_texture: proc(data: []u8, width: int, height: int) -> Texture_Handle,
+	load_texture: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle,
 	destroy_texture: proc(handle: Texture_Handle),
 
 	load_shader: proc(shader_source: string, desc_allocator := context.temp_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc),

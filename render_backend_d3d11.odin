@@ -316,14 +316,14 @@ d3d11_set_internal_state :: proc(state: rawptr) {
 	s = (^D3D11_State)(state)
 }
 
-d3d11_load_texture :: proc(data: []u8, width: int, height: int) -> Texture_Handle {
+d3d11_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
 		Height     = u32(height),
 		MipLevels  = 1,
 		ArraySize  = 1,
 		// TODO: _SRGB or not?
-		Format     = .R8G8B8A8_UNORM,
+		Format     = dxgi_format_from_pixel_format(format),
 		SampleDesc = {Count = 1},
 		Usage      = .IMMUTABLE,
 		BindFlags  = {.SHADER_RESOURCE},
