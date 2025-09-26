@@ -62,6 +62,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	s.shape_drawing_texture = rb.load_texture(white_rect[:], 16, 16)
 
 	s.default_shader = load_shader(string(DEFAULT_SHADER_SOURCE))
+	s.batch_shader = s.default_shader
 
 	return s
 }
@@ -209,8 +210,9 @@ set_window_flags :: proc(flags: Window_Flags) {
 // - set_camera
 // - set_shader
 // - set_shader_constant
+// - set_scissor_rect
 // - draw_texture_* IF previous draw did not use the same texture (1)
-// - draw_rect_*, draw_circle_* IF previous draw did not use the shapes drawing texture (2)
+// - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing texture (2)
 // 
 // (1) When drawing textures, the current texture is fed into the active shader. Everything within
 //     the same batch must use the same texture. So drawing with a new texture will draw the current
@@ -221,10 +223,11 @@ set_window_flags :: proc(flags: Window_Flags) {
 //     before drawing a shape will break up the batches. TODO: Add possibility to customize shape
 //     drawing texture so that you can put it into an atlas.
 //
-// TODO: Name of this proc? submit_current_batch, flush_current_batch, draw_current_batch
+// The batch has maximum size of VERTEX_BUFFER_MAX bytes. The shader dictates how big a vertex is
+// so the maximum number of vertices that can be drawn in each batch is
+// VERTEX_BUFFER_MAX / shader.vertex_size
 draw_current_batch :: proc() {
-	shader := s.batch_shader.? or_else s.default_shader
-	rb.draw(shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.batch_scissor, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
+	rb.draw(s.batch_shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.batch_scissor, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
 	s.vertex_buffer_cpu_used = 0
 }
 
@@ -310,7 +313,11 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 //---------//
 
 draw_rect :: proc(r: Rect, c: Color) {
-	if s.batch_texture != TEXTURE_NONE && s.batch_texture != s.shape_drawing_texture {
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+
+	if s.batch_texture != s.shape_drawing_texture {
 		draw_current_batch()
 	}
 
@@ -329,7 +336,11 @@ draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color) {
 }
 
 draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
-	if s.batch_texture != TEXTURE_NONE && s.batch_texture != s.shape_drawing_texture {
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+
+	if s.batch_texture != s.shape_drawing_texture {
 		draw_current_batch()
 	}
 
@@ -421,7 +432,11 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 }
 
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
-	if s.batch_texture != TEXTURE_NONE && s.batch_texture != s.shape_drawing_texture {
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 * segments > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+
+	if s.batch_texture != s.shape_drawing_texture {
 		draw_current_batch()
 	}
 
@@ -432,7 +447,6 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 		sr := (f32(s)/f32(segments)) * 2*math.PI
 		rot := linalg.matrix2_rotate(sr)
 		p := center + rot * Vec2{radius, 0}
-			
 
 		batch_vertex(prev, {0, 0}, color)
 		batch_vertex(p, {1, 0}, color)
@@ -492,9 +506,15 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		return
 	}
 
-	if s.batch_texture != TEXTURE_NONE && s.batch_texture != tex.handle {
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
+
+	if s.batch_texture != tex.handle {
+		draw_current_batch()
+	}
+	
+	s.batch_texture = tex.handle
 
 	flip_x, flip_y: bool
 	src := src
@@ -518,7 +538,6 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		dst.h *= -1
 	}
 
-	s.batch_texture = tex.handle
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
@@ -717,12 +736,18 @@ get_default_shader :: proc() -> Shader {
 }
 
 set_shader :: proc(shader: Maybe(Shader)) {
-	if maybe_handle_equal(shader, s.batch_shader) {
-		return
+	if shd, shd_ok := shader.?; shd_ok {
+		if shd.handle == s.batch_shader.handle {
+			return
+		}
+	} else {
+		if s.batch_shader.handle == s.default_shader.handle {
+			return
+		}
 	}
 
 	draw_current_batch()
-	s.batch_shader = shader
+	s.batch_shader = shader.? or_else s.default_shader
 }
 
 set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any) {
@@ -1044,7 +1069,7 @@ State :: struct {
 
 	shape_drawing_texture: Texture_Handle,
 	batch_camera: Maybe(Camera),
-	batch_shader: Maybe(Shader),
+	batch_shader: Shader,
 	batch_scissor: Maybe(Rect),
 	batch_texture: Texture_Handle,
 
@@ -1232,10 +1257,10 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
 
 	if s.vertex_buffer_cpu_used == len(s.vertex_buffer_cpu) {
-		panic("Must dispatch here")
+		draw_current_batch()
 	}
 
-	shd := s.batch_shader.? or_else s.default_shader
+	shd := s.batch_shader
 
 	base_offset := s.vertex_buffer_cpu_used
 	pos_offset := shd.default_input_offsets[.Position]
@@ -1281,21 +1306,6 @@ s: ^State
 frame_allocator: runtime.Allocator
 win: Window_Interface
 rb: Render_Backend_Interface
-
-maybe_handle_equal :: proc(m1: Maybe($T), m2: Maybe(T)) -> bool {
-	if m1 == nil && m2 == nil {
-		return true
-	}
-
-	m1v, m1v_ok := m1.?
-	m2v, m2v_ok := m2.?
-
-	if !m1v_ok || !m2v_ok {
-		return false
-	}
-
-	return m1v.handle == m2v.handle
-}
 
 get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> Shader_Default_Inputs {
 	if name == "POS" && type == .Vec2 {
