@@ -362,7 +362,7 @@ d3d11_destroy_texture :: proc(th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 }
 
-d3d11_load_shader :: proc(shader_source: string, desc_allocator := context.temp_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
+d3d11_load_shader :: proc(shader_source: string, desc_allocator := frame_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
 	vs_blob: ^d3d11.IBlob
 	vs_blob_errors: ^d3d11.IBlob
 	ch(d3d_compiler.Compile(raw_data(shader_source), len(shader_source), nil, nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
@@ -483,12 +483,12 @@ d3d11_load_shader :: proc(shader_source: string, desc_allocator := context.temp_
 		}
 	}
 
-	input_layout_desc := make([]d3d11.INPUT_ELEMENT_DESC, len(desc.inputs), context.temp_allocator)
+	input_layout_desc := make([]d3d11.INPUT_ELEMENT_DESC, len(desc.inputs), frame_allocator)
 
 	for idx in 0..<len(desc.inputs) {
 		input := desc.inputs[idx]
 		input_layout_desc[idx] = {
-			SemanticName = temp_cstring(input.name),
+			SemanticName = frame_cstring(input.name),
 			Format = dxgi_format_from_pixel_format(input.format),
 			AlignedByteOffset = idx == 0 ? 0 : d3d11.APPEND_ALIGNED_ELEMENT,
 			InputSlotClass = .VERTEX_DATA,
@@ -682,7 +682,7 @@ log_messages :: proc(loc := #caller_location) {
 	}
 
 	if longest_msg > 0 {
-		msg_raw_ptr, _ := (mem.alloc(int(longest_msg), allocator = context.temp_allocator))
+		msg_raw_ptr, _ := (mem.alloc(int(longest_msg), allocator = frame_allocator))
 
 		for i in 0..=n {
 			msglen: d3d11.SIZE_T
