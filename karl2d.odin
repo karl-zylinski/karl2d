@@ -9,6 +9,8 @@ import "core:slice"
 import "core:strings"
 import "core:reflect"
 
+import tt "vendor:stb/truetype"
+
 import "core:image"
 import "core:image/bmp"
 import "core:image/png"
@@ -60,6 +62,9 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 
 	s.default_shader = load_shader(string(DEFAULT_SHADER_SOURCE))
 	s.batch_shader = s.default_shader
+	if font, font_err := load_default_font(); font_err == .OK {
+		s.default_font = font
+	}
 
 	return s
 }
@@ -1022,6 +1027,10 @@ Pixel_Format :: enum {
 	R_8_Norm,
 }
 
+Font :: struct {
+	texture: Texture,
+}
+
 Handle :: hm.Handle
 Texture_Handle :: distinct Handle
 TEXTURE_NONE :: Texture_Handle {}
@@ -1061,6 +1070,7 @@ State :: struct {
 	width: int,
 	height: int,
 
+	default_font: Font,
 	shape_drawing_texture: Texture_Handle,
 	batch_camera: Maybe(Camera),
 	batch_shader: Shader,
@@ -1345,6 +1355,29 @@ temp_cstring :: proc(str: string, loc := #caller_location) -> cstring {
 
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+}
+
+Load_Font_Error :: enum {
+	OK,
+	Load_File_Failed,
+}
+
+// wip procedure
+load_default_font :: proc() -> (Font, Load_Font_Error) {
+	/*font_data, font_data_ok := os.read_entire_file("default_font.ttf")
+
+	if !font_data_ok {
+		return {}, .Load_File_Failed
+	}
+
+	pixels := make([]u8, 512*512, )
+	tt.BakeFontBitmap(raw_data(font_data), 0, 32)
+	pc: tt.pack_context
+	tt.PackFontRange(&pc, raw_data(font_data), 0, 32, 0, 128,)*/
+
+	_ :: tt
+	return {}, nil
+
 }
 
 _ :: bmp
