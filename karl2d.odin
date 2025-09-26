@@ -1467,8 +1467,6 @@ load_default_font :: proc() -> (Font, Load_Font_Error) {
 		}
 	}
 
-	log.info(chars)
-
 	return {
 		texture = tex,
 		chars = chars,
