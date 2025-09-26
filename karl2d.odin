@@ -31,6 +31,9 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	assert(s == nil, "Don't call 'init' twice.")
 
 	s = new(State, allocator, loc)
+	s.frame_allocator = runtime.arena_allocator(&s.frame_arena)
+	frame_allocator = s.frame_allocator
+
 	s.allocator = allocator
 	s.custom_context = context
 
@@ -105,6 +108,7 @@ clear :: proc(color: Color) {
 present :: proc() {
 	draw_current_batch()
 	rb.present()
+	free_all(s.frame_allocator)
 }
 
 // Call at start or end of frame to process all events that have arrived to the window.
@@ -625,7 +629,7 @@ draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
 //--------------------//
 
 load_texture_from_file :: proc(filename: string) -> Texture {
-	img, img_err := image.load_from_file(filename, options = {.alpha_add_if_missing}, allocator = context.temp_allocator)
+	img, img_err := image.load_from_file(filename, options = {.alpha_add_if_missing}, allocator = s.frame_allocator)
 
 	if img_err != nil {
 		log.errorf("Error loading texture %v: %v", filename, img_err)
@@ -651,7 +655,7 @@ destroy_texture :: proc(tex: Texture) {
 //---------//
 
 load_shader :: proc(shader_source: string, layout_formats: []Pixel_Format = {}) -> Shader {
-	handle, desc := rb.load_shader(shader_source, context.temp_allocator, layout_formats)
+	handle, desc := rb.load_shader(shader_source, s.frame_allocator, layout_formats)
 
 	if handle == SHADER_NONE {
 		log.error("Failed loading shader")
@@ -1042,6 +1046,8 @@ TEXTURE_NONE :: Texture_Handle {}
 // reload).
 State :: struct {
 	allocator: runtime.Allocator,
+	frame_arena: runtime.Arena,
+	frame_allocator: runtime.Allocator,
 	custom_context: runtime.Context,
 	win: Window_Interface,
 	window_state: rawptr,
@@ -1306,6 +1312,8 @@ DEFAULT_SHADER_SOURCE :: #load("shader.hlsl")
 
 @(private="file")
 s: ^State
+
+frame_allocator: runtime.Allocator
 win: Window_Interface
 rb: Render_Backend_Interface
 
@@ -1349,8 +1357,8 @@ vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
 	}
 }
 
-temp_cstring :: proc(str: string, loc := #caller_location) -> cstring {
-	return strings.clone_to_cstring(str, context.temp_allocator, loc)
+frame_cstring :: proc(str: string, loc := #caller_location) -> cstring {
+	return strings.clone_to_cstring(str, s.frame_allocator, loc)
 }
 
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
