@@ -11,6 +11,7 @@ main :: proc() {
 	for !k2.shutdown_wanted() {
 		k2.process_events()
 		k2.clear(k2.BLUE)
+		k2.draw_text("Hellope!", {10, 10}, 32, k2.WHITE)
 		k2.present()
 		free_all(context.temp_allocator)
 	}
