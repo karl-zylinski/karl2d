@@ -9,7 +9,7 @@ import "core:slice"
 import "core:strings"
 import "core:reflect"
 
-import tt "vendor:stb/truetype"
+import fs "vendor:fontstash"
 
 import "core:image"
 import "core:image/jpeg"
@@ -42,6 +42,21 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	s.height = window_height
 
 	s.win = WINDOW_INTERFACE_WIN32
+
+	fs.Init(&s.fs, 1024, 1024, .TOPLEFT)
+
+	ROBOTO_FONT_DATA :: #load("roboto.ttf")
+	//SIMSUN_FONT_DATA :: #load("simsun.ttc")
+	//MALGUN_FONT_DATA :: #load("malgun.ttf")
+
+	roboto_font := fs.AddFontMem(&s.fs, "roboto", ROBOTO_FONT_DATA, false)
+	fs.SetFont(&s.fs, roboto_font)
+
+	//simsun_font := fs.AddFontMem(&s.fs, "simsun", SIMSUN_FONT_DATA, false)
+	//malgun_font := fs.AddFontMem(&s.fs, "malgun", MALGUN_FONT_DATA, false)
+	//fs.AddFallbackFont(&s.fs, roboto_font, simsun_font)
+	//fs.AddFallbackFont(&s.fs, roboto_font, malgun_font)
+
 	win = s.win
 
 	window_state_alloc_error: runtime.Allocator_Error
@@ -66,11 +81,11 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 
 	s.default_shader = load_shader(string(DEFAULT_SHADER_SOURCE))
 	s.batch_shader = s.default_shader
-	if font, font_err := load_default_font(); font_err == .OK {
+	/*if font, font_err := load_default_font(); font_err == .OK {
 		s.default_font = font
 	} else {
 		log.infof("Loading of 'default_font.ttf' failed: %v", font_err)
-	}
+	}*/
 
 	return s
 }
@@ -94,6 +109,8 @@ shutdown :: proc() {
 	delete(s.vertex_buffer_cpu, s.allocator)
 
 	win.shutdown()
+
+	fs.Destroy(&s.fs)
 
 	a := s.allocator
 	free(s.window_state, a)
@@ -235,6 +252,17 @@ set_window_flags :: proc(flags: Window_Flags) {
 // so the maximum number of vertices that can be drawn in each batch is
 // VERTEX_BUFFER_MAX / shader.vertex_size
 draw_current_batch :: proc() {
+	font_dirty_rect: [4]f32
+	if fs.ValidateTexture(&s.fs, &font_dirty_rect) {
+		expanded_pixels := make([]Color, s.fs.width*s.fs.height, frame_allocator)
+
+		for p, i in s.fs.textureData {
+			expanded_pixels[i] = {255,255,255,p}
+		}
+
+		s.font_atlas = load_texture_from_bytes(slice.reinterpret([]u8, expanded_pixels), s.fs.width, s.fs.height, .RGBA_8_Norm)
+	}
+
 	rb.draw(s.batch_shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.batch_scissor, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
 	s.vertex_buffer_cpu_used = 0
 }
@@ -624,20 +652,40 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 }
 
 measure_text :: proc(text: string, font_size: f32) -> Vec2 {
-	res: Vec2
-	res.y = font_size
-	scl := (font_size / s.default_font.size)
-
-	for t in text {
-		chr := s.default_font.chars[int(t)]
-		res.x += chr.xadvance * scl
-	}
-
-	return res
+	fs.SetSize(&s.fs, font_size)
+	b: [4]f32
+	fs.TextBounds(&s.fs, text, bounds = &b)
+	return {b[2] - b[0], b[3] - b[1]}
 }
 
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
-	if font_size == 0 || s.default_font.size == 0 {
+	fs.SetSize(&s.fs, font_size)
+	iter := fs.TextIterInit(&s.fs, pos.x, pos.y+font_size/2, text)
+
+	q: fs.Quad
+	for fs.TextIterNext(&s.fs, &iter, &q) {
+		src := Rect {
+			q.s0, q.t0,
+			q.s1 - q.s0, q.t1 - q.t0,
+		}
+
+		w := f32(s.font_atlas.width)
+		h := f32(s.font_atlas.height)
+
+		src.x *= w
+		src.y *= h
+		src.w *= w
+		src.h *= h
+
+		dst := Rect {
+			q.x0, q.y0,
+			q.x1 - q.x0, q.y1 - q.y0,
+		}
+
+		draw_texture_ex(s.font_atlas, src, dst, {}, 0, color)
+	}
+
+	/*if font_size == 0 || s.default_font.size == 0 {
 		return
 	}
 
@@ -664,7 +712,7 @@ draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
 		if t != ' ' {
 			draw_texture_ex(s.default_font.texture, src, dst, {}, 0, color)
 		}
-	}
+	}*/
 }
 
 //--------------------//
@@ -866,6 +914,8 @@ pixel_format_size :: proc(f: Pixel_Format) -> int {
 	case .RGBA_8_Norm: return 4
 	case .RG_8_Norm: return 2
 	case .R_8_Norm: return 1
+
+	case .R_8_UInt: return 1
 	}
 
 	return 0
@@ -1090,6 +1140,8 @@ Pixel_Format :: enum {
 	RGBA_8_Norm,
 	RG_8_Norm,
 	R_8_Norm,
+
+	R_8_UInt,
 }
 
 FONT_MAX_CHARS :: 128
@@ -1125,6 +1177,9 @@ State :: struct {
 	window_state: rawptr,
 	rb: Render_Backend_Interface,
 	rb_state: rawptr,
+
+	fs: fs.FontContext,
+	font_atlas: Texture,
 	
 	shutdown_wanted: bool,
 
@@ -1437,7 +1492,7 @@ make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
 }
 
-Load_Font_Error :: enum {
+/*Load_Font_Error :: enum {
 	OK,
 	Load_File_Failed,
 	Bitmap_Bake_Failed,
@@ -1446,7 +1501,7 @@ Load_Font_Error :: enum {
 
 // wip procedure
 load_default_font :: proc() -> (Font, Load_Font_Error) {
-	font_data := #load("roboto.ttf")
+	font_data := ROBOTO_FONT_DATA
 
 	PW :: 2048
 	PH :: 2048
@@ -1495,7 +1550,7 @@ load_default_font :: proc() -> (Font, Load_Font_Error) {
 		chars = chars,
 		size = SIZE,
 	}, .OK
-}
+}*/
 
 _ :: jpeg
 _ :: bmp

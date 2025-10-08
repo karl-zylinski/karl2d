@@ -331,7 +331,7 @@ d3d11_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Fo
 
 	texture_data := d3d11.SUBRESOURCE_DATA{
 		pSysMem     = raw_data(data),
-		SysMemPitch = u32(width * 4),
+		SysMemPitch = u32(width * pixel_format_size(format)),
 	}
 
 	texture: ^d3d11.ITexture2D
@@ -635,6 +635,7 @@ dxgi_format_from_pixel_format :: proc(f: Pixel_Format) -> dxgi.FORMAT {
 	case .RGBA_8_Norm: return .R8G8B8A8_UNORM
 	case .RG_8_Norm: return .R8G8_UNORM
 	case .R_8_Norm: return .R8_UNORM
+	case .R_8_UInt: return .R8_UINT
 	}
 
 	log.error("Unknown format")
