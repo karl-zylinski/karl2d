@@ -12,6 +12,7 @@ import "core:reflect"
 import tt "vendor:stb/truetype"
 
 import "core:image"
+import "core:image/jpeg"
 import "core:image/bmp"
 import "core:image/png"
 import "core:image/tga"
@@ -693,6 +694,15 @@ load_texture_from_bytes :: proc(bytes: []u8, width: int, height: int, format: Pi
 		handle = backend_tex,
 		width = width,
 		height = height,
+	}
+}
+
+// Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
+// (w, h) = (texture_width, texture_height)
+get_texture_rect :: proc(t: Texture) -> Rect {
+	return {
+		0, 0,
+		f32(t.width), f32(t.height),
 	}
 }
 
@@ -1487,6 +1497,7 @@ load_default_font :: proc() -> (Font, Load_Font_Error) {
 	}, .OK
 }
 
+_ :: jpeg
 _ :: bmp
 _ :: png
 _ :: tga
