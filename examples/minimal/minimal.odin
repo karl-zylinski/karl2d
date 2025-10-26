@@ -11,7 +11,14 @@ main :: proc() {
 	for !k2.shutdown_wanted() {
 		k2.process_events()
 		k2.clear(k2.BLUE)
-		k2.draw_text("Hellöpe!", {10, 10}, 64, k2.WHITE)
+
+		txt := "Hellöpe!"
+
+		if k2.key_is_held(.K) {
+			txt = "Holding K keyboard key"
+		}
+
+		k2.draw_text(txt, {10, 10}, 64, k2.WHITE)
 		k2.present()
 		free_all(context.temp_allocator)
 	}

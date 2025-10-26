@@ -15,6 +15,7 @@ RENDER_BACKEND_INTERFACE_D3D11 :: Render_Backend_Interface {
 	get_swapchain_width = d3d11_get_swapchain_width,
 	get_swapchain_height = d3d11_get_swapchain_height,
 	set_internal_state = d3d11_set_internal_state,
+	create_texture = d3d11_create_texture,
 	load_texture = d3d11_load_texture,
 	update_texture = d3d11_update_texture,
 	destroy_texture = d3d11_destroy_texture,
@@ -315,6 +316,34 @@ d3d11_get_swapchain_height :: proc() -> int {
 
 d3d11_set_internal_state :: proc(state: rawptr) {
 	s = (^D3D11_State)(state)
+}
+
+d3d11_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
+	texture_desc := d3d11.TEXTURE2D_DESC{
+		Width      = u32(width),
+		Height     = u32(height),
+		MipLevels  = 1,
+		ArraySize  = 1,
+		// TODO: _SRGB or not?
+		Format     = dxgi_format_from_pixel_format(format),
+		SampleDesc = {Count = 1},
+		Usage      = .DEFAULT,
+		BindFlags  = {.SHADER_RESOURCE},
+	}
+
+	texture: ^d3d11.ITexture2D
+	s.device->CreateTexture2D(&texture_desc, nil, &texture)
+
+	texture_view: ^d3d11.IShaderResourceView
+	s.device->CreateShaderResourceView(texture, nil, &texture_view)
+
+	tex := D3D11_Texture {
+		tex = texture,
+		format = format,
+		view = texture_view,
+	}
+
+	return hm.add(&s.textures, tex)
 }
 
 d3d11_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {

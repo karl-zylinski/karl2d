@@ -42,14 +42,6 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	s.height = window_height
 
 	s.win = WINDOW_INTERFACE_WIN32
-
-	fs.Init(&s.fs, 1024, 1024, .TOPLEFT)
-
-	ROBOTO_FONT_DATA :: #load("roboto.ttf")
-
-	roboto_font := fs.AddFontMem(&s.fs, "roboto", ROBOTO_FONT_DATA, false)
-	fs.SetFont(&s.fs, roboto_font)
-
 	win = s.win
 
 	window_state_alloc_error: runtime.Allocator_Error
@@ -79,6 +71,24 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	} else {
 		log.infof("Loading of 'default_font.ttf' failed: %v", font_err)
 	}*/
+
+	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
+
+	ROBOTO_FONT_DATA :: #load("roboto.ttf")
+
+	roboto_font := fs.AddFontMem(&s.fs, "roboto", ROBOTO_FONT_DATA, false)
+	fs.SetFont(&s.fs, roboto_font)
+
+	s.default_font = Font_Handle(len(s.fonts))
+
+	append(&s.fonts, Font {
+		fontstash_handle = roboto_font,
+		atlas = {
+			handle = rb.create_texture(FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .RGBA_8_Norm),
+			width = FONT_DEFAULT_ATLAS_SIZE,
+			height = FONT_DEFAULT_ATLAS_SIZE,
+		},
+	})
 
 	return s
 }
@@ -245,17 +255,11 @@ set_window_flags :: proc(flags: Window_Flags) {
 // so the maximum number of vertices that can be drawn in each batch is
 // VERTEX_BUFFER_MAX / shader.vertex_size
 draw_current_batch :: proc() {
-	font_dirty_rect: [4]f32
-	if fs.ValidateTexture(&s.fs, &font_dirty_rect) {
-		expanded_pixels := make([]Color, s.fs.width*s.fs.height, frame_allocator)
+	update_font(s.default_font)
+	//for &f in s.fonts {
 
-		for p, i in s.fs.textureData {
-			expanded_pixels[i] = {255,255,255,p}
-		}
-
-		s.font_atlas = load_texture_from_bytes(slice.reinterpret([]u8, expanded_pixels), s.fs.width, s.fs.height, .RGBA_8_Norm)
-	}
-
+	//}
+	
 	rb.draw(s.batch_shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.batch_scissor, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
 	s.vertex_buffer_cpu_used = 0
 }
@@ -652,6 +656,10 @@ measure_text :: proc(text: string, font_size: f32) -> Vec2 {
 }
 
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
+	//set_font(s.default_font)
+
+	font := &s.fonts[s.default_font]
+
 	fs.SetSize(&s.fs, font_size)
 	iter := fs.TextIterInit(&s.fs, pos.x, pos.y+font_size/2, text)
 
@@ -662,8 +670,8 @@ draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
 			q.s1 - q.s0, q.t1 - q.t0,
 		}
 
-		w := f32(s.font_atlas.width)
-		h := f32(s.font_atlas.height)
+		w := f32(FONT_DEFAULT_ATLAS_SIZE)
+		h := f32(FONT_DEFAULT_ATLAS_SIZE)
 
 		src.x *= w
 		src.y *= h
@@ -675,7 +683,7 @@ draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
 			q.x1 - q.x0, q.y1 - q.y0,
 		}
 
-		draw_texture_ex(s.font_atlas, src, dst, {}, 0, color)
+		draw_texture_ex(font.atlas, src, dst, {}, 0, color)
 	}
 
 	/*if font_size == 0 || s.default_font.size == 0 {
@@ -1143,23 +1151,16 @@ Pixel_Format :: enum {
 	R_8_UInt,
 }
 
-FONT_MAX_CHARS :: 128
-
-Font_Char :: struct {
-	rect: Rect,
-	offset: Vec2,
-	xadvance: f32,
-	r: rune,
-}
-
 Font :: struct {
-	texture: Texture,
-	chars: []Font_Char,
-	size: f32,
+	atlas: Texture,
+
+	// internal
+	fontstash_handle: int,
 }
 
 Handle :: hm.Handle
 Texture_Handle :: distinct Handle
+Font_Handle :: distinct int
 TEXTURE_NONE :: Texture_Handle {}
 
 
@@ -1178,7 +1179,6 @@ State :: struct {
 	rb_state: rawptr,
 
 	fs: fs.FontContext,
-	font_atlas: Texture,
 	
 	shutdown_wanted: bool,
 
@@ -1202,8 +1202,10 @@ State :: struct {
 	width: int,
 	height: int,
 
-	default_font: Font,
+	default_font: Font_Handle,
+	fonts: [dynamic]Font,
 	shape_drawing_texture: Texture_Handle,
+	batch_font: Maybe(Font),
 	batch_camera: Maybe(Camera),
 	batch_shader: Shader,
 	batch_scissor: Maybe(Rect),
@@ -1489,6 +1491,55 @@ frame_cstring :: proc(str: string, loc := #caller_location) -> cstring {
 
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+}
+
+FONT_DEFAULT_ATLAS_SIZE :: 1024
+
+update_font :: proc(fh: Font_Handle) {
+	font := &s.fonts[fh]
+	font_dirty_rect: [4]f32
+
+	tw := FONT_DEFAULT_ATLAS_SIZE
+
+	if fs.ValidateTexture(&s.fs, &font_dirty_rect) {
+		fdr := font_dirty_rect
+
+		r := Rect {
+			fdr[0],
+			fdr[1],
+			fdr[2] - fdr[0],
+			fdr[3] - fdr[1],
+		}
+
+		x := int(r.x)
+		y := int(r.y)
+		w := int(fdr[2]) - int(fdr[0])
+		h := int(fdr[3]) - int(fdr[1])
+
+		expanded_pixels := make([]Color, w * h, frame_allocator)
+		start := x + tw * y
+
+		for i in 0..<w*h {
+			px := i%w
+			py := i/w
+
+			dst_pixel_idx := (px) + (py * w)
+			src_pixel_idx := start + (px) + (py * tw)
+
+			src := s.fs.textureData[src_pixel_idx]
+			expanded_pixels[dst_pixel_idx] = {255,255,255, src}
+		}
+
+		rb.update_texture(font.atlas.handle, slice.reinterpret([]u8, expanded_pixels), r)
+	}
+}
+
+set_font :: proc(font: Font) {
+	if s.batch_font == font {
+		return
+	}
+
+
 }
 
 /*Load_Font_Error :: enum {
