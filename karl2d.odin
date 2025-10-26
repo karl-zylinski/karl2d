@@ -8,6 +8,7 @@ import "core:math/linalg"
 import "core:slice"
 import "core:strings"
 import "core:reflect"
+import "core:os"
 
 import fs "vendor:fontstash"
 
@@ -74,21 +75,11 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 
 	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
 
-	ROBOTO_FONT_DATA :: #load("roboto.ttf")
+	DEFAULT_FONT_DATA :: #load("roboto.ttf")
 
-	roboto_font := fs.AddFontMem(&s.fs, "roboto", ROBOTO_FONT_DATA, false)
-	fs.SetFont(&s.fs, roboto_font)
+	append_nothing(&s.fonts)
 
-	s.default_font = Font_Handle(len(s.fonts))
-
-	append(&s.fonts, Font {
-		fontstash_handle = roboto_font,
-		atlas = {
-			handle = rb.create_texture(FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .RGBA_8_Norm),
-			width = FONT_DEFAULT_ATLAS_SIZE,
-			height = FONT_DEFAULT_ATLAS_SIZE,
-		},
-	})
+	s.default_font = load_font_from_bytes(DEFAULT_FONT_DATA)
 
 	return s
 }
@@ -255,11 +246,7 @@ set_window_flags :: proc(flags: Window_Flags) {
 // so the maximum number of vertices that can be drawn in each batch is
 // VERTEX_BUFFER_MAX / shader.vertex_size
 draw_current_batch :: proc() {
-	update_font(s.default_font)
-	//for &f in s.fonts {
-
-	//}
-	
+	update_font(s.batch_font)
 	rb.draw(s.batch_shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.batch_scissor, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
 	s.vertex_buffer_cpu_used = 0
 }
@@ -656,10 +643,16 @@ measure_text :: proc(text: string, font_size: f32) -> Vec2 {
 }
 
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
-	//set_font(s.default_font)
+	draw_text_ex(s.default_font, text, pos, font_size, color)
+}
 
-	font := &s.fonts[s.default_font]
+draw_text_ex :: proc(font: Font_Handle, text: string, pos: Vec2, font_size: f32, color: Color) {
+	if int(font) >= len(s.fonts) {
+		return
+	}
 
+	set_font(font)
+	font := &s.fonts[font]
 	fs.SetSize(&s.fs, font_size)
 	iter := fs.TextIterInit(&s.fs, pos.x, pos.y+font_size/2, text)
 
@@ -685,35 +678,6 @@ draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
 
 		draw_texture_ex(font.atlas, src, dst, {}, 0, color)
 	}
-
-	/*if font_size == 0 || s.default_font.size == 0 {
-		return
-	}
-
-	x := pos.x
-	scl := (font_size / s.default_font.size)
-
-	for t in text {
-		if t >= FONT_MAX_CHARS {
-			continue
-		}
-
-		chr := s.default_font.chars[int(t)]
-		src := chr.rect
-
-		dst := Rect {
-			x = x + chr.offset.x * scl,
-			y = pos.y + chr.offset.y * scl + font_size*0.5,
-			w = src.w * scl,
-			h = src.h * scl,
-		}
-
-		x += chr.xadvance * scl
-
-		if t != ' ' {
-			draw_texture_ex(s.default_font.texture, src, dst, {}, 0, color)
-		}
-	}*/
 }
 
 //--------------------//
@@ -763,6 +727,39 @@ update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect) -> bool {
 
 destroy_texture :: proc(tex: Texture) {
 	rb.destroy_texture(tex.handle)
+}
+
+
+//-------//
+// FONTS //
+//-------//
+
+load_font_from_file :: proc(filename: string) -> Font_Handle {
+	if data, data_ok := os.read_entire_file(filename); data_ok {
+		return load_font_from_bytes(data)
+	}
+
+	return FONT_NONE
+}
+
+load_font_from_bytes :: proc(data: []u8) -> Font_Handle {
+	font := fs.AddFontMem(&s.fs, "", data, false)
+	h := Font_Handle(len(s.fonts))
+
+	append(&s.fonts, Font {
+		fontstash_handle = font,
+		atlas = {
+			handle = rb.create_texture(FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .RGBA_8_Norm),
+			width = FONT_DEFAULT_ATLAS_SIZE,
+			height = FONT_DEFAULT_ATLAS_SIZE,
+		},
+	})
+
+	return h
+}
+
+get_default_font :: proc() -> Font_Handle {
+	return s.default_font
 }
 
 
@@ -1161,6 +1158,7 @@ Font :: struct {
 Handle :: hm.Handle
 Texture_Handle :: distinct Handle
 Font_Handle :: distinct int
+FONT_NONE :: Font_Handle(0)
 TEXTURE_NONE :: Texture_Handle {}
 
 
@@ -1205,7 +1203,7 @@ State :: struct {
 	default_font: Font_Handle,
 	fonts: [dynamic]Font,
 	shape_drawing_texture: Texture_Handle,
-	batch_font: Maybe(Font),
+	batch_font: Font_Handle,
 	batch_camera: Maybe(Camera),
 	batch_shader: Shader,
 	batch_scissor: Maybe(Rect),
@@ -1534,73 +1532,26 @@ update_font :: proc(fh: Font_Handle) {
 	}
 }
 
-set_font :: proc(font: Font) {
-	if s.batch_font == font {
+set_font :: proc(fh: Font_Handle) {
+	fh := fh
+
+	if s.batch_font == fh {
 		return
 	}
 
+	s.batch_font = fh
 
+	if s.batch_font != FONT_NONE {
+		update_font(s.batch_font)
+	}
+
+	if fh == 0 {
+		fh = s.default_font
+	}
+
+	font := &s.fonts[fh]
+	fs.SetFont(&s.fs, font.fontstash_handle)
 }
-
-/*Load_Font_Error :: enum {
-	OK,
-	Load_File_Failed,
-	Bitmap_Bake_Failed,
-	Load_Texture_Failed,
-}
-
-// wip procedure
-load_default_font :: proc() -> (Font, Load_Font_Error) {
-	font_data := ROBOTO_FONT_DATA
-
-	PW :: 2048
-	PH :: 2048
-	SIZE :: 64
-	pixels := make([]u8, PW*PH, frame_allocator)
-	baked_chars := make([]tt.bakedchar, FONT_MAX_CHARS, frame_allocator)
-	bake_res := tt.BakeFontBitmap(raw_data(font_data), 0, SIZE, raw_data(pixels), PW, PH, 0, FONT_MAX_CHARS, raw_data(baked_chars))
-
-	if bake_res == 0 {
-		return {}, .Bitmap_Bake_Failed
-	}
-
-	expanded_pixels := make([]Color, PW*PH, frame_allocator)
-
-	for p, i in pixels {
-		expanded_pixels[i] = {255,255,255,p}
-	}
-
-	tex := load_texture_from_bytes(slice.reinterpret([]u8, expanded_pixels), PW, PH, .RGBA_8_Norm)
-
-	if tex.handle == TEXTURE_NONE {
-		return {}, .Load_Texture_Failed
-	}
-
-	chars := make([]Font_Char, FONT_MAX_CHARS, s.allocator)
-
-	for i in 0..<FONT_MAX_CHARS {
-		b := baked_chars[i]
-		chars[i] = {
-			rect = {
-				x = f32(b.x0),
-				y = f32(b.y0),
-				w = f32(b.x1 - b.x0),
-				h = f32(b.y1 - b.y0),
-			},
-			offset = {
-				f32(b.xoff), f32(b.yoff),
-			},
-			xadvance = f32(b.xadvance),
-			r = rune(i),
-		}
-	}
-
-	return {
-		texture = tex,
-		chars = chars,
-		size = SIZE,
-	}, .OK
-}*/
 
 _ :: jpeg
 _ :: bmp

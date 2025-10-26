@@ -56,8 +56,9 @@ set_window_flags :: proc(flags: Window_Flags)
 // - set_camera
 // - set_shader
 // - set_shader_constant
+// - set_scissor_rect
 // - draw_texture_* IF previous draw did not use the same texture (1)
-// - draw_rect_*, draw_circle_* IF previous draw did not use the shapes drawing texture (2)
+// - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing texture (2)
 // 
 // (1) When drawing textures, the current texture is fed into the active shader. Everything within
 //     the same batch must use the same texture. So drawing with a new texture will draw the current
@@ -68,7 +69,9 @@ set_window_flags :: proc(flags: Window_Flags)
 //     before drawing a shape will break up the batches. TODO: Add possibility to customize shape
 //     drawing texture so that you can put it into an atlas.
 //
-// TODO: Name of this proc? submit_current_batch, flush_current_batch, draw_current_batch
+// The batch has maximum size of VERTEX_BUFFER_MAX bytes. The shader dictates how big a vertex is
+// so the maximum number of vertices that can be drawn in each batch is
+// VERTEX_BUFFER_MAX / shader.vertex_size
 draw_current_batch :: proc()
 
 //-------//
@@ -133,14 +136,38 @@ draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE)
 
 draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE)
 
+measure_text :: proc(text: string, font_size: f32) -> Vec2
+
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color)
+
+draw_text_ex :: proc(font: Font_Handle, text: string, pos: Vec2, font_size: f32, color: Color)
 
 //--------------------//
 // TEXTURE MANAGEMENT //
 //--------------------//
 load_texture_from_file :: proc(filename: string) -> Texture
 
+// TODO should we have an error here or rely on check the handle of the texture?
+load_texture_from_bytes :: proc(bytes: []u8, width: int, height: int, format: Pixel_Format) -> Texture
+
+// Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
+// (w, h) = (texture_width, texture_height)
+get_texture_rect :: proc(t: Texture) -> Rect
+
+// Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
+// `tex` where the new pixels should end up.
+update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect) -> bool
+
 destroy_texture :: proc(tex: Texture)
+
+//-------//
+// FONTS //
+//-------//
+load_font_from_file :: proc(filename: string) -> Font_Handle
+
+load_font_from_bytes :: proc(data: []u8) -> Font_Handle
+
+get_default_font :: proc() -> Font_Handle
 
 //---------//
 // SHADERS //
@@ -326,10 +353,21 @@ Pixel_Format :: enum {
 	RGBA_8_Norm,
 	RG_8_Norm,
 	R_8_Norm,
+
+	R_8_UInt,
+}
+
+Font :: struct {
+	atlas: Texture,
+
+	// internal
+	fontstash_handle: int,
 }
 
 Handle :: hm.Handle
 Texture_Handle :: distinct Handle
+Font_Handle :: distinct int
+FONT_NONE :: Font_Handle(0)
 TEXTURE_NONE :: Texture_Handle {}
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
@@ -338,11 +376,15 @@ TEXTURE_NONE :: Texture_Handle {}
 // reload).
 State :: struct {
 	allocator: runtime.Allocator,
+	frame_arena: runtime.Arena,
+	frame_allocator: runtime.Allocator,
 	custom_context: runtime.Context,
 	win: Window_Interface,
 	window_state: rawptr,
 	rb: Render_Backend_Interface,
 	rb_state: rawptr,
+
+	fs: fs.FontContext,
 	
 	shutdown_wanted: bool,
 
@@ -366,9 +408,12 @@ State :: struct {
 	width: int,
 	height: int,
 
+	default_font: Font_Handle,
+	fonts: [dynamic]Font,
 	shape_drawing_texture: Texture_Handle,
+	batch_font: Font_Handle,
 	batch_camera: Maybe(Camera),
-	batch_shader: Maybe(Shader),
+	batch_shader: Shader,
 	batch_scissor: Maybe(Rect),
 	batch_texture: Texture_Handle,
 
