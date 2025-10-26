@@ -659,17 +659,6 @@ create_swapchain :: proc(w, h: int) {
 	ch(s.device->CreateDepthStencilView(s.depth_buffer, nil, &s.depth_buffer_view))
 }
 
-Color_F32 :: [4]f32
-
-f32_color_from_color :: proc(color: Color) -> Color_F32 {
-	return {
-		f32(color.r) / 255,
-		f32(color.g) / 255,
-		f32(color.b) / 255,
-		f32(color.a) / 255,
-	}
-}
-
 D3D11_Texture :: struct {
 	handle: Texture_Handle,
 	tex: ^d3d11.ITexture2D,

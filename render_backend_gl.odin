@@ -25,12 +25,20 @@ RENDER_BACKEND_INTERFACE_GL :: Render_Backend_Interface {
 
 import "base:runtime"
 import gl "vendor:OpenGL"
-import glfw "vendor:glfw"
+import hm "handle_map"
+import "core:log"
+import win32 "core:sys/windows"
 
 GL_State :: struct {
 	width: int,
 	height: int,
 	allocator: runtime.Allocator,
+	shaders: hm.Handle_Map(GL_Shader, Shader_Handle, 1024*10),
+}
+
+GL_Shader :: struct {
+	handle: Shader_Handle,
+	program: u32,
 }
 
 s: ^GL_State
@@ -45,14 +53,19 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 	s.height = swapchain_height
 	s.allocator = allocator
 
-	gl.load_up_to(3, 3, glfw.gl_set_proc_address)
-
+	// https://wikis.khronos.org/opengl/Creating_an_OpenGL_Context_(WGL)
+	ctx := win32.wglCreateContext(win32.HDC(window_handle))
+	win32.wglMakeCurrent(win32.HDC(window_handle), ctx)
+	gl.load_up_to(3, 3, win32.gl_set_proc_address)
 }
 
 gl_shutdown :: proc() {
 }
 
 gl_clear :: proc(color: Color) {
+	c := f32_color_from_color(color)
+	gl.ClearColor(c.r, c.g, c.b, c.a)
+	gl.Clear(gl.COLOR_BUFFER_BIT)
 }
 
 gl_present :: proc() {
@@ -104,7 +117,18 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 	gl.ShaderSource(fs_id, 1, &fs_cstr, &fs_len)
 	gl.CompileShader(fs_id)
 
-	return {}, {}
+	program := gl.CreateProgram()
+	gl.AttachShader(program, vs_id)
+	gl.AttachShader(program, fs_id)
+	gl.LinkProgram(program)
+
+	shader := GL_Shader {
+		program = program,
+	}
+
+	h := hm.add(&s.shaders, shader)
+
+	return h, {}
 }
 
 gl_destroy_shader :: proc(h: Shader_Handle) {
