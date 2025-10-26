@@ -46,16 +46,9 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	fs.Init(&s.fs, 1024, 1024, .TOPLEFT)
 
 	ROBOTO_FONT_DATA :: #load("roboto.ttf")
-	//SIMSUN_FONT_DATA :: #load("simsun.ttc")
-	//MALGUN_FONT_DATA :: #load("malgun.ttf")
 
 	roboto_font := fs.AddFontMem(&s.fs, "roboto", ROBOTO_FONT_DATA, false)
 	fs.SetFont(&s.fs, roboto_font)
-
-	//simsun_font := fs.AddFontMem(&s.fs, "simsun", SIMSUN_FONT_DATA, false)
-	//malgun_font := fs.AddFontMem(&s.fs, "malgun", MALGUN_FONT_DATA, false)
-	//fs.AddFallbackFont(&s.fs, roboto_font, simsun_font)
-	//fs.AddFallbackFont(&s.fs, roboto_font, malgun_font)
 
 	win = s.win
 
@@ -752,6 +745,12 @@ get_texture_rect :: proc(t: Texture) -> Rect {
 		0, 0,
 		f32(t.width), f32(t.height),
 	}
+}
+
+// Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
+// `tex` where the new pixels should end up.
+update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect) -> bool {
+	return rb.update_texture(tex.handle, bytes, rect)
 }
 
 destroy_texture :: proc(tex: Texture) {

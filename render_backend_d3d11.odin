@@ -16,6 +16,7 @@ RENDER_BACKEND_INTERFACE_D3D11 :: Render_Backend_Interface {
 	get_swapchain_height = d3d11_get_swapchain_height,
 	set_internal_state = d3d11_set_internal_state,
 	load_texture = d3d11_load_texture,
+	update_texture = d3d11_update_texture,
 	destroy_texture = d3d11_destroy_texture,
 	load_shader = d3d11_load_shader,
 	destroy_shader = d3d11_destroy_shader,
@@ -325,7 +326,7 @@ d3d11_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Fo
 		// TODO: _SRGB or not?
 		Format     = dxgi_format_from_pixel_format(format),
 		SampleDesc = {Count = 1},
-		Usage      = .IMMUTABLE,
+		Usage      = .DEFAULT,
 		BindFlags  = {.SHADER_RESOURCE},
 	}
 
@@ -342,10 +343,32 @@ d3d11_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Fo
 
 	tex := D3D11_Texture {
 		tex = texture,
+		format = format,
 		view = texture_view,
 	}
 
 	return hm.add(&s.textures, tex)
+}
+
+d3d11_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
+	tex := hm.get(&s.textures, th)
+
+	if tex == nil {
+		return false
+	}
+
+	box := d3d11.BOX {
+		left = u32(rect.x),
+		top = u32(rect.y),
+		bottom = u32(rect.y + rect.h),
+		right = u32(rect.x + rect.w),
+		back = 1,
+		front = 0,
+	}
+
+	row_pitch := pixel_format_size(tex.format) * int(rect.w)
+	s.device_context->UpdateSubresource(tex.tex, 0, &box, raw_data(data), u32(row_pitch), 0)
+	return true
 }
 
 d3d11_destroy_texture :: proc(th: Texture_Handle) {
@@ -622,6 +645,7 @@ D3D11_Texture :: struct {
 	handle: Texture_Handle,
 	tex: ^d3d11.ITexture2D,
 	view: ^d3d11.IShaderResourceView,
+	format: Pixel_Format,
 }
 
 dxgi_format_from_pixel_format :: proc(f: Pixel_Format) -> dxgi.FORMAT {

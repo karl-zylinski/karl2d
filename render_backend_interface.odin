@@ -26,6 +26,7 @@ Render_Backend_Interface :: struct {
 	set_internal_state: proc(state: rawptr),
 
 	load_texture: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle,
+	update_texture: proc(handle: Texture_Handle, data: []u8, rect: Rect) -> bool,
 	destroy_texture: proc(handle: Texture_Handle),
 
 	load_shader: proc(shader_source: string, desc_allocator := context.temp_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc),
