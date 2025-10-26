@@ -47,7 +47,7 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 		._11_1,
 		._11_0,
 	}
-
+	
 	base_device: ^d3d11.IDevice
 	base_device_context: ^d3d11.IDeviceContext
 
@@ -409,10 +409,10 @@ d3d11_destroy_texture :: proc(th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 }
 
-d3d11_load_shader :: proc(shader_source: string, desc_allocator := frame_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
+d3d11_load_shader :: proc(vs_source: string, ps_source: string, desc_allocator := frame_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
 	vs_blob: ^d3d11.IBlob
 	vs_blob_errors: ^d3d11.IBlob
-	ch(d3d_compiler.Compile(raw_data(shader_source), len(shader_source), nil, nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
+	ch(d3d_compiler.Compile(raw_data(vs_source), len(vs_source), nil, nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
 
 	if vs_blob_errors != nil {
 		log.error("Failed compiling shader:")
@@ -547,7 +547,7 @@ d3d11_load_shader :: proc(shader_source: string, desc_allocator := frame_allocat
 
 	ps_blob: ^d3d11.IBlob
 	ps_blob_errors: ^d3d11.IBlob
-	ch(d3d_compiler.Compile(raw_data(shader_source), len(shader_source), nil, nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, &ps_blob_errors))
+	ch(d3d_compiler.Compile(raw_data(ps_source), len(ps_source), nil, nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, &ps_blob_errors))
 
 	if ps_blob_errors != nil {
 		log.error("Failed compiling shader:")
