@@ -167,7 +167,7 @@ load_font_from_file :: proc(filename: string) -> Font_Handle
 
 load_font_from_bytes :: proc(data: []u8) -> Font_Handle
 
-destroy_font :: proc
+destroy_font :: proc(font: Font_Handle)
 
 get_default_font :: proc() -> Font_Handle
 
