@@ -26,5 +26,6 @@ main :: proc() {
 		free_all(context.temp_allocator)
 	}
 
+	k2.destroy_font(cao_font)
 	k2.shutdown()
 }

@@ -97,6 +97,7 @@ shutdown_wanted :: proc() -> bool {
 shutdown :: proc() {
 	assert(s != nil, "You've called 'shutdown' without calling 'init' first")
 
+	destroy_font(s.default_font)
 	rb.destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
 	rb.shutdown()
@@ -756,6 +757,18 @@ load_font_from_bytes :: proc(data: []u8) -> Font_Handle {
 	})
 
 	return h
+}
+
+destroy_font :: proc(font: Font_Handle) {
+	if int(font) >= len(s.fonts) {
+		return
+	}
+
+	f := &s.fonts[font]
+	rb.destroy_texture(f.atlas.handle)	
+
+	// TODO fontstash has no "destroy font" proc... I should make my own version of fontstash
+	delete(s.fs.fonts[f.fontstash_handle].glyphs)
 }
 
 get_default_font :: proc() -> Font_Handle {
