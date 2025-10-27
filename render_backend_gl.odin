@@ -34,6 +34,7 @@ GL_State :: struct {
 	height: int,
 	allocator: runtime.Allocator,
 	shaders: hm.Handle_Map(GL_Shader, Shader_Handle, 1024*10),
+	dc: win32.HDC,
 }
 
 GL_Shader :: struct {
@@ -53,9 +54,34 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 	s.height = swapchain_height
 	s.allocator = allocator
 
+	pfd := win32.PIXELFORMATDESCRIPTOR {
+		size_of(win32.PIXELFORMATDESCRIPTOR),
+		1,
+		win32.PFD_DRAW_TO_WINDOW | win32.PFD_SUPPORT_OPENGL | win32.PFD_DOUBLEBUFFER,    // Flags
+		win32.PFD_TYPE_RGBA,        // The kind of framebuffer. RGBA or palette.
+		32,                   // Colordepth of the framebuffer.
+		0, 0, 0, 0, 0, 0,
+		0,
+		0,
+		0,
+		0, 0, 0, 0,
+		24,                   // Number of bits for the depthbuffer
+		8,                    // Number of bits for the stencilbuffer
+		0,                    // Number of Aux buffers in the framebuffer.
+		win32.PFD_MAIN_PLANE,
+		0,
+		0, 0, 0
+	}
+
+
+	hdc := win32.GetWindowDC(win32.HWND(window_handle))
+	s.dc = hdc
+	fmt := win32.ChoosePixelFormat(hdc, &pfd)
+	win32.SetPixelFormat(hdc, fmt, &pfd)
+
 	// https://wikis.khronos.org/opengl/Creating_an_OpenGL_Context_(WGL)
-	ctx := win32.wglCreateContext(win32.HDC(window_handle))
-	win32.wglMakeCurrent(win32.HDC(window_handle), ctx)
+	ctx := win32.wglCreateContext(hdc)
+	win32.wglMakeCurrent(hdc, ctx)
 	gl.load_up_to(3, 3, win32.gl_set_proc_address)
 }
 
@@ -69,6 +95,7 @@ gl_clear :: proc(color: Color) {
 }
 
 gl_present :: proc() {
+	win32.SwapBuffers(s.dc)
 }
 
 gl_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: Maybe(Rect), vertex_buffer: []u8) {
