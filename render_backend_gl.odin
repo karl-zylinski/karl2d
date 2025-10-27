@@ -131,22 +131,52 @@ gl_destroy_texture :: proc(th: Texture_Handle) {
 
 }
 
-gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := frame_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
-	vs_id := gl.CreateShader(u32(gl.Shader_Type.VERTEX_SHADER))
-	vs_len := i32(len(vs_source))
-	vs_cstr := cstring(raw_data(vs_source))
-	gl.ShaderSource(vs_id, 1, &vs_cstr, &vs_len)
-	gl.CompileShader(vs_id)
+Shader_Compile_Result_OK :: struct {}
 
-	fs_id := gl.CreateShader(u32(gl.Shader_Type.FRAGMENT_SHADER))
-	fs_len := i32(len(fs_source))
-	fs_cstr := cstring(raw_data(fs_source))
-	gl.ShaderSource(fs_id, 1, &fs_cstr, &fs_len)
-	gl.CompileShader(fs_id)
+Shader_Compile_Result_Error :: string
+
+Shader_Compile_Result :: union #no_nil {
+	Shader_Compile_Result_OK,
+	Shader_Compile_Result_Error,
+}
+
+compile_shader_from_source :: proc(shader_data: string, shader_type: gl.Shader_Type, err_buf: []u8, err_msg: ^string) -> (shader_id: u32, ok: bool) {
+	shader_id = gl.CreateShader(u32(shader_type))
+	length := i32(len(shader_data))
+	shader_cstr := cstring(raw_data(shader_data))
+	gl.ShaderSource(shader_id, 1, &shader_cstr, &length)
+	gl.CompileShader(shader_id)
+
+	result: i32
+	if result == 0 {
+		gl.GetShaderiv(shader_id, gl.COMPILE_STATUS, &result)
+		info_len: i32
+		gl.GetShaderInfoLog(shader_id, i32(len(err_buf)), &info_len, raw_data(err_buf))
+		err_msg^ = string(err_buf[:info_len])
+		return 0, false
+	}
+
+	return shader_id, true
+}
+
+gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := frame_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
+	@static err: [1024]u8
+	err_msg: string
+	vs_shader, vs_shader_ok := compile_shader_from_source(vs_source, gl.Shader_Type.VERTEX_SHADER, err[:], &err_msg)
+
+	if vs_shader_ok  {
+		log.info(err_msg)
+	}
+	
+	fs_shader, fs_shader_ok := compile_shader_from_source(fs_source, gl.Shader_Type.FRAGMENT_SHADER, err[:], &err_msg)
+
+	if !fs_shader_ok {
+		log.info(err_msg)
+	}
 
 	program := gl.CreateProgram()
-	gl.AttachShader(program, vs_id)
-	gl.AttachShader(program, fs_id)
+	gl.AttachShader(program, vs_shader)
+	gl.AttachShader(program, fs_shader)
 	gl.LinkProgram(program)
 
 	shader := GL_Shader {
