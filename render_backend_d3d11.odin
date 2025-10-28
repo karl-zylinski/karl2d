@@ -21,6 +21,8 @@ RENDER_BACKEND_INTERFACE_D3D11 :: Render_Backend_Interface {
 	destroy_texture = d3d11_destroy_texture,
 	load_shader = d3d11_load_shader,
 	destroy_shader = d3d11_destroy_shader,
+	default_shader_vertex_source = d3d11_default_shader_vertex_source,
+	default_shader_fragment_source = d3d11_default_shader_fragment_source,
 }
 
 import d3d11 "vendor:directx/d3d11"
@@ -730,4 +732,14 @@ log_messages :: proc(loc := #caller_location) {
 	}
 
 	iq->ClearStoredMessages()
+}
+
+DEFAULT_SHADER_SOURCE :: #load("shader.hlsl")
+
+d3d11_default_shader_vertex_source :: proc() -> string {
+	return string(DEFAULT_SHADER_SOURCE)
+}
+
+d3d11_default_shader_fragment_source :: proc() -> string {
+	return string(DEFAULT_SHADER_SOURCE)
 }

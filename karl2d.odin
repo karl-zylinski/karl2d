@@ -65,7 +65,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	slice.fill(white_rect[:], 255)
 	s.shape_drawing_texture = rb.load_texture(white_rect[:], 16, 16, .RGBA_8_Norm)
 
-	s.default_shader = load_shader(string(DEFAULT_SHADER_SOURCE))
+	s.default_shader = load_shader(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
 	s.batch_shader = s.default_shader
 	/*if font, font_err := load_default_font(); font_err == .OK {
 		s.default_font = font
@@ -780,8 +780,8 @@ get_default_font :: proc() -> Font_Handle {
 // SHADERS //
 //---------//
 
-load_shader :: proc(shader_source: string, layout_formats: []Pixel_Format = {}) -> Shader {
-	handle, desc := rb.load_shader(shader_source, shader_source, s.frame_allocator, layout_formats)
+load_shader :: proc(vertex_shader_source: string, fragment_shader_source: string, layout_formats: []Pixel_Format = {}) -> Shader {
+	handle, desc := rb.load_shader(vertex_shader_source, fragment_shader_source, s.frame_allocator, layout_formats)
 
 	if handle == SHADER_NONE {
 		log.error("Failed loading shader")
@@ -1447,7 +1447,6 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 
 
 VERTEX_BUFFER_MAX :: 1000000
-DEFAULT_SHADER_SOURCE :: #load("shader.hlsl")
 
 @(private="file")
 s: ^State

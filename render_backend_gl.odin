@@ -21,6 +21,9 @@ RENDER_BACKEND_INTERFACE_GL :: Render_Backend_Interface {
 	destroy_texture = gl_destroy_texture,
 	load_shader = gl_load_shader,
 	destroy_shader = gl_destroy_shader,
+
+	default_shader_vertex_source = gl_default_shader_vertex_source,
+	default_shader_fragment_source = gl_default_shader_fragment_source,
 }
 
 import "base:runtime"
@@ -148,15 +151,37 @@ compile_shader_from_source :: proc(shader_data: string, shader_type: gl.Shader_T
 	gl.CompileShader(shader_id)
 
 	result: i32
-	if result == 0 {
-		gl.GetShaderiv(shader_id, gl.COMPILE_STATUS, &result)
+	gl.GetShaderiv(shader_id, gl.COMPILE_STATUS, &result)
+		
+	if result != 1 {
 		info_len: i32
 		gl.GetShaderInfoLog(shader_id, i32(len(err_buf)), &info_len, raw_data(err_buf))
 		err_msg^ = string(err_buf[:info_len])
+		gl.DeleteShader(shader_id)
 		return 0, false
 	}
 
 	return shader_id, true
+}
+
+link_shader :: proc(vs_shader: u32, fs_shader: u32, err_buf: []u8, err_msg: ^string) -> (program_id: u32, ok: bool) {
+	program_id = gl.CreateProgram()
+	gl.AttachShader(program_id, vs_shader)
+	gl.AttachShader(program_id, fs_shader)
+	gl.LinkProgram(program_id)
+
+	result: i32
+	gl.GetProgramiv(program_id, gl.LINK_STATUS, &result)
+
+	if result != 1 {
+		info_len: i32
+		gl.GetProgramInfoLog(program_id, i32(len(err_buf)), &info_len, raw_data(err_buf))
+		err_msg^ = string(err_buf[:info_len])
+		gl.DeleteProgram(program_id)
+		return 0, false
+	}
+
+	return program_id, true
 }
 
 gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := frame_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
@@ -164,20 +189,53 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 	err_msg: string
 	vs_shader, vs_shader_ok := compile_shader_from_source(vs_source, gl.Shader_Type.VERTEX_SHADER, err[:], &err_msg)
 
-	if vs_shader_ok  {
-		log.info(err_msg)
+	if !vs_shader_ok  {
+		log.error(err_msg)
+		return {}, {}
 	}
 	
 	fs_shader, fs_shader_ok := compile_shader_from_source(fs_source, gl.Shader_Type.FRAGMENT_SHADER, err[:], &err_msg)
 
 	if !fs_shader_ok {
-		log.info(err_msg)
+		log.error(err_msg)
+		return {}, {}
 	}
 
-	program := gl.CreateProgram()
-	gl.AttachShader(program, vs_shader)
-	gl.AttachShader(program, fs_shader)
-	gl.LinkProgram(program)
+	program, program_ok := link_shader(vs_shader, fs_shader, err[:], &err_msg)
+
+	if !program_ok {
+		log.error(err_msg)
+		return {}, {}
+	}
+
+	{
+		num_attribs: i32
+		gl.GetProgramiv(program, gl.ACTIVE_ATTRIBUTES, &num_attribs)
+		desc.inputs = make([]Shader_Input, num_attribs, desc_allocator)
+
+		attrib_name_buf: [256]u8
+
+		for i in 0..<num_attribs {
+			attrib_name_len: i32
+			attrib_size: i32
+			attrib_type: u32
+			gl.GetActiveAttrib(program, u32(i), i32(len(attrib_name_buf)), &attrib_name_len, &attrib_size, &attrib_type, raw_data(attrib_name_buf[:]))
+
+			type: Shader_Input_Type
+
+			switch attrib_type {
+				case gl.FLOAT: type = .F32
+				case gl.FLOAT_VEC2: type = .Vec2
+				case gl.FLOAT_VEC3: type = .Vec3
+				case gl.FLOAT_VEC4: type = .Vec4
+				case: log.errorf("Unknwon type: %v", attrib_type)
+			}
+
+			// olic constants GL_FLOAT, GL_FLOAT_VEC2, GL_FLOAT_VEC3, GL_FLOAT_VEC4, GL_FLOAT_MAT2, GL_FLOAT_MAT3, GL_FLOAT_MAT4, GL_FLOAT_MAT2x3, GL_FLOAT_MAT2x4, GL_FLOAT_MAT3x2, GL_FLOAT_MAT3x4, GL_FLOAT_MAT4x2, GL_FLOAT_MAT4x3, GL_INT, GL_INT_VEC2, GL_INT_VEC3, GL_INT_VEC4, GL_UNSIGNED_INT, GL_UNSIGNED_INT_VEC2, GL_UNSIGNED_INT_VEC3, GL_UNSIGNED_INT_VEC4, GL_DOUBLE, GL_DOUBLE_VEC2, GL_DOUBLE_VEC3, GL_DOUBLE_VEC4, GL_DOUBLE_MAT2, GL_DOUBLE_MAT3, GL_DOUBLE_MAT4, GL_DOUBLE_MAT2x3, GL_DOUBLE_MAT2x4, GL_DOUBLE_MAT3x2, GL_DOUBLE_MAT3x4, GL_DOUBLE_MAT4x2, or GL_DOUBLE_MAT4x3 may be retur
+
+			//log.info(i, attrib_name_len, attrib_size, attrib_type, string(attrib_name_buf[:attrib_name_len]))
+		}
+	}
 
 	shader := GL_Shader {
 		program = program,
@@ -191,3 +249,13 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 gl_destroy_shader :: proc(h: Shader_Handle) {
 	
 }
+
+gl_default_shader_vertex_source :: proc() -> string {
+	return #load("default_shader_vertex.glsl")
+}
+
+
+gl_default_shader_fragment_source :: proc() -> string {
+	return #load("default_shader_fragment.glsl")
+}
+
