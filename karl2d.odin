@@ -837,7 +837,7 @@ load_shader :: proc(vertex_shader_source: string, fragment_shader_source: string
 	}
 
 	shd.vertex_size = input_offset
-
+	log.info(shd.vertex_size)
 	return shd
 }
 
@@ -1038,7 +1038,8 @@ Color :: [4]u8
 WHITE :: Color { 255, 255, 255, 255 }
 BLACK :: Color { 0, 0, 0, 255 }
 GRAY  :: Color { 127, 127, 127, 255 }
-RED   :: Color { 198, 80, 90, 255 }
+RED   :: Color { 198, 40, 90, 255 }
+GREEN :: Color { 30, 240, 30, 255 }
 BLANK :: Color { 0, 0, 0, 0 }
 BLUE  :: Color { 30, 116, 240, 255 }
 
@@ -1465,6 +1466,22 @@ get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> 
 	}
 
 	return .Unknown
+}
+
+get_shader_format_num_components :: proc(format: Pixel_Format) -> int {
+	switch format {
+	case .Unknown: return 0 
+	case .RGBA_32_Float: return 4
+	case .RGB_32_Float: return 3
+	case .RG_32_Float: return 2
+	case .R_32_Float: return 1
+	case .RGBA_8_Norm: return 4
+	case .RG_8_Norm: return 2
+	case .R_8_Norm: return 1
+	case .R_8_UInt: return 1
+	}
+
+	return 0
 }
 
 get_shader_input_format :: proc(name: string, type: Shader_Input_Type) -> Pixel_Format {

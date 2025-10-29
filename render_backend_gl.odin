@@ -31,6 +31,8 @@ import gl "vendor:OpenGL"
 import hm "handle_map"
 import "core:log"
 import win32 "core:sys/windows"
+import "core:strings"
+import "core:slice"
 
 GL_State :: struct {
 	width: int,
@@ -38,10 +40,19 @@ GL_State :: struct {
 	allocator: runtime.Allocator,
 	shaders: hm.Handle_Map(GL_Shader, Shader_Handle, 1024*10),
 	dc: win32.HDC,
+	vertex_buffer_gpu: u32,
+}
+
+GL_Shader_Constant_Buffer :: struct {
+	gpu_data: rawptr,
 }
 
 GL_Shader :: struct {
 	handle: Shader_Handle,
+
+	// This is like the "input layout"
+	vao: u32,
+
 	program: u32,
 }
 
@@ -56,6 +67,9 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 	s.width = swapchain_width
 	s.height = swapchain_height
 	s.allocator = allocator
+
+	hdc := win32.GetWindowDC(win32.HWND(window_handle))
+	s.dc = hdc
 
 	pfd := win32.PIXELFORMATDESCRIPTOR {
 		size_of(win32.PIXELFORMATDESCRIPTOR),
@@ -76,16 +90,44 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 		0, 0, 0,
 	}
 
-
-	hdc := win32.GetWindowDC(win32.HWND(window_handle))
-	s.dc = hdc
 	fmt := win32.ChoosePixelFormat(hdc, &pfd)
 	win32.SetPixelFormat(hdc, fmt, &pfd)
-
-	// https://wikis.khronos.org/opengl/Creating_an_OpenGL_Context_(WGL)
 	ctx := win32.wglCreateContext(hdc)
 	win32.wglMakeCurrent(hdc, ctx)
+
+	win32.gl_set_proc_address(&win32.wglChoosePixelFormatARB, "wglChoosePixelFormatARB")
+	win32.gl_set_proc_address(&win32.wglCreateContextAttribsARB, "wglCreateContextAttribsARB")
+
+	pixel_format_ilist := [?]i32 {
+		win32.WGL_DRAW_TO_WINDOW_ARB, 1,
+		win32.WGL_SUPPORT_OPENGL_ARB, 1,
+		win32.WGL_DOUBLE_BUFFER_ARB, 1,
+		win32.WGL_PIXEL_TYPE_ARB, win32.WGL_TYPE_RGBA_ARB,
+		win32.WGL_COLOR_BITS_ARB, 32,
+		win32.WGL_DEPTH_BITS_ARB, 24,
+		win32.WGL_STENCIL_BITS_ARB, 8,
+		0,
+	}
+
+	pixel_format: i32
+	num_formats: u32
+
+	valid_pixel_format := win32.wglChoosePixelFormatARB(hdc, raw_data(pixel_format_ilist[:]),
+		nil, 1, &pixel_format, &num_formats)
+
+	if !valid_pixel_format {
+		log.panic("Could not find a valid pixel format for gl context")
+	}
+
+	win32.SetPixelFormat(hdc, pixel_format, nil)
+	ctx = win32.wglCreateContextAttribsARB(hdc, nil, nil)
+	win32.wglMakeCurrent(hdc, ctx)
+
 	gl.load_up_to(3, 3, win32.gl_set_proc_address)
+
+	gl.GenBuffers(1, &s.vertex_buffer_gpu)
+	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
+	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
 }
 
 gl_shutdown :: proc() {
@@ -102,6 +144,35 @@ gl_present :: proc() {
 }
 
 gl_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: Maybe(Rect), vertex_buffer: []u8) {
+	shader := hm.get(&s.shaders, shd.handle)
+
+	if shader == nil {
+		return
+	}
+
+	gl.EnableVertexAttribArray(0)
+	gl.EnableVertexAttribArray(1)
+	gl.EnableVertexAttribArray(2)
+
+	gl.UseProgram(shader.program)
+	
+	mvp_loc := gl.GetUniformLocation(shader.program, "mvp")
+	mvp := view_proj
+	gl.UniformMatrix4fv(mvp_loc, 1, gl.FALSE, (^f32)(&mvp))
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
+
+	vb_data := gl.MapBuffer(gl.ARRAY_BUFFER, gl.WRITE_ONLY)
+	{
+		gpu_map := slice.from_ptr((^u8)(vb_data), VERTEX_BUFFER_MAX)
+		copy(
+			gpu_map,
+			vertex_buffer,
+		)
+	}
+	gl.UnmapBuffer(gl.ARRAY_BUFFER)
+
+	gl.DrawArrays(gl.TRIANGLES, 0, i32(len(vertex_buffer)/shd.vertex_size))
 }
 
 gl_resize_swapchain :: proc(w, h: int) {
@@ -208,6 +279,8 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 		return {}, {}
 	}
 
+	stride: int
+
 	{
 		num_attribs: i32
 		gl.GetProgramiv(program, gl.ACTIVE_ATTRIBUTES, &num_attribs)
@@ -221,6 +294,10 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			attrib_type: u32
 			gl.GetActiveAttrib(program, u32(i), i32(len(attrib_name_buf)), &attrib_name_len, &attrib_size, &attrib_type, raw_data(attrib_name_buf[:]))
 
+			name_cstr := strings.clone_to_cstring(string(attrib_name_buf[:attrib_name_len]), desc_allocator)
+			
+			loc := gl.GetAttribLocation(program, name_cstr)
+			log.info(loc)
 			type: Shader_Input_Type
 
 			switch attrib_type {
@@ -228,22 +305,92 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			case gl.FLOAT_VEC2: type = .Vec2
 			case gl.FLOAT_VEC3: type = .Vec3
 			case gl.FLOAT_VEC4: type = .Vec4
+			
+			/* Possible (gl.) types:
+
+			   FLOAT, FLOAT_VEC2, FLOAT_VEC3, FLOAT_VEC4, FLOAT_MAT2,
+			   FLOAT_MAT3, FLOAT_MAT4, FLOAT_MAT2x3, FLOAT_MAT2x4,
+			   FLOAT_MAT3x2, FLOAT_MAT3x4, FLOAT_MAT4x2, FLOAT_MAT4x3,
+			   INT, INT_VEC2, INT_VEC3, INT_VEC4, UNSIGNED_INT, 
+			   UNSIGNED_INT_VEC2, UNSIGNED_INT_VEC3, UNSIGNED_INT_VEC4,
+			   DOUBLE, DOUBLE_VEC2, DOUBLE_VEC3, DOUBLE_VEC4, DOUBLE_MAT2,
+			   DOUBLE_MAT3, DOUBLE_MAT4, DOUBLE_MAT2x3, DOUBLE_MAT2x4,
+			   DOUBLE_MAT3x2, DOUBLE_MAT3x4, DOUBLE_MAT4x2, or DOUBLE_MAT4x3 */
+
 			case: log.errorf("Unknwon type: %v", attrib_type)
 			}
 
-			// olic constants GL_FLOAT, GL_FLOAT_VEC2, GL_FLOAT_VEC3, GL_FLOAT_VEC4, GL_FLOAT_MAT2, GL_FLOAT_MAT3, GL_FLOAT_MAT4, GL_FLOAT_MAT2x3, GL_FLOAT_MAT2x4, GL_FLOAT_MAT3x2, GL_FLOAT_MAT3x4, GL_FLOAT_MAT4x2, GL_FLOAT_MAT4x3, GL_INT, GL_INT_VEC2, GL_INT_VEC3, GL_INT_VEC4, GL_UNSIGNED_INT, GL_UNSIGNED_INT_VEC2, GL_UNSIGNED_INT_VEC3, GL_UNSIGNED_INT_VEC4, GL_DOUBLE, GL_DOUBLE_VEC2, GL_DOUBLE_VEC3, GL_DOUBLE_VEC4, GL_DOUBLE_MAT2, GL_DOUBLE_MAT3, GL_DOUBLE_MAT4, GL_DOUBLE_MAT2x3, GL_DOUBLE_MAT2x4, GL_DOUBLE_MAT3x2, GL_DOUBLE_MAT3x4, GL_DOUBLE_MAT4x2, or GL_DOUBLE_MAT4x3 may be retur
+			name := strings.clone(string(attrib_name_buf[:attrib_name_len]), desc_allocator)
+			
+			log.info(name)
+			format := len(layout_formats) > 0 ? layout_formats[loc] : get_shader_input_format(name, type)
+			desc.inputs[loc] = {
+				name = name,
+				register = int(loc),
+				format = format,
+				type = type,
+			}
 
+
+			input_format := get_shader_input_format(name, type)
+			format_size := pixel_format_size(input_format)
+
+			stride += format_size
+
+
+			// 
 			//log.info(i, attrib_name_len, attrib_size, attrib_type, string(attrib_name_buf[:attrib_name_len]))
 		}
 	}
+
 
 	shader := GL_Shader {
 		program = program,
 	}
 
+	gl.GenVertexArrays(1, &shader.vao)
+	gl.BindVertexArray(shader.vao)
+	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
+
+	offset: int
+	for idx in 0..<len(desc.inputs) {
+		input := desc.inputs[idx]
+		input_format := get_shader_input_format(input.name, input.type)
+		format_size := pixel_format_size(input_format)
+		num_components := get_shader_format_num_components(input_format)
+		gl.EnableVertexAttribArray(u32(idx))	
+		gl.VertexAttribPointer(u32(idx), i32(num_components), gl.FLOAT, gl.FALSE, i32(stride), uintptr(offset))
+		offset += format_size
+		log.info(input.name)
+	}
+
+
+	{
+		/*num_constant_buffers: i32
+		gl.GetProgramiv(program, gl.ACTIVE_UNIFORM_BLOCKS, &num_attribs)
+		desc.constant_buffers = make([]Shader_Constant_Buffer_Desc, num_constant_buffers, desc_allocator)
+		shader.constant_buffers = make([]GL_Shader_Constant_Buffer, num_constant_buffers, s.allocator)
+	
+		for cb_idx in 0..<num_constant_buffers {
+			buf: u32
+			gl.GenBuffers(1, &buf)*/
+
+
+
+	
+		/*
+		GetUniformIndices         :: proc "c" (program: u32, uniformCount: i32, uniformNames: [^]cstring, uniformIndices: [^]u32)         {        impl_GetUniformIndices(program, uniformCount, uniformNames, uniformIndices)                               }
+	GetActiveUniformsiv       :: proc "c" (program: u32, uniformCount: i32, uniformIndices: [^]u32, pname: u32, params: [^]i32)       {        impl_GetActiveUniformsiv(program, uniformCount, uniformIndices, pname, params)                            }
+	GetActiveUniformName      :: proc "c" (program: u32, uniformIndex: u32, bufSize: i32, length: ^i32, uniformName: [^]u8)           {        impl_GetActiveUniformName(program, uniformIndex, bufSize, length, uniformName)                            }
+	GetUniformBlockIndex      :: proc "c" (program: u32, uniformBlockName: cstring) -> u32                                            { ret := impl_GetUniformBlockIndex(program, uniformBlockName);                                          return ret }
+	GetActiveUniformBlockiv   :: proc "c" (program: u32, uniformBlockIndex: u32, pname: u32, params: [^]i32)                          {        impl_GetActiveUniformBlockiv(program, uniformBlockIndex, pname, params)                                   }
+
+*/		
+	}
+
 	h := hm.add(&s.shaders, shader)
 
-	return h, {}
+	return h, desc
 }
 
 gl_destroy_shader :: proc(h: Shader_Handle) {
