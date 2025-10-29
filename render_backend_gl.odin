@@ -73,7 +73,7 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 		0,                    // Number of Aux buffers in the framebuffer.
 		win32.PFD_MAIN_PLANE,
 		0,
-		0, 0, 0
+		0, 0, 0,
 	}
 
 
@@ -224,11 +224,11 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			type: Shader_Input_Type
 
 			switch attrib_type {
-				case gl.FLOAT: type = .F32
-				case gl.FLOAT_VEC2: type = .Vec2
-				case gl.FLOAT_VEC3: type = .Vec3
-				case gl.FLOAT_VEC4: type = .Vec4
-				case: log.errorf("Unknwon type: %v", attrib_type)
+			case gl.FLOAT: type = .F32
+			case gl.FLOAT_VEC2: type = .Vec2
+			case gl.FLOAT_VEC3: type = .Vec3
+			case gl.FLOAT_VEC4: type = .Vec4
+			case: log.errorf("Unknwon type: %v", attrib_type)
 			}
 
 			// olic constants GL_FLOAT, GL_FLOAT_VEC2, GL_FLOAT_VEC3, GL_FLOAT_VEC4, GL_FLOAT_MAT2, GL_FLOAT_MAT3, GL_FLOAT_MAT4, GL_FLOAT_MAT2x3, GL_FLOAT_MAT2x4, GL_FLOAT_MAT3x2, GL_FLOAT_MAT3x4, GL_FLOAT_MAT4x2, GL_FLOAT_MAT4x3, GL_INT, GL_INT_VEC2, GL_INT_VEC3, GL_INT_VEC4, GL_UNSIGNED_INT, GL_UNSIGNED_INT_VEC2, GL_UNSIGNED_INT_VEC3, GL_UNSIGNED_INT_VEC4, GL_DOUBLE, GL_DOUBLE_VEC2, GL_DOUBLE_VEC3, GL_DOUBLE_VEC4, GL_DOUBLE_MAT2, GL_DOUBLE_MAT3, GL_DOUBLE_MAT4, GL_DOUBLE_MAT2x3, GL_DOUBLE_MAT2x4, GL_DOUBLE_MAT3x2, GL_DOUBLE_MAT3x4, GL_DOUBLE_MAT4x2, or GL_DOUBLE_MAT4x3 may be retur
