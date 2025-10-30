@@ -36,6 +36,7 @@ Render_Backend_Interface :: struct {
 	resize_swapchain: proc(width, height: int),
 	get_swapchain_width: proc() -> int,
 	get_swapchain_height: proc() -> int,
+	flip_z: proc() -> bool,
 
 	batch_vertex: proc(v: Vec2, uv: Vec2, color: Color),
 

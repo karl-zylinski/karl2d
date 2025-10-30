@@ -837,7 +837,6 @@ load_shader :: proc(vertex_shader_source: string, fragment_shader_source: string
 	}
 
 	shd.vertex_size = input_offset
-	log.info(shd.vertex_size)
 	return shd
 }
 
@@ -1517,7 +1516,7 @@ frame_cstring :: proc(str: string, loc := #caller_location) -> cstring {
 }
 
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
-	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2, rb.flip_z())
 }
 
 FONT_DEFAULT_ATLAS_SIZE :: 1024

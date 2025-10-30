@@ -12,5 +12,5 @@ void main()
 {
     frag_uv = UV;
     frag_color = COL;
-    gl_Position = mvp * vec4(POS, 0.0, 1.0);
+    gl_Position = mvp * vec4(POS, 0.005, 1.0);
 }

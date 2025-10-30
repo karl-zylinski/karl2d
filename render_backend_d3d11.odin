@@ -14,6 +14,7 @@ RENDER_BACKEND_INTERFACE_D3D11 :: Render_Backend_Interface {
 	resize_swapchain = d3d11_resize_swapchain,
 	get_swapchain_width = d3d11_get_swapchain_width,
 	get_swapchain_height = d3d11_get_swapchain_height,
+	flip_z = d3d11_flip_z,
 	set_internal_state = d3d11_set_internal_state,
 	create_texture = d3d11_create_texture,
 	load_texture = d3d11_load_texture,
@@ -314,6 +315,10 @@ d3d11_get_swapchain_width :: proc() -> int {
 
 d3d11_get_swapchain_height :: proc() -> int {
 	return s.height
+}
+
+d3d11_flip_z :: proc() -> bool {
+	return false
 }
 
 d3d11_set_internal_state :: proc(state: rawptr) {

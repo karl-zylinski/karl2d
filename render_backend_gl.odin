@@ -14,6 +14,7 @@ RENDER_BACKEND_INTERFACE_GL :: Render_Backend_Interface {
 	resize_swapchain = gl_resize_swapchain,
 	get_swapchain_width = gl_get_swapchain_width,
 	get_swapchain_height = gl_get_swapchain_height,
+	flip_z = gl_flip_z,
 	set_internal_state = gl_set_internal_state,
 	create_texture = gl_create_texture,
 	load_texture = gl_load_texture,
@@ -33,6 +34,9 @@ import "core:log"
 import win32 "core:sys/windows"
 import "core:strings"
 import "core:slice"
+import la "core:math/linalg"
+
+_ :: la
 
 GL_State :: struct {
 	width: int,
@@ -124,7 +128,9 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 	win32.wglMakeCurrent(hdc, ctx)
 
 	gl.load_up_to(3, 3, win32.gl_set_proc_address)
+	//gl.Enable(gl.DEPTH_TEST)
 
+	//gl.CullFace(gl.FRONT)
 	gl.GenBuffers(1, &s.vertex_buffer_gpu)
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
@@ -136,7 +142,7 @@ gl_shutdown :: proc() {
 gl_clear :: proc(color: Color) {
 	c := f32_color_from_color(color)
 	gl.ClearColor(c.r, c.g, c.b, c.a)
-	gl.Clear(gl.COLOR_BUFFER_BIT)
+	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 }
 
 gl_present :: proc() {
@@ -157,6 +163,7 @@ gl_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: 
 	gl.UseProgram(shader.program)
 	
 	mvp_loc := gl.GetUniformLocation(shader.program, "mvp")
+	//mvp := la.transpose(view_proj)
 	mvp := view_proj
 	gl.UniformMatrix4fv(mvp_loc, 1, gl.FALSE, (^f32)(&mvp))
 
@@ -184,6 +191,10 @@ gl_get_swapchain_width :: proc() -> int {
 
 gl_get_swapchain_height :: proc() -> int {
 	return s.height
+}
+
+gl_flip_z :: proc() -> bool {
+	return true
 }
 
 gl_set_internal_state :: proc(state: rawptr) {
@@ -355,11 +366,23 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 	offset: int
 	for idx in 0..<len(desc.inputs) {
 		input := desc.inputs[idx]
-		input_format := get_shader_input_format(input.name, input.type)
+		//input_format := get_shader_input_format(input.name, input.type)
+
+
+		input_format: Pixel_Format
+
+		switch input.type {
+		case .F32: input_format = .R_32_Float
+		case .Vec2: input_format = .RG_32_Float
+		case .Vec3: input_format = .RGB_32_Float
+		case .Vec4: input_format = .RGBA_32_Float
+		}
 		format_size := pixel_format_size(input_format)
-		num_components := get_shader_format_num_components(input_format)
+		//num_components := get_shader_format_num_components(input_format)
 		gl.EnableVertexAttribArray(u32(idx))	
-		gl.VertexAttribPointer(u32(idx), i32(num_components), gl.FLOAT, gl.FALSE, i32(stride), uintptr(offset))
+		
+		format, num_components, norm := gl_format_from_pixel_format(get_shader_input_format(input.name, input.type))
+		gl.VertexAttribPointer(u32(idx), num_components, format, norm ? gl.TRUE : gl.FALSE, i32(stride), uintptr(offset))
 		offset += format_size
 		log.info(input.name)
 	}
@@ -391,6 +414,25 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 	h := hm.add(&s.shaders, shader)
 
 	return h, desc
+}
+
+gl_format_from_pixel_format :: proc(f: Pixel_Format) -> (u32, i32, bool) {
+	switch f {
+	case .RGBA_32_Float: return gl.FLOAT, 4, false
+	case .RGB_32_Float: return gl.FLOAT, 3, false
+	case .RG_32_Float: return gl.FLOAT, 2, false
+	case .R_32_Float: return gl.FLOAT, 1, false
+
+	case .RGBA_8_Norm: return gl.INT, 4, true
+	case .RG_8_Norm: return gl.INT, 2, true
+	case .R_8_Norm: return gl.INT, 1, true
+	case .R_8_UInt: return gl.INT, 1, true
+	
+	case .Unknown: 
+	}
+
+	log.error("Unknown format")
+	return 0, 0, false
 }
 
 gl_destroy_shader :: proc(h: Shader_Handle) {
