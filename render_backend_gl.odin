@@ -48,7 +48,9 @@ GL_State :: struct {
 }
 
 GL_Shader_Constant_Buffer :: struct {
-	gpu_data: rawptr,
+	buffer: u32,
+	size: int,
+	block_index: u32,
 }
 
 GL_Shader :: struct {
@@ -58,6 +60,8 @@ GL_Shader :: struct {
 	vao: u32,
 
 	program: u32,
+
+	constant_buffers: []GL_Shader_Constant_Buffer,
 }
 
 s: ^GL_State
@@ -117,12 +121,17 @@ gl_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: 
 	gl.EnableVertexAttribArray(2)
 
 	gl.UseProgram(shader.program)
-	
-	mvp_loc := gl.GetUniformLocation(shader.program, "mvp")
-	//mvp := la.transpose(view_proj)
-	mvp := view_proj
-	gl.UniformMatrix4fv(mvp_loc, 1, gl.FALSE, (^f32)(&mvp))
 
+	// temp test
+	{
+		b := shader.constant_buffers[0]
+		gl.BindBuffer(gl.UNIFORM_BUFFER, b.buffer)
+		mvp := view_proj
+		gl.BufferData(gl.UNIFORM_BUFFER, b.size, &mvp, gl.DYNAMIC_DRAW)
+		gl.BindBufferBase(gl.UNIFORM_BUFFER, 0, b.buffer)
+		//gl.UniformBlockBinding(shader.program, b.block_index, b.buffer)
+	}
+	
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 	vb_data := gl.MapBuffer(gl.ARRAY_BUFFER, gl.WRITE_ONLY)
 	{
@@ -260,7 +269,7 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			attrib_type: u32
 			gl.GetActiveAttrib(program, u32(i), i32(len(attrib_name_buf)), &attrib_name_len, &attrib_size, &attrib_type, raw_data(attrib_name_buf[:]))
 
-			name_cstr := strings.clone_to_cstring(string(attrib_name_buf[:attrib_name_len]), desc_allocator)
+			name_cstr := cstring(raw_data(attrib_name_buf[:attrib_name_len]))
 			
 			loc := gl.GetAttribLocation(program, name_cstr)
 
@@ -305,10 +314,6 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			format_size := pixel_format_size(input_format)
 
 			stride += format_size
-
-
-			// 
-			//log.info(i, attrib_name_len, attrib_size, attrib_type, string(attrib_name_buf[:attrib_name_len]))
 		}
 	}
 
@@ -333,16 +338,51 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 
 
 	{
-		/*num_constant_buffers: i32
-		gl.GetProgramiv(program, gl.ACTIVE_UNIFORM_BLOCKS, &num_attribs)
-		desc.constant_buffers = make([]Shader_Constant_Buffer_Desc, num_constant_buffers, desc_allocator)
-		shader.constant_buffers = make([]GL_Shader_Constant_Buffer, num_constant_buffers, s.allocator)
-	
-		for cb_idx in 0..<num_constant_buffers {
+		num_uniform_blocks: i32
+		gl.GetProgramiv(program, gl.ACTIVE_UNIFORM_BLOCKS, &num_uniform_blocks)
+		desc.constant_buffers = make([]Shader_Constant_Buffer_Desc, num_uniform_blocks, desc_allocator)
+		shader.constant_buffers = make([]GL_Shader_Constant_Buffer, num_uniform_blocks, s.allocator)
+		uniform_block_name_buf: [256]u8
+
+		for cb_idx in 0..<num_uniform_blocks {
+			name_len: i32
+			gl.GetActiveUniformBlockName(program, u32(cb_idx), len(uniform_block_name_buf), &name_len, raw_data(&uniform_block_name_buf))
+			name_cstr := cstring(raw_data(uniform_block_name_buf[:name_len]))
+			idx := gl.GetUniformBlockIndex(program, name_cstr)
+
+			if i32(idx) >= num_uniform_blocks {
+				continue
+			}
+
+			size: i32
+
+			// TODO investigate if we need std140 layout in the shader or what is fine?
+			gl.GetActiveUniformBlockiv(program, idx, gl.UNIFORM_BLOCK_DATA_SIZE, &size)
+
+			if size == 0 {
+				log.errorf("Uniform block %v has size 0", name_cstr)
+				continue
+			}
+
 			buf: u32
-			gl.GenBuffers(1, &buf)*/
 
+			gl.GenBuffers(1, &buf)
+			gl.BindBuffer(gl.UNIFORM_BUFFER, buf)
+			gl.BufferData(gl.UNIFORM_BUFFER, int(size), nil, gl.DYNAMIC_DRAW)
+			//gl.UniformBlockBinding(program, idx, buf)
+			gl.BindBufferBase(gl.UNIFORM_BUFFER, idx, buf)
 
+			shader.constant_buffers[cb_idx] = {
+				block_index = idx,
+				buffer = buf,
+				size = int(size),
+			}
+
+			desc.constant_buffers[cb_idx] = {
+				name = strings.clone_from_cstring(name_cstr, desc_allocator),
+				size = int(size),
+			}
+		}
 
 	
 		/*

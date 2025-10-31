@@ -32,8 +32,15 @@ when ODIN_OS == .Windows {
 
 CUSTOM_BACKEND_STR :: #config(KARL2D_BACKEND, "")
 
-when CUSTOM_BACKEND_STR == "gl" {
-	BACKEND :: RENDER_BACKEND_INTERFACE_GL
+when CUSTOM_BACKEND_STR != "" {
+	when CUSTOM_BACKEND_STR == "gl" {
+		BACKEND :: RENDER_BACKEND_INTERFACE_GL
+	} else when CUSTOM_BACKEND_STR == "d3d11" {
+		BACKEND :: RENDER_BACKEND_INTERFACE_D3D11
+	} else {
+		#panic(CUSTOM_BACKEND_STR + " is not a valid value for KARL2D_BACKEND. Available backends are: gl, d3d11")
+		BACKEND :: DEFAULT_BACKEND
+	}
 } else {
 	BACKEND :: DEFAULT_BACKEND
 }
@@ -91,11 +98,6 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 
 	s.default_shader = load_shader(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
 	s.batch_shader = s.default_shader
-	/*if font, font_err := load_default_font(); font_err == .OK {
-		s.default_font = font
-	} else {
-		log.infof("Loading of 'default_font.ttf' failed: %v", font_err)
-	}*/
 
 	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
 

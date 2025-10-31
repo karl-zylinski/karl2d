@@ -6,7 +6,9 @@ layout(location = 2) in vec4 COL;
 out vec2 frag_uv;
 out vec4 frag_color;
 
-uniform mat4 mvp;
+layout(std140) uniform constants {
+    mat4 mvp;
+};
 
 void main()
 {
