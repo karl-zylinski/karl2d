@@ -310,7 +310,11 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			name_cstr := strings.clone_to_cstring(string(attrib_name_buf[:attrib_name_len]), desc_allocator)
 			
 			loc := gl.GetAttribLocation(program, name_cstr)
-			log.info(loc)
+
+			if loc >= num_attribs {
+				continue
+			}
+
 			type: Shader_Input_Type
 
 			switch attrib_type {
@@ -335,7 +339,6 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 
 			name := strings.clone(string(attrib_name_buf[:attrib_name_len]), desc_allocator)
 			
-			log.info(name)
 			format := len(layout_formats) > 0 ? layout_formats[loc] : get_shader_input_format(name, type)
 			desc.inputs[loc] = {
 				name = name,
@@ -368,25 +371,11 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 	offset: int
 	for idx in 0..<len(desc.inputs) {
 		input := desc.inputs[idx]
-		//input_format := get_shader_input_format(input.name, input.type)
-
-
-		input_format: Pixel_Format
-
-		switch input.type {
-		case .F32: input_format = .R_32_Float
-		case .Vec2: input_format = .RG_32_Float
-		case .Vec3: input_format = .RGB_32_Float
-		case .Vec4: input_format = .RGBA_32_Float
-		}
-		format_size := pixel_format_size(input_format)
-		//num_components := get_shader_format_num_components(input_format)
+		format_size := pixel_format_size(input.format)
 		gl.EnableVertexAttribArray(u32(idx))	
-		
-		format, num_components, norm := gl_format_from_pixel_format(get_shader_input_format(input.name, input.type))
+		format, num_components, norm := gl_describe_pixel_format(input.format)
 		gl.VertexAttribPointer(u32(idx), num_components, format, norm ? gl.TRUE : gl.FALSE, i32(stride), uintptr(offset))
 		offset += format_size
-		log.info(input.name)
 	}
 
 
@@ -418,17 +407,17 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 	return h, desc
 }
 
-gl_format_from_pixel_format :: proc(f: Pixel_Format) -> (u32, i32, bool) {
+gl_describe_pixel_format :: proc(f: Pixel_Format) -> (format: u32, num_components: i32, normalized: bool) {
 	switch f {
 	case .RGBA_32_Float: return gl.FLOAT, 4, false
 	case .RGB_32_Float: return gl.FLOAT, 3, false
 	case .RG_32_Float: return gl.FLOAT, 2, false
 	case .R_32_Float: return gl.FLOAT, 1, false
 
-	case .RGBA_8_Norm: return gl.INT, 4, true
-	case .RG_8_Norm: return gl.INT, 2, true
-	case .R_8_Norm: return gl.INT, 1, true
-	case .R_8_UInt: return gl.INT, 1, true
+	case .RGBA_8_Norm: return gl.UNSIGNED_BYTE, 4, true
+	case .RG_8_Norm: return gl.UNSIGNED_BYTE, 2, true
+	case .R_8_Norm: return gl.UNSIGNED_BYTE, 1, true
+	case .R_8_UInt: return gl.BYTE, 1, false
 	
 	case .Unknown: 
 	}
