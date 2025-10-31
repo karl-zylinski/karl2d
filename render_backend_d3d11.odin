@@ -111,7 +111,7 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 	ch(s.device->CreateRasterizerState(&rasterizer_desc, &s.rasterizer_state))
 
 	depth_stencil_desc := d3d11.DEPTH_STENCIL_DESC{
-		DepthEnable    = false,
+		DepthEnable    = true,
 		DepthWriteMask = .ALL,
 		DepthFunc      = .LESS,
 	}
@@ -318,7 +318,7 @@ d3d11_get_swapchain_height :: proc() -> int {
 }
 
 d3d11_flip_z :: proc() -> bool {
-	return false
+	return true
 }
 
 d3d11_set_internal_state :: proc(state: rawptr) {

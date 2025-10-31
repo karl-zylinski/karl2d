@@ -53,6 +53,16 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	s.window = win.window_handle()
 
 	s.rb = RENDER_BACKEND_INTERFACE_D3D11
+
+	s.depth_start = DEPTH_START
+	s.depth_increment = DEPTH_INCREMENT
+
+	if s.rb.flip_z() {
+		s.depth_start = -DEPTH_START
+		s.depth_increment = -DEPTH_INCREMENT
+	}
+
+	s.depth = s.depth_start
 	rb = s.rb
 	rb_alloc_error: runtime.Allocator_Error
 	s.rb_state, rb_alloc_error = mem.alloc(rb.state_size())
@@ -124,6 +134,7 @@ present :: proc() {
 	draw_current_batch()
 	rb.present()
 	free_all(s.frame_allocator)
+	s.depth = s.depth_start
 }
 
 // Call at start or end of frame to process all events that have arrived to the window.
@@ -344,12 +355,14 @@ draw_rect :: proc(r: Rect, c: Color) {
 
 	s.batch_texture = s.shape_drawing_texture
 
-	batch_vertex({r.x, r.y}, {0, 0}, c)
-	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
-	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	batch_vertex({r.x, r.y}, {0, 0}, c)
-	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
+	z := get_next_depth()
+
+	batch_vertex({r.x, r.y, z}, {0, 0}, c)
+	batch_vertex({r.x + r.w, r.y, z}, {1, 0}, c)
+	batch_vertex({r.x + r.w, r.y + r.h, z}, {1, 1}, c)
+	batch_vertex({r.x, r.y, z}, {0, 0}, c)
+	batch_vertex({r.x + r.w, r.y + r.h, z}, {1, 1}, c)
+	batch_vertex({r.x, r.y + r.h, z}, {0, 1}, c)
 }
 
 draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color) {
@@ -404,13 +417,15 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 			y + (dx + r.w) * sin_rot + (dy + r.h) * cos_rot,
 		}
 	}
+
+	z := get_next_depth()
 	
-	batch_vertex(tl, {0, 0}, c)
-	batch_vertex(tr, {1, 0}, c)
-	batch_vertex(br, {1, 1}, c)
-	batch_vertex(tl, {0, 0}, c)
-	batch_vertex(br, {1, 1}, c)
-	batch_vertex(bl, {0, 1}, c)
+	batch_vertex(vec3(tl, z), {0, 0}, c)
+	batch_vertex(vec3(tr, z), {1, 0}, c)
+	batch_vertex(vec3(br, z), {1, 1}, c)
+	batch_vertex(vec3(tl, z), {0, 0}, c)
+	batch_vertex(vec3(br, z), {1, 1}, c)
+	batch_vertex(vec3(bl, z), {0, 1}, c)
 }
 
 draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
@@ -463,15 +478,17 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 
 	s.batch_texture = s.shape_drawing_texture
 
+	z := get_next_depth()
+
 	prev := center + {radius, 0}
 	for s in 1..=segments {
 		sr := (f32(s)/f32(segments)) * 2*math.PI
 		rot := linalg.matrix2_rotate(sr)
 		p := center + rot * Vec2{radius, 0}
 
-		batch_vertex(prev, {0, 0}, color)
-		batch_vertex(p, {1, 0}, color)
-		batch_vertex(center, {1, 1}, color)
+		batch_vertex(vec3(prev, z), {0, 0}, color)
+		batch_vertex(vec3(p, z), {1, 0}, color)
+		batch_vertex(vec3(center, z), {1, 1}, color)
 
 		prev = p
 	}
@@ -628,12 +645,26 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		uv5.y -= us.y		
 	}
 
-	batch_vertex(tl, uv0, c)
-	batch_vertex(tr, uv1, c)
-	batch_vertex(br, uv2, c)
-	batch_vertex(tl, uv3, c)
-	batch_vertex(br, uv4, c)
-	batch_vertex(bl, uv5, c)
+	z := get_next_depth()
+
+	batch_vertex(vec3(tl, z), uv0, c)
+	batch_vertex(vec3(tr, z), uv1, c)
+	batch_vertex(vec3(br, z), uv2, c)
+	batch_vertex(vec3(tl, z), uv3, c)
+	batch_vertex(vec3(br, z), uv4, c)
+	batch_vertex(vec3(bl, z), uv5, c)
+}
+
+vec3 :: proc(v2: Vec2, z: f32) -> Vec3 {
+	return {
+		v2.x, v2.y, z,
+	}
+}
+
+get_next_depth :: proc() -> f32 {
+	d := s.depth
+	s.depth += s.depth_increment
+	return d
 }
 
 measure_text :: proc(text: string, font_size: f32) -> Vec2 {
@@ -837,7 +868,7 @@ load_shader :: proc(vertex_shader_source: string, fragment_shader_source: string
 	}
 
 	shd.vertex_size = input_offset
-	return shd
+ 	return shd
 }
 
 destroy_shader :: proc(shader: Shader) {
@@ -1225,6 +1256,9 @@ State :: struct {
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
 
+	depth: f32,
+	depth_start: f32,
+	depth_increment: f32,
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
 	default_shader: Shader,
@@ -1402,7 +1436,7 @@ Gamepad_Button :: enum {
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
 
-batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
+batch_vertex :: proc(v: Vec3, uv: Vec2, color: Color) {
 	v := v
 
 	if s.vertex_buffer_cpu_used == len(s.vertex_buffer_cpu) {
@@ -1419,7 +1453,7 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
 
 	if pos_offset != -1 {
-		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = {v.x, v.y}
+		(^Vec3)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
 	}
 
 	if uv_offset != -1 {
@@ -1456,7 +1490,7 @@ win: Window_Interface
 rb: Render_Backend_Interface
 
 get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> Shader_Default_Inputs {
-	if name == "POS" && type == .Vec2 {
+	if name == "POS" && type == .Vec3 {
 		return .Position
 	} else if name == "UV" && type == .Vec2 {
 		return .UV
@@ -1488,7 +1522,7 @@ get_shader_input_format :: proc(name: string, type: Shader_Input_Type) -> Pixel_
 
 	if default_type != .Unknown {
 		switch default_type {
-		case .Position: return .RG_32_Float
+		case .Position: return .RGB_32_Float
 		case .UV: return .RG_32_Float
 		case .Color: return .RGBA_8_Norm
 		case .Unknown: unreachable()
@@ -1515,8 +1549,22 @@ frame_cstring :: proc(str: string, loc := #caller_location) -> cstring {
 	return strings.clone_to_cstring(str, s.frame_allocator, loc)
 }
 
+
+@(require_results)
+matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f32) -> (m: matrix[4,4]f32) #no_bounds_check {
+	m[0, 0] = +2 / (right - left)
+	m[1, 1] = +2 / (top - bottom)
+	m[2, 2] = +1
+	m[0, 3] = -(right + left)   / (right - left)
+	m[1, 3] = -(top   + bottom) / (top - bottom)
+	m[2, 3] = 0
+	m[3, 3] = 1
+
+	return
+}
+
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
-	return linalg.matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2, rb.flip_z())
+	return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
 }
 
 FONT_DEFAULT_ATLAS_SIZE :: 1024
@@ -1580,6 +1628,9 @@ set_font :: proc(fh: Font_Handle) {
 	font := &s.fonts[fh]
 	fs.SetFont(&s.fs, font.fontstash_handle)
 }
+
+DEPTH_START :: -0.99
+DEPTH_INCREMENT :: (1.0/20000.0) // I've stolen this number from raylib.
 
 _ :: jpeg
 _ :: bmp
