@@ -145,6 +145,8 @@ process_events :: proc() {
 	s.key_went_down = {}
 	s.mouse_button_went_up = {}
 	s.mouse_button_went_down = {}
+	s.gamepad_button_went_up = {}
+	s.gamepad_button_went_down = {}
 	s.mouse_delta = {}
 	s.mouse_wheel_delta = 0
 
