@@ -1,9 +1,9 @@
 #version 330
-layout(location = 0) in vec3 POS;
-layout(location = 1) in vec2 UV;
-layout(location = 2) in vec4 COL;
+layout(location = 0) in vec3 position;
+layout(location = 1) in vec2 texcoord;
+layout(location = 2) in vec4 color;
 
-out vec2 frag_uv;
+out vec2 frag_texcoord;
 out vec4 frag_color;
 
 layout(std140) uniform constants {
@@ -12,7 +12,7 @@ layout(std140) uniform constants {
 
 void main()
 {
-    frag_uv = UV;
-    frag_color = COL;
-    gl_Position = mvp * vec4(POS, 1.0);
+    frag_texcoord = texcoord;
+    frag_color = color;
+    gl_Position = mvp * vec4(position, 1.0);
 }

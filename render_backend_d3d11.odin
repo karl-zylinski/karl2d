@@ -191,7 +191,7 @@ d3d11_present :: proc() {
 	ch(s.swapchain->Present(1, {}))
 }
 
-d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: Maybe(Rect), vertex_buffer: []u8) {
+d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), vertex_buffer: []u8) {
 	if len(vertex_buffer) == 0 {
 		return
 	}
@@ -227,20 +227,6 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scisso
 	vertex_buffer_offset: u32
 	vertex_buffer_stride := u32(shd.vertex_size)
 	dc->IASetVertexBuffers(0, 1, &s.vertex_buffer_gpu, &vertex_buffer_stride, &vertex_buffer_offset)
-
-	for mloc, builtin in shd.constant_builtin_locations {
-		loc, loc_ok := mloc.?
-
-		if !loc_ok {
-			continue
-		}
-
-		switch builtin {
-		case .MVP:
-			dst := (^matrix[4,4]f32)(&shd.constant_buffers[loc.buffer_idx].cpu_data[loc.offset])
-			dst^ = view_proj
-		}
-	}
 
 	dc->VSSetShader(d3d_shd.vertex_shader, nil, 0)
 

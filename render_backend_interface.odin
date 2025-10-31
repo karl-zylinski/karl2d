@@ -22,7 +22,7 @@ Render_Backend_Interface :: struct {
 	shutdown: proc(),
 	clear: proc(color: Color),
 	present: proc(),
-	draw: proc(shader: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: Maybe(Rect), vertex_buffer: []u8),
+	draw: proc(shader: Shader, texture: Texture_Handle, scissor: Maybe(Rect), vertex_buffer: []u8),
 	set_internal_state: proc(state: rawptr),
 
 	create_texture: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle,

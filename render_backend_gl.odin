@@ -109,7 +109,7 @@ gl_present :: proc() {
 	_gl_present(s.window_handle)
 }
 
-gl_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: Maybe(Rect), vertex_buffer: []u8) {
+gl_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), vertex_buffer: []u8) {
 	shader := hm.get(&s.shaders, shd.handle)
 
 	if shader == nil {
@@ -121,15 +121,14 @@ gl_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: 
 	gl.EnableVertexAttribArray(2)
 
 	gl.UseProgram(shader.program)
+	assert(len(shd.constant_buffers) == len(shader.constant_buffers))
 
-	// temp test
-	{
-		b := shader.constant_buffers[0]
-		gl.BindBuffer(gl.UNIFORM_BUFFER, b.buffer)
-		mvp := view_proj
-		gl.BufferData(gl.UNIFORM_BUFFER, b.size, &mvp, gl.DYNAMIC_DRAW)
-		gl.BindBufferBase(gl.UNIFORM_BUFFER, 0, b.buffer)
-		//gl.UniformBlockBinding(shader.program, b.block_index, b.buffer)
+	for cb_idx in 0..<len(shader.constant_buffers) {
+		cpu_data := shd.constant_buffers[cb_idx].cpu_data
+		gpu_data := shader.constant_buffers[cb_idx].buffer
+		gl.BindBuffer(gl.UNIFORM_BUFFER, gpu_data)
+		gl.BufferData(gl.UNIFORM_BUFFER, len(cpu_data), raw_data(cpu_data), gl.DYNAMIC_DRAW)
+		gl.BindBufferBase(gl.UNIFORM_BUFFER, u32(cb_idx), gpu_data)
 	}
 	
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
@@ -336,13 +335,32 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 		offset += format_size
 	}
 
+	/*{
+		num_uniforms: i32
+		uniform_name_buf: [256]u8
+		gl.GetProgramiv(program, gl.ACTIVE_UNIFORMS, &num_uniforms)
+		
+		for u_idx in 0..<num_uniforms {
+			name_len: i32
+			size: i32
+			type: u32
+			gl.GetActiveUniform(program, u32(u_idx), len(uniform_name_buf), &name_len, &size, &type, raw_data(&uniform_name_buf))
+
+			if type == gl.SAMPLER_2D {
+
+			}
+		}
+	}*/
 
 	{
 		num_uniform_blocks: i32
 		gl.GetProgramiv(program, gl.ACTIVE_UNIFORM_BLOCKS, &num_uniform_blocks)
 		desc.constant_buffers = make([]Shader_Constant_Buffer_Desc, num_uniform_blocks, desc_allocator)
 		shader.constant_buffers = make([]GL_Shader_Constant_Buffer, num_uniform_blocks, s.allocator)
+
+
 		uniform_block_name_buf: [256]u8
+		uniform_name_buf: [256]u8
 
 		for cb_idx in 0..<num_uniform_blocks {
 			name_len: i32
@@ -369,7 +387,6 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			gl.GenBuffers(1, &buf)
 			gl.BindBuffer(gl.UNIFORM_BUFFER, buf)
 			gl.BufferData(gl.UNIFORM_BUFFER, int(size), nil, gl.DYNAMIC_DRAW)
-			//gl.UniformBlockBinding(program, idx, buf)
 			gl.BindBufferBase(gl.UNIFORM_BUFFER, idx, buf)
 
 			shader.constant_buffers[cb_idx] = {
@@ -382,17 +399,34 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 				name = strings.clone_from_cstring(name_cstr, desc_allocator),
 				size = int(size),
 			}
+
+			num_uniforms: i32
+			gl.GetActiveUniformBlockiv(program, idx, gl.UNIFORM_BLOCK_ACTIVE_UNIFORMS, &num_uniforms)
+
+			uniform_indices := make([]i32, num_uniforms, frame_allocator)
+			gl.GetActiveUniformBlockiv(program, idx, gl.UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES, raw_data(uniform_indices))
+
+			variables := make([]Shader_Constant_Buffer_Variable_Desc, num_uniforms, desc_allocator)
+			desc.constant_buffers[cb_idx].variables = variables
+
+			for var_idx in 0..<num_uniforms {
+				uniform_idx := u32(uniform_indices[var_idx])
+
+				offset: i32
+				gl.GetActiveUniformsiv(program, 1, &uniform_idx, gl.UNIFORM_OFFSET, &offset)
+
+				variable_name_len: i32
+				gl.GetActiveUniformName(program, uniform_idx, len(uniform_name_buf), &variable_name_len, raw_data(&uniform_name_buf))
+
+				variables[var_idx] = {
+					name = strings.clone(string(uniform_name_buf[:variable_name_len]), desc_allocator),
+					loc = {
+						buffer_idx = u32(cb_idx),
+						offset = u32(offset),
+					},
+				}
+			}
 		}
-
-	
-		/*
-		GetUniformIndices         :: proc "c" (program: u32, uniformCount: i32, uniformNames: [^]cstring, uniformIndices: [^]u32)         {        impl_GetUniformIndices(program, uniformCount, uniformNames, uniformIndices)                               }
-	GetActiveUniformsiv       :: proc "c" (program: u32, uniformCount: i32, uniformIndices: [^]u32, pname: u32, params: [^]i32)       {        impl_GetActiveUniformsiv(program, uniformCount, uniformIndices, pname, params)                            }
-	GetActiveUniformName      :: proc "c" (program: u32, uniformIndex: u32, bufSize: i32, length: ^i32, uniformName: [^]u8)           {        impl_GetActiveUniformName(program, uniformIndex, bufSize, length, uniformName)                            }
-	GetUniformBlockIndex      :: proc "c" (program: u32, uniformBlockName: cstring) -> u32                                            { ret := impl_GetUniformBlockIndex(program, uniformBlockName);                                          return ret }
-	GetActiveUniformBlockiv   :: proc "c" (program: u32, uniformBlockIndex: u32, pname: u32, params: [^]i32)                          {        impl_GetActiveUniformBlockiv(program, uniformBlockIndex, pname, params)                                   }
-
-*/		
 	}
 
 	h := hm.add(&s.shaders, shader)

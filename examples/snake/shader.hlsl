@@ -2,15 +2,15 @@ cbuffer constants : register(b0) {
 	float4x4 mvp;
 }
 struct vs_in {
-	float3 position : POS;
-	float2 uv       : UV;
-	float4 color    : COL;
-	float2 wobble   : WAA;
+	float3 position : position;
+	float2 uv       : texcoord;
+	float4 color    : color;
+	float2 wobble   : wobble;
 };
 struct vs_out {
 	float4 position : SV_POSITION;
-	float2 uv       : UV;
-	float4 color    : COL;
+	float2 uv       : texcoord;
+	float4 color    : color;
 };
 Texture2D    tex : register(t0);
 SamplerState smp : register(s0);

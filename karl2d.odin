@@ -277,7 +277,25 @@ set_window_flags :: proc(flags: Window_Flags) {
 // VERTEX_BUFFER_MAX / shader.vertex_size
 draw_current_batch :: proc() {
 	update_font(s.batch_font)
-	rb.draw(s.batch_shader, s.batch_texture, s.proj_matrix * s.view_matrix, s.batch_scissor, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
+
+	shader := s.batch_shader
+
+	mvp := s.proj_matrix * s.view_matrix
+	for mloc, builtin in shader.constant_builtin_locations {
+		loc, loc_ok := mloc.?
+
+		if !loc_ok {
+			continue
+		}
+
+		switch builtin {
+		case .MVP:
+			dst := (^matrix[4,4]f32)(&shader.constant_buffers[loc.buffer_idx].cpu_data[loc.offset])
+			dst^ = mvp
+		}
+	}
+
+	rb.draw(shader, s.batch_texture, s.batch_scissor, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
 	s.vertex_buffer_cpu_used = 0
 }
 
@@ -1508,11 +1526,11 @@ win: Window_Interface
 rb: Render_Backend_Interface
 
 get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> Shader_Default_Inputs {
-	if name == "POS" && type == .Vec3 {
+	if name == "position" && type == .Vec3 {
 		return .Position
-	} else if name == "UV" && type == .Vec2 {
+	} else if name == "texcoord" && type == .Vec2 {
 		return .UV
-	} else if name == "COL" && type == .Vec4 {
+	} else if name == "color" && type == .Vec4 {
 		return .Color
 	}
 
