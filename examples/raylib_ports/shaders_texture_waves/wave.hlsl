@@ -11,7 +11,7 @@ cbuffer constants : register(b0) {
 	float speedY;
 }
 struct vs_in {
-	float2 position : POS;
+	float3 position : POS;
 	float2 uv       : UV;
 	float4 color    : COL;
 };

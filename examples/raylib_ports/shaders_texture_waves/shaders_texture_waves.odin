@@ -18,7 +18,7 @@ main :: proc() {
 
     WAVE_SHADER_DATA :: #load("wave.hlsl")
 
-    shader := k2.load_shader(string(WAVE_SHADER_DATA))
+    shader := k2.load_shader(string(WAVE_SHADER_DATA), string(WAVE_SHADER_DATA))
     seconds_loc := shader.constant_lookup["seconds"]
     freq_x_loc := shader.constant_lookup["freqX"]
     freq_y_loc := shader.constant_lookup["freqY"]
