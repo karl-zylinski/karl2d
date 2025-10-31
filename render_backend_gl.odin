@@ -31,7 +31,6 @@ import "base:runtime"
 import gl "vendor:OpenGL"
 import hm "handle_map"
 import "core:log"
-import win32 "core:sys/windows"
 import "core:strings"
 import "core:slice"
 import la "core:math/linalg"
@@ -39,11 +38,12 @@ import la "core:math/linalg"
 _ :: la
 
 GL_State :: struct {
+	window_handle: Window_Handle,
 	width: int,
 	height: int,
 	allocator: runtime.Allocator,
 	shaders: hm.Handle_Map(GL_Shader, Shader_Handle, 1024*10),
-	dc: win32.HDC,
+	ctx: GL_Context,
 	vertex_buffer_gpu: u32,
 }
 
@@ -68,76 +68,30 @@ gl_state_size :: proc() -> int {
 
 gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator) {
 	s = (^GL_State)(state)
+	s.window_handle = window_handle
 	s.width = swapchain_width
 	s.height = swapchain_height
 	s.allocator = allocator
 
-	hdc := win32.GetWindowDC(win32.HWND(window_handle))
-	s.dc = hdc
+	ctx, ctx_ok := _gl_get_context(window_handle)
 
-	pfd := win32.PIXELFORMATDESCRIPTOR {
-		size_of(win32.PIXELFORMATDESCRIPTOR),
-		1,
-		win32.PFD_DRAW_TO_WINDOW | win32.PFD_SUPPORT_OPENGL | win32.PFD_DOUBLEBUFFER,    // Flags
-		win32.PFD_TYPE_RGBA,        // The kind of framebuffer. RGBA or palette.
-		32,                   // Colordepth of the framebuffer.
-		0, 0, 0, 0, 0, 0,
-		0,
-		0,
-		0,
-		0, 0, 0, 0,
-		24,                   // Number of bits for the depthbuffer
-		8,                    // Number of bits for the stencilbuffer
-		0,                    // Number of Aux buffers in the framebuffer.
-		win32.PFD_MAIN_PLANE,
-		0,
-		0, 0, 0,
-	}
-
-	fmt := win32.ChoosePixelFormat(hdc, &pfd)
-	win32.SetPixelFormat(hdc, fmt, &pfd)
-	ctx := win32.wglCreateContext(hdc)
-	win32.wglMakeCurrent(hdc, ctx)
-
-	win32.gl_set_proc_address(&win32.wglChoosePixelFormatARB, "wglChoosePixelFormatARB")
-	win32.gl_set_proc_address(&win32.wglCreateContextAttribsARB, "wglCreateContextAttribsARB")
-
-	pixel_format_ilist := [?]i32 {
-		win32.WGL_DRAW_TO_WINDOW_ARB, 1,
-		win32.WGL_SUPPORT_OPENGL_ARB, 1,
-		win32.WGL_DOUBLE_BUFFER_ARB, 1,
-		win32.WGL_PIXEL_TYPE_ARB, win32.WGL_TYPE_RGBA_ARB,
-		win32.WGL_COLOR_BITS_ARB, 32,
-		win32.WGL_DEPTH_BITS_ARB, 24,
-		win32.WGL_STENCIL_BITS_ARB, 8,
-		0,
-	}
-
-	pixel_format: i32
-	num_formats: u32
-
-	valid_pixel_format := win32.wglChoosePixelFormatARB(hdc, raw_data(pixel_format_ilist[:]),
-		nil, 1, &pixel_format, &num_formats)
-
-	if !valid_pixel_format {
+	if !ctx_ok {
 		log.panic("Could not find a valid pixel format for gl context")
 	}
 
-	win32.SetPixelFormat(hdc, pixel_format, nil)
-	ctx = win32.wglCreateContextAttribsARB(hdc, nil, nil)
-	win32.wglMakeCurrent(hdc, ctx)
-
-	gl.load_up_to(3, 3, win32.gl_set_proc_address)
+	s.ctx = ctx
+	_gl_load_procs()
 	gl.Enable(gl.DEPTH_TEST)
 	gl.DepthFunc(gl.GREATER)
 
-	//gl.CullFace(gl.FRONT)
 	gl.GenBuffers(1, &s.vertex_buffer_gpu)
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
 }
 
 gl_shutdown :: proc() {
+	gl.DeleteBuffers(1, &s.vertex_buffer_gpu)
+	_gl_destroy_context(s.ctx)
 }
 
 gl_clear :: proc(color: Color) {
@@ -148,7 +102,7 @@ gl_clear :: proc(color: Color) {
 }
 
 gl_present :: proc() {
-	win32.SwapBuffers(s.dc)
+	_gl_present(s.window_handle)
 }
 
 gl_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: Maybe(Rect), vertex_buffer: []u8) {
@@ -170,7 +124,6 @@ gl_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: 
 	gl.UniformMatrix4fv(mvp_loc, 1, gl.FALSE, (^f32)(&mvp))
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
-
 	vb_data := gl.MapBuffer(gl.ARRAY_BUFFER, gl.WRITE_ONLY)
 	{
 		gpu_map := slice.from_ptr((^u8)(vb_data), VERTEX_BUFFER_MAX)
@@ -179,8 +132,8 @@ gl_draw :: proc(shd: Shader, texture: Texture_Handle, view_proj: Mat4, scissor: 
 			vertex_buffer,
 		)
 	}
-	gl.UnmapBuffer(gl.ARRAY_BUFFER)
 
+	gl.UnmapBuffer(gl.ARRAY_BUFFER)
 	gl.DrawArrays(gl.TRIANGLES, 0, i32(len(vertex_buffer)/shd.vertex_size))
 }
 
