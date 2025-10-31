@@ -84,7 +84,7 @@ main :: proc() {
 
 	SHADER_SOURCE :: #load("shader.hlsl")
 
-	shader := k2.load_shader(string(SHADER_SOURCE), {
+	shader := k2.load_shader(string(SHADER_SOURCE), string(SHADER_SOURCE), {
 		.RG_32_Float,
 		.RG_32_Float,
 		.RGBA_8_Norm,
