@@ -24,6 +24,20 @@ import hm "handle_map"
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
+when ODIN_OS == .Windows {
+	DEFAULT_BACKEND :: RENDER_BACKEND_INTERFACE_D3D11
+} else {
+	DEFAULT_BACKEND :: RENDER_BACKEND_INTERFACE_GL
+}
+
+CUSTOM_BACKEND_STR :: #config(KARL2D_BACKEND, "")
+
+when CUSTOM_BACKEND_STR == "gl" {
+	BACKEND :: RENDER_BACKEND_INTERFACE_GL
+} else {
+	BACKEND :: DEFAULT_BACKEND
+}
+
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory. The return value can be ignored unless you need to later call
 // `set_internal_state`.
@@ -52,7 +66,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	win.init(s.window_state, window_width, window_height, window_title, window_creation_flags, allocator)
 	s.window = win.window_handle()
 
-	s.rb = RENDER_BACKEND_INTERFACE_D3D11
+	s.rb = BACKEND
 
 	s.depth_start = DEPTH_START
 	s.depth_increment = DEPTH_INCREMENT
