@@ -128,7 +128,8 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 	win32.wglMakeCurrent(hdc, ctx)
 
 	gl.load_up_to(3, 3, win32.gl_set_proc_address)
-	//gl.Enable(gl.DEPTH_TEST)
+	gl.Enable(gl.DEPTH_TEST)
+	gl.DepthFunc(gl.GREATER)
 
 	//gl.CullFace(gl.FRONT)
 	gl.GenBuffers(1, &s.vertex_buffer_gpu)
@@ -142,6 +143,7 @@ gl_shutdown :: proc() {
 gl_clear :: proc(color: Color) {
 	c := f32_color_from_color(color)
 	gl.ClearColor(c.r, c.g, c.b, c.a)
+	gl.ClearDepth(-1)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 }
 
@@ -194,7 +196,7 @@ gl_get_swapchain_height :: proc() -> int {
 }
 
 gl_flip_z :: proc() -> bool {
-	return true
+	return false
 }
 
 gl_set_internal_state :: proc(state: rawptr) {

@@ -1,5 +1,5 @@
 #version 330
-layout(location = 0) in vec2 POS;
+layout(location = 0) in vec3 POS;
 layout(location = 1) in vec2 UV;
 layout(location = 2) in vec4 COL;
 
@@ -12,5 +12,5 @@ void main()
 {
     frag_uv = UV;
     frag_color = COL;
-    gl_Position = mvp * vec4(POS, 1, 1.0);
+    gl_Position = mvp * vec4(POS, 1.0);
 }
