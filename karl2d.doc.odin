@@ -136,6 +136,10 @@ draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE)
 
 draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE)
 
+vec3 :: proc(v2: Vec2, z: f32) -> Vec3
+
+get_next_depth :: proc() -> f32
+
 measure_text :: proc(text: string, font_size: f32) -> Vec2
 
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color)
@@ -174,7 +178,7 @@ get_default_font :: proc() -> Font_Handle
 //---------//
 // SHADERS //
 //---------//
-load_shader :: proc(shader_source: string, layout_formats: []Pixel_Format = {}) -> Shader
+load_shader :: proc(vertex_shader_source: string, fragment_shader_source: string, layout_formats: []Pixel_Format = {}) -> Shader
 
 destroy_shader :: proc(shader: Shader)
 
@@ -236,7 +240,8 @@ Color :: [4]u8
 WHITE :: Color { 255, 255, 255, 255 }
 BLACK :: Color { 0, 0, 0, 255 }
 GRAY  :: Color { 127, 127, 127, 255 }
-RED   :: Color { 198, 80, 90, 255 }
+RED   :: Color { 198, 40, 90, 255 }
+GREEN :: Color { 30, 240, 30, 255 }
 BLANK :: Color { 0, 0, 0, 0 }
 BLUE  :: Color { 30, 116, 240, 255 }
 
@@ -291,20 +296,28 @@ Shader_Handle :: distinct Handle
 
 SHADER_NONE :: Shader_Handle {}
 
+Shader_Constant_Location :: struct {
+	offset: int,
+	size: int,
+}
+
 Shader :: struct {
 	handle: Shader_Handle,
-	constant_buffers: []Shader_Constant_Buffer,
+
+	// We store the CPU-side value of all constants in a single buffer to have less allocations.
+	// The 'constants' array says where in this buffer each constant is, and 'constant_lookup'
+	// maps a name to a constant location.
+	constants_data: []u8,
+	constants: []Shader_Constant_Location,
 	constant_lookup: map[string]Shader_Constant_Location,
+
+	// Maps built in constant types such as "model view projection matrix" to a location.
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
 
 	inputs: []Shader_Input,
 	input_overrides: []Shader_Input_Value_Override,
 	default_input_offsets: [Shader_Default_Inputs]int,
 	vertex_size: int,
-}
-
-Shader_Constant_Buffer :: struct {
-	cpu_data: []u8,
 }
 
 SHADER_INPUT_VALUE_MAX_SIZE :: 256
@@ -337,11 +350,6 @@ Shader_Input :: struct {
 	register: int,
 	type: Shader_Input_Type,
 	format: Pixel_Format,
-}
-
-Shader_Constant_Location :: struct {
-	buffer_idx: u32,
-	offset: u32,
 }
 
 Pixel_Format :: enum {
@@ -422,6 +430,9 @@ State :: struct {
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
 
+	depth: f32,
+	depth_start: f32,
+	depth_increment: f32,
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
 	default_shader: Shader,

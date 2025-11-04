@@ -11,21 +11,21 @@ cbuffer constants : register(b0) {
 	float speedY;
 }
 struct vs_in {
-	float3 position : POS;
-	float2 uv       : UV;
-	float4 color    : COL;
+	float3 position : position;
+	float2 texcoord : texcoord;
+	float4 color    : color;
 };
 struct vs_out {
 	float4 position : SV_POSITION;
-	float2 uv       : UV;
-	float4 color    : COL;
+	float2 texcoord : texcoord;
+	float4 color    : color;
 };
 Texture2D    tex : register(t0);
 SamplerState smp : register(s0);
 vs_out vs_main(vs_in input) {
 	vs_out output;
-	output.position = mul(mvp, float4(input.position, 0, 1.0f));
-	output.uv = input.uv;
+	output.position = mul(mvp, float4(input.position, 1.0f));
+	output.texcoord = input.texcoord;
 	output.color = input.color;
 	return output;
 }
@@ -36,9 +36,9 @@ float4 ps_main(vs_out input) : SV_TARGET {
 	float boxLeft = 0.0;
 	float boxTop = 0.0;
 
-	float2 p = input.uv;
-    p.x += cos((input.uv.y - boxTop)*freqX/(pixelWidth*750.0) + (seconds*speedX))*ampX*pixelWidth;
-    p.y += sin((input.uv.x - boxLeft)*freqY*aspect/(pixelHeight*750.0) + (seconds*speedY))*ampY*pixelHeight;
+	float2 p = input.texcoord;
+    p.x += cos((input.texcoord.y - boxTop)*freqX/(pixelWidth*750.0) + (seconds*speedX))*ampX*pixelWidth;
+    p.y += sin((input.texcoord.x - boxLeft)*freqY*aspect/(pixelHeight*750.0) + (seconds*speedY))*ampY*pixelHeight;
 
 	float4 c = tex.Sample(smp, p);
 	return c * input.color;

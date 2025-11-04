@@ -11,6 +11,7 @@ main :: proc() {
 	for !k2.shutdown_wanted() {
 		k2.process_events()
 		k2.clear(k2.BLUE)
+
 		k2.draw_rect({10, 10, 60, 60}, k2.GREEN)
 		k2.draw_rect({20, 20, 40, 40}, k2.BLACK)
 		k2.draw_circle({120, 40}, 30, k2.BLACK)

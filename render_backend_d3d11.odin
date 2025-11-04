@@ -230,23 +230,49 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), v
 
 	dc->VSSetShader(d3d_shd.vertex_shader, nil, 0)
 
-	assert(len(shd.constant_buffers) == len(d3d_shd.constant_buffers))
+	assert(len(shd.constants) == len(d3d_shd.constants))
 
-	for cb_idx in 0..<len(shd.constant_buffers) {
-		cpu_data := shd.constant_buffers[cb_idx].cpu_data
-		gpu_data := d3d_shd.constant_buffers[cb_idx].gpu_data
+	maps := make([]rawptr, len(d3d_shd.constant_buffers), frame_allocator)
+
+	cpu_data := shd.constants_data
+	for cidx in 0..<len(shd.constants) {
+		cpu_loc := shd.constants[cidx]
+		gpu_loc := d3d_shd.constants[cidx]
+		gpu_buffer_info := d3d_shd.constant_buffers[gpu_loc.buffer_idx]
+		gpu_data := gpu_buffer_info.gpu_data
 		
 		if gpu_data == nil {
 			continue
 		}
 
-		cb_data: d3d11.MAPPED_SUBRESOURCE
-		ch(dc->Map(gpu_data, 0, .WRITE_DISCARD, {}, &cb_data))
-		mem.copy(cb_data.pData, raw_data(cpu_data), len(cpu_data))
-		dc->Unmap(gpu_data, 0)
-		dc->VSSetConstantBuffers(u32(cb_idx), 1, &gpu_data)
-		dc->PSSetConstantBuffers(u32(cb_idx), 1, &gpu_data)
+		if maps[gpu_loc.buffer_idx] == nil {
+			// We do this little dance with the 'maps' array so we only have to map the memory once.
+			// There can be multiple constants within a single constant buffer. So mapping and
+			// unmapping for each one is slow.
+			map_data: d3d11.MAPPED_SUBRESOURCE
+			ch(dc->Map(gpu_data, 0, .WRITE_DISCARD, {}, &map_data))
+			maps[gpu_loc.buffer_idx] = map_data.pData
+		}
+
+		data_slice := slice.bytes_from_ptr(maps[gpu_loc.buffer_idx], gpu_buffer_info.size)
+		dst := data_slice[gpu_loc.offset:gpu_loc.offset+u32(cpu_loc.size)]
+		src := cpu_data[cpu_loc.offset:cpu_loc.offset+cpu_loc.size]
+		copy(dst, src)
 	}
+
+	constant_buffers := make([]^d3d11.IBuffer, len(d3d_shd.constant_buffers), frame_allocator)
+	for cb, cb_idx in d3d_shd.constant_buffers {
+		constant_buffers[cb_idx] = cb.gpu_data
+
+		if maps[cb_idx] != nil {
+			dc->Unmap(cb.gpu_data, 0)
+			maps[cb_idx] = nil
+		}
+	}
+
+
+	dc->VSSetConstantBuffers(0, u32(len(constant_buffers)), raw_data(constant_buffers))
+	dc->PSSetConstantBuffers(0, u32(len(constant_buffers)), raw_data(constant_buffers))
 
 	dc->RSSetViewports(1, &viewport)
 	dc->RSSetState(s.rasterizer_state)
@@ -470,7 +496,8 @@ d3d11_load_shader :: proc(vs_source: string, ps_source: string, desc_allocator :
 	}
 
 	{
-		desc.constant_buffers = make([]Shader_Constant_Buffer_Desc, d3d_desc.ConstantBuffers, desc_allocator)
+		constant_descs: [dynamic]Shader_Constant_Desc
+		d3d_constants: [dynamic]D3D11_Shader_Constant
 		d3d_shd.constant_buffers = make([]D3D11_Shader_Constant_Buffer, d3d_desc.ConstantBuffers, s.allocator)
 
 		for cb_idx in 0..<d3d_desc.ConstantBuffers {
@@ -495,10 +522,7 @@ d3d11_load_shader :: proc(vs_source: string, ps_source: string, desc_allocator :
 			}
 
 			ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &d3d_shd.constant_buffers[cb_idx].gpu_data))
-
-			variables := make([]Shader_Constant_Buffer_Variable_Desc, cb_desc.Variables, desc_allocator)
-			desc.constant_buffers[cb_idx].variables = variables
-			desc.constant_buffers[cb_idx].size = int(cb_desc.Size)
+			d3d_shd.constant_buffers[cb_idx].size = int(cb_desc.Size)
 
 			for var_idx in 0..<cb_desc.Variables {
 				var_info := cb_info->GetVariableByIndex(var_idx)
@@ -511,16 +535,21 @@ d3d11_load_shader :: proc(vs_source: string, ps_source: string, desc_allocator :
 				var_info->GetDesc(&var_desc)
 
 				if var_desc.Name != "" {
-					variables[var_idx] = {
+					append(&constant_descs, Shader_Constant_Desc {
 						name = strings.clone_from_cstring(var_desc.Name, desc_allocator),
-						loc = {
-							buffer_idx = cb_idx,
-							offset = var_desc.StartOffset,
-						},
-					}
+						size = int(var_desc.Size),
+					})
+
+					append(&d3d_constants, D3D11_Shader_Constant {
+						buffer_idx = cb_idx,
+						offset = var_desc.StartOffset,
+					})
 				}
 			}
 		}
+
+		desc.constants = constant_descs[:]
+		d3d_shd.constants = d3d_constants[:]
 	}
 
 	input_layout_desc := make([]d3d11.INPUT_ELEMENT_DESC, len(desc.inputs), frame_allocator)
@@ -562,7 +591,7 @@ d3d11_destroy_shader :: proc(h: Shader_Handle) {
 	shd := hm.get(&s.shaders, h)
 
 	if shd == nil {
-		log.error("Invalid shader %v", h)
+		log.errorf("Invalid shader: %v", h)
 		return
 	}
 
@@ -586,6 +615,12 @@ s: ^D3D11_State
 
 D3D11_Shader_Constant_Buffer :: struct {
 	gpu_data: ^d3d11.IBuffer,
+	size: int,
+}
+
+D3D11_Shader_Constant :: struct {
+	buffer_idx: u32,
+	offset: u32,
 }
 
 D3D11_Shader :: struct {
@@ -594,6 +629,7 @@ D3D11_Shader :: struct {
 	pixel_shader: ^d3d11.IPixelShader,
 	input_layout: ^d3d11.IInputLayout,
 	constant_buffers: []D3D11_Shader_Constant_Buffer,
+	constants: []D3D11_Shader_Constant,
 }
 
 D3D11_State :: struct {
@@ -650,6 +686,7 @@ create_swapchain :: proc(w, h: int) {
 
 	ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &s.depth_buffer))
 	ch(s.device->CreateDepthStencilView(s.depth_buffer, nil, &s.depth_buffer_view))
+	s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 1, 0)
 }
 
 D3D11_Texture :: struct {

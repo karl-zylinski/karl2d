@@ -24,27 +24,6 @@ import hm "handle_map"
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
-when ODIN_OS == .Windows {
-	DEFAULT_BACKEND :: RENDER_BACKEND_INTERFACE_D3D11
-} else {
-	DEFAULT_BACKEND :: RENDER_BACKEND_INTERFACE_GL
-}
-
-CUSTOM_BACKEND_STR :: #config(KARL2D_BACKEND, "")
-
-when CUSTOM_BACKEND_STR != "" {
-	when CUSTOM_BACKEND_STR == "gl" {
-		BACKEND :: RENDER_BACKEND_INTERFACE_GL
-	} else when CUSTOM_BACKEND_STR == "d3d11" {
-		BACKEND :: RENDER_BACKEND_INTERFACE_D3D11
-	} else {
-		#panic(CUSTOM_BACKEND_STR + " is not a valid value for KARL2D_BACKEND. Available backends are: gl, d3d11")
-		BACKEND :: DEFAULT_BACKEND
-	}
-} else {
-	BACKEND :: DEFAULT_BACKEND
-}
-
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory. The return value can be ignored unless you need to later call
 // `set_internal_state`.
@@ -143,6 +122,7 @@ shutdown :: proc() {
 // Clear the backbuffer with supplied color.
 clear :: proc(color: Color) {
 	rb.clear(color)
+	s.depth = s.depth_start
 }
 
 // Present the backbuffer. Call at end of frame to make everything you've drawn appear on the screen.
@@ -150,7 +130,6 @@ present :: proc() {
 	draw_current_batch()
 	rb.present()
 	free_all(s.frame_allocator)
-	s.depth = s.depth_start
 }
 
 // Call at start or end of frame to process all events that have arrived to the window.
@@ -278,20 +257,26 @@ set_window_flags :: proc(flags: Window_Flags) {
 draw_current_batch :: proc() {
 	update_font(s.batch_font)
 
+	if s.vertex_buffer_cpu_used == 0 {
+		return
+	}
+
 	shader := s.batch_shader
 
 	mvp := s.proj_matrix * s.view_matrix
 	for mloc, builtin in shader.constant_builtin_locations {
-		loc, loc_ok := mloc.?
+		constant, constant_ok := mloc.?
 
-		if !loc_ok {
+		if !constant_ok {
 			continue
 		}
 
 		switch builtin {
 		case .MVP:
-			dst := (^matrix[4,4]f32)(&shader.constant_buffers[loc.buffer_idx].cpu_data[loc.offset])
-			dst^ = mvp
+			if constant.size == size_of(mvp) {
+				dst := (^matrix[4,4]f32)(&shader.constants_data[constant.offset])
+				dst^ = mvp
+			} 
 		}
 	}
 
@@ -855,9 +840,16 @@ load_shader :: proc(vertex_shader_source: string, fragment_shader_source: string
 		return {}
 	}
 
+	constants_size: int
+
+	for c in desc.constants {
+		constants_size += c.size
+	}
+
 	shd := Shader {
 		handle = handle,
-		constant_buffers = make([]Shader_Constant_Buffer, len(desc.constant_buffers), s.allocator),
+		constants_data = make([]u8, constants_size, s.allocator),
+		constants = make([]Shader_Constant_Location, len(desc.constants), s.allocator),
 		constant_lookup = make(map[string]Shader_Constant_Location, s.allocator),
 		inputs = slice.clone(desc.inputs, s.allocator),
 		input_overrides = make([]Shader_Input_Value_Override, len(desc.inputs), s.allocator),
@@ -867,23 +859,26 @@ load_shader :: proc(vertex_shader_source: string, fragment_shader_source: string
 		input.name = strings.clone(input.name, s.allocator)
 	}
 
-	for cb_idx in 0..<len(desc.constant_buffers) {
-		cb_desc := &desc.constant_buffers[cb_idx]
+	constant_offset: int
 
-		shd.constant_buffers[cb_idx] = {
-			cpu_data = make([]u8, desc.constant_buffers[cb_idx].size, s.allocator),
+	for cidx in 0..<len(desc.constants) {
+		constant_desc := &desc.constants[cidx]
+
+		loc := Shader_Constant_Location {
+			offset = constant_offset,
+			size = constant_desc.size,
 		}
 
-		for &v in cb_desc.variables {
-			if v.name == "" {
-				continue
-			}
+		shd.constants[cidx] = loc 
 
-			shd.constant_lookup[strings.clone(v.name, s.allocator)] = v.loc
+		constant_offset += constant_desc.size
 
-			switch v.name {
+		if constant_desc.name != "" {
+			shd.constant_lookup[strings.clone(constant_desc.name, s.allocator)] = loc
+
+			switch constant_desc.name {
 			case "mvp":
-				shd.constant_builtin_locations[.MVP] = v.loc
+				shd.constant_builtin_locations[.MVP] = loc
 			}
 		}
 	}
@@ -910,11 +905,8 @@ load_shader :: proc(vertex_shader_source: string, fragment_shader_source: string
 destroy_shader :: proc(shader: Shader) {
 	rb.destroy_shader(shader.handle)
 
-	for c in shader.constant_buffers {
-		delete(c.cpu_data)
-	}
-	
-	delete(shader.constant_buffers)
+	delete(shader.constants_data)
+	delete(shader.constants)
 
 	for k, _ in shader.constant_lookup {
 		delete(k)
@@ -948,22 +940,26 @@ set_shader :: proc(shader: Maybe(Shader)) {
 }
 
 set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any) {
+	if shd.handle == SHADER_NONE {
+		log.error("Invalid shader")
+		return
+	}
+
 	draw_current_batch()
 
-	if int(loc.buffer_idx) >= len(shd.constant_buffers) {
-		log.warnf("Constant buffer idx %v is out of bounds", loc.buffer_idx)
+	if loc.offset + loc.size > len(shd.constants_data) {
+		log.errorf("Constant with offset %v and size %v is out of bounds. Buffer ends at %v", loc.offset, loc.size, len(shd.constants_data))
 		return
 	}
 
 	sz := reflect.size_of_typeid(val.id)
-	b := &shd.constant_buffers[loc.buffer_idx]
 
-	if int(loc.offset) + sz > len(b.cpu_data) {
-		log.warnf("Constant buffer idx %v is trying to be written out of bounds by at offset %v with %v bytes", loc.buffer_idx, loc.offset, size_of(val))
+	if sz != loc.size {
+		log.errorf("Trying to set constant of type %v, but it is not of correct size %v", val.id, loc.size)
 		return
 	}
 
-	mem.copy(&b.cpu_data[loc.offset], val.data, sz)
+	mem.copy(&shd.constants_data[loc.offset], val.data, sz)
 }
 
 override_shader_input :: proc(shader: Shader, input: int, val: any) {
@@ -1160,20 +1156,28 @@ Shader_Handle :: distinct Handle
 
 SHADER_NONE :: Shader_Handle {}
 
+Shader_Constant_Location :: struct {
+	offset: int,
+	size: int,
+}
+
 Shader :: struct {
 	handle: Shader_Handle,
-	constant_buffers: []Shader_Constant_Buffer,
+
+	// We store the CPU-side value of all constants in a single buffer to have less allocations.
+	// The 'constants' array says where in this buffer each constant is, and 'constant_lookup'
+	// maps a name to a constant location.
+	constants_data: []u8,
+	constants: []Shader_Constant_Location,
 	constant_lookup: map[string]Shader_Constant_Location,
+
+	// Maps built in constant types such as "model view projection matrix" to a location.
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
 
 	inputs: []Shader_Input,
 	input_overrides: []Shader_Input_Value_Override,
 	default_input_offsets: [Shader_Default_Inputs]int,
 	vertex_size: int,
-}
-
-Shader_Constant_Buffer :: struct {
-	cpu_data: []u8,
 }
 
 SHADER_INPUT_VALUE_MAX_SIZE :: 256
@@ -1206,11 +1210,6 @@ Shader_Input :: struct {
 	register: int,
 	type: Shader_Input_Type,
 	format: Pixel_Format,
-}
-
-Shader_Constant_Location :: struct {
-	buffer_idx: u32,
-	offset: u32,
 }
 
 Pixel_Format :: enum {
@@ -1666,7 +1665,7 @@ set_font :: proc(fh: Font_Handle) {
 }
 
 DEPTH_START :: -0.99
-DEPTH_INCREMENT :: (1.0/20000.0) // I've stolen this number from raylib.
+DEPTH_INCREMENT :: (1.0/10000000.0)
 
 _ :: jpeg
 _ :: bmp

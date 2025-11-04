@@ -1,18 +1,12 @@
 package karl2d
 
-Shader_Constant_Buffer_Desc :: struct {
+Shader_Constant_Desc :: struct {
 	name: string,
 	size: int,
-	variables: []Shader_Constant_Buffer_Variable_Desc,
-}
-
-Shader_Constant_Buffer_Variable_Desc :: struct {
-	name: string,
-	loc: Shader_Constant_Location,
 }
 
 Shader_Desc :: struct {
-	constant_buffers: []Shader_Constant_Buffer_Desc,
+	constants: []Shader_Constant_Desc,
 	inputs: []Shader_Input,
 }
 
