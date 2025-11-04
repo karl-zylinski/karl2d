@@ -4,26 +4,28 @@
 	set uniforms -- needs more type info?
 	the constant types are hardcoded to just a few types right now
 
-* generalised sampler handling for both gl and d3d
 * should gamepad come from separate interface than window?
 	* keyboard input could also come from some input interface, but
 	  it is tightly bound to window in windows, so we'll see.
 * add more window flags
-* get_camera_view_matrix returns Mat4... should we go hardcore 2D and return Mat3 so you can do
-    mat * Vec3{pos.x, pos.y, 1} for positions and mat * Vec3{dir.x, dir.y, 0} for dirs?
 * win32: Gamepad support
 	* check status of gamepad
 	* what happens when you pull one out?
 	* playstation
-* Should we sort by depth? Maybe we should use Vec3 because some 2D games rely on it?
-	* I think we should.
 * Textures: Make the sampler state configurable
 * Textures D3D11: Do we need the SRV in the texture?
 * Shaders: Reflect and expose samplers
+	* generalised sampler handling for both gl and d3d
 * mipmap support
 * set filtering: for scaling up, down and mipmap
+* linux windowing and input
+* webgl backend
+* should we expose time and delta time stuff or rely on core:time?
+* think about sound
 
 ## DONE
+* Should we sort by depth? Maybe we should use Vec3 because some 2D games rely on it?
+	* I think we should.
 * Do proper checks of vertex count and dispatch rendering when full
 	* What happens when list is full? We can't just empty the vertex list due to being used by input assembler etc.
 * basic text rendering (ended up using font stash)
