@@ -18,6 +18,8 @@
 	* generalised sampler handling for both gl and d3d
 * mipmap support
 * set filtering: for scaling up, down and mipmap
+* render textures
+* do pixel-perfect rendering tests: render texture with 1:1 pixel matching etc
 * linux windowing and input
 * webgl backend
 * should we expose time and delta time stuff or rely on core:time?
