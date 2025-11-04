@@ -548,6 +548,7 @@ d3d11_load_shader :: proc(vs_source: string, ps_source: string, desc_allocator :
 			}
 		}
 
+		assert(len(constant_descs) == len(d3d_constants))
 		desc.constants = constant_descs[:]
 		d3d_shd.constants = d3d_constants[:]
 	}

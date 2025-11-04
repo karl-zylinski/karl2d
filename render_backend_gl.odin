@@ -1,5 +1,4 @@
-#+ignore
-//#+build windows, darwin, linux
+#+build windows, darwin, linux
 #+private file
 
 package karl2d
@@ -54,6 +53,24 @@ GL_Shader_Constant_Buffer :: struct {
 	block_index: u32,
 }
 
+GL_Shader_Constant_Type :: enum {
+	Uniform,
+	Block_Variable,
+}
+
+// OpenGL can have constants both in blocks (like constant buffers in D3D11), or as stand-alone
+// uniforms. We support both.
+GL_Shader_Constant :: struct {
+	type: GL_Shader_Constant_Type,
+	
+	// if type is Uniform, then this is the uniform loc
+	// if type is Block_Variable, then this is the block loc
+	loc: u32, 
+
+	// if this is a block variable, then this is the offset to it
+	block_variable_offset: u32,
+}
+
 GL_Shader :: struct {
 	handle: Shader_Handle,
 
@@ -63,6 +80,7 @@ GL_Shader :: struct {
 	program: u32,
 
 	constant_buffers: []GL_Shader_Constant_Buffer,
+	constants: []GL_Shader_Constant,
 }
 
 s: ^GL_State
@@ -111,9 +129,9 @@ gl_present :: proc() {
 }
 
 gl_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), vertex_buffer: []u8) {
-	shader := hm.get(&s.shaders, shd.handle)
+	gl_shd := hm.get(&s.shaders, shd.handle)
 
-	if shader == nil {
+	if gl_shd == nil {
 		return
 	}
 
@@ -121,15 +139,26 @@ gl_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), vert
 	gl.EnableVertexAttribArray(1)
 	gl.EnableVertexAttribArray(2)
 
-	gl.UseProgram(shader.program)
-	assert(len(shd.constant_buffers) == len(shader.constant_buffers))
+	gl.UseProgram(gl_shd.program)
+	assert(len(shd.constants) == len(gl_shd.constants))
 
-	for cb_idx in 0..<len(shader.constant_buffers) {
-		cpu_data := shd.constant_buffers[cb_idx].cpu_data
-		gpu_data := shader.constant_buffers[cb_idx].buffer
-		gl.BindBuffer(gl.UNIFORM_BUFFER, gpu_data)
-		gl.BufferData(gl.UNIFORM_BUFFER, len(cpu_data), raw_data(cpu_data), gl.DYNAMIC_DRAW)
-		gl.BindBufferBase(gl.UNIFORM_BUFFER, u32(cb_idx), gpu_data)
+	cpu_data := shd.constants_data
+	for cidx in 0..<len(gl_shd.constants) {
+		cpu_loc := shd.constants[cidx]
+		gpu_loc := gl_shd.constants[cidx]
+
+		switch gpu_loc.type {
+		case .Block_Variable:
+			gpu_buffer_info := gl_shd.constant_buffers[gpu_loc.loc]
+			gpu_data := gpu_buffer_info.buffer
+			gl.BindBuffer(gl.UNIFORM_BUFFER, gpu_data)
+			src := cpu_data[cpu_loc.offset:cpu_loc.offset+cpu_loc.size]
+			gl.BufferData(gl.UNIFORM_BUFFER, len(src), raw_data(src), gl.DYNAMIC_DRAW)
+			gl.BindBufferBase(gl.UNIFORM_BUFFER, gpu_loc.loc, gpu_data)	
+
+		case .Uniform:
+			panic("not implemented")
+		}
 	}
 	
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
@@ -318,12 +347,12 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 	}
 
 
-	shader := GL_Shader {
+	gl_shd := GL_Shader {
 		program = program,
 	}
 
-	gl.GenVertexArrays(1, &shader.vao)
-	gl.BindVertexArray(shader.vao)
+	gl.GenVertexArrays(1, &gl_shd.vao)
+	gl.BindVertexArray(gl_shd.vao)
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 
 	offset: int
@@ -356,9 +385,10 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 	{
 		num_uniform_blocks: i32
 		gl.GetProgramiv(program, gl.ACTIVE_UNIFORM_BLOCKS, &num_uniform_blocks)
-		desc.constant_buffers = make([]Shader_Constant_Buffer_Desc, num_uniform_blocks, desc_allocator)
-		shader.constant_buffers = make([]GL_Shader_Constant_Buffer, num_uniform_blocks, s.allocator)
+		gl_shd.constant_buffers = make([]GL_Shader_Constant_Buffer, num_uniform_blocks, s.allocator)
 
+		constant_descs: [dynamic]Shader_Constant_Desc
+		gl_constants: [dynamic]GL_Shader_Constant
 
 		uniform_block_name_buf: [256]u8
 		uniform_name_buf: [256]u8
@@ -390,14 +420,9 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			gl.BufferData(gl.UNIFORM_BUFFER, int(size), nil, gl.DYNAMIC_DRAW)
 			gl.BindBufferBase(gl.UNIFORM_BUFFER, idx, buf)
 
-			shader.constant_buffers[cb_idx] = {
+			gl_shd.constant_buffers[cb_idx] = {
 				block_index = idx,
 				buffer = buf,
-				size = int(size),
-			}
-
-			desc.constant_buffers[cb_idx] = {
-				name = strings.clone_from_cstring(name_cstr, desc_allocator),
 				size = int(size),
 			}
 
@@ -407,30 +432,49 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			uniform_indices := make([]i32, num_uniforms, frame_allocator)
 			gl.GetActiveUniformBlockiv(program, idx, gl.UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES, raw_data(uniform_indices))
 
-			variables := make([]Shader_Constant_Buffer_Variable_Desc, num_uniforms, desc_allocator)
-			desc.constant_buffers[cb_idx].variables = variables
-
 			for var_idx in 0..<num_uniforms {
 				uniform_idx := u32(uniform_indices[var_idx])
 
 				offset: i32
 				gl.GetActiveUniformsiv(program, 1, &uniform_idx, gl.UNIFORM_OFFSET, &offset)
 
+				uniform_type: i32
+				gl.GetActiveUniformsiv(program, 1, &uniform_idx, gl.UNIFORM_TYPE, &uniform_type)
+
+				sz: int
+
+				switch uniform_type {
+				case gl.FLOAT: sz = size_of(f32)
+				case gl.FLOAT_VEC2: sz = size_of(Vec2)
+				case gl.FLOAT_VEC3: sz = size_of(Vec3)
+				case gl.FLOAT_VEC4: sz = size_of(Vec4)
+				case gl.FLOAT_MAT4: sz = size_of(Mat4)
+				
+				case: log.errorf("Unknwon type: %x", uniform_type)
+				}
+
 				variable_name_len: i32
 				gl.GetActiveUniformName(program, uniform_idx, len(uniform_name_buf), &variable_name_len, raw_data(&uniform_name_buf))
 
-				variables[var_idx] = {
+				append(&constant_descs, Shader_Constant_Desc {
 					name = strings.clone(string(uniform_name_buf[:variable_name_len]), desc_allocator),
-					loc = {
-						buffer_idx = u32(cb_idx),
-						offset = u32(offset),
-					},
-				}
+					size = sz,
+				})
+
+				append(&gl_constants, GL_Shader_Constant {
+					type = .Block_Variable,
+					loc = idx,
+					block_variable_offset = u32(offset),
+				})
 			}
 		}
+
+		assert(len(constant_descs) == len(gl_constants))
+		desc.constants = constant_descs[:]
+		gl_shd.constants = gl_constants[:]
 	}
 
-	h := hm.add(&s.shaders, shader)
+	h := hm.add(&s.shaders, gl_shd)
 
 	return h, desc
 }
