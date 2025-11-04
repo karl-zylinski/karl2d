@@ -1,4 +1,10 @@
 ## TODO
+* GL backend:
+	textures
+	set uniforms -- needs more type info?
+	the constant types are hardcoded to just a few types right now
+
+* generalised sampler handling for both gl and d3d
 * should gamepad come from separate interface than window?
 	* keyboard input could also come from some input interface, but
 	  it is tightly bound to window in windows, so we'll see.
