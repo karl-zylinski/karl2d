@@ -31,6 +31,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
             window_creation_flags := Window_Flags {},
             allocator := context.allocator, loc := #caller_location) -> ^State {
 	assert(s == nil, "Don't call 'init' twice.")
+	context.allocator = allocator
 
 	s = new(State, allocator, loc)
 	s.frame_allocator = runtime.arena_allocator(&s.frame_arena)
@@ -101,6 +102,7 @@ shutdown_wanted :: proc() -> bool {
 // Closes the window and cleans up the internal state.
 shutdown :: proc() {
 	assert(s != nil, "You've called 'shutdown' without calling 'init' first")
+	context.allocator = s.allocator
 
 	destroy_font(s.default_font)
 	rb.destroy_texture(s.shape_drawing_texture)
@@ -821,6 +823,7 @@ destroy_font :: proc(font: Font_Handle) {
 
 	// TODO fontstash has no "destroy font" proc... I should make my own version of fontstash
 	delete(s.fs.fonts[f.fontstash_handle].glyphs)
+	s.fs.fonts[f.fontstash_handle].glyphs = {}
 }
 
 get_default_font :: proc() -> Font_Handle {

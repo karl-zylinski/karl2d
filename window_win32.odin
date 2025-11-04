@@ -7,6 +7,7 @@ package karl2d
 WINDOW_INTERFACE_WIN32 :: Window_Interface {
 	state_size = win32_state_size,
 	init = win32_init,
+	shutdown = win32_shutdown,
 	window_handle = win32_window_handle,
 	process_events = win32_process_events,
 	get_events = win32_get_events,

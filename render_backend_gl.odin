@@ -540,13 +540,20 @@ gl_describe_pixel_format :: proc(f: Pixel_Format) -> (format: u32, num_component
 }
 
 gl_destroy_shader :: proc(h: Shader_Handle) {
-	
+	shd := hm.get(&s.shaders, h)
+
+	if shd == nil {
+		log.errorf("Invalid shader: %v", h)
+		return
+	}
+
+	delete(shd.constant_buffers, s.allocator)
+	delete(shd.constants, s.allocator)
 }
 
 gl_default_shader_vertex_source :: proc() -> string {
 	return #load("default_shader_vertex.glsl")
 }
-
 
 gl_default_shader_fragment_source :: proc() -> string {
 	return #load("default_shader_fragment.glsl")
