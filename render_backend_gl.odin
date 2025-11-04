@@ -62,7 +62,7 @@ GL_Shader_Constant_Type :: enum {
 // uniforms. We support both.
 GL_Shader_Constant :: struct {
 	type: GL_Shader_Constant_Type,
-	
+
 	// if type is Uniform, then this is the uniform loc
 	// if type is Block_Variable, then this is the block loc
 	loc: u32, 
@@ -157,7 +157,7 @@ gl_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), vert
 			gl.BindBufferBase(gl.UNIFORM_BUFFER, gpu_loc.loc, gpu_data)	
 
 		case .Uniform:
-			panic("not implemented")
+			//gl.uniform
 		}
 	}
 	
@@ -325,7 +325,7 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			   DOUBLE_MAT3, DOUBLE_MAT4, DOUBLE_MAT2x3, DOUBLE_MAT2x4,
 			   DOUBLE_MAT3x2, DOUBLE_MAT3x4, DOUBLE_MAT4x2, or DOUBLE_MAT4x3 */
 
-			case: log.errorf("Unknwon type: %v", attrib_type)
+			case: log.errorf("Unknown type: %v", attrib_type)
 			}
 
 			name := strings.clone(string(attrib_name_buf[:attrib_name_len]), desc_allocator)
@@ -382,24 +382,65 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 		}
 	}*/
 
-	{
-		num_uniform_blocks: i32
-		gl.GetProgramiv(program, gl.ACTIVE_UNIFORM_BLOCKS, &num_uniform_blocks)
-		gl_shd.constant_buffers = make([]GL_Shader_Constant_Buffer, num_uniform_blocks, s.allocator)
+	constant_descs: [dynamic]Shader_Constant_Desc
+	gl_constants: [dynamic]GL_Shader_Constant
 
-		constant_descs: [dynamic]Shader_Constant_Desc
-		gl_constants: [dynamic]GL_Shader_Constant
+	{
+		num_active_uniforms: i32
+		gl.GetProgramiv(program, gl.ACTIVE_UNIFORMS, &num_active_uniforms)
+		uniform_name_buf: [256]u8
+
+		for cidx in 0..<num_active_uniforms {
+			name_len: i32
+			array_len: i32
+			type: u32
+			gl.GetActiveUniform(program, u32(cidx), len(uniform_name_buf), &name_len, &array_len, &type,
+				raw_data(&uniform_name_buf))
+
+			name := cstring(raw_data(uniform_name_buf[:name_len]))
+			loc := gl.GetUniformLocation(program, name)
+
+
+			sz: int
+
+			switch type {
+			case gl.FLOAT: sz = size_of(f32)
+			case gl.FLOAT_VEC2: sz = size_of(Vec2)
+			case gl.FLOAT_VEC3: sz = size_of(Vec3)
+			case gl.FLOAT_VEC4: sz = size_of(Vec4)
+			case gl.FLOAT_MAT4: sz = size_of(Mat4)
+			
+			case: log.errorf("Unknown type: %x", type)
+			}
+
+			append(&constant_descs, Shader_Constant_Desc {
+				name = strings.clone_from_cstring(name, desc_allocator),
+				size = sz,
+			})
+
+			append(&gl_constants, GL_Shader_Constant {
+				type = .Uniform,
+				loc = u32(loc),
+			})
+		}
+	}
+
+	// Blocks are like constant buffers in D3D, it's like a struct with multiple uniforms inside
+	{
+		num_active_uniform_blocks: i32
+		gl.GetProgramiv(program, gl.ACTIVE_UNIFORM_BLOCKS, &num_active_uniform_blocks)
+		gl_shd.constant_buffers = make([]GL_Shader_Constant_Buffer, num_active_uniform_blocks, s.allocator)
 
 		uniform_block_name_buf: [256]u8
 		uniform_name_buf: [256]u8
 
-		for cb_idx in 0..<num_uniform_blocks {
+		for cb_idx in 0..<num_active_uniform_blocks {
 			name_len: i32
 			gl.GetActiveUniformBlockName(program, u32(cb_idx), len(uniform_block_name_buf), &name_len, raw_data(&uniform_block_name_buf))
 			name_cstr := cstring(raw_data(uniform_block_name_buf[:name_len]))
 			idx := gl.GetUniformBlockIndex(program, name_cstr)
 
-			if i32(idx) >= num_uniform_blocks {
+			if i32(idx) >= num_active_uniform_blocks {
 				continue
 			}
 
@@ -468,11 +509,11 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 				})
 			}
 		}
-
-		assert(len(constant_descs) == len(gl_constants))
-		desc.constants = constant_descs[:]
-		gl_shd.constants = gl_constants[:]
 	}
+
+	assert(len(constant_descs) == len(gl_constants))
+	desc.constants = constant_descs[:]
+	gl_shd.constants = gl_constants[:]
 
 	h := hm.add(&s.shaders, gl_shd)
 
