@@ -1,6 +1,7 @@
 ## TODO
 * GL backend:
-	textures
+	textures --- try make the d3d11 backend support multiple textures first and
+	             then generalize to gl
 	X set uniforms -- needs more type info?
 	X the constant types are hardcoded to just a few types right now
 
