@@ -873,7 +873,6 @@ load_shader :: proc(vertex_shader_source: string, fragment_shader_source: string
 		}
 
 		shd.constants[cidx] = loc 
-
 		constant_offset += constant_desc.size
 
 		if constant_desc.name != "" {
@@ -889,6 +888,7 @@ load_shader :: proc(vertex_shader_source: string, fragment_shader_source: string
 	for &d in shd.default_input_offsets {
 		d = -1
 	}
+
 	input_offset: int
 
 	for &input in shd.inputs {
@@ -945,6 +945,11 @@ set_shader :: proc(shader: Maybe(Shader)) {
 set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any) {
 	if shd.handle == SHADER_NONE {
 		log.error("Invalid shader")
+		return
+	}
+
+	if loc.size == 0 {
+		log.error("Could not find shader constant")
 		return
 	}
 
@@ -1589,7 +1594,9 @@ frame_cstring :: proc(str: string, loc := #caller_location) -> cstring {
 
 
 @(require_results)
-matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f32) -> (m: matrix[4,4]f32) #no_bounds_check {
+matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f32) -> Mat4 #no_bounds_check {
+	m: Mat4
+
 	m[0, 0] = +2 / (right - left)
 	m[1, 1] = +2 / (top - bottom)
 	m[2, 2] = +1
@@ -1598,7 +1605,7 @@ matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f
 	m[2, 3] = 0
 	m[3, 3] = 1
 
-	return
+	return m
 }
 
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {

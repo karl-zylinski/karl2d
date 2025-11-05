@@ -69,6 +69,9 @@ GL_Shader_Constant :: struct {
 
 	// if this is a block variable, then this is the offset to it
 	block_variable_offset: u32,
+
+	// if type is Uniform, then this contains the GL type of the uniform
+	uniform_type: u32,
 }
 
 GL_Shader :: struct {
@@ -127,7 +130,6 @@ gl_clear :: proc(color: Color) {
 gl_present :: proc() {
 	_gl_present(s.window_handle)
 }
-
 gl_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), vertex_buffer: []u8) {
 	gl_shd := hm.get(&s.shaders, shd.handle)
 
@@ -145,6 +147,11 @@ gl_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), vert
 	cpu_data := shd.constants_data
 	for cidx in 0..<len(gl_shd.constants) {
 		cpu_loc := shd.constants[cidx]
+
+		if cpu_loc.size == 0 {
+			continue
+		}
+
 		gpu_loc := gl_shd.constants[cidx]
 
 		switch gpu_loc.type {
@@ -157,7 +164,94 @@ gl_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), vert
 			gl.BindBufferBase(gl.UNIFORM_BUFFER, gpu_loc.loc, gpu_data)	
 
 		case .Uniform:
-			//gl.uniform
+			loc := i32(gpu_loc.loc)
+			ptr := (rawptr)(&cpu_data[cpu_loc.offset])
+			uptr := (^u32)(ptr)
+			iptr := (^i32)(ptr)
+			fptr := (^f32)(ptr)
+			dptr := (^f64)(ptr)
+			switch gpu_loc.uniform_type {
+			case gl.FLOAT:
+				gl.Uniform1fv(loc, 1, fptr)
+
+			case gl.FLOAT_VEC2:
+				gl.Uniform2fv(loc, 1, fptr)
+			case gl.FLOAT_MAT2:
+				gl.UniformMatrix2fv(loc, 1, false, fptr)
+			case gl.FLOAT_MAT2x3:
+				gl.UniformMatrix2x3fv(loc, 1, false, fptr)
+			case gl.FLOAT_MAT2x4:
+				gl.UniformMatrix2x4fv(loc, 1, false, fptr)
+
+			case gl.FLOAT_VEC3:
+				gl.Uniform3fv(loc, 1, fptr)
+			case gl.FLOAT_MAT3x2:
+				gl.UniformMatrix3x2fv(loc, 1, false, fptr)
+			case gl.FLOAT_MAT3:
+				gl.UniformMatrix3fv(loc, 1, false, fptr)
+			case gl.FLOAT_MAT3x4:
+				gl.UniformMatrix3x4fv(loc, 1, false, fptr)
+
+			case gl.FLOAT_VEC4:
+				gl.Uniform4fv(loc, 1, fptr)
+			case gl.FLOAT_MAT4x2:
+				gl.UniformMatrix4x2fv(loc, 1, false, fptr)
+			case gl.FLOAT_MAT4x3:
+				gl.UniformMatrix4x3fv(loc, 1, false, fptr)
+			case gl.FLOAT_MAT4:
+				gl.UniformMatrix4fv(loc, 1, false, fptr)
+
+			case gl.DOUBLE:
+				gl.Uniform1dv(loc, 1, dptr)
+
+			case gl.DOUBLE_VEC2:
+				gl.Uniform2dv(loc, 1, dptr)
+			case gl.DOUBLE_MAT2:
+				gl.UniformMatrix2dv(loc, 1, false, dptr)
+			case gl.DOUBLE_MAT2x3:
+				gl.UniformMatrix2x3dv(loc, 1, false, dptr)
+			case gl.DOUBLE_MAT2x4:
+				gl.UniformMatrix2x4dv(loc, 1, false, dptr)
+
+			case gl.DOUBLE_VEC3:
+				gl.Uniform3dv(loc, 1, dptr)
+			case gl.DOUBLE_MAT3x2:
+				gl.UniformMatrix3x2dv(loc, 1, false, dptr)
+			case gl.DOUBLE_MAT3:
+				gl.UniformMatrix3dv(loc, 1, false, dptr)
+			case gl.DOUBLE_MAT3x4:
+				gl.UniformMatrix3x4dv(loc, 1, false, dptr)
+
+			case gl.DOUBLE_VEC4:
+				gl.Uniform4dv(loc, 1, dptr)
+			case gl.DOUBLE_MAT4x2:
+				gl.UniformMatrix4x2dv(loc, 1, false, dptr)
+			case gl.DOUBLE_MAT4x3:
+				gl.UniformMatrix4x3dv(loc, 1, false, dptr)
+			case gl.DOUBLE_MAT4:
+				gl.UniformMatrix4dv(loc, 1, false, dptr)
+
+			case gl.BOOL, gl.INT:
+				gl.Uniform1iv(loc, 1, iptr)
+			case gl.BOOL_VEC2, gl.INT_VEC2:
+				gl.Uniform2iv(loc, 1, iptr)
+			case gl.BOOL_VEC3, gl.INT_VEC3:
+				gl.Uniform3iv(loc, 1, iptr)
+			case gl.BOOL_VEC4, gl.INT_VEC4:
+				gl.Uniform4iv(loc, 1, iptr)
+
+			case gl.UNSIGNED_INT:
+				gl.Uniform1uiv(loc, 1, uptr)
+			case gl.UNSIGNED_INT_VEC2:
+				gl.Uniform2uiv(loc, 1, uptr)
+			case gl.UNSIGNED_INT_VEC3:
+				gl.Uniform3uiv(loc, 1, uptr)
+			case gl.UNSIGNED_INT_VEC4:
+				gl.Uniform4uiv(loc, 1, uptr)
+
+			case: log.errorf("Unknown type: %x", gpu_loc.uniform_type)
+			}
+			
 		}
 	}
 	
@@ -302,10 +396,6 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			
 			loc := gl.GetAttribLocation(program, name_cstr)
 
-			if loc >= num_attribs {
-				continue
-			}
-
 			type: Shader_Input_Type
 
 			switch attrib_type {
@@ -331,13 +421,12 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			name := strings.clone(string(attrib_name_buf[:attrib_name_len]), desc_allocator)
 			
 			format := len(layout_formats) > 0 ? layout_formats[loc] : get_shader_input_format(name, type)
-			desc.inputs[loc] = {
+			desc.inputs[i] = {
 				name = name,
 				register = int(loc),
 				format = format,
 				type = type,
 			}
-
 
 			input_format := get_shader_input_format(name, type)
 			format_size := pixel_format_size(input_format)
@@ -359,9 +448,9 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 	for idx in 0..<len(desc.inputs) {
 		input := desc.inputs[idx]
 		format_size := pixel_format_size(input.format)
-		gl.EnableVertexAttribArray(u32(idx))	
+		gl.EnableVertexAttribArray(u32(input.register))	
 		format, num_components, norm := gl_describe_pixel_format(input.format)
-		gl.VertexAttribPointer(u32(idx), num_components, format, norm ? gl.TRUE : gl.FALSE, i32(stride), uintptr(offset))
+		gl.VertexAttribPointer(u32(input.register), num_components, format, norm ? gl.TRUE : gl.FALSE, i32(stride), uintptr(offset))
 		offset += format_size
 	}
 
@@ -400,27 +489,15 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			name := cstring(raw_data(uniform_name_buf[:name_len]))
 			loc := gl.GetUniformLocation(program, name)
 
-
-			sz: int
-
-			switch type {
-			case gl.FLOAT: sz = size_of(f32)
-			case gl.FLOAT_VEC2: sz = size_of(Vec2)
-			case gl.FLOAT_VEC3: sz = size_of(Vec3)
-			case gl.FLOAT_VEC4: sz = size_of(Vec4)
-			case gl.FLOAT_MAT4: sz = size_of(Mat4)
-			
-			case: log.errorf("Unknown type: %x", type)
-			}
-
 			append(&constant_descs, Shader_Constant_Desc {
 				name = strings.clone_from_cstring(name, desc_allocator),
-				size = sz,
+				size = uniform_size(type),
 			})
 
 			append(&gl_constants, GL_Shader_Constant {
 				type = .Uniform,
 				loc = u32(loc),
+				uniform_type = type,
 			})
 		}
 	}
@@ -479,27 +556,15 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 				offset: i32
 				gl.GetActiveUniformsiv(program, 1, &uniform_idx, gl.UNIFORM_OFFSET, &offset)
 
-				uniform_type: i32
-				gl.GetActiveUniformsiv(program, 1, &uniform_idx, gl.UNIFORM_TYPE, &uniform_type)
-
-				sz: int
-
-				switch uniform_type {
-				case gl.FLOAT: sz = size_of(f32)
-				case gl.FLOAT_VEC2: sz = size_of(Vec2)
-				case gl.FLOAT_VEC3: sz = size_of(Vec3)
-				case gl.FLOAT_VEC4: sz = size_of(Vec4)
-				case gl.FLOAT_MAT4: sz = size_of(Mat4)
-				
-				case: log.errorf("Unknwon type: %x", uniform_type)
-				}
+				uniform_type: u32
+				gl.GetActiveUniformsiv(program, 1, &uniform_idx, gl.UNIFORM_TYPE, (^i32)(&uniform_type))
 
 				variable_name_len: i32
 				gl.GetActiveUniformName(program, uniform_idx, len(uniform_name_buf), &variable_name_len, raw_data(&uniform_name_buf))
 
 				append(&constant_descs, Shader_Constant_Desc {
 					name = strings.clone(string(uniform_name_buf[:variable_name_len]), desc_allocator),
-					size = sz,
+					size = uniform_size(uniform_type),
 				})
 
 				append(&gl_constants, GL_Shader_Constant {
@@ -520,6 +585,65 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 	return h, desc
 }
 
+// I might have missed something. But it doesn't seem like GL gives you this information.
+uniform_size :: proc(t: u32) -> int {
+	sz: int
+	switch t {
+	case gl.FLOAT:        sz = 4*1
+
+	case gl.FLOAT_VEC2:   sz = 4*2*1
+	case gl.FLOAT_MAT2:   sz = 4*2*2
+	case gl.FLOAT_MAT2x3: sz = 4*2*3
+	case gl.FLOAT_MAT2x4: sz = 4*2*4
+
+	case gl.FLOAT_VEC3:   sz = 4*3*1
+	case gl.FLOAT_MAT3x2: sz = 4*3*2
+	case gl.FLOAT_MAT3:   sz = 4*3*3
+	case gl.FLOAT_MAT3x4: sz = 4*3*4
+
+	case gl.FLOAT_VEC4:   sz = 4*4*1
+	case gl.FLOAT_MAT4x2: sz = 4*4*2
+	case gl.FLOAT_MAT4x3: sz = 4*4*3
+	case gl.FLOAT_MAT4:   sz = 4*4*4
+
+	case gl.DOUBLE:        sz = 8*1
+
+	case gl.DOUBLE_VEC2:   sz = 8*2*1
+	case gl.DOUBLE_MAT2:   sz = 8*2*2
+	case gl.DOUBLE_MAT2x3: sz = 8*2*3
+	case gl.DOUBLE_MAT2x4: sz = 8*2*4
+
+	case gl.DOUBLE_VEC3:   sz = 8*3*1
+	case gl.DOUBLE_MAT3x2: sz = 8*3*2
+	case gl.DOUBLE_MAT3:   sz = 8*3*3
+	case gl.DOUBLE_MAT3x4: sz = 8*3*4
+
+	case gl.DOUBLE_VEC4:   sz = 8*4*1
+	case gl.DOUBLE_MAT4x2: sz = 8*4*2
+	case gl.DOUBLE_MAT4x3: sz = 8*4*3
+	case gl.DOUBLE_MAT4:   sz = 8*4*4
+
+	case gl.BOOL:      sz = 4*1
+	case gl.BOOL_VEC2: sz = 4*2
+	case gl.BOOL_VEC3: sz = 4*3
+	case gl.BOOL_VEC4: sz = 4*4
+
+	case gl.INT:      sz = 4*1
+	case gl.INT_VEC2: sz = 4*2
+	case gl.INT_VEC3: sz = 4*3
+	case gl.INT_VEC4: sz = 4*4
+
+	case gl.UNSIGNED_INT:      sz = 4*1
+	case gl.UNSIGNED_INT_VEC2: sz = 4*2
+	case gl.UNSIGNED_INT_VEC3: sz = 4*3
+	case gl.UNSIGNED_INT_VEC4: sz = 4*4
+	case: log.errorf("Unhandled uniform type: %x", t)
+	}
+
+	return sz
+}
+
+
 gl_describe_pixel_format :: proc(f: Pixel_Format) -> (format: u32, num_components: i32, normalized: bool) {
 	switch f {
 	case .RGBA_32_Float: return gl.FLOAT, 4, false
@@ -535,7 +659,7 @@ gl_describe_pixel_format :: proc(f: Pixel_Format) -> (format: u32, num_component
 	case .Unknown: 
 	}
 
-	log.error("Unknown format")
+	log.errorf("Unknown format %x", format)
 	return 0, 0, false
 }
 
