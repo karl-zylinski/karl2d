@@ -32,8 +32,6 @@ Render_Backend_Interface :: struct {
 	get_swapchain_height: proc() -> int,
 	flip_z: proc() -> bool,
 
-	batch_vertex: proc(v: Vec2, uv: Vec2, color: Color),
-
 	default_shader_vertex_source: proc() -> string,
 	default_shader_fragment_source: proc() -> string,
 }
