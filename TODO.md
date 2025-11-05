@@ -1,8 +1,8 @@
 ## TODO
 * GL backend:
 	textures
-	set uniforms -- needs more type info?
-	the constant types are hardcoded to just a few types right now
+	X set uniforms -- needs more type info?
+	X the constant types are hardcoded to just a few types right now
 
 * should gamepad come from separate interface than window?
 	* keyboard input could also come from some input interface, but
