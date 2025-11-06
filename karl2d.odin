@@ -835,8 +835,17 @@ get_default_font :: proc() -> Font_Handle {
 // SHADERS //
 //---------//
 
-load_shader :: proc(vertex_shader_source: string, fragment_shader_source: string, layout_formats: []Pixel_Format = {}) -> Shader {
-	handle, desc := rb.load_shader(vertex_shader_source, fragment_shader_source, s.frame_allocator, layout_formats)
+load_shader :: proc(
+	vertex_shader_source: string,
+	fragment_shader_source: string,
+	layout_formats: []Pixel_Format = {},
+) -> Shader {
+	handle, desc := rb.load_shader(
+		vertex_shader_source,
+		fragment_shader_source,
+		s.frame_allocator,
+		layout_formats,
+	)
 
 	if handle == SHADER_NONE {
 		log.error("Failed loading shader")
