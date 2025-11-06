@@ -2,6 +2,11 @@
 * GL backend:
 	textures --- try make the d3d11 backend support multiple textures first and
 	             then generalize to gl
+
+	             for d3d11: we need to reflect bound resources for both vs and ps... if they are
+	             shared then perhaps we only need one buffer -- also, should you create less buffers
+	             and reuse them between shaders? So it doesn't become lots of buffers for each shader
+	             permutation
 	X set uniforms -- needs more type info?
 	X the constant types are hardcoded to just a few types right now
 
