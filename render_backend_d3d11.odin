@@ -141,15 +141,6 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 	}
 
 	ch(s.device->CreateBlendState(&blend_desc, &s.blend_state))
-
-	sampler_desc := d3d11.SAMPLER_DESC{
-		Filter         = .MIN_MAG_MIP_POINT,
-		AddressU       = .WRAP,
-		AddressV       = .WRAP,
-		AddressW       = .WRAP,
-		ComparisonFunc = .NEVER,
-	}
-	s.device->CreateSamplerState(&sampler_desc, &s.sampler_state)
 }
 
 d3d11_shutdown :: proc() {
@@ -191,7 +182,7 @@ d3d11_present :: proc() {
 	ch(s.swapchain->Present(1, {}))
 }
 
-d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), vertex_buffer: []u8) {
+d3d11_draw :: proc(shd: Shader, bound_textures: []Texture_Handle, scissor: Maybe(Rect), vertex_buffer: []u8) {
 	if len(vertex_buffer) == 0 {
 		return
 	}
@@ -296,11 +287,19 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), v
 
 	dc->PSSetShader(d3d_shd.pixel_shader, nil, 0)
 
-	if t := hm.get(&s.textures, texture); t != nil {
-		dc->PSSetShaderResources(0, 1, &t.view)	
+	if len(bound_textures) == len(d3d_shd.texture_bindings) {
+		for t, t_idx in bound_textures {
+			d3d_t := d3d_shd.texture_bindings[t_idx]
+
+			if t := hm.get(&s.textures, t); t != nil {
+				dc->PSSetShaderResources(d3d_t.bind_point, 1, &t.view)	
+			}
+		}
 	}
-	
-	dc->PSSetSamplers(0, 1, &s.sampler_state)
+
+	for &s in d3d_shd.samplers {
+		dc->PSSetSamplers(s.bind_point, 1, &s.sampler)
+	}
 
 	dc->OMSetRenderTargets(1, &s.framebuffer_view, s.depth_buffer_view)
 	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
@@ -506,14 +505,19 @@ d3d11_load_shader :: proc(
 
 	constant_descs := make([dynamic]Shader_Constant_Desc, desc_allocator)
 	d3d_constants := make([dynamic]D3D11_Shader_Constant, s.allocator)
+	d3d_samplers := make([dynamic]D3D11_Sampler, s.allocator)
 	d3d_constant_buffers := make([dynamic]D3D11_Shader_Constant_Buffer, s.allocator)
-
+	d3d_texture_bindings := make([dynamic]D3D11_Texture_Binding, s.allocator)
+	texture_bindpoint_descs := make([dynamic]Shader_Texture_Bindpoint_Desc, desc_allocator)
 	reflect_shader_constants(
 		vs_desc,
 		vs_ref,
 		&constant_descs,
 		&d3d_constants,
 		&d3d_constant_buffers,
+		&d3d_samplers,
+		&d3d_texture_bindings,
+		&texture_bindpoint_descs,
 		desc_allocator,
 		.Vertex,
 	)
@@ -560,6 +564,9 @@ d3d11_load_shader :: proc(
 		&constant_descs,
 		&d3d_constants,
 		&d3d_constant_buffers,
+		&d3d_samplers,
+		&d3d_texture_bindings,
+		&texture_bindpoint_descs,
 		desc_allocator,
 		.Pixel,
 	)
@@ -567,13 +574,16 @@ d3d11_load_shader :: proc(
 	// ----
 
 	desc.constants = constant_descs[:]
+	desc.texture_bindpoints = texture_bindpoint_descs[:]
 
 	d3d_shd := D3D11_Shader {
 		constants = d3d_constants[:],
 		constant_buffers = d3d_constant_buffers[:],
+		samplers = d3d_samplers[:],
 		vertex_shader = vertex_shader,
 		pixel_shader = pixel_shader,
 		input_layout = input_layout,
+		texture_bindings = d3d_texture_bindings[:],
 	}
 
 	h := hm.add(&s.shaders, d3d_shd)
@@ -591,6 +601,9 @@ reflect_shader_constants :: proc(
 	constant_descs: ^[dynamic]Shader_Constant_Desc,
 	d3d_constants: ^[dynamic]D3D11_Shader_Constant,
 	d3d_constant_buffers: ^[dynamic]D3D11_Shader_Constant_Buffer,
+	samplers: ^[dynamic]D3D11_Sampler,
+	d3d_texture_bindings: ^[dynamic]D3D11_Texture_Binding,
+	texture_bindpoint_descs: ^[dynamic]Shader_Texture_Bindpoint_Desc,
 	desc_allocator: runtime.Allocator,
 	shader_type: D3D11_Shader_Type,
 ) {
@@ -599,6 +612,33 @@ reflect_shader_constants :: proc(
 		ref->GetResourceBindingDesc(br_idx, &bind_desc)
 
 		#partial switch bind_desc.Type {
+		case .SAMPLER:
+			smp_obj := D3D11_Sampler {
+				bind_point = bind_desc.BindPoint,
+			}
+
+			sampler_desc := d3d11.SAMPLER_DESC{
+				Filter         = .MIN_MAG_MIP_POINT,
+				AddressU       = .WRAP,
+				AddressV       = .WRAP,
+				AddressW       = .WRAP,
+				ComparisonFunc = .NEVER,
+			}
+
+			s.device->CreateSamplerState(&sampler_desc, &smp_obj.sampler)
+			smp_obj.sampler->AddRef()
+
+			append(samplers, smp_obj)
+
+		case .TEXTURE:
+			append(d3d_texture_bindings, D3D11_Texture_Binding {
+				bind_point = bind_desc.BindPoint,
+			})
+
+			append(texture_bindpoint_descs, Shader_Texture_Bindpoint_Desc {
+				name = strings.clone_from_cstring(bind_desc.Name, desc_allocator),
+			})
+			
 		case .CBUFFER:
 			cb_info := ref->GetConstantBufferByName(bind_desc.Name)
 
@@ -688,6 +728,10 @@ d3d11_destroy_shader :: proc(h: Shader_Handle) {
 		}
 	}
 
+	for s in shd.samplers {
+		s.sampler->Release()
+	}
+
 	delete(shd.constant_buffers, s.allocator)
 	hm.remove(&s.shaders, h)
 }
@@ -703,9 +747,18 @@ D3D11_Shader_Constant_Buffer :: struct {
 	bind_point: u32,
 }
 
+D3D11_Texture_Binding :: struct {
+	bind_point: u32,
+}
+
 D3D11_Shader_Constant :: struct {
 	buffer_idx: u32,
 	offset: u32,
+}
+
+D3D11_Sampler :: struct {
+	bind_point: u32,
+	sampler: ^d3d11.ISamplerState,
 }
 
 D3D11_Shader :: struct {
@@ -715,6 +768,8 @@ D3D11_Shader :: struct {
 	input_layout: ^d3d11.IInputLayout,
 	constant_buffers: []D3D11_Shader_Constant_Buffer,
 	constants: []D3D11_Shader_Constant,
+	samplers: []D3D11_Sampler,
+	texture_bindings: []D3D11_Texture_Binding,
 }
 
 D3D11_State :: struct {
@@ -742,6 +797,8 @@ D3D11_State :: struct {
 
 	info_queue: ^d3d11.IInfoQueue,
 	vertex_buffer_gpu: ^d3d11.IBuffer,
+
+	all_samplers: map[^d3d11.ISamplerState]struct{},
 }
 
 create_swapchain :: proc(w, h: int) {

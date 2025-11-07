@@ -282,7 +282,11 @@ draw_current_batch :: proc() {
 		}
 	}
 
-	rb.draw(shader, s.batch_texture, s.batch_scissor, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
+	if def_tex_idx, has_def_tex_idx := shader.default_texture_index.?; has_def_tex_idx {
+		shader.texture_bindpoints[def_tex_idx] = s.batch_texture
+	}
+
+	rb.draw(shader, shader.texture_bindpoints, s.batch_scissor, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
 	s.vertex_buffer_cpu_used = 0
 }
 
@@ -865,6 +869,8 @@ load_shader :: proc(
 		constant_lookup = make(map[string]Shader_Constant_Location, s.allocator),
 		inputs = slice.clone(desc.inputs, s.allocator),
 		input_overrides = make([]Shader_Input_Value_Override, len(desc.inputs), s.allocator),
+		texture_bindpoints = make([]Texture_Handle, len(desc.texture_bindpoints), s.allocator),
+		texture_lookup = make(map[string]int, s.allocator),
 	}
 
 	for &input in shd.inputs {
@@ -880,7 +886,7 @@ load_shader :: proc(
 			offset = constant_offset,
 			size = constant_desc.size,
 		}
-		
+
 		shd.constants[cidx] = loc 
 		constant_offset += constant_desc.size
 
@@ -891,6 +897,14 @@ load_shader :: proc(
 			case "mvp":
 				shd.constant_builtin_locations[.MVP] = loc
 			}
+		}
+	}
+
+	for tbp, tbp_idx in desc.texture_bindpoints {
+		shd.texture_lookup[tbp.name] = tbp_idx
+
+		if tbp.name == "tex" {
+			shd.default_texture_index = tbp_idx
 		}
 	}
 
@@ -1190,6 +1204,10 @@ Shader :: struct {
 
 	// Maps built in constant types such as "model view projection matrix" to a location.
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
+
+	texture_bindpoints: []Texture_Handle,
+	texture_lookup: map[string]int,
+	default_texture_index: Maybe(int),
 
 	inputs: []Shader_Input,
 	input_overrides: []Shader_Input_Value_Override,

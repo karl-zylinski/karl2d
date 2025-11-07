@@ -1,3 +1,4 @@
+#+build ignore
 #+build windows, darwin, linux
 #+private file
 
