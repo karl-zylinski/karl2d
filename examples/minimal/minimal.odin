@@ -7,9 +7,6 @@ main :: proc() {
 	context.logger = log.create_console_logger()
 	k2.init(1080, 1080, "Karl2D Minimal Program")
 	k2.set_window_position(300, 100)
-	tex := k2.load_texture_from_file("sixten.jpg")
-
-	//def_shd := k2.get_default_shader()
 
 	for !k2.shutdown_wanted() {
 		k2.process_events()
@@ -20,14 +17,9 @@ main :: proc() {
 		k2.draw_circle({120, 40}, 30, k2.BLACK)
 		k2.draw_circle({120, 40}, 20, k2.GREEN)
 		k2.draw_text("Hellöpe!", {10, 100}, 64, k2.WHITE)
-
-		//k2.set_shader_constant(def_shd, def_shd.constant_lookup["alpha"], f32(0.5))
-		k2.draw_texture(tex, {10, 200})
-		//k2.set_shader_constant(def_shd, def_shd.constant_lookup["alpha"], f32(1))
 		k2.present()
 		free_all(context.temp_allocator)
 	}
 
-	k2.destroy_texture(tex)
 	k2.shutdown()
 }

@@ -202,12 +202,6 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), v
 		return
 	}
 
-	viewport := d3d11.VIEWPORT{
-		0, 0,
-		f32(s.width), f32(s.height),
-		0, 1,
-	}
-
 	dc := s.device_context
 
 	vb_data: d3d11.MAPPED_SUBRESOURCE
@@ -260,15 +254,13 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), v
 		copy(dst, src)
 	}
 
-	vs_constant_buffers := make([dynamic]^d3d11.IBuffer, frame_allocator)
-	ps_constant_buffers := make([dynamic]^d3d11.IBuffer, frame_allocator)
+	for &cb, cb_idx in d3d_shd.constant_buffers {
+		if .Vertex in cb.bound_shaders {
+			dc->VSSetConstantBuffers(cb.bind_point, 1, &cb.gpu_data)
+		}
 
-	for cb, cb_idx in d3d_shd.constant_buffers {
-		switch cb.type {
-		case .Vertex:
-			append(&vs_constant_buffers, cb.gpu_data)
-		case .Pixel:
-			append(&ps_constant_buffers, cb.gpu_data)
+		if .Pixel in cb.bound_shaders {
+			dc->PSSetConstantBuffers(cb.bind_point, 1, &cb.gpu_data)
 		}
 
 		if maps[cb_idx] != nil {
@@ -277,8 +269,11 @@ d3d11_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), v
 		}
 	}
 
-	dc->VSSetConstantBuffers(0, u32(len(vs_constant_buffers)), raw_data(vs_constant_buffers))
-	dc->PSSetConstantBuffers(0, u32(len(ps_constant_buffers)), raw_data(ps_constant_buffers))
+	viewport := d3d11.VIEWPORT{
+		0, 0,
+		f32(s.width), f32(s.height),
+		0, 1,
+	}
 
 	dc->RSSetViewports(1, &viewport)
 	dc->RSSetState(s.rasterizer_state)
@@ -597,58 +592,80 @@ reflect_shader_constants :: proc(
 	d3d_constants: ^[dynamic]D3D11_Shader_Constant,
 	d3d_constant_buffers: ^[dynamic]D3D11_Shader_Constant_Buffer,
 	desc_allocator: runtime.Allocator,
-	type: D3D11_Shader_Type,
+	shader_type: D3D11_Shader_Type,
 ) {
-	for cb_idx in 0..<d3d_desc.ConstantBuffers {
-		cb_info := ref->GetConstantBufferByIndex(cb_idx)
+	for br_idx in 0..<d3d_desc.BoundResources {
+		bind_desc: d3d11.SHADER_INPUT_BIND_DESC
+		ref->GetResourceBindingDesc(br_idx, &bind_desc)
 
-		if cb_info == nil {
-			continue
-		}
+		#partial switch bind_desc.Type {
+		case .CBUFFER:
+			cb_info := ref->GetConstantBufferByName(bind_desc.Name)
 
-		cb_desc: d3d11.SHADER_BUFFER_DESC
-		cb_info->GetDesc(&cb_desc)
-
-		if cb_desc.Size == 0 {
-			continue
-		}
-
-		constant_buffer_desc := d3d11.BUFFER_DESC{
-			ByteWidth      = cb_desc.Size,
-			Usage          = .DYNAMIC,
-			BindFlags      = {.CONSTANT_BUFFER},
-			CPUAccessFlags = {.WRITE},
-		}
-
-		buf := D3D11_Shader_Constant_Buffer {
-			type = type,
-		}
-
-		ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &buf.gpu_data))
-		buf.size = int(cb_desc.Size)
-		append(d3d_constant_buffers, buf)
-
-		for var_idx in 0..<cb_desc.Variables {
-			var_info := cb_info->GetVariableByIndex(var_idx)
-
-			if var_info == nil {
+			if cb_info == nil {
 				continue
 			}
 
-			var_desc: d3d11.SHADER_VARIABLE_DESC
-			var_info->GetDesc(&var_desc)
+			cb_desc: d3d11.SHADER_BUFFER_DESC
+			cb_info->GetDesc(&cb_desc)
 
-			if var_desc.Name != "" {
-				append(constant_descs, Shader_Constant_Desc {
-					name = strings.clone_from_cstring(var_desc.Name, desc_allocator),
-					size = int(var_desc.Size),
-				})
-
-				append(d3d_constants, D3D11_Shader_Constant {
-					buffer_idx = cb_idx,
-					offset = var_desc.StartOffset,
-				})
+			if cb_desc.Size == 0 {
+				continue
 			}
+
+			constant_buffer_desc := d3d11.BUFFER_DESC{
+				ByteWidth      = cb_desc.Size,
+				Usage          = .DYNAMIC,
+				BindFlags      = {.CONSTANT_BUFFER},
+				CPUAccessFlags = {.WRITE},
+			}
+			buffer_idx := -1
+
+			for &existing, existing_idx in d3d_constant_buffers {
+				if existing.bind_point == bind_desc.BindPoint {
+					existing.bound_shaders += {shader_type}
+					buffer_idx = existing_idx
+					break
+				}
+			}
+
+			if buffer_idx == -1 {
+				buffer_idx = len(d3d_constant_buffers)
+
+				buf := D3D11_Shader_Constant_Buffer {
+					bound_shaders = {shader_type},
+				}
+
+				ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &buf.gpu_data))
+				buf.size = int(cb_desc.Size)
+				buf.bind_point = bind_desc.BindPoint
+				append(d3d_constant_buffers, buf)
+			}
+
+			for var_idx in 0..<cb_desc.Variables {
+				var_info := cb_info->GetVariableByIndex(var_idx)
+
+				if var_info == nil {
+					continue
+				}
+
+				var_desc: d3d11.SHADER_VARIABLE_DESC
+				var_info->GetDesc(&var_desc)
+
+				if var_desc.Name != "" {
+					append(constant_descs, Shader_Constant_Desc {
+						name = strings.clone_from_cstring(var_desc.Name, desc_allocator),
+						size = int(var_desc.Size),
+					})
+
+					append(d3d_constants, D3D11_Shader_Constant {
+						buffer_idx = u32(buffer_idx),
+						offset = var_desc.StartOffset,
+					})
+				}
+			}
+		case:
+			log.errorf("Type is %v", bind_desc.Type)
 		}
 	}
 }
@@ -682,7 +699,8 @@ s: ^D3D11_State
 D3D11_Shader_Constant_Buffer :: struct {
 	gpu_data: ^d3d11.IBuffer,
 	size: int,
-	type: D3D11_Shader_Type,
+	bound_shaders: bit_set[D3D11_Shader_Type],
+	bind_point: u32,
 }
 
 D3D11_Shader_Constant :: struct {

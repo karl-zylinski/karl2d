@@ -880,7 +880,7 @@ load_shader :: proc(
 			offset = constant_offset,
 			size = constant_desc.size,
 		}
-
+		
 		shd.constants[cidx] = loc 
 		constant_offset += constant_desc.size
 
