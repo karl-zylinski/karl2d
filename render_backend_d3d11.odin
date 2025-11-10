@@ -182,7 +182,12 @@ d3d11_present :: proc() {
 	ch(s.swapchain->Present(1, {}))
 }
 
-d3d11_draw :: proc(shd: Shader, bound_textures: []Texture_Handle, scissor: Maybe(Rect), vertex_buffer: []u8) {
+d3d11_draw :: proc(
+	shd: Shader,
+	bound_textures: []Texture_Handle,
+	scissor: Maybe(Rect), 
+	vertex_buffer: []u8,
+) {
 	if len(vertex_buffer) == 0 {
 		return
 	}

@@ -1,4 +1,3 @@
-#+build ignore
 #+build windows, darwin, linux
 #+private file
 
@@ -46,6 +45,7 @@ GL_State :: struct {
 	shaders: hm.Handle_Map(GL_Shader, Shader_Handle, 1024*10),
 	ctx: GL_Context,
 	vertex_buffer_gpu: u32,
+	textures: hm.Handle_Map(GL_Texture, Texture_Handle, 1024*10),
 }
 
 GL_Shader_Constant_Buffer :: struct {
@@ -75,6 +75,16 @@ GL_Shader_Constant :: struct {
 	uniform_type: u32,
 }
 
+GL_Texture :: struct {
+	handle: Texture_Handle,
+	id: u32,
+	format: Pixel_Format,
+}
+
+GL_Texture_Binding :: struct {
+	loc: i32,
+}
+
 GL_Shader :: struct {
 	handle: Shader_Handle,
 
@@ -85,6 +95,7 @@ GL_Shader :: struct {
 
 	constant_buffers: []GL_Shader_Constant_Buffer,
 	constants: []GL_Shader_Constant,
+	texture_bindings: []GL_Texture_Binding, 
 }
 
 s: ^GL_State
@@ -114,6 +125,10 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 	gl.GenBuffers(1, &s.vertex_buffer_gpu)
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
+
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
 }
 
 gl_shutdown :: proc() {
@@ -131,7 +146,13 @@ gl_clear :: proc(color: Color) {
 gl_present :: proc() {
 	_gl_present(s.window_handle)
 }
-gl_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), vertex_buffer: []u8) {
+
+gl_draw :: proc(
+	shd: Shader,
+	bound_textures: []Texture_Handle,
+	scissor: Maybe(Rect),
+	vertex_buffer: []u8,
+) {
 	gl_shd := hm.get(&s.shaders, shd.handle)
 
 	if gl_shd == nil {
@@ -266,6 +287,18 @@ gl_draw :: proc(shd: Shader, texture: Texture_Handle, scissor: Maybe(Rect), vert
 		)
 	}
 
+	if len(bound_textures) == len(gl_shd.texture_bindings) {
+		for t, t_idx in bound_textures {
+			gl_t := gl_shd.texture_bindings[t_idx]
+
+			if t := hm.get(&s.textures, t); t != nil {
+				gl.ActiveTexture(gl.TEXTURE0)
+				gl.BindTexture(gl.TEXTURE_2D, t.id)
+				gl.Uniform1i(gl_t.loc, i32(t_idx))
+			}
+		}
+	}
+
 	gl.UnmapBuffer(gl.ARRAY_BUFFER)
 	gl.DrawArrays(gl.TRIANGLES, 0, i32(len(vertex_buffer)/shd.vertex_size))
 }
@@ -289,15 +322,60 @@ gl_set_internal_state :: proc(state: rawptr) {
 }
 
 gl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return {}
+	id: u32
+	gl.GenTextures(1, &id)
+	gl.BindTexture(gl.TEXTURE_2D, id)
+
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+
+	pf := gl_translate_pixel_format(format)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
+
+	tex := GL_Texture {
+		id = id,
+		format = format,
+	}
+
+	return hm.add(&s.textures, tex)
 }
 
 gl_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return {}
+	id: u32
+	gl.GenTextures(1, &id)
+	gl.BindTexture(gl.TEXTURE_2D, id)
+
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+
+	pf := gl_translate_pixel_format(format)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
+
+	tex := GL_Texture {
+		id = id,
+		format = format,
+	}
+	
+	return hm.add(&s.textures, tex)
 }
 
 gl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
-	return false
+	tex := hm.get(&s.textures, th)
+
+	if tex == nil {
+		return false
+	}
+
+	//pf := gl_translate_pixel_format(tex.format)
+
+
+    gl.BindTexture(gl.TEXTURE_2D, tex.id)
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0, i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
+	return true
 }
 
 gl_destroy_texture :: proc(th: Texture_Handle) {
@@ -436,7 +514,6 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 		}
 	}
 
-
 	gl_shd := GL_Shader {
 		program = program,
 	}
@@ -472,8 +549,10 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 		}
 	}*/
 
-	constant_descs: [dynamic]Shader_Constant_Desc
-	gl_constants: [dynamic]GL_Shader_Constant
+	constant_descs := make([dynamic]Shader_Constant_Desc, desc_allocator)
+	gl_constants := make([dynamic]GL_Shader_Constant, s.allocator)
+	texture_bindpoint_descs := make([dynamic]Shader_Texture_Bindpoint_Desc, desc_allocator)
+	gl_texture_bindings := make([dynamic]GL_Texture_Binding, s.allocator)
 
 	{
 		num_active_uniforms: i32
@@ -484,22 +563,40 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 			name_len: i32
 			array_len: i32
 			type: u32
-			gl.GetActiveUniform(program, u32(cidx), len(uniform_name_buf), &name_len, &array_len, &type,
-				raw_data(&uniform_name_buf))
+			
+			gl.GetActiveUniform(
+				program,
+				u32(cidx),
+				len(uniform_name_buf),
+				&name_len,
+				&array_len,
+				&type,
+				raw_data(&uniform_name_buf),
+			)
 
-			name := cstring(raw_data(uniform_name_buf[:name_len]))
-			loc := gl.GetUniformLocation(program, name)
+			name := strings.string_from_ptr(raw_data(uniform_name_buf[:]), int(name_len))
+			loc := gl.GetUniformLocation(program, cstring(raw_data(name)))
 
-			append(&constant_descs, Shader_Constant_Desc {
-				name = strings.clone_from_cstring(name, desc_allocator),
-				size = uniform_size(type),
-			})
+			if type == gl.SAMPLER_2D {
+				append(&texture_bindpoint_descs, Shader_Texture_Bindpoint_Desc {
+					name = strings.clone(name, desc_allocator),
+				})
 
-			append(&gl_constants, GL_Shader_Constant {
-				type = .Uniform,
-				loc = u32(loc),
-				uniform_type = type,
-			})
+				append(&gl_texture_bindings, GL_Texture_Binding {
+					loc = loc,
+				})
+			} else {
+				append(&constant_descs, Shader_Constant_Desc {
+					name = strings.clone(name, desc_allocator),
+					size = uniform_size(type),
+				})
+
+				append(&gl_constants, GL_Shader_Constant {
+					type = .Uniform,
+					loc = u32(loc),
+					uniform_type = type,
+				})
+			}
 		}
 	}
 
@@ -579,7 +676,9 @@ gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := f
 
 	assert(len(constant_descs) == len(gl_constants))
 	desc.constants = constant_descs[:]
+	desc.texture_bindpoints = texture_bindpoint_descs[:]
 	gl_shd.constants = gl_constants[:]
+	gl_shd.texture_bindings = gl_texture_bindings[:]
 
 	h := hm.add(&s.shaders, gl_shd)
 
@@ -644,6 +743,25 @@ uniform_size :: proc(t: u32) -> int {
 	return sz
 }
 
+gl_translate_pixel_format :: proc(f: Pixel_Format) -> i32 {
+	switch f {
+	case .RGBA_32_Float: return gl.RGBA
+	case .RGB_32_Float: return gl.RGB
+	case .RG_32_Float: return gl.RG
+	case .R_32_Float: return gl.R
+
+	case .RGBA_8_Norm: return gl.RGBA8_SNORM
+	case .RG_8_Norm: return gl.RG8_SNORM
+	case .R_8_Norm: return gl.R8_SNORM
+	case .R_8_UInt: return gl.R8_SNORM
+
+	case .Unknown: fallthrough
+	case: log.error("Unhandled pixel format %v", f) 
+	}
+	
+	return 0
+}
+
 
 gl_describe_pixel_format :: proc(f: Pixel_Format) -> (format: u32, num_components: i32, normalized: bool) {
 	switch f {
@@ -674,6 +792,7 @@ gl_destroy_shader :: proc(h: Shader_Handle) {
 
 	delete(shd.constant_buffers, s.allocator)
 	delete(shd.constants, s.allocator)
+	delete(shd.texture_bindings, s.allocator)
 }
 
 gl_default_shader_vertex_source :: proc() -> string {

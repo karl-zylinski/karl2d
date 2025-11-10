@@ -113,6 +113,7 @@ shutdown :: proc() {
 	win.shutdown()
 
 	fs.Destroy(&s.fs)
+	delete(s.fonts)
 
 	a := s.allocator
 	free(s.window_state, a)
@@ -933,6 +934,8 @@ destroy_shader :: proc(shader: Shader) {
 
 	delete(shader.constants_data)
 	delete(shader.constants)
+	delete(shader.texture_lookup)
+	delete(shader.texture_bindpoints)
 
 	for k, _ in shader.constant_lookup {
 		delete(k)
