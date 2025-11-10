@@ -304,6 +304,9 @@ gl_draw :: proc(
 }
 
 gl_resize_swapchain :: proc(w, h: int) {
+	s.width = w
+	s.height = h
+	gl.Viewport(0, 0, i32(w), i32(h))
 }
 
 gl_get_swapchain_width :: proc() -> int {
@@ -319,6 +322,7 @@ gl_flip_z :: proc() -> bool {
 }
 
 gl_set_internal_state :: proc(state: rawptr) {
+	s = (^GL_State)(state)
 }
 
 gl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
