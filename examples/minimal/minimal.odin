@@ -5,6 +5,9 @@ import "core:mem"
 import "core:log"
 import "core:fmt"
 
+_ :: fmt
+_ :: mem
+
 main :: proc() {
 	context.logger = log.create_console_logger()
 
