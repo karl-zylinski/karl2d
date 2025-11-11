@@ -38,6 +38,7 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 
 	win32.gl_set_proc_address(&win32.wglChoosePixelFormatARB, "wglChoosePixelFormatARB")
 	win32.gl_set_proc_address(&win32.wglCreateContextAttribsARB, "wglCreateContextAttribsARB")
+	win32.gl_set_proc_address(&win32.wglSwapIntervalEXT, "wglSwapIntervalEXT")
 
 	if win32.wglChoosePixelFormatARB == nil {
 		log.error("Failed fetching wglChoosePixelFormatARB")
@@ -46,6 +47,11 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 
 	if win32.wglCreateContextAttribsARB == nil {
 		log.error("Failed fetching wglCreateContextAttribsARB")
+		return {}, false
+	}
+
+	if win32.wglSwapIntervalEXT == nil {
+		log.error("Failed fetching wglSwapIntervalEXT")
 		return {}, false
 	}
 
@@ -73,6 +79,7 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	win32.SetPixelFormat(hdc, pixel_format, nil)
 	ctx := win32.wglCreateContextAttribsARB(hdc, nil, nil)
 	win32.wglMakeCurrent(hdc, ctx)
+	win32.wglSwapIntervalEXT(1)
 	return ctx, true
 }
 
