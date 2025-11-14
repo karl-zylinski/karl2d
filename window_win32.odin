@@ -11,6 +11,8 @@ WINDOW_INTERFACE_WIN32 :: Window_Interface {
 	window_handle = win32_window_handle,
 	process_events = win32_process_events,
 	get_events = win32_get_events,
+	get_width = win32_get_width,
+	get_height = win32_get_height,
 	clear_events = win32_clear_events,
 	set_position = win32_set_position,
 	set_size = win32_set_size,
@@ -35,6 +37,8 @@ win32_init :: proc(window_state: rawptr, window_width: int, window_height: int, 
 	s = (^Win32_State)(window_state)
 	s.allocator = allocator
 	s.events = make([dynamic]Window_Event, allocator)
+	s.width = window_width
+	s.height = window_height
 	s.custom_context = context
 	
 	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
@@ -153,6 +157,14 @@ win32_get_events :: proc() -> []Window_Event {
 	return s.events[:]
 }
 
+win32_get_width :: proc() -> int {
+	return s.width
+}
+
+win32_get_height :: proc() -> int {
+	return s.height
+}
+
 win32_clear_events :: proc() {
 	runtime.clear(&s.events)
 }
@@ -242,6 +254,8 @@ Win32_State :: struct {
 	custom_context: runtime.Context,
 	hwnd: win32.HWND,
 	flags: Window_Flags,
+	width: int,
+	height: int,
 	events: [dynamic]Window_Event,
 }
 
@@ -333,6 +347,9 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_SIZE:
 		width := win32.LOWORD(lparam)
 		height := win32.HIWORD(lparam)
+
+		s.width = int(width)
+		s.height = int(height)
 
 		append(&s.events, Window_Event_Resize {
 			width = int(width),

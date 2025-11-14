@@ -1,3 +1,5 @@
+#+vet explicit-allocators
+
 package karl2d
 
 import "base:runtime"
@@ -34,27 +36,33 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	context.allocator = allocator
 
 	s = new(State, allocator, loc)
+
+	// This is the same type of arena as the default temp allocator. This arena is for allocations
+	// that have a lifetime of "one frame". They are valid until you call `present()`, at which
+	// point the frame allocator is cleared.
 	s.frame_allocator = runtime.arena_allocator(&s.frame_arena)
 	frame_allocator = s.frame_allocator
 
 	s.allocator = allocator
-	s.custom_context = context
-
-	s.width = window_width
-	s.height = window_height
 
 	s.win = WINDOW_INTERFACE_WIN32
 	win = s.win
 
+	// We alloc memory for the windowing backend and pass the blob of memory to it.
 	window_state_alloc_error: runtime.Allocator_Error
-	s.window_state, window_state_alloc_error = mem.alloc(win.state_size())
+	s.window_state, window_state_alloc_error = mem.alloc(win.state_size(), allocator = allocator)
 	log.assertf(window_state_alloc_error == nil, "Failed allocating memory for window state: %v", window_state_alloc_error)
 
 	win.init(s.window_state, window_width, window_height, window_title, window_creation_flags, allocator)
+
+	// This is a OS-independent handle that we can pass to any rendering backend.
 	s.window = win.window_handle()
 
+	// See `config.odin` for how this is picked.
 	s.rb = BACKEND
 
+	// Depending on backend the depth is counted in one of two ways. It can be counted from `1` and
+	// to lower numbers. Or from `-1` and to higher numbers.
 	s.depth_start = DEPTH_START
 	s.depth_increment = DEPTH_INCREMENT
 
@@ -66,23 +74,35 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	s.depth = s.depth_start
 	rb = s.rb
 	rb_alloc_error: runtime.Allocator_Error
-	s.rb_state, rb_alloc_error = mem.alloc(rb.state_size())
+	s.rb_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = allocator)
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
 	s.proj_matrix = make_default_projection(window_width, window_height)
 	s.view_matrix = 1
+
+	// Boot up the render backend. It will render into our previously created window.
 	rb.init(s.rb_state, s.window, window_width, window_height, allocator)
+
+	// The vertex buffer is created in a render backend-independent way. It is passed to the
+	// render backend each frame as part of `draw_current_batch()`
 	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, allocator, loc)
+
+	// The shapes drawing texture is sampled when any shape is drawn. This way we can use the same
+	// shader for textured drawing and shape drawing. It's just a white box.
 	white_rect: [16*16*4]u8
 	slice.fill(white_rect[:], 255)
 	s.shape_drawing_texture = rb.load_texture(white_rect[:], 16, 16, .RGBA_8_Norm)
 
+	// The default shader will arrive in a different format depending on backend. GLSL for GL,
+	// HLSL for d3d etc.
 	s.default_shader = load_shader(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
 	s.batch_shader = s.default_shader
 
+	// FontStash enables us to bake fonts from TTF files on-the-fly.
 	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
 
 	DEFAULT_FONT_DATA :: #load("roboto.ttf")
 
+	// Dummy element so font with index 0 means 'no font'.
 	append_nothing(&s.fonts)
 
 	s.default_font = load_font_from_bytes(DEFAULT_FONT_DATA)
@@ -128,14 +148,17 @@ clear :: proc(color: Color) {
 	s.depth = s.depth_start
 }
 
-// Present the backbuffer. Call at end of frame to make everything you've drawn appear on the screen.
+// Present the backbuffer. Call at end of frame to make everything you've drawn appear on the
+// screen. Also clears the frame_allocator that Karl2D uses for allocations that have the lifetime
+// of a single frame.
 present :: proc() {
 	draw_current_batch()
 	rb.present()
 	free_all(s.frame_allocator)
 }
 
-// Call at start or end of frame to process all events that have arrived to the window.
+// Call at start or end of frame to process all events that have arrived to the window. This
+// includes keyboard, mouse, gamepad and window events.
 //
 // WARNING: Not calling this will make your program impossible to interact with.
 process_events :: proc() {
@@ -194,11 +217,8 @@ process_events :: proc() {
 			}
 
 		case Window_Event_Resize:
-			s.width = e.width
-			s.height = e.height
-
-			rb.resize_swapchain(s.width, s.height)
-			s.proj_matrix = make_default_projection(s.width, s.height)
+			rb.resize_swapchain(e.width, e.height)
+			s.proj_matrix = make_default_projection(e.width, e.height)
 		}
 	}
 
@@ -206,11 +226,11 @@ process_events :: proc() {
 }
 
 get_screen_width :: proc() -> int {
-	return s.width
+	return win.get_width()
 }
 
 get_screen_height :: proc() -> int  {
-	return s.height
+	return win.get_height()
 }
 
 set_window_position :: proc(x: int, y: int) {
@@ -795,7 +815,7 @@ destroy_texture :: proc(tex: Texture) {
 //-------//
 
 load_font_from_file :: proc(filename: string) -> Font_Handle {
-	if data, data_ok := os.read_entire_file(filename); data_ok {
+	if data, data_ok := os.read_entire_file(filename, frame_allocator); data_ok {
 		return load_font_from_bytes(data)
 	}
 
@@ -932,21 +952,23 @@ load_shader :: proc(
 destroy_shader :: proc(shader: Shader) {
 	rb.destroy_shader(shader.handle)
 
-	delete(shader.constants_data)
-	delete(shader.constants)
+	a := s.allocator
+
+	delete(shader.constants_data, a)
+	delete(shader.constants, a)
 	delete(shader.texture_lookup)
-	delete(shader.texture_bindpoints)
+	delete(shader.texture_bindpoints, a)
 
 	for k, _ in shader.constant_lookup {
-		delete(k)
+		delete(k, a)
 	}
 
 	delete(shader.constant_lookup)
 	for i in shader.inputs {
-		delete(i.name)
+		delete(i.name, a)
 	}
-	delete(shader.inputs)
-	delete(shader.input_overrides)
+	delete(shader.inputs, a)
+	delete(shader.input_overrides, a)
 }
 
 get_default_shader :: proc() -> Shader {
@@ -1045,7 +1067,7 @@ set_camera :: proc(camera: Maybe(Camera)) {
 
 	draw_current_batch()
 	s.batch_camera = camera
-	s.proj_matrix = make_default_projection(s.width, s.height)
+	s.proj_matrix = make_default_projection(win.get_width(), win.get_height())
 
 	if c, c_ok := camera.?; c_ok {
 		s.view_matrix = get_camera_view_matrix(c)
@@ -1287,7 +1309,6 @@ State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
-	custom_context: runtime.Context,
 	win: Window_Interface,
 	window_state: rawptr,
 	rb: Render_Backend_Interface,
@@ -1314,8 +1335,6 @@ State :: struct {
 	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 
 	window: Window_Handle,
-	width: int,
-	height: int,
 
 	default_font: Font_Handle,
 	fonts: [dynamic]Font,
@@ -1558,6 +1577,8 @@ VERTEX_BUFFER_MAX :: 1000000
 @(private="file")
 s: ^State
 
+// These globals are here for access from other files. The state struct above is private to make
+// sure global state sharing doesn't become too messy.
 frame_allocator: runtime.Allocator
 win: Window_Interface
 rb: Render_Backend_Interface

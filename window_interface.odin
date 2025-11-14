@@ -13,6 +13,8 @@ Window_Interface :: struct {
 	clear_events: proc(),
 	set_position: proc(x: int, y: int),
 	set_size: proc(w, h: int),
+	get_width: proc() -> int,
+	get_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_flags: proc(flags: Window_Flags),
 	
