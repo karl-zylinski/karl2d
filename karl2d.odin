@@ -199,7 +199,7 @@ process_events :: proc() {
 		case Window_Event_Mouse_Move:
 			prev_pos := s.mouse_position
 			s.mouse_position = e.position
-			s.mouse_delta = prev_pos - s.mouse_position
+			s.mouse_delta = s.mouse_position - prev_pos
 
 		case Window_Event_Mouse_Wheel:
 			s.mouse_wheel_delta = e.delta
@@ -351,6 +351,10 @@ get_mouse_wheel_delta :: proc() -> f32 {
 
 get_mouse_position :: proc() -> Vec2 {
 	return s.mouse_position
+}
+
+get_mouse_delta :: proc() -> Vec2 {
+	return s.mouse_delta
 }
 
 gamepad_button_went_down :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool {
