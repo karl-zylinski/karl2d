@@ -28,6 +28,13 @@ Render_Backend_Interface :: struct {
 	load_texture: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle,
 	update_texture: proc(handle: Texture_Handle, data: []u8, rect: Rect) -> bool,
 	destroy_texture: proc(handle: Texture_Handle),
+	
+	set_texture_filter: proc(
+		handle: Texture_Handle,
+		scale_down_filter: Texture_Filter,
+		scale_up_filter: Texture_Filter,
+		mip_filter: Texture_Filter,
+	),
 
 	load_shader: proc(vertex_shader_source: string, pixel_shader_source: string, desc_allocator := context.temp_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc),
 	destroy_shader: proc(shader: Shader_Handle),

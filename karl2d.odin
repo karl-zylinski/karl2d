@@ -813,6 +813,19 @@ destroy_texture :: proc(tex: Texture) {
 	rb.destroy_texture(tex.handle)
 }
 
+// Controls how a texture should be filtered. `scale_down_filter` and `scale_up_filter` controls how
+// the texture is filtered when we render the texture at a smaller or larger size.
+// `mip_filter` controls how the texture is filtered when it is sampled using _mipmapping_.
+//
+// TODO: Add mipmapping generation controls for texture and refer to it from here.
+set_texture_filter :: proc(
+	t: Texture,
+	scale_down_filter: Texture_Filter,
+	scale_up_filter: Texture_Filter,
+	mip_filter: Texture_Filter,
+) {
+	rb.set_texture_filter(t.handle, scale_down_filter, scale_up_filter, mip_filter)
+}
 
 //-------//
 // FONTS //
@@ -1197,6 +1210,11 @@ Texture :: struct {
 	handle: Texture_Handle,
 	width: int,
 	height: int,
+}
+
+Texture_Filter :: enum {
+	Point,  // Similar to "nearest neighbor". Pixly up/down scaling
+	Linear, // Smoothed up/down scaling
 }
 
 Camera :: struct {

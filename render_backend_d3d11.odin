@@ -20,6 +20,7 @@ RENDER_BACKEND_INTERFACE_D3D11 :: Render_Backend_Interface {
 	load_texture = d3d11_load_texture,
 	update_texture = d3d11_update_texture,
 	destroy_texture = d3d11_destroy_texture,
+	set_texture_filter = d3d11_set_texture_filter,
 	load_shader = d3d11_load_shader,
 	destroy_shader = d3d11_destroy_shader,
 	default_shader_vertex_source = d3d11_default_shader_vertex_source,
@@ -433,6 +434,45 @@ d3d11_destroy_texture :: proc(th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 }
 
+d3d11_set_texture_filter :: proc(
+	th: Texture_Handle,
+	scale_down_filter: Texture_Filter,
+	scale_up_filter: Texture_Filter,
+	mip_filter: Texture_Filter,
+) {
+	t := hm.get(&s.textures, th)
+
+	if t == nil {
+		log.error("Trying to set texture filter for invalid texture %v", th)
+		return
+	}
+
+	d := scale_down_filter
+	u := scale_up_filter
+	m := mip_filter
+	f: d3d11.FILTER
+
+	if d == .Point && u == .Point && m == .Point {
+		f = .MIN_MAG_MIP_POINT
+	} else if d == .Point && u == .Point && m == .Linear {
+		f = .MIN_MAG_POINT_MIP_LINEAR
+	} else if d == .Point && u == .Linear && m == .Linear {
+		f = .MIN_POINT_MAG_MIP_LINEAR
+	} else if d == .Linear && u == .Linear && m == .Linear {
+		f = .MIN_MAG_MIP_LINEAR
+	} else if d == .Linear && u == .Linear && m == .Point {
+		f = .MIN_MAG_LINEAR_MIP_POINT
+	} else if d == .Linear && u == .Point && m == .Point {
+		f = .MIN_LINEAR_MAG_MIP_POINT
+	} else if d == .Linear && u == .Point && m == .Linear {
+		f = .MIN_LINEAR_MAG_POINT_MIP_LINEAR
+	} else if d == .Point && u == .Linear && m == .Point {
+		f = .MIN_POINT_MAG_LINEAR_MIP_POINT
+	}
+
+	t.filter = f
+}
+
 d3d11_load_shader :: proc(
 	vs_source: string,
 	ps_source: string,
@@ -841,6 +881,7 @@ D3D11_Texture :: struct {
 	tex: ^d3d11.ITexture2D,
 	view: ^d3d11.IShaderResourceView,
 	format: Pixel_Format,
+	filter: d3d11.FILTER,
 }
 
 dxgi_format_from_pixel_format :: proc(f: Pixel_Format) -> dxgi.FORMAT {
