@@ -9,13 +9,13 @@
 	* what happens when you pull one out?
 	* playstation
 * Textures: Make the sampler state configurable
-	* filtering (still needs to fix GL)
+	x filtering (still needs to fix GL)
 	* wrapping
-* Textures D3D11: Do we need the SRV in the texture?
-* Shaders: Reflect and expose samplers
-	* generalised sampler handling for both gl and d3d
+
 * mipmap support
-* set filtering: for scaling up, down and mipmap
+	* try gl first, seems easier
+	* fix gl filtering filtering setting for mips
+
 * render textures
 * do pixel-perfect rendering tests: render texture with 1:1 pixel matching etc
 * linux windowing and input
@@ -24,6 +24,9 @@
 * think about sound
 
 ## DONE
+* set filtering: for scaling up, down and mipmap
+* Shaders: Reflect and expose samplers
+	* generalised sampler handling for both gl and d3d
 * GL backend:
 	textures --- try make the d3d11 backend support multiple textures first and
 	             then generalize to gl
