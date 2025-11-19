@@ -396,7 +396,7 @@ d3d11_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Fo
 d3d11_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
 	tex := hm.get(&s.textures, th)
 
-	if tex == nil {
+	if tex == nil || tex.tex == nil {
 		return false
 	}
 

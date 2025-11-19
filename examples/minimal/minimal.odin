@@ -29,7 +29,6 @@ main :: proc() {
 	k2.init(1080, 1080, "Karl2D Minimal Program")
 	k2.set_window_position(300, 100)
 	tex := k2.load_texture_from_file("sixten.jpg")
-	k2.set_texture_filter(tex, .Point)
 
 	for !k2.shutdown_wanted() {
 		k2.process_events()
