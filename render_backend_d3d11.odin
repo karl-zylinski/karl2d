@@ -340,7 +340,14 @@ d3d11_set_internal_state :: proc(state: rawptr) {
 	s = (^D3D11_State)(state)
 }
 
-d3d11_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
+create_texture :: proc(
+	width: int,
+	height: int,
+	format: Pixel_Format,
+	data: rawptr,
+) -> (
+	Texture_Handle,
+) {
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
 		Height     = u32(height),
@@ -354,8 +361,18 @@ d3d11_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> T
 	}
 
 	texture: ^d3d11.ITexture2D
-	s.device->CreateTexture2D(&texture_desc, nil, &texture)
 
+	if data != nil {
+		texture_data := d3d11.SUBRESOURCE_DATA{
+			pSysMem     = data,
+			SysMemPitch = u32(width * pixel_format_size(format)),
+		}
+
+		s.device->CreateTexture2D(&texture_desc, &texture_data, &texture)
+	} else {
+		s.device->CreateTexture2D(&texture_desc, nil, &texture)
+	}
+	
 	texture_view: ^d3d11.IShaderResourceView
 	s.device->CreateShaderResourceView(texture, nil, &texture_view)
 
@@ -369,38 +386,12 @@ d3d11_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> T
 	return hm.add(&s.textures, tex)
 }
 
+d3d11_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
+	return create_texture(width, height, format, nil)
+}
+
 d3d11_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	texture_desc := d3d11.TEXTURE2D_DESC{
-		Width      = u32(width),
-		Height     = u32(height),
-		MipLevels  = 1,
-		ArraySize  = 1,
-		// TODO: _SRGB or not?
-		Format     = dxgi_format_from_pixel_format(format),
-		SampleDesc = {Count = 1},
-		Usage      = .DEFAULT,
-		BindFlags  = {.SHADER_RESOURCE},
-	}
-
-	texture_data := d3d11.SUBRESOURCE_DATA{
-		pSysMem     = raw_data(data),
-		SysMemPitch = u32(width * pixel_format_size(format)),
-	}
-
-	texture: ^d3d11.ITexture2D
-	s.device->CreateTexture2D(&texture_desc, &texture_data, &texture)
-
-	texture_view: ^d3d11.IShaderResourceView
-	s.device->CreateShaderResourceView(texture, nil, &texture_view)
-
-	tex := D3D11_Texture {
-		tex = texture,
-		format = format,
-		view = texture_view,
-		sampler = create_sampler(.MIN_MAG_MIP_POINT),
-	}
-
-	return hm.add(&s.textures, tex)
+	return create_texture(width, height, format, raw_data(data))
 }
 
 d3d11_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
