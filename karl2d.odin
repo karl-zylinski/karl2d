@@ -106,6 +106,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	append_nothing(&s.fonts)
 
 	s.default_font = load_font_from_bytes(DEFAULT_FONT_DATA)
+	set_font(s.default_font)
 
 	return s
 }
@@ -1314,7 +1315,7 @@ Font :: struct {
 Handle :: hm.Handle
 Texture_Handle :: distinct Handle
 Font_Handle :: distinct int
-FONT_NONE :: Font_Handle(0)
+FONT_NONE :: Font_Handle {}
 TEXTURE_NONE :: Texture_Handle {}
 
 

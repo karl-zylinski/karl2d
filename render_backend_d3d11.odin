@@ -397,6 +397,7 @@ d3d11_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil || tex.tex == nil {
+		log.errorf("Trying to update texture %v with new data, but it is invalid.", th)
 		return false
 	}
 
