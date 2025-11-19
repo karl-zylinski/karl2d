@@ -353,7 +353,6 @@ create_texture :: proc(
 		Height     = u32(height),
 		MipLevels  = 1,
 		ArraySize  = 1,
-		// TODO: _SRGB or not?
 		Format     = dxgi_format_from_pixel_format(format),
 		SampleDesc = {Count = 1},
 		Usage      = .DEFAULT,
