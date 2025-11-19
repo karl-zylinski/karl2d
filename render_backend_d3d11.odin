@@ -196,6 +196,7 @@ d3d11_draw :: proc(
 	d3d_shd := hm.get(&s.shaders, shd.handle)
 
 	if d3d_shd == nil {
+		log.error("Trying to draw with invalid shader %v", shd.handle)
 		return
 	}
 
