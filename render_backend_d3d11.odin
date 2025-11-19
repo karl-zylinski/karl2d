@@ -753,6 +753,30 @@ reflect_shader_constants :: proc(
 			log.errorf("Type is %v", bind_desc.Type)
 		}
 	}
+
+	// Make sure each texture has a sampler. In GL samplers are associated with textures. In D3D11
+	// several textures can use a single sampler. We don't want this as we want to be able to
+	// configure filters etc on a per-texture level. Since two textures can arrive at a draw call
+	// with different filters set, if they use the same sampler, then it will be impossible to set
+	// that filtering up.
+	for t, t_idx in d3d_texture_bindings {
+		found := false
+		for s in samplers {
+			if t.bind_point == s.bind_point {
+				found = true
+			}
+		}
+
+		if !found {
+			log.errorf(
+				"Texture %v at bindpoint %v does not have a dedicated sampler at " +
+				"the sampler register with the same bindpoint number. This is required to " +
+				"in order to make D3D11 behave the same way as OpenGL etc",
+				texture_bindpoint_descs[t_idx].name,
+				t.bind_point,
+			)
+		}
+	}
 }
 
 d3d11_destroy_shader :: proc(h: Shader_Handle) {
