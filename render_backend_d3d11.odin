@@ -457,6 +457,8 @@ d3d11_set_texture_filter :: proc(
 
 	if d == .Point && u == .Point && m == .Point {
 		f = .MIN_MAG_MIP_POINT
+	} else if d == .Linear && u == .Linear && m == .Linear {
+		f = .MIN_MAG_MIP_LINEAR
 	} else if d == .Point && u == .Point && m == .Linear {
 		f = .MIN_MAG_POINT_MIP_LINEAR
 	} else if d == .Point && u == .Linear && m == .Linear {
