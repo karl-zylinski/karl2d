@@ -59,7 +59,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	s.window = win.window_handle()
 
 	// See `config.odin` for how this is picked.
-	s.rb = BACKEND
+	s.rb = RENDER_BACKEND
 
 	// Depending on backend the depth is counted in one of two ways. It can be counted from `1` and
 	// to lower numbers. Or from `-1` and to higher numbers.
