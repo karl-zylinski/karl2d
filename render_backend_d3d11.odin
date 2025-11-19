@@ -971,7 +971,7 @@ log_messages :: proc(loc := #caller_location) {
 	iq->ClearStoredMessages()
 }
 
-DEFAULT_SHADER_SOURCE :: #load("default_shader.hlsl")
+DEFAULT_SHADER_SOURCE :: #load("render_backend_d3d11_default_shader.hlsl")
 
 d3d11_default_shader_vertex_source :: proc() -> string {
 	return string(DEFAULT_SHADER_SOURCE)
