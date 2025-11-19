@@ -707,18 +707,6 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	batch_vertex(vec3(bl, z), uv5, c)
 }
 
-vec3 :: proc(v2: Vec2, z: f32) -> Vec3 {
-	return {
-		v2.x, v2.y, z,
-	}
-}
-
-get_next_depth :: proc() -> f32 {
-	d := s.depth
-	s.depth += s.depth_increment
-	return d
-}
-
 measure_text :: proc(text: string, font_size: f32) -> Vec2 {
 	fs.SetSize(&s.fs, font_size)
 	b: [4]f32
@@ -813,12 +801,19 @@ destroy_texture :: proc(tex: Texture) {
 	rb.destroy_texture(tex.handle)
 }
 
+// Controls how a texture should be filtered. You can choose "point" or "linear" filtering. Which
+// means "pixly" or "smooth". This filter will be used for up and down-scaling as well as for
+// mipmap sampling. Use `set_texture_filter_ex` if you need to control these settings separately.
+set_texture_filter :: proc(t: Texture, filter: Texture_Filter) {
+	set_texture_filter_ex(t, filter, filter, filter)
+}
+
 // Controls how a texture should be filtered. `scale_down_filter` and `scale_up_filter` controls how
 // the texture is filtered when we render the texture at a smaller or larger size.
 // `mip_filter` controls how the texture is filtered when it is sampled using _mipmapping_.
 //
 // TODO: Add mipmapping generation controls for texture and refer to it from here.
-set_texture_filter :: proc(
+set_texture_filter_ex :: proc(
 	t: Texture,
 	scale_down_filter: Texture_Filter,
 	scale_up_filter: Texture_Filter,
@@ -1213,8 +1208,8 @@ Texture :: struct {
 }
 
 Texture_Filter :: enum {
-	Point,  // Similar to "nearest neighbor". Pixly up/down scaling
-	Linear, // Smoothed up/down scaling
+	Point,  // Similar to "nearest neighbor". Pixly texture scaling.
+	Linear, // Smoothed texture scaling.
 }
 
 Camera :: struct {
@@ -1764,4 +1759,16 @@ f32_color_from_color :: proc(color: Color) -> Color_F32 {
 		f32(color.b) / 255,
 		f32(color.a) / 255,
 	}
+}
+
+vec3 :: proc(v2: Vec2, z: f32) -> Vec3 {
+	return {
+		v2.x, v2.y, z,
+	}
+}
+
+get_next_depth :: proc() -> f32 {
+	d := s.depth
+	s.depth += s.depth_increment
+	return d
 }

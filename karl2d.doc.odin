@@ -26,10 +26,13 @@ shutdown :: proc()
 // Clear the backbuffer with supplied color.
 clear :: proc(color: Color)
 
-// Present the backbuffer. Call at end of frame to make everything you've drawn appear on the screen.
+// Present the backbuffer. Call at end of frame to make everything you've drawn appear on the
+// screen. Also clears the frame_allocator that Karl2D uses for allocations that have the lifetime
+// of a single frame.
 present :: proc()
 
-// Call at start or end of frame to process all events that have arrived to the window.
+// Call at start or end of frame to process all events that have arrived to the window. This
+// includes keyboard, mouse, gamepad and window events.
 //
 // WARNING: Not calling this will make your program impossible to interact with.
 process_events :: proc()
@@ -100,6 +103,8 @@ get_mouse_wheel_delta :: proc() -> f32
 
 get_mouse_position :: proc() -> Vec2
 
+get_mouse_delta :: proc() -> Vec2
+
 gamepad_button_went_down :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool
 
 gamepad_button_went_up :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool
@@ -136,10 +141,6 @@ draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE)
 
 draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE)
 
-vec3 :: proc(v2: Vec2, z: f32) -> Vec3
-
-get_next_depth :: proc() -> f32
-
 measure_text :: proc(text: string, font_size: f32) -> Vec2
 
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color)
@@ -164,6 +165,23 @@ update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect) -> bool
 
 destroy_texture :: proc(tex: Texture)
 
+// Controls how a texture should be filtered. You can choose "point" or "linear" filtering. Which
+// means "pixly" or "smooth". This filter will be used for up and down-scaling as well as for
+// mipmap sampling. Use `set_texture_filter_ex` if you need to control these settings separately.
+set_texture_filter :: proc(t: Texture, filter: Texture_Filter)
+
+// Controls how a texture should be filtered. `scale_down_filter` and `scale_up_filter` controls how
+// the texture is filtered when we render the texture at a smaller or larger size.
+// `mip_filter` controls how the texture is filtered when it is sampled using _mipmapping_.
+//
+// TODO: Add mipmapping generation controls for texture and refer to it from here.
+set_texture_filter_ex :: proc(
+	t: Texture,
+	scale_down_filter: Texture_Filter,
+	scale_up_filter: Texture_Filter,
+	mip_filter: Texture_Filter,
+)
+
 //-------//
 // FONTS //
 //-------//
@@ -178,7 +196,11 @@ get_default_font :: proc() -> Font_Handle
 //---------//
 // SHADERS //
 //---------//
-load_shader :: proc(vertex_shader_source: string, fragment_shader_source: string, layout_formats: []Pixel_Format = {}) -> Shader
+load_shader :: proc(
+	vertex_shader_source: string,
+	fragment_shader_source: string,
+	layout_formats: []Pixel_Format = {},
+) -> Shader
 
 destroy_shader :: proc(shader: Shader)
 
@@ -279,6 +301,11 @@ Texture :: struct {
 	height: int,
 }
 
+Texture_Filter :: enum {
+	Point,  // Similar to "nearest neighbor". Pixly texture scaling.
+	Linear, // Smoothed texture scaling.
+}
+
 Camera :: struct {
 	target: Vec2,
 	offset: Vec2,
@@ -313,6 +340,10 @@ Shader :: struct {
 
 	// Maps built in constant types such as "model view projection matrix" to a location.
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
+
+	texture_bindpoints: []Texture_Handle,
+	texture_lookup: map[string]int,
+	default_texture_index: Maybe(int),
 
 	inputs: []Shader_Input,
 	input_overrides: []Shader_Input_Value_Override,
@@ -388,7 +419,6 @@ State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
-	custom_context: runtime.Context,
 	win: Window_Interface,
 	window_state: rawptr,
 	rb: Render_Backend_Interface,
@@ -415,8 +445,6 @@ State :: struct {
 	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 
 	window: Window_Handle,
-	width: int,
-	height: int,
 
 	default_font: Font_Handle,
 	fonts: [dynamic]Font,

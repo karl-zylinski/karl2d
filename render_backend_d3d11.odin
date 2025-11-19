@@ -1,4 +1,5 @@
 #+build windows
+#+vet explicit-allocators
 #+private file
 
 package karl2d
@@ -633,7 +634,7 @@ d3d11_load_shader :: proc(
 		.Pixel,
 	)
 
-	// ----
+	// Done with vertex and pixel shader. Just combine all the state.
 
 	desc.constants = constant_descs[:]
 	desc.texture_bindpoints = texture_bindpoint_descs[:]
