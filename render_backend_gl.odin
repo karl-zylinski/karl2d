@@ -20,6 +20,7 @@ RENDER_BACKEND_INTERFACE_GL :: Render_Backend_Interface {
 	load_texture = gl_load_texture,
 	update_texture = gl_update_texture,
 	destroy_texture = gl_destroy_texture,
+	set_texture_filter = gl_set_texture_filter,
 	load_shader = gl_load_shader,
 	destroy_shader = gl_destroy_shader,
 
@@ -325,18 +326,18 @@ gl_set_internal_state :: proc(state: rawptr) {
 	s = (^GL_State)(state)
 }
 
-gl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
+create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawptr) -> Texture_Handle {
 	id: u32
 	gl.GenTextures(1, &id)
 	gl.BindTexture(gl.TEXTURE_2D, id)
 
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 
 	pf := gl_translate_pixel_format(format)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, data)
 
 	tex := GL_Texture {
 		id = id,
@@ -346,25 +347,12 @@ gl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Text
 	return hm.add(&s.textures, tex)
 }
 
+gl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
+	return create_texture(width, height, format, nil)
+}
+
 gl_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	id: u32
-	gl.GenTextures(1, &id)
-	gl.BindTexture(gl.TEXTURE_2D, id)
-
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-
-	pf := gl_translate_pixel_format(format)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
-
-	tex := GL_Texture {
-		id = id,
-		format = format,
-	}
-	
-	return hm.add(&s.textures, tex)
+	return create_texture(width, height, format, raw_data(data))
 }
 
 gl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
@@ -388,6 +376,28 @@ gl_destroy_texture :: proc(th: Texture_Handle) {
 
 	gl.DeleteTextures(1, &tex.id)
 	hm.remove(&s.textures, th)
+}
+
+gl_set_texture_filter :: proc(
+	th: Texture_Handle,
+	scale_down_filter: Texture_Filter,
+	scale_up_filter: Texture_Filter,
+	mip_filter: Texture_Filter,
+) {
+	t := hm.get(&s.textures, th)
+
+	if t == nil {
+		log.error("Trying to set texture filter for invalid texture %v", th)
+		return
+	}
+
+	gl.BindTexture(gl.TEXTURE_2D, t.id)
+
+	min_filter: i32 = scale_down_filter == .Point ? gl.NEAREST : gl.LINEAR
+	mag_filter: i32 = scale_up_filter == .Point ? gl.NEAREST : gl.LINEAR
+
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, min_filter)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, mag_filter)
 }
 
 Shader_Compile_Result_OK :: struct {}

@@ -1,15 +1,5 @@
 ## TODO
-* GL backend:
-	textures --- try make the d3d11 backend support multiple textures first and
-	             then generalize to gl
-
-	             for d3d11: we need to reflect bound resources for both vs and ps... if they are
-	             shared then perhaps we only need one buffer -- also, should you create less buffers
-	             and reuse them between shaders? So it doesn't become lots of buffers for each shader
-	             permutation
-	X set uniforms -- needs more type info?
-	X the constant types are hardcoded to just a few types right now
-
+* Can we reuse memory for const buffers and union blocks between shaders? Just create reasonably sized ones and fetch based on size or something.
 * should gamepad come from separate interface than window?
 	* keyboard input could also come from some input interface, but
 	  it is tightly bound to window in windows, so we'll see.
@@ -19,6 +9,8 @@
 	* what happens when you pull one out?
 	* playstation
 * Textures: Make the sampler state configurable
+	* filtering (still needs to fix GL)
+	* wrapping
 * Textures D3D11: Do we need the SRV in the texture?
 * Shaders: Reflect and expose samplers
 	* generalised sampler handling for both gl and d3d
@@ -32,6 +24,17 @@
 * think about sound
 
 ## DONE
+* GL backend:
+	textures --- try make the d3d11 backend support multiple textures first and
+	             then generalize to gl
+
+	             for d3d11: we need to reflect bound resources for both vs and ps... if they are
+	             shared then perhaps we only need one buffer -- also, should you create less buffers
+	             and reuse them between shaders? So it doesn't become lots of buffers for each shader
+	             permutation
+	X set uniforms -- needs more type info?
+	X the constant types are hardcoded to just a few types right now
+
 * Should we sort by depth? Maybe we should use Vec3 because some 2D games rely on it?
 	* I think we should.
 * Do proper checks of vertex count and dispatch rendering when full
