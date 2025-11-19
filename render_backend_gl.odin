@@ -804,10 +804,10 @@ gl_destroy_shader :: proc(h: Shader_Handle) {
 }
 
 gl_default_shader_vertex_source :: proc() -> string {
-	return #load("default_shader_vertex.glsl")
+	return #load("render_backend_gl_default_vertex_shader.glsl")
 }
 
 gl_default_shader_fragment_source :: proc() -> string {
-	return #load("default_shader_fragment.glsl")
+	return #load("render_backend_gl_default_fragment_shader.glsl")
 }
 
