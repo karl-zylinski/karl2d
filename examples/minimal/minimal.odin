@@ -45,5 +45,6 @@ main :: proc() {
 		free_all(context.temp_allocator)
 	}
 
+	k2.destroy_texture(tex)
 	k2.shutdown()
 }

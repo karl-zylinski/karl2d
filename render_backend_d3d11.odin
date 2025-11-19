@@ -145,7 +145,6 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 }
 
 d3d11_shutdown :: proc() {
-	s.sampler_state->Release()
 	s.framebuffer_view->Release()
 	s.depth_buffer_view->Release()
 	s.depth_buffer->Release()
@@ -299,12 +298,9 @@ d3d11_draw :: proc(
 
 			if t := hm.get(&s.textures, t); t != nil {
 				dc->PSSetShaderResources(d3d_t.bind_point, 1, &t.view)	
+				dc->PSSetSamplers(d3d_t.sampler_bind_point, 1, &t.sampler)
 			}
 		}
-	}
-
-	for &s in d3d_shd.samplers {
-		dc->PSSetSamplers(s.bind_point, 1, &s.sampler)
 	}
 
 	dc->OMSetRenderTargets(1, &s.framebuffer_view, s.depth_buffer_view)
@@ -366,6 +362,7 @@ d3d11_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> T
 		tex = texture,
 		format = format,
 		view = texture_view,
+		sampler = create_sampler(.MIN_MAG_MIP_POINT),
 	}
 
 	return hm.add(&s.textures, tex)
@@ -399,6 +396,7 @@ d3d11_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Fo
 		tex = texture,
 		format = format,
 		view = texture_view,
+		sampler = create_sampler(.MIN_MAG_MIP_POINT),
 	}
 
 	return hm.add(&s.textures, tex)
@@ -429,6 +427,10 @@ d3d11_destroy_texture :: proc(th: Texture_Handle) {
 	if t := hm.get(&s.textures, th); t != nil {
 		t.tex->Release()
 		t.view->Release()	
+
+		if t.sampler != nil {
+			t.sampler->Release()
+		}
 	}
 
 	hm.remove(&s.textures, th)
@@ -470,7 +472,25 @@ d3d11_set_texture_filter :: proc(
 		f = .MIN_POINT_MAG_LINEAR_MIP_POINT
 	}
 
-	t.filter = f
+	if t.sampler != nil {
+		t.sampler->Release()
+	}
+
+	t.sampler = create_sampler(f)
+}
+
+create_sampler :: proc(filter: d3d11.FILTER) -> ^d3d11.ISamplerState {
+	sampler_desc := d3d11.SAMPLER_DESC{
+		Filter = filter,
+		AddressU = .WRAP,
+		AddressV = .WRAP,
+		AddressW = .WRAP,
+		ComparisonFunc = .NEVER,
+	}
+
+	smp: ^d3d11.ISamplerState
+	ch(s.device->CreateSamplerState(&sampler_desc, &smp))
+	return smp
 }
 
 d3d11_load_shader :: proc(
@@ -550,7 +570,6 @@ d3d11_load_shader :: proc(
 
 	constant_descs := make([dynamic]Shader_Constant_Desc, desc_allocator)
 	d3d_constants := make([dynamic]D3D11_Shader_Constant, s.allocator)
-	d3d_samplers := make([dynamic]D3D11_Sampler, s.allocator)
 	d3d_constant_buffers := make([dynamic]D3D11_Shader_Constant_Buffer, s.allocator)
 	d3d_texture_bindings := make([dynamic]D3D11_Texture_Binding, s.allocator)
 	texture_bindpoint_descs := make([dynamic]Shader_Texture_Bindpoint_Desc, desc_allocator)
@@ -560,7 +579,6 @@ d3d11_load_shader :: proc(
 		&constant_descs,
 		&d3d_constants,
 		&d3d_constant_buffers,
-		&d3d_samplers,
 		&d3d_texture_bindings,
 		&texture_bindpoint_descs,
 		desc_allocator,
@@ -609,7 +627,6 @@ d3d11_load_shader :: proc(
 		&constant_descs,
 		&d3d_constants,
 		&d3d_constant_buffers,
-		&d3d_samplers,
 		&d3d_texture_bindings,
 		&texture_bindpoint_descs,
 		desc_allocator,
@@ -624,7 +641,6 @@ d3d11_load_shader :: proc(
 	d3d_shd := D3D11_Shader {
 		constants = d3d_constants[:],
 		constant_buffers = d3d_constant_buffers[:],
-		samplers = d3d_samplers[:],
 		vertex_shader = vertex_shader,
 		pixel_shader = pixel_shader,
 		input_layout = input_layout,
@@ -646,34 +662,20 @@ reflect_shader_constants :: proc(
 	constant_descs: ^[dynamic]Shader_Constant_Desc,
 	d3d_constants: ^[dynamic]D3D11_Shader_Constant,
 	d3d_constant_buffers: ^[dynamic]D3D11_Shader_Constant_Buffer,
-	samplers: ^[dynamic]D3D11_Sampler,
 	d3d_texture_bindings: ^[dynamic]D3D11_Texture_Binding,
 	texture_bindpoint_descs: ^[dynamic]Shader_Texture_Bindpoint_Desc,
 	desc_allocator: runtime.Allocator,
 	shader_type: D3D11_Shader_Type,
 ) {
+	found_sampler_bindpoints := make([dynamic]u32, frame_allocator)
+
 	for br_idx in 0..<d3d_desc.BoundResources {
 		bind_desc: d3d11.SHADER_INPUT_BIND_DESC
 		ref->GetResourceBindingDesc(br_idx, &bind_desc)
 
 		#partial switch bind_desc.Type {
 		case .SAMPLER:
-			smp_obj := D3D11_Sampler {
-				bind_point = bind_desc.BindPoint,
-			}
-
-			sampler_desc := d3d11.SAMPLER_DESC{
-				Filter         = .MIN_MAG_MIP_POINT,
-				AddressU       = .WRAP,
-				AddressV       = .WRAP,
-				AddressW       = .WRAP,
-				ComparisonFunc = .NEVER,
-			}
-
-			s.device->CreateSamplerState(&sampler_desc, &smp_obj.sampler)
-			smp_obj.sampler->AddRef()
-
-			append(samplers, smp_obj)
+			append(&found_sampler_bindpoints, bind_desc.BindPoint)
 
 		case .TEXTURE:
 			append(d3d_texture_bindings, D3D11_Texture_Binding {
@@ -761,9 +763,11 @@ reflect_shader_constants :: proc(
 	// that filtering up.
 	for t, t_idx in d3d_texture_bindings {
 		found := false
-		for s in samplers {
-			if t.bind_point == s.bind_point {
+
+		for sampler_bindpoint in found_sampler_bindpoints {
+			if t.bind_point == sampler_bindpoint {
 				found = true
+				break
 			}
 		}
 
@@ -797,10 +801,8 @@ d3d11_destroy_shader :: proc(h: Shader_Handle) {
 		}
 	}
 
-	for s in shd.samplers {
-		s.sampler->Release()
-	}
-
+	delete(shd.texture_bindings, s.allocator)
+	delete(shd.constants, s.allocator)
 	delete(shd.constant_buffers, s.allocator)
 	hm.remove(&s.shaders, h)
 }
@@ -818,16 +820,12 @@ D3D11_Shader_Constant_Buffer :: struct {
 
 D3D11_Texture_Binding :: struct {
 	bind_point: u32,
+	sampler_bind_point: u32,
 }
 
 D3D11_Shader_Constant :: struct {
 	buffer_idx: u32,
 	offset: u32,
-}
-
-D3D11_Sampler :: struct {
-	bind_point: u32,
-	sampler: ^d3d11.ISamplerState,
 }
 
 D3D11_Shader :: struct {
@@ -837,7 +835,6 @@ D3D11_Shader :: struct {
 	input_layout: ^d3d11.IInputLayout,
 	constant_buffers: []D3D11_Shader_Constant_Buffer,
 	constants: []D3D11_Shader_Constant,
-	samplers: []D3D11_Sampler,
 	texture_bindings: []D3D11_Texture_Binding,
 }
 
@@ -859,7 +856,6 @@ D3D11_State :: struct {
 	depth_buffer: ^d3d11.ITexture2D,
 	framebuffer: ^d3d11.ITexture2D,
 	blend_state: ^d3d11.IBlendState,
-	sampler_state: ^d3d11.ISamplerState,
 
 	textures: hm.Handle_Map(D3D11_Texture, Texture_Handle, 1024*10),
 	shaders: hm.Handle_Map(D3D11_Shader, Shader_Handle, 1024*10),
@@ -905,7 +901,15 @@ D3D11_Texture :: struct {
 	tex: ^d3d11.ITexture2D,
 	view: ^d3d11.IShaderResourceView,
 	format: Pixel_Format,
-	filter: d3d11.FILTER,
+
+	// It may seem strange that we have a sampler here. But samplers are reused if you recreate them
+	// with the same options. D3D11 will return the same object. So each time we set the filter
+	// mode or the UV wrapping settings, then we just ask D3D11 for the sampler state for those
+	// settings.
+	//
+	// Moreover, in order to make D3D11 behave a bit like GL (or rather, to make them behave more
+	// similarly), we require that each texture in the HLSL shaders have a dedicated sampler.
+	sampler: ^d3d11.ISamplerState,
 }
 
 dxgi_format_from_pixel_format :: proc(f: Pixel_Format) -> dxgi.FORMAT {
