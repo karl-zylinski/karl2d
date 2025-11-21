@@ -4,3 +4,4 @@ raylib/
 *.pdb
 *.exe
 *.rdi
+!/.sublime/karl2d.sublime-project

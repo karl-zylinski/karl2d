@@ -1,0 +1,109 @@
+{
+	"build_systems":
+	[
+		{
+			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
+			"name": "Karl2D",
+			"variants":
+			[
+				{
+					"name": "minimal",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=d3d11",
+					"working_dir": "$project_path/../examples/minimal"
+				},
+				{
+					"name": "minimal (gl)",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=gl",
+					"working_dir": "$project_path/../examples/minimal"
+				},
+				{
+					"name": "fonts",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
+					"working_dir": "$project_path/../examples/fonts"
+				},
+				{
+					"name": "snake",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
+					"working_dir": "$project_path/../examples/snake"
+				},
+				{
+					"name": "box2d",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable",
+					"working_dir": "$project_path/../examples/box2d"
+				},
+				{
+					"name": "raylib_ports/2d_camera",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
+					"working_dir": "$project_path/../examples/raylib_ports/2d_camera"
+				},
+				{
+					"name": "raylib_ports/shaders_texture_waves",
+					"shell_cmd": "odin run . -keep-executable -debug",
+					"working_dir": "$project_path/../examples/raylib_ports/shaders_texture_waves"
+				},
+				{
+					"name": "bunnymark",
+					"shell_cmd": "odin run . -vet -strict-style -no-bounds-check -keep-executable",
+					"working_dir": "$project_path/../examples/raylib_ports/bunnymark"
+				},
+				{
+					"name": "gamepad",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable",
+					"working_dir": "$project_path/../examples/gamepad"
+				},
+				{
+					"name": "api_doc_builder",
+					"shell_cmd": "odin run api_doc_builder",
+					"working_dir": "$project_path/.."
+				}
+			]
+		}
+	],
+	"folders":
+	[
+		{
+			"path": "C:\\Projects\\karl2d"
+		},
+		{
+			"path": "C:\\SDK\\Odin\\base"
+		},
+		{
+			"path": "C:\\SDK\\Odin\\core"
+		},
+		{
+			"path": "C:\\SDK\\Odin\\vendor\\fontstash"
+		},
+		{
+			"path": "C:\\SDK\\Odin\\vendor\\OpenGL"
+		},
+		{
+			"path": "C:\\Projects\\Scraps\\raylib\\src"
+		},
+		{
+			"path": "C:\\SDK\\Odin\\vendor\\directx\\d3d11"
+		},
+		{
+			"path": "C:\\SDK\\Odin\\vendor\\directx\\dxgi"
+		},
+		{
+			"path": "C:\\SDK\\Odin\\vendor\\directx\\d3d_compiler"
+		},
+		{
+			"path": "C:\\SDK\\Odin\\vendor\\directx\\dxc"
+		},
+		{
+			"path": "C:\\SDK\\Odin\\vendor\\box2d"
+		}
+	],
+	"settings":
+	{
+		"LSP":
+		{
+			"odin":
+			{
+				"enabled": true
+			}
+		},
+		"auto_complete": false
+	}
+}
