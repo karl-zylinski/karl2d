@@ -22,6 +22,11 @@
 					"working_dir": "$project_path/../examples/fonts"
 				},
 				{
+					"name": "render_target",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
+					"working_dir": "$project_path/../examples/render_target"
+				},
+				{
 					"name": "snake",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
 					"working_dir": "$project_path/../examples/snake"
@@ -55,7 +60,7 @@
 					"name": "api_doc_builder",
 					"shell_cmd": "odin run api_doc_builder",
 					"working_dir": "$project_path/.."
-				}
+				},
 			]
 		}
 	],

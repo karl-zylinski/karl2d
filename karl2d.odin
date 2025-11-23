@@ -757,6 +757,16 @@ draw_text_ex :: proc(font: Font_Handle, text: string, pos: Vec2, font_size: f32,
 // TEXTURE MANAGEMENT //
 //--------------------//
 
+create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture {
+	h := rb.create_texture(width, height, format)
+
+	return {
+		handle = h,
+		width = width,
+		height = height,
+	}
+}
+
 load_texture_from_file :: proc(filename: string) -> Texture {
 	img, img_err := image.load_from_file(filename, options = {.alpha_add_if_missing}, allocator = s.frame_allocator)
 
@@ -822,6 +832,14 @@ set_texture_filter_ex :: proc(
 ) {
 	rb.set_texture_filter(t.handle, scale_down_filter, scale_up_filter, mip_filter)
 }
+
+//-----------------//
+// RENDER TEXTURES //
+//-----------------//
+
+/*create_render_texture :: proc(width: int, height: int) -> Render_Texture {
+
+}*/
 
 //-------//
 // FONTS //

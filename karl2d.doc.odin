@@ -150,6 +150,8 @@ draw_text_ex :: proc(font: Font_Handle, text: string, pos: Vec2, font_size: f32,
 //--------------------//
 // TEXTURE MANAGEMENT //
 //--------------------//
+create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture
+
 load_texture_from_file :: proc(filename: string) -> Texture
 
 // TODO should we have an error here or rely on check the handle of the texture?
