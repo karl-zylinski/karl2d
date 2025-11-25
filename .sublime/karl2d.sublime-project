@@ -22,9 +22,9 @@
 					"working_dir": "$project_path/../examples/fonts"
 				},
 				{
-					"name": "render_target",
+					"name": "render_texture",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
-					"working_dir": "$project_path/../examples/render_target"
+					"working_dir": "$project_path/../examples/render_texture"
 				},
 				{
 					"name": "snake",

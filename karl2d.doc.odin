@@ -409,6 +409,7 @@ Font :: struct {
 
 Handle :: hm.Handle
 Texture_Handle :: distinct Handle
+Render_Texture_Handle :: distinct Handle
 Font_Handle :: distinct int
 FONT_NONE :: Font_Handle {}
 TEXTURE_NONE :: Texture_Handle {}

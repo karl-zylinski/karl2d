@@ -26,16 +26,16 @@ main :: proc() {
 		}
 	}
 
-	k2.init(1080, 1080, "Karl2D Minimal Program")
+	k2.init(1080, 1080, "Karl2D Render Texture Example")
 	k2.set_window_position(300, 100)
 	tex := k2.load_texture_from_file("sixten.jpg")
 
-	render_target := k2.create_texture(200, 200, .RGBA_32_Float)
-
-	log.info(render_target)
+	render_texture := k2.create_render_texture(200, 200)
 
 	for !k2.shutdown_wanted() {
 		k2.process_events()
+
+		k2.set_render_texture(render_texture)
 		k2.clear(k2.BLUE)
 
 		k2.draw_rect({10, 10, 60, 60}, k2.GREEN)

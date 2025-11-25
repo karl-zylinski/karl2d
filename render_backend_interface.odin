@@ -15,19 +15,21 @@ Shader_Desc :: struct {
 	inputs: []Shader_Input,
 }
 
-Render_Backend_Interface :: struct {
+Render_Backend_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 	init: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator),
 	shutdown: proc(),
-	clear: proc(color: Color),
+	clear: proc(render_texture: Render_Texture_Handle, color: Color),
 	present: proc(),
-	draw: proc(shader: Shader, bound_textures: []Texture_Handle, scissor: Maybe(Rect), vertex_buffer: []u8),
+	draw: proc(shader: Shader, render_texture: Render_Texture_Handle, bound_textures: []Texture_Handle, scissor: Maybe(Rect), vertex_buffer: []u8),
 	set_internal_state: proc(state: rawptr),
 
 	create_texture: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle,
 	load_texture: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle,
 	update_texture: proc(handle: Texture_Handle, data: []u8, rect: Rect) -> bool,
 	destroy_texture: proc(handle: Texture_Handle),
+
+	create_render_texture: proc(width: int, height: int) -> Render_Texture_Handle,
 	
 	set_texture_filter: proc(
 		handle: Texture_Handle,

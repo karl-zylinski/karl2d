@@ -21,6 +21,7 @@ RENDER_BACKEND_INTERFACE_D3D11 :: Render_Backend_Interface {
 	load_texture = d3d11_load_texture,
 	update_texture = d3d11_update_texture,
 	destroy_texture = d3d11_destroy_texture,
+	create_render_texture = d3d11_create_render_texture,
 	set_texture_filter = d3d11_set_texture_filter,
 	load_shader = d3d11_load_shader,
 	destroy_shader = d3d11_destroy_shader,
@@ -173,10 +174,16 @@ d3d11_shutdown :: proc() {
 	s.info_queue->Release()
 }
 
-d3d11_clear :: proc(color: Color) {
+d3d11_clear :: proc(render_texture: Render_Texture_Handle, color: Color) {
 	c := f32_color_from_color(color)
-	s.device_context->ClearRenderTargetView(s.framebuffer_view, &c)
-	s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 1, 0)
+
+	if rt := hm.get(&s.render_textures, render_texture); rt != nil {
+		s.device_context->ClearRenderTargetView(rt.render_target_view, &c)
+		s.device_context->ClearDepthStencilView(rt.depth_stencil_texture_view, {.DEPTH}, 1, 0)	
+	} else {
+		s.device_context->ClearRenderTargetView(s.framebuffer_view, &c)
+		s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 1, 0)
+	}
 }
 
 d3d11_present :: proc() {
@@ -185,6 +192,7 @@ d3d11_present :: proc() {
 
 d3d11_draw :: proc(
 	shd: Shader,
+	render_texture: Render_Texture_Handle,
 	bound_textures: []Texture_Handle,
 	scissor: Maybe(Rect), 
 	vertex_buffer: []u8,
@@ -305,7 +313,12 @@ d3d11_draw :: proc(
 		}
 	}
 
-	dc->OMSetRenderTargets(1, &s.framebuffer_view, s.depth_buffer_view)
+	if rt := hm.get(&s.render_textures, render_texture); rt != nil {
+		dc->OMSetRenderTargets(1, &rt.render_target_view, rt.depth_stencil_texture_view)
+	} else {
+		dc->OMSetRenderTargets(1, &s.framebuffer_view, s.depth_buffer_view)
+	}
+
 	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
 	dc->OMSetBlendState(s.blend_state, nil, ~u32(0))
 
@@ -388,6 +401,61 @@ create_texture :: proc(
 
 d3d11_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
 	return create_texture(width, height, format, nil)
+}
+
+d3d11_create_render_texture :: proc(width: int, height: int) -> Render_Texture_Handle {
+	texture_desc := d3d11.TEXTURE2D_DESC{
+		Width      = u32(width),
+		Height     = u32(height),
+		MipLevels  = 1,
+		ArraySize  = 1,
+		Format     = dxgi_format_from_pixel_format(.RGBA_32_Float),
+		SampleDesc = {Count = 1},
+		Usage      = .DEFAULT,
+		BindFlags  = {.SHADER_RESOURCE, .RENDER_TARGET},
+	}
+
+	texture: ^d3d11.ITexture2D
+	ch(s.device->CreateTexture2D(&texture_desc, nil, &texture))
+
+	texture_view: ^d3d11.IShaderResourceView
+	ch(s.device->CreateShaderResourceView(texture, nil, &texture_view))
+
+	depth_stencil_desc := d3d11.TEXTURE2D_DESC{
+		Width      = u32(width),
+		Height     = u32(height),
+		MipLevels  = 1,
+		ArraySize  = 1,
+		Format     = .D24_UNORM_S8_UINT,
+		SampleDesc = {Count = 1},
+		Usage      = .DEFAULT,
+		BindFlags  = {.DEPTH_STENCIL},
+	}
+
+	depth_stencil_texture: ^d3d11.ITexture2D
+	ch(ch(s.device->CreateTexture2D(&depth_stencil_desc, nil, &depth_stencil_texture)))
+
+	depth_stencil_texture_view: ^d3d11.IDepthStencilView
+	ch(s.device->CreateDepthStencilView(depth_stencil_texture, nil, &depth_stencil_texture_view))
+
+	render_target_view_desc := d3d11.RENDER_TARGET_VIEW_DESC {
+		Format = texture_desc.Format,
+		ViewDimension = .TEXTURE2D,
+	}
+
+	render_target_view: ^d3d11.IRenderTargetView
+
+	ch(s.device->CreateRenderTargetView(texture, &render_target_view_desc, &render_target_view))
+
+	rtex := D3D11_Render_Texture {
+		texture = texture,
+		texture_view = texture_view,
+		depth_stencil_texture = depth_stencil_texture,
+		depth_stencil_texture_view = depth_stencil_texture_view,
+		render_target_view = render_target_view,
+	}
+
+	return hm.add(&s.render_textures, rtex)
 }
 
 d3d11_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
@@ -853,6 +921,7 @@ D3D11_State :: struct {
 	blend_state: ^d3d11.IBlendState,
 
 	textures: hm.Handle_Map(D3D11_Texture, Texture_Handle, 1024*10),
+	render_textures: hm.Handle_Map(D3D11_Render_Texture, Render_Texture_Handle, 1024*10),
 	shaders: hm.Handle_Map(D3D11_Shader, Shader_Handle, 1024*10),
 
 	info_queue: ^d3d11.IInfoQueue,
@@ -905,6 +974,15 @@ D3D11_Texture :: struct {
 	// Moreover, in order to make D3D11 behave a bit like GL (or rather, to make them behave more
 	// similarly), we require that each texture in the HLSL shaders have a dedicated sampler.
 	sampler: ^d3d11.ISamplerState,
+}
+
+D3D11_Render_Texture :: struct {
+	handle: Render_Texture_Handle,
+	texture: ^d3d11.ITexture2D,
+	texture_view: ^d3d11.IShaderResourceView,
+	depth_stencil_texture: ^d3d11.ITexture2D,
+	depth_stencil_texture_view: ^d3d11.IDepthStencilView,
+	render_target_view: ^d3d11.IRenderTargetView,
 }
 
 dxgi_format_from_pixel_format :: proc(f: Pixel_Format) -> dxgi.FORMAT {
