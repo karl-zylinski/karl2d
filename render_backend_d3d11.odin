@@ -174,10 +174,10 @@ d3d11_shutdown :: proc() {
 	s.info_queue->Release()
 }
 
-d3d11_clear :: proc(render_texture: Render_Texture_Handle, color: Color) {
+d3d11_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 	c := f32_color_from_color(color)
 
-	if rt := hm.get(&s.render_textures, render_texture); rt != nil {
+	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		s.device_context->ClearRenderTargetView(rt.render_target_view, &c)
 		s.device_context->ClearDepthStencilView(rt.depth_stencil_texture_view, {.DEPTH}, 1, 0)	
 	} else {
@@ -192,7 +192,7 @@ d3d11_present :: proc() {
 
 d3d11_draw :: proc(
 	shd: Shader,
-	render_texture: Render_Texture_Handle,
+	render_target: Render_Target_Handle,
 	bound_textures: []Texture_Handle,
 	scissor: Maybe(Rect), 
 	vertex_buffer: []u8,
@@ -313,7 +313,7 @@ d3d11_draw :: proc(
 		}
 	}
 
-	if rt := hm.get(&s.render_textures, render_texture); rt != nil {
+	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		dc->OMSetRenderTargets(1, &rt.render_target_view, rt.depth_stencil_texture_view)
 	} else {
 		dc->OMSetRenderTargets(1, &s.framebuffer_view, s.depth_buffer_view)
@@ -321,8 +321,8 @@ d3d11_draw :: proc(
 
 	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
 	dc->OMSetBlendState(s.blend_state, nil, ~u32(0))
-
 	dc->Draw(u32(len(vertex_buffer)/shd.vertex_size), 0)
+	dc->OMSetRenderTargets(0, nil, nil)
 	log_messages()
 }
 
@@ -403,7 +403,7 @@ d3d11_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> T
 	return create_texture(width, height, format, nil)
 }
 
-d3d11_create_render_texture :: proc(width: int, height: int) -> Render_Texture_Handle {
+d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
 		Height     = u32(height),
@@ -447,15 +447,20 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> Render_Texture_H
 
 	ch(s.device->CreateRenderTargetView(texture, &render_target_view_desc, &render_target_view))
 
-	rtex := D3D11_Render_Texture {
-		texture = texture,
-		texture_view = texture_view,
+	d3d11_texture := D3D11_Texture {
+		tex = texture,
+		view = texture_view,
+		format = .RGBA_32_Float,
+		sampler = create_sampler(.MIN_MAG_MIP_POINT),
+	}
+
+	d3d11_render_target := D3D11_Render_Target {
 		depth_stencil_texture = depth_stencil_texture,
 		depth_stencil_texture_view = depth_stencil_texture_view,
 		render_target_view = render_target_view,
 	}
 
-	return hm.add(&s.render_textures, rtex)
+	return hm.add(&s.textures, d3d11_texture), hm.add(&s.render_targets, d3d11_render_target)
 }
 
 d3d11_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
@@ -921,7 +926,7 @@ D3D11_State :: struct {
 	blend_state: ^d3d11.IBlendState,
 
 	textures: hm.Handle_Map(D3D11_Texture, Texture_Handle, 1024*10),
-	render_textures: hm.Handle_Map(D3D11_Render_Texture, Render_Texture_Handle, 1024*10),
+	render_targets: hm.Handle_Map(D3D11_Render_Target, Render_Target_Handle, 1024*10),
 	shaders: hm.Handle_Map(D3D11_Shader, Shader_Handle, 1024*10),
 
 	info_queue: ^d3d11.IInfoQueue,
@@ -976,10 +981,8 @@ D3D11_Texture :: struct {
 	sampler: ^d3d11.ISamplerState,
 }
 
-D3D11_Render_Texture :: struct {
-	handle: Render_Texture_Handle,
-	texture: ^d3d11.ITexture2D,
-	texture_view: ^d3d11.IShaderResourceView,
+D3D11_Render_Target :: struct {
+	handle: Render_Target_Handle,
 	depth_stencil_texture: ^d3d11.ITexture2D,
 	depth_stencil_texture_view: ^d3d11.IDepthStencilView,
 	render_target_view: ^d3d11.IRenderTargetView,

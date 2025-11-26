@@ -138,7 +138,7 @@ gl_shutdown :: proc() {
 	_gl_destroy_context(s.ctx)
 }
 
-gl_clear :: proc(render_texture: Render_Texture_Handle, color: Color) {
+gl_clear :: proc(render_texture: Render_Target_Handle, color: Color) {
 	c := f32_color_from_color(color)
 	gl.ClearColor(c.r, c.g, c.b, c.a)
 	gl.ClearDepth(-1)
@@ -151,7 +151,7 @@ gl_present :: proc() {
 
 gl_draw :: proc(
 	shd: Shader,
-	render_texture: Render_Texture_Handle,
+	render_texture: Render_Target_Handle,
 	bound_textures: []Texture_Handle,
 	scissor: Maybe(Rect),
 	vertex_buffer: []u8,
@@ -380,8 +380,8 @@ gl_destroy_texture :: proc(th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 }
 
-gl_create_render_texture :: proc(width: int, height: int) -> Render_Texture_Handle {
-	return {}
+gl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
+	return {}, {}
 }
 
 gl_set_texture_filter :: proc(

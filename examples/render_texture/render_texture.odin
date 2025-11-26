@@ -45,6 +45,13 @@ main :: proc() {
 		k2.draw_text("Hellöpe!", {10, 100}, 64, k2.WHITE)
 		k2.draw_texture_ex(tex, {0, 0, f32(tex.width), f32(tex.height)}, {10, 200, 900, 500}, {}, 0)
 
+		k2.set_render_texture(nil)
+
+		k2.clear(k2.GRAY)
+		k2.draw_texture(render_texture.texture, {20, 20}, k2.WHITE)
+		k2.draw_texture(render_texture.texture, {100, 500}, k2.WHITE)
+		k2.draw_texture(render_texture.texture, {400, 20}, k2.WHITE)
+
 		k2.present()
 		free_all(context.temp_allocator)
 	}

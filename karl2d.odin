@@ -145,7 +145,7 @@ shutdown :: proc() {
 
 // Clear the backbuffer with supplied color.
 clear :: proc(color: Color) {
-	rb.clear(s.batch_render_texture, color)
+	rb.clear(s.batch_render_target, color)
 	s.depth = s.depth_start
 }
 
@@ -308,7 +308,7 @@ draw_current_batch :: proc() {
 		shader.texture_bindpoints[def_tex_idx] = s.batch_texture
 	}
 
-	rb.draw(shader, s.batch_render_texture, shader.texture_bindpoints, s.batch_scissor, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
+	rb.draw(shader, s.batch_render_target, shader.texture_bindpoints, s.batch_scissor, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
 	s.vertex_buffer_cpu_used = 0
 }
 
@@ -841,17 +841,35 @@ set_texture_filter_ex :: proc(
 // RENDER TEXTURES //
 //-----------------//
 
-create_render_texture :: proc(width: int, height: int) -> Render_Texture_Handle {
-	return rb.create_render_texture(width, height)
+create_render_texture :: proc(width: int, height: int) -> Render_Texture {
+	texture, render_target := rb.create_render_texture(width, height)
+
+	return {
+		texture = { 
+			handle = texture,
+			width = width,
+			height = height,	
+		},
+		render_target = render_target,
+	}
 }
 
-set_render_texture :: proc(render_texture: Render_Texture_Handle) {
-	if s.batch_render_texture == render_texture {
-		return
-	}
+set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
+	if rt, rt_ok := render_texture.?; rt_ok {
+		if s.batch_render_target == rt.render_target {
+			return
+		}
 
-	draw_current_batch()
-	s.batch_render_texture = render_texture
+		draw_current_batch()
+		s.batch_render_target = rt.render_target
+	} else {
+		if s.batch_render_target == RENDER_TARGET_NONE {
+			return
+		}
+
+		draw_current_batch()
+		s.batch_render_target = RENDER_TARGET_NONE
+	}
 }
 
 //-------//
@@ -1239,6 +1257,11 @@ Texture :: struct {
 	height: int,
 }
 
+Render_Texture :: struct {
+	texture: Texture,
+	render_target: Render_Target_Handle,
+}
+
 Texture_Filter :: enum {
 	Point,  // Similar to "nearest neighbor". Pixly texture scaling.
 	Linear, // Smoothed texture scaling.
@@ -1345,12 +1368,12 @@ Font :: struct {
 
 Handle :: hm.Handle
 Texture_Handle :: distinct Handle
-Render_Texture_Handle :: distinct Handle
+Render_Target_Handle :: distinct Handle
 Font_Handle :: distinct int
 
 FONT_NONE :: Font_Handle {}
 TEXTURE_NONE :: Texture_Handle {}
-RENDER_TEXTURE_NONE :: Render_Texture_Handle {}
+RENDER_TARGET_NONE :: Render_Target_Handle {}
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
 // It is created and kept as a global variable when 'init' is called. However, 'init' also returns
@@ -1395,7 +1418,7 @@ State :: struct {
 	batch_shader: Shader,
 	batch_scissor: Maybe(Rect),
 	batch_texture: Texture_Handle,
-	batch_render_texture: Render_Texture_Handle,
+	batch_render_target: Render_Target_Handle,
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
