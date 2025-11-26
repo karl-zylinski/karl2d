@@ -854,6 +854,11 @@ create_render_texture :: proc(width: int, height: int) -> Render_Texture {
 	}
 }
 
+destroy_render_texture :: proc(render_texture: Render_Texture) {
+	rb.destroy_texture(render_texture.texture.handle)
+	rb.destroy_render_target(render_texture.render_target)
+}
+
 set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 	if rt, rt_ok := render_texture.?; rt_ok {
 		if s.batch_render_target == rt.render_target {

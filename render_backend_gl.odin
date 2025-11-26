@@ -21,6 +21,7 @@ RENDER_BACKEND_INTERFACE_GL :: Render_Backend_Interface {
 	update_texture = gl_update_texture,
 	destroy_texture = gl_destroy_texture,
 	create_render_texture = gl_create_render_texture,
+	destroy_render_target = gl_destroy_render_target,
 	set_texture_filter = gl_set_texture_filter,
 	load_shader = gl_load_shader,
 	destroy_shader = gl_destroy_shader,
@@ -382,6 +383,10 @@ gl_destroy_texture :: proc(th: Texture_Handle) {
 
 gl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
 	return {}, {}
+}
+
+gl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
+	
 }
 
 gl_set_texture_filter :: proc(

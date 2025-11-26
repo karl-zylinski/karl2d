@@ -28,9 +28,8 @@ main :: proc() {
 
 	k2.init(1080, 1080, "Karl2D Render Texture Example")
 	k2.set_window_position(300, 100)
-	tex := k2.load_texture_from_file("sixten.jpg")
 
-	render_texture := k2.create_render_texture(200, 200)
+	render_texture := k2.create_render_texture(128, 128)
 
 	for !k2.shutdown_wanted() {
 		k2.process_events()
@@ -38,24 +37,24 @@ main :: proc() {
 		k2.set_render_texture(render_texture)
 		k2.clear(k2.BLUE)
 
-		k2.draw_rect({10, 10, 60, 60}, k2.GREEN)
-		k2.draw_rect({20, 20, 40, 40}, k2.BLACK)
-		k2.draw_circle({120, 40}, 30, k2.BLACK)
-		k2.draw_circle({120, 40}, 20, k2.GREEN)
-		k2.draw_text("Hellöpe!", {10, 100}, 64, k2.WHITE)
-		k2.draw_texture_ex(tex, {0, 0, f32(tex.width), f32(tex.height)}, {10, 200, 900, 500}, {}, 0)
-
+		k2.draw_rect({1, 1, 12, 12}, k2.GREEN)
+		k2.draw_rect({2, 2, 10, 10}, k2.BLACK)
+		k2.draw_circle({20, 7}, 6, k2.BLACK)
+		k2.draw_circle({20, 7}, 5, k2.GREEN)
+		k2.draw_text("Hellöpe!", {1, 20}, 20, k2.WHITE)
+		
 		k2.set_render_texture(nil)
 
 		k2.clear(k2.GRAY)
-		k2.draw_texture(render_texture.texture, {20, 20}, k2.WHITE)
-		k2.draw_texture(render_texture.texture, {100, 500}, k2.WHITE)
+		k2.draw_texture_ex(render_texture.texture, {0, 0, 128, 128}, {0, 0, 1080, 1080}, {}, 0, k2.WHITE)
 		k2.draw_texture(render_texture.texture, {400, 20}, k2.WHITE)
+		k2.draw_texture_ex(render_texture.texture, {0, 0, 128, 128}, {512, 512, 512, 512}, {}, 70, k2.WHITE)
 
 		k2.present()
 		free_all(context.temp_allocator)
 	}
 
-	k2.destroy_texture(tex)
+	k2.destroy_render_texture(render_texture)
+
 	k2.shutdown()
 }

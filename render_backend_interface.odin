@@ -38,6 +38,7 @@ Render_Backend_Interface :: struct #all_or_none {
 	destroy_texture: proc(handle: Texture_Handle),
 
 	create_render_texture: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle),
+	destroy_render_target: proc(render_texture: Render_Target_Handle),
 	
 	set_texture_filter: proc(
 		handle: Texture_Handle,

@@ -22,6 +22,7 @@ RENDER_BACKEND_INTERFACE_D3D11 :: Render_Backend_Interface {
 	update_texture = d3d11_update_texture,
 	destroy_texture = d3d11_destroy_texture,
 	create_render_texture = d3d11_create_render_texture,
+	destroy_render_target = d3d11_destroy_render_target,
 	set_texture_filter = d3d11_set_texture_filter,
 	load_shader = d3d11_load_shader,
 	destroy_shader = d3d11_destroy_shader,
@@ -135,8 +136,8 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 				SrcBlend = .SRC_ALPHA,
 				DestBlend = .INV_SRC_ALPHA,
 				BlendOp = .ADD,
-				SrcBlendAlpha = .ONE,
-				DestBlendAlpha = .ZERO,
+				SrcBlendAlpha = .SRC_ALPHA,
+				DestBlendAlpha = .INV_SRC_ALPHA,
 				BlendOpAlpha = .ADD,
 				RenderTargetWriteMask = u8(d3d11.COLOR_WRITE_ENABLE_ALL),
 			},
@@ -461,6 +462,16 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 	}
 
 	return hm.add(&s.textures, d3d11_texture), hm.add(&s.render_targets, d3d11_render_target)
+}
+
+d3d11_destroy_render_target :: proc(render_target: Render_Target_Handle) {
+	if rt := hm.get(&s.render_targets, render_target); rt != nil {
+		rt.depth_stencil_texture->Release()
+		rt.depth_stencil_texture_view->Release()	
+		rt.render_target_view->Release()
+	}
+
+	hm.remove(&s.render_targets, render_target)
 }
 
 d3d11_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
