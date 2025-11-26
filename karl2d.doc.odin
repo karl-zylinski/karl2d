@@ -105,6 +105,8 @@ get_mouse_position :: proc() -> Vec2
 
 get_mouse_delta :: proc() -> Vec2
 
+is_gamepad_active :: proc(gamepad: Gamepad_Index) -> bool
+
 gamepad_button_went_down :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool
 
 gamepad_button_went_up :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool
@@ -183,6 +185,13 @@ set_texture_filter_ex :: proc(
 	scale_up_filter: Texture_Filter,
 	mip_filter: Texture_Filter,
 )
+
+//-----------------//
+// RENDER TEXTURES //
+//-----------------//
+create_render_texture :: proc(width: int, height: int) -> Render_Texture_Handle
+
+set_render_texture :: proc(render_texture: Render_Texture_Handle)
 
 //-------//
 // FONTS //
@@ -411,8 +420,10 @@ Handle :: hm.Handle
 Texture_Handle :: distinct Handle
 Render_Texture_Handle :: distinct Handle
 Font_Handle :: distinct int
+
 FONT_NONE :: Font_Handle {}
 TEXTURE_NONE :: Texture_Handle {}
+RENDER_TEXTURE_NONE :: Render_Texture_Handle {}
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
 // It is created and kept as a global variable when 'init' is called. However, 'init' also returns
@@ -457,6 +468,7 @@ State :: struct {
 	batch_shader: Shader,
 	batch_scissor: Maybe(Rect),
 	batch_texture: Texture_Handle,
+	batch_render_texture: Render_Texture_Handle,
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
