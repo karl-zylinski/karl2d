@@ -17,7 +17,8 @@ Window_Interface :: struct {
 	get_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_flags: proc(flags: Window_Flags),
-	
+
+	is_gamepad_active: proc(gamepad: int) -> bool,
 	get_gamepad_axis: proc(gamepad: int, axis: Gamepad_Axis) -> f32,
 	set_gamepad_vibration: proc(gamepad: int, left: f32, right: f32),
 

@@ -18,6 +18,7 @@ WINDOW_INTERFACE_WIN32 :: Window_Interface {
 	set_size = win32_set_size,
 	get_window_scale = win32_get_window_scale,
 	set_flags = win32_set_flags,
+	is_gamepad_active = win32_is_gamepad_active,
 	get_gamepad_axis = win32_get_gamepad_axis,
 	set_gamepad_vibration = win32_set_gamepad_vibration,
 
@@ -203,6 +204,15 @@ win32_set_flags :: proc(flags: Window_Flags) {
 	s.flags = flags
 	style := style_from_flags(flags)
 	win32.SetWindowLongW(s.hwnd, win32.GWL_STYLE, i32(style))
+}
+
+win32_is_gamepad_active :: proc(gamepad: int) -> bool {
+	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
+		return false
+	}
+
+	gp_state: win32.XINPUT_STATE
+	return win32.XInputGetState(win32.XUSER(gamepad), &gp_state) == .SUCCESS
 }
 
 win32_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {

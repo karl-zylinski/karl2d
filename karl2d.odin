@@ -358,6 +358,10 @@ get_mouse_delta :: proc() -> Vec2 {
 	return s.mouse_delta
 }
 
+is_gamepad_active :: proc(gamepad: Gamepad_Index) -> bool {
+	return win.is_gamepad_active(gamepad)
+}
+
 gamepad_button_went_down :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
