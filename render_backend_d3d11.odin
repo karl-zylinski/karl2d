@@ -129,7 +129,7 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 	}
 	ch(s.device->CreateBuffer(&vertex_buffer_desc, nil, &s.vertex_buffer_gpu))
 	
-	blend_desc := d3d11.BLEND_DESC {
+	blend_alpha_desc := d3d11.BLEND_DESC {
 		RenderTarget = {
 			0 = {
 				BlendEnable = true,
@@ -144,7 +144,24 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 		},
 	}
 
-	ch(s.device->CreateBlendState(&blend_desc, &s.blend_state))
+	ch(s.device->CreateBlendState(&blend_alpha_desc, &s.blend_state_alpha))
+
+	blend_premultiplied_alpha_desc := d3d11.BLEND_DESC {
+		RenderTarget = {
+			0 = {
+				BlendEnable = true,
+				SrcBlend = .ONE,
+				DestBlend = .INV_SRC_ALPHA,
+				BlendOp = .ADD,
+				SrcBlendAlpha = .ONE,
+				DestBlendAlpha = .INV_SRC_ALPHA,
+				BlendOpAlpha = .ADD,
+				RenderTargetWriteMask = u8(d3d11.COLOR_WRITE_ENABLE_ALL),
+			},
+		},
+	}
+
+	ch(s.device->CreateBlendState(&blend_premultiplied_alpha_desc, &s.blend_state_premultiplied_alpha))
 }
 
 d3d11_shutdown :: proc() {
@@ -157,7 +174,8 @@ d3d11_shutdown :: proc() {
 	s.depth_stencil_state->Release()
 	s.rasterizer_state->Release()
 	s.swapchain->Release()
-	s.blend_state->Release()
+	s.blend_state_alpha->Release()
+	s.blend_state_premultiplied_alpha->Release()
 	s.dxgi_adapter->Release()
 
 	when ODIN_DEBUG {
@@ -196,6 +214,7 @@ d3d11_draw :: proc(
 	render_target: Render_Target_Handle,
 	bound_textures: []Texture_Handle,
 	scissor: Maybe(Rect), 
+	blend_mode: Blend_Mode,
 	vertex_buffer: []u8,
 ) {
 	if len(vertex_buffer) == 0 {
@@ -321,7 +340,13 @@ d3d11_draw :: proc(
 	}
 
 	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
-	dc->OMSetBlendState(s.blend_state, nil, ~u32(0))
+
+	switch blend_mode {
+	case .Alpha:
+		dc->OMSetBlendState(s.blend_state_alpha, nil, ~u32(0))
+	case .Premultiplied_Alpha:
+		dc->OMSetBlendState(s.blend_state_premultiplied_alpha, nil, ~u32(0))
+	}
 	dc->Draw(u32(len(vertex_buffer)/shd.vertex_size), 0)
 	dc->OMSetRenderTargets(0, nil, nil)
 	log_messages()
@@ -934,7 +959,8 @@ D3D11_State :: struct {
 	device: ^d3d11.IDevice,
 	depth_buffer: ^d3d11.ITexture2D,
 	framebuffer: ^d3d11.ITexture2D,
-	blend_state: ^d3d11.IBlendState,
+	blend_state_alpha: ^d3d11.IBlendState,
+	blend_state_premultiplied_alpha: ^d3d11.IBlendState,
 
 	textures: hm.Handle_Map(D3D11_Texture, Texture_Handle, 1024*10),
 	render_targets: hm.Handle_Map(D3D11_Render_Target, Render_Target_Handle, 1024*10),

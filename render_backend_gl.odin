@@ -155,6 +155,7 @@ gl_draw :: proc(
 	render_texture: Render_Target_Handle,
 	bound_textures: []Texture_Handle,
 	scissor: Maybe(Rect),
+	blend_mode: Blend_Mode,
 	vertex_buffer: []u8,
 ) {
 	gl_shd := hm.get(&s.shaders, shd.handle)

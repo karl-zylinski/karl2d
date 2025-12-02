@@ -27,6 +27,7 @@ Render_Backend_Interface :: struct #all_or_none {
 		render_target: Render_Target_Handle,
 		bound_textures: []Texture_Handle,
 		scissor: Maybe(Rect),
+		blend: Blend_Mode,
 		vertex_buffer: []u8,
 	),
 

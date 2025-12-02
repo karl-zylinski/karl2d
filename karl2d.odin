@@ -308,7 +308,7 @@ draw_current_batch :: proc() {
 		shader.texture_bindpoints[def_tex_idx] = s.batch_texture
 	}
 
-	rb.draw(shader, s.batch_render_target, shader.texture_bindpoints, s.batch_scissor, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
+	rb.draw(shader, s.batch_render_target, shader.texture_bindpoints, s.batch_scissor, s.batch_blend_mode, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
 	s.vertex_buffer_cpu_used = 0
 }
 
@@ -757,6 +757,15 @@ draw_text_ex :: proc(font: Font_Handle, text: string, pos: Vec2, font_size: f32,
 	}
 }
 
+set_blend_mode :: proc(mode: Blend_Mode) {
+	if s.batch_blend_mode == mode {
+		return
+	}
+
+	draw_current_batch()
+	s.batch_blend_mode = mode
+}
+
 //--------------------//
 // TEXTURE MANAGEMENT //
 //--------------------//
@@ -771,8 +780,16 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture
 	}
 }
 
-load_texture_from_file :: proc(filename: string) -> Texture {
-	img, img_err := image.load_from_file(filename, options = {.alpha_add_if_missing}, allocator = s.frame_allocator)
+load_texture_from_file :: proc(filename: string, options: Load_Texture_Options = {}) -> Texture {
+	load_options := image.Options {
+		.alpha_add_if_missing,
+	}
+
+	if .Premultiply_Alpha in options {
+		load_options += { .alpha_premultiply }
+	}
+
+	img, img_err := image.load_from_file(filename, options = load_options, allocator = s.frame_allocator)
 
 	if img_err != nil {
 		log.errorf("Error loading texture %v: %v", filename, img_err)
@@ -1262,6 +1279,17 @@ Texture :: struct {
 	height: int,
 }
 
+Load_Texture_Option :: enum {
+	Premultiply_Alpha,
+}
+
+Load_Texture_Options :: bit_set[Load_Texture_Option]
+
+Blend_Mode :: enum {
+	Alpha,
+	Premultiplied_Alpha, // Needs the alpha-channel to be multiplie into any texture's color channels.
+}
+
 Render_Texture :: struct {
 	texture: Texture,
 	render_target: Render_Target_Handle,
@@ -1424,6 +1452,7 @@ State :: struct {
 	batch_scissor: Maybe(Rect),
 	batch_texture: Texture_Handle,
 	batch_render_target: Render_Target_Handle,
+	batch_blend_mode: Blend_Mode,
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,

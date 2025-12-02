@@ -37,6 +37,11 @@
 					"working_dir": "$project_path/../examples/box2d"
 				},
 				{
+					"name": "premultiplied_alpha",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=d3d11",
+					"working_dir": "$project_path/../examples/premultiplied_alpha"
+				},
+				{
 					"name": "raylib_ports/2d_camera",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
 					"working_dir": "$project_path/../examples/raylib_ports/2d_camera"
