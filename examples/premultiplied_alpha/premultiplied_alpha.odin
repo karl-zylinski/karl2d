@@ -1,12 +1,7 @@
 package karl2d_example_premultiplied_alpha
 
 import k2 "../.."
-import "core:mem"
 import "core:log"
-import "core:fmt"
-
-_ :: fmt
-_ :: mem
 
 main :: proc() {
 	context.logger = log.create_console_logger()
