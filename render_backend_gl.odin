@@ -130,8 +130,6 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
 
 	gl.Enable(gl.BLEND)
-	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-
 }
 
 gl_shutdown :: proc() {
@@ -162,6 +160,11 @@ gl_draw :: proc(
 
 	if gl_shd == nil {
 		return
+	}
+
+	switch blend_mode {
+	case .Alpha: gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+	case .Premultiplied_Alpha: gl.BlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 	}
 
 	gl.EnableVertexAttribArray(0)

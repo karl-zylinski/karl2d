@@ -42,6 +42,11 @@
 					"working_dir": "$project_path/../examples/premultiplied_alpha"
 				},
 				{
+					"name": "premultiplied_alpha (gl)",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=gl",
+					"working_dir": "$project_path/../examples/premultiplied_alpha"
+				},
+				{
 					"name": "raylib_ports/2d_camera",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
 					"working_dir": "$project_path/../examples/raylib_ports/2d_camera"
