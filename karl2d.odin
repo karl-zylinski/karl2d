@@ -757,15 +757,6 @@ draw_text_ex :: proc(font: Font_Handle, text: string, pos: Vec2, font_size: f32,
 	}
 }
 
-set_blend_mode :: proc(mode: Blend_Mode) {
-	if s.batch_blend_mode == mode {
-		return
-	}
-
-	draw_current_batch()
-	s.batch_blend_mode = mode
-}
-
 //--------------------//
 // TEXTURE MANAGEMENT //
 //--------------------//
@@ -780,6 +771,10 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture
 	}
 }
 
+// Load a texture from disk and upload it to the GPU so you can draw it to the screen.
+// Supports PNG, BMP, TGA and baseline PNG. Note that progressive PNG files are not supported!
+//
+// The `options` parameter can be used to specify things things such as premultiplication of alpha.
 load_texture_from_file :: proc(filename: string, options: Load_Texture_Options = {}) -> Texture {
 	load_options := image.Options {
 		.alpha_add_if_missing,
@@ -858,6 +853,8 @@ set_texture_filter_ex :: proc(
 // RENDER TEXTURES //
 //-----------------//
 
+// Create a texture that you can render into. Meaning that you can draw into it instead of drawing
+// onto the screen. Set the texture using `set_render_texture`.
 create_render_texture :: proc(width: int, height: int) -> Render_Texture {
 	texture, render_target := rb.create_render_texture(width, height)
 
@@ -871,11 +868,14 @@ create_render_texture :: proc(width: int, height: int) -> Render_Texture {
 	}
 }
 
+// Destroy a Render_Texture previously created using `create_render_texture`.
 destroy_render_texture :: proc(render_texture: Render_Texture) {
 	rb.destroy_texture(render_texture.texture.handle)
 	rb.destroy_render_target(render_texture.render_target)
 }
 
+// Make all rendering go into a texture instead of onto the screen. Create the render texture using
+// `create_render_texture`. Pass `nil` to resume drawing onto the screen.
 set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 	if rt, rt_ok := render_texture.?; rt_ok {
 		if s.batch_render_target == rt.render_target {
@@ -1198,6 +1198,17 @@ get_camera_world_matrix :: proc(c: Camera) -> Mat4 {
 // MISC //
 //------//
 
+// Choose how the alpha channel is used when mixing half-transparent color with what is already
+// drawn. The default is the .Alpha mode, but you also have the option of using .Premultiply_Alpha.
+set_blend_mode :: proc(mode: Blend_Mode) {
+	if s.batch_blend_mode == mode {
+		return
+	}
+
+	draw_current_batch()
+	s.batch_blend_mode = mode
+}
+
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 	draw_current_batch()
 	s.batch_scissor = scissor_rect
@@ -1287,7 +1298,7 @@ Load_Texture_Options :: bit_set[Load_Texture_Option]
 
 Blend_Mode :: enum {
 	Alpha,
-	Premultiplied_Alpha, // Needs the alpha-channel to be multiplie into any texture's color channels.
+	Premultiplied_Alpha, // Requires the alpha-channel to be multiplied into texture RGB channels.
 }
 
 Render_Texture :: struct {

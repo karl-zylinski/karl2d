@@ -154,7 +154,11 @@ draw_text_ex :: proc(font: Font_Handle, text: string, pos: Vec2, font_size: f32,
 //--------------------//
 create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture
 
-load_texture_from_file :: proc(filename: string) -> Texture
+// Load a texture from disk and upload it to the GPU so you can draw it to the screen.
+// Supports PNG, BMP, TGA and baseline PNG. Note that progressive PNG files are not supported!
+//
+// The `options` parameter can be used to specify things things such as premultiplication of alpha.
+load_texture_from_file :: proc(filename: string, options: Load_Texture_Options = {}) -> Texture
 
 // TODO should we have an error here or rely on check the handle of the texture?
 load_texture_from_bytes :: proc(bytes: []u8, width: int, height: int, format: Pixel_Format) -> Texture
@@ -189,9 +193,17 @@ set_texture_filter_ex :: proc(
 //-----------------//
 // RENDER TEXTURES //
 //-----------------//
-create_render_texture :: proc(width: int, height: int) -> Render_Texture_Handle
 
-set_render_texture :: proc(render_texture: Render_Texture_Handle)
+// Create a texture that you can render into. Meaning that you can draw into it instead of drawing
+// onto the screen. Set the texture using `set_render_texture`.
+create_render_texture :: proc(width: int, height: int) -> Render_Texture
+
+// Destroy a Render_Texture previously created using `create_render_texture`.
+destroy_render_texture :: proc(render_texture: Render_Texture)
+
+// Make all rendering go into a texture instead of onto the screen. Create the render texture using
+// `create_render_texture`. Pass `nil` to resume drawing onto the screen.
+set_render_texture :: proc(render_texture: Maybe(Render_Texture))
 
 //-------//
 // FONTS //
@@ -241,6 +253,11 @@ get_camera_world_matrix :: proc(c: Camera) -> Mat4
 //------//
 // MISC //
 //------//
+
+// Choose how the alpha channel is used when mixing half-transparent color with what is already
+// drawn. The default is the .Alpha mode, but you also have the option of using .Premultiply_Alpha.
+set_blend_mode :: proc(mode: Blend_Mode)
+
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect))
 
 // Restore the internal state using the pointer returned by `init`. Useful after reloading the
@@ -310,6 +327,22 @@ Texture :: struct {
 	handle: Texture_Handle,
 	width: int,
 	height: int,
+}
+
+Load_Texture_Option :: enum {
+	Premultiply_Alpha,
+}
+
+Load_Texture_Options :: bit_set[Load_Texture_Option]
+
+Blend_Mode :: enum {
+	Alpha,
+	Premultiplied_Alpha, // Requires the alpha-channel to be multiplied into texture RGB channels.
+}
+
+Render_Texture :: struct {
+	texture: Texture,
+	render_target: Render_Target_Handle,
 }
 
 Texture_Filter :: enum {
@@ -418,12 +451,12 @@ Font :: struct {
 
 Handle :: hm.Handle
 Texture_Handle :: distinct Handle
-Render_Texture_Handle :: distinct Handle
+Render_Target_Handle :: distinct Handle
 Font_Handle :: distinct int
 
 FONT_NONE :: Font_Handle {}
 TEXTURE_NONE :: Texture_Handle {}
-RENDER_TEXTURE_NONE :: Render_Texture_Handle {}
+RENDER_TARGET_NONE :: Render_Target_Handle {}
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
 // It is created and kept as a global variable when 'init' is called. However, 'init' also returns
@@ -468,7 +501,8 @@ State :: struct {
 	batch_shader: Shader,
 	batch_scissor: Maybe(Rect),
 	batch_texture: Texture_Handle,
-	batch_render_texture: Render_Texture_Handle,
+	batch_render_target: Render_Target_Handle,
+	batch_blend_mode: Blend_Mode,
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
