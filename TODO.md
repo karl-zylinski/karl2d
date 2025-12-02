@@ -17,6 +17,8 @@
 	* fix gl filtering filtering setting for mips
 
 * render textures
+	x d3d
+	* gl
 * do pixel-perfect rendering tests: render texture with 1:1 pixel matching etc
 * linux windowing and input
 * webgl backend
