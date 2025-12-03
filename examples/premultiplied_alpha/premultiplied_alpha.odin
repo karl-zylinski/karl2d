@@ -10,8 +10,6 @@ main :: proc() {
 	k2.set_window_position(300, 100)
 
 	// Load a texture and premultiply the alpha while loading it.
-	// Note: In a real game you might precompute this, the premultiply-on-load will slow the load
-	// down. However, you can start with doing it on load and precompute it later.
 	tex := k2.load_texture_from_file("plop.png", options = { .Premultiply_Alpha })
 	
 	// Set the rendering to use premultiplied alpha when blending.
