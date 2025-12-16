@@ -219,9 +219,15 @@ get_default_font :: proc() -> Font_Handle
 //---------//
 // SHADERS //
 //---------//
-load_shader :: proc(
-	vertex_shader_source: string,
-	fragment_shader_source: string,
+load_shader_from_file :: proc(
+	vertex_filename: string,
+	fragment_filename: string,
+	layout_formats: []Pixel_Format = {}
+) -> Shader
+
+load_shader_from_memory :: proc(
+	vertex_shader_bytes: []byte,
+	fragment_shader_bytes: []byte,
 	layout_formats: []Pixel_Format = {},
 ) -> Shader
 

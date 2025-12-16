@@ -94,7 +94,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 
 	// The default shader will arrive in a different format depending on backend. GLSL for GL,
 	// HLSL for d3d etc.
-	s.default_shader = load_shader(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
+	s.default_shader = load_shader_from_memory(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
 	s.batch_shader = s.default_shader
 
 	// FontStash enables us to bake fonts from TTF files on-the-fly.
@@ -145,6 +145,7 @@ shutdown :: proc() {
 
 // Clear the backbuffer with supplied color.
 clear :: proc(color: Color) {
+	draw_current_batch()
 	rb.clear(s.batch_render_target, color)
 	s.depth = s.depth_start
 }
@@ -944,14 +945,43 @@ get_default_font :: proc() -> Font_Handle {
 // SHADERS //
 //---------//
 
-load_shader :: proc(
-	vertex_shader_source: string,
-	fragment_shader_source: string,
+load_shader_from_file :: proc(
+	vertex_filename: string,
+	fragment_filename: string,
+	layout_formats: []Pixel_Format = {}
+) -> Shader {
+	vertex_source, vertex_source_ok := os.read_entire_file(vertex_filename, frame_allocator)
+
+	if !vertex_source_ok {
+		log.errorf("Failed loading shader %s", vertex_filename)
+		return {}
+	}
+
+	fragment_source: []byte
+	
+	if fragment_filename == vertex_filename {
+		fragment_source = vertex_source
+	} else {
+		fragment_source_ok: bool
+		fragment_source, fragment_source_ok = os.read_entire_file(fragment_filename, frame_allocator)
+
+		if !fragment_source_ok {
+			log.errorf("Failed loading shader %s", fragment_filename)
+			return {}
+		}
+	}
+
+	return load_shader_from_memory(vertex_source, fragment_source, layout_formats)
+}
+
+load_shader_from_memory :: proc(
+	vertex_shader_bytes: []byte,
+	fragment_shader_bytes: []byte,
 	layout_formats: []Pixel_Format = {},
 ) -> Shader {
 	handle, desc := rb.load_shader(
-		vertex_shader_source,
-		fragment_shader_source,
+		vertex_shader_bytes,
+		fragment_shader_bytes,
 		s.frame_allocator,
 		layout_formats,
 	)

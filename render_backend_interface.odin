@@ -1,5 +1,7 @@
 package karl2d
 
+import "base:runtime"
+
 Shader_Constant_Desc :: struct {
 	name: string,
 	size: int,
@@ -48,7 +50,16 @@ Render_Backend_Interface :: struct #all_or_none {
 		mip_filter: Texture_Filter,
 	),
 
-	load_shader: proc(vertex_shader_source: string, pixel_shader_source: string, desc_allocator := context.temp_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc),
+	load_shader: proc(
+		vertex_shader_data: []byte,
+		pixel_shader_data: []byte,
+		desc_allocator: runtime.Allocator,
+		layout_formats: []Pixel_Format = {},
+	) -> (
+		handle: Shader_Handle,
+		desc: Shader_Desc,
+	),
+
 	destroy_shader: proc(shader: Shader_Handle),
 
 	resize_swapchain: proc(width, height: int),
@@ -56,6 +67,6 @@ Render_Backend_Interface :: struct #all_or_none {
 	get_swapchain_height: proc() -> int,
 	flip_z: proc() -> bool,
 
-	default_shader_vertex_source: proc() -> string,
-	default_shader_fragment_source: proc() -> string,
+	default_shader_vertex_source: proc() -> []byte,
+	default_shader_fragment_source: proc() -> []byte,
 }

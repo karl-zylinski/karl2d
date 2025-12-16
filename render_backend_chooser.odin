@@ -14,7 +14,7 @@ when CUSTOM_RENDER_BACKEND_STR != "" {
 	} else when CUSTOM_RENDER_BACKEND_STR == "d3d11" {
 		RENDER_BACKEND :: RENDER_BACKEND_INTERFACE_D3D11
 	} else {
-		#panic(CUSTOM_RENDER_BACKEND_STR + " is not a valid value for KARL2D_BACKEND. Available backends are: gl, d3d11")
+		#panic(CUSTOM_RENDER_BACKEND_STR + " is not a valid value for KARL2D_RENDER_BACKEND. Available backends are: gl, d3d11")
 		RENDER_BACKEND :: DEFAULT_RENDER_BACKEND
 	}
 } else {

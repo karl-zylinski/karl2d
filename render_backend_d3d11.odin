@@ -598,8 +598,8 @@ create_sampler :: proc(filter: d3d11.FILTER) -> ^d3d11.ISamplerState {
 }
 
 d3d11_load_shader :: proc(
-	vs_source: string,
-	ps_source: string,
+	vs_source: []byte,
+	ps_source: []byte,
 	desc_allocator := frame_allocator,
 	layout_formats: []Pixel_Format = {},
 ) -> (
@@ -865,11 +865,12 @@ reflect_shader_constants :: proc(
 	// configure filters etc on a per-texture level. Since two textures can arrive at a draw call
 	// with different filters set, if they use the same sampler, then it will be impossible to set
 	// that filtering up.
-	for t, t_idx in d3d_texture_bindings {
+	for &t, t_idx in d3d_texture_bindings {
 		found := false
 
 		for sampler_bindpoint in found_sampler_bindpoints {
 			if t.bind_point == sampler_bindpoint {
+				t.sampler_bind_point = sampler_bindpoint
 				found = true
 				break
 			}
@@ -1093,10 +1094,12 @@ log_messages :: proc(loc := #caller_location) {
 
 DEFAULT_SHADER_SOURCE :: #load("render_backend_d3d11_default_shader.hlsl")
 
-d3d11_default_shader_vertex_source :: proc() -> string {
-	return string(DEFAULT_SHADER_SOURCE)
+d3d11_default_shader_vertex_source :: proc() -> []byte {
+	s := DEFAULT_SHADER_SOURCE
+	return s
 }
 
-d3d11_default_shader_fragment_source :: proc() -> string {
-	return string(DEFAULT_SHADER_SOURCE)
+d3d11_default_shader_fragment_source :: proc() -> []byte {
+	s := DEFAULT_SHADER_SOURCE
+	return s
 }

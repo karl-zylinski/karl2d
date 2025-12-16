@@ -300,8 +300,12 @@ gl_draw :: proc(
 			gl_t := gl_shd.texture_bindings[t_idx]
 
 			if t := hm.get(&s.textures, t); t != nil {
-				gl.ActiveTexture(gl.TEXTURE0)
+				gl.ActiveTexture(gl.TEXTURE0 + u32(t_idx))
 				gl.BindTexture(gl.TEXTURE_2D, t.id)
+				gl.Uniform1i(gl_t.loc, i32(t_idx))
+			} else {
+				gl.ActiveTexture(gl.TEXTURE0 + u32(t_idx))
+				gl.BindTexture(gl.TEXTURE_2D, 0)
 				gl.Uniform1i(gl_t.loc, i32(t_idx))
 			}
 		}
@@ -424,7 +428,7 @@ Shader_Compile_Result :: union #no_nil {
 	Shader_Compile_Result_Error,
 }
 
-compile_shader_from_source :: proc(shader_data: string, shader_type: gl.Shader_Type, err_buf: []u8, err_msg: ^string) -> (shader_id: u32, ok: bool) {
+compile_shader_from_source :: proc(shader_data: []byte, shader_type: gl.Shader_Type, err_buf: []u8, err_msg: ^string) -> (shader_id: u32, ok: bool) {
 	shader_id = gl.CreateShader(u32(shader_type))
 	length := i32(len(shader_data))
 	shader_cstr := cstring(raw_data(shader_data))
@@ -465,7 +469,7 @@ link_shader :: proc(vs_shader: u32, fs_shader: u32, err_buf: []u8, err_msg: ^str
 	return program_id, true
 }
 
-gl_load_shader :: proc(vs_source: string, fs_source: string, desc_allocator := frame_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
+gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := frame_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
 	@static err: [1024]u8
 	err_msg: string
 	vs_shader, vs_shader_ok := compile_shader_from_source(vs_source, gl.Shader_Type.VERTEX_SHADER, err[:], &err_msg)
@@ -828,11 +832,13 @@ gl_destroy_shader :: proc(h: Shader_Handle) {
 	delete(shd.texture_bindings, s.allocator)
 }
 
-gl_default_shader_vertex_source :: proc() -> string {
-	return #load("render_backend_gl_default_vertex_shader.glsl")
+gl_default_shader_vertex_source :: proc() -> []byte {
+	vertex_source := #load("render_backend_gl_default_vertex_shader.glsl")
+	return vertex_source
 }
 
-gl_default_shader_fragment_source :: proc() -> string {
-	return #load("render_backend_gl_default_fragment_shader.glsl")
+gl_default_shader_fragment_source :: proc() -> []byte {
+	fragment_source := #load("render_backend_gl_default_fragment_shader.glsl")
+	return fragment_source
 }
 

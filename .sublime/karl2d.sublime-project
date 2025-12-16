@@ -27,6 +27,21 @@
 					"working_dir": "$project_path/../examples/render_texture"
 				},
 				{
+					"name": "render_texture (gl)",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug  -define:KARL2D_RENDER_BACKEND=gl",
+					"working_dir": "$project_path/../examples/render_texture"
+				},
+				{
+					"name": "multitexture",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=d3d11",
+					"working_dir": "$project_path/../examples/multitexture"
+				},
+				{
+					"name": "multitexture (gl)",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=gl",
+					"working_dir": "$project_path/../examples/multitexture"
+				},
+				{
 					"name": "snake",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
 					"working_dir": "$project_path/../examples/snake"
