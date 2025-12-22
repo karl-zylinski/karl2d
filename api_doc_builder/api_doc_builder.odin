@@ -14,9 +14,8 @@ main :: proc() {
 	context.temp_allocator = context.allocator
 	context.logger = log.create_console_logger()
 
-
-	plug_ast, plug_ast_ok := parser.parse_package_from_path(".")
-	log.ensuref(plug_ast_ok, "Could not generate AST for package")
+	pkg_ast, pkg_ast_ok := parser.parse_package_from_path(".")
+	log.ensuref(pkg_ast_ok, "Could not generate AST for package")
 
 	o, o_err := os.open("karl2d.doc.odin", os.O_CREATE | os.O_TRUNC, 0o644)
 	log.assertf(o_err == nil, "Couldn't open karl2d.doc.odin: %v", o_err)
@@ -29,7 +28,7 @@ main :: proc() {
 
 	prev_line: int
 
-	for n, &f in plug_ast.files {
+	for n, &f in pkg_ast.files {
 		if !strings.ends_with(n, "karl2d.odin") {
 			continue
 		}
