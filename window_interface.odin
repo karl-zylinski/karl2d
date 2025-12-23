@@ -2,7 +2,7 @@ package karl2d
 
 import "base:runtime"
 
-Window_Interface :: struct {
+Window_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 	init: proc(window_state: rawptr, window_width: int, window_height: int, window_title: string, 
 	           flags: Window_Flags, allocator: runtime.Allocator),

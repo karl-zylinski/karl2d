@@ -17,6 +17,11 @@
 					"working_dir": "$project_path/../examples/minimal"
 				},
 				{
+					"name": "minimal (web)",
+					"shell_cmd": "odin build . -vet -strict-style -keep-executable -debug -target:js_wasm32",
+					"working_dir": "$project_path/../examples/minimal"
+				},
+				{
 					"name": "fonts",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
 					"working_dir": "$project_path/../examples/fonts"
@@ -120,6 +125,9 @@
 		},
 		{
 			"path": "C:\\SDK\\Odin\\vendor\\directx\\dxc"
+		},
+		{
+			"path": "C:\\SDK\\Odin\\vendor\\wasm\\WebGL"
 		},
 		{
 			"path": "C:\\SDK\\Odin\\vendor\\box2d"

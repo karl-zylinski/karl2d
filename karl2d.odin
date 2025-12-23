@@ -45,7 +45,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 
 	s.allocator = allocator
 
-	s.win = WINDOW_INTERFACE_WIN32
+	s.win = WINDOW_INTERFACE
 	win = s.win
 
 	// We alloc memory for the windowing backend and pass the blob of memory to it.
