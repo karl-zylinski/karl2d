@@ -777,22 +777,27 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture
 //
 // The `options` parameter can be used to specify things things such as premultiplication of alpha.
 load_texture_from_file :: proc(filename: string, options: Load_Texture_Options = {}) -> Texture {
-	load_options := image.Options {
-		.alpha_add_if_missing,
-	}
+	when FILESYSTEM_SUPPORTED {
+		load_options := image.Options {
+			.alpha_add_if_missing,
+		}
 
-	if .Premultiply_Alpha in options {
-		load_options += { .alpha_premultiply }
-	}
+		if .Premultiply_Alpha in options {
+			load_options += { .alpha_premultiply }
+		}
 
-	img, img_err := image.load_from_file(filename, options = load_options, allocator = s.frame_allocator)
+		img, img_err := image.load_from_file(filename, options = load_options, allocator = s.frame_allocator)
 
-	if img_err != nil {
-		log.errorf("Error loading texture %v: %v", filename, img_err)
+		if img_err != nil {
+			log.errorf("Error loading texture %v: %v", filename, img_err)
+			return {}
+		}
+
+		return load_texture_from_bytes(img.pixels.buf[:], img.width, img.height, .RGBA_8_Norm)
+	} else {
+		log.errorf("load_texture_from_file failed: OS %v has no filesystem support!", ODIN_OS)
 		return {}
 	}
-
-	return load_texture_from_bytes(img.pixels.buf[:], img.width, img.height, .RGBA_8_Norm)
 }
 
 // TODO should we have an error here or rely on check the handle of the texture?
@@ -1905,3 +1910,5 @@ get_next_depth :: proc() -> f32 {
 	s.depth += s.depth_increment
 	return d
 }
+
+FILESYSTEM_SUPPORTED :: ODIN_OS != .JS && ODIN_OS != .Freestanding

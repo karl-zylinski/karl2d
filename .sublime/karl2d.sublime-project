@@ -17,9 +17,9 @@
 					"working_dir": "$project_path/../examples/minimal"
 				},
 				{
-					"name": "minimal (web)",
-					"shell_cmd": "odin build . -vet -strict-style -keep-executable -debug -target:js_wasm32",
-					"working_dir": "$project_path/../examples/minimal"
+					"name": "web example",
+					"shell_cmd": "odin build . -out:build/main.wasm -vet -strict-style -keep-executable -debug -target:js_wasm32 -define:KARL2D_RENDER_BACKEND=nil",
+					"working_dir": "$project_path/../examples/web"
 				},
 				{
 					"name": "fonts",
