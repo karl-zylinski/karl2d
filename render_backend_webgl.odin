@@ -1,4 +1,4 @@
-#+build ignore
+#+build js
 #+private file
 
 package karl2d
@@ -79,7 +79,7 @@ WebGL_Shader_Constant :: struct {
 
 WebGL_Texture :: struct {
 	handle: Texture_Handle,
-	id: u32,
+	id: gl.Texture,
 	format: Pixel_Format,
 }
 
@@ -192,88 +192,58 @@ webgl_draw :: proc(
 		case .Uniform:
 			loc := i32(gpu_loc.loc)
 			ptr := (rawptr)(&cpu_data[cpu_loc.offset])
-			uptr := (^u32)(ptr)
-			iptr := (^i32)(ptr)
-			fptr := (^f32)(ptr)
-			dptr := (^f64)(ptr)
+			uptr: [^]u32 = (^u32)(ptr)
+			iptr: [^]i32 = (^i32)(ptr)
+			fptr: [^]f32 = (^f32)(ptr)
+
 			switch gpu_loc.uniform_type {
 			case gl.FLOAT:
-				gl.Uniform1fv(loc, 1, fptr)
+				gl.Uniform1f(loc, fptr[0])
 
 			case gl.FLOAT_VEC2:
-				gl.Uniform2fv(loc, 1, fptr)
+				gl.Uniform2f(loc, fptr[0], fptr[1])
 			case gl.FLOAT_MAT2:
-				gl.UniformMatrix2fv(loc, 1, false, fptr)
+				gl.UniformMatrix2fv(loc, la.transpose((^matrix[2,2]f32)(ptr)^))
 			case gl.FLOAT_MAT2x3:
-				gl.UniformMatrix2x3fv(loc, 1, false, fptr)
+				gl.UniformMatrix2x3fv(loc, la.transpose((^matrix[2,3]f32)(ptr)^))
 			case gl.FLOAT_MAT2x4:
-				gl.UniformMatrix2x4fv(loc, 1, false, fptr)
+				gl.UniformMatrix2x4fv(loc, la.transpose((^matrix[2,4]f32)(ptr)^))
 
 			case gl.FLOAT_VEC3:
-				gl.Uniform3fv(loc, 1, fptr)
+				gl.Uniform3f(loc, fptr[0], fptr[1], fptr[2])
 			case gl.FLOAT_MAT3x2:
-				gl.UniformMatrix3x2fv(loc, 1, false, fptr)
+				gl.UniformMatrix3x2fv(loc, la.transpose((^matrix[3,2]f32)(ptr)^))
 			case gl.FLOAT_MAT3:
-				gl.UniformMatrix3fv(loc, 1, false, fptr)
+				gl.UniformMatrix3fv(loc, la.transpose((^matrix[3,3]f32)(ptr)^))
 			case gl.FLOAT_MAT3x4:
-				gl.UniformMatrix3x4fv(loc, 1, false, fptr)
+				gl.UniformMatrix3x4fv(loc, la.transpose((^matrix[3,4]f32)(ptr)^))
 
 			case gl.FLOAT_VEC4:
-				gl.Uniform4fv(loc, 1, fptr)
+				gl.Uniform4f(loc, fptr[0], fptr[1], fptr[2], fptr[3])
 			case gl.FLOAT_MAT4x2:
-				gl.UniformMatrix4x2fv(loc, 1, false, fptr)
+				gl.UniformMatrix4x2fv(loc, la.transpose((^matrix[4,2]f32)(ptr)^))
 			case gl.FLOAT_MAT4x3:
-				gl.UniformMatrix4x3fv(loc, 1, false, fptr)
+				gl.UniformMatrix4x3fv(loc, la.transpose((^matrix[4,3]f32)(ptr)^))
 			case gl.FLOAT_MAT4:
-				gl.UniformMatrix4fv(loc, 1, false, fptr)
+				gl.UniformMatrix4fv(loc, la.transpose((^matrix[4,4]f32)(ptr)^))
 
-			case gl.DOUBLE:
-				gl.Uniform1dv(loc, 1, dptr)
-
-			case gl.DOUBLE_VEC2:
-				gl.Uniform2dv(loc, 1, dptr)
-			case gl.DOUBLE_MAT2:
-				gl.UniformMatrix2dv(loc, 1, false, dptr)
-			case gl.DOUBLE_MAT2x3:
-				gl.UniformMatrix2x3dv(loc, 1, false, dptr)
-			case gl.DOUBLE_MAT2x4:
-				gl.UniformMatrix2x4dv(loc, 1, false, dptr)
-
-			case gl.DOUBLE_VEC3:
-				gl.Uniform3dv(loc, 1, dptr)
-			case gl.DOUBLE_MAT3x2:
-				gl.UniformMatrix3x2dv(loc, 1, false, dptr)
-			case gl.DOUBLE_MAT3:
-				gl.UniformMatrix3dv(loc, 1, false, dptr)
-			case gl.DOUBLE_MAT3x4:
-				gl.UniformMatrix3x4dv(loc, 1, false, dptr)
-
-			case gl.DOUBLE_VEC4:
-				gl.Uniform4dv(loc, 1, dptr)
-			case gl.DOUBLE_MAT4x2:
-				gl.UniformMatrix4x2dv(loc, 1, false, dptr)
-			case gl.DOUBLE_MAT4x3:
-				gl.UniformMatrix4x3dv(loc, 1, false, dptr)
-			case gl.DOUBLE_MAT4:
-				gl.UniformMatrix4dv(loc, 1, false, dptr)
-
-			case gl.BOOL, gl.INT:
-				gl.Uniform1iv(loc, 1, iptr)
-			case gl.BOOL_VEC2, gl.INT_VEC2:
-				gl.Uniform2iv(loc, 1, iptr)
-			case gl.BOOL_VEC3, gl.INT_VEC3:
-				gl.Uniform3iv(loc, 1, iptr)
-			case gl.BOOL_VEC4, gl.INT_VEC4:
-				gl.Uniform4iv(loc, 1, iptr)
+			case gl.INT:
+				gl.Uniform1i(loc, iptr[0])
+			case gl.INT_VEC2:
+				gl.Uniform2i(loc, iptr[0], iptr[1])
+			case gl.INT_VEC3:
+				gl.Uniform3i(loc, iptr[0], iptr[1], iptr[2])
+			case gl.INT_VEC4:
+				gl.Uniform4i(loc, iptr[0], iptr[1], iptr[2], iptr[3])
 
 			case gl.UNSIGNED_INT:
-				gl.Uniform1uiv(loc, 1, uptr)
+				gl.Uniform1ui(loc, uptr[0])
 			case gl.UNSIGNED_INT_VEC2:
-				gl.Uniform2uiv(loc, 1, uptr)
+				gl.Uniform2ui(loc, uptr[0], uptr[1])
 			case gl.UNSIGNED_INT_VEC3:
-				gl.Uniform3uiv(loc, 1, uptr)
+				gl.Uniform3ui(loc, uptr[0], uptr[1], uptr[2])
 			case gl.UNSIGNED_INT_VEC4:
-				gl.Uniform4uiv(loc, 1, uptr)
+				gl.Uniform4ui(loc, uptr[0], uptr[1], uptr[2], uptr[3])
 
 			case: log.errorf("Unknown type: %x", gpu_loc.uniform_type)
 			}
@@ -282,33 +252,26 @@ webgl_draw :: proc(
 	}
 	
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
-	vb_data := gl.MapBuffer(gl.ARRAY_BUFFER, gl.WRITE_ONLY)
-	{
-		gpu_map := slice.from_ptr((^u8)(vb_data), VERTEX_BUFFER_MAX)
-		copy(
-			gpu_map,
-			vertex_buffer,
-		)
-	}
+	gl.BufferDataSlice(gl.ARRAY_BUFFER, vertex_buffer, gl.DYNAMIC_DRAW)
 
 	if len(bound_textures) == len(gl_shd.texture_bindings) {
 		for t, t_idx in bound_textures {
 			gl_t := gl_shd.texture_bindings[t_idx]
 
 			if t := hm.get(&s.textures, t); t != nil {
-				gl.ActiveTexture(gl.TEXTURE0 + u32(t_idx))
+				gl.ActiveTexture(gl.TEXTURE0 + gl.Enum(t_idx))
 				gl.BindTexture(gl.TEXTURE_2D, t.id)
 				gl.Uniform1i(gl_t.loc, i32(t_idx))
 			} else {
-				gl.ActiveTexture(gl.TEXTURE0 + u32(t_idx))
+				gl.ActiveTexture(gl.TEXTURE0 + gl.Enum(t_idx))
 				gl.BindTexture(gl.TEXTURE_2D, 0)
 				gl.Uniform1i(gl_t.loc, i32(t_idx))
 			}
 		}
 	}
 
-	gl.UnmapBuffer(gl.ARRAY_BUFFER)
-	gl.DrawArrays(gl.TRIANGLES, 0, i32(len(vertex_buffer)/shd.vertex_size))
+	// IS THE TYPE WRONG HERE? Should it be i32?
+	gl.DrawArrays(gl.TRIANGLES, 0, int(len(vertex_buffer)/shd.vertex_size))
 }
 
 webgl_resize_swapchain :: proc(w, h: int) {
@@ -330,23 +293,24 @@ webgl_flip_z :: proc() -> bool {
 }
 
 webgl_set_internal_state :: proc(state: rawptr) {
-	s = (^GL_State)(state)
+	s = (^WebGL_State)(state)
 }
 
 create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawptr) -> Texture_Handle {
-	id: u32
-	gl.GenTextures(1, &id)
+	id := gl.CreateTexture()
 	gl.BindTexture(gl.TEXTURE_2D, id)
 
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, i32(gl.REPEAT))
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, i32(gl.REPEAT))
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, i32(gl.NEAREST))
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, i32(gl.NEAREST))
 
 	pf := gl_translate_pixel_format(format)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, data)
 
-	tex := GL_Texture {
+	data_size := width*height*pixel_format_size(format)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, data_size, data)
+
+	tex := WebGL_Texture {
 		id = id,
 		format = format,
 	}
@@ -370,7 +334,7 @@ webgl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool
 	}
 
     gl.BindTexture(gl.TEXTURE_2D, tex.id)
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0, i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), gl.RGBA, gl.UNSIGNED_BYTE, len(data), raw_data(data))
 	return true
 }
 
@@ -381,7 +345,7 @@ webgl_destroy_texture :: proc(th: Texture_Handle) {
 		return
 	}
 
-	gl.DeleteTextures(1, &tex.id)
+	gl.DeleteTexture(tex.id)
 	hm.remove(&s.textures, th)
 }
 
@@ -408,11 +372,11 @@ webgl_set_texture_filter :: proc(
 
 	gl.BindTexture(gl.TEXTURE_2D, t.id)
 
-	min_filter: i32 = scale_down_filter == .Point ? gl.NEAREST : gl.LINEAR
-	mag_filter: i32 = scale_up_filter == .Point ? gl.NEAREST : gl.LINEAR
+	min_filter := scale_down_filter == .Point ? gl.NEAREST : gl.LINEAR
+	mag_filter := scale_up_filter == .Point ? gl.NEAREST : gl.LINEAR
 
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, min_filter)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, mag_filter)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, i32(min_filter))
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, i32(mag_filter))
 }
 
 Shader_Compile_Result_OK :: struct {}
@@ -776,7 +740,7 @@ uniform_size :: proc(t: u32) -> int {
 	return sz
 }
 
-gl_translate_pixel_format :: proc(f: Pixel_Format) -> i32 {
+gl_translate_pixel_format :: proc(f: Pixel_Format) -> gl.Enum {
 	switch f {
 	case .RGBA_32_Float: return gl.RGBA
 	case .RGB_32_Float: return gl.RGB
