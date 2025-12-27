@@ -50,7 +50,7 @@ js_init :: proc(
 		js.add_window_event_listener(.Resize, nil, js_window_event_resize, true)
 		update_canvas_size(s.canvas_id)
 	} else {
-		set_window_size(window_width, window_height)
+		js_set_size(window_width, window_height)
 	}
 }
 
@@ -113,6 +113,10 @@ js_set_size :: proc(w, h: int) {
 
 	width := f64(w) * dpi
 	height := f64(h) * dpi
+
+	s.width = int(width)
+	s.height = int(height)
+
 	js.set_element_key_f64(s.canvas_id, "width", width)
 	js.set_element_key_f64(s.canvas_id, "height", height)
 }

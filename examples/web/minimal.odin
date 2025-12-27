@@ -21,8 +21,7 @@ main :: proc() {
 	context.logger = log.create_console_logger()
 	default_context = context
 
-	k2.init(1000, 1000, "Karl2D Minimal Program", {.Resizable})
-	//7k2.set_window_position(300, 100)
+	k2.init(1080, 1080, "Karl2D Minimal Program", {.Resizable})
 	tex = k2.load_texture_from_bytes(#load("sixten.jpg"),)
 
 	when ODIN_OS != .JS {
