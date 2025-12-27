@@ -22,8 +22,8 @@ main :: proc() {
 	default_context = context
 
 	k2.init(1080, 1080, "Karl2D Minimal Program")
-	k2.set_window_position(300, 100)
-	tex = k2.load_texture_from_file("sixten.jpg")
+	//7k2.set_window_position(300, 100)
+	tex = k2.load_texture_from_bytes(#load("sixten.jpg"),)
 
 	when ODIN_OS != .JS {
 		for !k2.shutdown_wanted() {
@@ -45,7 +45,7 @@ shutdown :: proc() {
 }
 
 @export
-step :: proc(dt: f64) {
+step :: proc(dt: f64) -> bool {
 	context = default_context
 	k2.process_events()
 	k2.clear(k2.BLUE)
@@ -59,4 +59,5 @@ step :: proc(dt: f64) {
 
 	k2.present()
 	free_all(context.temp_allocator)
+	return true
 }

@@ -793,15 +793,36 @@ load_texture_from_file :: proc(filename: string, options: Load_Texture_Options =
 			return {}
 		}
 
-		return load_texture_from_bytes(img.pixels.buf[:], img.width, img.height, .RGBA_8_Norm)
+		return load_texture_from_bytes_raw(img.pixels.buf[:], img.width, img.height, .RGBA_8_Norm)
 	} else {
 		log.errorf("load_texture_from_file failed: OS %v has no filesystem support!", ODIN_OS)
 		return {}
 	}
 }
 
+
 // TODO should we have an error here or rely on check the handle of the texture?
-load_texture_from_bytes :: proc(bytes: []u8, width: int, height: int, format: Pixel_Format) -> Texture {
+load_texture_from_bytes :: proc(bytes: []u8, options: Load_Texture_Options = {}) -> Texture {
+	load_options := image.Options {
+		.alpha_add_if_missing,
+	}
+
+	if .Premultiply_Alpha in options {
+		load_options += { .alpha_premultiply }
+	}
+
+	img, img_err := image.load_from_bytes(bytes, options = load_options, allocator = s.frame_allocator)
+
+	if img_err != nil {
+		log.errorf("Error loading texture: %v", img_err)
+		return {}
+	}
+
+	return load_texture_from_bytes_raw(img.pixels.buf[:], img.width, img.height, .RGBA_8_Norm)
+}
+
+// TODO should we have an error here or rely on check the handle of the texture?
+load_texture_from_bytes_raw :: proc(bytes: []u8, width: int, height: int, format: Pixel_Format) -> Texture {
 	backend_tex := rb.load_texture(bytes[:], width, height, format)
 
 	if backend_tex == TEXTURE_NONE {

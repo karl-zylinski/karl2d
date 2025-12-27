@@ -30,18 +30,27 @@ import "base:runtime"
 import "core:log"
 
 js_state_size :: proc() -> int {
-	return size_of(Js_State)
+	return size_of(JS_State)
 }
 
-js_init :: proc(window_state: rawptr, window_width: int, window_height: int, window_title: string,
-	               flags: Window_Flags, allocator: runtime.Allocator) {
+js_init :: proc(
+	window_state: rawptr,
+	window_width: int,
+	window_height: int,
+	window_title: string,
+	flags: Window_Flags,
+	allocator: runtime.Allocator,
+) {
+	s = (^JS_State)(window_state)
+	s.allocator = allocator
+	s.canvas_id = "webgl-canvas"
 }
 
 js_shutdown :: proc() {
 }
 
 js_window_handle :: proc() -> Window_Handle {
-	return {}
+	return Window_Handle(&s.canvas_id)
 }
 
 js_process_events :: proc() {
@@ -53,11 +62,11 @@ js_get_events :: proc() -> []Window_Event {
 }
 
 js_get_width :: proc() -> int {
-	return 0
+	return 1080
 }
 
 js_get_height :: proc() -> int {
-	return 0
+	return 1080
 }
 
 js_clear_events :: proc() {
@@ -101,14 +110,15 @@ js_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
 
 js_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
-	s = (^Js_State)(state)
+	s = (^JS_State)(state)
 }
 
-Js_State :: struct {
+JS_State :: struct {
 	allocator: runtime.Allocator,
+	canvas_id: HTML_Canvas_ID,
 }
 
-s: ^Js_State
+s: ^JS_State
 
 @(private="package")
 HTML_Canvas_ID :: string
