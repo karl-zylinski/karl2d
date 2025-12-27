@@ -167,9 +167,7 @@ gl_draw :: proc(
 	case .Premultiplied_Alpha: gl.BlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 	}
 
-	gl.EnableVertexAttribArray(0)
-	gl.EnableVertexAttribArray(1)
-	gl.EnableVertexAttribArray(2)
+	gl.BindVertexArray(gl_shd.vao)
 
 	gl.UseProgram(gl_shd.program)
 	assert(len(shd.constants) == len(gl_shd.constants))
@@ -787,10 +785,11 @@ gl_translate_pixel_format :: proc(f: Pixel_Format) -> i32 {
 	case .RG_32_Float: return gl.RG
 	case .R_32_Float: return gl.R
 
-	case .RGBA_8_Norm: return gl.RGBA8_SNORM
-	case .RG_8_Norm: return gl.RG8_SNORM
-	case .R_8_Norm: return gl.R8_SNORM
-	case .R_8_UInt: return gl.R8_SNORM
+	// THIS SEEMS WRONG -- Am I putting the 8 bit info in the wrong place?
+	case .RGBA_8_Norm: return gl.RGBA
+	case .RG_8_Norm: return gl.RG
+	case .R_8_Norm: return gl.R
+	case .R_8_UInt: return gl.R
 
 	case .Unknown: fallthrough
 	case: log.error("Unhandled pixel format %v", f) 

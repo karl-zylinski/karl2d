@@ -142,7 +142,7 @@ webgl_clear :: proc(render_texture: Render_Target_Handle, color: Color) {
 }
 
 webgl_present :: proc() {
-	// The browser flips the backbuffer for you
+	// The browser flips the backbuffer for you when 'step' ends
 }
 
 webgl_draw :: proc(
@@ -164,9 +164,7 @@ webgl_draw :: proc(
 	case .Premultiplied_Alpha: gl.BlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 	}
 
-	gl.EnableVertexAttribArray(0)
-	gl.EnableVertexAttribArray(1)
-	gl.EnableVertexAttribArray(2)
+	gl.BindVertexArray(gl_shd.vao)
 
 	gl.UseProgram(gl_shd.program)
 	assert(len(shd.constants) == len(gl_shd.constants))
@@ -204,27 +202,27 @@ webgl_draw :: proc(
 			case gl.FLOAT_VEC2:
 				gl.Uniform2f(loc, fptr[0], fptr[1])
 			case gl.FLOAT_MAT2:
-				gl.UniformMatrix2fv(loc, la.transpose((^matrix[2,2]f32)(ptr)^))
+				gl.UniformMatrix2fv(loc, (^matrix[2,2]f32)(ptr)^)
 			case gl.FLOAT_MAT2x3:
-				gl.UniformMatrix2x3fv(loc, la.transpose((^matrix[2,3]f32)(ptr)^))
+				gl.UniformMatrix2x3fv(loc, (^matrix[3,2]f32)(ptr)^)
 			case gl.FLOAT_MAT2x4:
-				gl.UniformMatrix2x4fv(loc, la.transpose((^matrix[2,4]f32)(ptr)^))
+				gl.UniformMatrix2x4fv(loc, (^matrix[4,2]f32)(ptr)^)
 
 			case gl.FLOAT_VEC3:
 				gl.Uniform3f(loc, fptr[0], fptr[1], fptr[2])
 			case gl.FLOAT_MAT3x2:
-				gl.UniformMatrix3x2fv(loc, la.transpose((^matrix[3,2]f32)(ptr)^))
+				gl.UniformMatrix3x2fv(loc, (^matrix[2,3]f32)(ptr)^)
 			case gl.FLOAT_MAT3:
-				gl.UniformMatrix3fv(loc, la.transpose((^matrix[3,3]f32)(ptr)^))
+				gl.UniformMatrix3fv(loc, (^matrix[3,3]f32)(ptr)^)
 			case gl.FLOAT_MAT3x4:
-				gl.UniformMatrix3x4fv(loc, la.transpose((^matrix[3,4]f32)(ptr)^))
+				gl.UniformMatrix3x4fv(loc, (^matrix[4,3]f32)(ptr)^)
 
 			case gl.FLOAT_VEC4:
 				gl.Uniform4f(loc, fptr[0], fptr[1], fptr[2], fptr[3])
 			case gl.FLOAT_MAT4x2:
-				gl.UniformMatrix4x2fv(loc, la.transpose((^matrix[4,2]f32)(ptr)^))
+				gl.UniformMatrix4x2fv(loc, (^matrix[2,4]f32)(ptr)^)
 			case gl.FLOAT_MAT4x3:
-				gl.UniformMatrix4x3fv(loc, la.transpose((^matrix[4,3]f32)(ptr)^))
+				gl.UniformMatrix4x3fv(loc, (^matrix[3,4]f32)(ptr)^)
 			case gl.FLOAT_MAT4:
 				gl.UniformMatrix4fv(loc, (^matrix[4,4]f32)(ptr)^)
 
@@ -251,7 +249,7 @@ webgl_draw :: proc(
 			
 		}
 	}
-	
+
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 	gl.BufferDataSlice(gl.ARRAY_BUFFER, vertex_buffer, gl.DYNAMIC_DRAW)
 
@@ -271,7 +269,6 @@ webgl_draw :: proc(
 		}
 	}
 
-	// IS THE TYPE WRONG HERE? Should it be i32?
 	gl.DrawArrays(gl.TRIANGLES, 0, int(len(vertex_buffer)/shd.vertex_size))
 }
 

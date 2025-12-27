@@ -76,11 +76,11 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	rb_alloc_error: runtime.Allocator_Error
 	s.rb_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = allocator)
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
-	s.proj_matrix = make_default_projection(window_width, window_height)
+	s.proj_matrix = make_default_projection(win.get_width(), win.get_height())
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.rb_state, s.window, window_width, window_height, allocator)
+	rb.init(s.rb_state, s.window, win.get_width(), win.get_height(), allocator)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`

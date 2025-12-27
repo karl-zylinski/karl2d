@@ -44,6 +44,37 @@ js_init :: proc(
 	s = (^JS_State)(window_state)
 	s.allocator = allocator
 	s.canvas_id = "webgl-canvas"
+
+	// The browser window probably has some other size than what was sent in.
+	if .Resizable in flags {
+		js.add_window_event_listener(.Resize, nil, js_window_event_resize, true)
+		update_canvas_size(s.canvas_id)
+	} else {
+		set_window_size(window_width, window_height)
+	}
+}
+
+js_window_event_resize :: proc(e: js.Event) {
+	update_canvas_size(s.canvas_id)
+}
+
+update_canvas_size :: proc(canvas_id: HTML_Canvas_ID) {
+	rect := js.get_bounding_client_rect(canvas_id)
+	dpi := js.device_pixel_ratio()
+
+	width := f64(rect.width) * dpi
+	height := f64(rect.height) * dpi
+
+	js.set_element_key_f64(canvas_id, "width", width)
+	js.set_element_key_f64(canvas_id, "height", height)
+
+	s.width = int(width)
+	s.height = int(height)
+
+	append(&s.events, Window_Event_Resize {
+		width = int(width),
+		height = int(height),
+	})
 }
 
 js_shutdown :: proc() {
@@ -58,18 +89,19 @@ js_process_events :: proc() {
 }
 
 js_get_events :: proc() -> []Window_Event {
-	return {}
+	return s.events[:]
 }
 
 js_get_width :: proc() -> int {
-	return 1080
+	return s.width
 }
 
 js_get_height :: proc() -> int {
-	return 1080
+	return s.height
 }
 
 js_clear_events :: proc() {
+	runtime.clear(&s.events)
 }
 
 js_set_position :: proc(x: int, y: int) {
@@ -77,6 +109,12 @@ js_set_position :: proc(x: int, y: int) {
 }
 
 js_set_size :: proc(w, h: int) {
+	dpi := js.device_pixel_ratio()
+
+	width := f64(w) * dpi
+	height := f64(h) * dpi
+	js.set_element_key_f64(s.canvas_id, "width", width)
+	js.set_element_key_f64(s.canvas_id, "height", height)
 }
 
 js_get_window_scale :: proc() -> f32 {
@@ -116,6 +154,9 @@ js_set_internal_state :: proc(state: rawptr) {
 JS_State :: struct {
 	allocator: runtime.Allocator,
 	canvas_id: HTML_Canvas_ID,
+	width: int,
+	height: int,
+	events: [dynamic]Window_Event,
 }
 
 s: ^JS_State
