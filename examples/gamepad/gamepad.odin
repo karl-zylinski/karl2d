@@ -6,13 +6,13 @@ import "core:log"
 
 gamepad_demo :: proc(gamepad: k2.Gamepad_Index, offset: k2.Vec2) {
 	if !k2.is_gamepad_active(gamepad) {
-		title := fmt.tprintf("Gamepad: %v (not connected)", gamepad + 1)
+		title := fmt.tprintf("Gamepad %v (not connected)", gamepad + 1)
 		ts := k2.measure_text(title, 30)
 		k2.draw_text(title, offset + {250, 60} - {ts.x/2, 0}, 30, k2.WHITE)
 		return
 	}
 
-	title := fmt.tprintf("Gamepad: %v", gamepad + 1)
+	title := fmt.tprintf("Gamepad %v", gamepad + 1)
 	ts := k2.measure_text(title, 30)
 	k2.draw_text(title, offset + {250, 60} - {ts.x/2, 0}, 30, k2.WHITE)
 
@@ -78,7 +78,6 @@ main :: proc() {
 
 init :: proc() {
 	k2.init(1000, 600, "Karl2D Gamepad Demo")
-	k2.set_window_position(300, 100)
 }
 
 step :: proc(dt: f32) -> bool {

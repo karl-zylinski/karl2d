@@ -49,26 +49,59 @@ js_init :: proc(
 
 	// The browser window probably has some other size than what was sent in.
 	if .Resizable in flags {
-		add_window_event_listener(.Resize, js_window_event_resize)
+		add_window_event_listener(.Resize, js_event_window_resize)
 		update_canvas_size(s.canvas_id)
 	} else {
 		js_set_size(window_width, window_height)
 	}
 
-	add_canvas_event_listener(.Mouse_Move, js_window_event_mouse_move)
-	add_canvas_event_listener(.Mouse_Down, js_window_event_mouse_down)
-	add_canvas_event_listener(.Mouse_Up, js_window_event_mouse_up)
+	add_canvas_event_listener(.Mouse_Move, js_event_mouse_move)
+	add_canvas_event_listener(.Mouse_Down, js_event_mouse_down)
+	add_canvas_event_listener(.Mouse_Up, js_event_mouse_up)
 
-	add_window_event_listener(.Key_Down, js_window_event_key_down)
-	add_window_event_listener(.Key_Up, js_window_event_key_up)
+	add_window_event_listener(.Key_Down, js_event_key_down)
+	add_window_event_listener(.Key_Up, js_event_key_up)
 }
 
-add_window_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
-	js.add_window_event_listener(evt, nil, callback, true)
+js_event_key_down :: proc(e: js.Event) {
+	if e.key.repeat {
+		return
+	}
+
+	key := key_from_js_event(e)
+	append(&s.events, Window_Event_Key_Went_Down {
+		key = key,
+	})
 }
 
-remove_window_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
-	js.remove_window_event_listener(evt, nil, callback, true)
+js_event_key_up :: proc(e: js.Event) {
+	key := key_from_js_event(e)
+	append(&s.events, Window_Event_Key_Went_Up {
+		key = key,
+	})
+}
+
+js_event_window_resize :: proc(e: js.Event) {
+	update_canvas_size(s.canvas_id)
+}
+
+js_event_mouse_move :: proc(e: js.Event) {
+	dpi := js.device_pixel_ratio()
+	append(&s.events, Window_Event_Mouse_Move {
+		position = {f32(e.mouse.client.x) * f32(dpi), f32(e.mouse.client.y) * f32(dpi)},
+	})
+}
+
+js_event_mouse_down :: proc(e: js.Event) {
+	append(&s.events, Window_Event_Mouse_Button_Went_Down {
+		button = .Left,
+	})
+}
+
+js_event_mouse_up :: proc(e: js.Event) {
+	append(&s.events, Window_Event_Mouse_Button_Went_Up {
+		button = .Left,
+	})
 }
 
 add_canvas_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
@@ -81,45 +114,12 @@ add_canvas_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event
 	)
 }
 
-js_window_event_key_down :: proc(e: js.Event) {
-	if e.key.repeat {
-		return
-	}
-
-	key := key_from_js_event(e)
-	append(&s.events, Window_Event_Key_Went_Down {
-		key = key,
-	})
+add_window_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
+	js.add_window_event_listener(evt, nil, callback, true)
 }
 
-js_window_event_key_up :: proc(e: js.Event) {
-	key := key_from_js_event(e)
-	append(&s.events, Window_Event_Key_Went_Up {
-		key = key,
-	})
-}
-
-js_window_event_resize :: proc(e: js.Event) {
-	update_canvas_size(s.canvas_id)
-}
-
-js_window_event_mouse_move :: proc(e: js.Event) {
-	dpi := js.device_pixel_ratio()
-	append(&s.events, Window_Event_Mouse_Move {
-		position = {f32(e.mouse.client.x) * f32(dpi), f32(e.mouse.client.y) * f32(dpi)},
-	})
-}
-
-js_window_event_mouse_down :: proc(e: js.Event) {
-	append(&s.events, Window_Event_Mouse_Button_Went_Down {
-		button = .Left,
-	})
-}
-
-js_window_event_mouse_up :: proc(e: js.Event) {
-	append(&s.events, Window_Event_Mouse_Button_Went_Up {
-		button = .Left,
-	})
+remove_window_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
+	js.remove_window_event_listener(evt, nil, callback, true)
 }
 
 update_canvas_size :: proc(canvas_id: HTML_Canvas_ID) {
@@ -147,70 +147,70 @@ js_window_handle :: proc() -> Window_Handle {
 	return Window_Handle(&s.canvas_id)
 }
 
+// This works for XBox controller -- does it work for PlayStation?
+KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
+	.Left_Face_Up = 12,
+	.Left_Face_Down = 13,
+	.Left_Face_Left = 14,
+	.Left_Face_Right = 15,
+
+	.Right_Face_Up = 3, 
+	.Right_Face_Down = 0, 
+	.Right_Face_Left = 2, 
+	.Right_Face_Right = 1, 
+
+	.Left_Shoulder = 5,
+	.Left_Trigger = 7,
+
+	.Right_Shoulder = 4,
+	.Right_Trigger = 6,
+
+	.Left_Stick_Press = 10, 
+	.Right_Stick_Press = 11, 
+
+	.Middle_Face_Left = 8, 
+	.Middle_Face_Middle = -1, 
+	.Middle_Face_Right = 9, 
+}
+
 js_process_events :: proc() {
-	//for gamepad_idx in 0..<4 {
-		/*prev_state := s.gamepad_state[gamepad_idx]
-		if js.get_gamepad_state(s.gamepad_state[gamepad_idx], &gs) && gs.connected {
-			log.info(gs)
-		}*/
-//	}
+	for gamepad_idx in 0..<MAX_GAMEPADS {
+		// new_state
+		ns: js.Gamepad_State
 
-	/*
+		if !js.get_gamepad_state(gamepad_idx, &ns) || !ns.connected {
+			if s.gamepad_state[gamepad_idx].connected {
+				s.gamepad_state[gamepad_idx] = {}
+			}
+			continue
+		}
 
+		// prev_state
+		ps := s.gamepad_state[gamepad_idx]
 
-	for gamepad in 0..<4 {
-		gp_event: win32.XINPUT_KEYSTROKE
-
-		for win32.XInputGetKeystroke(win32.XUSER(gamepad), 0, &gp_event) == .SUCCESS {
-			button: Maybe(Gamepad_Button)
-
-			#partial switch gp_event.VirtualKey {
-			case .DPAD_UP:    button = .Left_Face_Up
-			case .DPAD_DOWN:  button = .Left_Face_Down
-			case .DPAD_LEFT:  button = .Left_Face_Left
-			case .DPAD_RIGHT: button = .Left_Face_Right
-
-			case .Y: button = .Right_Face_Up
-			case .A: button = .Right_Face_Down
-			case .X: button = .Right_Face_Left
-			case .B: button = .Right_Face_Right
-
-			case .LSHOULDER: button = .Left_Shoulder
-			case .LTRIGGER:  button = .Left_Trigger
-
-			case .RSHOULDER: button = .Right_Shoulder
-			case .RTRIGGER:  button = .Right_Trigger
-
-			case .BACK: button = .Middle_Face_Left
-			
-			// Not sure you can get the "middle button" with XInput (the one that goe to dashboard)
-
-			case .START: button = .Middle_Face_Right
-
-			case .LTHUMB_PRESS: button = .Left_Stick_Press
-			case .RTHUMB_PRESS: button = .Right_Stick_Press
+		// We check if any button changed from pressed to not pressed and the other way around.
+		for js_idx, button in KARL2D_GAMEPAD_BUTTON_FROM_JS {
+			if js_idx == -1 {
+				continue
 			}
 
-			b := button.? or_continue
-			evt: Window_Event
-
-			if .KEYDOWN in gp_event.Flags {
-				evt = Window_Event_Gamepad_Button_Went_Down {
-					gamepad = gamepad,
-					button = b,
-				}
-			} else if .KEYUP in gp_event.Flags {
-				evt = Window_Event_Gamepad_Button_Went_Up {
-					gamepad = gamepad,
-					button = b,
-				}
+			if !ps.buttons[js_idx].pressed && ns.buttons[js_idx].pressed {
+				append(&s.events, Window_Event_Gamepad_Button_Went_Down {
+					gamepad = gamepad_idx,
+					button = button,
+				})
 			}
 
-			if evt != nil {
-				append(&s.events, evt)
+			if ps.buttons[js_idx].pressed && !ns.buttons[js_idx].pressed {
+				append(&s.events, Window_Event_Gamepad_Button_Went_Up {
+					gamepad = gamepad_idx,
+					button = button,
+				})
 			}
-		
-		*/
+		}
+
+		s.gamepad_state[gamepad_idx] = ns
+	}
 }
 
 js_get_events :: proc() -> []Window_Event {
@@ -249,10 +249,10 @@ js_get_window_scale :: proc() -> f32 {
 js_set_flags :: proc(flags: Window_Flags) {
 	if .Resizable in (flags ~ s.flags) {
 		if .Resizable in flags {
-			add_window_event_listener(.Resize, js_window_event_resize)
+			add_window_event_listener(.Resize, js_event_window_resize)
 			update_canvas_size(s.canvas_id)
 		} else {
-			remove_window_event_listener(.Resize, js_window_event_resize)
+			remove_window_event_listener(.Resize, js_event_window_resize)
 			js_set_size(s.width, s.height)
 		}
 	}
@@ -265,8 +265,7 @@ js_is_gamepad_active :: proc(gamepad: int) -> bool {
 		return false
 	}
 
-	gs: js.Gamepad_State	
-	return js.get_gamepad_state(gamepad, &gs) && gs.connected 
+	return s.gamepad_state[gamepad].connected
 }
 
 js_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
@@ -274,7 +273,15 @@ js_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 		return 0
 	}
 
-	return 0
+	if axis == .Left_Trigger {
+		return f32(s.gamepad_state[gamepad].buttons[KARL2D_GAMEPAD_BUTTON_FROM_JS[.Left_Trigger]].value)
+	}
+
+	if axis == .Right_Trigger {
+		return f32(s.gamepad_state[gamepad].buttons[KARL2D_GAMEPAD_BUTTON_FROM_JS[.Right_Trigger]].value)
+	}
+
+	return f32(s.gamepad_state[gamepad].axes[int(axis)])
 }
 
 js_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {

@@ -99,6 +99,7 @@ win32_process_events :: proc() {
 		win32.DispatchMessageW(&msg)
 	}
 
+	// 4 is the limit set by microsoft, not by us. So I'm not using MAX_GAMEPADS here.
 	for gamepad in 0..<4 {
 		gp_event: win32.XINPUT_KEYSTROKE
 
