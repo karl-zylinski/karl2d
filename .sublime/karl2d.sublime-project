@@ -52,6 +52,11 @@
 					"working_dir": "$project_path/../examples/snake"
 				},
 				{
+					"name": "snake (web)",
+					"shell_cmd": "odin run build_web_example -- snake",
+					"working_dir": "$project_path/../examples"
+				},
+				{
 					"name": "box2d",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable",
 					"working_dir": "$project_path/../examples/box2d"
@@ -90,6 +95,11 @@
 					"name": "gamepad",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable",
 					"working_dir": "$project_path/../examples/gamepad"
+				},
+				{
+					"name": "gamepad (web)",
+					"shell_cmd": "odin run build_web_example -- gamepad",
+					"working_dir": "$project_path/../examples"
 				},
 				{
 					"name": "api_doc_builder",

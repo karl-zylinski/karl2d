@@ -47,19 +47,21 @@ js_init :: proc(
 
 	// The browser window probably has some other size than what was sent in.
 	if .Resizable in flags {
-		add_global_event_listener(.Resize, js_window_event_resize)
+		add_window_event_listener(.Resize, js_window_event_resize)
 		update_canvas_size(s.canvas_id)
 	} else {
 		js_set_size(window_width, window_height)
 	}
 
-	add_event_listener(.Mouse_Move, js_window_event_mouse_move)
-	add_event_listener(.Mouse_Down, js_window_event_mouse_down)
-	add_event_listener(.Mouse_Up, js_window_event_mouse_up)
+	add_canvas_event_listener(.Mouse_Move, js_window_event_mouse_move)
+	add_canvas_event_listener(.Mouse_Down, js_window_event_mouse_down)
+	add_canvas_event_listener(.Mouse_Up, js_window_event_mouse_up)
+
+	add_window_event_listener(.Key_Down, js_window_event_key_down)
+	add_window_event_listener(.Key_Up, js_window_event_key_up)
 }
 
-// These events fire even when the tab isn't in focus
-add_global_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
+add_window_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
 	js.add_window_event_listener(
 		evt, 
 		nil, 
@@ -68,7 +70,7 @@ add_global_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event
 	)
 }
 
-add_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
+add_canvas_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
 	js.add_event_listener(
 		s.canvas_id, 
 		evt, 
@@ -76,6 +78,36 @@ add_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
 		callback,
 		true,
 	)
+}
+
+js_window_event_key_down :: proc(e: js.Event) {
+	if e.key.repeat {
+		return
+	}
+
+	key := key_from_js_event(e)
+	append(&s.events, Window_Event_Key_Went_Down {
+		key = key,
+	})
+}
+
+js_window_event_key_up :: proc(e: js.Event) {
+	key := key_from_js_event(e)
+	append(&s.events, Window_Event_Key_Went_Up {
+		key = key,
+	})
+}
+
+key_from_js_event :: proc(e: js.Event) -> Keyboard_Key {
+	log.info(e)
+	switch e.key.code {
+	case "ArrowUp": return .Up
+	case "ArrowDown": return .Down
+	case "ArrowLeft": return .Left
+	case "ArrowRight": return .Right
+	case "Enter": return .Enter
+	}
+	return .None
 }
 
 js_window_event_resize :: proc(e: js.Event) {
@@ -128,7 +160,69 @@ js_window_handle :: proc() -> Window_Handle {
 }
 
 js_process_events :: proc() {
-	
+	//for gamepad_idx in 0..<4 {
+		/*prev_state := s.gamepad_state[gamepad_idx]
+		if js.get_gamepad_state(s.gamepad_state[gamepad_idx], &gs) && gs.connected {
+			log.info(gs)
+		}*/
+//	}
+
+	/*
+
+
+	for gamepad in 0..<4 {
+		gp_event: win32.XINPUT_KEYSTROKE
+
+		for win32.XInputGetKeystroke(win32.XUSER(gamepad), 0, &gp_event) == .SUCCESS {
+			button: Maybe(Gamepad_Button)
+
+			#partial switch gp_event.VirtualKey {
+			case .DPAD_UP:    button = .Left_Face_Up
+			case .DPAD_DOWN:  button = .Left_Face_Down
+			case .DPAD_LEFT:  button = .Left_Face_Left
+			case .DPAD_RIGHT: button = .Left_Face_Right
+
+			case .Y: button = .Right_Face_Up
+			case .A: button = .Right_Face_Down
+			case .X: button = .Right_Face_Left
+			case .B: button = .Right_Face_Right
+
+			case .LSHOULDER: button = .Left_Shoulder
+			case .LTRIGGER:  button = .Left_Trigger
+
+			case .RSHOULDER: button = .Right_Shoulder
+			case .RTRIGGER:  button = .Right_Trigger
+
+			case .BACK: button = .Middle_Face_Left
+			
+			// Not sure you can get the "middle button" with XInput (the one that goe to dashboard)
+
+			case .START: button = .Middle_Face_Right
+
+			case .LTHUMB_PRESS: button = .Left_Stick_Press
+			case .RTHUMB_PRESS: button = .Right_Stick_Press
+			}
+
+			b := button.? or_continue
+			evt: Window_Event
+
+			if .KEYDOWN in gp_event.Flags {
+				evt = Window_Event_Gamepad_Button_Went_Down {
+					gamepad = gamepad,
+					button = b,
+				}
+			} else if .KEYUP in gp_event.Flags {
+				evt = Window_Event_Gamepad_Button_Went_Up {
+					gamepad = gamepad,
+					button = b,
+				}
+			}
+
+			if evt != nil {
+				append(&s.events, evt)
+			}
+		
+		*/
 }
 
 js_get_events :: proc() -> []Window_Event {
@@ -176,7 +270,8 @@ js_is_gamepad_active :: proc(gamepad: int) -> bool {
 		return false
 	}
 
-	return false
+	gs: js.Gamepad_State	
+	return js.get_gamepad_state(gamepad, &gs) && gs.connected 
 }
 
 js_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
@@ -204,6 +299,7 @@ JS_State :: struct {
 	width: int,
 	height: int,
 	events: [dynamic]Window_Event,
+	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 }
 
 s: ^JS_State

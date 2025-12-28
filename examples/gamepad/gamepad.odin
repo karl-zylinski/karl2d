@@ -66,21 +66,35 @@ gamepad_demo :: proc(gamepad: k2.Gamepad_Index, offset: k2.Vec2) {
 
 main :: proc() {
 	context.logger = log.create_console_logger()
-	k2.init(1000, 600, "Karl2D Gamepad Demo")
-	k2.set_window_position(300, 100)
+
+	init()
 
 	for !k2.shutdown_wanted() {
-		k2.process_events()
-		k2.clear(k2.BLACK)
-
-		gamepad_demo(0, {0, 0})
-		gamepad_demo(1, {500, 0})
-		gamepad_demo(2, {0, 300})
-		gamepad_demo(3, {500, 300})
-
-		k2.present()
-		free_all(context.temp_allocator)
+		step(0)
 	}
 
+	shutdown()
+}
+
+init :: proc() {
+	k2.init(1000, 600, "Karl2D Gamepad Demo")
+	k2.set_window_position(300, 100)
+}
+
+step :: proc(dt: f32) -> bool {
+	k2.process_events()
+	k2.clear(k2.BLACK)
+
+	gamepad_demo(0, {0, 0})
+	gamepad_demo(1, {500, 0})
+	gamepad_demo(2, {0, 300})
+	gamepad_demo(3, {500, 300})
+
+	k2.present()
+	free_all(context.temp_allocator)
+	return true
+}
+
+shutdown :: proc() {
 	k2.shutdown()
 }

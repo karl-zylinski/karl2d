@@ -1,4 +1,14 @@
 ## TODO
+
+High-level TODO before beta release:
+- Complete JS window impl
+- Fix render target drawing on gl and webgl
+- Make text rendering look good
+- Figure out what to do with the delta time stuff, built in or separate?
+- Look into webgl performance (bunnymark)
+- Understand texture format choices in webgl and gl backend and fix anything that is wrong
+
+
 * Can we reuse memory for const buffers and union blocks between shaders? Just create reasonably sized ones and fetch based on size or something.
 * should gamepad come from separate interface than window?
 	* keyboard input could also come from some input interface, but
