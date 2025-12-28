@@ -99,7 +99,6 @@ main :: proc() {
 
 init :: proc() {
 	k2.init(WINDOW_SIZE, WINDOW_SIZE, "Snake")
-	k2.set_window_position(300, 300)
 
 	prev_time = time.now()
 

@@ -28,6 +28,7 @@ WINDOW_INTERFACE_JS :: Window_Interface {
 import "core:sys/wasm/js"
 import "base:runtime"
 import "core:log"
+import "core:fmt"
 
 js_state_size :: proc() -> int {
 	return size_of(JS_State)
@@ -229,7 +230,9 @@ js_clear_events :: proc() {
 }
 
 js_set_position :: proc(x: int, y: int) {
-	log.error("set_position not implemented in JS")
+	buf: [256]u8
+	js.set_element_style(s.canvas_id, "margin-top", fmt.bprintf(buf[:], "%vpx", x))
+	js.set_element_style(s.canvas_id, "margin-left", fmt.bprintf(buf[:], "%vpx", y))
 }
 
 js_set_size :: proc(w, h: int) {

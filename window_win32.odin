@@ -70,7 +70,8 @@ win32_init :: proc(window_state: rawptr, window_width: int, window_height: int, 
 	hwnd := win32.CreateWindowW(CLASS_NAME,
 		win32.utf8_to_wstring(window_title),
 		style,
-		100, 10, r.right - r.left, r.bottom - r.top,
+		win32.CW_USEDEFAULT, win32.CW_USEDEFAULT,
+		r.right - r.left, r.bottom - r.top,
 		nil, nil, instance, nil,
 	)
 
