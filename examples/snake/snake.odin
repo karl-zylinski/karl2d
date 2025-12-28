@@ -65,7 +65,7 @@ main :: proc() {
 	context.logger = log.create_console_logger()
 
 	when ODIN_DEBUG {
-		track: mem.Tracking_Allocator
+		track: mem.Tracking_Allocatorx	
 		mem.tracking_allocator_init(&track, context.allocator)
 		context.allocator = mem.tracking_allocator(&track)
 

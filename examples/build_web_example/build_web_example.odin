@@ -30,9 +30,11 @@ main :: proc() {
 
 	web_build_dir := filepath.join({web_dir, "build"})
 
+	os.make_directory(web_build_dir, 0o644)
+
 	os.write_entire_file(
 		filepath.join(
-			{web_dir, fmt.tprintf("%v_web_entry.odin", dir)},
+			{web_dir, fmt.tprintf("%v_web_entry.odin", filepath.stem(dir))},
 		),
 		WEB_ENTRY_TEMPLATE,
 	)
@@ -61,7 +63,7 @@ main :: proc() {
 			web_dir,
 			fmt.tprintf("-out:%v", wasm_out_path),
 			"-target:js_wasm32",
-			"-debug",
+			"-o:speed",
 			"-vet",
 			"-strict-style",
 		},

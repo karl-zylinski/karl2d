@@ -6,3 +6,4 @@ raylib/
 *.rdi
 !/.sublime/karl2d.sublime-project
 examples/*/web
+examples/raylib_ports/*/web

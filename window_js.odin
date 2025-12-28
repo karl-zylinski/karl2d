@@ -47,15 +47,58 @@ js_init :: proc(
 
 	// The browser window probably has some other size than what was sent in.
 	if .Resizable in flags {
-		js.add_window_event_listener(.Resize, nil, js_window_event_resize, true)
+		add_global_event_listener(.Resize, js_window_event_resize)
 		update_canvas_size(s.canvas_id)
 	} else {
 		js_set_size(window_width, window_height)
 	}
+
+	add_event_listener(.Mouse_Move, js_window_event_mouse_move)
+	add_event_listener(.Mouse_Down, js_window_event_mouse_down)
+	add_event_listener(.Mouse_Up, js_window_event_mouse_up)
+}
+
+// These events fire even when the tab isn't in focus
+add_global_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
+	js.add_window_event_listener(
+		evt, 
+		nil, 
+		callback,
+		true,
+	)
+}
+
+add_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
+	js.add_event_listener(
+		s.canvas_id, 
+		evt, 
+		nil, 
+		callback,
+		true,
+	)
 }
 
 js_window_event_resize :: proc(e: js.Event) {
 	update_canvas_size(s.canvas_id)
+}
+
+js_window_event_mouse_move :: proc(e: js.Event) {
+	dpi := js.device_pixel_ratio()
+	append(&s.events, Window_Event_Mouse_Move {
+		position = {f32(e.mouse.client.x) * f32(dpi), f32(e.mouse.client.y) * f32(dpi)},
+	})
+}
+
+js_window_event_mouse_down :: proc(e: js.Event) {
+	append(&s.events, Window_Event_Mouse_Button_Went_Down {
+		button = .Left,
+	})
+}
+
+js_window_event_mouse_up :: proc(e: js.Event) {
+	append(&s.events, Window_Event_Mouse_Button_Went_Up {
+		button = .Left,
+	})
 }
 
 update_canvas_size :: proc(canvas_id: HTML_Canvas_ID) {
