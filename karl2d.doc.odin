@@ -160,8 +160,16 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture
 // The `options` parameter can be used to specify things things such as premultiplication of alpha.
 load_texture_from_file :: proc(filename: string, options: Load_Texture_Options = {}) -> Texture
 
-// TODO should we have an error here or rely on check the handle of the texture?
-load_texture_from_bytes :: proc(bytes: []u8, width: int, height: int, format: Pixel_Format) -> Texture
+// Load a texture from a byte slice and upload it to the GPU so you can draw it to the screen.
+// Supports PNG, BMP, TGA and baseline PNG. Note that progressive PNG files are not supported!
+//
+// The `options` parameter can be used to specify things things such as premultiplication of alpha.
+load_texture_from_bytes :: proc(bytes: []u8, options: Load_Texture_Options = {}) -> Texture
+
+// Load raw texture data. You need to specify the data, size and format of the texture yourself.
+// This assumes that there is no header in the data. If your data has a header (you read the data
+// from a file on disk), then please use `load_texture_from_bytes` instead.
+load_texture_from_bytes_raw :: proc(bytes: []u8, width: int, height: int, format: Pixel_Format) -> Texture
 
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
 // (w, h) = (texture_width, texture_height)
@@ -585,7 +593,7 @@ Keyboard_Key :: enum {
 	Left_Bracket    = 91,
 	Backslash       = 92,
 	Right_Bracket   = 93,
-	Grave_Accent    = 96,
+	Backtick        = 96,
 
 	// Function keys, modifiers, caret control etc
 	Space           = 32,
