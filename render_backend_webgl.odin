@@ -714,12 +714,12 @@ webgl_destroy_shader :: proc(h: Shader_Handle) {
 }
 
 webgl_default_shader_vertex_source :: proc() -> []byte {
-	vertex_source := #load("render_backend_webgl_default_vertex_shader.glsl")
+	vertex_source := #load("render_backend_gl_default_vertex_shader.glsl")
 	return vertex_source
 }
 
 webgl_default_shader_fragment_source :: proc() -> []byte {
-	fragment_source := #load("render_backend_webgl_default_fragment_shader.glsl")
+	fragment_source := #load("render_backend_gl_default_fragment_shader.glsl")
 	return fragment_source
 }
 
