@@ -427,7 +427,7 @@ WIN32_VK_MAP := [255]Keyboard_Key {
 	win32.VK_OEM_4      = .Left_Bracket,
 	win32.VK_OEM_5      = .Backslash,
 	win32.VK_OEM_6      = .Right_Bracket,
-	win32.VK_OEM_3      = .Grave_Accent,
+	win32.VK_OEM_3      = .Backtick,
 
 	win32.VK_SPACE   = .Space,
 	win32.VK_ESCAPE  = .Escape,

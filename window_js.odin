@@ -99,14 +99,122 @@ js_window_event_key_up :: proc(e: js.Event) {
 }
 
 key_from_js_event :: proc(e: js.Event) -> Keyboard_Key {
-	log.info(e)
 	switch e.key.code {
-	case "ArrowUp": return .Up
-	case "ArrowDown": return .Down
-	case "ArrowLeft": return .Left
-	case "ArrowRight": return .Right
-	case "Enter": return .Enter
+	case "Digit1": return .N1
+	case "Digit2": return .N2
+	case "Digit3": return .N3
+	case "Digit4": return .N4
+	case "Digit5": return .N5
+	case "Digit6": return .N6
+	case "Digit7": return .N7
+	case "Digit8": return .N8
+	case "Digit9": return .N9
+	case "Digit0": return .N0
+
+	case "KeyA": return .A
+	case "KeyB": return .B
+	case "KeyC": return .C
+	case "KeyD": return .D
+	case "KeyE": return .E
+	case "KeyF": return .F
+	case "KeyG": return .G
+	case "KeyH": return .H
+	case "KeyI": return .I
+	case "KeyJ": return .J
+	case "KeyK": return .K
+	case "KeyL": return .L
+	case "KeyM": return .M
+	case "KeyN": return .N
+	case "KeyO": return .O
+	case "KeyP": return .P
+	case "KeyQ": return .Q
+	case "KeyR": return .R
+	case "KeyS": return .S
+	case "KeyT": return .T
+	case "KeyU": return .U
+	case "KeyV": return .V
+	case "KeyW": return .W
+	case "KeyX": return .X
+	case "KeyY": return .Y
+	case "KeyZ": return .Z
+
+	case "Quote":         return .Apostrophe
+	case "Comma":         return .Comma
+	case "Minus":         return .Minus
+	case "Period":        return .Period
+	case "Slash":         return .Slash
+	case "Semicolon":     return .Semicolon
+	case "Equal":         return .Equal
+	case "BracketLeft":   return .Left_Bracket
+	case "Backslash":     return .Backslash
+	case "IntlBackslash": return .Backslash
+	case "BracketRight":  return .Right_Bracket
+	case "Backquote":     return .Backtick
+
+	case "Space":       return .Space
+	case "Escape":      return .Escape
+	case "Enter":       return .Enter
+	case "Tab":         return .Tab
+	case "Backspace":   return .Backspace
+	case "Insert":      return .Insert
+	case "Delete":      return .Delete
+	case "ArrowRight":  return .Right
+	case "ArrowLeft":   return .Left
+	case "ArrowDown":   return .Down
+	case "ArrowUp":     return .Up
+	case "PageUp":      return .Page_Up
+	case "PageDown":    return .Page_Down
+	case "Home":        return .Home
+	case "End":         return .End
+	case "CapsLock":    return .Caps_Lock
+	case "ScrollLock":  return .Scroll_Lock
+	case "NumLock":     return .Num_Lock
+	case "PrintScreen": return .Print_Screen
+	case "Pause":       return .Pause
+
+	case "F1":  return .F1
+	case "F2":  return .F2
+	case "F3":  return .F3
+	case "F4":  return .F4
+	case "F5":  return .F5
+	case "F6":  return .F6
+	case "F7":  return .F7
+	case "F8":  return .F8
+	case "F9":  return .F9
+	case "F10": return .F10
+	case "F11": return .F11
+	case "F12": return .F12
+
+	case "ShiftLeft":    return .Left_Shift
+	case "ControlLeft":  return .Left_Control
+	case "AltLeft":      return .Left_Alt
+	case "MetaLeft":     return .Left_Super
+	case "ShiftRight":   return .Right_Shift
+	case "ControlRight": return .Right_Control
+	case "AltRight":     return .Right_Alt
+	case "MetaRight":    return .Right_Super
+	case "ContextMenu":  return .Menu
+
+	case "Numpad0": return .NP_0
+	case "Numpad1": return .NP_1
+	case "Numpad2": return .NP_2
+	case "Numpad3": return .NP_3
+	case "Numpad4": return .NP_4
+	case "Numpad5": return .NP_5
+	case "Numpad6": return .NP_6
+	case "Numpad7": return .NP_7
+	case "Numpad8": return .NP_8
+	case "Numpad9": return .NP_9
+
+	case "NumpadDecimal":  return .NP_Decimal
+	case "NumpadDivide":   return .NP_Divide
+	case "NumpadMultiply": return .NP_Multiply
+	case "NumpadSubtract": return .NP_Subtract
+	case "NumpadAdd":      return .NP_Add
+	case "NumpadEnter":    return .NP_Enter
 	}
+
+	log.errorf("Unhandled key code: %v", e.key.code)
 	return .None
 }
 

@@ -1596,7 +1596,7 @@ Keyboard_Key :: enum {
 	Left_Bracket    = 91,
 	Backslash       = 92,
 	Right_Bracket   = 93,
-	Grave_Accent    = 96,
+	Backtick        = 96,
 
 	// Function keys, modifiers, caret control etc
 	Space           = 32,
