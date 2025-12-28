@@ -555,7 +555,6 @@ gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := f
 
 	gl.GenVertexArrays(1, &gl_shd.vao)
 	gl.BindVertexArray(gl_shd.vao)
-	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 
 	offset: int
 	for idx in 0..<len(desc.inputs) {
@@ -566,23 +565,6 @@ gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := f
 		gl.VertexAttribPointer(u32(input.register), num_components, format, norm ? gl.TRUE : gl.FALSE, i32(stride), uintptr(offset))
 		offset += format_size
 	}
-
-	/*{
-		num_uniforms: i32
-		uniform_name_buf: [256]u8
-		gl.GetProgramiv(program, gl.ACTIVE_UNIFORMS, &num_uniforms)
-		
-		for u_idx in 0..<num_uniforms {
-			name_len: i32
-			size: i32
-			type: u32
-			gl.GetActiveUniform(program, u32(u_idx), len(uniform_name_buf), &name_len, &size, &type, raw_data(&uniform_name_buf))
-
-			if type == gl.SAMPLER_2D {
-
-			}
-		}
-	}*/
 
 	constant_descs := make([dynamic]Shader_Constant_Desc, desc_allocator)
 	gl_constants := make([dynamic]GL_Shader_Constant, s.allocator)

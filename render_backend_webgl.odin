@@ -122,8 +122,9 @@ webgl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 	gl.DepthFunc(gl.GREATER)
 
 	s.vertex_buffer_gpu = gl.CreateBuffer()
+
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
-	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
+	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.STREAM_DRAW)
 
 	gl.Enable(gl.BLEND)
 
@@ -251,7 +252,7 @@ webgl_draw :: proc(
 	}
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
-	gl.BufferDataSlice(gl.ARRAY_BUFFER, vertex_buffer, gl.DYNAMIC_DRAW)
+	gl.BufferDataSlice(gl.ARRAY_BUFFER, vertex_buffer, gl.STREAM_DRAW)
 
 	if len(bound_textures) == len(gl_shd.texture_bindings) {
 		for t, t_idx in bound_textures {
@@ -498,7 +499,6 @@ webgl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator :
 	}
 
 	gl.BindVertexArray(gl_shd.vao)
-	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 
 	offset: int
 	for idx in 0..<len(desc.inputs) {
@@ -509,23 +509,6 @@ webgl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator :
 		gl.VertexAttribPointer(i32(input.register), num_components, format, norm, stride, uintptr(offset))
 		offset += format_size
 	}
-
-	/*{
-		num_uniforms: i32
-		uniform_name_buf: [256]u8
-		gl.GetProgramiv(program, gl.ACTIVE_UNIFORMS, &num_uniforms)
-		
-		for u_idx in 0..<num_uniforms {
-			name_len: i32
-			size: i32
-			type: u32
-			gl.GetActiveUniform(program, u32(u_idx), len(uniform_name_buf), &name_len, &size, &type, raw_data(&uniform_name_buf))
-
-			if type == gl.SAMPLER_2D {
-
-			}
-		}
-	}*/
 
 	constant_descs := make([dynamic]Shader_Constant_Desc, desc_allocator)
 	gl_constants := make([dynamic]WebGL_Shader_Constant, s.allocator)
