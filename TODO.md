@@ -9,6 +9,10 @@ High-level TODO before beta release:
 - Understand texture format choices in webgl and gl backend and fix anything that is wrong
 
 
+Things to get feedback on:
+- Do we need a delta time in the lib or should we use Odin time?
+- How do people think that DPI scaling should work? I've had bad experiences with high DPI mode of Raylib. So I've gone for an idea where you always get everything in native coords and then you scale yourself using the DPI scale that the library provides, if you want to.
+
 * Can we reuse memory for const buffers and union blocks between shaders? Just create reasonably sized ones and fetch based on size or something.
 * should gamepad come from separate interface than window?
 	* keyboard input could also come from some input interface, but
