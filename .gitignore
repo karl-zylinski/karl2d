@@ -5,3 +5,4 @@ raylib/
 *.exe
 *.rdi
 !/.sublime/karl2d.sublime-project
+examples/*/web

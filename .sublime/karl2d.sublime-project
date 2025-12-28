@@ -18,8 +18,8 @@
 				},
 				{
 					"name": "web example",
-					"shell_cmd": "odin build . -out:build/main.wasm -vet -strict-style -keep-executable -debug -target:js_wasm32",
-					"working_dir": "$project_path/../examples/web"
+					"shell_cmd": "odin run build_web_example -- minimal",
+					"working_dir": "$project_path/../examples"
 				},
 				{
 					"name": "fonts",
