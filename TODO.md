@@ -1,7 +1,7 @@
 ## TODO
 
 High-level TODO before beta release:
-- Complete JS window impl
+x Complete JS window impl
 - Fix render target drawing on gl and webgl
 - Make text rendering look good
 - Figure out what to do with the delta time stuff, built in or separate?
