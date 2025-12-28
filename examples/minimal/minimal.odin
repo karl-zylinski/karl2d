@@ -13,7 +13,7 @@ _ :: mem
 tex: k2.Texture
 
 init :: proc() {
-	k2.init(1080, 1080, "Karl2D Minimal Program", { .Resizable })
+	k2.init(1080, 1080, "Karl2D Minimal Program", {.Resizable})
 	k2.set_window_position(300, 100)
 	tex = k2.load_texture_from_bytes(#load("sixten.jpg"))
 }
