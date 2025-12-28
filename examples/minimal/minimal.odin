@@ -13,8 +13,7 @@ _ :: mem
 tex: k2.Texture
 
 init :: proc() {
-	k2.init(1080, 1080, "Karl2D Minimal Program", {.Resizable})
-	k2.set_window_position(300, 100)
+	k2.init(1080, 1080, "Karl2D Minimal Program")
 	tex = k2.load_texture_from_bytes(#load("sixten.jpg"))
 }
 
@@ -35,6 +34,15 @@ step :: proc(dt: f32) -> bool {
 	k2.draw_circle({120, 40}, 30, k2.BLACK)
 	k2.draw_circle({120, 40}, 20, k2.GREEN)
 	k2.draw_text("Hellöpe!", {10, 100}, 64, k2.WHITE)
+
+	if k2.key_went_down(.R) {
+		k2.set_window_flags({.Resizable})
+	}
+
+	if k2.key_went_down(.N) {
+		k2.set_window_flags({})
+	}
+	
 
 	k2.present()
 	free_all(context.temp_allocator)

@@ -45,6 +45,7 @@ js_init :: proc(
 	s = (^JS_State)(window_state)
 	s.allocator = allocator
 	s.canvas_id = "webgl-canvas"
+	s.flags = flags
 
 	// The browser window probably has some other size than what was sent in.
 	if .Resizable in flags {
@@ -63,12 +64,11 @@ js_init :: proc(
 }
 
 add_window_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
-	js.add_window_event_listener(
-		evt, 
-		nil, 
-		callback,
-		true,
-	)
+	js.add_window_event_listener(evt, nil, callback, true)
+}
+
+remove_window_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
+	js.remove_window_event_listener(evt, nil, callback, true)
 }
 
 add_canvas_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
@@ -247,6 +247,17 @@ js_get_window_scale :: proc() -> f32 {
 }
 
 js_set_flags :: proc(flags: Window_Flags) {
+	if .Resizable in (flags ~ s.flags) {
+		if .Resizable in flags {
+			add_window_event_listener(.Resize, js_window_event_resize)
+			update_canvas_size(s.canvas_id)
+		} else {
+			remove_window_event_listener(.Resize, js_window_event_resize)
+			js_set_size(s.width, s.height)
+		}
+	}
+
+	s.flags = flags
 }
 
 js_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -287,6 +298,7 @@ JS_State :: struct {
 	height: int,
 	events: [dynamic]Window_Event,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
+	flags: Window_Flags,
 }
 
 s: ^JS_State
