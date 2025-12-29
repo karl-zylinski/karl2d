@@ -192,7 +192,7 @@ draw_rect :: proc(r: Rect, c: Color)
 draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color)
 
 // Draw a rectangle with a custom origin and rotation.
-
+//
 // The origin says which point the rotation rotates around. If the origin is `(0, 0)`, then the
 // rectangle rotates around the top-left corner of the rectangle. If it is `(rect.w/2, rect.h/2)`
 // then the rectangle rotates around its center.
