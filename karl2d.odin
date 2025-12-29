@@ -281,7 +281,7 @@ set_window_flags :: proc(flags: Window_Flags) {
 // so the maximum number of vertices that can be drawn in each batch is
 // VERTEX_BUFFER_MAX / shader.vertex_size
 draw_current_batch :: proc() {
-	update_font(s.batch_font)
+	_update_font(s.batch_font)
 
 	if s.vertex_buffer_cpu_used == 0 {
 		return
@@ -1857,7 +1857,7 @@ make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 
 FONT_DEFAULT_ATLAS_SIZE :: 1024
 
-update_font :: proc(fh: Font_Handle) {
+_update_font :: proc(fh: Font_Handle) {
 	font := &s.fonts[fh]
 	font_dirty_rect: [4]f32
 
@@ -1896,6 +1896,7 @@ update_font :: proc(fh: Font_Handle) {
 	}
 }
 
+// Not for direct use. Specify font to `draw_text_ex`
 _set_font :: proc(fh: Font_Handle) {
 	fh := fh
 
@@ -1908,7 +1909,7 @@ _set_font :: proc(fh: Font_Handle) {
 	s.batch_font = fh
 
 	if s.batch_font != FONT_NONE {
-		update_font(s.batch_font)
+		_update_font(s.batch_font)
 	}
 
 	if fh == 0 {
