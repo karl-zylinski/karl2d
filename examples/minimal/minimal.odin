@@ -1,8 +1,11 @@
 // A small program that draws some shapes, some texts and a texture.
 //
+// The name is "minimal", but it's really a "smallest program that does anything useful": It draws
+// some graphics on the screen.
+//
 // There is a web version of this example in `../minimal_web` -- Many other examples work on web out
 // of the box. But the web support requires slight changes to the structure of the program. Here we
-// want to keep things as simple as possible, which is why the `minimal` example has a separate web
+// want to keep things as simple as possible, which is why this `minimal` example has a separate web
 // version.
 package karl2d_minimal_example
 
