@@ -98,7 +98,7 @@
 				},
 				{
 					"name": "raylib_ports/shaders_texture_waves",
-					"shell_cmd": "odin run . -keep-executable -debug",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
 					"working_dir": "$project_path/../examples/raylib_ports/shaders_texture_waves",
 				},
 				{

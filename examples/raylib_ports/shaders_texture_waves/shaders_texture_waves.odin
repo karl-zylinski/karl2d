@@ -3,7 +3,6 @@
 package raylib_example_shaders_texture_waves
 
 import k2 "../../.."
-import "core:time"
 import "core:log"
 
 SCREEN_WIDTH :: 800
@@ -42,10 +41,6 @@ main :: proc() {
 	k2.set_shader_constant(shader, amp_y_loc, amp_y)
 	k2.set_shader_constant(shader, speed_x_loc, speed_x)
 	k2.set_shader_constant(shader, speed_y_loc, speed_y)
-
-	seconds: f32
-
-	last_frame_time := time.now()
 
 	for !k2.shutdown_wanted() {
 		k2.new_frame()
