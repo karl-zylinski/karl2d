@@ -10,28 +10,11 @@ _ :: mem
 
 main :: proc() {
 	context.logger = log.create_console_logger()
-
-	when ODIN_DEBUG {
-		track: mem.Tracking_Allocator
-		mem.tracking_allocator_init(&track, context.allocator)
-		context.allocator = mem.tracking_allocator(&track)
-
-		defer {
-			if len(track.allocation_map) > 0 {
-				for _, entry in track.allocation_map {
-					fmt.eprintf("%v leaked: %v bytes\n", entry.location, entry.size)
-				}
-			}
-			mem.tracking_allocator_destroy(&track)
-		}
-	}
-
 	init()
+	run := true
 
-	for !k2.shutdown_wanted() {
-		if !step(0) {
-			break
-		}
+	for run {
+		run = step()
 	}
 
 	shutdown()
@@ -44,7 +27,8 @@ init :: proc() {
 	render_texture = k2.create_render_texture(75, 48)
 }
 
-step :: proc(dt: f32) -> bool {
+step :: proc() -> bool {
+	k2.new_frame()
 	k2.process_events()
 
 	k2.set_render_texture(render_texture)
@@ -68,7 +52,7 @@ step :: proc(dt: f32) -> bool {
 
 	k2.present()
 	free_all(context.temp_allocator)
-	return true
+	return !k2.shutdown_wanted()
 }
 
 shutdown :: proc() {

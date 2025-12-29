@@ -72,29 +72,11 @@ restart :: proc() {
 
 main :: proc() {
 	context.logger = log.create_console_logger()
-
-	when ODIN_DEBUG {
-		track: mem.Tracking_Allocator
-		mem.tracking_allocator_init(&track, context.allocator)
-		context.allocator = mem.tracking_allocator(&track)
-
-		defer {
-			if len(track.allocation_map) > 0 {
-				for _, entry in track.allocation_map {
-					fmt.eprintf("%v leaked: %v bytes\n", entry.location, entry.size)
-				}
-			}
-			mem.tracking_allocator_destroy(&track)
-		}
-	}
-
 	init()
+	run := true
 
-	for !k2.shutdown_wanted() {
-		time_now := time.now()
-		dt := f32(time.duration_seconds(time.diff(prev_time, time_now)))
-		prev_time = time_now
-		step(dt)
+	for run {
+		run = step()
 	}
 
 	shutdown()
@@ -118,7 +100,8 @@ init :: proc() {
 	started_at = time.now()
 }
 
-step :: proc(dt: f32) -> bool {
+step :: proc() -> bool {
+	k2.new_frame()
 	k2.process_events()
 
 	if k2.key_is_held(.Up) || k2.gamepad_button_is_held(0, .Left_Face_Up) {
@@ -136,6 +119,8 @@ step :: proc(dt: f32) -> bool {
 	if k2.key_is_held(.Right) || k2.gamepad_button_is_held(0, .Left_Face_Right) {
 		move_direction = {1, 0}
 	}
+
+	dt := k2.get_frame_time()
 
 	if game_over {
 		if k2.key_went_down(.Enter) {
@@ -187,7 +172,6 @@ step :: proc(dt: f32) -> bool {
 
 	k2.draw_texture(food_sprite, {f32(food_pos.x), f32(food_pos.y)}*CELL_SIZE)
 
-
 	for i in 0..<snake_length {
 		part_sprite := body_sprite
 		dir: Vec2i
@@ -230,7 +214,7 @@ step :: proc(dt: f32) -> bool {
 	k2.present()
 
 	free_all(context.temp_allocator)
-	return true
+	return !k2.shutdown_wanted()
 }
 
 shutdown :: proc() {
