@@ -1442,9 +1442,6 @@ Vec4 :: [4]f32
 
 Mat4 :: matrix[4,4]f32
 
-// A two dimensional vector of integer numeric type.
-Vec2i :: [2]int
-
 // A rectangle that sits at position (x, y) and has size (w, h).
 Rect :: struct {
 	x, y: f32,

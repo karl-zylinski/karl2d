@@ -313,6 +313,9 @@ destroy_render_texture :: proc(render_texture: Render_Texture)
 // `create_render_texture`. Pass `nil` to resume drawing onto the screen.
 set_render_texture :: proc(render_texture: Maybe(Render_Texture))
 
+//-------//
+// FONTS //
+//-------//
 load_font_from_file :: proc(filename: string) -> Font_Handle
 
 load_font_from_bytes :: proc(data: []u8) -> Font_Handle
@@ -385,9 +388,6 @@ Vec3 :: [3]f32
 Vec4 :: [4]f32
 
 Mat4 :: matrix[4,4]f32
-
-// A two dimensional vector of integer numeric type.
-Vec2i :: [2]int
 
 // A rectangle that sits at position (x, y) and has size (w, h).
 Rect :: struct {
