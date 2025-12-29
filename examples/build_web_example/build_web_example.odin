@@ -56,7 +56,7 @@ main :: proc() {
 
 	wasm_out_path := filepath.join({web_build_dir, "main.wasm"})
 
-	build_status, build_std_out, build_std_err, build_err := os2.process_exec({
+	_, build_std_out, build_std_err, _ := os2.process_exec({
 		command = {
 			"odin",
 			"build",

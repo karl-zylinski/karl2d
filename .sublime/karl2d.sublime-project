@@ -18,7 +18,7 @@
 				},
 				{
 					"name": "minimal (web)",
-					"shell_cmd": "odin run build_web_example -- minimal_web",
+					"shell_cmd": "odin run build_web_example -vet -strict-style -- minimal_web",
 					"working_dir": "$project_path/../examples"
 				},
 				{
