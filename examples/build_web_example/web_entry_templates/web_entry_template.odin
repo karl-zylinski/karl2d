@@ -18,5 +18,5 @@ main :: proc() {
 @export
 step :: proc(dt: f64) -> bool {
 	context = ctx
-	return ex.step(f32(dt))
+	return ex.step()
 }

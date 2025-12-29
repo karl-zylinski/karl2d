@@ -28,17 +28,16 @@ shutdown :: proc()
 // cleared instead.
 clear :: proc(color: Color)
 
+new_frame :: proc()
+
 // "Flips the backbuffer": Call at end of frame to make everything you've drawn appear on the screen.
 //
 // When you draw using for example `draw_texture`, then that stuff is drawn to an invisible texture
 // called a "backbuffer". This makes sure that we don't see half-drawn frames. So when you are happy
 // with a frame and want to show it to the player, use this procedure.
 //
-// Also, this procedure clears the frame_allocator that Karl2D uses for internal allocations that
-// have the lifetime of a single frame.
-//
 // WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
-// make Karl2D clear its frame allocator.
+// make sure that all rendering has been sent off to the GPU.
 present :: proc()
 
 // Call at start or end of frame to process all events that have arrived to the window. This
@@ -46,6 +45,10 @@ present :: proc()
 //
 // WARNING: Not calling this will make your program impossible to interact with.
 process_events :: proc()
+
+get_frame_time :: proc() -> f32
+
+get_time :: proc() -> f64
 
 // Gets the width of the drawing area within the window. The returned number is not scaled by any
 // monitor DPI scaling. You do that manually using the number returned by `get_window_scale()`.
@@ -546,6 +549,15 @@ State :: struct {
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
 	default_shader: Shader,
+
+	// Time when the first call to `new_frame` happened
+	start_time: time.Time,
+	prev_frame_time: time.Time,
+
+	// "dt"
+	frame_time: f32,
+
+	time: f64
 }
 
 // Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the

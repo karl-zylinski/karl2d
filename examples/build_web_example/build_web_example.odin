@@ -63,7 +63,7 @@ main :: proc() {
 			web_dir,
 			fmt.tprintf("-out:%v", wasm_out_path),
 			"-target:js_wasm32",
-			"-o:speed",
+			"-debug",
 			"-vet",
 			"-strict-style",
 		},

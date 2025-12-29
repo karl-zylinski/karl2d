@@ -11,6 +11,7 @@ import "core:slice"
 import "core:strings"
 import "core:reflect"
 import "core:os"
+import "core:time"
 
 import fs "vendor:fontstash"
 
@@ -153,21 +154,36 @@ clear :: proc(color: Color) {
 	s.depth = s.depth_start
 }
 
+new_frame :: proc() {
+	free_all(s.frame_allocator)
+
+	now := time.now()
+
+	if s.prev_frame_time != {} {
+		since := time.diff(s.prev_frame_time, now)
+		s.frame_time = f32(time.duration_seconds(since))
+	}
+
+	s.prev_frame_time = now
+
+	if s.start_time == {} {
+		s.start_time = time.now()
+	}
+
+	s.time = time.duration_seconds(time.since(s.start_time))
+}
+
 // "Flips the backbuffer": Call at end of frame to make everything you've drawn appear on the screen.
 //
 // When you draw using for example `draw_texture`, then that stuff is drawn to an invisible texture
 // called a "backbuffer". This makes sure that we don't see half-drawn frames. So when you are happy
 // with a frame and want to show it to the player, use this procedure.
 //
-// Also, this procedure clears the frame_allocator that Karl2D uses for internal allocations that
-// have the lifetime of a single frame.
-//
 // WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
-// make Karl2D clear its frame allocator.
+// make sure that all rendering has been sent off to the GPU.
 present :: proc() {
 	draw_current_batch()
 	rb.present()
-	free_all(s.frame_allocator)
 }
 
 // Call at start or end of frame to process all events that have arrived to the window. This
@@ -238,6 +254,14 @@ process_events :: proc() {
 	win.clear_events()
 }
 
+get_frame_time :: proc() -> f32 {
+	return s.frame_time
+}
+
+get_time :: proc() -> f64 {
+	return s.time
+}
+
 // Gets the width of the drawing area within the window. The returned number is not scaled by any
 // monitor DPI scaling. You do that manually using the number returned by `get_window_scale()`.
 get_screen_width :: proc() -> int {
@@ -300,11 +324,11 @@ set_window_flags :: proc(flags: Window_Flags) {
 // so the maximum number of vertices that can be drawn in each batch is
 // VERTEX_BUFFER_MAX / shader.vertex_size
 draw_current_batch :: proc() {
-	_update_font(s.batch_font)
-
 	if s.vertex_buffer_cpu_used == 0 {
 		return
 	}
+
+	_update_font(s.batch_font)
 
 	shader := s.batch_shader
 
@@ -1565,6 +1589,15 @@ State :: struct {
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
 	default_shader: Shader,
+
+	// Time when the first call to `new_frame` happened
+	start_time: time.Time,
+	prev_frame_time: time.Time,
+
+	// "dt"
+	frame_time: f32,
+
+	time: f64,
 }
 
 // Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
