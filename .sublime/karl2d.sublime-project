@@ -93,7 +93,7 @@
 				},
 				{
 					"name": "bunnymark",
-					"shell_cmd": "odin run . -vet -strict-style -no-bounds-check -keep-executable",
+					"shell_cmd": "odin run . -o:speed -vet -strict-style -no-bounds-check -keep-executable",
 					"working_dir": "$project_path/../examples/raylib_ports/bunnymark"
 				},
 				{

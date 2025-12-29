@@ -398,13 +398,10 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture.id, 0)
 	gl.DrawBuffers({gl.COLOR_ATTACHMENT0})
 
-	/*
-
-	ADD BINDINGS FOR THIS
 	if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
 		log.errorf("Failed creating frame buffer of size %v x %v", width, height)
 		return {}, {}
-	}*/
+	}
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 	gl.BindRenderbuffer(gl.RENDERBUFFER, 0)
