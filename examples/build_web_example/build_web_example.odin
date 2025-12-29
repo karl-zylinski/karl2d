@@ -1,3 +1,15 @@
+// This program builds the examples in a "web" version. You can use it as a basis for your own
+// Karl2D web build script.
+//
+// Usage:
+//    odin run build_web_example -- example_directory_name 
+//
+// Replace `example_directory_name` with the example you wish to build a web version of. The
+// resulting web application will be in `example_directory_name/web/build`.
+//
+// This program copies the `odin.js` from `<odin>/core/wasm/js/odin.js` to the build folder. It also
+// copies an `index.html` file there than is used to host your web program. The example itself is
+// built using the `js_wasm32` target and put next to the index file.
 package karl2d_build_web_example
 
 import "core:os"
@@ -47,7 +59,6 @@ main :: proc() {
 	ensure(odin_root_err == nil, "Failed fetching 'odin root' (Odin in PATH needed!)")
 
 	odin_root := string(odin_root_stdout)
-	
 
 	js_runtime_path := filepath.join({odin_root, "core", "sys", "wasm", "js", "odin.js"})
 	fmt.ensuref(os2.exists(js_runtime_path), "File does not exist: %v -- It is the Odin Javascript runtime that this program needs to copy to the web build output folder!", js_runtime_path)
