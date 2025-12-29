@@ -273,11 +273,11 @@ Win32_State :: struct {
 
 style_from_flags :: proc(flags: Window_Flags) -> win32.DWORD {
 	style := win32.WS_OVERLAPPED | win32.WS_CAPTION | win32.WS_SYSMENU |
-	         win32.WS_MINIMIZEBOX | win32.WS_MAXIMIZEBOX | win32.WS_VISIBLE |
+	         win32.WS_MINIMIZEBOX | win32.WS_VISIBLE |
 	         win32.CS_OWNDC
 
 	if .Resizable in flags {
-		style |= win32.WS_THICKFRAME
+		style |= win32.WS_THICKFRAME & win32.WS_MAXIMIZEBOX
 	}
 
 	return style

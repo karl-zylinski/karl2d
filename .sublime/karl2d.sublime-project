@@ -132,6 +132,16 @@
 					"working_dir": "$project_path/../examples",
 				},
 				{
+					"name": "palette",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
+					"working_dir": "$project_path/../examples/palette",
+				},
+				{
+					"name": "palette (web)",
+					"shell_cmd": "odin run build_web_example -- palette",
+					"working_dir": "$project_path/../examples",
+				},
+				{
 					"name": "api_doc_builder",
 					"shell_cmd": "odin run api_doc_builder",
 					"working_dir": "$project_path/..",
