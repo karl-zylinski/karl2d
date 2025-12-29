@@ -18,7 +18,7 @@ main :: proc() {
 
 	WAVE_SHADER_DATA :: #load("wave.hlsl")
 
-	shader := k2.load_shader_from_memory(WAVE_SHADER_DATA, WAVE_SHADER_DATA)
+	shader := k2.load_shader_from_bytes(WAVE_SHADER_DATA, WAVE_SHADER_DATA)
 	seconds_loc := shader.constant_lookup["seconds"]
 	freq_x_loc := shader.constant_lookup["freqX"]
 	freq_y_loc := shader.constant_lookup["freqY"]
@@ -48,13 +48,10 @@ main :: proc() {
 	last_frame_time := time.now()
 
 	for !k2.shutdown_wanted() {
+		k2.new_frame()
 		k2.process_events()
-		now := time.now()
-		dt := f32(time.duration_seconds(time.diff(last_frame_time, now)))
-		last_frame_time = now
-		seconds += dt
 
-		k2.set_shader_constant(shader, seconds_loc, seconds)
+		k2.set_shader_constant(shader, seconds_loc, f32(k2.get_time()))
 		k2.set_shader(shader)
 
 		k2.draw_texture(texture, {0, 0})

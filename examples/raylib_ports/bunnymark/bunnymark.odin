@@ -6,7 +6,6 @@ import k2 "../../.."
 import "core:math/rand"
 import "core:log"
 import "core:fmt"
-import "core:time"
 
 MAX_BUNNIES :: 50000
 
@@ -29,7 +28,9 @@ init :: proc() {
 	tex_bunny = k2.load_texture_from_bytes(#load("wabbit_alpha.png"))
 }
 
-step :: proc(dt: f32) -> bool {
+step :: proc() -> bool {
+	k2.new_frame()
+
 	if k2.mouse_button_is_held(.Left) {
 		for _ in 0..<100 {
 			append(&bunnies, Bunny {
@@ -78,38 +79,34 @@ step :: proc(dt: f32) -> bool {
 		dest.y = b.position.y
 		k2.draw_texture_ex(tex_bunny, src, dest, {dest.w/2, dest.h/2}, b.rot, b.color)
 	}
-	
-	if k2.key_went_down(.B) {
-		fmt.println(len(bunnies))
-		fmt.println(1/dt)
-	}
 
-	k2.draw_text(fmt.tprintf("num bunnies: %v -- fps: %v", len(bunnies), 1/dt), {10, 20}, 40, k2.BLACK)
+	k2.draw_text(
+		fmt.tprintf("num bunnies: %v -- fps: %v", len(bunnies), 1/k2.get_frame_time()),
+		{10, 20},
+		40,
+		k2.BLACK,
+	)
 
 	k2.present()
 
 	free_all(context.temp_allocator)
 
-	return true
+	return !k2.shutdown_wanted()
 }
 
 shutdown :: proc() {
 	delete(bunnies)
 	k2.destroy_texture(tex_bunny)
-
 	k2.shutdown()
 }
 
 main :: proc() {
 	context.logger = log.create_console_logger()
 	init()
-	prev_time := time.now()
+	run := true
 
-	for !k2.shutdown_wanted() {
-		cur_time := time.now()
-		dt := f32(time.duration_seconds(time.diff(prev_time, cur_time)))
-		prev_time = cur_time
-		step(dt)
+	for run {
+		run = step()
 	}
 
 	shutdown()

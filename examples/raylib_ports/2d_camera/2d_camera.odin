@@ -14,7 +14,6 @@ SCREEN_HEIGHT :: 450
 main :: proc() {
 	context.logger = log.create_console_logger()
 	k2.init(SCREEN_WIDTH, SCREEN_HEIGHT, "Karl2D: 2d camera (raylib [core] example - 2d camera)")
-	k2.set_window_position(500, 100)
 
 	player := k2.Rect { 400, 280, 40, 40 }
 	buildings: [MAX_BUILDINGS]k2.Rect
@@ -49,6 +48,7 @@ main :: proc() {
 	}
 
 	for !k2.shutdown_wanted() {
+		k2.new_frame()
 		k2.process_events()
 
 		if k2.key_is_held(.Right) { player.x += 2 }
@@ -85,7 +85,7 @@ main :: proc() {
 		k2.draw_line({-SCREEN_WIDTH*10, camera.target.y}, {SCREEN_WIDTH*10, camera.target.y}, 1, k2.RL_GREEN)
 
 		k2.set_camera(nil)
-		k2.draw_text("SCREEN AREA", {640, 10}, 20, k2.RL_RED)
+		k2.draw_text("SCREEN AREA", {640, 10}, 26, k2.RL_RED)
 
 		k2.draw_rect({0, 0, SCREEN_WIDTH, 5}, k2.RL_RED)
 		k2.draw_rect({0, 5, 5, SCREEN_HEIGHT - 10}, k2.RL_RED)
@@ -95,15 +95,14 @@ main :: proc() {
 		k2.draw_rect({10, 10, 250, 113}, {102, 191, 255, 128})
 		k2.draw_rect_outline({10, 10, 250, 113}, 1, k2.RL_BLUE)
 
-		k2.draw_text("Free 2d camera controls:", {20, 20}, 10, k2.BLACK)
-		k2.draw_text("- Right/Left to move Offset", {40, 40}, 10, k2.RL_DARKGRAY)
-		k2.draw_text("- Mouse Wheel to Zoom in-out", {40, 60}, 10, k2.RL_DARKGRAY)
-		k2.draw_text("- A / S to Rotate", {40, 80}, 10, k2.RL_DARKGRAY)
-		k2.draw_text("- R to reset Zoom and Rotation", {40, 100}, 10, k2.RL_DARKGRAY)
+		k2.draw_text("Free 2d camera controls:", {20, 20}, 15, k2.BLACK)
+		k2.draw_text("- Right/Left to move Offset", {40, 40}, 15, k2.RL_DARKGRAY)
+		k2.draw_text("- Mouse Wheel to Zoom in-out", {40, 60}, 15, k2.RL_DARKGRAY)
+		k2.draw_text("- A / S to Rotate", {40, 80}, 15, k2.RL_DARKGRAY)
+		k2.draw_text("- R to reset Zoom and Rotation", {40, 100}, 15, k2.RL_DARKGRAY)
 
 		k2.present()
 	}
 
 	k2.shutdown()
 }
-
