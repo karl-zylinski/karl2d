@@ -88,12 +88,16 @@ main :: proc() {
 		}
 	}
 
+	init()
+
 	for !k2.shutdown_wanted() {
 		time_now := time.now()
 		dt := f32(time.duration_seconds(time.diff(prev_time, time_now)))
 		prev_time = time_now
 		step(dt)
 	}
+
+	shutdown()
 }
 
 
