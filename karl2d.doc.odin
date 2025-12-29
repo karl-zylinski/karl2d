@@ -352,6 +352,7 @@ BLACK :: Color { 0, 0, 0, 255 }
 GRAY  :: Color { 127, 127, 127, 255 }
 RED   :: Color { 198, 40, 90, 255 }
 GREEN :: Color { 30, 240, 30, 255 }
+YELLOW :: Color {240, 190, 0, 255 }
 BLANK :: Color { 0, 0, 0, 0 }
 BLUE  :: Color { 30, 116, 240, 255 }
 
