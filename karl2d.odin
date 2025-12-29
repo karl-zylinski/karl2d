@@ -419,22 +419,28 @@ mouse_button_is_held :: proc(button: Mouse_Button) -> bool {
 	return s.mouse_button_is_held[button]
 }
 
+// Returns how many clicks the mouse wheel has scrolled between the previous and current frame.
 get_mouse_wheel_delta :: proc() -> f32 {
 	return s.mouse_wheel_delta
 }
 
+// Returns the mouse position, measured from the top-left corner of the window.
 get_mouse_position :: proc() -> Vec2 {
 	return s.mouse_position
 }
 
+// Returns how many pixels the mouse moved between the previous and the current frame.
 get_mouse_delta :: proc() -> Vec2 {
 	return s.mouse_delta
 }
 
+// Returns true if a gamepad with the supplied index is connected. The parameter should be a value
+// between 0 and MAX_GAMEPADS.
 is_gamepad_active :: proc(gamepad: Gamepad_Index) -> bool {
 	return win.is_gamepad_active(gamepad)
 }
 
+// Returns true if a gamepad button went down between the previous and the current frame.
 gamepad_button_went_down :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
@@ -443,6 +449,8 @@ gamepad_button_went_down :: proc(gamepad: Gamepad_Index, button: Gamepad_Button)
 	return s.gamepad_button_went_down[gamepad][button]
 }
 
+// Returns true if a gamepad button went up (was released) between the previous and the current
+// frame.
 gamepad_button_went_up :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
@@ -451,6 +459,10 @@ gamepad_button_went_up :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -
 	return s.gamepad_button_went_up[gamepad][button]
 }
 
+// Returns true if a gamepad button is currently held down.
+//
+// The "trigger buttons" on some gamepads also have an analogue "axis value" associated with them.
+// Fetch that value using `get_gamepad_axis()`.
 gamepad_button_is_held :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
@@ -459,6 +471,8 @@ gamepad_button_is_held :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -
 	return s.gamepad_button_is_held[gamepad][button]
 }
 
+// Returns the value of analogue gamepad axes such as the thumbsticks and trigger buttons. The value
+// is in the range -1 to 1 for sticks and 0 to 1 for trigger buttons.
 get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32 {
 	return win.get_gamepad_axis(gamepad, axis)
 }
