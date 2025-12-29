@@ -100,6 +100,7 @@ main :: proc() {
 	shutdown()
 }
 
+font: k2.Font_Handle
 
 init :: proc() {
 	k2.init(WINDOW_SIZE, WINDOW_SIZE, "Snake")

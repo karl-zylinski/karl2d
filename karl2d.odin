@@ -99,6 +99,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 
 	// FontStash enables us to bake fonts from TTF files on-the-fly.
 	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
+	fs.SetAlignVertical(&s.fs, .TOP)
 
 	DEFAULT_FONT_DATA :: #load("roboto.ttf")
 
@@ -106,7 +107,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	append_nothing(&s.fonts)
 
 	s.default_font = load_font_from_bytes(DEFAULT_FONT_DATA)
-	set_font(s.default_font)
+	_set_font(s.default_font)
 
 	return s
 }
@@ -738,10 +739,10 @@ draw_text_ex :: proc(font_handle: Font_Handle, text: string, pos: Vec2, font_siz
 		return
 	}
 
-	set_font(font_handle)
+	_set_font(font_handle)
 	font := &s.fonts[font_handle]
 	fs.SetSize(&s.fs, font_size)
-	iter := fs.TextIterInit(&s.fs, pos.x, pos.y+font_size/2, text)
+	iter := fs.TextIterInit(&s.fs, pos.x, pos.y, text)
 
 	q: fs.Quad
 	for fs.TextIterNext(&s.fs, &iter, &q) {
@@ -1895,12 +1896,14 @@ update_font :: proc(fh: Font_Handle) {
 	}
 }
 
-set_font :: proc(fh: Font_Handle) {
+_set_font :: proc(fh: Font_Handle) {
 	fh := fh
 
 	if s.batch_font == fh {
 		return
 	}
+
+	draw_current_batch()
 
 	s.batch_font = fh
 
