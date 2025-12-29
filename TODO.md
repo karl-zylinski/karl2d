@@ -5,7 +5,8 @@ x Complete JS window impl
 X Fix render target drawing on gl and webgl
 / Make text rendering look good
 	- its better now, but I think I need to rewrite fontstash (my own "fontcache" or something)
-- Figure out what to do with the delta time stuff, built in or separate?
+X Figure out what to do with the delta time stuff, built in or separate?
+- make a good color palette
 - Look into webgl performance (bunnymark)
 - Understand texture format choices in webgl and gl backend and fix anything that is wrong
 

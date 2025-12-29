@@ -2,10 +2,13 @@ package karl2d_gamepad_example
 
 import k2 "../.."
 import "core:log"
+import "core:fmt"
 
 init :: proc() {
 	k2.init(1000, 600, "Karl2D Mouse Demo")
 }
+
+wheel: f32
 
 step :: proc() -> bool {
 	k2.new_frame()
@@ -50,6 +53,12 @@ step :: proc() -> bool {
 	k2.draw_circle(left_pos, 10, left_color)
 	k2.draw_circle(middle_pos, 10, middle_color)
 	k2.draw_circle(right_pos, 10, right_color)
+
+	wheel += k2.get_mouse_wheel_delta()
+
+	wheel_msg := fmt.tprintf("Wheel: %.1f", wheel)
+	wheel_msg_width := k2.measure_text(wheel_msg, 20).x
+	k2.draw_text(wheel_msg, pos + {-wheel_msg_width/2, 70}, 20, k2.WHITE)
 
 	k2.present()
 	free_all(context.temp_allocator)

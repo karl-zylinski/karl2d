@@ -60,6 +60,7 @@ js_init :: proc(
 	add_canvas_event_listener(.Mouse_Move, js_event_mouse_move)
 	add_canvas_event_listener(.Mouse_Down, js_event_mouse_down)
 	add_canvas_event_listener(.Mouse_Up, js_event_mouse_up)
+	add_canvas_event_listener(.Wheel, js_event_mouse_wheel)
 
 	add_window_event_listener(.Key_Down, js_event_key_down)
 	add_window_event_listener(.Key_Up, js_event_key_up)
@@ -122,6 +123,14 @@ js_event_mouse_up :: proc(e: js.Event) {
 
 	append(&s.events, Window_Event_Mouse_Button_Went_Up {
 		button = button,
+	})
+}
+
+js_event_mouse_wheel :: proc(e: js.Event) {
+	append(&s.events, Window_Event_Mouse_Wheel {
+		// Not the best way, but how would we know what the wheel deltaMode really represents? If it
+		// is in pixels, how much "scroll" does that equal to?
+		delta = f32(e.wheel.delta.y > 0 ? -1 : 1),
 	})
 }
 
