@@ -841,11 +841,19 @@ measure_text :: proc(text: string, font_size: f32) -> Vec2 {
 	return {b[2] - b[0], b[3] - b[1]}
 }
 
-draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
+measure_text_ex :: proc(font_handle: Font_Handle, text: string, font_size: f32) -> Vec2 {
+	_set_font(font_handle)
+	fs.SetSize(&s.fs, font_size)
+	b: [4]f32
+	fs.TextBounds(&s.fs, text, bounds = &b)
+	return {b[2] - b[0], b[3] - b[1]}
+}
+
+draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK) {
 	draw_text_ex(s.default_font, text, pos, font_size, color)
 }
 
-draw_text_ex :: proc(font_handle: Font_Handle, text: string, pos: Vec2, font_size: f32, color: Color) {
+draw_text_ex :: proc(font_handle: Font_Handle, text: string, pos: Vec2, font_size: f32, color := BLACK) {
 	if int(font_handle) >= len(s.fonts) {
 		return
 	}
