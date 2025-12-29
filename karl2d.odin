@@ -488,6 +488,8 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 // DRAWING //
 //---------//
 
+// Draw a colored rectangle. The rectangles have their (x, y) position in the top-left corner of the
+// rectangle.
 draw_rect :: proc(r: Rect, c: Color) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
@@ -509,10 +511,16 @@ draw_rect :: proc(r: Rect, c: Color) {
 	batch_vertex({r.x, r.y + r.h, z}, {0, 1}, c)
 }
 
+// Creates a rectangle from a position and a size and draws it.
 draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color) {
 	draw_rect({pos.x, pos.y, size.x, size.y}, c)
 }
 
+// Draw a rectangle with a custom origin and rotation.
+
+// The origin says which point the rotation rotates around. If the origin is `(0, 0)`, then the
+// rectangle rotates around the top-left corner of the rectangle. If it is `(rect.w/2, rect.h/2)`
+// then the rectangle rotates around its center.
 draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
@@ -572,6 +580,8 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 	batch_vertex(vec3(bl, z), {0, 1}, c)
 }
 
+// Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
+// rectangles.
 draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 	t := thickness
 	
@@ -611,6 +621,8 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 	draw_rect(right, color)
 }
 
+// Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
+// perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 * segments > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
@@ -638,6 +650,7 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 	}
 }
 
+// Like `draw_circle` but only draws the outer edge of the circle.
 draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16) {
 	prev := center + {radius, 0}
 	for s in 1..=segments {
@@ -649,6 +662,7 @@ draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Co
 	}
 }
 
+// Draws a line from `start` to `end` of a certain thickness.
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 	p := Vec2{start.x, start.y + thickness*0.5}
 	s := Vec2{linalg.length(end - start), thickness}
@@ -661,6 +675,10 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 	draw_rect_ex(r, origin, rot * math.DEG_PER_RAD, color)
 }
 
+// Draw a texture at a specific position. The texture will be drawn with its top-left corner at
+// position `pos`.
+//
+// Load textures using `load_texture_from_file` or `load_texture_from_bytes`.
 draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
 	draw_texture_ex(
 		tex,
@@ -672,6 +690,9 @@ draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
 	)
 }
 
+// Draw a section of a texture at a specific position. `rect` is a rectangle measured in pixels. It
+// tells the procedure which part of the texture to display. The texture will be drawn with its
+// top-left corner at position `pos`.
 draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 	draw_texture_ex(
 		tex,
@@ -683,6 +704,11 @@ draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 	)
 }
 
+// Draw a texture by taking a section of the texture specified by `src` and draw it into the area of
+// the screen specified by `dst`. You can also rotate the texture around an origin point of your
+// choice.
+//
+// Tip: Use `k2.get_texture_rect(tex)` for `src` if you want to draw the whole texture.
 draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE) {
 	if tex.width == 0 || tex.height == 0 {
 		return

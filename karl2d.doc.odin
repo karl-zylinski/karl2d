@@ -145,20 +145,34 @@ mouse_button_went_up :: proc(button: Mouse_Button) -> bool
 // `button` parameter. Set when 'process_events' runs.
 mouse_button_is_held :: proc(button: Mouse_Button) -> bool
 
+// Returns how many clicks the mouse wheel has scrolled between the previous and current frame.
 get_mouse_wheel_delta :: proc() -> f32
 
+// Returns the mouse position, measured from the top-left corner of the window.
 get_mouse_position :: proc() -> Vec2
 
+// Returns how many pixels the mouse moved between the previous and the current frame.
 get_mouse_delta :: proc() -> Vec2
 
+// Returns true if a gamepad with the supplied index is connected. The parameter should be a value
+// between 0 and MAX_GAMEPADS.
 is_gamepad_active :: proc(gamepad: Gamepad_Index) -> bool
 
+// Returns true if a gamepad button went down between the previous and the current frame.
 gamepad_button_went_down :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool
 
+// Returns true if a gamepad button went up (was released) between the previous and the current
+// frame.
 gamepad_button_went_up :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool
 
+// Returns true if a gamepad button is currently held down.
+//
+// The "trigger buttons" on some gamepads also have an analogue "axis value" associated with them.
+// Fetch that value using `get_gamepad_axis()`.
 gamepad_button_is_held :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -> bool
 
+// Returns the value of analogue gamepad axes such as the thumbsticks and trigger buttons. The value
+// is in the range -1 to 1 for sticks and 0 to 1 for trigger buttons.
 get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32
 
 // Set the left and right vibration motor speed. The range of left and right is 0 to 1. Note that on
@@ -169,24 +183,51 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32)
 //---------//
 // DRAWING //
 //---------//
+
+// Draw a colored rectangle. The rectangles have their (x, y) position in the top-left corner of the
+// rectangle.
 draw_rect :: proc(r: Rect, c: Color)
 
+// Creates a rectangle from a position and a size and draws it.
 draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color)
 
+// Draw a rectangle with a custom origin and rotation.
+
+// The origin says which point the rotation rotates around. If the origin is `(0, 0)`, then the
+// rectangle rotates around the top-left corner of the rectangle. If it is `(rect.w/2, rect.h/2)`
+// then the rectangle rotates around its center.
 draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color)
 
+// Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
+// rectangles.
 draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color)
 
+// Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
+// perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16)
 
+// Like `draw_circle` but only draws the outer edge of the circle.
 draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16)
 
+// Draws a line from `start` to `end` of a certain thickness.
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
 
+// Draw a texture at a specific position. The texture will be drawn with its top-left corner at
+// position `pos`.
+//
+// Load textures using `load_texture_from_file` or `load_texture_from_bytes`.
 draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE)
 
+// Draw a section of a texture at a specific position. `rect` is a rectangle measured in pixels. It
+// tells the procedure which part of the texture to display. The texture will be drawn with its
+// top-left corner at position `pos`.
 draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE)
 
+// Draw a texture by taking a section of the texture specified by `src` and draw it into the area of
+// the screen specified by `dst`. You can also rotate the texture around an origin point of your
+// choice.
+//
+// Tip: Use `k2.get_texture_rect(tex)` for `src` if you want to draw the whole texture.
 draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE)
 
 measure_text :: proc(text: string, font_size: f32) -> Vec2
