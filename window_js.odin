@@ -94,14 +94,34 @@ js_event_mouse_move :: proc(e: js.Event) {
 }
 
 js_event_mouse_down :: proc(e: js.Event) {
+	button := Mouse_Button.Left
+
+	if e.mouse.button == 2 {
+		button = .Right
+	}
+
+	if e.mouse.button == 1 {
+		button = .Middle 
+	}
+
 	append(&s.events, Window_Event_Mouse_Button_Went_Down {
-		button = .Left,
+		button = button,
 	})
 }
 
 js_event_mouse_up :: proc(e: js.Event) {
+	button := Mouse_Button.Left
+
+	if e.mouse.button == 2 {
+		button = .Right
+	}
+
+	if e.mouse.button == 1 {
+		button = .Middle 
+	}
+
 	append(&s.events, Window_Event_Mouse_Button_Went_Up {
-		button = .Left,
+		button = button,
 	})
 }
 

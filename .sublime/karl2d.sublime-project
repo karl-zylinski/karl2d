@@ -112,6 +112,16 @@
 					"working_dir": "$project_path/../examples",
 				},
 				{
+					"name": "mouse",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable",
+					"working_dir": "$project_path/../examples/mouse",
+				},
+				{
+					"name": "mouse (web)",
+					"shell_cmd": "odin run build_web_example -- mouse",
+					"working_dir": "$project_path/../examples",
+				},
+				{
 					"name": "gamepad",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable",
 					"working_dir": "$project_path/../examples/gamepad",
