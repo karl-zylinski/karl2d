@@ -230,15 +230,27 @@ draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE)
 // Tip: Use `k2.get_texture_rect(tex)` for `src` if you want to draw the whole texture.
 draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE)
 
+// Tells you how much space some text of a certain size will use on the screen. The font used is the
+// default font. The return value contains the width and height of the text.
 measure_text :: proc(text: string, font_size: f32) -> Vec2
 
-draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color)
+// Tells you how much space some text of a certain size will use on the screen, using a custom font.
+// The return value contains the width and height of the text.
+measure_text_ex :: proc(font_handle: Font_Handle, text: string, font_size: f32) -> Vec2
 
-draw_text_ex :: proc(font_handle: Font_Handle, text: string, pos: Vec2, font_size: f32, color: Color)
+// Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
+// top-left position of the text.
+draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK)
+
+// Draw text at a position with a size, using a custom font. `pos` will be equal to the  top-left
+// position of the text.
+draw_text_ex :: proc(font_handle: Font_Handle, text: string, pos: Vec2, font_size: f32, color := BLACK)
 
 //--------------------//
 // TEXTURE MANAGEMENT //
 //--------------------//
+
+// Create an empty texture.
 create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture
 
 // Load a texture from disk and upload it to the GPU so you can draw it to the screen.
@@ -266,6 +278,7 @@ get_texture_rect :: proc(t: Texture) -> Rect
 // `tex` where the new pixels should end up.
 update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect) -> bool
 
+// Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(tex: Texture)
 
 // Controls how a texture should be filtered. You can choose "point" or "linear" filtering. Which
@@ -290,7 +303,7 @@ set_texture_filter_ex :: proc(
 //-----------------//
 
 // Create a texture that you can render into. Meaning that you can draw into it instead of drawing
-// onto the screen. Set the texture using `set_render_texture`.
+// onto the screen. Use `set_render_texture` to enable this Render Texture for drawing.
 create_render_texture :: proc(width: int, height: int) -> Render_Texture
 
 // Destroy a Render_Texture previously created using `create_render_texture`.
@@ -300,9 +313,6 @@ destroy_render_texture :: proc(render_texture: Render_Texture)
 // `create_render_texture`. Pass `nil` to resume drawing onto the screen.
 set_render_texture :: proc(render_texture: Maybe(Render_Texture))
 
-//-------//
-// FONTS //
-//-------//
 load_font_from_file :: proc(filename: string) -> Font_Handle
 
 load_font_from_bytes :: proc(data: []u8) -> Font_Handle

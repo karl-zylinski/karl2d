@@ -834,6 +834,8 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	batch_vertex(vec3(bl, z), uv5, c)
 }
 
+// Tells you how much space some text of a certain size will use on the screen. The font used is the
+// default font. The return value contains the width and height of the text.
 measure_text :: proc(text: string, font_size: f32) -> Vec2 {
 	fs.SetSize(&s.fs, font_size)
 	b: [4]f32
@@ -841,6 +843,8 @@ measure_text :: proc(text: string, font_size: f32) -> Vec2 {
 	return {b[2] - b[0], b[3] - b[1]}
 }
 
+// Tells you how much space some text of a certain size will use on the screen, using a custom font.
+// The return value contains the width and height of the text.
 measure_text_ex :: proc(font_handle: Font_Handle, text: string, font_size: f32) -> Vec2 {
 	_set_font(font_handle)
 	fs.SetSize(&s.fs, font_size)
@@ -849,10 +853,14 @@ measure_text_ex :: proc(font_handle: Font_Handle, text: string, font_size: f32) 
 	return {b[2] - b[0], b[3] - b[1]}
 }
 
+// Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
+// top-left position of the text.
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK) {
 	draw_text_ex(s.default_font, text, pos, font_size, color)
 }
 
+// Draw text at a position with a size, using a custom font. `pos` will be equal to the  top-left
+// position of the text.
 draw_text_ex :: proc(font_handle: Font_Handle, text: string, pos: Vec2, font_size: f32, color := BLACK) {
 	if int(font_handle) >= len(s.fonts) {
 		return
@@ -891,6 +899,7 @@ draw_text_ex :: proc(font_handle: Font_Handle, text: string, pos: Vec2, font_siz
 // TEXTURE MANAGEMENT //
 //--------------------//
 
+// Create an empty texture.
 create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture {
 	h := rb.create_texture(width, height, format)
 
@@ -924,7 +933,7 @@ load_texture_from_file :: proc(filename: string, options: Load_Texture_Options =
 
 		return load_texture_from_bytes_raw(img.pixels.buf[:], img.width, img.height, .RGBA_8_Norm)
 	} else {
-		log.errorf("load_texture_from_file failed: OS %v has no filesystem support!", ODIN_OS)
+		log.errorf("load_texture_from_file failed: OS %v has no filesystem support! Tip: Use load_texture_from_bytes(#load(\"the_texture.png\")) instead.", ODIN_OS)
 		return {}
 	}
 }
@@ -984,6 +993,7 @@ update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect) -> bool {
 	return rb.update_texture(tex.handle, bytes, rect)
 }
 
+// Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(tex: Texture) {
 	rb.destroy_texture(tex.handle)
 }
@@ -1014,7 +1024,7 @@ set_texture_filter_ex :: proc(
 //-----------------//
 
 // Create a texture that you can render into. Meaning that you can draw into it instead of drawing
-// onto the screen. Set the texture using `set_render_texture`.
+// onto the screen. Use `set_render_texture` to enable this Render Texture for drawing.
 create_render_texture :: proc(width: int, height: int) -> Render_Texture {
 	texture, render_target := rb.create_render_texture(width, height)
 
@@ -1061,6 +1071,11 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 //-------//
 
 load_font_from_file :: proc(filename: string) -> Font_Handle {
+	when !FILESYSTEM_SUPPORTED {
+		log.errorf("load_font_from_file failed: OS %v has no filesystem support! Tip: Use load_font_from_bytes(#load(\"the_font.ttf\")) instead.", ODIN_OS)
+		return {}
+	}
+
 	if data, data_ok := os.read_entire_file(filename, frame_allocator); data_ok {
 		return load_font_from_bytes(data)
 	}
