@@ -4,7 +4,7 @@
 package karl2d
 
 @(private="package")
-RENDER_BACKEND_INTERFACE_GL :: Render_Backend_Interface {
+RENDER_BACKEND_GL :: Render_Backend_Interface {
 	state_size = gl_state_size,
 	init = gl_init,
 	shutdown = gl_shutdown,

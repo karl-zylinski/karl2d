@@ -4,7 +4,7 @@
 package karl2d
 
 @(private="package")
-RENDER_BACKEND_INTERFACE_WEBGL :: Render_Backend_Interface {
+RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 	state_size = webgl_state_size,
 	init = webgl_init,
 	shutdown = webgl_shutdown,

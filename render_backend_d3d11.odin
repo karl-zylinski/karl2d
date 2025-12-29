@@ -5,7 +5,7 @@
 package karl2d
 
 @(private="package")
-RENDER_BACKEND_INTERFACE_D3D11 :: Render_Backend_Interface {
+RENDER_BACKEND_D3D11 :: Render_Backend_Interface {
 	state_size = d3d11_state_size,
 	init = d3d11_init,
 	shutdown = d3d11_shutdown,
