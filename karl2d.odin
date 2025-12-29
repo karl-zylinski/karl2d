@@ -1451,14 +1451,24 @@ Rect :: struct {
 // An RGBA (Red, Green, Blue, Alpha) color. Each channel can have a value between 0 and 255.
 Color :: [4]u8
 
-WHITE :: Color { 255, 255, 255, 255 }
-BLACK :: Color { 0, 0, 0, 255 }
-GRAY  :: Color { 127, 127, 127, 255 }
-RED   :: Color { 198, 40, 90, 255 }
-GREEN :: Color { 30, 240, 30, 255 }
-YELLOW :: Color {240, 190, 0, 255 }
-BLANK :: Color { 0, 0, 0, 0 }
-BLUE  :: Color { 30, 116, 240, 255 }
+BLACK        :: Color { 0, 0, 0, 255 }
+WHITE        :: Color { 255, 255, 255, 255 }
+BLANK        :: Color { 0, 0, 0, 0 }
+GRAY         :: Color { 183, 183, 183, 255 } 
+DARK_GRAY    :: Color { 66, 66, 66, 255} 
+BLUE         :: Color { 25, 198, 236, 255 }
+DARK_BLUE    :: Color { 7, 47, 88, 255 }
+LIGHT_BLUE   :: Color { 187, 238, 249, 255 }
+GREEN        :: Color { 16, 130, 11, 255 }
+DARK_GREEN   :: Color { 6, 53, 34, 255}
+LIGHT_GREEN  :: Color { 175, 246, 184, 255 }
+RED          :: Color { 239, 53, 53, 255 }
+LIGHT_RED    :: Color { 248, 183, 183, 255 }
+DARK_RED     :: Color { 127, 10, 10, 255 }
+LIGHT_PURPLE :: Color { 217, 172, 248, 255 }
+YELLOW       :: Color { 240, 240, 129, 255 }
+LIGHT_YELLOW :: Color { 253, 250, 222, 255 }
+MAGENTA      :: Color { 209, 17, 209, 255 }
 
 // These are from Raylib. They are here so you can easily port a Raylib program to Karl2D.
 RL_LIGHTGRAY  :: Color { 200, 200, 200, 255 }
@@ -1487,6 +1497,10 @@ RL_BLACK      :: BLACK
 RL_BLANK      :: BLANK
 RL_MAGENTA    :: Color { 255, 0, 255, 255 }
 RL_RAYWHITE   :: Color { 245, 245, 245, 255 }
+
+color_alpha :: proc(c: Color, a: u8) -> Color {
+	return {c.r, c.g, c.b, a}
+}
 
 Texture :: struct {
 	handle: Texture_Handle,
