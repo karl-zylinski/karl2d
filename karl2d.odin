@@ -112,11 +112,11 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	return s
 }
 
-// Returns true if the program wants to shut down. This happens when for example pressing the close
-// button on the window. The application can decide if it wants to shut down or if it wants to show
-// some kind of confirmation dialogue and shut down later.
+// Returns true the user has pressed the close button on the window, or used a key stroke such as
+// ALT+F4 on Windows. The application can decide if it wants to shut down or if it wants to show
+// some kind of confirmation dialogue.
 //
-// Commonly used for creating the "main loop" of a game.
+// Commonly used for creating the "main loop" of a game: `for k2.shutdown_wanted {}`
 shutdown_wanted :: proc() -> bool {
 	return s.shutdown_wanted
 }
@@ -144,16 +144,26 @@ shutdown :: proc() {
 	s = nil
 }
 
-// Clear the backbuffer with supplied color.
+// Clear the "screen" with the supplied color. By default this will clear your window. But if you
+// have set a Render Texture using `set_render_texture` procedure, then that Render Texture will be
+// cleared instead.
 clear :: proc(color: Color) {
 	draw_current_batch()
 	rb.clear(s.batch_render_target, color)
 	s.depth = s.depth_start
 }
 
-// Present the backbuffer. Call at end of frame to make everything you've drawn appear on the
-// screen. Also clears the frame_allocator that Karl2D uses for allocations that have the lifetime
-// of a single frame.
+// "Flips the backbuffer": Call at end of frame to make everything you've drawn appear on the screen.
+//
+// When you draw using for example `draw_texture`, then that stuff is drawn to an invisible texture
+// called a "backbuffer". This makes sure that we don't see half-drawn frames. So when you are happy
+// with a frame and want to show it to the player, use this procedure.
+//
+// Also, this procedure clears the frame_allocator that Karl2D uses for internal allocations that
+// have the lifetime of a single frame.
+//
+// WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
+// make Karl2D clear its frame allocator.
 present :: proc() {
 	draw_current_batch()
 	rb.present()
@@ -228,18 +238,27 @@ process_events :: proc() {
 	win.clear_events()
 }
 
+// Gets the width of the drawing area within the window. The returned number is not scaled by any
+// monitor DPI scaling. You do that manually using the number returned by `get_window_scale()`.
 get_screen_width :: proc() -> int {
 	return win.get_width()
 }
 
+// Gets the height of the drawing area within the window. The returned number is not scaled by any
+// monitor DPI scaling. You do that manually using the number returned by `get_window_scale()`.
 get_screen_height :: proc() -> int  {
 	return win.get_height()
 }
 
+// Moves the window.
+//
+// WebGL note: This moves the canvas within the window, which may not be what you want.
 set_window_position :: proc(x: int, y: int) {
 	win.set_position(x, y)
 }
 
+// Resize the window to a new size. If the window has the flag Resizable set, then the backbuffer
+// will also be resized.
 set_window_size :: proc(width: int, height: int) {
 	// TODO not sure if we should resize swapchain here. On windows the WM_SIZE event fires and
 	// it all works out. But perhaps not on all platforms?
