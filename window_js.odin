@@ -47,6 +47,8 @@ js_init :: proc(
 	s.canvas_id = "webgl-canvas"
 	s.flags = flags
 
+	js.set_document_title(window_title)
+
 	// The browser window probably has some other size than what was sent in.
 	if .Resizable in flags {
 		add_window_event_listener(.Resize, js_event_window_resize)
@@ -86,9 +88,8 @@ js_event_window_resize :: proc(e: js.Event) {
 }
 
 js_event_mouse_move :: proc(e: js.Event) {
-	dpi := js.device_pixel_ratio()
 	append(&s.events, Window_Event_Mouse_Move {
-		position = {f32(e.mouse.client.x) * f32(dpi), f32(e.mouse.client.y) * f32(dpi)},
+		position = {f32(e.mouse.client.x), f32(e.mouse.client.y)},
 	})
 }
 

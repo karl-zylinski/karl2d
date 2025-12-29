@@ -72,6 +72,11 @@
 					"working_dir": "$project_path/../examples/box2d"
 				},
 				{
+					"name": "box2d (web)",
+					"shell_cmd": "odin run build_web_example -- box2d",
+					"working_dir": "$project_path/../examples"
+				},
+				{
 					"name": "premultiplied_alpha",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=d3d11",
 					"working_dir": "$project_path/../examples/premultiplied_alpha"

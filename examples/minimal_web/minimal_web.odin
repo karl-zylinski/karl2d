@@ -5,7 +5,10 @@
 //
 //    odin run build_web_example -- minimal_web
 //
-// The built web application will be in minimal_web/web/build
+// The built web application will be in minimal_web/web/build.
+//
+// This approach of using `odin run build_web_example -- example_folder_name` works for most other
+// examples, except for the non-web `minimal` example.
 package karl2d_minimal_example_web
 
 import k2 "../.."
