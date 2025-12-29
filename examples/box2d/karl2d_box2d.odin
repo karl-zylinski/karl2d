@@ -1,3 +1,7 @@
+// This example shows a stack of boxes and the player has a circle that can push the boxes.
+//
+// This example needs some cleaning up: It leaks lots of box2D things and can perhaps be done more
+// compactly. Originally made during a 1h stream: https://www.youtube.com/watch?v=LYW7jdwEnaI
 package karl2d_box2d_example
 
 import b2 "vendor:box2d"
@@ -131,7 +135,6 @@ step :: proc() -> bool {
 	free_all(context.temp_allocator)
 	return !k2.shutdown_wanted()
 }
-
 
 shutdown :: proc() {
 	b2.DestroyWorld(world_id)
