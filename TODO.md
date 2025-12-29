@@ -2,7 +2,7 @@
 
 High-level TODO before beta release:
 x Complete JS window impl
-- Fix render target drawing on gl and webgl
+X Fix render target drawing on gl and webgl
 - Make text rendering look good
 - Figure out what to do with the delta time stuff, built in or separate?
 - Look into webgl performance (bunnymark)

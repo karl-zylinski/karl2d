@@ -20,6 +20,7 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	load_texture = rbnil_load_texture,
 	update_texture = rbnil_update_texture,
 	destroy_texture = rbnil_destroy_texture,
+	texture_needs_vertical_flip = rbnil_texture_needs_vertical_flip,
 	create_render_texture = rbnil_create_render_texture,
 	destroy_render_target = rbnil_destroy_render_target,
 	set_texture_filter = rbnil_set_texture_filter,
@@ -91,6 +92,10 @@ rbnil_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool
 }
 
 rbnil_destroy_texture :: proc(th: Texture_Handle) {
+}
+
+rbnil_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
+	return false
 }
 
 rbnil_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {

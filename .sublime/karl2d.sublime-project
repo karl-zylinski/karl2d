@@ -37,6 +37,11 @@
 					"working_dir": "$project_path/../examples/render_texture"
 				},
 				{
+					"name": "render_texture (web)",
+					"shell_cmd": "odin run build_web_example -- render_texture",
+					"working_dir": "$project_path/../examples"
+				},
+				{
 					"name": "multitexture",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=d3d11",
 					"working_dir": "$project_path/../examples/multitexture"

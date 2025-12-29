@@ -20,6 +20,7 @@ RENDER_BACKEND_INTERFACE_WEBGL :: Render_Backend_Interface {
 	load_texture = webgl_load_texture,
 	update_texture = webgl_update_texture,
 	destroy_texture = webgl_destroy_texture,
+	texture_needs_vertical_flip = webgl_texture_needs_vertical_flip,
 	create_render_texture = webgl_create_render_texture,
 	destroy_render_target = webgl_destroy_render_target,
 	set_texture_filter = webgl_set_texture_filter,
@@ -47,6 +48,7 @@ WebGL_State :: struct {
 	shaders: hm.Handle_Map(WebGL_Shader, Shader_Handle, 1024*10),
 	vertex_buffer_gpu: gl.Buffer,
 	textures: hm.Handle_Map(WebGL_Texture, Texture_Handle, 1024*10),
+	render_targets: hm.Handle_Map(WebGL_Render_Target, Render_Target_Handle, 128),
 }
 
 WebGL_Shader_Constant_Buffer :: struct {
@@ -80,10 +82,19 @@ WebGL_Texture :: struct {
 	handle: Texture_Handle,
 	id: gl.Texture,
 	format: Pixel_Format,
+	needs_vertical_flip: bool,
 }
 
 WebGL_Texture_Binding :: struct {
 	loc: i32,
+}
+
+WebGL_Render_Target :: struct {
+	handle: Render_Target_Handle,
+	depth: gl.Renderbuffer,
+	framebuffer: gl.Framebuffer,
+	width: int,
+	height: int,
 }
 
 WebGL_Shader :: struct {
@@ -135,7 +146,15 @@ webgl_shutdown :: proc() {
 	gl.DeleteBuffer(s.vertex_buffer_gpu)
 }
 
-webgl_clear :: proc(render_texture: Render_Target_Handle, color: Color) {
+webgl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
+	if rt := hm.get(&s.render_targets, render_target); rt != nil {
+		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer)
+		gl.Viewport(0, 0, i32(rt.width), i32(rt.height))
+	} else {
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		gl.Viewport(0, 0, i32(s.width), i32(s.height))
+	}
+
 	c := f32_color_from_color(color)
 	gl.ClearColor(c.r, c.g, c.b, c.a)
 	gl.ClearDepth(-1)
@@ -148,7 +167,7 @@ webgl_present :: proc() {
 
 webgl_draw :: proc(
 	shd: Shader,
-	render_texture: Render_Target_Handle,
+	render_target: Render_Target_Handle,
 	bound_textures: []Texture_Handle,
 	scissor: Maybe(Rect),
 	blend_mode: Blend_Mode,
@@ -270,6 +289,14 @@ webgl_draw :: proc(
 		}
 	}
 
+	if rt := hm.get(&s.render_targets, render_target); rt != nil {
+		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer)
+		gl.Viewport(0, 0, i32(rt.width), i32(rt.height))
+	} else {
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		gl.Viewport(0, 0, i32(s.width), i32(s.height))
+	}
+
 	gl.DrawArrays(gl.TRIANGLES, 0, int(len(vertex_buffer)/shd.vertex_size))
 }
 
@@ -295,7 +322,7 @@ webgl_set_internal_state :: proc(state: rawptr) {
 	s = (^WebGL_State)(state)
 }
 
-create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawptr) -> Texture_Handle {
+create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawptr) -> WebGL_Texture {
 	id := gl.CreateTexture()
 	gl.BindTexture(gl.TEXTURE_2D, id)
 
@@ -309,20 +336,18 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawp
 	data_size := width*height*pixel_format_size(format)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, data_size, data)
 
-	tex := WebGL_Texture {
+	return {
 		id = id,
 		format = format,
 	}
-
-	return hm.add(&s.textures, tex)
 }
 
 webgl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return create_texture(width, height, format, nil)
+	return hm.add(&s.textures, create_texture(width, height, format, nil))
 }
 
 webgl_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return create_texture(width, height, format, raw_data(data))
+	return hm.add(&s.textures, create_texture(width, height, format, raw_data(data)))
 }
 
 webgl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
@@ -348,12 +373,57 @@ webgl_destroy_texture :: proc(th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 }
 
+webgl_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
+	tex := hm.get(&s.textures, th)
+
+	if tex == nil {
+		return false
+	}
+
+	return tex.needs_vertical_flip
+}
+
 webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
-	return {}, {}
+	texture := create_texture(width, height, .RGBA_32_Float, nil)
+	texture.needs_vertical_flip = true
+	
+	framebuffer := gl.CreateFramebuffer()
+	gl.BindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+
+	depth := gl.CreateRenderbuffer()
+	gl.BindRenderbuffer(gl.RENDERBUFFER, depth)
+	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, i32(width), i32(height))
+	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth)
+
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture.id, 0)
+	gl.DrawBuffers({gl.COLOR_ATTACHMENT0})
+
+	/*
+
+	ADD BINDINGS FOR THIS
+	if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
+		log.errorf("Failed creating frame buffer of size %v x %v", width, height)
+		return {}, {}
+	}*/
+
+	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	gl.BindRenderbuffer(gl.RENDERBUFFER, 0)
+
+	rt := WebGL_Render_Target {
+		depth = depth,
+		framebuffer = framebuffer,
+		width = width,
+		height = height,
+	}
+
+	return hm.add(&s.textures, texture), hm.add(&s.render_targets, rt)
 }
 
 webgl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
-	
+	if rt := hm.get(&s.render_targets, render_target); rt != nil {
+		gl.DeleteRenderbuffer(rt.depth)
+		gl.DeleteFramebuffer(rt.framebuffer)
+	}
 }
 
 webgl_set_texture_filter :: proc(
