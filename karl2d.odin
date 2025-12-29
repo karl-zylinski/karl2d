@@ -1359,9 +1359,6 @@ Texture :: struct {
 	handle: Texture_Handle,
 	width: int,
 	height: int,
-
-	// Hack to flip OpenGL render textures
-	flip_on_draw: bool,
 }
 
 Load_Texture_Option :: enum {

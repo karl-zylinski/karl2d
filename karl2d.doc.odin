@@ -147,7 +147,7 @@ measure_text :: proc(text: string, font_size: f32) -> Vec2
 
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color)
 
-draw_text_ex :: proc(font: Font_Handle, text: string, pos: Vec2, font_size: f32, color: Color)
+draw_text_ex :: proc(font_handle: Font_Handle, text: string, pos: Vec2, font_size: f32, color: Color)
 
 //--------------------//
 // TEXTURE MANAGEMENT //

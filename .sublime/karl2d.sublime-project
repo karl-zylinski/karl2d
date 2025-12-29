@@ -27,6 +27,11 @@
 					"working_dir": "$project_path/../examples/fonts"
 				},
 				{
+					"name": "fonts (web)",
+					"shell_cmd": "odin run build_web_example -- fonts",
+					"working_dir": "$project_path/../examples"
+				},
+				{
 					"name": "render_texture",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
 					"working_dir": "$project_path/../examples/render_texture"

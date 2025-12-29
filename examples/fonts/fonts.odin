@@ -5,27 +5,41 @@ import "core:log"
 
 main :: proc() {
 	context.logger = log.create_console_logger()
-	k2.init(1080, 1080, "Karl2D Fonts Program")
-	k2.set_window_position(300, 100)
 
-	cao_font := k2.load_font_from_file("cat_and_onion_dialogue_font.ttf")
-	default_font := k2.get_default_font()
+	init()
 
 	for !k2.shutdown_wanted() {
-		k2.process_events()
-		k2.clear(k2.BLUE)
-
-		font := default_font 
-
-		if k2.key_is_held(.K) {
-			font = cao_font
-		}
-
-		k2.draw_text_ex(font, "Hellöpe! Hold K to swap font", {20, 20}, 64, k2.WHITE)
-		k2.present()
-		free_all(context.temp_allocator)
+		step(0)
 	}
 
-	k2.destroy_font(cao_font)
+	shutdown()
+}
+
+cat_and_onion_font: k2.Font_Handle
+
+init :: proc() {
+	k2.init(1080, 1080, "Karl2D Fonts Program")
+
+	cat_and_onion_font = k2.load_font_from_bytes(#load("cat_and_onion_dialogue_font.ttf"))
+}
+
+step :: proc(dt: f32) -> bool {
+	k2.process_events()
+	k2.clear(k2.BLUE)
+
+	font := k2.get_default_font() 
+
+	if k2.key_is_held(.K) {
+		font = cat_and_onion_font
+	}
+
+	k2.draw_text_ex(font, "Hellöpe! Hold K to swap font", {20, 20}, 64, k2.WHITE)
+	k2.present()
+	free_all(context.temp_allocator)
+	return true
+}
+
+shutdown :: proc() {
+	k2.destroy_font(cat_and_onion_font)
 	k2.shutdown()
 }
