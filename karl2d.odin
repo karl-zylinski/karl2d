@@ -117,12 +117,12 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 // ALT+F4 on Windows. The application can decide if it wants to shut down or if it wants to show
 // some kind of confirmation dialogue.
 //
-// Commonly used for creating the "main loop" of a game: `for k2.shutdown_wanted {}`
+// Commonly used for creating the "main loop" of a game: `for !k2.shutdown_wanted {}`
 shutdown_wanted :: proc() -> bool {
 	return s.shutdown_wanted
 }
 
-// Closes the window and cleans up the internal state.
+// Closes the window and cleans up Karl2D's internal state.
 shutdown :: proc() {
 	assert(s != nil, "You've called 'shutdown' without calling 'init' first")
 	context.allocator = s.allocator
@@ -146,14 +146,23 @@ shutdown :: proc() {
 }
 
 // Clear the "screen" with the supplied color. By default this will clear your window. But if you
-// have set a Render Texture using `set_render_texture` procedure, then that Render Texture will be
-// cleared instead.
+// have set a Render Texture using the `set_render_texture` procedure, then that Render Texture will
+// be cleared instead.
 clear :: proc(color: Color) {
 	draw_current_batch()
 	rb.clear(s.batch_render_target, color)
+
+	// This is problematic -- if you switch from backbuffer drawing to a render texture and back
+	// again, then the depth will be messed with. Should we rethink our depth usage and always use
+	// "painter's algorithm" instead?
 	s.depth = s.depth_start
 }
 
+// Call at the start of each frame. This procedure does two main things:
+// - Fetches how long the previous frame took and how long since the program started. These values
+//   can be fetched using `get_frame_time()` and `get_time()`
+// - Clears Karl2D's internal "frame_allocator" -- that's the allocator the library uses for
+//   dynamic memory that has a lifetime of a single frame.
 new_frame :: proc() {
 	free_all(s.frame_allocator)
 
@@ -177,10 +186,10 @@ new_frame :: proc() {
 //
 // When you draw using for example `draw_texture`, then that stuff is drawn to an invisible texture
 // called a "backbuffer". This makes sure that we don't see half-drawn frames. So when you are happy
-// with a frame and want to show it to the player, use this procedure.
+// with a frame and want to show it to the player, call this procedure.
 //
 // WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
-// make sure that all rendering has been sent off to the GPU.
+// make sure that all rendering has been sent off to the GPU (it calls `draw_current_batch()`).
 present :: proc() {
 	draw_current_batch()
 	rb.present()
@@ -254,10 +263,16 @@ process_events :: proc() {
 	win.clear_events()
 }
 
+// Returns how many seconds the previous frame took. Often a tiny number such as 0.016 s.
+//
+// You must call `new_frame()` at the start of your frame in order for the frame_time to be updated.
 get_frame_time :: proc() -> f32 {
 	return s.frame_time
 }
 
+// Returns how many seconds has elapsed since the game started.
+//
+// You must call `new_frame()` at the start of your frame for this value to get updated.
 get_time :: proc() -> f64 {
 	return s.time
 }
@@ -295,6 +310,7 @@ get_window_scale :: proc() -> f32 {
 	return win.get_window_scale()
 }
 
+// These are the same kind of flags that you can send to `init`.
 set_window_flags :: proc(flags: Window_Flags) {
 	win.set_flags(flags)
 }
@@ -308,17 +324,20 @@ set_window_flags :: proc(flags: Window_Flags) {
 // - set_shader
 // - set_shader_constant
 // - set_scissor_rect
+// - set_blend_mode
+// - set_render_texture
+// - clear
 // - draw_texture_* IF previous draw did not use the same texture (1)
 // - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing texture (2)
 // 
 // (1) When drawing textures, the current texture is fed into the active shader. Everything within
-//     the same batch must use the same texture. So drawing with a new texture will draw the current
-//     batch. You can combine several textures into an atlas to get bigger batches.
+//     the same batch must use the same texture. So drawing with a new texture forces the current to
+//     be drawn. You can combine several textures into an atlas to get bigger batches.
 //
 // (2) In order to use the same shader for shapes drawing and textured drawing, the shapes drawing
 //     uses a blank, white texture. For the same reasons as (1), drawing something else than shapes
-//     before drawing a shape will break up the batches. TODO: Add possibility to customize shape
-//     drawing texture so that you can put it into an atlas.
+//     before drawing a shape will break up the batches. In a future update I'll add so that you can
+//     set your own shapes drawing texture, making it possible to combine it with a bigger atlas.
 //
 // The batch has maximum size of VERTEX_BUFFER_MAX bytes. The shader dictates how big a vertex is
 // so the maximum number of vertices that can be drawn in each batch is
@@ -362,31 +381,40 @@ draw_current_batch :: proc() {
 //-------//
 
 // Returns true if a keyboard key went down between the current and the previous frame. Set when
-// 'process_events' runs (probably once per frame).
+// 'process_events' runs.
 key_went_down :: proc(key: Keyboard_Key) -> bool {
 	return s.key_went_down[key]
 }
 
 // Returns true if a keyboard key went up (was released) between the current and the previous frame.
-// Set when 'process_events' runs (probably once per frame).
+// Set when 'process_events' runs.
 key_went_up :: proc(key: Keyboard_Key) -> bool {
 	return s.key_went_up[key]
 }
 
-// Returns true if a keyboard is currently being held down. Set when 'process_events' runs (probably
-// once per frame).
+// Returns true if a keyboard is currently being held down. Set when 'process_events' runs.
 key_is_held :: proc(key: Keyboard_Key) -> bool {
 	return s.key_is_held[key]
 }
 
+// Returns true if a mouse button went down between the current and the previous frame. Specify
+// which mouse button using the `button` parameter.
+//
+// Set when 'process_events' runs.
 mouse_button_went_down :: proc(button: Mouse_Button) -> bool {
 	return s.mouse_button_went_down[button]
 }
 
+// Returns true if a mouse button went up (was released) between the current and the previous frame.
+// Specify which mouse button using the `button` parameter.
+//
+// Set when 'process_events' runs.
 mouse_button_went_up :: proc(button: Mouse_Button) -> bool {
 	return s.mouse_button_went_up[button]
 }
 
+// Returns true if a mouse button is currently being held down. Specify which mouse button using the
+// `button` parameter. Set when 'process_events' runs.
 mouse_button_is_held :: proc(button: Mouse_Button) -> bool {
 	return s.mouse_button_is_held[button]
 }

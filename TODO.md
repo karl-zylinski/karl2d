@@ -11,8 +11,23 @@ X Fix render target drawing on gl and webgl
 
 
 Things to get feedback on:
-- Do we need a delta time in the lib or should we use Odin time?
-- How do people think that DPI scaling should work? I've had bad experiences with high DPI mode of Raylib. So I've gone for an idea where you always get everything in native coords and then you scale yourself using the DPI scale that the library provides, if you want to.
+- Is the `k2.new_frame()` concept OK? I was thinking of merging `new_frame()` and `process_events()`,
+  but something tells me that some people may want to move their event processing around. Initially
+  I was toying with the idea to have the user use `core:time` and figure out `dt` etc themselves,
+  but that was not good for first-user experience.
+
+- How do people think that DPI scaling should work? I've had bad experiences with high DPI mode
+  Raylib. So I've gone for an idea where you always get everything in native coords and then you
+  scale yourself using the number returned by `k2.get_window_scale()`
+
+- Because of how web builds need `init` and `step` to be split up, I also split the examples up this
+  way, so we can use them both on desktop and on web. This sometimes made them a bit more chatty.
+  For example, I had to move some variables to the global scope. Should I approach this differently?
+
+- 
+
+
+
 
 * Can we reuse memory for const buffers and union blocks between shaders? Just create reasonably sized ones and fetch based on size or something.
 * should gamepad come from separate interface than window?
@@ -39,6 +54,7 @@ Things to get feedback on:
 * webgl backend
 * should we expose time and delta time stuff or rely on core:time?
 * think about sound
+* add shapes drawing texture override
 
 ## DONE
 * set filtering: for scaling up, down and mipmap
