@@ -1,15 +1,15 @@
-package karl2d_minimal_example
+package karl2d_fonts_example
 
 import k2 "../.."
 import "core:log"
 
 main :: proc() {
 	context.logger = log.create_console_logger()
-
 	init()
+	run := true
 
-	for !k2.shutdown_wanted() {
-		step(0)
+	for run {
+		run = step()
 	}
 
 	shutdown()
@@ -18,12 +18,12 @@ main :: proc() {
 cat_and_onion_font: k2.Font_Handle
 
 init :: proc() {
-	k2.init(1080, 1080, "Karl2D Fonts Program")
-
+	k2.init(1080, 1080, "Karl2D Fonts Example")
 	cat_and_onion_font = k2.load_font_from_bytes(#load("cat_and_onion_dialogue_font.ttf"))
 }
 
-step :: proc(dt: f32) -> bool {
+step :: proc() -> bool {
+	k2.new_frame()
 	k2.process_events()
 	k2.clear(k2.BLUE)
 
@@ -36,7 +36,7 @@ step :: proc(dt: f32) -> bool {
 	k2.draw_text_ex(font, "Hellöpe! Hold K to swap font", {20, 20}, 64, k2.WHITE)
 	k2.present()
 	free_all(context.temp_allocator)
-	return true
+	return !k2.shutdown_wanted()
 }
 
 shutdown :: proc() {
