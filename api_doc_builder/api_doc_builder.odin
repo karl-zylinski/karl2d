@@ -1,3 +1,6 @@
+// This program creates the `karl2d.doc.odin` file by parsing `karl2d.odin`. It skips procedure
+// bodies and stops when it reaches `API_END :: true`. The resulting file is a nice overview of the
+// library's API surface.
 package karl2d_api_doc_builder
 
 import os "core:os"
