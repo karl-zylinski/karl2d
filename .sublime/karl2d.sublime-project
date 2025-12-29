@@ -57,6 +57,11 @@
 					"working_dir": "$project_path/../examples/multitexture"
 				},
 				{
+					"name": "multitexture (webgl)",
+					"shell_cmd": "odin run build_web_example -- multitexture",
+					"working_dir": "$project_path/../examples"
+				},
+				{
 					"name": "snake",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
 					"working_dir": "$project_path/../examples/snake"

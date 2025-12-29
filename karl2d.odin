@@ -95,7 +95,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 
 	// The default shader will arrive in a different format depending on backend. GLSL for GL,
 	// HLSL for d3d etc.
-	s.default_shader = load_shader_from_memory(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
+	s.default_shader = load_shader_from_bytes(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
 	s.batch_shader = s.default_shader
 
 	// FontStash enables us to bake fonts from TTF files on-the-fly.
@@ -1056,10 +1056,10 @@ load_shader_from_file :: proc(
 		}
 	}
 
-	return load_shader_from_memory(vertex_source, fragment_source, layout_formats)
+	return load_shader_from_bytes(vertex_source, fragment_source, layout_formats)
 }
 
-load_shader_from_memory :: proc(
+load_shader_from_bytes :: proc(
 	vertex_shader_bytes: []byte,
 	fragment_shader_bytes: []byte,
 	layout_formats: []Pixel_Format = {},
