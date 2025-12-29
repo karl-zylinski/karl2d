@@ -27,12 +27,11 @@ main :: proc() {
 	}
 
 	k2.init(1080, 1080, "Karl2D Render Texture Example")
-	k2.set_window_position(300, 100)
-
-	render_texture := k2.create_render_texture(128, 128)
+	render_texture := k2.create_render_texture(75, 48)
 
 	for !k2.shutdown_wanted() {
 		k2.process_events()
+
 
 		k2.set_render_texture(render_texture)
 		k2.clear(k2.BLUE)
@@ -45,10 +44,13 @@ main :: proc() {
 		
 		k2.set_render_texture(nil)
 
-		k2.clear(k2.GRAY)
-		k2.draw_texture_ex(render_texture.texture, {0, 0, 128, 128}, {0, 0, 1080, 1080}, {}, 0, k2.WHITE)
+		k2.clear(k2.BLACK)
+
+		rt_size := k2.get_texture_rect(render_texture.texture)
+
+		k2.draw_texture_ex(render_texture.texture, rt_size, {0, 0, rt_size.w * 5, rt_size.h * 5}, {}, 0, k2.WHITE)
 		k2.draw_texture(render_texture.texture, {400, 20}, k2.WHITE)
-		k2.draw_texture_ex(render_texture.texture, {0, 0, 128, 128}, {512, 512, 512, 512}, {}, 70, k2.WHITE)
+		k2.draw_texture_ex(render_texture.texture, rt_size, {512, 512, rt_size.w * 5, rt_size.h * 5}, {}, 70, k2.WHITE)
 
 		k2.present()
 		free_all(context.temp_allocator)

@@ -691,7 +691,16 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		uv2.x -= us.x
 		uv3.x += us.x
 		uv4.x -= us.x
-		uv5.x += us.x		
+		uv5.x += us.x
+	}
+
+	// HACK: We ask the render backend if this texture needs flipping. The idea is that GL will
+	// flip render textures, so we need to automatically unflip them.
+	//
+	// Could we do something with the projection matrix while drawing into those render textures
+	// instead? I tried that, but couldn't get it to work.
+	if rb.texture_needs_vertical_flip(tex.handle) {
+		flip_y = !flip_y
 	}
 
 	if flip_y {
@@ -724,13 +733,13 @@ draw_text :: proc(text: string, pos: Vec2, font_size: f32, color: Color) {
 	draw_text_ex(s.default_font, text, pos, font_size, color)
 }
 
-draw_text_ex :: proc(font: Font_Handle, text: string, pos: Vec2, font_size: f32, color: Color) {
-	if int(font) >= len(s.fonts) {
+draw_text_ex :: proc(font_handle: Font_Handle, text: string, pos: Vec2, font_size: f32, color: Color) {
+	if int(font_handle) >= len(s.fonts) {
 		return
 	}
 
-	set_font(font)
-	font := &s.fonts[font]
+	set_font(font_handle)
+	font := &s.fonts[font_handle]
 	fs.SetSize(&s.fs, font_size)
 	iter := fs.TextIterInit(&s.fs, pos.x, pos.y+font_size/2, text)
 
@@ -893,7 +902,7 @@ create_render_texture :: proc(width: int, height: int) -> Render_Texture {
 		texture = { 
 			handle = texture,
 			width = width,
-			height = height,	
+			height = height,
 		},
 		render_target = render_target,
 	}
@@ -915,6 +924,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 
 		draw_current_batch()
 		s.batch_render_target = rt.render_target
+		s.proj_matrix = make_default_projection(rt.texture.width, rt.texture.height)
 	} else {
 		if s.batch_render_target == RENDER_TARGET_NONE {
 			return
@@ -922,6 +932,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 
 		draw_current_batch()
 		s.batch_render_target = RENDER_TARGET_NONE
+		s.proj_matrix = make_default_projection(win.get_width(), win.get_height())
 	}
 }
 
@@ -1348,6 +1359,9 @@ Texture :: struct {
 	handle: Texture_Handle,
 	width: int,
 	height: int,
+
+	// Hack to flip OpenGL render textures
+	flip_on_draw: bool,
 }
 
 Load_Texture_Option :: enum {

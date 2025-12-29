@@ -21,6 +21,7 @@ RENDER_BACKEND_INTERFACE_D3D11 :: Render_Backend_Interface {
 	load_texture = d3d11_load_texture,
 	update_texture = d3d11_update_texture,
 	destroy_texture = d3d11_destroy_texture,
+	texture_needs_vertical_flip = d3d11_texture_needs_vertical_flip,
 	create_render_texture = d3d11_create_render_texture,
 	destroy_render_target = d3d11_destroy_render_target,
 	set_texture_filter = d3d11_set_texture_filter,
@@ -295,13 +296,6 @@ d3d11_draw :: proc(
 		}
 	}
 
-	viewport := d3d11.VIEWPORT{
-		0, 0,
-		f32(s.width), f32(s.height),
-		0, 1,
-	}
-
-	dc->RSSetViewports(1, &viewport)
 	dc->RSSetState(s.rasterizer_state)
 
 	scissor_rect := d3d11.RECT {
@@ -335,8 +329,24 @@ d3d11_draw :: proc(
 
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		dc->OMSetRenderTargets(1, &rt.render_target_view, rt.depth_stencil_texture_view)
+
+		viewport := d3d11.VIEWPORT{
+			0, 0,
+			f32(rt.width), f32(rt.height),
+			0, 1,
+		}
+
+		dc->RSSetViewports(1, &viewport)
 	} else {
 		dc->OMSetRenderTargets(1, &s.framebuffer_view, s.depth_buffer_view)
+
+		viewport := d3d11.VIEWPORT{
+			0, 0,
+			f32(s.width), f32(s.height),
+			0, 1,
+		}
+
+		dc->RSSetViewports(1, &viewport)
 	}
 
 	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
@@ -484,6 +494,8 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 		depth_stencil_texture = depth_stencil_texture,
 		depth_stencil_texture_view = depth_stencil_texture_view,
 		render_target_view = render_target_view,
+		width = width,
+		height = height,
 	}
 
 	return hm.add(&s.textures, d3d11_texture), hm.add(&s.render_targets, d3d11_render_target)
@@ -536,6 +548,10 @@ d3d11_destroy_texture :: proc(th: Texture_Handle) {
 	}
 
 	hm.remove(&s.textures, th)
+}
+
+d3d11_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
+	return false
 }
 
 d3d11_set_texture_filter :: proc(
@@ -1024,6 +1040,8 @@ D3D11_Render_Target :: struct {
 	depth_stencil_texture: ^d3d11.ITexture2D,
 	depth_stencil_texture_view: ^d3d11.IDepthStencilView,
 	render_target_view: ^d3d11.IRenderTargetView,
+	width: int,
+	height: int,
 }
 
 dxgi_format_from_pixel_format :: proc(f: Pixel_Format) -> dxgi.FORMAT {

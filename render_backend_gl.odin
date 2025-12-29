@@ -20,6 +20,7 @@ RENDER_BACKEND_INTERFACE_GL :: Render_Backend_Interface {
 	load_texture = gl_load_texture,
 	update_texture = gl_update_texture,
 	destroy_texture = gl_destroy_texture,
+	texture_needs_vertical_flip = gl_texture_needs_vertical_flip,
 	create_render_texture = gl_create_render_texture,
 	destroy_render_target = gl_destroy_render_target,
 	set_texture_filter = gl_set_texture_filter,
@@ -49,6 +50,7 @@ GL_State :: struct {
 	ctx: GL_Context,
 	vertex_buffer_gpu: u32,
 	textures: hm.Handle_Map(GL_Texture, Texture_Handle, 1024*10),
+	render_targets: hm.Handle_Map(GL_Render_Target, Render_Target_Handle, 128),
 }
 
 GL_Shader_Constant_Buffer :: struct {
@@ -82,10 +84,21 @@ GL_Texture :: struct {
 	handle: Texture_Handle,
 	id: u32,
 	format: Pixel_Format,
+
+	// Because render targets are up-side-down
+	needs_vertical_flip: bool,
 }
 
 GL_Texture_Binding :: struct {
 	loc: i32,
+}
+
+GL_Render_Target :: struct {
+	handle: Render_Target_Handle,
+	depth: u32,
+	framebuffer: u32,
+	width: int,
+	height: int,
 }
 
 GL_Shader :: struct {
@@ -137,7 +150,15 @@ gl_shutdown :: proc() {
 	_gl_destroy_context(s.ctx)
 }
 
-gl_clear :: proc(render_texture: Render_Target_Handle, color: Color) {
+gl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
+	if rt := hm.get(&s.render_targets, render_target); rt != nil {
+		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer)
+		gl.Viewport(0, 0, i32(rt.width), i32(rt.height))
+	} else {
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		gl.Viewport(0, 0, i32(s.width), i32(s.height))
+	}
+
 	c := f32_color_from_color(color)
 	gl.ClearColor(c.r, c.g, c.b, c.a)
 	gl.ClearDepth(-1)
@@ -150,7 +171,7 @@ gl_present :: proc() {
 
 gl_draw :: proc(
 	shd: Shader,
-	render_texture: Render_Target_Handle,
+	render_target: Render_Target_Handle,
 	bound_textures: []Texture_Handle,
 	scissor: Maybe(Rect),
 	blend_mode: Blend_Mode,
@@ -310,6 +331,16 @@ gl_draw :: proc(
 	}
 
 	gl.UnmapBuffer(gl.ARRAY_BUFFER)
+
+	if rt := hm.get(&s.render_targets, render_target); rt != nil {
+		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer)
+		gl.Viewport(0, 0, i32(rt.width), i32(rt.height))
+	} else {
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		gl.Viewport(0, 0, i32(s.width), i32(s.height))
+	}
+	 // Render on the whole framebuffer, complete from the lower left corner to the upper right
+
 	gl.DrawArrays(gl.TRIANGLES, 0, i32(len(vertex_buffer)/shd.vertex_size))
 }
 
@@ -335,7 +366,7 @@ gl_set_internal_state :: proc(state: rawptr) {
 	s = (^GL_State)(state)
 }
 
-create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawptr) -> Texture_Handle {
+create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawptr) -> GL_Texture {
 	id: u32
 	gl.GenTextures(1, &id)
 	gl.BindTexture(gl.TEXTURE_2D, id)
@@ -348,20 +379,18 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawp
 	pf := gl_translate_pixel_format(format)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, data)
 
-	tex := GL_Texture {
+	return {
 		id = id,
 		format = format,
 	}
-
-	return hm.add(&s.textures, tex)
 }
 
 gl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return create_texture(width, height, format, nil)
+	return hm.add(&s.textures, create_texture(width, height, format, nil))
 }
 
 gl_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return create_texture(width, height, format, raw_data(data))
+	return hm.add(&s.textures, create_texture(width, height, format, raw_data(data)))
 }
 
 gl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
@@ -387,12 +416,57 @@ gl_destroy_texture :: proc(th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 }
 
+gl_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
+	tex := hm.get(&s.textures, th)
+
+	if tex == nil {
+		return false
+	}
+
+	return tex.needs_vertical_flip
+}
+
 gl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
-	return {}, {}
+	texture := create_texture(width, height, .RGBA_32_Float, nil)
+	texture.needs_vertical_flip = true
+	
+	framebuffer: u32
+	gl.GenFramebuffers(1, &framebuffer)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+
+	depth: u32
+	gl.GenRenderbuffers(1, &depth)
+	gl.BindRenderbuffer(gl.RENDERBUFFER, depth)
+	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT, i32(width), i32(height))
+	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth)
+
+	gl.FramebufferTexture(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, texture.id, 0)
+	draw_buffers := u32(gl.COLOR_ATTACHMENT0)
+	gl.DrawBuffers(1, &draw_buffers)
+
+	if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
+		log.errorf("Failed creating frame buffer of size %v x %v", width, height)
+		return {}, {}
+	}
+
+	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	gl.BindRenderbuffer(gl.RENDERBUFFER, 0)
+
+	rt := GL_Render_Target {
+		depth = depth,
+		framebuffer = framebuffer,
+		width = width,
+		height = height,
+	}
+
+	return hm.add(&s.textures, texture), hm.add(&s.render_targets, rt)
 }
 
 gl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
-	
+	if rt := hm.get(&s.render_targets, render_target); rt != nil {
+		gl.DeleteRenderbuffers(1, &rt.depth)
+		gl.DeleteFramebuffers(1, &rt.framebuffer)
+	}
 }
 
 gl_set_texture_filter :: proc(
