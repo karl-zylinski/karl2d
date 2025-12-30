@@ -16,7 +16,7 @@ main :: proc() {
 	shutdown()
 }
 
-cat_and_onion_font: k2.Font_Handle
+cat_and_onion_font: k2.Font
 
 init :: proc() {
 	k2.init(1080, 1080, "Karl2D Fonts Example")

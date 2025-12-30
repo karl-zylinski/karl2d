@@ -848,7 +848,7 @@ measure_text :: proc(text: string, font_size: f32) -> Vec2 {
 
 // Tells you how much space some text of a certain size will use on the screen, using a custom font.
 // The return value contains the width and height of the text.
-measure_text_ex :: proc(font_handle: Font_Handle, text: string, font_size: f32) -> Vec2 {
+measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2 {
 	_set_font(font_handle)
 	fs.SetSize(&s.fs, font_size)
 	b: [4]f32
@@ -864,7 +864,7 @@ draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK) {
 
 // Draw text at a position with a size, using a custom font. `pos` will be equal to the  top-left
 // position of the text.
-draw_text_ex :: proc(font_handle: Font_Handle, text: string, pos: Vec2, font_size: f32, color := BLACK) {
+draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32, color := BLACK) {
 	if int(font_handle) >= len(s.fonts) {
 		return
 	}
@@ -1073,7 +1073,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 // FONTS //
 //-------//
 
-load_font_from_file :: proc(filename: string) -> Font_Handle {
+load_font_from_file :: proc(filename: string) -> Font {
 	when !FILESYSTEM_SUPPORTED {
 		log.errorf("load_font_from_file failed: OS %v has no filesystem support! Tip: Use load_font_from_bytes(#load(\"the_font.ttf\")) instead.", ODIN_OS)
 		return {}
@@ -1086,11 +1086,11 @@ load_font_from_file :: proc(filename: string) -> Font_Handle {
 	return FONT_NONE
 }
 
-load_font_from_bytes :: proc(data: []u8) -> Font_Handle {
+load_font_from_bytes :: proc(data: []u8) -> Font {
 	font := fs.AddFontMem(&s.fs, "", data, false)
-	h := Font_Handle(len(s.fonts))
+	h := Font(len(s.fonts))
 
-	append(&s.fonts, Font {
+	append(&s.fonts, Font_Data {
 		fontstash_handle = font,
 		atlas = {
 			handle = rb.create_texture(FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .RGBA_8_Norm),
@@ -1102,7 +1102,7 @@ load_font_from_bytes :: proc(data: []u8) -> Font_Handle {
 	return h
 }
 
-destroy_font :: proc(font: Font_Handle) {
+destroy_font :: proc(font: Font) {
 	if int(font) >= len(s.fonts) {
 		return
 	}
@@ -1115,7 +1115,7 @@ destroy_font :: proc(font: Font_Handle) {
 	s.fs.fonts[f.fontstash_handle].glyphs = {}
 }
 
-get_default_font :: proc() -> Font_Handle {
+get_default_font :: proc() -> Font {
 	return s.default_font
 }
 
@@ -1630,7 +1630,7 @@ Pixel_Format :: enum {
 	R_8_UInt,
 }
 
-Font :: struct {
+Font_Data :: struct {
 	atlas: Texture,
 
 	// internal
@@ -1640,9 +1640,9 @@ Font :: struct {
 Handle :: hm.Handle
 Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
-Font_Handle :: distinct int
+Font :: distinct int
 
-FONT_NONE :: Font_Handle {}
+FONT_NONE :: Font {}
 TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
@@ -1681,10 +1681,10 @@ State :: struct {
 
 	window: Window_Handle,
 
-	default_font: Font_Handle,
-	fonts: [dynamic]Font,
+	default_font: Font,
+	fonts: [dynamic]Font_Data,
 	shape_drawing_texture: Texture_Handle,
-	batch_font: Font_Handle,
+	batch_font: Font,
 	batch_camera: Maybe(Camera),
 	batch_shader: Shader,
 	batch_scissor: Maybe(Rect),
@@ -2021,7 +2021,7 @@ make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 
 FONT_DEFAULT_ATLAS_SIZE :: 1024
 
-_update_font :: proc(fh: Font_Handle) {
+_update_font :: proc(fh: Font) {
 	font := &s.fonts[fh]
 	font_dirty_rect: [4]f32
 
@@ -2061,7 +2061,7 @@ _update_font :: proc(fh: Font_Handle) {
 }
 
 // Not for direct use. Specify font to `draw_text_ex`
-_set_font :: proc(fh: Font_Handle) {
+_set_font :: proc(fh: Font) {
 	fh := fh
 
 	if s.batch_font == fh {
