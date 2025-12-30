@@ -29,25 +29,25 @@ step :: proc() -> bool {
 	if k2.mouse_button_went_down(.Left) {
 		left_color = k2.GREEN
 	} else if k2.mouse_button_is_held(.Left) {
-		left_color = k2.YELLOW
-	} else if k2.mouse_button_went_up(.Left) {
 		left_color = k2.RED
+	} else if k2.mouse_button_went_up(.Left) {
+		left_color = k2.BLUE
 	}
 
 	if k2.mouse_button_went_down(.Middle) {
 		middle_color = k2.GREEN
 	} else if k2.mouse_button_is_held(.Middle) {
-		middle_color = k2.YELLOW
-	} else if k2.mouse_button_went_up(.Middle) {
 		middle_color = k2.RED
+	} else if k2.mouse_button_went_up(.Middle) {
+		middle_color = k2.BLUE
 	}
 
 	if k2.mouse_button_went_down(.Right) {
 		right_color = k2.GREEN
 	} else if k2.mouse_button_is_held(.Right) {
-		right_color = k2.YELLOW
-	} else if k2.mouse_button_went_up(.Right) {
 		right_color = k2.RED
+	} else if k2.mouse_button_went_up(.Right) {
+		right_color = k2.BLUE
 	}
 
 	k2.draw_circle(left_pos, 10, left_color)

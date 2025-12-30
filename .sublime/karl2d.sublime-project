@@ -182,7 +182,10 @@
 			"path": "C:\\SDK\\Odin\\vendor\\directx\\dxc",
 		},
 		{
-			"path": "C:\\SDK\\Odin\\vendor\\wasm\\WebGL"
+			"path": "C:\\SDK\\Odin\\vendor\\wasm\\WebGL",
+		},
+		{
+			"path": "C:\\projects\\raylib\\src"
 		},
 	],
 	"settings":
