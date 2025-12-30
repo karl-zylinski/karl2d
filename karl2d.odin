@@ -1380,6 +1380,8 @@ pixel_format_size :: proc(f: Pixel_Format) -> int {
 // CAMERA AND COORDINATE SYSTEMS //
 //-------------------------------//
 
+// Make Karl2D use a camera. Return to the "default camera" by passing `nil`. All drawing operations
+// will use this camera until you again change it.
 set_camera :: proc(camera: Maybe(Camera)) {
 	if camera == s.batch_camera {
 		return
@@ -1396,31 +1398,44 @@ set_camera :: proc(camera: Maybe(Camera)) {
 	}
 }
 
+// Transform a point `pos` that lives on the screen to a point in the world. This can be useful for
+// bringing (for example) mouse positions (k2.get_mouse_position()) into world-space.
 screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return (get_camera_world_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
 }
 
+// Transform a point `pos` that lices in the world to a point on the screen. This can be useful when
+// you need to take a position in the world and compare it to a screen-space point.
 world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return (get_camera_view_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
 }
 
+// Get the matrix that `screen_to_world` and `world_to_screen` uses to do their transformations.
+//
+// A view matrix is essentially the world transform matrix of the camera, but inverted. In other
+// words, instead of bringing the camera in front of things in the world, we bring everything in the
+// world "in front of the camera".
+//
+// Instead of constructing the camera matrix and doing a matrix inverse, here we just do the
+// maths in "backwards order". I.e. a camera transform matrix would be:
+//
+//    target_translate * rot * scale * offset_translate
+//
+// but we do
+//
+//    inv_offset_translate * inv_scale * inv_rot * inv_target_translate
+//
+// This is faster, since matrix inverses are expensive.
 get_camera_view_matrix :: proc(c: Camera) -> Mat4 {
 	inv_target_translate := linalg.matrix4_translate(vec3_from_vec2(-c.target))
 	inv_rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
 	inv_scale := linalg.matrix4_scale(Vec3{c.zoom, c.zoom, 1})
 	inv_offset_translate := linalg.matrix4_translate(vec3_from_vec2(c.offset))
 
-	// A view matrix is essentially the world transform matrix of the camera, but inverted. We
-	// bring everything in the world "in front of the camera".
-	//
-	// Instead of constructing the camera matrix and doing a matrix inverse, here we just do the
-	// maths in "backwards order". I.e. a camera transform matrix would be:
-	//
-	//    target_translate * rot * scale * offset_translate
-
 	return inv_offset_translate * inv_scale * inv_rot * inv_target_translate
 }
 
+// Get the matrix that brings something in front of the camera.
 get_camera_world_matrix :: proc(c: Camera) -> Mat4 {
 	offset_translate := linalg.matrix4_translate(vec3_from_vec2(-c.offset))
 	rot := linalg.matrix4_rotate_f32(-c.rotation * math.RAD_PER_DEG, {0, 0, 1})
@@ -1445,6 +1460,8 @@ set_blend_mode :: proc(mode: Blend_Mode) {
 	s.batch_blend_mode = mode
 }
 
+// Make everything outside of the screen-space rectangle `scissor_rect` not render. Disable the
+// scissor rectangle by running `set_scissor_rect(nil)`.
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 	draw_current_batch()
 	s.batch_scissor = scissor_rect
@@ -1539,12 +1556,19 @@ color_alpha :: proc(c: Color, a: u8) -> Color {
 }
 
 Texture :: struct {
+	// The render-backend specific texture identifier.
 	handle: Texture_Handle,
+
+	// The horizontal size of the texture, measured in pixels.
 	width: int,
+
+	// The vertical size of the texture, measure in pixels.
 	height: int,
 }
 
 Load_Texture_Option :: enum {
+	// Will multiply the alpha value of the each pixel into the its RGB values. Useful if you want
+	// to use `set_blend_mode(.Premultiplied_Alpha)`
 	Premultiply_Alpha,
 }
 
@@ -1552,11 +1576,21 @@ Load_Texture_Options :: bit_set[Load_Texture_Option]
 
 Blend_Mode :: enum {
 	Alpha,
-	Premultiplied_Alpha, // Requires the alpha-channel to be multiplied into texture RGB channels.
+
+	// Requires the alpha-channel to be multiplied into texture RGB channels. You can automatically
+	// do this using the `Premultiply_Alpha` option when loading a texture.
+	Premultiplied_Alpha,
 }
 
+// A render texture is a texture that you can draw into, instead of drawing to the screen. Create
+// one using `create_render_texture`.
 Render_Texture :: struct {
+	// The texture that the things will be drawn into. You can use this as a normal texture, for
+	// example, you can pass it to `draw_texture`.
 	texture: Texture,
+
+	// The render backend's internal identifier. It describes how to use the texture as something
+	// the render backend can draw into.
 	render_target: Render_Target_Handle,
 }
 
@@ -1566,13 +1600,28 @@ Texture_Filter :: enum {
 }
 
 Camera :: struct {
+	// Where the camera looks.
 	target: Vec2,
+
+	// By default `target` will be the position of the upper-left corner of the camera. Use this
+	// offset to change that. If you set the offset to half the size of the camera view, then the
+	// target position will end up in the middle of the scren.
 	offset: Vec2,
+
+	// Rotate the camera (unit: degrees)
 	rotation: f32,
+
+	// Zoom the camera. A bigger value means "more zoom".
+	//
+	// To make a certain amount of pixels always occupy the height of the camera, set the zoom to:
+	//
+	//     k2.get_screen_height()/wanted_pixel_height
 	zoom: f32,
 }
 
 Window_Flag :: enum {
+	// Make the window possible to resize. This will make the backbuffer automatically resize as
+	// well.
 	Resizable,
 }
 
@@ -1588,6 +1637,7 @@ Shader_Constant_Location :: struct {
 }
 
 Shader :: struct {
+	// The render backend's internal identifier.
 	handle: Shader_Handle,
 
 	// We store the CPU-side value of all constants in a single buffer to have less allocations.
@@ -1595,18 +1645,31 @@ Shader :: struct {
 	// maps a name to a constant location.
 	constants_data: []u8,
 	constants: []Shader_Constant_Location,
+
+	// Look up named constants. If you have a constant (uniform) in the shader called "bob", then
+	// you can find its location by running `shader.constant_lookup["bob"]`. You can then use that
+	// location in combination with `set_shader_constant`
 	constant_lookup: map[string]Shader_Constant_Location,
 
 	// Maps built in constant types such as "model view projection matrix" to a location.
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
 
 	texture_bindpoints: []Texture_Handle,
+
+	// Used to lookup bindpoints of textures. You can then set the texture by overriding
+	// `shader.texture_bindpoints[shader.texture_lookup["some_tex"]] = some_texture.handle`
 	texture_lookup: map[string]int,
 	default_texture_index: Maybe(int),
 
 	inputs: []Shader_Input,
+
+	// Overrides the value of a specific vertex input.
+	//
+	// It's recommended you use `override_shader_input` to modify these overrides.
 	input_overrides: []Shader_Input_Value_Override,
 	default_input_offsets: [Shader_Default_Inputs]int,
+
+	// How many bytes a vertex uses gives the input of the shader.
 	vertex_size: int,
 }
 
