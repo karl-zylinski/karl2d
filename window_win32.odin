@@ -32,14 +32,14 @@ win32_state_size :: proc() -> int {
 	return size_of(Win32_State)
 }
 
-win32_init :: proc(window_state: rawptr, window_width: int, window_height: int, window_title: string,
+win32_init :: proc(window_state: rawptr, screen_width: int, screen_height: int, window_title: string,
 	               flags: Window_Flags, allocator: runtime.Allocator) {
 	assert(window_state != nil)
 	s = (^Win32_State)(window_state)
 	s.allocator = allocator
 	s.events = make([dynamic]Window_Event, allocator)
-	s.width = window_width
-	s.height = window_height
+	s.width = screen_width
+	s.height = screen_height
 	s.custom_context = context
 	
 	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
@@ -58,8 +58,8 @@ win32_init :: proc(window_state: rawptr, window_width: int, window_height: int, 
 	win32.RegisterClassW(&cls)
 
 	r: win32.RECT
-	r.right = i32(window_width)
-	r.bottom = i32(window_height)
+	r.right = i32(screen_width)
+	r.bottom = i32(screen_height)
 
 	s.flags = flags
 

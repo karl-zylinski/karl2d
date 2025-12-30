@@ -30,7 +30,10 @@ import hm "handle_map"
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory. The return value can be ignored unless you need to later call
 // `set_internal_state`.
-init :: proc(window_width: int, window_height: int, window_title: string,
+//
+// `screen_width` and `screen_height` refer to the the resolution of the drawable area of the
+// window. The window might be slightly larger due borders and headers.
+init :: proc(screen_width: int, screen_height: int, window_title: string,
             window_creation_flags := Window_Flags {},
             allocator := context.allocator, loc := #caller_location) -> ^State {
 	assert(s == nil, "Don't call 'init' twice.")
@@ -54,7 +57,7 @@ init :: proc(window_width: int, window_height: int, window_title: string,
 	s.window_state, window_state_alloc_error = mem.alloc(win.state_size(), allocator = allocator)
 	log.assertf(window_state_alloc_error == nil, "Failed allocating memory for window state: %v", window_state_alloc_error)
 
-	win.init(s.window_state, window_width, window_height, window_title, window_creation_flags, allocator)
+	win.init(s.window_state, screen_width, screen_height, window_title, window_creation_flags, allocator)
 
 	// This is a OS-independent handle that we can pass to any rendering backend.
 	s.window = win.window_handle()
