@@ -25,8 +25,6 @@ Things to get feedback on:
   way, so we can use them both on desktop and on web. This sometimes made them a bit more chatty.
   For example, I had to move some variables to the global scope. Should I approach this differently?
 
-- 
-
 
 
 
@@ -36,8 +34,8 @@ Things to get feedback on:
 	  it is tightly bound to window in windows, so we'll see.
 * add more window flags
 * win32: Gamepad support
-	* check status of gamepad
-	* what happens when you pull one out?
+	x check status of gamepad
+	x what happens when you pull one out?
 	* playstation
 * Textures: Make the sampler state configurable
 	x filtering (still needs to fix GL)
@@ -49,11 +47,11 @@ Things to get feedback on:
 
 * render textures
 	x d3d
-	* gl
+	x gl
 * do pixel-perfect rendering tests: render texture with 1:1 pixel matching etc
 * linux windowing and input
-* webgl backend
-* should we expose time and delta time stuff or rely on core:time?
+x webgl backend
+x should we expose time and delta time stuff or rely on core:time?
 * think about sound
 * add shapes drawing texture override
 
