@@ -38,12 +38,12 @@ main :: proc() {
 
 		k2.draw_rect({4, 95, 512, 152}, k2.color_alpha(k2.DARK_GRAY, 192))
 		
-		k2.draw_text("Hellöpe!", {10, 100}, 48, k2.WHITE)
+		k2.draw_text("Hellöpe!", {10, 100}, 48, k2.LIGHT_RED)
 
 		msg1 := fmt.tprintf("Time since start: %.3f s", t)
 		msg2 := fmt.tprintf("Last frame time: %.5f s", k2.get_frame_time())
-		k2.draw_text(msg1, {10, 148}, 48, k2.WHITE)
-		k2.draw_text(msg2, {10, 196}, 48, k2.WHITE)
+		k2.draw_text(msg1, {10, 148}, 48, k2.ORANGE)
+		k2.draw_text(msg2, {10, 196}, 48, k2.LIGHT_PURPLE)
 
 		k2.present()
 		free_all(context.temp_allocator)

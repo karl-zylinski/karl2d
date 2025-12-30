@@ -3,13 +3,19 @@ package karl2d_palette
 import k2 "../.."
 import "core:log"
 import "core:fmt"
+import "core:reflect"
 
 _ :: fmt
 
 tex: k2.Texture
 
+PAD :: 20
+SW :: 50
+SH :: 50
+MID_WIDTH :: (len(COLOR_BY_NAME) - 1) * SW + PAD*2
+
 init :: proc() {
-	k2.init(1470, 1530, "Karl2D Palette Demo")
+	k2.init(290*2 + MID_WIDTH, (len(COLOR_BY_NAME) - 1)*(SH + PAD*2), "Karl2D Palette Demo")
 }
 
 step :: proc() -> bool {
@@ -18,62 +24,27 @@ step :: proc() -> bool {
 	k2.clear(k2.WHITE)
 	k2.draw_rect({0, 0, f32(k2.get_screen_width() / 2), f32(k2.get_screen_height())}, k2.BLACK)
 
-	colors := [?]k2.Color {
-		k2.BLACK,
-		k2.WHITE,
-		k2.GRAY,
-		k2.DARK_GRAY,
-		k2.BLUE,
-		k2.DARK_BLUE,
-		k2.LIGHT_BLUE,
-		k2.GREEN,
-		k2.DARK_GREEN,
-		k2.LIGHT_GREEN,
-		k2.RED,
-		k2.LIGHT_RED,
-		k2.DARK_RED,
-		k2.LIGHT_PURPLE,
-		k2.YELLOW,
-		k2.LIGHT_YELLOW,
-		k2.MAGENTA,
-	}
-
-	color_names := [?]string {
-		"BLACK",
-		"WHITE",
-		"GRAY",
-		"DARK_GRAY",
-		"BLUE",
-		"DARK_BLUE",
-		"LIGHT_BLUE",
-		"GREEN",
-		"DARK_GREEN",
-		"LIGHT_GREEN",
-		"RED",
-		"LIGHT_RED",
-		"DARK_RED",
-		"LIGHT_PURPLE",
-		"YELLOW",
-		"LIGHT_YELLOW",
-		"MAGENTA",
-	}
-
 	x := f32(290)
 	y := f32(0)
-	PAD :: 20
-	SW :: 50
-	SH :: 50
 
-	for bg, i in colors {
-		k2.draw_rect({x, y, 890, SH+PAD*2}, bg)
+	for c, name in COLOR_BY_NAME {
+		if name == .BLANK {
+			continue
+		}
 
-		k2.draw_text(color_names[i], {x + 890+PAD, y+25}, 40, bg)
+		k2.draw_rect({x, y, MID_WIDTH, SH+PAD*2}, c)
 
-		color_name_width := k2.measure_text(color_names[i], 40)
-		k2.draw_text(color_names[i], {290-color_name_width.x-PAD, y+25}, 40, bg)
+		k2.draw_text(reflect.enum_string(name), {x + MID_WIDTH+PAD, y+25}, 40, c)
 
-		for c in colors {
-			k2.draw_rect({x + PAD, y + PAD, SW, SH}, c)
+		color_name_width := k2.measure_text(reflect.enum_string(name), 40)
+		k2.draw_text(reflect.enum_string(name), {290-color_name_width.x-PAD, y+25}, 40, c)
+
+		for c2, c2_name in COLOR_BY_NAME {
+			if c2_name == .BLANK {
+				continue
+			}
+
+			k2.draw_rect({x + PAD, y + PAD, SW, SH}, c2)
 			x += SW
 		}
 
@@ -102,4 +73,56 @@ main :: proc() {
 	}
 
 	shutdown()
+}
+
+Color_Name :: enum {
+	BLACK,
+	WHITE,
+	BLANK,
+	GRAY,
+	DARK_GRAY,
+	BLUE,
+	DARK_BLUE,
+	LIGHT_BLUE,
+	GREEN,
+	DARK_GREEN,
+	LIGHT_GREEN,
+	ORANGE,
+	RED,
+	DARK_RED,
+	LIGHT_RED,
+	BROWN,
+	DARK_BROWN,
+	LIGHT_BROWN,
+	PURPLE,
+	LIGHT_PURPLE,
+	MAGENTA,
+	YELLOW,
+	LIGHT_YELLOW,
+}
+
+COLOR_BY_NAME :: [Color_Name]k2.Color {
+	.BLACK = k2.BLACK,
+	.WHITE = k2.WHITE,
+	.BLANK = k2.BLANK,
+	.GRAY = k2.GRAY,
+	.DARK_GRAY = k2.DARK_GRAY,
+	.BLUE = k2.BLUE,
+	.DARK_BLUE = k2.DARK_BLUE,
+	.LIGHT_BLUE = k2.LIGHT_BLUE,
+	.GREEN = k2.GREEN,
+	.DARK_GREEN = k2.DARK_GREEN,
+	.LIGHT_GREEN = k2.LIGHT_GREEN,
+	.ORANGE = k2.ORANGE,
+	.RED = k2.RED,
+	.DARK_RED = k2.DARK_RED,
+	.LIGHT_RED = k2.LIGHT_RED,
+	.BROWN = k2.BROWN,
+	.DARK_BROWN = k2.DARK_BROWN,
+	.LIGHT_BROWN = k2.LIGHT_BROWN,
+	.PURPLE = k2.PURPLE,
+	.LIGHT_PURPLE = k2.LIGHT_PURPLE,
+	.MAGENTA = k2.MAGENTA,
+	.YELLOW = k2.YELLOW,
+	.LIGHT_YELLOW = k2.LIGHT_YELLOW,
 }
