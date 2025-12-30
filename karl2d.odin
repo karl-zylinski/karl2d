@@ -1073,6 +1073,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 // FONTS //
 //-------//
 
+// Loads a font from disk and returns a handle that represents it.
 load_font_from_file :: proc(filename: string) -> Font {
 	when !FILESYSTEM_SUPPORTED {
 		log.errorf("load_font_from_file failed: OS %v has no filesystem support! Tip: Use load_font_from_bytes(#load(\"the_font.ttf\")) instead.", ODIN_OS)
@@ -1086,6 +1087,7 @@ load_font_from_file :: proc(filename: string) -> Font {
 	return FONT_NONE
 }
 
+// Loads a font from a block of memory and returns a handle that represents it.
 load_font_from_bytes :: proc(data: []u8) -> Font {
 	font := fs.AddFontMem(&s.fs, "", data, false)
 	h := Font(len(s.fonts))
@@ -1102,6 +1104,7 @@ load_font_from_bytes :: proc(data: []u8) -> Font {
 	return h
 }
 
+// Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
 destroy_font :: proc(font: Font) {
 	if int(font) >= len(s.fonts) {
 		return
@@ -1115,6 +1118,7 @@ destroy_font :: proc(font: Font) {
 	s.fs.fonts[f.fontstash_handle].glyphs = {}
 }
 
+// Returns the built-in font of Karl2D (the font is known as "roboto")
 get_default_font :: proc() -> Font {
 	return s.default_font
 }
@@ -1124,6 +1128,11 @@ get_default_font :: proc() -> Font {
 // SHADERS //
 //---------//
 
+// Load a shader from a vertex and fragment shader file. If the vertex and fragment shaders live in
+// the same file, then pass it twice.
+//
+// `layout_formats` can in many cases be left default initialized. It is used to specify the format
+// of the vertex shader inputs. By formats this means the format that you pass on the CPU side.
 load_shader_from_file :: proc(
 	vertex_filename: string,
 	fragment_filename: string,
@@ -1153,6 +1162,8 @@ load_shader_from_file :: proc(
 	return load_shader_from_bytes(vertex_source, fragment_source, layout_formats)
 }
 
+// Load a vertex and fragment shader from a block of memory. See `load_shader_from_file` for what
+// `layout_formats` means.
 load_shader_from_bytes :: proc(
 	vertex_shader_bytes: []byte,
 	fragment_shader_bytes: []byte,
@@ -1242,6 +1253,7 @@ load_shader_from_bytes :: proc(
  	return shd
 }
 
+// Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
 destroy_shader :: proc(shader: Shader) {
 	rb.destroy_shader(shader.handle)
 
@@ -1264,10 +1276,13 @@ destroy_shader :: proc(shader: Shader) {
 	delete(shader.input_overrides, a)
 }
 
+// Fetches the shader that Karl2D uses by default.
 get_default_shader :: proc() -> Shader {
 	return s.default_shader
 }
 
+// The supplied shader will be used for subsequent drawing. Return to the default shader by calling
+// `set_shader(nil)`.
 set_shader :: proc(shader: Maybe(Shader)) {
 	if shd, shd_ok := shader.?; shd_ok {
 		if shd.handle == s.batch_shader.handle {
@@ -1283,6 +1298,8 @@ set_shader :: proc(shader: Maybe(Shader)) {
 	s.batch_shader = shader.? or_else s.default_shader
 }
 
+// Set the value of a constant (also known as uniform in OpenGL). Look up shader constant locations
+// (the kind of value needed for `loc`) by running `loc := shader.constant_lookup["constant_name"]`.
 set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any) {
 	if shd.handle == SHADER_NONE {
 		log.error("Invalid shader")
@@ -1311,6 +1328,15 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 	mem.copy(&shd.constants_data[loc.offset], val.data, sz)
 }
 
+// Sets the value of a shader input (also known as a shader attribute). There are three default
+// shader inputs known as position, texcoord and color. If you have shader with additional inputs,
+// then you can use this procedure to set their values. This is a way to feed per-object data into
+// your shader.
+//
+// `input` should be the index of the input and `val` should be a value of the correct size.
+//
+// You can modify which type that is expected for `val` by passing a custom `layout_formats` when
+// you load the shader.
 override_shader_input :: proc(shader: Shader, input: int, val: any) {
 	sz := reflect.size_of_typeid(val.id)
 	assert(sz < SHADER_INPUT_VALUE_MAX_SIZE)
@@ -1330,6 +1356,7 @@ override_shader_input :: proc(shader: Shader, input: int, val: any) {
 	o.used = sz
 }
 
+// Returns the number of bytes that a pixel in a texture uses.
 pixel_format_size :: proc(f: Pixel_Format) -> int {
 	switch f {
 	case .Unknown: return 0
