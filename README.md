@@ -51,7 +51,7 @@ This first beta does NOT have the following features, but they are planned in th
 - Mac (metal)
 
 ## Feedback wanted
-Here are some things I want to get feedback on:
+Here are some things I want to get feedback on during this first beta:
 - Is the `k2.new_frame()` concept OK? I was thinking of merging `new_frame()` and `process_events()`,
   but something tells me that some people may want to move their event processing around. Initially
   I was toying with the idea to have the user use `core:time` and figure out `dt` etc themselves,
