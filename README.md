@@ -6,6 +6,8 @@ Karl2D is a library for creating 2D games using the Odin programming language. T
 
 Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
 
+See [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) for an API overview.
+
 Here's a minimal "Hello world" program:
 
 ```odin
@@ -62,6 +64,8 @@ Here are some things I want to get feedback on:
 - Because of how web builds need `init` and `step` to be split up, I also split the examples up this
   way, so we can use them both on desktop and on web. This sometimes made them a bit more chatty.
   For example, I had to move some variables to the global scope. Should I approach this differently?
+
+- Is it annoying that the documentation file `karl2d.doc.odin` has a real `.odin` file extension? I like that it gets syntax highlight for everyone etc. But it can also be a bit disruptive it "go to symbol" etc. Perhaps I should chance it to `.odin_doc` or something.
 
 Join my Discord server and let me know in the #karl2d channel what you think! Here's the invite: https://discord.gg/4FsHgtBmFK
 
