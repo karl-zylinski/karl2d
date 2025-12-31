@@ -9,7 +9,10 @@ package karl2d
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory. The return value can be ignored unless you need to later call
 // `set_internal_state`.
-init :: proc(window_width: int, window_height: int, window_title: string,
+//
+// `screen_width` and `screen_height` refer to the the resolution of the drawable area of the
+// window. The window might be slightly larger due borders and headers.
+init :: proc(screen_width: int, screen_height: int, window_title: string,
             window_creation_flags := Window_Flags {},
             allocator := context.allocator, loc := #caller_location) -> ^State
 
@@ -236,7 +239,7 @@ measure_text :: proc(text: string, font_size: f32) -> Vec2
 
 // Tells you how much space some text of a certain size will use on the screen, using a custom font.
 // The return value contains the width and height of the text.
-measure_text_ex :: proc(font_handle: Font_Handle, text: string, font_size: f32) -> Vec2
+measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 
 // Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
 // top-left position of the text.
@@ -244,7 +247,7 @@ draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK)
 
 // Draw text at a position with a size, using a custom font. `pos` will be equal to the  top-left
 // position of the text.
-draw_text_ex :: proc(font_handle: Font_Handle, text: string, pos: Vec2, font_size: f32, color := BLACK)
+draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32, color := BLACK)
 
 //--------------------//
 // TEXTURE MANAGEMENT //
@@ -316,52 +319,105 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture))
 //-------//
 // FONTS //
 //-------//
-load_font_from_file :: proc(filename: string) -> Font_Handle
 
-load_font_from_bytes :: proc(data: []u8) -> Font_Handle
+// Loads a font from disk and returns a handle that represents it.
+load_font_from_file :: proc(filename: string) -> Font
 
-destroy_font :: proc(font: Font_Handle)
+// Loads a font from a block of memory and returns a handle that represents it.
+load_font_from_bytes :: proc(data: []u8) -> Font
 
-get_default_font :: proc() -> Font_Handle
+// Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
+destroy_font :: proc(font: Font)
+
+// Returns the built-in font of Karl2D (the font is known as "roboto")
+get_default_font :: proc() -> Font
 
 //---------//
 // SHADERS //
 //---------//
+
+// Load a shader from a vertex and fragment shader file. If the vertex and fragment shaders live in
+// the same file, then pass it twice.
+//
+// `layout_formats` can in many cases be left default initialized. It is used to specify the format
+// of the vertex shader inputs. By formats this means the format that you pass on the CPU side.
 load_shader_from_file :: proc(
 	vertex_filename: string,
 	fragment_filename: string,
 	layout_formats: []Pixel_Format = {}
 ) -> Shader
 
+// Load a vertex and fragment shader from a block of memory. See `load_shader_from_file` for what
+// `layout_formats` means.
 load_shader_from_bytes :: proc(
 	vertex_shader_bytes: []byte,
 	fragment_shader_bytes: []byte,
 	layout_formats: []Pixel_Format = {},
 ) -> Shader
 
+// Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
 destroy_shader :: proc(shader: Shader)
 
+// Fetches the shader that Karl2D uses by default.
 get_default_shader :: proc() -> Shader
 
+// The supplied shader will be used for subsequent drawing. Return to the default shader by calling
+// `set_shader(nil)`.
 set_shader :: proc(shader: Maybe(Shader))
 
+// Set the value of a constant (also known as uniform in OpenGL). Look up shader constant locations
+// (the kind of value needed for `loc`) by running `loc := shader.constant_lookup["constant_name"]`.
 set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any)
 
+// Sets the value of a shader input (also known as a shader attribute). There are three default
+// shader inputs known as position, texcoord and color. If you have shader with additional inputs,
+// then you can use this procedure to set their values. This is a way to feed per-object data into
+// your shader.
+//
+// `input` should be the index of the input and `val` should be a value of the correct size.
+//
+// You can modify which type that is expected for `val` by passing a custom `layout_formats` when
+// you load the shader.
 override_shader_input :: proc(shader: Shader, input: int, val: any)
 
+// Returns the number of bytes that a pixel in a texture uses.
 pixel_format_size :: proc(f: Pixel_Format) -> int
 
 //-------------------------------//
 // CAMERA AND COORDINATE SYSTEMS //
 //-------------------------------//
+
+// Make Karl2D use a camera. Return to the "default camera" by passing `nil`. All drawing operations
+// will use this camera until you again change it.
 set_camera :: proc(camera: Maybe(Camera))
 
+// Transform a point `pos` that lives on the screen to a point in the world. This can be useful for
+// bringing (for example) mouse positions (k2.get_mouse_position()) into world-space.
 screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2
 
+// Transform a point `pos` that lices in the world to a point on the screen. This can be useful when
+// you need to take a position in the world and compare it to a screen-space point.
 world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
 
+// Get the matrix that `screen_to_world` and `world_to_screen` uses to do their transformations.
+//
+// A view matrix is essentially the world transform matrix of the camera, but inverted. In other
+// words, instead of bringing the camera in front of things in the world, we bring everything in the
+// world "in front of the camera".
+//
+// Instead of constructing the camera matrix and doing a matrix inverse, here we just do the
+// maths in "backwards order". I.e. a camera transform matrix would be:
+//
+//    target_translate * rot * scale * offset_translate
+//
+// but we do
+//
+//    inv_offset_translate * inv_scale * inv_rot * inv_target_translate
+//
+// This is faster, since matrix inverses are expensive.
 get_camera_view_matrix :: proc(c: Camera) -> Mat4
 
+// Get the matrix that brings something in front of the camera.
 get_camera_world_matrix :: proc(c: Camera) -> Mat4
 
 //------//
@@ -372,6 +428,8 @@ get_camera_world_matrix :: proc(c: Camera) -> Mat4
 // drawn. The default is the .Alpha mode, but you also have the option of using .Premultiply_Alpha.
 set_blend_mode :: proc(mode: Blend_Mode)
 
+// Make everything outside of the screen-space rectangle `scissor_rect` not render. Disable the
+// scissor rectangle by running `set_scissor_rect(nil)`.
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect))
 
 // Restore the internal state using the pointer returned by `init`. Useful after reloading the
@@ -398,14 +456,30 @@ Rect :: struct {
 // An RGBA (Red, Green, Blue, Alpha) color. Each channel can have a value between 0 and 255.
 Color :: [4]u8
 
-WHITE :: Color { 255, 255, 255, 255 }
-BLACK :: Color { 0, 0, 0, 255 }
-GRAY  :: Color { 127, 127, 127, 255 }
-RED   :: Color { 198, 40, 90, 255 }
-GREEN :: Color { 30, 240, 30, 255 }
-YELLOW :: Color {240, 190, 0, 255 }
-BLANK :: Color { 0, 0, 0, 0 }
-BLUE  :: Color { 30, 116, 240, 255 }
+// See the folder examples/palette for a demo that shows all colors
+BLACK        :: Color { 0, 0, 0, 255 }
+WHITE        :: Color { 255, 255, 255, 255 }
+BLANK        :: Color { 0, 0, 0, 0 }
+GRAY         :: Color { 183, 183, 183, 255 }
+DARK_GRAY    :: Color { 66, 66, 66, 255}
+BLUE         :: Color { 25, 198, 236, 255 }
+DARK_BLUE    :: Color { 7, 47, 88, 255 }
+LIGHT_BLUE   :: Color { 200, 230, 255, 255 }
+GREEN        :: Color { 16, 130, 11, 255 }
+DARK_GREEN   :: Color { 6, 53, 34, 255}
+LIGHT_GREEN  :: Color { 175, 246, 184, 255 }
+ORANGE       :: Color { 255, 114, 0, 255 }
+RED          :: Color { 239, 53, 53, 255 }
+DARK_RED     :: Color { 127, 10, 10, 255 }
+LIGHT_RED    :: Color { 248, 183, 183, 255 }
+BROWN        :: Color { 115, 78, 74, 255 }
+DARK_BROWN   :: Color { 50, 36, 32, 255 }
+LIGHT_BROWN  :: Color { 146, 119, 119, 255 }
+PURPLE       :: Color { 155, 31, 232, 255 }
+LIGHT_PURPLE :: Color { 217, 172, 248, 255 }
+MAGENTA      :: Color { 209, 17, 209, 255 }
+YELLOW       :: Color { 250, 250, 129, 255 }
+LIGHT_YELLOW :: Color { 253, 250, 222, 255 }
 
 // These are from Raylib. They are here so you can easily port a Raylib program to Karl2D.
 RL_LIGHTGRAY  :: Color { 200, 200, 200, 255 }
@@ -435,13 +509,22 @@ RL_BLANK      :: BLANK
 RL_MAGENTA    :: Color { 255, 0, 255, 255 }
 RL_RAYWHITE   :: Color { 245, 245, 245, 255 }
 
+color_alpha :: proc(c: Color, a: u8) -> Color
+
 Texture :: struct {
+	// The render-backend specific texture identifier.
 	handle: Texture_Handle,
+
+	// The horizontal size of the texture, measured in pixels.
 	width: int,
+
+	// The vertical size of the texture, measure in pixels.
 	height: int,
 }
 
 Load_Texture_Option :: enum {
+	// Will multiply the alpha value of the each pixel into the its RGB values. Useful if you want
+	// to use `set_blend_mode(.Premultiplied_Alpha)`
 	Premultiply_Alpha,
 }
 
@@ -449,11 +532,21 @@ Load_Texture_Options :: bit_set[Load_Texture_Option]
 
 Blend_Mode :: enum {
 	Alpha,
-	Premultiplied_Alpha, // Requires the alpha-channel to be multiplied into texture RGB channels.
+
+	// Requires the alpha-channel to be multiplied into texture RGB channels. You can automatically
+	// do this using the `Premultiply_Alpha` option when loading a texture.
+	Premultiplied_Alpha,
 }
 
+// A render texture is a texture that you can draw into, instead of drawing to the screen. Create
+// one using `create_render_texture`.
 Render_Texture :: struct {
+	// The texture that the things will be drawn into. You can use this as a normal texture, for
+	// example, you can pass it to `draw_texture`.
 	texture: Texture,
+
+	// The render backend's internal identifier. It describes how to use the texture as something
+	// the render backend can draw into.
 	render_target: Render_Target_Handle,
 }
 
@@ -463,13 +556,28 @@ Texture_Filter :: enum {
 }
 
 Camera :: struct {
+	// Where the camera looks.
 	target: Vec2,
+
+	// By default `target` will be the position of the upper-left corner of the camera. Use this
+	// offset to change that. If you set the offset to half the size of the camera view, then the
+	// target position will end up in the middle of the scren.
 	offset: Vec2,
+
+	// Rotate the camera (unit: degrees)
 	rotation: f32,
+
+	// Zoom the camera. A bigger value means "more zoom".
+	//
+	// To make a certain amount of pixels always occupy the height of the camera, set the zoom to:
+	//
+	//     k2.get_screen_height()/wanted_pixel_height
 	zoom: f32,
 }
 
 Window_Flag :: enum {
+	// Make the window possible to resize. This will make the backbuffer automatically resize as
+	// well.
 	Resizable,
 }
 
@@ -485,6 +593,7 @@ Shader_Constant_Location :: struct {
 }
 
 Shader :: struct {
+	// The render backend's internal identifier.
 	handle: Shader_Handle,
 
 	// We store the CPU-side value of all constants in a single buffer to have less allocations.
@@ -492,18 +601,31 @@ Shader :: struct {
 	// maps a name to a constant location.
 	constants_data: []u8,
 	constants: []Shader_Constant_Location,
+
+	// Look up named constants. If you have a constant (uniform) in the shader called "bob", then
+	// you can find its location by running `shader.constant_lookup["bob"]`. You can then use that
+	// location in combination with `set_shader_constant`
 	constant_lookup: map[string]Shader_Constant_Location,
 
 	// Maps built in constant types such as "model view projection matrix" to a location.
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
 
 	texture_bindpoints: []Texture_Handle,
+
+	// Used to lookup bindpoints of textures. You can then set the texture by overriding
+	// `shader.texture_bindpoints[shader.texture_lookup["some_tex"]] = some_texture.handle`
 	texture_lookup: map[string]int,
 	default_texture_index: Maybe(int),
 
 	inputs: []Shader_Input,
+
+	// Overrides the value of a specific vertex input.
+	//
+	// It's recommended you use `override_shader_input` to modify these overrides.
 	input_overrides: []Shader_Input_Value_Override,
 	default_input_offsets: [Shader_Default_Inputs]int,
+
+	// How many bytes a vertex uses gives the input of the shader.
 	vertex_size: int,
 }
 
@@ -554,7 +676,7 @@ Pixel_Format :: enum {
 	R_8_UInt,
 }
 
-Font :: struct {
+Font_Data :: struct {
 	atlas: Texture,
 
 	// internal
@@ -564,9 +686,9 @@ Font :: struct {
 Handle :: hm.Handle
 Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
-Font_Handle :: distinct int
+Font :: distinct int
 
-FONT_NONE :: Font_Handle {}
+FONT_NONE :: Font {}
 TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
@@ -605,10 +727,10 @@ State :: struct {
 
 	window: Window_Handle,
 
-	default_font: Font_Handle,
-	fonts: [dynamic]Font,
+	default_font: Font,
+	fonts: [dynamic]Font_Data,
 	shape_drawing_texture: Texture_Handle,
-	batch_font: Font_Handle,
+	batch_font: Font,
 	batch_camera: Maybe(Camera),
 	batch_shader: Shader,
 	batch_scissor: Maybe(Rect),
