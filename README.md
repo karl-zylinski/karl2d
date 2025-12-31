@@ -73,7 +73,7 @@ Join my Discord server and let me know in the #karl2d channel what you think! He
 
 The API was originally based on Raylib API, because I like that API. But I have changed things I don't like about Raylib and made the API more Odin-friendly. The implementation is meant to have as few dependencies as possible (mostly `core` libs and some libraries from `vendor`). The web builds do not need emscripten, it uses Odin's js_wasm32 target.
 
-Since I have shipped an actual game using [Odin + Raylib](https://store.steampowered.com/app/2781210/CAT__ONION/), I am in a good position to know what worked well and what worked less well. I have tried to put that experience into this library.
+Since [I have shipped an actual game using Odin + Raylib](https://store.steampowered.com/app/2781210/CAT__ONION/), I am in a good position to know what worked well and what worked less well. I have tried to put that experience into this library.
 
 ## Have fun!
 
