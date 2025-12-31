@@ -4,8 +4,6 @@ ___The first beta is almost here! Come back in a day or two...___
 
 Karl2D is a library for creating 2D games using the Odin programming language. The focus is on being beginner-friendly, without the beginner-friendliness causing issues when you need to ship the game.
 
-Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
-
 See [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) for an API overview.
 
 Here's a minimal "Hello world" program:
@@ -34,6 +32,8 @@ main :: proc() {
 ```
 
 See the [examples](https://github.com/karl-zylinski/karl2d/tree/master/examples) folder for a wide variety of example programs.
+
+Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
 
 ## FIRST BETA
 
