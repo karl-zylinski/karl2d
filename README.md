@@ -44,11 +44,12 @@ Karl2D is currently in its FIRST BETA period. This first beta has these features
 - Web support (WebGL, no emscripten needed!)
 - Input: Mouse, keyboard, gamepad
 
-This first beta does NOT have the following features, but they are planned in the order stated:
-- Linux
-- Sound
-- System for cross-compiling shaders between different backends (HLSL, GLSL etc)
-- Mac (metal)
+>[!WARNING]
+>This first beta does NOT have the following features, but they are planned in the order stated:
+>- Linux
+>- Sound
+>- System for cross-compiling shaders between different backends (HLSL, GLSL etc)
+>- Mac (metal)
 
 ## Feedback wanted
 Here are some things I want to get feedback on during this first beta:
@@ -68,6 +69,15 @@ Here are some things I want to get feedback on during this first beta:
 - Is it annoying that the documentation file `karl2d.doc.odin` has a real `.odin` file extension? I like that it gets syntax highlight for everyone etc. But it can also be a bit disruptive it "go to symbol" etc. Perhaps I should chance it to `.odin_doc` or something.
 
 Join my Discord server and let me know in the #karl2d channel what you think! Here's the invite: https://discord.gg/4FsHgtBmFK
+
+## How to make a web build of your game
+
+See the `minimal_web` example: https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_web/minimal_web.odin
+
+There's a comment at the top of that file on how to use the `build_web_example` tool (which you find in the examples folder too). You can use that tool to make your own web build as well.
+
+> [!NOTE]
+> Desktop programs can have the whole program in a `main` procedure. But web builds are often split into `main` and `step`, where `step` is called by the browser in order to create a "game loop"
 
 ## Is this a Raylib clone?
 
