@@ -77,7 +77,7 @@ See the `minimal_web` example: https://github.com/karl-zylinski/karl2d/blob/mast
 There's a comment at the top of that file on how to use the `build_web_example` tool (which you find in the examples folder too). You can use that tool to make your own web build as well.
 
 > [!NOTE]
-> Desktop programs can have the whole program in a `main` procedure. But web builds are often split into `main` and `step`, where `step` is called by the browser in order to create a "game loop"
+> Desktop programs can have the whole program in a `main` procedure. But web builds need to be split into `main` and `step` procedures, where `step` is called each frame by the browser in order to create a "game loop"
 
 ## Is this a Raylib clone?
 
