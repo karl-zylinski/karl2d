@@ -105,7 +105,7 @@ step :: proc() -> bool {
 	dt := k2.get_frame_time()
 	time_acc += dt
 	k2.process_events()
-	k2.clear(k2.GRAY)
+	k2.clear(k2.LIGHT_BLUE)
 
 	k2.draw_rect(GROUND, k2.GREEN)
 
@@ -126,10 +126,10 @@ step :: proc() -> bool {
 		r := b2.Body_GetRotation(b)
 		a := math.atan2(r.s, r.c)
 		// Y position is flipped because raylib has Y down and box2d has Y up.
-		k2.draw_rect_ex({position.x, -position.y, 40, 40}, {20, 20}, a*(180/3.14), k2.RL_YELLOW)
+		k2.draw_rect_ex({position.x, -position.y, 40, 40}, {20, 20}, a*(180/3.14), k2.BROWN)
 	}
 
-	k2.draw_circle(pos, 40, k2.RL_MAGENTA)
+	k2.draw_circle(pos, 40, k2.RED)
 	k2.present()
 
 	free_all(context.temp_allocator)

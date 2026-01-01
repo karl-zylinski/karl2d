@@ -73,7 +73,7 @@
 				},
 				{
 					"name": "box2d",
-					"shell_cmd": "odin run . -vet -strict-style -keep-executable",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -linker:lld",
 					"working_dir": "$project_path/../examples/box2d",
 				},
 				{
