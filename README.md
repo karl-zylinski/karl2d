@@ -1,5 +1,3 @@
-___The first beta is almost here! Come back in a day or two...___
-
 <img width="328" height="64" alt="karl2d_logo" src="https://github.com/user-attachments/assets/5ebd43c8-5a1d-4864-b8eb-7ce4b6a5dba0" />
 
 Karl2D is a library for creating 2D games using the Odin programming language. The focus is on making 2D gamdev fun, fast and beginner friendly.
