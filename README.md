@@ -80,22 +80,19 @@ odin run build_web -- your_game_path
 
 The web build will end up in `your_game_path/bin/web`.
 
-It requires that you game contains a `main` procedure and a `step` procedure. The `main` procedure is called once on startup and the `step` procedure will be called every frame of your game.
-
->[!WARNING]
->When making web builds, make sure your `main` procedure does not have a "main loop" in it. That will hang the browser tab when your game starts.
+It requires that you game contains a `init` procedure and a `step` procedure. The `init` procedure is called once on startup and the `step` procedure will be called every frame of your game.
 
 Also, see the `minimal_web` example: https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_web/minimal_web.odin
 
 The `build_web` tool will copy `odin.js` file from `<odin>/core/sys/wasm/js/odin.js` into the `bin/web folder`. It will also copy a HTML index file into that folder.
 
-It will also create a `build/web` folder. That's the package it actually builds. It contains a bit of wrapper code that then calls the `main` and `step` functions of your game. The result of building the wrapper (and your game) is a `main.wasm` file that also ends up in `bin/web`.
+It will also create a `build/web` folder. That's the package it actually builds. It contains a bit of wrapper code that then calls the `init` and `step` functions of your game. The result of building the wrapper (and your game) is a `main.wasm` file that also ends up in `bin/web`.
 
 Launch your game by opening `bin/web/index.html` in a browser.
 
 ## Architecture notes
 
-The platform-independent parts and the main API lives in `karl2d.odin`
+The platform-independent parts and the API lives in `karl2d.odin`
 
 `karl2d.odin` in turn has a window interface and a rendering backend.
 
