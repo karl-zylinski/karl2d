@@ -16,17 +16,47 @@ package karl2d_build_web_tool
 import "core:fmt"
 import "core:path/filepath"
 import os "core:os/os2"
+import "core:strings"
 
 main :: proc() {
-	if len(os.args) != 2 {
-		fmt.eprintfln("Usage: 'odin run build_web -- directory_name'\nExample: 'odin run build_web -- examples/minimal_web'")
+	print_usage: bool
+
+	if len(os.args) < 2 {
+		print_usage = true
+	}
+
+	debug := false
+	opt_string: string
+	dir: string
+
+	for a in os.args {
+		if a == "-debug" {
+			debug = true
+		} else if a == "-help" {
+			print_usage = true
+		} else if a == "-o:speed" {
+			opt_string = a
+		} else if a == "-o:size" {
+			opt_string = a
+		} else if strings.has_prefix(a, "-") {
+			print_usage = true
+		} else {
+			dir = a
+		}
+	}
+
+	if dir == "" {
+		print_usage = true
+	}
+
+	if print_usage {
+		fmt.eprintfln("Usage: 'odin run build_web -- directory_name [-debug] [-o:speed/size]' where `[]` means that it is an optional flag\nExample: 'odin run build_web -- examples/minimal_web'")
 		return
 	}
 
 	WEB_ENTRY_TEMPLATE :: #load("web_entry_templates/web_entry_template.odin")
 	WEB_ENTRY_INDEX :: #load("web_entry_templates/index_template.html")
 
-	dir := os.args[1]
 	dir_handle, dir_handle_err := os.open(dir)
 	fmt.ensuref(dir_handle_err == nil, "Failed finding directory %v. Error: %v", dir, dir_handle_err)
 
@@ -67,19 +97,28 @@ main :: proc() {
 
 	wasm_out_path := filepath.join({bin_web_dir, "main.wasm"})
 
-	_, build_std_out, build_std_err, _ := os.process_exec({
-		command = {
-			"odin",
-			"build",
-			build_web_dir,
-			fmt.tprintf("-out:%v", wasm_out_path),
-			"-target:js_wasm32",
-			"-debug",
-			"-vet",
-			"-strict-style",
-		},
-	}, allocator = context.allocator)
-	
+	build_command: [dynamic]string
+
+	append(&build_command, ..[]string{
+		"odin",
+		"build",
+		build_web_dir,
+		fmt.tprintf("-out:%v", wasm_out_path),
+		"-target:js_wasm32",
+		"-vet",
+		"-strict-style",
+	})
+
+	if debug {
+		append(&build_command, "-debug")
+	}
+
+	if opt_string != "" {
+		append(&build_command, opt_string)
+	}
+
+	_, build_std_out, build_std_err, _ := os.process_exec({ command = build_command[:] }, allocator = context.allocator)
+
 	if len(build_std_out) > 0 {
 		fmt.println(string(build_std_out))
 	}
