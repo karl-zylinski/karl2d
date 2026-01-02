@@ -1,14 +1,11 @@
 // A small program that draws some shapes, some texts and a texture.
 //
-// This is the same as `../minimal`, but adapted to work on web. Compile the web version by being in
-// the examples folder (the one above this one) and run:
+// This is the same as `../minimal`, but adapted to work on web. Compile the web version using the
+// command-line. Navigate to the `karl2d` folder and run:
 //
-//    odin run build_web_example -- minimal_web
+//    odin run build_web -- examples/minimal_web
 //
-// The built web application will be in minimal_web/web/build.
-//
-// This approach of using `odin run build_web_example -- example_folder_name` works for most other
-// examples, except for the non-web `minimal` example.
+// The built web application will be in examples/minimal_web/bin/web.
 package karl2d_minimal_example_web
 
 import k2 "../.."

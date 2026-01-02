@@ -6,12 +6,12 @@
 // For example:
 //    odin run build_web -- examples/minimal_web
 //
-// 
-//
-// This program copies the `odin.js` from `<odin>/core/wasm/js/odin.js` to the build folder. It also
-// copies an `index.html` file there than is used to host your web program. The example itself is
-// built using the `js_wasm32` target and put next to the index file.
-package karl2d_build_web_example
+// This program copies the `odin.js` from `<odin>/core/sys/wasm/js/odin.js` to the `bin/web` folder.
+// It also copies an `index.html` file to the `bin/web` folder. It also copies a `web_entry.odin`
+// file into the `build/web` folder. That's the file which is actually built. It contains some
+// wrapper code that calls into your game. The wrapper, and your game, is built using the
+// `js_wasm32` target. The resulting `main.wasm` file is also put in the `build/web` folder.
+package karl2d_build_web_tool
 
 import "core:fmt"
 import "core:path/filepath"

@@ -72,12 +72,24 @@ Join my Discord server and let me know in the #karl2d channel what you think! He
 
 ## How to make a web build of your game
 
-See the `minimal_web` example: https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_web/minimal_web.odin
+There's a build script located in the `build_web` folder. Run it like this:
 
-There's a comment at the top of that file on how to use the `build_web_example` tool (which you find in the examples folder too). You can use that tool to make your own web build as well.
+```
+odin run build_web -- your_game_path
+```
 
-> [!NOTE]
-> Desktop programs can have the whole program in a `main` procedure. But web builds need to be split into `main` and `step` procedures, where `step` is called each frame by the browser in order to create a "game loop"
+The web build will end up in `your_game_path/bin/web`.
+
+It requires that you game contains a `main` procedure and a `step` procedure. The `main` procedure is called once on startup and the `step` procedure will be called every frame of your game.
+
+>[!WARNING]
+>When making web builds, make sure your `main` procedure does not have a "main loop" in it. That will hang the browser tab when your game starts.
+
+Also, see the `minimal_web` example: https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_web/minimal_web.odin
+
+The `build_web` will copy `odin.js` file from `<odin>/core/sys/wasm/js/odin.js` into the `bin/web folder`. It will also copy a HTML index file into that folder.
+
+It will also create a `build/web` folder. That's the package it actually builds. It contains a bit of wrapper code that then calls the `main` and `step` functions of your game.
 
 ## Architecture notes
 
