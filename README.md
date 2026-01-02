@@ -87,9 +87,11 @@ It requires that you game contains a `main` procedure and a `step` procedure. Th
 
 Also, see the `minimal_web` example: https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_web/minimal_web.odin
 
-The `build_web` will copy `odin.js` file from `<odin>/core/sys/wasm/js/odin.js` into the `bin/web folder`. It will also copy a HTML index file into that folder.
+The `build_web` tool will copy `odin.js` file from `<odin>/core/sys/wasm/js/odin.js` into the `bin/web folder`. It will also copy a HTML index file into that folder.
 
-It will also create a `build/web` folder. That's the package it actually builds. It contains a bit of wrapper code that then calls the `main` and `step` functions of your game.
+It will also create a `build/web` folder. That's the package it actually builds. It contains a bit of wrapper code that then calls the `main` and `step` functions of your game. The result of building the wrapper (and your game) is a `main.wasm` file that also ends up in `bin/web`.
+
+Launch your game by opening `bin/web/index.html` in a browser.
 
 ## Architecture notes
 
@@ -101,7 +103,7 @@ The window interface depends on the operating system. I do not use anything like
 
 The rendering backend tells Karl2D how to talk to the GPU. I currently support three rendering APIs: D3D11, OpenGL and WebGL. On some platforms you have multiple choices, for exmaple on Windows you can use both D3D11 and OpenGL.
 
-The platform indepdentent code in `karl2d.odin` creates a list of vertices for each batch it needs to render. That's done independently of the rendering backend. The backend is just fed that list, along with information about what shader and such to use.
+The platform independent code in `karl2d.odin` creates a list of vertices for each batch it needs to render. That's done independently of the rendering backend. The backend is just fed that list, along with information about what shader and such to use.
 
 The web builds do not need emscripten, instead I've written a WebGL backend and make use of the official Odin JS runtime. This makes building for the web easier and less error-prone.
 
