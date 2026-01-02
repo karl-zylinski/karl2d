@@ -9,7 +9,7 @@
 			[
 				{
 					"name": "minimal",
-					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=d3d11",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
 					"working_dir": "$project_path/../examples/minimal",
 				},
 				{
@@ -20,6 +20,11 @@
 				{
 					"name": "minimal (web)",
 					"shell_cmd": "odin run build_web -vet -strict-style -- examples/minimal_web",
+				},
+				{
+					"name": "minimal (nil)",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=nil",
+					"working_dir": "$project_path/../examples/minimal",
 				},
 				{
 					"name": "fonts",
@@ -46,7 +51,7 @@
 				},
 				{
 					"name": "multitexture",
-					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=d3d11",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
 					"working_dir": "$project_path/../examples/multitexture",
 				},
 				{
@@ -78,7 +83,7 @@
 				},
 				{
 					"name": "premultiplied_alpha",
-					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=d3d11",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
 					"working_dir": "$project_path/../examples/premultiplied_alpha",
 				},
 				{
@@ -144,6 +149,15 @@
 	[
 		{
 			"path": "..",
+		},
+		{
+			"path": "~/sdk/Odin/base",
+		},
+		{
+			"path": "~/sdk/Odin/core",
+		},
+		{
+			"path": "~/sdk/Odin/vendor",
 		},
 		{
 			"path": "C:\\SDK\\Odin\\base",

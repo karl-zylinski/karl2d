@@ -1,4 +1,3 @@
-#+build js
 #+private file
 
 package karl2d
