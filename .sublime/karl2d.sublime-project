@@ -4,6 +4,7 @@
 		{
 			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
 			"name": "Karl2D",
+			"working_dir": "$project_path/..",
 			"variants":
 			[
 				{
@@ -18,8 +19,7 @@
 				},
 				{
 					"name": "minimal (web)",
-					"shell_cmd": "odin run build_web_example -vet -strict-style -- minimal_web",
-					"working_dir": "$project_path/../examples",
+					"shell_cmd": "odin run build_web -vet -strict-style -- examples/minimal_web",
 				},
 				{
 					"name": "fonts",
@@ -28,8 +28,7 @@
 				},
 				{
 					"name": "fonts (web)",
-					"shell_cmd": "odin run build_web_example -- fonts",
-					"working_dir": "$project_path/../examples",
+					"shell_cmd": "odin run build_web -- examples/fonts",
 				},
 				{
 					"name": "render_texture",
@@ -43,8 +42,7 @@
 				},
 				{
 					"name": "render_texture (web)",
-					"shell_cmd": "odin run build_web_example -- render_texture",
-					"working_dir": "$project_path/../examples",
+					"shell_cmd": "odin run build_web -- examples/render_texture",
 				},
 				{
 					"name": "multitexture",
@@ -58,8 +56,7 @@
 				},
 				{
 					"name": "multitexture (webgl)",
-					"shell_cmd": "odin run build_web_example -- multitexture",
-					"working_dir": "$project_path/../examples",
+					"shell_cmd": "odin run build_web -- examples/multitexture",
 				},
 				{
 					"name": "snake",
@@ -68,8 +65,7 @@
 				},
 				{
 					"name": "snake (web)",
-					"shell_cmd": "odin run build_web_example -- snake",
-					"working_dir": "$project_path/../examples",
+					"shell_cmd": "odin run build_web -- examples/snake",
 				},
 				{
 					"name": "box2d",
@@ -78,8 +74,7 @@
 				},
 				{
 					"name": "box2d (web)",
-					"shell_cmd": "odin run build_web_example -- box2d",
-					"working_dir": "$project_path/../examples",
+					"shell_cmd": "odin run build_web -- examples/box2d",
 				},
 				{
 					"name": "premultiplied_alpha",
@@ -108,8 +103,7 @@
 				},
 				{
 					"name": "bunnymark (web)",
-					"shell_cmd": "odin run build_web_example -- raylib_ports/bunnymark",
-					"working_dir": "$project_path/../examples",
+					"shell_cmd": "odin run build_web -- examples/raylib_ports/bunnymark",
 				},
 				{
 					"name": "mouse",
@@ -118,8 +112,7 @@
 				},
 				{
 					"name": "mouse (web)",
-					"shell_cmd": "odin run build_web_example -- mouse",
-					"working_dir": "$project_path/../examples",
+					"shell_cmd": "odin run build_web -- examples/mouse",
 				},
 				{
 					"name": "gamepad",
@@ -128,8 +121,7 @@
 				},
 				{
 					"name": "gamepad (web)",
-					"shell_cmd": "odin run build_web_example -- gamepad",
-					"working_dir": "$project_path/../examples",
+					"shell_cmd": "odin run build_web -- examples/gamepad",
 				},
 				{
 					"name": "palette",
@@ -138,8 +130,7 @@
 				},
 				{
 					"name": "palette (web)",
-					"shell_cmd": "odin run build_web_example -- palette",
-					"working_dir": "$project_path/../examples",
+					"shell_cmd": "odin run build_web -- examples/palette",
 				},
 				{
 					"name": "api_doc_builder",

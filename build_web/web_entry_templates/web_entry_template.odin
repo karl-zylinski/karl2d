@@ -3,7 +3,7 @@
 // frame.
 package karl2d_web_entry
 
-import ex ".."
+import ex "../.."
 import "base:runtime"
 import "core:log"
 

@@ -5,5 +5,7 @@ raylib/
 *.exe
 *.rdi
 !/.sublime/karl2d.sublime-project
-examples/*/web
-examples/raylib_ports/*/web
+examples/*/build
+examples/*/bin
+examples/raylib_ports/*/build
+examples/raylib_ports/*/bin
