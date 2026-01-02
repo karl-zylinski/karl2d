@@ -95,6 +95,9 @@ Launch your game by opening `bin/web/index.html` in a browser.
 >`odin run build_web -- your_game_path -debug`
 >Note that it comes after the `--`: That's the flags that get sent on to the `build_web` program! There are also `-o:speed/size` flags to turn on optimization.
 
+>[!WARNING]
+>If you open the `index.html` file and see nothing, then there might be an error about "cross site policy" stuff in the browser's console. In that case you can use python to run a local web-server and access the web build through it. Run `python -m http.server` in the `bin/web` folder and then navigate to `https://localhost:8000`.
+
 ## Architecture notes
 
 The platform-independent parts and the API lives in `karl2d.odin`
