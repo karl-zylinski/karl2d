@@ -26,12 +26,11 @@ WINDOW_INTERFACE_X11 :: Window_Interface {
 	set_internal_state = x11_set_internal_state,
 }
 
-import "vendor:x11/xlib"
+import X "vendor:x11/xlib"
 import "base:runtime"
 import "core:log"
 import "core:fmt"
 
-_ :: xlib
 _ :: log
 _ :: fmt
 
@@ -52,6 +51,22 @@ x11_init :: proc(
 	s.flags = flags
 	s.width = window_width
 	s.height = window_height
+
+	display := X.OpenDisplay(nil)
+
+	window := X.CreateSimpleWindow(
+		display,
+		X.DefaultRootWindow(display),
+		0, 0,
+		u32(window_width), u32(window_height),
+		0,
+		0x00000000,
+		0x00000000,
+	)
+
+	X.StoreName(display, window, frame_cstring(window_title))
+	X.SelectInput(display, window, {.KeyPress, .KeyRelease})
+	X.MapWindow(display, window)
 }
 
 x11_shutdown :: proc() {
