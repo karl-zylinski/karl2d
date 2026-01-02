@@ -90,6 +90,11 @@ It will also create a `build/web` folder. That's the package it actually builds.
 
 Launch your game by opening `bin/web/index.html` in a browser.
 
+>[!NOTE]
+>To get better in-browser debug symbols, you can add `-debug` when running the `build_web` script:
+>`odin run build_web -- your_game_path -debug`
+>Note that it comes after the `--`: That's the flags that get sent on to the `build_web` program! There are also `-o:speed/size` flags to turn on optimization.
+
 ## Architecture notes
 
 The platform-independent parts and the API lives in `karl2d.odin`
