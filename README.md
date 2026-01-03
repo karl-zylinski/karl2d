@@ -80,6 +80,9 @@ odin run build_web -- your_game_path
 
 The web build will end up in `your_game_path/bin/web`.
 
+>[!NOTE]
+>On Linux / Mac you may need to install some `lld` package that contains the `wasm-ld` linker. It's included with Odin on Windows.
+
 It requires that you game contains a `init` procedure and a `step` procedure. The `init` procedure is called once on startup and the `step` procedure will be called every frame of your game.
 
 Also, see the `minimal_web` example: https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_web/minimal_web.odin
