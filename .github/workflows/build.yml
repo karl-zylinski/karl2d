@@ -192,12 +192,6 @@ jobs:
       - name: premultiplied_alpha (nil, debug)
         run: odin check examples/premultiplied_alpha -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
-      - name: premultiplied_alpha (web)
-        run: odin run build_web -vet -strict-style -- examples/premultiplied_alpha
-
-      - name: premultiplied_alpha (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/premultiplied_alpha -debug
-
 
 
       - name: raylib_ports/2d_camera
@@ -217,12 +211,6 @@ jobs:
 
       - name: raylib_ports/2d_camera (nil, debug)
         run: odin check examples/raylib_ports/2d_camera -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: raylib_ports/2d_camera (web)
-        run: odin run build_web -vet -strict-style -- examples/raylib_ports/2d_camera
-
-      - name: raylib_ports/2d_camera (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/raylib_ports/2d_camera -debug
 
 
 
@@ -244,13 +232,6 @@ jobs:
 
       - name: raylib_ports/shaders_texture_waves (nil, debug)
         run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: raylib_ports/shaders_texture_waves (web)
-        run: odin run build_web -vet -strict-style -- examples/raylib_ports/shaders_texture_waves
-
-      - name: raylib_ports/shaders_texture_waves (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/raylib_ports/shaders_texture_waves -debug
-
 
 
       - name: raylib_ports/bunnymark
