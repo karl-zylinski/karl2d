@@ -32,6 +32,18 @@ jobs:
       - name: minimal (gl, debug)
         run: odin check examples/minimal -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
 
+      - name: minimal (gl)
+        run: odin check examples/minimal -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
+
+      - name: minimal (nil, debug)
+        run: odin check examples/minimal -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
+
+      - name: minimal (web)
+        run: odin run build_web -vet -strict-style -- examples/minimal_web
+
+      - name: minimal (web, debug)
+        run: odin run build_web -vet -strict-style -- examples/minimal_web -debug
+
       - name: snake
         run: odin check examples/snake -vet -strict-style
 
