@@ -3,6 +3,7 @@ package karl2d_minimal_example
 import k2 "../.."
 import "core:mem"
 import "core:log"
+import "core:math"
 import "core:fmt"
 
 _ :: fmt
@@ -27,18 +28,23 @@ init :: proc() {
 	render_texture = k2.create_render_texture(75, 48)
 }
 
+rot: f32
+
 step :: proc() -> bool {
 	k2.new_frame()
 	k2.process_events()
 
 	k2.set_render_texture(render_texture)
-	k2.clear(k2.PURPLE)
+	k2.clear(k2.ORANGE)
 
-	k2.draw_rect({1, 1, 12, 12}, k2.RED)
-	k2.draw_rect({2, 2, 10, 10}, k2.LIGHT_RED)
-	k2.draw_circle({20, 7}, 6, k2.BLUE)
-	k2.draw_circle({20, 7}, 5, k2.LIGHT_BLUE)
-	k2.draw_text("Hellöpe!", {1, 20}, 20, k2.WHITE)
+	rot += k2.get_frame_time() * 500
+
+	if rot > 360 {
+		rot -= 360
+	}
+
+	k2.draw_rect_ex({12, 12, 12, 12}, {6, 6}, rot, k2.BLACK)
+	k2.draw_text("Hellöpe!", {f32(math.sin(k2.get_time() * 10))*5 + 7, 20}, 20, k2.BLACK)
 	
 	k2.set_render_texture(nil)
 
