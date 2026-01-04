@@ -15,7 +15,7 @@ init :: proc() {
 	// Note that we #load the texture: This bakes it into the program's data. WASM has no filesystem
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
 	// them.
-	tex = k2.load_texture_from_bytes(#load("../minimal/sixten.jpg"))
+	tex = k2.load_texture_from_bytes(#load("../../examples/minimal/sixten.jpg"))
 }
 
 pos_x: f32
