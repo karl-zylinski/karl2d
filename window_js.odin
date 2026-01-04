@@ -1,4 +1,5 @@
 #+build js
+#+feature dynamic-literals
 #+private file
 
 package karl2d
@@ -43,6 +44,8 @@ js_init :: proc(
 ) {
 	s = (^JS_State)(window_state)
 	s.allocator = allocator
+	s.events = make([dynamic]Window_Event, allocator)
+	s.key_from_js_event_key_code = make(map[string]Keyboard_Key, allocator)
 	s.canvas_id = "webgl-canvas"
 
 	js.set_document_title(window_title)
@@ -174,6 +177,7 @@ update_canvas_size :: proc(canvas_id: HTML_Canvas_ID) {
 }
 
 js_shutdown :: proc() {
+	delete(s.key_from_js_event_key_code)
 }
 
 js_window_handle :: proc() -> Window_Handle {
@@ -335,126 +339,135 @@ JS_State :: struct {
 	events: [dynamic]Window_Event,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 	window_mode: Window_Mode,
+	key_from_js_event_key_code: map[string]Keyboard_Key,
 }
 
 s: ^JS_State
 
 key_from_js_event :: proc(e: js.Event) -> Keyboard_Key {
-	switch e.key.code {
-	case "Digit1": return .N1
-	case "Digit2": return .N2
-	case "Digit3": return .N3
-	case "Digit4": return .N4
-	case "Digit5": return .N5
-	case "Digit6": return .N6
-	case "Digit7": return .N7
-	case "Digit8": return .N8
-	case "Digit9": return .N9
-	case "Digit0": return .N0
+	if len(s.key_from_js_event_key_code) == 0 {
+		context.allocator = s.allocator
+		s.key_from_js_event_key_code = {
+			"Digit1" = .N1,
+			"Digit2" = .N2,
+			"Digit3" = .N3,
+			"Digit4" = .N4,
+			"Digit5" = .N5,
+			"Digit6" = .N6,
+			"Digit7" = .N7,
+			"Digit8" = .N8,
+			"Digit9" = .N9,
+			"Digit0" = .N0,
 
-	case "KeyA": return .A
-	case "KeyB": return .B
-	case "KeyC": return .C
-	case "KeyD": return .D
-	case "KeyE": return .E
-	case "KeyF": return .F
-	case "KeyG": return .G
-	case "KeyH": return .H
-	case "KeyI": return .I
-	case "KeyJ": return .J
-	case "KeyK": return .K
-	case "KeyL": return .L
-	case "KeyM": return .M
-	case "KeyN": return .N
-	case "KeyO": return .O
-	case "KeyP": return .P
-	case "KeyQ": return .Q
-	case "KeyR": return .R
-	case "KeyS": return .S
-	case "KeyT": return .T
-	case "KeyU": return .U
-	case "KeyV": return .V
-	case "KeyW": return .W
-	case "KeyX": return .X
-	case "KeyY": return .Y
-	case "KeyZ": return .Z
+			"KeyA" = .A,
+			"KeyB" = .B,
+			"KeyC" = .C,
+			"KeyD" = .D,
+			"KeyE" = .E,
+			"KeyF" = .F,
+			"KeyG" = .G,
+			"KeyH" = .H,
+			"KeyI" = .I,
+			"KeyJ" = .J,
+			"KeyK" = .K,
+			"KeyL" = .L,
+			"KeyM" = .M,
+			"KeyN" = .N,
+			"KeyO" = .O,
+			"KeyP" = .P,
+			"KeyQ" = .Q,
+			"KeyR" = .R,
+			"KeyS" = .S,
+			"KeyT" = .T,
+			"KeyU" = .U,
+			"KeyV" = .V,
+			"KeyW" = .W,
+			"KeyX" = .X,
+			"KeyY" = .Y,
+			"KeyZ" = .Z,
 
-	case "Quote":         return .Apostrophe
-	case "Comma":         return .Comma
-	case "Minus":         return .Minus
-	case "Period":        return .Period
-	case "Slash":         return .Slash
-	case "Semicolon":     return .Semicolon
-	case "Equal":         return .Equal
-	case "BracketLeft":   return .Left_Bracket
-	case "Backslash":     return .Backslash
-	case "IntlBackslash": return .Backslash
-	case "BracketRight":  return .Right_Bracket
-	case "Backquote":     return .Backtick
+			"Quote" = .Apostrophe,
+			"Comma" = .Comma,
+			"Minus" = .Minus,
+			"Period" = .Period,
+			"Slash" = .Slash,
+			"Semicolon" = .Semicolon,
+			"Equal" = .Equal,
+			"BracketLeft" = .Left_Bracket,
+			"Backslash" = .Backslash,
+			"IntlBackslash" = .Backslash,
+			"BracketRight" = .Right_Bracket,
+			"Backquote" = .Backtick,
 
-	case "Space":       return .Space
-	case "Escape":      return .Escape
-	case "Enter":       return .Enter
-	case "Tab":         return .Tab
-	case "Backspace":   return .Backspace
-	case "Insert":      return .Insert
-	case "Delete":      return .Delete
-	case "ArrowRight":  return .Right
-	case "ArrowLeft":   return .Left
-	case "ArrowDown":   return .Down
-	case "ArrowUp":     return .Up
-	case "PageUp":      return .Page_Up
-	case "PageDown":    return .Page_Down
-	case "Home":        return .Home
-	case "End":         return .End
-	case "CapsLock":    return .Caps_Lock
-	case "ScrollLock":  return .Scroll_Lock
-	case "NumLock":     return .Num_Lock
-	case "PrintScreen": return .Print_Screen
-	case "Pause":       return .Pause
+			"Space" = .Space,
+			"Escape" = .Escape,
+			"Enter" = .Enter,
+			"Tab" = .Tab,
+			"Backspace" = .Backspace,
+			"Insert" = .Insert,
+			"Delete" = .Delete,
+			"ArrowRight" = .Right,
+			"ArrowLeft" = .Left,
+			"ArrowDown" = .Down,
+			"ArrowUp" = .Up,
+			"PageUp" = .Page_Up,
+			"PageDown" = .Page_Down,
+			"Home" = .Home,
+			"End" = .End,
+			"CapsLock" = .Caps_Lock,
+			"ScrollLock" = .Scroll_Lock,
+			"NumLock" = .Num_Lock,
+			"PrintScreen" = .Print_Screen,
+			"Pause" = .Pause,
 
-	case "F1":  return .F1
-	case "F2":  return .F2
-	case "F3":  return .F3
-	case "F4":  return .F4
-	case "F5":  return .F5
-	case "F6":  return .F6
-	case "F7":  return .F7
-	case "F8":  return .F8
-	case "F9":  return .F9
-	case "F10": return .F10
-	case "F11": return .F11
-	case "F12": return .F12
+			"F1" = .F1,
+			"F2" = .F2,
+			"F3" = .F3,
+			"F4" = .F4,
+			"F5" = .F5,
+			"F6" = .F6,
+			"F7" = .F7,
+			"F8" = .F8,
+			"F9" = .F9,
+			"F10" = .F10,
+			"F11" = .F11,
+			"F12" = .F12,
 
-	case "ShiftLeft":    return .Left_Shift
-	case "ControlLeft":  return .Left_Control
-	case "AltLeft":      return .Left_Alt
-	case "MetaLeft":     return .Left_Super
-	case "ShiftRight":   return .Right_Shift
-	case "ControlRight": return .Right_Control
-	case "AltRight":     return .Right_Alt
-	case "MetaRight":    return .Right_Super
-	case "ContextMenu":  return .Menu
+			"ShiftLeft" = .Left_Shift,
+			"ControlLeft" = .Left_Control,
+			"AltLeft" = .Left_Alt,
+			"MetaLeft" = .Left_Super,
+			"ShiftRight" = .Right_Shift,
+			"ControlRight" = .Right_Control,
+			"AltRight" = .Right_Alt,
+			"MetaRight" = .Right_Super,
+			"ContextMenu" = .Menu,
 
-	case "Numpad0": return .NP_0
-	case "Numpad1": return .NP_1
-	case "Numpad2": return .NP_2
-	case "Numpad3": return .NP_3
-	case "Numpad4": return .NP_4
-	case "Numpad5": return .NP_5
-	case "Numpad6": return .NP_6
-	case "Numpad7": return .NP_7
-	case "Numpad8": return .NP_8
-	case "Numpad9": return .NP_9
+			"Numpad0" = .NP_0,
+			"Numpad1" = .NP_1,
+			"Numpad2" = .NP_2,
+			"Numpad3" = .NP_3,
+			"Numpad4" = .NP_4,
+			"Numpad5" = .NP_5,
+			"Numpad6" = .NP_6,
+			"Numpad7" = .NP_7,
+			"Numpad8" = .NP_8,
+			"Numpad9" = .NP_9,
 
-	case "NumpadDecimal":  return .NP_Decimal
-	case "NumpadDivide":   return .NP_Divide
-	case "NumpadMultiply": return .NP_Multiply
-	case "NumpadSubtract": return .NP_Subtract
-	case "NumpadAdd":      return .NP_Add
-	case "NumpadEnter":    return .NP_Enter
+			"NumpadDecimal" = .NP_Decimal,
+			"NumpadDivide" = .NP_Divide,
+			"NumpadMultiply" = .NP_Multiply,
+			"NumpadSubtract" = .NP_Subtract,
+			"NumpadAdd" = .NP_Add,
+			"NumpadEnter" = .NP_Enter,
+		}
 	}
 
-	log.errorf("Unhandled key code: %v", e.key.code)
-	return .None
+	res := s.key_from_js_event_key_code[e.key.code]
+
+	if res == .None {
+		log.errorf("Unhandled key code: %v", e.key.code)
+	}
+
+	return res
 }
