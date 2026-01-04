@@ -46,6 +46,8 @@ Window_Event :: union {
 	Window_Event_Mouse_Button_Went_Up,
 	Window_Event_Gamepad_Button_Went_Down,
 	Window_Event_Gamepad_Button_Went_Up,
+	Window_Event_Focused,
+	Window_Event_Unfocused,
 }
 
 Window_Event_Key_Went_Down :: struct {
@@ -86,4 +88,12 @@ Window_Event_Mouse_Wheel :: struct {
 
 Window_Event_Resize :: struct {
 	width, height: int,
+}
+
+Window_Event_Focused :: struct {
+
+}
+
+Window_Event_Unfocused :: struct {
+	
 }

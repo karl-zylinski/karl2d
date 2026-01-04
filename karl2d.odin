@@ -265,6 +265,32 @@ process_events :: proc() {
 		case Window_Event_Resize:
 			rb.resize_swapchain(e.width, e.height)
 			s.proj_matrix = make_default_projection(e.width, e.height)
+
+		case Window_Event_Focused:			
+
+		case Window_Event_Unfocused:
+			for k in Keyboard_Key {
+				if s.key_is_held[k] {
+					s.key_is_held[k] = false
+					s.key_went_up[k] = true
+				}
+			}
+
+			for b in Mouse_Button {
+				if s.mouse_button_is_held[b] {
+					s.mouse_button_is_held[b] = false
+					s.mouse_button_went_up[b] = true
+				}
+			}
+
+			for gp in 0..<MAX_GAMEPADS {
+				for b in Gamepad_Button {
+					if s.gamepad_button_is_held[gp][b] {
+						s.gamepad_button_is_held[gp][b] = false
+						s.gamepad_button_went_up[gp][b] = true
+					}
+				}
+			}
 		}
 	}
 

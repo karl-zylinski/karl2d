@@ -397,31 +397,37 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		append(&s.events, Window_Event_Mouse_Button_Went_Down {
 			button = .Left,
 		})
+		win32.SetCapture(s.hwnd)
 
 	case win32.WM_LBUTTONUP:
 		append(&s.events, Window_Event_Mouse_Button_Went_Up {
 			button = .Left,
 		})
+		win32.ReleaseCapture()
 
 	case win32.WM_MBUTTONDOWN:
 		append(&s.events, Window_Event_Mouse_Button_Went_Down {
 			button = .Middle,
 		})
+		win32.SetCapture(s.hwnd)
 
 	case win32.WM_MBUTTONUP:
 		append(&s.events, Window_Event_Mouse_Button_Went_Up {
 			button = .Middle,
 		})
+		win32.ReleaseCapture()
 
 	case win32.WM_RBUTTONDOWN:
 		append(&s.events, Window_Event_Mouse_Button_Went_Down {
 			button = .Right,
 		})
+		win32.SetCapture(s.hwnd)
 
 	case win32.WM_RBUTTONUP:
 		append(&s.events, Window_Event_Mouse_Button_Went_Up {
 			button = .Right,
 		})
+		win32.ReleaseCapture()
 
 	case win32.WM_MOVE:
 		if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
@@ -447,7 +453,14 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			width = int(width),
 			height = int(height),
 		})
+
+	case win32.WM_SETFOCUS:
+		append(&s.events, Window_Event_Focused {})
+
+	case win32.WM_KILLFOCUS:
+		append(&s.events, Window_Event_Unfocused {})
 	}
+
 
 	return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
 }

@@ -19,6 +19,7 @@ init :: proc() {
 }
 
 pos_x: f32
+rot: f32
 
 step :: proc() -> bool {
 	k2.new_frame()
@@ -43,7 +44,18 @@ step :: proc() -> bool {
 		k2.set_window_position(0, 0) 
 	}
 
-	rot := f32(t*50)
+	if k2.key_is_held(.A) {
+		pos_x -= k2.get_frame_time() * 400
+	}
+
+	if k2.key_is_held(.D) {
+		pos_x += k2.get_frame_time() * 400
+	}
+
+	if k2.mouse_button_is_held(.Left) {
+		rot += k2.get_frame_time() * 400
+	}
+
 	k2.draw_texture_ex(tex, {0, 0, f32(tex.width), f32(tex.height)}, {400, 450, 900, 500}, {450, 250}, rot)
 
 	k2.draw_rect({pos_x + 10, 10, 60, 60}, k2.GREEN)
