@@ -17,7 +17,8 @@ WINDOW_INTERFACE_WIN32 :: Window_Interface {
 	set_position = win32_set_position,
 	set_size = win32_set_size,
 	get_window_scale = win32_get_window_scale,
-	set_flags = win32_set_flags,
+	set_window_mode = win32_set_window_mode,
+
 	is_gamepad_active = win32_is_gamepad_active,
 	get_gamepad_axis = win32_get_gamepad_axis,
 	set_gamepad_vibration = win32_set_gamepad_vibration,
@@ -32,14 +33,20 @@ win32_state_size :: proc() -> int {
 	return size_of(Win32_State)
 }
 
-win32_init :: proc(window_state: rawptr, screen_width: int, screen_height: int, window_title: string,
-	               flags: Window_Flags, allocator: runtime.Allocator) {
+win32_init :: proc(
+	window_state: rawptr,
+	screen_width: int,
+	screen_height: int,
+	window_title: string,
+	init_options: Init_Options,
+	allocator: runtime.Allocator,
+) {
 	assert(window_state != nil)
 	s = (^Win32_State)(window_state)
 	s.allocator = allocator
 	s.events = make([dynamic]Window_Event, allocator)
-	s.width = screen_width
-	s.height = screen_height
+	s.wanted_width = screen_width
+	s.wanted_height = screen_height
 	s.custom_context = context
 	
 	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
@@ -57,29 +64,21 @@ win32_init :: proc(window_state: rawptr, screen_width: int, screen_height: int, 
 
 	win32.RegisterClassW(&cls)
 
-	r: win32.RECT
-	r.right = i32(screen_width)
-	r.bottom = i32(screen_height)
-
-	s.flags = flags
-
-	style := style_from_flags(flags)
-
-	win32.AdjustWindowRect(&r, style, false)
-
+	// We create a window with default position and size. We set the correct size in
+	// `win32_set_window_mode`.
 	hwnd := win32.CreateWindowW(CLASS_NAME,
 		win32.utf8_to_wstring(window_title),
-		style,
+		win32.WS_VISIBLE,
 		win32.CW_USEDEFAULT, win32.CW_USEDEFAULT,
-		r.right - r.left, r.bottom - r.top,
+		win32.CW_USEDEFAULT, win32.CW_USEDEFAULT,
 		nil, nil, instance, nil,
 	)
-
-	win32.XInputEnable(true)
-
 	assert(hwnd != nil, "Failed creating window")
-
 	s.hwnd = hwnd
+	
+	win32_set_window_mode(init_options.window_mode)
+	
+	win32.XInputEnable(true)
 }
 
 win32_shutdown :: proc() {
@@ -161,11 +160,11 @@ win32_get_events :: proc() -> []Window_Event {
 }
 
 win32_get_width :: proc() -> int {
-	return s.width
+	return s.current_width
 }
 
 win32_get_height :: proc() -> int {
-	return s.height
+	return s.current_height
 }
 
 win32_clear_events :: proc() {
@@ -200,12 +199,6 @@ win32_set_size :: proc(w, h: int) {
 
 win32_get_window_scale :: proc() -> f32 {
 	return f32(win32.GetDpiForWindow(s.hwnd))/96.0
-}
-
-win32_set_flags :: proc(flags: Window_Flags) {
-	s.flags = flags
-	style := style_from_flags(flags)
-	win32.SetWindowLongW(s.hwnd, win32.GWL_STYLE, i32(style))
 }
 
 win32_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -265,22 +258,77 @@ Win32_State :: struct {
 	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
 	hwnd: win32.HWND,
-	flags: Window_Flags,
-	width: int,
-	height: int,
+	window_mode: Window_Mode,
+	current_width: int,
+	current_height: int,
+
+	wanted_width: int,
+	wanted_height: int,
+
+	// old (x,y) pos, good when returning to windowed mode
+	windowed_pos_x: int,
+	windowed_pos_y: int,
+
 	events: [dynamic]Window_Event,
 }
 
-style_from_flags :: proc(flags: Window_Flags) -> win32.DWORD {
-	style := win32.WS_OVERLAPPED | win32.WS_CAPTION | win32.WS_SYSMENU |
-	         win32.WS_MINIMIZEBOX | win32.WS_VISIBLE |
-	         win32.CS_OWNDC
+win32_set_window_mode :: proc(window_mode: Window_Mode) {
+	s.window_mode = window_mode
 
-	if .Resizable in flags {
-		style |= win32.WS_THICKFRAME & win32.WS_MAXIMIZEBOX
+	style: win32.DWORD
+	switch window_mode {
+	case .Windowed:
+		style = win32.WS_OVERLAPPED |
+	            win32.WS_CAPTION |
+	            win32.WS_SYSMENU |
+	            win32.WS_MINIMIZEBOX |
+	            win32.WS_VISIBLE
+
+	case .Windowed_Resizable:
+		style = win32.WS_OVERLAPPED |
+	            win32.WS_CAPTION |
+	            win32.WS_SYSMENU |
+	            win32.WS_MINIMIZEBOX |
+	            win32.WS_VISIBLE |
+	            win32.WS_THICKFRAME |
+	            win32.WS_MAXIMIZEBOX
+
+	case .Windowed_Borderless_Fullscreen:
+		style = win32.WS_VISIBLE
 	}
 
-	return style
+	win32.SetWindowLongW(s.hwnd, win32.GWL_STYLE, i32(style))
+
+	#partial switch window_mode {
+	case .Windowed, .Windowed_Resizable:
+		r: win32.RECT
+		r.left = i32(s.windowed_pos_x)
+		r.top = i32(s.windowed_pos_y)
+		r.right = r.left + i32(s.wanted_width)
+		r.bottom = r.top + i32(s.wanted_height)
+		win32.AdjustWindowRect(&r, style, false)
+
+		win32.SetWindowPos(
+			s.hwnd,
+			{},
+			i32(r.left),
+			i32(r.top),
+			i32(r.right - r.left),
+			i32(r.bottom - r.top),
+			win32.SWP_NOACTIVATE | win32.SWP_NOZORDER,
+		)
+
+	case .Windowed_Borderless_Fullscreen:
+		mi := win32.MONITORINFO { cbSize = size_of (win32.MONITORINFO)}
+		mon := win32.MonitorFromWindow(s.hwnd, .MONITOR_DEFAULTTONEAREST)
+		if (win32.GetMonitorInfoW(mon, &mi)) {
+			win32.SetWindowPos(s.hwnd, win32.HWND_TOP,
+			mi.rcMonitor.left, mi.rcMonitor.top,
+			mi.rcMonitor.right - mi.rcMonitor.left,
+			mi.rcMonitor.bottom - mi.rcMonitor.top,
+			win32.SWP_NOOWNERZORDER | win32.SWP_FRAMECHANGED)
+		}
+	}
 }
 
 s: ^Win32_State
@@ -356,12 +404,21 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			button = .Right,
 		})
 
+	case win32.WM_MOVE:
+		if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
+			x := win32.LOWORD(lparam)
+			y := win32.HIWORD(lparam)
+
+			s.windowed_pos_x = int(x)
+			s.windowed_pos_y = int(y)
+		}
+
 	case win32.WM_SIZE:
 		width := win32.LOWORD(lparam)
 		height := win32.HIWORD(lparam)
 
-		s.width = int(width)
-		s.height = int(height)
+		s.current_width = int(width)
+		s.current_height = int(height)
 
 		append(&s.events, Window_Event_Resize {
 			width = int(width),

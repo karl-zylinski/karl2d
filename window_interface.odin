@@ -4,8 +4,16 @@ import "base:runtime"
 
 Window_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
-	init: proc(window_state: rawptr, window_width: int, window_height: int, window_title: string, 
-	           flags: Window_Flags, allocator: runtime.Allocator),
+
+	init: proc(
+		window_state: rawptr,
+		window_width: int,
+		window_height: int,
+		window_title: string,
+		init_options: Init_Options,
+		allocator: runtime.Allocator,
+	),
+
 	shutdown: proc(),
 	window_handle: proc() -> Window_Handle,
 	process_events: proc(),
@@ -16,7 +24,7 @@ Window_Interface :: struct #all_or_none {
 	get_width: proc() -> int,
 	get_height: proc() -> int,
 	get_window_scale: proc() -> f32,
-	set_flags: proc(flags: Window_Flags),
+	set_window_mode: proc(window_mode: Window_Mode),
 
 	is_gamepad_active: proc(gamepad: int) -> bool,
 	get_gamepad_axis: proc(gamepad: int, axis: Gamepad_Axis) -> f32,

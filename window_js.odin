@@ -17,7 +17,7 @@ WINDOW_INTERFACE_JS :: Window_Interface {
 	set_position = js_set_position,
 	set_size = js_set_size,
 	get_window_scale = js_get_window_scale,
-	set_flags = js_set_flags,
+	set_window_mode = js_set_window_mode,
 	is_gamepad_active = js_is_gamepad_active,
 	get_gamepad_axis = js_get_gamepad_axis,
 	set_gamepad_vibration = js_set_gamepad_vibration,
@@ -28,7 +28,6 @@ WINDOW_INTERFACE_JS :: Window_Interface {
 import "core:sys/wasm/js"
 import "base:runtime"
 import "core:log"
-import "core:fmt"
 
 js_state_size :: proc() -> int {
 	return size_of(JS_State)
@@ -39,23 +38,27 @@ js_init :: proc(
 	window_width: int,
 	window_height: int,
 	window_title: string,
-	flags: Window_Flags,
+	init_options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
 	s = (^JS_State)(window_state)
 	s.allocator = allocator
 	s.canvas_id = "webgl-canvas"
-	s.flags = flags
 
 	js.set_document_title(window_title)
 
 	// The browser window probably has some other size than what was sent in.
-	if .Resizable in flags {
+	switch init_options.window_mode {
+	case .Windowed:
+		js_set_size(window_width, window_height)
+	case .Windowed_Resizable:
 		add_window_event_listener(.Resize, js_event_window_resize)
 		update_canvas_size(s.canvas_id)
-	} else {
-		js_set_size(window_width, window_height)
+	case .Windowed_Borderless_Fullscreen:
+		log.error("Windowed_Borderless_Fullscreen not implemented on web, but you can make it happen by using Window_Mode.Windowed_Resizable and putting the game in a fullscreen iframe.")
 	}
+
+	s.window_mode = init_options.window_mode
 
 	add_canvas_event_listener(.Mouse_Move, js_event_mouse_move)
 	add_canvas_event_listener(.Mouse_Down, js_event_mouse_down)
@@ -260,9 +263,7 @@ js_clear_events :: proc() {
 }
 
 js_set_position :: proc(x: int, y: int) {
-	buf: [256]u8
-	js.set_element_style(s.canvas_id, "margin-top", fmt.bprintf(buf[:], "%vpx", x))
-	js.set_element_style(s.canvas_id, "margin-left", fmt.bprintf(buf[:], "%vpx", y))
+	log.warn("set_window_position not implemented on web")
 }
 
 js_set_size :: proc(w, h: int) {
@@ -276,18 +277,16 @@ js_get_window_scale :: proc() -> f32 {
 	return f32(js.device_pixel_ratio())
 }
 
-js_set_flags :: proc(flags: Window_Flags) {
-	if .Resizable in (flags ~ s.flags) {
-		if .Resizable in flags {
-			add_window_event_listener(.Resize, js_event_window_resize)
-			update_canvas_size(s.canvas_id)
-		} else {
-			remove_window_event_listener(.Resize, js_event_window_resize)
-			js_set_size(s.width, s.height)
-		}
+js_set_window_mode :: proc(window_mode: Window_Mode) {
+	if window_mode == .Windowed_Resizable && s.window_mode == .Windowed {
+		add_window_event_listener(.Resize, js_event_window_resize)
+		update_canvas_size(s.canvas_id)
+	} else if window_mode == .Windowed && s.window_mode == .Windowed_Resizable {
+		remove_window_event_listener(.Resize, js_event_window_resize)
+		js_set_size(s.width, s.height)
 	}
 
-	s.flags = flags
+	s.window_mode = window_mode
 }
 
 js_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -335,7 +334,7 @@ JS_State :: struct {
 	height: int,
 	events: [dynamic]Window_Event,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
-	flags: Window_Flags,
+	window_mode: Window_Mode,
 }
 
 s: ^JS_State

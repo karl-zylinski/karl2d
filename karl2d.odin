@@ -33,9 +33,14 @@ import hm "handle_map"
 //
 // `screen_width` and `screen_height` refer to the the resolution of the drawable area of the
 // window. The window might be slightly larger due borders and headers.
-init :: proc(screen_width: int, screen_height: int, window_title: string,
-            window_creation_flags := Window_Flags {},
-            allocator := context.allocator, loc := #caller_location) -> ^State {
+init :: proc(
+	screen_width: int,
+	screen_height: int,
+	window_title: string,
+	options := Init_Options {},
+	allocator := context.allocator,
+	loc := #caller_location
+) -> ^State {
 	assert(s == nil, "Don't call 'init' twice.")
 	context.allocator = allocator
 
@@ -57,7 +62,7 @@ init :: proc(screen_width: int, screen_height: int, window_title: string,
 	s.window_state, window_state_alloc_error = mem.alloc(win.state_size(), allocator = allocator)
 	log.assertf(window_state_alloc_error == nil, "Failed allocating memory for window state: %v", window_state_alloc_error)
 
-	win.init(s.window_state, screen_width, screen_height, window_title, window_creation_flags, allocator)
+	win.init(s.window_state, screen_width, screen_height, window_title, options, allocator)
 
 	// This is a OS-independent handle that we can pass to any rendering backend.
 	s.window = win.window_handle()
@@ -294,7 +299,7 @@ get_screen_height :: proc() -> int  {
 
 // Moves the window.
 //
-// WebGL note: This moves the canvas within the window, which may not be what you want.
+// This does nothing for web builds.
 set_window_position :: proc(x: int, y: int) {
 	win.set_position(x, y)
 }
@@ -313,9 +318,9 @@ get_window_scale :: proc() -> f32 {
 	return win.get_window_scale()
 }
 
-// These are the same kind of flags that you can send to `init`.
-set_window_flags :: proc(flags: Window_Flags) {
-	win.set_flags(flags)
+// Use to change between windowed mode, resizable windowed mode and fullscreen
+set_window_mode :: proc(window_mode: Window_Mode) {
+	win.set_window_mode(window_mode)
 }
 
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
@@ -1619,13 +1624,15 @@ Camera :: struct {
 	zoom: f32,
 }
 
-Window_Flag :: enum {
-	// Make the window possible to resize. This will make the backbuffer automatically resize as
-	// well.
-	Resizable,
+Window_Mode :: enum {
+	Windowed,
+	Windowed_Resizable,
+	Windowed_Borderless_Fullscreen,
 }
 
-Window_Flags :: bit_set[Window_Flag]
+Init_Options :: struct {
+	window_mode: Window_Mode,
+}
 
 Shader_Handle :: distinct Handle
 

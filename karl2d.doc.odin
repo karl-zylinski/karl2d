@@ -12,9 +12,14 @@ package karl2d
 //
 // `screen_width` and `screen_height` refer to the the resolution of the drawable area of the
 // window. The window might be slightly larger due borders and headers.
-init :: proc(screen_width: int, screen_height: int, window_title: string,
-            window_creation_flags := Window_Flags {},
-            allocator := context.allocator, loc := #caller_location) -> ^State
+init :: proc(
+	screen_width: int,
+	screen_height: int,
+	window_title: string,
+	options := Init_Options {},
+	allocator := context.allocator,
+	loc := #caller_location
+) -> ^State
 
 // Returns true the user has pressed the close button on the window, or used a key stroke such as
 // ALT+F4 on Windows. The application can decide if it wants to shut down or if it wants to show
@@ -74,7 +79,7 @@ get_screen_height :: proc() -> int
 
 // Moves the window.
 //
-// WebGL note: This moves the canvas within the window, which may not be what you want.
+// This does nothing for web builds.
 set_window_position :: proc(x: int, y: int)
 
 // Resize the window to a new size. If the window has the flag Resizable set, then the backbuffer
@@ -85,8 +90,8 @@ set_window_size :: proc(width: int, height: int)
 // 1 means 100% scale, 1.5 means 150% etc.
 get_window_scale :: proc() -> f32
 
-// These are the same kind of flags that you can send to `init`.
-set_window_flags :: proc(flags: Window_Flags)
+// Use to change between windowed mode, resizable windowed mode and fullscreen
+set_window_mode :: proc(window_mode: Window_Mode)
 
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
@@ -575,13 +580,15 @@ Camera :: struct {
 	zoom: f32,
 }
 
-Window_Flag :: enum {
-	// Make the window possible to resize. This will make the backbuffer automatically resize as
-	// well.
-	Resizable,
+Window_Mode :: enum {
+	Windowed,
+	Windowed_Resizable,
+	Windowed_Borderless_Fullscreen,
 }
 
-Window_Flags :: bit_set[Window_Flag]
+Init_Options :: struct {
+	window_mode: Window_Mode,
+}
 
 Shader_Handle :: distinct Handle
 
