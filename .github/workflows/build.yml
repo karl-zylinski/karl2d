@@ -16,9 +16,10 @@ jobs:
       - uses: laytan/setup-odin@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          release: false
+          release: nightly
           
       - uses: actions/checkout@v4
+
 
       - name: minimal
         run: odin check examples/minimal -vet -strict-style
@@ -44,11 +45,31 @@ jobs:
       - name: minimal (web, debug)
         run: odin run build_web -vet -strict-style -- examples/minimal_web -debug
 
+
       - name: snake
         run: odin check examples/snake -vet -strict-style
 
       - name: snake (debug)
         run: odin check examples/snake -vet -strict-style -debug
+
+      - name: snake (gl)
+        run: odin check examples/snake -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
+
+      - name: snake (gl, debug)
+        run: odin check examples/snake -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
+
+      - name: snake (gl)
+        run: odin check examples/snake -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
+
+      - name: snake (nil, debug)
+        run: odin check examples/snake -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
+
+      - name: snake (web)
+        run: odin run build_web -vet -strict-style -- examples/snake
+
+      - name: snake (web, debug)
+        run: odin run build_web -vet -strict-style -- examples/snake -debug
+
 
       - name: 2d_camera
         run: odin check examples/raylib_ports/2d_camera -vet -strict-style
