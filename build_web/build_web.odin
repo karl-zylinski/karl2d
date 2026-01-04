@@ -125,5 +125,6 @@ main :: proc() {
 
 	if len(build_std_err) > 0 {
 		fmt.println(string(build_std_err))
+		os.exit(1)
 	}
 }
