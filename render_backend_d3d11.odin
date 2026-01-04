@@ -180,19 +180,71 @@ d3d11_shutdown :: proc() {
 	s.dxgi_adapter->Release()
 
 	when ODIN_DEBUG {
-		debug: ^d3d11.IDebug
-
-		if ch(s.device->QueryInterface(d3d11.IDebug_UUID, (^rawptr)(&debug))) >= 0 {
-			ch(debug->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL}))
-			log_messages()
-		}
-
-		debug->Release()
+		d3d11_debug_print_live_objects()
 		s.device->Release()
-		s.info_queue->Release()
+
+		if s.info_queue != nil {
+			s.info_queue->Release()
+		}
 	} else {
 		s.device->Release()
 	}
+}
+
+// For finding D3D11 resource leaks etc
+d3d11_debug_print_live_objects :: proc() {
+	debug: ^d3d11.IDebug
+
+	if s.info_queue != nil && ch(s.device->QueryInterface(d3d11.IDebug_UUID, (^rawptr)(&debug))) >= 0 {
+		live_objs_res := debug->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
+
+		if live_objs_res >= 0 {
+			iq := s.info_queue
+			n := iq->GetNumStoredMessages()
+
+			longest_msg: d3d11.SIZE_T
+
+			for i in 0..=n {
+				msglen: d3d11.SIZE_T
+				iq->GetMessage(i, nil, &msglen)
+
+				if msglen > longest_msg {
+					longest_msg = msglen
+				}
+			}
+
+			if longest_msg > 0 {
+				msg_raw_ptr, _ := (mem.alloc(int(longest_msg), allocator = frame_allocator))
+				printed_header: bool
+
+				for i in 0..=n {
+					msglen: d3d11.SIZE_T
+					iq->GetMessage(i, nil, &msglen)
+
+					if msglen > 0 {
+						msg := (^d3d11.MESSAGE)(msg_raw_ptr)
+						iq->GetMessage(i, msg, &msglen)
+						msg_str := string(msg.pDescription)
+
+						// I can't figure out how to not make the report include the device, since
+						// the info_queue and debug interface depends on it. So I skip that message.
+						if !strings.contains(msg_str, "Live ID3D11Device at") {
+							if !printed_header {
+								log.error("D3D11 objects leaked:")
+								printed_header = true
+							}
+
+							log.error(msg_str)
+						}
+					}
+				}
+			}
+
+			iq->ClearStoredMessages()
+		}
+	}
+
+	debug->Release()
 }
 
 d3d11_clear :: proc(render_target: Render_Target_Handle, color: Color) {
