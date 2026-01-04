@@ -66,7 +66,8 @@ win32_init :: proc(
 
 	// We create a window with default position and size. We set the correct size in
 	// `win32_set_window_mode`.
-	hwnd := win32.CreateWindowW(CLASS_NAME,
+	hwnd := win32.CreateWindowW(
+		CLASS_NAME,
 		win32.utf8_to_wstring(window_title),
 		win32.WS_VISIBLE,
 		win32.CW_USEDEFAULT, win32.CW_USEDEFAULT,
@@ -171,14 +172,27 @@ win32_clear_events :: proc() {
 	runtime.clear(&s.events)
 }
 
+// Because positions can be offset in Windows: There is an "inivisble border" on Windows. This makes
+// windows end up at slight offset positions. For example, if you set a window to be at (0, 0), then
+// it won't be at (0, 0) unless you add this offset.
+win32_get_window_offset :: proc() -> (x, y: i32) {
+	real_r: win32.RECT
+	win32.DwmGetWindowAttribute(s.hwnd, u32(win32.DWMWINDOWATTRIBUTE.DWMWA_EXTENDED_FRAME_BOUNDS), &real_r, size_of(win32.RECT))
+
+	r: win32.RECT
+	win32.GetWindowRect(s.hwnd, &r)
+
+	return real_r.left - r.left, real_r.top - r.top
+}
+
 win32_set_position :: proc(x: int, y: int) {
-	// TODO: Does x, y respect monitor DPI?
+	offx, offy := win32_get_window_offset()
 
 	win32.SetWindowPos(
 		s.hwnd,
 		{},
-		i32(x),
-		i32(y),
+		i32(x) - offx,
+		i32(y) - offy,
 		0,
 		0,
 		win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOSIZE,
@@ -274,8 +288,8 @@ Win32_State :: struct {
 
 win32_set_window_mode :: proc(window_mode: Window_Mode) {
 	s.window_mode = window_mode
-
 	style: win32.DWORD
+
 	switch window_mode {
 	case .Windowed:
 		style = win32.WS_OVERLAPPED |
