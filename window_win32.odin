@@ -293,7 +293,7 @@ win32_set_window_mode :: proc(window_mode: Window_Mode) {
 	            win32.WS_THICKFRAME |
 	            win32.WS_MAXIMIZEBOX
 
-	case .Windowed_Borderless_Fullscreen:
+	case .Borderless_Fullscreen:
 		style = win32.WS_VISIBLE
 	}
 
@@ -318,7 +318,7 @@ win32_set_window_mode :: proc(window_mode: Window_Mode) {
 			win32.SWP_NOACTIVATE | win32.SWP_NOZORDER,
 		)
 
-	case .Windowed_Borderless_Fullscreen:
+	case .Borderless_Fullscreen:
 		mi := win32.MONITORINFO { cbSize = size_of (win32.MONITORINFO)}
 		mon := win32.MonitorFromWindow(s.hwnd, .MONITOR_DEFAULTTONEAREST)
 		if (win32.GetMonitorInfoW(mon, &mi)) {

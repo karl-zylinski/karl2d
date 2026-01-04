@@ -1627,7 +1627,7 @@ Camera :: struct {
 Window_Mode :: enum {
 	Windowed,
 	Windowed_Resizable,
-	Windowed_Borderless_Fullscreen,
+	Borderless_Fullscreen,
 }
 
 Init_Options :: struct {

@@ -54,8 +54,8 @@ js_init :: proc(
 	case .Windowed_Resizable:
 		add_window_event_listener(.Resize, js_event_window_resize)
 		update_canvas_size(s.canvas_id)
-	case .Windowed_Borderless_Fullscreen:
-		log.error("Windowed_Borderless_Fullscreen not implemented on web, but you can make it happen by using Window_Mode.Windowed_Resizable and putting the game in a fullscreen iframe.")
+	case .Borderless_Fullscreen:
+		log.error("Borderless_Fullscreen not implemented on web, but you can make it happen by using Window_Mode.Windowed_Resizable and putting the game in a fullscreen iframe.")
 	}
 
 	s.window_mode = init_options.window_mode
