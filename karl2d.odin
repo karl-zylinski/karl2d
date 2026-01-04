@@ -244,7 +244,10 @@ process_events :: proc() {
 
 		case Window_Event_Mouse_Move:
 			prev_pos := s.mouse_position
-			s.mouse_position = e.position
+
+			s.mouse_position.x = clamp(e.position.x, 0, f32(win.get_width()))
+			s.mouse_position.y = clamp(e.position.y, 0, f32(win.get_height()))
+
 			s.mouse_delta = s.mouse_position - prev_pos
 
 		case Window_Event_Mouse_Wheel:
