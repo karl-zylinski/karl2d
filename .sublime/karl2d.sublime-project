@@ -162,16 +162,16 @@
 	"folders":
 	[
 		{
-			"path": "..",
+			"path": "/home/karl/projects/karl2d",
 		},
 		{
-			"path": "~/sdk/Odin/base",
+			"path": "/home/karl/sdk/Odin/base",
 		},
 		{
-			"path": "~/sdk/Odin/core",
+			"path": "/home/karl/sdk/Odin/core",
 		},
 		{
-			"path": "~/sdk/Odin/vendor",
+			"path": "/home/karl/sdk/Odin/vendor",
 		},
 		{
 			"path": "C:\\SDK\\Odin\\base",
@@ -204,7 +204,13 @@
 			"path": "C:\\SDK\\Odin\\vendor\\wasm\\WebGL",
 		},
 		{
-			"path": "C:\\projects\\raylib\\src"
+			"path": "C:\\projects\\raylib\\src",
+		},
+		{
+			"path": "/usr/include/GL",
+		},
+		{
+			"path": "/usr/include/X11"
 		},
 	],
 	"settings":

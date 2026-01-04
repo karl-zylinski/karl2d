@@ -18,7 +18,7 @@ WINDOW_INTERFACE_X11 :: Window_Interface {
 	set_position = x11_set_position,
 	set_size = x11_set_size,
 	get_window_scale = x11_get_window_scale,
-	set_flags = x11_set_flags,
+	set_window_mode = x11_set_window_mode,
 	is_gamepad_active = x11_is_gamepad_active,
 	get_gamepad_axis = x11_get_gamepad_axis,
 	set_gamepad_vibration = x11_set_gamepad_vibration,
@@ -43,40 +43,47 @@ x11_init :: proc(
 	window_width: int,
 	window_height: int,
 	window_title: string,
-	flags: Window_Flags,
+	flags: Init_Options,
 	allocator: runtime.Allocator,
 ) {
 	s = (^X11_State)(window_state)
 	s.allocator = allocator
-	s.flags = flags
 	s.width = window_width
 	s.height = window_height
-
-	display := X.OpenDisplay(nil)
+	s.display = X.OpenDisplay(nil)
 
 	window := X.CreateSimpleWindow(
-		display,
-		X.DefaultRootWindow(display),
+		s.display,
+		X.DefaultRootWindow(s.display),
 		0, 0,
 		u32(window_width), u32(window_height),
 		0,
-		0x00000000,
-		0x00000000,
+		0,
+		0,
 	)
 
-	X.StoreName(display, window, frame_cstring(window_title))
-	X.SelectInput(display, window, {.KeyPress, .KeyRelease})
-	X.MapWindow(display, window)
+	X.StoreName(s.display, window, frame_cstring(window_title))
+	X.SelectInput(s.display, window, {.KeyPress, .KeyRelease})
+	X.MapWindow(s.display, window)
+
+	s.window_handle = {
+		display = s.display,
+		window = window,
+	}
 }
 
 x11_shutdown :: proc() {
 }
 
 x11_window_handle :: proc() -> Window_Handle {
-	return {}
+	return Window_Handle(&s.window_handle)
 }
 
 x11_process_events :: proc() {
+	for X.Pending(s.display) > 0 {
+		event: X.XEvent
+		X.NextEvent(s.display, &event)
+	}
 }
 
 x11_get_events :: proc() -> []Window_Event {
@@ -105,8 +112,7 @@ x11_get_window_scale :: proc() -> f32 {
 	return 1
 }
 
-x11_set_flags :: proc(flags: Window_Flags) {
-	s.flags = flags
+x11_set_window_mode :: proc(window_mode: Window_Mode) {
 }
 
 x11_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -141,7 +147,14 @@ X11_State :: struct {
 	width: int,
 	height: int,
 	events: [dynamic]Window_Event,
-	flags: Window_Flags,
+	display: ^X.Display,
+	window_handle: Window_Handle_Linux,
 }
 
 s: ^X11_State
+
+@(private="package")
+Window_Handle_Linux :: struct {
+	display: ^X.Display,
+	window: X.Window,
+}

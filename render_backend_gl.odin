@@ -1,4 +1,4 @@
-#+build windows, darwin
+#+build windows, darwin, linux
 #+private file
 
 package karl2d
@@ -130,11 +130,12 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 	ctx, ctx_ok := _gl_get_context(window_handle)
 
 	if !ctx_ok {
-		log.panic("Could not find a valid pixel format for gl context")
+		log.panic("Could not create a valid gl context")
 	}
 
 	s.ctx = ctx
 	_gl_load_procs()
+
 	gl.Enable(gl.DEPTH_TEST)
 	gl.DepthFunc(gl.GREATER)
 
