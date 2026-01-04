@@ -65,11 +65,13 @@ js_init :: proc(
 
 	add_canvas_event_listener(.Mouse_Move, js_event_mouse_move)
 	add_canvas_event_listener(.Mouse_Down, js_event_mouse_down)
-	add_canvas_event_listener(.Mouse_Up, js_event_mouse_up)
+	add_window_event_listener(.Mouse_Up, js_event_mouse_up)
 	add_canvas_event_listener(.Wheel, js_event_mouse_wheel)
 
 	add_window_event_listener(.Key_Down, js_event_key_down)
 	add_window_event_listener(.Key_Up, js_event_key_up)
+	add_window_event_listener(.Focus, js_event_focus)
+	add_window_event_listener(.Blur, js_event_blur)
 }
 
 js_event_key_down :: proc(e: js.Event) {
@@ -87,6 +89,16 @@ js_event_key_up :: proc(e: js.Event) {
 	key := key_from_js_event(e)
 	append(&s.events, Window_Event_Key_Went_Up {
 		key = key,
+	})
+}
+
+js_event_focus :: proc(e: js.Event) {
+	append(&s.events, Window_Event_Focused {
+	})
+}
+
+js_event_blur :: proc(e: js.Event) {
+	append(&s.events, Window_Event_Unfocused {
 	})
 }
 
