@@ -343,10 +343,14 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		append(&s.events, Window_Event_Close_Wanted{})
 
 	case win32.WM_KEYDOWN:
-		key := key_from_event_params(wparam, lparam)
-		append(&s.events, Window_Event_Key_Went_Down {
-			key = key,
-		})
+		repeat := bool(lparam & (1 << 30))
+
+		if !repeat {
+			key := key_from_event_params(wparam, lparam)
+			append(&s.events, Window_Event_Key_Went_Down {
+				key = key,
+			})
+		}
 
 		return 0
 
