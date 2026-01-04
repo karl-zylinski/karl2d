@@ -28,6 +28,7 @@ WINDOW_INTERFACE_WIN32 :: Window_Interface {
 
 import win32 "core:sys/windows"
 import "base:runtime"
+@require import "core:log"
 
 win32_state_size :: proc() -> int {
 	return size_of(Win32_State)
@@ -45,8 +46,8 @@ win32_init :: proc(
 	s = (^Win32_State)(window_state)
 	s.allocator = allocator
 	s.events = make([dynamic]Window_Event, allocator)
-	s.wanted_width = screen_width
-	s.wanted_height = screen_height
+	s.windowed_width = screen_width
+	s.windowed_height = screen_height
 	s.custom_context = context
 	
 	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
@@ -161,11 +162,11 @@ win32_get_events :: proc() -> []Window_Event {
 }
 
 win32_get_width :: proc() -> int {
-	return s.current_width
+	return s.width
 }
 
 win32_get_height :: proc() -> int {
-	return s.current_height
+	return s.height
 }
 
 win32_clear_events :: proc() {
@@ -273,15 +274,15 @@ Win32_State :: struct {
 	custom_context: runtime.Context,
 	hwnd: win32.HWND,
 	window_mode: Window_Mode,
-	current_width: int,
-	current_height: int,
 
-	wanted_width: int,
-	wanted_height: int,
+	width: int,
+	height: int,
 
 	// old (x,y) pos, good when returning to windowed mode
 	windowed_pos_x: int,
 	windowed_pos_y: int,
+	windowed_width: int,
+	windowed_height: int,
 
 	events: [dynamic]Window_Event,
 }
@@ -318,9 +319,9 @@ win32_set_window_mode :: proc(window_mode: Window_Mode) {
 		r: win32.RECT
 		r.left = i32(s.windowed_pos_x)
 		r.top = i32(s.windowed_pos_y)
-		r.right = r.left + i32(s.wanted_width)
-		r.bottom = r.top + i32(s.wanted_height)
-		win32.AdjustWindowRect(&r, style, false)
+		r.right = r.left + i32(s.windowed_width)
+		r.bottom = r.top + i32(s.windowed_height)
+		win32.AdjustWindowRectExForDpi(&r, style, false, 0, win32.GetDpiForWindow(s.hwnd))
 
 		win32.SetWindowPos(
 			s.hwnd,
@@ -431,12 +432,16 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			s.windowed_pos_y = int(y)
 		}
 
+	case win32.WM_DPICHANGED:
+		// Set the window mode again so everything is correct size after DPI change.
+		win32_set_window_mode(s.window_mode)
+
 	case win32.WM_SIZE:
 		width := win32.LOWORD(lparam)
 		height := win32.HIWORD(lparam)
 
-		s.current_width = int(width)
-		s.current_height = int(height)
+		s.width = int(width)
+		s.height = int(height)
 
 		append(&s.events, Window_Event_Resize {
 			width = int(width),

@@ -27,6 +27,20 @@
 					"working_dir": "$project_path/../examples/minimal",
 				},
 				{
+					"name": "karl playground",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
+					"working_dir": "$project_path/../examples/karl_playground",
+				},
+				{
+					"name": "karl playground (gl)",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=gl",
+					"working_dir": "$project_path/../examples/karl_playground",
+				},
+				{
+					"name": "karl playground (web)",
+					"shell_cmd": "odin run build_web -- examples/karl_playground",
+				},
+				{
 					"name": "fonts",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
 					"working_dir": "$project_path/../examples/fonts",
@@ -42,7 +56,7 @@
 				},
 				{
 					"name": "render_texture (gl)",
-					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug  -define:KARL2D_RENDER_BACKEND=gl",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=gl",
 					"working_dir": "$project_path/../examples/render_texture",
 				},
 				{
