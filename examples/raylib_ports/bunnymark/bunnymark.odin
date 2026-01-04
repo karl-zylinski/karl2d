@@ -24,7 +24,9 @@ init :: proc() {
 	SCREEN_WIDTH :: 800
 	SCREEN_HEIGHT :: 450
 
-	k2.init(SCREEN_WIDTH, SCREEN_HEIGHT, "bunnymark (raylib port)", window_creation_flags = { .Resizable })
+	k2.init(SCREEN_WIDTH, SCREEN_HEIGHT, "bunnymark (raylib port)", options = { 
+		window_mode = .Windowed_Resizable,
+	})
 	tex_bunny = k2.load_texture_from_bytes(#load("wabbit_alpha.png"))
 }
 

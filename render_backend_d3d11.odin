@@ -188,10 +188,11 @@ d3d11_shutdown :: proc() {
 		}
 
 		debug->Release()
+		s.device->Release()
+		s.info_queue->Release()
+	} else {
+		s.device->Release()
 	}
-	
-	s.device->Release()
-	s.info_queue->Release()
 }
 
 d3d11_clear :: proc(render_target: Render_Target_Handle, color: Color) {
