@@ -14,7 +14,8 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 	resize_swapchain = webgl_resize_swapchain,
 	get_swapchain_width = webgl_get_swapchain_width,
 	get_swapchain_height = webgl_get_swapchain_height,
-	flip_z = webgl_flip_z,
+	depth_start = webgl_depth_start,
+	depth_increment_sign = webgl_depth_increment_sign,
 	set_internal_state = webgl_set_internal_state,
 	create_texture = webgl_create_texture,
 	load_texture = webgl_load_texture,
@@ -157,7 +158,7 @@ webgl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 
 	c := f32_color_from_color(color)
 	gl.ClearColor(c.r, c.g, c.b, c.a)
-	gl.ClearDepth(-1)
+	gl.ClearDepth(0)
 	gl.Clear(u32(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT))
 }
 
@@ -314,8 +315,12 @@ webgl_get_swapchain_height :: proc() -> int {
 	return s.height
 }
 
-webgl_flip_z :: proc() -> bool {
-	return false
+webgl_depth_start :: proc() -> f32 {
+	return 0
+}
+
+webgl_depth_increment_sign :: proc() -> int {
+	return 1
 }
 
 webgl_set_internal_state :: proc(state: rawptr) {

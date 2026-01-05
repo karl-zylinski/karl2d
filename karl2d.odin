@@ -70,15 +70,9 @@ init :: proc(
 	// See `config.odin` for how this is picked.
 	s.rb = RENDER_BACKEND
 
-	// Depending on backend the depth is counted in one of two ways. It can be counted from `1` and
-	// to lower numbers. Or from `-1` and to higher numbers.
-	s.depth_start = DEPTH_START
-	s.depth_increment = DEPTH_INCREMENT
-
-	if s.rb.flip_z() {
-		s.depth_start = -DEPTH_START
-		s.depth_increment = -DEPTH_INCREMENT
-	}
+	// Depending on backend the depth starts at `0` or `-1` and is counted in different directions.
+	s.depth_start = s.rb.depth_start()
+	s.depth_increment = DEPTH_INCREMENT * f32(math.sign(s.rb.depth_increment_sign()))
 
 	s.depth = s.depth_start
 	rb = s.rb
@@ -2212,7 +2206,6 @@ _set_font :: proc(fh: Font) {
 	fs.SetFont(&s.fs, font.fontstash_handle)
 }
 
-DEPTH_START :: -1 + DEPTH_INCREMENT
 DEPTH_INCREMENT :: (1.0/10000000.0)
 
 _ :: jpeg

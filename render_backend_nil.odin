@@ -13,7 +13,8 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	resize_swapchain = rbnil_resize_swapchain,
 	get_swapchain_width = rbnil_get_swapchain_width,
 	get_swapchain_height = rbnil_get_swapchain_height,
-	flip_z = rbnil_flip_z,
+	depth_start = rbnil_depth_start,
+	depth_increment_sign = rbnil_depth_increment_sign,
 	set_internal_state = rbnil_set_internal_state,
 	create_texture = rbnil_create_texture,
 	load_texture = rbnil_load_texture,
@@ -71,8 +72,12 @@ rbnil_get_swapchain_height :: proc() -> int {
 	return 0
 }
 
-rbnil_flip_z :: proc() -> bool {
-	return false
+rbnil_depth_start :: proc() -> f32 {
+	return 0
+}
+
+rbnil_depth_increment_sign :: proc() -> int {
+	return 1
 }
 
 rbnil_set_internal_state :: proc(state: rawptr) {
