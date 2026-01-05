@@ -4,7 +4,6 @@
 package karl2d_api_doc_builder
 
 import os "core:os"
-import vmem "core:mem/virtual"
 import "core:log"
 import "core:fmt"
 import "core:odin/parser"
