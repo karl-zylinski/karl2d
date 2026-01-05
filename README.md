@@ -37,7 +37,9 @@ Discuss and get help in the #karl2d channel [on my Discord server](https://disco
 
 ## FIRST BETA
 
-Karl2D is currently in its FIRST BETA period. This first beta has these features:
+Karl2D is currently in its FIRST BETA period. If you finy _any_ issues, then please create an issue here on GitHub!
+
+This first beta has these features:
 - Rendering of shapes, textures and text with automatic batching
 - Support for shaders and cameras
 - Windows support (D3D11 and OpenGL)
