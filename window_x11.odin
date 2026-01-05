@@ -63,7 +63,15 @@ x11_init :: proc(
 	)
 
 	X.StoreName(s.display, s.window, frame_cstring(window_title))
-	X.SelectInput(s.display, s.window, {.KeyPress, .KeyRelease, .ButtonPress, .ButtonRelease, .PointerMotion, .StructureNotify})
+	X.SelectInput(s.display, s.window, {
+		.KeyPress,
+		.KeyRelease,
+		.ButtonPress,
+		.ButtonRelease,
+		.PointerMotion,
+		.StructureNotify,
+		.FocusChange,
+	})
 	X.MapWindow(s.display, s.window)
 
 	s.delete_msg = X.InternAtom(s.display, "WM_DELETE_WINDOW", false)
@@ -161,6 +169,11 @@ x11_process_events :: proc() {
 					height = h,
 				})
 			}
+		case .FocusIn:
+			append(&s.events, Window_Event_Focused{})
+
+		case .FocusOut:
+			append(&s.events, Window_Event_Unfocused{})
 		}
 	}
 }
