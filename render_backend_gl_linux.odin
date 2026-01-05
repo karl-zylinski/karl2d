@@ -9,7 +9,7 @@ GL_Context :: ^glx.Context
 
 _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	whl := (^Window_Handle_Linux)(window_handle)
-	choose_visual_params := []int {
+	choose_visual_params := []i32 {
 		glx.RGBA,
 		glx.DEPTH_SIZE, 24,
 		glx.DOUBLE_BUFFER,
