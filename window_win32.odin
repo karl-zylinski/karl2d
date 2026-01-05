@@ -362,18 +362,23 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 		if !repeat {
 			key := key_from_event_params(wparam, lparam)
-			append(&s.events, Window_Event_Key_Went_Down {
-				key = key,
-			})
+
+			if key != .None {
+				append(&s.events, Window_Event_Key_Went_Down {
+					key = key,
+				})
+			}
 		}
 
 		return 0
 
 	case win32.WM_KEYUP:
 		key := key_from_event_params(wparam, lparam)
-		append(&s.events, Window_Event_Key_Went_Up {
-			key = key,
-		})
+		if key != .None {
+			append(&s.events, Window_Event_Key_Went_Up {
+				key = key,
+			})
+		}
 
 		return 0
 

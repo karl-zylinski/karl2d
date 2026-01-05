@@ -79,7 +79,7 @@
 				},
 				{
 					"name": "snake",
-					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:snake.exe",
 					"working_dir": "$project_path/../examples/snake",
 				},
 				{
