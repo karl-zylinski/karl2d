@@ -12,15 +12,12 @@ import "core:odin/ast"
 import "core:strings"
 
 main :: proc() {
-	arena: vmem.Arena
-	context.allocator = vmem.arena_allocator(&arena)
-	context.temp_allocator = context.allocator
 	context.logger = log.create_console_logger()
 
 	pkg_ast, pkg_ast_ok := parser.parse_package_from_path(".")
 	log.ensuref(pkg_ast_ok, "Could not generate AST for package")
 
-	o, o_err := os.open("karl2d.doc.odin", os.O_CREATE | os.O_TRUNC, 0o644)
+	o, o_err := os.open("karl2d.doc.odin", os.O_CREATE | os.O_TRUNC | os.O_WRONLY, 0o644)
 	log.assertf(o_err == nil, "Couldn't open karl2d.doc.odin: %v", o_err)
 
 	pln :: fmt.fprintln
