@@ -125,34 +125,40 @@ x11_process_events :: proc() {
 			}
 
 		case .ButtonPress:
-			btn: Mouse_Button
+			if event.xbutton.button <= .Button3 {
+				btn: Mouse_Button
 
-			switch event.xbutton.button {
-			case .Button1: btn = .Left
-			case .Button2: btn = .Middle
-			case .Button3: btn = .Right
-			case .Button4: btn = Mouse_Button(3)
-			case .Button5: btn = Mouse_Button(4)
+				#partial switch event.xbutton.button {
+				case .Button1: btn = .Left
+				case .Button2: btn = .Middle
+				case .Button3: btn = .Right
+				}
+
+				append(&s.events, Window_Event_Mouse_Button_Went_Down {
+					button = btn,
+				})
+			} else if event.xbutton.button <= .Button5 {
+				// LOL X11!!! Mouse wheel is button 4 and 5 being pressed.
+
+				append(&s.events, Window_Event_Mouse_Wheel {
+					event.xbutton.button == .Button4 ? -1 : 1,
+				})
 			}
-
-			append(&s.events, Window_Event_Mouse_Button_Went_Down {
-				button = btn,
-			})
 
 		case .ButtonRelease:
-			btn: Mouse_Button
+			if event.xbutton.button <= .Button3 {
+				btn: Mouse_Button
 
-			switch event.xbutton.button {
-			case .Button1: btn = .Left
-			case .Button2: btn = .Middle
-			case .Button3: btn = .Right
-			case .Button4: btn = Mouse_Button(3)
-			case .Button5: btn = Mouse_Button(4)
+				#partial switch event.xbutton.button {
+				case .Button1: btn = .Left
+				case .Button2: btn = .Middle
+				case .Button3: btn = .Right
+				}
+
+				append(&s.events, Window_Event_Mouse_Button_Went_Up {
+					button = btn,
+				})
 			}
-
-			append(&s.events, Window_Event_Mouse_Button_Went_Up {
-				button = btn,
-			})
 
 		case .MotionNotify:
 			append(&s.events, Window_Event_Mouse_Move {
