@@ -323,7 +323,6 @@ x11_get_window_scale :: proc() -> f32 {
 }
 
 enter_borderless_fullscreen :: proc() {
-
 	wm_state := X.InternAtom(s.display, "_NET_WM_STATE", true)
 	wm_fullscreen := X.InternAtom(s.display, "_NET_WM_STATE_FULLSCREEN", true)
 
@@ -356,7 +355,6 @@ leave_borderless_fullscreen :: proc() {
 	wm_state := X.InternAtom(s.display, "_NET_WM_STATE", true)
 	wm_fullscreen := X.InternAtom(s.display, "_NET_WM_STATE_FULLSCREEN", true)
 
-
 	exit_fullscreen := X.XEvent {
 		xclient = {
 			type = .ClientMessage,
@@ -383,9 +381,12 @@ x11_set_window_mode :: proc(window_mode: Window_Mode) {
 		return
 	}
 
+	old_window_mode := s.window_mode
+	s.window_mode = window_mode
+
 	switch window_mode {
 	case .Windowed:
-		if s.window_mode == .Borderless_Fullscreen {
+		if old_window_mode == .Borderless_Fullscreen {
 			leave_borderless_fullscreen()
 		}
 
@@ -400,7 +401,7 @@ x11_set_window_mode :: proc(window_mode: Window_Mode) {
 		X.SetWMNormalHints(s.display, s.window, &hints)
 
 	case .Windowed_Resizable: 
-		if s.window_mode == .Borderless_Fullscreen {
+		if old_window_mode == .Borderless_Fullscreen {
 			leave_borderless_fullscreen()
 		}
 
@@ -412,8 +413,6 @@ x11_set_window_mode :: proc(window_mode: Window_Mode) {
 	case .Borderless_Fullscreen:
 		enter_borderless_fullscreen()
 	}
-
-	s.window_mode = window_mode
 }
 
 x11_is_gamepad_active :: proc(gamepad: int) -> bool {
