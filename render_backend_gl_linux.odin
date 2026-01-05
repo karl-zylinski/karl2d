@@ -8,7 +8,10 @@ import "core:log"
 
 _ :: log
 
-GL_Context :: ^glx.Context
+GL_Context :: struct {
+	ctx: ^glx.Context,
+	window_handle: Window_Handle_Linux,
+}
 
 _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	whl := (^Window_Handle_Linux)(window_handle)
@@ -51,15 +54,15 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	ctx := glxCreateContextAttribsARB(whl.display, fbc[0], nil, true, raw_data(context_attribs))
 
 	if glx.MakeCurrent(whl.display, whl.window, ctx) {
-		return ctx, true
+		return {ctx = ctx, window_handle = whl^}, true
 	}
 
 	return {}, false
 }
 
 _gl_destroy_context :: proc(ctx: GL_Context) {
+	glx.DestroyContext(ctx.window_handle.display, ctx.ctx)
 }
-
 
 _gl_load_procs :: proc() {
 	gl.load_up_to(3, 3, glx.SetProcAddress)
@@ -68,6 +71,4 @@ _gl_load_procs :: proc() {
 _gl_present :: proc(window_handle: Window_Handle) {
 	whl := (^Window_Handle_Linux)(window_handle)
 	glx.SwapBuffers(whl.display, whl.window)
-	//hdc := win32.GetWindowDC(win32.HWND(window_handle))
-	//win32.SwapBuffers(hdc)
 }

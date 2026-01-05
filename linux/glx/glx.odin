@@ -28,6 +28,7 @@ Drawable :: xlib.XID
 @(default_calling_convention="c", link_prefix="glX")
 foreign lib {
 	CreateContext :: proc(dpy: ^xlib.Display, vis: ^xlib.XVisualInfo, shareList: ^Context, direct: b32) -> ^Context ---
+	DestroyContext :: proc(dpy: ^xlib.Display, ctx: ^Context) ---
 	MakeCurrent :: proc(dpy: ^xlib.Display, drawable: Drawable, ctx: ^Context) -> b32 ---
 	GetProcAddress :: proc(procName: cstring) -> rawptr ---
 	SwapBuffers :: proc(dpy: ^xlib.Display, drawable: Drawable) ---
