@@ -29,7 +29,7 @@ import hm "handle_map"
 
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory. The return value can be ignored unless you need to later call
-// `set_internal_state`...
+// `set_internal_state`.
 //
 // `screen_width` and `screen_height` refer to the the resolution of the drawable area of the
 // window. The window might be slightly larger due borders and headers.
