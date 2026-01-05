@@ -68,6 +68,7 @@ x11_init :: proc(
 
 	s.window_handle = {
 		display = s.display,
+		screen = X.DefaultScreen(s.display),
 		window = window,
 	}
 }
@@ -157,4 +158,5 @@ s: ^X11_State
 Window_Handle_Linux :: struct {
 	display: ^X.Display,
 	window: X.Window,
+	screen: i32,
 }

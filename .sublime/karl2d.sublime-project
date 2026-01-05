@@ -9,7 +9,7 @@
 			[
 				{
 					"name": "minimal",
-					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:minimal.exe",
 					"working_dir": "$project_path/../examples/minimal",
 				},
 				{

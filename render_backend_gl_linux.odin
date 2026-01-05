@@ -4,20 +4,51 @@ package karl2d
 
 import "linux/glx"
 import gl "vendor:OpenGL"
+import "core:log"
+
+_ :: log
 
 GL_Context :: ^glx.Context
 
 _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	whl := (^Window_Handle_Linux)(window_handle)
-	choose_visual_params := []i32 {
-		glx.RGBA,
+
+	visual_attribs := []i32 {
+		glx.RENDER_TYPE, glx.RGBA_BIT,
+		glx.DRAWABLE_TYPE, glx.WINDOW_BIT,
+		glx.DOUBLEBUFFER, 1,
 		glx.DEPTH_SIZE, 24,
-		glx.DOUBLE_BUFFER,
+		glx.RED_SIZE, 8,
+		glx.GREEN_SIZE, 8,
+		glx.BLUE_SIZE, 8,
+		glx.ALPHA_SIZE, 8,
 		0,
 	}
-	visual := glx.ChooseVisual(whl.display, 0, raw_data(choose_visual_params))
 
-	ctx := glx.CreateContext(whl.display, visual, nil, true)
+	num_fbc: i32
+	fbc := glx.ChooseFBConfig(whl.display, whl.screen, raw_data(visual_attribs), &num_fbc)
+   
+	if fbc == nil {
+		log.error("Failed choosing GLX framebuffer config")
+		return {}, false
+	}
+
+	glxCreateContextAttribsARB: glx.CreateContextAttribsARBProc
+	glx.SetProcAddress((rawptr)(&glxCreateContextAttribsARB), "glXCreateContextAttribsARB")
+	
+	if glxCreateContextAttribsARB == {} {
+		log.error("Failed fetching glXCreateContextAttribsARB")
+		return {}, false
+	}
+
+	context_attribs := []i32 {
+		glx.CONTEXT_MAJOR_VERSION_ARB, 3,
+		glx.CONTEXT_MINOR_VERSION_ARB, 3,
+		glx.CONTEXT_PROFILE_MASK_ARB, glx.CONTEXT_CORE_PROFILE_BIT_ARB,
+		0,
+	}
+
+	ctx := glxCreateContextAttribsARB(whl.display, fbc[0], nil, true, raw_data(context_attribs))
 
 	if glx.MakeCurrent(whl.display, whl.window, ctx) {
 		return ctx, true
