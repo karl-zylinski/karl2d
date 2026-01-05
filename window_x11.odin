@@ -63,7 +63,7 @@ x11_init :: proc(
 	)
 
 	X.StoreName(s.display, s.window, frame_cstring(window_title))
-	X.SelectInput(s.display, s.window, {.KeyPress, .KeyRelease})
+	X.SelectInput(s.display, s.window, {.KeyPress, .KeyRelease, .StructureNotify})
 	X.MapWindow(s.display, s.window)
 
 	s.delete_msg = X.InternAtom(s.display, "WM_DELETE_WINDOW", false)
@@ -110,6 +110,20 @@ x11_process_events :: proc() {
 			if key != .None {
 				append(&s.events, Window_Event_Key_Went_Up {
 					key = key,
+				})
+			}
+
+		case .ConfigureNotify:
+			w := int(event.xconfigure.width)
+			h := int(event.xconfigure.height)
+
+			if w != s.width || h != s.height {
+				s.width = w
+				s.height = h
+
+				append(&s.events, Window_Event_Resize {
+					width = w,
+					height = h,
 				})
 			}
 		}
