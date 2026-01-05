@@ -71,8 +71,8 @@ init :: proc(
 	s.rb = RENDER_BACKEND
 
 	// Depending on backend the depth starts at `0` or `-1` and is counted in different directions.
-	s.depth_start = s.rb.depth_start()
 	s.depth_increment = DEPTH_INCREMENT * f32(math.sign(s.rb.depth_increment_sign()))
+	s.depth_start = s.rb.depth_start() + s.depth_increment
 
 	s.depth = s.depth_start
 	rb = s.rb
