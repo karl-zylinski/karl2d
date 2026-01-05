@@ -117,7 +117,7 @@ main :: proc() {
 		append(&build_command, opt_string)
 	}
 
-	_, build_std_out, build_std_err, _ := os.process_exec({ command = build_command[:] }, allocator = context.allocator)
+	build_status, build_std_out, build_std_err, _ := os.process_exec({ command = build_command[:] }, allocator = context.allocator)
 
 	if len(build_std_out) > 0 {
 		fmt.println(string(build_std_out))
@@ -125,6 +125,7 @@ main :: proc() {
 
 	if len(build_std_err) > 0 {
 		fmt.println(string(build_std_err))
-		os.exit(1)
 	}
+
+	os.exit(build_status.exit_code)
 }
