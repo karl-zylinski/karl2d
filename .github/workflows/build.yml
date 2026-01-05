@@ -335,3 +335,7 @@ jobs:
 
       - name: palette (web, debug)
         run: odin run build_web -vet -strict-style -- examples/palette -debug
+
+
+      - name: verify karl2d.doc.odin
+        run: odin run api_verifier
