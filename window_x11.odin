@@ -118,8 +118,8 @@ x11_process_events :: proc() {
 
 			switch event.xbutton.button {
 			case .Button1: btn = .Left
-			case .Button2: btn = .Right
-			case .Button3: btn = .Middle
+			case .Button2: btn = .Middle
+			case .Button3: btn = .Right
 			case .Button4: btn = Mouse_Button(3)
 			case .Button5: btn = Mouse_Button(4)
 			}
@@ -133,8 +133,8 @@ x11_process_events :: proc() {
 
 			switch event.xbutton.button {
 			case .Button1: btn = .Left
-			case .Button2: btn = .Right
-			case .Button3: btn = .Middle
+			case .Button2: btn = .Middle
+			case .Button3: btn = .Right
 			case .Button4: btn = Mouse_Button(3)
 			case .Button5: btn = Mouse_Button(4)
 			}
