@@ -118,6 +118,7 @@ x11_process_events :: proc() {
 
 @rodata
 KEY_FROM_XKEYCODE := [255]Keyboard_Key {
+	8 = .Space,
 	9 = .Escape,
 	10 = .N1,
 	11 = .N2,
