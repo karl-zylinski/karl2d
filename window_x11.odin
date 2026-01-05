@@ -1,4 +1,3 @@
-// WIP! Does not function yet.
 #+build linux
 #+private file
 
@@ -43,13 +42,13 @@ x11_init :: proc(
 	window_width: int,
 	window_height: int,
 	window_title: string,
-	flags: Init_Options,
+	init_options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
 	s = (^X11_State)(window_state)
 	s.allocator = allocator
-	s.width = window_width
-	s.height = window_height
+	s.windowed_width = window_width
+	s.windowed_height = window_height
 	s.display = X.OpenDisplay(nil)
 
 	s.window = X.CreateSimpleWindow(
@@ -63,6 +62,7 @@ x11_init :: proc(
 	)
 
 	X.StoreName(s.display, s.window, frame_cstring(window_title))
+	
 	X.SelectInput(s.display, s.window, {
 		.KeyPress,
 		.KeyRelease,
@@ -72,6 +72,7 @@ x11_init :: proc(
 		.StructureNotify,
 		.FocusChange,
 	})
+
 	X.MapWindow(s.display, s.window)
 
 	s.delete_msg = X.InternAtom(s.display, "WM_DELETE_WINDOW", false)
@@ -82,6 +83,8 @@ x11_init :: proc(
 		screen = X.DefaultScreen(s.display),
 		window = s.window,
 	}
+
+	x11_set_window_mode(init_options.window_mode)
 }
 
 x11_shutdown :: proc() {
@@ -163,6 +166,11 @@ x11_process_events :: proc() {
 			if w != s.width || h != s.height {
 				s.width = w
 				s.height = h
+
+				if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
+					s.windowed_width = w
+					s.windowed_height = h
+				}
 
 				append(&s.events, Window_Event_Resize {
 					width = w,
@@ -303,16 +311,109 @@ x11_clear_events :: proc() {
 }
 
 x11_set_position :: proc(x: int, y: int) {
+	X.MoveWindow(s.display, s.window, i32(x), i32(y))
 }
 
 x11_set_size :: proc(w, h: int) {
+	X.ResizeWindow(s.display, s.window, u32(w), u32(h))
 }
 
 x11_get_window_scale :: proc() -> f32 {
 	return 1
 }
 
+enter_borderless_fullscreen :: proc() {
+
+	wm_state := X.InternAtom(s.display, "_NET_WM_STATE", true)
+	wm_fullscreen := X.InternAtom(s.display, "_NET_WM_STATE_FULLSCREEN", true)
+
+	go_to_fullscreen := X.XEvent {
+		xclient = {
+			type = .ClientMessage,
+			window = s.window,
+			message_type = wm_state,
+			format = 32,
+			data = {
+				l = {
+					0 = 1,
+					1 = int(wm_fullscreen),
+					2 = 0,
+					3 = 1,
+					4 = 0,
+				},
+			},
+		},
+	}
+
+	X.SendEvent(s.display, X.DefaultRootWindow(s.display), false, {.SubstructureNotify, .SubstructureRedirect}, &go_to_fullscreen)
+}
+
+leave_borderless_fullscreen :: proc() {
+	X.ResizeWindow(s.display, s.window, u32(s.windowed_width), u32(s.windowed_height))
+	s.width = s.windowed_width
+	s.height = s.windowed_height
+
+	wm_state := X.InternAtom(s.display, "_NET_WM_STATE", true)
+	wm_fullscreen := X.InternAtom(s.display, "_NET_WM_STATE_FULLSCREEN", true)
+
+
+	exit_fullscreen := X.XEvent {
+		xclient = {
+			type = .ClientMessage,
+			window = s.window,
+			message_type = wm_state,
+			format = 32,
+			data = {
+				l = {
+					0 = 0,
+					1 = int(wm_fullscreen),
+					2 = 0,
+					3 = 1,
+					4 = 0,
+				},
+			},
+		},
+	}
+
+	X.SendEvent(s.display, X.DefaultRootWindow(s.display), false, {.SubstructureNotify, .SubstructureRedirect}, &exit_fullscreen)
+}
+
 x11_set_window_mode :: proc(window_mode: Window_Mode) {
+	if window_mode == s.window_mode {
+		return
+	}
+
+	switch window_mode {
+	case .Windowed:
+		if s.window_mode == .Borderless_Fullscreen {
+			leave_borderless_fullscreen()
+		}
+
+		hints := X.XSizeHints {
+			flags = { .PMinSize, .PMaxSize },
+			min_width = i32(s.width),
+			max_width = i32(s.width),
+			min_height = i32(s.height),
+			max_height = i32(s.height),
+		}
+
+		X.SetWMNormalHints(s.display, s.window, &hints)
+
+	case .Windowed_Resizable: 
+		if s.window_mode == .Borderless_Fullscreen {
+			leave_borderless_fullscreen()
+		}
+
+		hints := X.XSizeHints {
+			flags = {.USSize},
+		}
+
+		X.SetWMNormalHints(s.display, s.window, &hints)
+	case .Borderless_Fullscreen:
+		enter_borderless_fullscreen()
+	}
+
+	s.window_mode = window_mode
 }
 
 x11_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -346,11 +447,14 @@ X11_State :: struct {
 	allocator: runtime.Allocator,
 	width: int,
 	height: int,
+	windowed_width: int,
+	windowed_height: int,
 	events: [dynamic]Window_Event,
 	display: ^X.Display,
 	window: X.Window,
 	window_handle: Window_Handle_Linux,
 	delete_msg: X.Atom,
+	window_mode: Window_Mode,
 }
 
 s: ^X11_State

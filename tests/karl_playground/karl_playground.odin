@@ -10,7 +10,9 @@ _ :: fmt
 tex: k2.Texture
 
 init :: proc() {
-	k2.init(1080, 1080, "Karl2D Minimal Program")
+	k2.init(1080, 1080, "Karl2D Minimal Program", options = {
+		window_mode = .Windowed,
+	})
 
 	// Note that we #load the texture: This bakes it into the program's data. WASM has no filesystem
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
