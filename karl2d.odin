@@ -703,7 +703,7 @@ draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Co
 
 // Draws a line from `start` to `end` of a certain thickness.
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
-	p := Vec2{start.x, start.y + thickness*0.5}
+	p := Vec2{start.x, start.y}
 	s := Vec2{linalg.length(end - start), thickness}
 
 	origin := Vec2 {0, thickness*0.5}
