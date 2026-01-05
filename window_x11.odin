@@ -63,7 +63,7 @@ x11_init :: proc(
 	)
 
 	X.StoreName(s.display, s.window, frame_cstring(window_title))
-	X.SelectInput(s.display, s.window, {.KeyPress, .KeyRelease, .StructureNotify})
+	X.SelectInput(s.display, s.window, {.KeyPress, .KeyRelease, .ButtonPress, .ButtonRelease, .PointerMotion, .StructureNotify})
 	X.MapWindow(s.display, s.window)
 
 	s.delete_msg = X.InternAtom(s.display, "WM_DELETE_WINDOW", false)
@@ -112,6 +112,41 @@ x11_process_events :: proc() {
 					key = key,
 				})
 			}
+
+		case .ButtonPress:
+			btn: Mouse_Button
+
+			switch event.xbutton.button {
+			case .Button1: btn = .Left
+			case .Button2: btn = .Right
+			case .Button3: btn = .Middle
+			case .Button4: btn = Mouse_Button(3)
+			case .Button5: btn = Mouse_Button(4)
+			}
+
+			append(&s.events, Window_Event_Mouse_Button_Went_Down {
+				button = btn,
+			})
+
+		case .ButtonRelease:
+			btn: Mouse_Button
+
+			switch event.xbutton.button {
+			case .Button1: btn = .Left
+			case .Button2: btn = .Right
+			case .Button3: btn = .Middle
+			case .Button4: btn = Mouse_Button(3)
+			case .Button5: btn = Mouse_Button(4)
+			}
+
+			append(&s.events, Window_Event_Mouse_Button_Went_Up {
+				button = btn,
+			})
+
+		case .MotionNotify:
+			append(&s.events, Window_Event_Mouse_Move {
+				position = { f32(event.xmotion.x), f32(event.xmotion.y) }, 
+			})
 
 		case .ConfigureNotify:
 			w := int(event.xconfigure.width)
