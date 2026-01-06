@@ -56,7 +56,7 @@ step :: proc() -> bool {
 		{512, 512, rt_size.w * 5, rt_size.h * 5}, // dst rect
 		{rt_size.w * 2.5, rt_size.h * 2.5}, // half the dst rect size
 		rot2,
-		k2.WHITE
+		k2.WHITE,
 	)
 
 	k2.present()
