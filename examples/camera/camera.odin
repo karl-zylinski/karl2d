@@ -95,7 +95,7 @@ step :: proc() -> bool {
 	text_color := k2.WHITE
 	text_pos := Vec2 { 20, 20 }
 
-	frame_time_text := fmt.tprintf("frame time: %v", frame_time)
+	frame_time_text := fmt.tprintf("frame time: %.3f ms", frame_time*1000)
 	k2.draw_text(frame_time_text, text_pos, font_size, text_color)
 	text_pos.y += font_size
 
@@ -111,15 +111,15 @@ step :: proc() -> bool {
 	k2.draw_text(camera_zoom_text, text_pos, font_size, text_color)
 	text_pos.y += font_size
 
-	camera_rotation_text := fmt.tprintf("camera rotation: %.0f°", camera.rotation)
+	camera_rotation_text := fmt.tprintf("camera rotation: %.2f°", camera.rotation)
 	k2.draw_text(camera_rotation_text, text_pos, font_size, text_color)
 	text_pos.y += font_size
 
-	camera_target_text := fmt.tprintf("camera target: %v", camera.target)
+	camera_target_text := fmt.tprintf("camera target: %.3f", camera.target)
 	k2.draw_text(camera_target_text, text_pos, font_size, text_color)
 	text_pos.y += font_size
 
-	mouse_world_pos_text := fmt.tprintf("mouse world pos: %v", mouse_world_pos)
+	mouse_world_pos_text := fmt.tprintf("mouse world pos: %.3f", mouse_world_pos)
 	k2.draw_text(mouse_world_pos_text, text_pos, font_size, text_color)
 	text_pos.y += font_size
 
