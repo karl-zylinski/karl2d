@@ -6,6 +6,7 @@ import "linux/glx"
 import gl "vendor:OpenGL"
 import "log"
 import "vendor:egl"
+import "core:fmt"
 
 _ :: log
 
@@ -71,46 +72,27 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
         }
 
     case Window_Handle_Linux_Wayland:
+        fmt.println("Creating Context")
         EGL_CONTEXT_FLAGS_KHR :: 0x30FC
         EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR :: 0x00000001
 
-        major, minor, n: i32
-        egl_conf: egl.Config
-        config_attribs: []i32 = {
-            egl.SURFACE_TYPE, egl.WINDOW_BIT,
-            egl.RED_SIZE, 8,
-            egl.GREEN_SIZE, 8,
-            egl.BLUE_SIZE, 8,
-            egl.ALPHA_SIZE, 0, // Disable surface alpha for now
-            egl.DEPTH_SIZE, 24, // Request 24-bit depth buffer
-            egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
-            egl.NONE,
-        }
         context_flags_bitfield: i32 = EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR
-
         context_attribs: []i32 = {
             egl.CONTEXT_CLIENT_VERSION, 3,
             EGL_CONTEXT_FLAGS_KHR, context_flags_bitfield,
             egl.NONE,
         }
-        egl_display := egl.GetDisplay(egl.NativeDisplayType(whl.display))
-        if egl_display == egl.NO_DISPLAY {
-            panic("Failed to create EGL display")
-        }
-        if !egl.Initialize(egl_display, &major, &minor) {
-            panic("Can't initialise egl display")
-        }
-	    if !egl.ChooseConfig(egl_display, raw_data(config_attribs), &egl_conf, 1, &n) {
-            panic("Failed to find/choose EGL config")
-        }
-        egl.BindAPI(egl.OPENGL_API)
         egl_context := egl.CreateContext(
-            egl_display,
-            egl_conf,
+            whl.egl_display,
+            whl.egl_config,
             egl.NO_CONTEXT,
             raw_data(context_attribs),
         )
-        return GL_Context_EGL { window_handle = whl, ctx = egl_context, egl_display = egl_display }, true
+        if egl_context == egl.NO_CONTEXT {
+            panic("Failed creating EGL context")
+        }
+        fmt.println("Done creating Context")
+        return GL_Context_EGL { window_handle = whl, ctx = egl_context, egl_display = whl.egl_display }, true
     }
 
 	return {}, false

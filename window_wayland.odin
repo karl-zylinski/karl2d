@@ -67,27 +67,87 @@ wayland_init :: proc(
     }
     s.surface = surface
 
-	wl_callback := wl.wl_surface_frame(surface)
-	wl.wl_callback_add_listener(wl_callback, &frame_callback, s)
-	wl.wl_surface_commit(surface)
+    EGL_CONTEXT_FLAGS_KHR :: 0x30FC
+    EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR :: 0x00000001
 
+    major, minor, n: i32
+    egl_conf: egl.Config
+    config_attribs: []i32 = {
+        egl.SURFACE_TYPE, egl.WINDOW_BIT,
+        egl.RED_SIZE, 8,
+        egl.GREEN_SIZE, 8,
+        egl.BLUE_SIZE, 8,
+        egl.ALPHA_SIZE, 0, // Disable surface alpha for now
+        egl.DEPTH_SIZE, 24, // Request 24-bit depth buffer
+        egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
+        egl.NONE,
+    }
+    context_flags_bitfield: i32 = EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR
+
+    context_attribs: []i32 = {
+        egl.CONTEXT_CLIENT_VERSION, 3,
+        EGL_CONTEXT_FLAGS_KHR, context_flags_bitfield,
+        egl.NONE,
+    }
     egl_display := egl.GetDisplay(egl.NativeDisplayType(display))
     if egl_display == egl.NO_DISPLAY {
         panic("Failed to create EGL display")
     }
+    if !egl.Initialize(egl_display, &major, &minor) {
+        panic("Can't initialise egl display")
+    }
+    if !egl.ChooseConfig(egl_display, raw_data(config_attribs), &egl_conf, 1, &n) {
+        panic("Failed to find/choose EGL config")
+    }
+
+	egl_window := wl.egl_window_create(surface, i32(s.windowed_width), i32(s.windowed_height))
+	egl_surface := egl.CreateWindowSurface(
+		egl_display,
+		egl_conf,
+		egl.NativeWindowType(egl_window),
+		nil,
+	)
+	if egl_surface == egl.NO_SURFACE {
+		log.error("Error creating window surface")
+	}
+    egl.BindAPI(egl.OPENGL_API)
+
+	wl_callback := wl.wl_surface_frame(surface)
+	wl.wl_callback_add_listener(wl_callback, &frame_callback, &s)
+	wl.wl_surface_commit(surface)
+
+	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, surface)
+	toplevel := wl.xdg_surface_get_toplevel(xdg_surface)
+	wl.xdg_toplevel_add_listener(toplevel, &toplevel_listener, &s)
+	wl.xdg_surface_add_listener(xdg_surface, &window_listener, &s)
 
 	s.window_handle = Window_Handle_Linux_Wayland {
 		display = s.display,
-        egl_display = egl_display,
         surface = surface,
+        egl_display = egl_display,
+        egl_config = egl_conf
 		// screen = X.DefaultScreen(s.display),
 		// window = s.window,
 	}
 
 	wayland_set_window_mode(init_options.window_mode)
-
 }
 
+//NOTE(quadrado): This could be used to generate attribs based on passed configuration
+wayland_egl_config_attribs :: proc() -> []i32 {
+    config_attribs: []i32 = {
+        egl.SURFACE_TYPE, egl.WINDOW_BIT,
+        egl.RED_SIZE, 8,
+        egl.GREEN_SIZE, 8,
+        egl.BLUE_SIZE, 8,
+        egl.ALPHA_SIZE, 0, // Disable surface alpha for now
+        egl.DEPTH_SIZE, 24, // Request 24-bit depth buffer
+        egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
+        egl.NONE,
+    }
+
+    return config_attribs
+}
 wayland_shutdown :: proc() {
 	// X.DestroyWindow(s.display, s.window)
 }
@@ -295,6 +355,7 @@ Window_Handle_Linux_Wayland :: struct {
     egl_display: egl.Display,
     egl_window: ^wl.egl_window,
     egl_surface: ^egl.Surface,
+    egl_config: egl.Config,
 	// window: X.Window,
 	// screen: i32,
 }
@@ -375,8 +436,8 @@ toplevel_listener := wl.xdg_toplevel_listener {
 		height: c.int32_t,
 		states: ^wl.wl_array,
 	) {
-		// context = runtime.default_context()
-		// log.debug("Top level configure", width, height, states)
+		context = runtime.default_context()
+		log.debug("Top level configure", width, height, states)
 		// egl_render_context := cc.platform_state.egl_render_context
 		// if canvas.width != width ||
 		//    canvas.height != height && (canvas.width > 0 && canvas.height > 0) {
