@@ -590,6 +590,8 @@ draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color) {
 // The origin says which point the rotation rotates around. If the origin is `(0, 0)`, then the
 // rectangle rotates around the top-left corner of the rectangle. If it is `(rect.w/2, rect.h/2)`
 // then the rectangle rotates around its center.
+//
+// Rotation unit: Radians.
 draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
@@ -778,6 +780,8 @@ draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 // choice.
 //
 // Tip: Use `k2.get_texture_rect(tex)` for `src` if you want to draw the whole texture.
+//
+// Rotation unit: Radians.
 draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE) {
 	if tex.width == 0 || tex.height == 0 {
 		return
