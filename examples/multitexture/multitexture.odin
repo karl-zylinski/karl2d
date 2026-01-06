@@ -30,7 +30,7 @@ init :: proc() {
 		shd = k2.load_shader_from_file("multitexture_shader.hlsl", "multitexture_shader.hlsl")	
 	}
 	
-	tex1 = k2.load_texture_from_bytes(#load("../minimal/sixten.jpg"))
+	tex1 = k2.load_texture_from_bytes(#load("../basics/sixten.jpg"))
 	tex2 = k2.load_texture_from_bytes(#load("../snake/food.png"))
 
 	shd.texture_bindpoints[shd.texture_lookup["tex2"]] = tex2.handle
