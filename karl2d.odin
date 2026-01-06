@@ -125,7 +125,7 @@ init :: proc(
 // the contents of it into your game.
 update :: proc() -> bool {
 	reset_frame_allocator()
-	update_time()
+	calculate_frame_time()
 	process_events()
 	return !close_window_requested()
 }
@@ -187,7 +187,7 @@ reset_frame_allocator :: proc() {
 // You can fetch the calculated values using `get_frame_time` and `get_time`.
 //
 // Called as part of `update`, but can be called manually if you need more control.
-update_time :: proc() {
+calculate_frame_time :: proc() {
 	now := time.now()
 
 	if s.prev_frame_time != {} {

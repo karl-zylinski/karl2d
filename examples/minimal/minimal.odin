@@ -20,9 +20,7 @@ main :: proc() {
 	k2.init(1080, 1080, "Karl2D Minimal Program")
 	tex := k2.load_texture_from_file("sixten.jpg")
 
-	for !k2.shutdown_wanted() {
-		k2.new_frame()
-		k2.process_events()
+	for k2.update() {
 		k2.clear(k2.LIGHT_BLUE)
 
 		t := k2.get_time()
