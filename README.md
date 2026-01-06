@@ -53,6 +53,9 @@ This first beta has these features:
 >- System for cross-compiling shaders between different backends (HLSL, GLSL etc)
 >- Mac (metal)
 
+>[!WARNING]
+>As this is a beta test version, changes to the API will probably happen. I'll try to document all the changes when I officially go from Beta 1 to Beta 2.
+
 ## Feedback wanted
 Here are some things I want to get feedback on during this first beta:
 - Is the `k2.new_frame()` concept OK? It sets the "frame time" and clears some frame-specific state. I was thinking of merging `new_frame()` and `process_events()`,
