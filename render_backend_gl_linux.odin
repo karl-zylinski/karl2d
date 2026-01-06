@@ -14,53 +14,64 @@ GL_Context :: struct {
 }
 
 _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
-	whl := (^Window_Handle_Linux)(window_handle)
+	handle := (^Window_Handle_Linux)(window_handle)
 
-	visual_attribs := []i32 {
-		glx.RENDER_TYPE, glx.RGBA_BIT,
-		glx.DRAWABLE_TYPE, glx.WINDOW_BIT,
-		glx.DOUBLEBUFFER, 1,
-		glx.RED_SIZE, 8,
-		glx.GREEN_SIZE, 8,
-		glx.BLUE_SIZE, 8,
-		glx.ALPHA_SIZE, 8,
-		0,
-	}
+    switch whl in handle {
+    case Window_Handle_Linux_X11:
+        visual_attribs := []i32 {
+            glx.RENDER_TYPE, glx.RGBA_BIT,
+            glx.DRAWABLE_TYPE, glx.WINDOW_BIT,
+            glx.DOUBLEBUFFER, 1,
+            glx.RED_SIZE, 8,
+            glx.GREEN_SIZE, 8,
+            glx.BLUE_SIZE, 8,
+            glx.ALPHA_SIZE, 8,
+            0,
+        }
 
-	num_fbc: i32
-	fbc := glx.ChooseFBConfig(whl.display, whl.screen, raw_data(visual_attribs), &num_fbc)
-   
-	if fbc == nil {
-		log.error("Failed choosing GLX framebuffer config")
-		return {}, false
-	}
+        num_fbc: i32
+        fbc := glx.ChooseFBConfig(whl.display, whl.screen, raw_data(visual_attribs), &num_fbc)
+       
+        if fbc == nil {
+            log.error("Failed choosing GLX framebuffer config")
+            return {}, false
+        }
 
-	glxCreateContextAttribsARB: glx.CreateContextAttribsARBProc
-	glx.SetProcAddress((rawptr)(&glxCreateContextAttribsARB), "glXCreateContextAttribsARB")
-	
-	if glxCreateContextAttribsARB == {} {
-		log.error("Failed fetching glXCreateContextAttribsARB")
-		return {}, false
-	}
+        glxCreateContextAttribsARB: glx.CreateContextAttribsARBProc
+        glx.SetProcAddress((rawptr)(&glxCreateContextAttribsARB), "glXCreateContextAttribsARB")
+        
+        if glxCreateContextAttribsARB == {} {
+            log.error("Failed fetching glXCreateContextAttribsARB")
+            return {}, false
+        }
 
-	context_attribs := []i32 {
-		glx.CONTEXT_MAJOR_VERSION_ARB, 3,
-		glx.CONTEXT_MINOR_VERSION_ARB, 3,
-		glx.CONTEXT_PROFILE_MASK_ARB, glx.CONTEXT_CORE_PROFILE_BIT_ARB,
-		0,
-	}
+        context_attribs := []i32 {
+            glx.CONTEXT_MAJOR_VERSION_ARB, 3,
+            glx.CONTEXT_MINOR_VERSION_ARB, 3,
+            glx.CONTEXT_PROFILE_MASK_ARB, glx.CONTEXT_CORE_PROFILE_BIT_ARB,
+            0,
+        }
 
-	ctx := glxCreateContextAttribsARB(whl.display, fbc[0], nil, true, raw_data(context_attribs))
+        ctx := glxCreateContextAttribsARB(whl.display, fbc[0], nil, true, raw_data(context_attribs))
 
-	if glx.MakeCurrent(whl.display, whl.window, ctx) {
-		return {ctx = ctx, window_handle = whl^}, true
-	}
+        if glx.MakeCurrent(whl.display, whl.window, ctx) {
+            return {ctx = ctx, window_handle = whl}, true
+        }
+
+    case Window_Handle_Linux_Wayland:
+        //TODO
+    }
 
 	return {}, false
 }
 
 _gl_destroy_context :: proc(ctx: GL_Context) {
-	glx.DestroyContext(ctx.window_handle.display, ctx.ctx)
+    switch handle in ctx.window_handle {
+        case Window_Handle_Linux_X11:
+	        glx.DestroyContext(handle.display, ctx.ctx)
+        case Window_Handle_Linux_Wayland:
+            // TODO
+    }
 }
 
 _gl_load_procs :: proc() {
@@ -68,6 +79,11 @@ _gl_load_procs :: proc() {
 }
 
 _gl_present :: proc(window_handle: Window_Handle) {
-	whl := (^Window_Handle_Linux)(window_handle)
-	glx.SwapBuffers(whl.display, whl.window)
+	handle := (^Window_Handle_Linux)(window_handle)
+    switch whl in handle {
+        case Window_Handle_Linux_X11:
+	        glx.SwapBuffers(whl.display, whl.window)
+        case Window_Handle_Linux_Wayland:
+            // TODO
+    }
 }

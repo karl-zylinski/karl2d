@@ -13,3 +13,4 @@ examples/*/bin
 examples/raylib_ports/*/build
 examples/raylib_ports/*/bin
 karl2d.doc.compare.odin
+.nvim.lua
