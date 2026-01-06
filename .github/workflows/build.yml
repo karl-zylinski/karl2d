@@ -199,23 +199,23 @@ jobs:
 
 
 
-      - name: raylib_ports/2d_camera
-        run: odin check examples/raylib_ports/2d_camera -vet -strict-style
+      - name: camera
+        run: odin check examples/camera -vet -strict-style
 
-      - name: raylib_ports/2d_camera (debug)
-        run: odin check examples/raylib_ports/2d_camera -vet -strict-style -debug
+      - name: camera (debug)
+        run: odin check examples/camera -vet -strict-style -debug
 
-      - name: raylib_ports/2d_camera (gl)
-        run: odin check examples/raylib_ports/2d_camera -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
+      - name: camera (gl)
+        run: odin check examples/camera -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
 
-      - name: raylib_ports/2d_camera (gl, debug)
-        run: odin check examples/raylib_ports/2d_camera -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
+      - name: camera (gl, debug)
+        run: odin check examples/camera -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
 
-      - name: raylib_ports/2d_camera (gl)
-        run: odin check examples/raylib_ports/2d_camera -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
+      - name: camera (gl)
+        run: odin check examples/camera -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
 
-      - name: raylib_ports/2d_camera (nil, debug)
-        run: odin check examples/raylib_ports/2d_camera -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
+      - name: camera (nil, debug)
+        run: odin check examples/camera -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
 
 
