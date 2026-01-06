@@ -188,7 +188,6 @@ get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32
 // not vibrate with the same speed.
 set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32)
 
-
 // Returns the stae of a specified input_event(key/mouse_button/game_pad)
 // Gamepad_Index only maters if you are targeting a gamepad
 get_input_event :: proc(input_event: Input_Event, gamepad: Gamepad_Index = 0) -> (data:Input_Event_Data)
@@ -769,7 +768,6 @@ State :: struct {
 
 	time: f64,
 }
-
 
 // this is a combo of all other imput methids
 Input_Event ::union{
