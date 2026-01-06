@@ -269,6 +269,7 @@ s: ^Wayland_State
 @(private="package")
 Window_Handle_Linux_Wayland :: struct {
 	display: ^wl.wl_display,
+    surface: ^wl.wl_surface,
 	// window: X.Window,
 	// screen: i32,
 }

@@ -9,8 +9,18 @@ import "vendor:egl"
 
 _ :: log
 
-GL_Context :: struct {
+GL_Context :: union {
+    GL_Context_GLX,
+    GL_Context_EGL
+}
+
+GL_Context_GLX :: struct {
 	ctx: ^glx.Context,
+	window_handle: Window_Handle_Linux,
+}
+
+GL_Context_EGL :: struct {
+	ctx: egl.Context,
 	window_handle: Window_Handle_Linux,
 }
 
@@ -56,7 +66,7 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
         ctx := glxCreateContextAttribsARB(whl.display, fbc[0], nil, true, raw_data(context_attribs))
 
         if glx.MakeCurrent(whl.display, whl.window, ctx) {
-            return {ctx = ctx, window_handle = whl}, true
+            return GL_Context_GLX {ctx = ctx, window_handle = whl}, true
         }
 
     case Window_Handle_Linux_Wayland:
@@ -101,16 +111,17 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
             egl.NO_CONTEXT,
             raw_data(context_attribs),
         )
+        return GL_Context_EGL { window_handle = whl, ctx = egl_context }, true
     }
 
 	return {}, false
 }
 
 _gl_destroy_context :: proc(ctx: GL_Context) {
-    switch handle in ctx.window_handle {
-        case Window_Handle_Linux_X11:
-	        glx.DestroyContext(handle.display, ctx.ctx)
-        case Window_Handle_Linux_Wayland:
+    switch gl_ctx in ctx {
+        case GL_Context_GLX:
+	        glx.DestroyContext(gl_ctx.window_handle.(Window_Handle_Linux_X11).display, gl_ctx.ctx)
+        case GL_Context_EGL:
             // TODO
     }
 }
