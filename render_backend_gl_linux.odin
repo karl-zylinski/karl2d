@@ -21,6 +21,7 @@ GL_Context_GLX :: struct {
 
 GL_Context_EGL :: struct {
 	ctx: egl.Context,
+    egl_display: egl.Display,
 	window_handle: Window_Handle_Linux,
 }
 
@@ -74,8 +75,6 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
         EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR :: 0x00000001
 
         major, minor, n: i32
-        count: i32 = 0
-        configs: [^]egl.Config
         egl_conf: egl.Config
         config_attribs: []i32 = {
             egl.SURFACE_TYPE, egl.WINDOW_BIT,
@@ -111,7 +110,7 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
             egl.NO_CONTEXT,
             raw_data(context_attribs),
         )
-        return GL_Context_EGL { window_handle = whl, ctx = egl_context }, true
+        return GL_Context_EGL { window_handle = whl, ctx = egl_context, egl_display = egl_display }, true
     }
 
 	return {}, false
@@ -122,7 +121,7 @@ _gl_destroy_context :: proc(ctx: GL_Context) {
         case GL_Context_GLX:
 	        glx.DestroyContext(gl_ctx.window_handle.(Window_Handle_Linux_X11).display, gl_ctx.ctx)
         case GL_Context_EGL:
-            // TODO
+            egl.DestroyContext(gl_ctx.egl_display, gl_ctx.ctx)
     }
 }
 
@@ -136,6 +135,10 @@ _gl_present :: proc(window_handle: Window_Handle) {
         case Window_Handle_Linux_X11:
 	        glx.SwapBuffers(whl.display, whl.window)
         case Window_Handle_Linux_Wayland:
-            // TODO
+            wayland_gl_present()
     }
+}
+
+frame_callback := wl.wl_callback_listener {
+	done = done,
 }

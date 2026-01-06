@@ -262,6 +262,7 @@ Wayland_State :: struct {
 	seat: ^wl.wl_seat,
 	window_handle: Window_Handle_Linux,
 	window_mode: Window_Mode,
+    redraw: bool
 }
 
 s: ^Wayland_State
@@ -321,4 +322,23 @@ global :: proc "c" (
 }
 
 global_remove :: proc "c" (data: rawptr, registry: ^wl.wl_registry, name: c.uint32_t) {
+}
+
+wayland_gl_present :: proc() {
+    whl := s.window_handle.(Window_Handle_Linux_Wayland)
+	if s.redraw {
+		// Get the callback and flag it already to not redraw
+		callback := wl.wl_surface_frame(s.surface)
+		s.redraw = false
+
+		// Add the listener
+		wl.wl_callback_add_listener(callback, &frame_callback, nil)
+
+		// Swap the buffers
+		egl.SwapBuffers(whl.display, whl.display.egl_surface)
+
+	}
+	wl.display_dispatch(s.display)
+	wl.display_flush(s.display)
+
 }
