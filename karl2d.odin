@@ -515,7 +515,7 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 	win.set_gamepad_vibration(gamepad, left, right)
 }
 
-// Returns the stae of a specified input_event(key mouse_button)
+// Returns the stae of a specified input_event(key/mouse_button/game_pad)
 // Gamepad_Index only maters if you are targeting a gamepad
 get_input_event :: proc(input_event: Input_Event, gamepad: Gamepad_Index = 0) -> (data:Input_Event_Data) {
 	switch ev in input_event{

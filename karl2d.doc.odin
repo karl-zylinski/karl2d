@@ -96,7 +96,7 @@ set_window_mode :: proc(window_mode: Window_Mode)
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
 // procedures run:
-// 
+//
 // - present
 // - set_camera
 // - set_shader
@@ -107,7 +107,7 @@ set_window_mode :: proc(window_mode: Window_Mode)
 // - clear
 // - draw_texture_* IF previous draw did not use the same texture (1)
 // - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing texture (2)
-// 
+//
 // (1) When drawing textures, the current texture is fed into the active shader. Everything within
 //     the same batch must use the same texture. So drawing with a new texture forces the current to
 //     be drawn. You can combine several textures into an atlas to get bigger batches.
@@ -188,6 +188,11 @@ get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32
 // not vibrate with the same speed.
 set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32)
 
+
+// Returns the stae of a specified input_event(key/mouse_button/game_pad)
+// Gamepad_Index only maters if you are targeting a gamepad
+get_input_event :: proc(input_event: Input_Event, gamepad: Gamepad_Index = 0) -> (data:Input_Event_Data)
+
 //---------//
 // DRAWING //
 //---------//
@@ -246,7 +251,7 @@ measure_text :: proc(text: string, font_size: f32) -> Vec2
 // The return value contains the width and height of the text.
 measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 
-// Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
+// Draw text at a position with a size. This uses the default font. `pos` will be equal to the
 // top-left position of the text.
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK)
 
@@ -670,7 +675,7 @@ Shader_Input :: struct {
 
 Pixel_Format :: enum {
 	Unknown,
-	
+
 	RGBA_32_Float,
 	RGB_32_Float,
 	RG_32_Float,
@@ -713,7 +718,7 @@ State :: struct {
 	rb_state: rawptr,
 
 	fs: fs.FontContext,
-	
+
 	shutdown_wanted: bool,
 
 	mouse_position: Vec2,
@@ -763,6 +768,33 @@ State :: struct {
 	frame_time: f32,
 
 	time: f64,
+}
+
+
+// this is a combo of all other imput methids
+Input_Event ::union{
+	Keyboard_Key,
+	Mouse_Button,
+	Mouse_Actions,
+	Gamepad_Axis,
+	Gamepad_Button,
+}
+
+//this is the data a Input_Event could return
+Input_Event_Data::struct{
+	event:Input_Event,// the Input_Event that created this struct (key/button)
+	went_down:bool,
+	went_up:bool,
+	is_held:bool,
+	value:f32,//used for Gamepad_Axis,mouse_wheel_delta
+	vector:[2]f32,//used for mouse_position, mouse_delta
+}
+
+//this can be used to get related Input_Event_Data
+Mouse_Actions :: enum{
+	mouse_position,
+	mouse_delta,
+	mouse_wheel_delta,
 }
 
 // Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
