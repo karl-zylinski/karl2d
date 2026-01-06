@@ -234,10 +234,11 @@ present :: proc() {
 	rb.present()
 }
 
-// Call at start or end of frame to process all events that have arrived to the window. This
-// includes keyboard, mouse, gamepad and window events.
+// Process all events that have arrived from the platform APIs. This includes keyboard, mouse,
+// gamepad and window events. This procedure processes and stores the information that procs like
+// `key_went_down` need.
 //
-// WARNING: Not calling this will make your program impossible to interact with.
+// Called by `update`, but can be called manually if you need more control.
 process_events :: proc() {
 	s.key_went_up = {}
 	s.key_went_down = {}
