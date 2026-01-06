@@ -21,12 +21,38 @@ init :: proc(
 	loc := #caller_location
 ) -> ^State
 
+// Updates the internal state of the library. Run early in the frame to make sure inputs and frame
+// timings are up-to-date.
+//
+// Returns a bool that says if the player has attempted to close the window. It's up to the
+// application to decide if it wants to shut down or if it (for example) wants to show a 
+// confirmation dialogue.
+//
+// Commonly used for creating the "main loop" of a game: `for k2.update() {}`
+//
+// To get more control over how the frame is set up, you can skip calling this proc and instead use
+// the procs it calls directly:
+//
+//// for {
+////     k2.reset_frame_allocator()
+////     k2.calculate_frame_time()
+////     k2.process_events()
+////     
+////     k2.clear(k2.BLUE)
+////     k2.present()
+////     
+////     if k2.close_window_requested() {
+////         break
+////     }
+//// }
+update :: proc() -> bool
+
 // Returns true the user has pressed the close button on the window, or used a key stroke such as
 // ALT+F4 on Windows. The application can decide if it wants to shut down or if it wants to show
 // some kind of confirmation dialogue.
 //
-// Commonly used for creating the "main loop" of a game: `for !k2.shutdown_wanted {}`
-shutdown_wanted :: proc() -> bool
+// Called by `update`, but can be called manually if you need more control.
+close_window_requested :: proc() -> bool
 
 // Closes the window and cleans up Karl2D's internal state.
 shutdown :: proc()
@@ -36,27 +62,34 @@ shutdown :: proc()
 // be cleared instead.
 clear :: proc(color: Color)
 
-// Call at the start of each frame. This procedure does two main things:
-// - Fetches how long the previous frame took and how long since the program started. These values
-//   can be fetched using `get_frame_time()` and `get_time()`
-// - Clears Karl2D's internal "frame_allocator" -- that's the allocator the library uses for
-//   dynamic memory that has a lifetime of a single frame.
-new_frame :: proc()
+// The library may do some internal allocations that have the lifetime of a single frame. This
+// procedure empties that Frame Allocator.
+//
+// Called as part of `update`, but can be called manually if you need more control.
+reset_frame_allocator :: proc()
 
-// "Flips the backbuffer": Call at end of frame to make everything you've drawn appear on the screen.
+// Calculates how long the previous frame took and how it has been since the application started.
+// You can fetch the calculated values using `get_frame_time` and `get_time`.
+//
+// Called as part of `update`, but can be called manually if you need more control.
+calculate_frame_time :: proc()
+
+// Present the drawn stuff to the player. Also known as "flipping the backbuffer": Call at end of
+// frame to make everything you've drawn appear on the screen.
 //
 // When you draw using for example `draw_texture`, then that stuff is drawn to an invisible texture
 // called a "backbuffer". This makes sure that we don't see half-drawn frames. So when you are happy
 // with a frame and want to show it to the player, call this procedure.
 //
 // WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
-// make sure that all rendering has been sent off to the GPU (it calls `draw_current_batch()`).
+// make sure that all rendering has been sent off to the GPU (as it calls `draw_current_batch()`).
 present :: proc()
 
-// Call at start or end of frame to process all events that have arrived to the window. This
-// includes keyboard, mouse, gamepad and window events.
+// Process all events that have arrived from the platform APIs. This includes keyboard, mouse,
+// gamepad and window events. This procedure processes and stores the information that procs like
+// `key_went_down` need.
 //
-// WARNING: Not calling this will make your program impossible to interact with.
+// Called by `update`, but can be called manually if you need more control.
 process_events :: proc()
 
 // Returns how many seconds the previous frame took. Often a tiny number such as 0.016 s.
@@ -714,7 +747,7 @@ State :: struct {
 
 	fs: fs.FontContext,
 	
-	shutdown_wanted: bool,
+	close_window_requested: bool,
 
 	mouse_position: Vec2,
 	mouse_delta: Vec2,

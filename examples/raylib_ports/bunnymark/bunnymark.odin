@@ -31,7 +31,9 @@ init :: proc() {
 }
 
 step :: proc() -> bool {
-	k2.new_frame()
+	if !k2.update() {
+		return false
+	}
 
 	if k2.mouse_button_is_held(.Left) {
 		for _ in 0..<100 {
@@ -67,7 +69,6 @@ step :: proc() -> bool {
 		}
 	}
 
-	k2.process_events()
 	k2.clear(k2.RL_WHITE)
 
 	src := k2.Rect {
@@ -93,7 +94,7 @@ step :: proc() -> bool {
 
 	free_all(context.temp_allocator)
 
-	return !k2.shutdown_wanted()
+	return true
 }
 
 shutdown :: proc() {
@@ -105,11 +106,6 @@ shutdown :: proc() {
 main :: proc() {
 	context.logger = log.create_console_logger()
 	init()
-	run := true
-
-	for run {
-		run = step()
-	}
-
+	for step() {}
 	shutdown()
 }

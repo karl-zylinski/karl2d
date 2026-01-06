@@ -22,12 +22,7 @@ GROUND :: k2.Rect {
 main :: proc() {
 	context.logger = log.create_console_logger()
 	init()
-	run := true
-
-	for run {
-		run = step()
-	}
-
+	for step() {}
 	shutdown()
 }
 
@@ -100,7 +95,9 @@ create_box :: proc(world_id: b2.WorldId, pos: b2.Vec2) -> b2.BodyId{
 }
 
 step :: proc() -> bool {
-	k2.new_frame()
+	if !k2.update() {
+		return false
+	}
 
 	dt := k2.get_frame_time()
 	time_acc += dt
@@ -133,7 +130,7 @@ step :: proc() -> bool {
 	k2.present()
 
 	free_all(context.temp_allocator)
-	return !k2.shutdown_wanted()
+	return true
 }
 
 shutdown :: proc() {

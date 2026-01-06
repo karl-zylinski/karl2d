@@ -15,8 +15,9 @@ init :: proc() {
 }
 
 step :: proc() -> bool {
-	k2.new_frame()
-	k2.process_events()
+	if !k2.update() {
+		return false
+	}
 	
 	screen_size := Vec2 { f32(k2.get_screen_width()), f32(k2.get_screen_height()) }
 	mouse_screen_pos := k2.get_mouse_position()
@@ -145,7 +146,7 @@ step :: proc() -> bool {
 
 	k2.present()
 	free_all(context.temp_allocator)
-	return !k2.shutdown_wanted()
+	return true
 }
 
 shutdown :: proc() {
@@ -155,11 +156,6 @@ shutdown :: proc() {
 main :: proc() {
 	context.logger = log.create_console_logger()
 	init()
-	run := true
-
-	for run {
-		run = step()
-	}
-
+	for step() {}
 	shutdown()
 }

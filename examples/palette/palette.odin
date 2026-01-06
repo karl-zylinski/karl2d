@@ -19,8 +19,10 @@ init :: proc() {
 }
 
 step :: proc() -> bool {
-	k2.new_frame()
-	k2.process_events()
+	if !k2.update() {
+		return false
+	}
+
 	k2.clear(k2.WHITE)
 	k2.draw_rect({0, 0, f32(k2.get_screen_width() / 2), f32(k2.get_screen_height())}, k2.BLACK)
 
@@ -55,7 +57,7 @@ step :: proc() -> bool {
 	k2.present()
 	free_all(context.temp_allocator)
 
-	return !k2.shutdown_wanted()
+	return true
 }
 
 shutdown :: proc() {
@@ -66,12 +68,7 @@ shutdown :: proc() {
 main :: proc() {
 	context.logger = log.create_console_logger()
 	init()
-
-	run := true
-	for run {
-		run = step() 
-	}
-
+	for step() {}
 	shutdown()
 }
 

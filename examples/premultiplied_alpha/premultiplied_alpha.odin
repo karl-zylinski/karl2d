@@ -15,8 +15,7 @@ main :: proc() {
 	// Set the rendering to use premultiplied alpha when blending.
 	k2.set_blend_mode(.Premultiplied_Alpha)
 
-	for !k2.shutdown_wanted() {
-		k2.process_events()
+	for k2.update() {
 		k2.clear(k2.BLUE)
 
 		src := k2.get_texture_rect(tex)
