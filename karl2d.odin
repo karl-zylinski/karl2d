@@ -1674,7 +1674,7 @@ Camera :: struct {
 	// target position will end up in the middle of the scren.
 	offset: Vec2,
 
-	// Rotate the camera (unit: degrees)
+	// Rotate the camera (unit: radians)
 	rotation: f32,
 
 	// Zoom the camera. A bigger value means "more zoom".
