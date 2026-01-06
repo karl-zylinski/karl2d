@@ -44,10 +44,13 @@ step :: proc() -> bool {
 	}
 
 	if k2.key_went_down(.Z) {
-		k2.set_window_position(0, 0) 
+		k2.set_window_position(0, 0)
 	}
 
-	if k2.key_is_held(.A) {
+	// if k2.key_is_held(.A) {
+		// pos_x -= k2.get_frame_time() * 400
+	// }
+	if k2.get_input_event(.A).is_held{ // just checking if get_input_event works as intended
 		pos_x -= k2.get_frame_time() * 400
 	}
 
@@ -55,7 +58,10 @@ step :: proc() -> bool {
 		pos_x += k2.get_frame_time() * 400
 	}
 
-	if k2.mouse_button_is_held(.Left) {
+	// if k2.mouse_button_is_held(.Left) {
+	// 	rot += k2.get_frame_time() * 400
+	// }
+	if k2.get_input_event(k2.Mouse_Button.Left).is_held {// just checking if get_input_event works as intended
 		rot += k2.get_frame_time() * 400
 	}
 
@@ -67,7 +73,7 @@ step :: proc() -> bool {
 	k2.draw_circle({120, 40}, 20, k2.RED)
 
 	k2.draw_rect({4, 95, 512, 152}, k2.color_alpha(k2.DARK_GRAY, 192))
-	
+
 	k2.draw_text("Hellöpe!", {10, 100}, 48, k2.LIGHT_RED)
 
 	msg1 := fmt.tprintf("Time since start: %.3f s", t)
@@ -98,7 +104,7 @@ main :: proc() {
 
 	run := true
 	for run {
-		run = step() 
+		run = step()
 	}
 
 	shutdown()

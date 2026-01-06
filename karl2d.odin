@@ -263,7 +263,7 @@ process_events :: proc() {
 			rb.resize_swapchain(e.width, e.height)
 			s.proj_matrix = make_default_projection(e.width, e.height)
 
-		case Window_Event_Focused:			
+		case Window_Event_Focused:
 
 		case Window_Event_Unfocused:
 			for k in Keyboard_Key {
@@ -349,7 +349,7 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
 // procedures run:
-// 
+//
 // - present
 // - set_camera
 // - set_shader
@@ -360,7 +360,7 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 // - clear
 // - draw_texture_* IF previous draw did not use the same texture (1)
 // - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing texture (2)
-// 
+//
 // (1) When drawing textures, the current texture is fed into the active shader. Everything within
 //     the same batch must use the same texture. So drawing with a new texture forces the current to
 //     be drawn. You can combine several textures into an atlas to get bigger batches.
@@ -395,7 +395,7 @@ draw_current_batch :: proc() {
 			if constant.size == size_of(mvp) {
 				dst := (^matrix[4,4]f32)(&shader.constants_data[constant.offset])
 				dst^ = mvp
-			} 
+			}
 		}
 	}
 
@@ -515,6 +515,46 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 	win.set_gamepad_vibration(gamepad, left, right)
 }
 
+// Returns the stae of a specified input_event(key mouse_button)
+// Gamepad_Index only maters if you are targeting a gamepad
+get_input_event :: proc(input_event: Input_Event, gamepad: Gamepad_Index = 0) -> (data:Input_Event_Data) {
+	switch ev in input_event{
+	case Keyboard_Key:
+		data.went_down 	= s.key_went_down[ev]
+		data.went_up	= s.key_went_up[ev]
+		data.is_held 	= s.key_is_held[ev]
+		data.value		= 0
+		data.vector		= {}
+	case Mouse_Button:
+		data.went_down 	= s.mouse_button_went_down[ev]
+		data.went_up	= s.mouse_button_went_up[ev]
+		data.is_held 	= s.mouse_button_is_held[ev]
+		data.value		= 0
+		data.vector		= {}
+	case Mouse_Actions:
+		switch ev{
+		case Mouse_Actions.mouse_position:
+			data.vector	= s.mouse_position
+		case Mouse_Actions.mouse_delta:
+			data.vector	= s.mouse_delta
+		case Mouse_Actions.mouse_wheel_delta:
+			data.value	= s.mouse_wheel_delta
+		}
+	case Gamepad_Axis:
+		data.value = get_gamepad_axis(gamepad, ev)
+	case Gamepad_Button:
+		if gamepad < 0 || gamepad >= MAX_GAMEPADS { break } //this checks to make shure you have a valid gamepad index
+		data.went_down 	= s.gamepad_button_went_down[gamepad][ev]
+		data.went_up	= s.gamepad_button_went_up[gamepad][ev]
+		data.is_held 	= s.gamepad_button_is_held[gamepad][ev]
+		data.value		= 0
+		data.vector		= {}
+	}
+	data.event = input_event
+	return data
+}
+
+
 //---------//
 // DRAWING //
 //---------//
@@ -602,7 +642,7 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 	}
 
 	z := get_next_depth()
-	
+
 	batch_vertex(vec3(tl, z), {0, 0}, c)
 	batch_vertex(vec3(tr, z), {1, 0}, c)
 	batch_vertex(vec3(br, z), {1, 1}, c)
@@ -615,7 +655,7 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 // rectangles.
 draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 	t := thickness
-	
+
 	// Based on DrawRectangleLinesEx from Raylib
 
 	top := Rect {
@@ -752,7 +792,7 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	if s.batch_texture != tex.handle {
 		draw_current_batch()
 	}
-	
+
 	s.batch_texture = tex.handle
 
 	flip_x, flip_y: bool
@@ -815,7 +855,7 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 			y + (dx + dst.w) * sin_rot + (dy + dst.h) * cos_rot,
 		}
 	}
-	
+
 	ts := Vec2{f32(tex.width), f32(tex.height)}
 	up := Vec2{src.x, src.y} / ts
 	us := Vec2{src.w, src.h} / ts
@@ -852,7 +892,7 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		uv2.y -= us.y
 		uv3.y += us.y
 		uv4.y -= us.y
-		uv5.y -= us.y		
+		uv5.y -= us.y
 	}
 
 	z := get_next_depth()
@@ -884,7 +924,7 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 	return {b[2] - b[0], b[3] - b[1]}
 }
 
-// Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
+// Draw text at a position with a size. This uses the default font. `pos` will be equal to the
 // top-left position of the text.
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK) {
 	draw_text_ex(s.default_font, text, pos, font_size, color)
@@ -1060,7 +1100,7 @@ create_render_texture :: proc(width: int, height: int) -> Render_Texture {
 	texture, render_target := rb.create_render_texture(width, height)
 
 	return {
-		texture = { 
+		texture = {
 			handle = texture,
 			width = width,
 			height = height,
@@ -1139,7 +1179,7 @@ destroy_font :: proc(font: Font) {
 	}
 
 	f := &s.fonts[font]
-	rb.destroy_texture(f.atlas.handle)	
+	rb.destroy_texture(f.atlas.handle)
 
 	// TODO fontstash has no "destroy font" proc... I should make my own version of fontstash
 	delete(s.fs.fonts[f.fontstash_handle].glyphs)
@@ -1174,7 +1214,7 @@ load_shader_from_file :: proc(
 	}
 
 	fragment_source: []byte
-	
+
 	if fragment_filename == vertex_filename {
 		fragment_source = vertex_source
 	} else {
@@ -1240,7 +1280,7 @@ load_shader_from_bytes :: proc(
 			size = constant_desc.size,
 		}
 
-		shd.constants[cidx] = loc 
+		shd.constants[cidx] = loc
 		constant_offset += constant_desc.size
 
 		if constant_desc.name != "" {
@@ -1273,7 +1313,7 @@ load_shader_from_bytes :: proc(
 		if default_format != .Unknown {
 			shd.default_input_offsets[default_format] = input_offset
 		}
-		
+
 		input_offset += pixel_format_size(input.format)
 	}
 
@@ -1530,8 +1570,8 @@ Color :: [4]u8
 BLACK        :: Color { 0, 0, 0, 255 }
 WHITE        :: Color { 255, 255, 255, 255 }
 BLANK        :: Color { 0, 0, 0, 0 }
-GRAY         :: Color { 183, 183, 183, 255 } 
-DARK_GRAY    :: Color { 66, 66, 66, 255} 
+GRAY         :: Color { 183, 183, 183, 255 }
+DARK_GRAY    :: Color { 66, 66, 66, 255}
 BLUE         :: Color { 25, 198, 236, 255 }
 DARK_BLUE    :: Color { 7, 47, 88, 255 }
 LIGHT_BLUE   :: Color { 200, 230, 255, 255 }
@@ -1737,7 +1777,7 @@ Shader_Input :: struct {
 
 Pixel_Format :: enum {
 	Unknown,
-	
+
 	RGBA_32_Float,
 	RGB_32_Float,
 	RG_32_Float,
@@ -1780,7 +1820,7 @@ State :: struct {
 	rb_state: rawptr,
 
 	fs: fs.FontContext,
-	
+
 	shutdown_wanted: bool,
 
 	mouse_position: Vec2,
@@ -1830,6 +1870,32 @@ State :: struct {
 	frame_time: f32,
 
 	time: f64,
+}
+
+// this is a combo of all other imput methids
+Input_Event ::union{
+	Keyboard_Key,
+	Mouse_Button,
+	Mouse_Actions,
+	Gamepad_Axis,
+	Gamepad_Button,
+}
+
+//this is the data a Input_Event could return
+Input_Event_Data::struct{
+	event:Input_Event,// the Input_Event that created this struct (key/button)
+	went_down:bool,
+	went_up:bool,
+	is_held:bool,
+	value:f32,//used for Gamepad_Axis,mouse_wheel_delta
+	vector:[2]f32,//used for mouse_position, mouse_delta
+}
+
+//this can be used to get related Input_Event_Data
+Mouse_Actions :: enum{
+	mouse_position,
+	mouse_delta,
+	mouse_wheel_delta,
 }
 
 // Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
@@ -2017,7 +2083,7 @@ batch_vertex :: proc(v: Vec3, uv: Vec2, color: Color) {
 	pos_offset := shd.default_input_offsets[.Position]
 	uv_offset := shd.default_input_offsets[.UV]
 	color_offset := shd.default_input_offsets[.Color]
-	
+
 	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
 
 	if pos_offset != -1 {
@@ -2043,7 +2109,7 @@ batch_vertex :: proc(v: Vec3, uv: Vec2, color: Color) {
 
 		override_offset += sz
 	}
-	
+
 	s.vertex_buffer_cpu_used += shd.vertex_size
 }
 
@@ -2073,7 +2139,7 @@ get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> 
 
 get_shader_format_num_components :: proc(format: Pixel_Format) -> int {
 	switch format {
-	case .Unknown: return 0 
+	case .Unknown: return 0
 	case .RGBA_32_Float: return 4
 	case .RGB_32_Float: return 3
 	case .RG_32_Float: return 2
