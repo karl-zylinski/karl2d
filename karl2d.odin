@@ -175,20 +175,6 @@ clear :: proc(color: Color) {
 	s.depth = s.depth_start
 }
 
-// Present the drawn stuff to the player. Also known as "flipping the backbuffer": Call at end of
-// frame to make everything you've drawn appear on the screen.
-//
-// When you draw using for example `draw_texture`, then that stuff is drawn to an invisible texture
-// called a "backbuffer". This makes sure that we don't see half-drawn frames. So when you are happy
-// with a frame and want to show it to the player, call this procedure.
-//
-// WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
-// make sure that all rendering has been sent off to the GPU (as it calls `draw_current_batch()`).
-present :: proc() {
-	draw_current_batch()
-	rb.present()
-}
-
 // The library may do some internal allocations that have the lifetime of a single frame. This
 // procedure empties that Frame Allocator.
 //
@@ -216,6 +202,20 @@ update_time :: proc() {
 	}
 
 	s.time = time.duration_seconds(time.since(s.start_time))
+}
+
+// Present the drawn stuff to the player. Also known as "flipping the backbuffer": Call at end of
+// frame to make everything you've drawn appear on the screen.
+//
+// When you draw using for example `draw_texture`, then that stuff is drawn to an invisible texture
+// called a "backbuffer". This makes sure that we don't see half-drawn frames. So when you are happy
+// with a frame and want to show it to the player, call this procedure.
+//
+// WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
+// make sure that all rendering has been sent off to the GPU (as it calls `draw_current_batch()`).
+present :: proc() {
+	draw_current_batch()
+	rb.present()
 }
 
 // Call at start or end of frame to process all events that have arrived to the window. This
