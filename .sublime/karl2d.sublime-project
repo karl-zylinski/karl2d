@@ -17,18 +17,37 @@
 					"shell_cmd": "odin run build_web -vet -strict-style -- examples/camera",
 				},
 				{
-					"name": "minimal",
+					"name": "custom frame update",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:custom_frame_update.exe -define:KARL2D_RENDER_BACKEND=gl",
+					"working_dir": "$project_path/../examples/custom_frame_update",
+				},
+				{
+					"name": "basics",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:minimal.exe",
-					"working_dir": "$project_path/../examples/minimal",
+					"working_dir": "$project_path/../examples/basics",
 				},
 				{
-					"name": "minimal (gl)",
+					"name": "basics (gl)",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=gl",
-					"working_dir": "$project_path/../examples/minimal",
+					"working_dir": "$project_path/../examples/basics",
 				},
 				{
-					"name": "minimal (web)",
-					"shell_cmd": "odin run build_web -vet -strict-style -- examples/minimal_web",
+					"name": "basics (web)",
+					"shell_cmd": "odin run build_web -vet -strict-style -- examples/basics",
+				},
+				{
+					"name": "minimal_hello_world",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:minimal.exe",
+					"working_dir": "$project_path/../examples/minimal_hello_world",
+				},
+				{
+					"name": "minimal_hello_world (gl)",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=gl",
+					"working_dir": "$project_path/../examples/minimal_hello_world",
+				},
+				{
+					"name": "minimal_hello_world (web)",
+					"shell_cmd": "odin run build_web -vet -strict-style -- examples/minimal_hello_world_web",
 				},
 				{
 					"name": "minimal (nil)",

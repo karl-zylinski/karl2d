@@ -18,15 +18,17 @@ init :: proc() {
 	// Note that we #load the texture: This bakes it into the program's data. WASM has no filesystem
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
 	// them.
-	tex = k2.load_texture_from_bytes(#load("../../examples/minimal/sixten.jpg"))
+	tex = k2.load_texture_from_bytes(#load("../../examples/basics/sixten.jpg"))
 }
 
 pos_x: f32
 rot: f32
 
 step :: proc() -> bool {
-	k2.new_frame()
-	k2.process_events()
+	if !k2.update() {
+		return false
+	}
+
 	k2.clear(k2.LIGHT_BLUE)
 
 	t := k2.get_time()
@@ -78,7 +80,7 @@ step :: proc() -> bool {
 	k2.present()
 	free_all(context.temp_allocator)
 
-	return !k2.shutdown_wanted()
+	return true
 }
 
 shutdown :: proc() {
@@ -95,12 +97,7 @@ main :: proc() {
 	context.allocator = mem.tracking_allocator(&track)
 
 	init()
-
-	run := true
-	for run {
-		run = step() 
-	}
-
+	for step()  {}
 	shutdown()
 
 	if len(track.allocation_map) > 0 {
