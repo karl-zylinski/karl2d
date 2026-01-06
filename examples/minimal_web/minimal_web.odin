@@ -68,13 +68,6 @@ shutdown :: proc() {
 main :: proc() {
 	context.logger = log.create_console_logger()
 	init()
-
-	run := true
-	for run {
-		if !step() {
-			run = false
-		}
-	}
-
+	for step() {}
 	shutdown()
 }
