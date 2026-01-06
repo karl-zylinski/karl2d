@@ -115,14 +115,30 @@ init :: proc(
 	return s
 }
 
-// Updates the internal state of the library. Returns a bool that says if the user has attempted to
-// close the window. It's up to the application to decide if it wants to shut down or if it wants to
-// show some kind of confirmation dialogue.
+// Updates the internal state of the library. Run early in the frame to make sure inputs and frame
+// timings are up-to-date.
+//
+// Returns a bool that says if the player has attempted to close the window. It's up to the
+// application to decide if it wants to shut down or if it (for example) wants to show a 
+// confirmation dialogue.
 //
 // Commonly used for creating the "main loop" of a game: `for k2.update() {}`
 //
-// To get more control over how the frame is set up, you can skip calling this proc and instead copy
-// the contents of it into your game.
+// To get more control over how the frame is set up, you can skip calling this proc and instead use
+// the procs it calls directly:
+//
+//// for {
+////     k2.reset_frame_allocator()
+////     k2.calculate_frame_time()
+////     k2.process_events()
+////     
+////     k2.clear(k2.BLUE)
+////     k2.present()
+////     
+////     if k2.close_window_requested() {
+////         break
+////     }
+//// }
 update :: proc() -> bool {
 	reset_frame_allocator()
 	calculate_frame_time()
