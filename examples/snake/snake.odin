@@ -73,12 +73,7 @@ restart :: proc() {
 main :: proc() {
 	context.logger = log.create_console_logger()
 	init()
-	run := true
-
-	for run {
-		run = step()
-	}
-
+	for step() {}
 	shutdown()
 }
 
@@ -101,8 +96,9 @@ init :: proc() {
 }
 
 step :: proc() -> bool {
-	k2.new_frame()
-	k2.process_events()
+	if !k2.update() {
+		return false
+	}
 
 	if k2.key_is_held(.Up) || k2.gamepad_button_is_held(0, .Left_Face_Up) {
 		move_direction = {0, -1}
@@ -214,7 +210,7 @@ step :: proc() -> bool {
 	k2.present()
 
 	free_all(context.temp_allocator)
-	return !k2.shutdown_wanted()
+	return true
 }
 
 shutdown :: proc() {

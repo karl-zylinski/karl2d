@@ -42,10 +42,7 @@ main :: proc() {
 	k2.set_shader_constant(shader, speed_x_loc, speed_x)
 	k2.set_shader_constant(shader, speed_y_loc, speed_y)
 
-	for !k2.shutdown_wanted() {
-		k2.new_frame()
-		k2.process_events()
-
+	for k2.update() {
 		k2.set_shader_constant(shader, seconds_loc, f32(k2.get_time()))
 		k2.set_shader(shader)
 

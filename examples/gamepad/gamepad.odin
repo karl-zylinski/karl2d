@@ -67,12 +67,7 @@ gamepad_demo :: proc(gamepad: k2.Gamepad_Index, offset: k2.Vec2) {
 main :: proc() {
 	context.logger = log.create_console_logger()
 	init()
-	run := true
-
-	for run {
-		run = step()
-	}
-
+	for step() {}
 	shutdown()
 }
 
@@ -81,8 +76,10 @@ init :: proc() {
 }
 
 step :: proc() -> bool {
-	k2.new_frame()
-	k2.process_events()
+	if !k2.update() {
+		return false
+	}
+
 	k2.clear(k2.BLACK)
 
 	gamepad_demo(0, {0, 0})
@@ -92,7 +89,7 @@ step :: proc() -> bool {
 
 	k2.present()
 	free_all(context.temp_allocator)
-	return !k2.shutdown_wanted()
+	return true
 }
 
 shutdown :: proc() {
