@@ -26,29 +26,54 @@ jobs:
         run: odin run api_verifier
 
 
-      - name: minimal
-        run: odin check examples/minimal -vet -strict-style
+      - name: minimal_hello_world
+        run: odin check examples/minimal_hello_world -vet -strict-style
 
-      - name: minimal (debug)
-        run: odin check examples/minimal -vet -strict-style -debug
+      - name: minimal_hello_world (debug)
+        run: odin check examples/minimal_hello_world -vet -strict-style -debug
 
-      - name: minimal (gl)
-        run: odin check examples/minimal -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
+      - name: minimal_hello_world (gl)
+        run: odin check examples/minimal_hello_world -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
 
-      - name: minimal (gl, debug)
-        run: odin check examples/minimal -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
+      - name: minimal_hello_world (gl, debug)
+        run: odin check examples/minimal_hello_world -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
 
-      - name: minimal (gl)
-        run: odin check examples/minimal -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
+      - name: minimal_hello_world (gl)
+        run: odin check examples/minimal_hello_world -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
 
-      - name: minimal (nil, debug)
-        run: odin check examples/minimal -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
+      - name: minimal_hello_world (nil, debug)
+        run: odin check examples/minimal_hello_world -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
-      - name: minimal (web)
-        run: odin run build_web -vet -strict-style -- examples/minimal_web
+      - name: minimal_hello_world (web)
+        run: odin run build_web -vet -strict-style -- examples/minimal_hello_world_web
 
-      - name: minimal (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/minimal_web -debug
+      - name: minimal_hello_world (web, debug)
+        run: odin run build_web -vet -strict-style -- examples/minimal_hello_world_web -debug
+
+
+      - name: basics
+        run: odin check examples/basics -vet -strict-style
+
+      - name: basics (debug)
+        run: odin check examples/basics -vet -strict-style -debug
+
+      - name: basics (gl)
+        run: odin check examples/basics -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
+
+      - name: basics (gl, debug)
+        run: odin check examples/basics -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
+
+      - name: basics (gl)
+        run: odin check examples/basics -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
+
+      - name: basics (nil, debug)
+        run: odin check examples/basics -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
+
+      - name: basics (web)
+        run: odin run build_web -vet -strict-style -- examples/basics
+
+      - name: basics (web, debug)
+        run: odin run build_web -vet -strict-style -- examples/basics -debug
 
 
       - name: fonts
