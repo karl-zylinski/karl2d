@@ -8,8 +8,17 @@
 			"variants":
 			[
 				{
+					"name": "camera",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:camera.exe -define:KARL2D_RENDER_BACKEND=gl",
+					"working_dir": "$project_path/../examples/camera",
+				},
+				{
+					"name": "camera (web)",
+					"shell_cmd": "odin run build_web -vet -strict-style -- examples/camera",
+				},
+				{
 					"name": "minimal",
-					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:minimal.exe",
 					"working_dir": "$project_path/../examples/minimal",
 				},
 				{
@@ -79,7 +88,7 @@
 				},
 				{
 					"name": "snake",
-					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:snake.exe",
 					"working_dir": "$project_path/../examples/snake",
 				},
 				{
@@ -162,16 +171,19 @@
 	"folders":
 	[
 		{
-			"path": "..",
+			"path": "/home/karl/projects/karl2d",
 		},
 		{
-			"path": "~/sdk/Odin/base",
+			"path": "/home/karl/sdk/Odin/base",
 		},
 		{
-			"path": "~/sdk/Odin/core",
+			"path": "/home/karl/sdk/Odin/core",
 		},
 		{
-			"path": "~/sdk/Odin/vendor",
+			"path": "/home/karl/sdk/Odin/vendor",
+		},
+		{
+			"path": "C:\\projects\\karl2d",
 		},
 		{
 			"path": "C:\\SDK\\Odin\\base",
@@ -204,7 +216,13 @@
 			"path": "C:\\SDK\\Odin\\vendor\\wasm\\WebGL",
 		},
 		{
-			"path": "C:\\projects\\raylib\\src"
+			"path": "C:\\projects\\raylib\\src",
+		},
+		{
+			"path": "/usr/include/GL",
+		},
+		{
+			"path": "/usr/include/X11"
 		},
 	],
 	"settings":

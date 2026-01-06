@@ -70,15 +70,9 @@ init :: proc(
 	// See `config.odin` for how this is picked.
 	s.rb = RENDER_BACKEND
 
-	// Depending on backend the depth is counted in one of two ways. It can be counted from `1` and
-	// to lower numbers. Or from `-1` and to higher numbers.
-	s.depth_start = DEPTH_START
-	s.depth_increment = DEPTH_INCREMENT
-
-	if s.rb.flip_z() {
-		s.depth_start = -DEPTH_START
-		s.depth_increment = -DEPTH_INCREMENT
-	}
+	// Depending on backend the depth starts at `0` or `-1` and is counted in different directions.
+	s.depth_increment = DEPTH_INCREMENT * f32(math.sign(s.rb.depth_increment_sign()))
+	s.depth_start = s.rb.depth_start() + s.depth_increment
 
 	s.depth = s.depth_start
 	rb = s.rb
@@ -245,10 +239,8 @@ process_events :: proc() {
 		case Window_Event_Mouse_Move:
 			prev_pos := s.mouse_position
 
-			// Because some platforms (for example win32) reports negative coords when you are in
-			// the resize area just outside the window.
-			s.mouse_position.x = clamp(e.position.x, 0, f32(win.get_width()))
-			s.mouse_position.y = clamp(e.position.y, 0, f32(win.get_height()))
+			s.mouse_position.x = e.position.x
+			s.mouse_position.y = e.position.y
 
 			s.mouse_delta = s.mouse_position - prev_pos
 
@@ -703,7 +695,7 @@ draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Co
 
 // Draws a line from `start` to `end` of a certain thickness.
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
-	p := Vec2{start.x, start.y + thickness*0.5}
+	p := Vec2{start.x, start.y}
 	s := Vec2{linalg.length(end - start), thickness}
 
 	origin := Vec2 {0, thickness*0.5}
@@ -2212,7 +2204,6 @@ _set_font :: proc(fh: Font) {
 	fs.SetFont(&s.fs, font.fontstash_handle)
 }
 
-DEPTH_START :: -1 + DEPTH_INCREMENT
 DEPTH_INCREMENT :: (1.0/10000000.0)
 
 _ :: jpeg

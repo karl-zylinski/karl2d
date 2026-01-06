@@ -66,7 +66,9 @@ Render_Backend_Interface :: struct #all_or_none {
 	resize_swapchain: proc(width, height: int),
 	get_swapchain_width: proc() -> int,
 	get_swapchain_height: proc() -> int,
-	flip_z: proc() -> bool,
+
+	depth_start: proc() -> f32,
+	depth_increment_sign: proc() -> int,
 
 	default_shader_vertex_source: proc() -> []byte,
 	default_shader_fragment_source: proc() -> []byte,

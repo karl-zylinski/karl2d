@@ -4,13 +4,16 @@ package karl2d_playground
 import k2 "../.."
 import "core:log"
 import "core:fmt"
+import "core:mem"
 
 _ :: fmt
 
 tex: k2.Texture
 
 init :: proc() {
-	k2.init(1080, 1080, "Karl2D Minimal Program")
+	k2.init(1080, 1080, "Karl2D Minimal Program", options = {
+		window_mode = .Windowed,
+	})
 
 	// Note that we #load the texture: This bakes it into the program's data. WASM has no filesystem
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
@@ -86,6 +89,11 @@ shutdown :: proc() {
 // This is not run by the web version, but it makes this program also work on non-web!
 main :: proc() {
 	context.logger = log.create_console_logger()
+
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	context.allocator = mem.tracking_allocator(&track)
+
 	init()
 
 	run := true
@@ -94,4 +102,12 @@ main :: proc() {
 	}
 
 	shutdown()
+
+	if len(track.allocation_map) > 0 {
+		fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+		for _, entry in track.allocation_map {
+			fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+		}
+	}
+	mem.tracking_allocator_destroy(&track)
 }
