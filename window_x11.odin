@@ -27,7 +27,7 @@ WINDOW_INTERFACE_X11 :: Window_Interface {
 
 import X "vendor:x11/xlib"
 import "base:runtime"
-import "core:log"
+import "log"
 import "core:fmt"
 
 _ :: log

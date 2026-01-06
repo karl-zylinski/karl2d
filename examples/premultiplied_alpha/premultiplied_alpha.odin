@@ -1,11 +1,8 @@
 package karl2d_example_premultiplied_alpha
 
 import k2 "../.."
-import "core:log"
 
 main :: proc() {
-	context.logger = log.create_console_logger()
-
 	k2.init(1080, 1080, "Karl2D Premultiplied Alpha")
 	k2.set_window_position(300, 100)
 

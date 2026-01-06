@@ -1,7 +1,6 @@
 package karl2d_gamepad_example
 
 import k2 "../.."
-import "core:log"
 import "core:fmt"
 
 init :: proc() {
@@ -72,7 +71,6 @@ shutdown :: proc() {
 }
 
 main :: proc() {
-	context.logger = log.create_console_logger()
 	init()
 	for step() {}
 	shutdown()

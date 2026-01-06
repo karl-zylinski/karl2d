@@ -4,7 +4,7 @@ package karl2d
 
 import "base:runtime"
 import "core:mem"
-import "core:log"
+import "log"
 import "core:math"
 import "core:math/linalg"
 import "core:slice"
@@ -996,7 +996,7 @@ load_texture_from_file :: proc(filename: string, options: Load_Texture_Options =
 		img, img_err := image.load_from_file(filename, options = load_options, allocator = s.frame_allocator)
 
 		if img_err != nil {
-			log.errorf("Error loading texture %v: %v", filename, img_err)
+			log.errorf("Error loading texture '%v': %v", filename, img_err)
 			return {}
 		}
 

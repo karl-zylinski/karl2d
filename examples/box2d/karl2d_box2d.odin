@@ -7,7 +7,6 @@ package karl2d_box2d_example
 import b2 "vendor:box2d"
 import k2 "../.."
 import "core:math"
-import "core:log"
 
 world_id: b2.WorldId
 time_acc: f32
@@ -20,7 +19,6 @@ GROUND :: k2.Rect {
 }
 
 main :: proc() {
-	context.logger = log.create_console_logger()
 	init()
 	for step() {}
 	shutdown()
@@ -129,7 +127,6 @@ step :: proc() -> bool {
 	k2.draw_circle(pos, 40, k2.RED)
 	k2.present()
 
-	free_all(context.temp_allocator)
 	return true
 }
 

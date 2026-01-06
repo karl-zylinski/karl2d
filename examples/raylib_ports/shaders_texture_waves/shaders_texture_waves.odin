@@ -3,14 +3,11 @@
 package raylib_example_shaders_texture_waves
 
 import k2 "../../.."
-import "core:log"
 
 SCREEN_WIDTH :: 800
 SCREEN_HEIGHT :: 450
 
 main :: proc() {
-	context.logger = log.create_console_logger()
-
 	k2.init(SCREEN_WIDTH, SCREEN_HEIGHT, "Karl2D: texture waves (raylib [shaders] example - texture waves)")
 
 	texture := k2.load_texture_from_file("space.png")

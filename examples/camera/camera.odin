@@ -1,7 +1,6 @@
 package karl2d_camera_example
 
 import k2 "../.."
-import "core:log"
 import "core:fmt"
 import "core:math/linalg"
 import "core:math"
@@ -154,7 +153,6 @@ shutdown :: proc() {
 }
 
 main :: proc() {
-	context.logger = log.create_console_logger()
 	init()
 	for step() {}
 	shutdown()

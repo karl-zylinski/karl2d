@@ -28,7 +28,7 @@ WINDOW_INTERFACE_JS :: Window_Interface {
 
 import "core:sys/wasm/js"
 import "base:runtime"
-import "core:log"
+import "log"
 
 js_state_size :: proc() -> int {
 	return size_of(JS_State)
