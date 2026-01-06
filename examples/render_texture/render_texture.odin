@@ -22,6 +22,7 @@ init :: proc() {
 }
 
 rot: f32
+rot2: f32
 
 step :: proc() -> bool {
 	if !k2.update() {
@@ -31,10 +32,11 @@ step :: proc() -> bool {
 	k2.set_render_texture(render_texture)
 	k2.clear(k2.ORANGE)
 
-	rot += k2.get_frame_time() * 500
+	rot += k2.get_frame_time() * 10
+	rot2 -= k2.get_frame_time() * 2
 
-	if rot > 360 {
-		rot -= 360
+	if rot > 2*math.PI {
+		rot -= 2*math.PI
 	}
 
 	k2.draw_rect_ex({12, 12, 12, 12}, {6, 6}, rot, k2.BLACK)
@@ -48,7 +50,14 @@ step :: proc() -> bool {
 
 	k2.draw_texture_ex(render_texture.texture, rt_size, {0, 0, rt_size.w * 5, rt_size.h * 5}, {}, 0)
 	k2.draw_texture(render_texture.texture, {400, 20})
-	k2.draw_texture_ex(render_texture.texture, rt_size, {512, 512, rt_size.w * 5, rt_size.h * 5}, {}, 70, k2.WHITE)
+	k2.draw_texture_ex(
+		render_texture.texture,
+		rt_size,
+		{512, 512, rt_size.w * 5, rt_size.h * 5}, // dst rect
+		{rt_size.w * 2.5, rt_size.h * 2.5}, // half the dst rect size
+		rot2,
+		k2.WHITE,
+	)
 
 	k2.present()
 	free_all(context.temp_allocator)

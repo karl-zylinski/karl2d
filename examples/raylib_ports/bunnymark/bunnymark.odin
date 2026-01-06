@@ -34,6 +34,8 @@ step :: proc() -> bool {
 		return false
 	}
 
+	ROT_SPEED_MAX :: 0.2
+
 	if k2.mouse_button_is_held(.Left) {
 		for _ in 0..<100 {
 			append(&bunnies, Bunny {
@@ -42,7 +44,7 @@ step :: proc() -> bool {
 					rand.float32_range(-250, 250)/60,
 					rand.float32_range(-250, 250)/60,
 				},
-				rot_speed = rand.float32_range(-5, 5),
+				rot_speed = rand.float32_range(-ROT_SPEED_MAX, ROT_SPEED_MAX),
 				color = {
 					u8(rand.int_max(190) + 50),
 					u8(rand.int_max(160) + 80),
@@ -59,12 +61,12 @@ step :: proc() -> bool {
 
 		if b.position.x > f32(k2.get_screen_width()) || b.position.x < 0 {
 			b.speed.x *= -1
-			b.rot_speed = rand.float32_range(-5, 5)
+			b.rot_speed = rand.float32_range(-ROT_SPEED_MAX, ROT_SPEED_MAX)
 		}
 
 		if b.position.y > f32(k2.get_screen_height()) || b.position.y < 0 {
 			b.speed.y *= -1
-			b.rot_speed = rand.float32_range(-5, 5)
+			b.rot_speed = rand.float32_range(-ROT_SPEED_MAX, ROT_SPEED_MAX)
 		}
 	}
 

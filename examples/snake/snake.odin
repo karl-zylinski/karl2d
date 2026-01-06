@@ -180,7 +180,7 @@ step :: proc() -> bool {
 			dir = snake[i - 1] - snake[i]
 		}
 
-		rot := math.atan2(f32(dir.y), f32(dir.x)) * math.DEG_PER_RAD
+		rot := math.atan2(f32(dir.y), f32(dir.x))
 
 		source := k2.Rect {
 			0, 0,
