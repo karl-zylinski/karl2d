@@ -51,8 +51,8 @@ step :: proc() -> bool {
 
 	// We use the current time to spin and wiggle the texture.
 	t := k2.get_time()
-	pos_x := f32(math.sin(t*10)*10)
-	rot := f32(t*50)
+	pos_x := f32(math.sin(t*10)*20)
+	rot := f32(t*1.5)
 	k2.draw_texture_ex(tex, {0, 0, f32(tex.width), f32(tex.height)}, {pos_x + 400, 450, 900, 500}, {450, 250}, rot)
 
 	k2.draw_rect({10, 10, 60, 60}, k2.GREEN)

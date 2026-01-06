@@ -611,8 +611,8 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 		bl = { x,         y + r.h }
 		br = { x + r.w, y + r.h }
 	} else {
-		sin_rot := math.sin(rot * math.RAD_PER_DEG)
-		cos_rot := math.cos(rot * math.RAD_PER_DEG)
+		sin_rot := math.sin(rot)
+		cos_rot := math.cos(rot)
 		x := r.x
 		y := r.y
 		dx := -origin.x
@@ -741,7 +741,7 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 
 	rot := math.atan2(end.y - start.y, end.x - start.x)
 
-	draw_rect_ex(r, origin, rot * math.DEG_PER_RAD, color)
+	draw_rect_ex(r, origin, rot, color)
 }
 
 // Draw a texture at a specific position. The texture will be drawn with its top-left corner at
@@ -826,8 +826,8 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		bl = { x,         y + dst.h }
 		br = { x + dst.w, y + dst.h }
 	} else {
-		sin_rot := math.sin(rotation * math.RAD_PER_DEG)
-		cos_rot := math.cos(rotation * math.RAD_PER_DEG)
+		sin_rot := math.sin(rotation)
+		cos_rot := math.cos(rotation)
 		x := dst.x
 		y := dst.y
 		dx := -origin.x
@@ -1494,7 +1494,7 @@ world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 // This is faster, since matrix inverses are expensive.
 get_camera_view_matrix :: proc(c: Camera) -> Mat4 {
 	inv_target_translate := linalg.matrix4_translate(vec3_from_vec2(-c.target))
-	inv_rot := linalg.matrix4_rotate_f32(c.rotation * math.RAD_PER_DEG, {0, 0, 1})
+	inv_rot := linalg.matrix4_rotate_f32(c.rotation, {0, 0, 1})
 	inv_scale := linalg.matrix4_scale(Vec3{c.zoom, c.zoom, 1})
 	inv_offset_translate := linalg.matrix4_translate(vec3_from_vec2(c.offset))
 
@@ -1504,7 +1504,7 @@ get_camera_view_matrix :: proc(c: Camera) -> Mat4 {
 // Get the matrix that brings something in front of the camera.
 get_camera_world_matrix :: proc(c: Camera) -> Mat4 {
 	offset_translate := linalg.matrix4_translate(vec3_from_vec2(-c.offset))
-	rot := linalg.matrix4_rotate_f32(-c.rotation * math.RAD_PER_DEG, {0, 0, 1})
+	rot := linalg.matrix4_rotate_f32(-c.rotation, {0, 0, 1})
 	scale := linalg.matrix4_scale(Vec3{1/c.zoom, 1/c.zoom, 1})
 	target_translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
 

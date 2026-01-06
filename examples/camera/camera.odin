@@ -3,7 +3,6 @@ package karl2d_camera_example
 import k2 "../.."
 import "core:fmt"
 import "core:math/linalg"
-import "core:math"
 
 Vec2 :: k2.Vec2
 
@@ -39,7 +38,7 @@ step :: proc() -> bool {
 
 	// Multiplying camera movement with rotation matrix makes it move like the player expects,
 	// relative to the axes of the window, not the axes of the camera.
-	rotation_matrix := linalg.matrix2_rotate(-camera.rotation * math.RAD_PER_DEG)
+	rotation_matrix := linalg.matrix2_rotate(-camera.rotation)
 	camera.target += rotation_matrix * camera_target_movement
 
 	camera.target = {
@@ -62,7 +61,7 @@ step :: proc() -> bool {
 
 	// CAMERA ROTATION
 
-	CAMERA_KEY_ROTATION_SPEED :: 30 // in degrees/sec
+	CAMERA_KEY_ROTATION_SPEED :: 1 // in rads/sec
 	camera_key_rotation_delta := CAMERA_KEY_ROTATION_SPEED*frame_time
 	if k2.key_is_held(.Z) { camera.rotation += camera_key_rotation_delta }
 	if k2.key_is_held(.X) { camera.rotation -= camera_key_rotation_delta }
@@ -111,7 +110,7 @@ step :: proc() -> bool {
 	k2.draw_text(camera_zoom_text, text_pos, font_size, text_color)
 	text_pos.y += font_size
 
-	camera_rotation_text := fmt.tprintf("camera rotation: %.2f°", camera.rotation)
+	camera_rotation_text := fmt.tprintf("camera rotation: %.2f rad", camera.rotation)
 	k2.draw_text(camera_rotation_text, text_pos, font_size, text_color)
 	text_pos.y += font_size
 

@@ -119,9 +119,9 @@ step :: proc() -> bool {
 	for b in bodies {
 		position := b2.Body_GetPosition(b)
 		r := b2.Body_GetRotation(b)
-		a := math.atan2(r.s, r.c)
+		rot := math.atan2(r.s, r.c)
 		// Y position is flipped because raylib has Y down and box2d has Y up.
-		k2.draw_rect_ex({position.x, -position.y, 40, 40}, {20, 20}, a*(180/3.14), k2.BROWN)
+		k2.draw_rect_ex({position.x, -position.y, 40, 40}, {20, 20}, rot, k2.BROWN)
 	}
 
 	k2.draw_circle(pos, 40, k2.RED)

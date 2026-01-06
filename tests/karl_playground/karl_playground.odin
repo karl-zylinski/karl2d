@@ -57,7 +57,7 @@ step :: proc() -> bool {
 	}
 
 	if k2.mouse_button_is_held(.Left) {
-		rot += k2.get_frame_time() * 400
+		rot += k2.get_frame_time() * 5
 	}
 
 	k2.draw_texture_ex(tex, {0, 0, f32(tex.width), f32(tex.height)}, {400, 450, 900, 500}, {450, 250}, rot)
