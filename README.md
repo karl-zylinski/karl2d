@@ -10,19 +10,14 @@ Here's a minimal "Hello world" program:
 package hello_world
 
 import k2 "karl2d"
-import "core:log"
 
 main :: proc() {
-	context.logger = log.create_console_logger()
-	k2.init(1920, 1080, "Hellope!")
+	k2.init(1280, 720, "Greetings from Karl2D!")
 
-	for !k2.shutdown_wanted() {
-		k2.new_frame()
-		k2.process_events()
+	for k2.update() {
 		k2.clear(k2.LIGHT_BLUE)
-		k2.draw_text("Hellope!", {10, 10}, 100, k2.BLACK)
+		k2.draw_text("Hellope!", {50, 50}, 100, k2.DARK_BLUE)
 		k2.present()
-		free_all(context.temp_allocator)
 	}
 
 	k2.shutdown()
