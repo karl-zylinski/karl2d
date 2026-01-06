@@ -8,6 +8,15 @@
 			"variants":
 			[
 				{
+					"name": "camera",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:camera.exe -define:KARL2D_RENDER_BACKEND=gl",
+					"working_dir": "$project_path/../examples/camera",
+				},
+				{
+					"name": "camera (web)",
+					"shell_cmd": "odin run build_web -vet -strict-style -- examples/camera",
+				},
+				{
 					"name": "minimal",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:minimal.exe",
 					"working_dir": "$project_path/../examples/minimal",

@@ -47,6 +47,10 @@ step :: proc() -> bool {
 		clamp(camera.target.y, -1000, 1000),
 	}
 
+	// CAMERA RESET
+
+	if k2.key_went_down(.R) { camera = { zoom = 1 } }
+
 	// CAMERA ZOOM
 
 	mouse_wheel_delta := k2.get_mouse_wheel_delta()
