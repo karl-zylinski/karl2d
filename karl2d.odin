@@ -239,10 +239,8 @@ process_events :: proc() {
 		case Window_Event_Mouse_Move:
 			prev_pos := s.mouse_position
 
-			// Because some platforms (for example win32) reports negative coords when you are in
-			// the resize area just outside the window.
-			s.mouse_position.x = clamp(e.position.x, 0, f32(win.get_width()))
-			s.mouse_position.y = clamp(e.position.y, 0, f32(win.get_height()))
+			s.mouse_position.x = e.position.x
+			s.mouse_position.y = e.position.y
 
 			s.mouse_delta = s.mouse_position - prev_pos
 
@@ -697,7 +695,7 @@ draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Co
 
 // Draws a line from `start` to `end` of a certain thickness.
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
-	p := Vec2{start.x, start.y + thickness*0.5}
+	p := Vec2{start.x, start.y}
 	s := Vec2{linalg.length(end - start), thickness}
 
 	origin := Vec2 {0, thickness*0.5}
