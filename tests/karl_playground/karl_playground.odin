@@ -2,7 +2,6 @@
 package karl2d_playground
 
 import k2 "../.."
-import "core:log"
 import "core:fmt"
 import "core:mem"
 
@@ -19,6 +18,7 @@ init :: proc() {
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
 	// them.
 	tex = k2.load_texture_from_bytes(#load("../../examples/basics/sixten.jpg"))
+	k2.load_texture_from_file("wa")
 }
 
 pos_x: f32
@@ -90,8 +90,6 @@ shutdown :: proc() {
 
 // This is not run by the web version, but it makes this program also work on non-web!
 main :: proc() {
-	context.logger = log.create_console_logger()
-
 	track: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&track, context.allocator)
 	context.allocator = mem.tracking_allocator(&track)

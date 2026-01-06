@@ -4,7 +4,7 @@ package karl2d
 
 import "linux/glx"
 import gl "vendor:OpenGL"
-import "core:log"
+import "log"
 
 _ :: log
 

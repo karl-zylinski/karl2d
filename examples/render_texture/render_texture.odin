@@ -2,7 +2,6 @@ package karl2d_minimal_example
 
 import k2 "../.."
 import "core:mem"
-import "core:log"
 import "core:math"
 import "core:fmt"
 
@@ -10,7 +9,6 @@ _ :: fmt
 _ :: mem
 
 main :: proc() {
-	context.logger = log.create_console_logger()
 	init()
 	for step() {}
 	shutdown()

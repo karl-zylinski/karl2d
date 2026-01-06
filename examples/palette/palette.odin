@@ -1,7 +1,6 @@
 package karl2d_palette
 
 import k2 "../.."
-import "core:log"
 import "core:fmt"
 import "core:reflect"
 
@@ -66,7 +65,6 @@ shutdown :: proc() {
 }
 
 main :: proc() {
-	context.logger = log.create_console_logger()
 	init()
 	for step() {}
 	shutdown()

@@ -9,11 +9,9 @@
 package karl2d_custom_frame_update
 
 import k2 "../.."
-import "core:log"
 import "core:fmt"
 
 main :: proc() {
-	context.logger = log.create_console_logger()
 	k2.init(1280, 720, "Karl2D Custom Frame Update")
 
 	// This loop runs forever until something stops it using `break`

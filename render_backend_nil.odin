@@ -31,7 +31,7 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	default_shader_fragment_source = rbnil_default_shader_fragment_source,
 }
 
-import "core:log"
+import "log"
 
 rbnil_state_size :: proc() -> int {
 	return 0

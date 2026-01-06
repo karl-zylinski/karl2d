@@ -6,7 +6,6 @@ import "core:fmt"
 import "core:time"
 import "core:math/rand"
 import "base:intrinsics"
-import "core:log"
 import "core:mem"
 
 _ :: mem
@@ -71,7 +70,6 @@ restart :: proc() {
 }
 
 main :: proc() {
-	context.logger = log.create_console_logger()
 	init()
 	for step() {}
 	shutdown()

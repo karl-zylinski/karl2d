@@ -2,7 +2,6 @@ package karl2d_gamepad_example
 
 import k2 "../.."
 import "core:fmt"
-import "core:log"
 
 gamepad_demo :: proc(gamepad: k2.Gamepad_Index, offset: k2.Vec2) {
 	if !k2.is_gamepad_active(gamepad) {
@@ -65,7 +64,6 @@ gamepad_demo :: proc(gamepad: k2.Gamepad_Index, offset: k2.Vec2) {
 }
 
 main :: proc() {
-	context.logger = log.create_console_logger()
 	init()
 	for step() {}
 	shutdown()

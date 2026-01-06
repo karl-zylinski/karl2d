@@ -35,7 +35,7 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 import "base:runtime"
 import gl "vendor:OpenGL"
 import hm "handle_map"
-import "core:log"
+import "log"
 import "core:strings"
 import "core:slice"
 import la "core:math/linalg"

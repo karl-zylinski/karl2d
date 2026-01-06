@@ -35,7 +35,7 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 import "base:runtime"
 import gl "vendor:wasm/WebGL"
 import hm "handle_map"
-import "core:log"
+import "log"
 import "core:strings"
 import la "core:math/linalg"
 

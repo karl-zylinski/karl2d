@@ -4,7 +4,6 @@ package karl2d_bunnymark
 
 import k2 "../../.."
 import "core:math/rand"
-import "core:log"
 import "core:fmt"
 
 MAX_BUNNIES :: 50000
@@ -104,7 +103,6 @@ shutdown :: proc() {
 }
 
 main :: proc() {
-	context.logger = log.create_console_logger()
 	init()
 	for step() {}
 	shutdown()

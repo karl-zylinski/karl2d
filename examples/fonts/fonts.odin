@@ -1,11 +1,9 @@
 package karl2d_fonts_example
 
 import k2 "../.."
-import "core:log"
 import "core:fmt"
 
 main :: proc() {
-	context.logger = log.create_console_logger()
 	init()
 	for step() {}
 	shutdown()

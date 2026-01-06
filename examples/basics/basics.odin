@@ -3,7 +3,6 @@
 package karl2d_basics_example
 
 import k2 "../.."
-import "core:log"
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
@@ -90,7 +89,6 @@ shutdown :: proc() {
 
 // This is not run by the web version, but it makes this program also work on non-web!
 main :: proc() {
-	context.logger = log.create_console_logger()
 	init()
 	for step() {}
 	shutdown()

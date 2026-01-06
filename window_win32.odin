@@ -28,7 +28,6 @@ WINDOW_INTERFACE_WIN32 :: Window_Interface {
 
 import win32 "core:sys/windows"
 import "base:runtime"
-@require import "core:log"
 
 win32_state_size :: proc() -> int {
 	return size_of(Win32_State)

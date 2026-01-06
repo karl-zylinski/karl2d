@@ -4,7 +4,7 @@ package karl2d
 
 import win32 "core:sys/windows"
 import gl "vendor:OpenGL"
-import "core:log"
+import "log"
 
 GL_Context :: win32.HGLRC
 
