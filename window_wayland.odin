@@ -27,6 +27,7 @@ WINDOW_INTERFACE_WAYLAND :: Window_Interface {
 import "base:runtime"
 import "core:log"
 import "core:fmt"
+import "core:c"
 import wl "linux/wayland"
 
 _ :: log
@@ -49,11 +50,20 @@ wayland_init :: proc(
 	s.windowed_width = window_width
 	s.windowed_height = window_height
 
+
+	display := wl.display_connect(nil)
+	s.display = display
 	s.window_handle = Window_Handle_Linux_Wayland {
-		// display = s.display,
+		display = s.display,
 		// screen = X.DefaultScreen(s.display),
 		// window = s.window,
 	}
+
+	// Get registry, add a global listener and get things started
+	// Do a roundtrip in order to get registry info and populate the wayland part of state
+	registry := wl.wl_display_get_registry(display)
+	wl.wl_registry_add_listener(registry, &registry_listener, s)
+	wl.display_roundtrip(display)
 
 	wayland_set_window_mode(init_options.window_mode)
 }
@@ -249,6 +259,7 @@ Wayland_State :: struct {
 	display: ^wl.wl_display,
 	compositor: ^wl.wl_compositor,
 	xdg_base: ^wl.xdg_wm_base,
+	seat: ^wl.wl_seat,
 	window_handle: Window_Handle_Linux,
 	window_mode: Window_Mode,
 }
@@ -257,8 +268,56 @@ s: ^Wayland_State
 
 @(private="package")
 Window_Handle_Linux_Wayland :: struct {
-	// display: ^X.Display,
+	display: ^wl.wl_display,
 	// window: X.Window,
 	// screen: i32,
 }
 
+registry_listener := wl.wl_registry_listener {
+	global        = global,
+	global_remove = global_remove,
+}
+
+display_listener := wl.wl_display_listener{}
+
+
+global :: proc "c" (
+	data: rawptr,
+	registry: ^wl.wl_registry,
+	name: c.uint32_t,
+	interface: cstring,
+	version: c.uint32_t,
+) {
+	context = runtime.default_context()
+	if interface == wl.wl_compositor_interface.name {
+        state: ^Wayland_State = cast(^Wayland_State)data
+		state.compositor = cast(^wl.wl_compositor)(wl.wl_registry_bind(
+				registry,
+				name,
+				&wl.wl_compositor_interface,
+				version,
+			))
+	}
+
+	if interface == wl.xdg_wm_base_interface.name {
+		state: ^Wayland_State = cast(^Wayland_State)data
+		state.xdg_base = cast(^wl.xdg_wm_base)(wl.wl_registry_bind(
+				registry,
+				name,
+				&wl.xdg_wm_base_interface,
+				version,
+			))
+	}
+	if interface == wl.wl_seat_interface.name {
+		state: ^Wayland_State = cast(^Wayland_State)data
+		state.seat = cast(^wl.wl_seat)(wl.wl_registry_bind(
+				registry,
+				name,
+				&wl.wl_seat_interface,
+				version,
+			))
+	}
+}
+
+global_remove :: proc "c" (data: rawptr, registry: ^wl.wl_registry, name: c.uint32_t) {
+}
