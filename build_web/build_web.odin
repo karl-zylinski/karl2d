@@ -25,21 +25,14 @@ main :: proc() {
 		print_usage = true
 	}
 
-	debug := false
-	opt_string: string
 	dir: string
+	compiler_params: [dynamic]string
 
 	for a in os.args {
-		if a == "-debug" {
-			debug = true
-		} else if a == "-help" {
+		if a == "-help" || a == "--help" {
 			print_usage = true
-		} else if a == "-o:speed" {
-			opt_string = a
-		} else if a == "-o:size" {
-			opt_string = a
 		} else if strings.has_prefix(a, "-") {
-			print_usage = true
+			append(&compiler_params, a)
 		} else {
 			dir = a
 		}
@@ -50,7 +43,7 @@ main :: proc() {
 	}
 
 	if print_usage {
-		fmt.eprintfln("Usage: 'odin run build_web -- directory_name [-debug] [-o:speed/size]' where `[]` means that it is an optional flag\nExample: 'odin run build_web -- examples/minimal_web'")
+		fmt.eprintfln("Usage: 'odin run build_web -- directory_name -extra -parameters' Any extra parameter that start with a dash will be passed on to Odin compiler.\nExample: 'odin run build_web -- examples/minimal_web -debug'")
 		return
 	}
 
@@ -105,17 +98,9 @@ main :: proc() {
 		build_web_dir,
 		fmt.tprintf("-out:%v", wasm_out_path),
 		"-target:js_wasm32",
-		"-vet",
-		"-strict-style",
 	})
 
-	if debug {
-		append(&build_command, "-debug")
-	}
-
-	if opt_string != "" {
-		append(&build_command, opt_string)
-	}
+	append(&build_command, ..compiler_params[:])
 
 	_, build_std_out, build_std_err, _ := os.process_exec({ command = build_command[:] }, allocator = context.allocator)
 
