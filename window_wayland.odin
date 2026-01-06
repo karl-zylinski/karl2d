@@ -5,26 +5,25 @@ package karl2d
 
 @(private="package")
 WINDOW_INTERFACE_WAYLAND :: Window_Interface {
-	state_size = x11_state_size,
-	init = x11_init,
-	shutdown = x11_shutdown,
-	window_handle = x11_window_handle,
-	process_events = x11_process_events,
-	get_events = x11_get_events,
-	get_width = x11_get_width,
-	get_height = x11_get_height,
-	clear_events = x11_clear_events,
-	set_position = x11_set_position,
-	set_size = x11_set_size,
-	get_window_scale = x11_get_window_scale,
-	set_window_mode = x11_set_window_mode,
-	is_gamepad_active = x11_is_gamepad_active,
-	get_gamepad_axis = x11_get_gamepad_axis,
-	set_gamepad_vibration = x11_set_gamepad_vibration,
-	set_internal_state = x11_set_internal_state,
+	state_size = wayland_state_size,
+	init = wayland_init,
+	shutdown = wayland_shutdown,
+	window_handle = wayland_window_handle,
+	process_events = wayland_process_events,
+	get_events = wayland_get_events,
+	get_width = wayland_get_width,
+	get_height = wayland_get_height,
+	clear_events = wayland_clear_events,
+	set_position = wayland_set_position,
+	set_size = wayland_set_size,
+	get_window_scale = wayland_get_window_scale,
+	set_window_mode = wayland_set_window_mode,
+	is_gamepad_active = wayland_is_gamepad_active,
+	get_gamepad_axis = wayland_get_gamepad_axis,
+	set_gamepad_vibration = wayland_set_gamepad_vibration,
+	set_internal_state = wayland_set_internal_state,
 }
 
-import X "vendor:x11/xlib"
 import "base:runtime"
 import "core:log"
 import "core:fmt"
@@ -33,11 +32,11 @@ import wl "linux/wayland"
 _ :: log
 _ :: fmt
 
-x11_state_size :: proc() -> int {
+wayland_state_size :: proc() -> int {
 	return size_of(Wayland_State)
 }
 
-x11_init :: proc(
+wayland_init :: proc(
 	window_state: rawptr,
 	window_width: int,
 	window_height: int,
@@ -49,141 +48,25 @@ x11_init :: proc(
 	s.allocator = allocator
 	s.windowed_width = window_width
 	s.windowed_height = window_height
-	s.display = X.OpenDisplay(nil)
-
-	s.window = X.CreateSimpleWindow(
-		s.display,
-		X.DefaultRootWindow(s.display),
-		0, 0,
-		u32(window_width), u32(window_height),
-		0,
-		0,
-		0,
-	)
-
-	X.StoreName(s.display, s.window, frame_cstring(window_title))
-	
-	X.SelectInput(s.display, s.window, {
-		.KeyPress,
-		.KeyRelease,
-		.ButtonPress,
-		.ButtonRelease,
-		.PointerMotion,
-		.StructureNotify,
-		.FocusChange,
-	})
-
-	X.MapWindow(s.display, s.window)
-
-	s.delete_msg = X.InternAtom(s.display, "WM_DELETE_WINDOW", false)
-	X.SetWMProtocols(s.display, s.window, &s.delete_msg, 1)
 
 	s.window_handle = Window_Handle_Linux_Wayland {
-		display = s.display,
-		screen = X.DefaultScreen(s.display),
-		window = s.window,
+		// display = s.display,
+		// screen = X.DefaultScreen(s.display),
+		// window = s.window,
 	}
 
-	x11_set_window_mode(init_options.window_mode)
+	wayland_set_window_mode(init_options.window_mode)
 }
 
-x11_shutdown :: proc() {
-	delete(s.events)
-	X.DestroyWindow(s.display, s.window)
+wayland_shutdown :: proc() {
+	// X.DestroyWindow(s.display, s.window)
 }
 
-x11_window_handle :: proc() -> Window_Handle {
+wayland_window_handle :: proc() -> Window_Handle {
 	return Window_Handle(&s.window_handle)
 }
 
-x11_process_events :: proc() {
-	for X.Pending(s.display) > 0 {
-		event: X.XEvent
-		X.NextEvent(s.display, &event)
-
-		#partial switch event.type {
-		case .ClientMessage:
-			if X.Atom(event.xclient.data.l[0]) == s.delete_msg {
-				append(&s.events, Window_Event_Close_Wanted{})
-			}
-		case .KeyPress:
-			key := key_from_xkeycode(event.xkey.keycode)
-
-			if key != .None {
-				append(&s.events, Window_Event_Key_Went_Down {
-					key = key,
-				})
-			}
-
-		case .KeyRelease:
-			key := key_from_xkeycode(event.xkey.keycode)
-
-			if key != .None {
-				append(&s.events, Window_Event_Key_Went_Up {
-					key = key,
-				})
-			}
-
-		case .ButtonPress:
-			btn: Mouse_Button
-
-			switch event.xbutton.button {
-			case .Button1: btn = .Left
-			case .Button2: btn = .Middle
-			case .Button3: btn = .Right
-			case .Button4: btn = Mouse_Button(3)
-			case .Button5: btn = Mouse_Button(4)
-			}
-
-			append(&s.events, Window_Event_Mouse_Button_Went_Down {
-				button = btn,
-			})
-
-		case .ButtonRelease:
-			btn: Mouse_Button
-
-			switch event.xbutton.button {
-			case .Button1: btn = .Left
-			case .Button2: btn = .Middle
-			case .Button3: btn = .Right
-			case .Button4: btn = Mouse_Button(3)
-			case .Button5: btn = Mouse_Button(4)
-			}
-
-			append(&s.events, Window_Event_Mouse_Button_Went_Up {
-				button = btn,
-			})
-
-		case .MotionNotify:
-			append(&s.events, Window_Event_Mouse_Move {
-				position = { f32(event.xmotion.x), f32(event.xmotion.y) }, 
-			})
-
-		case .ConfigureNotify:
-			w := int(event.xconfigure.width)
-			h := int(event.xconfigure.height)
-
-			if w != s.width || h != s.height {
-				s.width = w
-				s.height = h
-
-				if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-					s.windowed_width = w
-					s.windowed_height = h
-				}
-
-				append(&s.events, Window_Event_Resize {
-					width = w,
-					height = h,
-				})
-			}
-		case .FocusIn:
-			append(&s.events, Window_Event_Focused{})
-
-		case .FocusOut:
-			append(&s.events, Window_Event_Unfocused{})
-		}
-	}
+wayland_process_events :: proc() {
 }
 
 @rodata
@@ -294,129 +177,42 @@ key_from_xkeycode :: proc(kc: u32) -> Keyboard_Key {
 	return KEY_FROM_XKEYCODE[u8(kc)]
 }
 
-x11_get_events :: proc() -> []Window_Event {
+wayland_get_events :: proc() -> []Window_Event {
 	return s.events[:]
 }
 
-x11_get_width :: proc() -> int {
+wayland_get_width :: proc() -> int {
 	return s.width
 }
 
-x11_get_height :: proc() -> int {
+wayland_get_height :: proc() -> int {
 	return s.height
 }
 
-x11_clear_events :: proc() {
+wayland_clear_events :: proc() {
 	runtime.clear(&s.events)
 }
 
-x11_set_position :: proc(x: int, y: int) {
-	X.MoveWindow(s.display, s.window, i32(x), i32(y))
+wayland_set_position :: proc(x: int, y: int) {
 }
 
-x11_set_size :: proc(w, h: int) {
-	X.ResizeWindow(s.display, s.window, u32(w), u32(h))
+wayland_set_size :: proc(w, h: int) {
 }
 
-x11_get_window_scale :: proc() -> f32 {
+wayland_get_window_scale :: proc() -> f32 {
 	return 1
 }
 
 enter_borderless_fullscreen :: proc() {
-
-	wm_state := X.InternAtom(s.display, "_NET_WM_STATE", true)
-	wm_fullscreen := X.InternAtom(s.display, "_NET_WM_STATE_FULLSCREEN", true)
-
-	go_to_fullscreen := X.XEvent {
-		xclient = {
-			type = .ClientMessage,
-			window = s.window,
-			message_type = wm_state,
-			format = 32,
-			data = {
-				l = {
-					0 = 1,
-					1 = int(wm_fullscreen),
-					2 = 0,
-					3 = 1,
-					4 = 0,
-				},
-			},
-		},
-	}
-
-	X.SendEvent(s.display, X.DefaultRootWindow(s.display), false, {.SubstructureNotify, .SubstructureRedirect}, &go_to_fullscreen)
 }
 
 leave_borderless_fullscreen :: proc() {
-	X.ResizeWindow(s.display, s.window, u32(s.windowed_width), u32(s.windowed_height))
-	s.width = s.windowed_width
-	s.height = s.windowed_height
-
-	wm_state := X.InternAtom(s.display, "_NET_WM_STATE", true)
-	wm_fullscreen := X.InternAtom(s.display, "_NET_WM_STATE_FULLSCREEN", true)
-
-
-	exit_fullscreen := X.XEvent {
-		xclient = {
-			type = .ClientMessage,
-			window = s.window,
-			message_type = wm_state,
-			format = 32,
-			data = {
-				l = {
-					0 = 0,
-					1 = int(wm_fullscreen),
-					2 = 0,
-					3 = 1,
-					4 = 0,
-				},
-			},
-		},
-	}
-
-	X.SendEvent(s.display, X.DefaultRootWindow(s.display), false, {.SubstructureNotify, .SubstructureRedirect}, &exit_fullscreen)
 }
 
-x11_set_window_mode :: proc(window_mode: Window_Mode) {
-	if window_mode == s.window_mode {
-		return
-	}
-
-	switch window_mode {
-	case .Windowed:
-		if s.window_mode == .Borderless_Fullscreen {
-			leave_borderless_fullscreen()
-		}
-
-		hints := X.XSizeHints {
-			flags = { .PMinSize, .PMaxSize },
-			min_width = i32(s.width),
-			max_width = i32(s.width),
-			min_height = i32(s.height),
-			max_height = i32(s.height),
-		}
-
-		X.SetWMNormalHints(s.display, s.window, &hints)
-
-	case .Windowed_Resizable: 
-		if s.window_mode == .Borderless_Fullscreen {
-			leave_borderless_fullscreen()
-		}
-
-		hints := X.XSizeHints {
-			flags = {.USSize},
-		}
-
-		X.SetWMNormalHints(s.display, s.window, &hints)
-	case .Borderless_Fullscreen:
-		enter_borderless_fullscreen()
-	}
-
-	s.window_mode = window_mode
+wayland_set_window_mode :: proc(window_mode: Window_Mode) {
 }
 
-x11_is_gamepad_active :: proc(gamepad: int) -> bool {
+wayland_is_gamepad_active :: proc(gamepad: int) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
 	}
@@ -424,7 +220,7 @@ x11_is_gamepad_active :: proc(gamepad: int) -> bool {
 	return false
 }
 
-x11_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
+wayland_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return 0
 	}
@@ -432,13 +228,13 @@ x11_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	return 0
 }
 
-x11_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
+wayland_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return
 	}
 }
 
-x11_set_internal_state :: proc(state: rawptr) {
+wayland_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Wayland_State)(state)
 }
@@ -461,8 +257,8 @@ s: ^Wayland_State
 
 @(private="package")
 Window_Handle_Linux_Wayland :: struct {
-	display: ^X.Display,
-	window: X.Window,
-	screen: i32,
+	// display: ^X.Display,
+	// window: X.Window,
+	// screen: i32,
 }
 
