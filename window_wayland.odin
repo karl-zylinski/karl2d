@@ -29,6 +29,7 @@ import "core:log"
 import "core:fmt"
 import "core:c"
 import wl "linux/wayland"
+import egl "vendor:egl"
 
 _ :: log
 _ :: fmt
@@ -53,11 +54,6 @@ wayland_init :: proc(
 
 	display := wl.display_connect(nil)
 	s.display = display
-	s.window_handle = Window_Handle_Linux_Wayland {
-		display = s.display,
-		// screen = X.DefaultScreen(s.display),
-		// window = s.window,
-	}
 
 	// Get registry, add a global listener and get things started
 	// Do a roundtrip in order to get registry info and populate the wayland part of state
@@ -65,7 +61,31 @@ wayland_init :: proc(
 	wl.wl_registry_add_listener(registry, &registry_listener, s)
 	wl.display_roundtrip(display)
 
+	surface := wl.wl_compositor_create_surface(s.compositor)
+    if surface == nil {
+        panic("Error creating wl_surface")
+    }
+    s.surface = surface
+
+	wl_callback := wl.wl_surface_frame(surface)
+	wl.wl_callback_add_listener(wl_callback, &frame_callback, s)
+	wl.wl_surface_commit(surface)
+
+    egl_display := egl.GetDisplay(egl.NativeDisplayType(display))
+    if egl_display == egl.NO_DISPLAY {
+        panic("Failed to create EGL display")
+    }
+
+	s.window_handle = Window_Handle_Linux_Wayland {
+		display = s.display,
+        egl_display = egl_display,
+        surface = surface,
+		// screen = X.DefaultScreen(s.display),
+		// window = s.window,
+	}
+
 	wayland_set_window_mode(init_options.window_mode)
+
 }
 
 wayland_shutdown :: proc() {
@@ -260,17 +280,21 @@ Wayland_State :: struct {
 	compositor: ^wl.wl_compositor,
 	xdg_base: ^wl.xdg_wm_base,
 	seat: ^wl.wl_seat,
+    surface: ^wl.wl_surface,
 	window_handle: Window_Handle_Linux,
 	window_mode: Window_Mode,
-    redraw: bool
 }
 
 s: ^Wayland_State
 
 @(private="package")
 Window_Handle_Linux_Wayland :: struct {
+    redraw: bool,
 	display: ^wl.wl_display,
     surface: ^wl.wl_surface,
+    egl_display: egl.Display,
+    egl_window: ^wl.egl_window,
+    egl_surface: ^egl.Surface,
 	// window: X.Window,
 	// screen: i32,
 }
@@ -324,21 +348,72 @@ global :: proc "c" (
 global_remove :: proc "c" (data: rawptr, registry: ^wl.wl_registry, name: c.uint32_t) {
 }
 
-wayland_gl_present :: proc() {
-    whl := s.window_handle.(Window_Handle_Linux_Wayland)
-	if s.redraw {
-		// Get the callback and flag it already to not redraw
-		callback := wl.wl_surface_frame(s.surface)
-		s.redraw = false
+done :: proc "c" (data: rawptr, wl_callback: ^wl.wl_callback, callback_data: c.uint32_t) {
+	context = runtime.default_context()
+    wh := s.window_handle.(Window_Handle_Linux_Wayland)
+    wh.redraw = true
+    s.window_handle = wh // Don't know if this is needed
+	wl.wl_callback_destroy(wl_callback)
+}
 
-		// Add the listener
-		wl.wl_callback_add_listener(callback, &frame_callback, nil)
+window_listener := wl.xdg_surface_listener {
+	configure = proc "c" (data: rawptr, surface: ^wl.xdg_surface, serial: c.uint32_t) {
+		context = runtime.default_context()
+		log.debug("window configure")
 
-		// Swap the buffers
-		egl.SwapBuffers(whl.display, whl.display.egl_surface)
+		wl.xdg_surface_ack_configure(surface, serial)
+		wl.wl_surface_damage(s.surface, 0, 0, i32(s.windowed_width), i32(s.windowed_height))
+		wl.wl_surface_commit(s.surface)
+	},
+}
 
-	}
-	wl.display_dispatch(s.display)
-	wl.display_flush(s.display)
+toplevel_listener := wl.xdg_toplevel_listener {
+	configure = proc "c" (
+		data: rawptr,
+		xdg_toplevel: ^wl.xdg_toplevel,
+		width: c.int32_t,
+		height: c.int32_t,
+		states: ^wl.wl_array,
+	) {
+		// context = runtime.default_context()
+		// log.debug("Top level configure", width, height, states)
+		// egl_render_context := cc.platform_state.egl_render_context
+		// if canvas.width != width ||
+		//    canvas.height != height && (canvas.width > 0 && canvas.height > 0) {
+		// 	resize_egl_window(canvas, egl_render_context, i32(width), i32(height))
+            // /// SHOULD EMIT A VALID WINDOW EVENT
+		// 	// append(
+		// 	// 	&cc.platform_state.input.events,
+		// 	// 	WindowResize{new_width = width, new_height = height},
+		// 	// )
+		// }
+		// canvas.ready = true
+	},
+	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel) {},
+	configure_bounds = proc "c" (
+		data: rawptr,
+		xdg_toplevel: ^wl.xdg_toplevel,
+		width: c.int32_t,
+		height: c.int32_t,
+	) {
+		context = runtime.default_context()
+		log.debug("Top level configure bounds", width, height)
 
+	},
+	wm_capabilities = proc "c" (
+		data: rawptr,
+		xdg_toplevel: ^wl.xdg_toplevel,
+		capabilities: ^wl.wl_array,
+	) {},
+}
+
+wm_base_listener := wl.xdg_wm_base_listener {
+	ping = proc "c" (data: rawptr, xdg_wm_base: ^wl.xdg_wm_base, serial: c.uint32_t) {
+		wl.xdg_wm_base_pong(xdg_wm_base, serial)
+	},
+}
+
+@(private="package")
+frame_callback := wl.wl_callback_listener {
+	done = done,
 }

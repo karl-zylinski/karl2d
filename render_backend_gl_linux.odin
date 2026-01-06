@@ -131,14 +131,28 @@ _gl_load_procs :: proc() {
 
 _gl_present :: proc(window_handle: Window_Handle) {
 	handle := (^Window_Handle_Linux)(window_handle)
-    switch whl in handle {
+    switch &whl in handle {
         case Window_Handle_Linux_X11:
 	        glx.SwapBuffers(whl.display, whl.window)
         case Window_Handle_Linux_Wayland:
-            wayland_gl_present()
+            wayland_gl_present(&whl)
     }
 }
 
-frame_callback := wl.wl_callback_listener {
-	done = done,
+import wl "linux/wayland"
+@(private="package")
+wayland_gl_present :: proc(window_handle: ^Window_Handle_Linux_Wayland) {
+	if window_handle.redraw {
+		// Get the callback and flag it already to not redraw
+		callback := wl.wl_surface_frame(window_handle.surface)
+		window_handle.redraw = false
+
+		// Add the listener
+		wl.wl_callback_add_listener(callback, &frame_callback, nil)
+
+		// Swap the buffers
+		egl.SwapBuffers(window_handle.egl_display, window_handle.egl_surface^)
+	}
+	wl.display_dispatch(window_handle.display)
+	wl.display_flush(window_handle.display)
 }
