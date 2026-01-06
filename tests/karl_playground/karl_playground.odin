@@ -18,7 +18,6 @@ init :: proc() {
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
 	// them.
 	tex = k2.load_texture_from_bytes(#load("../../examples/basics/sixten.jpg"))
-	k2.load_texture_from_file("wa")
 }
 
 pos_x: f32
