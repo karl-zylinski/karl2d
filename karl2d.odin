@@ -946,6 +946,18 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 
 	q: fs.Quad
 	for fs.TextIterNext(&s.fs, &iter, &q) {
+		if iter.codepoint == '\n' {
+			iter.nexty += font_size
+			iter.nextx = pos.x
+			continue
+		}
+
+		if iter.codepoint == '\t' {
+			// This is not really correct, but I'll replace it later when I redo the font stuff.
+			iter.nextx += 2*font_size
+			continue
+		}
+
 		src := Rect {
 			q.s0, q.t0,
 			q.s1 - q.s0, q.t1 - q.t0,
