@@ -2257,7 +2257,7 @@ _set_font :: proc(fh: Font) {
 	fs.SetFont(&s.fs, font.fontstash_handle)
 }
 
-DEPTH_INCREMENT :: (1.0/10000000.0)
+DEPTH_INCREMENT :: (1.0/1000000.0)
 
 _ :: jpeg
 _ :: bmp
