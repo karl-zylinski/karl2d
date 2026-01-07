@@ -687,7 +687,7 @@ Shader_Input_Type :: enum {
 }
 
 Shader_Builtin_Constant :: enum {
-	MVP,
+	View_Projection_Matrix,
 }
 
 Shader_Default_Inputs :: enum {

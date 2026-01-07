@@ -1,5 +1,5 @@
 cbuffer constants : register(b0) {
-	float4x4 mvp;
+	float4x4 view_projection;
 }
 struct vs_in {
 	float2 position : position;
@@ -17,7 +17,7 @@ Texture2D    tex2 : register(t1);
 SamplerState smp2 : register(s1);
 vs_out vs_main(vs_in input) {
 	vs_out output;
-	output.position = mul(mvp, float4(input.position, 0, 1.0f));
+	output.position = mul(view_projection, float4(input.position, 0, 1.0f));
 	output.texcoord = input.texcoord;
 	output.color = input.color;
 	return output;

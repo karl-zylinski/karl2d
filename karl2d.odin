@@ -409,7 +409,7 @@ draw_current_batch :: proc() {
 
 	shader := s.batch_shader
 
-	mvp := s.proj_matrix * s.view_matrix
+	view_projection := s.proj_matrix * s.view_matrix
 	for mloc, builtin in shader.constant_builtin_locations {
 		constant, constant_ok := mloc.?
 
@@ -418,10 +418,10 @@ draw_current_batch :: proc() {
 		}
 
 		switch builtin {
-		case .MVP:
-			if constant.size == size_of(mvp) {
+		case .View_Projection_Matrix:
+			if constant.size == size_of(view_projection) {
 				dst := (^matrix[4,4]f32)(&shader.constants_data[constant.offset])
-				dst^ = mvp
+				dst^ = view_projection
 			} 
 		}
 	}
@@ -1284,8 +1284,8 @@ load_shader_from_bytes :: proc(
 			shd.constant_lookup[strings.clone(constant_desc.name, s.allocator)] = loc
 
 			switch constant_desc.name {
-			case "mvp":
-				shd.constant_builtin_locations[.MVP] = loc
+			case "view_projection":
+				shd.constant_builtin_locations[.View_Projection_Matrix] = loc
 			}
 		}
 	}
@@ -1755,7 +1755,7 @@ Shader_Input_Type :: enum {
 }
 
 Shader_Builtin_Constant :: enum {
-	MVP,
+	View_Projection_Matrix,
 }
 
 Shader_Default_Inputs :: enum {
