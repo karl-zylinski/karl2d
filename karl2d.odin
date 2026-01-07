@@ -2074,7 +2074,7 @@ batch_vertex :: proc(v: Vec3, uv: Vec2, color: Color) {
 	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
 
 	if pos_offset != -1 {
-		(^Vec3)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
+		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = {v.x, v.y}
 	}
 
 	if uv_offset != -1 {
@@ -2113,7 +2113,7 @@ win: Window_Interface
 rb: Render_Backend_Interface
 
 get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> Shader_Default_Inputs {
-	if name == "position" && type == .Vec3 {
+	if name == "position" && type == .Vec2 {
 		return .Position
 	} else if name == "texcoord" && type == .Vec2 {
 		return .UV
@@ -2145,7 +2145,7 @@ get_shader_input_format :: proc(name: string, type: Shader_Input_Type) -> Pixel_
 
 	if default_type != .Unknown {
 		switch default_type {
-		case .Position: return .RGB_32_Float
+		case .Position: return .RG_32_Float
 		case .UV: return .RG_32_Float
 		case .Color: return .RGBA_8_Norm
 		case .Unknown: unreachable()
