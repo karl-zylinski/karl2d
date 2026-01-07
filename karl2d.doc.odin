@@ -94,20 +94,19 @@ process_events :: proc()
 
 // Returns how many seconds the previous frame took. Often a tiny number such as 0.016 s.
 //
-// You must call `new_frame()` at the start of your frame in order for the frame_time to be updated.
+// This value is updated when `calculate_frame_time()` runs (which is also called by `update()`).
 get_frame_time :: proc() -> f32
 
-// Returns how many seconds has elapsed since the game started.
+// Returns how many seconds has elapsed since the game started. This is a `f64` number, giving good
+// precision when the application runs for a long time.
 //
-// You must call `new_frame()` at the start of your frame for this value to get updated.
+// This value is updated when `calculate_frame_time()` runs (which is also called by `update()`).
 get_time :: proc() -> f64
 
-// Gets the width of the drawing area within the window. The returned number is not scaled by any
-// monitor DPI scaling. You do that manually using the number returned by `get_window_scale()`.
+// Gets the width of the drawing area within the window.
 get_screen_width :: proc() -> int
 
-// Gets the height of the drawing area within the window. The returned number is not scaled by any
-// monitor DPI scaling. You do that manually using the number returned by `get_window_scale()`.
+// Gets the height of the drawing area within the window.
 get_screen_height :: proc() -> int
 
 // Moves the window.
@@ -115,8 +114,8 @@ get_screen_height :: proc() -> int
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int)
 
-// Resize the window to a new size. If the window has the flag Resizable set, then the backbuffer
-// will also be resized.
+// Resize the window to a new size. While the user cannot resize windows with 
+// `window_mode == .Windowed_Resizable`, this procedure will resize them.
 set_window_size :: proc(width: int, height: int)
 
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.

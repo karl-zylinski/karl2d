@@ -369,8 +369,6 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			}
 		}
 
-		return 0
-
 	case win32.WM_SYSKEYUP, win32.WM_KEYUP:
 		key := key_from_event_params(wparam, lparam)
 		if key != .None {
@@ -379,16 +377,12 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			})
 		}
 
-		return 0
-
 	case win32.WM_MOUSEMOVE:
 		x := win32.GET_X_LPARAM(lparam)
 		y := win32.GET_Y_LPARAM(lparam)
 		append(&s.events, Window_Event_Mouse_Move {
 			position = {f32(x), f32(y)},
 		})
-
-		return 0
 
 	case win32.WM_MOUSEWHEEL:
 		delta := f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
