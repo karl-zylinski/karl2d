@@ -488,24 +488,7 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 
 	texture_view: ^d3d11.IShaderResourceView
 	ch(s.device->CreateShaderResourceView(texture, nil, &texture_view))
-
-	depth_stencil_desc := d3d11.TEXTURE2D_DESC{
-		Width      = u32(width),
-		Height     = u32(height),
-		MipLevels  = 1,
-		ArraySize  = 1,
-		Format     = .D24_UNORM_S8_UINT,
-		SampleDesc = {Count = 1},
-		Usage      = .DEFAULT,
-		BindFlags  = {.DEPTH_STENCIL},
-	}
-
-	depth_stencil_texture: ^d3d11.ITexture2D
-	ch(ch(s.device->CreateTexture2D(&depth_stencil_desc, nil, &depth_stencil_texture)))
-
-	depth_stencil_texture_view: ^d3d11.IDepthStencilView
-	ch(s.device->CreateDepthStencilView(depth_stencil_texture, nil, &depth_stencil_texture_view))
-
+	
 	render_target_view_desc := d3d11.RENDER_TARGET_VIEW_DESC {
 		Format = texture_desc.Format,
 		ViewDimension = .TEXTURE2D,
