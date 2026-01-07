@@ -2254,4 +2254,16 @@ f32_color_from_color :: proc(color: Color) -> Color_F32 {
 	}
 }
 
+vec3 :: proc(v2: Vec2, z: f32) -> Vec3 {
+	return {
+		v2.x, v2.y, z,
+	}
+}
+
+get_next_depth :: proc() -> f32 {
+	d := s.depth
+	s.depth += s.depth_increment
+	return d
+}
+
 FILESYSTEM_SUPPORTED :: ODIN_OS != .JS && ODIN_OS != .Freestanding

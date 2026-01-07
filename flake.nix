@@ -36,6 +36,7 @@
         libschrift
         resvg
         odin_updated
+        libx11
       ];
     in
     {
