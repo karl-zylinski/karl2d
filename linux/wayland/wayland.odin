@@ -24,26 +24,26 @@ wl_display_add_listener :: proc(
 ) -> c.int {
 
     return proxy_add_listener(cast(^wl_proxy)wl_display, cast(^Implementation)listener, data)
-};
+}
 
 wl_display_sync :: proc "c" (_wl_display: ^wl_display)-> ^wl_callback {
 	callback: ^wl_proxy
 	callback = proxy_marshal_flags(
                 cast(^wl_proxy)_wl_display,
-		        0, &wl_callback_interface, proxy_get_version(cast(^wl_proxy)_wl_display), 0, nil);
+		        0, &wl_callback_interface, proxy_get_version(cast(^wl_proxy)_wl_display), 0, nil)
 
 
-	return cast(^wl_callback)callback;
+	return cast(^wl_callback)callback
 }
 
 wl_display_get_registry :: proc "c" (_wl_display: ^wl_display)-> ^wl_registry {
 	registry: ^wl_proxy
 	registry = proxy_marshal_flags(
                 cast(^wl_proxy)_wl_display,
-		        1, &wl_registry_interface, proxy_get_version(cast(^wl_proxy)_wl_display), 0, nil);
+		        1, &wl_registry_interface, proxy_get_version(cast(^wl_proxy)_wl_display), 0, nil)
 
 
-	return cast(^wl_registry)registry;
+	return cast(^wl_registry)registry
 }
 
 wl_display_requests: []wl_message = []wl_message{
@@ -97,22 +97,22 @@ wl_registry_add_listener :: proc(
 ) -> c.int {
 
     return proxy_add_listener(cast(^wl_proxy)wl_registry, cast(^Implementation)listener, data)
-};
+}
 
 wl_registry_bind :: proc "c" (_wl_registry: ^wl_registry,name : c.uint32_t, interface: ^wl_interface, version: c.uint32_t)-> rawptr {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
                 cast(^wl_proxy)_wl_registry,
-		        0, interface, version, 0, name, interface.name, version, nil);
+		        0, interface, version, 0, name, interface.name, version, nil)
 
 
-	return cast(rawptr)id;
+	return cast(rawptr)id
 }
 
 
 wl_registry_destroy :: proc "c" (wl_registry: ^wl_registry) {
 	proxy_destroy(cast(^wl_proxy)wl_registry)
-};
+}
 
 wl_registry_requests: []wl_message = []wl_message{
 	{ "bind", "usun", raw_data([]^wl_interface{nil, nil,nil,nil}) },
@@ -153,12 +153,12 @@ wl_callback_add_listener :: proc(
 ) -> c.int {
 
     return proxy_add_listener(cast(^wl_proxy)wl_callback, cast(^Implementation)listener, data)
-};
+}
 
 
 wl_callback_destroy :: proc "c" (wl_callback: ^wl_callback) {
 	proxy_destroy(cast(^wl_proxy)wl_callback)
-};
+}
 
 wl_callback_requests: []wl_message = []wl_message{
 }
@@ -192,32 +192,32 @@ wl_compositor_add_listener :: proc(
 ) -> c.int {
 
     return proxy_add_listener(cast(^wl_proxy)wl_compositor, cast(^Implementation)listener, data)
-};
+}
 
 wl_compositor_create_surface :: proc "c" (_wl_compositor: ^wl_compositor)-> ^wl_surface {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
                 cast(^wl_proxy)_wl_compositor,
-		        0, &wl_surface_interface, proxy_get_version(cast(^wl_proxy)_wl_compositor), 0, nil);
+		        0, &wl_surface_interface, proxy_get_version(cast(^wl_proxy)_wl_compositor), 0, nil)
 
 
-	return cast(^wl_surface)id;
+	return cast(^wl_surface)id
 }
 
 wl_compositor_create_region :: proc "c" (_wl_compositor: ^wl_compositor)-> ^wl_region {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
                 cast(^wl_proxy)_wl_compositor,
-		        1, &wl_region_interface, proxy_get_version(cast(^wl_proxy)_wl_compositor), 0, nil);
+		        1, &wl_region_interface, proxy_get_version(cast(^wl_proxy)_wl_compositor), 0, nil)
 
 
-	return cast(^wl_region)id;
+	return cast(^wl_region)id
 }
 
 
 wl_compositor_destroy :: proc "c" (wl_compositor: ^wl_compositor) {
 	proxy_destroy(cast(^wl_proxy)wl_compositor)
-};
+}
 
 wl_compositor_requests: []wl_message = []wl_message{
 	{ "create_surface", "n", raw_data([]^wl_interface{&wl_surface_interface}) },
@@ -252,23 +252,23 @@ wl_shm_pool_add_listener :: proc(
 ) -> c.int {
 
     return proxy_add_listener(cast(^wl_proxy)wl_shm_pool, cast(^Implementation)listener, data)
-};
+}
 
 wl_shm_pool_create_buffer :: proc "c" (_wl_shm_pool: ^wl_shm_pool,offset : c.int32_t,width : c.int32_t,height : c.int32_t,stride : c.int32_t,format : c.uint32_t)-> ^wl_buffer {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
                 cast(^wl_proxy)_wl_shm_pool,
-		        0, &wl_buffer_interface, proxy_get_version(cast(^wl_proxy)_wl_shm_pool), 0, nil, offset, width, height, stride, format);
+		        0, &wl_buffer_interface, proxy_get_version(cast(^wl_proxy)_wl_shm_pool), 0, nil, offset, width, height, stride, format)
 
 
-	return cast(^wl_buffer)id;
+	return cast(^wl_buffer)id
 }
 
 wl_shm_pool_destroy :: proc "c" (_wl_shm_pool: ^wl_shm_pool)
 {
 proxy_marshal_flags(
                 cast(^wl_proxy)_wl_shm_pool,
-		        1, nil, proxy_get_version(cast(^wl_proxy)_wl_shm_pool), WL_MARSHAL_FLAG_DESTROY);
+		        1, nil, proxy_get_version(cast(^wl_proxy)_wl_shm_pool), WL_MARSHAL_FLAG_DESTROY)
 
 }
 
@@ -276,7 +276,7 @@ wl_shm_pool_resize :: proc "c" (_wl_shm_pool: ^wl_shm_pool,size : c.int32_t)
 {
 proxy_marshal_flags(
                 cast(^wl_proxy)_wl_shm_pool,
-		        2, nil, proxy_get_version(cast(^wl_proxy)_wl_shm_pool), 0, size);
+		        2, nil, proxy_get_version(cast(^wl_proxy)_wl_shm_pool), 0, size)
 
 }
 
@@ -319,16 +319,16 @@ wl_shm_add_listener :: proc(
 ) -> c.int {
 
     return proxy_add_listener(cast(^wl_proxy)wl_shm, cast(^Implementation)listener, data)
-};
+}
 
 wl_shm_create_pool :: proc "c" (_wl_shm: ^wl_shm,fd : c.int32_t,size : c.int32_t)-> ^wl_shm_pool {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
                 cast(^wl_proxy)_wl_shm,
-		        0, &wl_shm_pool_interface, proxy_get_version(cast(^wl_proxy)_wl_shm), 0, nil, fd, size);
+		        0, &wl_shm_pool_interface, proxy_get_version(cast(^wl_proxy)_wl_shm), 0, nil, fd, size)
 
 
-	return cast(^wl_shm_pool)id;
+	return cast(^wl_shm_pool)id
 }
 
 

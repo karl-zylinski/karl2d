@@ -6,13 +6,12 @@ import "linux/glx"
 import gl "vendor:OpenGL"
 import "log"
 import "vendor:egl"
-import "core:fmt"
 
 _ :: log
 
 GL_Context :: union {
     GL_Context_GLX,
-    GL_Context_EGL
+    GL_Context_EGL,
 }
 
 GL_Context_GLX :: struct {
