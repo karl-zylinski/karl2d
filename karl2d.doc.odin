@@ -784,9 +784,6 @@ State :: struct {
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
 
-	depth: f32,
-	depth_start: f32,
-	depth_increment: f32,
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
 	default_shader: Shader,
