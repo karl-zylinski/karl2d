@@ -571,12 +571,12 @@ draw_rect :: proc(r: Rect, c: Color) {
 
 	z := f32(0)
 
-	batch_vertex({r.x, r.y, z}, {0, 0}, c)
-	batch_vertex({r.x + r.w, r.y, z}, {1, 0}, c)
-	batch_vertex({r.x + r.w, r.y + r.h, z}, {1, 1}, c)
-	batch_vertex({r.x, r.y, z}, {0, 0}, c)
-	batch_vertex({r.x + r.w, r.y + r.h, z}, {1, 1}, c)
-	batch_vertex({r.x, r.y + r.h, z}, {0, 1}, c)
+	batch_vertex({r.x, r.y}, {0, 0}, c)
+	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
+	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	batch_vertex({r.x, r.y}, {0, 0}, c)
+	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
 }
 
 // Creates a rectangle from a position and a size and draws it.
@@ -642,12 +642,12 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 
 	z := get_next_depth()
 	
-	batch_vertex(vec3(tl, z), {0, 0}, c)
-	batch_vertex(vec3(tr, z), {1, 0}, c)
-	batch_vertex(vec3(br, z), {1, 1}, c)
-	batch_vertex(vec3(tl, z), {0, 0}, c)
-	batch_vertex(vec3(br, z), {1, 1}, c)
-	batch_vertex(vec3(bl, z), {0, 1}, c)
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(tr, {1, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(bl, {0, 1}, c)
 }
 
 // Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
@@ -712,9 +712,9 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 		rot := linalg.matrix2_rotate(sr)
 		p := center + rot * Vec2{radius, 0}
 
-		batch_vertex(vec3(prev, z), {0, 0}, color)
-		batch_vertex(vec3(p, z), {1, 0}, color)
-		batch_vertex(vec3(center, z), {1, 1}, color)
+		batch_vertex(prev, {0, 0}, color)
+		batch_vertex(p, {1, 0}, color)
+		batch_vertex(center, {1, 1}, color)
 
 		prev = p
 	}
@@ -898,12 +898,12 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 
 	z := get_next_depth()
 
-	batch_vertex(vec3(tl, z), uv0, c)
-	batch_vertex(vec3(tr, z), uv1, c)
-	batch_vertex(vec3(br, z), uv2, c)
-	batch_vertex(vec3(tl, z), uv3, c)
-	batch_vertex(vec3(br, z), uv4, c)
-	batch_vertex(vec3(bl, z), uv5, c)
+	batch_vertex(tl, uv0, c)
+	batch_vertex(tr, uv1, c)
+	batch_vertex(br, uv2, c)
+	batch_vertex(tl, uv3, c)
+	batch_vertex(br, uv4, c)
+	batch_vertex(bl, uv5, c)
 }
 
 // Tells you how much space some text of a certain size will use on the screen. The font used is the
@@ -2057,7 +2057,7 @@ Gamepad_Button :: enum {
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
 
-batch_vertex :: proc(v: Vec3, uv: Vec2, color: Color) {
+batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
 
 	if s.vertex_buffer_cpu_used == len(s.vertex_buffer_cpu) {
@@ -2074,7 +2074,7 @@ batch_vertex :: proc(v: Vec3, uv: Vec2, color: Color) {
 	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
 
 	if pos_offset != -1 {
-		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = {v.x, v.y}
+		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
 	}
 
 	if uv_offset != -1 {
@@ -2272,12 +2272,6 @@ f32_color_from_color :: proc(color: Color) -> Color_F32 {
 		f32(color.g) / 255,
 		f32(color.b) / 255,
 		f32(color.a) / 255,
-	}
-}
-
-vec3 :: proc(v2: Vec2, z: f32) -> Vec3 {
-	return {
-		v2.x, v2.y, z,
 	}
 }
 
