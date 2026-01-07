@@ -54,6 +54,13 @@ wayland_init :: proc(
 
 	s.width = window_width
 	s.height = window_height
+
+    // We need to instantiate this so we can register the top level toplevel_listener
+    // It will be there that we deal with resizing
+	s.window_handle = Window_Handle_Linux_Wayland {
+        ready = false,
+	}
+
 	display := wl.display_connect(nil)
 	s.display = display
 
@@ -147,22 +154,15 @@ wayland_init :: proc(
 	wl_callback := wl.wl_surface_frame(surface)
 	wl.wl_callback_add_listener(wl_callback, &frame_callback, nil)
 
-	// wl.display_dispatch(s.display)
-	// // Why should I need 2 of these in order to trigger the listeners and all that?
-	// // This makes me use display_dispatch_pending in the render loop in order not to block
-	// wl.display_dispatch(s.display)
-
-
-	s.window_handle = Window_Handle_Linux_Wayland {
-        redraw = true,
-		display = display,
-        surface = surface,
-        egl_display = egl_display,
-        egl_config = egl_config,
-        egl_surface = egl_surface,
-        egl_window = egl_window,
-        egl_context = egl_context
-	}
+    whl := &s.window_handle.(Window_Handle_Linux_Wayland) 
+    whl.redraw = true
+    whl.display = display
+    whl.surface = surface
+    whl.egl_display = egl_display
+    whl.egl_config = egl_config
+    whl.egl_surface = egl_surface
+    whl.egl_window = egl_window
+    whl.egl_context = egl_context
 
 	wayland_set_window_mode(init_options.window_mode)
 }
@@ -368,6 +368,7 @@ s: ^Wayland_State
 
 @(private="package")
 Window_Handle_Linux_Wayland :: struct {
+    ready: bool,
     redraw: bool,
 	display: ^wl.wl_display,
     surface: ^wl.wl_surface,
@@ -464,18 +465,22 @@ toplevel_listener := wl.xdg_toplevel_listener {
 		// egl_render_context := cc.platform_state.egl_render_context
         sw := i32(s.windowed_width)
         sh := i32(s.windowed_height)
-		// if sw != width || sh != height && (sw > 0 && sh > 0 && s.window_handle != nil) {
+        whl := s.window_handle.(Window_Handle_Linux_Wayland)
+		// if sw != width || sh != height && (sw > 0 && sh > 0 && whl.ready) {
             // fmt.println("Should resize")
-		// 	// resize_egl_window(canvas, egl_render_context, i32(width), i32(height))
-	        // wl.egl_window_resize(wh.egl_window, c.int(width), c.int(height), 0, 0)
+	        // wl.egl_window_resize(whl.egl_window, c.int(width), c.int(height), 0, 0)
             // s.windowed_width = int(width)
             // s.windowed_height = int(height)
+            // s.width = int(width)
+            // s.height = int(height)
             // /// SHOULD EMIT A VALID WINDOW EVENT
 		// 	// append(
 		// 	// 	&cc.platform_state.input.events,
 		// 	// 	WindowResize{new_width = width, new_height = height},
 		// 	// )
 		// }
+        whl.ready = true
+
 		// canvas.ready = true
 	},
 	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel) {},
