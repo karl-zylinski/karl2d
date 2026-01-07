@@ -20,7 +20,6 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 		glx.RENDER_TYPE, glx.RGBA_BIT,
 		glx.DRAWABLE_TYPE, glx.WINDOW_BIT,
 		glx.DOUBLEBUFFER, 1,
-		glx.DEPTH_SIZE, 24,
 		glx.RED_SIZE, 8,
 		glx.GREEN_SIZE, 8,
 		glx.BLUE_SIZE, 8,
