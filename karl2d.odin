@@ -569,7 +569,7 @@ draw_rect :: proc(r: Rect, c: Color) {
 
 	s.batch_texture = s.shape_drawing_texture
 
-	z := get_next_depth()
+	z := f32(0)
 
 	batch_vertex({r.x, r.y, z}, {0, 0}, c)
 	batch_vertex({r.x + r.w, r.y, z}, {1, 0}, c)
