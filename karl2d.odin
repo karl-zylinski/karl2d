@@ -553,6 +553,29 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 	win.set_gamepad_vibration(gamepad, left, right)
 }
 
+// Returns the stae of a specified input_event(key/mouse_button/game_pad)
+// Gamepad_Index only maters if you are targeting a gamepad
+get_button_state :: proc(button_event: Button_Event, gamepad: Gamepad_Index = 0) -> (data:Button_State) {
+	switch ev in button_event{
+	case Keyboard_Key:
+		data.went_down 	= s.key_went_down[ev]
+		data.went_up	= s.key_went_up[ev]
+		data.is_held 	= s.key_is_held[ev]
+	case Mouse_Button:
+		data.went_down 	= s.mouse_button_went_down[ev]
+		data.went_up	= s.mouse_button_went_up[ev]
+		data.is_held 	= s.mouse_button_is_held[ev]
+	case Gamepad_Button:
+		if gamepad < 0 || gamepad >= MAX_GAMEPADS { break } //this checks to make shure you have a valid gamepad index
+		data.went_down 	= s.gamepad_button_went_down[gamepad][ev]
+		data.went_up	= s.gamepad_button_went_up[gamepad][ev]
+		data.is_held 	= s.gamepad_button_is_held[gamepad][ev]
+	}
+	return data
+}
+
+
+
 //---------//
 // DRAWING //
 //---------//
@@ -1872,6 +1895,20 @@ State :: struct {
 	frame_time: f32,
 
 	time: f64,
+}
+
+// this is a combo of all other buttons
+Button_Event ::union{
+	Keyboard_Key,
+	Mouse_Button,
+	Gamepad_Button,
+}
+
+//this is the data a Button could return
+Button_State::struct{
+	went_down:bool,
+	went_up:bool,
+	is_held:bool,
 }
 
 // Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
