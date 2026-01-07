@@ -356,7 +356,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_CLOSE:
 		append(&s.events, Window_Event_Close_Wanted{})
 
-	case win32.WM_KEYDOWN:
+	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:
 		repeat := bool(lparam & (1 << 30))
 
 		if !repeat {
@@ -371,7 +371,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 		return 0
 
-	case win32.WM_KEYUP:
+	case win32.WM_SYSKEYUP, win32.WM_KEYUP:
 		key := key_from_event_params(wparam, lparam)
 		if key != .None {
 			append(&s.events, Window_Event_Key_Went_Up {
@@ -470,8 +470,24 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 }
 
 key_from_event_params :: proc(wparam: win32.WPARAM, lparam: win32.LPARAM) -> Keyboard_Key{
-	if wparam == win32.VK_RETURN && win32.HIWORD(lparam) & win32.KF_EXTENDED != 0 {
-		return .NP_Enter
+	switch wparam {
+	case win32.VK_SHIFT:
+    	scancode := (lparam & 0x00ff0000) >> 16
+    	new_vk := win32.MapVirtualKeyW(u32(scancode), win32.MAPVK_VSC_TO_VK_EX)
+		return new_vk == win32.VK_LSHIFT ? .Left_Shift : .Right_Shift
+
+	case win32.VK_CONTROL:
+		is_right := win32.HIWORD(lparam) & win32.KF_EXTENDED != 0
+		return is_right ? .Right_Control : .Left_Control
+
+	case win32.VK_MENU:
+		is_right := win32.HIWORD(lparam) & win32.KF_EXTENDED != 0
+		return is_right ? .Right_Alt : .Left_Alt
+
+	case win32.VK_RETURN:
+		if win32.HIWORD(lparam) & win32.KF_EXTENDED != 0 {
+			return .NP_Enter
+		}
 	}
 
 	return WIN32_VK_MAP[wparam]
@@ -562,14 +578,8 @@ WIN32_VK_MAP := [255]Keyboard_Key {
 	win32.VK_F11 = .F11,
 	win32.VK_F12 = .F12,
 
-	win32.VK_LSHIFT   = .Left_Shift,
-	win32.VK_LCONTROL = .Left_Control,
-	win32.VK_LMENU    = .Left_Alt,
-	win32.VK_MENU     = .Left_Alt,
+	// Alt, shift and control are handled in key_from_event_params
 	win32.VK_LWIN     = .Left_Super,
-	win32.VK_RSHIFT   = .Right_Shift,
-	win32.VK_RCONTROL = .Right_Control,
-	win32.VK_RMENU    = .Right_Alt,
 	win32.VK_RWIN     = .Right_Super,
 	win32.VK_APPS     = .Menu,
 

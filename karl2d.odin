@@ -115,8 +115,8 @@ init :: proc(
 	return s
 }
 
-// Updates the internal state of the library. Run early in the frame to make sure inputs and frame
-// timings are up-to-date.
+// Updates the internal state of the library. Call this early in the frame to make sure inputs and
+// frame times are up-to-date.
 //
 // Returns a bool that says if the player has attempted to close the window. It's up to the
 // application to decide if it wants to shut down or if it (for example) wants to show a 
@@ -946,6 +946,18 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 
 	q: fs.Quad
 	for fs.TextIterNext(&s.fs, &iter, &q) {
+		if iter.codepoint == '\n' {
+			iter.nexty += font_size
+			iter.nextx = pos.x
+			continue
+		}
+
+		if iter.codepoint == '\t' {
+			// This is not really correct, but I'll replace it later when I redo the font stuff.
+			iter.nextx += 2*font_size
+			continue
+		}
+
 		src := Rect {
 			q.s0, q.t0,
 			q.s1 - q.s0, q.t1 - q.t0,

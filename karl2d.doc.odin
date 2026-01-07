@@ -21,8 +21,8 @@ init :: proc(
 	loc := #caller_location
 ) -> ^State
 
-// Updates the internal state of the library. Run early in the frame to make sure inputs and frame
-// timings are up-to-date.
+// Updates the internal state of the library. Call this early in the frame to make sure inputs and
+// frame times are up-to-date.
 //
 // Returns a bool that says if the player has attempted to close the window. It's up to the
 // application to decide if it wants to shut down or if it (for example) wants to show a 
