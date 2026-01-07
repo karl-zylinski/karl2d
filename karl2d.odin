@@ -70,11 +70,6 @@ init :: proc(
 	// See `config.odin` for how this is picked.
 	s.rb = RENDER_BACKEND
 
-	// Depending on backend the depth starts at `0` or `-1` and is counted in different directions.
-	s.depth_increment = DEPTH_INCREMENT * f32(math.sign(s.rb.depth_increment_sign()))
-	s.depth_start = s.rb.depth_start() + s.depth_increment
-
-	s.depth = s.depth_start
 	rb = s.rb
 	rb_alloc_error: runtime.Allocator_Error
 	s.rb_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = allocator)
@@ -184,11 +179,6 @@ shutdown :: proc() {
 clear :: proc(color: Color) {
 	draw_current_batch()
 	rb.clear(s.batch_render_target, color)
-
-	// This is problematic -- if you switch from backbuffer drawing to a render texture and back
-	// again, then the depth will be messed with. Should we rethink our depth usage and always use
-	// "painter's algorithm" instead?
-	s.depth = s.depth_start
 }
 
 // The library may do some internal allocations that have the lifetime of a single frame. This
@@ -569,14 +559,14 @@ draw_rect :: proc(r: Rect, c: Color) {
 
 	s.batch_texture = s.shape_drawing_texture
 
-	z := get_next_depth()
+	z := f32(0)
 
-	batch_vertex({r.x, r.y, z}, {0, 0}, c)
-	batch_vertex({r.x + r.w, r.y, z}, {1, 0}, c)
-	batch_vertex({r.x + r.w, r.y + r.h, z}, {1, 1}, c)
-	batch_vertex({r.x, r.y, z}, {0, 0}, c)
-	batch_vertex({r.x + r.w, r.y + r.h, z}, {1, 1}, c)
-	batch_vertex({r.x, r.y + r.h, z}, {0, 1}, c)
+	batch_vertex({r.x, r.y}, {0, 0}, c)
+	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
+	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	batch_vertex({r.x, r.y}, {0, 0}, c)
+	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
 }
 
 // Creates a rectangle from a position and a size and draws it.
@@ -640,14 +630,12 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 		}
 	}
 
-	z := get_next_depth()
-	
-	batch_vertex(vec3(tl, z), {0, 0}, c)
-	batch_vertex(vec3(tr, z), {1, 0}, c)
-	batch_vertex(vec3(br, z), {1, 1}, c)
-	batch_vertex(vec3(tl, z), {0, 0}, c)
-	batch_vertex(vec3(br, z), {1, 1}, c)
-	batch_vertex(vec3(bl, z), {0, 1}, c)
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(tr, {1, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(bl, {0, 1}, c)
 }
 
 // Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
@@ -704,17 +692,15 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 
 	s.batch_texture = s.shape_drawing_texture
 
-	z := get_next_depth()
-
 	prev := center + {radius, 0}
 	for s in 1..=segments {
 		sr := (f32(s)/f32(segments)) * 2*math.PI
 		rot := linalg.matrix2_rotate(sr)
 		p := center + rot * Vec2{radius, 0}
 
-		batch_vertex(vec3(prev, z), {0, 0}, color)
-		batch_vertex(vec3(p, z), {1, 0}, color)
-		batch_vertex(vec3(center, z), {1, 1}, color)
+		batch_vertex(prev, {0, 0}, color)
+		batch_vertex(p, {1, 0}, color)
+		batch_vertex(center, {1, 1}, color)
 
 		prev = p
 	}
@@ -896,14 +882,12 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		uv5.y -= us.y		
 	}
 
-	z := get_next_depth()
-
-	batch_vertex(vec3(tl, z), uv0, c)
-	batch_vertex(vec3(tr, z), uv1, c)
-	batch_vertex(vec3(br, z), uv2, c)
-	batch_vertex(vec3(tl, z), uv3, c)
-	batch_vertex(vec3(br, z), uv4, c)
-	batch_vertex(vec3(bl, z), uv5, c)
+	batch_vertex(tl, uv0, c)
+	batch_vertex(tr, uv1, c)
+	batch_vertex(br, uv2, c)
+	batch_vertex(tl, uv3, c)
+	batch_vertex(br, uv4, c)
+	batch_vertex(bl, uv5, c)
 }
 
 // Tells you how much space some text of a certain size will use on the screen. The font used is the
@@ -1868,9 +1852,6 @@ State :: struct {
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
 
-	depth: f32,
-	depth_start: f32,
-	depth_increment: f32,
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
 	default_shader: Shader,
@@ -2057,7 +2038,7 @@ Gamepad_Button :: enum {
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
 
-batch_vertex :: proc(v: Vec3, uv: Vec2, color: Color) {
+batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
 
 	if s.vertex_buffer_cpu_used == len(s.vertex_buffer_cpu) {
@@ -2074,7 +2055,7 @@ batch_vertex :: proc(v: Vec3, uv: Vec2, color: Color) {
 	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
 
 	if pos_offset != -1 {
-		(^Vec3)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
+		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
 	}
 
 	if uv_offset != -1 {
@@ -2113,7 +2094,7 @@ win: Window_Interface
 rb: Render_Backend_Interface
 
 get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> Shader_Default_Inputs {
-	if name == "position" && type == .Vec3 {
+	if name == "position" && type == .Vec2 {
 		return .Position
 	} else if name == "texcoord" && type == .Vec2 {
 		return .UV
@@ -2145,7 +2126,7 @@ get_shader_input_format :: proc(name: string, type: Shader_Input_Type) -> Pixel_
 
 	if default_type != .Unknown {
 		switch default_type {
-		case .Position: return .RGB_32_Float
+		case .Position: return .RG_32_Float
 		case .UV: return .RG_32_Float
 		case .Color: return .RGBA_8_Norm
 		case .Unknown: unreachable()
@@ -2257,8 +2238,6 @@ _set_font :: proc(fh: Font) {
 	fs.SetFont(&s.fs, font.fontstash_handle)
 }
 
-DEPTH_INCREMENT :: (1.0/1000000.0)
-
 _ :: jpeg
 _ :: bmp
 _ :: png
@@ -2273,18 +2252,6 @@ f32_color_from_color :: proc(color: Color) -> Color_F32 {
 		f32(color.b) / 255,
 		f32(color.a) / 255,
 	}
-}
-
-vec3 :: proc(v2: Vec2, z: f32) -> Vec3 {
-	return {
-		v2.x, v2.y, z,
-	}
-}
-
-get_next_depth :: proc() -> f32 {
-	d := s.depth
-	s.depth += s.depth_increment
-	return d
 }
 
 FILESYSTEM_SUPPORTED :: ODIN_OS != .JS && ODIN_OS != .Freestanding

@@ -14,8 +14,6 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 	resize_swapchain = webgl_resize_swapchain,
 	get_swapchain_width = webgl_get_swapchain_width,
 	get_swapchain_height = webgl_get_swapchain_height,
-	depth_start = webgl_depth_start,
-	depth_increment_sign = webgl_depth_increment_sign,
 	set_internal_state = webgl_set_internal_state,
 	create_texture = webgl_create_texture,
 	load_texture = webgl_load_texture,
@@ -92,7 +90,6 @@ WebGL_Texture_Binding :: struct {
 
 WebGL_Render_Target :: struct {
 	handle: Render_Target_Handle,
-	depth: gl.Renderbuffer,
 	framebuffer: gl.Framebuffer,
 	width: int,
 	height: int,
@@ -130,9 +127,6 @@ webgl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 	set_context_ok := gl.SetCurrentContextById(s.canvas_id)
 	log.ensuref(set_context_ok, "Failed setting context with canvas ID %s", s.canvas_id)
 
-	gl.Enable(gl.DEPTH_TEST)
-	gl.DepthFunc(gl.GREATER)
-
 	s.vertex_buffer_gpu = gl.CreateBuffer()
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
@@ -158,8 +152,7 @@ webgl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 
 	c := f32_color_from_color(color)
 	gl.ClearColor(c.r, c.g, c.b, c.a)
-	gl.ClearDepth(0)
-	gl.Clear(u32(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT))
+	gl.Clear(u32(gl.COLOR_BUFFER_BIT))
 }
 
 webgl_present :: proc() {
@@ -315,14 +308,6 @@ webgl_get_swapchain_height :: proc() -> int {
 	return s.height
 }
 
-webgl_depth_start :: proc() -> f32 {
-	return 0
-}
-
-webgl_depth_increment_sign :: proc() -> int {
-	return 1
-}
-
 webgl_set_internal_state :: proc(state: rawptr) {
 	s = (^WebGL_State)(state)
 }
@@ -395,11 +380,6 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 	framebuffer := gl.CreateFramebuffer()
 	gl.BindFramebuffer(gl.FRAMEBUFFER, framebuffer)
 
-	depth := gl.CreateRenderbuffer()
-	gl.BindRenderbuffer(gl.RENDERBUFFER, depth)
-	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, i32(width), i32(height))
-	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth)
-
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture.id, 0)
 	gl.DrawBuffers({gl.COLOR_ATTACHMENT0})
 
@@ -412,7 +392,6 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 	gl.BindRenderbuffer(gl.RENDERBUFFER, 0)
 
 	rt := WebGL_Render_Target {
-		depth = depth,
 		framebuffer = framebuffer,
 		width = width,
 		height = height,
@@ -423,7 +402,6 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 
 webgl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
-		gl.DeleteRenderbuffer(rt.depth)
 		gl.DeleteFramebuffer(rt.framebuffer)
 	}
 }

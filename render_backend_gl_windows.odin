@@ -12,22 +12,12 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	hdc := win32.GetWindowDC(win32.HWND(window_handle))
 
 	pfd := win32.PIXELFORMATDESCRIPTOR {
-		size_of(win32.PIXELFORMATDESCRIPTOR),
-		1,
-		win32.PFD_DRAW_TO_WINDOW | win32.PFD_SUPPORT_OPENGL | win32.PFD_DOUBLEBUFFER,    // Flags
-		win32.PFD_TYPE_RGBA, // The kind of framebuffer. RGBA or palette.
-		32,                  // Colordepth of the framebuffer.
-		0, 0, 0, 0, 0, 0,
-		0,
-		0,
-		0,
-		0, 0, 0, 0,
-		24,                  // Number of bits for the depthbuffer
-		8,                   // Number of bits for the stencilbuffer
-		0,                   // Number of Aux buffers in the framebuffer.
-		win32.PFD_MAIN_PLANE,
-		0,
-		0, 0, 0,
+		nSize = size_of(win32.PIXELFORMATDESCRIPTOR),
+		nVersion = 1,
+		dwFlags = win32.PFD_DRAW_TO_WINDOW | win32.PFD_SUPPORT_OPENGL | win32.PFD_DOUBLEBUFFER,
+		iPixelType = win32.PFD_TYPE_RGBA,
+		cColorBits = 32, 
+		iLayerType = win32.PFD_MAIN_PLANE,
 	}
 
 	fmt := win32.ChoosePixelFormat(hdc, &pfd)
@@ -61,8 +51,6 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 		win32.WGL_DOUBLE_BUFFER_ARB, 1,
 		win32.WGL_PIXEL_TYPE_ARB, win32.WGL_TYPE_RGBA_ARB,
 		win32.WGL_COLOR_BITS_ARB, 32,
-		win32.WGL_DEPTH_BITS_ARB, 24,
-		win32.WGL_STENCIL_BITS_ARB, 8,
 		0,
 	}
 

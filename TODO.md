@@ -71,7 +71,7 @@ x should we expose time and delta time stuff or rely on core:time?
 	X the constant types are hardcoded to just a few types right now
 
 * Should we sort by depth? Maybe we should use Vec3 because some 2D games rely on it?
-	* I think we should.
+	* No
 * Do proper checks of vertex count and dispatch rendering when full
 	* What happens when list is full? We can't just empty the vertex list due to being used by input assembler etc.
 * basic text rendering (ended up using font stash)
