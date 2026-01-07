@@ -37,7 +37,6 @@ import "log"
 import "core:strings"
 import "core:slice"
 import la "core:math/linalg"
-import "core:fmt"
 
 _ :: la
 

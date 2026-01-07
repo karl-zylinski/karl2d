@@ -26,8 +26,7 @@ foreign lib_egl {
 }
 
 
-egl_window :: struct {
-}
+egl_window :: struct {}
 // struct wl_map {
 // 	struct wl_array client_entries;
 // 	struct wl_array server_entries;

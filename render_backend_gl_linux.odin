@@ -81,9 +81,9 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 
 _gl_destroy_context :: proc(ctx: GL_Context) {
     switch gl_ctx in ctx {
-        case GL_Context_GLX:
+    case GL_Context_GLX:
 	        glx.DestroyContext(gl_ctx.window_handle.(Window_Handle_Linux_X11).display, gl_ctx.ctx)
-        case GL_Context_EGL:
+    case GL_Context_EGL:
             egl.DestroyContext(gl_ctx.egl_display, gl_ctx.ctx)
     }
 }
@@ -96,9 +96,9 @@ _gl_load_procs :: proc() {
 _gl_present :: proc(window_handle: Window_Handle) {
 	handle := (^Window_Handle_Linux)(window_handle)
     switch &whl in handle {
-        case Window_Handle_Linux_X11:
+    case Window_Handle_Linux_X11:
 	        glx.SwapBuffers(whl.display, whl.window)
-        case Window_Handle_Linux_Wayland:
+    case Window_Handle_Linux_Wayland:
             wayland_gl_present(&whl)
     }
 }
