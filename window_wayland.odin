@@ -462,26 +462,22 @@ toplevel_listener := wl.xdg_toplevel_listener {
 		context = runtime.default_context()
 		fmt.println("Top level configure", width, height, states)
 
-		// egl_render_context := cc.platform_state.egl_render_context
         sw := i32(s.windowed_width)
         sh := i32(s.windowed_height)
         whl := s.window_handle.(Window_Handle_Linux_Wayland)
-		// if sw != width || sh != height && (sw > 0 && sh > 0 && whl.ready) {
-            // fmt.println("Should resize")
-	        // wl.egl_window_resize(whl.egl_window, c.int(width), c.int(height), 0, 0)
-            // s.windowed_width = int(width)
-            // s.windowed_height = int(height)
-            // s.width = int(width)
-            // s.height = int(height)
-            // /// SHOULD EMIT A VALID WINDOW EVENT
-		// 	// append(
-		// 	// 	&cc.platform_state.input.events,
-		// 	// 	WindowResize{new_width = width, new_height = height},
-		// 	// )
-		// }
+		if (sw != width || sh != height) && (sw > 0 && sh > 0) && (whl.ready) {
+	        wl.egl_window_resize(whl.egl_window, c.int(width), c.int(height), 0, 0)
+            s.windowed_width = int(width)
+            s.windowed_height = int(height)
+            s.width = int(width)
+            s.height = int(height)
+            /// SHOULD EMIT A VALID WINDOW EVENT
+			// append(
+			// 	&cc.platform_state.input.events,
+			// 	WindowResize{new_width = width, new_height = height},
+			// )
+		}
         whl.ready = true
-
-		// canvas.ready = true
 	},
 	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel) {},
 	configure_bounds = proc "c" (
