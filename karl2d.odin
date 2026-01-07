@@ -70,11 +70,6 @@ init :: proc(
 	// See `config.odin` for how this is picked.
 	s.rb = RENDER_BACKEND
 
-	// Depending on backend the depth starts at `0` or `-1` and is counted in different directions.
-	s.depth_increment = DEPTH_INCREMENT * f32(math.sign(s.rb.depth_increment_sign()))
-	s.depth_start = s.rb.depth_start() + s.depth_increment
-
-	s.depth = s.depth_start
 	rb = s.rb
 	rb_alloc_error: runtime.Allocator_Error
 	s.rb_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = allocator)
@@ -184,11 +179,6 @@ shutdown :: proc() {
 clear :: proc(color: Color) {
 	draw_current_batch()
 	rb.clear(s.batch_render_target, color)
-
-	// This is problematic -- if you switch from backbuffer drawing to a render texture and back
-	// again, then the depth will be messed with. Should we rethink our depth usage and always use
-	// "painter's algorithm" instead?
-	s.depth = s.depth_start
 }
 
 // The library may do some internal allocations that have the lifetime of a single frame. This
@@ -640,8 +630,6 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 		}
 	}
 
-	z := get_next_depth()
-	
 	batch_vertex(tl, {0, 0}, c)
 	batch_vertex(tr, {1, 0}, c)
 	batch_vertex(br, {1, 1}, c)
@@ -703,8 +691,6 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 	}
 
 	s.batch_texture = s.shape_drawing_texture
-
-	z := get_next_depth()
 
 	prev := center + {radius, 0}
 	for s in 1..=segments {
@@ -895,8 +881,6 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		uv4.y -= us.y
 		uv5.y -= us.y		
 	}
-
-	z := get_next_depth()
 
 	batch_vertex(tl, uv0, c)
 	batch_vertex(tr, uv1, c)
@@ -1868,9 +1852,6 @@ State :: struct {
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
 
-	depth: f32,
-	depth_start: f32,
-	depth_increment: f32,
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
 	default_shader: Shader,
@@ -2257,8 +2238,6 @@ _set_font :: proc(fh: Font) {
 	fs.SetFont(&s.fs, font.fontstash_handle)
 }
 
-DEPTH_INCREMENT :: (1.0/1000000.0)
-
 _ :: jpeg
 _ :: bmp
 _ :: png
@@ -2273,12 +2252,6 @@ f32_color_from_color :: proc(color: Color) -> Color_F32 {
 		f32(color.b) / 255,
 		f32(color.a) / 255,
 	}
-}
-
-get_next_depth :: proc() -> f32 {
-	d := s.depth
-	s.depth += s.depth_increment
-	return d
 }
 
 FILESYSTEM_SUPPORTED :: ODIN_OS != .JS && ODIN_OS != .Freestanding

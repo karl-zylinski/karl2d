@@ -14,8 +14,6 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	resize_swapchain = gl_resize_swapchain,
 	get_swapchain_width = gl_get_swapchain_width,
 	get_swapchain_height = gl_get_swapchain_height,
-	depth_start = gl_depth_start,
-	depth_increment_sign = gl_depth_increment_sign,
 	set_internal_state = gl_set_internal_state,
 	create_texture = gl_create_texture,
 	load_texture = gl_load_texture,
@@ -353,14 +351,6 @@ gl_get_swapchain_width :: proc() -> int {
 
 gl_get_swapchain_height :: proc() -> int {
 	return s.height
-}
-
-gl_depth_start :: proc() -> f32 {
-	return 0
-}
-
-gl_depth_increment_sign :: proc() -> int {
-	return 1
 }
 
 gl_set_internal_state :: proc(state: rawptr) {
