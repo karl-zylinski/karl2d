@@ -37,6 +37,7 @@ import "log"
 import "core:strings"
 import "core:slice"
 import la "core:math/linalg"
+import "core:fmt"
 
 _ :: la
 
@@ -127,6 +128,7 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 
 	ctx, ctx_ok := _gl_get_context(window_handle)
 
+    fmt.println(ctx)
 	if !ctx_ok {
 		log.panic("Could not create a valid gl context")
 	}

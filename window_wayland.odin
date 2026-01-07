@@ -101,17 +101,19 @@ wayland_init :: proc(
     if !egl.ChooseConfig(egl_display, raw_data(config_attribs), &egl_config, 1, &n) {
         panic("Failed to find/choose EGL config")
     }
-    // fmt.println("Creating Context")
-    // egl_context := egl.CreateContext(
-    //     egl_display,
-    //     egl_config,
-    //     egl.NO_CONTEXT,
-    //     raw_data(context_attribs),
-    // )
-    // if egl_context == egl.NO_CONTEXT {
-    //     panic("Failed creating EGL context")
-    // }
-    // fmt.println("Done creating Context")
+    egl.BindAPI(egl.OPENGL_API)
+
+    fmt.println("Creating Context")
+    egl_context := egl.CreateContext(
+        egl_display,
+        egl_config,
+        egl.NO_CONTEXT,
+        raw_data(context_attribs),
+    )
+    if egl_context == egl.NO_CONTEXT {
+        panic("Failed creating EGL context")
+    }
+    fmt.println("Done creating Context")
 
 	egl_window := wl.egl_window_create(surface, i32(s.windowed_width), i32(s.windowed_height))
 	egl_surface := egl.CreateWindowSurface(
@@ -123,7 +125,6 @@ wayland_init :: proc(
 	if egl_surface == egl.NO_SURFACE {
 		log.error("Error creating window surface")
 	}
-    egl.BindAPI(egl.OPENGL_API)
 
 	s.window_handle = Window_Handle_Linux_Wayland {
         redraw = true,
@@ -133,18 +134,20 @@ wayland_init :: proc(
         egl_config = egl_config,
         egl_surface = egl_surface,
         egl_window = egl_window,
-        // egl_context = egl_context
+        egl_context = egl_context
 	}
 
 
+	wl.xdg_wm_base_add_listener(s.xdg_base, &wm_base_listener, nil)
+
 	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, surface)
 	toplevel := wl.xdg_surface_get_toplevel(xdg_surface)
-	wl.xdg_toplevel_add_listener(toplevel, &toplevel_listener, &s.window_handle)
-	wl.xdg_surface_add_listener(xdg_surface, &window_listener, &s.window_handle)
+	wl.xdg_toplevel_add_listener(toplevel, &toplevel_listener, nil)
+	wl.xdg_surface_add_listener(xdg_surface, &window_listener, nil)
 	wl.xdg_toplevel_set_title(toplevel, strings.clone_to_cstring(window_title))
 
 	wl_callback := wl.wl_surface_frame(surface)
-	wl.wl_callback_add_listener(wl_callback, &frame_callback, &s.window_handle)
+	wl.wl_callback_add_listener(wl_callback, &frame_callback, nil)
 	wl.wl_surface_commit(surface)
 
 	// Why should I need 2 of these in order to trigger the listeners and all that?
@@ -421,8 +424,10 @@ global_remove :: proc "c" (data: rawptr, registry: ^wl.wl_registry, name: c.uint
 done :: proc "c" (data: rawptr, wl_callback: ^wl.wl_callback, callback_data: c.uint32_t) {
 	context = runtime.default_context()
     // fmt.println("done")
-    wh := cast(^Window_Handle_Linux_Wayland)data
+    wh := s.window_handle.(Window_Handle_Linux_Wayland)
     wh.redraw = true
+    s.window_handle = wh
+
 	wl.wl_callback_destroy(wl_callback)
 }
 

@@ -72,28 +72,8 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
         }
 
     case Window_Handle_Linux_Wayland:
-        fmt.println("Creating Context")
-        EGL_CONTEXT_FLAGS_KHR :: 0x30FC
-        EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR :: 0x00000001
-
-        context_flags_bitfield: i32 = EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR
-        context_attribs: []i32 = {
-            egl.CONTEXT_CLIENT_VERSION, 3,
-            EGL_CONTEXT_FLAGS_KHR, context_flags_bitfield,
-            egl.NONE,
-        }
-        egl_context := egl.CreateContext(
-            whl.egl_display,
-            whl.egl_config,
-            egl.NO_CONTEXT,
-            raw_data(context_attribs),
-        )
-        if egl_context == egl.NO_CONTEXT {
-            panic("Failed creating EGL context")
-        }
-        fmt.println("Done creating Context")
-        if (egl.MakeCurrent(whl.egl_display, whl.egl_surface, whl.egl_surface,egl_context)) {
-            return GL_Context_EGL { window_handle = whl, ctx = egl_context, egl_display = whl.egl_display }, true
+        if (egl.MakeCurrent(whl.egl_display, whl.egl_surface, whl.egl_surface, whl.egl_context)) {
+            return GL_Context_EGL { window_handle = whl, ctx = whl.egl_context, egl_display = whl.egl_display }, true
         }
     }
 
