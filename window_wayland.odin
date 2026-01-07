@@ -52,7 +52,8 @@ wayland_init :: proc(
 	s.windowed_width = window_width
 	s.windowed_height = window_height
 
-
+	s.width = window_width
+	s.height = window_height
 	display := wl.display_connect(nil)
 	s.display = display
 
@@ -62,13 +63,30 @@ wayland_init :: proc(
 	wl.wl_registry_add_listener(registry, &registry_listener, s)
 	wl.display_roundtrip(display)
 
+    // Create the surface
 	surface := wl.wl_compositor_create_surface(s.compositor)
-    fmt.println(surface)
     if surface == nil {
         panic("Error creating wl_surface")
     }
     s.surface = surface
 
+    // Register the listener to respond to pings
+    // Without this the compositor will consider the window/client dead and 
+    // try to kill it as an unresponsive application
+	wl.xdg_wm_base_add_listener(s.xdg_base, &wm_base_listener, nil)
+
+    // Create a XDG surface (i.e a Window...) and set the role top
+    // "top-level" and add the listeners
+	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, surface)
+	toplevel := wl.xdg_surface_get_toplevel(xdg_surface)
+	wl.xdg_toplevel_add_listener(toplevel, &toplevel_listener, nil)
+	wl.xdg_surface_add_listener(xdg_surface, &window_listener, nil)
+	wl.xdg_toplevel_set_title(toplevel, strings.clone_to_cstring(window_title))
+	wl.wl_surface_commit(surface)
+	wl.display_dispatch(s.display)
+
+    // Get a valid EGL configuration based on some attribute guidelines
+    // Create a context based on a "chosen" configuration
     EGL_CONTEXT_FLAGS_KHR :: 0x30FC
     EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR :: 0x00000001
 
@@ -101,6 +119,7 @@ wayland_init :: proc(
     if !egl.ChooseConfig(egl_display, raw_data(config_attribs), &egl_config, 1, &n) {
         panic("Failed to find/choose EGL config")
     }
+    // This call must be here before CreateContext
     egl.BindAPI(egl.OPENGL_API)
 
     fmt.println("Creating Context")
@@ -114,7 +133,6 @@ wayland_init :: proc(
         panic("Failed creating EGL context")
     }
     fmt.println("Done creating Context")
-
 	egl_window := wl.egl_window_create(surface, i32(s.windowed_width), i32(s.windowed_height))
 	egl_surface := egl.CreateWindowSurface(
 		egl_display,
@@ -123,12 +141,21 @@ wayland_init :: proc(
 		nil,
 	)
 	if egl_surface == egl.NO_SURFACE {
-		log.error("Error creating window surface")
+	    panic("Error creating window surface")
 	}
+
+	wl_callback := wl.wl_surface_frame(surface)
+	wl.wl_callback_add_listener(wl_callback, &frame_callback, nil)
+
+	// wl.display_dispatch(s.display)
+	// // Why should I need 2 of these in order to trigger the listeners and all that?
+	// // This makes me use display_dispatch_pending in the render loop in order not to block
+	// wl.display_dispatch(s.display)
+
 
 	s.window_handle = Window_Handle_Linux_Wayland {
         redraw = true,
-		display = s.display,
+		display = display,
         surface = surface,
         egl_display = egl_display,
         egl_config = egl_config,
@@ -136,25 +163,6 @@ wayland_init :: proc(
         egl_window = egl_window,
         egl_context = egl_context
 	}
-
-
-	wl.xdg_wm_base_add_listener(s.xdg_base, &wm_base_listener, nil)
-
-	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, surface)
-	toplevel := wl.xdg_surface_get_toplevel(xdg_surface)
-	wl.xdg_toplevel_add_listener(toplevel, &toplevel_listener, nil)
-	wl.xdg_surface_add_listener(xdg_surface, &window_listener, nil)
-	wl.xdg_toplevel_set_title(toplevel, strings.clone_to_cstring(window_title))
-
-	wl_callback := wl.wl_surface_frame(surface)
-	wl.wl_callback_add_listener(wl_callback, &frame_callback, nil)
-	wl.wl_surface_commit(surface)
-
-	// Why should I need 2 of these in order to trigger the listeners and all that?
-	// This makes me use display_dispatch_pending in the render loop in order not to block
-	wl.display_dispatch(s.display)
-	wl.display_dispatch(s.display)
-
 
 	wayland_set_window_mode(init_options.window_mode)
 }
@@ -451,24 +459,23 @@ toplevel_listener := wl.xdg_toplevel_listener {
 		states: ^wl.wl_array,
 	) {
 		context = runtime.default_context()
-		log.debug("Top level configure", width, height, states)
+		fmt.println("Top level configure", width, height, states)
 
 		// egl_render_context := cc.platform_state.egl_render_context
         sw := i32(s.windowed_width)
         sh := i32(s.windowed_height)
-		if sw != width || sh != height && (sw > 0 && sh > 0) {
-            wh := s.window_handle.(Window_Handle_Linux_Wayland)
-            fmt.println("Should resize")
-			// resize_egl_window(canvas, egl_render_context, i32(width), i32(height))
-	        wl.egl_window_resize(wh.egl_window, c.int(width), c.int(height), 0, 0)
-            s.windowed_width = int(width)
-            s.windowed_height = int(height)
-            /// SHOULD EMIT A VALID WINDOW EVENT
-			// append(
-			// 	&cc.platform_state.input.events,
-			// 	WindowResize{new_width = width, new_height = height},
-			// )
-		}
+		// if sw != width || sh != height && (sw > 0 && sh > 0 && s.window_handle != nil) {
+            // fmt.println("Should resize")
+		// 	// resize_egl_window(canvas, egl_render_context, i32(width), i32(height))
+	        // wl.egl_window_resize(wh.egl_window, c.int(width), c.int(height), 0, 0)
+            // s.windowed_width = int(width)
+            // s.windowed_height = int(height)
+            // /// SHOULD EMIT A VALID WINDOW EVENT
+		// 	// append(
+		// 	// 	&cc.platform_state.input.events,
+		// 	// 	WindowResize{new_width = width, new_height = height},
+		// 	// )
+		// }
 		// canvas.ready = true
 	},
 	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel) {},
