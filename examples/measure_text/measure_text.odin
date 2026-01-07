@@ -1,10 +1,12 @@
 package karl2d_measure_text_example
 
 // Fonts used:
-// - https://fonts.google.com/specimen/Barriecito
 // - https://fonts.google.com/specimen/Josefin+Slab
 // - https://fonts.google.com/specimen/Merienda
 // - https://fonts.google.com/specimen/Momo+Trust+Display
+// These fonts are licensed under the SIL Open Font License, Version 1.1
+// - Link: https://openfontlicense.org
+// - File: OFL.txt
 
 import k2 "../.."
 import "core:fmt"
@@ -21,7 +23,6 @@ fonts := [?] Font {
 	{ name="<Default>" },
 	{ name="Momo Trust Display", 	bytes=#load("MomoTrustDisplay-Regular.ttf") },
 	{ name="Josefin Slab", 			bytes=#load("JosefinSlab-Bold.ttf") },
-	{ name="Barriecito", 			bytes=#load("Barriecito-Regular.ttf") },
 	{ name="Merienda", 				bytes=#load("Merienda-Bold.ttf") },
 }
 
@@ -92,7 +93,7 @@ step :: proc() -> bool {
 		font := fonts[current_font_idx].font
 
 		pos := Vec2 { LEFT, TOP }
-		for char, i in ' '..='~' {
+		for char in ' '..='~' {
 			text := string([]u8 { u8(char) })
 			size := k2.measure_text_ex(font, text, current_font_size)
 			k2.draw_rect_vec(pos, size, k2.LIGHT_RED)
