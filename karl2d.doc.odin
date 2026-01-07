@@ -221,6 +221,10 @@ get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32
 // not vibrate with the same speed.
 set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32)
 
+// Returns the stae of a specified input_event(key/mouse_button/game_pad)
+// Gamepad_Index only maters if you are targeting a gamepad
+get_button_state :: proc(button_event: Button_Event, gamepad: Gamepad_Index = 0) -> (data:Button_State)
+
 //---------//
 // DRAWING //
 //---------//
@@ -800,6 +804,20 @@ State :: struct {
 	frame_time: f32,
 
 	time: f64,
+}
+
+// this is a combo of all other buttons
+Button_Event ::union{
+	Keyboard_Key,
+	Mouse_Button,
+	Gamepad_Button,
+}
+
+//this is the data a Button could return
+Button_State::struct{
+	went_down:bool,
+	went_up:bool,
+	is_held:bool,
 }
 
 // Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
