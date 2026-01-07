@@ -3,6 +3,7 @@
 
 package karl2d
 
+import "core:strings"
 @(private="package")
 WINDOW_INTERFACE_WAYLAND :: Window_Interface {
 	state_size = wayland_state_size,
@@ -112,42 +113,35 @@ wayland_init :: proc(
 	}
     egl.BindAPI(egl.OPENGL_API)
 
+	s.window_handle = Window_Handle_Linux_Wayland {
+        redraw = true,
+		display = s.display,
+        surface = surface,
+        egl_display = egl_display,
+        egl_config = egl_conf,
+        egl_surface = egl_surface,
+        egl_window = egl_window
+	}
+
 	wl_callback := wl.wl_surface_frame(surface)
-	wl.wl_callback_add_listener(wl_callback, &frame_callback, &s)
+	wl.wl_callback_add_listener(wl_callback, &frame_callback, &s.window_handle)
 	wl.wl_surface_commit(surface)
 
 	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, surface)
 	toplevel := wl.xdg_surface_get_toplevel(xdg_surface)
-	wl.xdg_toplevel_add_listener(toplevel, &toplevel_listener, &s)
-	wl.xdg_surface_add_listener(xdg_surface, &window_listener, &s)
+	wl.xdg_toplevel_add_listener(toplevel, &toplevel_listener, &s.window_handle)
+	wl.xdg_surface_add_listener(xdg_surface, &window_listener, &s.window_handle)
+	wl.xdg_toplevel_set_title(toplevel, strings.clone_to_cstring(window_title))
 
-	s.window_handle = Window_Handle_Linux_Wayland {
-		display = s.display,
-        surface = surface,
-        egl_display = egl_display,
-        egl_config = egl_conf
-		// screen = X.DefaultScreen(s.display),
-		// window = s.window,
-	}
+	// Why should I need 2 of these in order to trigger the listeners and all that?
+	// This makes me use display_dispatch_pending in the render loop in order not to block
+	wl.display_dispatch(s.display)
+	wl.display_dispatch(s.display)
+
 
 	wayland_set_window_mode(init_options.window_mode)
 }
 
-//NOTE(quadrado): This could be used to generate attribs based on passed configuration
-wayland_egl_config_attribs :: proc() -> []i32 {
-    config_attribs: []i32 = {
-        egl.SURFACE_TYPE, egl.WINDOW_BIT,
-        egl.RED_SIZE, 8,
-        egl.GREEN_SIZE, 8,
-        egl.BLUE_SIZE, 8,
-        egl.ALPHA_SIZE, 0, // Disable surface alpha for now
-        egl.DEPTH_SIZE, 24, // Request 24-bit depth buffer
-        egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
-        egl.NONE,
-    }
-
-    return config_attribs
-}
 wayland_shutdown :: proc() {
 	// X.DestroyWindow(s.display, s.window)
 }
@@ -354,7 +348,7 @@ Window_Handle_Linux_Wayland :: struct {
     surface: ^wl.wl_surface,
     egl_display: egl.Display,
     egl_window: ^wl.egl_window,
-    egl_surface: ^egl.Surface,
+    egl_surface: egl.Surface,
     egl_config: egl.Config,
 	// window: X.Window,
 	// screen: i32,
@@ -411,16 +405,16 @@ global_remove :: proc "c" (data: rawptr, registry: ^wl.wl_registry, name: c.uint
 
 done :: proc "c" (data: rawptr, wl_callback: ^wl.wl_callback, callback_data: c.uint32_t) {
 	context = runtime.default_context()
-    wh := s.window_handle.(Window_Handle_Linux_Wayland)
+    // fmt.println("done")
+    wh := cast(^Window_Handle_Linux_Wayland)data
     wh.redraw = true
-    s.window_handle = wh // Don't know if this is needed
 	wl.wl_callback_destroy(wl_callback)
 }
 
 window_listener := wl.xdg_surface_listener {
 	configure = proc "c" (data: rawptr, surface: ^wl.xdg_surface, serial: c.uint32_t) {
 		context = runtime.default_context()
-		log.debug("window configure")
+		fmt.println("window configure")
 
 		wl.xdg_surface_ack_configure(surface, serial)
 		wl.wl_surface_damage(s.surface, 0, 0, i32(s.windowed_width), i32(s.windowed_height))
@@ -438,16 +432,21 @@ toplevel_listener := wl.xdg_toplevel_listener {
 	) {
 		context = runtime.default_context()
 		log.debug("Top level configure", width, height, states)
+
 		// egl_render_context := cc.platform_state.egl_render_context
-		// if canvas.width != width ||
-		//    canvas.height != height && (canvas.width > 0 && canvas.height > 0) {
-		// 	resize_egl_window(canvas, egl_render_context, i32(width), i32(height))
-            // /// SHOULD EMIT A VALID WINDOW EVENT
-		// 	// append(
-		// 	// 	&cc.platform_state.input.events,
-		// 	// 	WindowResize{new_width = width, new_height = height},
-		// 	// )
-		// }
+        sw := i32(s.windowed_width)
+        sh := i32(s.windowed_height)
+		if sw != width || sh != height && (sw > 0 && sh > 0) {
+            wh := s.window_handle.(Window_Handle_Linux_Wayland)
+            fmt.println("Should resize")
+			// resize_egl_window(canvas, egl_render_context, i32(width), i32(height))
+	        wl.egl_window_resize(wh.egl_window, c.int(width), c.int(height), 0, 0)
+            /// SHOULD EMIT A VALID WINDOW EVENT
+			// append(
+			// 	&cc.platform_state.input.events,
+			// 	WindowResize{new_width = width, new_height = height},
+			// )
+		}
 		// canvas.ready = true
 	},
 	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel) {},
@@ -458,7 +457,7 @@ toplevel_listener := wl.xdg_toplevel_listener {
 		height: c.int32_t,
 	) {
 		context = runtime.default_context()
-		log.debug("Top level configure bounds", width, height)
+		fmt.println("Top level configure bounds", width, height)
 
 	},
 	wm_capabilities = proc "c" (

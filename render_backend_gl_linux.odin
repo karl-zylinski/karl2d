@@ -92,7 +92,9 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
             panic("Failed creating EGL context")
         }
         fmt.println("Done creating Context")
-        return GL_Context_EGL { window_handle = whl, ctx = egl_context, egl_display = whl.egl_display }, true
+        if (egl.MakeCurrent(whl.egl_display, whl.egl_surface, whl.egl_surface,egl_context)) {
+            return GL_Context_EGL { window_handle = whl, ctx = egl_context, egl_display = whl.egl_display }, true
+        }
     }
 
 	return {}, false
@@ -108,7 +110,8 @@ _gl_destroy_context :: proc(ctx: GL_Context) {
 }
 
 _gl_load_procs :: proc() {
-	gl.load_up_to(3, 3, glx.SetProcAddress)
+	// gl.load_up_to(3, 3, glx.SetProcAddress)
+	gl.load_up_to(int(3), 3, egl.gl_set_proc_address)
 }
 
 _gl_present :: proc(window_handle: Window_Handle) {
@@ -130,10 +133,10 @@ wayland_gl_present :: proc(window_handle: ^Window_Handle_Linux_Wayland) {
 		window_handle.redraw = false
 
 		// Add the listener
-		wl.wl_callback_add_listener(callback, &frame_callback, nil)
+		wl.wl_callback_add_listener(callback, &frame_callback, window_handle)
 
 		// Swap the buffers
-		egl.SwapBuffers(window_handle.egl_display, window_handle.egl_surface^)
+		egl.SwapBuffers(window_handle.egl_display, window_handle.egl_surface)
 	}
 	wl.display_dispatch(window_handle.display)
 	wl.display_flush(window_handle.display)
