@@ -395,7 +395,7 @@ window_listener := wl.xdg_surface_listener {
         // context = runtime.default_context()
         // fmt.println("window configure")
 		wl.xdg_surface_ack_configure(surface, serial)
-		wl.wl_surface_damage(s.surface, 0, 0, i32(s.windowed_width), i32(s.windowed_height))
+		wl.wl_surface_damage(s.surface, 0, 0, i32(s.width), i32(s.height))
 		wl.wl_surface_commit(s.surface)
 	},
 }
