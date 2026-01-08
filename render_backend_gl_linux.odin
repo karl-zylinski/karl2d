@@ -119,7 +119,6 @@ x11_gl_present :: proc(whl: ^Window_Handle_Linux_X11) {
 import "core:fmt"
 
 wayland_gl_get_context :: proc(whl: ^Window_Handle_Linux_Wayland) -> (GL_Context, bool) {
-    fmt.println(whl)
     // Get a valid EGL configuration based on some attribute guidelines
     // Create a context based on a "chosen" configuration
     EGL_CONTEXT_FLAGS_KHR :: 0x30FC
@@ -180,9 +179,11 @@ wayland_gl_get_context :: proc(whl: ^Window_Handle_Linux_Wayland) -> (GL_Context
     }
     fmt.println("Done creating Context")
     if (egl.MakeCurrent(egl_display, egl_surface, egl_surface, egl_context)) {
+        // Need to add data to the WindowHandle to fill the gaps and have a complete WindowHandle
         whl.egl_display = egl_display
         whl.egl_context = egl_context
         whl.egl_surface = egl_surface
+
         return GL_Context_EGL { window_handle = whl^, ctx = egl_context, egl_display = egl_display }, true
     }
     return {}, false

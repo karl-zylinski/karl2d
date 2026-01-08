@@ -383,8 +383,8 @@ done :: proc "c" (data: rawptr, wl_callback: ^wl.wl_callback, callback_data: c.u
 
 window_listener := wl.xdg_surface_listener {
 	configure = proc "c" (data: rawptr, surface: ^wl.xdg_surface, serial: c.uint32_t) {
-        context = runtime.default_context()
-        fmt.println("window configure")
+        // context = runtime.default_context()
+        // fmt.println("window configure")
 		wl.xdg_surface_ack_configure(surface, serial)
 		wl.wl_surface_damage(s.surface, 0, 0, i32(s.windowed_width), i32(s.windowed_height))
 		wl.wl_surface_commit(s.surface)
@@ -400,12 +400,12 @@ toplevel_listener := wl.xdg_toplevel_listener {
 		states: ^wl.wl_array,
 	) {
         context = runtime.default_context()
-        fmt.println("top level configure")
+        // fmt.println("top level configure")
         sw := i32(s.windowed_width)
         sh := i32(s.windowed_height)
         whl := s.window_handle.(Window_Handle_Linux_Wayland)
-        fmt.println(whl)
 		if (sw != width || sh != height) && (sw > 0 && sh > 0) && (whl.ready) {
+            fmt.println(width, height)
 	        wl.egl_window_resize(whl.egl_window, c.int(width), c.int(height), 0, 0)
             s.windowed_width = int(width)
             s.windowed_height = int(height)
@@ -417,9 +417,8 @@ toplevel_listener := wl.xdg_toplevel_listener {
 			// 	WindowResize{new_width = width, new_height = height},
 			// )
 		}
-        fmt.println("........")
         whl.ready = true
-        fmt.println(whl)
+        s.window_handle = whl
 	},
 	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel) {},
 	configure_bounds = proc "c" (
