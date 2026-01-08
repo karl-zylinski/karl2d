@@ -70,6 +70,9 @@ wayland_init :: proc(
 	wl.wl_registry_add_listener(registry, &registry_listener, s)
 	wl.display_roundtrip(display)
 
+    // Configure seat listener responsible for things like mouse and keyboard input
+    wl.wl_seat_add_listener(s.seat, &seat_listener, nil)
+
     // Create the surface
 	surface := wl.wl_compositor_create_surface(s.compositor)
     if surface == nil {
@@ -421,18 +424,8 @@ toplevel_listener := wl.xdg_toplevel_listener {
         s.window_handle = whl
 	},
 	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel) {},
-	configure_bounds = proc "c" (
-		data: rawptr,
-		xdg_toplevel: ^wl.xdg_toplevel,
-		width: c.int32_t,
-		height: c.int32_t,
-	) {
-	},
-	wm_capabilities = proc "c" (
-		data: rawptr,
-		xdg_toplevel: ^wl.xdg_toplevel,
-		capabilities: ^wl.wl_array,
-	) {},
+	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel, width: c.int32_t, height: c.int32_t,) { },
+	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel, capabilities: ^wl.wl_array,) {},
 }
 
 wm_base_listener := wl.xdg_wm_base_listener {
@@ -444,4 +437,73 @@ wm_base_listener := wl.xdg_wm_base_listener {
 @(private="package")
 frame_callback := wl.wl_callback_listener {
 	done = done,
+}
+
+seat_listener := wl.wl_seat_listener {
+	capabilities = proc "c" (data: rawptr, wl_seat: ^wl.wl_seat, capabilities: c.uint32_t) {
+        context = runtime.default_context()
+		// pointer := wl.wl_seat_get_pointer(s.seat)
+		// wl.wl_pointer_add_listener(pointer, &pointer_listener, state)
+		keyboard := wl.wl_seat_get_keyboard(s.seat)
+		wl.wl_keyboard_add_listener(keyboard, &keyboard_listener, nil)
+	},
+	name = proc "c" (data: rawptr, wl_seat: ^wl.wl_seat, name: cstring) {},
+}
+
+keyboard_listener := wl.wl_keyboard_listener {
+	keymap = proc "c" (data: rawptr, keyboard: ^wl.wl_keyboard, format: c.uint32_t, fd: c.int32_t, size: c.uint32_t,) {},
+	enter = proc "c" (data: rawptr, keyboard: ^wl.wl_keyboard, serial: c.uint32_t, surface: ^wl.wl_surface, keys: ^wl.wl_array) {},
+	leave = proc "c" (data: rawptr, keyboard: ^wl.wl_keyboard, serial: c.uint32_t, surface: ^wl.wl_surface) {},
+	key = key_handler,
+	modifiers = proc "c" (
+		data: rawptr,
+		wl_keyboard: ^wl.wl_keyboard,
+		serial: c.uint32_t,
+		mods_depressed: c.uint32_t,
+		mods_latched: c.uint32_t,
+		mods_locked: c.uint32_t,
+		group: c.uint32_t,
+	) {
+	},
+	repeat_info = proc "c" (
+		data: rawptr,
+		wl_keyboard: ^wl.wl_keyboard,
+		rate: c.int32_t,
+		delay: c.int32_t,
+	) {},
+}
+
+key_handler :: proc "c" (
+	data: rawptr,
+	keyboard: ^wl.wl_keyboard,
+	serial: c.uint32_t,
+	t: c.uint32_t,
+	key: c.uint32_t,
+	state: c.uint32_t,
+) {
+	context = runtime.default_context()
+
+    // Wayland emits evdev events, and the keycodes are shifted 
+    // from the expected xkb events... Just add 8 to it.
+	keycode := key + 8
+
+	if state == 0 {
+        key := key_from_xkeycode(keycode)
+
+        if key != .None {
+            append(&s.events, Window_Event_Key_Went_Up {
+                key = key,
+            })
+        }
+	}
+
+	if state == 1 {
+        key := key_from_xkeycode(keycode)
+
+        if key != .None {
+            append(&s.events, Window_Event_Key_Went_Down {
+                key = key,
+            })
+        }
+	}
 }

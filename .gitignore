@@ -8,7 +8,6 @@ raylib/
 !/.sublime/karl2d.sublime-project
 tests/*/build
 tests/*/bin
-examples/minimal/minimal
 examples/*/build
 examples/*/bin
 examples/raylib_ports/*/build
