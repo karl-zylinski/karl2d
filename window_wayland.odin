@@ -89,6 +89,7 @@ wayland_init :: proc(
     // "top-level" and add the listeners
 	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, surface)
 	toplevel := wl.xdg_surface_get_toplevel(xdg_surface)
+    s.toplevel = toplevel
 	wl.xdg_toplevel_add_listener(toplevel, &toplevel_listener, nil)
 	wl.xdg_surface_add_listener(xdg_surface, &window_listener, nil)
 	wl.xdg_toplevel_set_title(toplevel, strings.clone_to_cstring(window_title))
@@ -266,6 +267,10 @@ leave_borderless_fullscreen :: proc() {
 }
 
 wayland_set_window_mode :: proc(window_mode: Window_Mode) {
+    w := i32(s.windowed_width) 
+    h := i32(s.windowed_height) 
+	wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
+	wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
 }
 
 wayland_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -307,6 +312,7 @@ Wayland_State :: struct {
 	xdg_base: ^wl.xdg_wm_base,
 	seat: ^wl.wl_seat,
     surface: ^wl.wl_surface,
+    toplevel: ^wl.xdg_toplevel,
 	window_handle: Window_Handle_Linux,
 	window_mode: Window_Mode,
 }
