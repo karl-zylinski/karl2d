@@ -871,12 +871,22 @@ gl_destroy_shader :: proc(h: Shader_Handle) {
 }
 
 gl_default_shader_vertex_source :: proc() -> []byte {
-	vertex_source := #load("render_backend_gl_default_vertex_shader.glsl")
-	return vertex_source
+	when ODIN_OS == .Darwin {
+		vertex_source := #load("render_backend_gl_default_vertex_shader_darwin.glsl")
+		return vertex_source
+	} else {
+		vertex_source := #load("render_backend_gl_default_vertex_shader.glsl")
+		return vertex_source
+	}
 }
 
 gl_default_shader_fragment_source :: proc() -> []byte {
-	fragment_source := #load("render_backend_gl_default_fragment_shader.glsl")
-	return fragment_source
+	when ODIN_OS == .Darwin {
+		fragment_source := #load("render_backend_gl_default_fragment_shader_darwin.glsl")
+		return fragment_source
+	} else {
+		fragment_source := #load("render_backend_gl_default_fragment_shader.glsl")
+		return fragment_source
+	}
 }
 
