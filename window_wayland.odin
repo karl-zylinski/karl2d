@@ -55,10 +55,10 @@ wayland_init :: proc(
 	s.width = window_width
 	s.height = window_height
 
-    // We need to instantiate this so we can register the top level toplevel_listener
-    // It will be there that we deal with resizing
+	// We need to instantiate this so we can register the top level toplevel_listener
+	// It will be there that we deal with resizing
 	s.window_handle = Window_Handle_Linux_Wayland {
-        ready = false,
+		ready = false,
 	}
 
 	display := wl.display_connect(nil)
@@ -70,26 +70,26 @@ wayland_init :: proc(
 	wl.wl_registry_add_listener(registry, &registry_listener, s)
 	wl.display_roundtrip(display)
 
-    // Configure seat listener responsible for things like mouse and keyboard input
-    wl.wl_seat_add_listener(s.seat, &seat_listener, nil)
+	// Configure seat listener responsible for things like mouse and keyboard input
+	wl.wl_seat_add_listener(s.seat, &seat_listener, nil)
 
-    // Create the surface
+	// Create the surface
 	surface := wl.wl_compositor_create_surface(s.compositor)
-    if surface == nil {
-        panic("Error creating wl_surface")
-    }
-    s.surface = surface
+	if surface == nil {
+		panic("Error creating wl_surface")
+	}
+	s.surface = surface
 
-    // Register the listener to respond to pings
-    // Without this the compositor will consider the window/client dead and 
-    // try to kill it as an unresponsive application
+	// Register the listener to respond to pings
+	// Without this the compositor will consider the window/client dead and 
+	// try to kill it as an unresponsive application
 	wl.xdg_wm_base_add_listener(s.xdg_base, &wm_base_listener, nil)
 
-    // Create a XDG surface (i.e a Window...) and set the role top
-    // "top-level" and add the listeners
+	// Create a XDG surface (i.e a Window...) and set the role top
+	// "top-level" and add the listeners
 	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, surface)
 	toplevel := wl.xdg_surface_get_toplevel(xdg_surface)
-    s.toplevel = toplevel
+	s.toplevel = toplevel
 	wl.xdg_toplevel_add_listener(toplevel, &toplevel_listener, nil)
 	wl.xdg_surface_add_listener(xdg_surface, &window_listener, nil)
 	wl.xdg_toplevel_set_title(toplevel, strings.clone_to_cstring(window_title))
@@ -101,16 +101,16 @@ wayland_init :: proc(
 
 	egl_window := wl.egl_window_create(surface, i32(s.windowed_width), i32(s.windowed_height))
 
-    whl := &s.window_handle.(Window_Handle_Linux_Wayland) 
-    whl.redraw = true
-    whl.display = display
-    whl.surface = surface
-    whl.egl_window = egl_window
+	whl := &s.window_handle.(Window_Handle_Linux_Wayland) 
+	whl.redraw = true
+	whl.display = display
+	whl.surface = surface
+	whl.egl_window = egl_window
 
-    // whl.egl_display = egl_display
-    // whl.egl_config = egl_config
-    // whl.egl_surface = egl_surface
-    // whl.egl_context = egl_context
+	// whl.egl_display = egl_display
+	// whl.egl_config = egl_config
+	// whl.egl_surface = egl_surface
+	// whl.egl_context = egl_context
 
 	wayland_set_window_mode(init_options.window_mode)
 }
@@ -267,8 +267,8 @@ leave_borderless_fullscreen :: proc() {
 }
 
 wayland_set_window_mode :: proc(window_mode: Window_Mode) {
-    w := i32(s.windowed_width) 
-    h := i32(s.windowed_height) 
+	w := i32(s.windowed_width) 
+	h := i32(s.windowed_height) 
 	wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
 	wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
 }
@@ -311,8 +311,8 @@ Wayland_State :: struct {
 	compositor: ^wl.wl_compositor,
 	xdg_base: ^wl.xdg_wm_base,
 	seat: ^wl.wl_seat,
-    surface: ^wl.wl_surface,
-    toplevel: ^wl.xdg_toplevel,
+	surface: ^wl.wl_surface,
+	toplevel: ^wl.xdg_toplevel,
 	window_handle: Window_Handle_Linux,
 	window_mode: Window_Mode,
 }
@@ -321,15 +321,15 @@ s: ^Wayland_State
 
 @(private="package")
 Window_Handle_Linux_Wayland :: struct {
-    ready: bool,
-    redraw: bool,
+	ready: bool,
+	redraw: bool,
 	display: ^wl.wl_display,
-    surface: ^wl.wl_surface,
-    egl_display: egl.Display,
-    egl_window: ^wl.egl_window,
-    egl_surface: egl.Surface,
-    egl_config: egl.Config,
-    egl_context: egl.Context,
+	surface: ^wl.wl_surface,
+	egl_display: egl.Display,
+	egl_window: ^wl.egl_window,
+	egl_surface: egl.Surface,
+	egl_config: egl.Config,
+	egl_context: egl.Context,
 	// window: X.Window,
 	// screen: i32,
 }
@@ -350,7 +350,7 @@ global :: proc "c" (
 	version: c.uint32_t,
 ) {
 	if interface == wl.wl_compositor_interface.name {
-        state: ^Wayland_State = cast(^Wayland_State)data
+		state: ^Wayland_State = cast(^Wayland_State)data
 		state.compositor = cast(^wl.wl_compositor)(wl.wl_registry_bind(
 				registry,
 				name,
@@ -383,17 +383,17 @@ global_remove :: proc "c" (data: rawptr, registry: ^wl.wl_registry, name: c.uint
 }
 
 done :: proc "c" (data: rawptr, wl_callback: ^wl.wl_callback, callback_data: c.uint32_t) {
-    wh := s.window_handle.(Window_Handle_Linux_Wayland)
-    wh.redraw = true
-    s.window_handle = wh
+	wh := s.window_handle.(Window_Handle_Linux_Wayland)
+	wh.redraw = true
+	s.window_handle = wh
 
 	wl.wl_callback_destroy(wl_callback)
 }
 
 window_listener := wl.xdg_surface_listener {
 	configure = proc "c" (data: rawptr, surface: ^wl.xdg_surface, serial: c.uint32_t) {
-        // context = runtime.default_context()
-        // fmt.println("window configure")
+		// context = runtime.default_context()
+		// fmt.println("window configure")
 		wl.xdg_surface_ack_configure(surface, serial)
 		wl.wl_surface_damage(s.surface, 0, 0, i32(s.width), i32(s.height))
 		wl.wl_surface_commit(s.surface)
@@ -408,26 +408,26 @@ toplevel_listener := wl.xdg_toplevel_listener {
 		height: c.int32_t,
 		states: ^wl.wl_array,
 	) {
-        context = runtime.default_context()
-        // fmt.println("top level configure")
-        sw := i32(s.windowed_width)
-        sh := i32(s.windowed_height)
-        whl := s.window_handle.(Window_Handle_Linux_Wayland)
+		context = runtime.default_context()
+		// fmt.println("top level configure")
+		sw := i32(s.windowed_width)
+		sh := i32(s.windowed_height)
+		whl := s.window_handle.(Window_Handle_Linux_Wayland)
 		if (sw != width || sh != height) && (sw > 0 && sh > 0) && (whl.ready) {
-            fmt.println(width, height)
-	        wl.egl_window_resize(whl.egl_window, c.int(width), c.int(height), 0, 0)
-            s.windowed_width = int(width)
-            s.windowed_height = int(height)
-            s.width = int(width)
-            s.height = int(height)
-            /// SHOULD EMIT A VALID WINDOW EVENT
+			fmt.println(width, height)
+			wl.egl_window_resize(whl.egl_window, c.int(width), c.int(height), 0, 0)
+			s.windowed_width = int(width)
+			s.windowed_height = int(height)
+			s.width = int(width)
+			s.height = int(height)
+			/// SHOULD EMIT A VALID WINDOW EVENT
 			// append(
 			// 	&cc.platform_state.input.events,
 			// 	WindowResize{new_width = width, new_height = height},
 			// )
 		}
-        whl.ready = true
-        s.window_handle = whl
+		whl.ready = true
+		s.window_handle = whl
 	},
 	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel) {},
 	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel, width: c.int32_t, height: c.int32_t,) { },
@@ -447,7 +447,7 @@ frame_callback := wl.wl_callback_listener {
 
 seat_listener := wl.wl_seat_listener {
 	capabilities = proc "c" (data: rawptr, wl_seat: ^wl.wl_seat, capabilities: c.uint32_t) {
-        context = runtime.default_context()
+		context = runtime.default_context()
 		pointer := wl.wl_seat_get_pointer(s.seat)
 		wl.wl_pointer_add_listener(pointer, &pointer_listener, nil)
 		keyboard := wl.wl_seat_get_keyboard(s.seat)
@@ -489,28 +489,28 @@ key_handler :: proc "c" (
 ) {
 	context = runtime.default_context()
 
-    // Wayland emits evdev events, and the keycodes are shifted 
-    // from the expected xkb events... Just add 8 to it.
+	// Wayland emits evdev events, and the keycodes are shifted 
+	// from the expected xkb events... Just add 8 to it.
 	keycode := key + 8
 
 	if state == 0 {
-        key := key_from_xkeycode(keycode)
+		key := key_from_xkeycode(keycode)
 
-        if key != .None {
-            append(&s.events, Window_Event_Key_Went_Up {
-                key = key,
-            })
-        }
+		if key != .None {
+			append(&s.events, Window_Event_Key_Went_Up {
+				key = key,
+			})
+		}
 	}
 
 	if state == 1 {
-        key := key_from_xkeycode(keycode)
+		key := key_from_xkeycode(keycode)
 
-        if key != .None {
-            append(&s.events, Window_Event_Key_Went_Down {
-                key = key,
-            })
-        }
+		if key != .None {
+			append(&s.events, Window_Event_Key_Went_Down {
+				key = key,
+			})
+		}
 	}
 }
 
@@ -539,12 +539,12 @@ pointer_listener := wl.wl_pointer_listener {
 		surface_y: wl.wl_fixed_t,
 	) {
 		context = runtime.default_context()
-        // surface_x and surface_y are fixed point 24.8 variables. 
-        // Just bitshift them to remove the decimal part and obtain 
-        // a screen coordinate
-        append(&s.events, Window_Event_Mouse_Move {
-            position = { f32(surface_x >> 8), f32(surface_y >> 8) }, 
-        })
+		// surface_x and surface_y are fixed point 24.8 variables. 
+		// Just bitshift them to remove the decimal part and obtain 
+		// a screen coordinate
+		append(&s.events, Window_Event_Mouse_Move {
+			position = { f32(surface_x >> 8), f32(surface_y >> 8) }, 
+		})
 	},
 	button = proc "c" (
 		data: rawptr,
@@ -556,23 +556,23 @@ pointer_listener := wl.wl_pointer_listener {
 	) {
 		context = runtime.default_context()
 
-        btn: Mouse_Button
-        switch button {
-        case 0: btn = .Left
-        case 1: btn = .Middle
-        case 2: btn = .Right
-        }
-    
-        switch state {
-        case 0:
-            append(&s.events, Window_Event_Mouse_Button_Went_Up {
-                button = btn,
-            })
-        case 1: 
-            append(&s.events, Window_Event_Mouse_Button_Went_Down {
-                button = btn,
-            })
-        }
+		btn: Mouse_Button
+		switch button {
+		case 0: btn = .Left
+		case 1: btn = .Middle
+		case 2: btn = .Right
+		}
+	
+		switch state {
+		case 0:
+			append(&s.events, Window_Event_Mouse_Button_Went_Up {
+				button = btn,
+			})
+		case 1: 
+			append(&s.events, Window_Event_Mouse_Button_Went_Down {
+				button = btn,
+			})
+		}
 	},
 	axis = proc "c" (
 		data: rawptr,
@@ -582,10 +582,10 @@ pointer_listener := wl.wl_pointer_listener {
 		value: wl.wl_fixed_t,
 	) {
 		context = runtime.default_context()
-        event_direction: f32 = value > 0 ? 1 : -1
-        append(&s.events, Window_Event_Mouse_Wheel {
-            delta = event_direction,
-        })
+		event_direction: f32 = value > 0 ? 1 : -1
+		append(&s.events, Window_Event_Mouse_Wheel {
+			delta = event_direction,
+		})
 	},
 	frame = proc "c" (data: rawptr, wl_pointer: ^wl.wl_pointer) {},
 	axis_source = proc "c" (data: rawptr, wl_pointer: ^wl.wl_pointer, axis_source: c.uint32_t) {},
