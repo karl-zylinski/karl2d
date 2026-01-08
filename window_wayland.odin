@@ -584,7 +584,7 @@ pointer_listener := wl.wl_pointer_listener {
 		context = runtime.default_context()
         event_direction: f32 = value > 0 ? 1 : -1
         append(&s.events, Window_Event_Mouse_Wheel {
-            delta = event_direction
+            delta = event_direction,
         })
 	},
 	frame = proc "c" (data: rawptr, wl_pointer: ^wl.wl_pointer) {},
