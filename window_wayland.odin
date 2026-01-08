@@ -92,77 +92,21 @@ wayland_init :: proc(
 	wl.wl_surface_commit(surface)
 	wl.display_dispatch(s.display)
 
-    // Get a valid EGL configuration based on some attribute guidelines
-    // Create a context based on a "chosen" configuration
-    EGL_CONTEXT_FLAGS_KHR :: 0x30FC
-    EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR :: 0x00000001
-
-    major, minor, n: i32
-    egl_config: egl.Config
-    config_attribs: []i32 = {
-        egl.SURFACE_TYPE, egl.WINDOW_BIT,
-        egl.RED_SIZE, 8,
-        egl.GREEN_SIZE, 8,
-        egl.BLUE_SIZE, 8,
-        egl.ALPHA_SIZE, 0, // Disable surface alpha for now
-        egl.DEPTH_SIZE, 24, // Request 24-bit depth buffer
-        egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
-        egl.NONE,
-    }
-    context_flags_bitfield: i32 = EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR
-
-    context_attribs: []i32 = {
-        egl.CONTEXT_CLIENT_VERSION, 3,
-        EGL_CONTEXT_FLAGS_KHR, context_flags_bitfield,
-        egl.NONE,
-    }
-    egl_display := egl.GetDisplay(egl.NativeDisplayType(display))
-    if egl_display == egl.NO_DISPLAY {
-        panic("Failed to create EGL display")
-    }
-    if !egl.Initialize(egl_display, &major, &minor) {
-        panic("Can't initialise egl display")
-    }
-    if !egl.ChooseConfig(egl_display, raw_data(config_attribs), &egl_config, 1, &n) {
-        panic("Failed to find/choose EGL config")
-    }
-    // This call must be here before CreateContext
-    egl.BindAPI(egl.OPENGL_API)
-
-    fmt.println("Creating Context")
-    egl_context := egl.CreateContext(
-        egl_display,
-        egl_config,
-        egl.NO_CONTEXT,
-        raw_data(context_attribs),
-    )
-    if egl_context == egl.NO_CONTEXT {
-        panic("Failed creating EGL context")
-    }
-    fmt.println("Done creating Context")
-	egl_window := wl.egl_window_create(surface, i32(s.windowed_width), i32(s.windowed_height))
-	egl_surface := egl.CreateWindowSurface(
-		egl_display,
-		egl_config,
-		egl.NativeWindowType(egl_window),
-		nil,
-	)
-	if egl_surface == egl.NO_SURFACE {
-	    panic("Error creating window surface")
-	}
-
 	wl_callback := wl.wl_surface_frame(surface)
 	wl.wl_callback_add_listener(wl_callback, &frame_callback, nil)
+
+	egl_window := wl.egl_window_create(surface, i32(s.windowed_width), i32(s.windowed_height))
 
     whl := &s.window_handle.(Window_Handle_Linux_Wayland) 
     whl.redraw = true
     whl.display = display
     whl.surface = surface
-    whl.egl_display = egl_display
-    whl.egl_config = egl_config
-    whl.egl_surface = egl_surface
     whl.egl_window = egl_window
-    whl.egl_context = egl_context
+
+    // whl.egl_display = egl_display
+    // whl.egl_config = egl_config
+    // whl.egl_surface = egl_surface
+    // whl.egl_context = egl_context
 
 	wayland_set_window_mode(init_options.window_mode)
 }
@@ -396,7 +340,6 @@ global :: proc "c" (
 	interface: cstring,
 	version: c.uint32_t,
 ) {
-	context = runtime.default_context()
 	if interface == wl.wl_compositor_interface.name {
         state: ^Wayland_State = cast(^Wayland_State)data
 		state.compositor = cast(^wl.wl_compositor)(wl.wl_registry_bind(
@@ -431,8 +374,6 @@ global_remove :: proc "c" (data: rawptr, registry: ^wl.wl_registry, name: c.uint
 }
 
 done :: proc "c" (data: rawptr, wl_callback: ^wl.wl_callback, callback_data: c.uint32_t) {
-	context = runtime.default_context()
-    // fmt.println("done")
     wh := s.window_handle.(Window_Handle_Linux_Wayland)
     wh.redraw = true
     s.window_handle = wh
@@ -442,9 +383,8 @@ done :: proc "c" (data: rawptr, wl_callback: ^wl.wl_callback, callback_data: c.u
 
 window_listener := wl.xdg_surface_listener {
 	configure = proc "c" (data: rawptr, surface: ^wl.xdg_surface, serial: c.uint32_t) {
-		context = runtime.default_context()
-		fmt.println("window configure")
-
+        context = runtime.default_context()
+        fmt.println("window configure")
 		wl.xdg_surface_ack_configure(surface, serial)
 		wl.wl_surface_damage(s.surface, 0, 0, i32(s.windowed_width), i32(s.windowed_height))
 		wl.wl_surface_commit(s.surface)
@@ -459,12 +399,12 @@ toplevel_listener := wl.xdg_toplevel_listener {
 		height: c.int32_t,
 		states: ^wl.wl_array,
 	) {
-		context = runtime.default_context()
-		fmt.println("Top level configure", width, height, states)
-
+        context = runtime.default_context()
+        fmt.println("top level configure")
         sw := i32(s.windowed_width)
         sh := i32(s.windowed_height)
         whl := s.window_handle.(Window_Handle_Linux_Wayland)
+        fmt.println(whl)
 		if (sw != width || sh != height) && (sw > 0 && sh > 0) && (whl.ready) {
 	        wl.egl_window_resize(whl.egl_window, c.int(width), c.int(height), 0, 0)
             s.windowed_width = int(width)
@@ -477,7 +417,9 @@ toplevel_listener := wl.xdg_toplevel_listener {
 			// 	WindowResize{new_width = width, new_height = height},
 			// )
 		}
+        fmt.println("........")
         whl.ready = true
+        fmt.println(whl)
 	},
 	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel) {},
 	configure_bounds = proc "c" (
@@ -486,9 +428,6 @@ toplevel_listener := wl.xdg_toplevel_listener {
 		width: c.int32_t,
 		height: c.int32_t,
 	) {
-		context = runtime.default_context()
-		fmt.println("Top level configure bounds", width, height)
-
 	},
 	wm_capabilities = proc "c" (
 		data: rawptr,
