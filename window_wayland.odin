@@ -272,8 +272,8 @@ leave_borderless_fullscreen :: proc() {
 wayland_set_window_mode :: proc(window_mode: Window_Mode) {
 	w := i32(s.windowed_width) 
 	h := i32(s.windowed_height) 
-	wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
-	wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
+	// wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
+	// wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
 }
 
 wayland_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -433,6 +433,10 @@ toplevel_listener := wl.xdg_toplevel_listener {
 			s.windowed_height = int(height)
 			s.width = int(width)
 			s.height = int(height)
+			append(&s.events, Window_Event_Resize {
+				width = int(width),
+                height = int(height),
+			})
 			/// SHOULD EMIT A VALID WINDOW EVENT
 			// append(
 			// 	&cc.platform_state.input.events,
