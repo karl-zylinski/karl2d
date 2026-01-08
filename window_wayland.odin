@@ -93,6 +93,9 @@ wayland_init :: proc(
 	wl.xdg_toplevel_add_listener(toplevel, &toplevel_listener, nil)
 	wl.xdg_surface_add_listener(xdg_surface, &window_listener, nil)
 	wl.xdg_toplevel_set_title(toplevel, strings.clone_to_cstring(window_title))
+    decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration, toplevel)
+    wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
+
 	wl.wl_surface_commit(surface)
 	wl.display_dispatch(s.display)
 
@@ -313,6 +316,7 @@ Wayland_State :: struct {
 	seat: ^wl.wl_seat,
 	surface: ^wl.wl_surface,
 	toplevel: ^wl.xdg_toplevel,
+    decoration: ^wl.zxdg_decoration_manager_v1,
 	window_handle: Window_Handle_Linux,
 	window_mode: Window_Mode,
 }
@@ -374,6 +378,15 @@ global :: proc "c" (
 				registry,
 				name,
 				&wl.wl_seat_interface,
+				version,
+			))
+	}
+	if interface == wl.zxdg_decoration_manager_v1_interface.name {
+		state: ^Wayland_State = cast(^Wayland_State)data
+		state.decoration = cast(^wl.zxdg_decoration_manager_v1)(wl.wl_registry_bind(
+				registry,
+				name,
+				&wl.zxdg_decoration_manager_v1_interface,
 				version,
 			))
 	}
