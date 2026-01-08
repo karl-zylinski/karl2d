@@ -442,8 +442,8 @@ frame_callback := wl.wl_callback_listener {
 seat_listener := wl.wl_seat_listener {
 	capabilities = proc "c" (data: rawptr, wl_seat: ^wl.wl_seat, capabilities: c.uint32_t) {
         context = runtime.default_context()
-		// pointer := wl.wl_seat_get_pointer(s.seat)
-		// wl.wl_pointer_add_listener(pointer, &pointer_listener, state)
+		pointer := wl.wl_seat_get_pointer(s.seat)
+		wl.wl_pointer_add_listener(pointer, &pointer_listener, nil)
 		keyboard := wl.wl_seat_get_keyboard(s.seat)
 		wl.wl_keyboard_add_listener(keyboard, &keyboard_listener, nil)
 	},
@@ -506,4 +506,105 @@ key_handler :: proc "c" (
             })
         }
 	}
+}
+
+pointer_listener := wl.wl_pointer_listener {
+	enter = proc "c" (
+		data: rawptr,
+		wl_pointer: ^wl.wl_pointer,
+		serial: c.uint32_t,
+		surface: ^wl.wl_surface,
+		surface_x: wl.wl_fixed_t,
+		surface_y: wl.wl_fixed_t,
+	) {
+	},
+	leave = proc "c" (
+		data: rawptr,
+		wl_pointer: ^wl.wl_pointer,
+		serial: c.uint32_t,
+		surface: ^wl.wl_surface,
+	) {
+	},
+	motion = proc "c" (
+		data: rawptr,
+		wl_pointer: ^wl.wl_pointer,
+		time: c.uint32_t,
+		surface_x: wl.wl_fixed_t,
+		surface_y: wl.wl_fixed_t,
+	) {
+		context = runtime.default_context()
+        // surface_x and surface_y are fixed point 24.8 variables. 
+        // Just bitshift them to remove the decimal part and obtain 
+        // a screen coordinate
+        append(&s.events, Window_Event_Mouse_Move {
+            position = { f32(surface_x >> 8), f32(surface_y >> 8) }, 
+        })
+	},
+	button = proc "c" (
+		data: rawptr,
+		wl_pointer: ^wl.wl_pointer,
+		serial: c.uint32_t,
+		time: c.uint32_t,
+		button: c.uint32_t,
+		state: c.uint32_t,
+	) {
+		context = runtime.default_context()
+
+        btn: Mouse_Button
+        switch button {
+        case 0: btn = .Left
+        case 1: btn = .Middle
+        case 2: btn = .Right
+        }
+    
+        switch state {
+        case 0:
+            append(&s.events, Window_Event_Mouse_Button_Went_Up {
+                button = btn,
+            })
+        case 1: 
+            append(&s.events, Window_Event_Mouse_Button_Went_Down {
+                button = btn,
+            })
+        }
+	},
+	axis = proc "c" (
+		data: rawptr,
+		wl_pointer: ^wl.wl_pointer,
+		time: c.uint32_t,
+		axis: c.uint32_t,
+		value: wl.wl_fixed_t,
+	) {
+		context = runtime.default_context()
+        event_direction: f32 = value > 0 ? 1 : -1
+        append(&s.events, Window_Event_Mouse_Wheel {
+            delta = event_direction
+        })
+	},
+	frame = proc "c" (data: rawptr, wl_pointer: ^wl.wl_pointer) {},
+	axis_source = proc "c" (data: rawptr, wl_pointer: ^wl.wl_pointer, axis_source: c.uint32_t) {},
+	axis_stop = proc "c" (
+		data: rawptr,
+		wl_pointer: ^wl.wl_pointer,
+		time: c.uint32_t,
+		axis: c.uint32_t,
+	) {},
+	axis_discrete = proc "c" (
+		data: rawptr,
+		wl_pointer: ^wl.wl_pointer,
+		axis: c.uint32_t,
+		discrete: c.int32_t,
+	) {},
+	axis_value120 = proc "c" (
+		data: rawptr,
+		wl_pointer: ^wl.wl_pointer,
+		axis: c.uint32_t,
+		value120: c.int32_t,
+	) {},
+	axis_relative_direction = proc "c" (
+		data: rawptr,
+		wl_pointer: ^wl.wl_pointer,
+		axis: c.uint32_t,
+		direction: c.uint32_t,
+	) {},
 }
