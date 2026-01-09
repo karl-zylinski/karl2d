@@ -93,6 +93,9 @@ wayland_init :: proc(
 	wl.xdg_toplevel_add_listener(toplevel, &toplevel_listener, nil)
 	wl.xdg_surface_add_listener(xdg_surface, &window_listener, nil)
 	wl.xdg_toplevel_set_title(toplevel, strings.clone_to_cstring(window_title))
+    decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration, toplevel)
+    wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
+
 	wl.wl_surface_commit(surface)
 	wl.display_dispatch(s.display)
 
@@ -269,8 +272,8 @@ leave_borderless_fullscreen :: proc() {
 wayland_set_window_mode :: proc(window_mode: Window_Mode) {
 	w := i32(s.windowed_width) 
 	h := i32(s.windowed_height) 
-	wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
-	wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
+	// wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
+	// wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
 }
 
 wayland_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -313,6 +316,7 @@ Wayland_State :: struct {
 	seat: ^wl.wl_seat,
 	surface: ^wl.wl_surface,
 	toplevel: ^wl.xdg_toplevel,
+    decoration: ^wl.zxdg_decoration_manager_v1,
 	window_handle: Window_Handle_Linux,
 	window_mode: Window_Mode,
 }
@@ -377,6 +381,15 @@ global :: proc "c" (
 				version,
 			))
 	}
+	if interface == wl.zxdg_decoration_manager_v1_interface.name {
+		state: ^Wayland_State = cast(^Wayland_State)data
+		state.decoration = cast(^wl.zxdg_decoration_manager_v1)(wl.wl_registry_bind(
+				registry,
+				name,
+				&wl.zxdg_decoration_manager_v1_interface,
+				version,
+			))
+	}
 }
 
 global_remove :: proc "c" (data: rawptr, registry: ^wl.wl_registry, name: c.uint32_t) {
@@ -420,6 +433,10 @@ toplevel_listener := wl.xdg_toplevel_listener {
 			s.windowed_height = int(height)
 			s.width = int(width)
 			s.height = int(height)
+			append(&s.events, Window_Event_Resize {
+				width = int(width),
+                height = int(height),
+			})
 			/// SHOULD EMIT A VALID WINDOW EVENT
 			// append(
 			// 	&cc.platform_state.input.events,
