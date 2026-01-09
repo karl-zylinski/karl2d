@@ -108,7 +108,7 @@ panic :: proc(args: ..any, location := #caller_location) -> ! {
 	} else {
 		fmt.eprint("PANIC: ")
 		fmt.eprintln(..args)
-		panic("log.panic", location)
+		runtime.panic("log.panic", location)
 	}
 }
 
@@ -118,7 +118,7 @@ panicf :: proc(fmt_str: string, args: ..any, location := #caller_location) -> ! 
 	} else {
 		fmt.eprint("PANIC: ")
 		fmt.eprintfln(fmt_str, ..args)
-		panic("log.panic", location)
+		runtime.panic("log.panic", location)
 	}
 }
 
@@ -128,7 +128,7 @@ assert :: proc(condition: bool, message := #caller_expression(condition), loc :=
 	if has_logger() {
 		log.assert(condition, message, loc)
 	} else {
-		assert(condition, message, loc)
+		runtime.assert(condition, message, loc)
 	}
 }
 
