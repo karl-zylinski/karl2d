@@ -899,6 +899,10 @@ measure_text :: proc(text: string, font_size: f32) -> Vec2 {
 // Tells you how much space some text of a certain size will use on the screen, using a custom font.
 // The return value contains the width and height of the text.
 measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2 {
+	if font_handle < 0 || int(font_handle) >= len(s.fonts) {
+		return {}
+	}
+
 	font := s.fonts[font_handle]
 
 	// TextBounds from fontstash, but fixed and simplified for my purposes.
