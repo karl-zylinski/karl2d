@@ -44,12 +44,20 @@ d3d11_state_size :: proc() -> int {
 	return size_of(D3D11_State)
 }
 
-d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+d3d11_init :: proc(
+	state: rawptr,
+	window_handle: Window_Handle,
+	swapchain_width: int,
+	swapchain_height: int,
+	options: Init_Options,
+	allocator := context.allocator,
+) {
 	s = (^D3D11_State)(state)
 	s.allocator = allocator
 	s.window_handle = dxgi.HWND(window_handle)
 	s.width = swapchain_width
 	s.height = swapchain_height
+	s.depth_supported = options.depth_supported
 	feature_levels := [?]d3d11.FEATURE_LEVEL{
 		._11_1,
 		._11_0,
@@ -114,12 +122,14 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 	}
 	ch(s.device->CreateRasterizerState(&rasterizer_desc, &s.rasterizer_state))
 
-	depth_stencil_desc := d3d11.DEPTH_STENCIL_DESC{
-		DepthEnable    = true,
-		DepthWriteMask = .ALL,
-		DepthFunc      = .LESS,
+	if options.depth_supported {
+		depth_stencil_desc := d3d11.DEPTH_STENCIL_DESC{
+			DepthEnable    = true,
+			DepthWriteMask = .ALL,
+			DepthFunc      = .LESS,
+		}
+		ch(s.device->CreateDepthStencilState(&depth_stencil_desc, &s.depth_stencil_state))
 	}
-	ch(s.device->CreateDepthStencilState(&depth_stencil_desc, &s.depth_stencil_state))
 
 	vertex_buffer_desc := d3d11.BUFFER_DESC{
 		ByteWidth = VERTEX_BUFFER_MAX,
@@ -166,12 +176,16 @@ d3d11_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width,
 
 d3d11_shutdown :: proc() {
 	s.framebuffer_view->Release()
-	s.depth_buffer_view->Release()
-	s.depth_buffer->Release()
+	
+	if s.depth_supported {
+		s.depth_buffer_view->Release()
+		s.depth_buffer->Release()
+		s.depth_stencil_state->Release()
+	}
+
 	s.framebuffer->Release()
 	s.device_context->Release()
 	s.vertex_buffer_gpu->Release()
-	s.depth_stencil_state->Release()
 	s.rasterizer_state->Release()
 	s.swapchain->Release()
 	s.blend_state_alpha->Release()
@@ -251,10 +265,16 @@ d3d11_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		s.device_context->ClearRenderTargetView(rt.render_target_view, &c)
-		s.device_context->ClearDepthStencilView(rt.depth_stencil_texture_view, {.DEPTH}, 1, 0)	
+
+		if s.depth_supported {
+			s.device_context->ClearDepthStencilView(rt.depth_stencil_texture_view, {.DEPTH}, 1, 0)	
+		}
 	} else {
 		s.device_context->ClearRenderTargetView(s.framebuffer_view, &c)
-		s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 1, 0)
+	
+		if s.depth_supported {
+			s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 1, 0)
+		}
 	}
 }
 
@@ -401,7 +421,9 @@ d3d11_draw :: proc(
 		dc->RSSetViewports(1, &viewport)
 	}
 
-	dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
+	if s.depth_supported {
+		dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
+	}
 
 	switch blend_mode {
 	case .Alpha:
@@ -415,8 +437,11 @@ d3d11_draw :: proc(
 }
 
 d3d11_resize_swapchain :: proc(w, h: int) {
-	s.depth_buffer->Release()
-	s.depth_buffer_view->Release()
+	if s.depth_supported {
+		s.depth_buffer->Release()
+		s.depth_buffer_view->Release()
+	}
+	
 	s.framebuffer->Release()
 	s.framebuffer_view->Release()
 	s.swapchain->Release()
@@ -522,11 +547,25 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 	}
 
 	d3d11_render_target := D3D11_Render_Target {
-		depth_stencil_texture = depth_stencil_texture,
-		depth_stencil_texture_view = depth_stencil_texture_view,
 		render_target_view = render_target_view,
 		width = width,
 		height = height,
+	}
+
+	if s.depth_supported {
+		depth_stencil_desc := d3d11.TEXTURE2D_DESC{
+			Width      = u32(width),
+			Height     = u32(height),
+			MipLevels  = 1,
+			ArraySize  = 1,
+			Format     = .D24_UNORM_S8_UINT,
+			SampleDesc = {Count = 1},
+			Usage      = .DEFAULT,
+			BindFlags  = {.DEPTH_STENCIL},
+		}
+
+		ch(ch(s.device->CreateTexture2D(&depth_stencil_desc, nil, &d3d11_render_target.depth_stencil_texture)))
+		ch(s.device->CreateDepthStencilView(d3d11_render_target.depth_stencil_texture, nil, &d3d11_render_target.depth_stencil_texture_view))
 	}
 
 	return hm.add(&s.textures, d3d11_texture), hm.add(&s.render_targets, d3d11_render_target)
@@ -1000,12 +1039,9 @@ D3D11_State :: struct {
 	dxgi_adapter: ^dxgi.IAdapter,
 	swapchain: ^dxgi.ISwapChain1,
 	framebuffer_view: ^d3d11.IRenderTargetView,
-	depth_buffer_view: ^d3d11.IDepthStencilView,
 	device_context: ^d3d11.IDeviceContext,
-	depth_stencil_state: ^d3d11.IDepthStencilState,
 	rasterizer_state: ^d3d11.IRasterizerState,
 	device: ^d3d11.IDevice,
-	depth_buffer: ^d3d11.ITexture2D,
 	framebuffer: ^d3d11.ITexture2D,
 	blend_state_alpha: ^d3d11.IBlendState,
 	blend_state_premultiplied_alpha: ^d3d11.IBlendState,
@@ -1018,6 +1054,12 @@ D3D11_State :: struct {
 	vertex_buffer_gpu: ^d3d11.IBuffer,
 
 	all_samplers: map[^d3d11.ISamplerState]struct{},
+
+	// The depth things are only created when `depth_supported` is passed as `true` to `d3d11_init`.
+	depth_supported: bool,
+	depth_buffer_view: ^d3d11.IDepthStencilView,
+	depth_stencil_state: ^d3d11.IDepthStencilState,
+	depth_buffer: ^d3d11.ITexture2D,
 }
 
 create_swapchain :: proc(w, h: int) {
@@ -1040,14 +1082,16 @@ create_swapchain :: proc(w, h: int) {
 	ch(s.swapchain->GetBuffer(0, d3d11.ITexture2D_UUID, (^rawptr)(&s.framebuffer)))
 	ch(s.device->CreateRenderTargetView(s.framebuffer, nil, &s.framebuffer_view))
 
-	depth_buffer_desc: d3d11.TEXTURE2D_DESC
-	s.framebuffer->GetDesc(&depth_buffer_desc)
-	depth_buffer_desc.Format = .D24_UNORM_S8_UINT
-	depth_buffer_desc.BindFlags = {.DEPTH_STENCIL}
+	if s.depth_supported {
+		depth_buffer_desc: d3d11.TEXTURE2D_DESC
+		s.framebuffer->GetDesc(&depth_buffer_desc)
+		depth_buffer_desc.Format = .D24_UNORM_S8_UINT
+		depth_buffer_desc.BindFlags = {.DEPTH_STENCIL}
 
-	ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &s.depth_buffer))
-	ch(s.device->CreateDepthStencilView(s.depth_buffer, nil, &s.depth_buffer_view))
-	s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 1, 0)
+		ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &s.depth_buffer))
+		ch(s.device->CreateDepthStencilView(s.depth_buffer, nil, &s.depth_buffer_view))
+		s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 1, 0)
+	}
 }
 
 D3D11_Texture :: struct {

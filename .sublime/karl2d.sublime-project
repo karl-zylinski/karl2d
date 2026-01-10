@@ -36,6 +36,11 @@
 					"shell_cmd": "odin run build_web -vet -strict-style -- examples/basics",
 				},
 				{
+					"name": "depth_test",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:depth_test.exe",
+					"working_dir": "$project_path/../examples/depth_test",
+				},
+				{
 					"name": "minimal_hello_world",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:minimal.exe",
 					"working_dir": "$project_path/../examples/minimal_hello_world",

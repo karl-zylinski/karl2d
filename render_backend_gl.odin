@@ -119,7 +119,14 @@ gl_state_size :: proc() -> int {
 	return size_of(GL_State)
 }
 
-gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+gl_init :: proc(
+	state: rawptr,
+	window_handle: Window_Handle,
+	swapchain_width: int,
+	swapchain_height: int,
+	options: Init_Options,
+	allocator := context.allocator
+) {
 	s = (^GL_State)(state)
 	s.window_handle = window_handle
 	s.width = swapchain_width

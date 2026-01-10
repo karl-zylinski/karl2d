@@ -78,7 +78,7 @@ init :: proc(
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.rb_state, s.window, win.get_width(), win.get_height(), allocator)
+	rb.init(s.rb_state, s.window, win.get_width(), win.get_height(), options, allocator)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`
@@ -558,8 +558,6 @@ draw_rect :: proc(r: Rect, c: Color) {
 	}
 
 	s.batch_texture = s.shape_drawing_texture
-
-	z := get_next_depth()
 
 	batch_vertex({r.x, r.y}, {0, 0}, c)
 	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
@@ -1741,6 +1739,10 @@ Window_Mode :: enum {
 
 Init_Options :: struct {
 	window_mode: Window_Mode,
+
+	// Enabling this will create depth textures and enable depth testing. Normally you do not want
+	// this. If you use it, then please see EXAMPLE PATH ETC
+	depth_supported: bool,
 }
 
 Shader_Handle :: distinct Handle
@@ -2087,7 +2089,16 @@ Gamepad_Button :: enum {
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
 
-batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
+DEPTH_SUPPORTED :: #config(KARL2D_DEPTH_SUPPORTED, false)
+
+when DEPTH_SUPPORTED {
+	VERTEX_POSITION_TYPE :: Vec3
+} else {
+	// This is the default
+	VERTEX_POSITION_TYPE :: Vec2
+}
+
+batch_vertex :: proc(v: VERTEX_POSITION_TYPE, uv: Vec2, color: Color) {
 	v := v
 
 	if s.vertex_buffer_cpu_used == len(s.vertex_buffer_cpu) {
@@ -2104,7 +2115,7 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
 
 	if pos_offset != -1 {
-		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
+		(^VERTEX_POSITION_TYPE)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
 	}
 
 	if uv_offset != -1 {
@@ -2143,7 +2154,7 @@ win: Window_Interface
 rb: Render_Backend_Interface
 
 get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> Shader_Default_Inputs {
-	if name == "position" && type == .Vec2 {
+	if name == "position" && type == .Vec3 {
 		return .Position
 	} else if name == "texcoord" && type == .Vec2 {
 		return .UV
@@ -2175,7 +2186,7 @@ get_shader_input_format :: proc(name: string, type: Shader_Input_Type) -> Pixel_
 
 	if default_type != .Unknown {
 		switch default_type {
-		case .Position: return .RG_32_Float
+		case .Position: return .RGB_32_Float
 		case .UV: return .RG_32_Float
 		case .Color: return .RGBA_8_Norm
 		case .Unknown: unreachable()
