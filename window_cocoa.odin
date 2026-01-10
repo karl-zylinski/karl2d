@@ -27,7 +27,6 @@ WINDOW_INTERFACE_COCOA :: Window_Interface {
 }
 
 import NS "core:sys/darwin/Foundation"
-import nsgl "darwin/nsgl"
 import "base:runtime"
 
 cocoa_state_size :: proc() -> int {
@@ -50,7 +49,6 @@ cocoa_init :: proc(
 	s.windowed_height = screen_height
 	s.width = screen_width
 	s.height = screen_height
-	s.custom_context = context
 	s.window_mode = init_options.window_mode
 
 	// Initialize NSApplication
@@ -92,21 +90,46 @@ cocoa_init :: proc(
 	s.window = NS.Window_alloc()
 	s.window = s.window->initWithContentRect(rect, style, .Buffered, false)
 
-	// Set window title
 	title_str := NS.String_alloc()->initWithOdinString(window_title)
 	s.window->setTitle(title_str)
 
-	// Get the content view for rendering
-	s.view = s.window->contentView()
-
-	// Center and show window
 	s.window->center()
 	s.window->setAcceptsMouseMovedEvents(true)
 	s.window->makeKeyAndOrderFront(nil)
 
-	// Setup window handle struct
 	s.window_handle.window = s.window
-	s.window_handle.view = s.view
+
+	// Setup delegates for events not handled in cocoa_process_events
+	window_delegates := NS.window_delegate_register_and_alloc(
+		NS.WindowDelegateTemplate{
+			windowDidResize = proc(notification: ^NS.Notification) {
+				content_rect := s.window->contentLayoutRect()
+				new_width := int(content_rect.size.width)
+				new_height := int(content_rect.size.height)
+
+				if new_width != s.width || new_height != s.height {
+					s.width = new_width
+					s.height = new_height
+					if s.window_mode != .Borderless_Fullscreen {
+						s.windowed_width = new_width
+						s.windowed_height = new_height
+					}
+					append(&s.events, Window_Event_Resize{
+						width = new_width,
+						height = new_height,
+					})
+				}
+			},
+			windowShouldClose = proc(window: ^NS.Window) -> bool {
+				append(&s.events, Window_Event_Close_Wanted{})
+				return true
+			}
+		},
+		"Karl2DWindowDelegate",
+		context
+	)
+
+	s.window->setDelegate(window_delegates)
 }
 
 cocoa_shutdown :: proc() {
@@ -202,36 +225,6 @@ cocoa_process_events :: proc() {
 			s.app->sendEvent(event)
 		}
 	}
-
-	// Check for window resize
-	// TODO: not sure if this is where we should be updating
-	content_rect := s.window->contentLayoutRect()
-	new_width := int(content_rect.size.width)
-	new_height := int(content_rect.size.height)
-
-	if new_width != s.width || new_height != s.height {
-		s.width = new_width
-		s.height = new_height
-		if s.window_mode != .Borderless_Fullscreen {
-			s.windowed_width = new_width
-			s.windowed_height = new_height
-		}
-		append(&s.events, Window_Event_Resize{
-			width = new_width,
-			height = new_height,
-		})
-
-		if s.window_handle.opengl_context != nil {
-			s.window_handle.opengl_context->update()
-		}
-	}
-
-	// Check for window close request
-	// (This is a simple check - a more robust solution would use a window delegate)
-	if s.window != nil && !s.window->keyWindow() {
-		// Window lost focus - send unfocused event if not already sent
-		// For now we'll skip this - would need to track focus state
-	}
 }
 
 cocoa_get_events :: proc() -> []Window_Event {
@@ -289,10 +282,8 @@ cocoa_set_internal_state :: proc(state: rawptr) {
 
 Cocoa_State :: struct {
 	allocator:        runtime.Allocator,
-	custom_context:   runtime.Context,
 	app:              ^NS.Application,
 	window:           ^NS.Window,
-	view:             ^NS.View,
 	window_mode:      Window_Mode,
 
 	width:            int,
@@ -332,13 +323,12 @@ cocoa_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
+@private
 s: ^Cocoa_State
 
 @(private="package")
 Window_Handle_Darwin :: struct {
 	window:         ^NS.Window,
-	view:           ^NS.View,
-	opengl_context: ^nsgl.OpenGLContext,
 }
 
 // Key code mapping from macOS virtual key codes to Keyboard_Key

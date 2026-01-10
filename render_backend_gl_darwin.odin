@@ -8,15 +8,13 @@ import gl "vendor:OpenGL"
 import "darwin/nsgl"
 import "log"
 
-GL_Context :: struct {
-	opengl_context: ^nsgl.OpenGLContext,
-	pixel_format:   ^nsgl.OpenGLPixelFormat,
-}
+GL_Context :: ^nsgl.OpenGLContext
+
+@private
+gl_context: ^nsgl.OpenGLContext
 
 _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	using nsgl
-
-	wh := (^Window_Handle_Darwin)(window_handle)
 
 	// Create pixel format attributes (null-terminated array)
 	attrs := [?]u32 {
@@ -51,21 +49,20 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	// Disable Retina resolution - render at point size and let macOS stretch
 	// This allows draw calls to use expected coords (e.g. 1280x720) without scaling
 	// TODO: we should fix this, but will need to decide on how to handle HiDPI
-	View_setWantsBestResolutionOpenGLSurface(wh.view, false)
+	wh := (^Window_Handle_Darwin)(window_handle)
+	view := wh.window->contentView()
+	View_setWantsBestResolutionOpenGLSurface(view, false)
 
-	opengl_context->setView(wh.view)
+	opengl_context->setView(view)
 	opengl_context->makeCurrentContext()
 
 	// Enable vsync
 	swap_interval := [1]i32{1}
 	opengl_context->setValues(raw_data(swap_interval[:]), OpenGLContextParameterSwapInterval)
 
-	wh.opengl_context = opengl_context
+	gl_context = opengl_context
 
-	return GL_Context{
-		opengl_context,
-		pixel_format,
-	}, true
+	return opengl_context, true
 }
 
 _gl_destroy_context :: proc(ctx: GL_Context) {
@@ -86,9 +83,10 @@ macos_gl_set_proc_address :: proc(p: rawptr, name: cstring) {
 	(^rawptr)(p)^ = os._unix_dlsym(RTLD_DEFAULT, name)
 }
 
-_gl_present :: proc(window_handle: Window_Handle) {
-	wh := (^Window_Handle_Darwin)(window_handle)
-	if wh.opengl_context != nil {
-		wh.opengl_context->flushBuffer()
-	}
+_gl_present :: proc(_: Window_Handle) {
+	gl_context->flushBuffer()
+}
+
+_gl_context_viewport_resized :: proc(_: Window_Handle) {
+	gl_context->update()
 }
