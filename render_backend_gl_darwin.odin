@@ -49,8 +49,8 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	// Disable Retina resolution - render at point size and let macOS stretch
 	// This allows draw calls to use expected coords (e.g. 1280x720) without scaling
 	// TODO: we should fix this, but will need to decide on how to handle HiDPI
-	wh := (^Window_Handle_Darwin)(window_handle)
-	view := wh.window->contentView()
+	wh := (Window_Handle_Darwin)(window_handle)
+	view := wh->contentView()
 	View_setWantsBestResolutionOpenGLSurface(view, false)
 
 	opengl_context->setView(view)

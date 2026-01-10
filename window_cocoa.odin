@@ -3,6 +3,9 @@
 
 package karl2d
 
+import NS "core:sys/darwin/Foundation"
+import "base:runtime"
+
 @(private="package")
 WINDOW_INTERFACE_COCOA :: Window_Interface {
 	state_size = cocoa_state_size,
@@ -26,8 +29,26 @@ WINDOW_INTERFACE_COCOA :: Window_Interface {
 	set_internal_state = cocoa_set_internal_state,
 }
 
-import NS "core:sys/darwin/Foundation"
-import "base:runtime"
+@(private="package")
+Window_Handle_Darwin :: ^NS.Window
+
+Cocoa_State :: struct {
+	allocator:        runtime.Allocator,
+	app:              ^NS.Application,
+	window:           ^NS.Window,
+	window_mode:      Window_Mode,
+
+	width:            int,
+	height:           int,
+	windowed_width:   int,
+	windowed_height:  int,
+	events:           [dynamic]Window_Event,
+
+	window_handle:    Window_Handle_Darwin,
+}
+
+@private
+s: ^Cocoa_State
 
 cocoa_state_size :: proc() -> int {
 	return size_of(Cocoa_State)
@@ -97,7 +118,7 @@ cocoa_init :: proc(
 	s.window->setAcceptsMouseMovedEvents(true)
 	s.window->makeKeyAndOrderFront(nil)
 
-	s.window_handle.window = s.window
+	s.window_handle = s.window
 
 	// Setup delegates for events not handled in cocoa_process_events
 	window_delegates := NS.window_delegate_register_and_alloc(
@@ -140,7 +161,7 @@ cocoa_shutdown :: proc() {
 }
 
 cocoa_window_handle :: proc() -> Window_Handle {
-	return Window_Handle(&s.window_handle)
+	return Window_Handle(s.window_handle)
 }
 
 cocoa_process_events :: proc() {
@@ -280,21 +301,6 @@ cocoa_set_internal_state :: proc(state: rawptr) {
 	s = (^Cocoa_State)(state)
 }
 
-Cocoa_State :: struct {
-	allocator:        runtime.Allocator,
-	app:              ^NS.Application,
-	window:           ^NS.Window,
-	window_mode:      Window_Mode,
-
-	width:            int,
-	height:           int,
-	windowed_width:   int,
-	windowed_height:  int,
-	events:           [dynamic]Window_Event,
-
-	window_handle:    Window_Handle_Darwin,
-}
-
 cocoa_set_window_mode :: proc(window_mode: Window_Mode) {
 	if window_mode == s.window_mode {
 		return
@@ -321,14 +327,6 @@ cocoa_set_window_mode :: proc(window_mode: Window_Mode) {
 	case .Borderless_Fullscreen:
 		s.window->toggleFullScreen(nil)
 	}
-}
-
-@private
-s: ^Cocoa_State
-
-@(private="package")
-Window_Handle_Darwin :: struct {
-	window:         ^NS.Window,
 }
 
 // Key code mapping from macOS virtual key codes to Keyboard_Key
