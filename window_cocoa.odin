@@ -57,23 +57,23 @@ cocoa_init :: proc(
 	s.app = NS.Application_sharedApplication()
 	s.app->setActivationPolicy(.Regular)
 
-    NS.scoped_autoreleasepool()
+	NS.scoped_autoreleasepool()
 
-    menu_bar := NS.Menu_alloc()->init()
-    s.app->setMainMenu(menu_bar)
-    app_menu_item := menu_bar->addItemWithTitle(NS.AT(""), nil, NS.AT(""))
-    app_menu := NS.Menu_alloc()->init()
-    fullscreen_item := app_menu->addItemWithTitle(NS.AT("Enter Full Screen"), NS.sel_registerName(cstring("toggleFullScreen:")), NS.AT("f"))
+	menu_bar := NS.Menu_alloc()->init()
+	s.app->setMainMenu(menu_bar)
+	app_menu_item := menu_bar->addItemWithTitle(NS.AT(""), nil, NS.AT(""))
+	app_menu := NS.Menu_alloc()->init()
+	fullscreen_item := app_menu->addItemWithTitle(NS.AT("Enter Full Screen"), NS.sel_registerName(cstring("toggleFullScreen:")), NS.AT("f"))
 
-    // Change keyboard shortcut for fullscreen to Ctrl-Cmd-F
-    new_mask := NS.EventModifierFlagControl | NS.EventModifierFlagCommand
-    fullscreen_item->setKeyEquivalentModifierMask(new_mask)
+	// Change keyboard shortcut for fullscreen to Ctrl-Cmd-F
+	new_mask := NS.EventModifierFlagControl | NS.EventModifierFlagCommand
+	fullscreen_item->setKeyEquivalentModifierMask(new_mask)
 
-    app_menu->addItemWithTitle(NS.AT("Quit"), NS.sel_registerName(cstring("terminate:")), NS.AT("q"))
-    app_menu_item->setSubmenu(app_menu)
-    s.app->setAppleMenu(app_menu)
+	app_menu->addItemWithTitle(NS.AT("Quit"), NS.sel_registerName(cstring("terminate:")), NS.AT("q"))
+	app_menu_item->setSubmenu(app_menu)
+	s.app->setAppleMenu(app_menu)
 
-    // Activate the application
+	// Activate the application
 	s.app->activateIgnoringOtherApps(true)
 	s.app->finishLaunching()
 
@@ -204,7 +204,7 @@ cocoa_process_events :: proc() {
 	}
 
 	// Check for window resize
-    // TODO: not sure if this is where we should be updating
+	// TODO: not sure if this is where we should be updating
 	content_rect := s.window->contentLayoutRect()
 	new_width := int(content_rect.size.width)
 	new_height := int(content_rect.size.height)

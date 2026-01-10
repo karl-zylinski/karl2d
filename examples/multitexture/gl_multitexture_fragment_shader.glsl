@@ -1,4 +1,4 @@
-#version 300 es
+#version 330
 precision highp float;
 in vec2 frag_texcoord;
 in vec4 frag_color;

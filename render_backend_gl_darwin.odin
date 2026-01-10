@@ -14,8 +14,8 @@ GL_Context :: struct {
 }
 
 _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
-    using nsgl
-    
+	using nsgl
+
 	wh := (^Window_Handle_Darwin)(window_handle)
 
 	// Create pixel format attributes (null-terminated array)
@@ -26,7 +26,7 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 		OpenGLPFADepthSize, 24,
 		OpenGLPFAAccelerated,
 		OpenGLPFANoRecovery,
-		OpenGLPFAOpenGLProfile, OpenGLProfileVersion4_1Core,
+		OpenGLPFAOpenGLProfile, OpenGLProfileVersion3_2Core,
 		0, // Terminator
 	}
 
@@ -50,7 +50,7 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 
 	// Disable Retina resolution - render at point size and let macOS stretch
 	// This allows draw calls to use expected coords (e.g. 1280x720) without scaling
-    // TODO: we should fix this, but will need to decide on how to handle HiDPI
+	// TODO: we should fix this, but will need to decide on how to handle HiDPI
 	View_setWantsBestResolutionOpenGLSurface(wh.view, false)
 
 	opengl_context->setView(wh.view)

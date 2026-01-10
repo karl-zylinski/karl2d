@@ -20,16 +20,8 @@ tex2: k2.Texture
 init :: proc() {
 	k2.init(1080, 1080, "Karl2D Multitexture Example")
 
-    when ODIN_OS == .Darwin {
-        gl_vertex_shader_filename   := "gl_multitexture_vertex_shader_darwin.glsl"
-        gl_fragment_shader_filename := "gl_multitexture_fragment_shader_darwin.glsl"        
-    } else {
-        gl_vertex_shader_filename   := "gl_multitexture_vertex_shader.glsl"
-        gl_fragment_shader_filename := "gl_multitexture_fragment_shader.glsl"
-    }
-    
 	when k2.RENDER_BACKEND_NAME == "gl" {
-		shd = k2.load_shader_from_file(gl_vertex_shader_filename, gl_fragment_shader_filename)
+		shd = k2.load_shader_from_file("gl_multitexture_vertex_shader.glsl", "gl_multitexture_fragment_shader.glsl")
 	} else when k2.RENDER_BACKEND_NAME == "webgl" {
 		shd = k2.load_shader_from_bytes(#load("gl_multitexture_vertex_shader.glsl"), #load("gl_multitexture_fragment_shader.glsl"))
 	} else {
