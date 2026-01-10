@@ -94,6 +94,7 @@ GL_Texture_Binding :: struct {
 
 GL_Render_Target :: struct {
 	handle: Render_Target_Handle,
+	depth: u32,
 	framebuffer: u32,
 	width: int,
 	height: int,
@@ -134,6 +135,9 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 	s.ctx = ctx
 	_gl_load_procs()
 
+	gl.Enable(gl.DEPTH_TEST)
+	gl.DepthFunc(gl.GREATER)
+
 	gl.GenBuffers(1, &s.vertex_buffer_gpu)
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
@@ -157,7 +161,8 @@ gl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 
 	c := f32_color_from_color(color)
 	gl.ClearColor(c.r, c.g, c.b, c.a)
-	gl.Clear(gl.COLOR_BUFFER_BIT)
+	gl.ClearDepth(0)
+	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 }
 
 gl_present :: proc() {
@@ -425,6 +430,12 @@ gl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Re
 	gl.GenFramebuffers(1, &framebuffer)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, framebuffer)
 
+	depth: u32
+	gl.GenRenderbuffers(1, &depth)
+	gl.BindRenderbuffer(gl.RENDERBUFFER, depth)
+	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT, i32(width), i32(height))
+	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth)
+
 	gl.FramebufferTexture(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, texture.id, 0)
 	draw_buffers := u32(gl.COLOR_ATTACHMENT0)
 	gl.DrawBuffers(1, &draw_buffers)
@@ -438,6 +449,7 @@ gl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Re
 	gl.BindRenderbuffer(gl.RENDERBUFFER, 0)
 
 	rt := GL_Render_Target {
+		depth = depth,
 		framebuffer = framebuffer,
 		width = width,
 		height = height,
@@ -448,6 +460,7 @@ gl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Re
 
 gl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
+		gl.DeleteRenderbuffers(1, &rt.depth)
 		gl.DeleteFramebuffers(1, &rt.framebuffer)
 	}
 }
