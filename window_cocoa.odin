@@ -342,7 +342,7 @@ cocoa_set_window_mode :: proc(window_mode: Window_Mode) {
 		s.window->setStyleMask({})
 		screen_frame := NS.Screen_mainScreen()->frame()
 		s.window->setFrame(screen_frame, true)
-		s.window->setLevel(.Status)
+		s.window->setLevel(.Normal)
 		ce.Application_setPresentationOptions(s.app, {.HideMenuBar, .HideDock})
 	}
 }
