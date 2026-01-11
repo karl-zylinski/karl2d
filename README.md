@@ -43,7 +43,7 @@ This first beta has these features:
 
 >[!WARNING]
 >This first beta does NOT have the following features, but they are planned in the order stated:
->- Linux & Mac (gl)
+>- Linux & Mac with gl rendering (this is actually half-supported now, but not final yet)
 >- Sound
 >- Rendering improvements (better system for dividing things into draw calls)
 >- System for cross-compiling shaders between different backends (HLSL, GLSL, GLSL ES, MSL etc)
