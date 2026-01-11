@@ -83,8 +83,8 @@ win32_init :: proc(
 }
 
 win32_shutdown :: proc() {
-	delete(s.events)
 	win32.DestroyWindow(s.hwnd)
+	delete(s.events)
 }
 
 win32_window_handle :: proc() -> Window_Handle {
