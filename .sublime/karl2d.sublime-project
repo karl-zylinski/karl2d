@@ -22,6 +22,11 @@
 					"working_dir": "$project_path/../examples/custom_frame_update",
 				},
 				{
+					"name": "ui",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:ui.exe -define:KARL2D_RENDER_BACKEND=gl",
+					"working_dir": "$project_path/../examples/ui",
+				},
+				{
 					"name": "basics",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:minimal.exe",
 					"working_dir": "$project_path/../examples/basics",
