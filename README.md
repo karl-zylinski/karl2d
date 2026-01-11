@@ -43,10 +43,13 @@ This first beta has these features:
 
 >[!WARNING]
 >This first beta does NOT have the following features, but they are planned in the order stated:
->- Linux
+>- Linux & Mac (gl)
 >- Sound
->- System for cross-compiling shaders between different backends (HLSL, GLSL etc)
+>- Rendering improvements (better system for dividing things into draw calls)
+>- System for cross-compiling shaders between different backends (HLSL, GLSL, GLSL ES, MSL etc)
 >- Mac (metal)
+>
+> When I've gotten through this list, then the library is close to `1.0`
 
 >[!WARNING]
 >As this is a beta test version, changes to the API will probably happen. I'll try to document all the changes when I officially go from Beta 1 to Beta 2.
