@@ -143,7 +143,7 @@ cocoa_init :: proc(
 			},
 		},
 		"Karl2DWindowDelegate",
-		context
+		context,
 	)
 
 	s.window->setDelegate(window_delegates)
@@ -328,7 +328,7 @@ cocoa_set_window_mode :: proc(window_mode: Window_Mode) {
 		ce.Application_setPresentationOptions(s.app, {.HideMenuBar, .HideDock})
 
 		// same as frame() b/c no decorations, but semantically more correct
-		content_rect := s.window->contentLayoutRect()
+		s.window->contentLayoutRect()
 		s.width = int(screen_frame.width)
 		s.height = int(screen_frame.height)
 	}

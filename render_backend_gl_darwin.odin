@@ -3,7 +3,6 @@
 package karl2d
 
 import "core:os"
-import NS "core:sys/darwin/Foundation"
 import gl "vendor:OpenGL"
 import "darwin/nsgl"
 import "log"
