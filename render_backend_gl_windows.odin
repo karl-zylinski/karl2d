@@ -7,8 +7,8 @@ import gl "vendor:OpenGL"
 import "log"
 
 GL_Context :: struct {
-	hglrc: win32.HGLRC,
-	hwnd: win32.HWND
+	gl_ctx: win32.HGLRC,
+	window_device_context: win32.HDC,
 }
 
 _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
@@ -69,14 +69,17 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	}
 
 	win32.SetPixelFormat(hdc, pixel_format, nil)
-	hglrc := win32.wglCreateContextAttribsARB(hdc, nil, nil)
-	win32.wglMakeCurrent(hdc, hglrc)
+	gl_ctx := win32.wglCreateContextAttribsARB(hdc, nil, nil)
+	win32.wglMakeCurrent(hdc, gl_ctx)
 	win32.wglSwapIntervalEXT(1)
-	return {hglrc, hwnd}, true
+	return {
+		gl_ctx = gl_ctx,
+		window_device_context = hdc,
+	}, true
 }
 
 _gl_destroy_context :: proc(ctx: GL_Context) {
-	win32.wglDeleteContext(ctx.hglrc)
+	win32.wglDeleteContext(ctx.gl_ctx)
 }
 
 _gl_load_procs :: proc() {
@@ -84,8 +87,7 @@ _gl_load_procs :: proc() {
 }
 
 _gl_present :: proc(ctx: GL_Context) {
-	hdc := win32.GetWindowDC(ctx.hwnd)
-	win32.SwapBuffers(hdc)
+	win32.SwapBuffers(ctx.window_device_context)
 }
 
 _gl_context_viewport_resized :: proc(_: GL_Context) {}

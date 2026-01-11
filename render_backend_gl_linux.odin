@@ -68,8 +68,7 @@ _gl_load_procs :: proc() {
 }
 
 _gl_present :: proc(ctx: GL_Context) {
-	whl := (^Window_Handle_Linux)(ctx.window_handle)
-	glx.SwapBuffers(whl.display, whl.window)
+	glx.SwapBuffers(ctx.window_handle.display, ctx.window_handle.window)
 }
 
 _gl_context_viewport_resized :: proc(_: GL_Context) {}

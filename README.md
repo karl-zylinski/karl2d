@@ -43,10 +43,13 @@ This first beta has these features:
 
 >[!WARNING]
 >This first beta does NOT have the following features, but they are planned in the order stated:
->- Linux
+>- Linux & Mac (gl)
 >- Sound
->- System for cross-compiling shaders between different backends (HLSL, GLSL etc)
+>- Rendering improvements (better system for dividing things into draw calls)
+>- System for cross-compiling shaders between different backends (HLSL, GLSL, GLSL ES, MSL etc)
 >- Mac (metal)
+>
+> When I've gotten through this list, then the library is close to `1.0`
 
 >[!WARNING]
 >As this is a beta test version, changes to the API will probably happen. I'll try to document all the changes when I officially go from Beta 1 to Beta 2.
@@ -85,7 +88,7 @@ The web build will end up in `your_game_path/bin/web`.
 
 It requires that you game contains a `init` procedure and a `step` procedure. The `init` procedure is called once on startup and the `step` procedure will be called every frame of your game.
 
-Also, see the `minimal_web` example: https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_web/minimal_web.odin
+Also, see the `minimal_hello_world_web` example: https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_hello_world_web/minimal_hello_world_web.odin
 
 The `build_web` tool will copy `odin.js` file from `<odin>/core/sys/wasm/js/odin.js` into the `bin/web folder`. It will also copy a HTML index file into that folder.
 
