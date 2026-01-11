@@ -33,7 +33,7 @@
 				},
 				{
 					"name": "basics",
-					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:minimal.exe",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:basics.exe",
 					"working_dir": "$project_path/../examples/basics",
 				},
 				{

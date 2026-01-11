@@ -161,7 +161,7 @@ gl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 }
 
 gl_present :: proc() {
-	_gl_present(s.window_handle)
+	_gl_present(s.ctx)
 }
 
 gl_draw :: proc(
