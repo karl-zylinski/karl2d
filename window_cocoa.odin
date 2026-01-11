@@ -322,23 +322,20 @@ cocoa_set_window_mode :: proc(window_mode: Window_Mode) {
 
 	old_mode := s.window_mode
 	s.window_mode = window_mode
+	style := NS.WindowStyleMaskTitled | NS.WindowStyleMaskClosable | NS.WindowStyleMaskMiniaturizable
 
 	switch window_mode {
-	case .Windowed:
-		if old_mode == .Borderless_Fullscreen {
-			s.window->setFrame(s.windowed_rect, true)
-			ce.Application_setPresentationOptions(s.app, {})
-		}
-		style := NS.WindowStyleMaskTitled | NS.WindowStyleMaskClosable | NS.WindowStyleMaskMiniaturizable
-		s.window->setStyleMask(style)
-
 	case .Windowed_Resizable:
+		style |= NS.WindowStyleMaskResizable
+		fallthrough
+
+	case .Windowed:
+		s.window->setStyleMask(style)
 		if old_mode == .Borderless_Fullscreen {
+			s.window->setLevel(.Normal)
 			s.window->setFrame(s.windowed_rect, true)
 			ce.Application_setPresentationOptions(s.app, {})
 		}
-		style := NS.WindowStyleMaskTitled | NS.WindowStyleMaskClosable | NS.WindowStyleMaskMiniaturizable | NS.WindowStyleMaskResizable
-		s.window->setStyleMask(style)
 
 	case .Borderless_Fullscreen:
 		s.windowed_rect = s.window->frame()
