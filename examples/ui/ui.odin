@@ -4,6 +4,8 @@ package karl2d_ui_example
 
 import k2 "../.."
 import "core:fmt"
+import "core:math/rand"
+import "core:math"
 
 Rect :: k2.Rect
 Vec2 :: k2.Vec2
@@ -11,17 +13,28 @@ Vec2 :: k2.Vec2
 main :: proc() {
 	k2.init(1280, 720, "Karl2D: Simple UI")
 	button_click_count: int
+	random_numbers: [dynamic]int
 
 	for k2.update() {
 		k2.clear(k2.LIGHT_BLUE)
 
 		if button({10, 10, 200, 40}, "Click Me") {
 			button_click_count += 1
+			sz := rand.int_max(9) + 1
+			append(&random_numbers, rand.int_max(int(math.pow(f32(10), f32(sz)))))
 		}
 
 		k2.draw_text(fmt.tprintf("Button has been clicked %v times", button_click_count), {300, 15}, 30)
-		k2.present()
 
+		numbers_bg_rect := Rect { 10, 100, 400, f32(len(random_numbers) * 30)}
+		k2.draw_rect(numbers_bg_rect, k2.LIGHT_GREEN)
+		k2.draw_rect_outline(numbers_bg_rect, 1, k2.BLACK)
+
+		for n, idx in random_numbers {
+			k2.draw_text(fmt.tprint(n), {10, 100 + f32(idx) * 30}, 30)
+		}
+
+		k2.present()
 		free_all(context.temp_allocator)
 	}
 
