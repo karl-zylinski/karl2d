@@ -91,7 +91,9 @@ cocoa_init :: proc(
 		size = {NS.Float(screen_width), NS.Float(screen_height)},
 	}
 	s.window = NS.Window_alloc()
-	s.window = s.window->initWithContentRect(rect, {}, .Buffered, false)
+
+	style := NS.WindowStyleMaskTitled | NS.WindowStyleMaskClosable | NS.WindowStyleMaskMiniaturizable
+	s.window = s.window->initWithContentRect(rect, style, .Buffered, false)
 	s.windowed_rect = rect
 
 	title_str := NS.String_alloc()->initWithOdinString(window_title)
@@ -328,9 +330,9 @@ cocoa_set_window_mode :: proc(window_mode: Window_Mode) {
 		ce.Application_setPresentationOptions(s.app, {.HideMenuBar, .HideDock})
 
 		// same as frame() b/c no decorations, but semantically more correct
-		s.window->contentLayoutRect()
-		s.width = int(screen_frame.width)
-		s.height = int(screen_frame.height)
+		content_rect := s.window->contentLayoutRect()
+		s.width = int(content_rect.width)
+		s.height = int(content_rect.height)
 	}
 }
 

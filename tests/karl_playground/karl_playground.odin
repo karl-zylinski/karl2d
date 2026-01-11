@@ -11,7 +11,7 @@ tex: k2.Texture
 
 init :: proc() {
 	k2.init(1080, 1080, "Karl2D Minimal Program", options = {
-		window_mode = .Windowed,
+		window_mode = .Windowed_Resizable,
 	})
 
 	// Note that we #load the texture: This bakes it into the program's data. WASM has no filesystem
