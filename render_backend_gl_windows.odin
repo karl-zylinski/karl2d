@@ -16,7 +16,7 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 		nVersion = 1,
 		dwFlags = win32.PFD_DRAW_TO_WINDOW | win32.PFD_SUPPORT_OPENGL | win32.PFD_DOUBLEBUFFER,
 		iPixelType = win32.PFD_TYPE_RGBA,
-		cColorBits = 32,
+		cColorBits = 32, 
 		iLayerType = win32.PFD_MAIN_PLANE,
 	}
 

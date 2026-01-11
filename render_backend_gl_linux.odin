@@ -29,7 +29,7 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 
 	num_fbc: i32
 	fbc := glx.ChooseFBConfig(whl.display, whl.screen, raw_data(visual_attribs), &num_fbc)
-
+   
 	if fbc == nil {
 		log.error("Failed choosing GLX framebuffer config")
 		return {}, false
@@ -37,7 +37,7 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 
 	glxCreateContextAttribsARB: glx.CreateContextAttribsARBProc
 	glx.SetProcAddress((rawptr)(&glxCreateContextAttribsARB), "glXCreateContextAttribsARB")
-
+	
 	if glxCreateContextAttribsARB == {} {
 		log.error("Failed fetching glXCreateContextAttribsARB")
 		return {}, false
