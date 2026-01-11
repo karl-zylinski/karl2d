@@ -56,10 +56,7 @@ This first beta has these features:
 
 ## Feedback wanted
 Here are some things I want to get feedback on during this first beta:
-- Is the `k2.new_frame()` concept OK? It sets the "frame time" and clears some frame-specific state. I was thinking of merging `new_frame()` and `process_events()`,
-  but something tells me that some people may want to move their event processing around. Initially
-  I was toying with the idea to have the user use `core:time` and figure out `dt` etc themselves,
-  but that was not good for first-user experience.
+- Please try making a small game. If you find anything that is missing, then [please make an issue](https://github.com/karl-zylinski/karl2d/issues).
 
 - How do people think that DPI scaling should work? I've had bad experiences with high DPI mode
   Raylib. So I've gone for an idea where you always get everything in native coords and then you
