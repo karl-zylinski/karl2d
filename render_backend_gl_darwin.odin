@@ -11,22 +11,20 @@ import "log"
 GL_Context :: ^nsgl.OpenGLContext
 
 _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
-	using nsgl
-
 	// Create pixel format attributes (null-terminated array)
 	attrs := [?]u32 {
-		OpenGLPFADoubleBuffer,
-		OpenGLPFAColorSize, 24,
-		OpenGLPFAAlphaSize, 8,
-		OpenGLPFADepthSize, 24,
-		OpenGLPFAAccelerated,
-		OpenGLPFANoRecovery,
-		OpenGLPFAOpenGLProfile, OpenGLProfileVersion3_2Core,
+		nsgl.OpenGLPFADoubleBuffer,
+		nsgl.OpenGLPFAColorSize, 24,
+		nsgl.OpenGLPFAAlphaSize, 8,
+		nsgl.OpenGLPFADepthSize, 24,
+		nsgl.OpenGLPFAAccelerated,
+		nsgl.OpenGLPFANoRecovery,
+		nsgl.OpenGLPFAOpenGLProfile, nsgl.OpenGLProfileVersion3_2Core,
 		0, // Terminator
 	}
 
 	// Create pixel format
-	pixel_format := OpenGLPixelFormat_alloc()
+	pixel_format := nsgl.OpenGLPixelFormat_alloc()
 	pixel_format = pixel_format->initWithAttributes(raw_data(attrs[:]))
 
 	if pixel_format == nil {
@@ -35,7 +33,7 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	}
 
 	// Create OpenGL context
-	opengl_context := OpenGLContext_alloc()
+	opengl_context := nsgl.OpenGLContext_alloc()
 	opengl_context = opengl_context->initWithFormat(pixel_format, nil)
 
 	if opengl_context == nil {
@@ -48,14 +46,14 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	// TODO: we should fix this, but will need to decide on how to handle HiDPI
 	wh := (Window_Handle_Darwin)(window_handle)
 	view := wh->contentView()
-	View_setWantsBestResolutionOpenGLSurface(view, false)
+	nsgl.View_setWantsBestResolutionOpenGLSurface(view, false)
 
 	opengl_context->setView(view)
 	opengl_context->makeCurrentContext()
 
 	// Enable vsync
 	swap_interval := [1]i32{1}
-	opengl_context->setValues(raw_data(swap_interval[:]), OpenGLContextParameterSwapInterval)
+	opengl_context->setValues(raw_data(swap_interval[:]), nsgl.OpenGLContextParameterSwapInterval)
 
 	return opengl_context, true
 }
