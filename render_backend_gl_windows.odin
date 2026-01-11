@@ -12,14 +12,15 @@ GL_Context :: struct {
 }
 
 _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
-	hdc := win32.GetWindowDC(win32.HWND(window_handle))
+	hwnd := win32.HWND(window_handle)
+	hdc := win32.GetWindowDC(hwnd)
 
 	pfd := win32.PIXELFORMATDESCRIPTOR {
 		nSize = size_of(win32.PIXELFORMATDESCRIPTOR),
 		nVersion = 1,
 		dwFlags = win32.PFD_DRAW_TO_WINDOW | win32.PFD_SUPPORT_OPENGL | win32.PFD_DOUBLEBUFFER,
 		iPixelType = win32.PFD_TYPE_RGBA,
-		cColorBits = 32, 
+		cColorBits = 32,
 		iLayerType = win32.PFD_MAIN_PLANE,
 	}
 
@@ -88,3 +89,5 @@ _gl_load_procs :: proc() {
 _gl_present :: proc(ctx: GL_Context) {
 	win32.SwapBuffers(ctx.window_device_context)
 }
+
+_gl_context_viewport_resized :: proc(_: GL_Context) {}
