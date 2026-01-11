@@ -68,7 +68,6 @@ cocoa_init :: proc(
 	s.events = make([dynamic]Window_Event, allocator)
 	s.width = screen_width
 	s.height = screen_height
-	s.window_mode = init_options.window_mode
 
 	// Initialize NSApplication
 	s.app = NS.Application_sharedApplication()
@@ -86,24 +85,14 @@ cocoa_init :: proc(
 	app_menu_item->setSubmenu(app_menu)
 	s.app->setAppleMenu(app_menu)
 
-	// Activate the application
-	s.app->activateIgnoringOtherApps(true)
-	s.app->finishLaunching()
-
-
-	// Create window style based on mode
-	style := NS.WindowStyleMaskTitled | NS.WindowStyleMaskClosable | NS.WindowStyleMaskMiniaturizable
-	if init_options.window_mode == .Windowed_Resizable {
-		style |= NS.WindowStyleMaskResizable
-	}
-
 	// Create the window
 	rect := NS.Rect {
 		origin = {0, 0},
 		size = {NS.Float(screen_width), NS.Float(screen_height)},
 	}
 	s.window = NS.Window_alloc()
-	s.window = s.window->initWithContentRect(rect, style, .Buffered, false)
+	s.window = s.window->initWithContentRect(rect, {}, .Buffered, false)
+	s.windowed_rect = rect
 
 	title_str := NS.String_alloc()->initWithOdinString(window_title)
 	s.window->setTitle(title_str)
@@ -111,19 +100,12 @@ cocoa_init :: proc(
 	s.window->center()
 	s.window->setAcceptsMouseMovedEvents(true)
 	s.window->makeKeyAndOrderFront(nil)
-
-	s.windowed_rect = s.window->frame()
-
-	// Now that we've recorded the starting rect, we can go fullscreen
-	if init_options.window_mode == .Borderless_Fullscreen {
-		s.window->setStyleMask({})
-		screen_frame := NS.Screen_mainScreen()->frame()
-		s.window->setFrame(screen_frame, true)
-		s.window->setLevel(.Status)
-		ce.Application_setPresentationOptions(s.app, {.HideMenuBar, .HideDock})
-	}
-
 	s.window_handle = s.window
+	cocoa_set_window_mode(init_options.window_mode)
+
+	// Activate the application
+	s.app->activateIgnoringOtherApps(true)
+	s.app->finishLaunching()
 
 	// Setup delegates for events not handled in cocoa_process_events
 	window_delegates := NS.window_delegate_register_and_alloc(
@@ -344,6 +326,11 @@ cocoa_set_window_mode :: proc(window_mode: Window_Mode) {
 		s.window->setFrame(screen_frame, true)
 		s.window->setLevel(.Normal)
 		ce.Application_setPresentationOptions(s.app, {.HideMenuBar, .HideDock})
+
+		// same as frame() b/c no decorations, but semantically more correct
+		content_rect := s.window->contentLayoutRect()
+		s.width = int(screen_frame.width)
+		s.height = int(screen_frame.height)
 	}
 }
 
