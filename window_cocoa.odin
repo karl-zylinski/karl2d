@@ -101,6 +101,9 @@ cocoa_init :: proc(
 	s.window->setAcceptsMouseMovedEvents(true)
 	s.window->makeKeyAndOrderFront(nil)
 	s.window_handle = s.window
+
+	// for init onlny, ensure window_mode differs so set_window_mode actually applies the style
+	s.window_mode = .Borderless_Fullscreen if init_options.window_mode != .Borderless_Fullscreen else .Windowed
 	cocoa_set_window_mode(init_options.window_mode)
 
 	// Activate the application
