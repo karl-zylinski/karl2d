@@ -65,7 +65,7 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	return opengl_context, true
 }
 
-_gl_destroy_context :: proc(ctx: GL_Context) {
+_gl_destroy_context :: proc(_: GL_Context) {
 	nsgl.OpenGLContext_clearCurrentContext()
 }
 

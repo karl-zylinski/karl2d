@@ -4,6 +4,7 @@
 package karl2d
 
 import NS "core:sys/darwin/Foundation"
+import ce "darwin/cocoa_extras"
 import "base:runtime"
 
 @(private="package")
@@ -40,8 +41,7 @@ Cocoa_State :: struct {
 
 	width:            int,
 	height:           int,
-	windowed_width:   int,
-	windowed_height:  int,
+	windowed_rect:    NS.Rect,
 	events:           [dynamic]Window_Event,
 
 	window_handle:    Window_Handle_Darwin,
@@ -66,8 +66,6 @@ cocoa_init :: proc(
 	s = (^Cocoa_State)(window_state)
 	s.allocator = allocator
 	s.events = make([dynamic]Window_Event, allocator)
-	s.windowed_width = screen_width
-	s.windowed_height = screen_height
 	s.width = screen_width
 	s.height = screen_height
 	s.window_mode = init_options.window_mode
@@ -78,16 +76,12 @@ cocoa_init :: proc(
 
 	NS.scoped_autoreleasepool()
 
+	// Menu bar, needed for manually quitting
 	menu_bar := NS.Menu_alloc()->init()
 	s.app->setMainMenu(menu_bar)
 	app_menu_item := menu_bar->addItemWithTitle(NS.AT(""), nil, NS.AT(""))
+
 	app_menu := NS.Menu_alloc()->init()
-	fullscreen_item := app_menu->addItemWithTitle(NS.AT("Enter Full Screen"), NS.sel_registerName(cstring("toggleFullScreen:")), NS.AT("f"))
-
-	// Change keyboard shortcut for fullscreen to Ctrl-Cmd-F
-	new_mask := NS.EventModifierFlagControl | NS.EventModifierFlagCommand
-	fullscreen_item->setKeyEquivalentModifierMask(new_mask)
-
 	app_menu->addItemWithTitle(NS.AT("Quit"), NS.sel_registerName(cstring("terminate:")), NS.AT("q"))
 	app_menu_item->setSubmenu(app_menu)
 	s.app->setAppleMenu(app_menu)
@@ -118,12 +112,23 @@ cocoa_init :: proc(
 	s.window->setAcceptsMouseMovedEvents(true)
 	s.window->makeKeyAndOrderFront(nil)
 
+	s.windowed_rect = s.window->frame()
+
+	// Now that we've recorded the starting rect, we can go fullscreen
+	if init_options.window_mode == .Borderless_Fullscreen {
+		s.window->setStyleMask({})
+		screen_frame := NS.Screen_mainScreen()->frame()
+		s.window->setFrame(screen_frame, true)
+		s.window->setLevel(.Status)
+		ce.Application_setPresentationOptions(s.app, {.HideMenuBar, .HideDock})
+	}
+
 	s.window_handle = s.window
 
 	// Setup delegates for events not handled in cocoa_process_events
 	window_delegates := NS.window_delegate_register_and_alloc(
 		NS.WindowDelegateTemplate{
-			windowDidResize = proc(notification: ^NS.Notification) {
+			windowDidResize = proc(_: ^NS.Notification) {
 				content_rect := s.window->contentLayoutRect()
 				new_width := int(content_rect.size.width)
 				new_height := int(content_rect.size.height)
@@ -132,8 +137,7 @@ cocoa_init :: proc(
 					s.width = new_width
 					s.height = new_height
 					if s.window_mode != .Borderless_Fullscreen {
-						s.windowed_width = new_width
-						s.windowed_height = new_height
+						s.windowed_rect = content_rect
 					}
 					append(&s.events, Window_Event_Resize{
 						width = new_width,
@@ -141,10 +145,20 @@ cocoa_init :: proc(
 					})
 				}
 			},
-			windowShouldClose = proc(window: ^NS.Window) -> bool {
+
+			windowShouldClose = proc(_: ^NS.Window) -> bool {
 				append(&s.events, Window_Event_Close_Wanted{})
 				return true
-			}
+			},
+
+			// Focus and unfocus events
+			windowDidBecomeKey = proc(_: ^NS.Notification) {
+				append(&s.events, Window_Event_Focused{})
+			},
+
+			windowDidResignKey = proc(_: ^NS.Notification) {
+				append(&s.events, Window_Event_Unfocused{})
+			},
 		},
 		"Karl2DWindowDelegate",
 		context
@@ -312,20 +326,27 @@ cocoa_set_window_mode :: proc(window_mode: Window_Mode) {
 	switch window_mode {
 	case .Windowed:
 		if old_mode == .Borderless_Fullscreen {
-			s.window->toggleFullScreen(nil)
+			s.window->setFrame(s.windowed_rect, true)
+			ce.Application_setPresentationOptions(s.app, {})
 		}
 		style := NS.WindowStyleMaskTitled | NS.WindowStyleMaskClosable | NS.WindowStyleMaskMiniaturizable
 		s.window->setStyleMask(style)
 
 	case .Windowed_Resizable:
 		if old_mode == .Borderless_Fullscreen {
-			s.window->toggleFullScreen(nil)
+			s.window->setFrame(s.windowed_rect, true)
+			ce.Application_setPresentationOptions(s.app, {})
 		}
 		style := NS.WindowStyleMaskTitled | NS.WindowStyleMaskClosable | NS.WindowStyleMaskMiniaturizable | NS.WindowStyleMaskResizable
 		s.window->setStyleMask(style)
 
 	case .Borderless_Fullscreen:
-		s.window->toggleFullScreen(nil)
+		s.windowed_rect = s.window->frame()
+		s.window->setStyleMask({})
+		screen_frame := NS.Screen_mainScreen()->frame()
+		s.window->setFrame(screen_frame, true)
+		s.window->setLevel(.Status)
+		ce.Application_setPresentationOptions(s.app, {.HideMenuBar, .HideDock})
 	}
 }
 
