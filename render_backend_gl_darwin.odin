@@ -10,9 +10,6 @@ import "log"
 
 GL_Context :: ^nsgl.OpenGLContext
 
-@private
-gl_context: ^nsgl.OpenGLContext
-
 _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	using nsgl
 
@@ -60,8 +57,6 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	swap_interval := [1]i32{1}
 	opengl_context->setValues(raw_data(swap_interval[:]), OpenGLContextParameterSwapInterval)
 
-	gl_context = opengl_context
-
 	return opengl_context, true
 }
 
@@ -83,10 +78,10 @@ macos_gl_set_proc_address :: proc(p: rawptr, name: cstring) {
 	(^rawptr)(p)^ = os._unix_dlsym(RTLD_DEFAULT, name)
 }
 
-_gl_present :: proc(_: Window_Handle) {
-	gl_context->flushBuffer()
+_gl_present :: proc(ctx: GL_Context) {
+	ctx->flushBuffer()
 }
 
-_gl_context_viewport_resized :: proc(_: Window_Handle) {
-	gl_context->update()
+_gl_context_viewport_resized :: proc(ctx: GL_Context) {
+	ctx->update()
 }

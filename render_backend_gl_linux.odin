@@ -67,9 +67,9 @@ _gl_load_procs :: proc() {
 	gl.load_up_to(3, 3, glx.SetProcAddress)
 }
 
-_gl_present :: proc(window_handle: Window_Handle) {
-	whl := (^Window_Handle_Linux)(window_handle)
+_gl_present :: proc(ctx: GL_Context) {
+	whl := (^Window_Handle_Linux)(ctx.window_handle)
 	glx.SwapBuffers(whl.display, whl.window)
 }
 
-_gl_context_viewport_resized :: proc(window_handle: Window_Handle) {}
+_gl_context_viewport_resized :: proc(_: GL_Context) {}
