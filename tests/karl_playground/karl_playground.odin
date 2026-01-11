@@ -10,8 +10,8 @@ _ :: fmt
 tex: k2.Texture
 
 init :: proc() {
-	k2.init(1080, 1080, "Karl2D Minimal Program", options = {
-		window_mode = .Windowed,
+	k2.init(500, 500, "Karl2D Minimal Program", options = {
+		window_mode = .Borderless_Fullscreen,
 	})
 
 	// Note that we #load the texture: This bakes it into the program's data. WASM has no filesystem
