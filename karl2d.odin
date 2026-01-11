@@ -905,6 +905,9 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 
 	font := s.fonts[font_handle]
 
+	// Temporary until I rewrite the font caching system.
+	_set_font(font_handle)
+
 	// TextBounds from fontstash, but fixed and simplified for my purposes.
 	// The version in there is broken.
 	TextBounds :: proc(
@@ -935,8 +938,8 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 				if glyph.xadvance > 0 {
 					x += f32(int(f32(glyph.xadvance) / 10 + 0.5))
 				} else {
+					// updates x
 					fs.__getQuad(ctx, font, previousGlyphIndex, glyph, scale, 0, &x, &y, &quad)
-					x += quad.x1 - quad.x0
 				}
 
 				if x > max_x {
