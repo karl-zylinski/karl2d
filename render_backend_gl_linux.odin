@@ -48,12 +48,11 @@ _gl_destroy_context :: proc(ctx: GL_Context) {
     }
 }
 
-_gl_load_procs :: proc(window_handle: Window_Handle) {
-	handle := (^Window_Handle_Linux)(window_handle)
-    switch whl in handle {
-    case Window_Handle_Linux_X11:
+_gl_load_procs :: proc(ctx: GL_Context) {
+    switch _ in ctx {
+    case GL_Context_GLX:
         gl.load_up_to(3, 3, glx.SetProcAddress)
-    case Window_Handle_Linux_Wayland:
+    case GL_Context_EGL:
 	    gl.load_up_to(3, 3, egl.gl_set_proc_address)
     }
 }
