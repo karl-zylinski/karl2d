@@ -4,6 +4,10 @@
 // web compatible. But I wanted to keep the `minimal_hello_world` example clean.
 //
 // The web compatibility comes from splitting the example up into `init` and `step`.
+//
+// Compile using command-line by going to the Karl2D repository root folder and executing:
+// `odin run build_web -- examples/minimal_hello_world_web`
+// The output will be in `examples/minimal_hello_world_web/bin/web`
 package karl2d_minimal_hello_world_web
 
 import k2 "../.."
