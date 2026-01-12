@@ -847,7 +847,7 @@ draw_triangle_strip :: proc(pos:Vec2, verts:[]Vec2 , origin: Vec2 = {0,0}, rot: 
 	}
 }
 
-draw_triangle_strip_ex :: proc(pos:Vec2, verts:[]Vertex, origin: Vec2 = {0,0}, rot: f32 = 0) {
+draw_triangle_strip_ex :: proc(pos:Vec2, verts:[]Vertex, origin: Vec2 = {0,0}, rot: f32 = 0, tex:Texture = {}) {
 	if !(len(verts)>2) {
 		// may want to asert this insted i am unsher
 		// need atlest 3 vertexes to draw a triangle
@@ -857,12 +857,20 @@ draw_triangle_strip_ex :: proc(pos:Vec2, verts:[]Vertex, origin: Vec2 = {0,0}, r
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 * len(verts) - 2 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
-
-	if s.batch_texture != s.shape_drawing_texture {
+	textuer :Texture
+	if tex == {}{
+		textuer.handle = s.shape_drawing_texture
+	}else{
+		textuer= tex
+	}
+	
+	if s.batch_texture != textuer.handle {
 		draw_current_batch()
 	}
+	
+	s.batch_texture = textuer.handle
 
-	s.batch_texture = s.shape_drawing_texture
+	// s.batch_texture = s.shape_drawing_texture
 	v0, v1, v2: Vec2
 	
 	for i := 2; i < len(verts); i += 1 { 
@@ -899,13 +907,13 @@ draw_triangle_strip_ex :: proc(pos:Vec2, verts:[]Vertex, origin: Vec2 = {0,0}, r
 		}
 		
 		if (i%2) == 0{
-			batch_vertex(v0, {0, 0}, verts[i-0].c)
-			batch_vertex(v1, {1, 1}, verts[i-1].c)
-			batch_vertex(v2, {0, 1}, verts[i-2].c)
+			batch_vertex(v0, verts[i-0].uv, verts[i-0].c)
+			batch_vertex(v1, verts[i-1].uv, verts[i-1].c)
+			batch_vertex(v2, verts[i-2].uv, verts[i-2].c)
 		}else{
-			batch_vertex(v0, {0, 0}, verts[i-0].c)
-			batch_vertex(v2, {0, 1}, verts[i-2].c)
-			batch_vertex(v1, {1, 1}, verts[i-1].c)
+			batch_vertex(v0, verts[i-0].uv, verts[i-0].c)
+			batch_vertex(v2, verts[i-2].uv, verts[i-2].c)
+			batch_vertex(v1, verts[i-1].uv, verts[i-1].c)
 		}
 	}
 }
