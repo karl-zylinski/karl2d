@@ -32,6 +32,8 @@ _gl_present :: proc(ctx: GL_Context) {
     wayland_gl_present(ctx)
 }
 
+_gl_context_viewport_resized :: proc(ctx: GL_Context) {}
+
 
 import "core:fmt"
 

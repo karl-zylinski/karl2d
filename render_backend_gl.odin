@@ -343,6 +343,7 @@ gl_resize_swapchain :: proc(w, h: int) {
 	s.width = w
 	s.height = h
 	gl.Viewport(0, 0, i32(w), i32(h))
+	_gl_context_viewport_resized(s.ctx)
 }
 
 gl_get_swapchain_width :: proc() -> int {

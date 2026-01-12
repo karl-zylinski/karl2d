@@ -43,20 +43,20 @@ This first beta has these features:
 
 >[!WARNING]
 >This first beta does NOT have the following features, but they are planned in the order stated:
->- Linux
+>- Linux & Mac with gl rendering (this is actually half-supported now, but not final yet)
 >- Sound
->- System for cross-compiling shaders between different backends (HLSL, GLSL etc)
+>- Rendering improvements (better system for dividing things into draw calls)
+>- System for cross-compiling shaders between different backends (HLSL, GLSL, GLSL ES, MSL etc)
 >- Mac (metal)
+>
+> When I've gotten through this list, then the library is close to `1.0`
 
 >[!WARNING]
 >As this is a beta test version, changes to the API will probably happen. I'll try to document all the changes when I officially go from Beta 1 to Beta 2.
 
 ## Feedback wanted
 Here are some things I want to get feedback on during this first beta:
-- Is the `k2.new_frame()` concept OK? It sets the "frame time" and clears some frame-specific state. I was thinking of merging `new_frame()` and `process_events()`,
-  but something tells me that some people may want to move their event processing around. Initially
-  I was toying with the idea to have the user use `core:time` and figure out `dt` etc themselves,
-  but that was not good for first-user experience.
+- Please try making a small game. If you find anything that is missing, then [please make an issue](https://github.com/karl-zylinski/karl2d/issues).
 
 - How do people think that DPI scaling should work? I've had bad experiences with high DPI mode
   Raylib. So I've gone for an idea where you always get everything in native coords and then you
@@ -85,7 +85,7 @@ The web build will end up in `your_game_path/bin/web`.
 
 It requires that you game contains a `init` procedure and a `step` procedure. The `init` procedure is called once on startup and the `step` procedure will be called every frame of your game.
 
-Also, see the `minimal_web` example: https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_web/minimal_web.odin
+Also, see the `minimal_hello_world_web` example: https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_hello_world_web/minimal_hello_world_web.odin
 
 The `build_web` tool will copy `odin.js` file from `<odin>/core/sys/wasm/js/odin.js` into the `bin/web folder`. It will also copy a HTML index file into that folder.
 

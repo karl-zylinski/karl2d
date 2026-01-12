@@ -456,6 +456,9 @@ world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
 //    inv_offset_translate * inv_scale * inv_rot * inv_target_translate
 //
 // This is faster, since matrix inverses are expensive.
+//
+// The view matrix is a Mat4 because its easier to upload a Mat4 to the GPU. But only the upper-left
+// 3x3 matrix is actually used.
 get_camera_view_matrix :: proc(c: Camera) -> Mat4
 
 // Get the matrix that brings something in front of the camera.

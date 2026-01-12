@@ -8,23 +8,40 @@ on:
   schedule:
     - cron: 0 20 * * *
 
-
 jobs:
-  build_windows:
-    name: Windows
-    runs-on: windows-latest
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
     steps:
       - uses: laytan/setup-odin@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           release: nightly
-          
-      - uses: actions/checkout@v4
 
+      - name: Install lld (macos)
+        if: matrix.os == 'macos-latest'
+        run: brew install lld
+
+      - name: Install lld (ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y lld
+
+      - name: Compile STB libraries (ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: make -C "$HOME/odin/vendor/stb/src"
+
+      - name: Compile box2d libraries (ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: $HOME/odin/vendor/box2d/build_box2d.sh
+
+      - uses: actions/checkout@v4
 
       - name: verify karl2d.doc.odin
         run: odin run api_verifier
-
 
       - name: minimal_hello_world
         run: odin check examples/minimal_hello_world -vet -strict-style
@@ -50,7 +67,6 @@ jobs:
       - name: minimal_hello_world (web, debug)
         run: odin run build_web -vet -strict-style -- examples/minimal_hello_world_web -debug
 
-
       - name: basics
         run: odin check examples/basics -vet -strict-style
 
@@ -74,7 +90,6 @@ jobs:
 
       - name: basics (web, debug)
         run: odin run build_web -vet -strict-style -- examples/basics -debug
-
 
       - name: fonts
         run: odin check examples/fonts -vet -strict-style
@@ -100,7 +115,6 @@ jobs:
       - name: fonts (web, debug)
         run: odin run build_web -vet -strict-style -- examples/fonts -debug
 
-
       - name: render_texture
         run: odin check examples/render_texture -vet -strict-style
 
@@ -124,7 +138,6 @@ jobs:
 
       - name: render_texture (web, debug)
         run: odin run build_web -vet -strict-style -- examples/render_texture -debug
-
 
       - name: multitexture
         run: odin check examples/multitexture -vet -strict-style
@@ -150,8 +163,6 @@ jobs:
       - name: multitexture (web, debug)
         run: odin run build_web -vet -strict-style -- examples/multitexture -debug
 
-
-
       - name: snake
         run: odin check examples/snake -vet -strict-style
 
@@ -175,8 +186,6 @@ jobs:
 
       - name: snake (web, debug)
         run: odin run build_web -vet -strict-style -- examples/snake -debug
-
-
 
       - name: box2d
         run: odin check examples/box2d -vet -strict-style
@@ -202,8 +211,6 @@ jobs:
       - name: box2d (web, debug)
         run: odin run build_web -vet -strict-style -- examples/box2d -debug
 
-
-
       - name: premultiplied_alpha
         run: odin check examples/premultiplied_alpha -vet -strict-style
 
@@ -221,8 +228,6 @@ jobs:
 
       - name: premultiplied_alpha (nil, debug)
         run: odin check examples/premultiplied_alpha -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-
 
       - name: camera
         run: odin check examples/camera -vet -strict-style
@@ -242,9 +247,6 @@ jobs:
       - name: camera (nil, debug)
         run: odin check examples/camera -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
-
-
-
       - name: raylib_ports/shaders_texture_waves
         run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style
 
@@ -262,7 +264,6 @@ jobs:
 
       - name: raylib_ports/shaders_texture_waves (nil, debug)
         run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
 
       - name: raylib_ports/bunnymark
         run: odin check examples/raylib_ports/bunnymark -vet -strict-style
@@ -288,8 +289,6 @@ jobs:
       - name: raylib_ports/bunnymark (web, debug)
         run: odin run build_web -vet -strict-style -- examples/raylib_ports/bunnymark -debug
 
-
-
       - name: mouse
         run: odin check examples/mouse -vet -strict-style
 
@@ -313,8 +312,6 @@ jobs:
 
       - name: mouse (web, debug)
         run: odin run build_web -vet -strict-style -- examples/mouse -debug
-
-
 
       - name: gamepad
         run: odin check examples/gamepad -vet -strict-style
@@ -340,8 +337,6 @@ jobs:
       - name: gamepad (web, debug)
         run: odin run build_web -vet -strict-style -- examples/gamepad -debug
 
-
-
       - name: palette
         run: odin check examples/palette -vet -strict-style
 
@@ -365,4 +360,3 @@ jobs:
 
       - name: palette (web, debug)
         run: odin run build_web -vet -strict-style -- examples/palette -debug
-
