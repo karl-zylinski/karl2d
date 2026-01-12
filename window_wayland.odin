@@ -10,6 +10,7 @@ WINDOW_INTERFACE_WAYLAND :: Window_Interface {
 	shutdown = wl_shutdown,
 	window_handle = wl_window_handle,
 	process_events = wl_process_events,
+	after_frame_present = wl_after_frame_present,
 	get_events = wl_get_events,
 	get_width = wl_get_width,
 	get_height = wl_get_height,
@@ -89,6 +90,14 @@ wl_init :: proc(
 					&wl.seat_interface,
 					version,
 				))
+
+			case wl.zxdg_decoration_manager_v1_interface.name:
+				s.decoration_manager = cast(^wl.zxdg_decoration_manager_v1)(wl.registry_bind(
+					registry,
+					name,
+					&wl.zxdg_decoration_manager_v1_interface,
+					version,
+			))
 			}
 		},
 	}
@@ -158,14 +167,33 @@ wl_init :: proc(
 	wl.add_listener(toplevel, &toplevel_listener, nil)
 	wl.add_listener(xdg_surface, &window_listener, nil)
 	wl.xdg_toplevel_set_title(toplevel, strings.clone_to_cstring(window_title))
+	
+
+    decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, toplevel)
+    wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
+
 	wl.surface_commit(s.surface)
+	wl.display_dispatch(s.display)
+
+
+	wl_callback := wl.wl_surface_frame(s.surface)
+	wl.wl_callback_add_listener(wl_callback, &frame_callback, nil)
 
 	s.window = wl.egl_window_create(s.surface, i32(s.windowed_width), i32(s.windowed_height))
 
 	s.window_handle = {
 		display = s.display,
 		window = s.window,
+		surface = s.surface,
 	}
+}
+
+
+@(private="package")
+frame_callback := wl.wl_callback_listener {
+	done = proc "c" (data: rawptr, wl_callback: ^wl.wl_callback, callback_data: c.uint32_t) {
+		wl.wl_callback_destroy(wl_callback)
+	},
 }
 
 toplevel_listener := wl.xdg_toplevel_listener {
@@ -206,8 +234,6 @@ window_listener := wl.xdg_surface_listener {
 		// context = runtime.default_context()
 		// fmt.println("window configure")
 		wl.xdg_surface_ack_configure(surface, serial)
-		wl.surface_damage(s.surface, 0, 0, i32(s.width), i32(s.height))
-		wl.surface_commit(s.surface)
 	},
 }
 
@@ -319,6 +345,10 @@ wl_window_handle :: proc() -> Window_Handle {
 wl_process_events :: proc() {
 }
 
+wl_after_frame_present :: proc() {
+	wl.display_dispatch(s.display)
+}
+
 key_from_xkeycode :: proc(kc: u32) -> Keyboard_Key {
 	if kc >= 255 {
 		return .None
@@ -399,6 +429,7 @@ WL_State :: struct {
 	surface: ^wl.Surface,
 	compositor: ^wl.Compositor,
 	window: ^wl.egl_window,
+	decoration_manager: ^wl.zxdg_decoration_manager_v1,
 
 	xdg_base: ^wl.XDG_WM_Base,
 	seat: ^wl.Seat,
@@ -414,6 +445,7 @@ WL_State :: struct {
 @(private="package")
 Window_Handle_Wayland :: struct {
 	display: ^wl.Display,
+	surface: ^wl.Surface,
 	window: ^wl.egl_window,
 }
 

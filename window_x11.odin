@@ -10,6 +10,7 @@ WINDOW_INTERFACE_X11 :: Window_Interface {
 	shutdown = x11_shutdown,
 	window_handle = x11_window_handle,
 	process_events = x11_process_events,
+	after_frame_present = x11_after_frame_present,
 	get_events = x11_get_events,
 	get_width = x11_get_width,
 	get_height = x11_get_height,
@@ -93,6 +94,10 @@ x11_shutdown :: proc() {
 
 x11_window_handle :: proc() -> Window_Handle {
 	return Window_Handle(&s.window_handle)
+}
+
+x11_after_frame_present :: proc() {
+	
 }
 
 x11_process_events :: proc() {

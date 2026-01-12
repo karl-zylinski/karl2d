@@ -5,7 +5,6 @@ package karl2d
 import gl "vendor:OpenGL"
 import "log"
 import "vendor:egl"
-//import wl "linux/wayland"
 
 _ :: log
 
@@ -109,6 +108,9 @@ wayland_gl_get_context :: proc(whw: Window_Handle_Wayland) -> (GL_Context, bool)
 
 wayland_gl_present :: proc(ctx: GL_Context) {
 	egl.SwapBuffers(ctx.egl_display, ctx.egl_surface)
-	//wl.display_dispatch(whw.display)
+
+    //wl.surface_damage(ctx.window_handle.surface, 0, 0, i32(500), i32(500))
+    //wl.surface_commit(ctx.window_handle.surface)
+	
 }
 
