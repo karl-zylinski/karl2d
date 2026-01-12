@@ -731,8 +731,9 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 	draw_rect_ex(r, origin, rot, color)
 }
 
+
 // Draw a triangle
-draw_triangle :: proc(pos:Vec2, verts:[3]Vec2 , origin: Vec2, rot: f32, c: Color) {
+draw_triangle :: proc(pos:Vec2, verts:[3]Vec2 , origin: Vec2, rot: f32, c: Color,  tex:Texture = {}) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
@@ -780,6 +781,75 @@ draw_triangle :: proc(pos:Vec2, verts:[3]Vec2 , origin: Vec2, rot: f32, c: Color
 	batch_vertex(v1, {1, 1}, c)
 	batch_vertex(v2, {0, 1}, c)
 }
+
+
+draw_triangle_ex :: proc(pos:Vec2, verts:[3]Vertex , origin: Vec2 = {}, rot: f32 = 0,tex:Texture = {}) {
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+	
+	textuer :Texture
+	if tex == {}{
+		textuer.handle = s.shape_drawing_texture
+	}else{
+		textuer= tex
+	}
+
+	if s.batch_texture != textuer.handle {
+		draw_current_batch()
+	}
+	
+	s.batch_texture = textuer.handle
+
+	v0, v1, v2: Vec2
+
+	// Rotation adapted from Raylib's "DrawTexturePro"
+	if rot == 0 {
+		x := pos.x - origin.x
+		y := pos.y - origin.y
+		v0 = { x+verts[0].v.x, y+verts[0].v.y }
+		v1 = { x+verts[1].v.x, y + verts[1].v.y}
+		v2 = { x+verts[2].v.x, y + verts[2].v.y }
+	} else {
+		sin_rot := math.sin(rot)
+		cos_rot := math.cos(rot)
+		x := pos.x
+		y := pos.y
+		dx := -origin.x
+		dy := -origin.y
+
+		v0 = {
+			x + (dx + verts[0].v.x) * cos_rot - (dy + verts[0].v.y) * sin_rot,
+			y + (dx + verts[0].v.x) * sin_rot + (dy + verts[0].v.y) * cos_rot,
+		}
+		
+		v1 = {
+			x + (dx + verts[1].v.x) * cos_rot - (dy + verts[1].v.y) * sin_rot,
+			y + (dx + verts[1].v.x) * sin_rot + (dy + verts[1].v.y) * cos_rot,
+		}
+
+		v2 = {
+			x + (dx + verts[2].v.x) * cos_rot - (dy + verts[2].v.y) * sin_rot,
+			y + (dx + verts[2].v.x) * sin_rot + (dy + verts[2].v.y) * cos_rot,
+		}
+		
+	}
+
+	batch_vertex(v0, verts[0].uv, verts[0].c)
+	batch_vertex(v1, verts[1].uv, verts[1].c)
+	batch_vertex(v2, verts[2].uv, verts[2].c)
+}
+
+// draw a oblong rectangle by declaring 4 vertexes
+// v0 = top left
+// v1 = top right
+// v2 = bot left
+// v3 = bot right
+draw_oblong :: proc(pos:Vec2, verts:[4]Vertex , origin: Vec2={}, rot: f32=0, tex:Texture = {}) {
+	draw_triangle_ex(pos,{verts[0],verts[1],verts[3]},origin,rot,tex)
+	draw_triangle_ex(pos,{verts[0],verts[3],verts[2]},origin,rot,tex)
+}
+
 
 // Draw a triangle strip defined by vertexes
 // Every new vertex connects with previous two
@@ -870,7 +940,6 @@ draw_triangle_strip_ex :: proc(pos:Vec2, verts:[]Vertex, origin: Vec2 = {0,0}, r
 	
 	s.batch_texture = textuer.handle
 
-	// s.batch_texture = s.shape_drawing_texture
 	v0, v1, v2: Vec2
 	
 	for i := 2; i < len(verts); i += 1 { 
