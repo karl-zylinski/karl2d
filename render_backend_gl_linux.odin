@@ -10,11 +10,11 @@ _ :: log
 
 GL_Context :: struct {
 	ctx: ^glx.Context,
-	window_handle: Window_Handle_Linux,
+	window_handle: Window_Handle_X11,
 }
 
 _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
-	whl := (^Window_Handle_Linux)(window_handle)
+	whl := (^Window_Handle_X11)(window_handle)
 
 	visual_attribs := []i32 {
 		glx.RENDER_TYPE, glx.RGBA_BIT,

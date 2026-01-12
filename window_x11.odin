@@ -77,7 +77,7 @@ x11_init :: proc(
 	s.delete_msg = X.InternAtom(s.display, "WM_DELETE_WINDOW", false)
 	X.SetWMProtocols(s.display, s.window, &s.delete_msg, 1)
 
-	s.window_handle = Window_Handle_Linux {
+	s.window_handle = Window_Handle_X11 {
 		display = s.display,
 		screen = X.DefaultScreen(s.display),
 		window = s.window,
@@ -456,7 +456,7 @@ X11_State :: struct {
 	events: [dynamic]Window_Event,
 	display: ^X.Display,
 	window: X.Window,
-	window_handle: Window_Handle_Linux,
+	window_handle: Window_Handle_X11,
 	delete_msg: X.Atom,
 	window_mode: Window_Mode,
 }
@@ -464,7 +464,7 @@ X11_State :: struct {
 s: ^X11_State
 
 @(private="package")
-Window_Handle_Linux :: struct {
+Window_Handle_X11 :: struct {
 	display: ^X.Display,
 	window: X.Window,
 	screen: i32,

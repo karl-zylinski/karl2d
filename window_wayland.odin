@@ -132,17 +132,69 @@ wl_init :: proc(
 	}
 
 	wl.add_listener(s.seat, &seat_listener, nil)
+	wl.display_roundtrip(s.display)
 
 	log.info("1")
 	s.surface = wl.compositor_create_surface(s.compositor)
+	log.info(s.surface)
+
+	if s.surface == nil {
+		log.info("hi")
+	} else {
+		log.info("ho")
+	}
+
 	log.ensure(s.surface != nil, "Error creating Wayland surface")
 	log.info("2")
 	
-	// Makes sure the window does "pigns" that keeps it alive.
-	//wl.add_listener(s.xdg_base, &wm_base_listener, nil)
+	// Makes sure the window does "pings" that keeps it alive.
+	wl.add_listener(s.xdg_base, &wm_base_listener, nil)
+	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, s.surface)
 
-	log.info("end")
+	// Top-level means an application at the top of the window hierarchy. The callback in the
+	// toplevel listener effecively creates a window handle.
+	toplevel := wl.xdg_surface_get_toplevel(xdg_surface)
+	wl.xdg_toplevel_add_listener(toplevel, &toplevel_listener, nil)
 }
+
+toplevel_listener := wl.xdg_toplevel_listener {
+	configure = proc "c" (
+		data: rawptr,
+		xdg_toplevel: ^wl.xdg_toplevel,
+		width: c.int32_t,
+		height: c.int32_t,
+		states: ^wl.wl_array,
+	) {
+		context = s.odin_ctx
+		// fmt.println("top level configure")
+		sw := i32(s.windowed_width)
+		sh := i32(s.windowed_height)
+		whl := s.window_handle.(Window_Handle_Wayland)
+		if (sw != width || sh != height) && (sw > 0 && sh > 0) && (whl.ready) {
+			fmt.println(width, height)
+			wl.egl_window_resize(whl.egl_window, c.int(width), c.int(height), 0, 0)
+			s.windowed_width = int(width)
+			s.windowed_height = int(height)
+			s.width = int(width)
+			s.height = int(height)
+			append(&s.events, Window_Event_Resize {
+				width = int(width),
+                height = int(height),
+			})
+			/// SHOULD EMIT A VALID WINDOW EVENT
+			// append(
+			// 	&cc.platform_state.input.events,
+			// 	WindowResize{new_width = width, new_height = height},
+			// )
+		}
+		whl.ready = true
+		s.window_handle = whl
+	},
+	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel) {},
+	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel, width: c.int32_t, height: c.int32_t,) { },
+	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel, capabilities: ^wl.wl_array,) {},
+}
+
 
 wm_base_listener := wl.XDG_WM_Base_Listener {
 	ping = proc "c" (data: rawptr, xdg_wm_base: ^wl.XDG_WM_Base, serial: c.uint32_t) {
@@ -336,6 +388,11 @@ WL_State :: struct {
 	seat: ^wl.Seat,
 
 	pointer: ^wl.Pointer,
+}
+
+@(private="package")
+Window_Handle_Wayland :: struct {
+
 }
 
 s: ^WL_State
