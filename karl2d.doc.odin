@@ -262,7 +262,7 @@ draw_triangle :: proc(pos:Vec2, verts:[3]Vec2 , origin: Vec2, rot: f32, c: Color
 // need atlest 3 vertexes to draw a triangle
 draw_triangle_strip :: proc(pos:Vec2, verts:[]Vec2 , origin: Vec2 = {0,0}, rot: f32 = 0, c: Color = {255,255,255,255})
 
-draw_triangle_strip_ex :: proc(pos:Vec2, verts:[]Vertex, origin: Vec2 = {0,0}, rot: f32 = 0)
+draw_triangle_strip_ex :: proc(pos:Vec2, verts:[]Vertex, origin: Vec2 = {0,0}, rot: f32 = 0, tex:Texture = {})
 
 // Draw a texture at a specific position. The texture will be drawn with its top-left corner at
 // position `pos`.
