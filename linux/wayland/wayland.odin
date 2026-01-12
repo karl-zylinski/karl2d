@@ -1319,7 +1319,7 @@ wl_surface_attach :: proc "c" (
 
 }
 
-wl_surface_damage :: proc "c" (
+surface_damage :: proc "c" (
 	_wl_surface: ^Surface,
 	x: c.int32_t,
 	y: c.int32_t,
@@ -1379,7 +1379,7 @@ wl_surface_set_input_region :: proc "c" (_wl_surface: ^Surface, region: ^wl_regi
 
 }
 
-wl_surface_commit :: proc "c" (_wl_surface: ^Surface) {
+surface_commit :: proc "c" (_wl_surface: ^Surface) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_surface,
 		6,
