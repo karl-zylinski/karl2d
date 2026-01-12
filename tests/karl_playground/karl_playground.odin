@@ -48,6 +48,10 @@ step :: proc() -> bool {
 		k2.set_window_position(0, 0) 
 	}
 
+	if k2.key_went_down(.V) {
+		k2.set_window_size(320, 180) 
+	}
+
 	if k2.key_is_held(.A) {
 		pos_x -= k2.get_frame_time() * 400
 	}

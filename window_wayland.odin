@@ -466,6 +466,13 @@ wl_set_position :: proc(x: int, y: int) {
 }
 
 wl_set_size :: proc(w, h: int) {
+	if s.window_mode == .Borderless_Fullscreen {
+		return
+	}
+
+	s.windowed_width = w
+	s.windowed_height = h
+	wl.egl_window_resize(s.window, i32(w), i32(h), 0, 0)
 }
 
 wl_get_window_scale :: proc() -> f32 {
