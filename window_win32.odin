@@ -313,7 +313,7 @@ win32_set_window_mode :: proc(window_mode: Window_Mode) {
 
 	win32.SetWindowLongW(s.hwnd, win32.GWL_STYLE, i32(style))
 
-	#partial switch window_mode {
+	switch window_mode {
 	case .Windowed, .Windowed_Resizable:
 		r: win32.RECT
 		r.left = i32(s.windowed_pos_x)

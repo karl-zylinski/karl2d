@@ -131,12 +131,12 @@ wl_init :: proc(
 
 	// Top-level means an application at the top of the window hierarchy. The callback in the
 	// toplevel listener effecively creates a window handle.
-	toplevel := wl.xdg_surface_get_toplevel(xdg_surface)
-	wl.add_listener(toplevel, &toplevel_listener, nil)
+	s.toplevel = wl.xdg_surface_get_toplevel(xdg_surface)
+	wl.add_listener(s.toplevel, &toplevel_listener, nil)
 	wl.add_listener(xdg_surface, &window_listener, nil)
-	wl.xdg_toplevel_set_title(toplevel, strings.clone_to_cstring(window_title))
+	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(window_title))
 
-    decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, toplevel)
+    decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
     wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
 
 	wl.surface_commit(s.surface)
@@ -158,7 +158,6 @@ wl_init :: proc(
 seat_listener := wl.Seat_Listener {
 	capabilities = proc "c" (data: rawptr, seat: ^wl.Seat, capabilities: wl.Seat_Capabilities) {
 		context = s.odin_ctx
-		log.info("here")
 
 		if .Pointer in capabilities {
 			if s.pointer != nil {
@@ -232,8 +231,6 @@ toplevel_listener := wl.xdg_toplevel_listener {
 
 window_listener := wl.xdg_surface_listener {
 	configure = proc "c" (data: rawptr, surface: ^wl.xdg_surface, serial: c.uint32_t) {
-		// context = runtime.default_context()
-		// fmt.println("window configure")
 		wl.xdg_surface_ack_configure(surface, serial)
 	},
 }
@@ -330,7 +327,14 @@ pointer_listener := wl.Pointer_Listener {
 		surface_x: wl.Fixed,
 		surface_y: wl.Fixed,
 	) {
+		context = s.odin_ctx
 
+		// surface_x and surface_y are fixed point 24.8 variables. 
+		// Just bitshift them to remove the decimal part and obtain 
+		// a screen coordinate
+		append(&s.events, Window_Event_Mouse_Move {
+			position = { f32(surface_x >> 8), f32(surface_y >> 8) }, 
+		})
 	},
 	button = proc "c" (
 		data: rawptr,
@@ -340,7 +344,25 @@ pointer_listener := wl.Pointer_Listener {
 		button: c.uint32_t,
 		state: c.uint32_t,
 	) {
+		context = s.odin_ctx
 
+		btn: Mouse_Button
+		switch button {
+		case 0: btn = .Left
+		case 1: btn = .Middle
+		case 2: btn = .Right
+		}
+	
+		switch state {
+		case 0:
+			append(&s.events, Window_Event_Mouse_Button_Went_Up {
+				button = btn,
+			})
+		case 1: 
+			append(&s.events, Window_Event_Mouse_Button_Went_Down {
+				button = btn,
+			})
+		}
 	},
 	axis = proc "c" (
 		data: rawptr,
@@ -349,7 +371,12 @@ pointer_listener := wl.Pointer_Listener {
 		axis: c.uint32_t,
 		value: wl.Fixed,
 	) {
+		context = s.odin_ctx
 
+		event_direction: f32 = value > 0 ? 1 : -1
+		append(&s.events, Window_Event_Mouse_Wheel {
+			delta = event_direction,
+		})
 	},
 	frame = proc "c" (data: rawptr, wl_pointer: ^wl.Pointer) {
 
@@ -446,7 +473,24 @@ wl_get_window_scale :: proc() -> f32 {
 }
 
 wl_set_window_mode :: proc(window_mode: Window_Mode) {
-	
+	s.window_mode = window_mode
+	 
+	switch window_mode {
+	case .Windowed:
+		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
+		w := i32(s.windowed_width)
+		h := i32(s.windowed_height)
+		wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
+		wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
+
+	case .Windowed_Resizable:
+		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
+		wl.xdg_toplevel_set_max_size(s.toplevel, 0, 0)
+		wl.xdg_toplevel_set_min_size(s.toplevel, 0, 0)
+
+	case .Borderless_Fullscreen:
+		wl.xdg_toplevel_set_fullscreen(s.toplevel, nil)
+	}
 }
 
 wl_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -491,6 +535,7 @@ WL_State :: struct {
 	surface: ^wl.Surface,
 	compositor: ^wl.Compositor,
 	window: ^wl.egl_window,
+	toplevel: ^wl.xdg_toplevel,
 	decoration_manager: ^wl.zxdg_decoration_manager_v1,
 
 	xdg_base: ^wl.XDG_WM_Base,
