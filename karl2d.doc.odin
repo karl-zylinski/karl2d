@@ -257,6 +257,8 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
 // Draw a triangle
 draw_triangle :: proc(pos:Vec2, verts:[3]Vec2 , origin: Vec2, rot: f32, c: Color,  tex:Texture = {})
 
+// Draw a triangle based on 3 
+// verts verts have pos color and uv
 draw_triangle_ex :: proc(pos:Vec2, verts:[3]Vertex , origin: Vec2 = {}, rot: f32 = 0,tex:Texture = {})
 
 // draw a oblong rectangle by declaring 4 vertexes
@@ -264,7 +266,7 @@ draw_triangle_ex :: proc(pos:Vec2, verts:[3]Vertex , origin: Vec2 = {}, rot: f32
 // v1 = top right
 // v2 = bot left
 // v3 = bot right
-draw_oblong :: proc(pos:Vec2, verts:[4]Vertex , origin: Vec2={}, rot: f32=0, tex:Texture = {})
+draw_quad :: proc(pos:Vec2, verts:[4]Vertex , origin: Vec2={}, rot: f32=0, tex:Texture = {})
 
 // Draw a triangle strip defined by vertexes
 // Every new vertex connects with previous two
