@@ -463,6 +463,7 @@ wl_clear_events :: proc() {
 }
 
 wl_set_position :: proc(x: int, y: int) {
+	log.error("set_position not implemented when using wayland")
 }
 
 wl_set_size :: proc(w, h: int) {
