@@ -132,7 +132,7 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 	}
 
 	s.ctx = ctx
-	_gl_load_procs(s.window_handle)
+	_gl_load_procs()
 
 	gl.GenBuffers(1, &s.vertex_buffer_gpu)
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
@@ -161,7 +161,7 @@ gl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 }
 
 gl_present :: proc() {
-	_gl_present(s.window_handle)
+	_gl_present(s.ctx)
 }
 
 gl_draw :: proc(
