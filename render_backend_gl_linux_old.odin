@@ -67,7 +67,7 @@ wayland_gl_get_context :: proc(whw: Window_Handle_Wayland) -> (GL_Context, bool)
         panic("Failed to create EGL display")
     }
     if !egl.Initialize(egl_display, &major, &minor) {
-        panic("Can't initialise egl display")
+        panic("Can't initialize egl display")
     }
     if !egl.ChooseConfig(egl_display, raw_data(config_attribs), &egl_config, 1, &n) {
         panic("Failed to find/choose EGL config")
@@ -86,7 +86,6 @@ wayland_gl_get_context :: proc(whw: Window_Handle_Wayland) -> (GL_Context, bool)
     // This call must be here before CreateContext
     egl.BindAPI(egl.OPENGL_API)
 
-    fmt.println("Creating Context")
     egl_context := egl.CreateContext(
         egl_display,
         egl_config,
@@ -96,8 +95,7 @@ wayland_gl_get_context :: proc(whw: Window_Handle_Wayland) -> (GL_Context, bool)
     if egl_context == egl.NO_CONTEXT {
         panic("Failed creating EGL context")
     }
-    fmt.println("Done creating Context")
-    if (egl.MakeCurrent(egl_display, egl_surface, egl_surface, egl_context)) {
+    if egl.MakeCurrent(egl_display, egl_surface, egl_surface, egl_context) {
         return GL_Context {
             window_handle = whw,
             egl_display = egl_display,

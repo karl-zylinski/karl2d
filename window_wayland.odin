@@ -112,18 +112,8 @@ wl_init :: proc(
 	wl.add_listener(s.seat, &seat_listener, nil)
 	wl.display_roundtrip(s.display)
 
-	log.info("1")
 	s.surface = wl.compositor_create_surface(s.compositor)
-	log.info(s.surface)
-
-	if s.surface == nil {
-		log.info("hi")
-	} else {
-		log.info("ho")
-	}
-
 	log.ensure(s.surface != nil, "Error creating Wayland surface")
-	log.info("2")
 	
 	// Makes sure the window does "pings" that keeps it alive.
 	wl.add_listener(s.xdg_base, &wm_base_listener, nil)
