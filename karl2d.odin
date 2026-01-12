@@ -731,7 +731,7 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 	draw_rect_ex(r, origin, rot, color)
 }
 
-
+// Draw a triangle
 draw_triangle :: proc(pos:Vec2, verts:[3]Vec2 , origin: Vec2, rot: f32, c: Color) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
@@ -773,13 +773,141 @@ draw_triangle :: proc(pos:Vec2, verts:[3]Vec2 , origin: Vec2, rot: f32, c: Color
 			x + (dx + verts[2].x) * cos_rot - (dy + verts[2].y) * sin_rot,
 			y + (dx + verts[2].x) * sin_rot + (dy + verts[2].y) * cos_rot,
 		}
-
+		
 	}
-
 
 	batch_vertex(v0, {0, 0}, c)
 	batch_vertex(v1, {1, 1}, c)
 	batch_vertex(v2, {0, 1}, c)
+}
+
+// Draw a triangle strip defined by vertexes
+// Every new vertex connects with previous two
+// need atlest 3 vertexes to draw a triangle
+draw_triangle_strip :: proc(pos:Vec2, verts:[]Vec2 , origin: Vec2 = {0,0}, rot: f32 = 0, c: Color = {255,255,255,255}) {
+	if !(len(verts)>2) {
+		// may want to asert this insted i am unsher
+		// need atlest 3 vertexes to draw a triangle
+		return
+	}
+	
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 * len(verts) - 2 > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+
+	if s.batch_texture != s.shape_drawing_texture {
+		draw_current_batch()
+	}
+
+	s.batch_texture = s.shape_drawing_texture
+	v0, v1, v2: Vec2
+	
+	for i := 2; i < len(verts); i += 1 { 
+
+		if rot == 0 {
+			x := pos.x - origin.x
+			y := pos.y - origin.y
+			v0 = { x+verts[i-0].x, y+verts[i-0].y }
+			v1 = { x + verts[i-1].x, y + verts[i-1].y}
+			v2 = { x+verts[i-2].x, y + verts[i-2].y }
+		} else {
+			sin_rot := math.sin(rot)
+			cos_rot := math.cos(rot)
+			x := pos.x
+			y := pos.y
+			dx := -origin.x
+			dy := -origin.y
+	
+			v0 = {
+				x + (dx + verts[i-0].x) * cos_rot - (dy + verts[i-0].y) * sin_rot,
+				y + (dx + verts[i-0].x) * sin_rot + (dy + verts[i-0].y) * cos_rot,
+			}
+			
+			v1 = {
+				x + (dx + verts[i-1].x) * cos_rot - (dy + verts[i-1].y) * sin_rot,
+				y + (dx + verts[i-1].x) * sin_rot + (dy + verts[i-1].y) * cos_rot,
+			}
+	
+			v2 = {
+				x + (dx + verts[i-2].x) * cos_rot - (dy + verts[i-2].y) * sin_rot,
+				y + (dx + verts[i-2].x) * sin_rot + (dy + verts[i-2].y) * cos_rot,
+			}
+	
+		}
+		
+		if (i%2) == 0{
+			batch_vertex(v0, {0, 0}, c)
+			batch_vertex(v1, {1, 1}, c)
+			batch_vertex(v2, {0, 1}, c)
+		}else{
+			batch_vertex(v0, {0, 0}, c)
+			batch_vertex(v2, {0, 1}, c)
+			batch_vertex(v1, {1, 1}, c)
+		}
+	}
+}
+
+draw_triangle_strip_ex :: proc(pos:Vec2, verts:[]Vertex, origin: Vec2 = {0,0}, rot: f32 = 0) {
+	if !(len(verts)>2) {
+		// may want to asert this insted i am unsher
+		// need atlest 3 vertexes to draw a triangle
+		return
+	}
+	
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 * len(verts) - 2 > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+
+	if s.batch_texture != s.shape_drawing_texture {
+		draw_current_batch()
+	}
+
+	s.batch_texture = s.shape_drawing_texture
+	v0, v1, v2: Vec2
+	
+	for i := 2; i < len(verts); i += 1 { 
+
+		if rot == 0 {
+			x := pos.x - origin.x
+			y := pos.y - origin.y
+			v0 = { x+verts[i-0].v.x, y+verts[i-0].v.y }
+			v1 = { x + verts[i-1].v.x, y + verts[i-1].v.y}
+			v2 = { x+verts[i-2].v.x, y + verts[i-2].v.y }
+		} else {
+			sin_rot := math.sin(rot)
+			cos_rot := math.cos(rot)
+			x := pos.x
+			y := pos.y
+			dx := -origin.x
+			dy := -origin.y
+	
+			v0 = {
+				x + (dx + verts[i-0].v.x) * cos_rot - (dy + verts[i-0].v.y) * sin_rot,
+				y + (dx + verts[i-0].v.x) * sin_rot + (dy + verts[i-0].v.y) * cos_rot,
+			}
+			
+			v1 = {
+				x + (dx + verts[i-1].v.x) * cos_rot - (dy + verts[i-1].v.y) * sin_rot,
+				y + (dx + verts[i-1].v.x) * sin_rot + (dy + verts[i-1].v.y) * cos_rot,
+			}
+	
+			v2 = {
+				x + (dx + verts[i-2].v.x) * cos_rot - (dy + verts[i-2].v.y) * sin_rot,
+				y + (dx + verts[i-2].v.x) * sin_rot + (dy + verts[i-2].v.y) * cos_rot,
+			}
+	
+		}
+		
+		if (i%2) == 0{
+			batch_vertex(v0, {0, 0}, verts[i-0].c)
+			batch_vertex(v1, {1, 1}, verts[i-1].c)
+			batch_vertex(v2, {0, 1}, verts[i-2].c)
+		}else{
+			batch_vertex(v0, {0, 0}, verts[i-0].c)
+			batch_vertex(v2, {0, 1}, verts[i-2].c)
+			batch_vertex(v1, {1, 1}, verts[i-1].c)
+		}
+	}
 }
 
 
@@ -1663,6 +1791,12 @@ Mat4 :: matrix[4,4]f32
 Rect :: struct {
 	x, y: f32,
 	w, h: f32,
+}
+
+Vertex :: struct {
+	v:Vec2,
+	uv:Vec2,
+	c:Color
 }
 
 // An RGBA (Red, Green, Blue, Alpha) color. Each channel can have a value between 0 and 255.
