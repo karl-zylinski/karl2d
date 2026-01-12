@@ -731,6 +731,59 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 	draw_rect_ex(r, origin, rot, color)
 }
 
+
+draw_triangle :: proc(pos:Vec2, verts:[3]Vec2 , origin: Vec2, rot: f32, c: Color) {
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+
+	if s.batch_texture != s.shape_drawing_texture {
+		draw_current_batch()
+	}
+
+	s.batch_texture = s.shape_drawing_texture
+	v0, v1, v2: Vec2
+
+	// Rotation adapted from Raylib's "DrawTexturePro"
+	if rot == 0 {
+		x := pos.x - origin.x
+		y := pos.y - origin.y
+		v0 = { x+verts[0].x, y+verts[0].y }
+		v1 = { x + verts[1].x, y + verts[1].y}
+		v2 = { x+verts[2].x, y + verts[2].y }
+	} else {
+		sin_rot := math.sin(rot)
+		cos_rot := math.cos(rot)
+		x := pos.x
+		y := pos.y
+		dx := -origin.x
+		dy := -origin.y
+
+		v0 = {
+			x + (dx + verts[0].x) * cos_rot - (dy + verts[0].y) * sin_rot,
+			y + (dx + verts[0].x) * sin_rot + (dy + verts[0].y) * cos_rot,
+		}
+		
+		v1 = {
+			x + (dx + verts[1].x) * cos_rot - (dy + verts[1].y) * sin_rot,
+			y + (dx + verts[1].x) * sin_rot + (dy + verts[1].y) * cos_rot,
+		}
+
+		v2 = {
+			x + (dx + verts[2].x) * cos_rot - (dy + verts[2].y) * sin_rot,
+			y + (dx + verts[2].x) * sin_rot + (dy + verts[2].y) * cos_rot,
+		}
+
+	}
+
+
+	batch_vertex(v0, {0, 0}, c)
+	batch_vertex(v1, {1, 1}, c)
+	batch_vertex(v2, {0, 1}, c)
+}
+
+
+
 // Draw a texture at a specific position. The texture will be drawn with its top-left corner at
 // position `pos`.
 //
