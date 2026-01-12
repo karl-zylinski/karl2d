@@ -782,7 +782,8 @@ draw_triangle :: proc(pos:Vec2, verts:[3]Vec2 , origin: Vec2, rot: f32, c: Color
 	batch_vertex(v2, {0, 1}, c)
 }
 
-
+// Draw a triangle based on 3 
+// verts verts have pos color and uv
 draw_triangle_ex :: proc(pos:Vec2, verts:[3]Vertex , origin: Vec2 = {}, rot: f32 = 0,tex:Texture = {}) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
@@ -845,7 +846,7 @@ draw_triangle_ex :: proc(pos:Vec2, verts:[3]Vertex , origin: Vec2 = {}, rot: f32
 // v1 = top right
 // v2 = bot left
 // v3 = bot right
-draw_oblong :: proc(pos:Vec2, verts:[4]Vertex , origin: Vec2={}, rot: f32=0, tex:Texture = {}) {
+draw_quad :: proc(pos:Vec2, verts:[4]Vertex , origin: Vec2={}, rot: f32=0, tex:Texture = {}) {
 	draw_triangle_ex(pos,{verts[0],verts[1],verts[3]},origin,rot,tex)
 	draw_triangle_ex(pos,{verts[0],verts[3],verts[2]},origin,rot,tex)
 }
