@@ -106,40 +106,7 @@ wl_init :: proc(
 	wl.add_listener(display_registry, &registry_listener, nil)
 	wl.display_roundtrip(s.display)
 
-	@(static, rodata) seat_listener := wl.Seat_Listener {
-		capabilities = proc "c" (data: rawptr, seat: ^wl.Seat, capabilities: wl.Seat_Capabilities) {
-			context = s.odin_ctx
-			log.info("here")
-
-			if .Pointer in capabilities {
-				if s.pointer != nil {
-					wl.pointer_release(s.pointer)
-					s.pointer = nil
-				}
-
-				s.pointer = wl.seat_get_pointer(seat)
-				wl.add_listener(s.pointer, &pointer_listener, nil)
-			} else if s.pointer != nil {
-				wl.pointer_release(s.pointer)
-				s.pointer = nil
-			}
-
-			/*if capabilities & wl_seat.capability_keyboard {
-				if d.keyboard {
-					wl_keyboard.release(d.keyboard);
-					d.keyboard = null;
-				}
-
-				d.keyboard = wl_seat.get_keyboard(d.seat);
-				wl_proxy_set_user_data(d.keyboard, d);
-				wl_keyboard.add_listener(d.keyboard, *keyboard_listenter, d);
-			} else if d.keyboard {
-				wl_keyboard.release(d.keyboard);
-				d.keyboard = null;
-			}*/
-		},
-		name = proc "c" (data: rawptr, seat: ^wl.Seat, name: cstring) {},
-	}
+	
 
 	wl.add_listener(s.seat, &seat_listener, nil)
 	wl.display_roundtrip(s.display)
@@ -189,6 +156,38 @@ wl_init :: proc(
 }
 
 
+seat_listener := wl.Seat_Listener {
+	capabilities = proc "c" (data: rawptr, seat: ^wl.Seat, capabilities: wl.Seat_Capabilities) {
+		context = s.odin_ctx
+		log.info("here")
+
+		if .Pointer in capabilities {
+			if s.pointer != nil {
+				wl.pointer_release(s.pointer)
+			}
+
+			s.pointer = wl.seat_get_pointer(seat)
+			wl.add_listener(s.pointer, &pointer_listener, nil)
+		} else if s.pointer != nil {
+			wl.pointer_release(s.pointer)
+			s.pointer = nil
+		}
+
+		if .Keyboard in capabilities {
+			if s.keyboard != nil {
+				wl.keyboard_release(s.keyboard)
+			}
+
+			s.keyboard = wl.seat_get_keyboard(seat)
+			wl.add_listener(s.keyboard, &keyboard_listener, nil)
+		} else if s.keyboard != nil {
+			wl.keyboard_release(s.keyboard)
+			s.keyboard = nil
+		}
+	},
+	name = proc "c" (data: rawptr, seat: ^wl.Seat, name: cstring) {},
+}
+
 @(private="package")
 frame_callback := wl.wl_callback_listener {
 	done = proc "c" (data: rawptr, wl_callback: ^wl.wl_callback, callback_data: c.uint32_t) {
@@ -224,7 +223,10 @@ toplevel_listener := wl.xdg_toplevel_listener {
 		}
 		s.configured = true
 	},
-	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel) {},
+	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel) {
+		context = s.odin_ctx
+		append(&s.events, Window_Event_Close_Wanted{})
+	},
 	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel, width: c.int32_t, height: c.int32_t,) { },
 	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel, capabilities: ^wl.wl_array,) {},
 }
@@ -242,6 +244,66 @@ wm_base_listener := wl.XDG_WM_Base_Listener {
 		wl.xdg_wm_base_pong(xdg_wm_base, serial)
 	},
 }
+
+keyboard_listener := wl.Keyboard_Listener {
+	keymap = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, format: c.uint32_t, fd: c.int32_t, size: c.uint32_t,) {},
+	enter = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, serial: c.uint32_t, surface: ^wl.Surface, keys: ^wl.wl_array) {},
+	leave = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, serial: c.uint32_t, surface: ^wl.Surface) {},
+	key = key_handler,
+	modifiers = proc "c" (
+		data: rawptr,
+		wl_keyboard: ^wl.Keyboard,
+		serial: c.uint32_t,
+		mods_depressed: c.uint32_t,
+		mods_latched: c.uint32_t,
+		mods_locked: c.uint32_t,
+		group: c.uint32_t,
+	) {
+	},
+	repeat_info = proc "c" (
+		data: rawptr,
+		wl_keyboard: ^wl.Keyboard,
+		rate: c.int32_t,
+		delay: c.int32_t,
+	) {},
+}
+
+key_handler :: proc "c" (
+	data: rawptr,
+	keyboard: ^wl.Keyboard,
+	serial: c.uint32_t,
+	t: c.uint32_t,
+	key: c.uint32_t,
+	state: c.uint32_t,
+) {
+	context = runtime.default_context()
+
+	// Wayland emits evdev events, and the keycodes are shifted 
+	// from the expected xkb events... Just add 8 to it.
+	keycode := key + 8
+
+	if state == 0 {
+		key := key_from_xkeycode(keycode)
+
+		if key != .None {
+			log.info(key)
+			append(&s.events, Window_Event_Key_Went_Up {
+				key = key,
+			})
+		}
+	}
+
+	if state == 1 {
+		key := key_from_xkeycode(keycode)
+
+		if key != .None {
+			append(&s.events, Window_Event_Key_Went_Down {
+				key = key,
+			})
+		}
+	}
+}
+
 
 pointer_listener := wl.Pointer_Listener {
 	enter = proc "c" (
@@ -354,7 +416,7 @@ key_from_xkeycode :: proc(kc: u32) -> Keyboard_Key {
 		return .None
 	}
 
-	return .None
+	return KEY_FROM_XKEYCODE[kc]
 }
 
 wl_get_events :: proc() -> []Window_Event {
@@ -434,6 +496,7 @@ WL_State :: struct {
 	xdg_base: ^wl.XDG_WM_Base,
 	seat: ^wl.Seat,
 
+	keyboard: ^wl.Keyboard,
 	pointer: ^wl.Pointer,
 
 	// True if toplevel_listener.configure has run

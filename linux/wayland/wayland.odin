@@ -225,22 +225,20 @@ wl_compositor_create_region :: proc "c" (_wl_compositor: ^Compositor) -> ^wl_reg
 	return cast(^wl_region)id
 }
 
-
 wl_compositor_destroy :: proc "c" (wl_compositor: ^Compositor) {
 	proxy_destroy(cast(^wl_proxy)wl_compositor)
 }
 
-wl_compositor_requests: []wl_message = []wl_message {
-	{"create_surface", "n", raw_data([]^wl_interface{&wl_surface_interface})},
-	{"create_region", "n", raw_data([]^wl_interface{&wl_region_interface})},
-}
-
-wl_compositor_events: []wl_message = []wl_message{}
-
-compositor_interface: wl_interface = {}
-@(init)
-init_compositor_interface :: proc "contextless" () {
-	compositor_interface = {"wl_compositor", 6, 2, &wl_compositor_requests[0], 0, nil}
+compositor_interface := wl_interface {
+	"wl_compositor",
+	6, 
+	2,
+	raw_data([]wl_message {
+		{"create_surface", "n", raw_data([]^wl_interface{&wl_surface_interface})},
+		{"create_region", "n", raw_data([]^wl_interface{&wl_region_interface})},
+	}),
+	0, 
+	nil,
 }
 
 
@@ -1511,7 +1509,7 @@ seat_get_pointer :: proc "c" (_wl_seat: ^Seat) -> ^Pointer {
 	return cast(^Pointer)id
 }
 
-wl_seat_get_keyboard :: proc "c" (_wl_seat: ^Seat) -> ^wl_keyboard {
+seat_get_keyboard :: proc "c" (_wl_seat: ^Seat) -> ^Keyboard {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
 		cast(^wl_proxy)_wl_seat,
@@ -1523,7 +1521,7 @@ wl_seat_get_keyboard :: proc "c" (_wl_seat: ^Seat) -> ^wl_keyboard {
 	)
 
 
-	return cast(^wl_keyboard)id
+	return cast(^Keyboard)id
 }
 
 wl_seat_get_touch :: proc "c" (_wl_seat: ^Seat) -> ^wl_touch {
@@ -1736,31 +1734,31 @@ WL_POINTER_AXIS_SOURCE_FINGER :: 1
 WL_POINTER_AXIS_RELATIVE_DIRECTION_IDENTICAL :: 0
 WL_POINTER_AXIS_RELATIVE_DIRECTION_INVERTED :: 1
 
-wl_keyboard :: struct {}
-wl_keyboard_listener :: struct {
+Keyboard :: struct {}
+Keyboard_Listener :: struct {
 	keymap:      proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl_keyboard,
+		wl_keyboard: ^Keyboard,
 		format: c.uint32_t,
 		fd: c.int32_t,
 		size: c.uint32_t,
 	),
 	enter:       proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl_keyboard,
+		wl_keyboard: ^Keyboard,
 		serial: c.uint32_t,
 		surface: ^Surface,
 		keys: ^wl_array,
 	),
 	leave:       proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl_keyboard,
+		wl_keyboard: ^Keyboard,
 		serial: c.uint32_t,
 		surface: ^Surface,
 	),
 	key:         proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl_keyboard,
+		wl_keyboard: ^Keyboard,
 		serial: c.uint32_t,
 		time: c.uint32_t,
 		key: c.uint32_t,
@@ -1768,7 +1766,7 @@ wl_keyboard_listener :: struct {
 	),
 	modifiers:   proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl_keyboard,
+		wl_keyboard: ^Keyboard,
 		serial: c.uint32_t,
 		mods_depressed: c.uint32_t,
 		mods_latched: c.uint32_t,
@@ -1777,22 +1775,13 @@ wl_keyboard_listener :: struct {
 	),
 	repeat_info: proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl_keyboard,
+		wl_keyboard: ^Keyboard,
 		rate: c.int32_t,
 		delay: c.int32_t,
 	),
 }
 
-wl_keyboard_add_listener :: proc(
-	wl_keyboard: ^wl_keyboard,
-	listener: ^wl_keyboard_listener,
-	data: rawptr,
-) -> c.int {
-
-	return proxy_add_listener(cast(^wl_proxy)wl_keyboard, cast(^Implementation)listener, data)
-}
-
-wl_keyboard_release :: proc "c" (_wl_keyboard: ^wl_keyboard) {
+keyboard_release :: proc "c" (_wl_keyboard: ^Keyboard) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_keyboard,
 		0,
@@ -1804,7 +1793,7 @@ wl_keyboard_release :: proc "c" (_wl_keyboard: ^wl_keyboard) {
 }
 
 
-wl_keyboard_destroy :: proc "c" (wl_keyboard: ^wl_keyboard) {
+wl_keyboard_destroy :: proc "c" (wl_keyboard: ^Keyboard) {
 	proxy_destroy(cast(^wl_proxy)wl_keyboard)
 }
 

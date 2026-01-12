@@ -196,7 +196,7 @@ x11_process_events :: proc() {
 	}
 }
 
-@rodata
+@(private="package")
 KEY_FROM_XKEYCODE := [255]Keyboard_Key {
 	8 = .Space,
 	9 = .Escape,
