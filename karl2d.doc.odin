@@ -254,6 +254,8 @@ draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Co
 // Draws a line from `start` to `end` of a certain thickness.
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
 
+draw_triangle :: proc(pos:Vec2, verts:[3]Vec2 , origin: Vec2, rot: f32, c: Color)
+
 // Draw a texture at a specific position. The texture will be drawn with its top-left corner at
 // position `pos`.
 //
