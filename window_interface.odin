@@ -17,6 +17,7 @@ Window_Interface :: struct #all_or_none {
 	shutdown: proc(),
 	window_handle: proc() -> Window_Handle,
 	process_events: proc(),
+	after_frame_present: proc(),
 	get_events: proc() -> []Window_Event,
 	clear_events: proc(),
 	set_position: proc(x: int, y: int),

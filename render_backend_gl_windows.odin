@@ -6,17 +6,21 @@ import win32 "core:sys/windows"
 import gl "vendor:OpenGL"
 import "log"
 
-GL_Context :: win32.HGLRC
+GL_Context :: struct {
+	gl_ctx: win32.HGLRC,
+	window_device_context: win32.HDC,
+}
 
 _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
-	hdc := win32.GetWindowDC(win32.HWND(window_handle))
+	hwnd := win32.HWND(window_handle)
+	hdc := win32.GetWindowDC(hwnd)
 
 	pfd := win32.PIXELFORMATDESCRIPTOR {
 		nSize = size_of(win32.PIXELFORMATDESCRIPTOR),
 		nVersion = 1,
 		dwFlags = win32.PFD_DRAW_TO_WINDOW | win32.PFD_SUPPORT_OPENGL | win32.PFD_DOUBLEBUFFER,
 		iPixelType = win32.PFD_TYPE_RGBA,
-		cColorBits = 32, 
+		cColorBits = 32,
 		iLayerType = win32.PFD_MAIN_PLANE,
 	}
 
@@ -65,21 +69,25 @@ _gl_get_context :: proc(window_handle: Window_Handle) -> (GL_Context, bool) {
 	}
 
 	win32.SetPixelFormat(hdc, pixel_format, nil)
-	ctx := win32.wglCreateContextAttribsARB(hdc, nil, nil)
-	win32.wglMakeCurrent(hdc, ctx)
+	gl_ctx := win32.wglCreateContextAttribsARB(hdc, nil, nil)
+	win32.wglMakeCurrent(hdc, gl_ctx)
 	win32.wglSwapIntervalEXT(1)
-	return ctx, true
+	return {
+		gl_ctx = gl_ctx,
+		window_device_context = hdc,
+	}, true
 }
 
 _gl_destroy_context :: proc(ctx: GL_Context) {
-	win32.wglDeleteContext(ctx)
+	win32.wglDeleteContext(ctx.gl_ctx)
 }
 
 _gl_load_procs :: proc() {
 	gl.load_up_to(3, 3, win32.gl_set_proc_address)
 }
 
-_gl_present :: proc(window_handle: Window_Handle) {
-	hdc := win32.GetWindowDC(win32.HWND(window_handle))
-	win32.SwapBuffers(hdc)
+_gl_present :: proc(ctx: GL_Context) {
+	win32.SwapBuffers(ctx.window_device_context)
 }
+
+_gl_context_viewport_resized :: proc(_: GL_Context) {}

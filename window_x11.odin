@@ -10,6 +10,7 @@ WINDOW_INTERFACE_X11 :: Window_Interface {
 	shutdown = x11_shutdown,
 	window_handle = x11_window_handle,
 	process_events = x11_process_events,
+	after_frame_present = x11_after_frame_present,
 	get_events = x11_get_events,
 	get_width = x11_get_width,
 	get_height = x11_get_height,
@@ -77,7 +78,7 @@ x11_init :: proc(
 	s.delete_msg = X.InternAtom(s.display, "WM_DELETE_WINDOW", false)
 	X.SetWMProtocols(s.display, s.window, &s.delete_msg, 1)
 
-	s.window_handle = Window_Handle_Linux_X11 {
+	s.window_handle = Window_Handle_X11 {
 		display = s.display,
 		screen = X.DefaultScreen(s.display),
 		window = s.window,
@@ -93,6 +94,10 @@ x11_shutdown :: proc() {
 
 x11_window_handle :: proc() -> Window_Handle {
 	return Window_Handle(&s.window_handle)
+}
+
+x11_after_frame_present :: proc() {
+	
 }
 
 x11_process_events :: proc() {
@@ -191,7 +196,7 @@ x11_process_events :: proc() {
 	}
 }
 
-@rodata
+@(private="package")
 KEY_FROM_XKEYCODE := [255]Keyboard_Key {
 	8 = .Space,
 	9 = .Escape,
@@ -456,7 +461,7 @@ X11_State :: struct {
 	events: [dynamic]Window_Event,
 	display: ^X.Display,
 	window: X.Window,
-	window_handle: Window_Handle_Linux,
+	window_handle: Window_Handle_X11,
 	delete_msg: X.Atom,
 	window_mode: Window_Mode,
 }
@@ -464,13 +469,7 @@ X11_State :: struct {
 s: ^X11_State
 
 @(private="package")
-Window_Handle_Linux :: union {
-    Window_Handle_Linux_X11,
-    Window_Handle_Linux_Wayland,
-}
-
-@(private="package")
-Window_Handle_Linux_X11 :: struct {
+Window_Handle_X11 :: struct {
 	display: ^X.Display,
 	window: X.Window,
 	screen: i32,

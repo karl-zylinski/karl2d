@@ -2,19 +2,27 @@ package wayland
 
 import "core:c"
 
+add_listener :: proc(
+	proxy: ^$Proxy_Type,
+	listener: ^$Listener_Type,
+	data: rawptr,
+) -> c.int {
+	return proxy_add_listener(cast(^wl_proxy)proxy, cast(^Implementation)listener, data)
+}
+
 wl_display_listener :: struct {
 	error:     proc "c" (
 		data: rawptr,
-		wl_display: ^wl_display,
+		wl_display: ^Display,
 		object_id: rawptr,
 		code: c.uint32_t,
 		message: cstring,
 	),
-	delete_id: proc "c" (data: rawptr, wl_display: ^wl_display, id: c.uint32_t),
+	delete_id: proc "c" (data: rawptr, wl_display: ^Display, id: c.uint32_t),
 }
 
 wl_display_add_listener :: proc(
-	wl_display: ^wl_display,
+	wl_display: ^Display,
 	listener: ^wl_display_listener,
 	data: rawptr,
 ) -> c.int {
@@ -22,7 +30,7 @@ wl_display_add_listener :: proc(
 	return proxy_add_listener(cast(^wl_proxy)wl_display, cast(^Implementation)listener, data)
 }
 
-wl_display_sync :: proc "c" (_wl_display: ^wl_display) -> ^wl_callback {
+wl_display_sync :: proc "c" (_wl_display: ^Display) -> ^wl_callback {
 	callback: ^wl_proxy
 	callback = proxy_marshal_flags(
 		cast(^wl_proxy)_wl_display,
@@ -37,7 +45,7 @@ wl_display_sync :: proc "c" (_wl_display: ^wl_display) -> ^wl_callback {
 	return cast(^wl_callback)callback
 }
 
-wl_display_get_registry :: proc "c" (_wl_display: ^wl_display) -> ^wl_registry {
+display_get_registry :: proc "c" (_wl_display: ^Display) -> ^Registry {
 	registry: ^wl_proxy
 	registry = proxy_marshal_flags(
 		cast(^wl_proxy)_wl_display,
@@ -49,7 +57,7 @@ wl_display_get_registry :: proc "c" (_wl_display: ^wl_display) -> ^wl_registry {
 	)
 
 
-	return cast(^wl_registry)registry
+	return cast(^Registry)registry
 }
 
 wl_display_requests: []wl_message = []wl_message {
@@ -73,36 +81,36 @@ WL_DISPLAY_ERROR_INVALID_OBJECT :: 0
 WL_DISPLAY_ERROR_INVALID_METHOD :: 1
 WL_DISPLAY_ERROR_NO_MEMORY :: 2
 
-wl_registry :: struct {}
-wl_registry_listener :: struct {
+Registry :: struct {}
+Registry_Listener :: struct {
 	global:        proc "c" (
 		data: rawptr,
-		wl_registry: ^wl_registry,
+		wl_registry: ^Registry,
 		name: c.uint32_t,
 		interface: cstring,
 		version: c.uint32_t,
 	),
-	global_remove: proc "c" (data: rawptr, wl_registry: ^wl_registry, name: c.uint32_t),
+	global_remove: proc "c" (data: rawptr, wl_registry: ^Registry, name: c.uint32_t),
 }
 
 wl_registry_add_listener :: proc(
-	wl_registry: ^wl_registry,
-	listener: ^wl_registry_listener,
+	wl_registry: ^Registry,
+	listener: ^Registry_Listener,
 	data: rawptr,
 ) -> c.int {
 
 	return proxy_add_listener(cast(^wl_proxy)wl_registry, cast(^Implementation)listener, data)
 }
 
-wl_registry_bind :: proc "c" (
-	_wl_registry: ^wl_registry,
+registry_bind :: proc "c" (
+	registry: ^Registry,
 	name: c.uint32_t,
 	interface: ^wl_interface,
 	version: c.uint32_t,
 ) -> rawptr {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
-		cast(^wl_proxy)_wl_registry,
+		cast(^wl_proxy)registry,
 		0,
 		interface,
 		version,
@@ -118,7 +126,7 @@ wl_registry_bind :: proc "c" (
 }
 
 
-wl_registry_destroy :: proc "c" (wl_registry: ^wl_registry) {
+wl_registry_destroy :: proc "c" (wl_registry: ^Registry) {
 	proxy_destroy(cast(^wl_proxy)wl_registry)
 }
 
@@ -175,19 +183,19 @@ init_wl_callback_interface :: proc "contextless" () {
 }
 
 
-wl_compositor :: struct {}
-wl_compositor_listener :: struct {}
+Compositor :: struct {}
+Compositor_Listener :: struct {}
 
 wl_compositor_add_listener :: proc(
-	wl_compositor: ^wl_compositor,
-	listener: ^wl_compositor_listener,
+	wl_compositor: ^Compositor,
+	listener: ^Compositor_Listener,
 	data: rawptr,
 ) -> c.int {
 
 	return proxy_add_listener(cast(^wl_proxy)wl_compositor, cast(^Implementation)listener, data)
 }
 
-wl_compositor_create_surface :: proc "c" (_wl_compositor: ^wl_compositor) -> ^wl_surface {
+compositor_create_surface :: proc "c" (_wl_compositor: ^Compositor) -> ^Surface {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
 		cast(^wl_proxy)_wl_compositor,
@@ -199,10 +207,10 @@ wl_compositor_create_surface :: proc "c" (_wl_compositor: ^wl_compositor) -> ^wl
 	)
 
 
-	return cast(^wl_surface)id
+	return cast(^Surface)id
 }
 
-wl_compositor_create_region :: proc "c" (_wl_compositor: ^wl_compositor) -> ^wl_region {
+wl_compositor_create_region :: proc "c" (_wl_compositor: ^Compositor) -> ^wl_region {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
 		cast(^wl_proxy)_wl_compositor,
@@ -217,22 +225,20 @@ wl_compositor_create_region :: proc "c" (_wl_compositor: ^wl_compositor) -> ^wl_
 	return cast(^wl_region)id
 }
 
-
-wl_compositor_destroy :: proc "c" (wl_compositor: ^wl_compositor) {
+wl_compositor_destroy :: proc "c" (wl_compositor: ^Compositor) {
 	proxy_destroy(cast(^wl_proxy)wl_compositor)
 }
 
-wl_compositor_requests: []wl_message = []wl_message {
-	{"create_surface", "n", raw_data([]^wl_interface{&wl_surface_interface})},
-	{"create_region", "n", raw_data([]^wl_interface{&wl_region_interface})},
-}
-
-wl_compositor_events: []wl_message = []wl_message{}
-
-wl_compositor_interface: wl_interface = {}
-@(init)
-init_wl_compositor_interface :: proc "contextless" () {
-	wl_compositor_interface = {"wl_compositor", 6, 2, &wl_compositor_requests[0], 0, nil}
+compositor_interface := wl_interface {
+	"wl_compositor",
+	6, 
+	2,
+	raw_data([]wl_message {
+		{"create_surface", "n", raw_data([]^wl_interface{&wl_surface_interface})},
+		{"create_region", "n", raw_data([]^wl_interface{&wl_region_interface})},
+	}),
+	0, 
+	nil,
 }
 
 
@@ -742,9 +748,9 @@ wl_data_device_listener :: struct {
 		data: rawptr,
 		wl_data_device: ^wl_data_device,
 		serial: c.uint32_t,
-		surface: ^wl_surface,
-		x: wl_fixed_t,
-		y: wl_fixed_t,
+		surface: ^Surface,
+		x: Fixed,
+		y: Fixed,
 		id: ^wl_data_offer,
 	),
 	leave:      proc "c" (data: rawptr, wl_data_device: ^wl_data_device),
@@ -752,8 +758,8 @@ wl_data_device_listener :: struct {
 		data: rawptr,
 		wl_data_device: ^wl_data_device,
 		time: c.uint32_t,
-		x: wl_fixed_t,
-		y: wl_fixed_t,
+		x: Fixed,
+		y: Fixed,
 	),
 	drop:       proc "c" (data: rawptr, wl_data_device: ^wl_data_device),
 	selection:  proc "c" (data: rawptr, wl_data_device: ^wl_data_device, id: ^wl_data_offer),
@@ -771,8 +777,8 @@ wl_data_device_add_listener :: proc(
 wl_data_device_start_drag :: proc "c" (
 	_wl_data_device: ^wl_data_device,
 	source: ^wl_data_source,
-	origin: ^wl_surface,
-	icon: ^wl_surface,
+	origin: ^Surface,
+	icon: ^Surface,
 	serial: c.uint32_t,
 ) {
 	proxy_marshal_flags(
@@ -902,7 +908,7 @@ wl_data_device_manager_create_data_source :: proc "c" (
 
 wl_data_device_manager_get_data_device :: proc "c" (
 	_wl_data_device_manager: ^wl_data_device_manager,
-	seat: ^wl_seat,
+	seat: ^Seat,
 ) -> ^wl_data_device {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
@@ -929,7 +935,7 @@ wl_data_device_manager_requests: []wl_message = []wl_message {
 	{
 		"get_data_device",
 		"no",
-		raw_data([]^wl_interface{&wl_data_device_interface, &wl_seat_interface}),
+		raw_data([]^wl_interface{&wl_data_device_interface, &seat_interface}),
 	},
 }
 
@@ -967,7 +973,7 @@ wl_shell_add_listener :: proc(
 
 wl_shell_get_shell_surface :: proc "c" (
 	_wl_shell: ^wl_shell,
-	surface: ^wl_surface,
+	surface: ^Surface,
 ) -> ^wl_shell_surface {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
@@ -1043,7 +1049,7 @@ wl_shell_surface_pong :: proc "c" (_wl_shell_surface: ^wl_shell_surface, serial:
 
 wl_shell_surface_move :: proc "c" (
 	_wl_shell_surface: ^wl_shell_surface,
-	seat: ^wl_seat,
+	seat: ^Seat,
 	serial: c.uint32_t,
 ) {
 	proxy_marshal_flags(
@@ -1060,7 +1066,7 @@ wl_shell_surface_move :: proc "c" (
 
 wl_shell_surface_resize :: proc "c" (
 	_wl_shell_surface: ^wl_shell_surface,
-	seat: ^wl_seat,
+	seat: ^Seat,
 	serial: c.uint32_t,
 	edges: c.uint32_t,
 ) {
@@ -1090,7 +1096,7 @@ wl_shell_surface_set_toplevel :: proc "c" (_wl_shell_surface: ^wl_shell_surface)
 
 wl_shell_surface_set_transient :: proc "c" (
 	_wl_shell_surface: ^wl_shell_surface,
-	parent: ^wl_surface,
+	parent: ^Surface,
 	x: c.int32_t,
 	y: c.int32_t,
 	flags: c.uint32_t,
@@ -1130,9 +1136,9 @@ wl_shell_surface_set_fullscreen :: proc "c" (
 
 wl_shell_surface_set_popup :: proc "c" (
 	_wl_shell_surface: ^wl_shell_surface,
-	seat: ^wl_seat,
+	seat: ^Seat,
 	serial: c.uint32_t,
-	parent: ^wl_surface,
+	parent: ^Surface,
 	x: c.int32_t,
 	y: c.int32_t,
 	flags: c.uint32_t,
@@ -1199,15 +1205,15 @@ wl_shell_surface_destroy :: proc "c" (wl_shell_surface: ^wl_shell_surface) {
 
 wl_shell_surface_requests: []wl_message = []wl_message {
 	{"pong", "u", raw_data([]^wl_interface{nil})},
-	{"move", "ou", raw_data([]^wl_interface{&wl_seat_interface, nil})},
-	{"resize", "ouu", raw_data([]^wl_interface{&wl_seat_interface, nil, nil})},
+	{"move", "ou", raw_data([]^wl_interface{&seat_interface, nil})},
+	{"resize", "ouu", raw_data([]^wl_interface{&seat_interface, nil, nil})},
 	{"set_toplevel", "", raw_data([]^wl_interface{})},
 	{"set_transient", "oiiu", raw_data([]^wl_interface{&wl_surface_interface, nil, nil, nil})},
 	{"set_fullscreen", "uu?o", raw_data([]^wl_interface{nil, nil, &wl_output_interface})},
 	{
 		"set_popup",
 		"ouoiiu",
-		raw_data([]^wl_interface{&wl_seat_interface, nil, &wl_surface_interface, nil, nil, nil}),
+		raw_data([]^wl_interface{&seat_interface, nil, &wl_surface_interface, nil, nil, nil}),
 	},
 	{"set_maximized", "?o", raw_data([]^wl_interface{&wl_output_interface})},
 	{"set_title", "s", raw_data([]^wl_interface{nil})},
@@ -1248,40 +1254,40 @@ WL_SHELL_SURFACE_FULLSCREEN_METHOD_DEFAULT :: 0
 WL_SHELL_SURFACE_FULLSCREEN_METHOD_FILL :: 3
 WL_SHELL_SURFACE_FULLSCREEN_METHOD_SCALE :: 1
 
-wl_surface :: struct {}
-wl_surface_listener :: struct {
+Surface :: struct {}
+Surface_Listener :: struct {
 	enter:                      proc "c" (
 		data: rawptr,
-		wl_surface: ^wl_surface,
+		wl_surface: ^Surface,
 		output: ^wl_output,
 	),
 	leave:                      proc "c" (
 		data: rawptr,
-		wl_surface: ^wl_surface,
+		wl_surface: ^Surface,
 		output: ^wl_output,
 	),
 	preferred_buffer_scale:     proc "c" (
 		data: rawptr,
-		wl_surface: ^wl_surface,
+		wl_surface: ^Surface,
 		factor: c.int32_t,
 	),
 	preferred_buffer_transform: proc "c" (
 		data: rawptr,
-		wl_surface: ^wl_surface,
+		wl_surface: ^Surface,
 		transform: c.uint32_t,
 	),
 }
 
 wl_surface_add_listener :: proc(
-	wl_surface: ^wl_surface,
-	listener: ^wl_surface_listener,
+	wl_surface: ^Surface,
+	listener: ^Surface_Listener,
 	data: rawptr,
 ) -> c.int {
 
 	return proxy_add_listener(cast(^wl_proxy)wl_surface, cast(^Implementation)listener, data)
 }
 
-wl_surface_destroy :: proc "c" (_wl_surface: ^wl_surface) {
+wl_surface_destroy :: proc "c" (_wl_surface: ^Surface) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_surface,
 		0,
@@ -1293,7 +1299,7 @@ wl_surface_destroy :: proc "c" (_wl_surface: ^wl_surface) {
 }
 
 wl_surface_attach :: proc "c" (
-	_wl_surface: ^wl_surface,
+	_wl_surface: ^Surface,
 	buffer: ^wl_buffer,
 	x: c.int32_t,
 	y: c.int32_t,
@@ -1311,8 +1317,8 @@ wl_surface_attach :: proc "c" (
 
 }
 
-wl_surface_damage :: proc "c" (
-	_wl_surface: ^wl_surface,
+surface_damage :: proc "c" (
+	_wl_surface: ^Surface,
 	x: c.int32_t,
 	y: c.int32_t,
 	width: c.int32_t,
@@ -1332,7 +1338,7 @@ wl_surface_damage :: proc "c" (
 
 }
 
-wl_surface_frame :: proc "c" (_wl_surface: ^wl_surface) -> ^wl_callback {
+wl_surface_frame :: proc "c" (_wl_surface: ^Surface) -> ^wl_callback {
 	callback: ^wl_proxy
 	callback = proxy_marshal_flags(
 		cast(^wl_proxy)_wl_surface,
@@ -1347,7 +1353,7 @@ wl_surface_frame :: proc "c" (_wl_surface: ^wl_surface) -> ^wl_callback {
 	return cast(^wl_callback)callback
 }
 
-wl_surface_set_opaque_region :: proc "c" (_wl_surface: ^wl_surface, region: ^wl_region) {
+wl_surface_set_opaque_region :: proc "c" (_wl_surface: ^Surface, region: ^wl_region) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_surface,
 		4,
@@ -1359,7 +1365,7 @@ wl_surface_set_opaque_region :: proc "c" (_wl_surface: ^wl_surface, region: ^wl_
 
 }
 
-wl_surface_set_input_region :: proc "c" (_wl_surface: ^wl_surface, region: ^wl_region) {
+wl_surface_set_input_region :: proc "c" (_wl_surface: ^Surface, region: ^wl_region) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_surface,
 		5,
@@ -1371,7 +1377,7 @@ wl_surface_set_input_region :: proc "c" (_wl_surface: ^wl_surface, region: ^wl_r
 
 }
 
-wl_surface_commit :: proc "c" (_wl_surface: ^wl_surface) {
+surface_commit :: proc "c" (_wl_surface: ^Surface) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_surface,
 		6,
@@ -1382,7 +1388,7 @@ wl_surface_commit :: proc "c" (_wl_surface: ^wl_surface) {
 
 }
 
-wl_surface_set_buffer_transform :: proc "c" (_wl_surface: ^wl_surface, transform: c.uint32_t) {
+wl_surface_set_buffer_transform :: proc "c" (_wl_surface: ^Surface, transform: c.uint32_t) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_surface,
 		7,
@@ -1394,7 +1400,7 @@ wl_surface_set_buffer_transform :: proc "c" (_wl_surface: ^wl_surface, transform
 
 }
 
-wl_surface_set_buffer_scale :: proc "c" (_wl_surface: ^wl_surface, scale: c.int32_t) {
+wl_surface_set_buffer_scale :: proc "c" (_wl_surface: ^Surface, scale: c.int32_t) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_surface,
 		8,
@@ -1407,7 +1413,7 @@ wl_surface_set_buffer_scale :: proc "c" (_wl_surface: ^wl_surface, scale: c.int3
 }
 
 wl_surface_damage_buffer :: proc "c" (
-	_wl_surface: ^wl_surface,
+	_wl_surface: ^Surface,
 	x: c.int32_t,
 	y: c.int32_t,
 	width: c.int32_t,
@@ -1427,7 +1433,7 @@ wl_surface_damage_buffer :: proc "c" (
 
 }
 
-wl_surface_offset :: proc "c" (_wl_surface: ^wl_surface, x: c.int32_t, y: c.int32_t) {
+wl_surface_offset :: proc "c" (_wl_surface: ^Surface, x: c.int32_t, y: c.int32_t) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_surface,
 		10,
@@ -1473,22 +1479,22 @@ WL_SURFACE_ERROR_INVALID_OFFSET :: 3
 WL_SURFACE_ERROR_INVALID_TRANSFORM :: 1
 WL_SURFACE_ERROR_INVALID_SIZE :: 2
 
-wl_seat :: struct {}
-wl_seat_listener :: struct {
-	capabilities: proc "c" (data: rawptr, wl_seat: ^wl_seat, capabilities: c.uint32_t),
-	name:         proc "c" (data: rawptr, wl_seat: ^wl_seat, name: cstring),
+Seat :: struct {}
+Seat_Listener :: struct {
+	capabilities: proc "c" (data: rawptr, wl_seat: ^Seat, capabilities: Seat_Capabilities),
+	name:         proc "c" (data: rawptr, wl_seat: ^Seat, name: cstring),
 }
 
 wl_seat_add_listener :: proc(
-	wl_seat: ^wl_seat,
-	listener: ^wl_seat_listener,
+	wl_seat: ^Seat,
+	listener: ^Seat_Listener,
 	data: rawptr,
 ) -> c.int {
 
 	return proxy_add_listener(cast(^wl_proxy)wl_seat, cast(^Implementation)listener, data)
 }
 
-wl_seat_get_pointer :: proc "c" (_wl_seat: ^wl_seat) -> ^wl_pointer {
+seat_get_pointer :: proc "c" (_wl_seat: ^Seat) -> ^Pointer {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
 		cast(^wl_proxy)_wl_seat,
@@ -1500,10 +1506,10 @@ wl_seat_get_pointer :: proc "c" (_wl_seat: ^wl_seat) -> ^wl_pointer {
 	)
 
 
-	return cast(^wl_pointer)id
+	return cast(^Pointer)id
 }
 
-wl_seat_get_keyboard :: proc "c" (_wl_seat: ^wl_seat) -> ^wl_keyboard {
+seat_get_keyboard :: proc "c" (_wl_seat: ^Seat) -> ^Keyboard {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
 		cast(^wl_proxy)_wl_seat,
@@ -1515,10 +1521,10 @@ wl_seat_get_keyboard :: proc "c" (_wl_seat: ^wl_seat) -> ^wl_keyboard {
 	)
 
 
-	return cast(^wl_keyboard)id
+	return cast(^Keyboard)id
 }
 
-wl_seat_get_touch :: proc "c" (_wl_seat: ^wl_seat) -> ^wl_touch {
+wl_seat_get_touch :: proc "c" (_wl_seat: ^Seat) -> ^wl_touch {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
 		cast(^wl_proxy)_wl_seat,
@@ -1533,7 +1539,7 @@ wl_seat_get_touch :: proc "c" (_wl_seat: ^wl_seat) -> ^wl_touch {
 	return cast(^wl_touch)id
 }
 
-wl_seat_release :: proc "c" (_wl_seat: ^wl_seat) {
+wl_seat_release :: proc "c" (_wl_seat: ^Seat) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_seat,
 		3,
@@ -1545,7 +1551,7 @@ wl_seat_release :: proc "c" (_wl_seat: ^wl_seat) {
 }
 
 
-wl_seat_destroy :: proc "c" (wl_seat: ^wl_seat) {
+wl_seat_destroy :: proc "c" (wl_seat: ^Seat) {
 	proxy_destroy(cast(^wl_proxy)wl_seat)
 }
 
@@ -1561,43 +1567,46 @@ wl_seat_events: []wl_message = []wl_message {
 	{"name", "s", raw_data([]^wl_interface{nil})},
 }
 
-wl_seat_interface: wl_interface = {}
+seat_interface: wl_interface = {}
 @(init)
-init_wl_seat_interface :: proc "contextless" () {
-	wl_seat_interface = {"wl_seat", 9, 4, &wl_seat_requests[0], 2, &wl_seat_events[0]}
+init_seat_interface :: proc "contextless" () {
+	seat_interface = {"wl_seat", 9, 4, &wl_seat_requests[0], 2, &wl_seat_events[0]}
 }
 
-WL_SEAT_CAPABILITY_POINTER :: 1
-WL_SEAT_CAPABILITY_TOUCH :: 4
-WL_SEAT_CAPABILITY_KEYBOARD :: 2
-WL_SEAT_ERROR_MISSING_CAPABILITY :: 0
+Seat_Capability :: enum u32 {
+	Pointer,
+	Keyboard,
+	Touch,
+}
 
-wl_pointer :: struct {}
-wl_pointer_listener :: struct {
+Seat_Capabilities :: bit_set[Seat_Capability; u32]
+
+Pointer :: struct {}
+Pointer_Listener :: struct {
 	enter:                   proc "c" (
 		data: rawptr,
-		wl_pointer: ^wl_pointer,
+		wl_pointer: ^Pointer,
 		serial: c.uint32_t,
-		surface: ^wl_surface,
-		surface_x: wl_fixed_t,
-		surface_y: wl_fixed_t,
+		surface: ^Surface,
+		surface_x: Fixed,
+		surface_y: Fixed,
 	),
 	leave:                   proc "c" (
 		data: rawptr,
-		wl_pointer: ^wl_pointer,
+		wl_pointer: ^Pointer,
 		serial: c.uint32_t,
-		surface: ^wl_surface,
+		surface: ^Surface,
 	),
 	motion:                  proc "c" (
 		data: rawptr,
-		wl_pointer: ^wl_pointer,
+		wl_pointer: ^Pointer,
 		time: c.uint32_t,
-		surface_x: wl_fixed_t,
-		surface_y: wl_fixed_t,
+		surface_x: Fixed,
+		surface_y: Fixed,
 	),
 	button:                  proc "c" (
 		data: rawptr,
-		wl_pointer: ^wl_pointer,
+		wl_pointer: ^Pointer,
 		serial: c.uint32_t,
 		time: c.uint32_t,
 		button: c.uint32_t,
@@ -1605,46 +1614,46 @@ wl_pointer_listener :: struct {
 	),
 	axis:                    proc "c" (
 		data: rawptr,
-		wl_pointer: ^wl_pointer,
+		wl_pointer: ^Pointer,
 		time: c.uint32_t,
 		axis: c.uint32_t,
-		value: wl_fixed_t,
+		value: Fixed,
 	),
-	frame:                   proc "c" (data: rawptr, wl_pointer: ^wl_pointer),
+	frame:                   proc "c" (data: rawptr, wl_pointer: ^Pointer),
 	axis_source:             proc "c" (
 		data: rawptr,
-		wl_pointer: ^wl_pointer,
+		wl_pointer: ^Pointer,
 		axis_source: c.uint32_t,
 	),
 	axis_stop:               proc "c" (
 		data: rawptr,
-		wl_pointer: ^wl_pointer,
+		wl_pointer: ^Pointer,
 		time: c.uint32_t,
 		axis: c.uint32_t,
 	),
 	axis_discrete:           proc "c" (
 		data: rawptr,
-		wl_pointer: ^wl_pointer,
+		wl_pointer: ^Pointer,
 		axis: c.uint32_t,
 		discrete: c.int32_t,
 	),
 	axis_value120:           proc "c" (
 		data: rawptr,
-		wl_pointer: ^wl_pointer,
+		wl_pointer: ^Pointer,
 		axis: c.uint32_t,
 		value120: c.int32_t,
 	),
 	axis_relative_direction: proc "c" (
 		data: rawptr,
-		wl_pointer: ^wl_pointer,
+		wl_pointer: ^Pointer,
 		axis: c.uint32_t,
 		direction: c.uint32_t,
 	),
 }
 
 wl_pointer_add_listener :: proc(
-	wl_pointer: ^wl_pointer,
-	listener: ^wl_pointer_listener,
+	wl_pointer: ^Pointer,
+	listener: ^Pointer_Listener,
 	data: rawptr,
 ) -> c.int {
 
@@ -1652,9 +1661,9 @@ wl_pointer_add_listener :: proc(
 }
 
 wl_pointer_set_cursor :: proc "c" (
-	_wl_pointer: ^wl_pointer,
+	_wl_pointer: ^Pointer,
 	serial: c.uint32_t,
-	surface: ^wl_surface,
+	surface: ^Surface,
 	hotspot_x: c.int32_t,
 	hotspot_y: c.int32_t,
 ) {
@@ -1672,7 +1681,7 @@ wl_pointer_set_cursor :: proc "c" (
 
 }
 
-wl_pointer_release :: proc "c" (_wl_pointer: ^wl_pointer) {
+pointer_release :: proc "c" (_wl_pointer: ^Pointer) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_pointer,
 		1,
@@ -1684,7 +1693,7 @@ wl_pointer_release :: proc "c" (_wl_pointer: ^wl_pointer) {
 }
 
 
-wl_pointer_destroy :: proc "c" (wl_pointer: ^wl_pointer) {
+wl_pointer_destroy :: proc "c" (wl_pointer: ^Pointer) {
 	proxy_destroy(cast(^wl_proxy)wl_pointer)
 }
 
@@ -1725,31 +1734,31 @@ WL_POINTER_AXIS_SOURCE_FINGER :: 1
 WL_POINTER_AXIS_RELATIVE_DIRECTION_IDENTICAL :: 0
 WL_POINTER_AXIS_RELATIVE_DIRECTION_INVERTED :: 1
 
-wl_keyboard :: struct {}
-wl_keyboard_listener :: struct {
+Keyboard :: struct {}
+Keyboard_Listener :: struct {
 	keymap:      proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl_keyboard,
+		wl_keyboard: ^Keyboard,
 		format: c.uint32_t,
 		fd: c.int32_t,
 		size: c.uint32_t,
 	),
 	enter:       proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl_keyboard,
+		wl_keyboard: ^Keyboard,
 		serial: c.uint32_t,
-		surface: ^wl_surface,
+		surface: ^Surface,
 		keys: ^wl_array,
 	),
 	leave:       proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl_keyboard,
+		wl_keyboard: ^Keyboard,
 		serial: c.uint32_t,
-		surface: ^wl_surface,
+		surface: ^Surface,
 	),
 	key:         proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl_keyboard,
+		wl_keyboard: ^Keyboard,
 		serial: c.uint32_t,
 		time: c.uint32_t,
 		key: c.uint32_t,
@@ -1757,7 +1766,7 @@ wl_keyboard_listener :: struct {
 	),
 	modifiers:   proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl_keyboard,
+		wl_keyboard: ^Keyboard,
 		serial: c.uint32_t,
 		mods_depressed: c.uint32_t,
 		mods_latched: c.uint32_t,
@@ -1766,22 +1775,13 @@ wl_keyboard_listener :: struct {
 	),
 	repeat_info: proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl_keyboard,
+		wl_keyboard: ^Keyboard,
 		rate: c.int32_t,
 		delay: c.int32_t,
 	),
 }
 
-wl_keyboard_add_listener :: proc(
-	wl_keyboard: ^wl_keyboard,
-	listener: ^wl_keyboard_listener,
-	data: rawptr,
-) -> c.int {
-
-	return proxy_add_listener(cast(^wl_proxy)wl_keyboard, cast(^Implementation)listener, data)
-}
-
-wl_keyboard_release :: proc "c" (_wl_keyboard: ^wl_keyboard) {
+keyboard_release :: proc "c" (_wl_keyboard: ^Keyboard) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_keyboard,
 		0,
@@ -1793,7 +1793,7 @@ wl_keyboard_release :: proc "c" (_wl_keyboard: ^wl_keyboard) {
 }
 
 
-wl_keyboard_destroy :: proc "c" (wl_keyboard: ^wl_keyboard) {
+wl_keyboard_destroy :: proc "c" (wl_keyboard: ^Keyboard) {
 	proxy_destroy(cast(^wl_proxy)wl_keyboard)
 }
 
@@ -1833,10 +1833,10 @@ wl_touch_listener :: struct {
 		wl_touch: ^wl_touch,
 		serial: c.uint32_t,
 		time: c.uint32_t,
-		surface: ^wl_surface,
+		surface: ^Surface,
 		id: c.int32_t,
-		x: wl_fixed_t,
-		y: wl_fixed_t,
+		x: Fixed,
+		y: Fixed,
 	),
 	up:          proc "c" (
 		data: rawptr,
@@ -1850,8 +1850,8 @@ wl_touch_listener :: struct {
 		wl_touch: ^wl_touch,
 		time: c.uint32_t,
 		id: c.int32_t,
-		x: wl_fixed_t,
-		y: wl_fixed_t,
+		x: Fixed,
+		y: Fixed,
 	),
 	frame:       proc "c" (data: rawptr, wl_touch: ^wl_touch),
 	cancel:      proc "c" (data: rawptr, wl_touch: ^wl_touch),
@@ -1859,14 +1859,14 @@ wl_touch_listener :: struct {
 		data: rawptr,
 		wl_touch: ^wl_touch,
 		id: c.int32_t,
-		major: wl_fixed_t,
-		minor: wl_fixed_t,
+		major: Fixed,
+		minor: Fixed,
 	),
 	orientation: proc "c" (
 		data: rawptr,
 		wl_touch: ^wl_touch,
 		id: c.int32_t,
-		orientation: wl_fixed_t,
+		orientation: Fixed,
 	),
 }
 
@@ -2106,8 +2106,8 @@ wl_subcompositor_destroy :: proc "c" (_wl_subcompositor: ^wl_subcompositor) {
 
 wl_subcompositor_get_subsurface :: proc "c" (
 	_wl_subcompositor: ^wl_subcompositor,
-	surface: ^wl_surface,
-	parent: ^wl_surface,
+	surface: ^Surface,
+	parent: ^Surface,
 ) -> ^wl_subsurface {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
@@ -2191,7 +2191,7 @@ wl_subsurface_set_position :: proc "c" (
 
 }
 
-wl_subsurface_place_above :: proc "c" (_wl_subsurface: ^wl_subsurface, sibling: ^wl_surface) {
+wl_subsurface_place_above :: proc "c" (_wl_subsurface: ^wl_subsurface, sibling: ^Surface) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_subsurface,
 		2,
@@ -2203,7 +2203,7 @@ wl_subsurface_place_above :: proc "c" (_wl_subsurface: ^wl_subsurface, sibling: 
 
 }
 
-wl_subsurface_place_below :: proc "c" (_wl_subsurface: ^wl_subsurface, sibling: ^wl_surface) {
+wl_subsurface_place_below :: proc "c" (_wl_subsurface: ^wl_subsurface, sibling: ^Surface) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_wl_subsurface,
 		3,

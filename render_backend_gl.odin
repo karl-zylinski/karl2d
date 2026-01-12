@@ -132,7 +132,7 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 	}
 
 	s.ctx = ctx
-	_gl_load_procs(ctx)
+	_gl_load_procs(s.ctx)
 
 	gl.GenBuffers(1, &s.vertex_buffer_gpu)
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
@@ -161,7 +161,7 @@ gl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 }
 
 gl_present :: proc() {
-	_gl_present(s.window_handle)
+	_gl_present(s.ctx)
 }
 
 gl_draw :: proc(
@@ -343,6 +343,7 @@ gl_resize_swapchain :: proc(w, h: int) {
 	s.width = w
 	s.height = h
 	gl.Viewport(0, 0, i32(w), i32(h))
+	_gl_context_viewport_resized(s.ctx)
 }
 
 gl_get_swapchain_width :: proc() -> int {

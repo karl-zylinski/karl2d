@@ -7,20 +7,20 @@ foreign import lib_egl "system:wayland-egl"
 
 @(default_calling_convention = "c", link_prefix = "wl_")
 foreign lib {
-	display_connect :: proc(name: cstring) -> ^wl_display ---
-	display_dispatch :: proc(_: ^wl_display) -> c.int ---
-	display_flush :: proc(_: ^wl_display) -> c.int ---
-	display_dispatch_pending :: proc(_: ^wl_display) -> c.int ---
+	display_connect :: proc(name: cstring) -> ^Display ---
+	display_dispatch :: proc(_: ^Display) -> c.int ---
+	display_flush :: proc(_: ^Display) -> c.int ---
+	display_dispatch_pending :: proc(_: ^Display) -> c.int ---
 	proxy_marshal_flags :: proc(_: ^wl_proxy, opcode: c.uint32_t, _: ^wl_interface, version: c.uint32_t, flags: c.uint32_t, #c_vararg _: ..any) -> ^wl_proxy ---
 	proxy_get_version :: proc(_: ^wl_proxy) -> c.uint32_t ---
-	display_roundtrip :: proc(_: ^wl_display) -> c.int ---
+	display_roundtrip :: proc(_: ^Display) -> c.int ---
 	proxy_add_listener :: proc(_: ^wl_proxy, _: ^Implementation, _: rawptr) -> c.int ---
 	proxy_destroy :: proc(_: ^wl_proxy) ---
 }
 
 @(default_calling_convention = "c", link_prefix = "wl_")
 foreign lib_egl {
-	egl_window_create :: proc(_: ^wl_surface, width: c.int, height: c.int) -> ^egl_window ---
+	egl_window_create :: proc(_: ^Surface, width: c.int, height: c.int) -> ^egl_window ---
 	egl_window_resize :: proc(_: ^egl_window, width: c.int, height: c.int, dx: c.int, dy: c.int) ---
 	egl_window_destroy :: proc(_: ^egl_window) ---
 }
@@ -50,7 +50,7 @@ wl_map :: struct {
 //	void *data;
 //};
 
-wl_fixed_t :: c.int32_t
+Fixed :: c.int32_t
 wl_array :: struct {
 	size:  c.size_t,
 	alloc: c.size_t,
@@ -65,7 +65,7 @@ wl_list :: struct {
 wl_event_queue :: struct {
 	event_list: wl_list,
 	proxy_list: wl_list,
-	display:    ^wl_display,
+	display:    ^Display,
 	name:       cstring,
 }
 
@@ -139,7 +139,7 @@ wl_dispatcher_func_t :: #type proc "c" (
 
 wl_proxy :: struct {
 	object:     wl_object,
-	display:    ^wl_display,
+	display:    ^Display,
 	queue:      ^wl_event_queue, // pointer to wl_event_queue
 	flags:      c.uint32_t,
 	refcount:   c.int,
@@ -167,7 +167,7 @@ wl_connection :: struct {
 	want_flush: c.int,
 }
 
-wl_display :: struct {
+Display :: struct {
 	proxy:          wl_proxy,
 	connection:     ^wl_connection,
 	last_error:     c.int,

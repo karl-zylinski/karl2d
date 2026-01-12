@@ -20,7 +20,7 @@ zwlr_layer_shell_v1_add_listener :: proc(
 
 zwlr_layer_shell_v1_get_layer_surface :: proc "c" (
 	_zwlr_layer_shell_v1: ^zwlr_layer_shell_v1,
-	surface: ^wl_surface,
+	surface: ^Surface,
 	output: ^wl_output,
 	layer: c.uint32_t,
 	namespace: cstring,

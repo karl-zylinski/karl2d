@@ -222,6 +222,7 @@ calculate_frame_time :: proc() {
 present :: proc() {
 	draw_current_batch()
 	rb.present()
+	win.after_frame_present()
 }
 
 // Process all events that have arrived from the platform APIs. This includes keyboard, mouse,
@@ -893,20 +894,69 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 // Tells you how much space some text of a certain size will use on the screen. The font used is the
 // default font. The return value contains the width and height of the text.
 measure_text :: proc(text: string, font_size: f32) -> Vec2 {
-	fs.SetSize(&s.fs, font_size)
-	b: [4]f32
-	fs.TextBounds(&s.fs, text, bounds = &b)
-	return {b[2] - b[0], b[3] - b[1]}
+	return measure_text_ex(s.default_font, text, font_size)
 }
 
 // Tells you how much space some text of a certain size will use on the screen, using a custom font.
 // The return value contains the width and height of the text.
 measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2 {
+	if font_handle < 0 || int(font_handle) >= len(s.fonts) {
+		return {}
+	}
+
+	font := s.fonts[font_handle]
+
+	// Temporary until I rewrite the font caching system.
 	_set_font(font_handle)
-	fs.SetSize(&s.fs, font_size)
-	b: [4]f32
-	fs.TextBounds(&s.fs, text, bounds = &b)
-	return {b[2] - b[0], b[3] - b[1]}
+
+	// TextBounds from fontstash, but fixed and simplified for my purposes.
+	// The version in there is broken.
+	TextBounds :: proc(
+		ctx:  ^fs.FontContext,
+		font_idx: int,
+		size: f32,
+		text: string,
+	) -> Vec2 {
+		font  := fs.__getFont(ctx, font_idx)
+		isize := i16(size * 10)
+
+		x, y: f32
+		max_x := x
+
+		scale := fs.__getPixelHeightScale(font, f32(isize) / 10)
+		previousGlyphIndex: fs.Glyph_Index = -1
+		quad: fs.Quad
+		lines := 1
+
+		for codepoint in text {
+			if codepoint == '\n' {
+				x = 0
+				lines += 1
+				continue
+			}
+
+			if glyph, ok := fs.__getGlyph(ctx, font, codepoint, isize); ok {
+				if glyph.xadvance > 0 {
+					x += f32(int(f32(glyph.xadvance) / 10 + 0.5))
+				} else {
+					// updates x
+					fs.__getQuad(ctx, font, previousGlyphIndex, glyph, scale, 0, &x, &y, &quad)
+				}
+
+				if x > max_x {
+					max_x = x
+				}
+
+				previousGlyphIndex = glyph.index
+			} else {
+				previousGlyphIndex = -1
+			}
+
+		}
+		return { max_x, f32(lines)*size }
+	}
+
+	return TextBounds(&s.fs, font.fontstash_handle, font_size, text)
 }
 
 // Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
@@ -1491,6 +1541,9 @@ world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 //    inv_offset_translate * inv_scale * inv_rot * inv_target_translate
 //
 // This is faster, since matrix inverses are expensive.
+//
+// The view matrix is a Mat4 because its easier to upload a Mat4 to the GPU. But only the upper-left
+// 3x3 matrix is actually used.
 get_camera_view_matrix :: proc(c: Camera) -> Mat4 {
 	inv_target_translate := linalg.matrix4_translate(vec3_from_vec2(-c.target))
 	inv_rot := linalg.matrix4_rotate_f32(c.rotation, {0, 0, 1})

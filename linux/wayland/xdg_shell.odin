@@ -2,21 +2,21 @@ package wayland
 
 import "core:c"
 
-xdg_wm_base :: struct {}
-xdg_wm_base_listener :: struct {
-	ping: proc "c" (data: rawptr, xdg_wm_base: ^xdg_wm_base, serial: c.uint32_t),
+XDG_WM_Base :: struct {}
+XDG_WM_Base_Listener :: struct {
+	ping: proc "c" (data: rawptr, xdg_wm_base: ^XDG_WM_Base, serial: c.uint32_t),
 }
 
 xdg_wm_base_add_listener :: proc(
-	xdg_wm_base: ^xdg_wm_base,
-	listener: ^xdg_wm_base_listener,
+	xdg_wm_base: ^XDG_WM_Base,
+	listener: ^XDG_WM_Base_Listener,
 	data: rawptr,
 ) -> c.int {
 
 	return proxy_add_listener(cast(^wl_proxy)xdg_wm_base, cast(^Implementation)listener, data)
 }
 
-xdg_wm_base_destroy :: proc "c" (_xdg_wm_base: ^xdg_wm_base) {
+xdg_wm_base_destroy :: proc "c" (_xdg_wm_base: ^XDG_WM_Base) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_xdg_wm_base,
 		0,
@@ -27,7 +27,7 @@ xdg_wm_base_destroy :: proc "c" (_xdg_wm_base: ^xdg_wm_base) {
 
 }
 
-xdg_wm_base_create_positioner :: proc "c" (_xdg_wm_base: ^xdg_wm_base) -> ^xdg_positioner {
+xdg_wm_base_create_positioner :: proc "c" (_xdg_wm_base: ^XDG_WM_Base) -> ^xdg_positioner {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
 		cast(^wl_proxy)_xdg_wm_base,
@@ -43,8 +43,8 @@ xdg_wm_base_create_positioner :: proc "c" (_xdg_wm_base: ^xdg_wm_base) -> ^xdg_p
 }
 
 xdg_wm_base_get_xdg_surface :: proc "c" (
-	_xdg_wm_base: ^xdg_wm_base,
-	surface: ^wl_surface,
+	_xdg_wm_base: ^XDG_WM_Base,
+	surface: ^Surface,
 ) -> ^xdg_surface {
 	id: ^wl_proxy
 	id = proxy_marshal_flags(
@@ -61,7 +61,7 @@ xdg_wm_base_get_xdg_surface :: proc "c" (
 	return cast(^xdg_surface)id
 }
 
-xdg_wm_base_pong :: proc "c" (_xdg_wm_base: ^xdg_wm_base, serial: c.uint32_t) {
+xdg_wm_base_pong :: proc "c" (_xdg_wm_base: ^XDG_WM_Base, serial: c.uint32_t) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_xdg_wm_base,
 		3,
@@ -530,7 +530,7 @@ xdg_toplevel_set_app_id :: proc "c" (_xdg_toplevel: ^xdg_toplevel, app_id: cstri
 
 xdg_toplevel_show_window_menu :: proc "c" (
 	_xdg_toplevel: ^xdg_toplevel,
-	seat: ^wl_seat,
+	seat: ^Seat,
 	serial: c.uint32_t,
 	x: c.int32_t,
 	y: c.int32_t,
@@ -549,7 +549,7 @@ xdg_toplevel_show_window_menu :: proc "c" (
 
 }
 
-xdg_toplevel_move :: proc "c" (_xdg_toplevel: ^xdg_toplevel, seat: ^wl_seat, serial: c.uint32_t) {
+xdg_toplevel_move :: proc "c" (_xdg_toplevel: ^xdg_toplevel, seat: ^Seat, serial: c.uint32_t) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_xdg_toplevel,
 		5,
@@ -564,7 +564,7 @@ xdg_toplevel_move :: proc "c" (_xdg_toplevel: ^xdg_toplevel, seat: ^wl_seat, ser
 
 xdg_toplevel_resize :: proc "c" (
 	_xdg_toplevel: ^xdg_toplevel,
-	seat: ^wl_seat,
+	seat: ^Seat,
 	serial: c.uint32_t,
 	edges: c.uint32_t,
 ) {
@@ -676,9 +676,9 @@ xdg_toplevel_requests: []wl_message = []wl_message {
 	{"set_parent", "?o", raw_data([]^wl_interface{&xdg_toplevel_interface})},
 	{"set_title", "s", raw_data([]^wl_interface{nil})},
 	{"set_app_id", "s", raw_data([]^wl_interface{nil})},
-	{"show_window_menu", "ouii", raw_data([]^wl_interface{&wl_seat_interface, nil, nil, nil})},
-	{"move", "ou", raw_data([]^wl_interface{&wl_seat_interface, nil})},
-	{"resize", "ouu", raw_data([]^wl_interface{&wl_seat_interface, nil, nil})},
+	{"show_window_menu", "ouii", raw_data([]^wl_interface{&seat_interface, nil, nil, nil})},
+	{"move", "ou", raw_data([]^wl_interface{&seat_interface, nil})},
+	{"resize", "ouu", raw_data([]^wl_interface{&seat_interface, nil, nil})},
 	{"set_max_size", "ii", raw_data([]^wl_interface{nil, nil})},
 	{"set_min_size", "ii", raw_data([]^wl_interface{nil, nil})},
 	{"set_maximized", "", raw_data([]^wl_interface{})},
@@ -768,7 +768,7 @@ xdg_popup_destroy :: proc "c" (_xdg_popup: ^xdg_popup) {
 
 }
 
-xdg_popup_grab :: proc "c" (_xdg_popup: ^xdg_popup, seat: ^wl_seat, serial: c.uint32_t) {
+xdg_popup_grab :: proc "c" (_xdg_popup: ^xdg_popup, seat: ^Seat, serial: c.uint32_t) {
 	proxy_marshal_flags(
 		cast(^wl_proxy)_xdg_popup,
 		1,
@@ -800,7 +800,7 @@ xdg_popup_reposition :: proc "c" (
 
 xdg_popup_requests: []wl_message = []wl_message {
 	{"destroy", "", raw_data([]^wl_interface{})},
-	{"grab", "ou", raw_data([]^wl_interface{&wl_seat_interface, nil})},
+	{"grab", "ou", raw_data([]^wl_interface{&seat_interface, nil})},
 	{"reposition", "ou", raw_data([]^wl_interface{&xdg_positioner_interface, nil})},
 }
 

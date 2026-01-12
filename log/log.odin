@@ -146,7 +146,7 @@ ensure :: proc(condition: bool, message := #caller_expression(condition), loc :=
 	if has_logger() {
 		log.ensure(condition, message, loc)
 	} else {
-		ensure(condition, message, loc)
+		runtime.ensure(condition, message, loc)
 	}
 }
 
