@@ -89,8 +89,8 @@ wl_init :: proc(
 	wl.surface_commit(s.surface)
 	wl.display_dispatch(s.display)
 
-	wl_callback := wl.wl_surface_frame(s.surface)
-	wl.wl_callback_add_listener(wl_callback, &frame_callback, nil)
+	callback := wl.surface_frame(s.surface)
+	wl.add_listener(callback, &frame_callback, nil)
 
 	s.window = wl.egl_window_create(s.surface, i32(s.windowed_width), i32(s.windowed_height))
 
@@ -112,36 +112,40 @@ registry_listener := wl.Registry_Listener {
 		context = s.odin_ctx
 		switch interface {
 		case wl.compositor_interface.name:
-			s.compositor = (^wl.Compositor)(wl.registry_bind(
+			s.compositor = wl.registry_bind(
+				wl.Compositor,
 				registry,
 				name,
 				&wl.compositor_interface,
 				version,
-			))
+			)
 
 		case wl.xdg_wm_base_interface.name:
-			s.xdg_base = (^wl.XDG_WM_Base)(wl.registry_bind(
+			s.xdg_base = wl.registry_bind(
+				wl.XDG_WM_Base,
 				registry,
 				name,
 				&wl.xdg_wm_base_interface,
 				version,
-			))
+			)
 
 		case wl.seat_interface.name:
-			s.seat = (^wl.Seat)(wl.registry_bind(
+			s.seat = wl.registry_bind(
+				wl.Seat,
 				registry,
 				name,
 				&wl.seat_interface,
 				version,
-			))
+			)
 
 		case wl.zxdg_decoration_manager_v1_interface.name:
-			s.decoration_manager = cast(^wl.zxdg_decoration_manager_v1)(wl.registry_bind(
+			s.decoration_manager = wl.registry_bind(
+				wl.zxdg_decoration_manager_v1,
 				registry,
 				name,
 				&wl.zxdg_decoration_manager_v1_interface,
 				version,
-			))
+			)
 		}
 	},
 }
@@ -177,10 +181,9 @@ seat_listener := wl.Seat_Listener {
 	name = proc "c" (data: rawptr, seat: ^wl.Seat, name: cstring) {},
 }
 
-@(private="package")
-frame_callback := wl.wl_callback_listener {
-	done = proc "c" (data: rawptr, wl_callback: ^wl.wl_callback, callback_data: c.uint32_t) {
-		wl.wl_callback_destroy(wl_callback)
+frame_callback := wl.Callback_Listener {
+	done = proc "c" (data: rawptr, callback: ^wl.Callback, callback_data: c.uint32_t) {
+		wl.callback_destroy(callback)
 	},
 }
 
@@ -239,7 +242,7 @@ keyboard_listener := wl.Keyboard_Listener {
 	key = key_handler,
 	modifiers = proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl.Keyboard,
+		keyboard: ^wl.Keyboard,
 		serial: c.uint32_t,
 		mods_depressed: c.uint32_t,
 		mods_latched: c.uint32_t,
@@ -249,7 +252,7 @@ keyboard_listener := wl.Keyboard_Listener {
 	},
 	repeat_info = proc "c" (
 		data: rawptr,
-		wl_keyboard: ^wl.Keyboard,
+		keyboard: ^wl.Keyboard,
 		rate: c.int32_t,
 		delay: c.int32_t,
 	) {},
@@ -369,7 +372,7 @@ pointer_listener := wl.Pointer_Listener {
 			delta = event_direction,
 		})
 	},
-	frame = proc "c" (data: rawptr, wl_pointer: ^wl.Pointer) {
+	frame = proc "c" (data: rawptr, pointer: ^wl.Pointer) {
 
 	},
 	axis_source = proc "c" (
