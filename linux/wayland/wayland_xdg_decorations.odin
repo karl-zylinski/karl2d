@@ -12,7 +12,7 @@ zxdg_decoration_manager_v1_add_listener :: proc(
 ) -> c.int {
 
 	return proxy_add_listener(
-		cast(^wl_proxy)zxdg_decoration_manager_v1,
+		cast(^Proxy)zxdg_decoration_manager_v1,
 		cast(^Implementation)listener,
 		data,
 	)
@@ -22,10 +22,10 @@ zxdg_decoration_manager_v1_destroy :: proc "c" (
 	_zxdg_decoration_manager_v1: ^zxdg_decoration_manager_v1,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_zxdg_decoration_manager_v1,
+		cast(^Proxy)_zxdg_decoration_manager_v1,
 		0,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_zxdg_decoration_manager_v1),
+		proxy_get_version(cast(^Proxy)_zxdg_decoration_manager_v1),
 		WL_MARSHAL_FLAG_DESTROY,
 	)
 
@@ -35,12 +35,12 @@ zxdg_decoration_manager_v1_get_toplevel_decoration :: proc "c" (
 	_zxdg_decoration_manager_v1: ^zxdg_decoration_manager_v1,
 	toplevel: ^xdg_toplevel,
 ) -> ^zxdg_toplevel_decoration_v1 {
-	id: ^wl_proxy
+	id: ^Proxy
 	id = proxy_marshal_flags(
-		cast(^wl_proxy)_zxdg_decoration_manager_v1,
+		cast(^Proxy)_zxdg_decoration_manager_v1,
 		1,
 		&zxdg_toplevel_decoration_v1_interface,
-		proxy_get_version(cast(^wl_proxy)_zxdg_decoration_manager_v1),
+		proxy_get_version(cast(^Proxy)_zxdg_decoration_manager_v1),
 		0,
 		nil,
 		toplevel,
@@ -91,7 +91,7 @@ zxdg_toplevel_decoration_v1_add_listener :: proc(
 ) -> c.int {
 
 	return proxy_add_listener(
-		cast(^wl_proxy)zxdg_toplevel_decoration_v1,
+		cast(^Proxy)zxdg_toplevel_decoration_v1,
 		cast(^Implementation)listener,
 		data,
 	)
@@ -101,10 +101,10 @@ zxdg_toplevel_decoration_v1_destroy :: proc "c" (
 	_zxdg_toplevel_decoration_v1: ^zxdg_toplevel_decoration_v1,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_zxdg_toplevel_decoration_v1,
+		cast(^Proxy)_zxdg_toplevel_decoration_v1,
 		0,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_zxdg_toplevel_decoration_v1),
+		proxy_get_version(cast(^Proxy)_zxdg_toplevel_decoration_v1),
 		WL_MARSHAL_FLAG_DESTROY,
 	)
 
@@ -115,10 +115,10 @@ zxdg_toplevel_decoration_v1_set_mode :: proc "c" (
 	mode: c.uint32_t,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_zxdg_toplevel_decoration_v1,
+		cast(^Proxy)_zxdg_toplevel_decoration_v1,
 		1,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_zxdg_toplevel_decoration_v1),
+		proxy_get_version(cast(^Proxy)_zxdg_toplevel_decoration_v1),
 		0,
 		mode,
 	)
@@ -129,10 +129,10 @@ zxdg_toplevel_decoration_v1_unset_mode :: proc "c" (
 	_zxdg_toplevel_decoration_v1: ^zxdg_toplevel_decoration_v1,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_zxdg_toplevel_decoration_v1,
+		cast(^Proxy)_zxdg_toplevel_decoration_v1,
 		2,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_zxdg_toplevel_decoration_v1),
+		proxy_get_version(cast(^Proxy)_zxdg_toplevel_decoration_v1),
 		0,
 	)
 

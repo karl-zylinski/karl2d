@@ -58,50 +58,7 @@ wl_init :: proc(
 
 	s.display = wl.display_connect(nil)
 
-	@static registry_listener := wl.Registry_Listener {
-		global = proc "c" (
-			data: rawptr,
-			registry: ^wl.Registry,
-			name: c.uint32_t,
-			interface: cstring,
-			version: c.uint32_t,
-		) {
-			context = s.odin_ctx
-			switch interface {
-			case wl.compositor_interface.name:
-				s.compositor = (^wl.Compositor)(wl.registry_bind(
-					registry,
-					name,
-					&wl.compositor_interface,
-					version,
-				))
-
-			case wl.xdg_wm_base_interface.name:
-				s.xdg_base = (^wl.XDG_WM_Base)(wl.registry_bind(
-					registry,
-					name,
-					&wl.xdg_wm_base_interface,
-					version,
-				))
-
-			case wl.seat_interface.name:
-				s.seat = (^wl.Seat)(wl.registry_bind(
-					registry,
-					name,
-					&wl.seat_interface,
-					version,
-				))
-
-			case wl.zxdg_decoration_manager_v1_interface.name:
-				s.decoration_manager = cast(^wl.zxdg_decoration_manager_v1)(wl.registry_bind(
-					registry,
-					name,
-					&wl.zxdg_decoration_manager_v1_interface,
-					version,
-			))
-			}
-		},
-	}
+	
 
 	display_registry := wl.display_get_registry(s.display)
 	wl.add_listener(display_registry, &registry_listener, nil)
@@ -144,6 +101,50 @@ wl_init :: proc(
 	}
 }
 
+registry_listener := wl.Registry_Listener {
+	global = proc "c" (
+		data: rawptr,
+		registry: ^wl.Registry,
+		name: u32,
+		interface: cstring,
+		version: u32,
+	) {
+		context = s.odin_ctx
+		switch interface {
+		case wl.compositor_interface.name:
+			s.compositor = (^wl.Compositor)(wl.registry_bind(
+				registry,
+				name,
+				&wl.compositor_interface,
+				version,
+			))
+
+		case wl.xdg_wm_base_interface.name:
+			s.xdg_base = (^wl.XDG_WM_Base)(wl.registry_bind(
+				registry,
+				name,
+				&wl.xdg_wm_base_interface,
+				version,
+			))
+
+		case wl.seat_interface.name:
+			s.seat = (^wl.Seat)(wl.registry_bind(
+				registry,
+				name,
+				&wl.seat_interface,
+				version,
+			))
+
+		case wl.zxdg_decoration_manager_v1_interface.name:
+			s.decoration_manager = cast(^wl.zxdg_decoration_manager_v1)(wl.registry_bind(
+				registry,
+				name,
+				&wl.zxdg_decoration_manager_v1_interface,
+				version,
+			))
+		}
+	},
+}
 
 seat_listener := wl.Seat_Listener {
 	capabilities = proc "c" (data: rawptr, seat: ^wl.Seat, capabilities: wl.Seat_Capabilities) {

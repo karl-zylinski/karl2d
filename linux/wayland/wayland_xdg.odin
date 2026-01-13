@@ -13,27 +13,27 @@ xdg_wm_base_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^wl_proxy)xdg_wm_base, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)xdg_wm_base, cast(^Implementation)listener, data)
 }
 
 xdg_wm_base_destroy :: proc "c" (_xdg_wm_base: ^XDG_WM_Base) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_wm_base,
+		cast(^Proxy)_xdg_wm_base,
 		0,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_wm_base),
+		proxy_get_version(cast(^Proxy)_xdg_wm_base),
 		WL_MARSHAL_FLAG_DESTROY,
 	)
 
 }
 
 xdg_wm_base_create_positioner :: proc "c" (_xdg_wm_base: ^XDG_WM_Base) -> ^xdg_positioner {
-	id: ^wl_proxy
+	id: ^Proxy
 	id = proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_wm_base,
+		cast(^Proxy)_xdg_wm_base,
 		1,
 		&xdg_positioner_interface,
-		proxy_get_version(cast(^wl_proxy)_xdg_wm_base),
+		proxy_get_version(cast(^Proxy)_xdg_wm_base),
 		0,
 		nil,
 	)
@@ -46,12 +46,12 @@ xdg_wm_base_get_xdg_surface :: proc "c" (
 	_xdg_wm_base: ^XDG_WM_Base,
 	surface: ^Surface,
 ) -> ^xdg_surface {
-	id: ^wl_proxy
+	id: ^Proxy
 	id = proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_wm_base,
+		cast(^Proxy)_xdg_wm_base,
 		2,
 		&xdg_surface_interface,
-		proxy_get_version(cast(^wl_proxy)_xdg_wm_base),
+		proxy_get_version(cast(^Proxy)_xdg_wm_base),
 		0,
 		nil,
 		surface,
@@ -63,10 +63,10 @@ xdg_wm_base_get_xdg_surface :: proc "c" (
 
 xdg_wm_base_pong :: proc "c" (_xdg_wm_base: ^XDG_WM_Base, serial: c.uint32_t) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_wm_base,
+		cast(^Proxy)_xdg_wm_base,
 		3,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_wm_base),
+		proxy_get_version(cast(^Proxy)_xdg_wm_base),
 		0,
 		serial,
 	)
@@ -116,15 +116,15 @@ xdg_positioner_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^wl_proxy)xdg_positioner, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)xdg_positioner, cast(^Implementation)listener, data)
 }
 
 xdg_positioner_destroy :: proc "c" (_xdg_positioner: ^xdg_positioner) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_positioner,
+		cast(^Proxy)_xdg_positioner,
 		0,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_positioner),
+		proxy_get_version(cast(^Proxy)_xdg_positioner),
 		WL_MARSHAL_FLAG_DESTROY,
 	)
 
@@ -136,10 +136,10 @@ xdg_positioner_set_size :: proc "c" (
 	height: c.int32_t,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_positioner,
+		cast(^Proxy)_xdg_positioner,
 		1,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_positioner),
+		proxy_get_version(cast(^Proxy)_xdg_positioner),
 		0,
 		width,
 		height,
@@ -155,10 +155,10 @@ xdg_positioner_set_anchor_rect :: proc "c" (
 	height: c.int32_t,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_positioner,
+		cast(^Proxy)_xdg_positioner,
 		2,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_positioner),
+		proxy_get_version(cast(^Proxy)_xdg_positioner),
 		0,
 		x,
 		y,
@@ -170,10 +170,10 @@ xdg_positioner_set_anchor_rect :: proc "c" (
 
 xdg_positioner_set_anchor :: proc "c" (_xdg_positioner: ^xdg_positioner, anchor: c.uint32_t) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_positioner,
+		cast(^Proxy)_xdg_positioner,
 		3,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_positioner),
+		proxy_get_version(cast(^Proxy)_xdg_positioner),
 		0,
 		anchor,
 	)
@@ -182,10 +182,10 @@ xdg_positioner_set_anchor :: proc "c" (_xdg_positioner: ^xdg_positioner, anchor:
 
 xdg_positioner_set_gravity :: proc "c" (_xdg_positioner: ^xdg_positioner, gravity: c.uint32_t) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_positioner,
+		cast(^Proxy)_xdg_positioner,
 		4,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_positioner),
+		proxy_get_version(cast(^Proxy)_xdg_positioner),
 		0,
 		gravity,
 	)
@@ -197,10 +197,10 @@ xdg_positioner_set_constraint_adjustment :: proc "c" (
 	constraint_adjustment: c.uint32_t,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_positioner,
+		cast(^Proxy)_xdg_positioner,
 		5,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_positioner),
+		proxy_get_version(cast(^Proxy)_xdg_positioner),
 		0,
 		constraint_adjustment,
 	)
@@ -213,10 +213,10 @@ xdg_positioner_set_offset :: proc "c" (
 	y: c.int32_t,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_positioner,
+		cast(^Proxy)_xdg_positioner,
 		6,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_positioner),
+		proxy_get_version(cast(^Proxy)_xdg_positioner),
 		0,
 		x,
 		y,
@@ -226,10 +226,10 @@ xdg_positioner_set_offset :: proc "c" (
 
 xdg_positioner_set_reactive :: proc "c" (_xdg_positioner: ^xdg_positioner) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_positioner,
+		cast(^Proxy)_xdg_positioner,
 		7,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_positioner),
+		proxy_get_version(cast(^Proxy)_xdg_positioner),
 		0,
 	)
 
@@ -241,10 +241,10 @@ xdg_positioner_set_parent_size :: proc "c" (
 	parent_height: c.int32_t,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_positioner,
+		cast(^Proxy)_xdg_positioner,
 		8,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_positioner),
+		proxy_get_version(cast(^Proxy)_xdg_positioner),
 		0,
 		parent_width,
 		parent_height,
@@ -257,10 +257,10 @@ xdg_positioner_set_parent_configure :: proc "c" (
 	serial: c.uint32_t,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_positioner,
+		cast(^Proxy)_xdg_positioner,
 		9,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_positioner),
+		proxy_get_version(cast(^Proxy)_xdg_positioner),
 		0,
 		serial,
 	)
@@ -326,27 +326,27 @@ xdg_surface_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^wl_proxy)xdg_surface, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)xdg_surface, cast(^Implementation)listener, data)
 }
 
 xdg_surface_destroy :: proc "c" (_xdg_surface: ^xdg_surface) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_surface,
+		cast(^Proxy)_xdg_surface,
 		0,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_surface),
+		proxy_get_version(cast(^Proxy)_xdg_surface),
 		WL_MARSHAL_FLAG_DESTROY,
 	)
 
 }
 
 xdg_surface_get_toplevel :: proc "c" (_xdg_surface: ^xdg_surface) -> ^xdg_toplevel {
-	id: ^wl_proxy
+	id: ^Proxy
 	id = proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_surface,
+		cast(^Proxy)_xdg_surface,
 		1,
 		&xdg_toplevel_interface,
-		proxy_get_version(cast(^wl_proxy)_xdg_surface),
+		proxy_get_version(cast(^Proxy)_xdg_surface),
 		0,
 		nil,
 	)
@@ -360,12 +360,12 @@ xdg_surface_get_popup :: proc "c" (
 	parent: ^xdg_surface,
 	positioner: ^xdg_positioner,
 ) -> ^xdg_popup {
-	id: ^wl_proxy
+	id: ^Proxy
 	id = proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_surface,
+		cast(^Proxy)_xdg_surface,
 		2,
 		&xdg_popup_interface,
-		proxy_get_version(cast(^wl_proxy)_xdg_surface),
+		proxy_get_version(cast(^Proxy)_xdg_surface),
 		0,
 		nil,
 		parent,
@@ -384,10 +384,10 @@ xdg_surface_set_window_geometry :: proc "c" (
 	height: c.int32_t,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_surface,
+		cast(^Proxy)_xdg_surface,
 		3,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_surface),
+		proxy_get_version(cast(^Proxy)_xdg_surface),
 		0,
 		x,
 		y,
@@ -399,10 +399,10 @@ xdg_surface_set_window_geometry :: proc "c" (
 
 xdg_surface_ack_configure :: proc "c" (_xdg_surface: ^xdg_surface, serial: c.uint32_t) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_surface,
+		cast(^Proxy)_xdg_surface,
 		4,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_surface),
+		proxy_get_version(cast(^Proxy)_xdg_surface),
 		0,
 		serial,
 	)
@@ -478,15 +478,15 @@ xdg_toplevel_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^wl_proxy)xdg_toplevel, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)xdg_toplevel, cast(^Implementation)listener, data)
 }
 
 xdg_toplevel_destroy :: proc "c" (_xdg_toplevel: ^xdg_toplevel) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		0,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		WL_MARSHAL_FLAG_DESTROY,
 	)
 
@@ -494,10 +494,10 @@ xdg_toplevel_destroy :: proc "c" (_xdg_toplevel: ^xdg_toplevel) {
 
 xdg_toplevel_set_parent :: proc "c" (_xdg_toplevel: ^xdg_toplevel, parent: ^xdg_toplevel) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		1,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		0,
 		parent,
 	)
@@ -506,10 +506,10 @@ xdg_toplevel_set_parent :: proc "c" (_xdg_toplevel: ^xdg_toplevel, parent: ^xdg_
 
 xdg_toplevel_set_title :: proc "c" (_xdg_toplevel: ^xdg_toplevel, title: cstring) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		2,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		0,
 		title,
 	)
@@ -518,10 +518,10 @@ xdg_toplevel_set_title :: proc "c" (_xdg_toplevel: ^xdg_toplevel, title: cstring
 
 xdg_toplevel_set_app_id :: proc "c" (_xdg_toplevel: ^xdg_toplevel, app_id: cstring) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		3,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		0,
 		app_id,
 	)
@@ -536,10 +536,10 @@ xdg_toplevel_show_window_menu :: proc "c" (
 	y: c.int32_t,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		4,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		0,
 		seat,
 		serial,
@@ -551,10 +551,10 @@ xdg_toplevel_show_window_menu :: proc "c" (
 
 xdg_toplevel_move :: proc "c" (_xdg_toplevel: ^xdg_toplevel, seat: ^Seat, serial: c.uint32_t) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		5,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		0,
 		seat,
 		serial,
@@ -569,10 +569,10 @@ xdg_toplevel_resize :: proc "c" (
 	edges: c.uint32_t,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		6,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		0,
 		seat,
 		serial,
@@ -587,10 +587,10 @@ xdg_toplevel_set_max_size :: proc "c" (
 	height: c.int32_t,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		7,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		0,
 		width,
 		height,
@@ -604,10 +604,10 @@ xdg_toplevel_set_min_size :: proc "c" (
 	height: c.int32_t,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		8,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		0,
 		width,
 		height,
@@ -617,10 +617,10 @@ xdg_toplevel_set_min_size :: proc "c" (
 
 xdg_toplevel_set_maximized :: proc "c" (_xdg_toplevel: ^xdg_toplevel) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		9,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		0,
 	)
 
@@ -628,10 +628,10 @@ xdg_toplevel_set_maximized :: proc "c" (_xdg_toplevel: ^xdg_toplevel) {
 
 xdg_toplevel_unset_maximized :: proc "c" (_xdg_toplevel: ^xdg_toplevel) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		10,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		0,
 	)
 
@@ -639,10 +639,10 @@ xdg_toplevel_unset_maximized :: proc "c" (_xdg_toplevel: ^xdg_toplevel) {
 
 xdg_toplevel_set_fullscreen :: proc "c" (_xdg_toplevel: ^xdg_toplevel, output: ^wl_output) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		11,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		0,
 		output,
 	)
@@ -651,10 +651,10 @@ xdg_toplevel_set_fullscreen :: proc "c" (_xdg_toplevel: ^xdg_toplevel, output: ^
 
 xdg_toplevel_unset_fullscreen :: proc "c" (_xdg_toplevel: ^xdg_toplevel) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		12,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		0,
 	)
 
@@ -662,10 +662,10 @@ xdg_toplevel_unset_fullscreen :: proc "c" (_xdg_toplevel: ^xdg_toplevel) {
 
 xdg_toplevel_set_minimized :: proc "c" (_xdg_toplevel: ^xdg_toplevel) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_toplevel,
+		cast(^Proxy)_xdg_toplevel,
 		13,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_toplevel),
+		proxy_get_version(cast(^Proxy)_xdg_toplevel),
 		0,
 	)
 
@@ -754,15 +754,15 @@ xdg_popup_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^wl_proxy)xdg_popup, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)xdg_popup, cast(^Implementation)listener, data)
 }
 
 xdg_popup_destroy :: proc "c" (_xdg_popup: ^xdg_popup) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_popup,
+		cast(^Proxy)_xdg_popup,
 		0,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_popup),
+		proxy_get_version(cast(^Proxy)_xdg_popup),
 		WL_MARSHAL_FLAG_DESTROY,
 	)
 
@@ -770,10 +770,10 @@ xdg_popup_destroy :: proc "c" (_xdg_popup: ^xdg_popup) {
 
 xdg_popup_grab :: proc "c" (_xdg_popup: ^xdg_popup, seat: ^Seat, serial: c.uint32_t) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_popup,
+		cast(^Proxy)_xdg_popup,
 		1,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_popup),
+		proxy_get_version(cast(^Proxy)_xdg_popup),
 		0,
 		seat,
 		serial,
@@ -787,10 +787,10 @@ xdg_popup_reposition :: proc "c" (
 	token: c.uint32_t,
 ) {
 	proxy_marshal_flags(
-		cast(^wl_proxy)_xdg_popup,
+		cast(^Proxy)_xdg_popup,
 		2,
 		nil,
-		proxy_get_version(cast(^wl_proxy)_xdg_popup),
+		proxy_get_version(cast(^Proxy)_xdg_popup),
 		0,
 		positioner,
 		token,
