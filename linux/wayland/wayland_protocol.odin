@@ -7,7 +7,7 @@ add_listener :: proc(
 	listener: ^$Listener_Type,
 	data: rawptr,
 ) -> c.int {
-	return proxy_add_listener(cast(^Proxy)proxy, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)proxy, rawptr(listener), data)
 }
 
 wl_display_listener :: struct {
@@ -27,7 +27,7 @@ wl_display_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_display, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_display, cast(rawptr)listener, data)
 }
 
 wl_display_sync :: proc "c" (_wl_display: ^Display) -> ^wl_callback {
@@ -56,17 +56,17 @@ display_get_registry :: proc "c" (display: ^Display) -> ^Registry {
 	))
 }
 
-wl_display_requests: []wl_message = []wl_message {
-	{"sync", "n", raw_data([]^wl_interface{&wl_callback_interface})},
-	{"get_registry", "n", raw_data([]^wl_interface{&wl_registry_interface})},
+wl_display_requests: []Message = []Message {
+	{"sync", "n", raw_data([]^Interface{&wl_callback_interface})},
+	{"get_registry", "n", raw_data([]^Interface{&wl_registry_interface})},
 }
 
-wl_display_events: []wl_message = []wl_message {
-	{"error", "ous", raw_data([]^wl_interface{nil, nil, nil})},
-	{"delete_id", "u", raw_data([]^wl_interface{nil})},
+wl_display_events: []Message = []Message {
+	{"error", "ous", raw_data([]^Interface{nil, nil, nil})},
+	{"delete_id", "u", raw_data([]^Interface{nil})},
 }
 
-wl_display_interface: wl_interface = {}
+wl_display_interface: Interface = {}
 @(init)
 init_wl_display_interface :: proc "contextless" () {
 	wl_display_interface = {"wl_display", 1, 2, &wl_display_requests[0], 2, &wl_display_events[0]}
@@ -95,13 +95,13 @@ wl_registry_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_registry, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_registry, cast(rawptr)listener, data)
 }
 
 registry_bind :: proc "c" (
 	registry: ^Registry,
 	name: c.uint32_t,
-	interface: ^wl_interface,
+	interface: ^Interface,
 	version: c.uint32_t,
 ) -> rawptr {
 	id: ^Proxy
@@ -126,16 +126,16 @@ wl_registry_destroy :: proc "c" (wl_registry: ^Registry) {
 	proxy_destroy(cast(^Proxy)wl_registry)
 }
 
-wl_registry_requests: []wl_message = []wl_message {
-	{"bind", "usun", raw_data([]^wl_interface{nil, nil, nil, nil})},
+wl_registry_requests: []Message = []Message {
+	{"bind", "usun", raw_data([]^Interface{nil, nil, nil, nil})},
 }
 
-wl_registry_events: []wl_message = []wl_message {
-	{"global", "usu", raw_data([]^wl_interface{nil, nil, nil})},
-	{"global_remove", "u", raw_data([]^wl_interface{nil})},
+wl_registry_events: []Message = []Message {
+	{"global", "usu", raw_data([]^Interface{nil, nil, nil})},
+	{"global_remove", "u", raw_data([]^Interface{nil})},
 }
 
-wl_registry_interface: wl_interface = {}
+wl_registry_interface: Interface = {}
 @(init)
 init_wl_registry_interface :: proc "contextless" () {
 	wl_registry_interface = {
@@ -160,7 +160,7 @@ wl_callback_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_callback, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_callback, cast(rawptr)listener, data)
 }
 
 
@@ -168,11 +168,11 @@ wl_callback_destroy :: proc "c" (wl_callback: ^wl_callback) {
 	proxy_destroy(cast(^Proxy)wl_callback)
 }
 
-wl_callback_requests: []wl_message = []wl_message{}
+wl_callback_requests: []Message = []Message{}
 
-wl_callback_events: []wl_message = []wl_message{{"done", "u", raw_data([]^wl_interface{nil})}}
+wl_callback_events: []Message = []Message{{"done", "u", raw_data([]^Interface{nil})}}
 
-wl_callback_interface: wl_interface = {}
+wl_callback_interface: Interface = {}
 @(init)
 init_wl_callback_interface :: proc "contextless" () {
 	wl_callback_interface = {"wl_callback", 1, 0, nil, 1, &wl_callback_events[0]}
@@ -190,7 +190,7 @@ wl_compositor_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_compositor, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_compositor, cast(rawptr)listener, data)
 }
 
 compositor_create_surface :: proc "c" (_wl_compositor: ^Compositor) -> ^Surface {
@@ -227,13 +227,13 @@ wl_compositor_destroy :: proc "c" (wl_compositor: ^Compositor) {
 	proxy_destroy(cast(^Proxy)wl_compositor)
 }
 
-compositor_interface := wl_interface {
+compositor_interface := Interface {
 	"wl_compositor",
 	6, 
 	2,
-	raw_data([]wl_message {
-		{"create_surface", "n", raw_data([]^wl_interface{&wl_surface_interface})},
-		{"create_region", "n", raw_data([]^wl_interface{&wl_region_interface})},
+	raw_data([]Message {
+		{"create_surface", "n", raw_data([]^Interface{&wl_surface_interface})},
+		{"create_region", "n", raw_data([]^Interface{&wl_region_interface})},
 	}),
 	0, 
 	nil,
@@ -249,7 +249,7 @@ wl_shm_pool_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_shm_pool, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_shm_pool, cast(rawptr)listener, data)
 }
 
 wl_shm_pool_create_buffer :: proc "c" (
@@ -285,7 +285,7 @@ wl_shm_pool_destroy :: proc "c" (_wl_shm_pool: ^wl_shm_pool) {
 		1,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_shm_pool),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -302,19 +302,19 @@ wl_shm_pool_resize :: proc "c" (_wl_shm_pool: ^wl_shm_pool, size: c.int32_t) {
 
 }
 
-wl_shm_pool_requests: []wl_message = []wl_message {
+wl_shm_pool_requests: []Message = []Message {
 	{
 		"create_buffer",
 		"niiiiu",
-		raw_data([]^wl_interface{&wl_buffer_interface, nil, nil, nil, nil, nil}),
+		raw_data([]^Interface{&wl_buffer_interface, nil, nil, nil, nil, nil}),
 	},
-	{"destroy", "", raw_data([]^wl_interface{})},
-	{"resize", "i", raw_data([]^wl_interface{nil})},
+	{"destroy", "", raw_data([]^Interface{})},
+	{"resize", "i", raw_data([]^Interface{nil})},
 }
 
-wl_shm_pool_events: []wl_message = []wl_message{}
+wl_shm_pool_events: []Message = []Message{}
 
-wl_shm_pool_interface: wl_interface = {}
+wl_shm_pool_interface: Interface = {}
 @(init)
 init_wl_shm_pool_interface :: proc "contextless" () {
 	wl_shm_pool_interface = {"wl_shm_pool", 1, 3, &wl_shm_pool_requests[0], 0, nil}
@@ -328,7 +328,7 @@ wl_shm_listener :: struct {
 
 wl_shm_add_listener :: proc(wl_shm: ^wl_shm, listener: ^wl_shm_listener, data: rawptr) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_shm, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_shm, cast(rawptr)listener, data)
 }
 
 wl_shm_create_pool :: proc "c" (_wl_shm: ^wl_shm, fd: c.int32_t, size: c.int32_t) -> ^wl_shm_pool {
@@ -353,13 +353,13 @@ wl_shm_destroy :: proc "c" (wl_shm: ^wl_shm) {
 	proxy_destroy(cast(^Proxy)wl_shm)
 }
 
-wl_shm_requests: []wl_message = []wl_message {
-	{"create_pool", "nhi", raw_data([]^wl_interface{&wl_shm_pool_interface, nil, nil})},
+wl_shm_requests: []Message = []Message {
+	{"create_pool", "nhi", raw_data([]^Interface{&wl_shm_pool_interface, nil, nil})},
 }
 
-wl_shm_events: []wl_message = []wl_message{{"format", "u", raw_data([]^wl_interface{nil})}}
+wl_shm_events: []Message = []Message{{"format", "u", raw_data([]^Interface{nil})}}
 
-wl_shm_interface: wl_interface = {}
+wl_shm_interface: Interface = {}
 @(init)
 init_wl_shm_interface :: proc "contextless" () {
 	wl_shm_interface = {"wl_shm", 1, 1, &wl_shm_requests[0], 1, &wl_shm_events[0]}
@@ -488,7 +488,7 @@ wl_buffer_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_buffer, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_buffer, cast(rawptr)listener, data)
 }
 
 wl_buffer_destroy :: proc "c" (_wl_buffer: ^wl_buffer) {
@@ -497,16 +497,16 @@ wl_buffer_destroy :: proc "c" (_wl_buffer: ^wl_buffer) {
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_buffer),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
 
-wl_buffer_requests: []wl_message = []wl_message{{"destroy", "", raw_data([]^wl_interface{})}}
+wl_buffer_requests: []Message = []Message{{"destroy", "", raw_data([]^Interface{})}}
 
-wl_buffer_events: []wl_message = []wl_message{{"release", "", raw_data([]^wl_interface{})}}
+wl_buffer_events: []Message = []Message{{"release", "", raw_data([]^Interface{})}}
 
-wl_buffer_interface: wl_interface = {}
+wl_buffer_interface: Interface = {}
 @(init)
 init_wl_buffer_interface :: proc "contextless" () {
 	wl_buffer_interface = {"wl_buffer", 1, 1, &wl_buffer_requests[0], 1, &wl_buffer_events[0]}
@@ -530,7 +530,7 @@ wl_data_offer_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_data_offer, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_data_offer, cast(rawptr)listener, data)
 }
 
 wl_data_offer_accept :: proc "c" (
@@ -573,7 +573,7 @@ wl_data_offer_destroy :: proc "c" (_wl_data_offer: ^wl_data_offer) {
 		2,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_data_offer),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -606,21 +606,21 @@ wl_data_offer_set_actions :: proc "c" (
 
 }
 
-wl_data_offer_requests: []wl_message = []wl_message {
-	{"accept", "u?s", raw_data([]^wl_interface{nil, nil})},
-	{"receive", "sh", raw_data([]^wl_interface{nil, nil})},
-	{"destroy", "", raw_data([]^wl_interface{})},
-	{"finish", "", raw_data([]^wl_interface{})},
-	{"set_actions", "uu", raw_data([]^wl_interface{nil, nil})},
+wl_data_offer_requests: []Message = []Message {
+	{"accept", "u?s", raw_data([]^Interface{nil, nil})},
+	{"receive", "sh", raw_data([]^Interface{nil, nil})},
+	{"destroy", "", raw_data([]^Interface{})},
+	{"finish", "", raw_data([]^Interface{})},
+	{"set_actions", "uu", raw_data([]^Interface{nil, nil})},
 }
 
-wl_data_offer_events: []wl_message = []wl_message {
-	{"offer", "s", raw_data([]^wl_interface{nil})},
-	{"source_actions", "u", raw_data([]^wl_interface{nil})},
-	{"action", "u", raw_data([]^wl_interface{nil})},
+wl_data_offer_events: []Message = []Message {
+	{"offer", "s", raw_data([]^Interface{nil})},
+	{"source_actions", "u", raw_data([]^Interface{nil})},
+	{"action", "u", raw_data([]^Interface{nil})},
 }
 
-wl_data_offer_interface: wl_interface = {}
+wl_data_offer_interface: Interface = {}
 @(init)
 init_wl_data_offer_interface :: proc "contextless" () {
 	wl_data_offer_interface = {
@@ -667,7 +667,7 @@ wl_data_source_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_data_source, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_data_source, cast(rawptr)listener, data)
 }
 
 wl_data_source_offer :: proc "c" (_wl_data_source: ^wl_data_source, mime_type: cstring) {
@@ -688,7 +688,7 @@ wl_data_source_destroy :: proc "c" (_wl_data_source: ^wl_data_source) {
 		1,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_data_source),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -708,22 +708,22 @@ wl_data_source_set_actions :: proc "c" (
 
 }
 
-wl_data_source_requests: []wl_message = []wl_message {
-	{"offer", "s", raw_data([]^wl_interface{nil})},
-	{"destroy", "", raw_data([]^wl_interface{})},
-	{"set_actions", "u", raw_data([]^wl_interface{nil})},
+wl_data_source_requests: []Message = []Message {
+	{"offer", "s", raw_data([]^Interface{nil})},
+	{"destroy", "", raw_data([]^Interface{})},
+	{"set_actions", "u", raw_data([]^Interface{nil})},
 }
 
-wl_data_source_events: []wl_message = []wl_message {
-	{"target", "?s", raw_data([]^wl_interface{nil})},
-	{"send", "sh", raw_data([]^wl_interface{nil, nil})},
-	{"cancelled", "", raw_data([]^wl_interface{})},
-	{"dnd_drop_performed", "", raw_data([]^wl_interface{})},
-	{"dnd_finished", "", raw_data([]^wl_interface{})},
-	{"action", "u", raw_data([]^wl_interface{nil})},
+wl_data_source_events: []Message = []Message {
+	{"target", "?s", raw_data([]^Interface{nil})},
+	{"send", "sh", raw_data([]^Interface{nil, nil})},
+	{"cancelled", "", raw_data([]^Interface{})},
+	{"dnd_drop_performed", "", raw_data([]^Interface{})},
+	{"dnd_finished", "", raw_data([]^Interface{})},
+	{"action", "u", raw_data([]^Interface{nil})},
 }
 
-wl_data_source_interface: wl_interface = {}
+wl_data_source_interface: Interface = {}
 @(init)
 init_wl_data_source_interface :: proc "contextless" () {
 	wl_data_source_interface = {
@@ -769,7 +769,7 @@ wl_data_device_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_data_device, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_data_device, cast(rawptr)listener, data)
 }
 
 wl_data_device_start_drag :: proc "c" (
@@ -816,7 +816,7 @@ wl_data_device_release :: proc "c" (_wl_data_device: ^wl_data_device) {
 		2,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_data_device),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -826,12 +826,12 @@ wl_data_device_destroy :: proc "c" (wl_data_device: ^wl_data_device) {
 	proxy_destroy(cast(^Proxy)wl_data_device)
 }
 
-wl_data_device_requests: []wl_message = []wl_message {
+wl_data_device_requests: []Message = []Message {
 	{
 		"start_drag",
 		"?oo?ou",
 		raw_data(
-			[]^wl_interface {
+			[]^Interface {
 				&wl_data_source_interface,
 				&wl_surface_interface,
 				&wl_surface_interface,
@@ -839,24 +839,24 @@ wl_data_device_requests: []wl_message = []wl_message {
 			},
 		),
 	},
-	{"set_selection", "?ou", raw_data([]^wl_interface{&wl_data_source_interface, nil})},
-	{"release", "", raw_data([]^wl_interface{})},
+	{"set_selection", "?ou", raw_data([]^Interface{&wl_data_source_interface, nil})},
+	{"release", "", raw_data([]^Interface{})},
 }
 
-wl_data_device_events: []wl_message = []wl_message {
-	{"data_offer", "n", raw_data([]^wl_interface{&wl_data_offer_interface})},
+wl_data_device_events: []Message = []Message {
+	{"data_offer", "n", raw_data([]^Interface{&wl_data_offer_interface})},
 	{
 		"enter",
 		"uoff?o",
-		raw_data([]^wl_interface{nil, &wl_surface_interface, nil, nil, &wl_data_offer_interface}),
+		raw_data([]^Interface{nil, &wl_surface_interface, nil, nil, &wl_data_offer_interface}),
 	},
-	{"leave", "", raw_data([]^wl_interface{})},
-	{"motion", "uff", raw_data([]^wl_interface{nil, nil, nil})},
-	{"drop", "", raw_data([]^wl_interface{})},
-	{"selection", "?o", raw_data([]^wl_interface{&wl_data_offer_interface})},
+	{"leave", "", raw_data([]^Interface{})},
+	{"motion", "uff", raw_data([]^Interface{nil, nil, nil})},
+	{"drop", "", raw_data([]^Interface{})},
+	{"selection", "?o", raw_data([]^Interface{&wl_data_offer_interface})},
 }
 
-wl_data_device_interface: wl_interface = {}
+wl_data_device_interface: Interface = {}
 @(init)
 init_wl_data_device_interface :: proc "contextless" () {
 	wl_data_device_interface = {
@@ -882,7 +882,7 @@ wl_data_device_manager_add_listener :: proc(
 
 	return proxy_add_listener(
 		cast(^Proxy)wl_data_device_manager,
-		cast(^Implementation)listener,
+		cast(rawptr)listener,
 		data,
 	)
 }
@@ -928,18 +928,18 @@ wl_data_device_manager_destroy :: proc "c" (wl_data_device_manager: ^wl_data_dev
 	proxy_destroy(cast(^Proxy)wl_data_device_manager)
 }
 
-wl_data_device_manager_requests: []wl_message = []wl_message {
-	{"create_data_source", "n", raw_data([]^wl_interface{&wl_data_source_interface})},
+wl_data_device_manager_requests: []Message = []Message {
+	{"create_data_source", "n", raw_data([]^Interface{&wl_data_source_interface})},
 	{
 		"get_data_device",
 		"no",
-		raw_data([]^wl_interface{&wl_data_device_interface, &seat_interface}),
+		raw_data([]^Interface{&wl_data_device_interface, &seat_interface}),
 	},
 }
 
-wl_data_device_manager_events: []wl_message = []wl_message{}
+wl_data_device_manager_events: []Message = []Message{}
 
-wl_data_device_manager_interface: wl_interface = {}
+wl_data_device_manager_interface: Interface = {}
 @(init)
 init_wl_data_device_manager_interface :: proc "contextless" () {
 	wl_data_device_manager_interface = {
@@ -966,7 +966,7 @@ wl_shell_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_shell, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_shell, cast(rawptr)listener, data)
 }
 
 wl_shell_get_shell_surface :: proc "c" (
@@ -993,17 +993,17 @@ wl_shell_destroy :: proc "c" (wl_shell: ^wl_shell) {
 	proxy_destroy(cast(^Proxy)wl_shell)
 }
 
-wl_shell_requests: []wl_message = []wl_message {
+wl_shell_requests: []Message = []Message {
 	{
 		"get_shell_surface",
 		"no",
-		raw_data([]^wl_interface{&wl_shell_surface_interface, &wl_surface_interface}),
+		raw_data([]^Interface{&wl_shell_surface_interface, &wl_surface_interface}),
 	},
 }
 
-wl_shell_events: []wl_message = []wl_message{}
+wl_shell_events: []Message = []Message{}
 
-wl_shell_interface: wl_interface = {}
+wl_shell_interface: Interface = {}
 @(init)
 init_wl_shell_interface :: proc "contextless" () {
 	wl_shell_interface = {"wl_shell", 1, 1, &wl_shell_requests[0], 0, nil}
@@ -1030,7 +1030,7 @@ wl_shell_surface_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_shell_surface, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_shell_surface, cast(rawptr)listener, data)
 }
 
 wl_shell_surface_pong :: proc "c" (_wl_shell_surface: ^wl_shell_surface, serial: c.uint32_t) {
@@ -1201,30 +1201,30 @@ wl_shell_surface_destroy :: proc "c" (wl_shell_surface: ^wl_shell_surface) {
 	proxy_destroy(cast(^Proxy)wl_shell_surface)
 }
 
-wl_shell_surface_requests: []wl_message = []wl_message {
-	{"pong", "u", raw_data([]^wl_interface{nil})},
-	{"move", "ou", raw_data([]^wl_interface{&seat_interface, nil})},
-	{"resize", "ouu", raw_data([]^wl_interface{&seat_interface, nil, nil})},
-	{"set_toplevel", "", raw_data([]^wl_interface{})},
-	{"set_transient", "oiiu", raw_data([]^wl_interface{&wl_surface_interface, nil, nil, nil})},
-	{"set_fullscreen", "uu?o", raw_data([]^wl_interface{nil, nil, &wl_output_interface})},
+wl_shell_surface_requests: []Message = []Message {
+	{"pong", "u", raw_data([]^Interface{nil})},
+	{"move", "ou", raw_data([]^Interface{&seat_interface, nil})},
+	{"resize", "ouu", raw_data([]^Interface{&seat_interface, nil, nil})},
+	{"set_toplevel", "", raw_data([]^Interface{})},
+	{"set_transient", "oiiu", raw_data([]^Interface{&wl_surface_interface, nil, nil, nil})},
+	{"set_fullscreen", "uu?o", raw_data([]^Interface{nil, nil, &wl_output_interface})},
 	{
 		"set_popup",
 		"ouoiiu",
-		raw_data([]^wl_interface{&seat_interface, nil, &wl_surface_interface, nil, nil, nil}),
+		raw_data([]^Interface{&seat_interface, nil, &wl_surface_interface, nil, nil, nil}),
 	},
-	{"set_maximized", "?o", raw_data([]^wl_interface{&wl_output_interface})},
-	{"set_title", "s", raw_data([]^wl_interface{nil})},
-	{"set_class", "s", raw_data([]^wl_interface{nil})},
+	{"set_maximized", "?o", raw_data([]^Interface{&wl_output_interface})},
+	{"set_title", "s", raw_data([]^Interface{nil})},
+	{"set_class", "s", raw_data([]^Interface{nil})},
 }
 
-wl_shell_surface_events: []wl_message = []wl_message {
-	{"ping", "u", raw_data([]^wl_interface{nil})},
-	{"configure", "uii", raw_data([]^wl_interface{nil, nil, nil})},
-	{"popup_done", "", raw_data([]^wl_interface{})},
+wl_shell_surface_events: []Message = []Message {
+	{"ping", "u", raw_data([]^Interface{nil})},
+	{"configure", "uii", raw_data([]^Interface{nil, nil, nil})},
+	{"popup_done", "", raw_data([]^Interface{})},
 }
 
-wl_shell_surface_interface: wl_interface = {}
+wl_shell_surface_interface: Interface = {}
 @(init)
 init_wl_shell_surface_interface :: proc "contextless" () {
 	wl_shell_surface_interface = {
@@ -1282,7 +1282,7 @@ wl_surface_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_surface, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_surface, cast(rawptr)listener, data)
 }
 
 wl_surface_destroy :: proc "c" (_wl_surface: ^Surface) {
@@ -1291,7 +1291,7 @@ wl_surface_destroy :: proc "c" (_wl_surface: ^Surface) {
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_surface),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -1444,28 +1444,28 @@ wl_surface_offset :: proc "c" (_wl_surface: ^Surface, x: c.int32_t, y: c.int32_t
 
 }
 
-wl_surface_requests: []wl_message = []wl_message {
-	{"destroy", "", raw_data([]^wl_interface{})},
-	{"attach", "?oii", raw_data([]^wl_interface{&wl_buffer_interface, nil, nil})},
-	{"damage", "iiii", raw_data([]^wl_interface{nil, nil, nil, nil})},
-	{"frame", "n", raw_data([]^wl_interface{&wl_callback_interface})},
-	{"set_opaque_region", "?o", raw_data([]^wl_interface{&wl_region_interface})},
-	{"set_input_region", "?o", raw_data([]^wl_interface{&wl_region_interface})},
-	{"commit", "", raw_data([]^wl_interface{})},
-	{"set_buffer_transform", "i", raw_data([]^wl_interface{nil})},
-	{"set_buffer_scale", "i", raw_data([]^wl_interface{nil})},
-	{"damage_buffer", "iiii", raw_data([]^wl_interface{nil, nil, nil, nil})},
-	{"offset", "ii", raw_data([]^wl_interface{nil, nil})},
+wl_surface_requests: []Message = []Message {
+	{"destroy", "", raw_data([]^Interface{})},
+	{"attach", "?oii", raw_data([]^Interface{&wl_buffer_interface, nil, nil})},
+	{"damage", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
+	{"frame", "n", raw_data([]^Interface{&wl_callback_interface})},
+	{"set_opaque_region", "?o", raw_data([]^Interface{&wl_region_interface})},
+	{"set_input_region", "?o", raw_data([]^Interface{&wl_region_interface})},
+	{"commit", "", raw_data([]^Interface{})},
+	{"set_buffer_transform", "i", raw_data([]^Interface{nil})},
+	{"set_buffer_scale", "i", raw_data([]^Interface{nil})},
+	{"damage_buffer", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
+	{"offset", "ii", raw_data([]^Interface{nil, nil})},
 }
 
-wl_surface_events: []wl_message = []wl_message {
-	{"enter", "o", raw_data([]^wl_interface{&wl_output_interface})},
-	{"leave", "o", raw_data([]^wl_interface{&wl_output_interface})},
-	{"preferred_buffer_scale", "i", raw_data([]^wl_interface{nil})},
-	{"preferred_buffer_transform", "u", raw_data([]^wl_interface{nil})},
+wl_surface_events: []Message = []Message {
+	{"enter", "o", raw_data([]^Interface{&wl_output_interface})},
+	{"leave", "o", raw_data([]^Interface{&wl_output_interface})},
+	{"preferred_buffer_scale", "i", raw_data([]^Interface{nil})},
+	{"preferred_buffer_transform", "u", raw_data([]^Interface{nil})},
 }
 
-wl_surface_interface: wl_interface = {}
+wl_surface_interface: Interface = {}
 @(init)
 init_wl_surface_interface :: proc "contextless" () {
 	wl_surface_interface = {"wl_surface", 6, 11, &wl_surface_requests[0], 4, &wl_surface_events[0]}
@@ -1489,7 +1489,7 @@ wl_seat_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_seat, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_seat, cast(rawptr)listener, data)
 }
 
 seat_get_pointer :: proc "c" (_wl_seat: ^Seat) -> ^Pointer {
@@ -1543,7 +1543,7 @@ wl_seat_release :: proc "c" (_wl_seat: ^Seat) {
 		3,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_seat),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -1553,19 +1553,19 @@ wl_seat_destroy :: proc "c" (wl_seat: ^Seat) {
 	proxy_destroy(cast(^Proxy)wl_seat)
 }
 
-wl_seat_requests: []wl_message = []wl_message {
-	{"get_pointer", "n", raw_data([]^wl_interface{&wl_pointer_interface})},
-	{"get_keyboard", "n", raw_data([]^wl_interface{&wl_keyboard_interface})},
-	{"get_touch", "n", raw_data([]^wl_interface{&wl_touch_interface})},
-	{"release", "", raw_data([]^wl_interface{})},
+wl_seat_requests: []Message = []Message {
+	{"get_pointer", "n", raw_data([]^Interface{&wl_pointer_interface})},
+	{"get_keyboard", "n", raw_data([]^Interface{&wl_keyboard_interface})},
+	{"get_touch", "n", raw_data([]^Interface{&wl_touch_interface})},
+	{"release", "", raw_data([]^Interface{})},
 }
 
-wl_seat_events: []wl_message = []wl_message {
-	{"capabilities", "u", raw_data([]^wl_interface{nil})},
-	{"name", "s", raw_data([]^wl_interface{nil})},
+wl_seat_events: []Message = []Message {
+	{"capabilities", "u", raw_data([]^Interface{nil})},
+	{"name", "s", raw_data([]^Interface{nil})},
 }
 
-seat_interface: wl_interface = {}
+seat_interface: Interface = {}
 @(init)
 init_seat_interface :: proc "contextless" () {
 	seat_interface = {"wl_seat", 9, 4, &wl_seat_requests[0], 2, &wl_seat_events[0]}
@@ -1655,7 +1655,7 @@ wl_pointer_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_pointer, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_pointer, cast(rawptr)listener, data)
 }
 
 wl_pointer_set_cursor :: proc "c" (
@@ -1685,7 +1685,7 @@ pointer_release :: proc "c" (_wl_pointer: ^Pointer) {
 		1,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_pointer),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -1695,26 +1695,26 @@ wl_pointer_destroy :: proc "c" (wl_pointer: ^Pointer) {
 	proxy_destroy(cast(^Proxy)wl_pointer)
 }
 
-wl_pointer_requests: []wl_message = []wl_message {
-	{"set_cursor", "u?oii", raw_data([]^wl_interface{nil, &wl_surface_interface, nil, nil})},
-	{"release", "", raw_data([]^wl_interface{})},
+wl_pointer_requests: []Message = []Message {
+	{"set_cursor", "u?oii", raw_data([]^Interface{nil, &wl_surface_interface, nil, nil})},
+	{"release", "", raw_data([]^Interface{})},
 }
 
-wl_pointer_events: []wl_message = []wl_message {
-	{"enter", "uoff", raw_data([]^wl_interface{nil, &wl_surface_interface, nil, nil})},
-	{"leave", "uo", raw_data([]^wl_interface{nil, &wl_surface_interface})},
-	{"motion", "uff", raw_data([]^wl_interface{nil, nil, nil})},
-	{"button", "uuuu", raw_data([]^wl_interface{nil, nil, nil, nil})},
-	{"axis", "uuf", raw_data([]^wl_interface{nil, nil, nil})},
-	{"frame", "", raw_data([]^wl_interface{})},
-	{"axis_source", "u", raw_data([]^wl_interface{nil})},
-	{"axis_stop", "uu", raw_data([]^wl_interface{nil, nil})},
-	{"axis_discrete", "ui", raw_data([]^wl_interface{nil, nil})},
-	{"axis_value120", "ui", raw_data([]^wl_interface{nil, nil})},
-	{"axis_relative_direction", "uu", raw_data([]^wl_interface{nil, nil})},
+wl_pointer_events: []Message = []Message {
+	{"enter", "uoff", raw_data([]^Interface{nil, &wl_surface_interface, nil, nil})},
+	{"leave", "uo", raw_data([]^Interface{nil, &wl_surface_interface})},
+	{"motion", "uff", raw_data([]^Interface{nil, nil, nil})},
+	{"button", "uuuu", raw_data([]^Interface{nil, nil, nil, nil})},
+	{"axis", "uuf", raw_data([]^Interface{nil, nil, nil})},
+	{"frame", "", raw_data([]^Interface{})},
+	{"axis_source", "u", raw_data([]^Interface{nil})},
+	{"axis_stop", "uu", raw_data([]^Interface{nil, nil})},
+	{"axis_discrete", "ui", raw_data([]^Interface{nil, nil})},
+	{"axis_value120", "ui", raw_data([]^Interface{nil, nil})},
+	{"axis_relative_direction", "uu", raw_data([]^Interface{nil, nil})},
 }
 
-wl_pointer_interface: wl_interface = {}
+wl_pointer_interface: Interface = {}
 @(init)
 init_wl_pointer_interface :: proc "contextless" () {
 	wl_pointer_interface = {"wl_pointer", 9, 2, &wl_pointer_requests[0], 11, &wl_pointer_events[0]}
@@ -1746,7 +1746,7 @@ Keyboard_Listener :: struct {
 		wl_keyboard: ^Keyboard,
 		serial: c.uint32_t,
 		surface: ^Surface,
-		keys: ^wl_array,
+		keys: ^Array,
 	),
 	leave:       proc "c" (
 		data: rawptr,
@@ -1785,7 +1785,7 @@ keyboard_release :: proc "c" (_wl_keyboard: ^Keyboard) {
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_keyboard),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -1795,18 +1795,18 @@ wl_keyboard_destroy :: proc "c" (wl_keyboard: ^Keyboard) {
 	proxy_destroy(cast(^Proxy)wl_keyboard)
 }
 
-wl_keyboard_requests: []wl_message = []wl_message{{"release", "", raw_data([]^wl_interface{})}}
+wl_keyboard_requests: []Message = []Message{{"release", "", raw_data([]^Interface{})}}
 
-wl_keyboard_events: []wl_message = []wl_message {
-	{"keymap", "uhu", raw_data([]^wl_interface{nil, nil, nil})},
-	{"enter", "uoa", raw_data([]^wl_interface{nil, &wl_surface_interface, nil})},
-	{"leave", "uo", raw_data([]^wl_interface{nil, &wl_surface_interface})},
-	{"key", "uuuu", raw_data([]^wl_interface{nil, nil, nil, nil})},
-	{"modifiers", "uuuuu", raw_data([]^wl_interface{nil, nil, nil, nil, nil})},
-	{"repeat_info", "ii", raw_data([]^wl_interface{nil, nil})},
+wl_keyboard_events: []Message = []Message {
+	{"keymap", "uhu", raw_data([]^Interface{nil, nil, nil})},
+	{"enter", "uoa", raw_data([]^Interface{nil, &wl_surface_interface, nil})},
+	{"leave", "uo", raw_data([]^Interface{nil, &wl_surface_interface})},
+	{"key", "uuuu", raw_data([]^Interface{nil, nil, nil, nil})},
+	{"modifiers", "uuuuu", raw_data([]^Interface{nil, nil, nil, nil, nil})},
+	{"repeat_info", "ii", raw_data([]^Interface{nil, nil})},
 }
 
-wl_keyboard_interface: wl_interface = {}
+wl_keyboard_interface: Interface = {}
 @(init)
 init_wl_keyboard_interface :: proc "contextless" () {
 	wl_keyboard_interface = {
@@ -1874,7 +1874,7 @@ wl_touch_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_touch, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_touch, cast(rawptr)listener, data)
 }
 
 wl_touch_release :: proc "c" (_wl_touch: ^wl_touch) {
@@ -1883,7 +1883,7 @@ wl_touch_release :: proc "c" (_wl_touch: ^wl_touch) {
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_touch),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -1893,19 +1893,19 @@ wl_touch_destroy :: proc "c" (wl_touch: ^wl_touch) {
 	proxy_destroy(cast(^Proxy)wl_touch)
 }
 
-wl_touch_requests: []wl_message = []wl_message{{"release", "", raw_data([]^wl_interface{})}}
+wl_touch_requests: []Message = []Message{{"release", "", raw_data([]^Interface{})}}
 
-wl_touch_events: []wl_message = []wl_message {
-	{"down", "uuoiff", raw_data([]^wl_interface{nil, nil, &wl_surface_interface, nil, nil, nil})},
-	{"up", "uui", raw_data([]^wl_interface{nil, nil, nil})},
-	{"motion", "uiff", raw_data([]^wl_interface{nil, nil, nil, nil})},
-	{"frame", "", raw_data([]^wl_interface{})},
-	{"cancel", "", raw_data([]^wl_interface{})},
-	{"shape", "iff", raw_data([]^wl_interface{nil, nil, nil})},
-	{"orientation", "if", raw_data([]^wl_interface{nil, nil})},
+wl_touch_events: []Message = []Message {
+	{"down", "uuoiff", raw_data([]^Interface{nil, nil, &wl_surface_interface, nil, nil, nil})},
+	{"up", "uui", raw_data([]^Interface{nil, nil, nil})},
+	{"motion", "uiff", raw_data([]^Interface{nil, nil, nil, nil})},
+	{"frame", "", raw_data([]^Interface{})},
+	{"cancel", "", raw_data([]^Interface{})},
+	{"shape", "iff", raw_data([]^Interface{nil, nil, nil})},
+	{"orientation", "if", raw_data([]^Interface{nil, nil})},
 }
 
-wl_touch_interface: wl_interface = {}
+wl_touch_interface: Interface = {}
 @(init)
 init_wl_touch_interface :: proc "contextless" () {
 	wl_touch_interface = {"wl_touch", 9, 1, &wl_touch_requests[0], 7, &wl_touch_events[0]}
@@ -1946,7 +1946,7 @@ wl_output_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_output, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_output, cast(rawptr)listener, data)
 }
 
 wl_output_release :: proc "c" (_wl_output: ^wl_output) {
@@ -1955,7 +1955,7 @@ wl_output_release :: proc "c" (_wl_output: ^wl_output) {
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_output),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -1965,18 +1965,18 @@ wl_output_destroy :: proc "c" (wl_output: ^wl_output) {
 	proxy_destroy(cast(^Proxy)wl_output)
 }
 
-wl_output_requests: []wl_message = []wl_message{{"release", "", raw_data([]^wl_interface{})}}
+wl_output_requests: []Message = []Message{{"release", "", raw_data([]^Interface{})}}
 
-wl_output_events: []wl_message = []wl_message {
-	{"geometry", "iiiiissi", raw_data([]^wl_interface{nil, nil, nil, nil, nil, nil, nil, nil})},
-	{"mode", "uiii", raw_data([]^wl_interface{nil, nil, nil, nil})},
-	{"done", "", raw_data([]^wl_interface{})},
-	{"scale", "i", raw_data([]^wl_interface{nil})},
-	{"name", "s", raw_data([]^wl_interface{nil})},
-	{"description", "s", raw_data([]^wl_interface{nil})},
+wl_output_events: []Message = []Message {
+	{"geometry", "iiiiissi", raw_data([]^Interface{nil, nil, nil, nil, nil, nil, nil, nil})},
+	{"mode", "uiii", raw_data([]^Interface{nil, nil, nil, nil})},
+	{"done", "", raw_data([]^Interface{})},
+	{"scale", "i", raw_data([]^Interface{nil})},
+	{"name", "s", raw_data([]^Interface{nil})},
+	{"description", "s", raw_data([]^Interface{nil})},
 }
 
-wl_output_interface: wl_interface = {}
+wl_output_interface: Interface = {}
 @(init)
 init_wl_output_interface :: proc "contextless" () {
 	wl_output_interface = {"wl_output", 4, 1, &wl_output_requests[0], 6, &wl_output_events[0]}
@@ -2008,7 +2008,7 @@ wl_region_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_region, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_region, cast(rawptr)listener, data)
 }
 
 wl_region_destroy :: proc "c" (_wl_region: ^wl_region) {
@@ -2017,7 +2017,7 @@ wl_region_destroy :: proc "c" (_wl_region: ^wl_region) {
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_region),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -2064,15 +2064,15 @@ wl_region_subtract :: proc "c" (
 
 }
 
-wl_region_requests: []wl_message = []wl_message {
-	{"destroy", "", raw_data([]^wl_interface{})},
-	{"add", "iiii", raw_data([]^wl_interface{nil, nil, nil, nil})},
-	{"subtract", "iiii", raw_data([]^wl_interface{nil, nil, nil, nil})},
+wl_region_requests: []Message = []Message {
+	{"destroy", "", raw_data([]^Interface{})},
+	{"add", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
+	{"subtract", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
 }
 
-wl_region_events: []wl_message = []wl_message{}
+wl_region_events: []Message = []Message{}
 
-wl_region_interface: wl_interface = {}
+wl_region_interface: Interface = {}
 @(init)
 init_wl_region_interface :: proc "contextless" () {
 	wl_region_interface = {"wl_region", 1, 3, &wl_region_requests[0], 0, nil}
@@ -2088,7 +2088,7 @@ wl_subcompositor_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_subcompositor, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_subcompositor, cast(rawptr)listener, data)
 }
 
 wl_subcompositor_destroy :: proc "c" (_wl_subcompositor: ^wl_subcompositor) {
@@ -2097,7 +2097,7 @@ wl_subcompositor_destroy :: proc "c" (_wl_subcompositor: ^wl_subcompositor) {
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_subcompositor),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -2123,13 +2123,13 @@ wl_subcompositor_get_subsurface :: proc "c" (
 	return cast(^wl_subsurface)id
 }
 
-wl_subcompositor_requests: []wl_message = []wl_message {
-	{"destroy", "", raw_data([]^wl_interface{})},
+wl_subcompositor_requests: []Message = []Message {
+	{"destroy", "", raw_data([]^Interface{})},
 	{
 		"get_subsurface",
 		"noo",
 		raw_data(
-			[]^wl_interface {
+			[]^Interface {
 				&wl_subsurface_interface,
 				&wl_surface_interface,
 				&wl_surface_interface,
@@ -2138,9 +2138,9 @@ wl_subcompositor_requests: []wl_message = []wl_message {
 	},
 }
 
-wl_subcompositor_events: []wl_message = []wl_message{}
+wl_subcompositor_events: []Message = []Message{}
 
-wl_subcompositor_interface: wl_interface = {}
+wl_subcompositor_interface: Interface = {}
 @(init)
 init_wl_subcompositor_interface :: proc "contextless" () {
 	wl_subcompositor_interface = {"wl_subcompositor", 1, 2, &wl_subcompositor_requests[0], 0, nil}
@@ -2158,7 +2158,7 @@ wl_subsurface_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)wl_subsurface, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)wl_subsurface, cast(rawptr)listener, data)
 }
 
 wl_subsurface_destroy :: proc "c" (_wl_subsurface: ^wl_subsurface) {
@@ -2167,7 +2167,7 @@ wl_subsurface_destroy :: proc "c" (_wl_subsurface: ^wl_subsurface) {
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_wl_subsurface),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -2235,18 +2235,18 @@ wl_subsurface_set_desync :: proc "c" (_wl_subsurface: ^wl_subsurface) {
 
 }
 
-wl_subsurface_requests: []wl_message = []wl_message {
-	{"destroy", "", raw_data([]^wl_interface{})},
-	{"set_position", "ii", raw_data([]^wl_interface{nil, nil})},
-	{"place_above", "o", raw_data([]^wl_interface{&wl_surface_interface})},
-	{"place_below", "o", raw_data([]^wl_interface{&wl_surface_interface})},
-	{"set_sync", "", raw_data([]^wl_interface{})},
-	{"set_desync", "", raw_data([]^wl_interface{})},
+wl_subsurface_requests: []Message = []Message {
+	{"destroy", "", raw_data([]^Interface{})},
+	{"set_position", "ii", raw_data([]^Interface{nil, nil})},
+	{"place_above", "o", raw_data([]^Interface{&wl_surface_interface})},
+	{"place_below", "o", raw_data([]^Interface{&wl_surface_interface})},
+	{"set_sync", "", raw_data([]^Interface{})},
+	{"set_desync", "", raw_data([]^Interface{})},
 }
 
-wl_subsurface_events: []wl_message = []wl_message{}
+wl_subsurface_events: []Message = []Message{}
 
-wl_subsurface_interface: wl_interface = {}
+wl_subsurface_interface: Interface = {}
 @(init)
 init_wl_subsurface_interface :: proc "contextless" () {
 	wl_subsurface_interface = {"wl_subsurface", 1, 6, &wl_subsurface_requests[0], 0, nil}

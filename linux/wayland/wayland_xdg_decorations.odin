@@ -13,7 +13,7 @@ zxdg_decoration_manager_v1_add_listener :: proc(
 
 	return proxy_add_listener(
 		cast(^Proxy)zxdg_decoration_manager_v1,
-		cast(^Implementation)listener,
+		cast(rawptr)listener,
 		data,
 	)
 }
@@ -26,7 +26,7 @@ zxdg_decoration_manager_v1_destroy :: proc "c" (
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_zxdg_decoration_manager_v1),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -50,18 +50,18 @@ zxdg_decoration_manager_v1_get_toplevel_decoration :: proc "c" (
 	return cast(^zxdg_toplevel_decoration_v1)id
 }
 
-zxdg_decoration_manager_v1_requests: []wl_message = []wl_message {
-	{"destroy", "", raw_data([]^wl_interface{})},
+zxdg_decoration_manager_v1_requests: []Message = []Message {
+	{"destroy", "", raw_data([]^Interface{})},
 	{
 		"get_toplevel_decoration",
 		"no",
-		raw_data([]^wl_interface{&zxdg_toplevel_decoration_v1_interface, &xdg_toplevel_interface}),
+		raw_data([]^Interface{&zxdg_toplevel_decoration_v1_interface, &xdg_toplevel_interface}),
 	},
 }
 
-zxdg_decoration_manager_v1_events: []wl_message = []wl_message{}
+zxdg_decoration_manager_v1_events: []Message = []Message{}
 
-zxdg_decoration_manager_v1_interface: wl_interface = {}
+zxdg_decoration_manager_v1_interface: Interface = {}
 @(init)
 init_zxdg_decoration_manager_v1_interface :: proc "contextless" () {
 	zxdg_decoration_manager_v1_interface = {
@@ -92,7 +92,7 @@ zxdg_toplevel_decoration_v1_add_listener :: proc(
 
 	return proxy_add_listener(
 		cast(^Proxy)zxdg_toplevel_decoration_v1,
-		cast(^Implementation)listener,
+		cast(rawptr)listener,
 		data,
 	)
 }
@@ -105,7 +105,7 @@ zxdg_toplevel_decoration_v1_destroy :: proc "c" (
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_zxdg_toplevel_decoration_v1),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -138,17 +138,17 @@ zxdg_toplevel_decoration_v1_unset_mode :: proc "c" (
 
 }
 
-zxdg_toplevel_decoration_v1_requests: []wl_message = []wl_message {
-	{"destroy", "", raw_data([]^wl_interface{})},
-	{"set_mode", "u", raw_data([]^wl_interface{nil})},
-	{"unset_mode", "", raw_data([]^wl_interface{})},
+zxdg_toplevel_decoration_v1_requests: []Message = []Message {
+	{"destroy", "", raw_data([]^Interface{})},
+	{"set_mode", "u", raw_data([]^Interface{nil})},
+	{"unset_mode", "", raw_data([]^Interface{})},
 }
 
-zxdg_toplevel_decoration_v1_events: []wl_message = []wl_message {
-	{"configure", "u", raw_data([]^wl_interface{nil})},
+zxdg_toplevel_decoration_v1_events: []Message = []Message {
+	{"configure", "u", raw_data([]^Interface{nil})},
 }
 
-zxdg_toplevel_decoration_v1_interface: wl_interface = {}
+zxdg_toplevel_decoration_v1_interface: Interface = {}
 @(init)
 init_zxdg_toplevel_decoration_v1_interface :: proc "contextless" () {
 	zxdg_toplevel_decoration_v1_interface = {

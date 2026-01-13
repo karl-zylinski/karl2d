@@ -190,7 +190,7 @@ toplevel_listener := wl.xdg_toplevel_listener {
 		xdg_toplevel: ^wl.xdg_toplevel,
 		width: c.int32_t,
 		height: c.int32_t,
-		states: ^wl.wl_array,
+		states: ^wl.Array,
 	) {
 		if s.configured && (s.width != int(width) || s.height != int(height)) {
 			wl.egl_window_resize(s.window, c.int(width), c.int(height), 0, 0)
@@ -217,7 +217,7 @@ toplevel_listener := wl.xdg_toplevel_listener {
 		append(&s.events, Window_Event_Close_Wanted{})
 	},
 	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel, width: c.int32_t, height: c.int32_t,) { },
-	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel, capabilities: ^wl.wl_array,) {},
+	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel, capabilities: ^wl.Array,) {},
 }
 
 window_listener := wl.xdg_surface_listener {
@@ -234,7 +234,7 @@ wm_base_listener := wl.XDG_WM_Base_Listener {
 
 keyboard_listener := wl.Keyboard_Listener {
 	keymap = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, format: c.uint32_t, fd: c.int32_t, size: c.uint32_t,) {},
-	enter = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, serial: c.uint32_t, surface: ^wl.Surface, keys: ^wl.wl_array) {},
+	enter = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, serial: c.uint32_t, surface: ^wl.Surface, keys: ^wl.Array) {},
 	leave = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, serial: c.uint32_t, surface: ^wl.Surface) {},
 	key = key_handler,
 	modifiers = proc "c" (
@@ -533,7 +533,7 @@ WL_State :: struct {
 	display: ^wl.Display,
 	surface: ^wl.Surface,
 	compositor: ^wl.Compositor,
-	window: ^wl.egl_window,
+	window: ^wl.EGL_Window,
 	toplevel: ^wl.xdg_toplevel,
 	decoration_manager: ^wl.zxdg_decoration_manager_v1,
 
@@ -553,7 +553,7 @@ WL_State :: struct {
 Window_Handle_Wayland :: struct {
 	display: ^wl.Display,
 	surface: ^wl.Surface,
-	window: ^wl.egl_window,
+	window: ^wl.EGL_Window,
 }
 
 s: ^WL_State

@@ -13,8 +13,10 @@ xdg_wm_base_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)xdg_wm_base, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)xdg_wm_base, cast(rawptr)listener, data)
 }
+
+MARSHAL_FLAG_DESTROY :: 1
 
 xdg_wm_base_destroy :: proc "c" (_xdg_wm_base: ^XDG_WM_Base) {
 	proxy_marshal_flags(
@@ -22,7 +24,7 @@ xdg_wm_base_destroy :: proc "c" (_xdg_wm_base: ^XDG_WM_Base) {
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_xdg_wm_base),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -73,20 +75,20 @@ xdg_wm_base_pong :: proc "c" (_xdg_wm_base: ^XDG_WM_Base, serial: c.uint32_t) {
 
 }
 
-xdg_wm_base_requests: []wl_message = []wl_message {
-	{"destroy", "", raw_data([]^wl_interface{})},
-	{"create_positioner", "n", raw_data([]^wl_interface{&xdg_positioner_interface})},
+xdg_wm_base_requests: []Message = []Message {
+	{"destroy", "", raw_data([]^Interface{})},
+	{"create_positioner", "n", raw_data([]^Interface{&xdg_positioner_interface})},
 	{
 		"get_xdg_surface",
 		"no",
-		raw_data([]^wl_interface{&xdg_surface_interface, &wl_surface_interface}),
+		raw_data([]^Interface{&xdg_surface_interface, &wl_surface_interface}),
 	},
-	{"pong", "u", raw_data([]^wl_interface{nil})},
+	{"pong", "u", raw_data([]^Interface{nil})},
 }
 
-xdg_wm_base_events: []wl_message = []wl_message{{"ping", "u", raw_data([]^wl_interface{nil})}}
+xdg_wm_base_events: []Message = []Message{{"ping", "u", raw_data([]^Interface{nil})}}
 
-xdg_wm_base_interface: wl_interface = {}
+xdg_wm_base_interface: Interface = {}
 @(init)
 init_xdg_wm_base_interface :: proc "contextless" () {
 	xdg_wm_base_interface = {
@@ -116,7 +118,7 @@ xdg_positioner_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)xdg_positioner, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)xdg_positioner, cast(rawptr)listener, data)
 }
 
 xdg_positioner_destroy :: proc "c" (_xdg_positioner: ^xdg_positioner) {
@@ -125,7 +127,7 @@ xdg_positioner_destroy :: proc "c" (_xdg_positioner: ^xdg_positioner) {
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_xdg_positioner),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -267,22 +269,22 @@ xdg_positioner_set_parent_configure :: proc "c" (
 
 }
 
-xdg_positioner_requests: []wl_message = []wl_message {
-	{"destroy", "", raw_data([]^wl_interface{})},
-	{"set_size", "ii", raw_data([]^wl_interface{nil, nil})},
-	{"set_anchor_rect", "iiii", raw_data([]^wl_interface{nil, nil, nil, nil})},
-	{"set_anchor", "u", raw_data([]^wl_interface{nil})},
-	{"set_gravity", "u", raw_data([]^wl_interface{nil})},
-	{"set_constraint_adjustment", "u", raw_data([]^wl_interface{nil})},
-	{"set_offset", "ii", raw_data([]^wl_interface{nil, nil})},
-	{"set_reactive", "", raw_data([]^wl_interface{})},
-	{"set_parent_size", "ii", raw_data([]^wl_interface{nil, nil})},
-	{"set_parent_configure", "u", raw_data([]^wl_interface{nil})},
+xdg_positioner_requests: []Message = []Message {
+	{"destroy", "", raw_data([]^Interface{})},
+	{"set_size", "ii", raw_data([]^Interface{nil, nil})},
+	{"set_anchor_rect", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
+	{"set_anchor", "u", raw_data([]^Interface{nil})},
+	{"set_gravity", "u", raw_data([]^Interface{nil})},
+	{"set_constraint_adjustment", "u", raw_data([]^Interface{nil})},
+	{"set_offset", "ii", raw_data([]^Interface{nil, nil})},
+	{"set_reactive", "", raw_data([]^Interface{})},
+	{"set_parent_size", "ii", raw_data([]^Interface{nil, nil})},
+	{"set_parent_configure", "u", raw_data([]^Interface{nil})},
 }
 
-xdg_positioner_events: []wl_message = []wl_message{}
+xdg_positioner_events: []Message = []Message{}
 
-xdg_positioner_interface: wl_interface = {}
+xdg_positioner_interface: Interface = {}
 @(init)
 init_xdg_positioner_interface :: proc "contextless" () {
 	xdg_positioner_interface = {"xdg_positioner", 6, 10, &xdg_positioner_requests[0], 0, nil}
@@ -326,7 +328,7 @@ xdg_surface_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)xdg_surface, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)xdg_surface, cast(rawptr)listener, data)
 }
 
 xdg_surface_destroy :: proc "c" (_xdg_surface: ^xdg_surface) {
@@ -335,7 +337,7 @@ xdg_surface_destroy :: proc "c" (_xdg_surface: ^xdg_surface) {
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_xdg_surface),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -409,27 +411,27 @@ xdg_surface_ack_configure :: proc "c" (_xdg_surface: ^xdg_surface, serial: c.uin
 
 }
 
-xdg_surface_requests: []wl_message = []wl_message {
-	{"destroy", "", raw_data([]^wl_interface{})},
-	{"get_toplevel", "n", raw_data([]^wl_interface{&xdg_toplevel_interface})},
+xdg_surface_requests: []Message = []Message {
+	{"destroy", "", raw_data([]^Interface{})},
+	{"get_toplevel", "n", raw_data([]^Interface{&xdg_toplevel_interface})},
 	{
 		"get_popup",
 		"n?oo",
 		raw_data(
-			[]^wl_interface {
+			[]^Interface {
 				&xdg_popup_interface,
 				&xdg_surface_interface,
 				&xdg_positioner_interface,
 			},
 		),
 	},
-	{"set_window_geometry", "iiii", raw_data([]^wl_interface{nil, nil, nil, nil})},
-	{"ack_configure", "u", raw_data([]^wl_interface{nil})},
+	{"set_window_geometry", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
+	{"ack_configure", "u", raw_data([]^Interface{nil})},
 }
 
-xdg_surface_events: []wl_message = []wl_message{{"configure", "u", raw_data([]^wl_interface{nil})}}
+xdg_surface_events: []Message = []Message{{"configure", "u", raw_data([]^Interface{nil})}}
 
-xdg_surface_interface: wl_interface = {}
+xdg_surface_interface: Interface = {}
 @(init)
 init_xdg_surface_interface :: proc "contextless" () {
 	xdg_surface_interface = {
@@ -456,7 +458,7 @@ xdg_toplevel_listener :: struct {
 		xdg_toplevel: ^xdg_toplevel,
 		width: c.int32_t,
 		height: c.int32_t,
-		states: ^wl_array,
+		states: ^Array,
 	),
 	close:            proc "c" (data: rawptr, xdg_toplevel: ^xdg_toplevel),
 	configure_bounds: proc "c" (
@@ -468,7 +470,7 @@ xdg_toplevel_listener :: struct {
 	wm_capabilities:  proc "c" (
 		data: rawptr,
 		xdg_toplevel: ^xdg_toplevel,
-		capabilities: ^wl_array,
+		capabilities: ^Array,
 	),
 }
 
@@ -478,7 +480,7 @@ xdg_toplevel_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)xdg_toplevel, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)xdg_toplevel, cast(rawptr)listener, data)
 }
 
 xdg_toplevel_destroy :: proc "c" (_xdg_toplevel: ^xdg_toplevel) {
@@ -487,7 +489,7 @@ xdg_toplevel_destroy :: proc "c" (_xdg_toplevel: ^xdg_toplevel) {
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_xdg_toplevel),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -671,31 +673,31 @@ xdg_toplevel_set_minimized :: proc "c" (_xdg_toplevel: ^xdg_toplevel) {
 
 }
 
-xdg_toplevel_requests: []wl_message = []wl_message {
-	{"destroy", "", raw_data([]^wl_interface{})},
-	{"set_parent", "?o", raw_data([]^wl_interface{&xdg_toplevel_interface})},
-	{"set_title", "s", raw_data([]^wl_interface{nil})},
-	{"set_app_id", "s", raw_data([]^wl_interface{nil})},
-	{"show_window_menu", "ouii", raw_data([]^wl_interface{&seat_interface, nil, nil, nil})},
-	{"move", "ou", raw_data([]^wl_interface{&seat_interface, nil})},
-	{"resize", "ouu", raw_data([]^wl_interface{&seat_interface, nil, nil})},
-	{"set_max_size", "ii", raw_data([]^wl_interface{nil, nil})},
-	{"set_min_size", "ii", raw_data([]^wl_interface{nil, nil})},
-	{"set_maximized", "", raw_data([]^wl_interface{})},
-	{"unset_maximized", "", raw_data([]^wl_interface{})},
-	{"set_fullscreen", "?o", raw_data([]^wl_interface{&wl_output_interface})},
-	{"unset_fullscreen", "", raw_data([]^wl_interface{})},
-	{"set_minimized", "", raw_data([]^wl_interface{})},
+xdg_toplevel_requests: []Message = []Message {
+	{"destroy", "", raw_data([]^Interface{})},
+	{"set_parent", "?o", raw_data([]^Interface{&xdg_toplevel_interface})},
+	{"set_title", "s", raw_data([]^Interface{nil})},
+	{"set_app_id", "s", raw_data([]^Interface{nil})},
+	{"show_window_menu", "ouii", raw_data([]^Interface{&seat_interface, nil, nil, nil})},
+	{"move", "ou", raw_data([]^Interface{&seat_interface, nil})},
+	{"resize", "ouu", raw_data([]^Interface{&seat_interface, nil, nil})},
+	{"set_max_size", "ii", raw_data([]^Interface{nil, nil})},
+	{"set_min_size", "ii", raw_data([]^Interface{nil, nil})},
+	{"set_maximized", "", raw_data([]^Interface{})},
+	{"unset_maximized", "", raw_data([]^Interface{})},
+	{"set_fullscreen", "?o", raw_data([]^Interface{&wl_output_interface})},
+	{"unset_fullscreen", "", raw_data([]^Interface{})},
+	{"set_minimized", "", raw_data([]^Interface{})},
 }
 
-xdg_toplevel_events: []wl_message = []wl_message {
-	{"configure", "iia", raw_data([]^wl_interface{nil, nil, nil})},
-	{"close", "", raw_data([]^wl_interface{})},
-	{"configure_bounds", "ii", raw_data([]^wl_interface{nil, nil})},
-	{"wm_capabilities", "a", raw_data([]^wl_interface{nil})},
+xdg_toplevel_events: []Message = []Message {
+	{"configure", "iia", raw_data([]^Interface{nil, nil, nil})},
+	{"close", "", raw_data([]^Interface{})},
+	{"configure_bounds", "ii", raw_data([]^Interface{nil, nil})},
+	{"wm_capabilities", "a", raw_data([]^Interface{nil})},
 }
 
-xdg_toplevel_interface: wl_interface = {}
+xdg_toplevel_interface: Interface = {}
 @(init)
 init_xdg_toplevel_interface :: proc "contextless" () {
 	xdg_toplevel_interface = {
@@ -754,7 +756,7 @@ xdg_popup_add_listener :: proc(
 	data: rawptr,
 ) -> c.int {
 
-	return proxy_add_listener(cast(^Proxy)xdg_popup, cast(^Implementation)listener, data)
+	return proxy_add_listener(cast(^Proxy)xdg_popup, cast(rawptr)listener, data)
 }
 
 xdg_popup_destroy :: proc "c" (_xdg_popup: ^xdg_popup) {
@@ -763,7 +765,7 @@ xdg_popup_destroy :: proc "c" (_xdg_popup: ^xdg_popup) {
 		0,
 		nil,
 		proxy_get_version(cast(^Proxy)_xdg_popup),
-		WL_MARSHAL_FLAG_DESTROY,
+		MARSHAL_FLAG_DESTROY,
 	)
 
 }
@@ -798,19 +800,19 @@ xdg_popup_reposition :: proc "c" (
 
 }
 
-xdg_popup_requests: []wl_message = []wl_message {
-	{"destroy", "", raw_data([]^wl_interface{})},
-	{"grab", "ou", raw_data([]^wl_interface{&seat_interface, nil})},
-	{"reposition", "ou", raw_data([]^wl_interface{&xdg_positioner_interface, nil})},
+xdg_popup_requests: []Message = []Message {
+	{"destroy", "", raw_data([]^Interface{})},
+	{"grab", "ou", raw_data([]^Interface{&seat_interface, nil})},
+	{"reposition", "ou", raw_data([]^Interface{&xdg_positioner_interface, nil})},
 }
 
-xdg_popup_events: []wl_message = []wl_message {
-	{"configure", "iiii", raw_data([]^wl_interface{nil, nil, nil, nil})},
-	{"popup_done", "", raw_data([]^wl_interface{})},
-	{"repositioned", "u", raw_data([]^wl_interface{nil})},
+xdg_popup_events: []Message = []Message {
+	{"configure", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
+	{"popup_done", "", raw_data([]^Interface{})},
+	{"repositioned", "u", raw_data([]^Interface{nil})},
 }
 
-xdg_popup_interface: wl_interface = {}
+xdg_popup_interface: Interface = {}
 @(init)
 init_xdg_popup_interface :: proc "contextless" () {
 	xdg_popup_interface = {"xdg_popup", 6, 3, &xdg_popup_requests[0], 3, &xdg_popup_events[0]}
