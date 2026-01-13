@@ -2,7 +2,9 @@ package wayland
 
 import "core:c"
 
-XDG_WM_Base :: struct {}
+XDG_WM_Base :: struct {
+	using proxy: Proxy,
+}
 XDG_WM_Base_Listener :: struct {
 	ping: proc "c" (data: rawptr, xdg_wm_base: ^XDG_WM_Base, serial: c.uint32_t),
 }
@@ -81,7 +83,7 @@ xdg_wm_base_requests: []Message = []Message {
 	{
 		"get_xdg_surface",
 		"no",
-		raw_data([]^Interface{&xdg_surface_interface, &wl_surface_interface}),
+		raw_data([]^Interface{&xdg_surface_interface, &surface_interface}),
 	},
 	{"pong", "u", raw_data([]^Interface{nil})},
 }
@@ -317,7 +319,9 @@ XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_NONE :: 0
 XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_Y :: 8
 XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_RESIZE_X :: 16
 
-xdg_surface :: struct {}
+xdg_surface :: struct {
+	using proxy: Proxy,
+}
 xdg_surface_listener :: struct {
 	configure: proc "c" (data: rawptr, xdg_surface: ^xdg_surface, serial: c.uint32_t),
 }
@@ -451,7 +455,9 @@ XDG_SURFACE_ERROR_NOT_CONSTRUCTED :: 1
 XDG_SURFACE_ERROR_DEFUNCT_ROLE_OBJECT :: 6
 XDG_SURFACE_ERROR_INVALID_SERIAL :: 4
 
-xdg_toplevel :: struct {}
+xdg_toplevel :: struct {
+	using proxy: Proxy,
+}
 xdg_toplevel_listener :: struct {
 	configure:        proc "c" (
 		data: rawptr,

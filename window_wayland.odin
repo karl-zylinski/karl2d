@@ -183,7 +183,7 @@ seat_listener := wl.Seat_Listener {
 
 frame_callback := wl.Callback_Listener {
 	done = proc "c" (data: rawptr, callback: ^wl.Callback, callback_data: c.uint32_t) {
-		wl.callback_destroy(callback)
+		wl.destroy(callback)
 	},
 }
 
@@ -272,7 +272,9 @@ key_handler :: proc "c" (
 	// from the expected xkb events... Just add 8 to it.
 	keycode := key + 8
 
-	if state == 0 {
+
+	switch state {
+	case wl.KEYBOARD_KEY_STATE_RELEASED:
 		key := key_from_xkeycode(keycode)
 
 		if key != .None {
@@ -281,9 +283,8 @@ key_handler :: proc "c" (
 				key = key,
 			})
 		}
-	}
-
-	if state == 1 {
+		
+	case wl.KEYBOARD_KEY_STATE_PRESSED:
 		key := key_from_xkeycode(keycode)
 
 		if key != .None {
@@ -348,11 +349,11 @@ pointer_listener := wl.Pointer_Listener {
 		}
 	
 		switch state {
-		case 0:
+		case wl.POINTER_BUTTON_STATE_RELEASED:
 			append(&s.events, Window_Event_Mouse_Button_Went_Up {
 				button = btn,
 			})
-		case 1: 
+		case wl.POINTER_BUTTON_STATE_PRESSED: 
 			append(&s.events, Window_Event_Mouse_Button_Went_Down {
 				button = btn,
 			})
