@@ -16,10 +16,8 @@ Platform_Interface :: struct #all_or_none {
 
 	shutdown: proc(),
 	get_window_render_glue: proc() -> Window_Render_Glue,
-	process_events: proc(),
 	after_frame_present: proc(),
-	get_events: proc() -> []Event,
-	clear_events: proc(),
+	get_events: proc(events: ^[dynamic]Event),
 	set_position: proc(x: int, y: int),
 	set_size: proc(w, h: int),
 	get_width: proc() -> int,

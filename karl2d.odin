@@ -260,10 +260,10 @@ process_events :: proc() {
 	s.mouse_delta = {}
 	s.mouse_wheel_delta = 0
 
-	pf.process_events()
-	events := pf.get_events()
+	runtime.clear(&s.events)
+	pf.get_events(&s.events)
 
-	for &event in events {
+	for &event in s.events {
 		switch &e in event {
 		case Event_Close_Wanted:
 			s.close_window_requested = true
@@ -338,8 +338,6 @@ process_events :: proc() {
 			}
 		}
 	}
-
-	pf.clear_events()
 }
 
 // Returns how many seconds the previous frame took. Often a tiny number such as 0.016 s.
@@ -1892,6 +1890,9 @@ State :: struct {
 	fs: fs.FontContext,
 	
 	close_window_requested: bool,
+
+	// All events for this frame. Cleared when `process_events` run
+	events: [dynamic]Event,
 
 	mouse_position: Vec2,
 	mouse_delta: Vec2,
