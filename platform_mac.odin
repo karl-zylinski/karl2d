@@ -12,7 +12,7 @@ PLATFORM_MAC :: Platform_Interface {
 	state_size = mac_state_size,
 	init = mac_init,
 	shutdown = mac_shutdown,
-	window_handle = mac_window_handle,
+	get_window_render_glue = mac_get_window_render_glue,
 	process_events = mac_process_events,
 	after_frame_present = mac_after_frame_present,
 	get_events = mac_get_events,
@@ -45,7 +45,7 @@ Mac_State :: struct {
 	windowed_rect:    NS.Rect,
 	events:           [dynamic]Event,
 
-	window_handle:    Window_Handle_Darwin,
+	window_render_glue: Window_Render_Glue,
 }
 
 @private
@@ -103,7 +103,7 @@ mac_init :: proc(
 	s.window->center()
 	s.window->setAcceptsMouseMovedEvents(true)
 	s.window->makeKeyAndOrderFront(nil)
-	s.window_handle = s.window
+
 	mac_set_window_mode(init_options.window_mode)
 
 	// Activate the application
@@ -150,6 +150,8 @@ mac_init :: proc(
 	)
 
 	s.window->setDelegate(window_delegates)
+
+	s.window_render_glue = make_mac_gl_glue(s.window, s.allocator)
 }
 
 mac_shutdown :: proc() {
@@ -159,8 +161,8 @@ mac_shutdown :: proc() {
 	delete(s.events)
 }
 
-mac_window_handle :: proc() -> Window_Handle {
-	return Window_Handle(s.window_handle)
+mac_get_window_render_glue :: proc() -> Window_Render_Glue {
+	return s.window_render_glue
 }
 
 mac_process_events :: proc() {
