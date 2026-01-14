@@ -1,6 +1,4 @@
 #+build linux
-#+private file
-
 package karl2d
 
 @(private="package")
@@ -419,14 +417,6 @@ wl_process_events :: proc() {
 
 wl_after_frame_present :: proc() {
 	wl.display_dispatch(s.display)
-}
-
-key_from_xkeycode :: proc(kc: u32) -> Keyboard_Key {
-	if kc >= 255 {
-		return .None
-	}
-
-	return KEY_FROM_XKEYCODE[kc]
 }
 
 wl_get_events :: proc() -> []Event {
