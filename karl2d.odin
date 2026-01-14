@@ -342,7 +342,8 @@ process_events :: proc() {
 
 // Fetch a list of all events that happened this frame. Most games can use the `key_is_held`, 
 // `mouse_button_went_down` etc procedures to check input state. But if you want a list of events
-// instead, then you can use this. These events will also include stuff like `
+// instead, then you can use this. These events will also include things like "Window Focus" events
+// and "Window Resize" events.
 //
 // Note: Gamepad axis movement (analogue sticks and analogue triggers) are _not_ events. Those can
 // only be queried using `k2.get_gamepad_axis`.
