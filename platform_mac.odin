@@ -31,9 +31,6 @@ PLATFORM_MAC :: Platform_Interface {
 	set_internal_state = mac_set_internal_state,
 }
 
-@(private="package")
-Window_Handle_Darwin :: ^NS.Window
-
 Mac_State :: struct {
 	allocator:        runtime.Allocator,
 	app:              ^NS.Application,

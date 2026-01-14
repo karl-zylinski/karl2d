@@ -8,6 +8,7 @@ import "core:os"
 import gl "vendor:OpenGL"
 import "darwin/nsgl"
 import "log"
+import "base:runtime"
 
 @(private="package")
 make_mac_gl_glue :: proc(
@@ -56,7 +57,7 @@ mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue_State) -> bool {
 	}
 
 	// Create OpenGL context
-	s.gl_ctx := nsgl.OpenGLContext_alloc()
+	s.gl_ctx = nsgl.OpenGLContext_alloc()
 
 	if s.gl_ctx == nil {
 		log.error("Failed to alloc NSOpenGLContext")
@@ -73,8 +74,7 @@ mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue_State) -> bool {
 	// Disable Retina resolution - render at point size and let macOS stretch
 	// This allows draw calls to use expected coords (e.g. 1280x720) without scaling
 	// TODO: we should fix this, but will need to decide on how to handle HiDPI
-	wh := (Window_Handle_Darwin)(window_handle)
-	view := wh->contentView()
+	view := s.window->contentView()
 	nsgl.View_setWantsBestResolutionOpenGLSurface(view, false)
 
 	s.gl_ctx->setView(view)
