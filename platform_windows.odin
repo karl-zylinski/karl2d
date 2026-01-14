@@ -4,7 +4,7 @@
 package karl2d
 
 @(private="package")
-WINDOW_INTERFACE_WIN32 :: Window_Interface {
+PLATFORM_WIN32 :: Platform_Interface {
 	state_size = win32_state_size,
 	init = win32_init,
 	shutdown = win32_shutdown,

@@ -1864,7 +1864,7 @@ State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
-	win: Window_Interface,
+	win: Platform_Interface,
 	window_state: rawptr,
 	rb: Render_Backend_Interface,
 	rb_state: rawptr,
@@ -2143,7 +2143,7 @@ s: ^State
 // These globals are here for access from other files. The state struct above is private to make
 // sure global state sharing doesn't become too messy.
 frame_allocator: runtime.Allocator
-win: Window_Interface
+win: Platform_Interface
 rb: Render_Backend_Interface
 
 get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> Shader_Default_Inputs {

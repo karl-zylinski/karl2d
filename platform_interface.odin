@@ -2,7 +2,7 @@ package karl2d
 
 import "base:runtime"
 
-Window_Interface :: struct #all_or_none {
+Platform_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 
 	init: proc(
