@@ -83,6 +83,8 @@ windows_init :: proc(
 
 	when RENDER_BACKEND_NAME == "d3d11" {
 		s.window_render_glue = make_windows_d3d11_glue(s.hwnd)
+	} else when RENDER_BACKEND_NAME == "gl" {
+		s.window_render_glue = make_windows_gl_glue(s.hwnd, s.allocator)
 	} else {
 		#panic("Unsupported combo of Windows platform and render backend '" + RENDER_BACKEND_NAME + "'")
 	}

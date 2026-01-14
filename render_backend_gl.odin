@@ -1,4 +1,4 @@
-#+build darwin, linux
+#+build windows, darwin, linux
 #+private file
 
 package karl2d
@@ -46,7 +46,7 @@ GL_State :: struct {
 	height: int,
 	allocator: runtime.Allocator,
 	shaders: hm.Handle_Map(GL_Shader, Shader_Handle, 1024*10),
-	ctx: GL_Context,
+	glue: Window_Render_Glue,
 	vertex_buffer_gpu: u32,
 	textures: hm.Handle_Map(GL_Texture, Texture_Handle, 1024*10),
 	render_targets: hm.Handle_Map(GL_Render_Target, Render_Target_Handle, 128),
@@ -118,21 +118,18 @@ gl_state_size :: proc() -> int {
 	return size_of(GL_State)
 }
 
-gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+gl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapchain_height: int, allocator := context.allocator) {
 	s = (^GL_State)(state)
-	s.window_handle = window_handle
+	s.glue = glue
 	s.width = swapchain_width
 	s.height = swapchain_height
 	s.allocator = allocator
 
-	ctx, ctx_ok := _gl_get_context(window_handle)
+	make_context_ok := s.glue->make_context()
 
-	if !ctx_ok {
+	if !make_context_ok {
 		log.panic("Could not create a valid gl context")
 	}
-
-	s.ctx = ctx
-	_gl_load_procs(s.ctx)
 
 	gl.GenBuffers(1, &s.vertex_buffer_gpu)
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
@@ -143,7 +140,7 @@ gl_init :: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, sw
 
 gl_shutdown :: proc() {
 	gl.DeleteBuffers(1, &s.vertex_buffer_gpu)
-	_gl_destroy_context(s.ctx)
+	s.glue->destroy()
 }
 
 gl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
@@ -161,7 +158,7 @@ gl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 }
 
 gl_present :: proc() {
-	_gl_present(s.ctx)
+	s.glue->present()
 }
 
 gl_draw :: proc(
@@ -343,7 +340,7 @@ gl_resize_swapchain :: proc(w, h: int) {
 	s.width = w
 	s.height = h
 	gl.Viewport(0, 0, i32(w), i32(h))
-	_gl_context_viewport_resized(s.ctx)
+	s.glue->viewport_resized()
 }
 
 gl_get_swapchain_width :: proc() -> int {

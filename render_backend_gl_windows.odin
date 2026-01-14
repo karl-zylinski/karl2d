@@ -1,4 +1,4 @@
-#+build windows
+#+build ignore
 
 package karl2d
 
