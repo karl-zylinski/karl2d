@@ -15,11 +15,10 @@ import win32 "core:sys/windows"
 make_windows_d3d11_glue :: proc(hwnd: win32.HWND) -> Window_Render_Glue {
 	return {
 		state = (^Window_Render_Glue_State)(hwnd),
-		get_window_handle = wdg_get_window_handle,
+		get_window_handle = windows_d3d11_glue_get_window_handle,
 	}
 }
 
-// wdg == WindowsD3D11Glue
-wdg_get_window_handle :: proc(state: ^Window_Render_Glue_State) -> Window_Handle {
+windows_d3d11_glue_get_window_handle :: proc(state: ^Window_Render_Glue_State) -> Window_Handle {
 	return Window_Handle(state)
 }
