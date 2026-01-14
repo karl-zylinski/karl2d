@@ -58,13 +58,9 @@ wl_init :: proc(
 
 	s.display = wl.display_connect(nil)
 
-	
-
 	display_registry := wl.display_get_registry(s.display)
 	wl.add_listener(display_registry, &registry_listener, nil)
 	wl.display_roundtrip(s.display)
-
-	
 
 	wl.add_listener(s.seat, &seat_listener, nil)
 	wl.display_roundtrip(s.display)
@@ -84,6 +80,8 @@ wl_init :: proc(
 	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(window_title))
 
     decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
+
+    // This adds titlebar and buttons to the window.
     wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
 
 	wl.surface_commit(s.surface)
@@ -272,7 +270,6 @@ key_handler :: proc "c" (
 	// from the expected xkb events... Just add 8 to it.
 	keycode := key + 8
 
-
 	switch state {
 	case wl.KEYBOARD_KEY_STATE_RELEASED:
 		key := key_from_xkeycode(keycode)
@@ -294,7 +291,6 @@ key_handler :: proc "c" (
 		}
 	}
 }
-
 
 pointer_listener := wl.Pointer_Listener {
 	enter = proc "c" (
@@ -368,10 +364,14 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		event_direction: f32 = value > 0 ? 1 : -1
-		append(&s.events, Window_Event_Mouse_Wheel {
-			delta = event_direction,
-		})
+		// Vertical scroll
+		if axis == 0 {
+			event_direction: f32 = value > 0 ? 1 : -1
+			
+			append(&s.events, Window_Event_Mouse_Wheel {
+				delta = event_direction,
+			})
+		}
 	},
 	frame = proc "c" (data: rawptr, pointer: ^wl.Pointer) {
 
