@@ -5,7 +5,7 @@
 package karl2d
 
 @(private="package")
-WINDOW_INTERFACE_JS :: Window_Interface {
+PLATFORM_WEB :: Platform_Interface {
 	state_size = js_state_size,
 	init = js_init,
 	shutdown = js_shutdown,
@@ -45,7 +45,7 @@ js_init :: proc(
 ) {
 	s = (^JS_State)(window_state)
 	s.allocator = allocator
-	s.events = make([dynamic]Window_Event, allocator)
+	s.events = make([dynamic]Event, allocator)
 	s.key_from_js_event_key_code = make(map[string]Keyboard_Key, allocator)
 	s.canvas_id = "webgl-canvas"
 
@@ -81,25 +81,25 @@ js_event_key_down :: proc(e: js.Event) {
 	}
 
 	key := key_from_js_event(e)
-	append(&s.events, Window_Event_Key_Went_Down {
+	append(&s.events, Event_Key_Went_Down {
 		key = key,
 	})
 }
 
 js_event_key_up :: proc(e: js.Event) {
 	key := key_from_js_event(e)
-	append(&s.events, Window_Event_Key_Went_Up {
+	append(&s.events, Event_Key_Went_Up {
 		key = key,
 	})
 }
 
 js_event_focus :: proc(e: js.Event) {
-	append(&s.events, Window_Event_Focused {
+	append(&s.events, Event_Focused {
 	})
 }
 
 js_event_blur :: proc(e: js.Event) {
-	append(&s.events, Window_Event_Unfocused {
+	append(&s.events, Event_Unfocused {
 	})
 }
 
@@ -108,7 +108,7 @@ js_event_window_resize :: proc(e: js.Event) {
 }
 
 js_event_mouse_move :: proc(e: js.Event) {
-	append(&s.events, Window_Event_Mouse_Move {
+	append(&s.events, Event_Mouse_Move {
 		position = {f32(e.mouse.client.x), f32(e.mouse.client.y)},
 	})
 }
@@ -124,7 +124,7 @@ js_event_mouse_down :: proc(e: js.Event) {
 		button = .Middle 
 	}
 
-	append(&s.events, Window_Event_Mouse_Button_Went_Down {
+	append(&s.events, Event_Mouse_Button_Went_Down {
 		button = button,
 	})
 }
@@ -140,13 +140,13 @@ js_event_mouse_up :: proc(e: js.Event) {
 		button = .Middle 
 	}
 
-	append(&s.events, Window_Event_Mouse_Button_Went_Up {
+	append(&s.events, Event_Mouse_Button_Went_Up {
 		button = button,
 	})
 }
 
 js_event_mouse_wheel :: proc(e: js.Event) {
-	append(&s.events, Window_Event_Mouse_Wheel {
+	append(&s.events, Event_Mouse_Wheel {
 		// Not the best way, but how would we know what the wheel deltaMode really represents? If it
 		// is in pixels, how much "scroll" does that equal to?
 		delta = f32(e.wheel.delta.y > 0 ? -1 : 1),
@@ -183,7 +183,7 @@ update_canvas_size :: proc(canvas_id: HTML_Canvas_ID) {
 	s.width = int(rect.width)
 	s.height = int(rect.height)
 
-	append(&s.events, Window_Event_Resize {
+	append(&s.events, Event_Resize {
 		width = int(width),
 		height = int(height),
 	})
@@ -245,14 +245,14 @@ js_process_events :: proc() {
 			}
 
 			if !ps.buttons[js_idx].pressed && ns.buttons[js_idx].pressed {
-				append(&s.events, Window_Event_Gamepad_Button_Went_Down {
+				append(&s.events, Event_Gamepad_Button_Went_Down {
 					gamepad = gamepad_idx,
 					button = button,
 				})
 			}
 
 			if ps.buttons[js_idx].pressed && !ns.buttons[js_idx].pressed {
-				append(&s.events, Window_Event_Gamepad_Button_Went_Up {
+				append(&s.events, Event_Gamepad_Button_Went_Up {
 					gamepad = gamepad_idx,
 					button = button,
 				})
@@ -267,7 +267,7 @@ js_after_frame_present :: proc() {
 	
 }
 
-js_get_events :: proc() -> []Window_Event {
+js_get_events :: proc() -> []Event {
 	return s.events[:]
 }
 
@@ -353,7 +353,7 @@ JS_State :: struct {
 	canvas_id: HTML_Canvas_ID,
 	width: int,
 	height: int,
-	events: [dynamic]Window_Event,
+	events: [dynamic]Event,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 	window_mode: Window_Mode,
 	key_from_js_event_key_code: map[string]Keyboard_Key,
