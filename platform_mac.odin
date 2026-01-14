@@ -13,12 +13,10 @@ PLATFORM_MAC :: Platform_Interface {
 	init = mac_init,
 	shutdown = mac_shutdown,
 	get_window_render_glue = mac_get_window_render_glue,
-	process_events = mac_process_events,
 	after_frame_present = mac_after_frame_present,
 	get_events = mac_get_events,
 	get_width = mac_get_width,
 	get_height = mac_get_height,
-	clear_events = mac_clear_events,
 	set_position = mac_set_position,
 	set_size = mac_set_size,
 	get_window_scale = mac_get_window_scale,
@@ -167,7 +165,7 @@ mac_get_window_render_glue :: proc() -> Window_Render_Glue {
 	return s.window_render_glue
 }
 
-mac_process_events :: proc() {
+mac_get_events :: proc(events: ^[dynamic]Event) {
 	// Poll for events without blocking
 	for {
 		event := s.app->nextEventMatchingMask(
@@ -249,14 +247,13 @@ mac_process_events :: proc() {
 			s.app->sendEvent(event)
 		}
 	}
+
+	append(events, ..s.events[:])
+	runtime.clear(&s.events)
 }
 
 mac_after_frame_present :: proc () {
 	
-}
-
-mac_get_events :: proc() -> []Event {
-	return s.events[:]
 }
 
 mac_get_width :: proc() -> int {
@@ -265,10 +262,6 @@ mac_get_width :: proc() -> int {
 
 mac_get_height :: proc() -> int {
 	return s.height
-}
-
-mac_clear_events :: proc() {
-	runtime.clear(&s.events)
 }
 
 mac_set_position :: proc(x: int, y: int) {
