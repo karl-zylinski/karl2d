@@ -344,8 +344,11 @@ process_events :: proc() {
 // `mouse_button_went_down` etc procedures to check input state. But if you want a list of events
 // instead, then you can use this. These events will also include stuff like `
 //
-// Note: The returned slice is only valid during the current frame! You can make a clone of it using
-// the `slice.clone` procedure (import `core:slice`).
+// Note: Gamepad axis movement (analogue sticks and analogue triggers) are _not_ events. Those can
+// only be queried using `k2.get_gamepad_axis`.
+//
+// Warning: The returned slice is only valid during the current frame! You can make a clone of it
+// using the `slice.clone` procedure (import `core:slice`).
 get_events :: proc() -> []Event {
 	return s.events[:]
 }
