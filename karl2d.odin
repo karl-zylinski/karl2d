@@ -54,7 +54,18 @@ init :: proc(
 
 	s.allocator = allocator
 
-	s.win = WINDOW_INTERFACE
+	when ODIN_OS == .Windows {
+		s.win = PLATFORM_WIN32
+	} else when ODIN_OS == .JS {
+		s.win = PLATFORM_JS
+	} else when ODIN_OS == .Linux {
+		s.win = PLATFORM_LINUX
+	} else when ODIN_OS == .Darwin {
+	    s.win = PLATFORM_MAC
+	} else {
+		#panic("Unsupported platform")
+	}
+
 	win = s.win
 
 	// We alloc memory for the windowing backend and pass the blob of memory to it.
