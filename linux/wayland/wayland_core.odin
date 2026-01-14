@@ -62,3 +62,5 @@ Proxy :: struct {}
 Display :: struct {
 	using proxy: Proxy,
 }
+
+MARSHAL_FLAG_DESTROY :: 1

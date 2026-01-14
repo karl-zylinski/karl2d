@@ -33,7 +33,7 @@ zxdg_decoration_manager_v1_destroy :: proc "c" (
 
 zxdg_decoration_manager_v1_get_toplevel_decoration :: proc "c" (
 	_zxdg_decoration_manager_v1: ^zxdg_decoration_manager_v1,
-	toplevel: ^xdg_toplevel,
+	toplevel: ^XDG_Toplevel,
 ) -> ^zxdg_toplevel_decoration_v1 {
 	id: ^Proxy
 	id = proxy_marshal_flags(

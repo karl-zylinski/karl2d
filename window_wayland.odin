@@ -187,10 +187,10 @@ frame_callback := wl.Callback_Listener {
 	},
 }
 
-toplevel_listener := wl.xdg_toplevel_listener {
+toplevel_listener := wl.XDG_Toplevel_Listener {
 	configure = proc "c" (
 		data: rawptr,
-		xdg_toplevel: ^wl.xdg_toplevel,
+		xdg_toplevel: ^wl.XDG_Toplevel,
 		width: c.int32_t,
 		height: c.int32_t,
 		states: ^wl.Array,
@@ -215,16 +215,16 @@ toplevel_listener := wl.xdg_toplevel_listener {
 		}
 		s.configured = true
 	},
-	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel) {
+	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel) {
 		context = s.odin_ctx
 		append(&s.events, Window_Event_Close_Wanted{})
 	},
-	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel, width: c.int32_t, height: c.int32_t,) { },
-	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.xdg_toplevel, capabilities: ^wl.Array,) {},
+	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, width: c.int32_t, height: c.int32_t,) { },
+	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, capabilities: ^wl.Array,) {},
 }
 
-window_listener := wl.xdg_surface_listener {
-	configure = proc "c" (data: rawptr, surface: ^wl.xdg_surface, serial: c.uint32_t) {
+window_listener := wl.XDG_Surface_Listener {
+	configure = proc "c" (data: rawptr, surface: ^wl.XDG_Surface, serial: c.uint32_t) {
 		wl.xdg_surface_ack_configure(surface, serial)
 	},
 }
@@ -538,7 +538,7 @@ WL_State :: struct {
 	surface: ^wl.Surface,
 	compositor: ^wl.Compositor,
 	window: ^wl.EGL_Window,
-	toplevel: ^wl.xdg_toplevel,
+	toplevel: ^wl.XDG_Toplevel,
 	decoration_manager: ^wl.zxdg_decoration_manager_v1,
 
 	xdg_base: ^wl.XDG_WM_Base,
