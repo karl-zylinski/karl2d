@@ -205,7 +205,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 
 			context = s.odin_ctx
 
-			append(&s.events, Window_Event_Resize {
+			append(&s.events, Event_Resize {
 				width = s.width,
                 height = s.height,
 			})
@@ -214,7 +214,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 	},
 	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel) {
 		context = s.odin_ctx
-		append(&s.events, Window_Event_Close_Wanted{})
+		append(&s.events, Event_Close_Wanted{})
 	},
 	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, width: c.int32_t, height: c.int32_t,) { },
 	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, capabilities: ^wl.Array,) {},
@@ -275,7 +275,7 @@ key_handler :: proc "c" (
 
 		if key != .None {
 			log.info(key)
-			append(&s.events, Window_Event_Key_Went_Up {
+			append(&s.events, Event_Key_Went_Up {
 				key = key,
 			})
 		}
@@ -284,7 +284,7 @@ key_handler :: proc "c" (
 		key := key_from_xkeycode(keycode)
 
 		if key != .None {
-			append(&s.events, Window_Event_Key_Went_Down {
+			append(&s.events, Event_Key_Went_Down {
 				key = key,
 			})
 		}
@@ -322,7 +322,7 @@ pointer_listener := wl.Pointer_Listener {
 		// surface_x and surface_y are fixed point 24.8 variables. 
 		// Just bitshift them to remove the decimal part and obtain 
 		// a screen coordinate
-		append(&s.events, Window_Event_Mouse_Move {
+		append(&s.events, Event_Mouse_Move {
 			position = { f32(surface_x >> 8), f32(surface_y >> 8) }, 
 		})
 	},
@@ -345,11 +345,11 @@ pointer_listener := wl.Pointer_Listener {
 	
 		switch state {
 		case wl.POINTER_BUTTON_STATE_RELEASED:
-			append(&s.events, Window_Event_Mouse_Button_Went_Up {
+			append(&s.events, Event_Mouse_Button_Went_Up {
 				button = btn,
 			})
 		case wl.POINTER_BUTTON_STATE_PRESSED: 
-			append(&s.events, Window_Event_Mouse_Button_Went_Down {
+			append(&s.events, Event_Mouse_Button_Went_Down {
 				button = btn,
 			})
 		}
@@ -367,7 +367,7 @@ pointer_listener := wl.Pointer_Listener {
 		if axis == 0 {
 			event_direction: f32 = value > 0 ? 1 : -1
 			
-			append(&s.events, Window_Event_Mouse_Wheel {
+			append(&s.events, Event_Mouse_Wheel {
 				delta = event_direction,
 			})
 		}
@@ -428,7 +428,7 @@ key_from_xkeycode :: proc(kc: u32) -> Keyboard_Key {
 	return KEY_FROM_XKEYCODE[kc]
 }
 
-wl_get_events :: proc() -> []Window_Event {
+wl_get_events :: proc() -> []Event {
 	return s.events[:]
 }
 
@@ -516,7 +516,7 @@ WL_State :: struct {
 	height: int,
 	windowed_width: int,
 	windowed_height: int,
-	events: [dynamic]Window_Event,
+	events: [dynamic]Event,
 	window_mode: Window_Mode,
 
 	odin_ctx: runtime.Context,
