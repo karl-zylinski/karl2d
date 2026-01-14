@@ -39,9 +39,6 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: verify karl2d.doc.odin
-        run: odin run api_verifier
-
       - name: minimal_hello_world
         run: odin check examples/minimal_hello_world -vet -strict-style
 
@@ -359,3 +356,6 @@ jobs:
 
       - name: palette (web, debug)
         run: odin run build_web -vet -strict-style -- examples/palette -debug
+
+      - name: verify karl2d.doc.odin
+        run: odin run api_verifier

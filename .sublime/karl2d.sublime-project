@@ -33,7 +33,7 @@
 				},
 				{
 					"name": "basics",
-					"shell_cmd": "env WAYLAND_DEBUG=1 odin run . -vet -strict-style -keep-executable -debug -out:minimal.exe",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:minimal.exe",
 					"working_dir": "$project_path/../examples/basics",
 				},
 				{
@@ -200,61 +200,7 @@
 	"folders":
 	[
 		{
-			"path": "~/repos/karl2d",
-		},
-		{
-			"path": "/home/karl/projects/karl2d",
-		},
-		{
-			"path": "/home/karl/sdk/Odin/base",
-		},
-		{
-			"path": "/home/karl/sdk/Odin/core",
-		},
-		{
-			"path": "/home/karl/sdk/Odin/vendor",
-		},
-		{
-			"path": "C:\\projects\\karl2d",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\base",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\core",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\fontstash",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\OpenGL",
-		},
-		{
-			"path": "C:\\Projects\\Scraps\\raylib\\src",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\directx\\d3d11",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\directx\\dxgi",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\directx\\d3d_compiler",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\directx\\dxc",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\wasm\\WebGL",
-		},
-		{
-			"path": "C:\\projects\\raylib\\src",
-		},
-		{
-			"path": "/usr/include/GL",
-		},
-		{
-			"path": "/usr/include/X11"
+			"path": "..",
 		},
 	],
 	"settings":

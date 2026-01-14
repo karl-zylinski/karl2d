@@ -19,7 +19,7 @@ Shader_Desc :: struct {
 
 Render_Backend_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
-	init: proc(state: rawptr, window_handle: Window_Handle, swapchain_width, swapchain_height: int, allocator := context.allocator),
+	init: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapchain_height: int, allocator := context.allocator),
 	shutdown: proc(),
 	clear: proc(render_target: Render_Target_Handle, color: Color),
 	present: proc(),

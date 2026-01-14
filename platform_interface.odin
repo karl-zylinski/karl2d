@@ -15,7 +15,7 @@ Platform_Interface :: struct #all_or_none {
 	),
 
 	shutdown: proc(),
-	window_handle: proc() -> Window_Handle,
+	get_window_render_glue: proc() -> Window_Render_Glue,
 	process_events: proc(),
 	after_frame_present: proc(),
 	get_events: proc() -> []Event,

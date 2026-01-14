@@ -9,7 +9,7 @@ PLATFORM_WEB :: Platform_Interface {
 	state_size = web_state_size,
 	init = web_init,
 	shutdown = web_shutdown,
-	window_handle = web_window_handle,
+	get_window_render_glue = web_get_window_render_glue,
 	process_events = web_process_events,
 	after_frame_present = web_after_frame_present,
 	get_events = web_get_events,
@@ -193,8 +193,12 @@ web_shutdown :: proc() {
 	delete(s.key_from_js_event_key_code)
 }
 
-web_window_handle :: proc() -> Window_Handle {
-	return Window_Handle(&s.canvas_id)
+web_get_window_render_glue :: proc() -> Window_Render_Glue {
+	// We can only use WebGL backend right now, so this is very simple: Just pass canvas ID as
+	// state, the WebGL backend knows to convert it properly.
+	return {
+		state = (^Window_Render_Glue_State)(&s.canvas_id),
+	}
 }
 
 // This works for XBox controller -- does it work for PlayStation?

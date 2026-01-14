@@ -771,8 +771,6 @@ State :: struct {
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 
-	window: Window_Handle,
-
 	default_font: Font,
 	fonts: [dynamic]Font_Data,
 	shape_drawing_texture: Texture_Handle,
