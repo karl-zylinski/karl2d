@@ -200,19 +200,19 @@
 	"folders":
 	[
 		{
-			"path": "~/repos/karl2d",
+			"path": "C:\\Users\\Karl\\repos\\karl2d",
 		},
 		{
-			"path": "/home/karl/projects/karl2d",
+			"path": "h:ome\\karl\\projects\\karl2d",
 		},
 		{
-			"path": "/home/karl/sdk/Odin/base",
+			"path": "h:ome\\karl\\sdk\\Odin\\base",
 		},
 		{
-			"path": "/home/karl/sdk/Odin/core",
+			"path": "h:ome\\karl\\sdk\\Odin\\core",
 		},
 		{
-			"path": "/home/karl/sdk/Odin/vendor",
+			"path": "h:ome\\karl\\sdk\\Odin\\vendor",
 		},
 		{
 			"path": "C:\\projects\\karl2d",
@@ -251,10 +251,13 @@
 			"path": "C:\\projects\\raylib\\src",
 		},
 		{
-			"path": "/usr/include/GL",
+			"path": "u:sr\\include\\GL",
 		},
 		{
-			"path": "/usr/include/X11"
+			"path": "u:sr\\include\\X11",
+		},
+		{
+			"path": "C:\\SDK\\Odin\\vendor\\x11\\xlib"
 		},
 	],
 	"settings":

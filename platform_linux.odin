@@ -9,7 +9,7 @@ PLATFORM_LINUX :: Platform_Interface {
 	state_size = x11_state_size,
 	init = x11_init,
 	shutdown = x11_shutdown,
-	window_handle = x11_window_handle,
+	get_window_render_glue = x11_get_window_render_glue,
 	process_events = x11_process_events,
 	after_frame_present = x11_after_frame_present,
 	get_events = x11_get_events,
@@ -86,11 +86,23 @@ x11_init :: proc(
 	}
 
 	x11_set_window_mode(init_options.window_mode)
+
+	when RENDER_BACKEND_NAME == "gl" {
+		s.window_render_glue = make_linux_gl_x11_glue(s.display, s.window, s.allocator)
+	} else when RENDER_BACKEND_NAME == "nil" {
+		s.window_render_glue = {}
+	} else {
+		#panic("Unsupported combo of Linux + X11 and render backend '" + RENDER_BACKEND_NAME + "'")
+	}
 }
 
 x11_shutdown :: proc() {
 	delete(s.events)
 	X.DestroyWindow(s.display, s.window)
+}
+
+x11_get_window_render_glue :: proc() -> Window_Render_Glue {
+	return s.window_render_glue
 }
 
 x11_window_handle :: proc() -> Window_Handle {
@@ -462,16 +474,10 @@ X11_State :: struct {
 	events: [dynamic]Event,
 	display: ^X.Display,
 	window: X.Window,
-	window_handle: Window_Handle_X11,
 	delete_msg: X.Atom,
 	window_mode: Window_Mode,
+	window_render_glue: Window_Render_Glue,
 }
 
 s: ^X11_State
 
-@(private="package")
-Window_Handle_X11 :: struct {
-	display: ^X.Display,
-	window: X.Window,
-	screen: i32,
-}
