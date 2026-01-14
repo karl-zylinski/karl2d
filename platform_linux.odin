@@ -79,12 +79,6 @@ x11_init :: proc(
 	s.delete_msg = X.InternAtom(s.display, "WM_DELETE_WINDOW", false)
 	X.SetWMProtocols(s.display, s.window, &s.delete_msg, 1)
 
-	s.window_handle = Window_Handle_X11 {
-		display = s.display,
-		screen = X.DefaultScreen(s.display),
-		window = s.window,
-	}
-
 	x11_set_window_mode(init_options.window_mode)
 
 	when RENDER_BACKEND_NAME == "gl" {
@@ -103,10 +97,6 @@ x11_shutdown :: proc() {
 
 x11_get_window_render_glue :: proc() -> Window_Render_Glue {
 	return s.window_render_glue
-}
-
-x11_window_handle :: proc() -> Window_Handle {
-	return Window_Handle(&s.window_handle)
 }
 
 x11_after_frame_present :: proc() {

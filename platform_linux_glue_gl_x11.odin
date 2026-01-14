@@ -8,11 +8,12 @@ import "linux/glx"
 import gl "vendor:OpenGL"
 import X "vendor:x11/xlib"
 import "log"
+import "base:runtime"
 
 @(private="package")
 make_linux_gl_x11_glue :: proc(
 	display: ^X.Display,
-	window: ^X.Window,
+	window: X.Window,
 	allocator: runtime.Allocator,
 	loc := #caller_location
 ) -> Window_Render_Glue {
@@ -32,7 +33,7 @@ make_linux_gl_x11_glue :: proc(
 
 Linux_GL_X11_Glue_State :: struct {
 	display: ^X.Display,
-	window: ^X.Window,
+	window: X.Window,
 	gl_ctx: ^glx.Context,
 }
 
@@ -49,7 +50,7 @@ linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State) -> bool {
 	}
 
 	num_fbc: i32
-	screen := X.DefaultScreen(s.window)
+	screen := X.DefaultScreen(s.display)
 	fbc := glx.ChooseFBConfig(s.display, screen, raw_data(visual_attribs), &num_fbc)
    
 	if fbc == nil {

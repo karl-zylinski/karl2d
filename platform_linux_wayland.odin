@@ -1,4 +1,4 @@
-#+build linux
+#+build ignore
 #+private file
 
 package karl2d
