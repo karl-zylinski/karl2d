@@ -200,64 +200,7 @@
 	"folders":
 	[
 		{
-			"path": "C:\\Users\\Karl\\repos\\karl2d",
-		},
-		{
-			"path": "h:ome\\karl\\projects\\karl2d",
-		},
-		{
-			"path": "h:ome\\karl\\sdk\\Odin\\base",
-		},
-		{
-			"path": "h:ome\\karl\\sdk\\Odin\\core",
-		},
-		{
-			"path": "h:ome\\karl\\sdk\\Odin\\vendor",
-		},
-		{
-			"path": "C:\\projects\\karl2d",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\base",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\core",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\fontstash",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\OpenGL",
-		},
-		{
-			"path": "C:\\Projects\\Scraps\\raylib\\src",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\directx\\d3d11",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\directx\\dxgi",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\directx\\d3d_compiler",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\directx\\dxc",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\wasm\\WebGL",
-		},
-		{
-			"path": "C:\\projects\\raylib\\src",
-		},
-		{
-			"path": "u:sr\\include\\GL",
-		},
-		{
-			"path": "u:sr\\include\\X11",
-		},
-		{
-			"path": "C:\\SDK\\Odin\\vendor\\x11\\xlib"
+			"path": "..",
 		},
 	],
 	"settings":
