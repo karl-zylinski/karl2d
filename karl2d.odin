@@ -66,13 +66,13 @@ init :: proc(
 		#panic("Unsupported platform")
 	}
 
-	win = s.platform
+	pf = s.platform
 
 	// We alloc memory for the windowing backend and pass the blob of memory to it.
 	platform_state_alloc_error: runtime.Allocator_Error
 	
 	s.platform_state, platform_state_alloc_error = mem.alloc(
-		win.state_size(),
+		pf.state_size(),
 		allocator = allocator,
 	)
 
@@ -82,10 +82,10 @@ init :: proc(
 		platform_state_alloc_error,
 	)
 
-	win.init(s.platform_state, screen_width, screen_height, window_title, options, allocator)
+	pf.init(s.platform_state, screen_width, screen_height, window_title, options, allocator)
 
 	// This is a OS-independent handle that we can pass to any rendering backend.
-	s.window = win.window_handle()
+	s.window = pf.window_handle()
 
 	// See `render_backend_chooser.odin` for how this is picked.
 	s.render_backend = RENDER_BACKEND
@@ -94,11 +94,11 @@ init :: proc(
 	rb_alloc_error: runtime.Allocator_Error
 	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = allocator)
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
-	s.proj_matrix = make_default_projection(win.get_width(), win.get_height())
+	s.proj_matrix = make_default_projection(pf.get_width(), pf.get_height())
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.render_backend_state, s.window, win.get_width(), win.get_height(), allocator)
+	rb.init(s.render_backend_state, s.window, pf.get_width(), pf.get_height(), allocator)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`
@@ -181,7 +181,7 @@ shutdown :: proc() {
 	rb.shutdown()
 	delete(s.vertex_buffer_cpu, s.allocator)
 
-	win.shutdown()
+	pf.shutdown()
 
 	fs.Destroy(&s.fs)
 	delete(s.fonts)
@@ -242,7 +242,7 @@ calculate_frame_time :: proc() {
 present :: proc() {
 	draw_current_batch()
 	rb.present()
-	win.after_frame_present()
+	pf.after_frame_present()
 }
 
 // Process all events that have arrived from the platform APIs. This includes keyboard, mouse,
@@ -260,9 +260,9 @@ process_events :: proc() {
 	s.mouse_delta = {}
 	s.mouse_wheel_delta = 0
 
-	win.process_events()
+	pf.process_events()
 
-	events := win.get_events()
+	events := pf.get_events()
 
 	for &event in events {
 		switch &e in event {
@@ -340,7 +340,7 @@ process_events :: proc() {
 		}
 	}
 
-	win.clear_events()
+	pf.clear_events()
 }
 
 // Returns how many seconds the previous frame took. Often a tiny number such as 0.016 s.
@@ -360,19 +360,19 @@ get_time :: proc() -> f64 {
 
 // Gets the width of the drawing area within the window.
 get_screen_width :: proc() -> int {
-	return win.get_width()
+	return pf.get_width()
 }
 
 // Gets the height of the drawing area within the window.
 get_screen_height :: proc() -> int  {
-	return win.get_height()
+	return pf.get_height()
 }
 
 // Moves the window.
 //
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int) {
-	win.set_position(x, y)
+	pf.set_position(x, y)
 }
 
 // Resize the window to a new size. While the user cannot resize windows with 
@@ -380,18 +380,18 @@ set_window_position :: proc(x: int, y: int) {
 set_window_size :: proc(width: int, height: int) {
 	// TODO not sure if we should resize swapchain here. On windows the WM_SIZE event fires and
 	// it all works out. But perhaps not on all platforms?
-	win.set_size(width, height)
+	pf.set_size(width, height)
 }
 
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
 // 1 means 100% scale, 1.5 means 150% etc.
 get_window_scale :: proc() -> f32 {
-	return win.get_window_scale()
+	return pf.get_window_scale()
 }
 
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode) {
-	win.set_window_mode(window_mode)
+	pf.set_window_mode(window_mode)
 }
 
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
@@ -516,7 +516,7 @@ get_mouse_delta :: proc() -> Vec2 {
 // Returns true if a gamepad with the supplied index is connected. The parameter should be a value
 // between 0 and MAX_GAMEPADS.
 is_gamepad_active :: proc(gamepad: Gamepad_Index) -> bool {
-	return win.is_gamepad_active(gamepad)
+	return pf.is_gamepad_active(gamepad)
 }
 
 // Returns true if a gamepad button went down between the previous and the current frame.
@@ -553,14 +553,14 @@ gamepad_button_is_held :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -
 // Returns the value of analogue gamepad axes such as the thumbsticks and trigger buttons. The value
 // is in the range -1 to 1 for sticks and 0 to 1 for trigger buttons.
 get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32 {
-	return win.get_gamepad_axis(gamepad, axis)
+	return pf.get_gamepad_axis(gamepad, axis)
 }
 
 // Set the left and right vibration motor speed. The range of left and right is 0 to 1. Note that on
 // most gamepads, the left motor is "low frequency" and the right motor is "high frequency". They do
 // not vibrate with the same speed.
 set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
-	win.set_gamepad_vibration(gamepad, left, right)
+	pf.set_gamepad_vibration(gamepad, left, right)
 }
 
 //---------//
@@ -1200,7 +1200,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 
 		draw_current_batch()
 		s.batch_render_target = RENDER_TARGET_NONE
-		s.proj_matrix = make_default_projection(win.get_width(), win.get_height())
+		s.proj_matrix = make_default_projection(pf.get_width(), pf.get_height())
 	}
 }
 
@@ -1524,7 +1524,7 @@ set_camera :: proc(camera: Maybe(Camera)) {
 
 	draw_current_batch()
 	s.batch_camera = camera
-	s.proj_matrix = make_default_projection(win.get_width(), win.get_height())
+	s.proj_matrix = make_default_projection(pf.get_width(), pf.get_height())
 
 	if c, c_ok := camera.?; c_ok {
 		s.view_matrix = get_camera_view_matrix(c)
@@ -1609,9 +1609,10 @@ set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 // library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State) {
 	s = state
-	win = s.platform
+	frame_allocator = s.frame_allocator
+	pf = s.platform
 	rb = s.render_backend
-	win.set_internal_state(s.platform_state)
+	pf.set_internal_state(s.platform_state)
 	rb.set_internal_state(s.render_backend_state)
 }
 
@@ -2160,11 +2161,15 @@ VERTEX_BUFFER_MAX :: 1000000
 @(private="file")
 s: ^State
 
-// These globals are here for access from other files. The state struct above is private to make
-// sure global state sharing doesn't become too messy.
-frame_allocator: runtime.Allocator
-win: Platform_Interface
+@(private="file")
+pf: Platform_Interface
+
+@(private="file")
 rb: Render_Backend_Interface
+
+// This is here so it can be used from other files in this directory (`s.frame_allocator` can't be
+// reached outside this file).
+frame_allocator: runtime.Allocator
 
 get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> Shader_Default_Inputs {
 	if name == "position" && type == .Vec2 {
