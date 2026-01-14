@@ -10,12 +10,10 @@ PLATFORM_WEB :: Platform_Interface {
 	init = web_init,
 	shutdown = web_shutdown,
 	get_window_render_glue = web_get_window_render_glue,
-	process_events = web_process_events,
 	after_frame_present = web_after_frame_present,
 	get_events = web_get_events,
 	get_width = web_get_width,
 	get_height = web_get_height,
-	clear_events = web_clear_events,
 	set_position = web_set_position,
 	set_size = web_set_size,
 	get_window_scale = web_get_window_scale,
@@ -94,12 +92,12 @@ web_event_key_up :: proc(e: js.Event) {
 }
 
 web_event_focus :: proc(e: js.Event) {
-	append(&s.events, Event_Focused {
+	append(&s.events, Event_Window_Focused {
 	})
 }
 
 web_event_blur :: proc(e: js.Event) {
-	append(&s.events, Event_Unfocused {
+	append(&s.events, Event_Window_Unfocused {
 	})
 }
 
@@ -227,7 +225,10 @@ KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
 	.Middle_Face_Right = 9, 
 }
 
-web_process_events :: proc() {
+web_get_events :: proc(events: ^[dynamic]Event) {
+	append(events, ..s.events[:])
+	runtime.clear(&s.events)
+
 	for gamepad_idx in 0..<MAX_GAMEPADS {
 		// new_state
 		ns: js.Gamepad_State
@@ -249,14 +250,14 @@ web_process_events :: proc() {
 			}
 
 			if !ps.buttons[js_idx].pressed && ns.buttons[js_idx].pressed {
-				append(&s.events, Event_Gamepad_Button_Went_Down {
+				append(events, Event_Gamepad_Button_Went_Down {
 					gamepad = gamepad_idx,
 					button = button,
 				})
 			}
 
 			if ps.buttons[js_idx].pressed && !ns.buttons[js_idx].pressed {
-				append(&s.events, Event_Gamepad_Button_Went_Up {
+				append(events, Event_Gamepad_Button_Went_Up {
 					gamepad = gamepad_idx,
 					button = button,
 				})
@@ -269,10 +270,6 @@ web_process_events :: proc() {
 
 web_after_frame_present :: proc() {
 	
-}
-
-web_get_events :: proc() -> []Event {
-	return s.events[:]
 }
 
 web_get_width :: proc() -> int {

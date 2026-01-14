@@ -9,12 +9,10 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	init = x11_init,
 	shutdown = x11_shutdown,
 	get_window_render_glue = x11_get_window_render_glue,
-	process_events = x11_process_events,
 	after_frame_present = x11_after_frame_present,
 	get_events = x11_get_events,
 	get_width = x11_get_width,
 	get_height = x11_get_height,
-	clear_events = x11_clear_events,
 	set_position = x11_set_position,
 	set_size = x11_set_size,
 	get_window_scale = x11_get_window_scale,
@@ -87,7 +85,6 @@ x11_init :: proc(
 }
 
 x11_shutdown :: proc() {
-	delete(s.events)
 	X.DestroyWindow(s.display, s.window)
 }
 
@@ -99,7 +96,7 @@ x11_after_frame_present :: proc() {
 	
 }
 
-x11_process_events :: proc() {
+x11_get_events :: proc(events: ^[dynamic]Event) {
 	for X.Pending(s.display) > 0 {
 		event: X.XEvent
 		X.NextEvent(s.display, &event)
@@ -107,13 +104,13 @@ x11_process_events :: proc() {
 		#partial switch event.type {
 		case .ClientMessage:
 			if X.Atom(event.xclient.data.l[0]) == s.delete_msg {
-				append(&s.events, Event_Close_Wanted{})
+				append(events, Event_Close_Window_Requested{})
 			}
 		case .KeyPress:
 			key := key_from_xkeycode(event.xkey.keycode)
 
 			if key != .None {
-				append(&s.events, Event_Key_Went_Down {
+				append(events, Event_Key_Went_Down {
 					key = key,
 				})
 			}
@@ -122,7 +119,7 @@ x11_process_events :: proc() {
 			key := key_from_xkeycode(event.xkey.keycode)
 
 			if key != .None {
-				append(&s.events, Event_Key_Went_Up {
+				append(events, Event_Key_Went_Up {
 					key = key,
 				})
 			}
@@ -137,13 +134,13 @@ x11_process_events :: proc() {
 				case .Button3: btn = .Right
 				}
 
-				append(&s.events, Event_Mouse_Button_Went_Down {
+				append(events, Event_Mouse_Button_Went_Down {
 					button = btn,
 				})
 			} else if event.xbutton.button <= .Button5 {
 				// LOL X11!!! Mouse wheel is button 4 and 5 being pressed.
 
-				append(&s.events, Event_Mouse_Wheel {
+				append(events, Event_Mouse_Wheel {
 					event.xbutton.button == .Button4 ? -1 : 1,
 				})
 			}
@@ -158,13 +155,13 @@ x11_process_events :: proc() {
 				case .Button3: btn = .Right
 				}
 
-				append(&s.events, Event_Mouse_Button_Went_Up {
+				append(events, Event_Mouse_Button_Went_Up {
 					button = btn,
 				})
 			}
 
 		case .MotionNotify:
-			append(&s.events, Event_Mouse_Move {
+			append(events, Event_Mouse_Move {
 				position = { f32(event.xmotion.x), f32(event.xmotion.y) }, 
 			})
 
@@ -181,22 +178,18 @@ x11_process_events :: proc() {
 					s.windowed_height = h
 				}
 
-				append(&s.events, Event_Resize {
+				append(events, Event_Resize {
 					width = w,
 					height = h,
 				})
 			}
 		case .FocusIn:
-			append(&s.events, Event_Focused{})
+			append(events, Event_Window_Focused{})
 
 		case .FocusOut:
-			append(&s.events, Event_Unfocused{})
+			append(events, Event_Window_Unfocused{})
 		}
 	}
-}
-
-x11_get_events :: proc() -> []Event {
-	return s.events[:]
 }
 
 x11_get_width :: proc() -> int {
@@ -205,10 +198,6 @@ x11_get_width :: proc() -> int {
 
 x11_get_height :: proc() -> int {
 	return s.height
-}
-
-x11_clear_events :: proc() {
-	runtime.clear(&s.events)
 }
 
 x11_set_position :: proc(x: int, y: int) {
@@ -328,7 +317,6 @@ X11_State :: struct {
 	height: int,
 	windowed_width: int,
 	windowed_height: int,
-	events: [dynamic]Event,
 	display: ^X.Display,
 	window: X.Window,
 	delete_msg: X.Atom,

@@ -9,12 +9,10 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	init = windows_init,
 	shutdown = windows_shutdown,
 	get_window_render_glue = windows_get_window_render_glue,
-	process_events = windows_process_events,
 	after_frame_present = windows_after_frame_present,
 	get_events = windows_get_events,
 	get_width = windows_get_width,
 	get_height = windows_get_height,
-	clear_events = windows_clear_events,
 	set_position = windows_set_position,
 	set_size = windows_set_size,
 	get_window_scale = windows_get_window_scale,
@@ -45,7 +43,6 @@ windows_init :: proc(
 	assert(window_state != nil)
 	s = (^Windows_State)(window_state)
 	s.allocator = allocator
-	s.events = make([dynamic]Event, allocator)
 	s.windowed_width = screen_width
 	s.windowed_height = screen_height
 	s.custom_context = context
@@ -96,16 +93,21 @@ windows_init :: proc(
 
 windows_shutdown :: proc() {
 	win32.DestroyWindow(s.hwnd)
-	delete(s.events)
 }
 
 windows_get_window_render_glue :: proc() -> Window_Render_Glue {
 	return s.window_render_glue
 }
 
-windows_process_events :: proc() {
+// Set each frame when windows_get_events runs
+frame_events: ^[dynamic]Event
+
+windows_get_events :: proc(events: ^[dynamic]Event) {
+	frame_events = events
+
 	msg: win32.MSG
 
+	// This loop will call `window_proc` which will add more things to `frame_events`.
 	for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
 		win32.TranslateMessage(&msg)
 		win32.DispatchMessageW(&msg)
@@ -161,19 +163,16 @@ windows_process_events :: proc() {
 			}
 
 			if evt != nil {
-				append(&s.events, evt)
+				append(frame_events, evt)
 			}
 		}
 	}
-	
+
+	frame_events = nil	
 }
 
 windows_after_frame_present :: proc() {
 	
-}
-
-windows_get_events :: proc() -> []Event {
-	return s.events[:]
 }
 
 windows_get_width :: proc() -> int {
@@ -182,10 +181,6 @@ windows_get_width :: proc() -> int {
 
 windows_get_height :: proc() -> int {
 	return s.height
-}
-
-windows_clear_events :: proc() {
-	runtime.clear(&s.events)
 }
 
 // Because positions can be offset in Windows: There is an "inivisble border" on Windows. This makes
@@ -299,8 +294,6 @@ Windows_State :: struct {
 	windowed_width: int,
 	windowed_height: int,
 
-	events: [dynamic]Event,
-
 	window_render_glue: Window_Render_Glue,
 }
 
@@ -367,12 +360,13 @@ s: ^Windows_State
 
 window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
 	context = s.custom_context
+
 	switch msg {
 	case win32.WM_DESTROY:
 		win32.PostQuitMessage(0)
 
 	case win32.WM_CLOSE:
-		append(&s.events, Event_Close_Wanted{})
+		append(frame_events, Event_Close_Window_Requested{})
 
 	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:
 		repeat := bool(lparam & (1 << 30))
@@ -381,7 +375,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			key := key_from_event_params(wparam, lparam)
 
 			if key != .None {
-				append(&s.events, Event_Key_Went_Down {
+				append(frame_events, Event_Key_Went_Down {
 					key = key,
 				})
 			}
@@ -390,7 +384,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_SYSKEYUP, win32.WM_KEYUP:
 		key := key_from_event_params(wparam, lparam)
 		if key != .None {
-			append(&s.events, Event_Key_Went_Up {
+			append(frame_events, Event_Key_Went_Up {
 				key = key,
 			})
 		}
@@ -398,49 +392,49 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_MOUSEMOVE:
 		x := win32.GET_X_LPARAM(lparam)
 		y := win32.GET_Y_LPARAM(lparam)
-		append(&s.events, Event_Mouse_Move {
+		append(frame_events, Event_Mouse_Move {
 			position = {f32(x), f32(y)},
 		})
 
 	case win32.WM_MOUSEWHEEL:
 		delta := f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
 
-		append(&s.events, Event_Mouse_Wheel {
+		append(frame_events, Event_Mouse_Wheel {
 			delta = delta,
 		})
 
 	case win32.WM_LBUTTONDOWN:
-		append(&s.events, Event_Mouse_Button_Went_Down {
+		append(frame_events, Event_Mouse_Button_Went_Down {
 			button = .Left,
 		})
 		win32.SetCapture(s.hwnd)
 
 	case win32.WM_LBUTTONUP:
-		append(&s.events, Event_Mouse_Button_Went_Up {
+		append(frame_events, Event_Mouse_Button_Went_Up {
 			button = .Left,
 		})
 		win32.ReleaseCapture()
 
 	case win32.WM_MBUTTONDOWN:
-		append(&s.events, Event_Mouse_Button_Went_Down {
+		append(frame_events, Event_Mouse_Button_Went_Down {
 			button = .Middle,
 		})
 		win32.SetCapture(s.hwnd)
 
 	case win32.WM_MBUTTONUP:
-		append(&s.events, Event_Mouse_Button_Went_Up {
+		append(frame_events, Event_Mouse_Button_Went_Up {
 			button = .Middle,
 		})
 		win32.ReleaseCapture()
 
 	case win32.WM_RBUTTONDOWN:
-		append(&s.events, Event_Mouse_Button_Went_Down {
+		append(frame_events, Event_Mouse_Button_Went_Down {
 			button = .Right,
 		})
 		win32.SetCapture(s.hwnd)
 
 	case win32.WM_RBUTTONUP:
-		append(&s.events, Event_Mouse_Button_Went_Up {
+		append(frame_events, Event_Mouse_Button_Went_Up {
 			button = .Right,
 		})
 		win32.ReleaseCapture()
@@ -465,16 +459,16 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		s.width = int(width)
 		s.height = int(height)
 
-		append(&s.events, Event_Resize {
+		append(frame_events, Event_Resize {
 			width = int(width),
 			height = int(height),
 		})
 
 	case win32.WM_SETFOCUS:
-		append(&s.events, Event_Focused {})
+		append(frame_events, Event_Window_Focused {})
 
 	case win32.WM_KILLFOCUS:
-		append(&s.events, Event_Unfocused {})
+		append(frame_events, Event_Window_Unfocused {})
 	}
 
 

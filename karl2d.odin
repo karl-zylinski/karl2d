@@ -173,8 +173,8 @@ close_window_requested :: proc() -> bool {
 // Closes the window and cleans up Karl2D's internal state.
 shutdown :: proc() {
 	assert(s != nil, "You've called 'shutdown' without calling 'init' first")
-	context.allocator = s.allocator
 
+	delete(s.events)
 	destroy_font(s.default_font)
 	rb.destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
@@ -260,12 +260,12 @@ process_events :: proc() {
 	s.mouse_delta = {}
 	s.mouse_wheel_delta = 0
 
-	pf.process_events()
-	events := pf.get_events()
+	runtime.clear(&s.events)
+	pf.get_events(&s.events)
 
-	for &event in events {
+	for &event in s.events {
 		switch &e in event {
-		case Event_Close_Wanted:
+		case Event_Close_Window_Requested:
 			s.close_window_requested = true
 
 		case Event_Key_Went_Down:
@@ -311,9 +311,9 @@ process_events :: proc() {
 			rb.resize_swapchain(e.width, e.height)
 			s.proj_matrix = make_default_projection(e.width, e.height)
 
-		case Event_Focused:			
+		case Event_Window_Focused:			
 
-		case Event_Unfocused:
+		case Event_Window_Unfocused:
 			for k in Keyboard_Key {
 				if s.key_is_held[k] {
 					s.key_is_held[k] = false
@@ -338,8 +338,20 @@ process_events :: proc() {
 			}
 		}
 	}
+}
 
-	pf.clear_events()
+// Fetch a list of all events that happened this frame. Most games can use the `key_is_held`, 
+// `mouse_button_went_down` etc procedures to check input state. But if you want a list of events
+// instead, then you can use this. These events will also include things like "Window Focus" events
+// and "Window Resize" events.
+//
+// Note: Gamepad axis movement (analogue sticks and analogue triggers) are _not_ events. Those can
+// only be queried using `k2.get_gamepad_axis`.
+//
+// Warning: The returned slice is only valid during the current frame! You can make a clone of it
+// using the `slice.clone` procedure (import `core:slice`).
+get_events :: proc() -> []Event {
+	return s.events[:]
 }
 
 // Returns how many seconds the previous frame took. Often a tiny number such as 0.016 s.
@@ -1893,6 +1905,9 @@ State :: struct {
 	
 	close_window_requested: bool,
 
+	// All events for this frame. Cleared when `process_events` run
+	events: [dynamic]Event,
+
 	mouse_position: Vec2,
 	mouse_delta: Vec2,
 	mouse_wheel_delta: f32,
@@ -2105,6 +2120,66 @@ Gamepad_Button :: enum {
 	Middle_Face_Middle, // PS button (not available on XBox)
 	Middle_Face_Right, // Start
 }
+
+Event :: union {
+	Event_Close_Window_Requested,
+	Event_Key_Went_Down,
+	Event_Key_Went_Up,
+	Event_Mouse_Move,
+	Event_Mouse_Wheel,
+	Event_Resize,
+	Event_Mouse_Button_Went_Down,
+	Event_Mouse_Button_Went_Up,
+	Event_Gamepad_Button_Went_Down,
+	Event_Gamepad_Button_Went_Up,
+	Event_Window_Focused,
+	Event_Window_Unfocused,
+}
+
+Event_Key_Went_Down :: struct {
+	key: Keyboard_Key,
+}
+
+Event_Key_Went_Up :: struct {
+	key: Keyboard_Key,
+}
+
+Event_Mouse_Button_Went_Down :: struct {
+	button: Mouse_Button,
+}
+
+Event_Mouse_Button_Went_Up :: struct {
+	button: Mouse_Button,
+}
+
+Event_Gamepad_Button_Went_Down :: struct {
+	gamepad: Gamepad_Index,
+	button: Gamepad_Button,
+}
+
+Event_Gamepad_Button_Went_Up :: struct {
+	gamepad: Gamepad_Index,
+	button: Gamepad_Button,
+}
+
+Event_Close_Window_Requested :: struct {}
+
+Event_Mouse_Move :: struct {
+	position: Vec2,
+}
+
+Event_Mouse_Wheel :: struct {
+	delta: f32,
+}
+
+Event_Resize :: struct {
+	width, height: int,
+}
+
+Event_Window_Focused :: struct {}
+
+Event_Window_Unfocused :: struct {}
+
 
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
