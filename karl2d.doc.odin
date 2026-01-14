@@ -755,6 +755,9 @@ State :: struct {
 	
 	close_window_requested: bool,
 
+	// All events for this frame. Cleared when `process_events` run
+	events: [dynamic]Event,
+
 	mouse_position: Vec2,
 	mouse_delta: Vec2,
 	mouse_wheel_delta: f32,
