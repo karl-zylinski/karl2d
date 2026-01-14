@@ -21,7 +21,6 @@ make_windows_gl_glue :: proc(
 		state = (^Window_Render_Glue_State)(state),
 
 		// these casts just make the proc take a Windows_GL_Glue_State instead of a Window_Render_Glue_State
-		get_window_handle = cast(proc(s: ^Window_Render_Glue_State) -> Window_Handle)(windows_gl_glue_get_window_handle),
 		make_context = cast(proc(state: ^Window_Render_Glue_State) -> bool)(windows_gl_glue_make_context),
 		present = cast(proc(state: ^Window_Render_Glue_State))(windows_gl_glue_present),
 		destroy = cast(proc(state: ^Window_Render_Glue_State))(windows_gl_glue_destroy),
@@ -33,10 +32,6 @@ Windows_GL_Glue_State :: struct {
 	hwnd: win32.HWND,
 	gl_ctx: win32.HGLRC,
 	device_ctx: win32.HDC,
-}
-
-windows_gl_glue_get_window_handle :: proc(s: ^Windows_GL_Glue_State) -> Window_Handle {
-	return Window_Handle(s.hwnd)
 }
 
 windows_gl_glue_make_context :: proc(s: ^Windows_GL_Glue_State) -> bool {
