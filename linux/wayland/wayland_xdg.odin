@@ -645,7 +645,7 @@ xdg_toplevel_unset_maximized :: proc "c" (_xdg_toplevel: ^xdg_toplevel) {
 
 }
 
-xdg_toplevel_set_fullscreen :: proc "c" (_xdg_toplevel: ^xdg_toplevel, output: ^wl_output) {
+xdg_toplevel_set_fullscreen :: proc "c" (_xdg_toplevel: ^xdg_toplevel, output: ^Output) {
 	proxy_marshal_flags(
 		cast(^Proxy)_xdg_toplevel,
 		11,
@@ -691,7 +691,7 @@ xdg_toplevel_requests: []Message = []Message {
 	{"set_min_size", "ii", raw_data([]^Interface{nil, nil})},
 	{"set_maximized", "", raw_data([]^Interface{})},
 	{"unset_maximized", "", raw_data([]^Interface{})},
-	{"set_fullscreen", "?o", raw_data([]^Interface{&wl_output_interface})},
+	{"set_fullscreen", "?o", raw_data([]^Interface{&output_interface})},
 	{"unset_fullscreen", "", raw_data([]^Interface{})},
 	{"set_minimized", "", raw_data([]^Interface{})},
 }
