@@ -212,7 +212,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 	},
 	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel) {
 		context = s.odin_ctx
-		append(&s.events, Event_Close_Wanted{})
+		append(&s.events, Event_Close_Window_Requested{})
 	},
 	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, width: c.int32_t, height: c.int32_t,) { },
 	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, capabilities: ^wl.Array,) {},

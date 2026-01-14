@@ -126,17 +126,17 @@ mac_init :: proc(
 			},
 
 			windowShouldClose = proc(_: ^NS.Window) -> bool {
-				append(&s.events, Event_Close_Wanted{})
+				append(&s.events, Event_Close_Window_Requested{})
 				return true
 			},
 
 			// Focus and unfocus events
 			windowDidBecomeKey = proc(_: ^NS.Notification) {
-				append(&s.events, Event_Focused{})
+				append(&s.events, Event_Window_Focused{})
 			},
 
 			windowDidResignKey = proc(_: ^NS.Notification) {
-				append(&s.events, Event_Unfocused{})
+				append(&s.events, Event_Window_Unfocused{})
 			},
 		},
 		"Karl2DWindowDelegate",

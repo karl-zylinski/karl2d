@@ -366,7 +366,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		win32.PostQuitMessage(0)
 
 	case win32.WM_CLOSE:
-		append(frame_events, Event_Close_Wanted{})
+		append(frame_events, Event_Close_Window_Requested{})
 
 	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:
 		repeat := bool(lparam & (1 << 30))
@@ -465,10 +465,10 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		})
 
 	case win32.WM_SETFOCUS:
-		append(frame_events, Event_Focused {})
+		append(frame_events, Event_Window_Focused {})
 
 	case win32.WM_KILLFOCUS:
-		append(frame_events, Event_Unfocused {})
+		append(frame_events, Event_Window_Unfocused {})
 	}
 
 

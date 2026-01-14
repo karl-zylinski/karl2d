@@ -92,12 +92,12 @@ web_event_key_up :: proc(e: js.Event) {
 }
 
 web_event_focus :: proc(e: js.Event) {
-	append(&s.events, Event_Focused {
+	append(&s.events, Event_Window_Focused {
 	})
 }
 
 web_event_blur :: proc(e: js.Event) {
-	append(&s.events, Event_Unfocused {
+	append(&s.events, Event_Window_Unfocused {
 	})
 }
 

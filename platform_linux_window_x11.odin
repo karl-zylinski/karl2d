@@ -104,7 +104,7 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 		#partial switch event.type {
 		case .ClientMessage:
 			if X.Atom(event.xclient.data.l[0]) == s.delete_msg {
-				append(events, Event_Close_Wanted{})
+				append(events, Event_Close_Window_Requested{})
 			}
 		case .KeyPress:
 			key := key_from_xkeycode(event.xkey.keycode)
@@ -184,10 +184,10 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 				})
 			}
 		case .FocusIn:
-			append(events, Event_Focused{})
+			append(events, Event_Window_Focused{})
 
 		case .FocusOut:
-			append(events, Event_Unfocused{})
+			append(events, Event_Window_Unfocused{})
 		}
 	}
 }
