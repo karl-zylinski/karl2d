@@ -59,7 +59,7 @@ init :: proc(
 	} else when ODIN_OS == .JS {
 		s.platform = PLATFORM_WEB
 	} else when ODIN_OS == .Linux {
-		s.platform = PLATFORM_LINUX_WAYLAND
+		s.platform = PLATFORM_LINUX
 	} else when ODIN_OS == .Darwin {
 	    s.platform = PLATFORM_MAC
 	} else {
