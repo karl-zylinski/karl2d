@@ -59,7 +59,7 @@ init :: proc(
 	} else when ODIN_OS == .JS {
 		s.platform = PLATFORM_WEB
 	} else when ODIN_OS == .Linux {
-		s.platform = PLATFORM_LINUX
+		s.platform = PLATFORM_LINUX_WAYLAND
 	} else when ODIN_OS == .Darwin {
 	    s.platform = PLATFORM_MAC
 	} else {
@@ -85,7 +85,7 @@ init :: proc(
 	pf.init(s.platform_state, screen_width, screen_height, window_title, options, allocator)
 
 	// This is a OS-independent handle that we can pass to any rendering backend.
-	s.window = pf.window_handle()
+	window_render_glue := pf.get_window_render_glue()
 
 	// See `render_backend_chooser.odin` for how this is picked.
 	s.render_backend = RENDER_BACKEND
@@ -98,7 +98,7 @@ init :: proc(
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.render_backend_state, s.window, pf.get_width(), pf.get_height(), allocator)
+	rb.init(s.render_backend_state, window_render_glue, pf.get_width(), pf.get_height(), allocator)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`
@@ -1908,8 +1908,6 @@ State :: struct {
 	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
-
-	window: Window_Handle,
 
 	default_font: Font,
 	fonts: [dynamic]Font_Data,

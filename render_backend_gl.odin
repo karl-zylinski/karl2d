@@ -1,4 +1,4 @@
-#+build windows, darwin, linux
+#+build darwin, linux
 #+private file
 
 package karl2d

@@ -8,7 +8,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	state_size = windows_state_size,
 	init = windows_init,
 	shutdown = windows_shutdown,
-	window_handle = windows_window_handle,
+	get_window_render_glue = windows_get_window_render_glue,
 	process_events = windows_process_events,
 	after_frame_present = windows_after_frame_present,
 	get_events = windows_get_events,
@@ -67,7 +67,7 @@ windows_init :: proc(
 
 	// We create a window with default position and size. We set the correct size in
 	// `windows_set_window_mode`.
-	hwnd := win32.CreateWindowW(
+	s.hwnd = win32.CreateWindowW(
 		CLASS_NAME,
 		win32.utf8_to_wstring(window_title),
 		win32.WS_VISIBLE,
@@ -75,12 +75,17 @@ windows_init :: proc(
 		win32.CW_USEDEFAULT, win32.CW_USEDEFAULT,
 		nil, nil, instance, nil,
 	)
-	assert(hwnd != nil, "Failed creating window")
-	s.hwnd = hwnd
+	assert(s.hwnd != nil, "Failed creating window")
 	
 	windows_set_window_mode(init_options.window_mode)
 	
 	win32.XInputEnable(true)
+
+	when RENDER_BACKEND_NAME == "d3d11" {
+		s.window_render_glue = make_windows_d3d11_glue(s.hwnd)
+	} else {
+		#panic("Unsupported combo of Windows platform and render backend '" + RENDER_BACKEND_NAME + "'")
+	}
 }
 
 windows_shutdown :: proc() {
@@ -88,8 +93,8 @@ windows_shutdown :: proc() {
 	delete(s.events)
 }
 
-windows_window_handle :: proc() -> Window_Handle {
-	return Window_Handle(s.hwnd)
+windows_get_window_render_glue :: proc() -> Window_Render_Glue {
+	return s.window_render_glue
 }
 
 windows_process_events :: proc() {
@@ -289,6 +294,8 @@ Windows_State :: struct {
 	windowed_height: int,
 
 	events: [dynamic]Event,
+
+	window_render_glue: Window_Render_Glue,
 }
 
 windows_set_window_mode :: proc(window_mode: Window_Mode) {
