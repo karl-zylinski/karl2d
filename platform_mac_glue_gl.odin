@@ -98,11 +98,11 @@ mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue_State) -> bool {
 }
 
 mac_gl_glue_present :: proc(s: ^Mac_GL_Glue_State) {
-	nsgl.OpenGLContext_clearCurrentContext()
+	s.gl_ctx->flushBuffer()
 }
 
 mac_gl_glue_destroy :: proc(s: ^Mac_GL_Glue_State) {
-	win32.wglDeleteContext(s.gl_ctx)
+	nsgl.OpenGLContext_clearCurrentContext()
 }
 
 mac_gl_glue_viewport_resized :: proc(s: ^Mac_GL_Glue_State) {

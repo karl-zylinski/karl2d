@@ -148,7 +148,13 @@ mac_init :: proc(
 
 	s.window->setDelegate(window_delegates)
 
-	s.window_render_glue = make_mac_gl_glue(s.window, s.allocator)
+	when RENDER_BACKEND_NAME == "gl" {
+		s.window_render_glue = make_mac_gl_glue(s.window, s.allocator)
+	} else when RENDER_BACKEND_NAME == "nil" {
+		s.window_render_glue = {}
+	} else {
+		#panic("Unsupported combo of Mac platform and render backend '" + RENDER_BACKEND_NAME + "'")
+	}
 }
 
 mac_shutdown :: proc() {
