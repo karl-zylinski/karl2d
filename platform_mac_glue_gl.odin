@@ -7,6 +7,7 @@ package karl2d
 import "core:os"
 import gl "vendor:OpenGL"
 import "darwin/nsgl"
+import NS "core:sys/darwin/Foundation"
 import "log"
 import "base:runtime"
 
