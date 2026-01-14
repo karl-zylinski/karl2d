@@ -55,7 +55,7 @@ init :: proc(
 	s.allocator = allocator
 
 	when ODIN_OS == .Windows {
-		s.platform = PLATFORM_WIN32
+		s.platform = PLATFORM_WINDOWS
 	} else when ODIN_OS == .JS {
 		s.platform = PLATFORM_WEB
 	} else when ODIN_OS == .Linux {
