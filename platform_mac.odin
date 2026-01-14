@@ -45,7 +45,6 @@ Mac_State :: struct {
 	window_render_glue: Window_Render_Glue,
 }
 
-@private
 s: ^Mac_State
 
 mac_state_size :: proc() -> int {

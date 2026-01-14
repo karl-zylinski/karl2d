@@ -1,10 +1,8 @@
 #+build linux
-#+private file
-
 package karl2d
 
 @(private="package")
-PLATFORM_LINUX_WAYLAND :: Platform_Interface {
+LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	state_size = wl_state_size,
 	init = wl_init,
 	shutdown = wl_shutdown,
@@ -19,9 +17,6 @@ PLATFORM_LINUX_WAYLAND :: Platform_Interface {
 	set_size = wl_set_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
-	is_gamepad_active = wl_is_gamepad_active,
-	get_gamepad_axis = wl_get_gamepad_axis,
-	set_gamepad_vibration = wl_set_gamepad_vibration,
 	set_internal_state = wl_set_internal_state,
 }
 
@@ -35,6 +30,8 @@ import wl "linux/wayland"
 
 _ :: log
 _ :: fmt
+
+@(private="package")
 
 wl_state_size :: proc() -> int {
 	return size_of(WL_State)
@@ -422,14 +419,6 @@ wl_after_frame_present :: proc() {
 	wl.display_dispatch(s.display)
 }
 
-key_from_xkeycode :: proc(kc: u32) -> Keyboard_Key {
-	if kc >= 255 {
-		return .None
-	}
-
-	return KEY_FROM_XKEYCODE[kc]
-}
-
 wl_get_events :: proc() -> []Event {
 	return s.events[:]
 }
@@ -482,28 +471,6 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 
 	case .Borderless_Fullscreen:
 		wl.xdg_toplevel_set_fullscreen(s.toplevel, nil)
-	}
-}
-
-wl_is_gamepad_active :: proc(gamepad: int) -> bool {
-	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
-		return false
-	}
-
-	return false
-}
-
-wl_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
-	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
-		return 0
-	}
-
-	return 0
-}
-
-wl_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
-	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
-		return
 	}
 }
 
