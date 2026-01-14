@@ -55,41 +55,50 @@ init :: proc(
 	s.allocator = allocator
 
 	when ODIN_OS == .Windows {
-		s.win = PLATFORM_WIN32
+		s.platform = PLATFORM_WIN32
 	} else when ODIN_OS == .JS {
-		s.win = PLATFORM_JS
+		s.platform = PLATFORM_JS
 	} else when ODIN_OS == .Linux {
-		s.win = PLATFORM_LINUX
+		s.platform = PLATFORM_LINUX
 	} else when ODIN_OS == .Darwin {
-	    s.win = PLATFORM_MAC
+	    s.platform = PLATFORM_MAC
 	} else {
 		#panic("Unsupported platform")
 	}
 
-	win = s.win
+	win = s.platform
 
 	// We alloc memory for the windowing backend and pass the blob of memory to it.
-	window_state_alloc_error: runtime.Allocator_Error
-	s.window_state, window_state_alloc_error = mem.alloc(win.state_size(), allocator = allocator)
-	log.assertf(window_state_alloc_error == nil, "Failed allocating memory for window state: %v", window_state_alloc_error)
+	platform_state_alloc_error: runtime.Allocator_Error
+	
+	s.platform_state, platform_state_alloc_error = mem.alloc(
+		win.state_size(),
+		allocator = allocator,
+	)
 
-	win.init(s.window_state, screen_width, screen_height, window_title, options, allocator)
+	log.assertf(
+		platform_state_alloc_error == nil,
+		"Failed allocating memory for platform state: %v",
+		platform_state_alloc_error,
+	)
+
+	win.init(s.platform_state, screen_width, screen_height, window_title, options, allocator)
 
 	// This is a OS-independent handle that we can pass to any rendering backend.
 	s.window = win.window_handle()
 
-	// See `config.odin` for how this is picked.
-	s.rb = RENDER_BACKEND
+	// See `render_backend_chooser.odin` for how this is picked.
+	s.render_backend = RENDER_BACKEND
 
-	rb = s.rb
+	rb = s.render_backend
 	rb_alloc_error: runtime.Allocator_Error
-	s.rb_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = allocator)
+	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = allocator)
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
 	s.proj_matrix = make_default_projection(win.get_width(), win.get_height())
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.rb_state, s.window, win.get_width(), win.get_height(), allocator)
+	rb.init(s.render_backend_state, s.window, win.get_width(), win.get_height(), allocator)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`
@@ -178,8 +187,8 @@ shutdown :: proc() {
 	delete(s.fonts)
 
 	a := s.allocator
-	free(s.window_state, a)
-	free(s.rb_state, a)
+	free(s.platform_state, a)
+	free(s.render_backend_state, a)
 	free(s, a)
 	s = nil
 }
@@ -1600,10 +1609,10 @@ set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 // library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State) {
 	s = state
-	rb = s.rb
-	win = s.win
-	rb.set_internal_state(s.rb_state)
-	win.set_internal_state(s.window_state)
+	win = s.platform
+	rb = s.render_backend
+	win.set_internal_state(s.platform_state)
+	rb.set_internal_state(s.render_backend_state)
 }
 
 //---------------------//
@@ -1875,10 +1884,10 @@ State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
-	win: Platform_Interface,
-	window_state: rawptr,
-	rb: Render_Backend_Interface,
-	rb_state: rawptr,
+	platform: Platform_Interface,
+	platform_state: rawptr,
+	render_backend: Render_Backend_Interface,
+	render_backend_state: rawptr,
 
 	fs: fs.FontContext,
 	
