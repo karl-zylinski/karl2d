@@ -47,7 +47,7 @@ d3d11_state_size :: proc() -> int {
 d3d11_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapchain_height: int, allocator := context.allocator) {
 	s = (^D3D11_State)(state)
 	s.allocator = allocator
-	s.window_handle = dxgi.HWND(glue->get_window_handle())
+	s.window_handle = dxgi.HWND(glue.state)
 	s.width = swapchain_width
 	s.height = swapchain_height
 	feature_levels := [?]d3d11.FEATURE_LEVEL{
