@@ -8,7 +8,7 @@ import ce "darwin/cocoa_extras"
 import "base:runtime"
 
 @(private="package")
-WINDOW_INTERFACE_COCOA :: Window_Interface {
+PLATFORM_MACOS :: Platform_Interface {
 	state_size = cocoa_state_size,
 	init = cocoa_init,
 	shutdown = cocoa_shutdown,
