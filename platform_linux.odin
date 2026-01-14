@@ -3,8 +3,9 @@
 
 package karl2d
 
+// Leaving this for now, I need a separate PR where I truly make the platform_linux file
 @(private="package")
-WINDOW_INTERFACE_X11 :: Window_Interface {
+PLATFORM_LINUX :: Platform_Interface {
 	state_size = x11_state_size,
 	init = x11_init,
 	shutdown = x11_shutdown,

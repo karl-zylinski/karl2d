@@ -61,7 +61,7 @@ init :: proc(
 	} else when ODIN_OS == .Linux {
 		s.platform = PLATFORM_LINUX
 	} else when ODIN_OS == .Darwin {
-	    s.platform = PLATFORM_MACOS
+	    s.platform = PLATFORM_MAC
 	} else {
 		#panic("Unsupported platform")
 	}
