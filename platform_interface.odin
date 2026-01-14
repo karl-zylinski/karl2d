@@ -34,8 +34,6 @@ Platform_Interface :: struct #all_or_none {
 	set_internal_state: proc(state: rawptr),
 }
 
-Window_Handle :: distinct uintptr
-
 Event :: union {
 	Event_Close_Wanted,
 	Event_Key_Went_Down,

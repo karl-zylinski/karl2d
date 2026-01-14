@@ -41,7 +41,6 @@ import la "core:math/linalg"
 _ :: la
 
 GL_State :: struct {
-	window_handle: Window_Handle,
 	width: int,
 	height: int,
 	allocator: runtime.Allocator,
