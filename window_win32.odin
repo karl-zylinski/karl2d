@@ -10,6 +10,7 @@ WINDOW_INTERFACE_WIN32 :: Window_Interface {
 	shutdown = win32_shutdown,
 	window_handle = win32_window_handle,
 	process_events = win32_process_events,
+	after_frame_present = win32_after_frame_present,
 	get_events = win32_get_events,
 	get_width = win32_get_width,
 	get_height = win32_get_height,
@@ -153,6 +154,10 @@ win32_process_events :: proc() {
 			}
 		}
 	}
+	
+}
+
+win32_after_frame_present :: proc() {
 	
 }
 
