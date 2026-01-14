@@ -5,37 +5,37 @@
 package karl2d
 
 @(private="package")
-WINDOW_INTERFACE_JS :: Window_Interface {
-	state_size = js_state_size,
-	init = js_init,
-	shutdown = js_shutdown,
-	window_handle = js_window_handle,
-	process_events = js_process_events,
-	after_frame_present = js_after_frame_present,
-	get_events = js_get_events,
-	get_width = js_get_width,
-	get_height = js_get_height,
-	clear_events = js_clear_events,
-	set_position = js_set_position,
-	set_size = js_set_size,
-	get_window_scale = js_get_window_scale,
-	set_window_mode = js_set_window_mode,
-	is_gamepad_active = js_is_gamepad_active,
-	get_gamepad_axis = js_get_gamepad_axis,
-	set_gamepad_vibration = js_set_gamepad_vibration,
+PLATFORM_WEB :: Platform_Interface {
+	state_size = web_state_size,
+	init = web_init,
+	shutdown = web_shutdown,
+	window_handle = web_window_handle,
+	process_events = web_process_events,
+	after_frame_present = web_after_frame_present,
+	get_events = web_get_events,
+	get_width = web_get_width,
+	get_height = web_get_height,
+	clear_events = web_clear_events,
+	set_position = web_set_position,
+	set_size = web_set_size,
+	get_window_scale = web_get_window_scale,
+	set_window_mode = web_set_window_mode,
+	is_gamepad_active = web_is_gamepad_active,
+	get_gamepad_axis = web_get_gamepad_axis,
+	set_gamepad_vibration = web_set_gamepad_vibration,
 
-	set_internal_state = js_set_internal_state,
+	set_internal_state = web_set_internal_state,
 }
 
 import "core:sys/wasm/js"
 import "base:runtime"
 import "log"
 
-js_state_size :: proc() -> int {
-	return size_of(JS_State)
+web_state_size :: proc() -> int {
+	return size_of(Web_State)
 }
 
-js_init :: proc(
+web_init :: proc(
 	window_state: rawptr,
 	window_width: int,
 	window_height: int,
@@ -43,9 +43,9 @@ js_init :: proc(
 	init_options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
-	s = (^JS_State)(window_state)
+	s = (^Web_State)(window_state)
 	s.allocator = allocator
-	s.events = make([dynamic]Window_Event, allocator)
+	s.events = make([dynamic]Event, allocator)
 	s.key_from_js_event_key_code = make(map[string]Keyboard_Key, allocator)
 	s.canvas_id = "webgl-canvas"
 
@@ -54,9 +54,9 @@ js_init :: proc(
 	// The browser window probably has some other size than what was sent in.
 	switch init_options.window_mode {
 	case .Windowed:
-		js_set_size(window_width, window_height)
+		web_set_size(window_width, window_height)
 	case .Windowed_Resizable:
-		add_window_event_listener(.Resize, js_event_window_resize)
+		add_window_event_listener(.Resize, web_event_window_resize)
 		update_canvas_size(s.canvas_id)
 	case .Borderless_Fullscreen:
 		log.error("Borderless_Fullscreen not implemented on web, but you can make it happen by using Window_Mode.Windowed_Resizable and putting the game in a fullscreen iframe.")
@@ -64,56 +64,56 @@ js_init :: proc(
 
 	s.window_mode = init_options.window_mode
 
-	add_canvas_event_listener(.Mouse_Move, js_event_mouse_move)
-	add_canvas_event_listener(.Mouse_Down, js_event_mouse_down)
-	add_window_event_listener(.Mouse_Up, js_event_mouse_up)
-	add_canvas_event_listener(.Wheel, js_event_mouse_wheel)
+	add_canvas_event_listener(.Mouse_Move, web_event_mouse_move)
+	add_canvas_event_listener(.Mouse_Down, web_event_mouse_down)
+	add_window_event_listener(.Mouse_Up, web_event_mouse_up)
+	add_canvas_event_listener(.Wheel, web_event_mouse_wheel)
 
-	add_window_event_listener(.Key_Down, js_event_key_down)
-	add_window_event_listener(.Key_Up, js_event_key_up)
-	add_window_event_listener(.Focus, js_event_focus)
-	add_window_event_listener(.Blur, js_event_blur)
+	add_window_event_listener(.Key_Down, web_event_key_down)
+	add_window_event_listener(.Key_Up, web_event_key_up)
+	add_window_event_listener(.Focus, web_event_focus)
+	add_window_event_listener(.Blur, web_event_blur)
 }
 
-js_event_key_down :: proc(e: js.Event) {
+web_event_key_down :: proc(e: js.Event) {
 	if e.key.repeat {
 		return
 	}
 
 	key := key_from_js_event(e)
-	append(&s.events, Window_Event_Key_Went_Down {
+	append(&s.events, Event_Key_Went_Down {
 		key = key,
 	})
 }
 
-js_event_key_up :: proc(e: js.Event) {
+web_event_key_up :: proc(e: js.Event) {
 	key := key_from_js_event(e)
-	append(&s.events, Window_Event_Key_Went_Up {
+	append(&s.events, Event_Key_Went_Up {
 		key = key,
 	})
 }
 
-js_event_focus :: proc(e: js.Event) {
-	append(&s.events, Window_Event_Focused {
+web_event_focus :: proc(e: js.Event) {
+	append(&s.events, Event_Focused {
 	})
 }
 
-js_event_blur :: proc(e: js.Event) {
-	append(&s.events, Window_Event_Unfocused {
+web_event_blur :: proc(e: js.Event) {
+	append(&s.events, Event_Unfocused {
 	})
 }
 
-js_event_window_resize :: proc(e: js.Event) {
+web_event_window_resize :: proc(e: js.Event) {
 	update_canvas_size(s.canvas_id)
 }
 
-js_event_mouse_move :: proc(e: js.Event) {
-	append(&s.events, Window_Event_Mouse_Move {
+web_event_mouse_move :: proc(e: js.Event) {
+	append(&s.events, Event_Mouse_Move {
 		position = {f32(e.mouse.client.x), f32(e.mouse.client.y)},
 	})
 }
 
-js_event_mouse_down :: proc(e: js.Event) {
+web_event_mouse_down :: proc(e: js.Event) {
 	button := Mouse_Button.Left
 
 	if e.mouse.button == 2 {
@@ -124,12 +124,12 @@ js_event_mouse_down :: proc(e: js.Event) {
 		button = .Middle 
 	}
 
-	append(&s.events, Window_Event_Mouse_Button_Went_Down {
+	append(&s.events, Event_Mouse_Button_Went_Down {
 		button = button,
 	})
 }
 
-js_event_mouse_up :: proc(e: js.Event) {
+web_event_mouse_up :: proc(e: js.Event) {
 	button := Mouse_Button.Left
 
 	if e.mouse.button == 2 {
@@ -140,13 +140,13 @@ js_event_mouse_up :: proc(e: js.Event) {
 		button = .Middle 
 	}
 
-	append(&s.events, Window_Event_Mouse_Button_Went_Up {
+	append(&s.events, Event_Mouse_Button_Went_Up {
 		button = button,
 	})
 }
 
-js_event_mouse_wheel :: proc(e: js.Event) {
-	append(&s.events, Window_Event_Mouse_Wheel {
+web_event_mouse_wheel :: proc(e: js.Event) {
+	append(&s.events, Event_Mouse_Wheel {
 		// Not the best way, but how would we know what the wheel deltaMode really represents? If it
 		// is in pixels, how much "scroll" does that equal to?
 		delta = f32(e.wheel.delta.y > 0 ? -1 : 1),
@@ -183,17 +183,17 @@ update_canvas_size :: proc(canvas_id: HTML_Canvas_ID) {
 	s.width = int(rect.width)
 	s.height = int(rect.height)
 
-	append(&s.events, Window_Event_Resize {
+	append(&s.events, Event_Resize {
 		width = int(width),
 		height = int(height),
 	})
 }
 
-js_shutdown :: proc() {
+web_shutdown :: proc() {
 	delete(s.key_from_js_event_key_code)
 }
 
-js_window_handle :: proc() -> Window_Handle {
+web_window_handle :: proc() -> Window_Handle {
 	return Window_Handle(&s.canvas_id)
 }
 
@@ -223,7 +223,7 @@ KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
 	.Middle_Face_Right = 9, 
 }
 
-js_process_events :: proc() {
+web_process_events :: proc() {
 	for gamepad_idx in 0..<MAX_GAMEPADS {
 		// new_state
 		ns: js.Gamepad_State
@@ -245,14 +245,14 @@ js_process_events :: proc() {
 			}
 
 			if !ps.buttons[js_idx].pressed && ns.buttons[js_idx].pressed {
-				append(&s.events, Window_Event_Gamepad_Button_Went_Down {
+				append(&s.events, Event_Gamepad_Button_Went_Down {
 					gamepad = gamepad_idx,
 					button = button,
 				})
 			}
 
 			if ps.buttons[js_idx].pressed && !ns.buttons[js_idx].pressed {
-				append(&s.events, Window_Event_Gamepad_Button_Went_Up {
+				append(&s.events, Event_Gamepad_Button_Went_Up {
 					gamepad = gamepad_idx,
 					button = button,
 				})
@@ -263,54 +263,54 @@ js_process_events :: proc() {
 	}
 }
 
-js_after_frame_present :: proc() {
+web_after_frame_present :: proc() {
 	
 }
 
-js_get_events :: proc() -> []Window_Event {
+web_get_events :: proc() -> []Event {
 	return s.events[:]
 }
 
-js_get_width :: proc() -> int {
+web_get_width :: proc() -> int {
 	return s.width
 }
 
-js_get_height :: proc() -> int {
+web_get_height :: proc() -> int {
 	return s.height
 }
 
-js_clear_events :: proc() {
+web_clear_events :: proc() {
 	runtime.clear(&s.events)
 }
 
-js_set_position :: proc(x: int, y: int) {
+web_set_position :: proc(x: int, y: int) {
 	log.warn("set_window_position not implemented on web")
 }
 
-js_set_size :: proc(w, h: int) {
+web_set_size :: proc(w, h: int) {
 	s.width = w
 	s.height = h
 	js.set_element_key_f64(s.canvas_id, "width", f64(w))
 	js.set_element_key_f64(s.canvas_id, "height", f64(h))
 }
 
-js_get_window_scale :: proc() -> f32 {
+web_get_window_scale :: proc() -> f32 {
 	return f32(js.device_pixel_ratio())
 }
 
-js_set_window_mode :: proc(window_mode: Window_Mode) {
+web_set_window_mode :: proc(window_mode: Window_Mode) {
 	if window_mode == .Windowed_Resizable && s.window_mode == .Windowed {
-		add_window_event_listener(.Resize, js_event_window_resize)
+		add_window_event_listener(.Resize, web_event_window_resize)
 		update_canvas_size(s.canvas_id)
 	} else if window_mode == .Windowed && s.window_mode == .Windowed_Resizable {
-		remove_window_event_listener(.Resize, js_event_window_resize)
-		js_set_size(s.width, s.height)
+		remove_window_event_listener(.Resize, web_event_window_resize)
+		web_set_size(s.width, s.height)
 	}
 
 	s.window_mode = window_mode
 }
 
-js_is_gamepad_active :: proc(gamepad: int) -> bool {
+web_is_gamepad_active :: proc(gamepad: int) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
 	}
@@ -318,7 +318,7 @@ js_is_gamepad_active :: proc(gamepad: int) -> bool {
 	return s.gamepad_state[gamepad].connected
 }
 
-js_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
+web_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return 0
 	}
@@ -334,32 +334,32 @@ js_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	return f32(s.gamepad_state[gamepad].axes[int(axis)])
 }
 
-js_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
+web_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return
 	}
 }
 
-js_set_internal_state :: proc(state: rawptr) {
+web_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
-	s = (^JS_State)(state)
+	s = (^Web_State)(state)
 }
 
 @(private="package")
 HTML_Canvas_ID :: string
 
-JS_State :: struct {
+Web_State :: struct {
 	allocator: runtime.Allocator,
 	canvas_id: HTML_Canvas_ID,
 	width: int,
 	height: int,
-	events: [dynamic]Window_Event,
+	events: [dynamic]Event,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 	window_mode: Window_Mode,
 	key_from_js_event_key_code: map[string]Keyboard_Key,
 }
 
-s: ^JS_State
+s: ^Web_State
 
 key_from_js_event :: proc(e: js.Event) -> Keyboard_Key {
 	if len(s.key_from_js_event_key_code) == 0 {

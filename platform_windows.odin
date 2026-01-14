@@ -4,37 +4,37 @@
 package karl2d
 
 @(private="package")
-WINDOW_INTERFACE_WIN32 :: Window_Interface {
-	state_size = win32_state_size,
-	init = win32_init,
-	shutdown = win32_shutdown,
-	window_handle = win32_window_handle,
-	process_events = win32_process_events,
-	after_frame_present = win32_after_frame_present,
-	get_events = win32_get_events,
-	get_width = win32_get_width,
-	get_height = win32_get_height,
-	clear_events = win32_clear_events,
-	set_position = win32_set_position,
-	set_size = win32_set_size,
-	get_window_scale = win32_get_window_scale,
-	set_window_mode = win32_set_window_mode,
+PLATFORM_WINDOWS :: Platform_Interface {
+	state_size = windows_state_size,
+	init = windows_init,
+	shutdown = windows_shutdown,
+	window_handle = windows_window_handle,
+	process_events = windows_process_events,
+	after_frame_present = windows_after_frame_present,
+	get_events = windows_get_events,
+	get_width = windows_get_width,
+	get_height = windows_get_height,
+	clear_events = windows_clear_events,
+	set_position = windows_set_position,
+	set_size = windows_set_size,
+	get_window_scale = windows_get_window_scale,
+	set_window_mode = windows_set_window_mode,
 
-	is_gamepad_active = win32_is_gamepad_active,
-	get_gamepad_axis = win32_get_gamepad_axis,
-	set_gamepad_vibration = win32_set_gamepad_vibration,
+	is_gamepad_active = windows_is_gamepad_active,
+	get_gamepad_axis = windows_get_gamepad_axis,
+	set_gamepad_vibration = windows_set_gamepad_vibration,
 
-	set_internal_state = win32_set_internal_state,
+	set_internal_state = windows_set_internal_state,
 }
 
 import win32 "core:sys/windows"
 import "base:runtime"
 
-win32_state_size :: proc() -> int {
-	return size_of(Win32_State)
+windows_state_size :: proc() -> int {
+	return size_of(Windows_State)
 }
 
-win32_init :: proc(
+windows_init :: proc(
 	window_state: rawptr,
 	screen_width: int,
 	screen_height: int,
@@ -43,9 +43,9 @@ win32_init :: proc(
 	allocator: runtime.Allocator,
 ) {
 	assert(window_state != nil)
-	s = (^Win32_State)(window_state)
+	s = (^Windows_State)(window_state)
 	s.allocator = allocator
-	s.events = make([dynamic]Window_Event, allocator)
+	s.events = make([dynamic]Event, allocator)
 	s.windowed_width = screen_width
 	s.windowed_height = screen_height
 	s.custom_context = context
@@ -66,7 +66,7 @@ win32_init :: proc(
 	win32.RegisterClassW(&cls)
 
 	// We create a window with default position and size. We set the correct size in
-	// `win32_set_window_mode`.
+	// `windows_set_window_mode`.
 	hwnd := win32.CreateWindowW(
 		CLASS_NAME,
 		win32.utf8_to_wstring(window_title),
@@ -78,21 +78,21 @@ win32_init :: proc(
 	assert(hwnd != nil, "Failed creating window")
 	s.hwnd = hwnd
 	
-	win32_set_window_mode(init_options.window_mode)
+	windows_set_window_mode(init_options.window_mode)
 	
 	win32.XInputEnable(true)
 }
 
-win32_shutdown :: proc() {
+windows_shutdown :: proc() {
 	win32.DestroyWindow(s.hwnd)
 	delete(s.events)
 }
 
-win32_window_handle :: proc() -> Window_Handle {
+windows_window_handle :: proc() -> Window_Handle {
 	return Window_Handle(s.hwnd)
 }
 
-win32_process_events :: proc() {
+windows_process_events :: proc() {
 	msg: win32.MSG
 
 	for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
@@ -135,15 +135,15 @@ win32_process_events :: proc() {
 			}
 
 			b := button.? or_continue
-			evt: Window_Event
+			evt: Event
 
 			if .KEYDOWN in gp_event.Flags {
-				evt = Window_Event_Gamepad_Button_Went_Down {
+				evt = Event_Gamepad_Button_Went_Down {
 					gamepad = gamepad,
 					button = b,
 				}
 			} else if .KEYUP in gp_event.Flags {
-				evt = Window_Event_Gamepad_Button_Went_Up {
+				evt = Event_Gamepad_Button_Went_Up {
 					gamepad = gamepad,
 					button = b,
 				}
@@ -157,30 +157,30 @@ win32_process_events :: proc() {
 	
 }
 
-win32_after_frame_present :: proc() {
+windows_after_frame_present :: proc() {
 	
 }
 
-win32_get_events :: proc() -> []Window_Event {
+windows_get_events :: proc() -> []Event {
 	return s.events[:]
 }
 
-win32_get_width :: proc() -> int {
+windows_get_width :: proc() -> int {
 	return s.width
 }
 
-win32_get_height :: proc() -> int {
+windows_get_height :: proc() -> int {
 	return s.height
 }
 
-win32_clear_events :: proc() {
+windows_clear_events :: proc() {
 	runtime.clear(&s.events)
 }
 
 // Because positions can be offset in Windows: There is an "inivisble border" on Windows. This makes
 // windows end up at slight offset positions. For example, if you set a window to be at (0, 0), then
 // it won't be at (0, 0) unless you add this offset.
-win32_get_window_offset :: proc() -> (x, y: i32) {
+windows_get_window_offset :: proc() -> (x, y: i32) {
 	real_r: win32.RECT
 	win32.DwmGetWindowAttribute(s.hwnd, u32(win32.DWMWINDOWATTRIBUTE.DWMWA_EXTENDED_FRAME_BOUNDS), &real_r, size_of(win32.RECT))
 
@@ -190,8 +190,8 @@ win32_get_window_offset :: proc() -> (x, y: i32) {
 	return real_r.left - r.left, real_r.top - r.top
 }
 
-win32_set_position :: proc(x: int, y: int) {
-	offx, offy := win32_get_window_offset()
+windows_set_position :: proc(x: int, y: int) {
+	offx, offy := windows_get_window_offset()
 
 	win32.SetWindowPos(
 		s.hwnd,
@@ -204,7 +204,7 @@ win32_set_position :: proc(x: int, y: int) {
 	)
 }
 
-win32_set_size :: proc(w, h: int) {
+windows_set_size :: proc(w, h: int) {
 	win32.SetWindowPos(
 		s.hwnd,
 		{},
@@ -216,11 +216,11 @@ win32_set_size :: proc(w, h: int) {
 	)
 }
 
-win32_get_window_scale :: proc() -> f32 {
+windows_get_window_scale :: proc() -> f32 {
 	return f32(win32.GetDpiForWindow(s.hwnd))/96.0
 }
 
-win32_is_gamepad_active :: proc(gamepad: int) -> bool {
+windows_is_gamepad_active :: proc(gamepad: int) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
 	}
@@ -229,7 +229,7 @@ win32_is_gamepad_active :: proc(gamepad: int) -> bool {
 	return win32.XInputGetState(win32.XUSER(gamepad), &gp_state) == .SUCCESS
 }
 
-win32_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
+windows_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return 0
 	}
@@ -255,7 +255,7 @@ win32_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	return 0
 }
 
-win32_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
+windows_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return
 	}
@@ -268,12 +268,12 @@ win32_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
 	win32.XInputSetState(win32.XUSER(gamepad), &vib)
 }
 
-win32_set_internal_state :: proc(state: rawptr) {
+windows_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
-	s = (^Win32_State)(state)
+	s = (^Windows_State)(state)
 }
 
-Win32_State :: struct {
+Windows_State :: struct {
 	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
 	hwnd: win32.HWND,
@@ -288,10 +288,10 @@ Win32_State :: struct {
 	windowed_width: int,
 	windowed_height: int,
 
-	events: [dynamic]Window_Event,
+	events: [dynamic]Event,
 }
 
-win32_set_window_mode :: proc(window_mode: Window_Mode) {
+windows_set_window_mode :: proc(window_mode: Window_Mode) {
 	s.window_mode = window_mode
 	style: win32.DWORD
 
@@ -350,7 +350,7 @@ win32_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-s: ^Win32_State
+s: ^Windows_State
 
 window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
 	context = s.custom_context
@@ -359,7 +359,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		win32.PostQuitMessage(0)
 
 	case win32.WM_CLOSE:
-		append(&s.events, Window_Event_Close_Wanted{})
+		append(&s.events, Event_Close_Wanted{})
 
 	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:
 		repeat := bool(lparam & (1 << 30))
@@ -368,7 +368,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			key := key_from_event_params(wparam, lparam)
 
 			if key != .None {
-				append(&s.events, Window_Event_Key_Went_Down {
+				append(&s.events, Event_Key_Went_Down {
 					key = key,
 				})
 			}
@@ -377,7 +377,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_SYSKEYUP, win32.WM_KEYUP:
 		key := key_from_event_params(wparam, lparam)
 		if key != .None {
-			append(&s.events, Window_Event_Key_Went_Up {
+			append(&s.events, Event_Key_Went_Up {
 				key = key,
 			})
 		}
@@ -385,49 +385,49 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_MOUSEMOVE:
 		x := win32.GET_X_LPARAM(lparam)
 		y := win32.GET_Y_LPARAM(lparam)
-		append(&s.events, Window_Event_Mouse_Move {
+		append(&s.events, Event_Mouse_Move {
 			position = {f32(x), f32(y)},
 		})
 
 	case win32.WM_MOUSEWHEEL:
 		delta := f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
 
-		append(&s.events, Window_Event_Mouse_Wheel {
+		append(&s.events, Event_Mouse_Wheel {
 			delta = delta,
 		})
 
 	case win32.WM_LBUTTONDOWN:
-		append(&s.events, Window_Event_Mouse_Button_Went_Down {
+		append(&s.events, Event_Mouse_Button_Went_Down {
 			button = .Left,
 		})
 		win32.SetCapture(s.hwnd)
 
 	case win32.WM_LBUTTONUP:
-		append(&s.events, Window_Event_Mouse_Button_Went_Up {
+		append(&s.events, Event_Mouse_Button_Went_Up {
 			button = .Left,
 		})
 		win32.ReleaseCapture()
 
 	case win32.WM_MBUTTONDOWN:
-		append(&s.events, Window_Event_Mouse_Button_Went_Down {
+		append(&s.events, Event_Mouse_Button_Went_Down {
 			button = .Middle,
 		})
 		win32.SetCapture(s.hwnd)
 
 	case win32.WM_MBUTTONUP:
-		append(&s.events, Window_Event_Mouse_Button_Went_Up {
+		append(&s.events, Event_Mouse_Button_Went_Up {
 			button = .Middle,
 		})
 		win32.ReleaseCapture()
 
 	case win32.WM_RBUTTONDOWN:
-		append(&s.events, Window_Event_Mouse_Button_Went_Down {
+		append(&s.events, Event_Mouse_Button_Went_Down {
 			button = .Right,
 		})
 		win32.SetCapture(s.hwnd)
 
 	case win32.WM_RBUTTONUP:
-		append(&s.events, Window_Event_Mouse_Button_Went_Up {
+		append(&s.events, Event_Mouse_Button_Went_Up {
 			button = .Right,
 		})
 		win32.ReleaseCapture()
@@ -443,7 +443,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 	case win32.WM_DPICHANGED:
 		// Set the window mode again so everything is correct size after DPI change.
-		win32_set_window_mode(s.window_mode)
+		windows_set_window_mode(s.window_mode)
 
 	case win32.WM_SIZE:
 		width := win32.LOWORD(lparam)
@@ -452,16 +452,16 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		s.width = int(width)
 		s.height = int(height)
 
-		append(&s.events, Window_Event_Resize {
+		append(&s.events, Event_Resize {
 			width = int(width),
 			height = int(height),
 		})
 
 	case win32.WM_SETFOCUS:
-		append(&s.events, Window_Event_Focused {})
+		append(&s.events, Event_Focused {})
 
 	case win32.WM_KILLFOCUS:
-		append(&s.events, Window_Event_Unfocused {})
+		append(&s.events, Event_Unfocused {})
 	}
 
 

@@ -2,7 +2,7 @@ package karl2d
 
 import "base:runtime"
 
-Window_Interface :: struct #all_or_none {
+Platform_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 
 	init: proc(
@@ -18,7 +18,7 @@ Window_Interface :: struct #all_or_none {
 	window_handle: proc() -> Window_Handle,
 	process_events: proc(),
 	after_frame_present: proc(),
-	get_events: proc() -> []Window_Event,
+	get_events: proc() -> []Event,
 	clear_events: proc(),
 	set_position: proc(x: int, y: int),
 	set_size: proc(w, h: int),
@@ -36,65 +36,61 @@ Window_Interface :: struct #all_or_none {
 
 Window_Handle :: distinct uintptr
 
-Window_Event :: union {
-	Window_Event_Close_Wanted,
-	Window_Event_Key_Went_Down,
-	Window_Event_Key_Went_Up,
-	Window_Event_Mouse_Move,
-	Window_Event_Mouse_Wheel,
-	Window_Event_Resize,
-	Window_Event_Mouse_Button_Went_Down,
-	Window_Event_Mouse_Button_Went_Up,
-	Window_Event_Gamepad_Button_Went_Down,
-	Window_Event_Gamepad_Button_Went_Up,
-	Window_Event_Focused,
-	Window_Event_Unfocused,
+Event :: union {
+	Event_Close_Wanted,
+	Event_Key_Went_Down,
+	Event_Key_Went_Up,
+	Event_Mouse_Move,
+	Event_Mouse_Wheel,
+	Event_Resize,
+	Event_Mouse_Button_Went_Down,
+	Event_Mouse_Button_Went_Up,
+	Event_Gamepad_Button_Went_Down,
+	Event_Gamepad_Button_Went_Up,
+	Event_Focused,
+	Event_Unfocused,
 }
 
-Window_Event_Key_Went_Down :: struct {
+Event_Key_Went_Down :: struct {
 	key: Keyboard_Key,
 }
 
-Window_Event_Key_Went_Up :: struct {
+Event_Key_Went_Up :: struct {
 	key: Keyboard_Key,
 }
 
-Window_Event_Mouse_Button_Went_Down :: struct {
+Event_Mouse_Button_Went_Down :: struct {
 	button: Mouse_Button,
 }
 
-Window_Event_Mouse_Button_Went_Up :: struct {
+Event_Mouse_Button_Went_Up :: struct {
 	button: Mouse_Button,
 }
 
-Window_Event_Gamepad_Button_Went_Down :: struct {
-	gamepad: int,
+Event_Gamepad_Button_Went_Down :: struct {
+	gamepad: Gamepad_Index,
 	button: Gamepad_Button,
 }
 
-Window_Event_Gamepad_Button_Went_Up :: struct {
-	gamepad: int,
+Event_Gamepad_Button_Went_Up :: struct {
+	gamepad: Gamepad_Index,
 	button: Gamepad_Button,
 }
 
-Window_Event_Close_Wanted :: struct {}
+Event_Close_Wanted :: struct {}
 
-Window_Event_Mouse_Move :: struct {
+Event_Mouse_Move :: struct {
 	position: Vec2,
 }
 
-Window_Event_Mouse_Wheel :: struct {
+Event_Mouse_Wheel :: struct {
 	delta: f32,
 }
 
-Window_Event_Resize :: struct {
+Event_Resize :: struct {
 	width, height: int,
 }
 
-Window_Event_Focused :: struct {
+Event_Focused :: struct {}
 
-}
-
-Window_Event_Unfocused :: struct {
-	
-}
+Event_Unfocused :: struct {}

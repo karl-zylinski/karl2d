@@ -8,33 +8,33 @@ import ce "darwin/cocoa_extras"
 import "base:runtime"
 
 @(private="package")
-WINDOW_INTERFACE_COCOA :: Window_Interface {
-	state_size = cocoa_state_size,
-	init = cocoa_init,
-	shutdown = cocoa_shutdown,
-	window_handle = cocoa_window_handle,
-	process_events = cocoa_process_events,
-	after_frame_present = cocoa_after_frame_present,
-	get_events = cocoa_get_events,
-	get_width = cocoa_get_width,
-	get_height = cocoa_get_height,
-	clear_events = cocoa_clear_events,
-	set_position = cocoa_set_position,
-	set_size = cocoa_set_size,
-	get_window_scale = cocoa_get_window_scale,
-	set_window_mode = cocoa_set_window_mode,
+PLATFORM_MAC :: Platform_Interface {
+	state_size = mac_state_size,
+	init = mac_init,
+	shutdown = mac_shutdown,
+	window_handle = mac_window_handle,
+	process_events = mac_process_events,
+	after_frame_present = mac_after_frame_present,
+	get_events = mac_get_events,
+	get_width = mac_get_width,
+	get_height = mac_get_height,
+	clear_events = mac_clear_events,
+	set_position = mac_set_position,
+	set_size = mac_set_size,
+	get_window_scale = mac_get_window_scale,
+	set_window_mode = mac_set_window_mode,
 
-	is_gamepad_active = cocoa_is_gamepad_active,
-	get_gamepad_axis = cocoa_get_gamepad_axis,
-	set_gamepad_vibration = cocoa_set_gamepad_vibration,
+	is_gamepad_active = mac_is_gamepad_active,
+	get_gamepad_axis = mac_get_gamepad_axis,
+	set_gamepad_vibration = mac_set_gamepad_vibration,
 
-	set_internal_state = cocoa_set_internal_state,
+	set_internal_state = mac_set_internal_state,
 }
 
 @(private="package")
 Window_Handle_Darwin :: ^NS.Window
 
-Cocoa_State :: struct {
+Mac_State :: struct {
 	allocator:        runtime.Allocator,
 	app:              ^NS.Application,
 	window:           ^NS.Window,
@@ -43,19 +43,19 @@ Cocoa_State :: struct {
 	width:            int,
 	height:           int,
 	windowed_rect:    NS.Rect,
-	events:           [dynamic]Window_Event,
+	events:           [dynamic]Event,
 
 	window_handle:    Window_Handle_Darwin,
 }
 
 @private
-s: ^Cocoa_State
+s: ^Mac_State
 
-cocoa_state_size :: proc() -> int {
-	return size_of(Cocoa_State)
+mac_state_size :: proc() -> int {
+	return size_of(Mac_State)
 }
 
-cocoa_init :: proc(
+mac_init :: proc(
 	window_state: rawptr,
 	screen_width: int,
 	screen_height: int,
@@ -64,9 +64,9 @@ cocoa_init :: proc(
 	allocator: runtime.Allocator,
 ) {
 	assert(window_state != nil)
-	s = (^Cocoa_State)(window_state)
+	s = (^Mac_State)(window_state)
 	s.allocator = allocator
-	s.events = make([dynamic]Window_Event, allocator)
+	s.events = make([dynamic]Event, allocator)
 	s.width = screen_width
 	s.height = screen_height
 
@@ -104,13 +104,13 @@ cocoa_init :: proc(
 	s.window->setAcceptsMouseMovedEvents(true)
 	s.window->makeKeyAndOrderFront(nil)
 	s.window_handle = s.window
-	cocoa_set_window_mode(init_options.window_mode)
+	mac_set_window_mode(init_options.window_mode)
 
 	// Activate the application
 	s.app->activateIgnoringOtherApps(true)
 	s.app->finishLaunching()
 
-	// Setup delegates for events not handled in cocoa_process_events
+	// Setup delegates for events not handled in mac_process_events
 	window_delegates := NS.window_delegate_register_and_alloc(
 		NS.WindowDelegateTemplate{
 			windowDidResize = proc(_: ^NS.Notification) {
@@ -124,7 +124,7 @@ cocoa_init :: proc(
 					if s.window_mode != .Borderless_Fullscreen {
 						s.windowed_rect = content_rect
 					}
-					append(&s.events, Window_Event_Resize{
+					append(&s.events, Event_Resize{
 						width = new_width,
 						height = new_height,
 					})
@@ -132,17 +132,17 @@ cocoa_init :: proc(
 			},
 
 			windowShouldClose = proc(_: ^NS.Window) -> bool {
-				append(&s.events, Window_Event_Close_Wanted{})
+				append(&s.events, Event_Close_Wanted{})
 				return true
 			},
 
 			// Focus and unfocus events
 			windowDidBecomeKey = proc(_: ^NS.Notification) {
-				append(&s.events, Window_Event_Focused{})
+				append(&s.events, Event_Focused{})
 			},
 
 			windowDidResignKey = proc(_: ^NS.Notification) {
-				append(&s.events, Window_Event_Unfocused{})
+				append(&s.events, Event_Unfocused{})
 			},
 		},
 		"Karl2DWindowDelegate",
@@ -152,18 +152,18 @@ cocoa_init :: proc(
 	s.window->setDelegate(window_delegates)
 }
 
-cocoa_shutdown :: proc() {
+mac_shutdown :: proc() {
 	if s.window != nil {
 		s.window->close()
 	}
 	delete(s.events)
 }
 
-cocoa_window_handle :: proc() -> Window_Handle {
+mac_window_handle :: proc() -> Window_Handle {
 	return Window_Handle(s.window_handle)
 }
 
-cocoa_process_events :: proc() {
+mac_process_events :: proc() {
 	// Poll for events without blocking
 	for {
 		event := s.app->nextEventMatchingMask(
@@ -184,40 +184,40 @@ cocoa_process_events :: proc() {
 			if !event->isARepeat() {
 				key := key_from_macos_keycode(event->keyCode())
 				if key != .None {
-					append(&s.events, Window_Event_Key_Went_Down{key = key})
+					append(&s.events, Event_Key_Went_Down{key = key})
 				}
 			}
 
 		case .KeyUp:
 			key := key_from_macos_keycode(event->keyCode())
 			if key != .None {
-				append(&s.events, Window_Event_Key_Went_Up{key = key})
+				append(&s.events, Event_Key_Went_Up{key = key})
 			}
 
 		case .LeftMouseDown:
-			append(&s.events, Window_Event_Mouse_Button_Went_Down{button = .Left})
+			append(&s.events, Event_Mouse_Button_Went_Down{button = .Left})
 
 		case .LeftMouseUp:
-			append(&s.events, Window_Event_Mouse_Button_Went_Up{button = .Left})
+			append(&s.events, Event_Mouse_Button_Went_Up{button = .Left})
 
 		case .RightMouseDown:
-			append(&s.events, Window_Event_Mouse_Button_Went_Down{button = .Right})
+			append(&s.events, Event_Mouse_Button_Went_Down{button = .Right})
 
 		case .RightMouseUp:
-			append(&s.events, Window_Event_Mouse_Button_Went_Up{button = .Right})
+			append(&s.events, Event_Mouse_Button_Went_Up{button = .Right})
 
 		case .OtherMouseDown:
-			append(&s.events, Window_Event_Mouse_Button_Went_Down{button = .Middle})
+			append(&s.events, Event_Mouse_Button_Went_Down{button = .Middle})
 
 		case .OtherMouseUp:
-			append(&s.events, Window_Event_Mouse_Button_Went_Up{button = .Middle})
+			append(&s.events, Event_Mouse_Button_Went_Up{button = .Middle})
 
 		case .MouseMoved, .LeftMouseDragged, .RightMouseDragged, .OtherMouseDragged:
 			// Convert to view coordinates (flip Y - macOS origin is bottom-left)
 			loc := event->locationInWindow()
 			// Flip Y coordinate
 			y := NS.Float(s.height) - loc.y
-			append(&s.events, Window_Event_Mouse_Move{
+			append(&s.events, Event_Mouse_Move{
 				position = {f32(loc.x), f32(y)},
 			})
 
@@ -225,9 +225,9 @@ cocoa_process_events :: proc() {
 			delta := event->scrollingDeltaY()
 			// Normalize: trackpad gives precise deltas, mouse wheel gives line deltas
 			if event->hasPreciseScrollingDeltas() {
-				append(&s.events, Window_Event_Mouse_Wheel{delta = f32(delta) / 10.0})
+				append(&s.events, Event_Mouse_Wheel{delta = f32(delta) / 10.0})
 			} else {
-				append(&s.events, Window_Event_Mouse_Wheel{delta = f32(delta)})
+				append(&s.events, Event_Mouse_Wheel{delta = f32(delta)})
 			}
 		}
 
@@ -247,33 +247,33 @@ cocoa_process_events :: proc() {
 	}
 }
 
-cocoa_after_frame_present :: proc () {
+mac_after_frame_present :: proc () {
 	
 }
 
-cocoa_get_events :: proc() -> []Window_Event {
+mac_get_events :: proc() -> []Event {
 	return s.events[:]
 }
 
-cocoa_get_width :: proc() -> int {
+mac_get_width :: proc() -> int {
 	return s.width
 }
 
-cocoa_get_height :: proc() -> int {
+mac_get_height :: proc() -> int {
 	return s.height
 }
 
-cocoa_clear_events :: proc() {
+mac_clear_events :: proc() {
 	runtime.clear(&s.events)
 }
 
-cocoa_set_position :: proc(x: int, y: int) {
+mac_set_position :: proc(x: int, y: int) {
 	// macOS uses bottom-left origin for screen coordinates
 	origin := NS.Point{NS.Float(x), NS.Float(y)}
 	s.window->setFrameOrigin(origin)
 }
 
-cocoa_set_size :: proc(w, h: int) {
+mac_set_size :: proc(w, h: int) {
 	frame := NS.Window_frame(s.window)
 	// Keep the top-left corner in place when resizing
 	new_y := frame.origin.y + frame.size.height - NS.Float(h)
@@ -284,27 +284,27 @@ cocoa_set_size :: proc(w, h: int) {
 	s.window->setFrame(new_frame, true)
 }
 
-cocoa_get_window_scale :: proc() -> f32 {
+mac_get_window_scale :: proc() -> f32 {
 	return f32(s.window->backingScaleFactor())
 }
 
-cocoa_is_gamepad_active :: proc(gamepad: int) -> bool {
+mac_is_gamepad_active :: proc(gamepad: int) -> bool {
 	// Gamepad not implemented for macOS yet
 	return false
 }
 
-cocoa_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
+mac_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	return 0
 }
 
-cocoa_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {}
+mac_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {}
 
-cocoa_set_internal_state :: proc(state: rawptr) {
+mac_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
-	s = (^Cocoa_State)(state)
+	s = (^Mac_State)(state)
 }
 
-cocoa_set_window_mode :: proc(window_mode: Window_Mode) {
+mac_set_window_mode :: proc(window_mode: Window_Mode) {
 	if window_mode == s.window_mode {
 		return
 	}

@@ -746,10 +746,10 @@ State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
-	win: Window_Interface,
-	window_state: rawptr,
-	rb: Render_Backend_Interface,
-	rb_state: rawptr,
+	platform: Platform_Interface,
+	platform_state: rawptr,
+	render_backend: Render_Backend_Interface,
+	render_backend_state: rawptr,
 
 	fs: fs.FontContext,
 	
