@@ -173,8 +173,8 @@ close_window_requested :: proc() -> bool {
 // Closes the window and cleans up Karl2D's internal state.
 shutdown :: proc() {
 	assert(s != nil, "You've called 'shutdown' without calling 'init' first")
-	context.allocator = s.allocator
 
+	delete(s.events)
 	destroy_font(s.default_font)
 	rb.destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)

@@ -7,12 +7,10 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	init = wl_init,
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
-	process_events = wl_process_events,
 	after_frame_present = wl_after_frame_present,
 	get_events = wl_get_events,
 	get_width = wl_get_width,
 	get_height = wl_get_height,
-	clear_events = wl_clear_events,
 	set_position = wl_set_position,
 	set_size = wl_set_size,
 	get_window_scale = wl_get_window_scale,
@@ -411,16 +409,13 @@ wl_get_window_render_glue :: proc() -> Window_Render_Glue {
 	return s.window_render_glue
 }
 
-wl_process_events :: proc() {
-	// Nothing to do here, everything happens via callbacks.
-}
-
 wl_after_frame_present :: proc() {
 	wl.display_dispatch(s.display)
 }
 
-wl_get_events :: proc() -> []Event {
-	return s.events[:]
+wl_get_events :: proc(events: ^[dynamic]Event) {
+	append(events, ..s.events[:])
+	runtime.clear(&s.events)
 }
 
 wl_get_width :: proc() -> int {
@@ -429,10 +424,6 @@ wl_get_width :: proc() -> int {
 
 wl_get_height :: proc() -> int {
 	return s.height
-}
-
-wl_clear_events :: proc() {
-	runtime.clear(&s.events)
 }
 
 wl_set_position :: proc(x: int, y: int) {
