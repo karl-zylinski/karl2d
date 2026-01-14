@@ -1,473 +1,175 @@
 #+build linux
 #+private file
-
 package karl2d
 
-// Leaving this for now, I need a separate PR where I truly make the platform_linux file
+import "base:runtime"
+import "core:mem"
+import "log"
+import "core:os"
+
 @(private="package")
 PLATFORM_LINUX :: Platform_Interface {
-	state_size = x11_state_size,
-	init = x11_init,
-	shutdown = x11_shutdown,
-	get_window_render_glue = x11_get_window_render_glue,
-	process_events = x11_process_events,
-	after_frame_present = x11_after_frame_present,
-	get_events = x11_get_events,
-	get_width = x11_get_width,
-	get_height = x11_get_height,
-	clear_events = x11_clear_events,
-	set_position = x11_set_position,
-	set_size = x11_set_size,
-	get_window_scale = x11_get_window_scale,
-	set_window_mode = x11_set_window_mode,
-	is_gamepad_active = x11_is_gamepad_active,
-	get_gamepad_axis = x11_get_gamepad_axis,
-	set_gamepad_vibration = x11_set_gamepad_vibration,
-	set_internal_state = x11_set_internal_state,
+	state_size = linux_state_size,
+	init = linux_init,
+	shutdown = linux_shutdown,
+	get_window_render_glue = linux_get_window_render_glue,
+	process_events = linux_process_events,
+	after_frame_present = linux_after_frame_present,
+	get_events = linux_get_events,
+	get_width = linux_get_width,
+	get_height = linux_get_height,
+	clear_events = linux_clear_events,
+	set_position = linux_set_position,
+	set_size = linux_set_size,
+	get_window_scale = linux_get_window_scale,
+	set_window_mode = linux_set_window_mode,
+	is_gamepad_active = linux_is_gamepad_active,
+	get_gamepad_axis = linux_get_gamepad_axis,
+	set_gamepad_vibration = linux_set_gamepad_vibration,
+	set_internal_state = linux_set_internal_state,
 }
 
-import X "vendor:x11/xlib"
-import "base:runtime"
-import "log"
-import "core:fmt"
+s: ^Linux_State
 
-_ :: log
-_ :: fmt
-
-x11_state_size :: proc() -> int {
-	return size_of(X11_State)
+linux_state_size :: proc() -> int {
+	return size_of(Linux_State)
 }
 
-x11_init :: proc(
+linux_init :: proc(
 	window_state: rawptr,
-	window_width: int,
-	window_height: int,
+	screen_width: int,
+	screen_height: int,
 	window_title: string,
-	init_options: Init_Options,
+	options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
-	s = (^X11_State)(window_state)
-	s.allocator = allocator
-	s.windowed_width = window_width
-	s.windowed_height = window_height
-	s.display = X.OpenDisplay(nil)
+	assert(window_state != nil)
+	s = (^Linux_State)(window_state)
+	xdg_session_type := os.get_env("XDG_SESSION_TYPE", allocator)
+	
+	if xdg_session_type == "wayland" {
+		s.win = LINUX_WINDOW_WAYLAND
+	} else {
+		s.win = LINUX_WINDOW_X11
+	}
 
-	s.window = X.CreateSimpleWindow(
-		s.display,
-		X.DefaultRootWindow(s.display),
-		0, 0,
-		u32(window_width), u32(window_height),
-		0,
-		0,
-		0,
+	win_state_alloc_error: runtime.Allocator_Error
+	s.win_state, win_state_alloc_error = mem.alloc(
+		s.win.state_size(),
+		allocator = allocator,
 	)
 
-	X.StoreName(s.display, s.window, frame_cstring(window_title))
-	
-	X.SelectInput(s.display, s.window, {
-		.KeyPress,
-		.KeyRelease,
-		.ButtonPress,
-		.ButtonRelease,
-		.PointerMotion,
-		.StructureNotify,
-		.FocusChange,
-	})
+	log.assertf(win_state_alloc_error == nil,
+		"Failed allocating memory for Linux windowing: %v",
+		win_state_alloc_error,
+	)
 
-	X.MapWindow(s.display, s.window)
-
-	s.delete_msg = X.InternAtom(s.display, "WM_DELETE_WINDOW", false)
-	X.SetWMProtocols(s.display, s.window, &s.delete_msg, 1)
-
-	x11_set_window_mode(init_options.window_mode)
-
-	when RENDER_BACKEND_NAME == "gl" {
-		s.window_render_glue = make_linux_gl_x11_glue(s.display, s.window, s.allocator)
-	} else when RENDER_BACKEND_NAME == "nil" {
-		s.window_render_glue = {}
-	} else {
-		#panic("Unsupported combo of Linux + X11 and render backend '" + RENDER_BACKEND_NAME + "'")
-	}
+	s.win.init(
+		s.win_state,
+		screen_width,
+		screen_height,
+		window_title,
+		options,
+		allocator,
+	)
 }
 
-x11_shutdown :: proc() {
-	delete(s.events)
-	X.DestroyWindow(s.display, s.window)
+linux_shutdown :: proc() {
+	s.win.shutdown()
 }
 
-x11_get_window_render_glue :: proc() -> Window_Render_Glue {
-	return s.window_render_glue
+linux_get_window_render_glue :: proc() -> Window_Render_Glue {
+	return s.win.get_window_render_glue()
 }
 
-x11_after_frame_present :: proc() {
-	
+linux_process_events :: proc() {
+	s.win.process_events()
 }
 
-x11_process_events :: proc() {
-	for X.Pending(s.display) > 0 {
-		event: X.XEvent
-		X.NextEvent(s.display, &event)
-
-		#partial switch event.type {
-		case .ClientMessage:
-			if X.Atom(event.xclient.data.l[0]) == s.delete_msg {
-				append(&s.events, Event_Close_Wanted{})
-			}
-		case .KeyPress:
-			key := key_from_xkeycode(event.xkey.keycode)
-
-			if key != .None {
-				append(&s.events, Event_Key_Went_Down {
-					key = key,
-				})
-			}
-
-		case .KeyRelease:
-			key := key_from_xkeycode(event.xkey.keycode)
-
-			if key != .None {
-				append(&s.events, Event_Key_Went_Up {
-					key = key,
-				})
-			}
-
-		case .ButtonPress:
-			if event.xbutton.button <= .Button3 {
-				btn: Mouse_Button
-
-				#partial switch event.xbutton.button {
-				case .Button1: btn = .Left
-				case .Button2: btn = .Middle
-				case .Button3: btn = .Right
-				}
-
-				append(&s.events, Event_Mouse_Button_Went_Down {
-					button = btn,
-				})
-			} else if event.xbutton.button <= .Button5 {
-				// LOL X11!!! Mouse wheel is button 4 and 5 being pressed.
-
-				append(&s.events, Event_Mouse_Wheel {
-					event.xbutton.button == .Button4 ? -1 : 1,
-				})
-			}
-
-		case .ButtonRelease:
-			if event.xbutton.button <= .Button3 {
-				btn: Mouse_Button
-
-				#partial switch event.xbutton.button {
-				case .Button1: btn = .Left
-				case .Button2: btn = .Middle
-				case .Button3: btn = .Right
-				}
-
-				append(&s.events, Event_Mouse_Button_Went_Up {
-					button = btn,
-				})
-			}
-
-		case .MotionNotify:
-			append(&s.events, Event_Mouse_Move {
-				position = { f32(event.xmotion.x), f32(event.xmotion.y) }, 
-			})
-
-		case .ConfigureNotify:
-			w := int(event.xconfigure.width)
-			h := int(event.xconfigure.height)
-
-			if w != s.width || h != s.height {
-				s.width = w
-				s.height = h
-
-				if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-					s.windowed_width = w
-					s.windowed_height = h
-				}
-
-				append(&s.events, Event_Resize {
-					width = w,
-					height = h,
-				})
-			}
-		case .FocusIn:
-			append(&s.events, Event_Focused{})
-
-		case .FocusOut:
-			append(&s.events, Event_Unfocused{})
-		}
-	}
+linux_after_frame_present :: proc () {
+	s.win.after_frame_present()
 }
 
-@(private="package")
-KEY_FROM_XKEYCODE := [255]Keyboard_Key {
-	8 = .Space,
-	9 = .Escape,
-	10 = .N1,
-	11 = .N2,
-	12 = .N3,
-	13 = .N4,
-	14 = .N5,
-	15 = .N6,
-	16 = .N7,
-	17 = .N8,
-	18 = .N9,
-	19 = .N0,
-	20 = .Minus,
-	21 = .Equal,
-	22 = .Backspace,
-	23 = .Tab,
-	24 = .Q,
-	25 = .W,
-	26 = .E,
-	27 = .R,
-	28 = .T,
-	29 = .Y,
-	30 = .U,
-	31 = .I,
-	32 = .O,
-	33 = .P,
-	34 = .Left_Bracket,
-	35 = .Right_Bracket,
-	36 = .Enter,
-	37 = .Left_Control,
-	38 = .A,
-	39 = .S,
-	40 = .D,
-	41 = .F,
-	42 = .G,
-	43 = .H,
-	44 = .J,
-	45 = .K,
-	46 = .L,
-	47 = .Semicolon,
-	48 = .Apostrophe,
-	49 = .Backtick,
-	50 = .Left_Shift,
-	51 = .Backslash,
-	52 = .Z,
-	53 = .X,
-	54 = .C,
-	55 = .V,
-	56 = .B,
-	57 = .N,
-	58 = .M,
-	59 = .Comma,
-	60 = .Period,
-	61 = .Slash,
-	62 = .Right_Shift,
-	63 = .NP_Multiply,
-	64 = .Left_Alt,
-	65 = .Space,
-	66 = .Caps_Lock,
-	67 = .F1,
-	68 = .F2,
-	69 = .F3,
-	70 = .F4,
-	71 = .F5,
-	72 = .F6,
-	73 = .F7,
-	74 = .F8,
-	75 = .F9,
-	76 = .F10,
-	77 = .Num_Lock,
-	78 = .Scroll_Lock,
-	82 = .NP_Subtract,
-	86 = .NP_Add,
-	95 = .F11,
-	96 = .F12,
-	104 = .NP_Enter,
-	105 = .Right_Control,
-	106 = .NP_Divide,
-	107 = .Print_Screen,
-	108 = .Right_Alt,
-	110 = .Home,
-	111 = .Up,
-	112 = .Page_Up,
-	113 = .Left,
-	114 = .Right,
-	115 = .End,
-	116 = .Down,
-	117 = .Page_Down,
-	118 = .Insert,
-	119 = .Delete,
-	125 = .NP_Equal,
-	127 = .Pause,
-	129 = .NP_Decimal,
-	133 = .Left_Super,
-	134 = .Right_Super,
-	135 = .Menu,
+linux_get_events :: proc() -> []Event {
+	return s.win.get_events()
 }
 
-key_from_xkeycode :: proc(kc: u32) -> Keyboard_Key {
-	if kc >= 255 {
-		return .None
-	}
-
-	return KEY_FROM_XKEYCODE[u8(kc)]
+linux_get_width :: proc() -> int {
+	return s.win.get_width()
 }
 
-x11_get_events :: proc() -> []Event {
-	return s.events[:]
+linux_get_height :: proc() -> int {
+	return s.win.get_height()
 }
 
-x11_get_width :: proc() -> int {
-	return s.width
+linux_clear_events :: proc() {
+	s.win.clear_events()
 }
 
-x11_get_height :: proc() -> int {
-	return s.height
+linux_set_position :: proc(x: int, y: int) {
+	s.win.set_position(x, y)
 }
 
-x11_clear_events :: proc() {
-	runtime.clear(&s.events)
+linux_set_size :: proc(w, h: int) {
+	s.win.set_size(w, h)
 }
 
-x11_set_position :: proc(x: int, y: int) {
-	X.MoveWindow(s.display, s.window, i32(x), i32(y))
+linux_get_window_scale :: proc() -> f32 {
+	return s.win.get_window_scale()
 }
 
-x11_set_size :: proc(w, h: int) {
-	X.ResizeWindow(s.display, s.window, u32(w), u32(h))
-}
-
-x11_get_window_scale :: proc() -> f32 {
-	return 1
-}
-
-enter_borderless_fullscreen :: proc() {
-	wm_state := X.InternAtom(s.display, "_NET_WM_STATE", true)
-	wm_fullscreen := X.InternAtom(s.display, "_NET_WM_STATE_FULLSCREEN", true)
-
-	go_to_fullscreen := X.XEvent {
-		xclient = {
-			type = .ClientMessage,
-			window = s.window,
-			message_type = wm_state,
-			format = 32,
-			data = {
-				l = {
-					0 = 1,
-					1 = int(wm_fullscreen),
-					2 = 0,
-					3 = 1,
-					4 = 0,
-				},
-			},
-		},
-	}
-
-	X.SendEvent(s.display, X.DefaultRootWindow(s.display), false, {.SubstructureNotify, .SubstructureRedirect}, &go_to_fullscreen)
-}
-
-leave_borderless_fullscreen :: proc() {
-	X.ResizeWindow(s.display, s.window, u32(s.windowed_width), u32(s.windowed_height))
-	s.width = s.windowed_width
-	s.height = s.windowed_height
-
-	wm_state := X.InternAtom(s.display, "_NET_WM_STATE", true)
-	wm_fullscreen := X.InternAtom(s.display, "_NET_WM_STATE_FULLSCREEN", true)
-
-	exit_fullscreen := X.XEvent {
-		xclient = {
-			type = .ClientMessage,
-			window = s.window,
-			message_type = wm_state,
-			format = 32,
-			data = {
-				l = {
-					0 = 0,
-					1 = int(wm_fullscreen),
-					2 = 0,
-					3 = 1,
-					4 = 0,
-				},
-			},
-		},
-	}
-
-	X.SendEvent(s.display, X.DefaultRootWindow(s.display), false, {.SubstructureNotify, .SubstructureRedirect}, &exit_fullscreen)
-}
-
-x11_set_window_mode :: proc(window_mode: Window_Mode) {
-	if window_mode == s.window_mode {
-		return
-	}
-
-	old_window_mode := s.window_mode
-	s.window_mode = window_mode
-
-	switch window_mode {
-	case .Windowed:
-		if old_window_mode == .Borderless_Fullscreen {
-			leave_borderless_fullscreen()
-		}
-
-		hints := X.XSizeHints {
-			flags = { .PMinSize, .PMaxSize },
-			min_width = i32(s.width),
-			max_width = i32(s.width),
-			min_height = i32(s.height),
-			max_height = i32(s.height),
-		}
-
-		X.SetWMNormalHints(s.display, s.window, &hints)
-
-	case .Windowed_Resizable: 
-		if old_window_mode == .Borderless_Fullscreen {
-			leave_borderless_fullscreen()
-		}
-
-		hints := X.XSizeHints {
-			flags = {.USSize},
-		}
-
-		X.SetWMNormalHints(s.display, s.window, &hints)
-	case .Borderless_Fullscreen:
-		enter_borderless_fullscreen()
-	}
-}
-
-x11_is_gamepad_active :: proc(gamepad: int) -> bool {
-	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
-		return false
-	}
-
+linux_is_gamepad_active :: proc(gamepad: int) -> bool {
 	return false
 }
 
-x11_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
-	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
-		return 0
-	}
-
+linux_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	return 0
 }
 
-x11_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
-	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
-		return
-	}
+linux_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
+
 }
 
-x11_set_internal_state :: proc(state: rawptr) {
+linux_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
-	s = (^X11_State)(state)
+	s = (^Linux_State)(state)
+	s.win.set_internal_state(s.win_state)
 }
 
-X11_State :: struct {
-	allocator: runtime.Allocator,
-	width: int,
-	height: int,
-	windowed_width: int,
-	windowed_height: int,
-	events: [dynamic]Event,
-	display: ^X.Display,
-	window: X.Window,
-	delete_msg: X.Atom,
-	window_mode: Window_Mode,
-	window_render_glue: Window_Render_Glue,
+linux_set_window_mode :: proc(window_mode: Window_Mode) {
+	s.win.set_window_mode(window_mode)
 }
 
-s: ^X11_State
+Linux_State :: struct {
+	win: Linux_Window_Interface,
+	win_state: rawptr,
+}
 
+@(private="package")
+Linux_Window_Interface :: struct {
+	state_size: proc() -> int,
+
+	init: proc(
+		window_state: rawptr,
+		window_width: int,
+		window_height: int,
+		window_title: string,
+		init_options: Init_Options,
+		allocator: runtime.Allocator,
+	),
+
+	shutdown: proc(),
+	get_window_render_glue: proc() -> Window_Render_Glue,
+	process_events: proc(),
+	after_frame_present: proc(),
+	get_events: proc() -> []Event,
+	clear_events: proc(),
+	set_position: proc(x: int, y: int),
+	set_size: proc(w, h: int),
+	get_width: proc() -> int,
+	get_height: proc() -> int,
+	get_window_scale: proc() -> f32,
+	set_window_mode: proc(window_mode: Window_Mode),
+
+	set_internal_state: proc(state: rawptr),
+}

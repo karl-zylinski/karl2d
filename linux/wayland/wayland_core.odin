@@ -8,21 +8,22 @@ foreign import lib_egl "system:wayland-egl"
 @(default_calling_convention = "c", link_prefix = "wl_")
 foreign lib {
 	display_connect :: proc(name: cstring) -> ^Display ---
+	display_disconnect :: proc(display: ^Display) -> bool ---
 	display_dispatch :: proc(display: ^Display) -> c.int ---
 	display_flush :: proc(display: ^Display) -> c.int ---
 	display_dispatch_pending :: proc(display: ^Display) -> c.int ---
 	proxy_marshal_flags :: proc(
-		display: ^Proxy,
+		proxy: ^Proxy,
 		opcode: u32,
 		interface: ^Interface,
 		version: u32,
 		flags: u32,
 		#c_vararg _: ..any,
 	) -> ^Proxy ---
-	proxy_get_version :: proc(display: ^Proxy) ->u32 ---
+	proxy_get_version :: proc(proxy: ^Proxy) ->u32 ---
 	display_roundtrip :: proc(display: ^Display) -> c.int ---
-	proxy_add_listener :: proc(display: ^Proxy, implementation: rawptr, userdata: rawptr) -> c.int ---
-	proxy_destroy :: proc(display: ^Proxy) ---
+	proxy_add_listener :: proc(proxy: ^Proxy, implementation: rawptr, userdata: rawptr) -> c.int ---
+	proxy_destroy :: proc(proxy: ^Proxy) ---
 }
 
 @(default_calling_convention = "c", link_prefix = "wl_")
