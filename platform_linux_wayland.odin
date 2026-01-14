@@ -1,10 +1,10 @@
-#+build ignore
+#+build linux
 #+private file
 
 package karl2d
 
 @(private="package")
-WINDOW_INTERFACE_WAYLAND :: Platform_Interface {
+PLATFORM_LINUX_WAYLAND :: Platform_Interface {
 	state_size = wl_state_size,
 	init = wl_init,
 	shutdown = wl_shutdown,
