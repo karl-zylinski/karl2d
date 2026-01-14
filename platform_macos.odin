@@ -43,7 +43,7 @@ Cocoa_State :: struct {
 	width:            int,
 	height:           int,
 	windowed_rect:    NS.Rect,
-	events:           [dynamic]Window_Event,
+	events:           [dynamic]Event,
 
 	window_handle:    Window_Handle_Darwin,
 }
@@ -66,7 +66,7 @@ cocoa_init :: proc(
 	assert(window_state != nil)
 	s = (^Cocoa_State)(window_state)
 	s.allocator = allocator
-	s.events = make([dynamic]Window_Event, allocator)
+	s.events = make([dynamic]Event, allocator)
 	s.width = screen_width
 	s.height = screen_height
 
@@ -124,7 +124,7 @@ cocoa_init :: proc(
 					if s.window_mode != .Borderless_Fullscreen {
 						s.windowed_rect = content_rect
 					}
-					append(&s.events, Window_Event_Resize{
+					append(&s.events, Event_Resize{
 						width = new_width,
 						height = new_height,
 					})
@@ -132,17 +132,17 @@ cocoa_init :: proc(
 			},
 
 			windowShouldClose = proc(_: ^NS.Window) -> bool {
-				append(&s.events, Window_Event_Close_Wanted{})
+				append(&s.events, Event_Close_Wanted{})
 				return true
 			},
 
 			// Focus and unfocus events
 			windowDidBecomeKey = proc(_: ^NS.Notification) {
-				append(&s.events, Window_Event_Focused{})
+				append(&s.events, Event_Focused{})
 			},
 
 			windowDidResignKey = proc(_: ^NS.Notification) {
-				append(&s.events, Window_Event_Unfocused{})
+				append(&s.events, Event_Unfocused{})
 			},
 		},
 		"Karl2DWindowDelegate",
@@ -184,40 +184,40 @@ cocoa_process_events :: proc() {
 			if !event->isARepeat() {
 				key := key_from_macos_keycode(event->keyCode())
 				if key != .None {
-					append(&s.events, Window_Event_Key_Went_Down{key = key})
+					append(&s.events, Event_Key_Went_Down{key = key})
 				}
 			}
 
 		case .KeyUp:
 			key := key_from_macos_keycode(event->keyCode())
 			if key != .None {
-				append(&s.events, Window_Event_Key_Went_Up{key = key})
+				append(&s.events, Event_Key_Went_Up{key = key})
 			}
 
 		case .LeftMouseDown:
-			append(&s.events, Window_Event_Mouse_Button_Went_Down{button = .Left})
+			append(&s.events, Event_Mouse_Button_Went_Down{button = .Left})
 
 		case .LeftMouseUp:
-			append(&s.events, Window_Event_Mouse_Button_Went_Up{button = .Left})
+			append(&s.events, Event_Mouse_Button_Went_Up{button = .Left})
 
 		case .RightMouseDown:
-			append(&s.events, Window_Event_Mouse_Button_Went_Down{button = .Right})
+			append(&s.events, Event_Mouse_Button_Went_Down{button = .Right})
 
 		case .RightMouseUp:
-			append(&s.events, Window_Event_Mouse_Button_Went_Up{button = .Right})
+			append(&s.events, Event_Mouse_Button_Went_Up{button = .Right})
 
 		case .OtherMouseDown:
-			append(&s.events, Window_Event_Mouse_Button_Went_Down{button = .Middle})
+			append(&s.events, Event_Mouse_Button_Went_Down{button = .Middle})
 
 		case .OtherMouseUp:
-			append(&s.events, Window_Event_Mouse_Button_Went_Up{button = .Middle})
+			append(&s.events, Event_Mouse_Button_Went_Up{button = .Middle})
 
 		case .MouseMoved, .LeftMouseDragged, .RightMouseDragged, .OtherMouseDragged:
 			// Convert to view coordinates (flip Y - macOS origin is bottom-left)
 			loc := event->locationInWindow()
 			// Flip Y coordinate
 			y := NS.Float(s.height) - loc.y
-			append(&s.events, Window_Event_Mouse_Move{
+			append(&s.events, Event_Mouse_Move{
 				position = {f32(loc.x), f32(y)},
 			})
 
@@ -225,9 +225,9 @@ cocoa_process_events :: proc() {
 			delta := event->scrollingDeltaY()
 			// Normalize: trackpad gives precise deltas, mouse wheel gives line deltas
 			if event->hasPreciseScrollingDeltas() {
-				append(&s.events, Window_Event_Mouse_Wheel{delta = f32(delta) / 10.0})
+				append(&s.events, Event_Mouse_Wheel{delta = f32(delta) / 10.0})
 			} else {
-				append(&s.events, Window_Event_Mouse_Wheel{delta = f32(delta)})
+				append(&s.events, Event_Mouse_Wheel{delta = f32(delta)})
 			}
 		}
 
@@ -251,7 +251,7 @@ cocoa_after_frame_present :: proc () {
 	
 }
 
-cocoa_get_events :: proc() -> []Window_Event {
+cocoa_get_events :: proc() -> []Event {
 	return s.events[:]
 }
 
