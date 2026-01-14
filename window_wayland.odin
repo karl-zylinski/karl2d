@@ -373,48 +373,36 @@ pointer_listener := wl.Pointer_Listener {
 			})
 		}
 	},
-	frame = proc "c" (data: rawptr, pointer: ^wl.Pointer) {
-
-	},
+	frame = proc "c" (data: rawptr, pointer: ^wl.Pointer) {},
 	axis_source = proc "c" (
 		data: rawptr,
 		pointer: ^wl.Pointer,
 		axis_source: c.uint32_t,
-	) {
-
-	},
+	) {},
 	axis_stop = proc "c" (
 		data: rawptr,
 		pointer: ^wl.Pointer,
 		time: c.uint32_t,
 		axis: c.uint32_t,
-	) {
-
-	},
+	) {},
 	axis_discrete = proc "c" (
 		data: rawptr,
 		pointer: ^wl.Pointer,
 		axis: c.uint32_t,
 		discrete: c.int32_t,
-	) {
-
-	},
+	) {},
 	axis_value120 = proc "c" (
 		data: rawptr,
 		pointer: ^wl.Pointer,
 		axis: c.uint32_t,
 		value120: c.int32_t,
-	) {
-
-	},
+	) {},
 	axis_relative_direction = proc "c" (
 		data: rawptr,
 		pointer: ^wl.Pointer,
 		axis: c.uint32_t,
 		direction: c.uint32_t,
-	) {
-
-	},
+	) {},
 }
 
 wl_shutdown :: proc() {
