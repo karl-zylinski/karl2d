@@ -109,13 +109,13 @@ x11_process_events :: proc() {
 		#partial switch event.type {
 		case .ClientMessage:
 			if X.Atom(event.xclient.data.l[0]) == s.delete_msg {
-				append(&s.events, Window_Event_Close_Wanted{})
+				append(&s.events, Event_Close_Wanted{})
 			}
 		case .KeyPress:
 			key := key_from_xkeycode(event.xkey.keycode)
 
 			if key != .None {
-				append(&s.events, Window_Event_Key_Went_Down {
+				append(&s.events, Event_Key_Went_Down {
 					key = key,
 				})
 			}
@@ -124,7 +124,7 @@ x11_process_events :: proc() {
 			key := key_from_xkeycode(event.xkey.keycode)
 
 			if key != .None {
-				append(&s.events, Window_Event_Key_Went_Up {
+				append(&s.events, Event_Key_Went_Up {
 					key = key,
 				})
 			}
@@ -139,13 +139,13 @@ x11_process_events :: proc() {
 				case .Button3: btn = .Right
 				}
 
-				append(&s.events, Window_Event_Mouse_Button_Went_Down {
+				append(&s.events, Event_Mouse_Button_Went_Down {
 					button = btn,
 				})
 			} else if event.xbutton.button <= .Button5 {
 				// LOL X11!!! Mouse wheel is button 4 and 5 being pressed.
 
-				append(&s.events, Window_Event_Mouse_Wheel {
+				append(&s.events, Event_Mouse_Wheel {
 					event.xbutton.button == .Button4 ? -1 : 1,
 				})
 			}
@@ -160,13 +160,13 @@ x11_process_events :: proc() {
 				case .Button3: btn = .Right
 				}
 
-				append(&s.events, Window_Event_Mouse_Button_Went_Up {
+				append(&s.events, Event_Mouse_Button_Went_Up {
 					button = btn,
 				})
 			}
 
 		case .MotionNotify:
-			append(&s.events, Window_Event_Mouse_Move {
+			append(&s.events, Event_Mouse_Move {
 				position = { f32(event.xmotion.x), f32(event.xmotion.y) }, 
 			})
 
@@ -183,16 +183,16 @@ x11_process_events :: proc() {
 					s.windowed_height = h
 				}
 
-				append(&s.events, Window_Event_Resize {
+				append(&s.events, Event_Resize {
 					width = w,
 					height = h,
 				})
 			}
 		case .FocusIn:
-			append(&s.events, Window_Event_Focused{})
+			append(&s.events, Event_Focused{})
 
 		case .FocusOut:
-			append(&s.events, Window_Event_Unfocused{})
+			append(&s.events, Event_Unfocused{})
 		}
 	}
 }
@@ -305,7 +305,7 @@ key_from_xkeycode :: proc(kc: u32) -> Keyboard_Key {
 	return KEY_FROM_XKEYCODE[u8(kc)]
 }
 
-x11_get_events :: proc() -> []Window_Event {
+x11_get_events :: proc() -> []Event {
 	return s.events[:]
 }
 
@@ -459,7 +459,7 @@ X11_State :: struct {
 	height: int,
 	windowed_width: int,
 	windowed_height: int,
-	events: [dynamic]Window_Event,
+	events: [dynamic]Event,
 	display: ^X.Display,
 	window: X.Window,
 	window_handle: Window_Handle_X11,
