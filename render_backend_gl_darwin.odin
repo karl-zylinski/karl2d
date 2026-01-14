@@ -61,17 +61,14 @@ _gl_destroy_context :: proc(_: GL_Context) {
 	nsgl.OpenGLContext_clearCurrentContext()
 }
 
-_gl_load_procs :: proc() {
+_gl_load_procs :: proc(ctx: GL_Context) {
 	gl.load_up_to(3, 3, macos_gl_set_proc_address)
 }
 
-// special handle meaning "search all currently loaded shared libraries"
-@private
-RTLD_DEFAULT :: rawptr(~uintptr(0) - 1) // -2 cast to pointer
-
 // the OpenGL shared library is loaded from OpenGL.framework when we initialize it in _gl_get_context
-@private
 macos_gl_set_proc_address :: proc(p: rawptr, name: cstring) {
+	// special handle meaning "search all currently loaded shared libraries"
+	RTLD_DEFAULT :: rawptr(~uintptr(0) - 1) // -2 cast to pointer
 	(^rawptr)(p)^ = os._unix_dlsym(RTLD_DEFAULT, name)
 }
 

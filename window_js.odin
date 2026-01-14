@@ -11,6 +11,7 @@ WINDOW_INTERFACE_JS :: Window_Interface {
 	shutdown = js_shutdown,
 	window_handle = js_window_handle,
 	process_events = js_process_events,
+	after_frame_present = js_after_frame_present,
 	get_events = js_get_events,
 	get_width = js_get_width,
 	get_height = js_get_height,
@@ -260,6 +261,10 @@ js_process_events :: proc() {
 
 		s.gamepad_state[gamepad_idx] = ns
 	}
+}
+
+js_after_frame_present :: proc() {
+	
 }
 
 js_get_events :: proc() -> []Window_Event {

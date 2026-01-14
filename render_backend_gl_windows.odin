@@ -82,7 +82,7 @@ _gl_destroy_context :: proc(ctx: GL_Context) {
 	win32.wglDeleteContext(ctx.gl_ctx)
 }
 
-_gl_load_procs :: proc() {
+_gl_load_procs :: proc(ctx: GL_Context) {
 	gl.load_up_to(3, 3, win32.gl_set_proc_address)
 }
 

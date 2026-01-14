@@ -14,6 +14,7 @@ WINDOW_INTERFACE_COCOA :: Window_Interface {
 	shutdown = cocoa_shutdown,
 	window_handle = cocoa_window_handle,
 	process_events = cocoa_process_events,
+	after_frame_present = cocoa_after_frame_present,
 	get_events = cocoa_get_events,
 	get_width = cocoa_get_width,
 	get_height = cocoa_get_height,
@@ -244,6 +245,10 @@ cocoa_process_events :: proc() {
 			s.app->sendEvent(event)
 		}
 	}
+}
+
+cocoa_after_frame_present :: proc () {
+	
 }
 
 cocoa_get_events :: proc() -> []Window_Event {

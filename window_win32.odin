@@ -10,6 +10,7 @@ WINDOW_INTERFACE_WIN32 :: Window_Interface {
 	shutdown = win32_shutdown,
 	window_handle = win32_window_handle,
 	process_events = win32_process_events,
+	after_frame_present = win32_after_frame_present,
 	get_events = win32_get_events,
 	get_width = win32_get_width,
 	get_height = win32_get_height,
@@ -153,6 +154,10 @@ win32_process_events :: proc() {
 			}
 		}
 	}
+	
+}
+
+win32_after_frame_present :: proc() {
 	
 }
 
@@ -313,7 +318,7 @@ win32_set_window_mode :: proc(window_mode: Window_Mode) {
 
 	win32.SetWindowLongW(s.hwnd, win32.GWL_STYLE, i32(style))
 
-	#partial switch window_mode {
+	switch window_mode {
 	case .Windowed, .Windowed_Resizable:
 		r: win32.RECT
 		r.left = i32(s.windowed_pos_x)
