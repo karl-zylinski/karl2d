@@ -1,4 +1,4 @@
-#+build ignore
+#+build linux
 
 package karl2d
 
@@ -63,7 +63,7 @@ _gl_destroy_context :: proc(ctx: GL_Context) {
 	glx.DestroyContext(ctx.window_handle.display, ctx.ctx)
 }
 
-_gl_load_procs :: proc() {
+_gl_load_procs :: proc(ctx: GL_Context) {
 	gl.load_up_to(3, 3, glx.SetProcAddress)
 }
 

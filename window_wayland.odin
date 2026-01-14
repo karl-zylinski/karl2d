@@ -95,7 +95,6 @@ wl_init :: proc(
 	s.window_handle = {
 		display = s.display,
 		window = s.window,
-		surface = s.surface,
 	}
 }
 
@@ -544,7 +543,6 @@ WL_State :: struct {
 @(private="package")
 Window_Handle_Wayland :: struct {
 	display: ^wl.Display,
-	surface: ^wl.Surface,
 	window: ^wl.EGL_Window,
 }
 
