@@ -92,6 +92,17 @@ present :: proc()
 // Called by `update`, but can be called manually if you need more control.
 process_events :: proc()
 
+// Fetch a list of all events that happened this frame. Most games can use the `key_is_held`, 
+// `mouse_button_went_down` etc procedures to check input state. But if you want a list of events
+// instead, then you can use this. These events will also include stuff like `
+//
+// Note: Gamepad axis movement (analogue sticks and analogue triggers) are _not_ events. Those can
+// only be queried using `k2.get_gamepad_axis`.
+//
+// Warning: The returned slice is only valid during the current frame! You can make a clone of it
+// using the `slice.clone` procedure (import `core:slice`).
+get_events :: proc() -> []Event
+
 // Returns how many seconds the previous frame took. Often a tiny number such as 0.016 s.
 //
 // This value is updated when `calculate_frame_time()` runs (which is also called by `update()`).
@@ -970,3 +981,62 @@ Gamepad_Button :: enum {
 	Middle_Face_Middle, // PS button (not available on XBox)
 	Middle_Face_Right, // Start
 }
+
+Event :: union {
+	Event_Close_Window_Requested,
+	Event_Key_Went_Down,
+	Event_Key_Went_Up,
+	Event_Mouse_Move,
+	Event_Mouse_Wheel,
+	Event_Resize,
+	Event_Mouse_Button_Went_Down,
+	Event_Mouse_Button_Went_Up,
+	Event_Gamepad_Button_Went_Down,
+	Event_Gamepad_Button_Went_Up,
+	Event_Window_Focused,
+	Event_Window_Unfocused,
+}
+
+Event_Key_Went_Down :: struct {
+	key: Keyboard_Key,
+}
+
+Event_Key_Went_Up :: struct {
+	key: Keyboard_Key,
+}
+
+Event_Mouse_Button_Went_Down :: struct {
+	button: Mouse_Button,
+}
+
+Event_Mouse_Button_Went_Up :: struct {
+	button: Mouse_Button,
+}
+
+Event_Gamepad_Button_Went_Down :: struct {
+	gamepad: Gamepad_Index,
+	button: Gamepad_Button,
+}
+
+Event_Gamepad_Button_Went_Up :: struct {
+	gamepad: Gamepad_Index,
+	button: Gamepad_Button,
+}
+
+Event_Close_Window_Requested :: struct {}
+
+Event_Mouse_Move :: struct {
+	position: Vec2,
+}
+
+Event_Mouse_Wheel :: struct {
+	delta: f32,
+}
+
+Event_Resize :: struct {
+	width, height: int,
+}
+
+Event_Window_Focused :: struct {}
+
+Event_Window_Unfocused :: struct {}
