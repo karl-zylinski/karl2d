@@ -45,7 +45,7 @@ win32_init :: proc(
 	assert(window_state != nil)
 	s = (^Win32_State)(window_state)
 	s.allocator = allocator
-	s.events = make([dynamic]Window_Event, allocator)
+	s.events = make([dynamic]Event, allocator)
 	s.windowed_width = screen_width
 	s.windowed_height = screen_height
 	s.custom_context = context
@@ -135,15 +135,15 @@ win32_process_events :: proc() {
 			}
 
 			b := button.? or_continue
-			evt: Window_Event
+			evt: Event
 
 			if .KEYDOWN in gp_event.Flags {
-				evt = Window_Event_Gamepad_Button_Went_Down {
+				evt = Event_Gamepad_Button_Went_Down {
 					gamepad = gamepad,
 					button = b,
 				}
 			} else if .KEYUP in gp_event.Flags {
-				evt = Window_Event_Gamepad_Button_Went_Up {
+				evt = Event_Gamepad_Button_Went_Up {
 					gamepad = gamepad,
 					button = b,
 				}
@@ -161,7 +161,7 @@ win32_after_frame_present :: proc() {
 	
 }
 
-win32_get_events :: proc() -> []Window_Event {
+win32_get_events :: proc() -> []Event {
 	return s.events[:]
 }
 
@@ -288,7 +288,7 @@ Win32_State :: struct {
 	windowed_width: int,
 	windowed_height: int,
 
-	events: [dynamic]Window_Event,
+	events: [dynamic]Event,
 }
 
 win32_set_window_mode :: proc(window_mode: Window_Mode) {
@@ -359,7 +359,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		win32.PostQuitMessage(0)
 
 	case win32.WM_CLOSE:
-		append(&s.events, Window_Event_Close_Wanted{})
+		append(&s.events, Event_Close_Wanted{})
 
 	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:
 		repeat := bool(lparam & (1 << 30))
@@ -368,7 +368,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			key := key_from_event_params(wparam, lparam)
 
 			if key != .None {
-				append(&s.events, Window_Event_Key_Went_Down {
+				append(&s.events, Event_Key_Went_Down {
 					key = key,
 				})
 			}
@@ -377,7 +377,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_SYSKEYUP, win32.WM_KEYUP:
 		key := key_from_event_params(wparam, lparam)
 		if key != .None {
-			append(&s.events, Window_Event_Key_Went_Up {
+			append(&s.events, Event_Key_Went_Up {
 				key = key,
 			})
 		}
@@ -385,49 +385,49 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_MOUSEMOVE:
 		x := win32.GET_X_LPARAM(lparam)
 		y := win32.GET_Y_LPARAM(lparam)
-		append(&s.events, Window_Event_Mouse_Move {
+		append(&s.events, Event_Mouse_Move {
 			position = {f32(x), f32(y)},
 		})
 
 	case win32.WM_MOUSEWHEEL:
 		delta := f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
 
-		append(&s.events, Window_Event_Mouse_Wheel {
+		append(&s.events, Event_Mouse_Wheel {
 			delta = delta,
 		})
 
 	case win32.WM_LBUTTONDOWN:
-		append(&s.events, Window_Event_Mouse_Button_Went_Down {
+		append(&s.events, Event_Mouse_Button_Went_Down {
 			button = .Left,
 		})
 		win32.SetCapture(s.hwnd)
 
 	case win32.WM_LBUTTONUP:
-		append(&s.events, Window_Event_Mouse_Button_Went_Up {
+		append(&s.events, Event_Mouse_Button_Went_Up {
 			button = .Left,
 		})
 		win32.ReleaseCapture()
 
 	case win32.WM_MBUTTONDOWN:
-		append(&s.events, Window_Event_Mouse_Button_Went_Down {
+		append(&s.events, Event_Mouse_Button_Went_Down {
 			button = .Middle,
 		})
 		win32.SetCapture(s.hwnd)
 
 	case win32.WM_MBUTTONUP:
-		append(&s.events, Window_Event_Mouse_Button_Went_Up {
+		append(&s.events, Event_Mouse_Button_Went_Up {
 			button = .Middle,
 		})
 		win32.ReleaseCapture()
 
 	case win32.WM_RBUTTONDOWN:
-		append(&s.events, Window_Event_Mouse_Button_Went_Down {
+		append(&s.events, Event_Mouse_Button_Went_Down {
 			button = .Right,
 		})
 		win32.SetCapture(s.hwnd)
 
 	case win32.WM_RBUTTONUP:
-		append(&s.events, Window_Event_Mouse_Button_Went_Up {
+		append(&s.events, Event_Mouse_Button_Went_Up {
 			button = .Right,
 		})
 		win32.ReleaseCapture()
@@ -452,16 +452,16 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		s.width = int(width)
 		s.height = int(height)
 
-		append(&s.events, Window_Event_Resize {
+		append(&s.events, Event_Resize {
 			width = int(width),
 			height = int(height),
 		})
 
 	case win32.WM_SETFOCUS:
-		append(&s.events, Window_Event_Focused {})
+		append(&s.events, Event_Focused {})
 
 	case win32.WM_KILLFOCUS:
-		append(&s.events, Window_Event_Unfocused {})
+		append(&s.events, Event_Unfocused {})
 	}
 
 

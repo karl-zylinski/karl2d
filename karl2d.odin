@@ -261,31 +261,30 @@ process_events :: proc() {
 	s.mouse_wheel_delta = 0
 
 	pf.process_events()
-
 	events := pf.get_events()
 
 	for &event in events {
 		switch &e in event {
-		case Window_Event_Close_Wanted:
+		case Event_Close_Wanted:
 			s.close_window_requested = true
 
-		case Window_Event_Key_Went_Down:
+		case Event_Key_Went_Down:
 			s.key_went_down[e.key] = true
 			s.key_is_held[e.key] = true
 
-		case Window_Event_Key_Went_Up:
+		case Event_Key_Went_Up:
 			s.key_went_up[e.key] = true
 			s.key_is_held[e.key] = false
 
-		case Window_Event_Mouse_Button_Went_Down:
+		case Event_Mouse_Button_Went_Down:
 			s.mouse_button_went_down[e.button] = true
 			s.mouse_button_is_held[e.button] = true
 
-		case Window_Event_Mouse_Button_Went_Up:
+		case Event_Mouse_Button_Went_Up:
 			s.mouse_button_went_up[e.button] = true
 			s.mouse_button_is_held[e.button] = false
 
-		case Window_Event_Mouse_Move:
+		case Event_Mouse_Move:
 			prev_pos := s.mouse_position
 
 			s.mouse_position.x = e.position.x
@@ -293,28 +292,28 @@ process_events :: proc() {
 
 			s.mouse_delta = s.mouse_position - prev_pos
 
-		case Window_Event_Mouse_Wheel:
+		case Event_Mouse_Wheel:
 			s.mouse_wheel_delta = e.delta
 
-		case Window_Event_Gamepad_Button_Went_Down:
+		case Event_Gamepad_Button_Went_Down:
 			if e.gamepad < MAX_GAMEPADS {
 				s.gamepad_button_went_down[e.gamepad][e.button] = true
 				s.gamepad_button_is_held[e.gamepad][e.button] = true
 			}
 
-		case Window_Event_Gamepad_Button_Went_Up:
+		case Event_Gamepad_Button_Went_Up:
 			if e.gamepad < MAX_GAMEPADS {
 				s.gamepad_button_went_up[e.gamepad][e.button] = true
 				s.gamepad_button_is_held[e.gamepad][e.button] = false
 			}
 
-		case Window_Event_Resize:
+		case Event_Resize:
 			rb.resize_swapchain(e.width, e.height)
 			s.proj_matrix = make_default_projection(e.width, e.height)
 
-		case Window_Event_Focused:			
+		case Event_Focused:			
 
-		case Window_Event_Unfocused:
+		case Event_Unfocused:
 			for k in Keyboard_Key {
 				if s.key_is_held[k] {
 					s.key_is_held[k] = false
