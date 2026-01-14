@@ -1,4 +1,4 @@
-#+build ignore
+#+build linux
 #+private file
 
 package karl2d
@@ -8,7 +8,7 @@ PLATFORM_LINUX_WAYLAND :: Platform_Interface {
 	state_size = wl_state_size,
 	init = wl_init,
 	shutdown = wl_shutdown,
-	window_handle = wl_window_handle,
+	get_window_render_glue = wl_get_window_render_glue,
 	process_events = wl_process_events,
 	after_frame_present = wl_after_frame_present,
 	get_events = wl_get_events,
@@ -92,9 +92,12 @@ wl_init :: proc(
 
 	s.window = wl.egl_window_create(s.surface, i32(s.windowed_width), i32(s.windowed_height))
 
-	s.window_handle = {
-		display = s.display,
-		window = s.window,
+	when RENDER_BACKEND_NAME == "gl" {
+		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
+	} else when RENDER_BACKEND_NAME == "nil" {
+		s.window_render_glue = {}
+	} else {
+		#panic("Unsupported combo of Linux + X11 and render backend '" + RENDER_BACKEND_NAME + "'")
 	}
 }
 
@@ -274,7 +277,6 @@ key_handler :: proc "c" (
 		key := key_from_xkeycode(keycode)
 
 		if key != .None {
-			log.info(key)
 			append(&s.events, Event_Key_Went_Up {
 				key = key,
 			})
@@ -408,8 +410,8 @@ wl_shutdown :: proc() {
 	delete(s.events)
 }
 
-wl_window_handle :: proc() -> Window_Handle {
-	return Window_Handle(&s.window_handle)
+wl_get_window_render_glue :: proc() -> Window_Render_Glue {
+	return s.window_render_glue
 }
 
 wl_process_events :: proc() {
@@ -537,13 +539,7 @@ WL_State :: struct {
 	// True if toplevel_listener.configure has run
 	configured: bool,
 
-	window_handle: Window_Handle_Wayland,
-}
-
-@(private="package")
-Window_Handle_Wayland :: struct {
-	display: ^wl.Display,
-	window: ^wl.EGL_Window,
+	window_render_glue: Window_Render_Glue,
 }
 
 s: ^WL_State
