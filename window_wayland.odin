@@ -140,7 +140,7 @@ registry_listener := wl.Registry_Listener {
 
 		case wl.zxdg_decoration_manager_v1_interface.name:
 			s.decoration_manager = wl.registry_bind(
-				wl.zxdg_decoration_manager_v1,
+				wl.ZXDG_Decoration_Manager_V1,
 				registry,
 				name,
 				&wl.zxdg_decoration_manager_v1_interface,
@@ -539,7 +539,7 @@ WL_State :: struct {
 	compositor: ^wl.Compositor,
 	window: ^wl.EGL_Window,
 	toplevel: ^wl.XDG_Toplevel,
-	decoration_manager: ^wl.zxdg_decoration_manager_v1,
+	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
 
 	xdg_base: ^wl.XDG_WM_Base,
 	seat: ^wl.Seat,
