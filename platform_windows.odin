@@ -82,7 +82,9 @@ windows_init :: proc(
 	win32.XInputEnable(true)
 
 	when RENDER_BACKEND_NAME == "d3d11" {
-		s.window_render_glue = make_windows_d3d11_glue(s.hwnd)
+		s.window_render_glue = {
+			state = (^Window_Render_Glue_State)(s.hwnd),
+		}
 	} else when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_windows_gl_glue(s.hwnd, s.allocator)
 	}  else when RENDER_BACKEND_NAME == "nil" {
