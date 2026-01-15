@@ -101,7 +101,9 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State) -> b
     if s.egl_context == egl.NO_CONTEXT {
         panic("Failed creating EGL context")
     }
+
     if egl.MakeCurrent(s.egl_display, s.egl_surface, s.egl_surface, s.egl_context) {
+        egl.SwapInterval(s.egl_display, 1)
     	gl.load_up_to(3, 3, egl.gl_set_proc_address)
     	return true
     }

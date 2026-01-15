@@ -9,7 +9,6 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	init = windows_init,
 	shutdown = windows_shutdown,
 	get_window_render_glue = windows_get_window_render_glue,
-	after_frame_present = windows_after_frame_present,
 	get_events = windows_get_events,
 	get_width = windows_get_width,
 	get_height = windows_get_height,
@@ -169,10 +168,6 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 	}
 
 	frame_events = nil	
-}
-
-windows_after_frame_present :: proc() {
-	
 }
 
 windows_get_width :: proc() -> int {

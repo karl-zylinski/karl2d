@@ -66,6 +66,14 @@ linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State) -> bool {
 		return false
 	}
 
+	glXSwapIntervalEXT: glx.SwapIntervalEXT
+	glx.SetProcAddress((rawptr)(&glXSwapIntervalEXT), "glXSwapIntervalEXT")
+
+	if glXSwapIntervalEXT == {} {
+		log.error("Failed fetching glXSwapIntervalEXT")
+		return false
+	}
+
 	context_attribs := []i32 {
 		glx.CONTEXT_MAJOR_VERSION_ARB, 3,
 		glx.CONTEXT_MINOR_VERSION_ARB, 3,
@@ -77,6 +85,9 @@ linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State) -> bool {
 
 	if glx.MakeCurrent(s.display, s.window, s.gl_ctx) {
 		gl.load_up_to(3, 3, glx.SetProcAddress)
+
+		// vsync
+		glXSwapIntervalEXT(s.display, s.window, 1)
 
 		return true
 	}

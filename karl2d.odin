@@ -242,7 +242,6 @@ calculate_frame_time :: proc() {
 present :: proc() {
 	draw_current_batch()
 	rb.present()
-	pf.after_frame_present()
 }
 
 // Process all events that have arrived from the platform APIs. This includes keyboard, mouse,

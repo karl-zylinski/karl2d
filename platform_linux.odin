@@ -13,7 +13,6 @@ PLATFORM_LINUX :: Platform_Interface {
 	init = linux_init,
 	shutdown = linux_shutdown,
 	get_window_render_glue = linux_get_window_render_glue,
-	after_frame_present = linux_after_frame_present,
 	get_events = linux_get_events,
 	get_width = linux_get_width,
 	get_height = linux_get_height,
@@ -86,10 +85,6 @@ linux_get_events :: proc(events: ^[dynamic]Event) {
 	// Maybe add gamepad events here?
 }
 
-linux_after_frame_present :: proc () {
-	s.win.after_frame_present()
-}
-
 linux_get_width :: proc() -> int {
 	return s.win.get_width()
 }
@@ -152,7 +147,6 @@ Linux_Window_Interface :: struct {
 
 	shutdown: proc(),
 	get_window_render_glue: proc() -> Window_Render_Glue,
-	after_frame_present: proc(),
 	get_events: proc(events: ^[dynamic]Event),
 	set_position: proc(x: int, y: int),
 	set_size: proc(w, h: int),

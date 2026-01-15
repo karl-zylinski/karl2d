@@ -13,7 +13,6 @@ PLATFORM_MAC :: Platform_Interface {
 	init = mac_init,
 	shutdown = mac_shutdown,
 	get_window_render_glue = mac_get_window_render_glue,
-	after_frame_present = mac_after_frame_present,
 	get_events = mac_get_events,
 	get_width = mac_get_width,
 	get_height = mac_get_height,
@@ -250,10 +249,6 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 
 	append(events, ..s.events[:])
 	runtime.clear(&s.events)
-}
-
-mac_after_frame_present :: proc () {
-	
 }
 
 mac_get_width :: proc() -> int {

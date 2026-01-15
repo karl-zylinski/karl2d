@@ -10,7 +10,6 @@ PLATFORM_WEB :: Platform_Interface {
 	init = web_init,
 	shutdown = web_shutdown,
 	get_window_render_glue = web_get_window_render_glue,
-	after_frame_present = web_after_frame_present,
 	get_events = web_get_events,
 	get_width = web_get_width,
 	get_height = web_get_height,
@@ -266,10 +265,6 @@ web_get_events :: proc(events: ^[dynamic]Event) {
 
 		s.gamepad_state[gamepad_idx] = ns
 	}
-}
-
-web_after_frame_present :: proc() {
-	
 }
 
 web_get_width :: proc() -> int {
