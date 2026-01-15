@@ -7,7 +7,6 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	init = wl_init,
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
-	after_frame_present = wl_after_frame_present,
 	get_events = wl_get_events,
 	get_width = wl_get_width,
 	get_height = wl_get_height,
@@ -80,7 +79,7 @@ wl_init :: proc(
     wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
 
 	wl.surface_commit(s.surface)
-	wl.display_dispatch(s.display)
+	wl.display_dispatch_pending(s.display)
 
 	callback := wl.surface_frame(s.surface)
 	wl.add_listener(callback, &frame_callback, nil)
@@ -409,11 +408,8 @@ wl_get_window_render_glue :: proc() -> Window_Render_Glue {
 	return s.window_render_glue
 }
 
-wl_after_frame_present :: proc() {
-	wl.display_dispatch(s.display)
-}
-
 wl_get_events :: proc(events: ^[dynamic]Event) {
+	wl.display_dispatch_pending(s.display)
 	append(events, ..s.events[:])
 	runtime.clear(&s.events)
 }

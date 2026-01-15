@@ -43,6 +43,12 @@ CreateContextAttribsARBProc :: proc(
 	attrib_list: [^]i32,
 ) -> ^Context
 
+SwapIntervalEXT :: proc(
+	dpy: ^xlib.Display,
+	drawable: Drawable,
+	interval: i32,
+)
+
 SetProcAddress :: proc(p: rawptr, name: cstring) {
 	(^rawptr)(p)^ = GetProcAddress(name)
 }
