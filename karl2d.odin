@@ -1196,6 +1196,11 @@ destroy_render_texture :: proc(render_texture: Render_Texture) {
 // `create_render_texture`. Pass `nil` to resume drawing onto the screen.
 set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 	if rt, rt_ok := render_texture.?; rt_ok {
+		if rt.render_target == RENDER_TARGET_NONE {
+			log.errorf("Invalid render texture: %v", rt)
+			return
+		}
+
 		if s.batch_render_target == rt.render_target {
 			return
 		}
