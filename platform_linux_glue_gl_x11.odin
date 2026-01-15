@@ -20,6 +20,7 @@ make_linux_gl_x11_glue :: proc(
 	state := new(Linux_GL_X11_Glue_State, allocator, loc)
 	state.display = display
 	state.window = window
+	state.allocator = allocator
 	return {
 		state = (^Window_Render_Glue_State)(state),
 
@@ -35,6 +36,7 @@ Linux_GL_X11_Glue_State :: struct {
 	display: ^X.Display,
 	window: X.Window,
 	gl_ctx: ^glx.Context,
+	allocator: runtime.Allocator,
 }
 
 linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State) -> bool {
@@ -101,6 +103,8 @@ linux_gl_x11_glue_present :: proc(s: ^Linux_GL_X11_Glue_State) {
 
 linux_gl_x11_glue_destroy :: proc(s: ^Linux_GL_X11_Glue_State) {
 	glx.DestroyContext(s.display, s.gl_ctx)
+	a := s.allocator
+	free(s, a)
 }
 
 linux_gl_x11_glue_viewport_resized :: proc(s: ^Linux_GL_X11_Glue_State) {

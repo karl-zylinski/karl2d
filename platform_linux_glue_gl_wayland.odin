@@ -20,6 +20,7 @@ make_linux_gl_wayland_glue :: proc(
 	state := new(Linux_GL_Wayland_Glue_State, allocator, loc)
 	state.display = display
 	state.window = window
+	state.allocator = allocator
 	return {
 		state = (^Window_Render_Glue_State)(state),
 
@@ -37,6 +38,7 @@ Linux_GL_Wayland_Glue_State :: struct {
 	egl_context: egl.Context,
 	egl_display: egl.Display,
 	egl_surface: egl.Surface,
+	allocator: runtime.Allocator,
 }
 
 linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State) -> bool {
@@ -121,6 +123,8 @@ linux_gl_wayland_glue_present :: proc(s: ^Linux_GL_Wayland_Glue_State) {
 
 linux_gl_wayland_glue_destroy :: proc(s: ^Linux_GL_Wayland_Glue_State) {
 	egl.DestroyContext(s.egl_display, s.egl_context)
+	a := s.allocator
+	free(s, a)
 }
 
 linux_gl_wayland_glue_viewport_resized :: proc(s: ^Linux_GL_Wayland_Glue_State) {

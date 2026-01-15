@@ -71,7 +71,7 @@ wl_init :: proc(
 	s.toplevel = wl.xdg_surface_get_toplevel(xdg_surface)
 	wl.add_listener(s.toplevel, &toplevel_listener, nil)
 	wl.add_listener(xdg_surface, &window_listener, nil)
-	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(window_title))
+	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(window_title, frame_allocator))
 
     decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
 

@@ -42,7 +42,8 @@ linux_init :: proc(
 ) {
 	assert(window_state != nil)
 	s = (^Linux_State)(window_state)
-	xdg_session_type := os.get_env("XDG_SESSION_TYPE", allocator)
+	s.allocator = allocator
+	xdg_session_type := os.get_env("XDG_SESSION_TYPE", frame_allocator)
 	
 	if xdg_session_type == "wayland" {
 		s.win = LINUX_WINDOW_WAYLAND
@@ -73,6 +74,8 @@ linux_init :: proc(
 
 linux_shutdown :: proc() {
 	s.win.shutdown()
+	a := s.allocator
+	free(s.win_state, a)
 }
 
 linux_get_window_render_glue :: proc() -> Window_Render_Glue {
@@ -130,6 +133,7 @@ linux_set_window_mode :: proc(window_mode: Window_Mode) {
 Linux_State :: struct {
 	win: Linux_Window_Interface,
 	win_state: rawptr,
+	allocator: runtime.Allocator,
 }
 
 @(private="package")
