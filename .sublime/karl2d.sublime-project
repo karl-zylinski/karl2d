@@ -32,6 +32,11 @@
 					"working_dir": "$project_path/../examples/ui",
 				},
 				{
+					"name": "scaling",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:scaling.exe",
+					"working_dir": "$project_path/../examples/scaling",
+				},
+				{
 					"name": "basics",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:minimal.exe",
 					"working_dir": "$project_path/../examples/basics",
@@ -200,7 +205,7 @@
 	"folders":
 	[
 		{
-			"path": "..",
+			"path": "C:\\Projects\\karl2d",
 		},
 	],
 	"settings":
