@@ -34,49 +34,49 @@ make_linux_gl_wayland_glue :: proc(
 Linux_GL_Wayland_Glue_State :: struct {
 	display: ^wl.Display,
 	window: ^wl.EGL_Window,
-    egl_context: egl.Context,
-    egl_display: egl.Display,
-    egl_surface: egl.Surface,
+	egl_context: egl.Context,
+	egl_display: egl.Display,
+	egl_surface: egl.Surface,
 }
 
 linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State) -> bool {
 	// Get a valid EGL configuration based on some attribute guidelines
-    // Create a context based on a "chosen" configuration
-    EGL_CONTEXT_FLAGS_KHR :: 0x30FC
-    EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR :: 0x00000001
+	// Create a context based on a "chosen" configuration
+	EGL_CONTEXT_FLAGS_KHR :: 0x30FC
+	EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR :: 0x00000001
 
-    major, minor, n: i32
-    egl_config: egl.Config
-    config_attribs: []i32 = {
-        egl.SURFACE_TYPE, egl.WINDOW_BIT,
-        egl.RED_SIZE, 8,
-        egl.GREEN_SIZE, 8,
-        egl.BLUE_SIZE, 8,
-        egl.ALPHA_SIZE, 0, // Disable surface alpha for now
-        egl.DEPTH_SIZE, 24, // Request 24-bit depth buffer
-        egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
-        egl.NONE,
-    }
-    context_flags_bitfield: i32 = EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR
+	major, minor, n: i32
+	egl_config: egl.Config
+	config_attribs: []i32 = {
+		egl.SURFACE_TYPE, egl.WINDOW_BIT,
+		egl.RED_SIZE, 8,
+		egl.GREEN_SIZE, 8,
+		egl.BLUE_SIZE, 8,
+		egl.ALPHA_SIZE, 0, // Disable surface alpha for now
+		egl.DEPTH_SIZE, 24, // Request 24-bit depth buffer
+		egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
+		egl.NONE,
+	}
+	context_flags_bitfield: i32 = EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR
 
-    context_attribs: []i32 = {
-        egl.CONTEXT_CLIENT_VERSION, 3,
-        EGL_CONTEXT_FLAGS_KHR, context_flags_bitfield,
-        egl.NONE,
-    }
-    s.egl_display = egl.GetDisplay(egl.NativeDisplayType(s.display))
-    if s.egl_display == egl.NO_DISPLAY {
-        log.error("Failed to create EGL display")
-        return false
-    }
-    if !egl.Initialize(s.egl_display, &major, &minor) {
-        log.error("Can't initialize egl display")
-        return false
-    }
-    if !egl.ChooseConfig(s.egl_display, raw_data(config_attribs), &egl_config, 1, &n) {
-        log.error("Failed to find/choose EGL config")
-        return false
-    }
+	context_attribs: []i32 = {
+		egl.CONTEXT_CLIENT_VERSION, 3,
+		EGL_CONTEXT_FLAGS_KHR, context_flags_bitfield,
+		egl.NONE,
+	}
+	s.egl_display = egl.GetDisplay(egl.NativeDisplayType(s.display))
+	if s.egl_display == egl.NO_DISPLAY {
+		log.error("Failed to create EGL display")
+		return false
+	}
+	if !egl.Initialize(s.egl_display, &major, &minor) {
+		log.error("Can't initialize egl display")
+		return false
+	}
+	if !egl.ChooseConfig(s.egl_display, raw_data(config_attribs), &egl_config, 1, &n) {
+		log.error("Failed to find/choose EGL config")
+		return false
+	}
 
 	s.egl_surface = egl.CreateWindowSurface(
 		s.egl_display,
@@ -86,33 +86,33 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State) -> b
 	)
 
 	if s.egl_surface == egl.NO_SURFACE {
-	    log.error("Error creating window surface")
-	    return false
+		log.error("Error creating window surface")
+		return false
 	}
-    // This call must be here before CreateContext
-    egl.BindAPI(egl.OPENGL_API)
+	// This call must be here before CreateContext
+	egl.BindAPI(egl.OPENGL_API)
 
-    s.egl_context = egl.CreateContext(
-        s.egl_display,
-        egl_config,
-        egl.NO_CONTEXT,
-        raw_data(context_attribs),
-    )
-    if s.egl_context == egl.NO_CONTEXT {
-        panic("Failed creating EGL context")
-    }
+	s.egl_context = egl.CreateContext(
+		s.egl_display,
+		egl_config,
+		egl.NO_CONTEXT,
+		raw_data(context_attribs),
+	)
+	if s.egl_context == egl.NO_CONTEXT {
+		panic("Failed creating EGL context")
+	}
 
-    if egl.MakeCurrent(s.egl_display, s.egl_surface, s.egl_surface, s.egl_context) {
-        egl.SwapInterval(s.egl_display, 1)
-    	gl.load_up_to(3, 3, egl.gl_set_proc_address)
+	if egl.MakeCurrent(s.egl_display, s.egl_surface, s.egl_surface, s.egl_context) {
+		egl.SwapInterval(s.egl_display, 1)
+		gl.load_up_to(3, 3, egl.gl_set_proc_address)
 
-        // vsync
-        egl.SwapInterval(s.egl_display, 1)
+		// vsync
+		egl.SwapInterval(s.egl_display, 1)
 
-    	return true
-    }
+		return true
+	}
 
-    return false
+	return false
 }
 
 linux_gl_wayland_glue_present :: proc(s: ^Linux_GL_Wayland_Glue_State) {
@@ -120,7 +120,7 @@ linux_gl_wayland_glue_present :: proc(s: ^Linux_GL_Wayland_Glue_State) {
 }
 
 linux_gl_wayland_glue_destroy :: proc(s: ^Linux_GL_Wayland_Glue_State) {
-    egl.DestroyContext(s.egl_display, s.egl_context)
+	egl.DestroyContext(s.egl_display, s.egl_context)
 }
 
 linux_gl_wayland_glue_viewport_resized :: proc(s: ^Linux_GL_Wayland_Glue_State) {
