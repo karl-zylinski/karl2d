@@ -49,16 +49,18 @@ step :: proc() -> bool {
 
 	k2.clear(k2.LIGHT_BLUE)
 
-	// We use the current time to spin and wiggle the texture.
+	// We use the current time to spin and move the texture.
 	t := k2.get_time()
 	pos_x := f32(math.sin(t)*200)
 	rot := f32(t*1.5)
 	tex_rect := k2.get_texture_rect(tex)
+	tex_rect_dst := k2.Rect{pos_x + 600, 450, tex_rect.w*3, tex_rect.h*3}
+
 	k2.draw_texture_ex(
 		tex,
 		tex_rect,
-		{pos_x + 600, 450, tex_rect.w*3, tex_rect.h*3},
-		{tex_rect.w*1.5, tex_rect.h*1.5},
+		tex_rect_dst,
+		{tex_rect_dst.w/2, tex_rect_dst.h/2},
 		rot,
 	)
 
@@ -68,7 +70,6 @@ step :: proc() -> bool {
 	// These two circles are controlled using the arrow keys via the `pos` variable.
 	k2.draw_circle(pos + {120, 40}, 30, k2.DARK_RED)
 	k2.draw_circle(pos + {120, 40}, 20, k2.RED)
-
 
 	dt := k2.get_frame_time()
 	msg1 := fmt.tprintf("Time since start: %.2f s", t)
