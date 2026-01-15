@@ -103,8 +103,11 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State) -> b
     }
 
     if egl.MakeCurrent(s.egl_display, s.egl_surface, s.egl_surface, s.egl_context) {
-        egl.SwapInterval(s.egl_display, 1)
     	gl.load_up_to(3, 3, egl.gl_set_proc_address)
+
+        // vsync
+        egl.SwapInterval(s.egl_display, 1)
+
     	return true
     }
 
