@@ -51,9 +51,16 @@ step :: proc() -> bool {
 
 	// We use the current time to spin and wiggle the texture.
 	t := k2.get_time()
-	pos_x := f32(math.sin(t*10)*20)
+	pos_x := f32(math.sin(t)*200)
 	rot := f32(t*1.5)
-	k2.draw_texture_ex(tex, {0, 0, f32(tex.width), f32(tex.height)}, {pos_x + 400, 450, 900, 500}, {450, 250}, rot)
+	tex_rect := k2.get_texture_rect(tex)
+	k2.draw_texture_ex(
+		tex,
+		tex_rect,
+		{pos_x + 600, 450, tex_rect.w*3, tex_rect.h*3},
+		{tex_rect.w*1.5, tex_rect.h*1.5},
+		rot,
+	)
 
 	k2.draw_rect({10, 10, 60, 60}, k2.GREEN)
 	k2.draw_rect({20, 20, 40, 40}, k2.LIGHT_GREEN)
@@ -62,14 +69,18 @@ step :: proc() -> bool {
 	k2.draw_circle(pos + {120, 40}, 30, k2.DARK_RED)
 	k2.draw_circle(pos + {120, 40}, 20, k2.RED)
 
-	// k2.color_alpha takes a pre-defined color and replaces the alpha (transparency).
-	k2.draw_rect({4, 95, 512, 152}, k2.color_alpha(k2.DARK_GRAY, 192))
-	k2.draw_text("Hellöpe!", {10, 100}, 48, k2.LIGHT_RED)
 
-	msg1 := fmt.tprintf("Time since start: %.3f s", t)
-	msg2 := fmt.tprintf("Last frame time: %.5f s", k2.get_frame_time())
-	k2.draw_text(msg1, {10, 148}, 48, k2.ORANGE)
-	k2.draw_text(msg2, {10, 196}, 48, k2.LIGHT_PURPLE)
+	dt := k2.get_frame_time()
+	msg1 := fmt.tprintf("Time since start: %.2f s", t)
+	msg2 := fmt.tprintf("Last frame time: %.3f ms (%.2f fps)", dt*1000, dt == 0 ? 0 : 1/dt)
+	msg2_width := k2.measure_text(msg2, 48).x
+
+	// k2.color_alpha takes a pre-defined color and replaces the alpha (transparency).
+	k2.draw_rect({4, 95, msg2_width+20, 162}, k2.color_alpha(k2.DARK_GRAY, 192))
+	k2.draw_text("Hellöpe!", {15, 105}, 48, k2.LIGHT_RED)
+
+	k2.draw_text(msg1, {15, 153}, 48, k2.ORANGE)
+	k2.draw_text(msg2, {15, 201}, 48, k2.LIGHT_PURPLE)
 
 	k2.draw_text("Move the red dot using arrow keys!", {10, f32(k2.get_screen_height()) - 50}, 40)
 
