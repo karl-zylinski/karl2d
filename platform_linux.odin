@@ -2,6 +2,7 @@
 #+private file
 package karl2d
 
+import "core:fmt"
 import "base:runtime"
 import "core:mem"
 import "log"
@@ -70,6 +71,8 @@ linux_init :: proc(
 		options,
 		allocator,
 	)
+
+    linux_gamepads_init()
 }
 
 linux_shutdown :: proc() {
@@ -109,10 +112,41 @@ linux_get_window_scale :: proc() -> f32 {
 }
 
 linux_is_gamepad_active :: proc(gamepad: int) -> bool {
-	return false
+	return s.gamepads[gamepad].active
 }
 
 linux_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
+    // Get events and return update axis states
+	buf: [8]u8
+
+    gamepad := &s.gamepads[gamepad]
+	for {
+		n, _ := os.read(gamepad.fd, buf[:])
+
+		if n != size_of(js_event) {
+            break
+		}
+		event := transmute(js_event)buf
+		etype := event.type & ~u8(JS_EVENT_INIT)
+
+		if etype == JS_EVENT_AXIS {
+			gamepad.axis_state[event.number] = event.value 
+		}
+	}
+
+    HORIZONTAL :: 0
+    VERTICAL :: 1
+
+    switch axis {
+    case .Left_Stick_X: return f32(gamepad.axis_state[HORIZONTAL]) / JS_VALUE_MAX
+    case .Left_Stick_Y: return f32(gamepad.axis_state[VERTICAL]) / JS_VALUE_MAX
+    case .Right_Stick_X: return 0  
+    case .Right_Stick_Y: return 0
+    case .Left_Trigger: return 0
+    case .Right_Trigger: return 0
+    }
+
+    // Return axis state
 	return 0
 }
 
@@ -130,10 +164,44 @@ linux_set_window_mode :: proc(window_mode: Window_Mode) {
 	s.win.set_window_mode(window_mode)
 }
 
+JS_EVENT_BUTTON :: 0x01
+JS_EVENT_AXIS :: 0x02
+JS_EVENT_INIT :: 0x80
+JS_VALUE_MAX :: 32767.0
+
+LINUX_GAMEPAD_MAX_AXES :: 2
+LINUX_GAMEPAD_MAX_BUTTONS :: 8
+
+js_event :: struct {
+	time:   u32,
+	value:  i16,
+	type:   u8,
+	number: u8,
+}
+
+Linux_Gamepad :: struct {
+    active: bool,
+    fd: os.Handle,
+    axis_state: [LINUX_GAMEPAD_MAX_AXES]i16,
+    button_state: [LINUX_GAMEPAD_MAX_BUTTONS]u32
+}
+
+linux_gamepads_init :: proc() {
+    // Support only JOYDEV legacy interfaces
+    // This only supports one stick AFAIK
+    for i in 0 ..<MAX_GAMEPADS {
+        fd, err := os.open(fmt.tprintf("/dev/input/js%d", i), os.O_RDONLY | os.O_NONBLOCK)
+        if err == nil {
+            s.gamepads[i] = Linux_Gamepad { fd = fd, active = true }
+        }
+    }
+}
+
 Linux_State :: struct {
 	win: Linux_Window_Interface,
 	win_state: rawptr,
 	allocator: runtime.Allocator,
+    gamepads: [MAX_GAMEPADS]Linux_Gamepad
 }
 
 @(private="package")
