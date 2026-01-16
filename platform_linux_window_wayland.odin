@@ -78,6 +78,9 @@ wl_init :: proc(
     // This adds titlebar and buttons to the window.
     wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
 
+	fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(s.fractional_scale_manager, s.surface)
+	wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
+
 	wl.surface_commit(s.surface)
 	wl.display_dispatch_pending(s.display)
 
@@ -138,6 +141,15 @@ registry_listener := wl.Registry_Listener {
 				registry,
 				name,
 				&wl.zxdg_decoration_manager_v1_interface,
+				version,
+			)
+
+		case wl.wp_fractional_scale_manager_v1_interface.name:
+			s.fractional_scale_manager = wl.registry_bind(
+				wl.WP_Fractional_Scale_Manager_V1,
+				registry,
+				name,
+				&wl.wp_fractional_scale_manager_v1_interface,
 				version,
 			)
 		}
@@ -400,6 +412,17 @@ pointer_listener := wl.Pointer_Listener {
 	) {},
 }
 
+fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
+	preferred_scale = proc "c" (
+		data: rawptr,
+		self: ^wl.WP_Fractional_Scale_V1,
+		scale: u32,
+	) {
+		context = s.odin_ctx
+		log.info(scale)
+	},
+}
+
 wl_shutdown :: proc() {
 	delete(s.events)
 }
@@ -483,6 +506,7 @@ WL_State :: struct {
 	window: ^wl.EGL_Window,
 	toplevel: ^wl.XDG_Toplevel,
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
+	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
 	xdg_base: ^wl.XDG_WM_Base,
 	seat: ^wl.Seat,
