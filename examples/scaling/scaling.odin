@@ -30,7 +30,7 @@ main :: proc() {
 		}
 
 		k2.clear(k2.LIGHT_BLUE)
-		
+
 		camera := k2.Camera {
 			zoom = k2.get_window_scale(),
 		}

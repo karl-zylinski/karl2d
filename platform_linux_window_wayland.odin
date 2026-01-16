@@ -419,7 +419,12 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		scale: u32,
 	) {
 		context = s.odin_ctx
-		log.info(scale)
+		scl := f32(scale)/120
+		s.scale = scl
+
+		append(&s.events, Event_Window_Scale_Changed {
+			scale = scl,
+		})
 	},
 }
 
@@ -460,7 +465,7 @@ wl_set_size :: proc(w, h: int) {
 }
 
 wl_get_window_scale :: proc() -> f32 {
-	return 1
+	return s.scale
 }
 
 wl_set_window_mode :: proc(window_mode: Window_Mode) {
@@ -510,6 +515,7 @@ WL_State :: struct {
 
 	xdg_base: ^wl.XDG_WM_Base,
 	seat: ^wl.Seat,
+	scale: f32,
 
 	keyboard: ^wl.Keyboard,
 	pointer: ^wl.Pointer,
