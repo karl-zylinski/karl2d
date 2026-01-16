@@ -183,7 +183,7 @@ Linux_Gamepad :: struct {
     active: bool,
     fd: os.Handle,
     axis_state: [LINUX_GAMEPAD_MAX_AXES]i16,
-    button_state: [LINUX_GAMEPAD_MAX_BUTTONS]u32
+    button_state: [LINUX_GAMEPAD_MAX_BUTTONS]u32,
 }
 
 linux_gamepads_init :: proc() {
@@ -201,7 +201,7 @@ Linux_State :: struct {
 	win: Linux_Window_Interface,
 	win_state: rawptr,
 	allocator: runtime.Allocator,
-    gamepads: [MAX_GAMEPADS]Linux_Gamepad
+    gamepads: [MAX_GAMEPADS]Linux_Gamepad,
 }
 
 @(private="package")
