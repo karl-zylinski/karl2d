@@ -616,7 +616,7 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
-	
+
 	if s.batch_texture != s.shape_drawing_texture {
 		draw_current_batch()
 	}
