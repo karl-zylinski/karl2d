@@ -10,7 +10,7 @@ zxdg_decoration_manager_v1_get_toplevel_decoration :: proc "c" (
 	zxdg_decoration_manager_v1: ^ZXDG_Decoration_Manager_V1,
 	toplevel: ^XDG_Toplevel,
 ) -> ^ZXDG_Decoration_Manager_V1 {
-	return cast(^ZXDG_Decoration_Manager_V1)(
+	return (^ZXDG_Decoration_Manager_V1)(
 		proxy_marshal_flags(
 		zxdg_decoration_manager_v1,
 		1,

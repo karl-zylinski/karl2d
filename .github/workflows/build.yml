@@ -65,6 +65,9 @@ jobs:
       - name: minimal_hello_world (web, debug)
         run: odin run build_web -vet -strict-style -- examples/minimal_hello_world_web -debug
 
+      - name: scaling_auto_window_resize
+        run: odin check examples/scaling_auto_window_resize -vet -strict-style
+
       - name: basics
         run: odin check examples/basics -vet -strict-style
 
