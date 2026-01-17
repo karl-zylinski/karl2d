@@ -979,7 +979,7 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 
 	prev := center + {radius, 0}
 	for s in 1..=segments {
-		sr := (f32(s)/f32(segments)) * 2*math.PI 
+		sr := (f32(s)/f32(segments)) * 2*math.PI
 		rot := linalg.matrix2_rotate(sr)
 		p := center + rot * Vec2{radius, 0}
 
