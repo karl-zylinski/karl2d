@@ -32,9 +32,9 @@
 					"working_dir": "$project_path/../examples/ui",
 				},
 				{
-					"name": "scaling",
-					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:scaling.exe",
-					"working_dir": "$project_path/../examples/scaling",
+					"name": "scaling_auto_window_resize",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:scaling_auto_window_resize.exe",
+					"working_dir": "$project_path/../examples/scaling_auto_window_resize",
 				},
 				{
 					"name": "basics",
