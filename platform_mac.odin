@@ -45,7 +45,8 @@ Mac_State :: struct {
 
 	window_render_glue: Window_Render_Glue,
 
-	gamepads:            [MAX_GAMEPADS]Gamepad,
+	gamepads:           [MAX_GAMEPADS]Gamepad,
+	supports_haptics:   bool,
 }
 
 Gamepad :: struct {
@@ -118,6 +119,9 @@ mac_init :: proc(
 	// Activate the application
 	s.app->activateIgnoringOtherApps(true)
 	s.app->finishLaunching()
+
+	process_info := NS.ProcessInfo_processInfo()
+	s.supports_haptics = process_info->isOperatingSystemAtLeastVersion({11, 0, 0})
 
 	// Add already connected controllers
 	poll_for_new_controllers()
@@ -364,7 +368,7 @@ mac_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 }
 
 mac_set_gamepad_vibration :: proc(gamepad_index: int, left: f32, right: f32) {
-	if !mac_is_gamepad_active(gamepad_index) do return
+	if !s.supports_haptics || !mac_is_gamepad_active(gamepad_index) do return
 	gamepad := &s.gamepads[gamepad_index]
 
 	// early stop so we shutoff player even if delta isn't past the threshold

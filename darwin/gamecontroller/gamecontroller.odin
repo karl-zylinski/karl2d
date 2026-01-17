@@ -99,11 +99,6 @@ Controller_vendorName :: proc "c" (self: ^Controller) -> ^NS.String {
 	return msgSend(^NS.String, self, "vendorName")
 }
 
-@(objc_type=Controller, objc_name="productCategory")
-Controller_productCategory :: proc "c" (self: ^Controller) -> ^NS.String {
-	return msgSend(^NS.String, self, "productCategory")
-}
-
 // GCExtendedGamepad
 @(objc_class="GCExtendedGamepad")
 ExtendedGamepad :: struct { using _: NS.Object }
