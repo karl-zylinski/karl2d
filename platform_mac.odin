@@ -621,7 +621,7 @@ stop_haptic_player :: proc(player: ^^gc.HapticPatternPlayer) {
 init_haptic_engine :: proc(
 	left_right: int,
 	locality: gc.HapticsLocality,
-	gamepad: ^Gamepad
+	gamepad: ^Gamepad,
 ) -> bool {
 	if gamepad.haptic_engine_left_right[left_right] != nil do return true
 
@@ -654,7 +654,7 @@ create_haptic_player :: proc(left_right: int, intensity: f32, gamepad: ^Gamepad)
 			gc.HapticContinuous,
 			params_array,
 			0,
-			gc.HapticDurationInfinite
+			gc.HapticDurationInfinite,
 		)
 		events := [1]^NS.Object{event}
 		events_array := NS.Array_alloc()->initWithObjects(raw_data(&events), 1)
