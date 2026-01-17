@@ -1,6 +1,6 @@
 #+build darwin
 
-package gamecontroller
+package karl2d_darwin_gamecontroller
 
 // CoreHaptics framework bindings for haptic feedback (rumble)
 // Based on Apple's CoreHaptics API

@@ -1,6 +1,6 @@
 #+build darwin
 
-package gamecontroller
+package karl2d_darwin_gamecontroller
 
 // GameController framework bindings for macOS gamepad support
 // Based on Apple's GCController API
