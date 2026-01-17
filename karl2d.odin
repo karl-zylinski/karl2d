@@ -616,7 +616,7 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
-
+	
 	if s.batch_texture != s.shape_drawing_texture {
 		draw_current_batch()
 	}
@@ -712,86 +712,90 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 
 // Draw rectangle with rounded edges
 // Segments represents how many triangles the corners will have multiplied by 2
-draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, rot: f32 = 0, segments: int = 3) {
+draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, rot: f32 = 0, segments: int = 3,) {
 	roundness:=roundness
 	segments:=segments * 2
 	
-	 // Not a rounded rectangle
- 	if roundness <= 0 {
-        draw_rect_ex(rec, origin, rot, c)
-        return
-    }
+	// Not a rounded rectangle
+	if roundness <= 0 {
+		draw_rect_ex(rec, origin, rot, c)
+		return
+	}
 	
-	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * ((3 * segments)+(6*5)) > len(s.vertex_buffer_cpu) {
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * ((6 * segments)+(6*5)) > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
 	if s.batch_texture != s.shape_drawing_texture {
 		draw_current_batch()
 	}
-
-	s.batch_texture = s.shape_drawing_texture
 	
-    if roundness >= 1 {
-    	roundness = 1
-    }
+	s.batch_texture = s.shape_drawing_texture
 
-    // Calculate corner radius
-    radius :f32
-    if rec.w > rec.h {
-        radius = (rec.h * roundness) / 2
-    } else {
-        radius = (rec.w * roundness) / 2
-    }
-    
-    if radius <= 0 {return}
+	// clamps the roundness value to 1
+	if roundness >= 1 {
+		roundness = 1
+	}
+	
+	// Calculate corner radius
+	radius :f32
+	if rec.w > rec.h {
+		radius = (rec.h * roundness) / 2
+	}else{
+		radius = (rec.w * roundness) / 2
+	}
 
-    stepLength:f32 = 90/cast(f32)segments
-    
-    // Diagram points and part of the math was adapted from Raylib's "DrawRectangleRounded"
-    /*
-    Quick sketch to make sense of all of this,
-    there are 9 parts to draw, also mark the 12 points we'll use
+	if radius <= 0 {
+		return
+	}
+	
+	stepLength:f32 = 90 / cast(f32)segments
 
-          P0____________________P1
-          /|                    |\
-         /1|          2         |3\
-     P7 /__|____________________|__\ P2
-       |   |P8                P9|   |
-       | 8 |          9         | 4 |
-       | __|____________________|__ |
-     P6 \  |P11              P10|  / P3
-         \7|          6         |5/
-          \|____________________|/
-          P5                    P4
-    */
-    // Coordinates of the 12 points that define the rounded rect
-    point:[12]Vec2
-    point = {
-        { rec.x + radius-origin.x,			 rec.y - origin.y},						// P0
-        {(rec.x + rec.w) - radius-origin.x,	 rec.y - origin.y},						// P1
-        { rec.x + rec.w-origin.x,	 		 rec.y + radius - origin.y},     		// P2
-        { rec.x + rec.w-origin.x, 			(rec.y + rec.h) - radius - origin.y},	// P3
-        {(rec.x + rec.w) - radius-origin.x,  rec.y + rec.h  - origin.y},			// P4
-        { rec.x + radius-origin.x, 			 rec.y + rec.h  - origin.y},			// P5
-        { rec.x - origin.x, 				(rec.y + rec.h) - radius - origin.y},	// P6
-        { rec.x - origin.x, 				 rec.y + radius - origin.y},    		// P7
-        { rec.x + radius-origin.x, 			 rec.y + radius - origin.y},			// P8
-        {(rec.x + rec.w) - radius-origin.x,  rec.y + radius - origin.y},            // P9
-        {(rec.x + rec.w) - radius-origin.x, (rec.y + rec.h) - radius - origin.y},	// P10
-        { rec.x + radius-origin.x, 			(rec.y + rec.h) - radius - origin.y} 	// P11
-    }
-    
-    // The center of the 4 rounded corners
-    centers:[4]Vec2= { point[8], point[9], point[10], point[11] }
-    
-    if rot != 0 {
+	// Diagram points and part of the math was adapted from Raylib's "DrawRectangleRounded"
+	/*
+	Quick sketch to make sense of all of this,
+	there are 9 parts to draw, also mark the 12 points we'll use
+	      P0____________________P1
+	      /|                    |\
+	     /1|          2         |3\
+	 P7 /__|____________________|__\ P2
+	   |   |P8                P9|   |
+	   | 8 |          9         | 4 |
+	   | __|____________________|__ |
+	 P6 \  |P11              P10|  / P3
+	     \7|          6         |5/
+	      \|____________________|/
+	      P5                    P4
+	*/
+	// Coordinates of the 12 points that define the rounded rect
+	point:[12]Vec2
+	point = {
+		{ rec.x + radius-origin.x,			rec.y - origin.y},						// P0
+		{(rec.x + rec.w) - radius-origin.x,	rec.y - origin.y},						// P1
+		{ rec.x + rec.w-origin.x,			rec.y + radius - origin.y},				// P2
+		{ rec.x + rec.w-origin.x,			(rec.y + rec.h) - radius - origin.y},	// P3
+		{(rec.x + rec.w) - radius-origin.x,	rec.y + rec.h  - origin.y},				// P4
+		{ rec.x + radius-origin.x,			rec.y + rec.h  - origin.y},				// P5
+		{ rec.x - origin.x,					(rec.y + rec.h) - radius - origin.y},	// P6
+		{ rec.x - origin.x,					rec.y + radius - origin.y},				// P7
+		{ rec.x + radius-origin.x,			rec.y + radius - origin.y},				// P8
+		{(rec.x + rec.w) - radius-origin.x,	rec.y + radius - origin.y},				// P9
+		{(rec.x + rec.w) - radius-origin.x,	(rec.y + rec.h) - radius - origin.y},	// P10
+		{ rec.x + radius-origin.x,			(rec.y + rec.h) - radius - origin.y}	// P11
+	}
+
+
+	centers:[4]Vec2= { point[8], point[9], point[10], point[11] }// The center of the 4 rounded corners
+	angles:[4]f32 = { 180, 270, 0, 90 }
+	tl, tr, bl, br :Vec2
+
+	if rot != 0 {
 		sin_rot := math.sin(rot)
 		cos_rot := math.cos(rot)
 		x :f32= rec.x
 		y :f32= rec.y
 		dx :f32= -rec.x
 		dy :f32= -rec.y
-	
+
 		point[0] = {
 			x + (dx + point[0].x) * cos_rot - (dy + point[0].y) * sin_rot,
 			y + (dx + point[0].x) * sin_rot + (dy + point[0].y) * cos_rot,
@@ -841,55 +845,71 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 			y + (dx + point[11].x) * sin_rot + (dy + point[11].y) * cos_rot,
 		}
 	}
-    angles:[4]f32 = { 180, 270, 0, 90 }
-    
-    tl :Vec2
-	tr :Vec2
-	bl :Vec2
-	br :Vec2
-    
-        // Draw all the 4 corners: [1] Upper Left Corner, [3] Upper Right Corner, [5] Lower Right Corner, [7] Lower Left Corner
-    for k :int= 0; k < 4; k+=1 {// Hope the compiler is smart enough to unroll this loop
-        angle :f32= angles[k]
-        center :Vec2= centers[k]
+	
+	// Draw all the 4 corners: 
+	// [1] Upper Left Corner, 
+	// [3] Upper Right Corner, 
+	// [5] Lower Right Corner, 
+	// [7] Lower Left Corner
+	for k :int= 0; k < 4; k+=1 {
+		angle :f32= angles[k]
+		center :Vec2= centers[k]
 
-        // NOTE: Every QUAD actually represents two segments
-        for i:int = 0; i < segments/2; i+=1 {
-        	
-	      	// Rotation adapted from Raylib's "DrawTexturePro"
+		// NOTE: Every QUAD actually represents two segments
+		for i:int = 0; i < segments/2; i+=1 {
+			// Rotation adapted from Raylib's "DrawTexturePro"
 			if rot == 0 {
-				x := center.x 
-				y := center.y 
+				x := center.x
+				y := center.y
 				tl = { x,y }
-				tr = { x + math.cos_f32((math.PI/180)*(angle + stepLength*2))*radius, y + math.sin_f32((math.PI/180)*(angle + stepLength*2))*radius}
-				bl = { x + math.cos_f32((math.PI/180)*(angle + stepLength))*radius, y + math.sin_f32((math.PI/180)*(angle + stepLength))*radius }
-				br = { x + math.cos_f32((math.PI/180)*angle)*radius, y + math.sin_f32((math.PI/180)*angle)*radius }
+				tr = { 
+					x + math.cos_f32((math.PI/180)*(angle + stepLength*2))*radius,
+					y + math.sin_f32((math.PI/180)*(angle + stepLength*2))*radius,
+				}
+				bl = {
+					x + math.cos_f32((math.PI/180)*(angle + stepLength))*radius,
+					y + math.sin_f32((math.PI/180)*(angle + stepLength))*radius,
+				}
+				br = {
+					x + math.cos_f32((math.PI/180)*angle)*radius,
+					y + math.sin_f32((math.PI/180)*angle)*radius,
+				}
 			} else {
 				sin_rot := math.sin(rot)
 				cos_rot := math.cos(rot)
-				x := (rec.x)
-				y := (rec.y)
-				dx :f32=0 
-				dy :f32=0 
+				
+				x := rec.x
+				y := rec.y
+				dx :f32= center.x-x
+				dy :f32= center.y-y
 				
 				tl = {
-					x + (dx+(center.x-x)) * cos_rot - (dy+(center.y-y)) * sin_rot,
-					y + (dx+(center.x-x)) * sin_rot + (dy+(center.y-y)) * cos_rot,
+					x + (dx) * cos_rot - (dy) * sin_rot,
+					y + (dx) * sin_rot + (dy) * cos_rot,
 				}
+				
+				tr_cos_rot := math.cos_f32((math.PI/180)*(angle + stepLength*2))*radius
+				tr_sin_rot := math.sin_f32((math.PI/180)*(angle + stepLength*2))*radius
 				tr = {
-					x + (dx+(center.x-x) + math.cos_f32((math.PI/180)*(angle + stepLength*2))*radius) * cos_rot - (dy+(center.y-y) + math.sin_f32((math.PI/180)*(angle + stepLength*2))*radius) * sin_rot,
-					y + (dx+(center.x-x) + math.cos_f32((math.PI/180)*(angle + stepLength*2))*radius) * sin_rot + (dy+(center.y-y) + math.sin_f32((math.PI/180)*(angle + stepLength*2))*radius) * cos_rot,
+					x + (dx + tr_cos_rot) * cos_rot - (dy + tr_sin_rot) * sin_rot,
+					y + (dx + tr_cos_rot) * sin_rot + (dy + tr_sin_rot) * cos_rot,
 				}
+				
+				bl_cos_rot := math.cos_f32((math.PI/180)*(angle + stepLength))*radius
+				bl_sin_rot := math.sin_f32((math.PI/180)*(angle + stepLength))*radius
 				bl = {
-					x + (dx+(center.x-x) + math.cos_f32((math.PI/180)*(angle + stepLength))*radius) * cos_rot - (dy+(center.y-y) + math.sin_f32((math.PI/180)*(angle + stepLength))*radius) * sin_rot,
-					y + (dx+(center.x-x) + math.cos_f32((math.PI/180)*(angle + stepLength))*radius) * sin_rot + (dy+(center.y-y) + math.sin_f32((math.PI/180)*(angle + stepLength))*radius) * cos_rot,
+					x + (dx + bl_cos_rot) * cos_rot - (dy + bl_sin_rot) * sin_rot,
+					y + (dx + bl_cos_rot) * sin_rot + (dy + bl_sin_rot) * cos_rot,
 				}
+				
+				br_cos_rot := math.cos_f32((math.PI/180)*angle)*radius
+				br_sin_rot := math.sin_f32((math.PI/180)*angle)*radius
 				br = {
-					x + (dx+(center.x-x) + math.cos_f32((math.PI/180)*angle)*radius) * cos_rot - (dy+(center.y-y) + math.sin_f32((math.PI/180)*angle)*radius) * sin_rot,
-					y + (dx+(center.x-x) + math.cos_f32((math.PI/180)*angle)*radius) * sin_rot + (dy+(center.y-y) + math.sin_f32((math.PI/180)*angle)*radius) * cos_rot,
+					x + (dx + br_cos_rot) * cos_rot - (dy + br_sin_rot) * sin_rot,
+					y + (dx + br_cos_rot) * sin_rot + (dy + br_sin_rot) * cos_rot,
 				}
 			}
-        	
+
 			batch_vertex(tl, {0, 0}, c)
 			batch_vertex(br, {1, 0}, c)
 			batch_vertex(bl, {1, 1}, c)
@@ -898,11 +918,11 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 			batch_vertex(tr, {1, 1}, c)
 			batch_vertex(bl, {0, 1}, c)
 
-            angle += (stepLength*2)
-        }
-    }
-    // [2] Upper Rectangle
-    tl = point[0]
+			angle += (stepLength*2)
+		}
+	}
+	// [2] Upper Rectangle
+	tl = point[0]
 	tr = point[8]
 	bl = point[1]
 	br = point[9]
@@ -913,8 +933,8 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	batch_vertex(br, {1, 1}, c)
 	batch_vertex(bl, {0, 1}, c)
 
-    // [4] Right Rectangle
-    tl = point[2]
+	// [4] Right Rectangle
+	tl = point[2]
 	tr = point[9]
 	bl = point[3]
 	br = point[10]
@@ -925,8 +945,8 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	batch_vertex(br, {1, 1}, c)
 	batch_vertex(bl, {0, 1}, c)
 
-    // [6] Bottom Rectangle
-    tl = point[11]
+	// [6] Bottom Rectangle
+	tl = point[11]
 	tr = point[5]
 	bl = point[10]
 	br = point[4]
@@ -937,8 +957,8 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	batch_vertex(br, {1, 1}, c)
 	batch_vertex(bl, {0, 1}, c)
 
-    // [8] Left Rectangle 
-    tl = point[7]
+	// [8] Left Rectangle 
+	tl = point[7]
 	tr = point[6]
 	bl = point[8]
 	br = point[11]
@@ -948,9 +968,9 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	batch_vertex(tl, {0, 0}, c)
 	batch_vertex(br, {1, 1}, c)
 	batch_vertex(bl, {0, 1}, c)
-	
-    // [9] Middle Rectangle
-    tl = point[8]
+
+	// [9] Middle Rectangle
+	tl = point[8]
 	tr = point[11]
 	bl = point[9]
 	br = point[10]
@@ -960,7 +980,7 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	batch_vertex(tl, {0, 0}, c)
 	batch_vertex(br, {1, 1}, c)
 	batch_vertex(bl, {0, 1}, c)
-    
+
 }
 
 

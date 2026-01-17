@@ -79,8 +79,6 @@ step :: proc() -> bool {
 	msg2 := fmt.tprintf("Last frame time: %.5f s", k2.get_frame_time())
 	k2.draw_text(msg1, {10, 148}, 48, k2.ORANGE)
 	k2.draw_text(msg2, {10, 196}, 48, k2.LIGHT_PURPLE)
-		
-	k2.draw_rect_rounded({200,50,50,50},.5,{255,55,55,255},{25,25},rot,3)
 	
 	k2.present()
 	free_all(context.temp_allocator)
