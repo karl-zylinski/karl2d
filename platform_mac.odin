@@ -46,7 +46,6 @@ Mac_State :: struct {
 	window_render_glue: Window_Render_Glue,
 
 	gamepads:           [MAX_GAMEPADS]Gamepad,
-	supports_haptics:   bool,
 }
 
 Gamepad :: struct {
@@ -54,9 +53,16 @@ Gamepad :: struct {
 	extended_gamepad:         ^gc.ExtendedGamepad,
 	button_inputs:            [Gamepad_Button]^gc.ControllerButtonInput,
 	button_was_pressed:       [Gamepad_Button]bool,
-	haptic_engine_left_right: [2]^gc.HapticEngine,
-	haptic_player_left_right: [2]^gc.HapticPatternPlayer,
-	old_intensity_left_right: [2]f32,
+}
+
+when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
+	Gamepad_Haptics :: struct {
+		haptic_engine_left_right: [2]^gc.HapticEngine,
+		haptic_player_left_right: [2]^gc.HapticPatternPlayer,
+		old_intensity_left_right: [2]f32,
+	}
+
+	gamepad_haptics: [MAX_GAMEPADS]Gamepad_Haptics
 }
 
 s: ^Mac_State
@@ -119,9 +125,6 @@ mac_init :: proc(
 	// Activate the application
 	s.app->activateIgnoringOtherApps(true)
 	s.app->finishLaunching()
-
-	process_info := NS.ProcessInfo_processInfo()
-	s.supports_haptics = process_info->isOperatingSystemAtLeastVersion({11, 0, 0})
 
 	// Add already connected controllers
 	poll_for_new_controllers()
@@ -368,39 +371,50 @@ mac_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 }
 
 mac_set_gamepad_vibration :: proc(gamepad_index: int, left: f32, right: f32) {
-	if !s.supports_haptics || !mac_is_gamepad_active(gamepad_index) do return
-	gamepad := &s.gamepads[gamepad_index]
+	when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
+		if !mac_is_gamepad_active(gamepad_index) do return
+		gamepad := &s.gamepads[gamepad_index]
+		haptics := &gamepad_haptics[gamepad_index]
 
-	// early stop so we shutoff player even if delta isn't past the threshold
-	if left < 0.01 {
-		stop_haptic_player(&gamepad.haptic_player_left_right[0])
+		// early stop so we shutoff player even if delta isn't past the threshold
+		if left < 0.01 {
+			stop_haptic_player(&haptics.haptic_player_left_right[0])
+		}
+		if right < 0.01 {
+			stop_haptic_player(&haptics.haptic_player_left_right[1])
+		}
+
+		// activation threshold, so we don't thrash needlessly (we can tweak this)
+		d_intensity_left  := abs(haptics.old_intensity_left_right[0] - left)
+		d_intensity_right := abs(haptics.old_intensity_left_right[1] - right)
+		if abs(d_intensity_left) < .10 && abs(d_intensity_right) < .10 {
+			return
+		}
+
+		haptics.old_intensity_left_right = {left, right}
+
+		// prep for new player
+		for &player in haptics.haptic_player_left_right {
+			stop_haptic_player(&player)
+		}
+
+		// Lazy-init haptic engine
+		left_initted := init_haptic_engine(
+			&haptics.haptic_engine_left_right[0],
+			gc.LeftHandle,
+			gamepad,
+		)
+		right_initted := init_haptic_engine(
+			&haptics.haptic_engine_left_right[1],
+			gc.RightHandle,
+			gamepad,
+		)
+
+		if !left_initted && !right_initted do return
+
+		create_haptic_player(0, left, haptics)
+		create_haptic_player(1, right, haptics)
 	}
-	if right < 0.01 {
-		stop_haptic_player(&gamepad.haptic_player_left_right[1])
-	}
-
-	// activation threshold, so we don't thrash needlessly (we can tweak this)
-	d_intensity_left  := abs(gamepad.old_intensity_left_right[0] - left)
-	d_intensity_right := abs(gamepad.old_intensity_left_right[1] - right)
-	if abs(d_intensity_left) < .10 && abs(d_intensity_right) < .10 {
-		return
-	}
-
-	gamepad.old_intensity_left_right = {left, right}
-
-	// prep for new player
-	for &player in gamepad.haptic_player_left_right {
-		stop_haptic_player(&player)
-	}
-
-	// Lazy-init haptic engine
-	left_initted := init_haptic_engine(0, gc.LeftHandle, gamepad)
-	right_initted := init_haptic_engine(1, gc.RightHandle, gamepad)
-
-	if !left_initted && !right_initted do return
-
-	create_haptic_player(0, left, gamepad)
-	create_haptic_player(1, right, gamepad)
 }
 
 mac_set_internal_state :: proc(state: rawptr) {
@@ -570,16 +584,19 @@ poll_for_new_controllers :: proc() {
 }
 
 remove_controller :: proc(controller: ^gc.Controller) {
-	for &gamepad in s.gamepads {
+	for &gamepad, gamepad_index in s.gamepads {
 		if gamepad.controller == controller {
-			for &engine in gamepad.haptic_engine_left_right {
-				if engine != nil {
-					engine->stopWithCompletionHandler(nil)
-					engine->release()
+			when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
+				for &engine in gamepad_haptics[gamepad_index].haptic_engine_left_right {
+					if engine != nil {
+						engine->stopWithCompletionHandler(nil)
+						engine->release()
+					}
 				}
-			}
-			for &player in gamepad.haptic_player_left_right {
-				stop_haptic_player(&player)
+				for &player in gamepad_haptics[gamepad_index].haptic_player_left_right {
+					stop_haptic_player(&player)
+				}
+				gamepad_haptics[gamepad_index] = {}
 			}
 			
 			// no need to release controller, extended_gamepad, or button_inputs;
@@ -614,63 +631,64 @@ make_button_inputs :: proc(egp: ^gc.ExtendedGamepad) -> [Gamepad_Button]^gc.Cont
 	}
 }
 
-stop_haptic_player :: proc(player: ^^gc.HapticPatternPlayer) {
-	if player^ == nil do return
+when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
+	stop_haptic_player :: proc(player: ^^gc.HapticPatternPlayer) {
+		if player^ == nil do return
 
-	player^->stopAtTime(gc.TimeImmediate, nil)
-	player^->release()
-	player^ = nil
-}
-
-init_haptic_engine :: proc(
-	left_right: int,
-	locality: gc.HapticsLocality,
-	gamepad: ^Gamepad,
-) -> bool {
-	if gamepad.haptic_engine_left_right[left_right] != nil do return true
-
-	haptics := gamepad.controller->haptics()
-	if haptics == nil do return false
-
-	engine := haptics->createEngineWithLocality(locality)
-	gamepad.haptic_engine_left_right[left_right] = engine
-	success := engine != nil && engine->startAndReturnError(nil)
-
-	return success
-}
-
-create_haptic_player :: proc(left_right: int, intensity: f32, gamepad: ^Gamepad) {
-	pattern: ^gc.HapticPattern
-
-	{
-		NS.scoped_autoreleasepool()
-
-		sharpness : f32 = left_right == 0 ? HAPTICS_SHARPNESS_LEFT : HAPTICS_SHARPNESS_RIGHT
-
-		sharpness_param := gc.HapticEventParameter_alloc()->
-			initWithParameterID(gc.HapticSharpness, sharpness)
-		intensity_param := gc.HapticEventParameter_alloc()->
-			initWithParameterID(gc.HapticIntensity, intensity)
-		params := [2]^NS.Object{intensity_param, sharpness_param}
-		params_array := NS.Array_alloc()->initWithObjects(raw_data(&params), 2)
-
-		event := gc.HapticEvent_alloc()->initWithEventType(
-			gc.HapticContinuous,
-			params_array,
-			0,
-			gc.HapticDurationInfinite,
-		)
-		events := [1]^NS.Object{event}
-		events_array := NS.Array_alloc()->initWithObjects(raw_data(&events), 1)
-
-		pattern = gc.HapticPattern_alloc()->initWithEvents(events_array, nil, nil)
-		if pattern == nil do return
+		player^->stopAtTime(gc.TimeImmediate, nil)
+		player^->release()
+		player^ = nil
 	}
 
-	gamepad.haptic_player_left_right[left_right] = gamepad.haptic_engine_left_right[left_right]->
-		createPlayerWithPattern(pattern, nil)
-	if gamepad.haptic_player_left_right[left_right] != nil {
-		gamepad.haptic_player_left_right[left_right]->startAtTime(gc.TimeImmediate, nil)
+	init_haptic_engine :: proc(
+		engine: ^^gc.HapticEngine,
+		locality: gc.HapticsLocality,
+		gamepad: ^Gamepad,
+	) -> bool {
+		if engine^ != nil do return true
+
+		haptics := gamepad.controller->haptics()
+		if haptics == nil do return false
+
+		engine^ = haptics->createEngineWithLocality(locality)
+		success := engine^ != nil && engine^->startAndReturnError(nil)
+
+		return success
 	}
 
+	create_haptic_player :: proc(left_right: int, intensity: f32, haptics: ^Gamepad_Haptics) {
+		pattern: ^gc.HapticPattern
+
+		{
+			NS.scoped_autoreleasepool()
+
+			sharpness : f32 = left_right == 0 ? HAPTICS_SHARPNESS_LEFT : HAPTICS_SHARPNESS_RIGHT
+
+			sharpness_param := gc.HapticEventParameter_alloc()->
+				initWithParameterID(gc.HapticSharpness, sharpness)
+			intensity_param := gc.HapticEventParameter_alloc()->
+				initWithParameterID(gc.HapticIntensity, intensity)
+			params := [2]^NS.Object{intensity_param, sharpness_param}
+			params_array := NS.Array_alloc()->initWithObjects(raw_data(&params), 2)
+
+			event := gc.HapticEvent_alloc()->initWithEventType(
+				gc.HapticContinuous,
+				params_array,
+				0,
+				gc.HapticDurationInfinite,
+			)
+			events := [1]^NS.Object{event}
+			events_array := NS.Array_alloc()->initWithObjects(raw_data(&events), 1)
+
+			pattern = gc.HapticPattern_alloc()->initWithEvents(events_array, nil, nil)
+			if pattern == nil do return
+		}
+
+		haptics.haptic_player_left_right[left_right] = haptics.haptic_engine_left_right[left_right]->
+			createPlayerWithPattern(pattern, nil)
+		if haptics.haptic_player_left_right[left_right] != nil {
+			haptics.haptic_player_left_right[left_right]->startAtTime(gc.TimeImmediate, nil)
+		}
+
+	}
 }
