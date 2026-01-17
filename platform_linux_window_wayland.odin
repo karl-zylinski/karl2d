@@ -422,9 +422,11 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		scl := f32(scale)/120
 		s.scale = scl
 
-		append(&s.events, Event_Window_Scale_Changed {
+		// Disabled because we don't yet make the base scale of the
+		// window correct.
+		/*append(&s.events, Event_Window_Scale_Changed {
 			scale = scl,
-		})
+		})*/
 	},
 }
 
@@ -465,7 +467,8 @@ wl_set_size :: proc(w, h: int) {
 }
 
 wl_get_window_scale :: proc() -> f32 {
-	return s.scale
+	// Disabled for now, as we don't make the base scale of the window correct yet.
+	return 1
 }
 
 wl_set_window_mode :: proc(window_mode: Window_Mode) {
