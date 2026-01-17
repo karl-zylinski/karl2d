@@ -243,6 +243,13 @@ draw_rect :: proc(r: Rect, c: Color)
 // Creates a rectangle from a position and a size and draws it.
 draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color)
 
+// Draw a rectangle with a custom origin and rotation.
+//
+// The origin says which point the rotation rotates around. If the origin is `(0, 0)`, then the
+// rectangle rotates around the top-left corner of the rectangle. If it is `(rect.w/2, rect.h/2)`
+// then the rectangle rotates around its center.
+//
+// Rotation unit: Radians.
 draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color)
 
 // Draw the outline of a rectangle with a specific thickness. The outline is drawn using four

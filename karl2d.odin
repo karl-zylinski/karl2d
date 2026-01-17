@@ -605,7 +605,13 @@ draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color) {
 	draw_rect({pos.x, pos.y, size.x, size.y}, c)
 }
 
-
+// Draw a rectangle with a custom origin and rotation.
+//
+// The origin says which point the rotation rotates around. If the origin is `(0, 0)`, then the
+// rectangle rotates around the top-left corner of the rectangle. If it is `(rect.w/2, rect.h/2)`
+// then the rectangle rotates around its center.
+//
+// Rotation unit: Radians.
 draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
@@ -740,7 +746,8 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
     if radius <= 0 {return}
 
     stepLength:f32 = 90/cast(f32)segments
-
+    
+    // Diagram points and part of the math was adapted from Raylib's "DrawRectangleRounded"
     /*
     Quick sketch to make sense of all of this,
     there are 9 parts to draw, also mark the 12 points we'll use
@@ -782,8 +789,8 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 		cos_rot := math.cos(rot)
 		x :f32= rec.x
 		y :f32= rec.y
-		dx :f32= -rec.x//-origin.x //+ (center.x-x)
-		dy :f32= -rec.y//-origin.y //+ (center.y-y)
+		dx :f32= -rec.x
+		dy :f32= -rec.y
 	
 		point[0] = {
 			x + (dx + point[0].x) * cos_rot - (dy + point[0].y) * sin_rot,
