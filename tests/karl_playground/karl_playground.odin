@@ -64,6 +64,8 @@ step :: proc() -> bool {
 		rot += k2.get_frame_time() * 5
 	}
 
+	
+	
 	k2.draw_texture_ex(tex, {0, 0, f32(tex.width), f32(tex.height)}, {400, 450, 900, 500}, {450, 250}, rot)
 
 	k2.draw_rect({pos_x + 10, 10, 60, 60}, k2.GREEN)
@@ -79,6 +81,35 @@ step :: proc() -> bool {
 	msg2 := fmt.tprintf("Last frame time: %.5f s", k2.get_frame_time())
 	k2.draw_text(msg1, {10, 148}, 48, k2.ORANGE)
 	k2.draw_text(msg2, {10, 196}, 48, k2.LIGHT_PURPLE)
+
+	k2.draw_triangle({200,10},{{0,0},{50,0},{0,50}},{0,0},rot,k2.RED)
+	k2.draw_triangle_strip({300,10},{{0,0},{0,50},{50,0},{50,50},{100,0},{100,50},{150,0},{150,50}},{0,0},rot,k2.RED)
+	k2.draw_triangle_strip_ex(
+		{300,10+60},
+		{
+			{v={0,0},	uv={0,0},	c={255,0,0,255}},
+			{v={0,60},	uv={0,1},	c={255,25,0,255}},
+			{v={50,10},	uv={.33,0},	c={255,50,0,255}},
+			{v={50,75},	uv={.33,1},	c={255,75,0,255}},
+			{v={100,0},	uv={.75,0},	c={255,100,0,255}},
+			{v={100,40},uv={.75,1},	c={255,125,0,255}},
+			{v={150,0},	uv={1,0},	c={255,150,0,255}},
+			{v={150,50},uv={1,1},	c={255,175,0,255}}
+		},
+		{0,0},
+		rot=rot,
+		tex=tex
+	)
+	
+	k2.draw_quad({600,50},{
+		{v={0,0},uv={0,0},c={5,5,255,255}},
+		{v={120,0},uv={1,0},c={255,255,5,255}},
+		{v={-50,120},uv={0,1},c={255,5,255,255}},
+		{v={80,90},uv={1,1},c={255,255,255,255}}
+	},
+	rot = rot,
+	tex = tex,
+	)
 
 	k2.present()
 	free_all(context.temp_allocator)
