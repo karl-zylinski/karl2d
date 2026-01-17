@@ -1080,7 +1080,7 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
-
+ 
 	if s.batch_texture != tex.handle {
 		draw_current_batch()
 	}
