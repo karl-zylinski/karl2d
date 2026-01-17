@@ -489,8 +489,6 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		s.width = int(width)
 		s.height = int(height)
 
-		log.info(s.width)
-
 		append(frame_events, Event_Resize {
 			width = int(width),
 			height = int(height),
