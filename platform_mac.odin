@@ -625,7 +625,7 @@ remove_no_longer_connected_controllers :: proc(controllers: ^gc.ControllerArray,
 }
 
 controller_is_registered :: proc(controller: ^gc.Controller) -> bool {
-	for gamepad, gamepad_index in s.gamepads {
+	for gamepad in s.gamepads {
 		if gamepad.controller == controller {
 			return true
 		}
