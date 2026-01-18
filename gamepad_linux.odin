@@ -162,12 +162,16 @@ Linux_Axis_Info :: struct {
 	absinfo:          input_absinfo,
 	value:            f32, // originaly a c.int
 	normalized_value: f32,
+    previous_value:   f32,
 }
 
 Linux_Gamepad :: struct {
 	fd:   os.Handle,
 	name: string,
 	axes: map[Linux_Axis]Linux_Axis_Info,
+
+    // This is needed to emit the correct Event_Gamepad_Button_Went_Up events
+    previous_hat_values: map[Linux_Axis]f32,
 }
 
 Linux_GamepadEvent :: union {

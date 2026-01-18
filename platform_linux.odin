@@ -106,14 +106,18 @@ linux_get_events :: proc(events: ^[dynamic]Event) {
 
                 case .BTN_A: button = .Right_Face_Down
                 case .BTN_B: button = .Right_Face_Right
-                case .BTN_X: button = .Right_Face_Left
-                case .BTN_Y: button = .Right_Face_Up
+                // case .BTN_X: button = .Right_Face_Left
+                // case .BTN_Y: button = .Right_Face_Up
+                case .BTN_X: button = .Right_Face_Up
+                case .BTN_Y: button = .Right_Face_Left
 
                 case .BTN_TL: button = .Left_Trigger
                 case .BTN_TL2: button = .Left_Shoulder
                 case .BTN_TR: button = .Right_Trigger
                 case .BTN_TR2: button = .Right_Shoulder
 
+			    case .BTN_SELECT: button = .Middle_Face_Left
+			    case .BTN_MODE: button = .Middle_Face_Middle
 			    case .BTN_START: button = .Middle_Face_Right
                 case .BTN_THUMBL: button = .Left_Stick_Press
                 case .BTN_THUMBR: button = .Right_Stick_Press
@@ -131,6 +135,78 @@ linux_get_events :: proc(events: ^[dynamic]Event) {
                     evt = Event_Gamepad_Button_Went_Up {
                         gamepad = idx,
                         button = button.?,
+                    }
+                }
+                if evt != nil {
+				    append(frame_events, evt)
+			    }
+            case Linux_AxisEvent: 
+                // The following deals with Gamepads emitting DPAD events
+                // as an analog axis. We need to store the previous value
+                // so that we emit the correct Event_Gamepad_Button_Went_Up 
+                // events.
+                evt: Event
+                button: Maybe(Gamepad_Button)
+                #partial switch e.axis {
+                case .HAT0X:
+                    if e.normalized_value < 0 {
+                        button = .Left_Face_Left
+                        evt = Event_Gamepad_Button_Went_Down {
+                            gamepad = idx,
+                            button = button.?,
+                        }
+                        gp.previous_hat_values[.HAT0X] = e.normalized_value
+                    }
+                    if e.normalized_value > 0 {
+                        button = .Left_Face_Right
+                        evt = Event_Gamepad_Button_Went_Down {
+                            gamepad = idx,
+                            button = button.?,
+                        }
+                        gp.previous_hat_values[.HAT0X] = e.normalized_value
+                    }
+                    if e.normalized_value == 0 {
+                        if gp.previous_hat_values[.HAT0X] == -1 {
+                            evt = Event_Gamepad_Button_Went_Up {
+                                gamepad = idx,
+                                button = .Left_Face_Left,
+                            }
+                        } else if gp.previous_hat_values[.HAT0X] == 1  {
+                            evt = Event_Gamepad_Button_Went_Up {
+                                gamepad = idx,
+                                button = .Left_Face_Right,
+                            }
+                        }
+                    }
+                case .HAT0Y:
+                    if e.normalized_value < 0 {
+                        button = .Left_Face_Up
+                        evt = Event_Gamepad_Button_Went_Down {
+                            gamepad = idx,
+                            button = button.?,
+                        }
+                        gp.previous_hat_values[.HAT0X] = e.normalized_value
+                    }
+                    if e.normalized_value > 0 {
+                        button = .Left_Face_Down
+                        evt = Event_Gamepad_Button_Went_Down {
+                            gamepad = idx,
+                            button = button.?,
+                        }
+                        gp.previous_hat_values[.HAT0X] = e.normalized_value
+                    }
+                    if e.normalized_value == 0 {
+                        if gp.previous_hat_values[.HAT0X] == -1 {
+                            evt = Event_Gamepad_Button_Went_Up {
+                                gamepad = idx,
+                                button = .Left_Face_Up,
+                            }
+                        } else if gp.previous_hat_values[.HAT0X] == 1  {
+                            evt = Event_Gamepad_Button_Went_Up {
+                                gamepad = idx,
+                                button = .Left_Face_Down,
+                            }
+                        }
                     }
                 }
                 if evt != nil {
@@ -172,7 +248,7 @@ linux_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
     case .Left_Stick_X: return gamepad.axes[Linux_Axis.X].normalized_value
     case .Left_Stick_Y: return gamepad.axes[Linux_Axis.Y].normalized_value
     case .Right_Stick_X: return gamepad.axes[Linux_Axis.RX].normalized_value  
-    case .Right_Stick_Y: return gamepad.axes[Linux_Axis.RX].normalized_value
+    case .Right_Stick_Y: return gamepad.axes[Linux_Axis.RY].normalized_value
     case .Left_Trigger: return gamepad.axes[Linux_Axis.HAT1Y].normalized_value // Not sure it's this axis
     case .Right_Trigger: return gamepad.axes[Linux_Axis.HAT1X].normalized_value // Not sure it's this axis
     }
