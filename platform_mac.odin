@@ -33,6 +33,7 @@ HAPTICS_SHARPNESS_LEFT  :: 0.1
 HAPTICS_SHARPNESS_RIGHT :: 0.9
 
 Mac_State :: struct {
+	odin_ctx:         runtime.Context,
 	allocator:        runtime.Allocator,
 	app:              ^NS.Application,
 	window:           ^NS.Window,
@@ -74,6 +75,7 @@ mac_init :: proc(
 ) {
 	assert(window_state != nil)
 	s = (^Mac_State)(window_state)
+	s.odin_ctx = context
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
 	s.width = screen_width
@@ -128,7 +130,7 @@ mac_init :: proc(
 	notificationCenter->addObserverForName(
 		gc.DidConnectNotification, nil, nil,
 		NS.Block_createGlobalWithParam(s, proc "c" (s: rawptr, n: ^NS.Notification) {
-			context = runtime.default_context()
+			context = (^Mac_State)(s).odin_ctx
 
 			poll_for_new_controllers()
 		}),
@@ -136,7 +138,7 @@ mac_init :: proc(
 	notificationCenter->addObserverForName(
 		gc.DidDisconnectNotification, nil, nil,
 		NS.Block_createGlobalWithParam(s, proc "c" (s: rawptr, n: ^NS.Notification) {
-			context = runtime.default_context()
+			context = (^Mac_State)(s).odin_ctx
 
 			controller := (^gc.Controller)(n->object())
 			remove_controller(controller)
