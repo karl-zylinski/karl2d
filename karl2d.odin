@@ -775,80 +775,43 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	// Coordinates of the 12 points that define the rounded rect
 	point:[12]Vec2
 	point = {
-		{ rec.x + radius-origin.x,			rec.y - origin.y},						// P0
-		{(rec.x + rec.w) - radius-origin.x,	rec.y - origin.y},						// P1
-		{ rec.x + rec.w-origin.x,			rec.y + radius - origin.y},				// P2
-		{ rec.x + rec.w-origin.x,			(rec.y + rec.h) - radius - origin.y},	// P3
-		{(rec.x + rec.w) - radius-origin.x,	rec.y + rec.h  - origin.y},				// P4
-		{ rec.x + radius-origin.x,			rec.y + rec.h  - origin.y},				// P5
-		{ rec.x - origin.x,					(rec.y + rec.h) - radius - origin.y},	// P6
-		{ rec.x - origin.x,					rec.y + radius - origin.y},				// P7
-		{ rec.x + radius-origin.x,			rec.y + radius - origin.y},				// P8
-		{(rec.x + rec.w) - radius-origin.x,	rec.y + radius - origin.y},				// P9
-		{(rec.x + rec.w) - radius-origin.x,	(rec.y + rec.h) - radius - origin.y},	// P10
-		{ rec.x + radius-origin.x,			(rec.y + rec.h) - radius - origin.y}	// P11
+		{ radius,			0},					// P0
+		{(rec.w) - radius,	0},					// P1
+		{ rec.w,			radius},			// P2
+		{ rec.w,			(rec.h) - radius},	// P3
+		{(rec.w) - radius,	rec.h},				// P4
+		{ radius,			rec.h},				// P5
+		{ 0,				(rec.h) - radius},	// P6
+		{ 0,				radius},			// P7
+		{ radius,			radius},			// P8
+		{(rec.w) - radius,	radius},			// P9
+		{(rec.w) - radius,	(rec.h) - radius},	// P10
+		{ radius,			(rec.h) - radius},	// P11
 	}
-
-
+	
 	centers:[4]Vec2= { point[8], point[9], point[10], point[11] }// The center of the 4 rounded corners
 	angles:[4]f32 = { 180, 270, 0, 90 }
 	tl, tr, bl, br :Vec2
-
-	if rot != 0 {
+	
+	if rot == 0 {
+		xy:Vec2={rec.x,rec.y}
+		for &p in point{// this shifts the rect to the correct pos
+			p+=xy
+			p+=-origin
+		}
+	}else{
 		sin_rot := math.sin(rot)
 		cos_rot := math.cos(rot)
 		x :f32= rec.x
 		y :f32= rec.y
-		dx :f32= -rec.x
-		dy :f32= -rec.y
-
-		point[0] = {
-			x + (dx + point[0].x) * cos_rot - (dy + point[0].y) * sin_rot,
-			y + (dx + point[0].x) * sin_rot + (dy + point[0].y) * cos_rot,
-		}
-		point[1] = {
-			x + (dx + point[1].x) * cos_rot - (dy + point[1].y) * sin_rot,
-			y + (dx + point[1].x) * sin_rot + (dy + point[1].y) * cos_rot,
-		}
-		point[2] = {
-			x + (dx + point[2].x) * cos_rot - (dy + point[2].y) * sin_rot,
-			y + (dx + point[2].x) * sin_rot + (dy + point[2].y) * cos_rot,
-		}
-		point[3] = {
-			x + (dx + point[3].x) * cos_rot - (dy + point[3].y) * sin_rot,
-			y + (dx + point[3].x) * sin_rot + (dy + point[3].y) * cos_rot,
-		}
-		point[4] = {
-			x + (dx + point[4].x) * cos_rot - (dy + point[4].y) * sin_rot,
-			y + (dx + point[4].x) * sin_rot + (dy + point[4].y) * cos_rot,
-		}
-		point[5] = {
-			x + (dx + point[5].x) * cos_rot - (dy + point[5].y) * sin_rot,
-			y + (dx + point[5].x) * sin_rot + (dy + point[5].y) * cos_rot,
-		}
-		point[6] = {
-			x + (dx + point[6].x) * cos_rot - (dy + point[6].y) * sin_rot,
-			y + (dx + point[6].x) * sin_rot + (dy + point[6].y) * cos_rot,
-		}
-		point[7] = {
-			x + (dx + point[7].x) * cos_rot - (dy + point[7].y) * sin_rot,
-			y + (dx + point[7].x) * sin_rot + (dy + point[7].y) * cos_rot,
-		}
-		point[8] = {
-			x + (dx + point[8].x) * cos_rot - (dy + point[8].y) * sin_rot,
-			y + (dx + point[8].x) * sin_rot + (dy + point[8].y) * cos_rot,
-		}
-		point[9] = {
-			x + (dx + point[9].x) * cos_rot - (dy + point[9].y) * sin_rot,
-			y + (dx + point[9].x) * sin_rot + (dy + point[9].y) * cos_rot,
-		}
-		point[10] = {
-			x + (dx + point[10].x) * cos_rot - (dy + point[10].y) * sin_rot,
-			y + (dx + point[10].x) * sin_rot + (dy + point[10].y) * cos_rot,
-		}
-		point[11] = {
-			x + (dx + point[11].x) * cos_rot - (dy + point[11].y) * sin_rot,
-			y + (dx + point[11].x) * sin_rot + (dy + point[11].y) * cos_rot,
+		dx :f32= -origin.x
+		dy :f32= -origin.y
+		
+		for &p in point{// this shifts the rect to the correct pos and rotates it
+			p = {
+				x + (dx + p.x) * cos_rot - (dy + p.y) * sin_rot,
+				y + (dx + p.x) * sin_rot + (dy + p.y) * cos_rot,
+			}
 		}
 	}
 	
@@ -860,13 +823,12 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	for k :int= 0; k < 4; k+=1 {
 		angle :f32= angles[k]
 		center :Vec2= centers[k]
-
 		// NOTE: Every QUAD actually represents two segments
-		for i:int = 0; i < segments/2; i+=1 {
+		for i := 0; i < segments/2; i+=1 {
 			// Rotation adapted from Raylib's "DrawTexturePro"
 			if rot == 0 {
-				x := center.x
-				y := center.y
+				x := center.x + rec.x - origin.x
+				y := center.y + rec.y - origin.y
 				tl = { x,y }
 				tr = { 
 					x + math.cos_f32((math.PI/180)*(angle + stepLength*2))*radius,
@@ -886,8 +848,8 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 				
 				x := rec.x
 				y := rec.y
-				dx :f32= center.x-x
-				dy :f32= center.y-y
+				dx :f32= center.x - origin.x
+				dy :f32= center.y - origin.y
 				
 				tl = {
 					x + (dx) * cos_rot - (dy) * sin_rot,
