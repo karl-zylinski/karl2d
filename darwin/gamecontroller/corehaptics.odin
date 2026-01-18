@@ -112,7 +112,7 @@ when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 		self: ^HapticPattern,
 		events: ^NS.Array,
 		parameters: ^NS.Array,
-		error: ^^NS.Error
+		error: ^^NS.Error,
 	) -> ^HapticPattern {
 		return msgSend(^HapticPattern, self, "initWithEvents:parameters:error:", events,
 			parameters, error)
@@ -152,7 +152,7 @@ when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 	HapticEventParameter_initWithParameterID :: proc "c" (
 		self: ^HapticEventParameter,
 		parameter_id: EventParameterID,
-		value: f32
+		value: f32,
 	) -> ^HapticEventParameter {
 		return msgSend(^HapticEventParameter, self, "initWithParameterID:value:", parameter_id, value)
 	}
