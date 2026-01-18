@@ -46,8 +46,7 @@ windows_init :: proc(
 	s.allocator = allocator
 	s.width = screen_width
 	s.height = screen_height
-	s.restore_width = screen_width
-	s.restore_height = screen_height
+	s.events = make([dynamic]Event, allocator = allocator)
 	s.custom_context = context
 	
 	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
@@ -65,6 +64,17 @@ windows_init :: proc(
 
 	win32.RegisterClassW(&cls)
 
+	initial_rect := win32.RECT {
+		0,
+		0,
+		i32(screen_width),
+		i32(screen_height),
+	}
+
+	dpix, dpiy: win32.UINT
+	win32.GetDpiForMonitor(win32.MonitorFromWindow(nil, .MONITOR_DEFAULTTOPRIMARY), {}, &dpix, &dpiy)
+	win32.AdjustWindowRectExForDpi(&initial_rect, windows_get_style(options.window_mode), false, {}, dpix)
+
 	// We create a window with default position and size. We set the correct size in
 	// `windows_set_window_mode`.
 	s.hwnd = win32.CreateWindowW(
@@ -72,7 +82,8 @@ windows_init :: proc(
 		win32.utf8_to_wstring(window_title),
 		win32.WS_VISIBLE,
 		win32.CW_USEDEFAULT, win32.CW_USEDEFAULT,
-		win32.CW_USEDEFAULT, win32.CW_USEDEFAULT,
+		i32(initial_rect.right - initial_rect.left),
+		i32(initial_rect.bottom - initial_rect.top),
 		nil, nil, instance, nil,
 	)
 	assert(s.hwnd != nil, "Failed creating window")
@@ -96,18 +107,14 @@ windows_init :: proc(
 
 windows_shutdown :: proc() {
 	win32.DestroyWindow(s.hwnd)
+	delete(s.events)
 }
 
 windows_get_window_render_glue :: proc() -> Window_Render_Glue {
 	return s.window_render_glue
 }
 
-// Set each frame when windows_get_events runs
-frame_events: ^[dynamic]Event
-
 windows_get_events :: proc(events: ^[dynamic]Event) {
-	frame_events = events
-
 	msg: win32.MSG
 
 	// This loop will call `window_proc` which will add more things to `frame_events`.
@@ -166,12 +173,13 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 			}
 
 			if evt != nil {
-				append(frame_events, evt)
+				append(&s.events, evt)
 			}
 		}
 	}
 
-	frame_events = nil	
+	append(events, ..s.events[:])
+	runtime.clear(&s.events)
 }
 
 windows_get_width :: proc() -> int {
@@ -324,6 +332,8 @@ Windows_State :: struct {
 	width: int,
 	height: int,
 
+	events: [dynamic]Event,
+
 	// for when returning from fullscreen to window mode
 	restore_pos_x: int,
 	restore_pos_y: int,
@@ -372,7 +382,8 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 	case .Borderless_Fullscreen:
 		mi := win32.MONITORINFO { cbSize = size_of (win32.MONITORINFO)}
 		mon := win32.MonitorFromWindow(s.hwnd, .MONITOR_DEFAULTTONEAREST)
-		if (win32.GetMonitorInfoW(mon, &mi)) {
+
+		if win32.GetMonitorInfoW(mon, &mi) {
 			win32.SetWindowPos(s.hwnd, win32.HWND_TOP,
 			mi.rcMonitor.left, mi.rcMonitor.top,
 			mi.rcMonitor.right - mi.rcMonitor.left,
@@ -392,7 +403,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		win32.PostQuitMessage(0)
 
 	case win32.WM_CLOSE:
-		append(frame_events, Event_Close_Window_Requested{})
+		append(&s.events, Event_Close_Window_Requested{})
 
 	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:
 		repeat := bool(lparam & (1 << 30))
@@ -401,7 +412,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			key := key_from_event_params(wparam, lparam)
 
 			if key != .None {
-				append(frame_events, Event_Key_Went_Down {
+				append(&s.events, Event_Key_Went_Down {
 					key = key,
 				})
 			}
@@ -410,7 +421,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_SYSKEYUP, win32.WM_KEYUP:
 		key := key_from_event_params(wparam, lparam)
 		if key != .None {
-			append(frame_events, Event_Key_Went_Up {
+			append(&s.events, Event_Key_Went_Up {
 				key = key,
 			})
 		}
@@ -418,67 +429,67 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_MOUSEMOVE:
 		x := win32.GET_X_LPARAM(lparam)
 		y := win32.GET_Y_LPARAM(lparam)
-		append(frame_events, Event_Mouse_Move {
+		append(&s.events, Event_Mouse_Move {
 			position = {f32(x), f32(y)},
 		})
 
 	case win32.WM_MOUSEWHEEL:
 		delta := f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
 
-		append(frame_events, Event_Mouse_Wheel {
+		append(&s.events, Event_Mouse_Wheel {
 			delta = delta,
 		})
 
 	case win32.WM_LBUTTONDOWN:
-		append(frame_events, Event_Mouse_Button_Went_Down {
+		append(&s.events, Event_Mouse_Button_Went_Down {
 			button = .Left,
 		})
 		win32.SetCapture(s.hwnd)
 
 	case win32.WM_LBUTTONUP:
-		append(frame_events, Event_Mouse_Button_Went_Up {
+		append(&s.events, Event_Mouse_Button_Went_Up {
 			button = .Left,
 		})
 		win32.ReleaseCapture()
 
 	case win32.WM_MBUTTONDOWN:
-		append(frame_events, Event_Mouse_Button_Went_Down {
+		append(&s.events, Event_Mouse_Button_Went_Down {
 			button = .Middle,
 		})
 		win32.SetCapture(s.hwnd)
 
 	case win32.WM_MBUTTONUP:
-		append(frame_events, Event_Mouse_Button_Went_Up {
+		append(&s.events, Event_Mouse_Button_Went_Up {
 			button = .Middle,
 		})
 		win32.ReleaseCapture()
 
 	case win32.WM_RBUTTONDOWN:
-		append(frame_events, Event_Mouse_Button_Went_Down {
+		append(&s.events, Event_Mouse_Button_Went_Down {
 			button = .Right,
 		})
 		win32.SetCapture(s.hwnd)
 
 	case win32.WM_RBUTTONUP:
-		append(frame_events, Event_Mouse_Button_Went_Up {
+		append(&s.events, Event_Mouse_Button_Went_Up {
 			button = .Right,
 		})
 		win32.ReleaseCapture()
 
 	case win32.WM_MOVE:
-		/*if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
+		if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
 			x := win32.LOWORD(lparam)
 			y := win32.HIWORD(lparam)
 
-			s.windowed_pos_x = int(x)
-			s.windowed_pos_y = int(y)
-		}*/
+			s.restore_pos_x = int(x)
+			s.restore_pos_y = int(y)
+		}
 
 	case win32.WM_DPICHANGED:
 		// Set the window mode again so everything is correct size after DPI change.
 		windows_set_window_mode(s.window_mode)
 
-		append(frame_events, Event_Window_Scale_Changed {
+		append(&s.events, Event_Window_Scale_Changed {
 			scale = windows_get_window_scale(),
 		})
 
@@ -489,16 +500,21 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		s.width = int(width)
 		s.height = int(height)
 
-		append(frame_events, Event_Resize {
+		if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
+			s.restore_width = s.width
+			s.restore_height = s.height
+		}
+
+		append(&s.events, Event_Resize {
 			width = int(width),
 			height = int(height),
 		})
 
 	case win32.WM_SETFOCUS:
-		append(frame_events, Event_Window_Focused {})
+		append(&s.events, Event_Window_Focused {})
 
 	case win32.WM_KILLFOCUS:
-		append(frame_events, Event_Window_Unfocused {})
+		append(&s.events, Event_Window_Unfocused {})
 	}
 
 
