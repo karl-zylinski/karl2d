@@ -799,16 +799,16 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	if rot == 0 {
 		xy:Vec2={rec.x,rec.y}
 		for &p in point{// this shifts all of the points to the correct pos
-			p+=xy
-			p+=-origin
+			p += xy
+			p += -origin
 		}
 	}else{
 		sin_rot := math.sin(rot)
 		cos_rot := math.cos(rot)
-		x :f32= rec.x
-		y :f32= rec.y
-		dx :f32= -origin.x
-		dy :f32= -origin.y
+		x := rec.x
+		y := rec.y
+		dx := -origin.x
+		dy := -origin.y
 		// this shifts all of the points to the correct pos and rotates it
 		for &p in point{
 			p = {
@@ -852,8 +852,8 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 				cos_rot := math.cos(rot)
 				x := rec.x
 				y := rec.y
-				dx :f32= center.x - origin.x
-				dy :f32= center.y - origin.y
+				dx := center.x - origin.x
+				dy := center.y - origin.y
 				
 				tl = {
 					x + (dx) * cos_rot - (dy) * sin_rot,
