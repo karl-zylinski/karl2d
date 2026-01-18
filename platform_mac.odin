@@ -53,16 +53,9 @@ Gamepad :: struct {
 	extended_gamepad:         ^gc.ExtendedGamepad,
 	button_inputs:            [Gamepad_Button]^gc.ControllerButtonInput,
 	button_was_pressed:       [Gamepad_Button]bool,
-}
-
-when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
-	Gamepad_Haptics :: struct {
-		haptic_engine_left_right: [2]^gc.HapticEngine,
-		haptic_player_left_right: [2]^gc.HapticPatternPlayer,
-		old_intensity_left_right: [2]f32,
-	}
-
-	gamepad_haptics: [MAX_GAMEPADS]Gamepad_Haptics
+	haptic_engine_left_right: [2]^gc.HapticEngine,
+	haptic_player_left_right: [2]^gc.HapticPatternPlayer,
+	old_intensity_left_right: [2]f32,
 }
 
 s: ^Mac_State
@@ -374,46 +367,45 @@ mac_set_gamepad_vibration :: proc(gamepad_index: int, left: f32, right: f32) {
 	when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 		if !mac_is_gamepad_active(gamepad_index) do return
 		gamepad := &s.gamepads[gamepad_index]
-		haptics := &gamepad_haptics[gamepad_index]
 
 		// early stop so we shutoff player even if delta isn't past the threshold
 		if left < 0.01 {
-			stop_haptic_player(&haptics.haptic_player_left_right[0])
+			stop_haptic_player(&gamepad.haptic_player_left_right[0])
 		}
 		if right < 0.01 {
-			stop_haptic_player(&haptics.haptic_player_left_right[1])
+			stop_haptic_player(&gamepad.haptic_player_left_right[1])
 		}
 
 		// activation threshold, so we don't thrash needlessly (we can tweak this)
-		d_intensity_left  := abs(haptics.old_intensity_left_right[0] - left)
-		d_intensity_right := abs(haptics.old_intensity_left_right[1] - right)
+		d_intensity_left  := abs(gamepad.old_intensity_left_right[0] - left)
+		d_intensity_right := abs(gamepad.old_intensity_left_right[1] - right)
 		if abs(d_intensity_left) < .10 && abs(d_intensity_right) < .10 {
 			return
 		}
 
-		haptics.old_intensity_left_right = {left, right}
+		gamepad.old_intensity_left_right = {left, right}
 
 		// prep for new player
-		for &player in haptics.haptic_player_left_right {
+		for &player in gamepad.haptic_player_left_right {
 			stop_haptic_player(&player)
 		}
 
 		// Lazy-init haptic engine
 		left_initted := init_haptic_engine(
-			&haptics.haptic_engine_left_right[0],
+			&gamepad.haptic_engine_left_right[0],
 			gc.LeftHandle,
 			gamepad,
 		)
 		right_initted := init_haptic_engine(
-			&haptics.haptic_engine_left_right[1],
+			&gamepad.haptic_engine_left_right[1],
 			gc.RightHandle,
 			gamepad,
 		)
 
 		if !left_initted && !right_initted do return
 
-		create_haptic_player(0, left, haptics)
-		create_haptic_player(1, right, haptics)
+		create_haptic_player(0, left, gamepad)
+		create_haptic_player(1, right, gamepad)
 	}
 }
 
@@ -638,16 +630,15 @@ remove_controller :: proc(controller: ^gc.Controller) {
 		if gamepad.controller == controller {
 			// haptic support is only available in 11.0.0
 			when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
-				for &engine in gamepad_haptics[gamepad_index].haptic_engine_left_right {
+				for &engine in gamepad.haptic_engine_left_right {
 					if engine != nil {
 						engine->stopWithCompletionHandler(nil)
 						engine->release()
 					}
 				}
-				for &player in gamepad_haptics[gamepad_index].haptic_player_left_right {
+				for &player in gamepad.haptic_player_left_right {
 					stop_haptic_player(&player)
 				}
-				gamepad_haptics[gamepad_index] = {}
 			}
 			
 			// no need to release controller, extended_gamepad, or button_inputs;
@@ -707,7 +698,7 @@ when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 		return success
 	}
 
-	create_haptic_player :: proc(left_right: int, intensity: f32, haptics: ^Gamepad_Haptics) {
+	create_haptic_player :: proc(left_right: int, intensity: f32, gamepad: ^Gamepad) {
 		pattern: ^gc.HapticPattern
 
 		{
@@ -735,10 +726,10 @@ when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 			if pattern == nil do return
 		}
 
-		haptics.haptic_player_left_right[left_right] = haptics.haptic_engine_left_right[left_right]->
+		gamepad.haptic_player_left_right[left_right] = gamepad.haptic_engine_left_right[left_right]->
 			createPlayerWithPattern(pattern, nil)
-		if haptics.haptic_player_left_right[left_right] != nil {
-			haptics.haptic_player_left_right[left_right]->startAtTime(gc.TimeImmediate, nil)
+		if gamepad.haptic_player_left_right[left_right] != nil {
+			gamepad.haptic_player_left_right[left_right]->startAtTime(gc.TimeImmediate, nil)
 		}
 
 	}

@@ -248,16 +248,4 @@ when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 	Controller_haptics :: proc "c" (self: ^Controller) -> ^Haptics {
 		return msgSend(^Haptics, self, "haptics")
 	}
-
-	// GCHaptics - for creating haptic engines
-	@(objc_class="GCHaptics")
-		Haptics :: struct { using _: NS.Object }
-
-	@(objc_type=Haptics, objc_name="createEngineWithLocality")
-	Haptics_createEngineWithLocality :: proc "c" (
-		self: ^Haptics,
-		locality: HapticsLocality,
-	) -> ^HapticEngine {
-		return msgSend(^HapticEngine, self, "createEngineWithLocality:", locality)
-	}
 }
