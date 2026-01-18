@@ -70,6 +70,8 @@ linux_init :: proc(
 		options,
 		allocator,
 	)
+
+    s.gamepads = gamepad_init_devices()
 }
 
 linux_shutdown :: proc() {
@@ -85,7 +87,58 @@ linux_get_window_render_glue :: proc() -> Window_Render_Glue {
 linux_get_events :: proc(events: ^[dynamic]Event) {
 	s.win.get_events(events)
 
+    frame_events := events
+
 	// Maybe add gamepad events here?
+    for &gp, idx in s.gamepads {
+        events := gamepad_poll(&gp)
+        for event in events {
+            #partial switch e in event {
+            case Linux_ButtonEvent:
+                btn := e.button
+                val := e.value
+                button: Maybe(Gamepad_Button)
+                #partial switch btn {
+                case .BTN_DPAD_UP: button = .Left_Face_Right
+                case .BTN_DPAD_DOWN: button = .Left_Face_Down
+                case .BTN_DPAD_LEFT: button = .Left_Face_Left
+                case .BTN_DPAD_RIGHT: button = .Left_Face_Up
+
+                case .BTN_A: button = .Right_Face_Down
+                case .BTN_B: button = .Right_Face_Right
+                case .BTN_X: button = .Right_Face_Left
+                case .BTN_Y: button = .Right_Face_Up
+
+                case .BTN_TL: button = .Left_Trigger
+                case .BTN_TL2: button = .Left_Shoulder
+                case .BTN_TR: button = .Right_Trigger
+                case .BTN_TR2: button = .Right_Shoulder
+
+			    case .BTN_START: button = .Middle_Face_Right
+                case .BTN_THUMBL: button = .Left_Stick_Press
+                case .BTN_THUMBR: button = .Right_Stick_Press
+
+                case: continue
+                }
+                evt: Event
+                if val == .Pressed {
+                    evt = Event_Gamepad_Button_Went_Down {
+                        gamepad = idx,
+                        button = button.?,
+                    }
+                }
+                if val == .Released {
+                    evt = Event_Gamepad_Button_Went_Up {
+                        gamepad = idx,
+                        button = button.?,
+                    }
+                }
+                if evt != nil {
+				    append(frame_events, evt)
+			    }
+            }
+        }
+    }
 }
 
 linux_get_width :: proc() -> int {
@@ -109,10 +162,22 @@ linux_get_window_scale :: proc() -> f32 {
 }
 
 linux_is_gamepad_active :: proc(gamepad: int) -> bool {
-	return false
+	return len(s.gamepads) >= gamepad + 1
 }
 
 linux_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
+    gamepad := &s.gamepads[gamepad]
+
+    switch axis {
+    case .Left_Stick_X: return gamepad.axes[Linux_Axis.X].normalized_value
+    case .Left_Stick_Y: return gamepad.axes[Linux_Axis.Y].normalized_value
+    case .Right_Stick_X: return gamepad.axes[Linux_Axis.RX].normalized_value  
+    case .Right_Stick_Y: return gamepad.axes[Linux_Axis.RX].normalized_value
+    case .Left_Trigger: return gamepad.axes[Linux_Axis.HAT1Y].normalized_value // Not sure it's this axis
+    case .Right_Trigger: return gamepad.axes[Linux_Axis.HAT1X].normalized_value // Not sure it's this axis
+    }
+
+    // Return axis state
 	return 0
 }
 
@@ -134,6 +199,7 @@ Linux_State :: struct {
 	win: Linux_Window_Interface,
 	win_state: rawptr,
 	allocator: runtime.Allocator,
+    gamepads: []Linux_Gamepad,
 }
 
 @(private="package")
