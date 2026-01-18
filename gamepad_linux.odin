@@ -318,7 +318,7 @@ gamepad_poll :: proc(gamepad: ^Linux_Gamepad) -> []Linux_GamepadEvent {
 				&res,
 				Linux_AxisEvent{
                     axis = Linux_Axis(event.code), 
-                    normalized_value = axis.normalized_value
+                    normalized_value = axis.normalized_value,
                 },
 			)
 		}

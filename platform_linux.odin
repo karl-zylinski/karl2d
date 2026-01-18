@@ -146,69 +146,49 @@ linux_get_events :: proc(events: ^[dynamic]Event) {
                 // NOTE(quadrado): This probably could be refactored into 
                 // gamepad code.
                 evt: Event
-                button: Maybe(Gamepad_Button)
+                negative_button: Gamepad_Button
+                positive_button: Gamepad_Button
+
                 #partial switch e.axis {
-                case .HAT0X:
-                    if e.normalized_value < 0 {
-                        button = .Left_Face_Left
-                        evt = Event_Gamepad_Button_Went_Down {
-                            gamepad = idx,
-                            button = button.?,
-                        }
-                        gp.previous_hat_values[.HAT0X] = e.normalized_value
-                    }
-                    if e.normalized_value > 0 {
-                        button = .Left_Face_Right
-                        evt = Event_Gamepad_Button_Went_Down {
-                            gamepad = idx,
-                            button = button.?,
-                        }
-                        gp.previous_hat_values[.HAT0X] = e.normalized_value
-                    }
-                    if e.normalized_value == 0 {
-                        if gp.previous_hat_values[.HAT0X] == -1 {
-                            evt = Event_Gamepad_Button_Went_Up {
-                                gamepad = idx,
-                                button = .Left_Face_Left,
-                            }
-                        } else if gp.previous_hat_values[.HAT0X] == 1  {
-                            evt = Event_Gamepad_Button_Went_Up {
-                                gamepad = idx,
-                                button = .Left_Face_Right,
-                            }
-                        }
-                    }
+                case .HAT0X: 
+                    negative_button = .Left_Face_Left 
+                    positive_button = .Left_Face_Right 
+                
                 case .HAT0Y:
-                    if e.normalized_value < 0 {
-                        button = .Left_Face_Up
-                        evt = Event_Gamepad_Button_Went_Down {
-                            gamepad = idx,
-                            button = button.?,
-                        }
-                        gp.previous_hat_values[.HAT0X] = e.normalized_value
+                    negative_button = .Left_Face_Up 
+                    positive_button = .Left_Face_Down 
+                case:
+                    continue
+                }
+
+                if e.normalized_value < 0 {
+                    evt = Event_Gamepad_Button_Went_Down {
+                        gamepad = idx,
+                        button = negative_button,
                     }
-                    if e.normalized_value > 0 {
-                        button = .Left_Face_Down
-                        evt = Event_Gamepad_Button_Went_Down {
-                            gamepad = idx,
-                            button = button.?,
-                        }
-                        gp.previous_hat_values[.HAT0X] = e.normalized_value
+                    gp.previous_hat_values[e.axis] = e.normalized_value
+                }
+                if e.normalized_value > 0 {
+                    evt = Event_Gamepad_Button_Went_Down {
+                        gamepad = idx,
+                        button = positive_button,
                     }
-                    if e.normalized_value == 0 {
-                        if gp.previous_hat_values[.HAT0X] == -1 {
-                            evt = Event_Gamepad_Button_Went_Up {
-                                gamepad = idx,
-                                button = .Left_Face_Up,
-                            }
-                        } else if gp.previous_hat_values[.HAT0X] == 1  {
-                            evt = Event_Gamepad_Button_Went_Up {
-                                gamepad = idx,
-                                button = .Left_Face_Down,
-                            }
+                    gp.previous_hat_values[e.axis] = e.normalized_value
+                }
+                if e.normalized_value == 0 {
+                    if gp.previous_hat_values[e.axis] == -1 {
+                        evt = Event_Gamepad_Button_Went_Up {
+                            gamepad = idx,
+                            button = negative_button,
+                        }
+                    } else if gp.previous_hat_values[e.axis] == 1  {
+                        evt = Event_Gamepad_Button_Went_Up {
+                            gamepad = idx,
+                            button = positive_button,
                         }
                     }
                 }
+
                 if evt != nil {
 				    append(frame_events, evt)
 			    }
