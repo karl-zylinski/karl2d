@@ -79,11 +79,6 @@ Controller_extendedGamepad :: proc "c" (self: ^Controller) -> ^ExtendedGamepad {
 	return msgSend(^ExtendedGamepad, self, "extendedGamepad")
 }
 
-@(objc_type=Controller, objc_name="haptics")
-Controller_haptics :: proc "c" (self: ^Controller) -> ^Haptics {
-	return msgSend(^Haptics, self, "haptics")
-}
-
 @(objc_type=Controller, objc_name="playerIndex")
 Controller_playerIndex :: proc "c" (self: ^Controller) -> NS.Integer {
 	return msgSend(NS.Integer, self, "playerIndex")
@@ -247,11 +242,22 @@ ControllerButtonInput_isTouched :: proc "c" (self: ^ControllerButtonInput) -> bo
 	return msgSend(NS.BOOL, self, "isTouched")
 }
 
-// GCHaptics - for creating haptic engines
-@(objc_class="GCHaptics")
-Haptics :: struct { using _: NS.Object }
+// Only compile when on a supported macos version.
+when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
+	@(objc_type=Controller, objc_name="haptics")
+	Controller_haptics :: proc "c" (self: ^Controller) -> ^Haptics {
+		return msgSend(^Haptics, self, "haptics")
+	}
 
-@(objc_type=Haptics, objc_name="createEngineWithLocality")
-Haptics_createEngineWithLocality :: proc "c" (self: ^Haptics, locality: HapticsLocality) -> ^HapticEngine {
-	return msgSend(^HapticEngine, self, "createEngineWithLocality:", locality)
+	// GCHaptics - for creating haptic engines
+	@(objc_class="GCHaptics")
+		Haptics :: struct { using _: NS.Object }
+
+	@(objc_type=Haptics, objc_name="createEngineWithLocality")
+	Haptics_createEngineWithLocality :: proc "c" (
+		self: ^Haptics,
+		locality: HapticsLocality,
+	) -> ^HapticEngine {
+		return msgSend(^HapticEngine, self, "createEngineWithLocality:", locality)
+	}
 }
