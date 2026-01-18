@@ -798,7 +798,7 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	// If rot != 0 then it will rotate them as well
 	if rot == 0 {
 		xy:Vec2={rec.x,rec.y}
-		for &p in point{// this shifts the rect to the correct pos
+		for &p in point{// this shifts all of the points to the correct pos
 			p+=xy
 			p+=-origin
 		}
@@ -809,8 +809,8 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 		y :f32= rec.y
 		dx :f32= -origin.x
 		dy :f32= -origin.y
-		
-		for &p in point{// this shifts the rect to the correct pos and rotates it
+		// this shifts all of the points to the correct pos and rotates it
+		for &p in point{
 			p = {
 				x + (dx + p.x) * cos_rot - (dy + p.y) * sin_rot,
 				y + (dx + p.x) * sin_rot + (dy + p.y) * cos_rot,
@@ -830,6 +830,7 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 		for i := 0; i < segments/2; i+=1 {
 			// Shifts all of the points "Pos and Origin"
 			// if rot != 0 then it will rotate them as well
+			// It will then draw the corners
 			if rot == 0 {
 				x := center.x + rec.x - origin.x
 				y := center.y + rec.y - origin.y
@@ -849,7 +850,6 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 			} else {
 				sin_rot := math.sin(rot)
 				cos_rot := math.cos(rot)
-				
 				x := rec.x
 				y := rec.y
 				dx :f32= center.x - origin.x
