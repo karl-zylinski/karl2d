@@ -719,8 +719,8 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 // Draw rectangle with rounded edges
 // Segments represents how many triangles the corners will have multiplied by 2
 draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, rot: f32 = 0, segments: int = 3,) {
-	roundness:=roundness
-	segments:=segments * 2
+	roundness := roundness
+	segments := segments * 2
 
 	if roundness <= 0 { // if not a rounded rectangle will just draw a regular rect
 		draw_rect_ex(rec, origin, rot, c)
@@ -728,7 +728,7 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	}
 	// (6 * segments * 4) 6 is the number of verts in a segment. 4 is the number of corners
 	// (6*5) 6 is the number of verts in a quad. 5 is the number of quads
-	vert_count:=((6 * segments * 4)+(6*5))
+	vert_count:=(6 * segments * 4)+(6*5)
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * vert_count > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
@@ -743,7 +743,7 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	}
 	
 	// Calculate corner radius
-	radius :f32
+	radius:f32
 	if rec.w > rec.h {
 		radius = (rec.h * roundness) / 2
 	}else{
@@ -797,7 +797,7 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	// Shifts all of the points "Pos and Origin"
 	// If rot != 0 then it will rotate them as well
 	if rot == 0 {
-		xy:Vec2={rec.x,rec.y}
+		xy :Vec2= {rec.x,rec.y}
 		for &p in point{// this shifts all of the points to the correct pos
 			p += xy
 			p += -origin
