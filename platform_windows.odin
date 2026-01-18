@@ -332,6 +332,10 @@ Windows_State :: struct {
 	width: int,
 	height: int,
 
+	in_resize_move_state: bool,
+	width_before_resize_move: int,
+	height_before_resize_move: int,
+
 	events: [dynamic]Event,
 
 	// for when returning from fullscreen to window mode
@@ -493,6 +497,21 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			scale = windows_get_window_scale(),
 		})
 
+	case win32.WM_ENTERSIZEMOVE:
+		s.in_resize_move_state = true
+		s.width_before_resize_move = s.width
+		s.height_before_resize_move = s.height
+
+	case win32.WM_EXITSIZEMOVE:
+		s.in_resize_move_state = false
+
+		if s.width_before_resize_move != s.width || s.height_before_resize_move != s.height {
+			append(&s.events, Event_Resize {
+				width = s.width,
+				height = s.height,
+			})
+		}
+
 	case win32.WM_SIZE:
 		width := win32.LOWORD(lparam)
 		height := win32.HIWORD(lparam)
@@ -505,10 +524,14 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			s.restore_height = s.height
 		}
 
-		append(&s.events, Event_Resize {
-			width = int(width),
-			height = int(height),
-		})
+		// We are actively resizing or moving the window, we'll save the event for later so it does
+		// not get spammy.
+		if !s.in_resize_move_state {
+			append(&s.events, Event_Resize {
+				width = int(width),
+				height = int(height),
+			})
+		}
 
 	case win32.WM_SETFOCUS:
 		append(&s.events, Event_Window_Focused {})
