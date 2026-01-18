@@ -239,7 +239,7 @@ gamepad_create :: proc(device_path: string) -> Linux_Gamepad {
 		name = strings.clone_from_cstring(cstring(raw_data(name[:]))),
 	}
 
-	fmt.printf("Detected gamepad %s\n", name)
+	fmt.printf("New gamepad %s\n", name)
 	fmt.printf("\tdevice_path -> '%s'\n", device_path)
 
 	ev_bits: [EV_MAX / (8 * size_of(u64)) + 1]u64 = {}
@@ -264,6 +264,10 @@ gamepad_create :: proc(device_path: string) -> Linux_Gamepad {
 	}
 
 	return gamepad
+}
+
+gamepad_close :: proc(gamepad: ^Linux_Gamepad) {
+    os.close(gamepad.fd)
 }
 
 gamepad_poll :: proc(gamepad: ^Linux_Gamepad) -> []Linux_GamepadEvent {
@@ -312,7 +316,10 @@ gamepad_poll :: proc(gamepad: ^Linux_Gamepad) -> []Linux_GamepadEvent {
 			axis.normalized_value = f32(event.value) / f32(factor)
 			append(
 				&res,
-				Linux_AxisEvent{axis = Linux_Axis(event.code), normalized_value = axis.normalized_value},
+				Linux_AxisEvent{
+                    axis = Linux_Axis(event.code), 
+                    normalized_value = axis.normalized_value
+                },
 			)
 		}
 	}
