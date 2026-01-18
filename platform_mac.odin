@@ -628,7 +628,7 @@ controller_is_registered :: proc(controller: ^gc.Controller) -> bool {
 }
 
 remove_controller :: proc(controller: ^gc.Controller) {
-	for &gamepad, gamepad_index in s.gamepads {
+	for &gamepad in s.gamepads {
 		if gamepad.controller == controller {
 			// haptic support is only available in 11.0.0
 			when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
