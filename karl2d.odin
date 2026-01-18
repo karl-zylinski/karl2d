@@ -721,24 +721,24 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, rot: f32 = 0, segments: int = 3,) {
 	roundness:=roundness
 	segments:=segments * 2
-	
-	// Not a rounded rectangle
-	if roundness <= 0 {
+
+	if roundness <= 0 { // if not a rounded rectangle will just draw a regular rect
 		draw_rect_ex(rec, origin, rot, c)
 		return
 	}
-	
-	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * ((6 * segments)+(6*5)) > len(s.vertex_buffer_cpu) {
+	// (6 * segments * 4) 6 is the number of verts in a segment. 4 is the number of corners
+	// (6*5) 6 is the number of verts in a quad. 5 is the number of quads
+	vert_count:=((6 * segments * 4)+(6*5))
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * vert_count > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
 	if s.batch_texture != s.shape_drawing_texture {
 		draw_current_batch()
 	}
-	
 	s.batch_texture = s.shape_drawing_texture
-
-	// clamps the roundness value to 1
-	if roundness >= 1 {
+	
+	
+	if roundness >= 1 {// clamps the roundness value to 1
 		roundness = 1
 	}
 	
@@ -773,6 +773,7 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	      P5                    P4
 	*/
 	// Coordinates of the 12 points that define the rounded rect
+	// These cords are in locale space {0,0}
 	point:[12]Vec2
 	point = {
 		{ radius,			0},					// P0
@@ -793,6 +794,8 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	angles:[4]f32 = { 180, 270, 0, 90 }
 	tl, tr, bl, br :Vec2
 	
+	// Shifts all of the points "Pos and Origin"
+	// If rot != 0 then it will rotate them as well
 	if rot == 0 {
 		xy:Vec2={rec.x,rec.y}
 		for &p in point{// this shifts the rect to the correct pos
@@ -825,7 +828,8 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 		center :Vec2= centers[k]
 		// NOTE: Every QUAD actually represents two segments
 		for i := 0; i < segments/2; i+=1 {
-			// Rotation adapted from Raylib's "DrawTexturePro"
+			// Shifts all of the points "Pos and Origin"
+			// if rot != 0 then it will rotate them as well
 			if rot == 0 {
 				x := center.x + rec.x - origin.x
 				y := center.y + rec.y - origin.y
@@ -877,7 +881,6 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 					y + (dx + br_cos_rot) * sin_rot + (dy + br_sin_rot) * cos_rot,
 				}
 			}
-
 			batch_vertex(tl, {0, 0}, c)
 			batch_vertex(br, {1, 0}, c)
 			batch_vertex(bl, {1, 1}, c)
@@ -948,7 +951,6 @@ draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, r
 	batch_vertex(tl, {0, 0}, c)
 	batch_vertex(br, {1, 1}, c)
 	batch_vertex(bl, {0, 1}, c)
-
 }
 
 
