@@ -561,11 +561,24 @@ key_from_macos_keycode :: proc(keycode: u16) -> Keyboard_Key {
 // CONTROLLER SUPPORT //
 //--------------------//
 
-// We'll keep the controllers in the index order that macos gives us.
-// That shouldn't change, so we don't have to do our own bookkeeping.
 poll_for_new_controllers :: proc() {
 	controllers := gc.Controller_controllers()
 	controller_count := controllers != nil ? int(controllers->count()) : 0
+
+	// Simple algorithm:
+	// - Remove the controllers that aren't connected anymore (defensive).
+	// - If we have MAX_GAMEPADS registered, and they're still connected, don't add new controllers.
+	// - Connect new controllers.
+
+	remove_no_longer_connected_controllers(controllers, controller_count)
+
+	connected_count := 0
+	for gamepad in s.gamepads {
+		if gamepad.controller != nil {
+			connected_count += 1
+		}
+	}
+	if connected_count >= MAX_GAMEPADS do return
 
 	for i in 0..<controller_count {
 		controller := controllers->object(NS.UInteger(i))
@@ -574,18 +587,56 @@ poll_for_new_controllers :: proc() {
 		extended_gamepad := controller->extendedGamepad()
 		if extended_gamepad == nil do continue
 
-		if s.gamepads[i].controller != nil {
-			remove_controller(s.gamepads[i].controller)
+		if controller_is_registered(controller) do continue
+
+		available_slot := 0
+		for gamepad, gamepad_index in s.gamepads {
+			if gamepad.controller == nil {
+				available_slot = gamepad_index
+				break
+			}
 		}
-		s.gamepads[i].controller = controller
-		s.gamepads[i].extended_gamepad = extended_gamepad
-		s.gamepads[i].button_inputs = make_button_inputs(extended_gamepad)
+		
+		s.gamepads[available_slot].controller = controller
+		s.gamepads[available_slot].extended_gamepad = extended_gamepad
+		s.gamepads[available_slot].button_inputs = make_button_inputs(extended_gamepad)
 	}
+}
+
+remove_no_longer_connected_controllers :: proc(controllers: ^gc.ControllerArray, count: int) {
+	found: [MAX_GAMEPADS]bool
+
+	for i in 0..<count {
+		controller := controllers->object(NS.UInteger(i))
+		if controller == nil do continue
+
+		for gamepad, gamepad_index in s.gamepads {
+			if gamepad.controller == controller {
+				found[gamepad_index] = true
+			}
+		}
+	}
+
+	for gamepad, gamepad_index in s.gamepads {
+		if gamepad.controller != nil && !found[gamepad_index] {
+			remove_controller(gamepad.controller)
+		}
+	}
+}
+
+controller_is_registered :: proc(controller: ^gc.Controller) -> bool {
+	for gamepad, gamepad_index in s.gamepads {
+		if gamepad.controller == controller {
+			return true
+		}
+	}
+	return false
 }
 
 remove_controller :: proc(controller: ^gc.Controller) {
 	for &gamepad, gamepad_index in s.gamepads {
 		if gamepad.controller == controller {
+			// haptic support is only available in 11.0.0
 			when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 				for &engine in gamepad_haptics[gamepad_index].haptic_engine_left_right {
 					if engine != nil {
