@@ -104,15 +104,16 @@ linux_get_events :: proc(events: ^[dynamic]Event) {
                 case .BTN_DPAD_LEFT: button = .Left_Face_Left
                 case .BTN_DPAD_RIGHT: button = .Left_Face_Up
 
+                // This mapping is slightly different from Xinput. Up and Left are swapped
                 case .BTN_A: button = .Right_Face_Down
                 case .BTN_B: button = .Right_Face_Right
                 case .BTN_X: button = .Right_Face_Up
                 case .BTN_Y: button = .Right_Face_Left
 
-                case .BTN_TL: button = .Left_Trigger
-                case .BTN_TL2: button = .Left_Shoulder
-                case .BTN_TR: button = .Right_Trigger
-                case .BTN_TR2: button = .Right_Shoulder
+                case .BTN_TL: button = .Left_Shoulder
+                case .BTN_TL2: button = .Left_Trigger
+                case .BTN_TR: button = .Right_Shoulder
+                case .BTN_TR2: button = .Right_Trigger
 
 			    case .BTN_SELECT: button = .Middle_Face_Left
 			    case .BTN_MODE: button = .Middle_Face_Middle
@@ -218,7 +219,11 @@ linux_get_window_scale :: proc() -> f32 {
 }
 
 linux_is_gamepad_active :: proc(gamepad: int) -> bool {
-	return len(s.gamepads) >= gamepad + 1
+    if gamepad < 0 || gamepad > len(s.gamepads) - 1 || gamepad > MAX_GAMEPADS {
+        return false
+    }
+
+    return s.gamepads[gamepad].active
 }
 
 linux_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
@@ -229,8 +234,8 @@ linux_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
     case .Left_Stick_Y: return gamepad.axes[Linux_Axis.Y].normalized_value
     case .Right_Stick_X: return gamepad.axes[Linux_Axis.RX].normalized_value  
     case .Right_Stick_Y: return gamepad.axes[Linux_Axis.RY].normalized_value
-    case .Left_Trigger: return gamepad.axes[Linux_Axis.HAT1Y].normalized_value // Not sure 
-    case .Right_Trigger: return gamepad.axes[Linux_Axis.HAT1X].normalized_value // Not sure 
+    case .Left_Trigger: return gamepad.axes[Linux_Axis.Z].normalized_value // Not sure 
+    case .Right_Trigger: return gamepad.axes[Linux_Axis.RZ].normalized_value // Not sure 
     }
 
     // Return axis state

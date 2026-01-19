@@ -167,6 +167,7 @@ Linux_Axis_Info :: struct {
 
 Linux_Gamepad :: struct {
 	fd:   os.Handle,
+    active: bool,
 	name: string,
 	axes: map[Linux_Axis]Linux_Axis_Info,
 
@@ -224,7 +225,6 @@ gamepad_init_devices :: proc() -> []Linux_Gamepad {
 	return gamepads[:]
 }
 
-
 gamepad_create :: proc(device_path: string) -> Linux_Gamepad {
 	fd, err := os.open(device_path, os.O_RDONLY | os.O_NONBLOCK)
 	if err != nil {
@@ -237,6 +237,7 @@ gamepad_create :: proc(device_path: string) -> Linux_Gamepad {
 	gamepad := Linux_Gamepad {
 		fd   = fd,
 		name = strings.clone_from_cstring(cstring(raw_data(name[:]))),
+        active = true,
 	}
 
 	fmt.printf("New gamepad %s\n", name)
@@ -277,7 +278,8 @@ gamepad_poll :: proc(gamepad: ^Linux_Gamepad) -> []Linux_GamepadEvent {
 	for {
 		n, read_err := os.read(gamepad.fd, buf[:])
 
-		if read_err != nil {
+		if read_err != nil && read_err != .EAGAIN {
+            gamepad.active = false
 			break
 		}
 		if n != size_of(input_event) {
@@ -305,15 +307,9 @@ gamepad_poll :: proc(gamepad: ^Linux_Gamepad) -> []Linux_GamepadEvent {
 		if event.type == EV_ABS {
 			axis := &gamepad.axes[Linux_Axis(event.code)]
 			axis.value = f32(event.value)
-
-			// Kinda wonky way we make sure we are using the correct factor
-			factor: i32 = 0
-			if axis.value < 0 && axis.absinfo.minimum < 0 {
-				factor = -axis.absinfo.minimum
-			} else {
-				factor = axis.absinfo.maximum
-			}
-			axis.normalized_value = f32(event.value) / f32(factor)
+            min := f32(axis.absinfo.minimum)
+            max := f32(axis.absinfo.maximum)
+            axis.normalized_value = 2.0 * (axis.value - min) / (max - min) - 1.0
 			append(
 				&res,
 				Linux_AxisEvent{
