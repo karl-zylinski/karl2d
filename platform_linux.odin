@@ -6,6 +6,7 @@ import "base:runtime"
 import "core:mem"
 import "log"
 import "core:os"
+import "core:fmt"
 
 @(private="package")
 PLATFORM_LINUX :: Platform_Interface {
@@ -71,7 +72,13 @@ linux_init :: proc(
 		allocator,
 	)
 
-    s.gamepads = gamepad_init_devices()
+    gps := gamepad_init_devices()
+
+    for i in 0..<MAX_GAMEPADS {
+        if i < len(gps) - 1 {
+            s.gamepads[i] = gps[i]
+        }
+    }
 }
 
 linux_shutdown :: proc() {
@@ -196,6 +203,7 @@ linux_get_events :: proc(events: ^[dynamic]Event) {
             }
         }
     }
+    // gamepad_check_udev_events()
 }
 
 linux_get_width :: proc() -> int {
@@ -260,7 +268,8 @@ Linux_State :: struct {
 	win: Linux_Window_Interface,
 	win_state: rawptr,
 	allocator: runtime.Allocator,
-    gamepads: []Linux_Gamepad,
+    gamepads: [MAX_GAMEPADS]Linux_Gamepad,
+    // gamepads: []Linux_Gamepad,
 }
 
 @(private="package")

@@ -5,6 +5,35 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:sys/linux"
+import "core:sys/posix"
+
+// udev minimal bindings for gamepad connection listening
+udev :: struct {}
+udev_device :: struct {}
+udev_monitor :: struct {}
+
+foreign import _udev "system:udev"
+
+@(default_calling_convention = "c", link_prefix = "udev_")
+foreign _udev {
+    @(link_prefix = "")
+	udev_new :: proc() -> ^udev ---
+	unref :: proc(_: ^udev) ---
+
+	device_get_devnode :: proc(_: ^udev_device) -> cstring ---
+	device_get_action :: proc(_: ^udev_device) -> cstring ---
+	device_unref :: proc(_: ^udev_device) ---
+
+	monitor_new_from_netlink :: proc(_: ^udev, _: cstring) -> ^udev_monitor ---
+	monitor_filter_add_match_subsystem_devtype :: proc(
+        mon: ^udev_monitor,
+        _: cstring,
+        _: cstring,
+    ) -> c.int ---
+	monitor_enable_receiving :: proc(_: ^udev_monitor) ---
+	monitor_get_fd :: proc(_: ^udev_monitor) -> c.int ---
+	monitor_receive_device :: proc(_: ^udev_monitor) -> ^udev_device ---
+}
 
 // ioctl() related utilities
 _IOC_READ :: 2
@@ -81,7 +110,8 @@ KEY_MAX :: 0x2ff
 // and also the as the event code
 BTN_GAMEPAD :: 0x130
 
-// In linux/input.h there are 15 different mapped buttons + DPAD that for some reason appear further down....
+// In linux/input.h there are 15 different mapped buttons + d-pad 
+// that for some reason appear further down....
 Linux_Button :: enum u32 {
 	BTN_A          = BTN_GAMEPAD,
 	BTN_B          = BTN_GAMEPAD + 1,
@@ -162,17 +192,17 @@ Linux_Axis_Info :: struct {
 	absinfo:          input_absinfo,
 	value:            f32, // originaly a c.int
 	normalized_value: f32,
-    previous_value:   f32,
+	previous_value:   f32,
 }
 
 Linux_Gamepad :: struct {
-	fd:   os.Handle,
-    active: bool,
-	name: string,
-	axes: map[Linux_Axis]Linux_Axis_Info,
+	fd:                  os.Handle,
+	active:              bool,
+	name:                string,
+	axes:                map[Linux_Axis]Linux_Axis_Info,
 
-    // This is needed to emit the correct Event_Gamepad_Button_Went_Up events
-    previous_hat_values: map[Linux_Axis]f32,
+	// This is needed to emit the correct Event_Gamepad_Button_Went_Up events
+	previous_hat_values: map[Linux_Axis]f32,
 }
 
 Linux_GamepadEvent :: union {
@@ -203,7 +233,7 @@ check_for_btn_gamepad :: proc(path: string) -> bool {
 }
 
 gamepad_init_devices :: proc() -> []Linux_Gamepad {
-    gamepads: [dynamic]Linux_Gamepad
+	gamepads: [dynamic]Linux_Gamepad
 	devices_dir := "/dev/input"
 
 	f := os.open(devices_dir) or_else panic("Can't open /dev/input directory")
@@ -217,7 +247,7 @@ gamepad_init_devices :: proc() -> []Linux_Gamepad {
 			if !is_gamepad {
 				continue
 			}
-			gamepad := gamepad_create(fi.fullpath)
+			gamepad, _ := gamepad_create(fi.fullpath)
 			append(&gamepads, gamepad)
 		}
 	}
@@ -225,19 +255,19 @@ gamepad_init_devices :: proc() -> []Linux_Gamepad {
 	return gamepads[:]
 }
 
-gamepad_create :: proc(device_path: string) -> Linux_Gamepad {
+gamepad_create :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 	fd, err := os.open(device_path, os.O_RDONLY | os.O_NONBLOCK)
 	if err != nil {
-		panic(fmt.tprintf("%s", err))
+        return Linux_Gamepad{}, false
 	}
 	name: [256]u8
 	linux.ioctl(linux.Fd(fd), EVIOCGNAME(size_of(name)), cast(uintptr)&name)
 
 	// Create gamepad
 	gamepad := Linux_Gamepad {
-		fd   = fd,
-		name = strings.clone_from_cstring(cstring(raw_data(name[:]))),
-        active = true,
+		fd     = fd,
+		name   = strings.clone_from_cstring(cstring(raw_data(name[:]))),
+		active = true,
 	}
 
 	fmt.printf("New gamepad %s\n", name)
@@ -264,11 +294,41 @@ gamepad_create :: proc(device_path: string) -> Linux_Gamepad {
 		}
 	}
 
-	return gamepad
+	return gamepad, true
 }
 
 gamepad_close :: proc(gamepad: ^Linux_Gamepad) {
-    os.close(gamepad.fd)
+	os.close(gamepad.fd)
+}
+
+gamepad_check_udev_events :: proc() {
+	udev := udev_new()
+
+	mon := monitor_new_from_netlink(udev, "udev")
+
+	monitor_filter_add_match_subsystem_devtype(mon, "input", nil)
+	monitor_enable_receiving(mon)
+
+	fd_int := monitor_get_fd(mon)
+	fmt.println(fd_int)
+	fds: posix.fd_set
+	posix.FD_ZERO(&fds)
+	posix.FD_SET(posix.FD(fd_int), &fds)
+
+	for {
+		if posix.select(i32(fd_int + 1), &fds, nil, nil, nil) > 0 {
+			dev := monitor_receive_device(mon)
+
+			path := device_get_devnode(dev)
+			fmt.println("something?", dev, device_get_action(dev), path)
+			pad, ok := gamepad_create(strings.clone_from_cstring(path))
+
+			if ok {
+				fmt.println(pad)
+			}
+
+		}
+	}
 }
 
 gamepad_poll :: proc(gamepad: ^Linux_Gamepad) -> []Linux_GamepadEvent {
@@ -279,7 +339,7 @@ gamepad_poll :: proc(gamepad: ^Linux_Gamepad) -> []Linux_GamepadEvent {
 		n, read_err := os.read(gamepad.fd, buf[:])
 
 		if read_err != nil && read_err != .EAGAIN {
-            gamepad.active = false
+			gamepad.active = false
 			break
 		}
 		if n != size_of(input_event) {
@@ -307,15 +367,15 @@ gamepad_poll :: proc(gamepad: ^Linux_Gamepad) -> []Linux_GamepadEvent {
 		if event.type == EV_ABS {
 			axis := &gamepad.axes[Linux_Axis(event.code)]
 			axis.value = f32(event.value)
-            min := f32(axis.absinfo.minimum)
-            max := f32(axis.absinfo.maximum)
-            axis.normalized_value = 2.0 * (axis.value - min) / (max - min) - 1.0
+			min := f32(axis.absinfo.minimum)
+			max := f32(axis.absinfo.maximum)
+			axis.normalized_value = 2.0 * (axis.value - min) / (max - min) - 1.0
 			append(
 				&res,
-				Linux_AxisEvent{
-                    axis = Linux_Axis(event.code), 
-                    normalized_value = axis.normalized_value,
-                },
+				Linux_AxisEvent {
+					axis = Linux_Axis(event.code),
+					normalized_value = axis.normalized_value,
+				},
 			)
 		}
 	}
