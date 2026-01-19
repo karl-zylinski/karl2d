@@ -6,7 +6,6 @@ import "base:runtime"
 import "core:mem"
 import "log"
 import "core:os"
-import "core:fmt"
 
 @(private="package")
 PLATFORM_LINUX :: Platform_Interface {
@@ -72,14 +71,7 @@ linux_init :: proc(
 		allocator,
 	)
 
-    gps := gamepad_init_devices()
-
-    for i in 0..<len(gps) {
-        if i >= MAX_GAMEPADS {
-            continue
-        }
-        s.gamepads[i] = gps[i]
-    }
+    s.gamepad_controller = gamepad_new_controller()
 }
 
 linux_shutdown :: proc() {
@@ -97,7 +89,7 @@ linux_get_events :: proc(events: ^[dynamic]Event) {
 
     frame_events := events
 
-    for &gp, idx in s.gamepads {
+    for &gp, idx in s.gamepad_controller.gamepads {
         if !gp.active {
             continue
         }
@@ -209,11 +201,13 @@ linux_get_events :: proc(events: ^[dynamic]Event) {
     }
 
     // Check for new gamepads and add them in the first empty slot
-    new_pad, has_new_pad := gamepad_check_udev_events()
+    new_pad, has_new_pad := gamepad_controller_udev_events(s.gamepad_controller)
     if has_new_pad {
         for i in 0 ..<MAX_GAMEPADS {
-            if s.gamepads[i].active == false {
-                s.gamepads[i] = new_pad
+            if s.gamepad_controller.gamepads[i].active == false {
+                // Clean up the old gamepad before replacing it
+                gamepad_close(&s.gamepad_controller.gamepads[i])
+                s.gamepad_controller.gamepads[i] = new_pad
                 break
             }
         }
@@ -241,15 +235,15 @@ linux_get_window_scale :: proc() -> f32 {
 }
 
 linux_is_gamepad_active :: proc(gamepad: int) -> bool {
-    if gamepad < 0 || gamepad > len(s.gamepads) - 1 || gamepad > MAX_GAMEPADS {
+    if gamepad < 0 || gamepad > len(s.gamepad_controller.gamepads) - 1 || gamepad > MAX_GAMEPADS {
         return false
     }
 
-    return s.gamepads[gamepad].active
+    return s.gamepad_controller.gamepads[gamepad].active
 }
 
 linux_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
-    gamepad := &s.gamepads[gamepad]
+    gamepad := &s.gamepad_controller.gamepads[gamepad]
 
     switch axis {
     case .Left_Stick_X: return gamepad.axes[Linux_Axis.X].normalized_value
@@ -282,7 +276,7 @@ Linux_State :: struct {
 	win: Linux_Window_Interface,
 	win_state: rawptr,
 	allocator: runtime.Allocator,
-    gamepads: [MAX_GAMEPADS]Linux_Gamepad,
+    gamepad_controller: Linux_Gamepad_Controller,
     // gamepads: []Linux_Gamepad,
 }
 
