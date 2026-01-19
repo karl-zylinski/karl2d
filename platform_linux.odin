@@ -74,10 +74,11 @@ linux_init :: proc(
 
     gps := gamepad_init_devices()
 
-    for i in 0..<MAX_GAMEPADS {
-        if i < len(gps) - 1 {
-            s.gamepads[i] = gps[i]
+    for i in 0..<len(gps) {
+        if i >= MAX_GAMEPADS {
+            continue
         }
+        s.gamepads[i] = gps[i]
     }
 }
 
@@ -96,9 +97,12 @@ linux_get_events :: proc(events: ^[dynamic]Event) {
 
     frame_events := events
 
-	// Maybe add gamepad events here?
     for &gp, idx in s.gamepads {
+        if !gp.active {
+            continue
+        }
         events := gamepad_poll(&gp)
+        _ = events
         for event in events {
             #partial switch e in event {
             case Linux_ButtonEvent:
@@ -203,7 +207,17 @@ linux_get_events :: proc(events: ^[dynamic]Event) {
             }
         }
     }
-    // gamepad_check_udev_events()
+
+    // Check for new gamepads and add them in the first empty slot
+    new_pad, has_new_pad := gamepad_check_udev_events()
+    if has_new_pad {
+        for i in 0 ..<MAX_GAMEPADS {
+            if s.gamepads[i].active == false {
+                s.gamepads[i] = new_pad
+                break
+            }
+        }
+    }
 }
 
 linux_get_width :: proc() -> int {
