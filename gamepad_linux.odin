@@ -302,35 +302,35 @@ gamepad_close :: proc(gamepad: ^Linux_Gamepad) {
 }
 
 gamepad_check_udev_events :: proc() -> (Linux_Gamepad, bool) {
-	udev := udev_new()
+	// udev := udev_new()
 
-	mon := monitor_new_from_netlink(udev, "udev")
+	// mon := monitor_new_from_netlink(udev, "udev")
 
-	monitor_filter_add_match_subsystem_devtype(mon, "input", nil)
-	monitor_enable_receiving(mon)
+	// monitor_filter_add_match_subsystem_devtype(mon, "input", nil)
+	// monitor_enable_receiving(mon)
 
-	fd_int := monitor_get_fd(mon)
+	// fd_int := monitor_get_fd(mon)
 
-    pfd := posix.pollfd {
-        fd = posix.FD(fd_int),
-        events = { posix.Poll_Event_Bits.IN },
-    }
+    // pfd := posix.pollfd {
+        // fd = posix.FD(fd_int),
+        // events = { posix.Poll_Event_Bits.IN },
+    // }
   
-	ret := posix.poll(&pfd, 1, 5)
+	// ret := posix.poll(&pfd, 1, 5)
 
-    if ret > 0  {
-        fmt.println(ret)
-        dev := monitor_receive_device(mon)
+    // if ret > 0  {
+        // fmt.println(ret)
+        // dev := monitor_receive_device(mon)
 
-        path := device_get_devnode(dev)
-        action := device_get_action(dev)
-        if action == "add" {
-            pad, ok := gamepad_create(strings.clone_from_cstring(path))
-            if ok {
-                return pad, true
-            }
-        }
-    }
+        // path := device_get_devnode(dev)
+        // action := device_get_action(dev)
+        // if action == "add" {
+            // pad, ok := gamepad_create(strings.clone_from_cstring(path))
+            // if ok {
+                // return pad, true
+            // }
+        // }
+    // }
     return Linux_Gamepad{}, false
 }
 
