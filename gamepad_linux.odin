@@ -11,28 +11,28 @@ udev :: struct {}
 udev_device :: struct {}
 udev_monitor :: struct {}
 
-foreign import _udev "system:udev"
+foreign import udev_lib "system:udev"
 
 @(default_calling_convention = "c", link_prefix = "udev_")
-foreign _udev {
+foreign udev_lib {
     @(link_prefix = "")
 	udev_new :: proc() -> ^udev ---
-	unref :: proc(_: ^udev) ---
+	unref :: proc(udev: ^udev) ---
 
-	device_get_devnode :: proc(_: ^udev_device) -> cstring ---
-	device_get_action :: proc(_: ^udev_device) -> cstring ---
-	device_unref :: proc(_: ^udev_device) ---
+	device_get_devnode :: proc(dev: ^udev_device) -> cstring ---
+	device_get_action :: proc(dev: ^udev_device) -> cstring ---
+	device_unref :: proc(dev: ^udev_device) ---
 
-	monitor_new_from_netlink :: proc(_: ^udev, _: cstring) -> ^udev_monitor ---
+	monitor_new_from_netlink :: proc(udev: ^udev, name: cstring) -> ^udev_monitor ---
 	monitor_filter_add_match_subsystem_devtype :: proc(
         mon: ^udev_monitor,
-        _: cstring,
-        _: cstring,
+        subsystem: cstring,
+        devtype: cstring,
     ) -> c.int ---
-	monitor_enable_receiving :: proc(_: ^udev_monitor) ---
-	monitor_get_fd :: proc(_: ^udev_monitor) -> c.int ---
-	monitor_receive_device :: proc(_: ^udev_monitor) -> ^udev_device ---
-	monitor_unref :: proc(_: ^udev_monitor) ---
+	monitor_enable_receiving :: proc(mon: ^udev_monitor) ---
+	monitor_get_fd :: proc(mon: ^udev_monitor) -> c.int ---
+	monitor_receive_device :: proc(mon: ^udev_monitor) -> ^udev_device ---
+	monitor_unref :: proc(mon: ^udev_monitor) ---
 }
 
 // ioctl() related utilities
