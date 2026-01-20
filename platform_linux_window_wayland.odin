@@ -39,7 +39,7 @@ wl_init :: proc(
 	window_width: int,
 	window_height: int,
 	window_title: string,
-	init_options: Init_Options,
+	options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
 	s = (^WL_State)(window_state)
@@ -96,6 +96,8 @@ wl_init :: proc(
 	} else {
 		#panic("Unsupported combo of Linux + X11 and render backend '" + RENDER_BACKEND_NAME + "'")
 	}
+
+	set_window_mode(options.window_mode)
 }
 
 registry_listener := wl.Registry_Listener {

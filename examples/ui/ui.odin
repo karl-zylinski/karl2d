@@ -26,12 +26,12 @@ main :: proc() {
 
 		k2.draw_text(fmt.tprintf("Button has been clicked %v times", button_click_count), {300, 15}, 30)
 
-		numbers_bg_rect := Rect { 10, 100, 400, f32(len(random_numbers) * 30)}
+		numbers_bg_rect := Rect { 10, 100, 500, f32(len(random_numbers) * 30 + 10)}
 		k2.draw_rect(numbers_bg_rect, k2.LIGHT_GREEN)
 		k2.draw_rect_outline(numbers_bg_rect, 1, k2.BLACK)
 
 		for n, idx in random_numbers {
-			k2.draw_text(fmt.tprint(n), {10, 100 + f32(idx) * 30}, 30)
+			k2.draw_text(fmt.tprint(n), {15, 105 + f32(idx) * 30}, 30)
 		}
 
 		k2.present()
@@ -56,8 +56,10 @@ button :: proc(r: Rect, text: string) -> bool {
 	
 	k2.draw_rect(r, bg_color)
 	k2.draw_rect_outline(r, 1, k2.DARK_BLUE)
-	text_width := k2.measure_text(text, r.h).x
-	k2.draw_text(text, {r.x + r.w/2 - text_width/2, r.y}, r.h)
+
+	textr := inset_rect(r, 5, 5)
+	text_width := k2.measure_text(text, textr.h).x
+	k2.draw_text(text, {textr.x + textr.w/2 - text_width/2, textr.y}, textr.h)
 
 	if in_rect && k2.mouse_button_went_down(.Left) {
 		return true
@@ -71,4 +73,13 @@ point_in_rect :: proc(p: Vec2, r: Rect) -> bool {
 	   p.x < r.x + r.w &&
 	   p.y >= r.y &&
 	   p.y < r.y + r.h
+}
+
+inset_rect :: proc(r: Rect, x: f32, y: f32) -> Rect {
+	return {
+		r.x + x,
+		r.y + y,
+		r.w - x * 2,
+		r.h - y * 2,
+	}
 }
