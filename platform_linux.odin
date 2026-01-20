@@ -213,7 +213,6 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 	name_len := linux.ioctl(linux.Fd(fd), evdev.EVIOCGNAME(size_of(name_buf)), cast(uintptr)&name_buf)
 	name := name_len > 0 ? strings.string_from_ptr(raw_data(&name_buf), int(name_len-1)) : "" 
 
-	// Create gamepad
 	gamepad := Linux_Gamepad {
 		fd = fd,
 		name = strings.clone(name, s.allocator),
@@ -225,11 +224,12 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 	has_abs := evdev.test_bit(ev_bits[:], evdev.EV_ABS)
 	has_ff := evdev.test_bit(ev_bits[:], evdev.EV_FF)
 
-	// fmt.printf("New gamepad %s\n", name)
-	// fmt.printf("\tdevice_path -> '%s'\n", device_path)
-	// fmt.printf("\thas_buttons-> '%t'\n", test_bit(ev_bits[:], EV_KEY))
-	// fmt.printf("\thas_absolute_movement-> '%t'\n", has_abs)
-	// fmt.printf("\thas_relative_movement-> '%t'\n", test_bit(ev_bits[:], EV_REL))
+	log.debugf("New gamepad %s", name)
+	log.debugf("\tdevice_path -> '%s'", device_path)
+	log.debugf("\thas_buttons-> '%t'", evdev.test_bit(ev_bits[:], evdev.EV_KEY))
+	log.debugf("\thas_absolute_movement-> '%t'", has_abs)
+	log.debugf("\thas_relative_movement-> '%t'", evdev.test_bit(ev_bits[:], evdev.EV_REL))
+	
 	if has_abs {
 		abs_bits: [evdev.EV_ABS / (8 * size_of(u64)) + 1]u64 = {}
 		linux.ioctl(linux.Fd(fd), evdev.EVIOCGBIT(evdev.EV_ABS, size_of(abs_bits)), cast(uintptr)&abs_bits)
@@ -243,10 +243,12 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 			}
 		}
 	}
+	
 	if has_ff {
 		ff_bits: [evdev.FF_MAX / (8 * size_of(u64)) + 1]u64 = {}
 		linux.ioctl(linux.Fd(fd), evdev.EVIOCGBIT(evdev.EV_FF, size_of(ff_bits)), cast(uintptr)&ff_bits)
 		has_rumble_effect := evdev.test_bit(ff_bits[:], u64(evdev.FF_Effects.RUMBLE)) 
+
 		if has_rumble_effect {
 			effect := evdev.ff_effect {
 				type = u16(evdev.FF_Effects.RUMBLE),
@@ -362,10 +364,9 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 				max := f32(axis.absinfo.maximum)
 
 				if laxis ==.Z || laxis == .RZ {
+					axis.normalized_value = axis.value / max
+				} else {
 					axis.normalized_value = 2.0 * (axis.value - min) / (max - min) - 1.0
-				}
-				else {
-				   axis.normalized_value = axis.value / max
 				}
 
 				// The following deals with Gamepads emitting d-pad events
