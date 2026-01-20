@@ -3,9 +3,14 @@
 package karl2d
 
 import "base:runtime"
-import "core:mem"
 import "log"
+import "core:mem"
 import "core:os"
+import "core:sys/linux"
+import "core:sys/posix"
+import "core:strings"
+import "linux/udev"
+import "linux/evdev"
 
 @(private="package")
 PLATFORM_LINUX :: Platform_Interface {
@@ -71,7 +76,8 @@ linux_init :: proc(
 		allocator,
 	)
 
-    s.gamepad_controller = gamepad_new_controller()
+	// Initialize gamepads
+	linux_init_gamepads()
 }
 
 linux_shutdown :: proc() {
@@ -86,132 +92,39 @@ linux_get_window_render_glue :: proc() -> Window_Render_Glue {
 
 linux_get_events :: proc(events: ^[dynamic]Event) {
 	s.win.get_events(events)
+	linux_get_gamepad_events(events)
+	// new_gp, has_new_gp := gamepad_check_udev(s.udev_mon) 
+	// if has_new_gp {
+	// }
+	// Check for new gamepads and add them in the first empty slot new_pad
+	pfd := posix.pollfd {
+		fd	 = posix.FD(s.udev_fd),
+		events = {posix.Poll_Event_Bits.IN},
+	}
 
-    frame_events := events
+	ret := posix.poll(&pfd, 1, 0)
 
-    for &gp, idx in s.gamepad_controller.gamepads {
-        if !gp.active {
-            continue
-        }
-        events := gamepad_poll(&gp)
-        _ = events
-        for event in events {
-            #partial switch e in event {
-            case Linux_ButtonEvent:
-                btn := e.button
-                val := e.value
-                button: Maybe(Gamepad_Button)
-                #partial switch btn {
-                case .BTN_DPAD_UP: button = .Left_Face_Right
-                case .BTN_DPAD_DOWN: button = .Left_Face_Down
-                case .BTN_DPAD_LEFT: button = .Left_Face_Left
-                case .BTN_DPAD_RIGHT: button = .Left_Face_Up
-
-                // This mapping is slightly different from Xinput. Up and Left are swapped
-                case .BTN_A: button = .Right_Face_Down
-                case .BTN_B: button = .Right_Face_Right
-                case .BTN_X: button = .Right_Face_Up
-                case .BTN_Y: button = .Right_Face_Left
-
-                case .BTN_TL: button = .Left_Shoulder
-                case .BTN_TL2: button = .Left_Trigger
-                case .BTN_TR: button = .Right_Shoulder
-                case .BTN_TR2: button = .Right_Trigger
-
-			    case .BTN_SELECT: button = .Middle_Face_Left
-			    case .BTN_MODE: button = .Middle_Face_Middle
-			    case .BTN_START: button = .Middle_Face_Right
-                case .BTN_THUMBL: button = .Left_Stick_Press
-                case .BTN_THUMBR: button = .Right_Stick_Press
-
-                case: continue
-                }
-                evt: Event
-                if val == .Pressed {
-                    evt = Event_Gamepad_Button_Went_Down {
-                        gamepad = idx,
-                        button = button.?,
-                    }
-                }
-                if val == .Released {
-                    evt = Event_Gamepad_Button_Went_Up {
-                        gamepad = idx,
-                        button = button.?,
-                    }
-                }
-                if evt != nil {
-				    append(frame_events, evt)
-			    }
-            case Linux_AxisEvent: 
-                // The following deals with Gamepads emitting d-pad events
-                // as an analog axis. We need to store the previous value
-                // so that we emit the correct Event_Gamepad_Button_Went_Up 
-                // events.
-                // NOTE(quadrado): This probably could be refactored into 
-                // gamepad code.
-                evt: Event
-                negative_button: Gamepad_Button
-                positive_button: Gamepad_Button
-
-                #partial switch e.axis {
-                case .HAT0X: 
-                    negative_button = .Left_Face_Left 
-                    positive_button = .Left_Face_Right 
-                
-                case .HAT0Y:
-                    negative_button = .Left_Face_Up 
-                    positive_button = .Left_Face_Down 
-                case:
-                    continue
-                }
-
-                if e.normalized_value < 0 {
-                    evt = Event_Gamepad_Button_Went_Down {
-                        gamepad = idx,
-                        button = negative_button,
-                    }
-                    gp.previous_hat_values[e.axis] = e.normalized_value
-                }
-                if e.normalized_value > 0 {
-                    evt = Event_Gamepad_Button_Went_Down {
-                        gamepad = idx,
-                        button = positive_button,
-                    }
-                    gp.previous_hat_values[e.axis] = e.normalized_value
-                }
-                if e.normalized_value == 0 {
-                    if gp.previous_hat_values[e.axis] == -1 {
-                        evt = Event_Gamepad_Button_Went_Up {
-                            gamepad = idx,
-                            button = negative_button,
-                        }
-                    } else if gp.previous_hat_values[e.axis] == 1  {
-                        evt = Event_Gamepad_Button_Went_Up {
-                            gamepad = idx,
-                            button = positive_button,
-                        }
-                    }
-                }
-
-                if evt != nil {
-				    append(frame_events, evt)
-			    }
-            }
-        }
-    }
-
-    // Check for new gamepads and add them in the first empty slot
-    new_pad, has_new_pad := gamepad_controller_udev_events(s.gamepad_controller)
-    if has_new_pad {
-        for i in 0 ..<MAX_GAMEPADS {
-            if s.gamepad_controller.gamepads[i].active == false {
-                // Clean up the old gamepad before replacing it
-                gamepad_close(&s.gamepad_controller.gamepads[i])
-                s.gamepad_controller.gamepads[i] = new_pad
-                break
-            }
-        }
-    }
+	if ret > 0 {
+		dev := udev.monitor_receive_device(s.udev_mon)
+		path := udev.device_get_devnode(dev)
+		if !evdev.check_for_btn_gamepad(strings.clone_from_cstring(path)) {
+			return 
+		}
+		action := udev.device_get_action(dev)
+		if action == "add" {
+			pad, ok := linux_create_gamepad(strings.clone_from_cstring(path))
+			if ok {
+				for i in 0 ..<MAX_GAMEPADS {
+					if s.gamepads[i].active == false {
+						// Clean up the old gamepad before replacing it
+						linux_close_gamepad(&s.gamepads[i])
+						s.gamepads[i] = pad
+						break
+					}
+				}
+			}
+		}
+	}
 }
 
 linux_get_width :: proc() -> int {
@@ -234,27 +147,255 @@ linux_get_window_scale :: proc() -> f32 {
 	return s.win.get_window_scale()
 }
 
-linux_is_gamepad_active :: proc(gamepad: int) -> bool {
-    if gamepad < 0 || gamepad > len(s.gamepad_controller.gamepads) - 1 || gamepad > MAX_GAMEPADS {
-        return false
-    }
+linux_init_gamepads :: proc() {
+	devices_dir := "/dev/input"
 
-    return s.gamepad_controller.gamepads[gamepad].active
+	f, fok := os.open(devices_dir) 
+	if fok != nil {
+		return 
+	}
+
+	fis, fisok := os.read_dir(f, -1)
+	if fisok != nil {
+		return 
+	}
+
+	idx := 0
+	for fi in fis {
+		if strings.starts_with(fi.name, "event") {
+			is_gamepad := evdev.check_for_btn_gamepad(fi.fullpath)
+
+			if !is_gamepad {
+				continue
+			}
+
+			gamepad, ok := linux_create_gamepad(fi.fullpath)
+			if !ok {
+				continue
+			}
+
+			s.gamepads[idx] = gamepad
+		}
+	}
+
+	// Initialize udev machinery
+	udev_ptr := udev.new()
+	udev_mon_ptr := udev.monitor_new_from_netlink(udev_ptr, "udev")
+
+	udev.monitor_filter_add_match_subsystem_devtype(udev_mon_ptr, "input", nil)
+	udev.monitor_enable_receiving(udev_mon_ptr)
+	udev_fd := udev.monitor_get_fd(udev_mon_ptr)
+
+	s.udev_fd = udev_fd
+	s.udev_mon = udev_mon_ptr
+}
+
+linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
+	fd, err := os.open(device_path, os.O_RDONLY | os.O_NONBLOCK)
+	if err != nil {
+		return Linux_Gamepad{}, false
+	}
+	name: [256]u8
+	linux.ioctl(linux.Fd(fd), evdev.EVIOCGNAME(size_of(name)), cast(uintptr)&name)
+
+	// Create gamepad
+	gamepad := Linux_Gamepad {
+		fd	 = fd,
+		name   = strings.clone_from_cstring(cstring(raw_data(name[:]))),
+		active = true,
+	}
+
+	ev_bits: [evdev.EV_MAX / (8 * size_of(u64)) + 1]u64 = {}
+	linux.ioctl(linux.Fd(fd), evdev.EVIOCGBIT(0, size_of(ev_bits)), cast(uintptr)&ev_bits)
+	has_abs := evdev.test_bit(ev_bits[:], evdev.EV_ABS)
+
+	// fmt.printf("New gamepad %s\n", name)
+	// fmt.printf("\tdevice_path -> '%s'\n", device_path)
+	// fmt.printf("\thas_buttons-> '%t'\n", test_bit(ev_bits[:], EV_KEY))
+	// fmt.printf("\thas_absolute_movement-> '%t'\n", has_abs)
+	// fmt.printf("\thas_relative_movement-> '%t'\n", test_bit(ev_bits[:], EV_REL))
+	if has_abs {
+		abs_bits: [evdev.EV_ABS / (8 * size_of(u64)) + 1]u64 = {}
+		linux.ioctl(linux.Fd(fd), evdev.EVIOCGBIT(evdev.EV_ABS, size_of(abs_bits)), cast(uintptr)&abs_bits)
+
+		for i in evdev.Axis.X ..< evdev.Axis.TOOL_WIDTH + evdev.Axis(1) {
+			has_axis := evdev.test_bit(abs_bits[:], u64(i))
+			if has_axis {
+				axis_info := Linux_Axis_Info{}
+				linux.ioctl(linux.Fd(fd), evdev.EVIOCGABS(u32(i)), cast(uintptr)&axis_info.absinfo)
+				gamepad.axes[i] = axis_info
+			}
+		}
+	}
+
+	return gamepad, true
+}
+
+linux_close_gamepad :: proc(gamepad: ^Linux_Gamepad) {
+	if gamepad.active {
+		os.close(gamepad.fd)
+		gamepad.active = false
+	}
+	// Clean up allocated resources
+	delete(gamepad.name)
+	delete(gamepad.axes)
+	delete(gamepad.previous_hat_values)
+}
+
+linux_is_gamepad_active :: proc(gamepad: int) -> bool {
+	if gamepad < 0 || gamepad > len(s.gamepads) - 1 || gamepad > MAX_GAMEPADS {
+		return false
+	}
+
+	return s.gamepads[gamepad].active
+}
+
+linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
+	frame_events := events
+	buf: [size_of(evdev.input_event)]u8
+
+	for &gp, idx in s.gamepads {
+		if !gp.active {
+			continue
+		}
+
+		for {
+			n, read_err := os.read(gp.fd, buf[:])
+			if read_err != nil && read_err != .EAGAIN {
+				// Gamepad disconnected - close the file descriptor
+				os.close(gp.fd)
+				gp.active = false
+				break
+			}
+			if n != size_of(evdev.input_event) {
+				break
+			}
+
+			event := transmute(evdev.input_event)buf
+			switch event.type {
+			case evdev.EV_KEY:
+				btn := evdev.Button(event.code)
+				val := evdev.Button_State(event.value)
+				button: Maybe(Gamepad_Button)
+				#partial switch btn {
+				case .BTN_DPAD_UP: button = .Left_Face_Right
+				case .BTN_DPAD_DOWN: button = .Left_Face_Down
+				case .BTN_DPAD_LEFT: button = .Left_Face_Left
+				case .BTN_DPAD_RIGHT: button = .Left_Face_Up
+
+				// This mapping is slightly different from Xinput. Up and Left are swapped
+				case .BTN_A: button = .Right_Face_Down
+				case .BTN_B: button = .Right_Face_Right
+				case .BTN_X: button = .Right_Face_Up
+				case .BTN_Y: button = .Right_Face_Left
+
+				case .BTN_TL: button = .Left_Shoulder
+				case .BTN_TL2: button = .Left_Trigger
+				case .BTN_TR: button = .Right_Shoulder
+				case .BTN_TR2: button = .Right_Trigger
+
+				case .BTN_SELECT: button = .Middle_Face_Left
+				case .BTN_MODE: button = .Middle_Face_Middle
+				case .BTN_START: button = .Middle_Face_Right
+				case .BTN_THUMBL: button = .Left_Stick_Press
+				case .BTN_THUMBR: button = .Right_Stick_Press
+
+				case: continue
+				}
+				evt: Event
+				if val == .Pressed {
+					evt = Event_Gamepad_Button_Went_Down {
+						gamepad = idx,
+						button = button.?,
+					}
+				}
+				if val == .Released {
+					evt = Event_Gamepad_Button_Went_Up {
+						gamepad = idx,
+						button = button.?,
+					}
+				}
+				if evt != nil {
+					append(frame_events, evt)
+				}
+			case evdev.EV_ABS: 
+				laxis := evdev.Axis(event.code)
+				axis := &gp.axes[laxis]
+				axis.value = f32(event.value)
+				min := f32(axis.absinfo.minimum)
+				max := f32(axis.absinfo.maximum)
+				axis.normalized_value = 2.0 * (axis.value - min) / (max - min) - 1.0
+
+				// The following deals with Gamepads emitting d-pad events
+				// as an analog axis. We need to store the previous value
+				// so that we emit the correct Event_Gamepad_Button_Went_Up 
+				// events.
+				// NOTE(quadrado): This probably could be refactored into 
+				// gamepad code.
+				evt: Event
+				negative_button: Gamepad_Button
+				positive_button: Gamepad_Button
+
+				#partial switch evdev.Axis(event.code) {
+				case .HAT0X: 
+					negative_button = .Left_Face_Left 
+					positive_button = .Left_Face_Right 
+
+				case .HAT0Y:
+					negative_button = .Left_Face_Up 
+					positive_button = .Left_Face_Down 
+				case:
+					continue
+				}
+
+				if axis.normalized_value < 0 {
+					evt = Event_Gamepad_Button_Went_Down {
+						gamepad = idx,
+						button = negative_button,
+					}
+					gp.previous_hat_values[laxis] = axis.normalized_value
+				}
+				if axis.normalized_value > 0 {
+					evt = Event_Gamepad_Button_Went_Down {
+						gamepad = idx,
+						button = positive_button,
+					}
+					gp.previous_hat_values[laxis] = axis.normalized_value
+				}
+				if axis.normalized_value == 0 {
+					if gp.previous_hat_values[laxis] == -1 {
+						evt = Event_Gamepad_Button_Went_Up {
+							gamepad = idx,
+							button = negative_button,
+						}
+					} else if gp.previous_hat_values[laxis] == 1  {
+						evt = Event_Gamepad_Button_Went_Up {
+							gamepad = idx,
+							button = positive_button,
+						}
+					}
+				}
+
+				if evt != nil {
+					append(frame_events, evt)
+				}
+			}
+		}
+	}
 }
 
 linux_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
-    gamepad := &s.gamepad_controller.gamepads[gamepad]
+	gamepad := &s.gamepads[gamepad]
 
-    switch axis {
-    case .Left_Stick_X: return gamepad.axes[Linux_Axis.X].normalized_value
-    case .Left_Stick_Y: return gamepad.axes[Linux_Axis.Y].normalized_value
-    case .Right_Stick_X: return gamepad.axes[Linux_Axis.RX].normalized_value  
-    case .Right_Stick_Y: return gamepad.axes[Linux_Axis.RY].normalized_value
-    case .Left_Trigger: return gamepad.axes[Linux_Axis.Z].normalized_value // Not sure 
-    case .Right_Trigger: return gamepad.axes[Linux_Axis.RZ].normalized_value // Not sure 
-    }
+	switch axis {
+	case .Left_Stick_X: return gamepad.axes[evdev.Axis.X].normalized_value
+	case .Left_Stick_Y: return gamepad.axes[evdev.Axis.Y].normalized_value
+	case .Right_Stick_X: return gamepad.axes[evdev.Axis.RX].normalized_value  
+	case .Right_Stick_Y: return gamepad.axes[evdev.Axis.RY].normalized_value
+	case .Left_Trigger: return gamepad.axes[evdev.Axis.Z].normalized_value 
+	case .Right_Trigger: return gamepad.axes[evdev.Axis.RZ].normalized_value
+	}
 
-    // Return axis state
 	return 0
 }
 
@@ -276,8 +417,10 @@ Linux_State :: struct {
 	win: Linux_Window_Interface,
 	win_state: rawptr,
 	allocator: runtime.Allocator,
-    gamepad_controller: Linux_Gamepad_Controller,
-    // gamepads: []Linux_Gamepad,
+
+	gamepads: [MAX_GAMEPADS]Linux_Gamepad,
+	udev_fd: i32,
+	udev_mon: ^udev.monitor,
 }
 
 @(private="package")
@@ -304,6 +447,25 @@ Linux_Window_Interface :: struct {
 	set_window_mode: proc(window_mode: Window_Mode),
 
 	set_internal_state: proc(state: rawptr),
+}
+
+@(private="package")
+Linux_Axis_Info :: struct {
+	absinfo: evdev.input_absinfo,
+	value: f32, // originaly a c.int
+	normalized_value: f32,
+	previous_value: f32,
+}
+
+@(private="package")
+Linux_Gamepad :: struct {
+	fd: os.Handle,
+	active: bool,
+	name: string,
+	axes: map[evdev.Axis]Linux_Axis_Info,
+
+	// This is needed to emit the correct Event_Gamepad_Button_Went_Up events
+	previous_hat_values: map[evdev.Axis]f32,
 }
 
 @(private="package")
