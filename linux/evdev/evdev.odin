@@ -6,6 +6,7 @@ import "core:sys/linux"
 
 
 // ioctl() related utilities
+_IOC_WRITE :: 1
 _IOC_READ :: 2
 _IOC_NRSHIFT :: 0
 _IOC_TYPESHIFT :: (_IOC_NRSHIFT + _IOC_NRBITS)
@@ -48,6 +49,14 @@ EVIOCGABS :: proc(abs: u32) -> u32 {
 	return _IOC(_IOC_READ, 'E', 0x40 + (abs), size_of(input_absinfo))
 }
 
+EVIOCSFF :: proc() -> u32 {
+	return _IOC(_IOC_WRITE, 'E', 0x80, size_of(ff_effect))
+} /* send a force effect to a force feedback device */
+
+EVIOCRMFF :: proc(id: u32) -> u32 {
+	return _IOC(_IOC_WRITE, 'E', 0x80, size_of(c.int))
+} /* Erase a force effect */
+
 
 // Event types
 EV_SYN :: 0x00
@@ -66,6 +75,8 @@ EV_MAX :: 0x1f
 EV_CNT :: (EV_MAX + 1)
 
 KEY_MAX :: 0x2ff
+ABS_MAX :: 0x3f
+FF_MAX :: 0x7f
 
 // This is the first and base button
 // This is used as the bit index to check for existence
@@ -131,22 +142,73 @@ Axis :: enum u32 {
 	TOOL_WIDTH = 0x1c,
 }
 
+FF_Effects :: enum {
+	FF_RUMBLE   = 0x50,
+	FF_PERIODIC = 0x51,
+	FF_CONSTANT = 0x52,
+	FF_SPRING   = 0x53,
+	FF_FRICTION = 0x54,
+	FF_DAMPER   = 0x55,
+	FF_INERTIA  = 0x56,
+	FF_RAMP     = 0x57,
+}
+
 // Canonical event when read()'ing from evdev file
 input_event :: struct {
-	time:  linux.Time_Val,
-	type:  u16,
-	code:  u16,
+	time: linux.Time_Val,
+	type: u16,
+	code: u16,
 	value: c.int,
 }
 
+
 // Canonical absolute axis information gotten from ioctl() when using EVIOCGABS
 input_absinfo :: struct {
-	value:      i32,
-	minimum:    i32,
-	maximum:    i32,
-	fuzz:       i32,
-	flat:       i32,
+	value: i32,
+	minimum: i32,
+	maximum: i32,
+	fuzz: i32,
+	flat: i32,
 	resolution: i32,
+}
+ff_effect :: struct {
+	type: u16,
+	id: i16,
+	direction: u16,
+	trigger: ff_trigger,
+	replay: ff_replay,
+
+	// We don't need to expose any more effect types for now
+	u: struct #raw_union {
+		rumble: ff_rumble_effect,
+		periodic: ff_periodic_effect,
+	},
+}
+
+ff_replay :: struct {
+	length: u16,
+	delay: u16,
+}
+
+ff_trigger :: struct {
+	button: u16,
+	interval: u16,
+}
+
+ff_rumble_effect :: struct {
+	strong_magnitude: u16,
+	weak_magnitude: u16,
+}
+
+ff_periodic_effect :: struct {
+	waveform: u16,
+	period: u16,
+	magnitude: i16,
+	offset: i16,
+	phase: u16,
+	envelope: [2]u16,
+	custom_len: u32,
+	custom_data: ^i16,
 }
 
 // Helper for bitfield testing

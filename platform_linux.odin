@@ -191,7 +191,7 @@ linux_init_gamepads :: proc() {
 }
 
 linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
-	fd, err := os.open(device_path, os.O_RDONLY | os.O_NONBLOCK)
+	fd, err := os.open(device_path, os.O_RDWR | os.O_NONBLOCK)
 	if err != nil {
 		return Linux_Gamepad{}, false
 	}
@@ -208,6 +208,7 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 	ev_bits: [evdev.EV_MAX / (8 * size_of(u64)) + 1]u64 = {}
 	linux.ioctl(linux.Fd(fd), evdev.EVIOCGBIT(0, size_of(ev_bits)), cast(uintptr)&ev_bits)
 	has_abs := evdev.test_bit(ev_bits[:], evdev.EV_ABS)
+	has_ff := evdev.test_bit(ev_bits[:], evdev.EV_FF)
 
 	// fmt.printf("New gamepad %s\n", name)
 	// fmt.printf("\tdevice_path -> '%s'\n", device_path)
@@ -227,7 +228,27 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 			}
 		}
 	}
-
+	if has_ff {
+		ff_bits: [evdev.FF_MAX / (8 * size_of(u64)) + 1]u64 = {}
+		linux.ioctl(linux.Fd(fd), evdev.EVIOCGBIT(evdev.EV_FF, size_of(ff_bits)), cast(uintptr)&ff_bits)
+		has_rumble_effect := evdev.test_bit(ff_bits[:], u64(evdev.FF_Effects.FF_RUMBLE)) 
+		if has_rumble_effect {
+			effect := evdev.ff_effect {
+				type = u16(evdev.FF_Effects.FF_RUMBLE),
+				id = -1,
+				direction = 0,
+				trigger = evdev.ff_trigger{button = 0, interval = 0},
+				replay = evdev.ff_replay{length = 0, delay = 0},
+			}
+			effect.u.rumble = evdev.ff_rumble_effect {
+				strong_magnitude = 0,
+				weak_magnitude   = 0,
+			}
+			linux.ioctl(linux.Fd(fd), evdev.EVIOCSFF(), cast(uintptr)&effect)
+			gamepad.rumble_effect_id = u32(effect.id)
+            gamepad.has_rumble_support = true
+		}
+	}
 	return gamepad, true
 }
 
@@ -400,6 +421,45 @@ linux_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 }
 
 linux_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
+    gp := s.gamepads[gamepad]
+	if !gp.has_rumble_support {
+		return
+	}
+
+	fd := gp.fd
+
+	effect := evdev.ff_effect {
+		type = u16(evdev.FF_Effects.FF_RUMBLE),
+		id = i16(gp.rumble_effect_id),
+		direction = 0,
+		trigger = evdev.ff_trigger{button = 0, interval = 0},
+		replay = evdev.ff_replay{length = 0, delay = 0},
+	}
+
+	effect.u.rumble = evdev.ff_rumble_effect {
+		strong_magnitude = u16(left * 0xFFFF),
+		weak_magnitude   = u16(right * 0xFFFF),
+	}
+
+
+	linux.ioctl(linux.Fd(fd), evdev.EVIOCSFF(), cast(uintptr)&effect)
+	event := evdev.input_event {
+		type  = evdev.EV_FF,
+		code  = u16(gp.rumble_effect_id),
+		value = 1,
+	}
+
+	buf := transmute([size_of(event)]u8)event
+	os.write(fd, buf[:])
+
+	event = evdev.input_event {
+		type  = evdev.EV_SYN,
+		code  = 0,
+		value = 0,
+	}
+
+	buf = transmute([size_of(event)]u8)event
+	os.write(fd, buf[:])
 
 }
 
@@ -466,6 +526,8 @@ Linux_Gamepad :: struct {
 
 	// This is needed to emit the correct Event_Gamepad_Button_Went_Up events
 	previous_hat_values: map[evdev.Axis]f32,
+	has_rumble_support: bool,
+	rumble_effect_id: u32,
 }
 
 @(private="package")
