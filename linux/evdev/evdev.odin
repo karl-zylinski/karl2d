@@ -86,25 +86,25 @@ BTN_GAMEPAD :: 0x130
 // In linux/input.h there are 15 different mapped buttons + d-pad 
 // that for some reason appear further down....
 Button :: enum u32 {
-	BTN_A          = BTN_GAMEPAD,
-	BTN_B          = BTN_GAMEPAD + 1,
-	BTN_C          = BTN_GAMEPAD + 2,
-	BTN_X          = BTN_GAMEPAD + 3,
-	BTN_Y          = BTN_GAMEPAD + 4,
-	BTN_Z          = BTN_GAMEPAD + 5,
-	BTN_TL         = BTN_GAMEPAD + 6,
-	BTN_TR         = BTN_GAMEPAD + 7,
-	BTN_TL2        = BTN_GAMEPAD + 8,
-	BTN_TR2        = BTN_GAMEPAD + 9,
-	BTN_SELECT     = BTN_GAMEPAD + 10,
-	BTN_START      = BTN_GAMEPAD + 11,
-	BTN_MODE       = BTN_GAMEPAD + 12,
-	BTN_THUMBL     = BTN_GAMEPAD + 13,
-	BTN_THUMBR     = BTN_GAMEPAD + 14,
-	BTN_DPAD_UP    = 0x220,
-	BTN_DPAD_DOWN  = 0x221,
-	BTN_DPAD_LEFT  = 0x222,
-	BTN_DPAD_RIGHT = 0x223,
+	A          = BTN_GAMEPAD,
+	B          = BTN_GAMEPAD + 1,
+	C          = BTN_GAMEPAD + 2,
+	X          = BTN_GAMEPAD + 3,
+	Y          = BTN_GAMEPAD + 4,
+	Z          = BTN_GAMEPAD + 5,
+	TL         = BTN_GAMEPAD + 6,
+	TR         = BTN_GAMEPAD + 7,
+	TL2        = BTN_GAMEPAD + 8,
+	TR2        = BTN_GAMEPAD + 9,
+	SELECT     = BTN_GAMEPAD + 10,
+	START      = BTN_GAMEPAD + 11,
+	MODE       = BTN_GAMEPAD + 12,
+	THUMBL     = BTN_GAMEPAD + 13,
+	THUMBR     = BTN_GAMEPAD + 14,
+	DPAD_UP    = 0x220,
+	DPAD_DOWN  = 0x221,
+	DPAD_LEFT  = 0x222,
+	DPAD_RIGHT = 0x223,
 }
 
 // Evdev EV_KEY events can have these states
@@ -143,14 +143,14 @@ Axis :: enum u32 {
 }
 
 FF_Effects :: enum {
-	FF_RUMBLE   = 0x50,
-	FF_PERIODIC = 0x51,
-	FF_CONSTANT = 0x52,
-	FF_SPRING   = 0x53,
-	FF_FRICTION = 0x54,
-	FF_DAMPER   = 0x55,
-	FF_INERTIA  = 0x56,
-	FF_RAMP     = 0x57,
+	RUMBLE   = 0x50,
+	PERIODIC = 0x51,
+	CONSTANT = 0x52,
+	SPRING   = 0x53,
+	FRICTION = 0x54,
+	DAMPER   = 0x55,
+	INERTIA  = 0x56,
+	RAMP     = 0x57,
 }
 
 // Canonical event when read()'ing from evdev file

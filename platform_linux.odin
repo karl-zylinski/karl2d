@@ -231,10 +231,10 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 	if has_ff {
 		ff_bits: [evdev.FF_MAX / (8 * size_of(u64)) + 1]u64 = {}
 		linux.ioctl(linux.Fd(fd), evdev.EVIOCGBIT(evdev.EV_FF, size_of(ff_bits)), cast(uintptr)&ff_bits)
-		has_rumble_effect := evdev.test_bit(ff_bits[:], u64(evdev.FF_Effects.FF_RUMBLE)) 
+		has_rumble_effect := evdev.test_bit(ff_bits[:], u64(evdev.FF_Effects.RUMBLE)) 
 		if has_rumble_effect {
 			effect := evdev.ff_effect {
-				type = u16(evdev.FF_Effects.FF_RUMBLE),
+				type = u16(evdev.FF_Effects.RUMBLE),
 				id = -1,
 				direction = 0,
 				trigger = evdev.ff_trigger{button = 0, interval = 0},
@@ -246,7 +246,7 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 			}
 			linux.ioctl(linux.Fd(fd), evdev.EVIOCSFF(), cast(uintptr)&effect)
 			gamepad.rumble_effect_id = u32(effect.id)
-            gamepad.has_rumble_support = true
+			gamepad.has_rumble_support = true
 		}
 	}
 	return gamepad, true
@@ -299,27 +299,27 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 				val := evdev.Button_State(event.value)
 				button: Maybe(Gamepad_Button)
 				#partial switch btn {
-				case .BTN_DPAD_UP: button = .Left_Face_Right
-				case .BTN_DPAD_DOWN: button = .Left_Face_Down
-				case .BTN_DPAD_LEFT: button = .Left_Face_Left
-				case .BTN_DPAD_RIGHT: button = .Left_Face_Up
+				case .DPAD_UP: button = .Left_Face_Right
+				case .DPAD_DOWN: button = .Left_Face_Down
+				case .DPAD_LEFT: button = .Left_Face_Left
+				case .DPAD_RIGHT: button = .Left_Face_Up
 
 				// This mapping is slightly different from Xinput. Up and Left are swapped
-				case .BTN_A: button = .Right_Face_Down
-				case .BTN_B: button = .Right_Face_Right
-				case .BTN_X: button = .Right_Face_Up
-				case .BTN_Y: button = .Right_Face_Left
+				case .A: button = .Right_Face_Down
+				case .B: button = .Right_Face_Right
+				case .X: button = .Right_Face_Up
+				case .Y: button = .Right_Face_Left
 
-				case .BTN_TL: button = .Left_Shoulder
-				case .BTN_TL2: button = .Left_Trigger
-				case .BTN_TR: button = .Right_Shoulder
-				case .BTN_TR2: button = .Right_Trigger
+				case .TL: button = .Left_Shoulder
+				case .TL2: button = .Left_Trigger
+				case .TR: button = .Right_Shoulder
+				case .TR2: button = .Right_Trigger
 
-				case .BTN_SELECT: button = .Middle_Face_Left
-				case .BTN_MODE: button = .Middle_Face_Middle
-				case .BTN_START: button = .Middle_Face_Right
-				case .BTN_THUMBL: button = .Left_Stick_Press
-				case .BTN_THUMBR: button = .Right_Stick_Press
+				case .SELECT: button = .Middle_Face_Left
+				case .MODE: button = .Middle_Face_Middle
+				case .START: button = .Middle_Face_Right
+				case .THUMBL: button = .Left_Stick_Press
+				case .THUMBR: button = .Right_Stick_Press
 
 				case: continue
 				}
@@ -421,7 +421,7 @@ linux_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 }
 
 linux_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
-    gp := s.gamepads[gamepad]
+	gp := s.gamepads[gamepad]
 	if !gp.has_rumble_support {
 		return
 	}
@@ -429,7 +429,7 @@ linux_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
 	fd := gp.fd
 
 	effect := evdev.ff_effect {
-		type = u16(evdev.FF_Effects.FF_RUMBLE),
+		type = u16(evdev.FF_Effects.RUMBLE),
 		id = i16(gp.rumble_effect_id),
 		direction = 0,
 		trigger = evdev.ff_trigger{button = 0, interval = 0},
