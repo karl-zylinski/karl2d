@@ -13,6 +13,8 @@ import "core:strings"
 import "linux/udev"
 import "linux/evdev"
 
+import "core:fmt"
+
 @(private="package")
 PLATFORM_LINUX :: Platform_Interface {
 	state_size = linux_state_size,
@@ -358,7 +360,13 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 				axis.value = f32(event.value)
 				min := f32(axis.absinfo.minimum)
 				max := f32(axis.absinfo.maximum)
-				axis.normalized_value = 2.0 * (axis.value - min) / (max - min) - 1.0
+
+				if laxis ==.Z || laxis == .RZ {
+					axis.normalized_value = 2.0 * (axis.value - min) / (max - min) - 1.0
+				}
+				else {
+				   axis.normalized_value = axis.value / max
+				}
 
 				// The following deals with Gamepads emitting d-pad events
 				// as an analog axis. We need to store the previous value
@@ -426,7 +434,7 @@ linux_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	case .Left_Stick_Y: return gamepad.axes[evdev.Axis.Y].normalized_value
 	case .Right_Stick_X: return gamepad.axes[evdev.Axis.RX].normalized_value  
 	case .Right_Stick_Y: return gamepad.axes[evdev.Axis.RY].normalized_value
-	case .Left_Trigger: return gamepad.axes[evdev.Axis.Z].normalized_value 
+	case .Left_Trigger: return gamepad.axes[evdev.Axis.Z].normalized_value
 	case .Right_Trigger: return gamepad.axes[evdev.Axis.RZ].normalized_value
 	}
 
