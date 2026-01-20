@@ -12,7 +12,7 @@ import "core:sys/posix"
 import "core:strings"
 import "linux/udev"
 import "linux/evdev"
-
+import "core:bytes"
 import "core:fmt"
 
 @(private="package")
@@ -219,48 +219,51 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 		active = true,
 	}
 
-	ev_bits: [evdev.EV_MAX / (8 * size_of(u64)) + 1]u64 = {}
+	ev_bits: [evdev.EV_MAX / (8 * size_of(u64)) + 1]u64
 	linux.ioctl(linux.Fd(fd), evdev.EVIOCGBIT(0, size_of(ev_bits)), cast(uintptr)&ev_bits)
-	has_abs := evdev.test_bit(ev_bits[:], evdev.EV_ABS)
-	has_ff := evdev.test_bit(ev_bits[:], evdev.EV_FF)
+	has_analogue_axes := evdev.test_bit(ev_bits[:], evdev.EV_ABS)
+	has_vibration := evdev.test_bit(ev_bits[:], evdev.EV_FF)
 
 	log.debugf("New gamepad %s", name)
 	log.debugf("\tdevice_path -> '%s'", device_path)
 	log.debugf("\thas_buttons-> '%t'", evdev.test_bit(ev_bits[:], evdev.EV_KEY))
-	log.debugf("\thas_absolute_movement-> '%t'", has_abs)
+	log.debugf("\thas_analogue_axes-> '%t'", has_analogue_axes)
+	log.debugf("\thas_vibration-> '%t'", has_vibration)
 	log.debugf("\thas_relative_movement-> '%t'", evdev.test_bit(ev_bits[:], evdev.EV_REL))
 	
-	if has_abs {
+	if has_analogue_axes {
 		abs_bits: [evdev.EV_ABS / (8 * size_of(u64)) + 1]u64 = {}
 		linux.ioctl(linux.Fd(fd), evdev.EVIOCGBIT(evdev.EV_ABS, size_of(abs_bits)), cast(uintptr)&abs_bits)
 
 		for i in evdev.Axis.X ..< evdev.Axis.TOOL_WIDTH + evdev.Axis(1) {
 			has_axis := evdev.test_bit(abs_bits[:], u64(i))
 			if has_axis {
-				axis_info := Linux_Axis_Info{}
+				axis_info: Linux_Axis_Info
 				linux.ioctl(linux.Fd(fd), evdev.EVIOCGABS(u32(i)), cast(uintptr)&axis_info.absinfo)
 				gamepad.axes[i] = axis_info
 			}
 		}
 	}
 	
-	if has_ff {
-		ff_bits: [evdev.FF_MAX / (8 * size_of(u64)) + 1]u64 = {}
+	if has_vibration {
+		ff_bits: [evdev.FF_MAX / (8 * size_of(u64)) + 1]u64 
 		linux.ioctl(linux.Fd(fd), evdev.EVIOCGBIT(evdev.EV_FF, size_of(ff_bits)), cast(uintptr)&ff_bits)
-		has_rumble_effect := evdev.test_bit(ff_bits[:], u64(evdev.FF_Effects.RUMBLE)) 
+		has_rumble_effect := evdev.test_bit(ff_bits[:], u64(evdev.FF_Effect_Type.RUMBLE)) 
 
 		if has_rumble_effect {
 			effect := evdev.ff_effect {
-				type = u16(evdev.FF_Effects.RUMBLE),
+				type = .RUMBLE,
 				id = -1,
 				direction = 0,
-				trigger = evdev.ff_trigger{button = 0, interval = 0},
-				replay = evdev.ff_replay{length = 0, delay = 0},
+				trigger = {button = 0, interval = 0},
+				replay = {length = 0, delay = 0},
 			}
-			effect.u.rumble = evdev.ff_rumble_effect {
+
+			effect.rumble = {
 				strong_magnitude = 0,
 				weak_magnitude   = 0,
 			}
+
 			linux.ioctl(linux.Fd(fd), evdev.EVIOCSFF(), cast(uintptr)&effect)
 			gamepad.rumble_effect_id = u32(effect.id)
 			gamepad.has_rumble_support = true
@@ -427,23 +430,35 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 	}
 }
 
-linux_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
-	gamepad := &s.gamepads[gamepad]
-
-	switch axis {
-	case .Left_Stick_X: return gamepad.axes[evdev.Axis.X].normalized_value
-	case .Left_Stick_Y: return gamepad.axes[evdev.Axis.Y].normalized_value
-	case .Right_Stick_X: return gamepad.axes[evdev.Axis.RX].normalized_value  
-	case .Right_Stick_Y: return gamepad.axes[evdev.Axis.RY].normalized_value
-	case .Left_Trigger: return gamepad.axes[evdev.Axis.Z].normalized_value
-	case .Right_Trigger: return gamepad.axes[evdev.Axis.RZ].normalized_value
-	}
-
-	return 0
+@rodata
+evdev_axis_from_gamepad_axis := [Gamepad_Axis]evdev.Axis {
+	.Left_Stick_X = .X,
+	.Left_Stick_Y = .Y,
+	.Right_Stick_X = .RX,
+	.Right_Stick_Y = .RY,
+	.Left_Trigger = .Z,
+	.Right_Trigger = .RZ,
 }
 
-linux_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
+linux_get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32 {
+	if axis < min(Gamepad_Axis) || axis > max(Gamepad_Axis) {
+		return 0
+	}
+
+	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
+		return 0
+	}
+
+	return s.gamepads[gamepad].axes[evdev_axis_from_gamepad_axis[axis]].normalized_value
+}
+
+linux_set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
+	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
+		return
+	}
+
 	gp := s.gamepads[gamepad]
+
 	if !gp.has_rumble_support {
 		return
 	}
@@ -451,38 +466,34 @@ linux_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
 	fd := gp.fd
 
 	effect := evdev.ff_effect {
-		type = u16(evdev.FF_Effects.RUMBLE),
+		type = .RUMBLE,
 		id = i16(gp.rumble_effect_id),
 		direction = 0,
-		trigger = evdev.ff_trigger{button = 0, interval = 0},
-		replay = evdev.ff_replay{length = 0, delay = 0},
+		trigger = {button = 0, interval = 0},
+		replay = {length = 0, delay = 0},
 	}
 
-	effect.u.rumble = evdev.ff_rumble_effect {
+	effect.rumble = evdev.ff_rumble_effect {
 		strong_magnitude = u16(left * 0xFFFF),
 		weak_magnitude   = u16(right * 0xFFFF),
 	}
 
-
 	linux.ioctl(linux.Fd(fd), evdev.EVIOCSFF(), cast(uintptr)&effect)
-	event := evdev.input_event {
+	
+	rumble_event := evdev.input_event {
 		type  = evdev.EV_FF,
 		code  = u16(gp.rumble_effect_id),
 		value = 1,
 	}
 
-	buf := transmute([size_of(event)]u8)event
-	os.write(fd, buf[:])
+	os.write(fd, mem.any_to_bytes(rumble_event))
 
-	event = evdev.input_event {
-		type  = evdev.EV_SYN,
-		code  = 0,
-		value = 0,
+	// To "close" the rumble event
+	syn_event := evdev.input_event {
+		type = evdev.EV_SYN,
 	}
 
-	buf = transmute([size_of(event)]u8)event
-	os.write(fd, buf[:])
-
+	os.write(fd, mem.any_to_bytes(syn_event))
 }
 
 linux_set_internal_state :: proc(state: rawptr) {
@@ -531,7 +542,6 @@ Linux_Window_Interface :: struct {
 	set_internal_state: proc(state: rawptr),
 }
 
-@(private="package")
 Linux_Axis_Info :: struct {
 	absinfo: evdev.input_absinfo,
 	value: f32, // originaly a c.int
@@ -539,7 +549,6 @@ Linux_Axis_Info :: struct {
 	previous_value: f32,
 }
 
-@(private="package")
 Linux_Gamepad :: struct {
 	fd: os.Handle,
 	active: bool,

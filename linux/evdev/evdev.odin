@@ -142,7 +142,7 @@ Axis :: enum u32 {
 	TOOL_WIDTH = 0x1c,
 }
 
-FF_Effects :: enum {
+FF_Effect_Type :: enum u16 {
 	RUMBLE   = 0x50,
 	PERIODIC = 0x51,
 	CONSTANT = 0x52,
@@ -171,15 +171,16 @@ input_absinfo :: struct {
 	flat: i32,
 	resolution: i32,
 }
+
 ff_effect :: struct {
-	type: u16,
+	type: FF_Effect_Type,
 	id: i16,
 	direction: u16,
 	trigger: ff_trigger,
 	replay: ff_replay,
 
 	// We don't need to expose any more effect types for now
-	u: struct #raw_union {
+	using _: struct #raw_union {
 		rumble: ff_rumble_effect,
 		periodic: ff_periodic_effect,
 	},
