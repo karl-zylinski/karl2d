@@ -220,7 +220,8 @@ test_bit :: proc(bits: []u64, bit: u64) -> bool {
 	return bits[idx] & (1 << pos) != 0
 }
 
-check_for_btn_gamepad :: proc(path: string) -> bool {
+// Checks if a device is a gamepad by looking at if it has the bits for buttons.
+is_device_gamepad :: proc(path: string) -> bool {
 	fd, err := os.open(path, os.O_RDONLY | os.O_NONBLOCK)
 
 	if err != nil {

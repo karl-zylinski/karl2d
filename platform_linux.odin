@@ -1,3 +1,4 @@
+#+vet explicit-allocators
 #+build linux
 #+private file
 package karl2d
@@ -104,23 +105,28 @@ linux_get_events :: proc(events: ^[dynamic]Event) {
 
 	ret := posix.poll(&pfd, 1, 0)
 
-	if ret > 0 {
-		dev := udev.monitor_receive_device(s.udev_mon)
-		path := udev.device_get_devnode(dev)
-		if !evdev.check_for_btn_gamepad(strings.clone_from_cstring(path)) {
-			return 
-		}
-		action := udev.device_get_action(dev)
-		if action == "add" {
-			pad, ok := linux_create_gamepad(strings.clone_from_cstring(path))
-			if ok {
-				for i in 0 ..<MAX_GAMEPADS {
-					if s.gamepads[i].active == false {
-						// Clean up the old gamepad before replacing it
-						linux_close_gamepad(&s.gamepads[i])
-						s.gamepads[i] = pad
-						break
-					}
+	if ret <= 0 {
+		return
+	}
+
+	dev := udev.monitor_receive_device(s.udev_mon)
+	path_cstr := udev.device_get_devnode(dev)
+	path := string(path_cstr)
+	
+	if !evdev.is_device_gamepad(path) {
+		return 
+	}
+
+	action := udev.device_get_action(dev)
+	if action == "add" {
+		pad, ok := linux_create_gamepad(path)
+		if ok {
+			for i in 0 ..<MAX_GAMEPADS {
+				if s.gamepads[i].active == false {
+					// Clean up the old gamepad before replacing it
+					linux_close_gamepad(&s.gamepads[i])
+					s.gamepads[i] = pad
+					break
 				}
 			}
 		}
@@ -148,33 +154,36 @@ linux_get_window_scale :: proc() -> f32 {
 }
 
 linux_init_gamepads :: proc() {
-	devices_dir := "/dev/input"
+	DEVICES_DIR :: "/dev/input"
 
-	f, fok := os.open(devices_dir) 
-	if fok != nil {
+	devices_handle, devices_handle_ok := os.open(DEVICES_DIR) 
+
+	if devices_handle_ok != nil {
 		return 
 	}
 
-	fis, fisok := os.read_dir(f, -1)
-	if fisok != nil {
+	defer os.close(devices_handle)
+
+	file_infos, file_infos_ok := os.read_dir(devices_handle, -1, frame_allocator)
+
+	if file_infos_ok != nil {
 		return 
 	}
 
-	idx := 0
-	for fi in fis {
-		if strings.starts_with(fi.name, "event") {
-			is_gamepad := evdev.check_for_btn_gamepad(fi.fullpath)
+	gamepad_idx := 0
 
-			if !is_gamepad {
-				continue
-			}
+	for fi in file_infos {
+		if !strings.starts_with(fi.name, "event") {
+			continue
+		}
 
-			gamepad, ok := linux_create_gamepad(fi.fullpath)
-			if !ok {
-				continue
-			}
+		if !evdev.is_device_gamepad(fi.fullpath) {
+			continue
+		}
 
-			s.gamepads[idx] = gamepad
+		if gamepad, gamepad_ok := linux_create_gamepad(fi.fullpath); gamepad_ok {
+			s.gamepads[gamepad_idx] = gamepad
+			gamepad_idx += 1	
 		}
 	}
 
@@ -192,16 +201,20 @@ linux_init_gamepads :: proc() {
 
 linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 	fd, err := os.open(device_path, os.O_RDWR | os.O_NONBLOCK)
+
 	if err != nil {
+		log.errorf("Failed creating gamepad for device %v", device_path)
 		return Linux_Gamepad{}, false
 	}
-	name: [256]u8
-	linux.ioctl(linux.Fd(fd), evdev.EVIOCGNAME(size_of(name)), cast(uintptr)&name)
+
+	name_buf: [256]u8
+	name_len := linux.ioctl(linux.Fd(fd), evdev.EVIOCGNAME(size_of(name_buf)), cast(uintptr)&name_buf)
+	name := name_len > 0 ? strings.string_from_ptr(raw_data(&name_buf), int(name_len-1)) : "" 
 
 	// Create gamepad
 	gamepad := Linux_Gamepad {
-		fd	 = fd,
-		name   = strings.clone_from_cstring(cstring(raw_data(name[:]))),
+		fd = fd,
+		name = strings.clone(name, s.allocator),
 		active = true,
 	}
 
@@ -258,7 +271,7 @@ linux_close_gamepad :: proc(gamepad: ^Linux_Gamepad) {
 		gamepad.active = false
 	}
 	// Clean up allocated resources
-	delete(gamepad.name)
+	delete(gamepad.name, s.allocator)
 	delete(gamepad.axes)
 	delete(gamepad.previous_hat_values)
 }
