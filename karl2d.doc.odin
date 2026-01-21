@@ -127,11 +127,15 @@ get_screen_height :: proc() -> int
 set_window_position :: proc(x: int, y: int)
 
 // Resize the window to a new size. While the user cannot resize windows with 
-// `window_mode == .Windowed_Resizable`, this procedure will resize them.
+// `window_mode == .Windowed_Resizable`, this procedure will those windows.
 set_window_size :: proc(width: int, height: int)
 
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
 // 1 means 100% scale, 1.5 means 150% etc.
+//
+// Karl2D does not do any automatic scaling. If you want a scaled resolution, then multiply the
+// wanted resolution by the scale and send it into `set_window_size`. You can use a camera and set
+// the zoom to the window scale in order to make things the same percieved size.
 get_window_scale :: proc() -> f32
 
 // Use to change between windowed mode, resizable windowed mode and fullscreen
@@ -1000,6 +1004,7 @@ Event :: union {
 	Event_Gamepad_Button_Went_Up,
 	Event_Window_Focused,
 	Event_Window_Unfocused,
+	Event_Window_Scale_Changed,
 }
 
 Event_Key_Went_Down :: struct {
@@ -1040,6 +1045,11 @@ Event_Mouse_Wheel :: struct {
 
 Event_Resize :: struct {
 	width, height: int,
+}
+
+// You can also use `k2.get_window_scale()`
+Event_Window_Scale_Changed :: struct {
+	scale: f32,
 }
 
 Event_Window_Focused :: struct {}
