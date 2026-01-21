@@ -78,45 +78,7 @@ linux_init :: proc(
 		allocator,
 	)
 
-	// Create gamepads that were connected on program boot
-	{
-		// Gamepads are described by device files at path `/dev/input/eventXX`
-		devices_handle, devices_handle_ok := os.open("/dev/input") 
-
-		if devices_handle_ok != nil {
-			return 
-		}
-
-		defer os.close(devices_handle)
-
-		file_infos, file_infos_ok := os.read_dir(devices_handle, -1, frame_allocator)
-
-		if file_infos_ok != nil {
-			return 
-		}
-
-		gamepad_idx := 0
-
-		for fi in file_infos {
-			if !strings.starts_with(fi.name, "event") {
-				continue
-			}
-
-			if !evdev.is_device_gamepad(fi.fullpath) {
-				continue
-			}
-
-			if gamepad_idx >= MAX_GAMEPADS {
-				log.errorf("A maximum of %v gamepads is supported", MAX_GAMEPADS)
-				break					
-			}
-
-			if gamepad, gamepad_ok := linux_create_gamepad(fi.fullpath); gamepad_ok {
-				s.gamepads[gamepad_idx] = gamepad
-				gamepad_idx += 1
-			}
-		}
-	}
+	linux_create_connected_gamepads()
 
 	// Set up monitoring for new gamepads. This uses udev. It looks for `input` devices being added.
 	// The monitor is polled in `linux_get_events`.
@@ -207,6 +169,45 @@ linux_set_size :: proc(w, h: int) {
 
 linux_get_window_scale :: proc() -> f32 {
 	return s.win.get_window_scale()
+}
+
+linux_create_connected_gamepads :: proc() {
+	// Gamepads are described by device files at path `/dev/input/eventXX`
+	devices_handle, devices_handle_ok := os.open("/dev/input") 
+
+	if devices_handle_ok != nil {
+		return 
+	}
+
+	defer os.close(devices_handle)
+
+	file_infos, file_infos_ok := os.read_dir(devices_handle, -1, frame_allocator)
+
+	if file_infos_ok != nil {
+		return 
+	}
+
+	gamepad_idx := 0
+
+	for fi in file_infos {
+		if !strings.starts_with(fi.name, "event") {
+			continue
+		}
+
+		if !evdev.is_device_gamepad(fi.fullpath) {
+			continue
+		}
+
+		if gamepad_idx >= MAX_GAMEPADS {
+			log.errorf("A maximum of %v gamepads is supported", MAX_GAMEPADS)
+			break					
+		}
+
+		if gamepad, gamepad_ok := linux_create_gamepad(fi.fullpath); gamepad_ok {
+			s.gamepads[gamepad_idx] = gamepad
+			gamepad_idx += 1
+		}
+	}
 }
 
 linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
