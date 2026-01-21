@@ -200,6 +200,8 @@ web_get_window_render_glue :: proc() -> Window_Render_Glue {
 
 // This works for XBox controller -- does it work for PlayStation?
 KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
+	.None = 0,
+	
 	.Left_Face_Up = 12,
 	.Left_Face_Down = 13,
 	.Left_Face_Left = 14,
