@@ -318,58 +318,58 @@ linux_is_gamepad_active :: proc(gamepad: int) -> bool {
 	return s.gamepads[gamepad].active
 }
 
-@rodata
-evdev_button_mapping_microsoft := #sparse [evdev.Button]Gamepad_Button {
-	.DPAD_UP = .Left_Face_Right,
-	.DPAD_DOWN = .Left_Face_Down,
-	.DPAD_LEFT = .Left_Face_Left,
-	.DPAD_RIGHT = .Left_Face_Up,
+microsoft_button_from_evdev_button :: proc(b: evdev.Button) -> Gamepad_Button {
+	#partial switch b {
+	case .DPAD_UP: return .Left_Face_Right
+	case .DPAD_DOWN: return .Left_Face_Down
+	case .DPAD_LEFT: return .Left_Face_Left
+	case .DPAD_RIGHT: return .Left_Face_Up
 
-	.A = .Right_Face_Down,
-	.B = .Right_Face_Right,
-	.X = .Right_Face_Left,
-	.Y = .Right_Face_Up,
+	case .A: return .Right_Face_Down
+	case .B: return .Right_Face_Right
+	case .X: return .Right_Face_Left
+	case .Y: return .Right_Face_Up
 
-	.TL = .Left_Shoulder,
-	.TL2 = .Left_Trigger,
-	.TR = .Right_Shoulder,
-	.TR2 = .Right_Trigger,
+	case .TL: return .Left_Shoulder
+	case .TL2: return .Left_Trigger
+	case .TR: return .Right_Shoulder
+	case .TR2: return .Right_Trigger
 
-	.SELECT = .Middle_Face_Left,
-	.MODE = .Middle_Face_Middle,
-	.START = .Middle_Face_Right,
-	.THUMBL = .Left_Stick_Press,
-	.THUMBR = .Right_Stick_Press,
+	case .SELECT: return .Middle_Face_Left
+	case .MODE: return .Middle_Face_Middle
+	case .START: return .Middle_Face_Right
+	case .THUMBL: return .Left_Stick_Press
+	case .THUMBR: return .Right_Stick_Press
+	}
 
-	.C = .None,
-	.Z = .None,
+	return .None
 }
 
-@rodata
-evdev_button_mapping_sony := #sparse [evdev.Button]Gamepad_Button {
-	.DPAD_UP = .Left_Face_Right,
-	.DPAD_DOWN = .Left_Face_Down,
-	.DPAD_LEFT = .Left_Face_Left,
-	.DPAD_RIGHT = .Left_Face_Up,
+sony_button_from_evdev_button :: proc(b: evdev.Button) -> Gamepad_Button {
+	#partial switch b {
+	case .DPAD_UP: return .Left_Face_Right
+	case .DPAD_DOWN: return .Left_Face_Down
+	case .DPAD_LEFT: return .Left_Face_Left
+	case .DPAD_RIGHT: return .Left_Face_Up
 
-	.A = .Right_Face_Down,
-	.B = .Right_Face_Right,
-	.X = .Right_Face_Up,
-	.Y = .Right_Face_Left,
+	case .A: return .Right_Face_Down
+	case .B: return .Right_Face_Right
+	case .X: return .Right_Face_Up
+	case .Y: return .Right_Face_Left
 
-	.TL = .Left_Shoulder,
-	.TL2 = .Left_Trigger,
-	.TR = .Right_Shoulder,
-	.TR2 = .Right_Trigger,
+	case .TL: return .Left_Shoulder
+	case .TL2: return .Left_Trigger
+	case .TR: return .Right_Shoulder
+	case .TR2: return .Right_Trigger
 
-	.SELECT = .Middle_Face_Left,
-	.MODE = .Middle_Face_Middle,
-	.START = .Middle_Face_Right,
-	.THUMBL = .Left_Stick_Press,
-	.THUMBR = .Right_Stick_Press,
+	case .SELECT: return .Middle_Face_Left
+	case .MODE: return .Middle_Face_Middle
+	case .START: return .Middle_Face_Right
+	case .THUMBL: return .Left_Stick_Press
+	case .THUMBR: return .Right_Stick_Press
+	}
 
-	.C = .None,
-	.Z = .None,
+	return .None
 }
 
 linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
@@ -400,9 +400,9 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 
 				switch gp.type {
 				case .Microsoft:
-					button = evdev_button_mapping_microsoft[evdev_button]
+					button = microsoft_button_from_evdev_button(evdev_button)
 				case .Sony:
-					button = evdev_button_mapping_sony[evdev_button]
+					button = sony_button_from_evdev_button(evdev_button)
 				}
 
 				if button != .None {
