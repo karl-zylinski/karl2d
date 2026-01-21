@@ -52,11 +52,11 @@ step :: proc() -> bool {
 		k2.set_window_size(320, 180) 
 	}
 
-	if k2.key_is_held(.A) {
+	if k2.key_is_held(.A) || k2.gamepad_button_is_held(0, .Left_Face_Left) {
 		pos_x -= k2.get_frame_time() * 400
 	}
 
-	if k2.key_is_held(.D) {
+	if k2.key_is_held(.D) || k2.gamepad_button_is_held(0, .Left_Face_Right) {
 		pos_x += k2.get_frame_time() * 400
 	}
 
