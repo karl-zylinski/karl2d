@@ -152,7 +152,6 @@ linux_get_events :: proc(events: ^[dynamic]Event) {
 	linux_get_gamepad_events(events)
 }
 
-
 linux_poll_for_new_gamepads :: proc() {
 	pfd := posix.pollfd {
 		fd = posix.FD(udev.monitor_get_fd(s.udev_mon)),
