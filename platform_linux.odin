@@ -212,9 +212,17 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 	name_buf: [256]u8
 	name_len := linux.ioctl(linux.Fd(fd), evdev.EVIOCGNAME(size_of(name_buf)), cast(uintptr)&name_buf)
 	name := name_len > 0 ? strings.string_from_ptr(raw_data(&name_buf), int(name_len-1)) : "" 
+	type := Linux_Gamepad_Type.Other
+
+	if strings.contains(name, "Microsoft") {
+		type = .Microsoft
+	} else if strings.contains(name, "Sony") {
+		type = .Sony
+	}
 
 	gamepad := Linux_Gamepad {
 		fd = fd,
+		type = type,
 		name = strings.clone(name, s.allocator),
 		active = true,
 	}
@@ -291,8 +299,61 @@ linux_is_gamepad_active :: proc(gamepad: int) -> bool {
 	return s.gamepads[gamepad].active
 }
 
+@rodata
+evdev_button_mapping_microsoft := #sparse [evdev.Button]Gamepad_Button {
+	.DPAD_UP = .Left_Face_Right,
+	.DPAD_DOWN = .Left_Face_Down,
+	.DPAD_LEFT = .Left_Face_Left,
+	.DPAD_RIGHT = .Left_Face_Up,
+
+	.A = .Right_Face_Down,
+	.B = .Right_Face_Right,
+	.X = .Right_Face_Left,
+	.Y = .Right_Face_Up,
+
+	.TL = .Left_Shoulder,
+	.TL2 = .Left_Trigger,
+	.TR = .Right_Shoulder,
+	.TR2 = .Right_Trigger,
+
+	.SELECT = .Middle_Face_Left,
+	.MODE = .Middle_Face_Middle,
+	.START = .Middle_Face_Right,
+	.THUMBL = .Left_Stick_Press,
+	.THUMBR = .Right_Stick_Press,
+
+	.C = .None,
+	.Z = .None,
+}
+
+@rodata
+evdev_button_mapping_sony := #sparse [evdev.Button]Gamepad_Button {
+	.DPAD_UP = .Left_Face_Right,
+	.DPAD_DOWN = .Left_Face_Down,
+	.DPAD_LEFT = .Left_Face_Left,
+	.DPAD_RIGHT = .Left_Face_Up,
+
+	.A = .Right_Face_Down,
+	.B = .Right_Face_Right,
+	.X = .Right_Face_Up,
+	.Y = .Right_Face_Left,
+
+	.TL = .Left_Shoulder,
+	.TL2 = .Left_Trigger,
+	.TR = .Right_Shoulder,
+	.TR2 = .Right_Trigger,
+
+	.SELECT = .Middle_Face_Left,
+	.MODE = .Middle_Face_Middle,
+	.START = .Middle_Face_Right,
+	.THUMBL = .Left_Stick_Press,
+	.THUMBR = .Right_Stick_Press,
+
+	.C = .None,
+	.Z = .None,
+}
+
 linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
-	frame_events := events
 	buf: [size_of(evdev.input_event)]u8
 
 	for &gp, idx in s.gamepads {
@@ -316,48 +377,33 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 			switch event.type {
 			case evdev.EV_KEY:
 				btn := evdev.Button(event.code)
-				val := evdev.Button_State(event.value)
-				button: Maybe(Gamepad_Button)
-				#partial switch btn {
-				case .DPAD_UP: button = .Left_Face_Right
-				case .DPAD_DOWN: button = .Left_Face_Down
-				case .DPAD_LEFT: button = .Left_Face_Left
-				case .DPAD_RIGHT: button = .Left_Face_Up
+				button_state := evdev.Button_State(event.value)
+				button: Gamepad_Button
 
-				// This mapping is slightly different from Xinput. Up and Left are swapped
-				case .A: button = .Right_Face_Down
-				case .B: button = .Right_Face_Right
-				case .X: button = .Right_Face_Up
-				case .Y: button = .Right_Face_Left
-
-				case .TL: button = .Left_Shoulder
-				case .TL2: button = .Left_Trigger
-				case .TR: button = .Right_Shoulder
-				case .TR2: button = .Right_Trigger
-
-				case .SELECT: button = .Middle_Face_Left
-				case .MODE: button = .Middle_Face_Middle
-				case .START: button = .Middle_Face_Right
-				case .THUMBL: button = .Left_Stick_Press
-				case .THUMBR: button = .Right_Stick_Press
-
-				case: continue
+				switch gp.type {
+				case .Microsoft:
+					button = evdev_button_mapping_microsoft[btn]
+				case .Sony:
+					button = evdev_button_mapping_sony[btn]
 				}
-				evt: Event
-				if val == .Pressed {
-					evt = Event_Gamepad_Button_Went_Down {
-						gamepad = idx,
-						button = button.?,
+
+				if button != .None {
+					switch button_state {
+					case .Pressed:
+						append(events, Event_Gamepad_Button_Went_Down {
+							gamepad = idx,
+							button = button,
+						})
+
+					case .Released:
+						append(events, Event_Gamepad_Button_Went_Up {
+							gamepad = idx,
+							button = button,
+						})
+
+					case .Repeated:
+						// Do nothing
 					}
-				}
-				if val == .Released {
-					evt = Event_Gamepad_Button_Went_Up {
-						gamepad = idx,
-						button = button.?,
-					}
-				}
-				if evt != nil {
-					append(frame_events, evt)
 				}
 			case evdev.EV_ABS: 
 				laxis := evdev.Axis(event.code)
@@ -423,7 +469,7 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 				}
 
 				if evt != nil {
-					append(frame_events, evt)
+					append(events, evt)
 				}
 			}
 		}
@@ -553,11 +599,18 @@ Linux_Axis_Info :: struct {
 	previous_value: f32,
 }
 
+Linux_Gamepad_Type :: enum {
+	Microsoft, // XBox
+	Sony, // PlayStation
+	Other = Microsoft,
+}
+
 Linux_Gamepad :: struct {
 	fd: os.Handle,
 	active: bool,
 	name: string,
 	axes: map[evdev.Axis]Linux_Axis_Info,
+	type: Linux_Gamepad_Type,
 
 	// This is needed to emit the correct Event_Gamepad_Button_Went_Up events
 	previous_hat_values: map[evdev.Axis]f32,

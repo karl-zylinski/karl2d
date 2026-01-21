@@ -2100,6 +2100,8 @@ Gamepad_Axis :: enum {
 }
 
 Gamepad_Button :: enum {
+	None,
+	
 	// DPAD buttons
 	Left_Face_Up,
 	Left_Face_Down,
