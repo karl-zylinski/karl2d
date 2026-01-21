@@ -354,6 +354,7 @@ mac_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	egp := s.gamepads[gamepad].extended_gamepad
 
 	switch axis {
+	case .None: return 0
 	case .Left_Stick_X:  return egp->leftThumbstick()->xAxis()->value()
 	case .Left_Stick_Y:  return -egp->leftThumbstick()->yAxis()->value() // Invert Y to match XInput
 	case .Right_Stick_X: return egp->rightThumbstick()->xAxis()->value()
@@ -655,6 +656,7 @@ remove_controller :: proc(controller: ^gc.Controller) {
 // and then we'll make a new one)
 make_button_inputs :: proc(egp: ^gc.ExtendedGamepad) -> [Gamepad_Button]^gc.ControllerButtonInput {
 	return {
+		.None               = nil,
 		.Right_Face_Down    = egp->buttonA(),
 		.Right_Face_Right   = egp->buttonB(),
 		.Right_Face_Left    = egp->buttonX(),
