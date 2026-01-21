@@ -1,6 +1,7 @@
-#+vet explicit-allocators
 #+build linux
 #+private file
+#+vet explicit-allocators
+
 package karl2d
 
 import "base:runtime"
@@ -12,8 +13,6 @@ import "core:sys/posix"
 import "core:strings"
 import "linux/udev"
 import "linux/evdev"
-import "core:bytes"
-import "core:fmt"
 
 @(private="package")
 PLATFORM_LINUX :: Platform_Interface {
