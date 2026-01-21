@@ -79,11 +79,64 @@ linux_init :: proc(
 		allocator,
 	)
 
-	// Initialize gamepads
-	linux_init_gamepads()
+	// Create gamepads that were connected on program boot
+	{
+		// Gamepads are described by device files at path `/dev/input/eventXX`
+		devices_handle, devices_handle_ok := os.open("/dev/input") 
+
+		if devices_handle_ok != nil {
+			return 
+		}
+
+		defer os.close(devices_handle)
+
+		file_infos, file_infos_ok := os.read_dir(devices_handle, -1, frame_allocator)
+
+		if file_infos_ok != nil {
+			return 
+		}
+
+		gamepad_idx := 0
+
+		for fi in file_infos {
+			if !strings.starts_with(fi.name, "event") {
+				continue
+			}
+
+			if !evdev.is_device_gamepad(fi.fullpath) {
+				continue
+			}
+
+			if gamepad_idx >= MAX_GAMEPADS {
+				log.errorf("A maximum of %v gamepads is supported", MAX_GAMEPADS)
+				break					
+			}
+
+			if gamepad, gamepad_ok := linux_create_gamepad(fi.fullpath); gamepad_ok {
+				s.gamepads[gamepad_idx] = gamepad
+				gamepad_idx += 1
+			}
+		}
+	}
+
+	// Set up monitoring for new gamepads. This uses udev. It looks for `input` devices being added.
+	// The monitor is polled in `linux_get_events`.
+	{
+		s.udev_ptr = udev.new()
+		s.udev_mon = udev.monitor_new_from_netlink(s.udev_ptr, "udev")
+		udev.monitor_filter_add_match_subsystem_devtype(s.udev_mon, "input", nil)
+		udev.monitor_enable_receiving(s.udev_mon)
+	}
 }
 
 linux_shutdown :: proc() {
+	for &g in s.gamepads {
+		linux_destroy_gamepad(&g)
+	}
+
+	udev.monitor_unref(s.udev_mon)
+	udev.unref(s.udev_ptr)
+
 	s.win.shutdown()
 	a := s.allocator
 	free(s.win_state, a)
@@ -95,13 +148,14 @@ linux_get_window_render_glue :: proc() -> Window_Render_Glue {
 
 linux_get_events :: proc(events: ^[dynamic]Event) {
 	s.win.get_events(events)
+	linux_poll_for_new_gamepads()
 	linux_get_gamepad_events(events)
-	// new_gp, has_new_gp := gamepad_check_udev(s.udev_mon) 
-	// if has_new_gp {
-	// }
-	// Check for new gamepads and add them in the first empty slot new_pad
+}
+
+
+linux_poll_for_new_gamepads :: proc() {
 	pfd := posix.pollfd {
-		fd	 = posix.FD(s.udev_fd),
+		fd = posix.FD(udev.monitor_get_fd(s.udev_mon)),
 		events = {posix.Poll_Event_Bits.IN},
 	}
 
@@ -112,24 +166,26 @@ linux_get_events :: proc(events: ^[dynamic]Event) {
 	}
 
 	dev := udev.monitor_receive_device(s.udev_mon)
+	defer udev.device_unref(dev)
+
 	path_cstr := udev.device_get_devnode(dev)
 	path := string(path_cstr)
-	
-	if !evdev.is_device_gamepad(path) {
-		return 
-	}
+	is_gamepad := evdev.is_device_gamepad(path)
 
-	action := udev.device_get_action(dev)
-	if action == "add" {
-		pad, ok := linux_create_gamepad(path)
-		if ok {
-			for i in 0 ..<MAX_GAMEPADS {
-				if s.gamepads[i].active == false {
-					// Clean up the old gamepad before replacing it
-					linux_close_gamepad(&s.gamepads[i])
-					s.gamepads[i] = pad
-					break
-				}
+	if is_gamepad && udev.device_get_action(dev) == "add" {
+		// Find a slot for the new gamepad
+		idx := -1
+
+		for gp, gp_idx in s.gamepads {
+			if gp.active == false {
+				idx = gp_idx
+				break
+			}
+		}
+
+		if idx != -1 {
+			if gp, gp_ok := linux_create_gamepad(path); gp_ok {
+				s.gamepads[idx] = gp
 			}
 		}
 	}
@@ -155,58 +211,12 @@ linux_get_window_scale :: proc() -> f32 {
 	return s.win.get_window_scale()
 }
 
-linux_init_gamepads :: proc() {
-	DEVICES_DIR :: "/dev/input"
-
-	devices_handle, devices_handle_ok := os.open(DEVICES_DIR) 
-
-	if devices_handle_ok != nil {
-		return 
-	}
-
-	defer os.close(devices_handle)
-
-	file_infos, file_infos_ok := os.read_dir(devices_handle, -1, frame_allocator)
-
-	if file_infos_ok != nil {
-		return 
-	}
-
-	gamepad_idx := 0
-
-	for fi in file_infos {
-		if !strings.starts_with(fi.name, "event") {
-			continue
-		}
-
-		if !evdev.is_device_gamepad(fi.fullpath) {
-			continue
-		}
-
-		if gamepad, gamepad_ok := linux_create_gamepad(fi.fullpath); gamepad_ok {
-			s.gamepads[gamepad_idx] = gamepad
-			gamepad_idx += 1	
-		}
-	}
-
-	// Initialize udev machinery
-	udev_ptr := udev.new()
-	udev_mon_ptr := udev.monitor_new_from_netlink(udev_ptr, "udev")
-
-	udev.monitor_filter_add_match_subsystem_devtype(udev_mon_ptr, "input", nil)
-	udev.monitor_enable_receiving(udev_mon_ptr)
-	udev_fd := udev.monitor_get_fd(udev_mon_ptr)
-
-	s.udev_fd = udev_fd
-	s.udev_mon = udev_mon_ptr
-}
-
 linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 	fd, err := os.open(device_path, os.O_RDWR | os.O_NONBLOCK)
 
 	if err != nil {
 		log.errorf("Failed creating gamepad for device %v", device_path)
-		return Linux_Gamepad{}, false
+		return {}, false
 	}
 
 	name_buf: [256]u8
@@ -272,14 +282,6 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 			effect := evdev.ff_effect {
 				type = .RUMBLE,
 				id = -1,
-				direction = 0,
-				trigger = {button = 0, interval = 0},
-				replay = {length = 0, delay = 0},
-			}
-
-			effect.rumble = {
-				strong_magnitude = 0,
-				weak_magnitude   = 0,
 			}
 
 			linux.ioctl(linux.Fd(fd), evdev.EVIOCSFF(), cast(uintptr)&effect)
@@ -287,6 +289,7 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 			gamepad.has_rumble_support = true
 		}
 	}
+
 	return gamepad, true
 }
 
@@ -303,13 +306,10 @@ gamepad_axis_from_evdev_axis :: proc(evdev_axis: evdev.Axis) -> Gamepad_Axis {
 	return .None
 }
 
-linux_close_gamepad :: proc(gamepad: ^Linux_Gamepad) {
-	if gamepad.active {
-		os.close(gamepad.fd)
-		gamepad.active = false
-	}
-	// Clean up allocated resources
+linux_destroy_gamepad :: proc(gamepad: ^Linux_Gamepad) {
+	os.close(gamepad.fd)
 	delete(gamepad.name, s.allocator)
+	gamepad.active = false
 }
 
 linux_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -375,7 +375,7 @@ evdev_button_mapping_sony := #sparse [evdev.Button]Gamepad_Button {
 }
 
 linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
-	buf: [size_of(evdev.input_event)]u8
+	event: evdev.input_event
 
 	for &gp, idx in s.gamepads {
 		if !gp.active {
@@ -383,18 +383,18 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 		}
 
 		for {
-			n, read_err := os.read(gp.fd, buf[:])
-			if read_err != nil && read_err != .EAGAIN {
-				// Gamepad disconnected - close the file descriptor
-				os.close(gp.fd)
-				gp.active = false
-				break
-			}
-			if n != size_of(evdev.input_event) {
+			event_read_bytes, event_read_err := os.read(gp.fd, mem.any_to_bytes(event))
+
+			if event_read_err != nil && event_read_err != .EAGAIN {
+				log.debugf("Gamepad %v disconnected", idx)
+				linux_destroy_gamepad(&gp)
 				break
 			}
 
-			event := transmute(evdev.input_event)buf
+			if event_read_bytes != size_of(event) {
+				break
+			}
+
 			switch event.type {
 			case evdev.EV_KEY:
 				evdev_button := evdev.Button(event.code)
@@ -502,11 +502,9 @@ linux_set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f3
 
 	gp := s.gamepads[gamepad]
 
-	if !gp.has_rumble_support {
+	if !gp.active || !gp.has_rumble_support {
 		return
 	}
-
-	fd := gp.fd
 
 	effect := evdev.ff_effect {
 		type = .RUMBLE,
@@ -525,7 +523,7 @@ linux_set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f3
 		weak_magnitude   = u16(right * 0xFFFF),
 	}
 
-	linux.ioctl(linux.Fd(fd), evdev.EVIOCSFF(), cast(uintptr)&effect)
+	linux.ioctl(linux.Fd(gp.fd), evdev.EVIOCSFF(), cast(uintptr)&effect)
 	
 	rumble_event := evdev.input_event {
 		type  = evdev.EV_FF,
@@ -533,14 +531,14 @@ linux_set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f3
 		value = 1,
 	}
 
-	os.write(fd, mem.any_to_bytes(rumble_event))
+	os.write(gp.fd, mem.any_to_bytes(rumble_event))
 
 	// To "close" the rumble event
 	syn_event := evdev.input_event {
 		type = evdev.EV_SYN,
 	}
 
-	os.write(fd, mem.any_to_bytes(syn_event))
+	os.write(gp.fd, mem.any_to_bytes(syn_event))
 }
 
 linux_set_internal_state :: proc(state: rawptr) {
@@ -559,7 +557,7 @@ Linux_State :: struct {
 	allocator: runtime.Allocator,
 
 	gamepads: [MAX_GAMEPADS]Linux_Gamepad,
-	udev_fd: i32,
+	udev_ptr: ^udev.udev,
 	udev_mon: ^udev.monitor,
 }
 
