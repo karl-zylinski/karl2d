@@ -288,7 +288,6 @@ linux_close_gamepad :: proc(gamepad: ^Linux_Gamepad) {
 	// Clean up allocated resources
 	delete(gamepad.name, s.allocator)
 	delete(gamepad.axes)
-	delete(gamepad.previous_hat_values)
 }
 
 linux_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -376,19 +375,18 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 			event := transmute(evdev.input_event)buf
 			switch event.type {
 			case evdev.EV_KEY:
-				btn := evdev.Button(event.code)
-				button_state := evdev.Button_State(event.value)
+				evdev_button := evdev.Button(event.code)
 				button: Gamepad_Button
 
 				switch gp.type {
 				case .Microsoft:
-					button = evdev_button_mapping_microsoft[btn]
+					button = evdev_button_mapping_microsoft[evdev_button]
 				case .Sony:
-					button = evdev_button_mapping_sony[btn]
+					button = evdev_button_mapping_sony[evdev_button]
 				}
 
 				if button != .None {
-					switch button_state {
+					switch evdev.Button_State(event.value) {
 					case .Pressed:
 						append(events, Event_Gamepad_Button_Went_Down {
 							gamepad = idx,
@@ -613,7 +611,7 @@ Linux_Gamepad :: struct {
 	type: Linux_Gamepad_Type,
 
 	// This is needed to emit the correct Event_Gamepad_Button_Went_Up events
-	previous_hat_values: map[evdev.Axis]f32,
+	previous_hat_values: #sparse [evdev.Axis]f32,
 	has_rumble_support: bool,
 	rumble_effect_id: u32,
 }
