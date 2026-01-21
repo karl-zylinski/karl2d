@@ -593,6 +593,8 @@ Linux_Gamepad_Axis_Info :: struct {
 	event_min: i32,
 }
 
+// We differentiate between these types because some buttons are in different plaes. The evdev
+// buttons for .Right_Face_Left and .Right_Face_Up will differ on for example PS4 and XBox gamepads.
 Linux_Gamepad_Type :: enum {
 	Microsoft, // XBox
 	Sony, // PlayStation
