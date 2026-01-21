@@ -470,7 +470,7 @@ linux_set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f3
 		id = i16(gp.rumble_effect_id),
 		direction = 0,
 		trigger = {button = 0, interval = 0},
-		replay = {length = 0, delay = 0},
+		replay = {length = 1000, delay = 0},
 	}
 
 	effect.rumble = evdev.ff_rumble_effect {

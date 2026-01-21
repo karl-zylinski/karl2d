@@ -180,7 +180,7 @@ ff_effect :: struct {
 	replay: ff_replay,
 
 	// We don't need to expose any more effect types for now
-	using _: struct #raw_union {
+	using u: struct #raw_union {
 		rumble: ff_rumble_effect,
 		periodic: ff_periodic_effect,
 	},
@@ -207,7 +207,7 @@ ff_periodic_effect :: struct {
 	magnitude: i16,
 	offset: i16,
 	phase: u16,
-	envelope: [2]u16,
+	envelope: [4]u16,
 	custom_len: u32,
 	custom_data: ^i16,
 }
