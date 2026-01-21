@@ -244,6 +244,7 @@ windows_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 		TRIGGER_MAX :: 255
 
 		switch axis {
+		case .None: return 0
 		case .Left_Stick_X: return f32(gp.sThumbLX) / STICK_MAX
 		case .Left_Stick_Y: return -f32(gp.sThumbLY) / STICK_MAX
 		case .Right_Stick_X: return f32(gp.sThumbRX) / STICK_MAX
