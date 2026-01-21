@@ -426,10 +426,31 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 			case evdev.EV_ABS: 
 				evdev_axis := evdev.Axis(event.code)
 
-				if evdev_axis ==.Z || evdev_axis == .RZ {
+				if evdev_axis == .Z || evdev_axis == .RZ {
 					// ^ triggers, goes between 0 an 1
 					axis := gamepad_axis_from_evdev_axis(evdev_axis)
-					gp.axes[axis].value = f32(event.value) / f32(gp.axes[axis].event_max)
+					value := f32(event.value) / f32(gp.axes[axis].event_max)
+
+					// MS gamepads don't have trigger button event, so we fake it
+					if gp.type == .Microsoft {
+						prev_value := gp.axes[axis].value
+						TRIGGER_THRESHOLD :: 0.001
+						button: Gamepad_Button = evdev_axis == .Z ? .Left_Trigger : .Right_Trigger
+						
+						if prev_value > TRIGGER_THRESHOLD && value <= TRIGGER_THRESHOLD {
+							append(events, Event_Gamepad_Button_Went_Up {
+								gamepad = idx,
+								button = button,
+							})
+						} else if prev_value <= TRIGGER_THRESHOLD && value > TRIGGER_THRESHOLD {
+							append(events, Event_Gamepad_Button_Went_Down {
+								gamepad = idx,
+								button =button,
+							})
+						}
+					}
+
+					gp.axes[axis].value = value
 				} else if evdev_axis == .HAT0X {
 					// ^ DPAD horizontal. It's an axis, but the event values are just 0, -1 or 1
 
