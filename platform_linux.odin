@@ -287,7 +287,6 @@ linux_close_gamepad :: proc(gamepad: ^Linux_Gamepad) {
 	}
 	// Clean up allocated resources
 	delete(gamepad.name, s.allocator)
-	delete(gamepad.axes)
 }
 
 linux_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -607,7 +606,7 @@ Linux_Gamepad :: struct {
 	fd: os.Handle,
 	active: bool,
 	name: string,
-	axes: map[evdev.Axis]Linux_Axis_Info,
+	axes: #sparse [evdev.Axis]Linux_Axis_Info,
 	type: Linux_Gamepad_Type,
 
 	// This is needed to emit the correct Event_Gamepad_Button_Went_Up events
