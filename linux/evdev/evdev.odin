@@ -18,18 +18,12 @@ _IOC_TYPEBITS :: 8
 _IOC_SIZEBITS :: 14
 
 _IOC :: proc(dir: u32, type: u32, nr: u32, size: u32) -> u32 {
-
-	return(
+	return (
 		((dir) << _IOC_DIRSHIFT) |
 		((type) << _IOC_TYPESHIFT) |
 		((nr) << _IOC_NRSHIFT) |
-		((size) << _IOC_SIZESHIFT) \
+		((size) << _IOC_SIZESHIFT)
 	)
-}
-
-// This is not working, not sure why size_of(T) is 8 when i pass it input_absinfo
-_IOR :: proc(type: u32, nr: u32, T: typeid) -> u32 {
-	return _IOC(_IOC_READ, (type), (nr), (size_of(T)))
 }
 
 // Evdev related ioctl() calls
@@ -228,8 +222,9 @@ is_device_gamepad :: proc(path: string) -> bool {
 	if err != nil {
 		return false
 	}
-	key_bits: [KEY_MAX / (8 * size_of(u64)) + 1]u64 = {}
-	linux.ioctl(linux.Fd(fd), EVIOCGBIT(EV_KEY, size_of(key_bits)), cast(uintptr)&key_bits)
 
+	defer os.close(fd)
+	key_bits: [KEY_MAX / (8 * size_of(u64)) + 1]u64
+	linux.ioctl(linux.Fd(fd), EVIOCGBIT(EV_KEY, size_of(key_bits)), cast(uintptr)&key_bits)
 	return test_bit(key_bits[:], u64(BTN_GAMEPAD))
 }
