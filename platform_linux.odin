@@ -245,10 +245,20 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 
 		for i in evdev.Axis.X ..< evdev.Axis.TOOL_WIDTH + evdev.Axis(1) {
 			has_axis := evdev.test_bit(abs_bits[:], u64(i))
-			if has_axis {
-				axis_info: Linux_Axis_Info
-				linux.ioctl(linux.Fd(fd), evdev.EVIOCGABS(u32(i)), cast(uintptr)&axis_info.absinfo)
-				gamepad.axes[i] = axis_info
+
+			if !has_axis {
+				continue
+			}
+
+			axis := gamepad_axis_from_evdev_axis(i)
+
+			if axis != .None {
+				absinfo: evdev.input_absinfo
+				linux.ioctl(linux.Fd(fd), evdev.EVIOCGABS(u32(i)), cast(uintptr)&absinfo)
+				gamepad.axes[axis] = {
+					event_min = absinfo.minimum,
+					event_max = absinfo.maximum,
+				}
 			}
 		}
 	}
@@ -278,6 +288,19 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 		}
 	}
 	return gamepad, true
+}
+
+gamepad_axis_from_evdev_axis :: proc(evdev_axis: evdev.Axis) -> Gamepad_Axis {
+	#partial switch evdev_axis {
+		case .X:  return .Left_Stick_X
+		case .Y:  return .Left_Stick_Y
+		case .RX: return .Right_Stick_X
+		case .RY: return .Right_Stick_Y
+		case .Z:  return .Left_Trigger
+		case .RZ: return .Right_Trigger
+	}
+
+	return .None
 }
 
 linux_close_gamepad :: proc(gamepad: ^Linux_Gamepad) {
@@ -403,84 +426,61 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 					}
 				}
 			case evdev.EV_ABS: 
-				laxis := evdev.Axis(event.code)
-				axis := &gp.axes[laxis]
-				axis.value = f32(event.value)
-				min := f32(axis.absinfo.minimum)
-				max := f32(axis.absinfo.maximum)
+				evdev_axis := evdev.Axis(event.code)
 
-				if laxis ==.Z || laxis == .RZ {
-					axis.normalized_value = axis.value / max
+				if evdev_axis ==.Z || evdev_axis == .RZ {
+					// ^ triggers, goes between 0 an 1
+					axis := gamepad_axis_from_evdev_axis(evdev_axis)
+					gp.axes[axis].value = f32(event.value) / f32(gp.axes[axis].event_max)
+				} else if evdev_axis == .HAT0X {
+					// ^ DPAD horizontal. It's an axis, but the event values are just 0, -1 or 1
+
+					if gp.previous_dpad_horizontal != 0 && gp.previous_dpad_horizontal != event.value {
+						append(events, Event_Gamepad_Button_Went_Up {
+							gamepad = idx,
+							button = gp.previous_dpad_horizontal == -1 ? .Left_Face_Left : .Left_Face_Right,
+						})
+					} else if event.value != 0 {
+						append(events, Event_Gamepad_Button_Went_Down {
+							gamepad = idx,
+							button = event.value == -1 ? .Left_Face_Left : .Left_Face_Right,
+						})
+					}
+
+					gp.previous_dpad_horizontal = event.value
+				} else if evdev_axis == .HAT0Y { 
+					// ^ DPAD vertical. It's an axis, but the event values are just 0, -1 or 1
+
+					if gp.previous_dpad_vertical != 0 && gp.previous_dpad_vertical != event.value {
+						append(events, Event_Gamepad_Button_Went_Up {
+							gamepad = idx,
+							button = gp.previous_dpad_vertical == -1 ? .Left_Face_Up : .Left_Face_Down,
+						})
+					} else if event.value != 0 {
+						append(events, Event_Gamepad_Button_Went_Down {
+							gamepad = idx,
+							button = event.value == -1 ? .Left_Face_Up : .Left_Face_Down,
+						})
+					}
+
+					gp.previous_dpad_vertical = event.value
 				} else {
-					axis.normalized_value = 2.0 * (axis.value - min) / (max - min) - 1.0
-				}
+					// Other analogue sticks. These are for example thumbsticks that go between
+					// -1 and 1. These often have a big min and max value. This code normalizes
+					// that integer value range into a float range of -1 to 1.
 
-				// The following deals with Gamepads emitting d-pad events
-				// as an analog axis. We need to store the previous value
-				// so that we emit the correct Event_Gamepad_Button_Went_Up 
-				// events.
-				// NOTE(quadrado): This probably could be refactored into 
-				// gamepad code.
-				evt: Event
-				negative_button: Gamepad_Button
-				positive_button: Gamepad_Button
+					axis := gamepad_axis_from_evdev_axis(evdev_axis)
 
-				#partial switch evdev.Axis(event.code) {
-				case .HAT0X: 
-					negative_button = .Left_Face_Left 
-					positive_button = .Left_Face_Right 
-
-				case .HAT0Y:
-					negative_button = .Left_Face_Up 
-					positive_button = .Left_Face_Down 
-				case:
-					continue
-				}
-
-				if axis.normalized_value < 0 {
-					evt = Event_Gamepad_Button_Went_Down {
-						gamepad = idx,
-						button = negative_button,
+					if axis != .None {
+						min := f32(gp.axes[axis].event_min)
+						max := f32(gp.axes[axis].event_max)
+						val := f32(event.value)
+						gp.axes[axis].value = 2.0 * (val - min) / (max - min) - 1.0
 					}
-					gp.previous_hat_values[laxis] = axis.normalized_value
-				}
-				if axis.normalized_value > 0 {
-					evt = Event_Gamepad_Button_Went_Down {
-						gamepad = idx,
-						button = positive_button,
-					}
-					gp.previous_hat_values[laxis] = axis.normalized_value
-				}
-				if axis.normalized_value == 0 {
-					if gp.previous_hat_values[laxis] == -1 {
-						evt = Event_Gamepad_Button_Went_Up {
-							gamepad = idx,
-							button = negative_button,
-						}
-					} else if gp.previous_hat_values[laxis] == 1  {
-						evt = Event_Gamepad_Button_Went_Up {
-							gamepad = idx,
-							button = positive_button,
-						}
-					}
-				}
-
-				if evt != nil {
-					append(events, evt)
 				}
 			}
 		}
 	}
-}
-
-@rodata
-evdev_axis_from_gamepad_axis := [Gamepad_Axis]evdev.Axis {
-	.Left_Stick_X = .X,
-	.Left_Stick_Y = .Y,
-	.Right_Stick_X = .RX,
-	.Right_Stick_Y = .RY,
-	.Left_Trigger = .Z,
-	.Right_Trigger = .RZ,
 }
 
 linux_get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32 {
@@ -492,7 +492,7 @@ linux_get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f3
 		return 0
 	}
 
-	return s.gamepads[gamepad].axes[evdev_axis_from_gamepad_axis[axis]].normalized_value
+	return s.gamepads[gamepad].axes[axis].value
 }
 
 linux_set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
@@ -589,11 +589,12 @@ Linux_Window_Interface :: struct {
 	set_internal_state: proc(state: rawptr),
 }
 
-Linux_Axis_Info :: struct {
-	absinfo: evdev.input_absinfo,
-	value: f32, // originaly a c.int
-	normalized_value: f32,
-	previous_value: f32,
+Linux_Gamepad_Axis_Info :: struct {
+	value: f32,
+
+	// The range of the events that can be reported for this axis.
+	event_max: i32,
+	event_min: i32,
 }
 
 Linux_Gamepad_Type :: enum {
@@ -606,11 +607,14 @@ Linux_Gamepad :: struct {
 	fd: os.Handle,
 	active: bool,
 	name: string,
-	axes: #sparse [evdev.Axis]Linux_Axis_Info,
+	axes: [Gamepad_Axis]Linux_Gamepad_Axis_Info,
 	type: Linux_Gamepad_Type,
 
-	// This is needed to emit the correct Event_Gamepad_Button_Went_Up events
-	previous_hat_values: #sparse [evdev.Axis]f32,
+	// This is needed to emit the correct Event_Gamepad_Button_Went_Up events because the DPAD
+	// events come as values on a HAT axis.
+	previous_dpad_horizontal: i32,
+	previous_dpad_vertical: i32,
+
 	has_rumble_support: bool,
 	rumble_effect_id: u32,
 }

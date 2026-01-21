@@ -949,6 +949,8 @@ MAX_GAMEPADS :: 4
 Gamepad_Index :: int
 
 Gamepad_Axis :: enum {
+	None,
+	
 	Left_Stick_X,
 	Left_Stick_Y,
 	Right_Stick_X,
@@ -958,6 +960,8 @@ Gamepad_Axis :: enum {
 }
 
 Gamepad_Button :: enum {
+	None,
+	
 	// DPAD buttons
 	Left_Face_Up,
 	Left_Face_Down,

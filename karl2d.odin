@@ -2091,6 +2091,8 @@ MAX_GAMEPADS :: 4
 Gamepad_Index :: int
 
 Gamepad_Axis :: enum {
+	None,
+	
 	Left_Stick_X,
 	Left_Stick_Y,
 	Right_Stick_X,
