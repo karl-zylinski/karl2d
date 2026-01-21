@@ -470,6 +470,10 @@ linux_set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f3
 		id = i16(gp.rumble_effect_id),
 		direction = 0,
 		trigger = {button = 0, interval = 0},
+
+		// I put 1000 ms here because on some gamepads, if the effect is "too short" then it never
+		// starts. Especially true on XBox gamepad slow motor. It seems to have a low frequency and
+		// doesn't spin the motor if the length is 0 or very short.
 		replay = {length = 1000, delay = 0},
 	}
 
