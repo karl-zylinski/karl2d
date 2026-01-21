@@ -219,7 +219,7 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 
 	name_buf: [256]u8
 	name_len := linux.ioctl(linux.Fd(fd), evdev.EVIOCGNAME(size_of(name_buf)), cast(uintptr)&name_buf)
-	name := name_len > 0 ? strings.string_from_ptr(raw_data(&name_buf), int(name_len-1)) : "" 
+	name := name_len > 0 ? string(name_buf[:name_len-1]) : "" 
 	type := Linux_Gamepad_Type.Other
 
 	if strings.contains(name, "Microsoft") {
