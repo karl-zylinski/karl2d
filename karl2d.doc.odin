@@ -128,7 +128,7 @@ set_window_position :: proc(x: int, y: int)
 
 // Resize the window to a new size. While the user cannot resize windows with 
 // `window_mode == .Windowed_Resizable`, this procedure will those windows.
-set_window_size :: proc(width: int, height: int)
+set_screen_size :: proc(width: int, height: int)
 
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
 // 1 means 100% scale, 1.5 means 150% etc.
