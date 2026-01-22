@@ -23,7 +23,7 @@ import "core:strings"
 import "core:c"
 
 import "log"
-import wl "linux/wayland"
+import wl "platform_bindings/linux/wayland"
 
 _ :: log
 _ :: fmt
