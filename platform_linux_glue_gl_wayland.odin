@@ -7,7 +7,7 @@ package karl2d
 import gl "vendor:OpenGL"
 import "log"
 import "vendor:egl"
-import wl "platform_bindings./linux/wayland"
+import wl "platform_bindings/linux/wayland"
 import "base:runtime"
 
 @(private="package")

@@ -868,12 +868,12 @@ gl_destroy_shader :: proc(h: Shader_Handle) {
 }
 
 gl_default_shader_vertex_source :: proc() -> []byte {
-	vertex_source := #load("render_backend_gl_default_vertex_shader.glsl")
+	vertex_source := #load("default_shaders/default_shader_gl_vertex.glsl")
 	return vertex_source
 }
 
 gl_default_shader_fragment_source :: proc() -> []byte {
-	fragment_source := #load("render_backend_gl_default_fragment_shader.glsl")
+	fragment_source := #load("default_shaders/default_shader_gl_fragment.glsl")
 	return fragment_source
 }
 
