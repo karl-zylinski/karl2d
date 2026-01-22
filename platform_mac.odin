@@ -39,8 +39,8 @@ Mac_State :: struct {
 	window:           ^NS.Window,
 	window_mode:      Window_Mode,
 
-	width:            int,
-	height:           int,
+	screen_width:     int,
+	screen_height:    int,
 	windowed_rect:    NS.Rect,
 	events:           [dynamic]Event,
 
@@ -78,8 +78,8 @@ mac_init :: proc(
 	s.odin_ctx = context
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
-	s.width = screen_width
-	s.height = screen_height
+	s.screen_width = screen_width
+	s.screen_height = screen_height
 
 	// Initialize NSApplication
 	s.app = NS.Application_sharedApplication()
@@ -154,9 +154,9 @@ mac_init :: proc(
 				new_width := int(content_rect.size.width)
 				new_height := int(content_rect.size.height)
 
-				if new_width != s.width || new_height != s.height {
-					s.width = new_width
-					s.height = new_height
+				if new_width != s.screen_width || new_height != s.screen_height {
+					s.screen_width = new_width
+					s.screen_height = new_height
 					if s.window_mode != .Borderless_Fullscreen {
 						s.windowed_rect = content_rect
 					}
@@ -260,7 +260,7 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			// Convert to view coordinates (flip Y - macOS origin is bottom-left)
 			loc := event->locationInWindow()
 			// Flip Y coordinate
-			y := NS.Float(s.height) - loc.y
+			y := NS.Float(s.screen_height) - loc.y
 			append(&s.events, Event_Mouse_Move{
 				position = {f32(loc.x), f32(y)},
 			})
@@ -311,11 +311,11 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 }
 
 mac_get_screen_width :: proc() -> int {
-	return s.width
+	return s.screen_width
 }
 
 mac_get_screen_height :: proc() -> int {
-	return s.height
+	return s.screen_height
 }
 
 mac_set_window_position :: proc(x: int, y: int) {
@@ -449,8 +449,8 @@ mac_set_window_mode :: proc(window_mode: Window_Mode) {
 
 		// same as frame() b/c no decorations, but semantically more correct
 		content_rect := s.window->contentLayoutRect()
-		s.width = int(content_rect.width)
-		s.height = int(content_rect.height)
+		s.screen_width = int(content_rect.width)
+		s.screen_height = int(content_rect.height)
 	}
 }
 
