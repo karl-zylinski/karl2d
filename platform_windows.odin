@@ -44,8 +44,8 @@ windows_init :: proc(
 	assert(platform_state != nil)
 	s = (^Windows_State)(platform_state)
 	s.allocator = allocator
-	s.width = screen_width
-	s.height = screen_height
+	s.screen_width = screen_width
+	s.screen_height = screen_height
 	s.events = make([dynamic]Event, allocator = allocator)
 	s.custom_context = context
 	
@@ -64,6 +64,8 @@ windows_init :: proc(
 
 	win32.RegisterClassW(&cls)
 
+	// Since this is the size of the screen we adjust it to become the size of the window. This is
+	// done using `AdjustWindowRectExForDpi`. It adds the space needed for the window borders etc.
 	initial_rect := win32.RECT {
 		0,
 		0,
@@ -183,11 +185,11 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 }
 
 windows_get_screen_width :: proc() -> int {
-	return s.width
+	return s.screen_width
 }
 
 windows_get_screen_height :: proc() -> int {
-	return s.height
+	return s.screen_height
 }
 
 // Because positions can be offset in Windows: There is an "inivisble border" on Windows. This makes
@@ -245,8 +247,8 @@ windows_get_style :: proc(window_mode: Window_Mode) -> win32.DWORD {
 }
 
 windows_set_screen_size :: proc(w, h: int) {
-	s.width = w
-	s.height = h
+	s.screen_width = w
+	s.screen_height = h
 
 	r: win32.RECT
 	r.left = 0
@@ -330,20 +332,20 @@ Windows_State :: struct {
 	hwnd: win32.HWND,
 	window_mode: Window_Mode,
 
-	width: int,
-	height: int,
+	screen_width: int,
+	screen_height: int,
 
 	in_resize_move_state: bool,
-	width_before_resize_move: int,
-	height_before_resize_move: int,
+	screen_width_before_resize_move: int,
+	screen_height_before_resize_move: int,
 
 	events: [dynamic]Event,
 
 	// for when returning from fullscreen to window mode
-	restore_pos_x: int,
-	restore_pos_y: int,
-	restore_width: int,
-	restore_height: int,
+	restore_window_pos_x: int,
+	restore_window_pos_y: int,
+	restore_screen_width: int,
+	restore_screen_height: int,
 
 	window_render_glue: Window_Render_Glue,
 }
@@ -360,15 +362,15 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 		set_window_pos_style: win32.DWORD = win32.SWP_NOACTIVATE | win32.SWP_NOZORDER
 
 		if old_window_mode == .Borderless_Fullscreen {
-			r.left = i32(s.restore_pos_x)
-			r.top = i32(s.restore_pos_y)
-			r.right = r.left + i32(s.restore_width)
-			r.bottom = r.top + i32(s.restore_height)
+			r.left = i32(s.restore_window_pos_x)
+			r.top = i32(s.restore_window_pos_y)
+			r.right = r.left + i32(s.restore_screen_width)
+			r.bottom = r.top + i32(s.restore_screen_height)
 		} else {
 			r.left = 0
 			r.top = 0
-			r.right = i32(s.width)
-			r.bottom = i32(s.height)
+			r.right = i32(s.screen_width)
+			r.bottom = i32(s.screen_height)
 			set_window_pos_style |= win32.SWP_NOMOVE
 		}
 
@@ -486,8 +488,8 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			x := win32.LOWORD(lparam)
 			y := win32.HIWORD(lparam)
 
-			s.restore_pos_x = int(x)
-			s.restore_pos_y = int(y)
+			s.restore_window_pos_x = int(x)
+			s.restore_window_pos_y = int(y)
 		}
 
 	case win32.WM_DPICHANGED:
@@ -500,16 +502,17 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 	case win32.WM_ENTERSIZEMOVE:
 		s.in_resize_move_state = true
-		s.width_before_resize_move = s.width
-		s.height_before_resize_move = s.height
+		s.screen_width_before_resize_move = s.screen_width
+		s.screen_height_before_resize_move = s.screen_height
 
 	case win32.WM_EXITSIZEMOVE:
 		s.in_resize_move_state = false
 
-		if s.width_before_resize_move != s.width || s.height_before_resize_move != s.height {
+		if s.screen_width_before_resize_move != s.screen_width ||
+		   s.screen_height_before_resize_move != s.screen_height {
 			append(&s.events, Event_Resize {
-				width = s.width,
-				height = s.height,
+				width = s.screen_width,
+				height = s.screen_height,
 			})
 		}
 
@@ -517,12 +520,12 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		width := win32.LOWORD(lparam)
 		height := win32.HIWORD(lparam)
 
-		s.width = int(width)
-		s.height = int(height)
+		s.screen_width = int(width)
+		s.screen_height = int(height)
 
 		if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-			s.restore_width = s.width
-			s.restore_height = s.height
+			s.restore_screen_width = s.screen_width
+			s.restore_screen_height = s.screen_height
 		}
 
 		// We are actively resizing or moving the window, we'll save the event for later so it does
@@ -540,7 +543,6 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_KILLFOCUS:
 		append(&s.events, Event_Window_Unfocused {})
 	}
-
 
 	return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
 }
