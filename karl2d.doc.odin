@@ -270,6 +270,27 @@ draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Co
 // Draws a line from `start` to `end` of a certain thickness.
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
 
+// Draw a triangle
+draw_triangle :: proc(pos:Vec2, verts:[3]Vec2 , origin: Vec2, rot: f32, c: Color,  tex:Texture = {})
+
+// Draw a triangle based on 3 
+// verts verts have pos color and uv
+draw_triangle_ex :: proc(pos:Vec2, verts:[3]Vertex , origin: Vec2 = {}, rot: f32 = 0,tex:Texture = {})
+
+// draw a oblong rectangle by declaring 4 vertexes
+// v0 = top left
+// v1 = top right
+// v2 = bot left
+// v3 = bot right
+draw_quad :: proc(pos:Vec2, verts:[4]Vertex , origin: Vec2={}, rot: f32=0, tex:Texture = {})
+
+// Draw a triangle strip defined by vertexes
+// Every new vertex connects with previous two
+// need atlest 3 vertexes to draw a triangle
+draw_triangle_strip :: proc(pos:Vec2, verts:[]Vec2 , origin: Vec2 = {0,0}, rot: f32 = 0, c: Color = {255,255,255,255})
+
+draw_triangle_strip_ex :: proc(pos:Vec2, verts:[]Vertex, origin: Vec2 = {0,0}, rot: f32 = 0, tex:Texture = {})
+
 // Draw a texture at a specific position. The texture will be drawn with its top-left corner at
 // position `pos`.
 //
@@ -511,6 +532,12 @@ Mat4 :: matrix[4,4]f32
 Rect :: struct {
 	x, y: f32,
 	w, h: f32,
+}
+
+Vertex :: struct {
+	v:Vec2,
+	uv:Vec2,
+	c:Color
 }
 
 // An RGBA (Red, Green, Blue, Alpha) color. Each channel can have a value between 0 and 255.
