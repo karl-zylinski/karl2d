@@ -1,7 +1,7 @@
 // I add things I often want to test in here while devving.
 package karl2d_playground
 
-import k2 "../.."
+import k2 "../../.."
 import "core:fmt"
 import "core:mem"
 
@@ -17,7 +17,7 @@ init :: proc() {
 	// Note that we #load the texture: This bakes it into the program's data. WASM has no filesystem
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
 	// them.
-	tex = k2.load_texture_from_bytes(#load("../../examples/basics/sixten.jpg"))
+	tex = k2.load_texture_from_bytes(#load("../../basics/sixten.jpg"))
 }
 
 pos_x: f32

@@ -11,8 +11,8 @@ import "core:os"
 import "core:sys/linux"
 import "core:sys/posix"
 import "core:strings"
-import "linux/udev"
-import "linux/evdev"
+import "platform_bindings/linux/udev"
+import "platform_bindings/linux/evdev"
 
 @(private="package")
 PLATFORM_LINUX :: Platform_Interface {

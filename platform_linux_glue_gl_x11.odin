@@ -4,7 +4,7 @@
 
 package karl2d
 
-import "linux/glx"
+import "platform_bindings/linux/glx"
 import gl "vendor:OpenGL"
 import X "vendor:x11/xlib"
 import "log"

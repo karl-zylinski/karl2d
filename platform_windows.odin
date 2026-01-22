@@ -548,8 +548,8 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 key_from_event_params :: proc(wparam: win32.WPARAM, lparam: win32.LPARAM) -> Keyboard_Key{
 	switch wparam {
 	case win32.VK_SHIFT:
-    	scancode := (lparam & 0x00ff0000) >> 16
-    	new_vk := win32.MapVirtualKeyW(u32(scancode), win32.MAPVK_VSC_TO_VK_EX)
+		scancode := (lparam & 0x00ff0000) >> 16
+		new_vk := win32.MapVirtualKeyW(u32(scancode), win32.MAPVK_VSC_TO_VK_EX)
 		return new_vk == win32.VK_LSHIFT ? .Left_Shift : .Right_Shift
 
 	case win32.VK_CONTROL:
