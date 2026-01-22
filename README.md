@@ -46,7 +46,6 @@ Beta 2 has these features:
 >[!WARNING]
 >Beta 2 does NOT have the following features, but they are planned in the order stated:
 >- Sound
->- Rendering improvements (better system for dividing things into draw calls)
 >- System for cross-compiling shaders between different backends (HLSL, GLSL, GLSL ES, MSL etc)
 >- Metal rendering backend for Mac (OpenGL already works)
 >
