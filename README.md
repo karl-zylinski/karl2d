@@ -30,6 +30,8 @@ Some examples are available as live web builds: [hellope](https://zylinski.se/ka
 
 Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
 
+Support the project financially by becomeing a sponsor here on [GitHub](https://github.com/sponsors/karl-zylinski) or on [Patreon](https://patreon.com/karl_zylinski).
+
 ## Beta 2
 
 Karl2D is currently in its SECOND BETA period. If you finy _any_ issues, then please create an issue here on GitHub!
