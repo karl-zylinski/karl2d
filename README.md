@@ -26,7 +26,7 @@ main :: proc() {
 
 See the [examples](https://github.com/karl-zylinski/karl2d/tree/master/examples) folder for a wide variety of example programs.
 
-Some examples are available as live web builds: [minimal](https://zylinski.se/karl2d/minimal/), [camera](https://zylinski.se/karl2d/camera/), [box2d](https://zylinski.se/karl2d/box2d/), [fonts](https://zylinski.se/karl2d/fonts/), [gamepad](https://zylinski.se/karl2d/gamepad/), [mouse](https://zylinski.se/karl2d/mouse/), [render_texture](https://zylinski.se/karl2d/render_texture/), [snake](https://zylinski.se/karl2d/snake/).
+Some examples are available as live web builds: [hellope](https://zylinski.se/karl2d/hellope/), [basics](https://zylinski.se/karl2d/basics/), [camera](https://zylinski.se/karl2d/camera/), [box2d](https://zylinski.se/karl2d/box2d/), [fonts](https://zylinski.se/karl2d/fonts/), [gamepad](https://zylinski.se/karl2d/gamepad/), [mouse](https://zylinski.se/karl2d/mouse/), [render_texture](https://zylinski.se/karl2d/render_texture/), [snake](https://zylinski.se/karl2d/snake/).
 
 Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
 
