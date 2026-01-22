@@ -997,11 +997,11 @@ Event :: union {
 	Event_Key_Went_Up,
 	Event_Mouse_Move,
 	Event_Mouse_Wheel,
-	Event_Resize,
 	Event_Mouse_Button_Went_Down,
 	Event_Mouse_Button_Went_Up,
 	Event_Gamepad_Button_Went_Down,
 	Event_Gamepad_Button_Went_Up,
+	Event_Screen_Resize,
 	Event_Window_Focused,
 	Event_Window_Unfocused,
 	Event_Window_Scale_Changed,
@@ -1043,7 +1043,8 @@ Event_Mouse_Wheel :: struct {
 	delta: f32,
 }
 
-Event_Resize :: struct {
+// Reports the new size of the drawable game area
+Event_Screen_Resize :: struct {
 	width, height: int,
 }
 
