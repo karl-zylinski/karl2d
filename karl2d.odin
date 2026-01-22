@@ -388,8 +388,8 @@ set_window_position :: proc(x: int, y: int) {
 	pf.set_window_position(x, y)
 }
 
-// Resize the window to a new size. While the user cannot resize windows with 
-// `window_mode == .Windowed_Resizable`, this procedure will those windows.
+// Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
+// windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
 set_screen_size :: proc(width: int, height: int) {
 	pf.set_screen_size(width, height)
 	rb.resize_swapchain(width, height)

@@ -126,8 +126,8 @@ get_screen_height :: proc() -> int
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int)
 
-// Resize the window to a new size. While the user cannot resize windows with 
-// `window_mode == .Windowed_Resizable`, this procedure will those windows.
+// Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
+// windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
 set_screen_size :: proc(width: int, height: int)
 
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
