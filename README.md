@@ -57,15 +57,20 @@ Beta 2 has these features:
 
 ## How to make a web build of your game
 
-There's a build script located in the `tools/build_web` folder. Run it like this:
+There's a build script located in the `build_web` folder. Run it like this:
 
 ```
-odin run tools/build_web -- your_game_path
+odin run build_web -- your_game_path
 ```
 
 The web build will end up in `your_game_path/bin/web`.
 
+
 >[!NOTE]
+>You can run the build_web script from anywhere by doing:
+>`odin run path/to/karl2d/build_web -- your_game_path`
+
+>[!WARNING]
 >On Linux / Mac you may need to install some `lld` package that contains the `wasm-ld` linker. It's included with Odin on Windows.
 
 It requires that you game contains a `init` procedure and a `step` procedure. The `init` procedure is called once on startup and the `step` procedure will be called every frame of your game.
@@ -80,7 +85,7 @@ Launch your game by opening `bin/web/index.html` in a browser.
 
 >[!NOTE]
 >To get better in-browser debug symbols, you can add `-debug` when running the `build_web` script:
->`odin run tools/build_web -- your_game_path -debug`
+>`odin run build_web -- your_game_path -debug`
 >Note that it comes after the `--`: That's the flags that get sent on to the `build_web` program! There are also `-o:speed/size` flags to turn on optimization.
 
 >[!WARNING]

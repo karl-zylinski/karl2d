@@ -14,7 +14,7 @@
 				},
 				{
 					"name": "camera (web)",
-					"shell_cmd": "odin run tools/build_web -vet -strict-style -- examples/camera",
+					"shell_cmd": "odin run build_web -vet -strict-style -- examples/camera",
 				},
 				{
 					"name": "custom frame update",
@@ -48,7 +48,7 @@
 				},
 				{
 					"name": "basics (web)",
-					"shell_cmd": "odin run tools/build_web -vet -strict-style -- examples/basics",
+					"shell_cmd": "odin run build_web -vet -strict-style -- examples/basics",
 				},
 				{
 					"name": "minimal_hello_world",
@@ -62,7 +62,7 @@
 				},
 				{
 					"name": "minimal_hello_world (web)",
-					"shell_cmd": "odin run tools/build_web -vet -strict-style -- examples/minimal_hello_world_web",
+					"shell_cmd": "odin run build_web -vet -strict-style -- examples/minimal_hello_world_web",
 				},
 				{
 					"name": "minimal (nil)",
@@ -81,7 +81,7 @@
 				},
 				{
 					"name": "karl playground (web)",
-					"shell_cmd": "odin run tools/build_web -- tests/karl_playground",
+					"shell_cmd": "odin run build_web -- tests/karl_playground",
 				},
 				{
 					"name": "fonts",
@@ -90,7 +90,7 @@
 				},
 				{
 					"name": "fonts (web)",
-					"shell_cmd": "odin run tools/build_web -- examples/fonts",
+					"shell_cmd": "odin run build_web -- examples/fonts",
 				},
 				{
 					"name": "render_texture",
@@ -104,7 +104,7 @@
 				},
 				{
 					"name": "render_texture (web)",
-					"shell_cmd": "odin run tools/build_web -- examples/render_texture",
+					"shell_cmd": "odin run build_web -- examples/render_texture",
 				},
 				{
 					"name": "multitexture",
@@ -118,7 +118,7 @@
 				},
 				{
 					"name": "multitexture (webgl)",
-					"shell_cmd": "odin run tools/build_web -- examples/multitexture",
+					"shell_cmd": "odin run build_web -- examples/multitexture",
 				},
 				{
 					"name": "snake",
@@ -127,7 +127,7 @@
 				},
 				{
 					"name": "snake (web)",
-					"shell_cmd": "odin run tools/build_web -- examples/snake",
+					"shell_cmd": "odin run build_web -- examples/snake",
 				},
 				{
 					"name": "box2d",
@@ -136,7 +136,7 @@
 				},
 				{
 					"name": "box2d (web)",
-					"shell_cmd": "odin run tools/build_web -- examples/box2d",
+					"shell_cmd": "odin run build_web -- examples/box2d",
 				},
 				{
 					"name": "premultiplied_alpha",
@@ -165,7 +165,7 @@
 				},
 				{
 					"name": "bunnymark (web)",
-					"shell_cmd": "odin run tools/build_web -- examples/raylib_ports/bunnymark",
+					"shell_cmd": "odin run build_web -- examples/raylib_ports/bunnymark",
 				},
 				{
 					"name": "mouse",
@@ -174,7 +174,7 @@
 				},
 				{
 					"name": "mouse (web)",
-					"shell_cmd": "odin run tools/build_web -- examples/mouse",
+					"shell_cmd": "odin run build_web -- examples/mouse",
 				},
 				{
 					"name": "gamepad",
@@ -183,7 +183,7 @@
 				},
 				{
 					"name": "gamepad (web)",
-					"shell_cmd": "odin run tools/build_web -- examples/gamepad",
+					"shell_cmd": "odin run build_web -- examples/gamepad",
 				},
 				{
 					"name": "palette",
@@ -192,7 +192,7 @@
 				},
 				{
 					"name": "palette (web)",
-					"shell_cmd": "odin run tools/build_web -- examples/palette",
+					"shell_cmd": "odin run build_web -- examples/palette",
 				},
 				{
 					"name": "api_doc_builder",
