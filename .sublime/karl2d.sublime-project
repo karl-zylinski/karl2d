@@ -77,16 +77,16 @@
 				{
 					"name": "karl playground",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug",
-					"working_dir": "$project_path/../tests/karl_playground",
+					"working_dir": "$project_path/../examples/scraps/karl_playground",
 				},
 				{
 					"name": "karl playground (gl)",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -define:KARL2D_RENDER_BACKEND=gl",
-					"working_dir": "$project_path/../tests/karl_playground",
+					"working_dir": "$project_path/../examples/scraps/karl_playground",
 				},
 				{
 					"name": "karl playground (web)",
-					"shell_cmd": "odin run build_web -- tests/karl_playground",
+					"shell_cmd": "odin run build_web -- examples/scraps/karl_playground",
 				},
 				{
 					"name": "fonts",

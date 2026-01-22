@@ -20,12 +20,14 @@ main :: proc() {
 		"raylib_ports",
 		"scaling_auto_window_resize",
 		"ui",
+		"scraps",
 	}
 
 	// These examples are only for web -- Running a pure "check" on them will fail
 	no_check_list := [?]string {
 		"minimal_hello_world_web",
 		"raylib_ports",
+		"scraps",
 	}
 
 	no_web: map[string]struct{}

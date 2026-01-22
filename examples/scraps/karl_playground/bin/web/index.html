@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en" style="height: 100%;">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>Karl2D Web Build</title>
+	</head>
+	<body id="body" style="height: 100%; padding: 0; margin: 0; overflow: hidden; background-color: black;">
+		<canvas id="webgl-canvas" oncontextmenu="return false;" onmousedown="event.target.focus()" onkeydown="event.preventDefault()"></canvas>
+	
+		<script type="text/javascript" src="odin.js"></script>
+		<script type="text/javascript">
+			odin.runWasm("main.wasm", null);
+		</script>
+	</body>
+</html>
