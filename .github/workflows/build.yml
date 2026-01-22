@@ -60,10 +60,10 @@ jobs:
         run: odin check examples/minimal_hello_world -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: minimal_hello_world (web)
-        run: odin run build_web -vet -strict-style -- examples/minimal_hello_world_web
+        run: odin run tools/build_web -vet -strict-style -- examples/minimal_hello_world_web
 
       - name: minimal_hello_world (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/minimal_hello_world_web -debug
+        run: odin run tools/build_web -vet -strict-style -- examples/minimal_hello_world_web -debug
 
       - name: scaling_auto_window_resize
         run: odin check examples/scaling_auto_window_resize -vet -strict-style
@@ -87,10 +87,10 @@ jobs:
         run: odin check examples/basics -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: basics (web)
-        run: odin run build_web -vet -strict-style -- examples/basics
+        run: odin run tools/build_web -vet -strict-style -- examples/basics
 
       - name: basics (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/basics -debug
+        run: odin run tools/build_web -vet -strict-style -- examples/basics -debug
 
       - name: fonts
         run: odin check examples/fonts -vet -strict-style
@@ -111,10 +111,10 @@ jobs:
         run: odin check examples/fonts -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: fonts (web)
-        run: odin run build_web -vet -strict-style -- examples/fonts
+        run: odin run tools/build_web -vet -strict-style -- examples/fonts
 
       - name: fonts (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/fonts -debug
+        run: odin run tools/build_web -vet -strict-style -- examples/fonts -debug
 
       - name: render_texture
         run: odin check examples/render_texture -vet -strict-style
@@ -135,10 +135,10 @@ jobs:
         run: odin check examples/render_texture -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: render_texture (web)
-        run: odin run build_web -vet -strict-style -- examples/render_texture
+        run: odin run tools/build_web -vet -strict-style -- examples/render_texture
 
       - name: render_texture (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/render_texture -debug
+        run: odin run tools/build_web -vet -strict-style -- examples/render_texture -debug
 
       - name: multitexture
         run: odin check examples/multitexture -vet -strict-style
@@ -159,10 +159,10 @@ jobs:
         run: odin check examples/multitexture -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: multitexture (web)
-        run: odin run build_web -vet -strict-style -- examples/multitexture
+        run: odin run tools/build_web -vet -strict-style -- examples/multitexture
 
       - name: multitexture (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/multitexture -debug
+        run: odin run tools/build_web -vet -strict-style -- examples/multitexture -debug
 
       - name: snake
         run: odin check examples/snake -vet -strict-style
@@ -183,10 +183,10 @@ jobs:
         run: odin check examples/snake -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: snake (web)
-        run: odin run build_web -vet -strict-style -- examples/snake
+        run: odin run tools/build_web -vet -strict-style -- examples/snake
 
       - name: snake (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/snake -debug
+        run: odin run tools/build_web -vet -strict-style -- examples/snake -debug
 
       - name: box2d
         run: odin check examples/box2d -vet -strict-style
@@ -207,10 +207,10 @@ jobs:
         run: odin check examples/box2d -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: box2d (web)
-        run: odin run build_web -vet -strict-style -- examples/box2d
+        run: odin run tools/build_web -vet -strict-style -- examples/box2d
 
       - name: box2d (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/box2d -debug
+        run: odin run tools/build_web -vet -strict-style -- examples/box2d -debug
 
       - name: premultiplied_alpha
         run: odin check examples/premultiplied_alpha -vet -strict-style
@@ -285,10 +285,10 @@ jobs:
         run: odin check examples/raylib_ports/bunnymark -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: raylib_ports/bunnymark (web)
-        run: odin run build_web -vet -strict-style -- examples/raylib_ports/bunnymark
+        run: odin run tools/build_web -vet -strict-style -- examples/raylib_ports/bunnymark
 
       - name: raylib_ports/bunnymark (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/raylib_ports/bunnymark -debug
+        run: odin run tools/build_web -vet -strict-style -- examples/raylib_ports/bunnymark -debug
 
       - name: mouse
         run: odin check examples/mouse -vet -strict-style
@@ -309,10 +309,10 @@ jobs:
         run: odin check examples/mouse -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: mouse (web)
-        run: odin run build_web -vet -strict-style -- examples/mouse
+        run: odin run tools/build_web -vet -strict-style -- examples/mouse
 
       - name: mouse (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/mouse -debug
+        run: odin run tools/build_web -vet -strict-style -- examples/mouse -debug
 
       - name: gamepad
         run: odin check examples/gamepad -vet -strict-style
@@ -333,10 +333,10 @@ jobs:
         run: odin check examples/gamepad -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: gamepad (web)
-        run: odin run build_web -vet -strict-style -- examples/gamepad
+        run: odin run tools/build_web -vet -strict-style -- examples/gamepad
 
       - name: gamepad (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/gamepad -debug
+        run: odin run tools/build_web -vet -strict-style -- examples/gamepad -debug
 
       - name: palette
         run: odin check examples/palette -vet -strict-style
@@ -357,10 +357,10 @@ jobs:
         run: odin check examples/palette -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: palette (web)
-        run: odin run build_web -vet -strict-style -- examples/palette
+        run: odin run tools/build_web -vet -strict-style -- examples/palette
 
       - name: palette (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/palette -debug
+        run: odin run tools/build_web -vet -strict-style -- examples/palette -debug
 
       - name: verify karl2d.doc.odin
-        run: odin run api_verifier
+        run: odin run tools/api_verifier

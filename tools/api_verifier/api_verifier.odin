@@ -60,7 +60,7 @@ main :: proc() {
 	}
 
 	if !ok {
-		fmt.eprintln("karl2d.doc.odin is not up-to-date: You may have modified the API unknowingly. Please run `odin run api_doc_builder` and check what lines in `karl2d.doc.odin` that have changed. Make sure you are really sure about these API changes.")
+		fmt.eprintln("karl2d.doc.odin is not up-to-date: You may have modified the API unknowingly. From a command-line in the `karl2d` folder, please run `odin run tools/api_doc_builder` and check what lines in `karl2d.doc.odin` that have changed. Make sure you are really sure about these API changes.")
 		os.exit(1)
 	}
 }

@@ -5,7 +5,6 @@ raylib/
 *.exe
 *.rdi
 *.bin
-!/.sublime/karl2d.sublime-project
 tests/*/build
 tests/*/bin
 examples/*/build
