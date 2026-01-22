@@ -115,6 +115,10 @@ get_frame_time :: proc() -> f32
 // This value is updated when `calculate_frame_time()` runs (which is also called by `update()`).
 get_time :: proc() -> f64
 
+// Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
+// windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
+set_screen_size :: proc(width: int, height: int)
+
 // Gets the width of the drawing area within the window.
 get_screen_width :: proc() -> int
 
@@ -125,10 +129,6 @@ get_screen_height :: proc() -> int
 //
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int)
-
-// Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
-// windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
-set_screen_size :: proc(width: int, height: int)
 
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
 // 1 means 100% scale, 1.5 means 150% etc.

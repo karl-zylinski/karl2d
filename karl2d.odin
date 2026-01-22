@@ -371,6 +371,13 @@ get_time :: proc() -> f64 {
 	return s.time
 }
 
+// Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
+// windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
+set_screen_size :: proc(width: int, height: int) {
+	pf.set_screen_size(width, height)
+	rb.resize_swapchain(width, height)
+}
+
 // Gets the width of the drawing area within the window.
 get_screen_width :: proc() -> int {
 	return pf.get_screen_width()
@@ -386,13 +393,6 @@ get_screen_height :: proc() -> int  {
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int) {
 	pf.set_window_position(x, y)
-}
-
-// Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
-// windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
-set_screen_size :: proc(width: int, height: int) {
-	pf.set_screen_size(width, height)
-	rb.resize_swapchain(width, height)
 }
 
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
