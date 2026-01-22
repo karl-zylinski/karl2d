@@ -399,7 +399,7 @@ set_screen_size :: proc(width: int, height: int) {
 // 1 means 100% scale, 1.5 means 150% etc.
 //
 // Karl2D does not do any automatic scaling. If you want a scaled resolution, then multiply the
-// wanted resolution by the scale and send it into `set_window_size`. You can use a camera and set
+// wanted resolution by the scale and send it into `set_screen_size`. You can use a camera and set
 // the zoom to the window scale in order to make things the same percieved size.
 get_window_scale :: proc() -> f32 {
 	return pf.get_window_scale()
