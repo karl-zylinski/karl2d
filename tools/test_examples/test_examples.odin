@@ -4,13 +4,12 @@
 package karl2d_test_examples
 
 import os "core:os/os2"
-import "core:log"
+import "core:fmt"
 
 main :: proc() {
-	context.logger = log.create_console_logger()
 	examples, examples_err := os.read_all_directory_by_path("examples", context.allocator)
 
-	log.assertf(examples_err == nil, "Failed opening examples directory. Error: %v", examples_err)
+	fmt.assertf(examples_err == nil, "Failed opening examples directory. Error: %v", examples_err)
 	
 	// These examples don't have web build
 	no_web_list := [?]string{
@@ -60,9 +59,9 @@ main :: proc() {
 
 check :: proc(name: string, fullpath: string, extra_params: []string) {
 	if len(extra_params) > 0 {
-		log.infof("examples/%v: Checking %v", name, extra_params)
+		fmt.printfln("examples/%v: Checking. Extra options: %v", name, extra_params)
 	} else {
-		log.infof("examples/%v: Checking", name)
+		fmt.printfln("examples/%v: Checking", name)
 	}
 
 	build_command := [dynamic]string {
@@ -80,11 +79,11 @@ check :: proc(name: string, fullpath: string, extra_params: []string) {
 	build_status, build_std_out, build_std_err, _ := os.process_exec({ command = build_command[:] }, allocator = context.allocator)
 
 	if len(build_std_out) > 0 {
-		log.error(string(build_std_out))
+		fmt.eprint(string(build_std_out))
 	}
 
 	if len(build_std_err) > 0 {
-		log.error(string(build_std_err))
+		fmt.eprint(string(build_std_err))
 	}
 
 	if build_status.exit_code != 0 {
@@ -94,9 +93,9 @@ check :: proc(name: string, fullpath: string, extra_params: []string) {
 
 build_web :: proc(name: string, fullpath: string, extra_params: []string) {
 	if len(extra_params) > 0 {
-		log.infof("examples/%v: Web build %v", name, extra_params)
+		fmt.printfln("examples/%v: Web build. Extra options: %v", name, extra_params)
 	} else {
-		log.infof("examples/%v: Web build", name)
+		fmt.printfln("examples/%v: Web build", name)
 	}
 
 	build_command := [dynamic]string {
@@ -120,11 +119,11 @@ build_web :: proc(name: string, fullpath: string, extra_params: []string) {
 	build_status, build_std_out, build_std_err, _ := os.process_exec({ command = build_command[:] }, allocator = context.allocator)
 
 	if len(build_std_out) > 0 {
-		log.error(string(build_std_out))
+		fmt.eprint(string(build_std_out))
 	}
 
 	if len(build_std_err) > 0 {
-		log.error(string(build_std_err))
+		fmt.eprint(string(build_std_err))
 	}
 
 	if build_status.exit_code != 0 {
