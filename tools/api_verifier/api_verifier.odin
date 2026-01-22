@@ -17,7 +17,7 @@ main :: proc() {
 	build_comparison_doc_command := []string {
 		"odin",
 		"run",
-		"api_doc_builder",
+		"tools/api_doc_builder",
 		"--",
 		compare_filename,
 	}

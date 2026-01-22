@@ -30,20 +30,21 @@ Some examples are available as live web builds: [minimal](https://zylinski.se/ka
 
 Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
 
-## FIRST BETA
+## Beta 2
 
-Karl2D is currently in its FIRST BETA period. If you finy _any_ issues, then please create an issue here on GitHub!
+Karl2D is currently in its SECOND BETA period. If you finy _any_ issues, then please create an issue here on GitHub!
 
-This first beta has these features:
+Beta 2 has these features:
 - Rendering of shapes, textures and text with automatic batching
 - Support for shaders and cameras
 - Windows support (D3D11 and OpenGL)
+- Mac support (OpenGL)
+- Linux support (OpenGL)
 - Web support (WebGL, no emscripten needed!)
 - Input: Mouse, keyboard, gamepad
 
 >[!WARNING]
->This first beta does NOT have the following features, but they are planned in the order stated:
->- Linux & Mac with gl rendering (this is actually half-supported now, but not final yet)
+>Beta 2 does NOT have the following features, but they are planned in the order stated:
 >- Sound
 >- Rendering improvements (better system for dividing things into draw calls)
 >- System for cross-compiling shaders between different backends (HLSL, GLSL, GLSL ES, MSL etc)
@@ -54,28 +55,12 @@ This first beta has these features:
 >[!WARNING]
 >As this is a beta test version, changes to the API will probably happen. I'll try to document all the changes when I officially go from Beta 1 to Beta 2.
 
-## Feedback wanted
-Here are some things I want to get feedback on during this first beta:
-- Please try making a small game. If you find anything that is missing, then [please make an issue](https://github.com/karl-zylinski/karl2d/issues).
-
-- How do people think that DPI scaling should work? I've had bad experiences with high DPI mode
-  Raylib. So I've gone for an idea where you always get everything in native coords and then you
-  scale yourself using the number returned by `k2.get_window_scale()`
-
-- Because of how web builds need `init` and `step` to be split up, I also split the examples up this
-  way, so we can use them both on desktop and on web. This sometimes made them a bit more chatty.
-  For example, I had to move some variables to the global scope. Should I approach this differently?
-
-- Is it annoying that the documentation file `karl2d.doc.odin` has a real `.odin` file extension? I like that it gets syntax highlight for everyone etc. But it can also be a bit disruptive it "go to symbol" etc. Perhaps I should chance it to `.odin_doc` or something.
-
-Join my Discord server and let me know in the #karl2d channel what you think! Here's the invite: https://discord.gg/4FsHgtBmFK
-
 ## How to make a web build of your game
 
-There's a build script located in the `build_web` folder. Run it like this:
+There's a build script located in the `tools/build_web` folder. Run it like this:
 
 ```
-odin run build_web -- your_game_path
+odin run tools/build_web -- your_game_path
 ```
 
 The web build will end up in `your_game_path/bin/web`.
@@ -95,7 +80,7 @@ Launch your game by opening `bin/web/index.html` in a browser.
 
 >[!NOTE]
 >To get better in-browser debug symbols, you can add `-debug` when running the `build_web` script:
->`odin run build_web -- your_game_path -debug`
+>`odin run tools/build_web -- your_game_path -debug`
 >Note that it comes after the `--`: That's the flags that get sent on to the `build_web` program! There are also `-o:speed/size` flags to turn on optimization.
 
 >[!WARNING]
