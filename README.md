@@ -1,6 +1,6 @@
 <img width="328" height="64" alt="karl2d_logo" src="https://github.com/user-attachments/assets/5ebd43c8-5a1d-4864-b8eb-7ce4b6a5dba0" />
 
-Karl2D is a library for creating 2D games using the Odin programming language. The focus is on making 2D gamdev fun, fast and beginner friendly. All that, while using as few dependencie as I can. Less dependencies, less problems when you need to ship the game!
+Karl2D is a library for creating 2D games using the Odin programming language. The focus is on making 2D gamdev fun, fast and beginner friendly. All that, while using as few dependencies as I can. Less dependencies, less problems when you need to ship the game!
 
 See [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) for an API overview.
 
@@ -48,12 +48,12 @@ Beta 2 has these features:
 >- Sound
 >- Rendering improvements (better system for dividing things into draw calls)
 >- System for cross-compiling shaders between different backends (HLSL, GLSL, GLSL ES, MSL etc)
->- Mac (metal)
+>- Metal rendering backend for Mac (OpenGL already works)
 >
 > When I've gotten through this list, then the library is close to `1.0`
 
 >[!WARNING]
->As this is a beta test version, changes to the API will probably happen. I'll try to document all the changes when I officially go from Beta 1 to Beta 2.
+>As this is a beta test version, changes to the API will happen.
 
 ## How to make a web build of your game
 
@@ -104,6 +104,12 @@ The rendering backend tells Karl2D how to talk to the GPU. I currently support t
 The platform independent code in `karl2d.odin` creates a list of vertices for each batch it needs to render. That's done independently of the rendering backend. The backend is just fed that list, along with information about what shader and such to use.
 
 The web builds do not need emscripten, instead I've written a WebGL backend and make use of the official Odin JS runtime. This makes building for the web easier and less error-prone.
+
+## Troubleshooting
+
+### Linux build error: libudev is missing
+
+Try installing a package such as `systemd-devel` or `systemd-dev`.
 
 ## Contributing and Pull Request rules
 
