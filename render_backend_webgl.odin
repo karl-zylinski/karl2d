@@ -350,7 +350,7 @@ webgl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool
 		return false
 	}
 
-    gl.BindTexture(gl.TEXTURE_2D, tex.id)
+	gl.BindTexture(gl.TEXTURE_2D, tex.id)
 	gl.TexSubImage2D(gl.TEXTURE_2D, 0, i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), gl.RGBA, gl.UNSIGNED_BYTE, len(data), raw_data(data))
 	return true
 }
