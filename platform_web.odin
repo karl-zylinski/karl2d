@@ -180,7 +180,7 @@ update_canvas_size :: proc(canvas_id: HTML_Canvas_ID) {
 	s.width = int(rect.width)
 	s.height = int(rect.height)
 
-	append(&s.events, Event_Resize {
+	append(&s.events, Event_Screen_Resize {
 		width = int(width),
 		height = int(height),
 	})

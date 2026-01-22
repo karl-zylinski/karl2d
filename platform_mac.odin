@@ -160,7 +160,7 @@ mac_init :: proc(
 					if s.window_mode != .Borderless_Fullscreen {
 						s.windowed_rect = content_rect
 					}
-					append(&s.events, Event_Resize{
+					append(&s.events, Event_Screen_Resize{
 						width = new_width,
 						height = new_height,
 					})

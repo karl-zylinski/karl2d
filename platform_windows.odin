@@ -510,7 +510,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 		if s.screen_width_before_resize_move != s.screen_width ||
 		   s.screen_height_before_resize_move != s.screen_height {
-			append(&s.events, Event_Resize {
+			append(&s.events, Event_Screen_Resize {
 				width = s.screen_width,
 				height = s.screen_height,
 			})
@@ -531,7 +531,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		// We are actively resizing or moving the window, we'll save the event for later so it does
 		// not get spammy.
 		if !s.in_resize_move_state {
-			append(&s.events, Event_Resize {
+			append(&s.events, Event_Screen_Resize {
 				width = int(width),
 				height = int(height),
 			})

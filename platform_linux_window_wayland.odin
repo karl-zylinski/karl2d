@@ -216,7 +216,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 
 			context = s.odin_ctx
 
-			append(&s.events, Event_Resize {
+			append(&s.events, Event_Screen_Resize {
 				width = s.width,
 				height = s.height,
 			})

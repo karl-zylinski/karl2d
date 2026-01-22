@@ -173,7 +173,7 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 					s.windowed_height = h
 				}
 
-				append(events, Event_Resize {
+				append(events, Event_Screen_Resize {
 					width = w,
 					height = h,
 				})
