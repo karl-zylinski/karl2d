@@ -10,10 +10,10 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	shutdown = windows_shutdown,
 	get_window_render_glue = windows_get_window_render_glue,
 	get_events = windows_get_events,
-	get_width = windows_get_width,
-	get_height = windows_get_height,
-	set_position = windows_set_position,
-	set_size = windows_set_size,
+	get_screen_width = windows_get_screen_width,
+	get_screen_height = windows_get_screen_height,
+	set_window_position = windows_set_window_position,
+	set_screen_size = windows_set_screen_size,
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
 
@@ -34,15 +34,15 @@ windows_state_size :: proc() -> int {
 }
 
 windows_init :: proc(
-	window_state: rawptr,
+	platform_state: rawptr,
 	screen_width: int,
 	screen_height: int,
 	window_title: string,
 	options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
-	assert(window_state != nil)
-	s = (^Windows_State)(window_state)
+	assert(platform_state != nil)
+	s = (^Windows_State)(platform_state)
 	s.allocator = allocator
 	s.width = screen_width
 	s.height = screen_height
@@ -182,11 +182,11 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 	runtime.clear(&s.events)
 }
 
-windows_get_width :: proc() -> int {
+windows_get_screen_width :: proc() -> int {
 	return s.width
 }
 
-windows_get_height :: proc() -> int {
+windows_get_screen_height :: proc() -> int {
 	return s.height
 }
 
@@ -203,7 +203,7 @@ windows_get_window_offset :: proc() -> (x, y: i32) {
 	return real_r.left - r.left, real_r.top - r.top
 }
 
-windows_set_position :: proc(x: int, y: int) {
+windows_set_window_position :: proc(x: int, y: int) {
 	offx, offy := windows_get_window_offset()
 
 	win32.SetWindowPos(
@@ -244,7 +244,7 @@ windows_get_style :: proc(window_mode: Window_Mode) -> win32.DWORD {
 	return style
 }
 
-windows_set_size :: proc(w, h: int) {
+windows_set_screen_size :: proc(w, h: int) {
 	s.width = w
 	s.height = h
 

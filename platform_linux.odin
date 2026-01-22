@@ -21,10 +21,10 @@ PLATFORM_LINUX :: Platform_Interface {
 	shutdown = linux_shutdown,
 	get_window_render_glue = linux_get_window_render_glue,
 	get_events = linux_get_events,
-	get_width = linux_get_width,
-	get_height = linux_get_height,
-	set_position = linux_set_position,
-	set_size = linux_set_size,
+	set_screen_size = set_screen_size,
+	get_screen_width = linux_get_screen_width,
+	get_screen_height = linux_get_screen_height,
+	set_window_position = linux_set_window_position,
 	get_window_scale = linux_get_window_scale,
 	set_window_mode = linux_set_window_mode,
 	is_gamepad_active = linux_is_gamepad_active,
@@ -40,15 +40,15 @@ linux_state_size :: proc() -> int {
 }
 
 linux_init :: proc(
-	window_state: rawptr,
+	platform_state: rawptr,
 	screen_width: int,
 	screen_height: int,
 	window_title: string,
 	options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
-	assert(window_state != nil)
-	s = (^Linux_State)(window_state)
+	assert(platform_state != nil)
+	s = (^Linux_State)(platform_state)
 	s.allocator = allocator
 	xdg_session_type := os.get_env("XDG_SESSION_TYPE", frame_allocator)
 	
@@ -151,19 +151,19 @@ linux_poll_for_new_gamepads :: proc() {
 	}
 }
 
-linux_get_width :: proc() -> int {
+linux_get_screen_width :: proc() -> int {
 	return s.win.get_width()
 }
 
-linux_get_height :: proc() -> int {
+linux_get_screen_height :: proc() -> int {
 	return s.win.get_height()
 }
 
-linux_set_position :: proc(x: int, y: int) {
+linux_set_window_position :: proc(x: int, y: int) {
 	s.win.set_position(x, y)
 }
 
-linux_set_size :: proc(w, h: int) {
+set_screen_size :: proc(w, h: int) {
 	s.win.set_size(w, h)
 }
 

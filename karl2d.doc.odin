@@ -115,6 +115,10 @@ get_frame_time :: proc() -> f32
 // This value is updated when `calculate_frame_time()` runs (which is also called by `update()`).
 get_time :: proc() -> f64
 
+// Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
+// windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
+set_screen_size :: proc(width: int, height: int)
+
 // Gets the width of the drawing area within the window.
 get_screen_width :: proc() -> int
 
@@ -126,15 +130,11 @@ get_screen_height :: proc() -> int
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int)
 
-// Resize the window to a new size. While the user cannot resize windows with 
-// `window_mode == .Windowed_Resizable`, this procedure will those windows.
-set_window_size :: proc(width: int, height: int)
-
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
 // 1 means 100% scale, 1.5 means 150% etc.
 //
 // Karl2D does not do any automatic scaling. If you want a scaled resolution, then multiply the
-// wanted resolution by the scale and send it into `set_window_size`. You can use a camera and set
+// wanted resolution by the scale and send it into `set_screen_size`. You can use a camera and set
 // the zoom to the window scale in order to make things the same percieved size.
 get_window_scale :: proc() -> f32
 

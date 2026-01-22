@@ -49,7 +49,7 @@ step :: proc() -> bool {
 	}
 
 	if k2.key_went_down(.V) {
-		k2.set_window_size(320, 180) 
+		k2.set_screen_size(320, 180) 
 	}
 
 	if k2.key_is_held(.A) || k2.gamepad_button_is_held(0, .Left_Face_Left) {
