@@ -115,11 +115,21 @@ The platform independent code in `karl2d.odin` creates a list of vertices for ea
 
 The web builds do not need emscripten, instead I've written a WebGL backend and make use of the official Odin JS runtime. This makes building for the web easier and less error-prone.
 
-## Is this a Raylib clone?
+## Contributing and Pull Request rules
 
-The API was originally based on Raylib API, because I like that API. But I have changed things I don't like about Raylib and made the API more Odin-friendly. The implementation is meant to have as few dependencies as possible (mostly `core` libs and some libraries from `vendor`). The web builds do not need emscripten, it uses Odin's js_wasm32 target.
+Are you interested in helping with Karl2D development? Thank you! You can look at open issues here on GitHub. You get your contributions into the project using a Pull Request.
 
-Since [I have shipped an actual game using Odin + Raylib](https://store.steampowered.com/app/2781210/CAT__ONION/), I am in a good position to know what worked well and what worked less well. I have tried to put that experience into this library.
+You can always open a _draft_ Pull Request and work on your stuff in there. However, when you want to turn your draft into a ready-for-review Pull Request, then please follow these rules:
+
+1. Make sure that the code you submit is working and tested.
+2. Do not submit "basic" or "rudimentary" code that needs further work to actually be finished. Finish the code to the best of your abilities.
+3. Do not modify any code that is unrelated to your changes. That just makes reviewing your code harder: I'll have a hard time seeing what you actually did. Do not use auto formatters such as odinfmt.
+4. If you commit changes that were unintended, just do additional commits that undo them. Don't worry about polluting the commit history: I will do a "squash merge" of your Pull Request. Just make sure that the diff in the "Files changed" tab looks tidy.
+5. The GitHub testing actions will make sure that the [`karl2d.doc.odin`](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) file is up-to-date. I enforce this because it will make you see if you changed any parts of the user-facing API. This way we find API-breaking changes before they are merged. Regenerate `karl2d.doc.odin` by running `odin run api_doc_builder`.
+6. Finally, about code style: Make sure that the code follows the same style as in [`karl2d.odin`](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.odin):
+	- Please look through that file and pay attention to how characters such as `:` `=`, `(` `{` etc are placed.
+	- Use tabs, not spaces.
+	- Lines cannot be longer than 100 characters. See the `init` proc in [`karl2d.odin`](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.odin) for an example of how to split up procedure signatures that are too long. That proc also shows how to write API comments. Use a _ruler_ in your editor to make it easy to spot long lines.
 
 ## Have fun!
 
