@@ -94,11 +94,11 @@ init :: proc(
 	rb_alloc_error: runtime.Allocator_Error
 	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = allocator)
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
-	s.proj_matrix = make_default_projection(pf.get_width(), pf.get_height())
+	s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.render_backend_state, window_render_glue, pf.get_width(), pf.get_height(), allocator)
+	rb.init(s.render_backend_state, window_render_glue, pf.get_screen_width(), pf.get_screen_height(), allocator)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`
@@ -373,25 +373,25 @@ get_time :: proc() -> f64 {
 
 // Gets the width of the drawing area within the window.
 get_screen_width :: proc() -> int {
-	return pf.get_width()
+	return pf.get_screen_width()
 }
 
 // Gets the height of the drawing area within the window.
 get_screen_height :: proc() -> int  {
-	return pf.get_height()
+	return pf.get_screen_height()
 }
 
 // Moves the window.
 //
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int) {
-	pf.set_position(x, y)
+	pf.set_window_position(x, y)
 }
 
 // Resize the window to a new size. While the user cannot resize windows with 
 // `window_mode == .Windowed_Resizable`, this procedure will those windows.
-set_window_size :: proc(width: int, height: int) {
-	pf.set_size(width, height)
+set_screen_size :: proc(width: int, height: int) {
+	pf.set_screen_size(width, height)
 	rb.resize_swapchain(width, height)
 }
 
@@ -1221,7 +1221,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 
 		draw_current_batch()
 		s.batch_render_target = RENDER_TARGET_NONE
-		s.proj_matrix = make_default_projection(pf.get_width(), pf.get_height())
+		s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 	}
 }
 
@@ -1545,7 +1545,7 @@ set_camera :: proc(camera: Maybe(Camera)) {
 
 	draw_current_batch()
 	s.batch_camera = camera
-	s.proj_matrix = make_default_projection(pf.get_width(), pf.get_height())
+	s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 
 	if c, c_ok := camera.?; c_ok {
 		s.view_matrix = get_camera_view_matrix(c)

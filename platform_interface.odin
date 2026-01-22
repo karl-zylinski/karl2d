@@ -6,7 +6,7 @@ Platform_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 
 	init: proc(
-		window_state: rawptr,
+		platform_state: rawptr,
 		window_width: int,
 		window_height: int,
 		window_title: string,
@@ -17,10 +17,10 @@ Platform_Interface :: struct #all_or_none {
 	shutdown: proc(),
 	get_window_render_glue: proc() -> Window_Render_Glue,
 	get_events: proc(events: ^[dynamic]Event),
-	set_position: proc(x: int, y: int),
-	set_size: proc(w, h: int),
-	get_width: proc() -> int,
-	get_height: proc() -> int,
+	set_window_position: proc(x: int, y: int),
+	set_screen_size: proc(w, h: int),
+	get_screen_width: proc() -> int,
+	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
 
