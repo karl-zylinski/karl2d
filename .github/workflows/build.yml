@@ -45,46 +45,46 @@ jobs:
         run: odin run tools/test_examples
 
       - name: raylib_ports/shaders_texture_waves
-        run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style
+        run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style
 
       - name: raylib_ports/shaders_texture_waves (debug)
-        run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style -debug
+        run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style -debug
 
       - name: raylib_ports/shaders_texture_waves (gl)
-        run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
+        run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
 
       - name: raylib_ports/shaders_texture_waves (gl, debug)
-        run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
+        run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
 
       - name: raylib_ports/shaders_texture_waves (gl)
-        run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
+        run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
 
       - name: raylib_ports/shaders_texture_waves (nil, debug)
-        run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
+        run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: raylib_ports/bunnymark
-        run: odin check examples/raylib_ports/bunnymark -vet -strict-style
+        run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style
 
       - name: raylib_ports/bunnymark (debug)
-        run: odin check examples/raylib_ports/bunnymark -vet -strict-style -debug
+        run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style -debug
 
       - name: raylib_ports/bunnymark (gl)
-        run: odin check examples/raylib_ports/bunnymark -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
+        run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
 
       - name: raylib_ports/bunnymark (gl, debug)
-        run: odin check examples/raylib_ports/bunnymark -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
+        run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
 
       - name: raylib_ports/bunnymark (gl)
-        run: odin check examples/raylib_ports/bunnymark -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
+        run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
 
       - name: raylib_ports/bunnymark (nil, debug)
-        run: odin check examples/raylib_ports/bunnymark -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
+        run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: raylib_ports/bunnymark (web)
-        run: odin run build_web -vet -strict-style -- examples/raylib_ports/bunnymark
+        run: odin run build_web -no-threaded-checker -vet -strict-style -- examples/raylib_ports/bunnymark
 
       - name: raylib_ports/bunnymark (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/raylib_ports/bunnymark -debug
+        run: odin run build_web -no-threaded-checker -vet -strict-style -- examples/raylib_ports/bunnymark -debug
 
       - name: verify karl2d.doc.odin
         run: odin run tools/api_verifier

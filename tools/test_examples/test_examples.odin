@@ -6,9 +6,6 @@ package karl2d_test_examples
 import os "core:os/os2"
 import "core:log"
 
-no_web: map[string]struct{}
-no_check: map[string]struct{}
-
 main :: proc() {
 	context.logger = log.create_console_logger()
 	examples, examples_err := os.read_all_directory_by_path("examples", context.allocator)
@@ -32,9 +29,13 @@ main :: proc() {
 		"raylib_ports",
 	}
 
+	no_web: map[string]struct{}
+
 	for n in no_web_list {
 		no_web[n] = {}
 	}
+
+	no_check: map[string]struct{}
 
 	for n in no_check_list {
 		no_check[n] = {}
