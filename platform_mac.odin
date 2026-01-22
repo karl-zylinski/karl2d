@@ -4,8 +4,8 @@
 package karl2d
 
 import NS "core:sys/darwin/Foundation"
-import ce "platorm_bindings/mac/cocoa_extras"
-import gc "platorm_bindings/mac/gamecontroller"
+import ce "platform_bindings/mac/cocoa_extras"
+import gc "platform_bindings/mac/gamecontroller"
 import "base:runtime"
 
 @(private="package")
