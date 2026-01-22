@@ -66,15 +66,15 @@ mac_state_size :: proc() -> int {
 }
 
 mac_init :: proc(
-	window_state: rawptr,
+	platform_state: rawptr,
 	screen_width: int,
 	screen_height: int,
 	window_title: string,
 	init_options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
-	assert(window_state != nil)
-	s = (^Mac_State)(window_state)
+	assert(platform_state != nil)
+	s = (^Mac_State)(platform_state)
 	s.odin_ctx = context
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)

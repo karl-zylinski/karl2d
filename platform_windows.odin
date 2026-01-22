@@ -34,15 +34,15 @@ windows_state_size :: proc() -> int {
 }
 
 windows_init :: proc(
-	window_state: rawptr,
+	platform_state: rawptr,
 	screen_width: int,
 	screen_height: int,
 	window_title: string,
 	options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
-	assert(window_state != nil)
-	s = (^Windows_State)(window_state)
+	assert(platform_state != nil)
+	s = (^Windows_State)(platform_state)
 	s.allocator = allocator
 	s.width = screen_width
 	s.height = screen_height
