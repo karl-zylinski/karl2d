@@ -119,7 +119,7 @@ init :: proc(
 	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
 	fs.SetAlignVertical(&s.fs, .TOP)
 
-	DEFAULT_FONT_DATA :: #load("roboto.ttf")
+	DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
 	// Dummy element so font with index 0 means 'no font'.
 	append_nothing(&s.fonts)
