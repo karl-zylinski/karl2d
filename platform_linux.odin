@@ -24,7 +24,7 @@ PLATFORM_LINUX :: Platform_Interface {
 	set_screen_size = set_screen_size,
 	get_screen_width = linux_get_screen_width,
 	get_screen_height = linux_get_screen_height,
-	set_position = linux_set_window_position,
+	set_window_position = linux_set_window_position,
 	get_window_scale = linux_get_window_scale,
 	set_window_mode = linux_set_window_mode,
 	is_gamepad_active = linux_is_gamepad_active,
