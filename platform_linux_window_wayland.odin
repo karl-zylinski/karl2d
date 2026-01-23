@@ -23,7 +23,7 @@ import "core:strings"
 import "core:c"
 
 import "log"
-import wl "linux/wayland"
+import wl "platform_bindings/linux/wayland"
 
 _ :: log
 _ :: fmt
@@ -73,10 +73,10 @@ wl_init :: proc(
 	wl.add_listener(xdg_surface, &window_listener, nil)
 	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(window_title, frame_allocator))
 
-    decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
+	decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
 
-    // This adds titlebar and buttons to the window.
-    wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
+	// This adds titlebar and buttons to the window.
+	wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
 
 	fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(s.fractional_scale_manager, s.surface)
 	wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
@@ -216,9 +216,9 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 
 			context = s.odin_ctx
 
-			append(&s.events, Event_Resize {
+			append(&s.events, Event_Screen_Resize {
 				width = s.width,
-                height = s.height,
+				height = s.height,
 			})
 		}
 		s.configured = true

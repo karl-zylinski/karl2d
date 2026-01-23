@@ -4,6 +4,9 @@
 //
 // This is an "advanced example". Not everybody needs this. Many games are fine with the user being
 // able to pick a resolution, with optional UI scale.
+//
+// Note: This example currently only works as expected on Windows. I am still adding the proper DPI
+// scaling settings for the other platforms.
 package karl2d_scaling_example
 
 import k2 "../.."
@@ -23,7 +26,7 @@ main :: proc() {
 	//
 	// Perhaps we should change the library so that you can query the scale before creating the
 	// window.
-	k2.set_window_size(int(f32(width) * k2.get_window_scale()), int(f32(height)*k2.get_window_scale()))
+	k2.set_screen_size(int(f32(width) * k2.get_window_scale()), int(f32(height)*k2.get_window_scale()))
 
 	for k2.update() {
 		events := k2.get_events()
@@ -33,9 +36,9 @@ main :: proc() {
 			case k2.Event_Window_Scale_Changed:
 				// Karl2D does not automatically resize the window when the scale changes. Instead
 				// you can do that yourself by looking for this event.
-				k2.set_window_size(int(f32(width) * e.scale), int(f32(height) * e.scale))
+				k2.set_screen_size(int(f32(width) * e.scale), int(f32(height) * e.scale))
 
-			case k2.Event_Resize:
+			case k2.Event_Screen_Resize:
 				// When a window is resized, then it is good if we update our local `width` and
 				// `height` variables so that they store a value without the scale. We remove the
 				// scale so that later calls to `k2.set_window_size` can scale the size properly

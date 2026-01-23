@@ -350,7 +350,7 @@ webgl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool
 		return false
 	}
 
-    gl.BindTexture(gl.TEXTURE_2D, tex.id)
+	gl.BindTexture(gl.TEXTURE_2D, tex.id)
 	gl.TexSubImage2D(gl.TEXTURE_2D, 0, i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), gl.RGBA, gl.UNSIGNED_BYTE, len(data), raw_data(data))
 	return true
 }
@@ -767,12 +767,12 @@ webgl_destroy_shader :: proc(h: Shader_Handle) {
 }
 
 webgl_default_shader_vertex_source :: proc() -> []byte {
-	vertex_source := #load("render_backend_gl_default_vertex_shader_webgl.glsl")
+	vertex_source := #load("default_shaders/default_shader_webgl_vertex.glsl")
 	return vertex_source
 }
 
 webgl_default_shader_fragment_source :: proc() -> []byte {
-	fragment_source := #load("render_backend_gl_default_fragment_shader_webgl.glsl")
+	fragment_source := #load("default_shaders/default_shader_webgl_fragment.glsl")
 	return fragment_source
 }
 

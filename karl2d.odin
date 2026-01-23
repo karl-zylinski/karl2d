@@ -94,11 +94,11 @@ init :: proc(
 	rb_alloc_error: runtime.Allocator_Error
 	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = allocator)
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
-	s.proj_matrix = make_default_projection(pf.get_width(), pf.get_height())
+	s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.render_backend_state, window_render_glue, pf.get_width(), pf.get_height(), allocator)
+	rb.init(s.render_backend_state, window_render_glue, pf.get_screen_width(), pf.get_screen_height(), allocator)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`
@@ -119,7 +119,7 @@ init :: proc(
 	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
 	fs.SetAlignVertical(&s.fs, .TOP)
 
-	DEFAULT_FONT_DATA :: #load("roboto.ttf")
+	DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
 	// Dummy element so font with index 0 means 'no font'.
 	append_nothing(&s.fonts)
@@ -306,7 +306,7 @@ process_events :: proc() {
 				s.gamepad_button_is_held[e.gamepad][e.button] = false
 			}
 
-		case Event_Resize:
+		case Event_Screen_Resize:
 			rb.resize_swapchain(e.width, e.height)
 			s.proj_matrix = make_default_projection(e.width, e.height)
 
@@ -371,35 +371,35 @@ get_time :: proc() -> f64 {
 	return s.time
 }
 
+// Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
+// windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
+set_screen_size :: proc(width: int, height: int) {
+	pf.set_screen_size(width, height)
+	rb.resize_swapchain(width, height)
+}
+
 // Gets the width of the drawing area within the window.
 get_screen_width :: proc() -> int {
-	return pf.get_width()
+	return pf.get_screen_width()
 }
 
 // Gets the height of the drawing area within the window.
 get_screen_height :: proc() -> int  {
-	return pf.get_height()
+	return pf.get_screen_height()
 }
 
 // Moves the window.
 //
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int) {
-	pf.set_position(x, y)
-}
-
-// Resize the window to a new size. While the user cannot resize windows with 
-// `window_mode == .Windowed_Resizable`, this procedure will those windows.
-set_window_size :: proc(width: int, height: int) {
-	pf.set_size(width, height)
-	rb.resize_swapchain(width, height)
+	pf.set_window_position(x, y)
 }
 
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
 // 1 means 100% scale, 1.5 means 150% etc.
 //
 // Karl2D does not do any automatic scaling. If you want a scaled resolution, then multiply the
-// wanted resolution by the scale and send it into `set_window_size`. You can use a camera and set
+// wanted resolution by the scale and send it into `set_screen_size`. You can use a camera and set
 // the zoom to the window scale in order to make things the same percieved size.
 get_window_scale :: proc() -> f32 {
 	return pf.get_window_scale()
@@ -1459,7 +1459,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 
 		draw_current_batch()
 		s.batch_render_target = RENDER_TARGET_NONE
-		s.proj_matrix = make_default_projection(pf.get_width(), pf.get_height())
+		s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 	}
 }
 
@@ -1783,7 +1783,7 @@ set_camera :: proc(camera: Maybe(Camera)) {
 
 	draw_current_batch()
 	s.batch_camera = camera
-	s.proj_matrix = make_default_projection(pf.get_width(), pf.get_height())
+	s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 
 	if c, c_ok := camera.?; c_ok {
 		s.view_matrix = get_camera_view_matrix(c)
@@ -2335,6 +2335,8 @@ MAX_GAMEPADS :: 4
 Gamepad_Index :: int
 
 Gamepad_Axis :: enum {
+	None,
+	
 	Left_Stick_X,
 	Left_Stick_Y,
 	Right_Stick_X,
@@ -2344,6 +2346,8 @@ Gamepad_Axis :: enum {
 }
 
 Gamepad_Button :: enum {
+	None,
+	
 	// DPAD buttons
 	Left_Face_Up,
 	Left_Face_Down,
@@ -2375,11 +2379,11 @@ Event :: union {
 	Event_Key_Went_Up,
 	Event_Mouse_Move,
 	Event_Mouse_Wheel,
-	Event_Resize,
 	Event_Mouse_Button_Went_Down,
 	Event_Mouse_Button_Went_Up,
 	Event_Gamepad_Button_Went_Down,
 	Event_Gamepad_Button_Went_Up,
+	Event_Screen_Resize,
 	Event_Window_Focused,
 	Event_Window_Unfocused,
 	Event_Window_Scale_Changed,
@@ -2421,7 +2425,8 @@ Event_Mouse_Wheel :: struct {
 	delta: f32,
 }
 
-Event_Resize :: struct {
+// Reports the new size of the drawable game area
+Event_Screen_Resize :: struct {
 	width, height: int,
 }
 

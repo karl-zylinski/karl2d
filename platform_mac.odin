@@ -4,8 +4,8 @@
 package karl2d
 
 import NS "core:sys/darwin/Foundation"
-import ce "darwin/cocoa_extras"
-import gc "darwin/gamecontroller"
+import ce "platform_bindings/mac/cocoa_extras"
+import gc "platform_bindings/mac/gamecontroller"
 import "base:runtime"
 
 @(private="package")
@@ -15,10 +15,10 @@ PLATFORM_MAC :: Platform_Interface {
 	shutdown = mac_shutdown,
 	get_window_render_glue = mac_get_window_render_glue,
 	get_events = mac_get_events,
-	get_width = mac_get_width,
-	get_height = mac_get_height,
-	set_position = mac_set_position,
-	set_size = mac_set_size,
+	set_screen_size = mac_set_screen_size,
+	get_screen_width = mac_get_screen_width,
+	get_screen_height = mac_get_screen_height,
+	set_window_position = mac_set_window_position,
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
 
@@ -39,8 +39,8 @@ Mac_State :: struct {
 	window:           ^NS.Window,
 	window_mode:      Window_Mode,
 
-	width:            int,
-	height:           int,
+	screen_width:     int,
+	screen_height:    int,
 	windowed_rect:    NS.Rect,
 	events:           [dynamic]Event,
 
@@ -66,20 +66,20 @@ mac_state_size :: proc() -> int {
 }
 
 mac_init :: proc(
-	window_state: rawptr,
+	platform_state: rawptr,
 	screen_width: int,
 	screen_height: int,
 	window_title: string,
 	init_options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
-	assert(window_state != nil)
-	s = (^Mac_State)(window_state)
+	assert(platform_state != nil)
+	s = (^Mac_State)(platform_state)
 	s.odin_ctx = context
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
-	s.width = screen_width
-	s.height = screen_height
+	s.screen_width = screen_width
+	s.screen_height = screen_height
 
 	// Initialize NSApplication
 	s.app = NS.Application_sharedApplication()
@@ -154,13 +154,13 @@ mac_init :: proc(
 				new_width := int(content_rect.size.width)
 				new_height := int(content_rect.size.height)
 
-				if new_width != s.width || new_height != s.height {
-					s.width = new_width
-					s.height = new_height
+				if new_width != s.screen_width || new_height != s.screen_height {
+					s.screen_width = new_width
+					s.screen_height = new_height
 					if s.window_mode != .Borderless_Fullscreen {
 						s.windowed_rect = content_rect
 					}
-					append(&s.events, Event_Resize{
+					append(&s.events, Event_Screen_Resize{
 						width = new_width,
 						height = new_height,
 					})
@@ -260,7 +260,7 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			// Convert to view coordinates (flip Y - macOS origin is bottom-left)
 			loc := event->locationInWindow()
 			// Flip Y coordinate
-			y := NS.Float(s.height) - loc.y
+			y := NS.Float(s.screen_height) - loc.y
 			append(&s.events, Event_Mouse_Move{
 				position = {f32(loc.x), f32(y)},
 			})
@@ -310,21 +310,21 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 	runtime.clear(&s.events)
 }
 
-mac_get_width :: proc() -> int {
-	return s.width
+mac_get_screen_width :: proc() -> int {
+	return s.screen_width
 }
 
-mac_get_height :: proc() -> int {
-	return s.height
+mac_get_screen_height :: proc() -> int {
+	return s.screen_height
 }
 
-mac_set_position :: proc(x: int, y: int) {
+mac_set_window_position :: proc(x: int, y: int) {
 	// macOS uses bottom-left origin for screen coordinates
 	origin := NS.Point{NS.Float(x), NS.Float(y)}
 	s.window->setFrameOrigin(origin)
 }
 
-mac_set_size :: proc(w, h: int) {
+mac_set_screen_size :: proc(w, h: int) {
 	frame := NS.Window_frame(s.window)
 	// Keep the top-left corner in place when resizing
 	new_y := frame.origin.y + frame.size.height - NS.Float(h)
@@ -354,6 +354,7 @@ mac_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	egp := s.gamepads[gamepad].extended_gamepad
 
 	switch axis {
+	case .None: return 0
 	case .Left_Stick_X:  return egp->leftThumbstick()->xAxis()->value()
 	case .Left_Stick_Y:  return -egp->leftThumbstick()->yAxis()->value() // Invert Y to match XInput
 	case .Right_Stick_X: return egp->rightThumbstick()->xAxis()->value()
@@ -448,8 +449,8 @@ mac_set_window_mode :: proc(window_mode: Window_Mode) {
 
 		// same as frame() b/c no decorations, but semantically more correct
 		content_rect := s.window->contentLayoutRect()
-		s.width = int(content_rect.width)
-		s.height = int(content_rect.height)
+		s.screen_width = int(content_rect.width)
+		s.screen_height = int(content_rect.height)
 	}
 }
 
@@ -655,6 +656,7 @@ remove_controller :: proc(controller: ^gc.Controller) {
 // and then we'll make a new one)
 make_button_inputs :: proc(egp: ^gc.ExtendedGamepad) -> [Gamepad_Button]^gc.ControllerButtonInput {
 	return {
+		.None               = nil,
 		.Right_Face_Down    = egp->buttonA(),
 		.Right_Face_Right   = egp->buttonB(),
 		.Right_Face_Left    = egp->buttonX(),

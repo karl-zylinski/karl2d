@@ -41,326 +41,50 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: minimal_hello_world
-        run: odin check examples/minimal_hello_world -vet -strict-style
-
-      - name: minimal_hello_world (debug)
-        run: odin check examples/minimal_hello_world -vet -strict-style -debug
-
-      - name: minimal_hello_world (gl)
-        run: odin check examples/minimal_hello_world -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: minimal_hello_world (gl, debug)
-        run: odin check examples/minimal_hello_world -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: minimal_hello_world (gl)
-        run: odin check examples/minimal_hello_world -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: minimal_hello_world (nil, debug)
-        run: odin check examples/minimal_hello_world -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: minimal_hello_world (web)
-        run: odin run build_web -vet -strict-style -- examples/minimal_hello_world_web
-
-      - name: minimal_hello_world (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/minimal_hello_world_web -debug
-
-      - name: scaling_auto_window_resize
-        run: odin check examples/scaling_auto_window_resize -vet -strict-style
-
-      - name: basics
-        run: odin check examples/basics -vet -strict-style
-
-      - name: basics (debug)
-        run: odin check examples/basics -vet -strict-style -debug
-
-      - name: basics (gl)
-        run: odin check examples/basics -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: basics (gl, debug)
-        run: odin check examples/basics -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: basics (gl)
-        run: odin check examples/basics -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: basics (nil, debug)
-        run: odin check examples/basics -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: basics (web)
-        run: odin run build_web -vet -strict-style -- examples/basics
-
-      - name: basics (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/basics -debug
-
-      - name: fonts
-        run: odin check examples/fonts -vet -strict-style
-
-      - name: fonts (debug)
-        run: odin check examples/fonts -vet -strict-style -debug
-
-      - name: fonts (gl)
-        run: odin check examples/fonts -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: fonts (gl, debug)
-        run: odin check examples/fonts -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: fonts (gl)
-        run: odin check examples/fonts -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: fonts (nil, debug)
-        run: odin check examples/fonts -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: fonts (web)
-        run: odin run build_web -vet -strict-style -- examples/fonts
-
-      - name: fonts (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/fonts -debug
-
-      - name: render_texture
-        run: odin check examples/render_texture -vet -strict-style
-
-      - name: render_texture (debug)
-        run: odin check examples/render_texture -vet -strict-style -debug
-
-      - name: render_texture (gl)
-        run: odin check examples/render_texture -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: render_texture (gl, debug)
-        run: odin check examples/render_texture -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: render_texture (gl)
-        run: odin check examples/render_texture -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: render_texture (nil, debug)
-        run: odin check examples/render_texture -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: render_texture (web)
-        run: odin run build_web -vet -strict-style -- examples/render_texture
-
-      - name: render_texture (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/render_texture -debug
-
-      - name: multitexture
-        run: odin check examples/multitexture -vet -strict-style
-
-      - name: multitexture (debug)
-        run: odin check examples/multitexture -vet -strict-style -debug
-
-      - name: multitexture (gl)
-        run: odin check examples/multitexture -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: multitexture (gl, debug)
-        run: odin check examples/multitexture -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: multitexture (gl)
-        run: odin check examples/multitexture -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: multitexture (nil, debug)
-        run: odin check examples/multitexture -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: multitexture (web)
-        run: odin run build_web -vet -strict-style -- examples/multitexture
-
-      - name: multitexture (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/multitexture -debug
-
-      - name: snake
-        run: odin check examples/snake -vet -strict-style
-
-      - name: snake (debug)
-        run: odin check examples/snake -vet -strict-style -debug
-
-      - name: snake (gl)
-        run: odin check examples/snake -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: snake (gl, debug)
-        run: odin check examples/snake -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: snake (gl)
-        run: odin check examples/snake -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: snake (nil, debug)
-        run: odin check examples/snake -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: snake (web)
-        run: odin run build_web -vet -strict-style -- examples/snake
-
-      - name: snake (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/snake -debug
-
-      - name: box2d
-        run: odin check examples/box2d -vet -strict-style
-
-      - name: box2d (debug)
-        run: odin check examples/box2d -vet -strict-style -debug
-
-      - name: box2d (gl)
-        run: odin check examples/box2d -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: box2d (gl, debug)
-        run: odin check examples/box2d -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: box2d (gl)
-        run: odin check examples/box2d -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: box2d (nil, debug)
-        run: odin check examples/box2d -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: box2d (web)
-        run: odin run build_web -vet -strict-style -- examples/box2d
-
-      - name: box2d (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/box2d -debug
-
-      - name: premultiplied_alpha
-        run: odin check examples/premultiplied_alpha -vet -strict-style
-
-      - name: premultiplied_alpha (debug)
-        run: odin check examples/premultiplied_alpha -vet -strict-style -debug
-
-      - name: premultiplied_alpha (gl)
-        run: odin check examples/premultiplied_alpha -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: premultiplied_alpha (gl, debug)
-        run: odin check examples/premultiplied_alpha -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: premultiplied_alpha (gl)
-        run: odin check examples/premultiplied_alpha -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: premultiplied_alpha (nil, debug)
-        run: odin check examples/premultiplied_alpha -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: camera
-        run: odin check examples/camera -vet -strict-style
-
-      - name: camera (debug)
-        run: odin check examples/camera -vet -strict-style -debug
-
-      - name: camera (gl)
-        run: odin check examples/camera -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: camera (gl, debug)
-        run: odin check examples/camera -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: camera (gl)
-        run: odin check examples/camera -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: camera (nil, debug)
-        run: odin check examples/camera -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
+      - name: test_all_examples
+        run: odin run tools/test_examples
 
       - name: raylib_ports/shaders_texture_waves
-        run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style
+        run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style
 
       - name: raylib_ports/shaders_texture_waves (debug)
-        run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style -debug
+        run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style -debug
 
       - name: raylib_ports/shaders_texture_waves (gl)
-        run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
+        run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
 
       - name: raylib_ports/shaders_texture_waves (gl, debug)
-        run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
+        run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
 
       - name: raylib_ports/shaders_texture_waves (gl)
-        run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
+        run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
 
       - name: raylib_ports/shaders_texture_waves (nil, debug)
-        run: odin check examples/raylib_ports/shaders_texture_waves -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
+        run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: raylib_ports/bunnymark
-        run: odin check examples/raylib_ports/bunnymark -vet -strict-style
+        run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style
 
       - name: raylib_ports/bunnymark (debug)
-        run: odin check examples/raylib_ports/bunnymark -vet -strict-style -debug
+        run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style -debug
 
       - name: raylib_ports/bunnymark (gl)
-        run: odin check examples/raylib_ports/bunnymark -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
+        run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
 
       - name: raylib_ports/bunnymark (gl, debug)
-        run: odin check examples/raylib_ports/bunnymark -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
+        run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
 
       - name: raylib_ports/bunnymark (gl)
-        run: odin check examples/raylib_ports/bunnymark -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
+        run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
 
       - name: raylib_ports/bunnymark (nil, debug)
-        run: odin check examples/raylib_ports/bunnymark -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
+        run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: raylib_ports/bunnymark (web)
-        run: odin run build_web -vet -strict-style -- examples/raylib_ports/bunnymark
+        run: odin run build_web -no-threaded-checker -vet -strict-style -- examples/raylib_ports/bunnymark
 
       - name: raylib_ports/bunnymark (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/raylib_ports/bunnymark -debug
-
-      - name: mouse
-        run: odin check examples/mouse -vet -strict-style
-
-      - name: mouse (debug)
-        run: odin check examples/mouse -vet -strict-style -debug
-
-      - name: mouse (gl)
-        run: odin check examples/mouse -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: mouse (gl, debug)
-        run: odin check examples/mouse -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: mouse (gl)
-        run: odin check examples/mouse -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: mouse (nil, debug)
-        run: odin check examples/mouse -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: mouse (web)
-        run: odin run build_web -vet -strict-style -- examples/mouse
-
-      - name: mouse (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/mouse -debug
-
-      - name: gamepad
-        run: odin check examples/gamepad -vet -strict-style
-
-      - name: gamepad (debug)
-        run: odin check examples/gamepad -vet -strict-style -debug
-
-      - name: gamepad (gl)
-        run: odin check examples/gamepad -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: gamepad (gl, debug)
-        run: odin check examples/gamepad -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: gamepad (gl)
-        run: odin check examples/gamepad -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: gamepad (nil, debug)
-        run: odin check examples/gamepad -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: gamepad (web)
-        run: odin run build_web -vet -strict-style -- examples/gamepad
-
-      - name: gamepad (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/gamepad -debug
-
-      - name: palette
-        run: odin check examples/palette -vet -strict-style
-
-      - name: palette (debug)
-        run: odin check examples/palette -vet -strict-style -debug
-
-      - name: palette (gl)
-        run: odin check examples/palette -vet -strict-style -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: palette (gl, debug)
-        run: odin check examples/palette -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
-
-      - name: palette (gl)
-        run: odin check examples/palette -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: palette (nil, debug)
-        run: odin check examples/palette -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
-
-      - name: palette (web)
-        run: odin run build_web -vet -strict-style -- examples/palette
-
-      - name: palette (web, debug)
-        run: odin run build_web -vet -strict-style -- examples/palette -debug
+        run: odin run build_web -no-threaded-checker -vet -strict-style -- examples/raylib_ports/bunnymark -debug
 
       - name: verify karl2d.doc.odin
-        run: odin run api_verifier
+        run: odin run tools/api_verifier

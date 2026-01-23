@@ -11,10 +11,10 @@ PLATFORM_WEB :: Platform_Interface {
 	shutdown = web_shutdown,
 	get_window_render_glue = web_get_window_render_glue,
 	get_events = web_get_events,
-	get_width = web_get_width,
-	get_height = web_get_height,
-	set_position = web_set_position,
-	set_size = web_set_size,
+	set_screen_size = web_set_screen_size,
+	get_screen_width = web_get_screen_width,
+	get_screen_height = web_get_screen_height,
+	set_window_position = web_set_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
 	is_gamepad_active = web_is_gamepad_active,
@@ -51,7 +51,7 @@ web_init :: proc(
 	// The browser window probably has some other size than what was sent in.
 	switch init_options.window_mode {
 	case .Windowed:
-		web_set_size(window_width, window_height)
+		web_set_screen_size(window_width, window_height)
 	case .Windowed_Resizable:
 		add_window_event_listener(.Resize, web_event_window_resize)
 		update_canvas_size(s.canvas_id)
@@ -180,7 +180,7 @@ update_canvas_size :: proc(canvas_id: HTML_Canvas_ID) {
 	s.width = int(rect.width)
 	s.height = int(rect.height)
 
-	append(&s.events, Event_Resize {
+	append(&s.events, Event_Screen_Resize {
 		width = int(width),
 		height = int(height),
 	})
@@ -200,6 +200,8 @@ web_get_window_render_glue :: proc() -> Window_Render_Glue {
 
 // This works for XBox controller -- does it work for PlayStation?
 KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
+	.None = 0,
+	
 	.Left_Face_Up = 12,
 	.Left_Face_Down = 13,
 	.Left_Face_Left = 14,
@@ -267,11 +269,11 @@ web_get_events :: proc(events: ^[dynamic]Event) {
 	}
 }
 
-web_get_width :: proc() -> int {
+web_get_screen_width :: proc() -> int {
 	return s.width
 }
 
-web_get_height :: proc() -> int {
+web_get_screen_height :: proc() -> int {
 	return s.height
 }
 
@@ -283,7 +285,7 @@ web_set_position :: proc(x: int, y: int) {
 	log.warn("set_window_position not implemented on web")
 }
 
-web_set_size :: proc(w, h: int) {
+web_set_screen_size :: proc(w, h: int) {
 	s.width = w
 	s.height = h
 	js.set_element_key_f64(s.canvas_id, "width", f64(w))
@@ -300,7 +302,7 @@ web_set_window_mode :: proc(window_mode: Window_Mode) {
 		update_canvas_size(s.canvas_id)
 	} else if window_mode == .Windowed && s.window_mode == .Windowed_Resizable {
 		remove_window_event_listener(.Resize, web_event_window_resize)
-		web_set_size(s.width, s.height)
+		web_set_screen_size(s.width, s.height)
 	}
 
 	s.window_mode = window_mode
