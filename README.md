@@ -34,7 +34,7 @@ Support the project financially by becomeing a sponsor here on [GitHub](https://
 
 ## Beta 2
 
-Karl2D is currently in its SECOND BETA period. If you finy _any_ issues, then please create an issue here on GitHub!
+Karl2D is currently in its SECOND BETA period. If you finy _any_ issues, then please create an issue here on GitHub! 
 
 Beta 2 has these features:
 - Rendering of shapes, textures and text with automatic batching
@@ -55,6 +55,8 @@ Beta 2 has these features:
 
 >[!WARNING]
 >As this is a beta test version, changes to the API will happen.
+
+I wrote a newsletter about the beta 2 release: https://news.zylinski.se/p/karl2d-beta-is-here
 
 ## How to make a web build of your game
 
