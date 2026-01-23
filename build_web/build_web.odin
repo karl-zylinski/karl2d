@@ -125,7 +125,7 @@ main :: proc() {
 
 		wasm_base64 := base64.encode(wasm_content)
 
-		html_str, _ := strings.replace(string(WEB_ENTRY_TEMPLATE), `<script type="text/javascript" src="odin.js"></script>`,
+		html_str, _ := strings.replace(string(WEB_ENTRY_INDEX), `<script type="text/javascript" src="odin.js"></script>`,
 			fmt.tprintf(`<script type="text/javascript">%s</script>`, string(js_content)), 1)
 
 		html_str, _ = strings.replace(html_str, `odin.runWasm("main.wasm", null);`,
@@ -134,8 +134,8 @@ main :: proc() {
 			const wasmURL = URL.createObjectURL(wasmBlob);
 			odin.runWasm(wasmURL, null);`, wasm_base64), 1)
 
-		write_single_html_err := os.write_entire_file(entry_html_file_path, html_str)
-		fmt.ensuref(write_single_html_err == nil, "Failed writing %v. Error: %v", entry_html_file_path, write_single_html_err)
+		write_entry_html_err := os.write_entire_file(entry_html_file_path, html_str)
+		fmt.ensuref(write_entry_html_err == nil, "Failed writing %v. Error: %v", entry_html_file_path, write_single_html_err)
 
 		os.remove(wasm_out_path)
 	} else {
