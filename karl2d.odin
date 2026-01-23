@@ -2,7 +2,6 @@
 
 package karl2d
 
-import "core:fmt"
 import "base:runtime"
 import "core:mem"
 import "log"
@@ -1040,18 +1039,12 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 		src.y *= h
 		src.w *= w
 		src.h *= h
-
-		// dst := Rect {
-		// 	q.x0, q.y0,
-		// 	q.x1 - q.x0, q.y1 - q.y0,
-		// }
 		
 		dst := Rect {
 			pos.x, pos.y,
 			q.x1 - q.x0, q.y1 - q.y0,
 		}
 		
-		fmt.print(src,"\n",dst,"\n")
 		origin:=origin + {pos.x-q.x0,pos.y-q.y0}
 		draw_texture_ex(font.atlas, src, dst, origin, rot, color)
 	}
