@@ -29,6 +29,9 @@ Platform_Interface :: struct #all_or_none {
 	set_gamepad_vibration: proc(gamepad: int, left: f32, right: f32),
 
 	set_internal_state: proc(state: rawptr),
+
+	keyboard_key_to_rune: proc(key: Keyboard_Key) -> rune,
+	keyboard_key_to_grapheme: proc(key: Keyboard_Key, alloc: runtime.Allocator) -> []rune,
 }
 
 Window_Render_Glue_State :: struct {}

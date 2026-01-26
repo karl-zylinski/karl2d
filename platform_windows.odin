@@ -22,10 +22,16 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	set_gamepad_vibration = windows_set_gamepad_vibration,
 
 	set_internal_state = windows_set_internal_state,
+
+	keyboard_key_to_rune = windows_keyboard_key_to_rune,
+	keyboard_key_to_grapheme = windows_keyboard_key_to_grapheme,
 }
 
 import win32 "core:sys/windows"
 import "base:runtime"
+import "core:slice"
+import "core:unicode/utf8"
+import "core:unicode/utf16"
 @require import "log"
 
 
@@ -48,6 +54,7 @@ windows_init :: proc(
 	s.screen_height = screen_height
 	s.events = make([dynamic]Event, allocator = allocator)
 	s.custom_context = context
+	s.key_char_surrogate = utf16.REPLACEMENT_CHAR
 	
 	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 	win32.SetProcessDPIAware()
@@ -105,6 +112,8 @@ windows_init :: proc(
 	} else {
 		#panic("Unsupported combo of Windows platform and render backend '" + RENDER_BACKEND_NAME + "'")
 	}
+
+	windows_update_key_graphemes()
 }
 
 windows_shutdown :: proc() {
@@ -348,6 +357,9 @@ Windows_State :: struct {
 	restore_screen_height: int,
 
 	window_render_glue: Window_Render_Glue,
+
+	key_char_surrogate: rune,
+	key_graphemes: #sparse [Keyboard_Key][]rune,
 }
 
 windows_set_window_mode :: proc(window_mode: Window_Mode) {
@@ -421,6 +433,29 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			if key != .None {
 				append(&s.events, Event_Key_Went_Down {
 					key = key,
+				})
+			}
+		}
+
+	case win32.WM_CHAR, win32.WM_SYSCHAR:
+		repeat := bool(lparam & (1 << 30))
+
+		if !repeat {
+			char := rune(wparam)
+
+			if s.key_char_surrogate != utf16.REPLACEMENT_CHAR {
+				char = utf16.decode_surrogate_pair(s.key_char_surrogate, char)
+				append(&s.events, Event_Key_Went_Down_Rune {
+					key_rune = char
+				})
+				s.key_char_surrogate = utf16.REPLACEMENT_CHAR
+
+			} else if utf16.is_surrogate(char) {
+				s.key_char_surrogate = char
+
+			} else {
+				append(&s.events, Event_Key_Went_Down_Rune {
+					key_rune = char
 				})
 			}
 		}
@@ -542,6 +577,9 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 	case win32.WM_KILLFOCUS:
 		append(&s.events, Event_Window_Unfocused {})
+
+	case win32.WM_INPUTLANGCHANGE:
+		windows_update_key_graphemes()
 	}
 
 	return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
@@ -568,10 +606,65 @@ key_from_event_params :: proc(wparam: win32.WPARAM, lparam: win32.LPARAM) -> Key
 		}
 	}
 
-	return WIN32_VK_MAP[wparam]
+	return WIN32_VK_TO_KEY_MAP[wparam]
 }
 
-WIN32_VK_MAP := [255]Keyboard_Key {
+
+windows_update_key_graphemes :: proc() {
+	kb_state: [256]win32.BYTE
+
+	for &grapheme, key in s.key_graphemes {
+		if key == .None {
+			continue
+		}
+		delete(grapheme, s.allocator)
+
+		vk := KEY_TO_WIN32_VK_MAP[key]
+		sc := win32.MapVirtualKeyW(vk, win32.MAPVK_VK_TO_VSC)
+
+		// Note(Blob):
+		//		I wouldn't expect a more then 16 pairs.
+		//		AFAIK we can't check the size, so this assumption should be enough.
+		chars: [2 * 16]u16
+
+		size := win32.ToUnicode(vk, sc, raw_data(&kb_state), raw_data(&chars), len(chars), 0)
+
+		if size < 0 {
+			// This is a dead key, so we need a second simulated key press
+			// to make it output its own character (usually a diacritic)
+			size = win32.ToUnicode(vk, sc, raw_data(&kb_state), raw_data(&chars), len(chars), 0)
+		}
+
+		if size == 0 {
+			continue
+		}
+
+		count := utf16.rune_count(chars[:size])
+		if count == 0 {
+			continue
+		}
+
+		grapheme = make([]rune, count, s.allocator)
+		utf16.decode(grapheme, chars[:size])
+	}
+}
+
+windows_keyboard_key_to_rune :: proc(key: Keyboard_Key) -> rune {
+	if key < min(Keyboard_Key) || max(Keyboard_Key) < key {
+		return utf8.RUNE_ERROR
+	}
+	return s.key_graphemes[key][0]
+}
+
+windows_keyboard_key_to_grapheme :: proc(key: Keyboard_Key, alloc: runtime.Allocator) -> []rune {
+	if key < min(Keyboard_Key) || max(Keyboard_Key) < key {
+		return nil
+	}
+	return slice.clone(s.key_graphemes[key], alloc)
+}
+
+
+WIN32_VK_TO_KEY_MAP := [255]Keyboard_Key {
 	win32.VK_0 = .N0,
 	win32.VK_1 = .N1,
 	win32.VK_2 = .N2,
@@ -681,4 +774,116 @@ WIN32_VK_MAP := [255]Keyboard_Key {
 	// NP_Enter is handled separately
 
 	win32.VK_OEM_NEC_EQUAL = .NP_Equal,
+}
+
+KEY_TO_WIN32_VK_MAP := #partial #sparse [Keyboard_Key]win32.UINT {
+	.N0 = win32.VK_0,
+	.N1 = win32.VK_1,
+	.N2 = win32.VK_2,
+	.N3 = win32.VK_3,
+	.N4 = win32.VK_4,
+	.N5 = win32.VK_5,
+	.N6 = win32.VK_6,
+	.N7 = win32.VK_7,
+	.N8 = win32.VK_8,
+	.N9 = win32.VK_9,
+
+	.A = win32.VK_A,
+	.B = win32.VK_B,
+	.C = win32.VK_C,
+	.D = win32.VK_D,
+	.E = win32.VK_E,
+	.F = win32.VK_F,
+	.G = win32.VK_G,
+	.H = win32.VK_H,
+	.I = win32.VK_I,
+	.J = win32.VK_J,
+	.K = win32.VK_K,
+	.L = win32.VK_L,
+	.M = win32.VK_M,
+	.N = win32.VK_N,
+	.O = win32.VK_O,
+	.P = win32.VK_P,
+	.Q = win32.VK_Q,
+	.R = win32.VK_R,
+	.S = win32.VK_S,
+	.T = win32.VK_T,
+	.U = win32.VK_U,
+	.V = win32.VK_V,
+	.W = win32.VK_W,
+	.X = win32.VK_X,
+	.Y = win32.VK_Y,
+	.Z = win32.VK_Z,
+
+	.Apostrophe    = win32.VK_OEM_7,
+	.Comma         = win32.VK_OEM_COMMA,
+	.Minus         = win32.VK_OEM_MINUS,
+	.Period        = win32.VK_OEM_PERIOD,
+	.Slash         = win32.VK_OEM_2,
+	.Semicolon     = win32.VK_OEM_1,
+	.Equal         = win32.VK_OEM_PLUS,
+	.Left_Bracket  = win32.VK_OEM_4,
+	.Backslash     = win32.VK_OEM_5,
+	.Right_Bracket = win32.VK_OEM_6,
+	.Backtick      = win32.VK_OEM_3,
+
+	.Space        = win32.VK_SPACE,
+	.Escape       = win32.VK_ESCAPE,
+	.Enter        = win32.VK_RETURN,
+	.Tab          = win32.VK_TAB,
+	.Backspace    = win32.VK_BACK,
+	.Insert       = win32.VK_INSERT,
+	.Delete       = win32.VK_DELETE,
+	.Right        = win32.VK_RIGHT,
+	.Left         = win32.VK_LEFT,
+	.Down         = win32.VK_DOWN,
+	.Up           = win32.VK_UP,
+	.Page_Up      = win32.VK_PRIOR,
+	.Page_Down    = win32.VK_NEXT,
+	.Home         = win32.VK_HOME,
+	.End          = win32.VK_END,
+	.Caps_Lock    = win32.VK_CAPITAL,
+	.Scroll_Lock  = win32.VK_SCROLL,
+	.Num_Lock     = win32.VK_NUMLOCK,
+	.Print_Screen = win32.VK_PRINT,
+	.Pause        = win32.VK_PAUSE,
+
+	.F1  = win32.VK_F1,
+	.F2  = win32.VK_F2,
+	.F3  = win32.VK_F3,
+	.F4  = win32.VK_F4,
+	.F5  = win32.VK_F5,
+	.F6  = win32.VK_F6,
+	.F7  = win32.VK_F7,
+	.F8  = win32.VK_F8,
+	.F9  = win32.VK_F9,
+	.F10 = win32.VK_F10,
+	.F11 = win32.VK_F11,
+	.F12 = win32.VK_F12,
+
+	// Alt, shift and control are handled in key_from_event_params
+	.Left_Super  = win32.VK_LWIN,
+	.Right_Super = win32.VK_RWIN,
+	.Menu        = win32.VK_APPS,
+
+	.NP_0 = win32.VK_NUMPAD0,
+	.NP_1 = win32.VK_NUMPAD1,
+	.NP_2 = win32.VK_NUMPAD2,
+	.NP_3 = win32.VK_NUMPAD3,
+	.NP_4 = win32.VK_NUMPAD4,
+	.NP_5 = win32.VK_NUMPAD5,
+	.NP_6 = win32.VK_NUMPAD6,
+	.NP_7 = win32.VK_NUMPAD7,
+	.NP_8 = win32.VK_NUMPAD8,
+	.NP_9 = win32.VK_NUMPAD9,
+
+	.NP_Decimal  = win32.VK_DECIMAL,
+	.NP_Divide   = win32.VK_DIVIDE,
+	.NP_Multiply = win32.VK_MULTIPLY,
+	.NP_Subtract = win32.VK_SUBTRACT,
+	.NP_Add      = win32.VK_ADD,
+
+	// NP_Enter is handled separately
+
+	.NP_Equal = win32.VK_OEM_NEC_EQUAL,
 }

@@ -12,6 +12,7 @@ import "core:strings"
 import "core:reflect"
 import "core:os"
 import "core:time"
+import "core:unicode/utf8"
 
 import fs "vendor:fontstash"
 
@@ -126,6 +127,11 @@ init :: proc(
 
 	s.default_font = load_font_from_bytes(DEFAULT_FONT_DATA)
 	_set_font(s.default_font)
+
+	// Note(Blob):
+	//		16 runes is the most I'd expect a single Grapheme to have.
+	//		And you don't generally get more then 2-3 Graphemes at a time.
+	s.key_went_down_runes = make([dynamic]rune, 0, 16, allocator, loc)
 
 	return s
 }
@@ -259,6 +265,8 @@ process_events :: proc() {
 	s.mouse_delta = {}
 	s.mouse_wheel_delta = 0
 
+	runtime.clear(&s.key_went_down_runes)
+
 	runtime.clear(&s.events)
 	pf.get_events(&s.events)
 
@@ -270,6 +278,9 @@ process_events :: proc() {
 		case Event_Key_Went_Down:
 			s.key_went_down[e.key] = true
 			s.key_is_held[e.key] = true
+
+		case Event_Key_Went_Down_Rune:
+			append(&s.key_went_down_runes, e.key_rune)
 
 		case Event_Key_Went_Up:
 			s.key_went_up[e.key] = true
@@ -490,6 +501,36 @@ key_went_up :: proc(key: Keyboard_Key) -> bool {
 // Returns true if a keyboard is currently being held down. Set when 'process_events' runs.
 key_is_held :: proc(key: Keyboard_Key) -> bool {
 	return s.key_is_held[key]
+}
+
+// Returns the rune for the given key. If there's more then one, the first is returned.
+// Repects keyboard layout.
+key_to_rune :: proc(key: Keyboard_Key) -> rune {
+    return s.platform.keyboard_key_to_rune(key)
+}
+
+// Returns a cloned array of the runes for given key's grapheme.
+// Repects keyboard layout.
+key_to_grapheme :: proc(key: Keyboard_Key, alloc: runtime.Allocator) -> []rune {
+    return s.platform.keyboard_key_to_grapheme(key, alloc)
+}
+
+// Returns cloned array of the runes of the keyboard keys that went down between the current and the previous frame.
+// Set when 'process_events' runs.
+get_key_runes :: proc(alloc: runtime.Allocator) -> []rune {
+	if len(s.key_went_down_runes) == 0 {
+		return nil
+	}
+	return slice.clone(s.key_went_down_runes[:], alloc)
+}
+
+// Returns cloned string of the runes of the keyboard keys that went down between the current and the previous frame.
+// Set when 'process_events' runs.
+get_key_runes_as_string :: proc(alloc: runtime.Allocator) -> string {
+	if len(s.key_went_down_runes) == 0 {
+		return ""
+	}
+	return utf8.runes_to_string(s.key_went_down_runes[:], alloc)
 }
 
 // Returns true if a mouse button went down between the current and the previous frame. Specify
@@ -1921,6 +1962,7 @@ State :: struct {
 	mouse_wheel_delta: f32,
 
 	key_went_down: #sparse [Keyboard_Key]bool,
+	key_went_down_runes: [dynamic]rune,
 	key_went_up: #sparse [Keyboard_Key]bool,
 	key_is_held: #sparse [Keyboard_Key]bool,
 
@@ -2136,6 +2178,7 @@ Gamepad_Button :: enum {
 Event :: union {
 	Event_Close_Window_Requested,
 	Event_Key_Went_Down,
+	Event_Key_Went_Down_Rune,
 	Event_Key_Went_Up,
 	Event_Mouse_Move,
 	Event_Mouse_Wheel,
@@ -2151,6 +2194,10 @@ Event :: union {
 
 Event_Key_Went_Down :: struct {
 	key: Keyboard_Key,
+}
+
+Event_Key_Went_Down_Rune :: struct {
+	key_rune: rune,
 }
 
 Event_Key_Went_Up :: struct {
