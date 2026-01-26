@@ -185,6 +185,22 @@ key_went_up :: proc(key: Keyboard_Key) -> bool
 // Returns true if a keyboard is currently being held down. Set when 'process_events' runs.
 key_is_held :: proc(key: Keyboard_Key) -> bool
 
+// Returns the rune for the given key. If there's more then one, the first is returned.
+// Repects keyboard layout.
+key_to_rune :: proc(key: Keyboard_Key, shift := false) -> rune
+
+// Returns a cloned array of the runes for given key's grapheme.
+// Repects keyboard layout.
+key_to_grapheme :: proc(key: Keyboard_Key, alloc: runtime.Allocator, shift := false) -> []rune
+
+// Returns cloned array of the runes of the keyboard keys that went down between the current and the previous frame.
+// Set when 'process_events' runs.
+get_key_runes :: proc(alloc: runtime.Allocator) -> []rune
+
+// Returns cloned string of the runes of the keyboard keys that went down between the current and the previous frame.
+// Set when 'process_events' runs.
+get_key_runes_as_string :: proc(alloc: runtime.Allocator) -> string
+
 // Returns true if a mouse button went down between the current and the previous frame. Specify
 // which mouse button using the `button` parameter.
 //
@@ -779,6 +795,7 @@ State :: struct {
 	mouse_wheel_delta: f32,
 
 	key_went_down: #sparse [Keyboard_Key]bool,
+	key_went_down_runes: [dynamic]rune,
 	key_went_up: #sparse [Keyboard_Key]bool,
 	key_is_held: #sparse [Keyboard_Key]bool,
 
@@ -994,6 +1011,7 @@ Gamepad_Button :: enum {
 Event :: union {
 	Event_Close_Window_Requested,
 	Event_Key_Went_Down,
+	Event_Key_Went_Down_Rune,
 	Event_Key_Went_Up,
 	Event_Mouse_Move,
 	Event_Mouse_Wheel,
@@ -1009,6 +1027,10 @@ Event :: union {
 
 Event_Key_Went_Down :: struct {
 	key: Keyboard_Key,
+}
+
+Event_Key_Went_Down_Rune :: struct {
+	key_rune: rune,
 }
 
 Event_Key_Went_Up :: struct {
