@@ -360,6 +360,7 @@ Windows_State :: struct {
 
 	key_char_surrogate: rune,
 	key_graphemes: #sparse [Keyboard_Key][]rune,
+	key_graphemes_shift: #sparse [Keyboard_Key][]rune,
 }
 
 windows_set_window_mode :: proc(window_mode: Window_Mode) {
@@ -621,6 +622,49 @@ windows_update_key_graphemes :: proc() {
 
 		vk := KEY_TO_WIN32_VK_MAP[key]
 		sc := win32.MapVirtualKeyW(vk, win32.MAPVK_VK_TO_VSC)
+		if sc == 0 {
+			continue
+		}
+
+		// Note(Blob):
+		//		I wouldn't expect a more then 16 pairs.
+		//		AFAIK we can't check the size, so this assumption should be enough.
+		chars: [2 * 16]u16
+
+		size := win32.ToUnicode(vk, sc, raw_data(&kb_state), raw_data(&chars), len(chars), 0)
+
+		if size < 0 {
+			// This is a dead key, so we need a second simulated key press
+			// to make it output its own character (usually a diacritic)
+			size = win32.ToUnicode(vk, sc, raw_data(&kb_state), raw_data(&chars), len(chars), 0)
+		}
+
+		if size == 0 {
+			continue
+		}
+
+		count := utf16.rune_count(chars[:size])
+		if count == 0 {
+			continue
+		}
+
+		grapheme = make([]rune, count, s.allocator)
+		utf16.decode(grapheme, chars[:size])
+	}
+
+	kb_state[win32.VK_SHIFT] = 1 << 7 
+
+	for &grapheme, key in s.key_graphemes_shift {
+		if key == .None {
+			continue
+		}
+		delete(grapheme, s.allocator)
+
+		vk := KEY_TO_WIN32_VK_MAP[key]
+		sc := win32.MapVirtualKeyW(vk, win32.MAPVK_VK_TO_VSC)
+		if sc == 0 {
+			continue
+		}
 
 		// Note(Blob):
 		//		I wouldn't expect a more then 16 pairs.
@@ -649,18 +693,33 @@ windows_update_key_graphemes :: proc() {
 	}
 }
 
-windows_keyboard_key_to_rune :: proc(key: Keyboard_Key) -> rune {
+windows_keyboard_key_to_rune :: proc(key: Keyboard_Key, shift: bool) -> rune {
 	if key < min(Keyboard_Key) || max(Keyboard_Key) < key {
 		return utf8.RUNE_ERROR
 	}
-	return s.key_graphemes[key][0]
+
+	grapheme: []rune 
+	if shift { grapheme = s.key_graphemes_shift[key] }
+	else 	 { grapheme = s.key_graphemes[key] }
+
+	if len(grapheme) == 0 {
+		return utf8.RUNE_ERROR
+	}
+	return grapheme[0]
 }
 
-windows_keyboard_key_to_grapheme :: proc(key: Keyboard_Key, alloc: runtime.Allocator) -> []rune {
+windows_keyboard_key_to_grapheme :: proc(key: Keyboard_Key, alloc: runtime.Allocator, shift: bool) -> []rune {
 	if key < min(Keyboard_Key) || max(Keyboard_Key) < key {
 		return nil
 	}
-	return slice.clone(s.key_graphemes[key], alloc)
+	grapheme: []rune 
+	if shift { grapheme = s.key_graphemes_shift[key] }
+	else 	 { grapheme = s.key_graphemes[key] }
+
+	if len(grapheme) == 0 {
+		return nil
+	}
+	return slice.clone(grapheme, alloc)
 }
 
 

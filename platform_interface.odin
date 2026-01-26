@@ -30,8 +30,8 @@ Platform_Interface :: struct #all_or_none {
 
 	set_internal_state: proc(state: rawptr),
 
-	keyboard_key_to_rune: proc(key: Keyboard_Key) -> rune,
-	keyboard_key_to_grapheme: proc(key: Keyboard_Key, alloc: runtime.Allocator) -> []rune,
+	keyboard_key_to_rune: proc(key: Keyboard_Key, shift: bool) -> rune,
+	keyboard_key_to_grapheme: proc(key: Keyboard_Key, alloc: runtime.Allocator, shift: bool) -> []rune,
 }
 
 Window_Render_Glue_State :: struct {}

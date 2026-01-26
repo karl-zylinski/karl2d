@@ -505,14 +505,14 @@ key_is_held :: proc(key: Keyboard_Key) -> bool {
 
 // Returns the rune for the given key. If there's more then one, the first is returned.
 // Repects keyboard layout.
-key_to_rune :: proc(key: Keyboard_Key) -> rune {
-    return s.platform.keyboard_key_to_rune(key)
+key_to_rune :: proc(key: Keyboard_Key, shift := false) -> rune {
+    return s.platform.keyboard_key_to_rune(key, shift)
 }
 
 // Returns a cloned array of the runes for given key's grapheme.
 // Repects keyboard layout.
-key_to_grapheme :: proc(key: Keyboard_Key, alloc: runtime.Allocator) -> []rune {
-    return s.platform.keyboard_key_to_grapheme(key, alloc)
+key_to_grapheme :: proc(key: Keyboard_Key, alloc: runtime.Allocator, shift := false) -> []rune {
+    return s.platform.keyboard_key_to_grapheme(key, alloc, shift)
 }
 
 // Returns cloned array of the runes of the keyboard keys that went down between the current and the previous frame.
