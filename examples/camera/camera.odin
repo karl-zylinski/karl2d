@@ -16,7 +16,7 @@ step :: proc() -> bool {
 	if !k2.update() {
 		return false
 	}
-	
+
 	screen_size := Vec2 { f32(k2.get_screen_width()), f32(k2.get_screen_height()) }
 	mouse_screen_pos := k2.get_mouse_position()
 	mouse_world_pos := k2.screen_to_world(k2.get_mouse_position(), camera)
