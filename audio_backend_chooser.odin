@@ -3,7 +3,7 @@ package karl2d
 CONFIG_AUDIO_BACKEND_NAME :: #config(KARL2D_AUDIO_BACKEND, "")
 
 when ODIN_OS == .Windows {
-	DEFAULT_AUDIO_BACKEND_NAME :: "waveout"
+	DEFAULT_AUDIO_BACKEND_NAME :: "nil"
 	AVAILABLE_AUDIO_BACKENDS :: "waveout, nil"
 } else {
 	DEFAULT_AUDIO_BACKEND_NAME :: "nil"

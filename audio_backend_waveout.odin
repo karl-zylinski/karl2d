@@ -12,8 +12,11 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 }
 
 import "base:runtime"
+import "log"
+import win32 "core:sys/windows"
 
 Waveout_State :: struct {
+	device: win32.HWAVEOUT,
 	allocator: runtime.Allocator,
 }
 
@@ -26,9 +29,41 @@ s: ^Waveout_State
 waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	assert(state != nil)
 	s = (^Waveout_State)(state)
+	log.debug("Init audio backend waveout")
+
+
+	format := win32.WAVEFORMATEX {
+		nSamplesPerSec = 44100,
+		wBitsPerSample = 16,
+		nChannels = 2,
+		wFormatTag = win32.WAVE_FORMAT_PCM,
+	}
+
+	format.nBlockAlign = (format.wBitsPerSample * format.nChannels) / 8 // see nBlockAlign docs
+	format.nAvgBytesPerSec = u32(format.nBlockAlign) * format.nSamplesPerSec
+
+	ch(win32.waveOutOpen(
+		&s.device,
+		win32.WAVE_MAPPER,
+		&format,
+		0,
+		0,
+		win32.CALLBACK_NULL,
+	))
+}
+
+ch :: proc(mr: win32.MMRESULT, loc := #caller_location) -> win32.MMRESULT {
+	if mr == 0 {
+		return mr
+	}
+
+	log.errorf("waveout error. Error code: %v", u32(mr), location = loc)
+	return mr
 }
 
 waveout_shutdown :: proc() {
+	log.debug("Shutdown audio backend waveout")
+	win32.waveOutClose(s.device)
 }
 
 waveout_set_internal_state :: proc(state: rawptr) {
