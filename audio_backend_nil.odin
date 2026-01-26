@@ -4,23 +4,23 @@ package karl2d
 
 @(private="package")
 AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
-	state_size = audionil_state_size,
-	init = audionil_init,
-	shutdown = audionil_shutdown,
-	set_internal_state = audionil_set_internal_state,
+	state_size = abnil_state_size,
+	init = abnil_init,
+	shutdown = abnil_shutdown,
+	set_internal_state = abnil_set_internal_state,
 }
 
 import "base:runtime"
 
-audionil_state_size :: proc() -> int {
+abnil_state_size :: proc() -> int {
 	return 0
 }
 
-audionil_init :: proc(state: rawptr, allocator: runtime.Allocator) {
+abnil_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 }
 
-audionil_shutdown :: proc() {
+abnil_shutdown :: proc() {
 }
 
-audionil_set_internal_state :: proc(state: rawptr) {
+abnil_set_internal_state :: proc(state: rawptr) {
 }
