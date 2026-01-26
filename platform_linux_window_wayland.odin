@@ -61,7 +61,7 @@ wl_init :: proc(
 
 	s.surface = wl.compositor_create_surface(s.compositor)
 	log.ensure(s.surface != nil, "Error creating Wayland surface")
-	
+
 	// Makes sure the window does "pings" that keeps it alive.
 	wl.add_listener(s.xdg_base, &wm_base_listener, nil)
 	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, s.surface)
@@ -87,8 +87,13 @@ wl_init :: proc(
 	callback := wl.surface_frame(s.surface)
 	wl.add_listener(callback, &frame_callback, nil)
 
-	s.window = wl.egl_window_create(s.surface, i32(s.windowed_width), i32(s.windowed_height))
-
+	s.window = wl.egl_window_create(s.surface, i32(f32(s.width)/1.75), i32(f32(s.height)/1.75))
+	//wl.egl_window_resize(s.window, i32(s.windowed_width), i32(s.windowed_height), 0, 0)
+	viewport := wl.wp_viewporter_get_viewport(s.viewporter, s.surface)
+	src_val := wl.Fixed(i32(-1)*256)
+	wl.wp_viewport_set_source(viewport, src_val, src_val, src_val, src_val)
+	wl.wp_viewport_set_destination(viewport, i32(f32(s.width)/1.75), i32(f32(s.height)/1.75))
+	
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
 	} else when RENDER_BACKEND_NAME == "nil" {
@@ -152,6 +157,15 @@ registry_listener := wl.Registry_Listener {
 				registry,
 				name,
 				&wl.wp_fractional_scale_manager_v1_interface,
+				version,
+			)
+
+		case wl.wp_viewporter_interface.name:
+			s.viewporter = wl.registry_bind(
+				wl.WP_Viewporter,
+				registry,
+				name,
+				&wl.wp_viewporter_interface,
 				version,
 			)
 		}
@@ -515,6 +529,7 @@ WL_State :: struct {
 	compositor: ^wl.Compositor,
 	window: ^wl.EGL_Window,
 	toplevel: ^wl.XDG_Toplevel,
+	viewporter: ^wl.WP_Viewporter,
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
