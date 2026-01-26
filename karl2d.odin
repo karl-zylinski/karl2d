@@ -61,7 +61,7 @@ init :: proc(
 	} else when ODIN_OS == .Linux {
 		s.platform = PLATFORM_LINUX
 	} else when ODIN_OS == .Darwin {
-	    s.platform = PLATFORM_MAC
+		s.platform = PLATFORM_MAC
 	} else {
 		#panic("Unsupported platform")
 	}
@@ -595,8 +595,6 @@ draw_rect :: proc(r: Rect, c: Color) {
 	}
 
 	s.batch_texture = s.shape_drawing_texture
-
-	z := f32(0)
 
 	batch_vertex({r.x, r.y}, {0, 0}, c)
 	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
@@ -1406,7 +1404,7 @@ load_shader_from_bytes :: proc(
 	}
 
 	shd.vertex_size = input_offset
- 	return shd
+	return shd
 }
 
 // Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
