@@ -127,6 +127,14 @@ init :: proc(
 	s.default_font = load_font_from_bytes(DEFAULT_FONT_DATA)
 	_set_font(s.default_font)
 
+	s.audio_backend = AUDIO_BACKEND
+	ab = s.audio_backend
+
+	audio_alloc_error: runtime.Allocator_Error
+	s.audio_backend_state, audio_alloc_error = mem.alloc(ab.state_size(), allocator = allocator)
+	log.assertf(audio_alloc_error == nil, "Failed allocating memory for audio backend: %v", audio_alloc_error)
+	ab.init(s.audio_backend_state, allocator)
+
 	return s
 }
 
@@ -174,6 +182,8 @@ close_window_requested :: proc() -> bool {
 shutdown :: proc() {
 	assert(s != nil, "You've called 'shutdown' without calling 'init' first")
 
+	ab.shutdown()
+
 	delete(s.events)
 	destroy_font(s.default_font)
 	rb.destroy_texture(s.shape_drawing_texture)
@@ -189,6 +199,7 @@ shutdown :: proc() {
 	a := s.allocator
 	free(s.platform_state, a)
 	free(s.render_backend_state, a)
+	free(s.audio_backend_state, a)
 	free(s, a)
 	s = nil
 }
@@ -1631,8 +1642,10 @@ set_internal_state :: proc(state: ^State) {
 	frame_allocator = s.frame_allocator
 	pf = s.platform
 	rb = s.render_backend
+	ab = s.audio_backend
 	pf.set_internal_state(s.platform_state)
 	rb.set_internal_state(s.render_backend_state)
+	ab.set_internal_state(s.audio_backend_state)
 }
 
 //---------------------//
@@ -1958,6 +1971,10 @@ State :: struct {
 	frame_time: f32,
 
 	time: f64,
+
+	// Audio
+	audio_backend: Audio_Backend_Interface,
+	audio_backend_state: rawptr,
 }
 
 // Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
@@ -2257,6 +2274,9 @@ pf: Platform_Interface
 
 @(private="file")
 rb: Render_Backend_Interface
+
+@(private="file")
+ab: Audio_Backend_Interface
 
 // This is here so it can be used from other files in this directory (`s.frame_allocator` can't be
 // reached outside this file).
