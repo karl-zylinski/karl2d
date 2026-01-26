@@ -103,6 +103,7 @@ mac_gl_glue_present :: proc(s: ^Mac_GL_Glue_State) {
 
 mac_gl_glue_destroy :: proc(s: ^Mac_GL_Glue_State) {
 	nsgl.OpenGLContext_clearCurrentContext()
+	free(s)
 }
 
 mac_gl_glue_viewport_resized :: proc(s: ^Mac_GL_Glue_State) {
