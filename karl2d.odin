@@ -1406,7 +1406,7 @@ load_shader_from_bytes :: proc(
 	}
 
 	shd.vertex_size = input_offset
- 	return shd
+	return shd
 }
 
 // Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
