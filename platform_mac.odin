@@ -1,4 +1,5 @@
 #+build darwin
+#+vet explicit-allocators
 #+private file
 
 package karl2d
@@ -47,6 +48,8 @@ Mac_State :: struct {
 	window_render_glue: Window_Render_Glue,
 
 	gamepads:           [MAX_GAMEPADS]Gamepad,
+	gc_connect_blk:     ^NS.Block,
+	gc_disconnect_blk:  ^NS.Block,
 }
 
 Gamepad :: struct {
@@ -127,23 +130,20 @@ mac_init :: proc(
 	// Setup listeners for connected/disconnected controllers
 	notificationCenter := NS.NotificationCenter_defaultCenter()
 
-	notificationCenter->addObserverForName(
-		gc.DidConnectNotification, nil, nil,
-		NS.Block_createGlobalWithParam(s, proc "c" (s: rawptr, n: ^NS.Notification) {
-			context = (^Mac_State)(s).odin_ctx
+	s.gc_connect_blk = NS.Block_createGlobalWithParam(s, proc "c" (s: rawptr, n: ^NS.Notification) {
+		context = (^Mac_State)(s).odin_ctx
 
-			poll_for_new_controllers()
-		}),
-	)
-	notificationCenter->addObserverForName(
-		gc.DidDisconnectNotification, nil, nil,
-		NS.Block_createGlobalWithParam(s, proc "c" (s: rawptr, n: ^NS.Notification) {
-			context = (^Mac_State)(s).odin_ctx
+		poll_for_new_controllers()
+	}, s.allocator)
+	notificationCenter->addObserverForName(gc.DidConnectNotification, nil, nil, s.gc_connect_blk)
 
-			controller := (^gc.Controller)(n->object())
-			remove_controller(controller)
-		}),
-	)
+	s.gc_disconnect_blk = NS.Block_createGlobalWithParam(s, proc "c" (s: rawptr, n: ^NS.Notification) {
+		context = (^Mac_State)(s).odin_ctx
+
+		controller := (^gc.Controller)(n->object())
+		remove_controller(controller)
+	}, s.allocator)
+	notificationCenter->addObserverForName(gc.DidDisconnectNotification, nil, nil, s.gc_disconnect_blk)
 
 	application_delegate := NS.application_delegate_register_and_alloc(
 		NS.ApplicationDelegateTemplate{
@@ -213,6 +213,9 @@ mac_shutdown :: proc() {
 		s.window->close()
 	}
 	delete(s.events)
+	a := s.allocator
+	free(s.gc_connect_blk, a)
+	free(s.gc_disconnect_blk, a)
 }
 
 mac_get_window_render_glue :: proc() -> Window_Render_Glue {
