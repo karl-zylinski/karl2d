@@ -145,6 +145,18 @@ mac_init :: proc(
 		}),
 	)
 
+	application_delegate := NS.application_delegate_register_and_alloc(
+		NS.ApplicationDelegateTemplate{
+			applicationShouldTerminate = proc(_: ^NS.Application) -> NS.ApplicationTerminateReply {
+				append(&s.events, Event_Close_Window_Requested{})
+				return .TerminateCancel
+			},
+		},
+		"Karl2DApplicationDelegate",
+		context,
+	)
+
+	s.app->setDelegate(application_delegate)
 
 	// Setup delegates for events not handled in mac_process_events
 	window_delegates := NS.window_delegate_register_and_alloc(
