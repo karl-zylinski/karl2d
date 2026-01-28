@@ -22,6 +22,7 @@ import "core:math"
 Waveout_State :: struct {
 	device: win32.HWAVEOUT,
 	allocator: runtime.Allocator,
+	odin_ctx: runtime.Context,
 }
 
 waveout_state_size :: proc() -> int {
@@ -34,8 +35,8 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	assert(state != nil)
 	s = (^Waveout_State)(state)
 	s.allocator = allocator
+	s.odin_ctx = context
 	log.debug("Init audio backend waveout")
-
 
 	format := win32.WAVEFORMATEX {
 		nSamplesPerSec = 44100,
@@ -52,9 +53,9 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 		&s.device,
 		win32.WAVE_MAPPER,
 		&format,
+		uint(uintptr(rawptr(waveout_proc))),
 		0,
-		0,
-		win32.CALLBACK_NULL,
+		win32.CALLBACK_FUNCTION,
 	))
 }
 
@@ -77,15 +78,25 @@ waveout_set_internal_state :: proc(state: rawptr) {
 	s = (^Waveout_State)(state)
 }
 
+waveout_proc :: proc "c" (
+   device: win32.HWAVEOUT,
+   uMsg: win32.UINT,
+   dwInstance: win32.DWORD_PTR,
+   dwParam1: win32.DWORD_PTR,
+   dwParam2: win32.DWORD_PTR,
+) {
+	context = s.odin_ctx
+}
+
 waveout_test :: proc() {
 	log.info("Testing sound")
 
-	freq :: 1000
+	freq :: 440
 	num_periods :: f64(44100) / freq
 	log.info(num_periods)
 	inc := (2*math.PI) / num_periods
 
-	test_sound_block := make([]u16, 44100*2*5, s.allocator)
+	test_sound_block := make([]i16, 44100*2*5, s.allocator)
 
 	tt: f64
 	for &samp, i in test_sound_block {
@@ -93,12 +104,8 @@ waveout_test :: proc() {
 			tt += f64(inc)
 		}
 		sf := f32(math.sin(tt))
-		sf += 1
-		sf *= f32(max(u16)/2)
-
-		if i % 2 == 1 {
-			samp = u16(sf)
-		}
+		sf *= f32(max(i16))
+		samp = i16(sf)
 	}
 
 	{
