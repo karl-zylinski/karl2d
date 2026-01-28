@@ -22,7 +22,8 @@ import "core:math"
 Waveout_State :: struct {
 	device: win32.HWAVEOUT,
 	allocator: runtime.Allocator,
-	odin_ctx: runtime.Context,
+	headers: [32]win32.WAVEHDR,
+	cur_header: int,
 }
 
 waveout_state_size :: proc() -> int {
@@ -35,7 +36,6 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	assert(state != nil)
 	s = (^Waveout_State)(state)
 	s.allocator = allocator
-	s.odin_ctx = context
 	log.debug("Init audio backend waveout")
 
 	format := win32.WAVEFORMATEX {
@@ -53,9 +53,9 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 		&s.device,
 		win32.WAVE_MAPPER,
 		&format,
-		uint(uintptr(rawptr(waveout_proc))),
 		0,
-		win32.CALLBACK_FUNCTION,
+		0,
+		win32.CALLBACK_NULL,
 	))
 }
 
@@ -78,32 +78,23 @@ waveout_set_internal_state :: proc(state: rawptr) {
 	s = (^Waveout_State)(state)
 }
 
-waveout_proc :: proc "c" (
-   device: win32.HWAVEOUT,
-   uMsg: win32.UINT,
-   dwInstance: win32.DWORD_PTR,
-   dwParam1: win32.DWORD_PTR,
-   dwParam2: win32.DWORD_PTR,
-) {
-	context = s.odin_ctx
-}
-
 waveout_play_sound :: proc(snd: Sound) {
-	log.info("Testing sound")
+	h := &s.headers[s.cur_header]
 
-	{
-		header := win32.WAVEHDR {
-			dwBufferLength = u32(len(snd.data)),
-			lpData = raw_data(snd.data),
-		}
+	for win32.waveOutUnprepareHeader(s.device, h, size_of(win32.WAVEHDR)) == win32.WAVERR_STILLPLAYING {
+		time.sleep(1 * time.Millisecond)
+	}
 
-		win32.waveOutPrepareHeader(s.device, &header, size_of(win32.WAVEHDR))
+	h^ = win32.WAVEHDR {
+		dwBufferLength = u32(len(snd.data)),
+		lpData = raw_data(snd.data),
+	}
 
-		win32.waveOutWrite(s.device, &header, size_of(win32.WAVEHDR))
+	win32.waveOutPrepareHeader(s.device, h, size_of(win32.WAVEHDR))
+	win32.waveOutWrite(s.device, h, size_of(win32.WAVEHDR))
 
-		time.sleep(1000 * time.Millisecond)
-		for win32.waveOutUnprepareHeader(s.device, &header, size_of(win32.WAVEHDR)) == win32.WAVERR_STILLPLAYING {
-			time.sleep(10 * time.Millisecond)
-		}
+	s.cur_header += 1
+	if s.cur_header >= len(s.headers) {
+		s.cur_header = 0
 	}
 }

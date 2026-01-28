@@ -18,9 +18,6 @@ init :: proc() {
 	FREQ :: 440.0
 	PERIODS_PER_SEC :: 44100.0 / FREQ
 
-	
-	// u16 because 16 bit sound... easier to the generator code below
-
 	// 44100 samples per second, 2 channels, 2 seconds... u16 per sample (16 bit sound)
 	test_sound_block := make([]u16, 44100*2*2)
 
