@@ -52,6 +52,8 @@ Beta 2 has these features:
 >- Metal rendering backend for Mac (OpenGL already works)
 >
 > When I've gotten through this list, then the library is close to `1.0`
+>
+> See the list of [https://github.com/karl-zylinski/karl2d/milestones](milestones) to see the progress on each Beta version and what is included in each.
 
 >[!WARNING]
 >As this is a beta test version, changes to the API will happen.
