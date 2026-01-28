@@ -2444,3 +2444,7 @@ f32_color_from_color :: proc(color: Color) -> Color_F32 {
 }
 
 FILESYSTEM_SUPPORTED :: ODIN_OS != .JS && ODIN_OS != .Freestanding
+
+audio_test :: proc() {
+	ab.test()
+}

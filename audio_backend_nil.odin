@@ -8,6 +8,8 @@ AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
 	init = abnil_init,
 	shutdown = abnil_shutdown,
 	set_internal_state = abnil_set_internal_state,
+
+	test = abnil_test,
 }
 
 import "base:runtime"
@@ -23,4 +25,7 @@ abnil_shutdown :: proc() {
 }
 
 abnil_set_internal_state :: proc(state: rawptr) {
+}
+
+abnil_test :: proc() {
 }

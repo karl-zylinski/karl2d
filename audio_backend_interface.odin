@@ -7,4 +7,6 @@ Audio_Backend_Interface :: struct #all_or_none {
 	init: proc(state: rawptr, allocator: runtime.Allocator),
 	shutdown: proc(),
 	set_internal_state: proc(state: rawptr),
+
+	test: proc(),
 }
