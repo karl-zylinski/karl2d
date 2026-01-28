@@ -2445,6 +2445,13 @@ f32_color_from_color :: proc(color: Color) -> Color_F32 {
 
 FILESYSTEM_SUPPORTED :: ODIN_OS != .JS && ODIN_OS != .Freestanding
 
-audio_test :: proc() {
-	ab.test()
+// Audio things are WIP and therefore at the bottom of this file where karl2d.doc.odin won't pick
+// them up.
+play_sound :: proc(snd: Sound) {
+	ab.play_sound(snd)
 }
+
+Sound :: struct {
+	data: []u8,
+}
+

@@ -9,7 +9,7 @@ AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
 	shutdown = abnil_shutdown,
 	set_internal_state = abnil_set_internal_state,
 
-	test = abnil_test,
+	play_sound = abnil_play_sound,
 }
 
 import "base:runtime"
@@ -27,5 +27,5 @@ abnil_shutdown :: proc() {
 abnil_set_internal_state :: proc(state: rawptr) {
 }
 
-abnil_test :: proc() {
+abnil_play_sound :: proc(snd: Sound) {
 }

@@ -44,10 +44,6 @@ step :: proc() -> bool {
 		movement.y += 1
 	}
 
-	if k2.key_went_down(.T) {
-		k2.audio_test()
-	}
-
 	// Normalizing makes the movement not go faster when going diagonally.
 	pos += linalg.normalize0(movement) * k2.get_frame_time() * 400
 

@@ -4,16 +4,36 @@ package karl2d_audio_example
 import k2 "../.."
 import "core:fmt"
 import "core:math/linalg"
+import "core:math"
+import "core:slice"
 
 pos: k2.Vec2
+snd: k2.Sound
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Basics")
 
-	// Note that we #load the texture: This bakes it into the program's data. WASM has no filesystem
-	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
-	// them.
-	//tex = k2.load_texture_from_bytes(#load("sixten.jpg"))
+	// make 2 second sine wave
+	
+	FREQ :: 440.0
+	PERIODS_PER_SEC :: 44100.0 / FREQ
+
+	
+	// u16 because 16 bit sound... easier to the generator code below
+
+	// 44100 samples per second, 2 channels, 2 seconds... u16 per sample (16 bit sound)
+	test_sound_block := make([]u16, 44100*2*2)
+
+	INC :: f32(2.0*f64(math.PI)) / PERIODS_PER_SEC
+	for &samp, i in test_sound_block {
+		sf := math.sin(f32(i/2) * INC)
+		sf *= f32(max(i16))
+		samp = u16(sf)
+	}
+
+	snd = {
+		data = slice.reinterpret([]u8, test_sound_block[:]),
+	}
 }
 
 step :: proc() -> bool {
@@ -42,7 +62,7 @@ step :: proc() -> bool {
 	}
 
 	if k2.key_went_down(.T) {
-		k2.audio_test()
+		k2.play_sound(snd)
 	}
 
 	// Normalizing makes the movement not go faster when going diagonally.

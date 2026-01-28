@@ -8,5 +8,5 @@ Audio_Backend_Interface :: struct #all_or_none {
 	shutdown: proc(),
 	set_internal_state: proc(state: rawptr),
 
-	test: proc(),
+	play_sound: proc(sound: Sound),
 }

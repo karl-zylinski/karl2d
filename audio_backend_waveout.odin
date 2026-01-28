@@ -10,7 +10,7 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 	shutdown = waveout_shutdown,
 	set_internal_state = waveout_set_internal_state,
 
-	test = waveout_test,
+	play_sound = waveout_play_sound,
 }
 
 import "base:runtime"
@@ -88,30 +88,13 @@ waveout_proc :: proc "c" (
 	context = s.odin_ctx
 }
 
-waveout_test :: proc() {
+waveout_play_sound :: proc(snd: Sound) {
 	log.info("Testing sound")
-
-	freq :: 440
-	num_periods :: f64(44100) / freq
-	log.info(num_periods)
-	inc := (2*math.PI) / num_periods
-
-	test_sound_block := make([]i16, 44100*2*5, s.allocator)
-
-	tt: f64
-	for &samp, i in test_sound_block {
-		if i % 2 == 0 {
-			tt += f64(inc)
-		}
-		sf := f32(math.sin(tt))
-		sf *= f32(max(i16))
-		samp = i16(sf)
-	}
 
 	{
 		header := win32.WAVEHDR {
-			dwBufferLength = u32(len(test_sound_block)*2),
-			lpData = ([^]u8)(raw_data(test_sound_block)),
+			dwBufferLength = u32(len(snd.data)),
+			lpData = raw_data(snd.data),
 		}
 
 		win32.waveOutPrepareHeader(s.device, &header, size_of(win32.WAVEHDR))
