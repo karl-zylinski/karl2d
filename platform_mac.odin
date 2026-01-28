@@ -340,14 +340,7 @@ mac_set_window_position :: proc(x: int, y: int) {
 }
 
 mac_set_screen_size :: proc(w, h: int) {
-	frame := NS.Window_frame(s.window)
-	// Keep the top-left corner in place when resizing
-	new_y := frame.origin.y + frame.size.height - NS.Float(h)
-	new_frame := NS.Rect{
-		origin = {frame.origin.x, new_y},
-		size = {NS.Float(w), NS.Float(h)},
-	}
-	s.window->setFrame(new_frame, true)
+	ce.Window_setContentSize(s.window, {NS.Float(w), NS.Float(h)})
 }
 
 mac_get_window_scale :: proc() -> f32 {
