@@ -82,6 +82,7 @@ audio_shutdown :: proc() {
 
 audio_set_internal_state :: proc(state: ^Audio_State) {
 	s = state
+	ab = s.audio_backend
 }
 
 play_sound :: proc(snd: Sound) {
