@@ -127,13 +127,7 @@ init :: proc(
 	s.default_font = load_font_from_bytes(DEFAULT_FONT_DATA)
 	_set_font(s.default_font)
 
-	s.audio_backend = AUDIO_BACKEND
-	ab = s.audio_backend
-
-	audio_alloc_error: runtime.Allocator_Error
-	s.audio_backend_state, audio_alloc_error = mem.alloc(ab.state_size(), allocator = allocator)
-	log.assertf(audio_alloc_error == nil, "Failed allocating memory for audio backend: %v", audio_alloc_error)
-	ab.init(s.audio_backend_state, allocator)
+	audio_init(&s.audio_state, s.allocator)
 
 	return s
 }
@@ -165,6 +159,7 @@ init :: proc(
 update :: proc() -> bool {
 	reset_frame_allocator()
 	calculate_frame_time()
+	audio_update(s.frame_time)
 	process_events()
 	return !close_window_requested()
 }
@@ -196,10 +191,11 @@ shutdown :: proc() {
 	fs.Destroy(&s.fs)
 	delete(s.fonts)
 
+	audio_shutdown()
+
 	a := s.allocator
 	free(s.platform_state, a)
 	free(s.render_backend_state, a)
-	free(s.audio_backend_state, a)
 	free(s, a)
 	s = nil
 }
@@ -1642,10 +1638,9 @@ set_internal_state :: proc(state: ^State) {
 	frame_allocator = s.frame_allocator
 	pf = s.platform
 	rb = s.render_backend
-	ab = s.audio_backend
 	pf.set_internal_state(s.platform_state)
 	rb.set_internal_state(s.render_backend_state)
-	ab.set_internal_state(s.audio_backend_state)
+	audio_set_internal_state(&s.audio_state)
 }
 
 //---------------------//
@@ -1972,9 +1967,7 @@ State :: struct {
 
 	time: f64,
 
-	// Audio
-	audio_backend: Audio_Backend_Interface,
-	audio_backend_state: rawptr,
+	audio_state: Audio_State,
 }
 
 // Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
@@ -2445,13 +2438,4 @@ f32_color_from_color :: proc(color: Color) -> Color_F32 {
 
 FILESYSTEM_SUPPORTED :: ODIN_OS != .JS && ODIN_OS != .Freestanding
 
-// Audio things are WIP and therefore at the bottom of this file where karl2d.doc.odin won't pick
-// them up.
-play_sound :: proc(snd: Sound) {
-	ab.play_sound(snd)
-}
-
-Sound :: struct {
-	data: []u8,
-}
 

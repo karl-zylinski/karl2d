@@ -10,7 +10,8 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 	shutdown = waveout_shutdown,
 	set_internal_state = waveout_set_internal_state,
 
-	play_sound = waveout_play_sound,
+	feed_mixed_samples = waveout_feed_mixed_samples,
+	remaining_samples = waveout_remaining_samples,
 }
 
 import "base:runtime"
@@ -78,16 +79,16 @@ waveout_set_internal_state :: proc(state: rawptr) {
 	s = (^Waveout_State)(state)
 }
 
-waveout_play_sound :: proc(snd: Sound) {
+waveout_feed_mixed_samples :: proc(samples: []u8) {
 	h := &s.headers[s.cur_header]
 
 	for win32.waveOutUnprepareHeader(s.device, h, size_of(win32.WAVEHDR)) == win32.WAVERR_STILLPLAYING {
 		time.sleep(1 * time.Millisecond)
 	}
 
-	h^ = win32.WAVEHDR {
-		dwBufferLength = u32(len(snd.data)),
-		lpData = raw_data(snd.data),
+	h^ = {
+		dwBufferLength = u32(len(samples)),
+		lpData = raw_data(samples),
 	}
 
 	win32.waveOutPrepareHeader(s.device, h, size_of(win32.WAVEHDR))
@@ -97,4 +98,12 @@ waveout_play_sound :: proc(snd: Sound) {
 	if s.cur_header >= len(s.headers) {
 		s.cur_header = 0
 	}
+}
+
+waveout_remaining_samples :: proc() -> int {
+	t := win32.MMTIME {
+		wType = .TIME_SAMPLES,
+	}
+	win32.waveOutGetPosition(s.device, &t, size_of(win32.MMTIME))
+	return int(t.u.sample)
 }

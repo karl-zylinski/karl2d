@@ -15,7 +15,7 @@ init :: proc() {
 
 	// make 2 second sine wave
 	
-	FREQ :: 440.0
+	FREQ :: 440
 	PERIODS_PER_SEC :: 44100.0 / FREQ
 
 	// 44100 samples per second, 2 channels, 2 seconds... u16 per sample (16 bit sound)
@@ -24,12 +24,12 @@ init :: proc() {
 	INC :: f32(2.0*f64(math.PI)) / PERIODS_PER_SEC
 	for &samp, i in test_sound_block {
 		sf := math.sin(f32(i/2) * INC)
-		sf *= f32(max(i16))
+		sf *= f32(max(i16)/4)
 		samp = u16(sf)
 	}
 
 	snd = {
-		data = slice.reinterpret([]u8, test_sound_block[:]),
+		data = slice.reinterpret([]u16, test_sound_block[:]),
 	}
 }
 
