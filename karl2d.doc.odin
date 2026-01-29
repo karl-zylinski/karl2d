@@ -817,9 +817,7 @@ State :: struct {
 
 	time: f64,
 
-	// Audio
-	audio_backend: Audio_Backend_Interface,
-	audio_backend_state: rawptr,
+	audio_state: Audio_State,
 }
 
 // Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
