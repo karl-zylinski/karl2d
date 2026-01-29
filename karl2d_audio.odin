@@ -67,7 +67,7 @@ audio_update :: proc(dt: f32) {
 	}
 
 	out := s.mix_buffer[mix_chunk_start:mix_chunk_end]
-	ab.feed_mixed_samples(out)
+	ab.feed(out)
 	s.mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
 }
 

@@ -10,7 +10,7 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 	shutdown = waveout_shutdown,
 	set_internal_state = waveout_set_internal_state,
 
-	feed_mixed_samples = waveout_feed_mixed_samples,
+	feed = waveout_feed,
 	remaining_samples = waveout_remaining_samples,
 }
 
@@ -81,7 +81,7 @@ waveout_set_internal_state :: proc(state: rawptr) {
 	s = (^Waveout_State)(state)
 }
 
-waveout_feed_mixed_samples :: proc(samples: []Audio_Sample) {
+waveout_feed :: proc(samples: []Audio_Sample) {
 	h := &s.headers[s.cur_header]
 
 	for win32.waveOutUnprepareHeader(s.device, h, size_of(win32.WAVEHDR)) == win32.WAVERR_STILLPLAYING {
