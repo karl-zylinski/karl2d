@@ -78,9 +78,9 @@ The web build will end up in `your_game_path/bin/web`.
 >[!WARNING]
 >On Linux / Mac you may need to install some `lld` package that contains the `wasm-ld` linker. It's included with Odin on Windows.
 
-It requires that you game contains a `init` procedure and a `step` procedure. The `init` procedure is called once on startup and the `step` procedure will be called every frame of your game.
+It requires that your game contains an `init` procedure and a `step` procedure. The `init` procedure is called once on startup and the `step` procedure will be called every frame of your game.
 
-Also, see the `minimal_hello_world_web` example: https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_hello_world_web/minimal_hello_world_web.odin
+Also, see the [`minimal_hello_world_web.odin`](https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_hello_world_web/minimal_hello_world_web.odin) example.
 
 The `build_web` tool will copy `odin.js` file from `<odin>/core/sys/wasm/js/odin.js` into the `bin/web folder`. It will also copy a HTML index file into that folder.
 
@@ -98,7 +98,7 @@ Launch your game by opening `bin/web/index.html` in a browser.
 
 ## Architecture notes
 
-The platform-independent parts and the API lives in `karl2d.odin`
+The platform-independent parts and the API lives in `karl2d.odin`.
 
 `karl2d.odin` in turn has a window interface and a rendering backend.
 
@@ -134,4 +134,4 @@ You can always open a _draft_ Pull Request and work on your stuff in there. Ther
 
 ## Have fun!
 
-Logo by chris_php
+Logo by chris_php.
