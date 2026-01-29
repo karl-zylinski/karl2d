@@ -5,32 +5,31 @@ import k2 "../.."
 import "core:fmt"
 import "core:math/linalg"
 import "core:math"
-import "core:slice"
 
 pos: k2.Vec2
 snd: k2.Sound
+snd2: k2.Sound
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Basics")
+	k2.init(1280, 720, "Karl2D Audio")
 
-	// make 2 second sine wave
-	
-	FREQ :: 440
-	PERIODS_PER_SEC :: 44100.0 / FREQ
+	snd = make_sine_wave(440, 10)
+	snd2 = make_sine_wave(200, 10)
+}
 
-	// 44100 samples per second, 2 channels, 2 seconds... u16 per sample (16 bit sound)
-	test_sound_block := make([]u16, 44100*2*2)
+make_sine_wave :: proc(freq: int, length: f32) -> k2.Sound {
+	periods_per_sec := 44100.0 / f64(freq)
+	sine_data := make([]k2.Audio_Sample, int(44100*length))
 
-	INC :: f32(2.0*f64(math.PI)) / PERIODS_PER_SEC
-	for &samp, i in test_sound_block {
-		sf := math.sin(f32(i/2) * INC)
+	inc := f32(2.0*f64(math.PI) / periods_per_sec)
+	for &samp, i in sine_data {
+		sf := math.sin(f32(i) * inc)
 		sf *= f32(max(i16)/4)
-		samp = u16(sf)
+		samp.x = u16(sf)
+		samp.y = u16(sf)
 	}
 
-	snd = {
-		data = slice.reinterpret([]u16, test_sound_block[:]),
-	}
+	return { data = sine_data }
 }
 
 step :: proc() -> bool {
@@ -60,6 +59,7 @@ step :: proc() -> bool {
 
 	if k2.key_went_down(.T) {
 		k2.play_sound(snd)
+		k2.play_sound(snd2)
 	}
 
 	// Normalizing makes the movement not go faster when going diagonally.

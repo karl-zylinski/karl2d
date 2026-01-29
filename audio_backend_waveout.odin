@@ -19,12 +19,14 @@ import "log"
 import win32 "core:sys/windows"
 import "core:time"
 import "core:math"
+import "core:slice"
 
 Waveout_State :: struct {
 	device: win32.HWAVEOUT,
 	allocator: runtime.Allocator,
 	headers: [32]win32.WAVEHDR,
 	cur_header: int,
+	submitted_samples: int,
 }
 
 waveout_state_size :: proc() -> int {
@@ -79,22 +81,26 @@ waveout_set_internal_state :: proc(state: rawptr) {
 	s = (^Waveout_State)(state)
 }
 
-waveout_feed_mixed_samples :: proc(samples: []u8) {
+waveout_feed_mixed_samples :: proc(samples: []Audio_Sample) {
 	h := &s.headers[s.cur_header]
 
 	for win32.waveOutUnprepareHeader(s.device, h, size_of(win32.WAVEHDR)) == win32.WAVERR_STILLPLAYING {
 		time.sleep(1 * time.Millisecond)
 	}
 
+	byte_samples := slice.reinterpret([]u8, samples)
+
 	h^ = {
-		dwBufferLength = u32(len(samples)),
-		lpData = raw_data(samples),
+		dwBufferLength = u32(len(byte_samples)),
+		lpData = raw_data(byte_samples),
 	}
 
 	win32.waveOutPrepareHeader(s.device, h, size_of(win32.WAVEHDR))
 	win32.waveOutWrite(s.device, h, size_of(win32.WAVEHDR))
 
+	s.submitted_samples += len(samples)
 	s.cur_header += 1
+
 	if s.cur_header >= len(s.headers) {
 		s.cur_header = 0
 	}
@@ -105,5 +111,5 @@ waveout_remaining_samples :: proc() -> int {
 		wType = .TIME_SAMPLES,
 	}
 	win32.waveOutGetPosition(s.device, &t, size_of(win32.MMTIME))
-	return int(t.u.sample)
+	return s.submitted_samples - int(t.u.sample)
 }
