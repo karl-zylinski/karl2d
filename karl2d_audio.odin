@@ -3,7 +3,7 @@
 package karl2d
 
 AUDIO_MIX_SAMPLE_RATE :: 44100
-AUDIO_MIX_CHUNK_SIZE :: 1320
+AUDIO_MIX_CHUNK_SIZE :: 2048
 
 Audio_State :: struct {
 	audio_backend: Audio_Backend_Interface,
@@ -59,8 +59,17 @@ audio_update :: proc(dt: f32) {
 		}
 
 		if ps.offset + AUDIO_MIX_CHUNK_SIZE > len(ps.sound.data) {
-			unordered_remove(&s.playing_sounds, idx)
-			idx -= 1
+			if ps.sound.loop {
+				extra := AUDIO_MIX_CHUNK_SIZE-samples_available
+				ps.offset = 0
+				for samp_idx in 0..<min(extra, len(ps.sound.data)) {
+					s.mix_buffer[mix_chunk_start + samples_available + samp_idx] += ps.sound.data[ps.offset + samp_idx]
+				}
+				ps.offset += extra
+			} else {
+				unordered_remove(&s.playing_sounds, idx)
+				idx -= 1
+			}
 		} else {
 			ps.offset += AUDIO_MIX_CHUNK_SIZE
 		}
@@ -93,4 +102,5 @@ Audio_Sample :: [2]u16
 
 Sound :: struct {
 	data: []Audio_Sample,
+	loop: bool,
 }

@@ -2,8 +2,6 @@
 package karl2d_audio_example
 
 import k2 "../.."
-import "core:fmt"
-import "core:math/linalg"
 import "core:math"
 
 pos: k2.Vec2
@@ -13,15 +11,20 @@ snd2: k2.Sound
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Audio")
 
-	snd = make_sine_wave(440, 10)
-	snd2 = make_sine_wave(200, 10)
+	snd = make_sine_wave(200, 0.5, true)
+	snd2 = make_sine_wave(440, 1, false)
+
+	k2.play_sound(snd)
 }
 
-make_sine_wave :: proc(freq: int, length: f32) -> k2.Sound {
-	periods_per_sec := 44100.0 / f64(freq)
-	sine_data := make([]k2.Audio_Sample, int(44100*length))
+// Makes a sine wave of min_length rounded up to so that it ends at the end of a period. This makes
+// it possible to loop cleanly.
+make_sine_wave :: proc(freq: int, min_length: f32, loop: bool) -> k2.Sound {
+	period_num_samples := k2.AUDIO_MIX_SAMPLE_RATE / f32(freq)
+	num_periods := math.ceil(k2.AUDIO_MIX_SAMPLE_RATE * min_length)
+	sine_data := make([]k2.Audio_Sample, int(num_periods))
+	inc := (2.0*math.PI) / period_num_samples
 
-	inc := f32(2.0*f64(math.PI) / periods_per_sec)
 	for &samp, i in sine_data {
 		sf := math.sin(f32(i) * inc)
 		sf *= f32(max(i16)/4)
@@ -29,71 +32,25 @@ make_sine_wave :: proc(freq: int, length: f32) -> k2.Sound {
 		samp.y = u16(sf)
 	}
 
-	return { data = sine_data }
+	return {
+		data = sine_data,
+		loop = loop,
+	}
 }
 
 step :: proc() -> bool {
-	// `update` proceses input and updates frame timers. It returns false if the user has tried to
-	// close the window.
 	if !k2.update() {
 		return false
 	}
 
-	movement: k2.Vec2
-
-	if k2.key_is_held(.Left) {
-		movement.x -= 1
-	}
-
-	if k2.key_is_held(.Right) {
-		movement.x += 1
-	}
-
-	if k2.key_is_held(.Up) {
-		movement.y -= 1
-	}
-
-	if k2.key_is_held(.Down) {
-		movement.y += 1
-	}
-
-	if k2.key_went_down(.T) {
-		k2.play_sound(snd)
+	if k2.key_went_down(.Space) {
 		k2.play_sound(snd2)
 	}
 
-	// Normalizing makes the movement not go faster when going diagonally.
-	pos += linalg.normalize0(movement) * k2.get_frame_time() * 400
-
-	k2.clear(k2.LIGHT_BLUE)
-
-	// We use the current time to spin and move the texture.
-	k2.draw_rect({10, 10, 60, 60}, k2.GREEN)
-	k2.draw_rect({20, 20, 40, 40}, k2.LIGHT_GREEN)
-
-	// These two circles are controlled using the arrow keys via the `pos` variable.
-	k2.draw_circle(pos + {120, 40}, 30, k2.DARK_RED)
-	k2.draw_circle(pos + {120, 40}, 20, k2.RED)
-
-	dt := k2.get_frame_time()
-	t := k2.get_time()
-	msg1 := fmt.tprintf("Time since start: %.2f s", t)
-	msg2 := fmt.tprintf("Last frame time: %.3f ms (%.2f fps)", dt*1000, dt == 0 ? 0 : 1/dt)
-	msg2_width := k2.measure_text(msg2, 48).x
-
-	// k2.color_alpha takes a pre-defined color and replaces the alpha (transparency).
-	k2.draw_rect({4, 95, msg2_width+20, 162}, k2.color_alpha(k2.DARK_GRAY, 192))
-	k2.draw_text("Hellöpe!", {15, 105}, 48, k2.LIGHT_RED)
-
-	k2.draw_text(msg1, {15, 153}, 48, k2.ORANGE)
-	k2.draw_text(msg2, {15, 201}, 48, k2.LIGHT_PURPLE)
-
-	k2.draw_text("Move the red dot using arrow keys!", {10, f32(k2.get_screen_height()) - 50}, 40)
-
+	k2.clear(k2.WHITE)
+	k2.draw_text("Playing a looping 200 hz sine wave.", {20, 20}, 50)
+	k2.draw_text("Press SPACE to also play a 1 second 440 hz sine wave.", {20, 80}, 50)
 	k2.present()
-
-	// The calls to `fmt.tprintf` above allocate using `context.temp_allocator`. Those allocations
-	// are not needed for more than a frame, so they can be thrown away now.
 	free_all(context.temp_allocator)
 
 	return true
