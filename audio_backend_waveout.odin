@@ -18,7 +18,6 @@ import "base:runtime"
 import "log"
 import win32 "core:sys/windows"
 import "core:time"
-import "core:math"
 import "core:slice"
 
 Waveout_State :: struct {
