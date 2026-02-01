@@ -78,14 +78,6 @@ main :: proc() {
 	fmt.ensuref(write_entry_odin_err == nil, "Failed writing %v. Error: %v", entry_odin_file_path, write_entry_odin_err)
 
 	entry_html_file_path := filepath.join({bin_web_dir, "index.html"})
-
-	_, odin_root_stdout, _, odin_root_err := os.process_exec({
-		command = { "odin", "root" },
-	}, allocator = context.allocator)
-
-	ensure(odin_root_err == nil, "Failed fetching 'odin root' (Odin in PATH needed!)")
-	odin_root := string(odin_root_stdout)
-
 	wasm_out_path := filepath.join({bin_web_dir, "main.wasm"})
 
 	build_command: [dynamic]string
@@ -129,8 +121,8 @@ main :: proc() {
 			const wasmURL = URL.createObjectURL(wasmBlob);
 			odin.runWasm(wasmURL, null);`, wasm_base64), 1)
 
-		write_single_html_err := os.write_entire_file(entry_html_file_path, html_str)
-		fmt.ensuref(write_single_html_err == nil, "Failed writing %v. Error: %v", entry_html_file_path, write_single_html_err)
+		write_html_err := os.write_entire_file(entry_html_file_path, html_str)
+		fmt.ensuref(write_html_err == nil, "Failed writing %v. Error: %v", entry_html_file_path, write_html_err)
 
 		os.remove(wasm_out_path)
 	} else {
