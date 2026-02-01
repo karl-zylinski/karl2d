@@ -1,7 +1,7 @@
 // This program builds a Karl2D game as a web version.
 //
 // Usage:
-//    odin run build_web -- directory_name 
+//    odin run build_web -- directory_name
 //
 // For example:
 //    odin run build_web -- examples/minimal_web
@@ -17,6 +17,9 @@ import "core:fmt"
 import "core:path/filepath"
 import os "core:os/os2"
 import "core:strings"
+import "core:encoding/base64"
+
+SINGLE_FILE :: #config(SINGLE_FILE, false)
 
 main :: proc() {
 	print_usage: bool
@@ -47,8 +50,9 @@ main :: proc() {
 		return
 	}
 
-	WEB_ENTRY_TEMPLATE :: #load("web_entry_templates/web_entry_template.odin")
-	WEB_ENTRY_INDEX :: #load("web_entry_templates/index_template.html")
+	WEB_ENTRY_TEMPLATE :: #load("web_entry_templates/web_entry_template.odin", string)
+	WEB_ENTRY_INDEX :: #load("web_entry_templates/index_template.html", string)
+	JS_RUNTIME :: #load(ODIN_ROOT + "/core/sys/wasm/js/odin.js", string)
 
 	dir_handle, dir_handle_err := os.open(dir)
 	fmt.ensuref(dir_handle_err == nil, "Failed finding directory %v. Error: %v", dir, dir_handle_err)
@@ -74,20 +78,6 @@ main :: proc() {
 	fmt.ensuref(write_entry_odin_err == nil, "Failed writing %v. Error: %v", entry_odin_file_path, write_entry_odin_err)
 
 	entry_html_file_path := filepath.join({bin_web_dir, "index.html"})
-	write_entry_html_err := os.write_entire_file(entry_html_file_path, WEB_ENTRY_INDEX)
-	fmt.ensuref(write_entry_html_err == nil, "Failed writing %v. Error: %v", entry_html_file_path, write_entry_html_err)
-
-	_, odin_root_stdout, _, odin_root_err := os.process_exec({
-		command = { "odin", "root" },
-	}, allocator = context.allocator)
-
-	ensure(odin_root_err == nil, "Failed fetching 'odin root' (Odin in PATH needed!)")
-	odin_root := string(odin_root_stdout)
-
-	js_runtime_path := filepath.join({odin_root, "core", "sys", "wasm", "js", "odin.js"})
-	fmt.ensuref(os.exists(js_runtime_path), "File does not exist: %v -- It is the Odin Javascript runtime that this program needs to copy to the web build output folder!", js_runtime_path)
-	os.copy_file(filepath.join({bin_web_dir, "odin.js"}), js_runtime_path)
-
 	wasm_out_path := filepath.join({bin_web_dir, "main.wasm"})
 
 	build_command: [dynamic]string
@@ -110,6 +100,38 @@ main :: proc() {
 
 	if len(build_std_err) > 0 {
 		fmt.println(string(build_std_err))
+	}
+
+	if build_status.exit_code != 0 {
+		os.exit(build_status.exit_code)
+	}
+
+	when SINGLE_FILE {
+		wasm_content, wasm_read_err := os.read_entire_file(wasm_out_path, context.allocator)
+		fmt.ensuref(wasm_read_err == nil, "Failed reading %v. Error: %v", wasm_out_path, wasm_read_err)
+		wasm_base64 := base64.encode(wasm_content)
+
+		html_str, _ := strings.replace(WEB_ENTRY_TEMPLATE,
+			`<script type="text/javascript" src="odin.js"></script>`,
+			`<script type="text/javascript">` + JS_RUNTIME + `</script>`, 1)
+
+		html_str, _ = strings.replace(html_str, `odin.runWasm("main.wasm", null);`,
+			fmt.tprintf(`wasmBytes = Uint8Array.fromBase64("%s");
+			const wasmBlob = new Blob([wasmBytes], {{ type: "application/wasm" }});
+			const wasmURL = URL.createObjectURL(wasmBlob);
+			odin.runWasm(wasmURL, null);`, wasm_base64), 1)
+
+		write_html_err := os.write_entire_file(entry_html_file_path, html_str)
+		fmt.ensuref(write_html_err == nil, "Failed writing %v. Error: %v", entry_html_file_path, write_html_err)
+
+		os.remove(wasm_out_path)
+	} else {
+		write_entry_html_err := os.write_entire_file(entry_html_file_path, WEB_ENTRY_INDEX)
+		fmt.ensuref(write_entry_html_err == nil, "Failed writing %v. Error: %v", entry_html_file_path, write_entry_html_err)
+
+		js_runtime_file_path := filepath.join({bin_web_dir, "odin.js"})
+		write_runtime_err := os.write_entire_file(js_runtime_file_path, JS_RUNTIME)
+		fmt.ensuref(write_runtime_err == nil, "Failed writing %v. Error: %v", js_runtime_file_path, write_runtime_err)
 	}
 
 	os.exit(build_status.exit_code)
