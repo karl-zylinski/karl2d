@@ -119,7 +119,7 @@ main :: proc() {
 		fmt.ensuref(wasm_read_err == nil, "Failed reading %v. Error: %v", wasm_out_path, wasm_read_err)
 		wasm_base64 := base64.encode(wasm_content)
 
-		html_str, _ := strings.replace(string(WEB_ENTRY_TEMPLATE),
+		html_str, _ := strings.replace(WEB_ENTRY_TEMPLATE,
 			`<script type="text/javascript" src="odin.js"></script>`,
 			`<script type="text/javascript">` + JS_RUNTIME + `</script>`, 1)
 
