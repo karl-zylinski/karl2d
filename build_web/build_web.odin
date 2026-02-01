@@ -19,7 +19,7 @@ import os "core:os/os2"
 import "core:strings"
 import "core:encoding/base64"
 
-SINGLE_FILE :: #config(SINGLE_FILE, true)
+SINGLE_FILE :: #config(SINGLE_FILE, false)
 
 main :: proc() {
 	print_usage: bool
