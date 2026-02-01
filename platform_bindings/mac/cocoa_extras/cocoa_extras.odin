@@ -17,3 +17,8 @@ Application_setPresentationOptions :: proc "c" (self: ^NS.Application, options: 
 Application_presentationOptions :: proc "c" (self: ^NS.Application) -> NS.ApplicationPresentationOptions {
 	return msgSend(NS.ApplicationPresentationOptions, self, "presentationOptions")
 }
+
+// NSWindow content size (sets the size of the content area, excluding decorations)
+Window_setContentSize :: proc "c" (self: ^NS.Window, size: NS.Size) {
+	msgSend(nil, self, "setContentSize:", size)
+}

@@ -1076,7 +1076,7 @@ ch :: proc(hr: dxgi.HRESULT, loc := #caller_location) -> dxgi.HRESULT {
 		return hr
 	}
 
-	log.errorf("d3d11 error: %0x", u32(hr), location = loc)
+	log.errorf("d3d11 error: 0x%0x", u32(hr), location = loc)
 	log_messages(loc)
 	return hr
 }

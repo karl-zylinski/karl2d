@@ -1,4 +1,5 @@
 #+build darwin
+#+vet explicit-allocators
 #+private file
 
 package karl2d
@@ -47,6 +48,8 @@ Mac_State :: struct {
 	window_render_glue: Window_Render_Glue,
 
 	gamepads:           [MAX_GAMEPADS]Gamepad,
+	gc_connect_blk:     ^NS.Block,
+	gc_disconnect_blk:  ^NS.Block,
 }
 
 Gamepad :: struct {
@@ -127,24 +130,33 @@ mac_init :: proc(
 	// Setup listeners for connected/disconnected controllers
 	notificationCenter := NS.NotificationCenter_defaultCenter()
 
-	notificationCenter->addObserverForName(
-		gc.DidConnectNotification, nil, nil,
-		NS.Block_createGlobalWithParam(s, proc "c" (s: rawptr, n: ^NS.Notification) {
-			context = (^Mac_State)(s).odin_ctx
+	s.gc_connect_blk = NS.Block_createGlobalWithParam(s, proc "c" (s: rawptr, n: ^NS.Notification) {
+		context = (^Mac_State)(s).odin_ctx
 
-			poll_for_new_controllers()
-		}),
+		poll_for_new_controllers()
+	}, s.allocator)
+	notificationCenter->addObserverForName(gc.DidConnectNotification, nil, nil, s.gc_connect_blk)
+
+	s.gc_disconnect_blk = NS.Block_createGlobalWithParam(s, proc "c" (s: rawptr, n: ^NS.Notification) {
+		context = (^Mac_State)(s).odin_ctx
+
+		controller := (^gc.Controller)(n->object())
+		remove_controller(controller)
+	}, s.allocator)
+	notificationCenter->addObserverForName(gc.DidDisconnectNotification, nil, nil, s.gc_disconnect_blk)
+
+	application_delegate := NS.application_delegate_register_and_alloc(
+		NS.ApplicationDelegateTemplate{
+			applicationShouldTerminate = proc(_: ^NS.Application) -> NS.ApplicationTerminateReply {
+				append(&s.events, Event_Close_Window_Requested{})
+				return .TerminateCancel
+			},
+		},
+		"Karl2DApplicationDelegate",
+		context,
 	)
-	notificationCenter->addObserverForName(
-		gc.DidDisconnectNotification, nil, nil,
-		NS.Block_createGlobalWithParam(s, proc "c" (s: rawptr, n: ^NS.Notification) {
-			context = (^Mac_State)(s).odin_ctx
 
-			controller := (^gc.Controller)(n->object())
-			remove_controller(controller)
-		}),
-	)
-
+	s.app->setDelegate(application_delegate)
 
 	// Setup delegates for events not handled in mac_process_events
 	window_delegates := NS.window_delegate_register_and_alloc(
@@ -201,6 +213,9 @@ mac_shutdown :: proc() {
 		s.window->close()
 	}
 	delete(s.events)
+	a := s.allocator
+	free(s.gc_connect_blk, a)
+	free(s.gc_disconnect_blk, a)
 }
 
 mac_get_window_render_glue :: proc() -> Window_Render_Glue {
@@ -325,14 +340,7 @@ mac_set_window_position :: proc(x: int, y: int) {
 }
 
 mac_set_screen_size :: proc(w, h: int) {
-	frame := NS.Window_frame(s.window)
-	// Keep the top-left corner in place when resizing
-	new_y := frame.origin.y + frame.size.height - NS.Float(h)
-	new_frame := NS.Rect{
-		origin = {frame.origin.x, new_y},
-		size = {NS.Float(w), NS.Float(h)},
-	}
-	s.window->setFrame(new_frame, true)
+	ce.Window_setContentSize(s.window, {NS.Float(w), NS.Float(h)})
 }
 
 mac_get_window_scale :: proc() -> f32 {

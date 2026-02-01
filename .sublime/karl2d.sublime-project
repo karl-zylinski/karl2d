@@ -42,8 +42,13 @@
 					"working_dir": "$project_path/../examples/scaling_auto_window_resize",
 				},
 				{
+					"name": "audio",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:audio.exe -define:KARL2D_AUDIO_BACKEND=waveout",
+					"working_dir": "$project_path/../examples/audio",
+				},
+				{
 					"name": "basics",
-					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:minimal.exe",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:basics.exe",
 					"working_dir": "$project_path/../examples/basics",
 				},
 				{

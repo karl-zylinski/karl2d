@@ -12,15 +12,15 @@ package hello_world
 import k2 "karl2d"
 
 main :: proc() {
-	k2.init(1280, 720, "Greetings from Karl2D!")
+    k2.init(1280, 720, "Greetings from Karl2D!")
 
-	for k2.update() {
-		k2.clear(k2.LIGHT_BLUE)
-		k2.draw_text("Hellope!", {50, 50}, 100, k2.DARK_BLUE)
-		k2.present()
-	}
+    for k2.update() {
+        k2.clear(k2.LIGHT_BLUE)
+        k2.draw_text("Hellope!", {50, 50}, 100, k2.DARK_BLUE)
+        k2.present()
+    }
 
-	k2.shutdown()
+    k2.shutdown()
 }
 ```
 
@@ -30,7 +30,7 @@ Some examples are available as live web builds: [hellope](https://zylinski.se/ka
 
 Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
 
-Support the project financially by becomeing a sponsor here on [GitHub](https://github.com/sponsors/karl-zylinski) or on [Patreon](https://patreon.com/karl_zylinski).
+Support the project financially by becoming a sponsor here on [GitHub](https://github.com/sponsors/karl-zylinski) or on [Patreon](https://patreon.com/karl_zylinski).
 
 ## Beta 2
 
@@ -52,6 +52,8 @@ Beta 2 has these features:
 >- Metal rendering backend for Mac (OpenGL already works)
 >
 > When I've gotten through this list, then the library is close to `1.0`
+>
+> See the list of [milestones](https://github.com/karl-zylinski/karl2d/milestones) to see the progress on each Beta version and what is included in each.
 
 >[!WARNING]
 >As this is a beta test version, changes to the API will happen.

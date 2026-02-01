@@ -61,7 +61,7 @@ init :: proc(
 	} else when ODIN_OS == .Linux {
 		s.platform = PLATFORM_LINUX
 	} else when ODIN_OS == .Darwin {
-	    s.platform = PLATFORM_MAC
+		s.platform = PLATFORM_MAC
 	} else {
 		#panic("Unsupported platform")
 	}
@@ -127,6 +127,8 @@ init :: proc(
 	s.default_font = load_font_from_bytes(DEFAULT_FONT_DATA)
 	_set_font(s.default_font)
 
+	audio_init(&s.audio_state, s.allocator)
+
 	return s
 }
 
@@ -157,6 +159,7 @@ init :: proc(
 update :: proc() -> bool {
 	reset_frame_allocator()
 	calculate_frame_time()
+	audio_update(s.frame_time)
 	process_events()
 	return !close_window_requested()
 }
@@ -174,6 +177,8 @@ close_window_requested :: proc() -> bool {
 shutdown :: proc() {
 	assert(s != nil, "You've called 'shutdown' without calling 'init' first")
 
+	ab.shutdown()
+
 	delete(s.events)
 	destroy_font(s.default_font)
 	rb.destroy_texture(s.shape_drawing_texture)
@@ -185,6 +190,8 @@ shutdown :: proc() {
 
 	fs.Destroy(&s.fs)
 	delete(s.fonts)
+
+	audio_shutdown()
 
 	a := s.allocator
 	free(s.platform_state, a)
@@ -595,8 +602,6 @@ draw_rect :: proc(r: Rect, c: Color) {
 	}
 
 	s.batch_texture = s.shape_drawing_texture
-
-	z := f32(0)
 
 	batch_vertex({r.x, r.y}, {0, 0}, c)
 	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
@@ -1406,7 +1411,7 @@ load_shader_from_bytes :: proc(
 	}
 
 	shd.vertex_size = input_offset
- 	return shd
+	return shd
 }
 
 // Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
@@ -1635,6 +1640,7 @@ set_internal_state :: proc(state: ^State) {
 	rb = s.render_backend
 	pf.set_internal_state(s.platform_state)
 	rb.set_internal_state(s.render_backend_state)
+	audio_set_internal_state(&s.audio_state)
 }
 
 //---------------------//
@@ -1960,6 +1966,8 @@ State :: struct {
 	frame_time: f32,
 
 	time: f64,
+
+	audio_state: Audio_State,
 }
 
 // Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
@@ -2260,6 +2268,9 @@ pf: Platform_Interface
 @(private="file")
 rb: Render_Backend_Interface
 
+@(private="file")
+ab: Audio_Backend_Interface
+
 // This is here so it can be used from other files in this directory (`s.frame_allocator` can't be
 // reached outside this file).
 frame_allocator: runtime.Allocator
@@ -2426,3 +2437,5 @@ f32_color_from_color :: proc(color: Color) -> Color_F32 {
 }
 
 FILESYSTEM_SUPPORTED :: ODIN_OS != .JS && ODIN_OS != .Freestanding
+
+

@@ -1,0 +1,25 @@
+package karl2d
+
+CONFIG_AUDIO_BACKEND_NAME :: #config(KARL2D_AUDIO_BACKEND, "")
+
+when ODIN_OS == .Windows {
+	DEFAULT_AUDIO_BACKEND_NAME :: "nil"
+	AVAILABLE_AUDIO_BACKENDS :: "waveout, nil"
+} else {
+	DEFAULT_AUDIO_BACKEND_NAME :: "nil"
+	AVAILABLE_AUDIO_BACKENDS :: "nil"
+}
+
+when CONFIG_AUDIO_BACKEND_NAME == "" {
+	AUDIO_BACKEND_NAME :: DEFAULT_AUDIO_BACKEND_NAME
+} else {
+	AUDIO_BACKEND_NAME :: CONFIG_AUDIO_BACKEND_NAME
+}
+
+when AUDIO_BACKEND_NAME == "waveout" {
+	AUDIO_BACKEND :: AUDIO_BACKEND_WAVEOUT
+} else when AUDIO_BACKEND_NAME == "nil" {
+	AUDIO_BACKEND :: AUDIO_BACKEND_NIL
+} else {
+	#panic("'" + AUDIO_BACKEND_NAME + "' is not a valid value for 'KARL2D_AUDIO_BACKEND' on Operating System " + ODIN_OS_STRING + ". Available backends are: " + AVAILABLE_AUDIO_BACKENDS)
+}
