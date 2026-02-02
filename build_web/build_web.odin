@@ -88,6 +88,9 @@ main :: proc() {
 	fmt.ensuref(os.exists(js_runtime_path), "File does not exist: %v -- It is the Odin Javascript runtime that this program needs to copy to the web build output folder!", js_runtime_path)
 	os.copy_file(filepath.join({bin_web_dir, "odin.js"}), js_runtime_path)
 
+	os.copy_file(filepath.join({bin_web_dir, "audio_backend_web_audio.js"}), "audio_backend_web_audio.js")
+	os.copy_file(filepath.join({bin_web_dir, "audio_backend_web_audio_processor.js"}), "audio_backend_web_audio_processor.js")
+
 	wasm_out_path := filepath.join({bin_web_dir, "main.wasm"})
 
 	build_command: [dynamic]string

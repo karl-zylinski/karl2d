@@ -8,9 +8,58 @@
 	<body id="body" style="height: 100%; padding: 0; margin: 0; overflow: hidden; background-color: black;">
 		<canvas id="webgl-canvas" oncontextmenu="return false;" onmousedown="event.target.focus()" onkeydown="event.preventDefault()"></canvas>
 	
+		<script type="text/javascript" src="audio_backend_web_audio.js"></script>
 		<script type="text/javascript" src="odin.js"></script>
 		<script type="text/javascript">
-			odin.runWasm("main.wasm", null);
+			async function run() {
+				const wasmMemoryInterface = new odin.WasmMemoryInterface();
+				wasmMemoryInterface.setIntSize(4);
+
+				let imports = odin.setupDefaultImports(wasmMemoryInterface, null, wasmMemoryInterface.memory);
+				imports = { ...imports, ...karl2dAudioJsImports };
+
+				const response = await fetch("main.wasm");
+				const file = await response.arrayBuffer();
+				const wasm = await WebAssembly.instantiate(file, imports);
+				const exports = wasm.instance.exports;
+				wasmMemoryInterface.setExports(exports);
+
+				if (exports.memory) {
+					wasmMemoryInterface.setMemory(exports.memory);
+				//	setKarl2dAudioWasmMemory(exports.memory);
+				}
+
+				if (exports._start) {
+					exports._start();
+				}
+
+				if (exports.step) {
+					const odin_ctx = exports.default_context_ptr();
+
+					let prevTimeStamp = undefined;
+					function step(currTimeStamp) {
+						if (prevTimeStamp == undefined) {
+							prevTimeStamp = currTimeStamp;
+						}
+
+						const dt = (currTimeStamp - prevTimeStamp)*0.001;
+						prevTimeStamp = currTimeStamp;
+
+						if (!exports.step(dt, odin_ctx)) {
+							if (exports._end) {
+								exports._end();
+							}
+							return;
+						}
+
+						window.requestAnimationFrame(step);
+					}
+
+					window.requestAnimationFrame(step);
+				}
+			}
+
+			run();
 		</script>
 	</body>
 </html>

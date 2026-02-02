@@ -47,6 +47,10 @@
 					"working_dir": "$project_path/../examples/audio",
 				},
 				{
+					"name": "audio (web)",
+					"shell_cmd": "odin run build_web -vet -strict-style -- examples/audio",
+				},
+				{
 					"name": "basics",
 					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:basics.exe",
 					"working_dir": "$project_path/../examples/basics",
