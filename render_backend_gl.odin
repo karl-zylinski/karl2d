@@ -611,8 +611,7 @@ gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := f
 				type = type,
 			}
 
-			input_format := get_shader_input_format(name, type)
-			format_size := pixel_format_size(input_format)
+			format_size := pixel_format_size(format)
 
 			stride += format_size
 		}
