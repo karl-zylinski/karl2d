@@ -43,7 +43,7 @@ step :: proc() -> bool {
 		return false
 	}
 
-	if k2.key_went_down(.Space) {
+	if k2.key_went_down(.Space) || k2.key_went_down(.S) {
 		k2.play_sound(snd2)
 	}
 

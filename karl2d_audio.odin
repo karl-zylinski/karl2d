@@ -3,7 +3,7 @@
 package karl2d
 
 AUDIO_MIX_SAMPLE_RATE :: 44100
-AUDIO_MIX_CHUNK_SIZE :: 2048
+AUDIO_MIX_CHUNK_SIZE :: 1400
 
 Audio_State :: struct {
 	audio_backend: Audio_Backend_Interface,
