@@ -3,7 +3,6 @@ package karl2d_audio_example
 
 import k2 "../.."
 import "core:math"
-import "core:slice"
 
 pos: k2.Vec2
 snd: k2.Sound
@@ -15,9 +14,7 @@ init :: proc() {
 
 	snd = make_sine_wave(200, 0.5, true)
 	snd2 = make_sine_wave(440, 1, false)
-	wav_data := #load("chord.wav")
-	// skip 44 bytes of header -- we'll make a loader later that reads it and gives us info
-	wav.data = slice.reinterpret([]k2.Audio_Sample, wav_data[44:])
+	wav = k2.load_sound_from_memory(#load("chord.wav"))
 	k2.play_sound(snd)
 }
 

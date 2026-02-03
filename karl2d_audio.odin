@@ -18,6 +18,8 @@ import "base:runtime"
 import "core:mem"
 import "log"
 import "core:slice"
+import "core:os"
+import "core:encoding/endian"
 
 @(private="file")
 s: ^Audio_State
@@ -96,6 +98,140 @@ audio_set_internal_state :: proc(state: ^Audio_State) {
 
 play_sound :: proc(snd: Sound) {
 	append(&s.playing_sounds, Playing_Sound { sound = snd })
+}
+
+load_sound_from_file :: proc(filename: string) -> Sound {
+	data, data_ok := os.read_entire_file(filename)
+
+	if !data_ok {
+		log.errorf("Failed loading sound %v", filename)
+		return {}
+	}
+
+	return {
+		data = slice.reinterpret([]Audio_Sample, data[44:]),
+	}
+}
+
+
+load_sound_from_memory :: proc(bytes: []byte) -> Sound {
+	d := bytes
+
+	if len(d) < 8 {
+		log.error("Invalid WAV")
+		return {}
+	}
+
+	if string(d[:4]) != "RIFF" {
+		log.error("Invalid wav file: No RIFF identifier")
+		return {}
+	}
+
+	d = d[4:]
+
+	file_size, file_size_ok := endian.get_u32(d, .Little)
+
+	if !file_size_ok {
+		log.error("Invalid wav file: No size")
+		return {}
+	}
+
+	if int(file_size) != len(bytes) - 8 {
+		log.error("File size mismiatch")
+		return {}
+	}
+
+	d = d[4:]
+
+	if string(d[:4]) != "WAVE" {
+		log.error("Invalid wav file: Not WAVE format")
+		return {}
+	}
+
+	d = d[4:]
+
+	Wav_Fmt :: struct {
+		audio_format:    u16,
+		num_channels:    u16,
+		sample_rate:     u32,
+		byte_per_sec:    u32, // sample_rate * byte_per_bloc
+		byte_per_bloc:   u16, // (num_channels * bits_per_sample) / 8
+		bits_per_sample: u16,
+	}
+
+	data: []u8
+
+	for len(d) > 3 {
+		blk_id := string(d[:4])
+
+		d = d[4:]	
+
+		if blk_id == "fmt " {
+			blk_size, blk_size_ok := endian.get_u32(d, .Little)
+
+			if !blk_size_ok {
+				log.error("Invalid wav fmt block size")
+				continue
+			}
+
+			d = d[4:]
+
+			if int(blk_size) != 16 || len(d) < 16 {
+				log.error("Invalid wav fmt block size")
+				continue
+			}
+
+			audio_format, audio_format_ok := endian.get_u16(d[0:2], .Little)
+			num_channels, num_channels_ok := endian.get_u16(d[2:4], .Little)
+			sample_rate, sample_rate_ok := endian.get_u32(d[4:8], .Little)
+			byte_per_sec, byte_per_sec_ok := endian.get_u32(d[8:12], .Little)
+			byte_per_bloc, byte_per_bloc_ok := endian.get_u16(d[12:14], .Little)
+			bits_per_sample, bits_per_sample_ok := endian.get_u16(d[14:16], .Little)
+
+			if (
+				!audio_format_ok ||
+				!num_channels_ok ||
+				!sample_rate_ok ||
+				!byte_per_sec_ok ||
+				!byte_per_bloc_ok ||
+				!bits_per_sample_ok
+			) {
+				log.error("Failed reading wav fmt block")
+				continue
+			}
+
+			fmt := Wav_Fmt {
+				audio_format = audio_format,
+				num_channels = num_channels,
+				sample_rate = sample_rate,
+				byte_per_sec = byte_per_sec,
+				byte_per_bloc = byte_per_bloc,
+				bits_per_sample = bits_per_sample,
+			}
+
+			log.info(fmt)
+		} else if blk_id == "data" {
+			data_size, data_size_ok := endian.get_u32(d, .Little)
+
+			if !data_size_ok {
+				log.error("Failed getting wav data size")
+				continue
+			}
+
+			d = d[4:]
+
+			if len(d) < int(data_size) {
+				log.error("Data size larger than remaining wave buffer")
+				continue
+			}
+
+			data = d[:data_size]
+		}
+	}
+	
+	return {
+		data = slice.reinterpret([]Audio_Sample, data),
+	}
 }
 
 Audio_Sample :: [2]u16
