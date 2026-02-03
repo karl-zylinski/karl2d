@@ -34,7 +34,7 @@ Support the project financially by becoming a sponsor here on [GitHub](https://g
 
 ## Beta 2
 
-Karl2D is currently in its SECOND BETA period. If you finy _any_ issues, then please create an issue here on GitHub! 
+Karl2D is currently in its SECOND BETA period. If you find _any_ issues, then please create an issue here on GitHub!
 
 Beta 2 has these features:
 - Rendering of shapes, textures and text with automatic batching
@@ -104,7 +104,7 @@ The platform-independent parts and the API lives in `karl2d.odin`.
 
 The window interface depends on the operating system. I do not use anything like GLFW in order to abstract away window creation and event handling. Less libraries between you and the OS, less trouble when shipping!
 
-The rendering backend tells Karl2D how to talk to the GPU. I currently support three rendering APIs: D3D11, OpenGL and WebGL. On some platforms you have multiple choices, for exmaple on Windows you can use both D3D11 and OpenGL.
+The rendering backend tells Karl2D how to talk to the GPU. I currently support three rendering APIs: D3D11, OpenGL and WebGL. On some platforms you have multiple choices, for example on Windows you can use both D3D11 and OpenGL.
 
 The platform independent code in `karl2d.odin` creates a list of vertices for each batch it needs to render. That's done independently of the rendering backend. The backend is just fed that list, along with information about what shader and such to use.
 
