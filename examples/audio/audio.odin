@@ -3,17 +3,21 @@ package karl2d_audio_example
 
 import k2 "../.."
 import "core:math"
+import "core:slice"
 
 pos: k2.Vec2
 snd: k2.Sound
 snd2: k2.Sound
+wav: k2.Sound
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Audio")
 
 	snd = make_sine_wave(200, 0.5, true)
 	snd2 = make_sine_wave(440, 1, false)
-
+	wav_data := #load("chord.wav")
+	// skip 44 bytes of header -- we'll make a loader later that reads it and gives us info
+	wav.data = slice.reinterpret([]k2.Audio_Sample, wav_data[44:])
 	k2.play_sound(snd)
 }
 
@@ -43,13 +47,18 @@ step :: proc() -> bool {
 		return false
 	}
 
-	if k2.key_went_down(.Space) || k2.key_went_down(.S) {
+	if k2.key_went_down(.Space) {
+		k2.play_sound(wav)
+	}
+
+	if k2.key_went_down(.Enter) {
 		k2.play_sound(snd2)
 	}
 
 	k2.clear(k2.WHITE)
 	k2.draw_text("Playing a looping 200 hz sine wave.", {20, 20}, 50)
-	k2.draw_text("Press SPACE to also play a 1 second 440 hz sine wave.", {20, 80}, 50)
+	k2.draw_text("Press Space to play a familiar sonud.", {20, 80}, 50)
+	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 140}, 50)
 	k2.present()
 	free_all(context.temp_allocator)
 
