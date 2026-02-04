@@ -177,8 +177,6 @@ close_window_requested :: proc() -> bool {
 shutdown :: proc() {
 	assert(s != nil, "You've called 'shutdown' without calling 'init' first")
 
-	ab.shutdown()
-
 	delete(s.events)
 	destroy_font(s.default_font)
 	rb.destroy_texture(s.shape_drawing_texture)
@@ -2267,9 +2265,6 @@ pf: Platform_Interface
 
 @(private="file")
 rb: Render_Backend_Interface
-
-@(private="file")
-ab: Audio_Backend_Interface
 
 // This is here so it can be used from other files in this directory (`s.frame_allocator` can't be
 // reached outside this file).

@@ -108,6 +108,7 @@ Playing_Sound :: struct {
 }
 
 audio_shutdown :: proc() {
+	ab.shutdown()
 	free(s.audio_backend_state, s.allocator)
 }
 
