@@ -18,7 +18,7 @@ import "base:runtime"
 import "core:mem"
 import "log"
 import "core:slice"
-import "core:os"
+@require import "core:os"
 import "core:encoding/endian"
 
 @(private="file")
@@ -101,15 +101,19 @@ play_sound :: proc(snd: Sound) {
 }
 
 load_sound_from_file :: proc(filename: string) -> Sound {
-	data, data_ok := os.read_entire_file(filename)
+	when FILESYSTEM_SUPPORTED {
+		data, data_ok := os.read_entire_file(filename)
 
-	if !data_ok {
-		log.errorf("Failed loading sound %v", filename)
+		if !data_ok {
+			log.errorf("Failed loading sound %v", filename)
+			return {}
+		}
+
+		return {
+			data = slice.reinterpret([]Audio_Sample, data[44:]),
+		}
+	} else {
 		return {}
-	}
-
-	return {
-		data = slice.reinterpret([]Audio_Sample, data[44:]),
 	}
 }
 
