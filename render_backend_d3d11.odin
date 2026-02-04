@@ -242,9 +242,9 @@ d3d11_debug_print_live_objects :: proc() {
 
 			iq->ClearStoredMessages()
 		}
-	}
 
-	debug->Release()
+		debug->Release()
+	}
 }
 
 d3d11_clear :: proc(render_target: Render_Target_Handle, color: Color) {
