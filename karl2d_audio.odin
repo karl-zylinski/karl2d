@@ -18,8 +18,10 @@ import "base:runtime"
 import "core:mem"
 import "log"
 import "core:slice"
+@require import "core:math"
 @require import "core:os"
 import "core:encoding/endian"
+import "core:math/linalg"
 
 @(private="file")
 s: ^Audio_State
@@ -54,18 +56,35 @@ audio_update :: proc(dt: f32) {
 
 	for idx := 0; idx < len(s.playing_sounds); idx += 1 {
 		ps := &s.playing_sounds[idx]
-		samples_available := min(AUDIO_MIX_CHUNK_SIZE, len(ps.sound.data) - ps.offset)
+
+		sample_ratio := f32(AUDIO_MIX_SAMPLE_RATE)/f32(ps.sound.sample_rate)
+		num_samples := min(AUDIO_MIX_CHUNK_SIZE, int(f32(len(ps.sound.data) - int(ps.offset))*sample_ratio))
 	
-		for samp_idx in 0..<samples_available {
-			s.mix_buffer[mix_chunk_start + samp_idx] += ps.sound.data[ps.offset + samp_idx]
+		for samp_idx in 0..<num_samples {
+			prev := samp_idx == 0 ? 0 : f32(samp_idx - 1)/sample_ratio
+			cur := f32(samp_idx)/sample_ratio
+
+			diff := cur - prev
+
+			if linalg.fract(abs(diff)) < 0.0001 {
+				s.mix_buffer[mix_chunk_start + samp_idx] +=  ps.sound.data[int(ps.offset) + int(cur)]
+			} else {
+				prev_val := ps.sound.data[int(ps.offset) + int(prev)]
+				cur_val := ps.sound.data[int(ps.offset) + int(cur)]
+
+				s.mix_buffer[mix_chunk_start + samp_idx] += [2]i16{
+					i16(linalg.lerp(f32(prev_val[0]), f32(cur_val[0]), diff)),
+					i16(linalg.lerp(f32(prev_val[1]), f32(cur_val[1]), diff)),
+				}
+			}
 		}
 
-		if ps.offset + AUDIO_MIX_CHUNK_SIZE > len(ps.sound.data) {
+		if int(ps.offset) + AUDIO_MIX_CHUNK_SIZE > len(ps.sound.data) {
 			if ps.sound.loop {
-				extra := AUDIO_MIX_CHUNK_SIZE-samples_available
+				extra := AUDIO_MIX_CHUNK_SIZE-num_samples
 				ps.offset = 0
 				for samp_idx in 0..<min(extra, len(ps.sound.data)) {
-					s.mix_buffer[mix_chunk_start + samples_available + samp_idx] += ps.sound.data[ps.offset + samp_idx]
+					s.mix_buffer[mix_chunk_start + num_samples + samp_idx] += ps.sound.data[int(ps.offset) + samp_idx]
 				}
 				ps.offset += extra
 			} else {
@@ -73,7 +92,7 @@ audio_update :: proc(dt: f32) {
 				idx -= 1
 			}
 		} else {
-			ps.offset += AUDIO_MIX_CHUNK_SIZE
+			ps.offset += int(f32(num_samples) / sample_ratio)
 		}
 	}
 
@@ -163,7 +182,7 @@ load_sound_from_memory :: proc(bytes: []byte) -> Sound {
 		bits_per_sample: u16,
 	}
 
-	data: []u8
+	snd: Sound
 
 	for len(d) > 3 {
 		blk_id := string(d[:4])
@@ -213,7 +232,7 @@ load_sound_from_memory :: proc(bytes: []byte) -> Sound {
 				bits_per_sample = bits_per_sample,
 			}
 
-			log.info(fmt)
+			snd.sample_rate = int(fmt.sample_rate)
 		} else if blk_id == "data" {
 			data_size, data_size_ok := endian.get_u32(d, .Little)
 
@@ -229,18 +248,17 @@ load_sound_from_memory :: proc(bytes: []byte) -> Sound {
 				continue
 			}
 
-			data = d[:data_size]
+			snd.data = slice.reinterpret([]Audio_Sample, d[:data_size])
 		}
 	}
 	
-	return {
-		data = slice.reinterpret([]Audio_Sample, data),
-	}
+	return snd
 }
 
-Audio_Sample :: [2]u16
+Audio_Sample :: [2]i16
 
 Sound :: struct {
 	data: []Audio_Sample,
+	sample_rate: int,
 	loop: bool,
 }
