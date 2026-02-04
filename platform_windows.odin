@@ -222,7 +222,7 @@ windows_set_window_position :: proc(x: int, y: int) {
 windows_get_style :: proc(window_mode: Window_Mode) -> win32.DWORD {
 	style: win32.DWORD
 
-	switch s.window_mode {
+	switch window_mode {
 	case .Windowed:
 		style = win32.WS_OVERLAPPED |
 	            win32.WS_CAPTION |
