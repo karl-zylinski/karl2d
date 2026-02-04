@@ -59,6 +59,7 @@ audio_update :: proc(dt: f32) {
 
 		sample_ratio := f32(AUDIO_MIX_SAMPLE_RATE)/f32(ps.sound.sample_rate)
 		num_samples := min(AUDIO_MIX_CHUNK_SIZE, int(f32(len(ps.sound.data) - int(ps.offset))*sample_ratio))
+		offset := int(ps.offset)
 	
 		for samp_idx in 0..<num_samples {
 			prev := samp_idx == 0 ? 0 : f32(samp_idx - 1)/sample_ratio
@@ -67,10 +68,10 @@ audio_update :: proc(dt: f32) {
 			diff := cur - prev
 
 			if linalg.fract(abs(diff)) < 0.0001 {
-				s.mix_buffer[mix_chunk_start + samp_idx] +=  ps.sound.data[int(ps.offset) + int(cur)]
+				s.mix_buffer[mix_chunk_start + samp_idx] +=  ps.sound.data[offset + int(cur)]
 			} else {
-				prev_val := ps.sound.data[int(ps.offset) + int(prev)]
-				cur_val := ps.sound.data[int(ps.offset) + int(cur)]
+				prev_val := ps.sound.data[offset + int(prev)]
+				cur_val := ps.sound.data[offset + int(cur)]
 
 				s.mix_buffer[mix_chunk_start + samp_idx] += [2]i16{
 					i16(linalg.lerp(f32(prev_val[0]), f32(cur_val[0]), diff)),
