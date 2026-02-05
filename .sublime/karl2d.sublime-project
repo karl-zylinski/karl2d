@@ -48,7 +48,7 @@
 				},
 				{
 					"name": "audio (web)",
-					"shell_cmd": "odin run build_web -vet -strict-style -- examples/audio",
+					"shell_cmd": "odin run build_web -vet -strict-style -- examples/audio -define:KARL2D_AUDIO_BACKEND=web_audio",
 				},
 				{
 					"name": "basics",

@@ -161,15 +161,7 @@
 		{
 			"label": "audio (web)",
 			"type": "shell",
-			"command": "odin",
-			"args": [
-				"run",
-				"build_web",
-				"-vet",
-				"-strict-style",
-				"--",
-				"examples/audio"
-			],
+			"command": "odin run build_web -vet -strict-style -- examples/audio `-define`:KARL2D_AUDIO_BACKEND=web_audio",
 			"options": {
 				"cwd": "${workspaceFolder}"
 			},
