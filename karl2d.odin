@@ -2240,8 +2240,8 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	}
 
 	override_offset: int
-	for &o, idx in shd.input_overrides {
-		input := &shd.inputs[idx]
+	for &input in shd.inputs {
+		o := &shd.input_overrides[input.register]
 		sz := pixel_format_size(input.format)
 
 		if o.used != 0 {
