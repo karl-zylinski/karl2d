@@ -13,16 +13,16 @@ wav: k2.Sound
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Audio")
 
-	snd = make_sine_wave(200, 0.5, 44100, true)
-	snd2 = make_sine_wave(440, 1, 44100, false)
-	snd3 = make_sine_wave(700, 1, 22050, false)
+	snd = make_sine_wave(200, 0.5, 44100)
+	snd2 = make_sine_wave(440, 1, 44100)
+	snd3 = make_sine_wave(700, 1, 22050)
 	wav = k2.load_sound_from_memory(#load("chord.wav"))
-	k2.play_sound(snd)
+	k2.play_sound(snd, loop = true)
 }
 
 // Makes a sine wave of min_length rounded up to so that it ends at the end of a period. This makes
 // it possible to loop cleanly.
-make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int, loop: bool) -> k2.Sound {
+make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Sound {
 	period_num_samples := f32(sample_rate) / f32(freq)
 	num_periods := math.ceil(f32(sample_rate) * min_length)
 	sine_data := make([]k2.Audio_Sample, int(num_periods))
@@ -38,7 +38,6 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int, loop: bool)
 	return {
 		data = sine_data,
 		sample_rate = sample_rate,
-		loop = loop,
 	}
 }
 

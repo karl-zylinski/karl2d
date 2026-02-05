@@ -1,5 +1,19 @@
 {
 	"version": "2.0.0",
+	"problemMatchers": [
+		{
+			"name": "odin",
+			"owner": "odin",
+			"fileLocation": ["relative", "${workspaceFolder}"],
+			"pattern": {
+				"regexp": "^(.*)\\((\\d+):(\\d+)\\)\\s+(.*)$",
+				"file": 1,
+				"line": 2,
+				"column": 3,
+				"message": 4
+			}
+		}
+	],
 	"tasks": [
 		{
 			"label": "run_tests",
@@ -19,7 +33,7 @@
 				"kind": "build",
 				"isDefault": true
 			},
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "camera",
@@ -39,7 +53,7 @@
 				"cwd": "${workspaceFolder}/examples/camera"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "camera (web)",
@@ -57,7 +71,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "custom frame update",
@@ -77,7 +91,7 @@
 				"cwd": "${workspaceFolder}/examples/custom_frame_update"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "measure_text",
@@ -97,7 +111,7 @@
 				"cwd": "${workspaceFolder}/examples/measure_text"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "ui",
@@ -117,7 +131,7 @@
 				"cwd": "${workspaceFolder}/examples/ui"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "scaling_auto_window_resize",
@@ -136,7 +150,7 @@
 				"cwd": "${workspaceFolder}/examples/scaling_auto_window_resize"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "audio",
@@ -156,7 +170,7 @@
 				"cwd": "${workspaceFolder}/examples/audio"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "audio (web)",
@@ -166,7 +180,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "basics",
@@ -185,7 +199,7 @@
 				"cwd": "${workspaceFolder}/examples/basics"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "basics (gl)",
@@ -204,7 +218,7 @@
 				"cwd": "${workspaceFolder}/examples/basics"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "basics (web)",
@@ -222,7 +236,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "minimal_hello_world",
@@ -241,7 +255,7 @@
 				"cwd": "${workspaceFolder}/examples/minimal_hello_world"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "minimal_hello_world (gl)",
@@ -260,7 +274,7 @@
 				"cwd": "${workspaceFolder}/examples/minimal_hello_world"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "minimal_hello_world (web)",
@@ -278,7 +292,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "minimal (nil)",
@@ -297,7 +311,7 @@
 				"cwd": "${workspaceFolder}/examples/minimal"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "karl playground",
@@ -315,7 +329,7 @@
 				"cwd": "${workspaceFolder}/examples/scraps/karl_playground"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "karl playground (gl)",
@@ -334,7 +348,7 @@
 				"cwd": "${workspaceFolder}/examples/scraps/karl_playground"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "karl playground (web)",
@@ -350,7 +364,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "fonts",
@@ -368,7 +382,7 @@
 				"cwd": "${workspaceFolder}/examples/fonts"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "fonts (web)",
@@ -384,7 +398,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "render_texture",
@@ -402,7 +416,7 @@
 				"cwd": "${workspaceFolder}/examples/render_texture"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "render_texture (gl)",
@@ -421,7 +435,7 @@
 				"cwd": "${workspaceFolder}/examples/render_texture"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "render_texture (web)",
@@ -437,7 +451,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "multitexture",
@@ -455,7 +469,7 @@
 				"cwd": "${workspaceFolder}/examples/multitexture"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "multitexture (gl)",
@@ -474,7 +488,7 @@
 				"cwd": "${workspaceFolder}/examples/multitexture"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "multitexture (webgl)",
@@ -490,7 +504,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "snake",
@@ -509,7 +523,7 @@
 				"cwd": "${workspaceFolder}/examples/snake"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "snake (web)",
@@ -525,7 +539,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "box2d",
@@ -543,7 +557,7 @@
 				"cwd": "${workspaceFolder}/examples/box2d"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "box2d (web)",
@@ -559,7 +573,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "premultiplied_alpha",
@@ -577,7 +591,7 @@
 				"cwd": "${workspaceFolder}/examples/premultiplied_alpha"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "premultiplied_alpha (gl)",
@@ -596,7 +610,7 @@
 				"cwd": "${workspaceFolder}/examples/premultiplied_alpha"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "raylib_ports/2d_camera",
@@ -614,7 +628,7 @@
 				"cwd": "${workspaceFolder}/examples/raylib_ports/2d_camera"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "raylib_ports/shaders_texture_waves",
@@ -632,7 +646,7 @@
 				"cwd": "${workspaceFolder}/examples/raylib_ports/shaders_texture_waves"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "bunnymark",
@@ -650,7 +664,7 @@
 				"cwd": "${workspaceFolder}/examples/raylib_ports/bunnymark"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "bunnymark (web)",
@@ -666,7 +680,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "mouse",
@@ -683,7 +697,7 @@
 				"cwd": "${workspaceFolder}/examples/mouse"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "mouse (web)",
@@ -699,7 +713,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "gamepad",
@@ -716,7 +730,7 @@
 				"cwd": "${workspaceFolder}/examples/gamepad"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "gamepad (web)",
@@ -732,7 +746,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "palette",
@@ -750,7 +764,7 @@
 				"cwd": "${workspaceFolder}/examples/palette"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "palette (web)",
@@ -766,7 +780,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		},
 		{
 			"label": "api_doc_builder",
@@ -780,7 +794,7 @@
 				"cwd": "${workspaceFolder}"
 			},
 			"group": "build",
-			"problemMatcher": []
+			"problemMatcher": ["$odin"]
 		}
 	]
 }

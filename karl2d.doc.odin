@@ -365,7 +365,7 @@ set_texture_filter_ex :: proc(
 
 // Play a sound previous loaded using `load_sound_from_file` or `load_sound_from_memory`. The
 // sound will be mixed when `update_audio_mixer`, which also happens as part of `update`.
-play_sound :: proc(snd: Sound)
+play_sound :: proc(snd: Sound, loop := false)
 
 load_sound_from_file :: proc(filename: string) -> Sound
 
@@ -786,12 +786,12 @@ Audio_Sample :: [2]i16
 Sound :: struct {
 	data: []Audio_Sample,
 	sample_rate: int,
-	loop: bool,
 }
 
 Playing_Sound :: struct {
 	sound: Sound,
 	offset: int,
+	loop: bool,
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
