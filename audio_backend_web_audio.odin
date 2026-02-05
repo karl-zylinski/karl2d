@@ -9,10 +9,8 @@ AUDIO_BACKEND_WEB_AUDIO :: Audio_Backend_Interface {
 	init = web_audio_init,
 	shutdown = web_audio_shutdown,
 	set_internal_state = web_audio_set_internal_state,
-
 	feed = web_audio_feed,
-
-remaining_samples = web_audio_remaining_samples,
+	remaining_samples = web_audio_remaining_samples,
 }
 
 foreign import karl2d_web_audio "karl2d_web_audio"
@@ -20,9 +18,9 @@ foreign import karl2d_web_audio "karl2d_web_audio"
 @(default_calling_convention="contextless")
 foreign karl2d_web_audio {
 	_web_audio_init :: proc() ---
+	_web_audio_shutdown :: proc() ---
 	_web_audio_feed :: proc(samples: []f32) ---
 	_web_audio_remaining_samples :: proc() -> int ---
-
 }
 
 import "base:runtime"
@@ -36,12 +34,15 @@ web_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 }
 
 web_audio_shutdown :: proc() {
+	_web_audio_shutdown()
 }
 
 web_audio_set_internal_state :: proc(state: rawptr) {
+	// No hot reload on web.
 }
 
 web_audio_feed :: proc(samples: []Audio_Sample) {
+	// The JS code wants f32 samples. There is no way to tell the JS stuff to use i16 samples.
 	samples_f32 := make([]f32, len(samples)*2, allocator = frame_allocator)
 
 	for s, idx in samples {

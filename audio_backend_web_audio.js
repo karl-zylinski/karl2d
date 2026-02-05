@@ -10,24 +10,24 @@ const karl2dAudioJsImports = {
 			this.remaining_samples = 0;
 
 			async function boot_audio() {
-				const audio_ctx = new AudioContext({sampleRate: 44100});
+				this.audio_ctx = new AudioContext({sampleRate: 44100});
 
 				try {
-					await audio_ctx.audioWorklet.addModule("./audio_backend_web_audio_processor.js");
+					await this.audio_ctx.audioWorklet.addModule("./audio_backend_web_audio_processor.js");
 				} catch (e) {
 					console.error("Failed to load audio processor:", e);
 					return;
 				}
 
 				this.audio_node = new AudioWorkletNode(
-					audio_ctx,
+					this.audio_ctx,
 					"karl2d-audio-processor",
 					{
 						outputChannelCount: [2]
 					}
 				);
 
-				this.audio_node.connect(audio_ctx.destination);
+				this.audio_node.connect(this.audio_ctx.destination);
 
 				this.audio_node.port.onmessage = (event) => {
 					if (event.data.type === 'samples_consumed') {
@@ -35,22 +35,43 @@ const karl2dAudioJsImports = {
 					}
 				};
 
-				const resume_audio = () => {
-					if (audio_ctx.state === 'suspended') {
-						audio_ctx.resume();
+				this.resume_audio = () => {
+					if (this.audio_ctx.state === 'suspended') {
+						this.audio_ctx.resume();
 					}
 				};
 
-				document.addEventListener('click', resume_audio, {once: false});
-				document.addEventListener('keydown', resume_audio, {once: false});
-				document.addEventListener('touchstart', resume_audio, {once: false});
+				document.addEventListener('click', this.resume_audio);
+				document.addEventListener('keydown', this.resume_audio);
+				document.addEventListener('touchstart', this.resume_audio);
 			}
 
 			boot_audio();
 		},
 
+		_web_audio_shutdown: function() {
+			if (this.resume_audio) {
+				document.removeEventListener('click', this.resume_audio);
+				document.removeEventListener('keydown', this.resume_audio);
+				document.removeEventListener('touchstart', this.resume_audio);
+			}
+
+			if (this.audio_node) {
+				this.audio_node.disconnect();
+			}
+
+			if (this.audio_ctx) {
+				this.audio_ctx.close();
+			}
+
+			this.audio_node = null;
+			this.audio_ctx = null;
+			this.resume_audio = null;
+			this.remaining_samples = 0;
+		},
+
 		_web_audio_feed: function(samples_f32_ptr, samples_f32_len) {
-			if (this.audio_node == null) {
+			if (this.audio_node == null || this.audio_ctx.state === 'suspended') {
 				return;
 			}
 
