@@ -34,7 +34,7 @@ Support the project financially by becoming a sponsor here on [GitHub](https://g
 
 ## Beta 2
 
-Karl2D is currently in its SECOND BETA period. If you finy _any_ issues, then please create an issue here on GitHub! 
+Karl2D is currently in its SECOND BETA period. If you find _any_ issues, then please create an issue here on GitHub!
 
 Beta 2 has these features:
 - Rendering of shapes, textures and text with automatic batching
@@ -78,9 +78,9 @@ The web build will end up in `your_game_path/bin/web`.
 >[!WARNING]
 >On Linux / Mac you may need to install some `lld` package that contains the `wasm-ld` linker. It's included with Odin on Windows.
 
-It requires that you game contains a `init` procedure and a `step` procedure. The `init` procedure is called once on startup and the `step` procedure will be called every frame of your game.
+It requires that your game contains an `init` procedure and a `step` procedure. The `init` procedure is called once on startup and the `step` procedure will be called every frame of your game.
 
-Also, see the `minimal_hello_world_web` example: https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_hello_world_web/minimal_hello_world_web.odin
+Also, see the [`minimal_hello_world_web.odin`](https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_hello_world_web/minimal_hello_world_web.odin) example.
 
 The `build_web` tool will copy `odin.js` file from `<odin>/core/sys/wasm/js/odin.js` into the `bin/web folder`. It will also copy a HTML index file into that folder.
 
@@ -98,13 +98,13 @@ Launch your game by opening `bin/web/index.html` in a browser.
 
 ## Architecture notes
 
-The platform-independent parts and the API lives in `karl2d.odin`
+The platform-independent parts and the API lives in `karl2d.odin`.
 
 `karl2d.odin` in turn has a window interface and a rendering backend.
 
 The window interface depends on the operating system. I do not use anything like GLFW in order to abstract away window creation and event handling. Less libraries between you and the OS, less trouble when shipping!
 
-The rendering backend tells Karl2D how to talk to the GPU. I currently support three rendering APIs: D3D11, OpenGL and WebGL. On some platforms you have multiple choices, for exmaple on Windows you can use both D3D11 and OpenGL.
+The rendering backend tells Karl2D how to talk to the GPU. I currently support three rendering APIs: D3D11, OpenGL and WebGL. On some platforms you have multiple choices, for example on Windows you can use both D3D11 and OpenGL.
 
 The platform independent code in `karl2d.odin` creates a list of vertices for each batch it needs to render. That's done independently of the rendering backend. The backend is just fed that list, along with information about what shader and such to use.
 
@@ -134,4 +134,4 @@ You can always open a _draft_ Pull Request and work on your stuff in there. Ther
 
 ## Have fun!
 
-Logo by chris_php
+Logo by chris_php.

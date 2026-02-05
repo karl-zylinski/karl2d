@@ -10,8 +10,8 @@ package karl2d
 // all dynamically allocated memory. The return value can be ignored unless you need to later call
 // `set_internal_state`.
 //
-// `screen_width` and `screen_height` refer to the the resolution of the drawable area of the
-// window. The window might be slightly larger due borders and headers.
+// `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
+// The window might be slightly larger due to borders and headers.
 init :: proc(
 	screen_width: int,
 	screen_height: int,

@@ -222,7 +222,7 @@ windows_set_window_position :: proc(x: int, y: int) {
 windows_get_style :: proc(window_mode: Window_Mode) -> win32.DWORD {
 	style: win32.DWORD
 
-	switch s.window_mode {
+	switch window_mode {
 	case .Windowed:
 		style = win32.WS_OVERLAPPED |
 	            win32.WS_CAPTION |
@@ -485,8 +485,8 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 	case win32.WM_MOVE:
 		if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-			x := win32.LOWORD(lparam)
-			y := win32.HIWORD(lparam)
+			x := win32.GET_X_LPARAM(lparam)
+			y := win32.GET_Y_LPARAM(lparam)
 
 			s.restore_window_pos_x = int(x)
 			s.restore_window_pos_y = int(y)

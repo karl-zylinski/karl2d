@@ -1,0 +1,794 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "run_tests",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"tools/test_examples",
+				"-vet",
+				"-strict-style",
+				"-vet-tabs"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "camera",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-out:camera.exe",
+				"-define:KARL2D_RENDER_BACKEND=gl"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/camera"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "camera (web)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"-vet",
+				"-strict-style",
+				"--",
+				"examples/camera"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "custom frame update",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-out:custom_frame_update.exe",
+				"-define:KARL2D_RENDER_BACKEND=gl"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/custom_frame_update"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "measure_text",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-out:measure_text.exe",
+				"-define:KARL2D_RENDER_BACKEND=gl"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/measure_text"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "ui",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-out:ui.exe",
+				"-define:KARL2D_RENDER_BACKEND=gl"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/ui"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "scaling_auto_window_resize",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-out:scaling_auto_window_resize.exe"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/scaling_auto_window_resize"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "audio",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-out:audio.exe",
+				"-define:KARL2D_AUDIO_BACKEND=waveout"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/audio"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "audio (web)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"-vet",
+				"-strict-style",
+				"--",
+				"examples/audio"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "basics",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-out:basics.exe"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/basics"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "basics (gl)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-define:KARL2D_RENDER_BACKEND=gl"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/basics"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "basics (web)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"-vet",
+				"-strict-style",
+				"--",
+				"examples/basics"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "minimal_hello_world",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-out:minimal.exe"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/minimal_hello_world"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "minimal_hello_world (gl)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-define:KARL2D_RENDER_BACKEND=gl"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/minimal_hello_world"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "minimal_hello_world (web)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"-vet",
+				"-strict-style",
+				"--",
+				"examples/minimal_hello_world_web"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "minimal (nil)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-define:KARL2D_RENDER_BACKEND=nil"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/minimal"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "karl playground",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/scraps/karl_playground"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "karl playground (gl)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-define:KARL2D_RENDER_BACKEND=gl"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/scraps/karl_playground"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "karl playground (web)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"--",
+				"examples/scraps/karl_playground"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "fonts",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/fonts"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "fonts (web)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"--",
+				"examples/fonts"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "render_texture",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/render_texture"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "render_texture (gl)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-define:KARL2D_RENDER_BACKEND=gl"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/render_texture"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "render_texture (web)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"--",
+				"examples/render_texture"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "multitexture",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/multitexture"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "multitexture (gl)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-define:KARL2D_RENDER_BACKEND=gl"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/multitexture"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "multitexture (webgl)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"--",
+				"examples/multitexture"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "snake",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-out:snake.exe"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/snake"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "snake (web)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"--",
+				"examples/snake"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "box2d",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-linker:lld"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/box2d"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "box2d (web)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"--",
+				"examples/box2d"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "premultiplied_alpha",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/premultiplied_alpha"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "premultiplied_alpha (gl)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug",
+				"-define:KARL2D_RENDER_BACKEND=gl"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/premultiplied_alpha"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "raylib_ports/2d_camera",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/raylib_ports/2d_camera"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "raylib_ports/shaders_texture_waves",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/raylib_ports/shaders_texture_waves"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "bunnymark",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-no-bounds-check",
+				"-keep-executable"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/raylib_ports/bunnymark"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "bunnymark (web)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"--",
+				"examples/raylib_ports/bunnymark"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "mouse",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/mouse"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "mouse (web)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"--",
+				"examples/mouse"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "gamepad",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/gamepad"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "gamepad (web)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"--",
+				"examples/gamepad"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "palette",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				".",
+				"-vet",
+				"-strict-style",
+				"-keep-executable",
+				"-debug"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/examples/palette"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "palette (web)",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"build_web",
+				"--",
+				"examples/palette"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "api_doc_builder",
+			"type": "shell",
+			"command": "odin",
+			"args": [
+				"run",
+				"api_doc_builder"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		}
+	]
+}

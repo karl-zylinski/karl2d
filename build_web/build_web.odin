@@ -49,6 +49,8 @@ main :: proc() {
 
 	WEB_ENTRY_TEMPLATE :: #load("web_entry_templates/web_entry_template.odin")
 	WEB_ENTRY_INDEX :: #load("web_entry_templates/index_template.html")
+	AUDIO_JS :: #load("../audio_backend_web_audio.js")
+	AUDIO_PROCESSOR_JS :: #load("../audio_backend_web_audio_processor.js")
 
 	dir_handle, dir_handle_err := os.open(dir)
 	fmt.ensuref(dir_handle_err == nil, "Failed finding directory %v. Error: %v", dir, dir_handle_err)
@@ -87,6 +89,12 @@ main :: proc() {
 	js_runtime_path := filepath.join({odin_root, "core", "sys", "wasm", "js", "odin.js"})
 	fmt.ensuref(os.exists(js_runtime_path), "File does not exist: %v -- It is the Odin Javascript runtime that this program needs to copy to the web build output folder!", js_runtime_path)
 	os.copy_file(filepath.join({bin_web_dir, "odin.js"}), js_runtime_path)
+
+	write_audio_js_err := os.write_entire_file(filepath.join({bin_web_dir, "audio_backend_web_audio.js"}), AUDIO_JS)
+	fmt.ensuref(write_audio_js_err == nil, "Failed writing %v. Error: %v", entry_odin_file_path, write_audio_js_err)
+
+	write_audio_js_processor_err := os.write_entire_file(filepath.join({bin_web_dir, "audio_backend_web_audio_processor.js"}), AUDIO_PROCESSOR_JS)
+	fmt.ensuref(write_audio_js_processor_err == nil, "Failed writing %v. Error: %v", entry_odin_file_path, write_audio_js_processor_err)
 
 	wasm_out_path := filepath.join({bin_web_dir, "main.wasm"})
 

@@ -348,9 +348,9 @@ pointer_listener := wl.Pointer_Listener {
 
 		btn: Mouse_Button
 		switch button {
-		case 0: btn = .Left
-		case 1: btn = .Middle
-		case 2: btn = .Right
+		case wl.POINTER_BTN_LEFT: btn = .Left
+		case wl.POINTER_BTN_MIDDLE: btn = .Middle
+		case wl.POINTER_BTN_RIGHT: btn = .Right
 		}
 	
 		switch state {

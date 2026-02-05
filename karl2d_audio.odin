@@ -3,7 +3,7 @@
 package karl2d
 
 AUDIO_MIX_SAMPLE_RATE :: 44100
-AUDIO_MIX_CHUNK_SIZE :: 2048
+AUDIO_MIX_CHUNK_SIZE :: 1400
 
 Audio_State :: struct {
 	audio_backend: Audio_Backend_Interface,
@@ -18,6 +18,10 @@ import "base:runtime"
 import "core:mem"
 import "log"
 import "core:slice"
+@require import "core:math"
+@require import "core:os"
+import "core:encoding/endian"
+import "core:math/linalg"
 
 @(private="file")
 s: ^Audio_State
@@ -52,18 +56,36 @@ audio_update :: proc(dt: f32) {
 
 	for idx := 0; idx < len(s.playing_sounds); idx += 1 {
 		ps := &s.playing_sounds[idx]
-		samples_available := min(AUDIO_MIX_CHUNK_SIZE, len(ps.sound.data) - ps.offset)
+
+		sample_ratio := f32(AUDIO_MIX_SAMPLE_RATE)/f32(ps.sound.sample_rate)
+		num_samples := min(AUDIO_MIX_CHUNK_SIZE, int(f32(len(ps.sound.data) - int(ps.offset))*sample_ratio))
+		offset := int(ps.offset)
 	
-		for samp_idx in 0..<samples_available {
-			s.mix_buffer[mix_chunk_start + samp_idx] += ps.sound.data[ps.offset + samp_idx]
+		for samp_idx in 0..<num_samples {
+			prev := samp_idx == 0 ? 0 : f32(samp_idx - 1)/sample_ratio
+			cur := f32(samp_idx)/sample_ratio
+
+			diff := cur - prev
+
+			if linalg.fract(abs(diff)) < 0.0001 {
+				s.mix_buffer[mix_chunk_start + samp_idx] +=  ps.sound.data[offset + int(cur)]
+			} else {
+				prev_val := ps.sound.data[offset + int(prev)]
+				cur_val := ps.sound.data[offset + int(cur)]
+
+				s.mix_buffer[mix_chunk_start + samp_idx] += [2]i16{
+					i16(linalg.lerp(f32(prev_val[0]), f32(cur_val[0]), diff)),
+					i16(linalg.lerp(f32(prev_val[1]), f32(cur_val[1]), diff)),
+				}
+			}
 		}
 
-		if ps.offset + AUDIO_MIX_CHUNK_SIZE > len(ps.sound.data) {
+		if int(ps.offset) + AUDIO_MIX_CHUNK_SIZE > len(ps.sound.data) {
 			if ps.sound.loop {
-				extra := AUDIO_MIX_CHUNK_SIZE-samples_available
+				extra := AUDIO_MIX_CHUNK_SIZE-num_samples
 				ps.offset = 0
 				for samp_idx in 0..<min(extra, len(ps.sound.data)) {
-					s.mix_buffer[mix_chunk_start + samples_available + samp_idx] += ps.sound.data[ps.offset + samp_idx]
+					s.mix_buffer[mix_chunk_start + num_samples + samp_idx] += ps.sound.data[int(ps.offset) + samp_idx]
 				}
 				ps.offset += extra
 			} else {
@@ -71,7 +93,7 @@ audio_update :: proc(dt: f32) {
 				idx -= 1
 			}
 		} else {
-			ps.offset += AUDIO_MIX_CHUNK_SIZE
+			ps.offset += int(f32(num_samples) / sample_ratio)
 		}
 	}
 
@@ -86,6 +108,7 @@ Playing_Sound :: struct {
 }
 
 audio_shutdown :: proc() {
+	ab.shutdown()
 	free(s.audio_backend_state, s.allocator)
 }
 
@@ -98,9 +121,146 @@ play_sound :: proc(snd: Sound) {
 	append(&s.playing_sounds, Playing_Sound { sound = snd })
 }
 
-Audio_Sample :: [2]u16
+load_sound_from_file :: proc(filename: string) -> Sound {
+	when FILESYSTEM_SUPPORTED {
+		data, data_ok := os.read_entire_file(filename)
+
+		if !data_ok {
+			log.errorf("Failed loading sound %v", filename)
+			return {}
+		}
+
+		return {
+			data = slice.reinterpret([]Audio_Sample, data[44:]),
+		}
+	} else {
+		return {}
+	}
+}
+
+
+load_sound_from_memory :: proc(bytes: []byte) -> Sound {
+	d := bytes
+
+	if len(d) < 8 {
+		log.error("Invalid WAV")
+		return {}
+	}
+
+	if string(d[:4]) != "RIFF" {
+		log.error("Invalid wav file: No RIFF identifier")
+		return {}
+	}
+
+	d = d[4:]
+
+	file_size, file_size_ok := endian.get_u32(d, .Little)
+
+	if !file_size_ok {
+		log.error("Invalid wav file: No size")
+		return {}
+	}
+
+	if int(file_size) != len(bytes) - 8 {
+		log.error("File size mismiatch")
+		return {}
+	}
+
+	d = d[4:]
+
+	if string(d[:4]) != "WAVE" {
+		log.error("Invalid wav file: Not WAVE format")
+		return {}
+	}
+
+	d = d[4:]
+
+	Wav_Fmt :: struct {
+		audio_format:    u16,
+		num_channels:    u16,
+		sample_rate:     u32,
+		byte_per_sec:    u32, // sample_rate * byte_per_bloc
+		byte_per_bloc:   u16, // (num_channels * bits_per_sample) / 8
+		bits_per_sample: u16,
+	}
+
+	snd: Sound
+
+	for len(d) > 3 {
+		blk_id := string(d[:4])
+
+		d = d[4:]	
+
+		if blk_id == "fmt " {
+			blk_size, blk_size_ok := endian.get_u32(d, .Little)
+
+			if !blk_size_ok {
+				log.error("Invalid wav fmt block size")
+				continue
+			}
+
+			d = d[4:]
+
+			if int(blk_size) != 16 || len(d) < 16 {
+				log.error("Invalid wav fmt block size")
+				continue
+			}
+
+			audio_format, audio_format_ok := endian.get_u16(d[0:2], .Little)
+			num_channels, num_channels_ok := endian.get_u16(d[2:4], .Little)
+			sample_rate, sample_rate_ok := endian.get_u32(d[4:8], .Little)
+			byte_per_sec, byte_per_sec_ok := endian.get_u32(d[8:12], .Little)
+			byte_per_bloc, byte_per_bloc_ok := endian.get_u16(d[12:14], .Little)
+			bits_per_sample, bits_per_sample_ok := endian.get_u16(d[14:16], .Little)
+
+			if (
+				!audio_format_ok ||
+				!num_channels_ok ||
+				!sample_rate_ok ||
+				!byte_per_sec_ok ||
+				!byte_per_bloc_ok ||
+				!bits_per_sample_ok
+			) {
+				log.error("Failed reading wav fmt block")
+				continue
+			}
+
+			fmt := Wav_Fmt {
+				audio_format = audio_format,
+				num_channels = num_channels,
+				sample_rate = sample_rate,
+				byte_per_sec = byte_per_sec,
+				byte_per_bloc = byte_per_bloc,
+				bits_per_sample = bits_per_sample,
+			}
+
+			snd.sample_rate = int(fmt.sample_rate)
+		} else if blk_id == "data" {
+			data_size, data_size_ok := endian.get_u32(d, .Little)
+
+			if !data_size_ok {
+				log.error("Failed getting wav data size")
+				continue
+			}
+
+			d = d[4:]
+
+			if len(d) < int(data_size) {
+				log.error("Data size larger than remaining wave buffer")
+				continue
+			}
+
+			snd.data = slice.reinterpret([]Audio_Sample, d[:data_size])
+		}
+	}
+	
+	return snd
+}
+
+Audio_Sample :: [2]i16
 
 Sound :: struct {
 	data: []Audio_Sample,
+	sample_rate: int,
 	loop: bool,
 }

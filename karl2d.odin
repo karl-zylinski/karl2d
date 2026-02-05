@@ -31,8 +31,8 @@ import hm "handle_map"
 // all dynamically allocated memory. The return value can be ignored unless you need to later call
 // `set_internal_state`.
 //
-// `screen_width` and `screen_height` refer to the the resolution of the drawable area of the
-// window. The window might be slightly larger due borders and headers.
+// `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
+// The window might be slightly larger due to borders and headers.
 init :: proc(
 	screen_width: int,
 	screen_height: int,
@@ -68,7 +68,7 @@ init :: proc(
 
 	pf = s.platform
 
-	// We alloc memory for the windowing backend and pass the blob of memory to it.
+	// We allocate memory for the windowing backend and pass the blob of memory to it.
 	platform_state_alloc_error: runtime.Allocator_Error
 	
 	s.platform_state, platform_state_alloc_error = mem.alloc(
@@ -84,7 +84,7 @@ init :: proc(
 
 	pf.init(s.platform_state, screen_width, screen_height, window_title, options, allocator)
 
-	// This is a OS-independent handle that we can pass to any rendering backend.
+	// This is an OS-independent handle that we can pass to any rendering backend.
 	window_render_glue := pf.get_window_render_glue()
 
 	// See `render_backend_chooser.odin` for how this is picked.
@@ -101,7 +101,7 @@ init :: proc(
 	rb.init(s.render_backend_state, window_render_glue, pf.get_screen_width(), pf.get_screen_height(), allocator)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
-	// render backend each frame as part of `draw_current_batch()`
+	// render backend each frame as part of `draw_current_batch()`.
 	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, allocator, loc)
 
 	// The shapes drawing texture is sampled when any shape is drawn. This way we can use the same
@@ -176,8 +176,6 @@ close_window_requested :: proc() -> bool {
 // Closes the window and cleans up Karl2D's internal state.
 shutdown :: proc() {
 	assert(s != nil, "You've called 'shutdown' without calling 'init' first")
-
-	ab.shutdown()
 
 	delete(s.events)
 	destroy_font(s.default_font)
@@ -2267,9 +2265,6 @@ pf: Platform_Interface
 
 @(private="file")
 rb: Render_Backend_Interface
-
-@(private="file")
-ab: Audio_Backend_Interface
 
 // This is here so it can be used from other files in this directory (`s.frame_allocator` can't be
 // reached outside this file).
