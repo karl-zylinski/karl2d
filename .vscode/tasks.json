@@ -774,7 +774,7 @@
 			"command": "odin",
 			"args": [
 				"run",
-				"api_doc_builder"
+				"tools/api_doc_builder"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"

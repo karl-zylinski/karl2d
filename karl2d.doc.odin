@@ -37,6 +37,7 @@ init :: proc(
 ////     k2.reset_frame_allocator()
 ////     k2.calculate_frame_time()
 ////     k2.process_events()
+////     k2.update_audio_mixer()
 ////     
 ////     k2.clear(k2.BLUE)
 ////     k2.present()
@@ -357,6 +358,29 @@ set_texture_filter_ex :: proc(
 	scale_up_filter: Texture_Filter,
 	mip_filter: Texture_Filter,
 )
+
+//-------//
+// AUDIO //
+//-------//
+
+// Play a sound previous loaded using `load_sound_from_file` or `load_sound_from_memory`. The
+// sound will be mixed when `update_audio_mixer`, which also happens as part of `update`.
+play_sound :: proc(snd: Sound)
+
+load_sound_from_file :: proc(filename: string) -> Sound
+
+// Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Currently only
+// supports 16 bit WAV files, but the sample rate can be whatever.
+load_sound_from_memory :: proc(bytes: []byte) -> Sound
+
+// Update the audio mixer and feed more audio data into the audio backend. This is done
+// automatically when `update` runs, so you normally don't need to call this manually.
+//
+// This procedure implements a custom software audio mixer. The backend is just fed the resulting
+// mix. Therefore, you can see everything regarding how audio is processed in this procedure.
+//
+// The update will only run if the audio backend is running low on audio data.
+update_audio_mixer :: proc()
 
 //-----------------//
 // RENDER TEXTURES //
@@ -754,6 +778,22 @@ FONT_NONE :: Font {}
 TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
+AUDIO_MIX_SAMPLE_RATE :: 44100
+AUDIO_MIX_CHUNK_SIZE :: 1400
+
+Audio_Sample :: [2]i16
+
+Sound :: struct {
+	data: []Audio_Sample,
+	sample_rate: int,
+	loop: bool,
+}
+
+Playing_Sound :: struct {
+	sound: Sound,
+	offset: int,
+}
+
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
 // It is created and kept as a global variable when 'init' is called. However, 'init' also returns
 // the pointer to it, so you can later use 'set_internal_state' to restore it (after for example hot
@@ -817,7 +857,19 @@ State :: struct {
 
 	time: f64,
 
-	audio_state: Audio_State,
+	// -----
+	// Audio
+	audio_backend: Audio_Backend_Interface,
+	audio_backend_state: rawptr,
+
+	// Sounds that have been started as because `play_sound` was called.
+	playing_sounds: [dynamic]Playing_Sound,
+
+	// 1 megabyte is arbitrarily chosen.
+	mix_buffer: [1*mem.Megabyte]Audio_Sample,
+
+	// Where the mixer currently is in the mix buffer.
+	mix_buffer_offset: int,
 }
 
 // Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the

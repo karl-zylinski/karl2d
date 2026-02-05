@@ -12,6 +12,7 @@ import "core:strings"
 import "core:reflect"
 import "core:os"
 import "core:time"
+import "core:encoding/endian"
 
 import fs "vendor:fontstash"
 
@@ -127,7 +128,17 @@ init :: proc(
 	s.default_font = load_font_from_bytes(DEFAULT_FONT_DATA)
 	_set_font(s.default_font)
 
-	audio_init(&s.audio_state, s.allocator)
+	// Audio
+	{
+		s.audio_backend = AUDIO_BACKEND
+		ab = s.audio_backend
+
+		audio_alloc_error: runtime.Allocator_Error
+		s.audio_backend_state, audio_alloc_error = mem.alloc(ab.state_size(), allocator = s.allocator)
+		log.assertf(audio_alloc_error == nil, "Failed allocating memory for audio backend: %v", audio_alloc_error)
+		ab.init(s.audio_backend_state, s.allocator)
+		s.playing_sounds = make([dynamic]Playing_Sound, s.allocator)
+	}
 
 	return s
 }
@@ -148,6 +159,7 @@ init :: proc(
 ////     k2.reset_frame_allocator()
 ////     k2.calculate_frame_time()
 ////     k2.process_events()
+////     k2.update_audio_mixer()
 ////     
 ////     k2.clear(k2.BLUE)
 ////     k2.present()
@@ -159,7 +171,7 @@ init :: proc(
 update :: proc() -> bool {
 	reset_frame_allocator()
 	calculate_frame_time()
-	audio_update(s.frame_time)
+	update_audio_mixer()
 	process_events()
 	return !close_window_requested()
 }
@@ -177,6 +189,13 @@ close_window_requested :: proc() -> bool {
 shutdown :: proc() {
 	assert(s != nil, "You've called 'shutdown' without calling 'init' first")
 
+	// Audio
+	{
+		ab.shutdown()
+		delete(s.playing_sounds)
+		free(s.audio_backend_state, s.allocator)
+	}
+
 	delete(s.events)
 	destroy_font(s.default_font)
 	rb.destroy_texture(s.shape_drawing_texture)
@@ -188,8 +207,6 @@ shutdown :: proc() {
 
 	fs.Destroy(&s.fs)
 	delete(s.fonts)
-
-	audio_shutdown()
 
 	a := s.allocator
 	free(s.platform_state, a)
@@ -1176,6 +1193,242 @@ set_texture_filter_ex :: proc(
 	rb.set_texture_filter(t.handle, scale_down_filter, scale_up_filter, mip_filter)
 }
 
+//-------//
+// AUDIO //
+//-------//
+
+// Play a sound previous loaded using `load_sound_from_file` or `load_sound_from_memory`. The
+// sound will be mixed when `update_audio_mixer`, which also happens as part of `update`.
+play_sound :: proc(snd: Sound) {
+	append(&s.playing_sounds, Playing_Sound { sound = snd })
+}
+
+load_sound_from_file :: proc(filename: string) -> Sound {
+	when FILESYSTEM_SUPPORTED {
+		data, data_ok := os.read_entire_file(filename, allocator = frame_allocator)
+
+		if !data_ok {
+			log.errorf("Failed loading sound %v", filename)
+			return {}
+		}
+
+		return load_sound_from_memory(data)
+	} else {
+		return {}
+	}
+}
+
+// Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Currently only
+// supports 16 bit WAV files, but the sample rate can be whatever.
+load_sound_from_memory :: proc(bytes: []byte) -> Sound {
+	d := bytes
+
+	if len(d) < 8 {
+		log.error("Invalid WAV")
+		return {}
+	}
+
+	if string(d[:4]) != "RIFF" {
+		log.error("Invalid wav file: No RIFF identifier")
+		return {}
+	}
+
+	d = d[4:]
+
+	file_size, file_size_ok := endian.get_u32(d, .Little)
+
+	if !file_size_ok {
+		log.error("Invalid wav file: No size")
+		return {}
+	}
+
+	if int(file_size) != len(bytes) - 8 {
+		log.error("File size mismiatch")
+		return {}
+	}
+
+	d = d[4:]
+
+	if string(d[:4]) != "WAVE" {
+		log.error("Invalid wav file: Not WAVE format")
+		return {}
+	}
+
+	d = d[4:]
+
+	Wav_Fmt :: struct {
+		audio_format:    u16,
+		num_channels:    u16,
+		sample_rate:     u32,
+		byte_per_sec:    u32, // sample_rate * byte_per_bloc
+		byte_per_bloc:   u16, // (num_channels * bits_per_sample) / 8
+		bits_per_sample: u16,
+	}
+
+	snd: Sound
+
+	for len(d) > 3 {
+		blk_id := string(d[:4])
+
+		d = d[4:]	
+
+		if blk_id == "fmt " {
+			blk_size, blk_size_ok := endian.get_u32(d, .Little)
+
+			if !blk_size_ok {
+				log.error("Invalid wav fmt block size")
+				continue
+			}
+
+			d = d[4:]
+
+			if int(blk_size) != 16 || len(d) < 16 {
+				log.error("Invalid wav fmt block size")
+				continue
+			}
+
+			audio_format, audio_format_ok := endian.get_u16(d[0:2], .Little)
+			num_channels, num_channels_ok := endian.get_u16(d[2:4], .Little)
+			sample_rate, sample_rate_ok := endian.get_u32(d[4:8], .Little)
+			byte_per_sec, byte_per_sec_ok := endian.get_u32(d[8:12], .Little)
+			byte_per_bloc, byte_per_bloc_ok := endian.get_u16(d[12:14], .Little)
+			bits_per_sample, bits_per_sample_ok := endian.get_u16(d[14:16], .Little)
+
+			if (
+				!audio_format_ok ||
+				!num_channels_ok ||
+				!sample_rate_ok ||
+				!byte_per_sec_ok ||
+				!byte_per_bloc_ok ||
+				!bits_per_sample_ok
+			) {
+				log.error("Failed reading wav fmt block")
+				continue
+			}
+
+			fmt := Wav_Fmt {
+				audio_format = audio_format,
+				num_channels = num_channels,
+				sample_rate = sample_rate,
+				byte_per_sec = byte_per_sec,
+				byte_per_bloc = byte_per_bloc,
+				bits_per_sample = bits_per_sample,
+			}
+
+			snd.sample_rate = int(fmt.sample_rate)
+		} else if blk_id == "data" {
+			data_size, data_size_ok := endian.get_u32(d, .Little)
+
+			if !data_size_ok {
+				log.error("Failed getting wav data size")
+				continue
+			}
+
+			d = d[4:]
+
+			if len(d) < int(data_size) {
+				log.error("Data size larger than remaining wave buffer")
+				continue
+			}
+
+			snd.data = slice.clone(slice.reinterpret([]Audio_Sample, d[:data_size]), s.allocator)
+		}
+	}
+	
+	return snd
+}
+
+// Update the audio mixer and feed more audio data into the audio backend. This is done
+// automatically when `update` runs, so you normally don't need to call this manually.
+//
+// This procedure implements a custom software audio mixer. The backend is just fed the resulting
+// mix. Therefore, you can see everything regarding how audio is processed in this procedure.
+//
+// The update will only run if the audio backend is running low on audio data.
+update_audio_mixer :: proc() {
+	// If the sample rate of the backend is 44100 samples/second and AUDIO_MIX_CHUNK_SIZE is 1400
+	// samples, then this procedure will only run roughly 44100/1400 = 31 times per second. This
+	// gives a latency of up to (1.5 * (44100/1400)) = 47 milliseconds. Is it too big, or too small?
+	// Perhaps we can use more low latency backends to push it down. Perhaps the backend should
+	// control AUDIO_MIX_CHUNK_SIZE based on how low latency it can give us without stalling?
+	if ab.remaining_samples() > (3 * AUDIO_MIX_CHUNK_SIZE)/2 {
+		return
+	}
+	
+	// We are going to go past the end of the mix_buffer, so just hop to the start instead. It's
+	// 1 megabyte big, so hopping over a few bytes at the end is OK.
+	if (s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE) > len(s.mix_buffer) {
+		s.mix_buffer_offset = 0
+	}
+
+	mix_chunk_start := s.mix_buffer_offset
+	mix_chunk_end := s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE
+
+	// Zero out old mixed data from buffer (the buffer is "circular")
+	slice.zero(s.mix_buffer[mix_chunk_start:mix_chunk_end])
+
+	for idx := 0; idx < len(s.playing_sounds); idx += 1 {
+		ps := &s.playing_sounds[idx]
+
+		// The playing sound may have a different sample rate than the mixer. This ratio is used to
+		// convert from one sample rate to another.
+		sample_ratio := f32(AUDIO_MIX_SAMPLE_RATE)/f32(ps.sound.sample_rate)
+
+		// The number of samples we will need in term of the sample rate of the mixer. This is why
+		// we multiply the playing sound's offset by the sample ratio: It takes us into the "sample 
+		// space" of the mixer.
+		num_samples := min(AUDIO_MIX_CHUNK_SIZE, int(f32(len(ps.sound.data) - int(ps.offset))*sample_ratio))
+		offset := int(ps.offset)
+	
+		for samp_idx in 0..<num_samples {
+			// The previous sample index in the "sample space" of the playing sound.
+			prev := samp_idx == 0 ? 0 : f32(samp_idx - 1)/sample_ratio
+			// The current sample index in the "sample space" of the playing sound.
+			cur := f32(samp_idx)/sample_ratio
+
+			// This tells us how many samples there are between the previous and current sample in
+			// the "sample space" of the playing sound. Since we've made sure that `prev` and `cur`
+			// are f32 values, we can get fractional indices here. These fractions can be used to
+			// do interpolation. The interpolation lets us go from for example 22050 Hz to 44100 Hz
+			// without gaps in the mixed audio.
+			diff := cur - prev
+
+			// Tiny fraction means that `diff` 
+			if abs(1-diff) < 0.0001 {
+				s.mix_buffer[mix_chunk_start + samp_idx] +=  ps.sound.data[offset + int(cur)]
+			} else {
+				prev_val := ps.sound.data[offset + int(prev)]
+				cur_val := ps.sound.data[offset + int(cur)]
+
+				s.mix_buffer[mix_chunk_start + samp_idx] += [2]i16{
+					i16(linalg.lerp(f32(prev_val[0]), f32(cur_val[0]), diff)),
+					i16(linalg.lerp(f32(prev_val[1]), f32(cur_val[1]), diff)),
+				}
+			}
+		}
+
+		if int(ps.offset) + AUDIO_MIX_CHUNK_SIZE > len(ps.sound.data) {
+			if ps.sound.loop {
+				extra := AUDIO_MIX_CHUNK_SIZE-num_samples
+				ps.offset = 0
+				for samp_idx in 0..<min(extra, len(ps.sound.data)) {
+					s.mix_buffer[mix_chunk_start + num_samples + samp_idx] += ps.sound.data[int(ps.offset) + samp_idx]
+				}
+				ps.offset += extra
+			} else {
+				unordered_remove(&s.playing_sounds, idx)
+				idx -= 1
+			}
+		} else {
+			ps.offset += int(f32(num_samples) / sample_ratio)
+		}
+	}
+
+	out := s.mix_buffer[mix_chunk_start:mix_chunk_end]
+	ab.feed(out)
+	s.mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
+}
+
 //-----------------//
 // RENDER TEXTURES //
 //-----------------//
@@ -1638,7 +1891,6 @@ set_internal_state :: proc(state: ^State) {
 	rb = s.render_backend
 	pf.set_internal_state(s.platform_state)
 	rb.set_internal_state(s.render_backend_state)
-	audio_set_internal_state(&s.audio_state)
 }
 
 //---------------------//
@@ -1902,6 +2154,22 @@ FONT_NONE :: Font {}
 TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
+AUDIO_MIX_SAMPLE_RATE :: 44100
+AUDIO_MIX_CHUNK_SIZE :: 1400
+
+Audio_Sample :: [2]i16
+
+Sound :: struct {
+	data: []Audio_Sample,
+	sample_rate: int,
+	loop: bool,
+}
+
+Playing_Sound :: struct {
+	sound: Sound,
+	offset: int,
+}
+
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
 // It is created and kept as a global variable when 'init' is called. However, 'init' also returns
 // the pointer to it, so you can later use 'set_internal_state' to restore it (after for example hot
@@ -1965,8 +2233,21 @@ State :: struct {
 
 	time: f64,
 
-	audio_state: Audio_State,
+	// -----
+	// Audio
+	audio_backend: Audio_Backend_Interface,
+	audio_backend_state: rawptr,
+
+	// Sounds that have been started as because `play_sound` was called.
+	playing_sounds: [dynamic]Playing_Sound,
+
+	// 1 megabyte is arbitrarily chosen.
+	mix_buffer: [1*mem.Megabyte]Audio_Sample,
+
+	// Where the mixer currently is in the mix buffer.
+	mix_buffer_offset: int,
 }
+
 
 // Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
 // options presented here.
@@ -2254,7 +2535,6 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	s.vertex_buffer_cpu_used += shd.vertex_size
 }
 
-
 VERTEX_BUFFER_MAX :: 1000000
 
 @(private="file")
@@ -2265,6 +2545,9 @@ pf: Platform_Interface
 
 @(private="file")
 rb: Render_Backend_Interface
+
+@(private="file")
+ab: Audio_Backend_Interface
 
 // This is here so it can be used from other files in this directory (`s.frame_allocator` can't be
 // reached outside this file).
