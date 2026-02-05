@@ -1,3 +1,7 @@
+// This file implements the JS parts that audio_backend_web_audio.odin needs. It's sets up the
+// audio processor (see audio_backend_web_audio_processor.js) and handles communication with it.
+// The procs in here are bound using the foreign block in audio_backend_web_audio.odin.
+
 let wasmMemory = null;
 
 function setWasmMemory(memory) {
