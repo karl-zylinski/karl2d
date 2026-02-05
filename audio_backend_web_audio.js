@@ -6,7 +6,7 @@ function setWasmMemory(memory) {
 
 const karl2dAudioJsImports = {
 	karl2d_web_audio: {
-		_web_audio_init: function () {
+		web_audio_init: function () {
 			this.remaining_samples = 0;
 
 			async function boot_audio() {
@@ -49,7 +49,7 @@ const karl2dAudioJsImports = {
 			boot_audio();
 		},
 
-		_web_audio_shutdown: function() {
+		web_audio_shutdown: function() {
 			if (this.resume_audio) {
 				document.removeEventListener('click', this.resume_audio);
 				document.removeEventListener('keydown', this.resume_audio);
@@ -70,7 +70,7 @@ const karl2dAudioJsImports = {
 			this.remaining_samples = 0;
 		},
 
-		_web_audio_feed: function(samples_f32_ptr, samples_f32_len) {
+		web_audio_feed: function(samples_f32_ptr, samples_f32_len) {
 			if (this.audio_node == null || this.audio_ctx.state === 'suspended') {
 				return;
 			}
@@ -84,7 +84,7 @@ const karl2dAudioJsImports = {
 			});
 		},
 
-		_web_audio_remaining_samples: function() {
+		web_audio_remaining_samples: function() {
 			return this.remaining_samples;
 		}
 	}

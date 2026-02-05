@@ -13,28 +13,33 @@ AUDIO_BACKEND_WEB_AUDIO :: Audio_Backend_Interface {
 	remaining_samples = web_audio_remaining_samples,
 }
 
+import "base:runtime"
+
 foreign import karl2d_web_audio "karl2d_web_audio"
 
+// The `js_` prefix is there to just avoid clashes with the procs in this file.
 @(default_calling_convention="contextless")
 foreign karl2d_web_audio {
-	_web_audio_init :: proc() ---
-	_web_audio_shutdown :: proc() ---
-	_web_audio_feed :: proc(samples: []f32) ---
-	_web_audio_remaining_samples :: proc() -> int ---
+	@(link_name="web_audio_init")
+	js_web_audio_init :: proc() ---
+	@(link_name="web_audio_shutdown")
+	js_web_audio_shutdown :: proc() ---
+	@(link_name="web_audio_feed")
+	js_web_audio_feed :: proc(samples: []f32) ---
+	@(link_name="web_audio_remaining_samples")
+	js_web_audio_remaining_samples :: proc() -> int ---
 }
-
-import "base:runtime"
 
 web_audio_state_size :: proc() -> int {
 	return 0
 }
 
 web_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) {
-	_web_audio_init()
+	js_web_audio_init()
 }
 
 web_audio_shutdown :: proc() {
-	_web_audio_shutdown()
+	js_web_audio_shutdown()
 }
 
 web_audio_set_internal_state :: proc(state: rawptr) {
@@ -50,9 +55,9 @@ web_audio_feed :: proc(samples: []Audio_Sample) {
 		samples_f32[idx*2 + 1] = f32(s.y) / f32(max(i16))
 	}
 
-	_web_audio_feed(samples_f32)
+	js_web_audio_feed(samples_f32)
 }
 
 web_audio_remaining_samples :: proc() -> int {
-	return _web_audio_remaining_samples()
+	return js_web_audio_remaining_samples()
 }
