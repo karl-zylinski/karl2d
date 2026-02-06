@@ -43,12 +43,12 @@
 				},
 				{
 					"name": "audio",
-					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:audio.exe -define:KARL2D_AUDIO_BACKEND=waveout",
+					"shell_cmd": "odin run . -vet -strict-style -keep-executable -debug -out:audio.exe",
 					"working_dir": "$project_path/../examples/audio",
 				},
 				{
 					"name": "audio (web)",
-					"shell_cmd": "odin run build_web -vet -strict-style -- examples/audio -define:KARL2D_AUDIO_BACKEND=web_audio",
+					"shell_cmd": "odin run build_web -vet -strict-style -- examples/audio",
 				},
 				{
 					"name": "basics",

@@ -164,7 +164,6 @@
 				"-keep-executable",
 				"-debug",
 				"-out:audio.exe",
-				"-define:KARL2D_AUDIO_BACKEND=waveout"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}/examples/audio"
@@ -175,7 +174,7 @@
 		{
 			"label": "audio (web)",
 			"type": "shell",
-			"command": "odin run build_web -vet -strict-style -- examples/audio `-define`:KARL2D_AUDIO_BACKEND=web_audio",
+			"command": "odin run build_web -vet -strict-style -- examples/audio",
 			"options": {
 				"cwd": "${workspaceFolder}"
 			},
