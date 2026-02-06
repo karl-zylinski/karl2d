@@ -5,6 +5,9 @@ CONFIG_AUDIO_BACKEND_NAME :: #config(KARL2D_AUDIO_BACKEND, "")
 when ODIN_OS == .Windows {
 	DEFAULT_AUDIO_BACKEND_NAME :: "waveout"
 	AVAILABLE_AUDIO_BACKENDS :: "waveout, nil"
+} else when ODIN_OS == .Darwin {
+	DEFAULT_AUDIO_BACKEND_NAME :: "coreaudio"
+	AVAILABLE_AUDIO_BACKENDS :: "coreaudio, nil"
 } else when ODIN_OS == .JS {
 	DEFAULT_AUDIO_BACKEND_NAME :: "web_audio"
 	AVAILABLE_AUDIO_BACKENDS :: "web_audio, nil"
@@ -24,6 +27,8 @@ when CONFIG_AUDIO_BACKEND_NAME == "" {
 
 when AUDIO_BACKEND_NAME == "waveout" {
 	AUDIO_BACKEND :: AUDIO_BACKEND_WAVEOUT
+} else when AUDIO_BACKEND_NAME == "coreaudio" {
+	AUDIO_BACKEND :: AUDIO_BACKEND_COREAUDIO
 } else when AUDIO_BACKEND_NAME == "web_audio" {
 	AUDIO_BACKEND :: AUDIO_BACKEND_WEB_AUDIO
 } else when AUDIO_BACKEND_NAME == "alsa" {
