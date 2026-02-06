@@ -363,7 +363,7 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
-// Play a sound previous loaded using `load_sound_from_file` or `load_sound_from_memory`. The
+// Play a sound previous loaded using `load_sound_from_file` or `load_sound_from_bytes`. The
 // sound will be mixed when `update_audio_mixer`, which also happens as part of `update`.
 play_sound :: proc(snd: Sound, loop := false)
 
@@ -371,7 +371,11 @@ load_sound_from_file :: proc(filename: string) -> Sound
 
 // Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Currently only
 // supports 16 bit WAV files, but the sample rate can be whatever.
-load_sound_from_memory :: proc(bytes: []byte) -> Sound
+load_sound_from_bytes :: proc(bytes: []byte) -> Sound
+
+load_sound_from_bytes_raw :: proc(samples: []Audio_Sample, sample_rate: int) -> Sound
+
+destroy_sound :: proc(snd: Sound)
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
@@ -379,7 +383,7 @@ load_sound_from_memory :: proc(bytes: []byte) -> Sound
 // This procedure implements a custom software audio mixer. The backend is just fed the resulting
 // mix. Therefore, you can see everything regarding how audio is processed in this procedure.
 //
-// The update will only run if the audio backend is running low on audio data.
+// Will only run if the audio backend is running low on audio data.
 update_audio_mixer :: proc()
 
 //-----------------//
@@ -783,8 +787,13 @@ AUDIO_MIX_CHUNK_SIZE :: 1400
 
 Audio_Sample :: [2]i16
 
-Sound :: struct {
-	data: []Audio_Sample,
+Sound :: distinct Handle
+
+SOUND_NONE :: Sound {}
+
+Sound_Data :: struct {
+	handle: Sound,
+	samples: []Audio_Sample,
 	sample_rate: int,
 }
 
@@ -861,6 +870,8 @@ State :: struct {
 	// Audio
 	audio_backend: Audio_Backend_Interface,
 	audio_backend_state: rawptr,
+
+	sounds: hm.Handle_Map(Sound_Data, Sound, 1024*10),
 
 	// Sounds that have been started as because `play_sound` was called.
 	playing_sounds: [dynamic]Playing_Sound,

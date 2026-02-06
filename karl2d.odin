@@ -1197,7 +1197,7 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
-// Play a sound previous loaded using `load_sound_from_file` or `load_sound_from_memory`. The
+// Play a sound previous loaded using `load_sound_from_file` or `load_sound_from_bytes`. The
 // sound will be mixed when `update_audio_mixer`, which also happens as part of `update`.
 play_sound :: proc(snd: Sound, loop := false) {
 	append(
@@ -1215,28 +1215,28 @@ load_sound_from_file :: proc(filename: string) -> Sound {
 
 		if !data_ok {
 			log.errorf("Failed loading sound %v", filename)
-			return {}
+			return SOUND_NONE
 		}
 
-		return load_sound_from_memory(data)
+		return load_sound_from_bytes(data)
 	} else {
-		return {}
+		return SOUND_NONE
 	}
 }
 
 // Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Currently only
 // supports 16 bit WAV files, but the sample rate can be whatever.
-load_sound_from_memory :: proc(bytes: []byte) -> Sound {
+load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 	d := bytes
 
 	if len(d) < 8 {
 		log.error("Invalid WAV")
-		return {}
+		return SOUND_NONE
 	}
 
 	if string(d[:4]) != "RIFF" {
 		log.error("Invalid wav file: No RIFF identifier")
-		return {}
+		return SOUND_NONE
 	}
 
 	d = d[4:]
@@ -1245,33 +1245,25 @@ load_sound_from_memory :: proc(bytes: []byte) -> Sound {
 
 	if !file_size_ok {
 		log.error("Invalid wav file: No size")
-		return {}
+		return SOUND_NONE
 	}
 
 	if int(file_size) != len(bytes) - 8 {
 		log.error("File size mismiatch")
-		return {}
+		return SOUND_NONE
 	}
 
 	d = d[4:]
 
 	if string(d[:4]) != "WAVE" {
 		log.error("Invalid wav file: Not WAVE format")
-		return {}
+		return SOUND_NONE
 	}
 
 	d = d[4:]
 
-	Wav_Fmt :: struct {
-		audio_format:    u16,
-		num_channels:    u16,
-		sample_rate:     u32,
-		byte_per_sec:    u32, // sample_rate * byte_per_bloc
-		byte_per_bloc:   u16, // (num_channels * bits_per_sample) / 8
-		bits_per_sample: u16,
-	}
-
-	snd: Sound
+	sample_rate: u32
+	samples: []Audio_Sample
 
 	for len(d) > 3 {
 		blk_id := string(d[:4])
@@ -1291,6 +1283,27 @@ load_sound_from_memory :: proc(bytes: []byte) -> Sound {
 			if int(blk_size) != 16 || len(d) < 16 {
 				log.error("Invalid wav fmt block size")
 				continue
+			}
+
+			sample_rate_ok: bool
+			sample_rate, sample_rate_ok = endian.get_u32(d[4:8], .Little)
+
+			if !sample_rate_ok {
+				log.error("Failed reading sample rate from wav fmt block")
+				sample_rate = 0
+				continue
+			}
+
+			// Just need sample rate for now, so I disabled the rest...
+
+			/*
+			Wav_Fmt :: struct {
+				audio_format:    u16,
+				num_channels:    u16,
+				sample_rate:     u32,
+				byte_per_sec:    u32, // sample_rate * byte_per_bloc
+				byte_per_bloc:   u16, // (num_channels * bits_per_sample) / 8
+				bits_per_sample: u16,
 			}
 
 			audio_format, audio_format_ok := endian.get_u16(d[0:2], .Little)
@@ -1321,7 +1334,8 @@ load_sound_from_memory :: proc(bytes: []byte) -> Sound {
 				bits_per_sample = bits_per_sample,
 			}
 
-			snd.sample_rate = int(fmt.sample_rate)
+			sample_rate = int(fmt.sample_rate)
+			*/
 		} else if blk_id == "data" {
 			data_size, data_size_ok := endian.get_u32(d, .Little)
 
@@ -1337,11 +1351,32 @@ load_sound_from_memory :: proc(bytes: []byte) -> Sound {
 				continue
 			}
 
-			snd.data = slice.clone(slice.reinterpret([]Audio_Sample, d[:data_size]), s.allocator)
+			samples = slice.reinterpret([]Audio_Sample, d[:data_size])
 		}
 	}
 	
-	return snd
+	return load_sound_from_bytes_raw(samples, int(sample_rate))
+}
+
+load_sound_from_bytes_raw :: proc(samples: []Audio_Sample, sample_rate: int) -> Sound {
+	snd_data := Sound_Data {
+		sample_rate = sample_rate,
+		samples = slice.clone(samples, s.allocator),
+	}
+
+	return hm.add(&s.sounds, snd_data)
+}
+
+destroy_sound :: proc(snd: Sound) {
+	data := hm.get(&s.sounds, snd)
+
+	if data == nil {
+		log.error("Trying to destroy invalid sound. It may already be destroyed, or the handle may be invalid.")
+		return
+	}
+
+	delete(data.samples, s.allocator)
+	hm.remove(&s.sounds, snd)
 }
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
@@ -1350,7 +1385,7 @@ load_sound_from_memory :: proc(bytes: []byte) -> Sound {
 // This procedure implements a custom software audio mixer. The backend is just fed the resulting
 // mix. Therefore, you can see everything regarding how audio is processed in this procedure.
 //
-// The update will only run if the audio backend is running low on audio data.
+// Will only run if the audio backend is running low on audio data.
 update_audio_mixer :: proc() {
 	// If the sample rate of the backend is 44100 samples/second and AUDIO_MIX_CHUNK_SIZE is 1400
 	// samples, then this procedure will only run roughly 44100/1400 = 31 times per second. This
@@ -1367,70 +1402,136 @@ update_audio_mixer :: proc() {
 		s.mix_buffer_offset = 0
 	}
 
-	mix_chunk_start := s.mix_buffer_offset
-	mix_chunk_end := s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE
-
-	// Zero out old mixed data from buffer (the buffer is "circular")
-	slice.zero(s.mix_buffer[mix_chunk_start:mix_chunk_end])
-
-	for idx := 0; idx < len(s.playing_sounds); idx += 1 {
-		ps := &s.playing_sounds[idx]
-
-		// The playing sound may have a different sample rate than the mixer. This ratio is used to
-		// convert from one sample rate to another.
-		sample_ratio := f32(AUDIO_MIX_SAMPLE_RATE)/f32(ps.sound.sample_rate)
-
-		// The number of samples we will need in term of the sample rate of the mixer. This is why
-		// we multiply the playing sound's offset by the sample ratio: It takes us into the "sample 
-		// space" of the mixer.
-		num_samples := min(AUDIO_MIX_CHUNK_SIZE, int(f32(len(ps.sound.data) - int(ps.offset))*sample_ratio))
-		offset := int(ps.offset)
+	// A slice of the mixed samples we are going to output.
+	out := s.mix_buffer[s.mix_buffer_offset:s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE]
 	
-		for samp_idx in 0..<num_samples {
-			// The previous sample index in the "sample space" of the playing sound.
-			prev := samp_idx == 0 ? 0 : f32(samp_idx - 1)/sample_ratio
-			// The current sample index in the "sample space" of the playing sound.
-			cur := f32(samp_idx)/sample_ratio
+	// Zero out old mixed data from buffer (the buffer is "circular", there may be old stuff in
+	// the `out` slice).
+	slice.zero(out)
 
-			// This tells us how many samples there are between the previous and current sample in
-			// the "sample space" of the playing sound. Since we've made sure that `prev` and `cur`
-			// are f32 values, we can get fractional indices here. These fractions can be used to
-			// do interpolation. The interpolation lets us go from for example 22050 Hz to 44100 Hz
-			// without gaps in the mixed audio.
-			diff := cur - prev
+	// For usage when the sample rates of the playing sound and the mixer match.
+	add :: proc(
+		dest: []Audio_Sample,
+		source: []Audio_Sample,
+		num: int,
+	) -> int {
+		to_write := num
 
-			// Tiny fraction means that `diff` 
-			if abs(1-diff) < 0.0001 {
-				s.mix_buffer[mix_chunk_start + samp_idx] +=  ps.sound.data[offset + int(cur)]
-			} else {
-				prev_val := ps.sound.data[offset + int(prev)]
-				cur_val := ps.sound.data[offset + int(cur)]
+		if to_write > len(source) {
+			to_write = len(source)
+		}
 
-				s.mix_buffer[mix_chunk_start + samp_idx] += [2]i16{
-					i16(linalg.lerp(f32(prev_val[0]), f32(cur_val[0]), diff)),
-					i16(linalg.lerp(f32(prev_val[1]), f32(cur_val[1]), diff)),
-				}
+		for samp_idx in 0..<to_write {
+			dest[samp_idx] += source[samp_idx]
+		}
+
+		return to_write
+	}
+
+	// For usage when the sample rates don't match. Needs a `dest_source_ratio` parameter that tells
+	// us how the sample ratios relate. It's used for gettinf from indices from dest sample space
+	// to source sample space.
+	add_interpolate :: proc(
+		dest: []Audio_Sample,
+		source: []Audio_Sample,
+		num_dest: int,
+		dest_source_ratio: f32,
+	) -> int {
+		dest_idx: int
+		for ; dest_idx < num_dest; dest_idx += 1 {
+			src_pos := f32(dest_idx) * dest_source_ratio
+			src_idx := int(src_pos)
+			
+			if src_idx >= len(source) {
+				break
+			}
+
+			src_next := min(src_idx + 1, len(source) - 1)
+			frac := src_pos - f32(src_idx)
+
+			prev_val := source[src_idx]
+			cur_val := source[src_next]
+
+			dest[dest_idx] += {
+				i16(linalg.lerp(f32(prev_val[0]), f32(cur_val[0]), frac)),
+				i16(linalg.lerp(f32(prev_val[1]), f32(cur_val[1]), frac)),
 			}
 		}
 
-		if int(ps.offset) + AUDIO_MIX_CHUNK_SIZE > len(ps.sound.data) {
+		return dest_idx
+	}
+
+	for idx := 0; idx < len(s.playing_sounds); idx += 1 {
+		ps := &s.playing_sounds[idx]
+		snd := hm.get(&s.sounds, ps.sound)
+
+		if snd == nil {
+			log.error("Trying to play destroyed sound")
+			unordered_remove(&s.playing_sounds, idx)
+			idx -= 1
+			continue
+		}
+
+		interpolate := snd.sample_rate != AUDIO_MIX_SAMPLE_RATE
+		num_mixed: int
+		
+		if interpolate {
+			samples_per_mixer_sample := f32(snd.sample_rate)/f32(AUDIO_MIX_SAMPLE_RATE)
+
+			num_mixed = add_interpolate(
+				s.mix_buffer[s.mix_buffer_offset:],
+				snd.samples[ps.offset:],
+				AUDIO_MIX_CHUNK_SIZE,
+				samples_per_mixer_sample,
+			)
+			
+			ps.offset += int(f32(num_mixed) * samples_per_mixer_sample)
+		} else {
+			num_mixed = add(
+				s.mix_buffer[s.mix_buffer_offset:],
+				snd.samples[ps.offset:],
+				AUDIO_MIX_CHUNK_SIZE,
+			)
+			
+			ps.offset += num_mixed
+		}
+
+		// We didn't mix all the samples! This means that we reached the end of the sound.
+		if num_mixed < AUDIO_MIX_CHUNK_SIZE {
 			if ps.loop {
-				extra := AUDIO_MIX_CHUNK_SIZE-num_samples
 				ps.offset = 0
-				for samp_idx in 0..<min(extra, len(ps.sound.data)) {
-					s.mix_buffer[mix_chunk_start + num_samples + samp_idx] += ps.sound.data[int(ps.offset) + samp_idx]
+
+				// The sound looped. Make sure to mix in the remaining samples from the start of the
+				// sound!
+				overflow := AUDIO_MIX_CHUNK_SIZE - num_mixed
+
+				if interpolate {
+					samples_per_mixer_sample := f32(snd.sample_rate)/f32(AUDIO_MIX_SAMPLE_RATE)
+
+					num_mixed = add_interpolate(
+						s.mix_buffer[s.mix_buffer_offset + num_mixed:],
+						snd.samples[ps.offset:],
+						overflow,
+						samples_per_mixer_sample,
+					)
+
+					ps.offset += int(f32(num_mixed) * samples_per_mixer_sample)
+				} else {
+					num_mixed = add(
+						s.mix_buffer[s.mix_buffer_offset + num_mixed:],
+						snd.samples[ps.offset:],
+						overflow,
+					)
+
+					ps.offset += num_mixed
 				}
-				ps.offset += extra
 			} else {
 				unordered_remove(&s.playing_sounds, idx)
 				idx -= 1
 			}
-		} else {
-			ps.offset += int(f32(num_samples) / sample_ratio)
 		}
 	}
 
-	out := s.mix_buffer[mix_chunk_start:mix_chunk_end]
 	ab.feed(out)
 	s.mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
 }
@@ -2165,8 +2266,13 @@ AUDIO_MIX_CHUNK_SIZE :: 1400
 
 Audio_Sample :: [2]i16
 
-Sound :: struct {
-	data: []Audio_Sample,
+Sound :: distinct Handle
+
+SOUND_NONE :: Sound {}
+
+Sound_Data :: struct {
+	handle: Sound,
+	samples: []Audio_Sample,
 	sample_rate: int,
 }
 
@@ -2243,6 +2349,8 @@ State :: struct {
 	// Audio
 	audio_backend: Audio_Backend_Interface,
 	audio_backend_state: rawptr,
+
+	sounds: hm.Handle_Map(Sound_Data, Sound, 1024*10),
 
 	// Sounds that have been started as because `play_sound` was called.
 	playing_sounds: [dynamic]Playing_Sound,
