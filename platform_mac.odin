@@ -24,6 +24,8 @@ PLATFORM_MAC :: Platform_Interface {
 	set_window_position = mac_set_window_position,
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
+	set_cursor_visible = mac_set_cursor_visible,
+	get_cursor_visible = mac_get_cursor_visible,
 
 	is_gamepad_active = mac_is_gamepad_active,
 	get_gamepad_axis = mac_get_gamepad_axis,
@@ -42,6 +44,7 @@ Mac_State :: struct {
 	app:              ^NS.Application,
 	window:           ^NS.Window,
 	window_mode:      Window_Mode,
+	cursor_visible:   bool,
 
 	screen_width:     int,
 	screen_height:    int,
@@ -86,6 +89,7 @@ mac_init :: proc(
 	s.events = make([dynamic]Event, allocator)
 	s.screen_width = screen_width
 	s.screen_height = screen_height
+	s.cursor_visible = true
 
 	// Initialize NSApplication
 	s.app = NS.Application_sharedApplication()
@@ -348,6 +352,20 @@ mac_set_screen_size :: proc(w, h: int) {
 
 mac_get_window_scale :: proc() -> f32 {
 	return f32(s.window->backingScaleFactor())
+}
+
+mac_set_cursor_visible :: proc(visible: bool) {
+		if visible == s.cursor_visible do return
+		s.cursor_visible = visible
+		if visible {
+			NS.Cursor.unhide()
+		} else {
+			NS.Cursor.hide()
+		}
+}
+
+mac_get_cursor_visible :: proc() -> bool {
+		return s.cursor_visible
 }
 
 mac_is_gamepad_active :: proc(gamepad: int) -> bool {
