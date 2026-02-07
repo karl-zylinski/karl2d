@@ -17,6 +17,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	set_screen_size = windows_set_screen_size,
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
+	set_cursor_visible = windows_set_cursor_visible,
 
 	is_gamepad_active = windows_is_gamepad_active,
 	get_gamepad_axis = windows_get_gamepad_axis,
@@ -414,6 +415,10 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 			win32.SWP_NOOWNERZORDER | win32.SWP_FRAMECHANGED)
 		}
 	}
+}
+
+windows_set_cursor_visible :: proc(visible: bool) {
+	win32.ShowCursor(win32.BOOL(visible))
 }
 
 s: ^Windows_State

@@ -18,6 +18,7 @@ PLATFORM_WEB :: Platform_Interface {
 	set_window_position = web_set_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
+	set_cursor_visible = web_set_cursor_visible,
 	is_gamepad_active = web_is_gamepad_active,
 	get_gamepad_axis = web_get_gamepad_axis,
 	set_gamepad_vibration = web_set_gamepad_vibration,
@@ -309,6 +310,14 @@ web_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 
 	s.window_mode = window_mode
+}
+
+web_set_cursor_visible :: proc(visible: bool) {
+	if visible {
+		js.set_element_style(s.canvas_id, "cursor", "default")
+	} else {
+		js.set_element_style(s.canvas_id, "cursor", "none")
+	}
 }
 
 web_is_gamepad_active :: proc(gamepad: int) -> bool {
