@@ -432,6 +432,16 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 	pf.set_window_mode(window_mode)
 }
 
+// Hide or show the OS cursor.
+set_cursor_visible :: proc(visible: bool) {
+	pf.set_cursor_visible(visible)
+}
+
+// Returns whether the OS cursor is currently visible.
+get_cursor_visible :: proc() -> bool {
+	return pf.get_cursor_visible()
+}
+
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
 // procedures run:

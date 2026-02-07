@@ -27,6 +27,8 @@ PLATFORM_LINUX :: Platform_Interface {
 	set_window_position = linux_set_window_position,
 	get_window_scale = linux_get_window_scale,
 	set_window_mode = linux_set_window_mode,
+	set_cursor_visible = linux_set_cursor_visible,
+	get_cursor_visible = linux_get_cursor_visible,
 	is_gamepad_active = linux_is_gamepad_active,
 	get_gamepad_axis = linux_get_gamepad_axis,
 	set_gamepad_vibration = linux_set_gamepad_vibration,
@@ -569,6 +571,14 @@ linux_set_internal_state :: proc(state: rawptr) {
 
 linux_set_window_mode :: proc(window_mode: Window_Mode) {
 	s.win.set_window_mode(window_mode)
+}
+
+linux_set_cursor_visible :: proc(visible: bool) {
+	// TODO: implement
+}
+
+linux_get_cursor_visible :: proc() -> bool {
+	return true
 }
 
 Linux_State :: struct {
