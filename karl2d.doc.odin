@@ -143,6 +143,12 @@ get_window_scale :: proc() -> f32
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode)
 
+// Hide or show the OS cursor.
+set_cursor_visible :: proc(visible: bool)
+
+// Returns whether the OS cursor is currently visible.
+get_cursor_visible :: proc() -> bool
+
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
 // procedures run:
