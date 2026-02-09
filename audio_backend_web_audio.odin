@@ -14,6 +14,7 @@ AUDIO_BACKEND_WEB_AUDIO :: Audio_Backend_Interface {
 }
 
 import "base:runtime"
+import "core:slice"
 
 foreign import karl2d_web_audio "karl2d_web_audio"
 
@@ -47,15 +48,8 @@ web_audio_set_internal_state :: proc(state: rawptr) {
 }
 
 web_audio_feed :: proc(samples: []Audio_Sample) {
-	// The JS code wants f32 samples. There is no way to tell the JS stuff to use i16 samples.
-	samples_f32 := make([]f32, len(samples)*2, allocator = frame_allocator)
-
-	for s, idx in samples {
-		samples_f32[idx*2] = f32(s.x) / f32(max(i16))
-		samples_f32[idx*2 + 1] = f32(s.y) / f32(max(i16))
-	}
-
-	js_web_audio_feed(samples_f32)
+	// The JS backend just sees an array of f32. But it knows that they are interleaved Left & Right
+	js_web_audio_feed(slice.reinterpret([]f32, samples))
 }
 
 web_audio_remaining_samples :: proc() -> int {
