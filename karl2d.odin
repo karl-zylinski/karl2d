@@ -1326,8 +1326,6 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 				continue
 			}
 
-			
-
 
 			// Just need sample rate for now, so I disabled the rest...
 
