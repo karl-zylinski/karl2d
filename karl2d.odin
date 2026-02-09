@@ -1263,7 +1263,7 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 	d = d[4:]
 
 	sample_rate: u32
-	samples: []Audio_Sample
+	samples: []u8
 
 	format: Raw_Sound_Format
 
@@ -1386,51 +1386,57 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 				continue
 			}
 
-			switch format{
-			case .Integer8:
-				samples_i8 := slice.reinterpret([][2]i8, d[:data_size])
-				samples = make([]Audio_Sample, len(samples_i8), s.allocator)
-
-				for idx in 0..<len(samples) {
-					samples[idx] = {
-						f32(samples_i8[idx].x) / f32(max(i8)),
-						f32(samples_i8[idx].y) / f32(max(i8)),
-					}
-				}
-			case .Integer16:
-				samples_i16 := slice.reinterpret([][2]i16, d[:data_size])
-				samples = make([]Audio_Sample, len(samples_i16), s.allocator)
-
-				for idx in 0..<len(samples) {
-					samples[idx] = {
-						f32(samples_i16[idx].x) / f32(max(i16)),
-						f32(samples_i16[idx].y) / f32(max(i16)),
-					}
-				}
-			case .Integer32:
-				samples_i32 := slice.reinterpret([][2]i32, d[:data_size])
-				samples = make([]Audio_Sample, len(samples_i32), s.allocator)
-
-				for idx in 0..<len(samples) {
-					samples[idx] = {
-						f32(samples_i32[idx].x) / f32(max(i32)),
-						f32(samples_i32[idx].y) / f32(max(i32)),
-					}
-				}
-
-			case .Float:
-				samples = slice.reinterpret([]Audio_Sample, d[:data_size])
-			}
+			samples = d[:data_size]
 		}
 	}
 	
-	return load_sound_from_bytes_raw(samples, int(sample_rate))
+	return load_sound_from_bytes_raw(samples, format, int(sample_rate))
 }
 
-load_sound_from_bytes_raw :: proc(samples: []u8, format: Raw_Sound_Format, sample_rate: int) -> Sound {
+load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_rate: int) -> Sound {
+	samples: []Audio_Sample
+
+	switch format{
+	case .Integer8:
+		samples_i8 := slice.reinterpret([][2]i8, bytes)
+		samples = make([]Audio_Sample, len(samples_i8), s.allocator)
+
+		for idx in 0..<len(samples) {
+			samples[idx] = {
+				f32(samples_i8[idx].x) / f32(max(i8)),
+				f32(samples_i8[idx].y) / f32(max(i8)),
+			}
+		}
+		
+	case .Integer16:
+		samples_i16 := slice.reinterpret([][2]i16, bytes)
+		samples = make([]Audio_Sample, len(samples_i16), s.allocator)
+
+		for idx in 0..<len(samples) {
+			samples[idx] = {
+				f32(samples_i16[idx].x) / f32(max(i16)),
+				f32(samples_i16[idx].y) / f32(max(i16)),
+			}
+		}
+
+	case .Integer32:
+		samples_i32 := slice.reinterpret([][2]i32, bytes)
+		samples = make([]Audio_Sample, len(samples_i32), s.allocator)
+
+		for idx in 0..<len(samples) {
+			samples[idx] = {
+				f32(samples_i32[idx].x) / f32(max(i32)),
+				f32(samples_i32[idx].y) / f32(max(i32)),
+			}
+		}
+
+	case .Float:
+		samples = slice.clone(slice.reinterpret([]Audio_Sample, bytes), s.allocator)
+	}
+
 	snd_data := Sound_Data {
 		sample_rate = sample_rate,
-		samples = slice.clone(samples, s.allocator),
+		samples = samples,
 	}
 
 	return hm.add(&s.sounds, snd_data)

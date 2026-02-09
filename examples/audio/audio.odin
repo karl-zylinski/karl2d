@@ -5,6 +5,7 @@ import k2 "../.."
 import "core:math"
 import "core:mem"
 import "core:fmt"
+import "core:slice"
 
 pos: k2.Vec2
 snd: k2.Sound
@@ -36,7 +37,7 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Sound
 		samp.y = sf
 	}
 
-	return k2.load_sound_from_bytes_raw(sine_data, sample_rate)
+	return k2.load_sound_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float, sample_rate)
 }
 
 step :: proc() -> bool {
