@@ -5,7 +5,7 @@
 let wasmMemory = null;
 
 function setWasmMemory(memory) {
-  wasmMemory = memory;
+	wasmMemory = memory;
 }
 
 const karl2dAudioJsImports = {
@@ -80,7 +80,7 @@ const karl2dAudioJsImports = {
 			}
 
 			let samples = new Float32Array(wasmMemory.buffer, samples_f32_ptr, samples_f32_len);
-			this.remaining_samples += samples.length / 2; // Stereo, two samples per stereo pair.
+			this.remaining_samples += samples.length / 2;
 
 			this.audio_node.port.postMessage({
 				type: 'samples',

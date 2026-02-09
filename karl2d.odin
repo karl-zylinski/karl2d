@@ -1351,7 +1351,15 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 				continue
 			}
 
-			samples = slice.reinterpret([]Audio_Sample, d[:data_size])
+			samples_i16 := slice.reinterpret([][2]i16, d[:data_size])
+			samples = make([]Audio_Sample, len(samples_i16), s.allocator)
+
+			for idx in 0..<len(samples) {
+				samples[idx] = {
+					f32(samples_i16[idx].x) / f32(max(i16)),
+					f32(samples_i16[idx].y) / f32(max(i16)),
+				}
+			}
 		}
 	}
 	
@@ -1452,10 +1460,7 @@ update_audio_mixer :: proc() {
 			prev_val := source[src_idx]
 			cur_val := source[src_next]
 
-			dest[dest_idx] += {
-				i16(linalg.lerp(f32(prev_val[0]), f32(cur_val[0]), frac)),
-				i16(linalg.lerp(f32(prev_val[1]), f32(cur_val[1]), frac)),
-			}
+			dest[dest_idx] += linalg.lerp(prev_val, cur_val, frac)
 		}
 
 		return dest_idx
@@ -2264,7 +2269,7 @@ RENDER_TARGET_NONE :: Render_Target_Handle {}
 AUDIO_MIX_SAMPLE_RATE :: 44100
 AUDIO_MIX_CHUNK_SIZE :: 1400
 
-Audio_Sample :: [2]i16
+Audio_Sample :: [2]f32
 
 Sound :: distinct Handle
 

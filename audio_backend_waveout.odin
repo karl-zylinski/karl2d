@@ -40,21 +40,32 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	s.allocator = allocator
 	log.debug("Init audio backend waveout")
 
-	format := win32.WAVEFORMATEX {
-		nSamplesPerSec = 44100,
-		wBitsPerSample = 16,
-		nChannels = 2,
-		wFormatTag = win32.WAVE_FORMAT_PCM,
-		cbSize = size_of(win32.WAVEFORMATEX),
+	// Added constant missing in bindings:
+	// KSDATAFORMAT_SUBTYPE_IEEE_FLOAT GUID: 00000003-0000-0010-8000-00aa00389b71
+	KSDATAFORMAT_SUBTYPE_IEEE_FLOAT :: win32.GUID{0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}}
+
+	format := win32.WAVEFORMATEXTENSIBLE {
+		Format = {
+			nSamplesPerSec = 44100,
+			wBitsPerSample = 32,
+			nChannels = 2,
+			wFormatTag = win32.WAVE_FORMAT_EXTENSIBLE,
+			cbSize = size_of(win32.WAVEFORMATEXTENSIBLE) - size_of(win32.WAVEFORMATEX),
+		},
+		Samples = {
+			wValidBitsPerSample = 32,
+		},
+		dwChannelMask = { .FRONT_LEFT, .FRONT_RIGHT },
+		SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
 	}
 
-	format.nBlockAlign = (format.wBitsPerSample * format.nChannels) / 8 // see nBlockAlign docs
-	format.nAvgBytesPerSec = (u32(format.wBitsPerSample * format.nChannels) * format.nSamplesPerSec) / 8
+	format.Format.nBlockAlign = (format.wBitsPerSample * format.nChannels) / 8 // see nBlockAlign docs
+	format.Format.nAvgBytesPerSec = (u32(format.wBitsPerSample * format.nChannels) * format.nSamplesPerSec) / 8
 
 	ch(win32.waveOutOpen(
 		&s.device,
 		win32.WAVE_MAPPER,
-		&format,
+		&format.Format,
 		0,
 		0,
 		win32.CALLBACK_NULL,
