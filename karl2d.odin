@@ -1396,13 +1396,13 @@ load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_
 
 	switch format{
 	case .Integer8:
-		samples_i8 := slice.reinterpret([][2]i8, bytes)
-		samples = make([]Audio_Sample, len(samples_i8), s.allocator)
+		samples_u8 := slice.reinterpret([][2]u8, bytes)
+		samples = make([]Audio_Sample, len(samples_u8), s.allocator)
 
 		for idx in 0..<len(samples) {
 			samples[idx] = {
-				f32(samples_i8[idx].x) / f32(max(i8)),
-				f32(samples_i8[idx].y) / f32(max(i8)),
+				(f32(samples_u8[idx].x) - 128.0) / 128.0,
+				(f32(samples_u8[idx].y) - 128.0) / 128.0,
 			}
 		}
 
