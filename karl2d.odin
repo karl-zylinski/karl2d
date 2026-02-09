@@ -1407,7 +1407,7 @@ load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_
 				f32(samples_i8[idx].y) / f32(max(i8)),
 			}
 		}
-		
+
 	case .Integer16:
 		samples_i16 := slice.reinterpret([][2]i16, bytes)
 		samples = make([]Audio_Sample, len(samples_i16), s.allocator)
@@ -2354,6 +2354,7 @@ Playing_Sound :: struct {
 	loop: bool,
 }
 
+// The format used to describe that data passed to `load_sound_from_bytes_raw`.
 Raw_Sound_Format :: enum {
 	Integer8,
 	Integer16,

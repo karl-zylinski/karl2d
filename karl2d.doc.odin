@@ -373,7 +373,7 @@ load_sound_from_file :: proc(filename: string) -> Sound
 // supports 16 bit WAV files, but the sample rate can be whatever.
 load_sound_from_bytes :: proc(bytes: []byte) -> Sound
 
-load_sound_from_bytes_raw :: proc(samples: []Audio_Sample, sample_rate: int) -> Sound
+load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_rate: int) -> Sound
 
 destroy_sound :: proc(snd: Sound)
 
@@ -785,7 +785,7 @@ RENDER_TARGET_NONE :: Render_Target_Handle {}
 AUDIO_MIX_SAMPLE_RATE :: 44100
 AUDIO_MIX_CHUNK_SIZE :: 1400
 
-Audio_Sample :: [2]i16
+Audio_Sample :: [2]f32
 
 Sound :: distinct Handle
 
@@ -801,6 +801,14 @@ Playing_Sound :: struct {
 	sound: Sound,
 	offset: int,
 	loop: bool,
+}
+
+// The format used to describe that data passed to `load_sound_from_bytes_raw`.
+Raw_Sound_Format :: enum {
+	Integer8,
+	Integer16,
+	Integer32,
+	Float,
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
