@@ -65,7 +65,7 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	ch(win32.waveOutOpen(
 		&s.device,
 		win32.WAVE_MAPPER,
-		&format.Format,
+		&format,
 		0,
 		0,
 		win32.CALLBACK_NULL,
