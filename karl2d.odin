@@ -1265,6 +1265,8 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 	sample_rate: u32
 	samples: []Audio_Sample
 
+	format: Raw_Sound_Format
+
 	for len(d) > 3 {
 		blk_id := string(d[:4])
 
@@ -1293,6 +1295,39 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 				sample_rate = 0
 				continue
 			}
+
+			audio_format, audio_format_ok := endian.get_u16(d[0:2], .Little)
+
+			if !audio_format_ok {
+				log.error("Failed reading format from wav fmt block")
+				continue
+			}
+
+			if audio_format == 1 {
+				bits_per_sample, bits_per_sample_ok := endian.get_u16(d[14:16], .Little)
+
+				if !bits_per_sample_ok {
+					log.error("Failed reading bits per sample from wav fmt block")
+					continue
+				}
+
+				switch bits_per_sample {
+				case 8:
+					format = .Integer8
+				case 16:
+					format = .Integer16
+				case 32:
+					format = .Integer32
+				}
+			} else if audio_format == 3 {
+				format = .Float
+			} else {
+				log.error("Invalid format in wav fmt block")
+				continue
+			}
+
+			
+
 
 			// Just need sample rate for now, so I disabled the rest...
 
@@ -1351,14 +1386,40 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 				continue
 			}
 
-			samples_i16 := slice.reinterpret([][2]i16, d[:data_size])
-			samples = make([]Audio_Sample, len(samples_i16), s.allocator)
+			switch format{
+			case .Integer8:
+				samples_i8 := slice.reinterpret([][2]i8, d[:data_size])
+				samples = make([]Audio_Sample, len(samples_i8), s.allocator)
 
-			for idx in 0..<len(samples) {
-				samples[idx] = {
-					f32(samples_i16[idx].x) / f32(max(i16)),
-					f32(samples_i16[idx].y) / f32(max(i16)),
+				for idx in 0..<len(samples) {
+					samples[idx] = {
+						f32(samples_i8[idx].x) / f32(max(i8)),
+						f32(samples_i8[idx].y) / f32(max(i8)),
+					}
 				}
+			case .Integer16:
+				samples_i16 := slice.reinterpret([][2]i16, d[:data_size])
+				samples = make([]Audio_Sample, len(samples_i16), s.allocator)
+
+				for idx in 0..<len(samples) {
+					samples[idx] = {
+						f32(samples_i16[idx].x) / f32(max(i16)),
+						f32(samples_i16[idx].y) / f32(max(i16)),
+					}
+				}
+			case .Integer32:
+				samples_i32 := slice.reinterpret([][2]i32, d[:data_size])
+				samples = make([]Audio_Sample, len(samples_i32), s.allocator)
+
+				for idx in 0..<len(samples) {
+					samples[idx] = {
+						f32(samples_i32[idx].x) / f32(max(i32)),
+						f32(samples_i32[idx].y) / f32(max(i32)),
+					}
+				}
+
+			case .Float:
+				samples = slice.reinterpret([]Audio_Sample, d[:data_size])
 			}
 		}
 	}
@@ -1366,7 +1427,7 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 	return load_sound_from_bytes_raw(samples, int(sample_rate))
 }
 
-load_sound_from_bytes_raw :: proc(samples: []Audio_Sample, sample_rate: int) -> Sound {
+load_sound_from_bytes_raw :: proc(samples: []u8, format: Raw_Sound_Format, sample_rate: int) -> Sound {
 	snd_data := Sound_Data {
 		sample_rate = sample_rate,
 		samples = slice.clone(samples, s.allocator),
@@ -2285,6 +2346,13 @@ Playing_Sound :: struct {
 	sound: Sound,
 	offset: int,
 	loop: bool,
+}
+
+Raw_Sound_Format :: enum {
+	Integer8,
+	Integer16,
+	Integer32,
+	Float,
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
