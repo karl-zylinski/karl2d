@@ -1318,6 +1318,9 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 					format = .Integer16
 				case 32:
 					format = .Integer32
+				case:
+					log.errorf("Unsupported bits per sample in wav fmt block: %v", bits_per_sample)
+					continue
 				}
 			} else if audio_format == 3 {
 				format = .Float
