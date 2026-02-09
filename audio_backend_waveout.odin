@@ -59,8 +59,8 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 		SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
 	}
 
-	format.Format.nBlockAlign = (format.wBitsPerSample * format.nChannels) / 8 // see nBlockAlign docs
-	format.Format.nAvgBytesPerSec = (u32(format.wBitsPerSample * format.nChannels) * format.nSamplesPerSec) / 8
+	format.nBlockAlign = (format.wBitsPerSample * format.nChannels) / 8 // see nBlockAlign docs
+	format.nAvgBytesPerSec = (u32(format.wBitsPerSample * format.nChannels) * format.nSamplesPerSec) / 8
 
 	ch(win32.waveOutOpen(
 		&s.device,
