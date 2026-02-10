@@ -489,7 +489,15 @@ draw_current_batch :: proc() {
 		shader.texture_bindpoints[def_tex_idx] = s.batch_texture
 	}
 
-	rb.draw(shader, s.batch_render_target, shader.texture_bindpoints, s.batch_scissor, s.batch_blend_mode, s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used])
+	rb.draw(
+		shader,
+		s.batch_render_target,
+		shader.texture_bindpoints,
+		s.batch_scissor,
+		s.batch_blend_mode,
+		s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used],
+	)
+	
 	s.vertex_buffer_cpu_used = 0
 }
 
@@ -1209,6 +1217,28 @@ play_sound :: proc(snd: Sound, loop := false) {
 	)
 }
 
+set_sound_volume :: proc(snd: Sound, volume: f32) {
+	d := hm.get(&s.sounds, snd)
+	
+	if d == nil {
+		log.error("Cannot set volume, sound does not exist.")
+		return
+	}
+	
+	d.volume = clamp(volume, 0, 1)
+}
+
+get_sound_volume :: proc(snd: Sound) -> f32 {
+	d := hm.get(&s.sounds, snd)
+	
+	if d == nil {
+		log.error("Cannot get volume, sound does not exist.")
+		return 0
+	}
+	
+	return d.volume
+}
+
 load_sound_from_file :: proc(filename: string) -> Sound {
 	when FILESYSTEM_SUPPORTED {
 		data, data_ok := os.read_entire_file(filename, allocator = frame_allocator)
@@ -1438,6 +1468,7 @@ load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_
 	snd_data := Sound_Data {
 		sample_rate = sample_rate,
 		samples = samples,
+		volume = 1,
 	}
 
 	return hm.add(&s.sounds, snd_data)
@@ -1490,6 +1521,7 @@ update_audio_mixer :: proc() {
 		dest: []Audio_Sample,
 		source: []Audio_Sample,
 		num: int,
+		volume: f32,
 	) -> int {
 		to_write := num
 
@@ -1498,7 +1530,7 @@ update_audio_mixer :: proc() {
 		}
 
 		for samp_idx in 0..<to_write {
-			dest[samp_idx] += source[samp_idx]
+			dest[samp_idx] += source[samp_idx] * volume
 		}
 
 		return to_write
@@ -1512,6 +1544,7 @@ update_audio_mixer :: proc() {
 		source: []Audio_Sample,
 		num_dest: int,
 		dest_source_ratio: f32,
+		volume: f32,
 	) -> int {
 		dest_idx: int
 		for ; dest_idx < num_dest; dest_idx += 1 {
@@ -1528,7 +1561,7 @@ update_audio_mixer :: proc() {
 			prev_val := source[src_idx]
 			cur_val := source[src_next]
 
-			dest[dest_idx] += linalg.lerp(prev_val, cur_val, frac)
+			dest[dest_idx] += linalg.lerp(prev_val, cur_val, frac) * volume
 		}
 
 		return dest_idx
@@ -1544,6 +1577,12 @@ update_audio_mixer :: proc() {
 			idx -= 1
 			continue
 		}
+		
+		volume := clamp(snd.volume, 0, 1)
+		
+		if volume <= 0 {
+			continue
+		}
 
 		interpolate := snd.sample_rate != AUDIO_MIX_SAMPLE_RATE
 		num_mixed: int
@@ -1556,6 +1595,7 @@ update_audio_mixer :: proc() {
 				snd.samples[ps.offset:],
 				AUDIO_MIX_CHUNK_SIZE,
 				samples_per_mixer_sample,
+				volume,
 			)
 			
 			ps.offset += int(f32(num_mixed) * samples_per_mixer_sample)
@@ -1564,6 +1604,7 @@ update_audio_mixer :: proc() {
 				s.mix_buffer[s.mix_buffer_offset:],
 				snd.samples[ps.offset:],
 				AUDIO_MIX_CHUNK_SIZE,
+				volume,
 			)
 			
 			ps.offset += num_mixed
@@ -1586,6 +1627,7 @@ update_audio_mixer :: proc() {
 						snd.samples[ps.offset:],
 						overflow,
 						samples_per_mixer_sample,
+						volume,
 					)
 
 					ps.offset += int(f32(num_mixed) * samples_per_mixer_sample)
@@ -1594,6 +1636,7 @@ update_audio_mixer :: proc() {
 						s.mix_buffer[s.mix_buffer_offset + num_mixed:],
 						snd.samples[ps.offset:],
 						overflow,
+						volume,
 					)
 
 					ps.offset += num_mixed
@@ -2347,6 +2390,7 @@ Sound_Data :: struct {
 	handle: Sound,
 	samples: []Audio_Sample,
 	sample_rate: int,
+	volume: f32,
 }
 
 Playing_Sound :: struct {

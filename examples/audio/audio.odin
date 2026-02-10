@@ -56,11 +56,19 @@ step :: proc() -> bool {
 	if k2.key_went_down(.N3) {
 		k2.play_sound(snd3)
 	}
+	
+	if k2.key_is_held(.Up) {
+		k2.set_sound_volume(snd, k2.get_sound_volume(snd) + k2.get_frame_time() * 0.5)
+	}
+
+	if k2.key_is_held(.Down) {
+		k2.set_sound_volume(snd, k2.get_sound_volume(snd) - k2.get_frame_time() * 0.5)
+	}
 
 	k2.clear(k2.WHITE)
-	k2.draw_text("Playing a looping 200 hz sine wave.", {20, 20}, 50)
-	k2.draw_text("Press Space to play a familiar sonud.", {20, 80}, 50)
-	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 140}, 50)
+	k2.draw_text(fmt.tprintf("Playing a looping 200 hz sine wave. Volume: %.3f (change with up/down)", k2.get_sound_volume(snd)), {20, 20}, 40, )
+	k2.draw_text("Press Space to play a familiar sound.", {20, 70}, 40)
+	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 120}, 40)
 	k2.present()
 	free_all(context.temp_allocator)
 
