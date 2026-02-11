@@ -1217,6 +1217,17 @@ play_sound :: proc(snd: Sound, loop := false) {
 	)
 }
 
+set_sound_pan :: proc(snd: Sound, pan: f32) {
+	d := hm.get(&s.sounds, snd)
+	
+	if d == nil {
+		log.error("Cannot set pan, sound does not exist.")
+		return
+	}
+	
+	d.pan = clamp(pan, -1, 1)
+}
+
 set_sound_volume :: proc(snd: Sound, volume: f32) {
 	d := hm.get(&s.sounds, snd)
 	
@@ -1511,15 +1522,16 @@ update_audio_mixer :: proc() {
 		source: []Audio_Sample,
 		num: int,
 		volume: f32,
+		pan: [2]f32,
 	) -> int {
 		to_write := num
 
 		if to_write > len(source) {
 			to_write = len(source)
 		}
-
+		
 		for samp_idx in 0..<to_write {
-			dest[samp_idx] += source[samp_idx] * volume
+			dest[samp_idx] += pan * source[samp_idx] * volume
 		}
 
 		return to_write
@@ -1534,7 +1546,9 @@ update_audio_mixer :: proc() {
 		num_dest: int,
 		dest_source_ratio: f32,
 		volume: f32,
+		pan: [2]f32,
 	) -> int {
+		
 		dest_idx: int
 		for ; dest_idx < num_dest; dest_idx += 1 {
 			src_pos := f32(dest_idx) * dest_source_ratio
@@ -1550,7 +1564,7 @@ update_audio_mixer :: proc() {
 			prev_val := source[src_idx]
 			cur_val := source[src_next]
 
-			dest[dest_idx] += linalg.lerp(prev_val, cur_val, frac) * volume
+			dest[dest_idx] += pan * linalg.lerp(prev_val, cur_val, frac) * volume
 		}
 
 		return dest_idx
@@ -1572,6 +1586,15 @@ update_audio_mixer :: proc() {
 		if volume <= 0 {
 			continue
 		}
+		
+		snd_pan := clamp(snd.pan, -1, 1)
+		
+		// Use cos/sine to get a constant-power audio curve. This means that the sound won't get
+		// quieter in the middle, but will instead just pan.
+		pan := [2]f32 {
+			math.cos((snd_pan + 1) * math.PI / 4),
+			math.sin((snd_pan + 1) * math.PI / 4),
+		}
 
 		interpolate := snd.sample_rate != AUDIO_MIX_SAMPLE_RATE
 		num_mixed: int
@@ -1585,6 +1608,7 @@ update_audio_mixer :: proc() {
 				AUDIO_MIX_CHUNK_SIZE,
 				samples_per_mixer_sample,
 				volume,
+				pan,
 			)
 			
 			ps.offset += int(f32(num_mixed) * samples_per_mixer_sample)
@@ -1594,6 +1618,7 @@ update_audio_mixer :: proc() {
 				snd.samples[ps.offset:],
 				AUDIO_MIX_CHUNK_SIZE,
 				volume,
+				pan,
 			)
 			
 			ps.offset += num_mixed
@@ -1617,6 +1642,7 @@ update_audio_mixer :: proc() {
 						overflow,
 						samples_per_mixer_sample,
 						volume,
+						pan,
 					)
 
 					ps.offset += int(f32(num_mixed) * samples_per_mixer_sample)
@@ -1626,6 +1652,7 @@ update_audio_mixer :: proc() {
 						snd.samples[ps.offset:],
 						overflow,
 						volume,
+						pan
 					)
 
 					ps.offset += num_mixed
@@ -2380,6 +2407,7 @@ Sound_Data :: struct {
 	samples: []Audio_Sample,
 	sample_rate: int,
 	volume: f32,
+	pan: f32,
 }
 
 Playing_Sound :: struct {

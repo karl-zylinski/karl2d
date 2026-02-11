@@ -10,6 +10,7 @@ import "core:slice"
 pos: k2.Vec2
 snd: k2.Sound
 snd_volume: f32
+snd_pan: f32
 snd2: k2.Sound  
 snd3: k2.Sound
 wav: k2.Sound
@@ -68,11 +69,32 @@ step :: proc() -> bool {
 		snd_volume -= k2.get_frame_time() * 0.5
 		k2.set_sound_volume(snd, snd_volume)
 	}
+	
+	if k2.key_is_held(.Left) {
+		snd_pan -= k2.get_frame_time() * 0.5
+		k2.set_sound_pan(snd, snd_pan)
+	}
 
+	if k2.key_is_held(.Right) {
+		snd_pan += k2.get_frame_time() * 0.5
+		k2.set_sound_pan(snd, snd_pan)
+	}
+	
+	snd_pan = clamp(snd_pan, -1, 1)
+	snd_volume = clamp(snd_volume, 0, 1)
+	
 	k2.clear(k2.WHITE)
-	k2.draw_text(fmt.tprintf("Playing a looping 200 hz sine wave. Volume: %.3f (change with up/down)", snd_volume), {20, 20}, 40, )
-	k2.draw_text("Press Space to play a familiar sound.", {20, 70}, 40)
-	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 120}, 40)
+	k2.draw_text(
+		fmt.tprintf(
+			"Playing a looping 200 hz sine wave.\nVolume: %.3f (change with up/down)\nPan: %.3f (change with left/right)",
+			snd_volume,
+			snd_pan
+		),
+		{20, 20},
+		40
+	)
+	k2.draw_text("Press Space to play a familiar sound.", {20, 200}, 40)
+	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 240}, 40)
 	k2.present()
 	free_all(context.temp_allocator)
 
