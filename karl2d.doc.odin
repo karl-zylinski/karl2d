@@ -369,8 +369,6 @@ play_sound :: proc(snd: Sound, loop := false)
 
 set_sound_volume :: proc(snd: Sound, volume: f32)
 
-get_sound_volume :: proc(snd: Sound) -> f32
-
 load_sound_from_file :: proc(filename: string) -> Sound
 
 // Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Currently only

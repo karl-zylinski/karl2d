@@ -1228,17 +1228,6 @@ set_sound_volume :: proc(snd: Sound, volume: f32) {
 	d.volume = clamp(volume, 0, 1)
 }
 
-get_sound_volume :: proc(snd: Sound) -> f32 {
-	d := hm.get(&s.sounds, snd)
-	
-	if d == nil {
-		log.error("Cannot get volume, sound does not exist.")
-		return 0
-	}
-	
-	return d.volume
-}
-
 load_sound_from_file :: proc(filename: string) -> Sound {
 	when FILESYSTEM_SUPPORTED {
 		data, data_ok := os.read_entire_file(filename, allocator = frame_allocator)

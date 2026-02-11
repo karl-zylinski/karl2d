@@ -9,7 +9,8 @@ import "core:slice"
 
 pos: k2.Vec2
 snd: k2.Sound
-snd2: k2.Sound
+snd_volume: f32
+snd2: k2.Sound  
 snd3: k2.Sound
 wav: k2.Sound
 
@@ -17,6 +18,7 @@ init :: proc() {
 	k2.init(1280, 720, "Karl2D Audio")
 
 	snd = make_sine_wave(200, 0.5, 44100)
+	snd_volume = 1
 	snd2 = make_sine_wave(440, 1, 44100)
 	snd3 = make_sine_wave(700, 1, 22050)
 	wav = k2.load_sound_from_bytes(#load("chord.wav"))
@@ -58,15 +60,17 @@ step :: proc() -> bool {
 	}
 	
 	if k2.key_is_held(.Up) {
-		k2.set_sound_volume(snd, k2.get_sound_volume(snd) + k2.get_frame_time() * 0.5)
+		snd_volume += k2.get_frame_time() * 0.5
+		k2.set_sound_volume(snd, snd_volume)
 	}
 
 	if k2.key_is_held(.Down) {
-		k2.set_sound_volume(snd, k2.get_sound_volume(snd) - k2.get_frame_time() * 0.5)
+		snd_volume -= k2.get_frame_time() * 0.5
+		k2.set_sound_volume(snd, snd_volume)
 	}
 
 	k2.clear(k2.WHITE)
-	k2.draw_text(fmt.tprintf("Playing a looping 200 hz sine wave. Volume: %.3f (change with up/down)", k2.get_sound_volume(snd)), {20, 20}, 40, )
+	k2.draw_text(fmt.tprintf("Playing a looping 200 hz sine wave. Volume: %.3f (change with up/down)", snd_volume), {20, 20}, 40, )
 	k2.draw_text("Press Space to play a familiar sound.", {20, 70}, 40)
 	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 120}, 40)
 	k2.present()
