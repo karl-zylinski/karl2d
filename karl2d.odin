@@ -1217,6 +1217,17 @@ play_sound :: proc(snd: Sound, loop := false) {
 	)
 }
 
+set_sound_volume :: proc(snd: Sound, volume: f32) {
+	d := hm.get(&s.sounds, snd)
+	
+	if d == nil {
+		log.error("Cannot set volume, sound does not exist.")
+		return
+	}
+	
+	d.volume = clamp(volume, 0, 1)
+}
+
 set_sound_pan :: proc(snd: Sound, pan: f32) {
 	d := hm.get(&s.sounds, snd)
 	
@@ -1228,15 +1239,15 @@ set_sound_pan :: proc(snd: Sound, pan: f32) {
 	d.pan = clamp(pan, -1, 1)
 }
 
-set_sound_volume :: proc(snd: Sound, volume: f32) {
+set_sound_pitch :: proc(snd: Sound, pitch: f32) {
 	d := hm.get(&s.sounds, snd)
 	
 	if d == nil {
-		log.error("Cannot set volume, sound does not exist.")
+		log.error("Cannot set pitch, sound does not exist.")
 		return
 	}
 	
-	d.volume = clamp(volume, 0, 1)
+	d.pitch = max(pitch, 0.01)
 }
 
 load_sound_from_file :: proc(filename: string) -> Sound {
@@ -1469,6 +1480,7 @@ load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_
 		sample_rate = sample_rate,
 		samples = samples,
 		volume = 1,
+		pitch = 1,
 	}
 
 	return hm.add(&s.sounds, snd_data)
@@ -1583,9 +1595,11 @@ update_audio_mixer :: proc() {
 		
 		volume := clamp(snd.volume, 0, 1)
 		
-		if volume <= 0 {
+		if volume == 0 {
 			continue
 		}
+		
+		pitch := max(snd.pitch, 0.01)
 		
 		snd_pan := clamp(snd.pan, -1, 1)
 		
@@ -1596,11 +1610,11 @@ update_audio_mixer :: proc() {
 			math.sin((snd_pan + 1) * math.PI / 4),
 		}
 
-		interpolate := snd.sample_rate != AUDIO_MIX_SAMPLE_RATE
+		interpolate := snd.sample_rate != AUDIO_MIX_SAMPLE_RATE || pitch != 1
 		num_mixed: int
 		
 		if interpolate {
-			samples_per_mixer_sample := f32(snd.sample_rate)/f32(AUDIO_MIX_SAMPLE_RATE)
+			samples_per_mixer_sample := (pitch*f32(snd.sample_rate))/f32(AUDIO_MIX_SAMPLE_RATE)
 
 			num_mixed = add_interpolate(
 				s.mix_buffer[s.mix_buffer_offset:],
@@ -1634,7 +1648,7 @@ update_audio_mixer :: proc() {
 				overflow := AUDIO_MIX_CHUNK_SIZE - num_mixed
 
 				if interpolate {
-					samples_per_mixer_sample := f32(snd.sample_rate)/f32(AUDIO_MIX_SAMPLE_RATE)
+					samples_per_mixer_sample := (pitch*f32(snd.sample_rate))/f32(AUDIO_MIX_SAMPLE_RATE)
 
 					num_mixed = add_interpolate(
 						s.mix_buffer[s.mix_buffer_offset + num_mixed:],
@@ -2408,6 +2422,7 @@ Sound_Data :: struct {
 	sample_rate: int,
 	volume: f32,
 	pan: f32,
+	pitch: f32,
 }
 
 Playing_Sound :: struct {

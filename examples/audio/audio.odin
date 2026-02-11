@@ -11,6 +11,7 @@ pos: k2.Vec2
 snd: k2.Sound
 snd_volume: f32
 snd_pan: f32
+snd_pitch: f32
 snd2: k2.Sound  
 snd3: k2.Sound
 wav: k2.Sound
@@ -20,6 +21,7 @@ init :: proc() {
 
 	snd = make_sine_wave(200, 0.5, 44100)
 	snd_volume = 1
+	snd_pitch = 1
 	snd2 = make_sine_wave(440, 1, 44100)
 	snd3 = make_sine_wave(700, 1, 22050)
 	wav = k2.load_sound_from_bytes(#load("chord.wav"))
@@ -62,33 +64,43 @@ step :: proc() -> bool {
 	
 	if k2.key_is_held(.Up) {
 		snd_volume += k2.get_frame_time() * 0.5
-		k2.set_sound_volume(snd, snd_volume)
 	}
 
 	if k2.key_is_held(.Down) {
 		snd_volume -= k2.get_frame_time() * 0.5
-		k2.set_sound_volume(snd, snd_volume)
 	}
 	
 	if k2.key_is_held(.Left) {
 		snd_pan -= k2.get_frame_time() * 0.5
-		k2.set_sound_pan(snd, snd_pan)
 	}
 
 	if k2.key_is_held(.Right) {
 		snd_pan += k2.get_frame_time() * 0.5
-		k2.set_sound_pan(snd, snd_pan)
+	}
+	
+	if k2.key_is_held(.W) {
+		snd_pitch += k2.get_frame_time() * 0.5
+	}
+	
+	if k2.key_is_held(.S) {
+		snd_pitch -= k2.get_frame_time() * 0.5
 	}
 	
 	snd_pan = clamp(snd_pan, -1, 1)
 	snd_volume = clamp(snd_volume, 0, 1)
+	snd_pitch = math.max(snd_pitch, 0.01)
+	
+	k2.set_sound_volume(snd, snd_volume)
+	k2.set_sound_pan(snd, snd_pan)
+	k2.set_sound_pitch(snd, snd_pitch)
 	
 	k2.clear(k2.WHITE)
 	k2.draw_text(
 		fmt.tprintf(
-			"Playing a looping 200 hz sine wave.\nVolume: %.3f (change with up/down)\nPan: %.3f (change with left/right)",
+			"Playing a looping 200 hz sine wave.\nVolume: %.3f (change with up/down)\nPan: %.3f (change with left/right)\nPitch: %.3f (change with W/S)",
 			snd_volume,
-			snd_pan
+			snd_pan,
+			snd_pitch,
 		),
 		{20, 20},
 		40
