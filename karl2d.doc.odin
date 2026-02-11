@@ -367,6 +367,10 @@ set_texture_filter_ex :: proc(
 // sound will be mixed when `update_audio_mixer`, which also happens as part of `update`.
 play_sound :: proc(snd: Sound, loop := false)
 
+set_sound_volume :: proc(snd: Sound, volume: f32)
+
+get_sound_volume :: proc(snd: Sound) -> f32
+
 load_sound_from_file :: proc(filename: string) -> Sound
 
 // Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Currently only
@@ -795,6 +799,7 @@ Sound_Data :: struct {
 	handle: Sound,
 	samples: []Audio_Sample,
 	sample_rate: int,
+	volume: f32,
 }
 
 Playing_Sound :: struct {
