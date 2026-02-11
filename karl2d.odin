@@ -1217,6 +1217,8 @@ play_sound :: proc(snd: Sound, loop := false) {
 	)
 }
 
+// Set the volume of a sound. This will affect all instances of this sound that are currently
+// playing. Volume range is 0 to 1, where 0 is silence and 1 is the original volume of the sound.
 set_sound_volume :: proc(snd: Sound, volume: f32) {
 	d := hm.get(&s.sounds, snd)
 	
@@ -1228,6 +1230,8 @@ set_sound_volume :: proc(snd: Sound, volume: f32) {
 	d.volume = clamp(volume, 0, 1)
 }
 
+// Set the pan of a sound. This will affect all instances of this sound that are currently playing.
+// Pan range is -1 to 1, where -1 is full left, 0 is center and 1 is full right.
 set_sound_pan :: proc(snd: Sound, pan: f32) {
 	d := hm.get(&s.sounds, snd)
 	
@@ -1239,6 +1243,9 @@ set_sound_pan :: proc(snd: Sound, pan: f32) {
 	d.pan = clamp(pan, -1, 1)
 }
 
+// Set the pitch of a sound. This will affect all instances of this sound that are currently
+// playing. Pitch range is 0.01 to infinity, where 0.01 is the lowest pitch and higher values
+// increase the pitch.
 set_sound_pitch :: proc(snd: Sound, pitch: f32) {
 	d := hm.get(&s.sounds, snd)
 	
@@ -1250,6 +1257,7 @@ set_sound_pitch :: proc(snd: Sound, pitch: f32) {
 	d.pitch = max(pitch, 0.01)
 }
 
+// Load a wav file from disk, no other formats are supported right now.
 load_sound_from_file :: proc(filename: string) -> Sound {
 	when FILESYSTEM_SUPPORTED {
 		data, data_ok := os.read_entire_file(filename, allocator = frame_allocator)
