@@ -4,7 +4,7 @@
 #+private file
 package karl2d
 
-import "core:os"
+import "core:sys/posix"
 import gl "vendor:OpenGL"
 import "platform_bindings/mac/nsgl"
 import NS "core:sys/darwin/Foundation"
@@ -89,7 +89,7 @@ mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue_State) -> bool {
 	macos_gl_set_proc_address :: proc(p: rawptr, name: cstring) {
 		// special handle meaning "search all currently loaded shared libraries"
 		RTLD_DEFAULT :: rawptr(~uintptr(0) - 1) // -2 cast to pointer
-		(^rawptr)(p)^ = os._unix_dlsym(RTLD_DEFAULT, name)
+		(^rawptr)(p)^ = posix.dlsym(RTLD_DEFAULT, name)
 	}
 
 	gl.load_up_to(3, 3, macos_gl_set_proc_address)
