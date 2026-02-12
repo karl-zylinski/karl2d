@@ -88,7 +88,7 @@ mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue_State) -> bool {
 	// the OpenGL shared library is loaded from OpenGL.framework when we initialize it in _gl_get_context
 	macos_gl_set_proc_address :: proc(p: rawptr, name: cstring) {
 		// special handle meaning "search all currently loaded shared libraries"
-		RTLD_DEFAULT :: rawptr(~uintptr(0) - 1) // -2 cast to pointer
+		RTLD_DEFAULT :: posix.Symbol_Table(~uintptr(0) - 1) // -2 cast to pointer
 		(^rawptr)(p)^ = posix.dlsym(RTLD_DEFAULT, name)
 	}
 
