@@ -217,7 +217,7 @@ test_bit :: proc(bits: []u64, bit: u64) -> bool {
 
 // Checks if a device is a gamepad by looking at if it has the bits for buttons.
 is_device_gamepad :: proc(path: string) -> bool {
-	fd, err := os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+	fd, err := os.open(path, { .Read, .Non_Blocking })
 
 	if err != nil {
 		return false
@@ -225,6 +225,6 @@ is_device_gamepad :: proc(path: string) -> bool {
 
 	defer os.close(fd)
 	key_bits: [KEY_MAX / (8 * size_of(u64)) + 1]u64
-	linux.ioctl(linux.Fd(fd), EVIOCGBIT(EV_KEY, size_of(key_bits)), cast(uintptr)&key_bits)
+	linux.ioctl(linux.Fd(os.fd(fd)), EVIOCGBIT(EV_KEY, size_of(key_bits)), cast(uintptr)&key_bits)
 	return test_bit(key_bits[:], u64(BTN_GAMEPAD))
 }

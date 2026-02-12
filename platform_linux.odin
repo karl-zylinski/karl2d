@@ -211,7 +211,7 @@ linux_create_connected_gamepads :: proc() {
 }
 
 linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
-	fd, err := os.open(device_path, os.O_RDWR | os.O_NONBLOCK)
+	fd, err := os.open(device_path, { .Read, .Non_Blocking })
 
 	if err != nil {
 		log.errorf("Failed creating gamepad for device %v", device_path)
@@ -219,7 +219,7 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 	}
 
 	name_buf: [256]u8
-	name_len := linux.ioctl(linux.Fd(fd), evdev.EVIOCGNAME(size_of(name_buf)), cast(uintptr)&name_buf)
+	name_len := linux.ioctl(linux.Fd(os.fd(fd)), evdev.EVIOCGNAME(size_of(name_buf)), cast(uintptr)&name_buf)
 	name := name_len > 0 ? string(name_buf[:name_len-1]) : "" 
 	type := Linux_Gamepad_Type.Other
 
@@ -237,7 +237,7 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 	}
 
 	ev_bits: [evdev.EV_MAX / (8 * size_of(u64)) + 1]u64
-	linux.ioctl(linux.Fd(fd), evdev.EVIOCGBIT(0, size_of(ev_bits)), cast(uintptr)&ev_bits)
+	linux.ioctl(linux.Fd(os.fd(fd)), evdev.EVIOCGBIT(0, size_of(ev_bits)), cast(uintptr)&ev_bits)
 	has_analogue_axes := evdev.test_bit(ev_bits[:], evdev.EV_ABS)
 	has_vibration := evdev.test_bit(ev_bits[:], evdev.EV_FF)
 
@@ -250,7 +250,7 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 	
 	if has_analogue_axes {
 		abs_bits: [evdev.EV_ABS / (8 * size_of(u64)) + 1]u64 = {}
-		linux.ioctl(linux.Fd(fd), evdev.EVIOCGBIT(evdev.EV_ABS, size_of(abs_bits)), cast(uintptr)&abs_bits)
+		linux.ioctl(linux.Fd(os.fd(fd))	, evdev.EVIOCGBIT(evdev.EV_ABS, size_of(abs_bits)), cast(uintptr)&abs_bits)
 
 		for i in evdev.Axis.X ..< evdev.Axis.TOOL_WIDTH + evdev.Axis(1) {
 			has_axis := evdev.test_bit(abs_bits[:], u64(i))
@@ -263,7 +263,7 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 
 			if axis != .None {
 				absinfo: evdev.input_absinfo
-				linux.ioctl(linux.Fd(fd), evdev.EVIOCGABS(u32(i)), cast(uintptr)&absinfo)
+				linux.ioctl(linux.Fd(os.fd(fd)), evdev.EVIOCGABS(u32(i)), cast(uintptr)&absinfo)
 				gamepad.axes[axis] = {
 					event_min = absinfo.minimum,
 					event_max = absinfo.maximum,
@@ -274,7 +274,7 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 	
 	if has_vibration {
 		ff_bits: [evdev.FF_MAX / (8 * size_of(u64)) + 1]u64 
-		linux.ioctl(linux.Fd(fd), evdev.EVIOCGBIT(evdev.EV_FF, size_of(ff_bits)), cast(uintptr)&ff_bits)
+		linux.ioctl(linux.Fd(os.fd(fd)), evdev.EVIOCGBIT(evdev.EV_FF, size_of(ff_bits)), cast(uintptr)&ff_bits)
 		has_rumble_effect := evdev.test_bit(ff_bits[:], u64(evdev.FF_Effect_Type.RUMBLE)) 
 
 		if has_rumble_effect {
@@ -283,7 +283,7 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 				id = -1,
 			}
 
-			linux.ioctl(linux.Fd(fd), evdev.EVIOCSFF(), cast(uintptr)&effect)
+			linux.ioctl(linux.Fd(os.fd(fd)), evdev.EVIOCSFF(), cast(uintptr)&effect)
 			gamepad.rumble_effect_id = u32(effect.id)
 			gamepad.has_rumble_support = true
 		}
@@ -543,7 +543,7 @@ linux_set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f3
 		weak_magnitude   = u16(right * 0xFFFF),
 	}
 
-	linux.ioctl(linux.Fd(gp.fd), evdev.EVIOCSFF(), cast(uintptr)&effect)
+	linux.ioctl(linux.Fd(os.fd(gp.fd)), evdev.EVIOCSFF(), cast(uintptr)&effect)
 	
 	rumble_event := evdev.input_event {
 		type  = evdev.EV_FF,
@@ -624,7 +624,7 @@ Linux_Gamepad_Type :: enum {
 }
 
 Linux_Gamepad :: struct {
-	fd: os.Handle,
+	fd: ^os.File,
 	active: bool,
 	name: string,
 	axes: [Gamepad_Axis]Linux_Gamepad_Axis_Info,
