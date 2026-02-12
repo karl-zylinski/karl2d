@@ -5,12 +5,12 @@ package karl2d_web_entry
 
 import ex "../.."
 import "base:runtime"
-import "core:log"
 
 ctx: runtime.Context
 
 main :: proc() {
-	context.logger = log.create_console_logger()
+	// Disabled until Odin fixes logger on web again.
+	//context.logger = log.create_console_logger()
 	ctx = context
 	ex.init()
 }

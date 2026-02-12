@@ -10,7 +10,6 @@ import "core:math/linalg"
 import "core:slice"
 import "core:strings"
 import "core:reflect"
-import "core:os"
 import "core:time"
 import "core:encoding/endian"
 
@@ -1260,7 +1259,7 @@ set_sound_pitch :: proc(snd: Sound, pitch: f32) {
 // Load a wav file from disk, no other formats are supported right now.
 load_sound_from_file :: proc(filename: string) -> Sound {
 	when FILESYSTEM_SUPPORTED {
-		data, data_ok := os.read_entire_file(filename, allocator = frame_allocator)
+		data, data_ok := read_entire_file(filename, allocator = frame_allocator)
 
 		if !data_ok {
 			log.errorf("Failed loading sound %v", filename)
@@ -1674,7 +1673,7 @@ update_audio_mixer :: proc() {
 						snd.samples[ps.offset:],
 						overflow,
 						volume,
-						pan
+						pan,
 					)
 
 					ps.offset += num_mixed
@@ -1753,7 +1752,7 @@ load_font_from_file :: proc(filename: string) -> Font {
 		return {}
 	}
 
-	if data, data_ok := os.read_entire_file(filename, frame_allocator); data_ok {
+	if data, data_ok := read_entire_file(filename, frame_allocator); data_ok {
 		return load_font_from_bytes(data)
 	}
 
@@ -1811,7 +1810,7 @@ load_shader_from_file :: proc(
 	fragment_filename: string,
 	layout_formats: []Pixel_Format = {}
 ) -> Shader {
-	vertex_source, vertex_source_ok := os.read_entire_file(vertex_filename, frame_allocator)
+	vertex_source, vertex_source_ok := read_entire_file(vertex_filename, frame_allocator)
 
 	if !vertex_source_ok {
 		log.errorf("Failed loading shader %s", vertex_filename)
@@ -1824,7 +1823,7 @@ load_shader_from_file :: proc(
 		fragment_source = vertex_source
 	} else {
 		fragment_source_ok: bool
-		fragment_source, fragment_source_ok = os.read_entire_file(fragment_filename, frame_allocator)
+		fragment_source, fragment_source_ok = read_entire_file(fragment_filename, frame_allocator)
 
 		if !fragment_source_ok {
 			log.errorf("Failed loading shader %s", fragment_filename)

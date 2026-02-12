@@ -3,7 +3,7 @@
 
 package karl2d_test_examples
 
-import os "core:os/os2"
+import os "core:os"
 import "core:fmt"
 
 main :: proc() {

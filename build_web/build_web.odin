@@ -14,8 +14,7 @@
 package karl2d_build_web_tool
 
 import "core:fmt"
-import "core:path/filepath"
-import os "core:os/os2"
+import os "core:os"
 import "core:strings"
 
 main :: proc() {
@@ -60,22 +59,28 @@ main :: proc() {
 	fmt.ensuref(dir_stat.type == .Directory, "%v is not a directory!", dir)
 
 	dir_name := dir_stat.name
+	
+	path_join :: proc(parts: []string) -> string {
+		p, err := os.join_path(parts, allocator = context.allocator)
+		fmt.ensuref(err == nil, "Failed joining path: %v", err)
+		return p
+	}
 
-	bin_dir := filepath.join({dir, "bin"})
+	bin_dir := path_join({dir, "bin"})
 	os.make_directory(bin_dir, 0o755)
-	bin_web_dir := filepath.join({bin_dir, "web"})
+	bin_web_dir := path_join({bin_dir, "web"})
 	os.make_directory(bin_web_dir, 0o755)
 
-	build_dir := filepath.join({dir, "build"})
+	build_dir := path_join({dir, "build"})
 	os.make_directory(build_dir, 0o755)
-	build_web_dir := filepath.join({build_dir, "web"})
+	build_web_dir := path_join({build_dir, "web"})
 	os.make_directory(build_web_dir, 0o755)
 
-	entry_odin_file_path := filepath.join({build_web_dir, fmt.tprintf("%v_web_entry.odin", dir_name)})
+	entry_odin_file_path := path_join({build_web_dir, fmt.tprintf("%v_web_entry.odin", dir_name)})
 	write_entry_odin_err := os.write_entire_file(entry_odin_file_path, WEB_ENTRY_TEMPLATE)
 	fmt.ensuref(write_entry_odin_err == nil, "Failed writing %v. Error: %v", entry_odin_file_path, write_entry_odin_err)
 
-	entry_html_file_path := filepath.join({bin_web_dir, "index.html"})
+	entry_html_file_path := path_join({bin_web_dir, "index.html"})
 	write_entry_html_err := os.write_entire_file(entry_html_file_path, WEB_ENTRY_INDEX)
 	fmt.ensuref(write_entry_html_err == nil, "Failed writing %v. Error: %v", entry_html_file_path, write_entry_html_err)
 
@@ -86,17 +91,17 @@ main :: proc() {
 	ensure(odin_root_err == nil, "Failed fetching 'odin root' (Odin in PATH needed!)")
 	odin_root := string(odin_root_stdout)
 
-	js_runtime_path := filepath.join({odin_root, "core", "sys", "wasm", "js", "odin.js"})
+	js_runtime_path := path_join({odin_root, "core", "sys", "wasm", "js", "odin.js"})
 	fmt.ensuref(os.exists(js_runtime_path), "File does not exist: %v -- It is the Odin Javascript runtime that this program needs to copy to the web build output folder!", js_runtime_path)
-	os.copy_file(filepath.join({bin_web_dir, "odin.js"}), js_runtime_path)
+	os.copy_file(path_join({bin_web_dir, "odin.js"}), js_runtime_path)
 
-	write_audio_js_err := os.write_entire_file(filepath.join({bin_web_dir, "audio_backend_web_audio.js"}), AUDIO_JS)
+	write_audio_js_err := os.write_entire_file(path_join({bin_web_dir, "audio_backend_web_audio.js"}), AUDIO_JS)
 	fmt.ensuref(write_audio_js_err == nil, "Failed writing %v. Error: %v", entry_odin_file_path, write_audio_js_err)
 
-	write_audio_js_processor_err := os.write_entire_file(filepath.join({bin_web_dir, "audio_backend_web_audio_processor.js"}), AUDIO_PROCESSOR_JS)
+	write_audio_js_processor_err := os.write_entire_file(path_join({bin_web_dir, "audio_backend_web_audio_processor.js"}), AUDIO_PROCESSOR_JS)
 	fmt.ensuref(write_audio_js_processor_err == nil, "Failed writing %v. Error: %v", entry_odin_file_path, write_audio_js_processor_err)
 
-	wasm_out_path := filepath.join({bin_web_dir, "main.wasm"})
+	wasm_out_path := path_join({bin_web_dir, "main.wasm"})
 
 	build_command: [dynamic]string
 
