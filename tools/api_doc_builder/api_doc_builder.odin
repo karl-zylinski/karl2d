@@ -3,7 +3,7 @@
 // library's API surface.
 package karl2d_api_doc_builder
 
-import os "core:os"
+import "core:os"
 import "core:log"
 import "core:fmt"
 import "core:odin/parser"
@@ -22,7 +22,7 @@ main :: proc() {
 		output_filename = os.args[1]
 	}
 
-	o, o_err := os.open(output_filename, os.O_CREATE | os.O_TRUNC | os.O_WRONLY, 0o644)
+	o, o_err := os.open(output_filename, {.Create, .Trunc, .Write}, os.perm_number(0o644))
 	log.assertf(o_err == nil, "Couldn't open karl2d.doc.odin: %v", o_err)
 
 	pln :: fmt.fprintln

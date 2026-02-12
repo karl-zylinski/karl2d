@@ -3,7 +3,7 @@
 // that they changed the API in a Pull Request.
 package karl2d_api_verifier
 
-import os "core:os/os2"
+import "core:os"
 import "core:fmt"
 import "core:strings"
 
