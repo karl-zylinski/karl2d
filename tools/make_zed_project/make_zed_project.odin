@@ -51,12 +51,13 @@ main :: proc() {
 		return
 	}
 	
-	fmt.fprintln(debugh, "[")		
+	fmt.fprintln(debugh, "[")
+	
 	DEBUG_ENTRY_TEMPLATE ::
 `	{{
 		"label": "%s",
 		"adapter": "CodeLLDB",
-		"program": "%s",
+		"program": "bin/%s",
 		"request": "launch",
 		"workingDirectory": "${{workspace}}",
 		"build": {{
@@ -68,23 +69,33 @@ main :: proc() {
 				"-vet",
 				"-strict-style",
 				"-vet-tabs",
+				"-out:bin/%s"
 			]
 		}}
 	}},
 `
+
+	write_debug_entry :: proc(h: ^os.File, name: string, src: string) {
+		ext := ODIN_OS == .Windows ? "exe" : "bin"
+		name_with_ext := fmt.tprintf("%s.%s", name, ext)
+		
+		debug_build_config := fmt.tprintf(
+			DEBUG_ENTRY_TEMPLATE,
+			name,
+			name_with_ext,
+			src,
+			name_with_ext,
+		)
+		
+		fmt.fprintf(h, debug_build_config)
+	}
+
 	for e in examples_entries {
 		if e.type != .Directory {
 			continue
 		}
 
-		debug_build_config := fmt.tprintf(
-			DEBUG_ENTRY_TEMPLATE,
-			e.name,
-			e.name,
-			fmt.tprintf("examples/%v", e.name)
-		)
-		
-		fmt.fprint(debugh, debug_build_config)
+		write_debug_entry(debugh, e.name, fmt.tprintf("examples/%v", e.name))
 	}
 	
 	fmt.fprint(
