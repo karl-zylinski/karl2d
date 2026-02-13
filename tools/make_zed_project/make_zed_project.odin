@@ -66,7 +66,7 @@ main :: proc() {
 				"%s",
 				"-debug",
 				"-vet",
-				"-strict-style"
+				"-strict-style",
 				"-vet-tabs",
 			]
 		}}
@@ -91,9 +91,29 @@ main :: proc() {
 		debugh,
 		fmt.tprintf(
 			DEBUG_ENTRY_TEMPLATE,
-			"run_tests",
-			"run_tests",
+			"test_examples",
+			"test_examples",
 			"tools/test_examples"
+		)
+	)
+	
+	fmt.fprint(
+		debugh,
+		fmt.tprintf(
+			DEBUG_ENTRY_TEMPLATE,
+			"api_doc_builder",
+			"api_doc_builder",
+			"tools/api_doc_builder"
+		)
+	)
+	
+	fmt.fprint(
+		debugh,
+		fmt.tprintf(
+			DEBUG_ENTRY_TEMPLATE,
+			"api_verifier",
+			"api_verifier",
+			"tools/api_verifier"
 		)
 	)
 	
