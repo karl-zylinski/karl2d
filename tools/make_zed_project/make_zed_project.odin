@@ -14,6 +14,7 @@ main :: proc() {
 	
 	SETTINGS_TEMPLATE ::
 `{
+		"tab_size": 4,
 		"lsp": {
 			"ols": {
 				"initialization_options": {
@@ -98,35 +99,10 @@ main :: proc() {
 		write_debug_entry(debugh, e.name, fmt.tprintf("examples/%v", e.name))
 	}
 	
-	fmt.fprint(
-		debugh,
-		fmt.tprintf(
-			DEBUG_ENTRY_TEMPLATE,
-			"test_examples",
-			"test_examples",
-			"tools/test_examples"
-		)
-	)
-	
-	fmt.fprint(
-		debugh,
-		fmt.tprintf(
-			DEBUG_ENTRY_TEMPLATE,
-			"api_doc_builder",
-			"api_doc_builder",
-			"tools/api_doc_builder"
-		)
-	)
-	
-	fmt.fprint(
-		debugh,
-		fmt.tprintf(
-			DEBUG_ENTRY_TEMPLATE,
-			"api_verifier",
-			"api_verifier",
-			"tools/api_verifier"
-		)
-	)
+	write_debug_entry(debugh, "test_examples", "tools/test_examples")
+	write_debug_entry(debugh, "api_doc_builder", "tools/api_doc_builder")
+	write_debug_entry(debugh, "api_verifier", "tools/api_verifier")
+	write_debug_entry(debugh, "make_zed_project", "tools/make_zed_project")
 	
 	fmt.fprintln(debugh, "]")
 	os.close(debugh)
