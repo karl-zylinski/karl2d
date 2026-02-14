@@ -2149,6 +2149,7 @@ set_internal_state :: proc(state: ^State) {
 	frame_allocator = s.frame_allocator
 	pf = s.platform
 	rb = s.render_backend
+	ab = s.audio_backend
 	pf.set_internal_state(s.platform_state)
 	rb.set_internal_state(s.render_backend_state)
 }
