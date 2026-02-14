@@ -87,7 +87,7 @@ main :: proc() {
 			name_with_ext,
 		)
 		
-		fmt.fprintf(h, debug_build_config)
+		fmt.fprint(h, debug_build_config)
 	}
 
 	for e in examples_entries {

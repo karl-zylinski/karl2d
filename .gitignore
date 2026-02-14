@@ -1,6 +1,7 @@
 *.sublime-project
 *.sublime-workspace
 raylib/
+bin/
 *.pdb
 *.exe
 *.rdi
