@@ -192,6 +192,10 @@ mac_init :: proc(
 			windowDidResignKey = proc(_: ^NS.Notification) {
 				append(&s.events, Event_Window_Unfocused{})
 			},
+
+			windowDidEndLiveResize = proc(_: ^NS.Notification) {
+				append(&s.events, Event_Window_Unfocused{})
+			},
 		},
 		"Karl2DWindowDelegate",
 		context,
