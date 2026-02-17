@@ -103,7 +103,7 @@ main :: proc() {
 		LAUNCH_ENTRY_TEMPLATE ::
 `		{{
 			"name": "%s",
-			"type": "cppvsdbg",
+			"type": "%s",
 			"request": "launch",
 			"program": "${{workspaceFolder}}/bin/%s",
 			"args": [],
@@ -114,6 +114,7 @@ main :: proc() {
 		launch_entry := fmt.tprintf(
 			LAUNCH_ENTRY_TEMPLATE,
 			name,
+			ODIN_OS == .Windows ? "cppvsdbg" : "lldb",
 			name_with_ext(name),
 			name,
 		)

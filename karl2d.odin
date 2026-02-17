@@ -1691,7 +1691,11 @@ update_audio_mixer :: proc() {
 			
 			num_mixed_f32 := f32(num_mixed) * samples_per_mixer_sample
 			fraction_advance := ps.offset_fraction + num_mixed_f32
+
+			// The fraction advance may become larger than 1, in which case the offset needs to eat
+			// the integer part.
 			ps.offset += int(fraction_advance)
+			
 			ps.offset_fraction = linalg.fract(fraction_advance)
 		} else {
 			num_mixed = add(
@@ -1705,6 +1709,7 @@ update_audio_mixer :: proc() {
 			)
 			
 			ps.offset += num_mixed
+			ps.offset_fraction = 0
 		}
 
 		// We didn't mix all the samples! This means that we reached the end of the sound.
@@ -1748,6 +1753,7 @@ update_audio_mixer :: proc() {
 					)
 
 					ps.offset += num_mixed
+					ps.offset_fraction = 0
 				}
 			} else {
 				unordered_remove(&s.playing_sounds, idx)
