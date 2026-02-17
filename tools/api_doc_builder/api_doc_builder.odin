@@ -28,7 +28,7 @@ main :: proc() {
 	pln :: fmt.fprintln
 
 	pln(o, `// This file gives an overview of the Karl2D API. It shows all procedures without their bodies.`)
-	pln(o, `// This is generated from the contents of 'karl2d.odin'.`)
+	pln(o, `// This file is generated from the contents of 'karl2d.odin'. It should not be compiled.`)
 	
 	pln(o, "#+build ignore")
 	pln(o, "package karl2d")

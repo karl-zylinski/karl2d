@@ -1,5 +1,5 @@
 // This file gives an overview of the Karl2D API. It shows all procedures without their bodies.
-// This is generated from the contents of 'karl2d.odin'.
+// This file is generated from the contents of 'karl2d.odin'. It should not be compiled.
 #+build ignore
 package karl2d
 
