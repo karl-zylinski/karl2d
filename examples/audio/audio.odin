@@ -63,19 +63,19 @@ step :: proc() -> bool {
 	}
 	
 	if k2.key_is_held(.Up) {
-		snd_volume += k2.get_frame_time() * 0.5
+		snd_volume += k2.get_frame_time() * 2
 	}
 
 	if k2.key_is_held(.Down) {
-		snd_volume -= k2.get_frame_time() * 0.5
+		snd_volume -= k2.get_frame_time() * 2
 	}
 	
 	if k2.key_is_held(.Left) {
-		snd_pan -= k2.get_frame_time() * 0.5
+		snd_pan -= k2.get_frame_time() * 2
 	}
 
 	if k2.key_is_held(.Right) {
-		snd_pan += k2.get_frame_time() * 0.5
+		snd_pan += k2.get_frame_time() * 2
 	}
 	
 	if k2.key_is_held(.W) {

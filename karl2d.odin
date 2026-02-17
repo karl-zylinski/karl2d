@@ -1226,7 +1226,7 @@ set_sound_volume :: proc(snd: Sound, volume: f32) {
 		return
 	}
 	
-	d.volume = clamp(volume, 0, 1)
+	d.target_volume = clamp(volume, 0, 1)
 }
 
 // Set the pan of a sound. This will affect all instances of this sound that are currently playing.
@@ -1239,7 +1239,7 @@ set_sound_pan :: proc(snd: Sound, pan: f32) {
 		return
 	}
 	
-	d.pan = clamp(pan, -1, 1)
+	d.target_pan = clamp(pan, -1, 1)
 }
 
 // Set the pitch of a sound. This will affect all instances of this sound that are currently
@@ -1253,7 +1253,7 @@ set_sound_pitch :: proc(snd: Sound, pitch: f32) {
 		return
 	}
 	
-	d.pitch = max(pitch, 0.01)
+	d.target_pitch = max(pitch, 0.01)
 }
 
 // Load a wav file from disk, no other formats are supported right now.
@@ -1487,7 +1487,9 @@ load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_
 		sample_rate = sample_rate,
 		samples = samples,
 		volume = 1,
+		target_volume = 1,
 		pitch = 1,
+		target_pitch = 1,
 	}
 
 	return hm.add(&s.sounds, snd_data)
@@ -1540,8 +1542,10 @@ update_audio_mixer :: proc() {
 		dest: []Audio_Sample,
 		source: []Audio_Sample,
 		num: int,
-		volume: f32,
-		pan: [2]f32,
+		volume_start: f32,
+		volume_end: f32,
+		pan_start: [2]f32,
+		pan_end: [2]f32,
 	) -> int {
 		to_write := num
 
@@ -1550,6 +1554,9 @@ update_audio_mixer :: proc() {
 		}
 		
 		for samp_idx in 0..<to_write {
+			t := f32(samp_idx) / f32(to_write)
+			volume := math.lerp(volume_start, volume_end, t)
+			pan := linalg.lerp(pan_start, pan_end, t)
 			dest[samp_idx] += pan * source[samp_idx] * volume
 		}
 
@@ -1562,15 +1569,18 @@ update_audio_mixer :: proc() {
 	add_interpolate :: proc(
 		dest: []Audio_Sample,
 		source: []Audio_Sample,
+		source_offset: f32,
 		num_dest: int,
 		dest_source_ratio: f32,
-		volume: f32,
-		pan: [2]f32,
+		volume_start: f32,
+		volume_end: f32,
+		pan_start: [2]f32,
+		pan_end: [2]f32,
 	) -> int {
 		
 		dest_idx: int
 		for ; dest_idx < num_dest; dest_idx += 1 {
-			src_pos := f32(dest_idx) * dest_source_ratio
+			src_pos := source_offset + f32(dest_idx) * dest_source_ratio
 			src_idx := int(src_pos)
 			
 			if src_idx >= len(source) {
@@ -1582,6 +1592,10 @@ update_audio_mixer :: proc() {
 
 			prev_val := source[src_idx]
 			cur_val := source[src_next]
+
+			t := f32(dest_idx) / f32(num_dest)
+			volume := math.lerp(volume_start, volume_end, t)
+			pan := linalg.lerp(pan_start, pan_end, t)
 
 			dest[dest_idx] += pan * linalg.lerp(prev_val, cur_val, frac) * volume
 		}
@@ -1599,22 +1613,62 @@ update_audio_mixer :: proc() {
 			idx -= 1
 			continue
 		}
-		
-		volume := clamp(snd.volume, 0, 1)
-		
-		if volume == 0 {
+
+		// Before we get to the mixing we smoothly adjust pitch, volume and pan. We do this to avoid
+		// clicks in the audio. The clicks happen because abrupt changes cause discontinuities in
+		// the audio waveform. Understand: Sound does not happen because the waveform has a high
+		// value, it happens because there is a sudden change in the waveform. Bigger change, bigger
+		// sound.
+
+		calc_adjust_parameter_delta :: proc(sample_rate: int, pitch: f32) -> f32 {
+			RAMP_TIME :: 0.03
+			ramp_samples := RAMP_TIME * f32(sample_rate) * pitch
+			return AUDIO_MIX_CHUNK_SIZE / ramp_samples
+		}
+
+		move_towards :: proc(current: f32, target: f32, delta: f32) -> f32 {
+			if abs(target - current) < delta {
+				return target
+			}
+
+			dir := math.sign(target - current)
+			return current + dir * delta
+		}
+
+		// We get the delta twice because we first need to move the pitch towards its target.
+		adjust_parameter_delta := calc_adjust_parameter_delta(snd.sample_rate, max(snd.pitch, 0.01))
+		snd.pitch = max(move_towards(snd.pitch, snd.target_pitch, adjust_parameter_delta), 0.01)
+		pitch := snd.pitch
+		adjust_parameter_delta = calc_adjust_parameter_delta(snd.sample_rate, pitch)
+
+		// We can't just use the `volume_end` value for the volume. We are going to mix in
+		// `AUDIO_MIX_CHUNK_SIZE` number of samples. We'd still get clicks in the sound if we hopped
+		// to the ending volume. Instead, we calculate what the first sample should use and what
+		// the last one should use. Then we feed those into the `add`/`add_interpolate` procedures.
+		// It will lerp across the range as it is mixing in the samples.
+
+		volume_start := clamp(snd.volume, 0, 1)
+		volume_end := clamp(move_towards(snd.volume, snd.target_volume, adjust_parameter_delta), 0, 1)
+		snd.volume = volume_end
+
+		if volume_start == volume_end && volume_end == 0 {
 			continue
 		}
 		
-		pitch := max(snd.pitch, 0.01)
-		
-		snd_pan := clamp(snd.pan, -1, 1)
+		pan_start := clamp(snd.pan, -1, 1)
+		pan_end := clamp(move_towards(snd.pan, snd.target_pan, adjust_parameter_delta), -1, 1)
+		snd.pan = pan_end
 		
 		// Use cos/sine to get a constant-power audio curve. This means that the sound won't get
 		// quieter in the middle, but will instead just pan.
-		pan := [2]f32 {
-			math.cos((snd_pan + 1) * math.PI / 4),
-			math.sin((snd_pan + 1) * math.PI / 4),
+		pan_stereo_start := [2]f32 {
+			math.cos((pan_start + 1) * math.PI / 4),
+			math.sin((pan_start + 1) * math.PI / 4),
+		}
+
+		pan_stereo_end := [2]f32 {
+			math.cos((pan_end + 1) * math.PI / 4),
+			math.sin((pan_end + 1) * math.PI / 4),
 		}
 
 		interpolate := snd.sample_rate != AUDIO_MIX_SAMPLE_RATE || pitch != 1
@@ -1626,20 +1680,28 @@ update_audio_mixer :: proc() {
 			num_mixed = add_interpolate(
 				s.mix_buffer[s.mix_buffer_offset:],
 				snd.samples[ps.offset:],
+				ps.offset_fraction,
 				AUDIO_MIX_CHUNK_SIZE,
 				samples_per_mixer_sample,
-				volume,
-				pan,
+				volume_start,
+				volume_end,
+				pan_stereo_start,
+				pan_stereo_end,
 			)
 			
-			ps.offset += int(f32(num_mixed) * samples_per_mixer_sample)
+			num_mixed_f32 := f32(num_mixed) * samples_per_mixer_sample
+			fraction_advance := ps.offset_fraction + num_mixed_f32
+			ps.offset += int(fraction_advance)
+			ps.offset_fraction = linalg.fract(fraction_advance)
 		} else {
 			num_mixed = add(
 				s.mix_buffer[s.mix_buffer_offset:],
 				snd.samples[ps.offset:],
 				AUDIO_MIX_CHUNK_SIZE,
-				volume,
-				pan,
+				volume_start,
+				volume_end,
+				pan_stereo_start,
+				pan_stereo_end,
 			)
 			
 			ps.offset += num_mixed
@@ -1649,6 +1711,7 @@ update_audio_mixer :: proc() {
 		if num_mixed < AUDIO_MIX_CHUNK_SIZE {
 			if ps.loop {
 				ps.offset = 0
+				ps.offset_fraction = 0
 
 				// The sound looped. Make sure to mix in the remaining samples from the start of the
 				// sound!
@@ -1660,20 +1723,28 @@ update_audio_mixer :: proc() {
 					num_mixed = add_interpolate(
 						s.mix_buffer[s.mix_buffer_offset + num_mixed:],
 						snd.samples[ps.offset:],
+						ps.offset_fraction,
 						overflow,
 						samples_per_mixer_sample,
-						volume,
-						pan,
+						volume_start,
+						volume_end,
+						pan_stereo_start,
+						pan_stereo_end,
 					)
 
-					ps.offset += int(f32(num_mixed) * samples_per_mixer_sample)
+					num_mixed_f32 := f32(num_mixed) * samples_per_mixer_sample
+					fraction_advance := ps.offset_fraction + num_mixed_f32
+					ps.offset += int(fraction_advance)
+					ps.offset_fraction = linalg.fract(fraction_advance)
 				} else {
 					num_mixed = add(
 						s.mix_buffer[s.mix_buffer_offset + num_mixed:],
 						snd.samples[ps.offset:],
 						overflow,
-						volume,
-						pan,
+						volume_start,
+						volume_end,
+						pan_stereo_start,
+						pan_stereo_end,
 					)
 
 					ps.offset += num_mixed
@@ -2429,13 +2500,24 @@ Sound_Data :: struct {
 	samples: []Audio_Sample,
 	sample_rate: int,
 	volume: f32,
+	target_volume: f32,
 	pan: f32,
+	target_pan: f32,
 	pitch: f32,
+	target_pitch: f32,
 }
 
 Playing_Sound :: struct {
 	sound: Sound,
+
+	// How many samples have played?
 	offset: int,
+
+	// Only used when playing sounds that have pitch != 1 or when the sound has a sample rate that
+	// does not match the mixer's sample rate. In those cases we may get "fractional samples"
+	// because we may be in samples that are inbetween two samples in the original sound.
+	offset_fraction: f32,
+
 	loop: bool,
 }
 

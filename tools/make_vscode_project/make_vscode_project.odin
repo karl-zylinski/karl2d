@@ -103,13 +103,12 @@ main :: proc() {
 		LAUNCH_ENTRY_TEMPLATE ::
 `		{{
 			"name": "%s",
-			"type": "lldb",
+			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${{workspaceFolder}}/bin/%s",
 			"args": [],
 			"cwd": "${{workspaceFolder}}",
 			"preLaunchTask": "build %s",
-			"stopOnEntry": false
 		}}`
 
 		launch_entry := fmt.tprintf(
