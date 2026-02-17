@@ -810,13 +810,24 @@ Sound_Data :: struct {
 	samples: []Audio_Sample,
 	sample_rate: int,
 	volume: f32,
+	target_volume: f32,
 	pan: f32,
+	target_pan: f32,
 	pitch: f32,
+	target_pitch: f32,
 }
 
 Playing_Sound :: struct {
 	sound: Sound,
+
+	// How many samples have played?
 	offset: int,
+
+	// Only used when playing sounds that have pitch != 1 or when the sound has a sample rate that
+	// does not match the mixer's sample rate. In those cases we may get "fractional samples"
+	// because we may be in samples that are inbetween two samples in the original sound.
+	offset_fraction: f32,
+
 	loop: bool,
 }
 
