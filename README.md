@@ -1,5 +1,5 @@
 >[!WARNING]
->Due to the merge of the new `core:os` replacement in Odin, this library currently only works with the master version of Odin. The last version that worked with a release version was 54a5150f386f59800a15a658f1fa1ed39b3a62c2. Everything will be fine again at the beginning of March when the new Odin release drops.
+>Due to the merge of the new `core:os` replacement in Odin, this library currently only works with nightly builds of Odin and the master version of Odin. The last version that worked with a release version was 54a5150f386f59800a15a658f1fa1ed39b3a62c2. Everything will be fine again at the beginning of March when the new Odin release drops.
 <img width="328" height="64" alt="karl2d_logo" src="https://github.com/user-attachments/assets/5ebd43c8-5a1d-4864-b8eb-7ce4b6a5dba0" />
 
 Karl2D is a library for creating 2D games using the Odin programming language. The focus is on making 2D gamdev fun, fast and beginner friendly. All that, while using as few dependencies as I can. Less dependencies, less problems when you need to ship the game!
