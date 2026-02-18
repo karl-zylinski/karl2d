@@ -810,7 +810,7 @@ Font_Data :: struct {
 	fontstash_handle: int,
 }
 
-Handle :: hm.Handle
+Handle :: hm.Handle64
 Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
@@ -941,8 +941,8 @@ State :: struct {
 	audio_backend: Audio_Backend_Interface,
 	audio_backend_state: rawptr,
 
-	sound_data: hm.Handle_Map(Sound_Data, Sound_Data_Handle, 1024*10),
-	sound_instances: hm.Handle_Map(Sound_Instance, Sound, 1024*10),
+	sound_data: hm.Dynamic_Handle_Map(Sound_Data, Sound_Data_Handle),
+	sound_instances: hm.Dynamic_Handle_Map(Sound_Instance, Sound),
 
 	// Sounds that have been started as because `play_sound` was called.
 	playing_sounds: [dynamic]Playing_Sound,

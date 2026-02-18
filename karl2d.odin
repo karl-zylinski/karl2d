@@ -21,7 +21,7 @@ import "core:image/bmp"
 import "core:image/png"
 import "core:image/tga"
 
-import hm "handle_map"
+import hm "core:container/handle_map"
 
 //-----------------------------------------------//
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
@@ -192,6 +192,8 @@ shutdown :: proc() {
 	{
 		ab.shutdown()
 		delete(s.playing_sounds)
+		hm.dynamic_destroy(&s.sound_instances)
+		hm.dynamic_destroy(&s.sound_data)
 		free(s.audio_backend_state, s.allocator)
 	}
 
@@ -1503,7 +1505,12 @@ load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_
 		instances = 1,
 	}
 
-	data_handle := hm.add(&s.sound_data, snd_data)
+	data_handle, data_handle_err := hm.add(&s.sound_data, snd_data)
+
+	if data_handle_err != nil {
+		log.errorf("Failed to load sound. Error: %v", data_handle_err)
+		return SOUND_NONE
+	}
 
 	snd_inst := Sound_Instance {
 		sound_data_handle = data_handle,
@@ -1513,7 +1520,15 @@ load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_
 		target_pitch = 1,
 	}
 
-	return hm.add(&s.sound_instances, snd_inst)
+	snd_handle, snd_handle_err := hm.add(&s.sound_instances, snd_inst)
+
+	if snd_handle_err != nil {
+		log.errorf("Failed to load sound. Error: %v", snd_handle_err)
+		hm.remove(&s.sound_data, data_handle)
+		return SOUND_NONE
+	}
+
+return snd_handle
 }
 
 // Makes a new sound that uses the same data as the original sound, but you can have different
@@ -1535,9 +1550,16 @@ create_sound_instance :: proc(snd: Sound) -> Sound {
 		return SOUND_NONE
 	}
 
-	data.instances += 1
 	inst_copy := inst^
-	return hm.add(&s.sound_instances, inst_copy)
+	snd_handle, snd_handle_err := hm.add(&s.sound_instances, inst_copy)
+
+	if snd_handle_err != nil {
+		log.errorf("Failed to create sound instance. Error: %v", snd_handle_err)
+		return SOUND_NONE
+	}
+
+	data.instances += 1
+	return snd_handle
 }
 
 // Destroy a sound instance. If this is the last instance that uses the same data, then the data
@@ -2552,7 +2574,7 @@ Font_Data :: struct {
 	fontstash_handle: int,
 }
 
-Handle :: hm.Handle
+Handle :: hm.Handle64
 Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
@@ -2683,8 +2705,8 @@ State :: struct {
 	audio_backend: Audio_Backend_Interface,
 	audio_backend_state: rawptr,
 
-	sound_data: hm.Handle_Map(Sound_Data, Sound_Data_Handle, 1024*10),
-	sound_instances: hm.Handle_Map(Sound_Instance, Sound, 1024*10),
+	sound_data: hm.Dynamic_Handle_Map(Sound_Data, Sound_Data_Handle),
+	sound_instances: hm.Dynamic_Handle_Map(Sound_Instance, Sound),
 
 	// Sounds that have been started as because `play_sound` was called.
 	playing_sounds: [dynamic]Playing_Sound,
