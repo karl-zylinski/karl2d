@@ -1204,8 +1204,9 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
-// Play a sound previous loaded using `load_sound_from_file` or `load_sound_from_bytes`. The
-// sound will be mixed when `update_audio_mixer`, which also happens as part of `update`.
+// Play a sound previous created using `load_sound_from_file` or `load_sound_from_bytes` or
+// `create_sound_instance`. The sound will be mixed when `update_audio_mixer` runs, which
+// happens as part of `update`.
 play_sound :: proc(snd: Sound, loop := false) {
 	append(
 		&s.playing_sounds,
@@ -1216,10 +1217,11 @@ play_sound :: proc(snd: Sound, loop := false) {
 	)
 }
 
-// Set the volume of a sound. This will affect all instances of this sound that are currently
-// playing. Volume range is 0 to 1, where 0 is silence and 1 is the original volume of the sound.
+// Set the volume of a sound. Range: 0 to 1, where 0 is silence and 1 is the original volume of the
+// sound. The volume change will only affect this instance of the sound. Use `create_sound_instance`
+// to create more instances without duplicating data.
 set_sound_volume :: proc(snd: Sound, volume: f32) {
-	d := hm.get(&s.sounds, snd)
+	d := hm.get(&s.sound_instances, snd)
 	
 	if d == nil {
 		log.error("Cannot set volume, sound does not exist.")
@@ -1229,10 +1231,11 @@ set_sound_volume :: proc(snd: Sound, volume: f32) {
 	d.target_volume = clamp(volume, 0, 1)
 }
 
-// Set the pan of a sound. This will affect all instances of this sound that are currently playing.
-// Pan range is -1 to 1, where -1 is full left, 0 is center and 1 is full right.
+// Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
+// The pan change will only affect this instance of the sound. Use `create_sound_instance` to create
+// more instances without duplicating data.
 set_sound_pan :: proc(snd: Sound, pan: f32) {
-	d := hm.get(&s.sounds, snd)
+	d := hm.get(&s.sound_instances, snd)
 	
 	if d == nil {
 		log.error("Cannot set pan, sound does not exist.")
@@ -1242,11 +1245,11 @@ set_sound_pan :: proc(snd: Sound, pan: f32) {
 	d.target_pan = clamp(pan, -1, 1)
 }
 
-// Set the pitch of a sound. This will affect all instances of this sound that are currently
-// playing. Pitch range is 0.01 to infinity, where 0.01 is the lowest pitch and higher values
-// increase the pitch.
+// Set the pitch of a sound. Range: 0.01 to infinity, where 0.01 is the lowest pitch and higher
+// values increase the pitch. The pitch change will only affect this instance of the sound. Use
+// `create_sound_instance` to create more instances without duplicating data.
 set_sound_pitch :: proc(snd: Sound, pitch: f32) {
-	d := hm.get(&s.sounds, snd)
+	d := hm.get(&s.sound_instances, snd)
 	
 	if d == nil {
 		log.error("Cannot set pitch, sound does not exist.")
@@ -1256,7 +1259,10 @@ set_sound_pitch :: proc(snd: Sound, pitch: f32) {
 	d.target_pitch = max(pitch, 0.01)
 }
 
-// Load a wav file from disk, no other formats are supported right now.
+// Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. Use 
+// `create_sound_instance` to create more instances of the same sound without duplicating data.
+//
+// Currently only supports 16 bit WAV files.
 load_sound_from_file :: proc(filename: string) -> Sound {
 	when FILESYSTEM_SUPPORTED {
 		data, data_ok := read_entire_file(filename, allocator = frame_allocator)
@@ -1272,8 +1278,13 @@ load_sound_from_file :: proc(filename: string) -> Sound {
 	}
 }
 
-// Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Currently only
-// supports 16 bit WAV files, but the sample rate can be whatever.
+// Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Returns a `Sound`
+// which can be used with `play_sound`. Use `create_sound_instance` to create more instances of the
+// same sound without duplicating data.
+//
+// Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
+// including the header. If your data does not include the header, then please use
+// `load_sound_from_bytes_raw` instead.
 load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 	d := bytes
 
@@ -1442,6 +1453,9 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 	return load_sound_from_bytes_raw(samples, format, int(sample_rate))
 }
 
+// Load a sound from some raw audio data. You need to specify the data, format and sample rate of
+// the sound yourself. This assumes that there is no header in the data. If your data has a header
+// (you read the data from a file on disk), then please use `load_sound_from_bytes` instead.
 load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_rate: int) -> Sound {
 	samples: []Audio_Sample
 
@@ -1486,25 +1500,71 @@ load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_
 	snd_data := Sound_Data {
 		sample_rate = sample_rate,
 		samples = samples,
+		instances = 1,
+	}
+
+	data_handle := hm.add(&s.sound_data, snd_data)
+
+	snd_inst := Sound_Instance {
+		sound_data_handle = data_handle,
 		volume = 1,
 		target_volume = 1,
 		pitch = 1,
 		target_pitch = 1,
 	}
 
-	return hm.add(&s.sounds, snd_data)
+	return hm.add(&s.sound_instances, snd_inst)
 }
 
-destroy_sound :: proc(snd: Sound) {
-	data := hm.get(&s.sounds, snd)
+// Makes a new sound that uses the same data as the original sound, but you can have different
+// settings such as volume, pan and pitch. This makes it possible to play the same sound multiple
+// times at once with different settings. The data is destroyed when all the instances (including
+// the original instance) are destroyed.
+create_sound_instance :: proc(snd: Sound) -> Sound {
+	inst := hm.get(&s.sound_instances, snd)
+
+	if inst == nil {
+		log.error("Cannot create sound instance, sound does not exist.")
+		return SOUND_NONE
+	}
+
+	data := hm.get(&s.sound_data, inst.sound_data_handle)
 
 	if data == nil {
+		log.error("Cannot create sound instance, sound data does not exist.")
+		return SOUND_NONE
+	}
+
+	data.instances += 1
+	inst_copy := inst^
+	return hm.add(&s.sound_instances, inst_copy)
+}
+
+// Destroy a sound instance. If this is the last instance that uses the same data, then the data
+// will also be destroyed.
+destroy_sound :: proc(snd: Sound) {
+	inst := hm.get(&s.sound_instances, snd)
+
+	if inst == nil {
 		log.error("Trying to destroy invalid sound. It may already be destroyed, or the handle may be invalid.")
 		return
 	}
 
-	delete(data.samples, s.allocator)
-	hm.remove(&s.sounds, snd)
+	data := hm.get(&s.sound_data, inst.sound_data_handle)
+
+	if data == nil {
+		log.error("Trying to destroy sound instance, but its data does not exist.")
+		return
+	}
+
+	data.instances -= 1
+
+	if data.instances == 0 {
+		delete(data.samples, s.allocator)
+		hm.remove(&s.sound_data, inst.sound_data_handle)
+	}
+
+	hm.remove(&s.sound_instances, snd)
 }
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
@@ -1564,7 +1624,7 @@ update_audio_mixer :: proc() {
 	}
 
 	// For usage when the sample rates don't match. Needs a `dest_source_ratio` parameter that tells
-	// us how the sample ratios relate. It's used for gettinf from indices from dest sample space
+	// us how the sample ratios relate. It's used for getting from indices from dest sample space
 	// to source sample space.
 	add_interpolate :: proc(
 		dest: []Audio_Sample,
@@ -1605,10 +1665,19 @@ update_audio_mixer :: proc() {
 
 	for idx := 0; idx < len(s.playing_sounds); idx += 1 {
 		ps := &s.playing_sounds[idx]
-		snd := hm.get(&s.sounds, ps.sound)
+		inst := hm.get(&s.sound_instances, ps.sound)
 
-		if snd == nil {
+		if inst == nil {
 			log.error("Trying to play destroyed sound")
+			unordered_remove(&s.playing_sounds, idx)
+			idx -= 1
+			continue
+		}
+
+		data := hm.get(&s.sound_data, inst.sound_data_handle)
+
+		if data == nil {
+			log.error("Trying to play sound with destroyed data")
 			unordered_remove(&s.playing_sounds, idx)
 			idx -= 1
 			continue
@@ -1636,10 +1705,10 @@ update_audio_mixer :: proc() {
 		}
 
 		// We get the delta twice because we first need to move the pitch towards its target.
-		adjust_parameter_delta := calc_adjust_parameter_delta(snd.sample_rate, max(snd.pitch, 0.01))
-		snd.pitch = max(move_towards(snd.pitch, snd.target_pitch, adjust_parameter_delta), 0.01)
-		pitch := snd.pitch
-		adjust_parameter_delta = calc_adjust_parameter_delta(snd.sample_rate, pitch)
+		adjust_parameter_delta := calc_adjust_parameter_delta(data.sample_rate, max(inst.pitch, 0.01))
+		inst.pitch = max(move_towards(inst.pitch, inst.target_pitch, adjust_parameter_delta), 0.01)
+		pitch := inst.pitch
+		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch)
 
 		// We can't just use the `volume_end` value for the volume. We are going to mix in
 		// `AUDIO_MIX_CHUNK_SIZE` number of samples. We'd still get clicks in the sound if we hopped
@@ -1647,17 +1716,17 @@ update_audio_mixer :: proc() {
 		// the last one should use. Then we feed those into the `add`/`add_interpolate` procedures.
 		// It will lerp across the range as it is mixing in the samples.
 
-		volume_start := clamp(snd.volume, 0, 1)
-		volume_end := clamp(move_towards(snd.volume, snd.target_volume, adjust_parameter_delta), 0, 1)
-		snd.volume = volume_end
+		volume_start := clamp(inst.volume, 0, 1)
+		volume_end := clamp(move_towards(inst.volume, inst.target_volume, adjust_parameter_delta), 0, 1)
+		inst.volume = volume_end
 
 		if volume_start == volume_end && volume_end == 0 {
 			continue
 		}
 		
-		pan_start := clamp(snd.pan, -1, 1)
-		pan_end := clamp(move_towards(snd.pan, snd.target_pan, adjust_parameter_delta), -1, 1)
-		snd.pan = pan_end
+		pan_start := clamp(inst.pan, -1, 1)
+		pan_end := clamp(move_towards(inst.pan, inst.target_pan, adjust_parameter_delta), -1, 1)
+		inst.pan = pan_end
 		
 		// Use cos/sine to get a constant-power audio curve. This means that the sound won't get
 		// quieter in the middle, but will instead just pan.
@@ -1671,15 +1740,15 @@ update_audio_mixer :: proc() {
 			math.sin((pan_end + 1) * math.PI / 4),
 		}
 
-		interpolate := snd.sample_rate != AUDIO_MIX_SAMPLE_RATE || pitch != 1
+		interpolate := data.sample_rate != AUDIO_MIX_SAMPLE_RATE || pitch != 1
 		num_mixed: int
 		
 		if interpolate {
-			samples_per_mixer_sample := (pitch*f32(snd.sample_rate))/f32(AUDIO_MIX_SAMPLE_RATE)
+			samples_per_mixer_sample := (pitch*f32(data.sample_rate))/f32(AUDIO_MIX_SAMPLE_RATE)
 
 			num_mixed = add_interpolate(
 				s.mix_buffer[s.mix_buffer_offset:],
-				snd.samples[ps.offset:],
+				data.samples[ps.offset:],
 				ps.offset_fraction,
 				AUDIO_MIX_CHUNK_SIZE,
 				samples_per_mixer_sample,
@@ -1700,7 +1769,7 @@ update_audio_mixer :: proc() {
 		} else {
 			num_mixed = add(
 				s.mix_buffer[s.mix_buffer_offset:],
-				snd.samples[ps.offset:],
+				data.samples[ps.offset:],
 				AUDIO_MIX_CHUNK_SIZE,
 				volume_start,
 				volume_end,
@@ -1723,11 +1792,11 @@ update_audio_mixer :: proc() {
 				overflow := AUDIO_MIX_CHUNK_SIZE - num_mixed
 
 				if interpolate {
-					samples_per_mixer_sample := (pitch*f32(snd.sample_rate))/f32(AUDIO_MIX_SAMPLE_RATE)
+					samples_per_mixer_sample := (pitch*f32(data.sample_rate))/f32(AUDIO_MIX_SAMPLE_RATE)
 
 					num_mixed = add_interpolate(
 						s.mix_buffer[s.mix_buffer_offset + num_mixed:],
-						snd.samples[ps.offset:],
+						data.samples[ps.offset:],
 						ps.offset_fraction,
 						overflow,
 						samples_per_mixer_sample,
@@ -1744,7 +1813,7 @@ update_audio_mixer :: proc() {
 				} else {
 					num_mixed = add(
 						s.mix_buffer[s.mix_buffer_offset + num_mixed:],
-						snd.samples[ps.offset:],
+						data.samples[ps.offset:],
 						overflow,
 						volume_start,
 						volume_end,
@@ -2501,10 +2570,21 @@ Sound :: distinct Handle
 
 SOUND_NONE :: Sound {}
 
+Sound_Data_Handle :: distinct Handle
+
 Sound_Data :: struct {
-	handle: Sound,
+	handle: Sound_Data_Handle,
 	samples: []Audio_Sample,
 	sample_rate: int,
+
+	// When a Sound_Instance is destroyed, we check if this reaches zero. If it does, then the
+	// Sound_Data and its samples slice are also destroyed/freed.
+	instances: int,
+}
+
+Sound_Instance :: struct {
+	handle: Sound,
+	sound_data_handle: Sound_Data_Handle,
 	volume: f32,
 	target_volume: f32,
 	pan: f32,
@@ -2603,7 +2683,8 @@ State :: struct {
 	audio_backend: Audio_Backend_Interface,
 	audio_backend_state: rawptr,
 
-	sounds: hm.Handle_Map(Sound_Data, Sound, 1024*10),
+	sound_data: hm.Handle_Map(Sound_Data, Sound_Data_Handle, 1024*10),
+	sound_instances: hm.Handle_Map(Sound_Instance, Sound, 1024*10),
 
 	// Sounds that have been started as because `play_sound` was called.
 	playing_sounds: [dynamic]Playing_Sound,

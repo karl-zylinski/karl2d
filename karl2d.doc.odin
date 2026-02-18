@@ -364,32 +364,54 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
-// Play a sound previous loaded using `load_sound_from_file` or `load_sound_from_bytes`. The
-// sound will be mixed when `update_audio_mixer`, which also happens as part of `update`.
+// Play a sound previous created using `load_sound_from_file` or `load_sound_from_bytes` or
+// `create_sound_instance`. The sound will be mixed when `update_audio_mixer` runs, which
+// happens as part of `update`.
 play_sound :: proc(snd: Sound, loop := false)
 
-// Set the volume of a sound. This will affect all instances of this sound that are currently
-// playing. Volume range is 0 to 1, where 0 is silence and 1 is the original volume of the sound.
+// Set the volume of a sound. Range: 0 to 1, where 0 is silence and 1 is the original volume of the
+// sound. The volume change will only affect this instance of the sound. Use `create_sound_instance`
+// to create more instances without duplicating data.
 set_sound_volume :: proc(snd: Sound, volume: f32)
 
-// Set the pan of a sound. This will affect all instances of this sound that are currently playing.
-// Pan range is -1 to 1, where -1 is full left, 0 is center and 1 is full right.
+// Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
+// The pan change will only affect this instance of the sound. Use `create_sound_instance` to create
+// more instances without duplicating data.
 set_sound_pan :: proc(snd: Sound, pan: f32)
 
-// Set the pitch of a sound. This will affect all instances of this sound that are currently
-// playing. Pitch range is 0.01 to infinity, where 0.01 is the lowest pitch and higher values
-// increase the pitch.
+// Set the pitch of a sound. Range: 0.01 to infinity, where 0.01 is the lowest pitch and higher
+// values increase the pitch. The pitch change will only affect this instance of the sound. Use
+// `create_sound_instance` to create more instances without duplicating data.
 set_sound_pitch :: proc(snd: Sound, pitch: f32)
 
-// Load a wav file from disk, no other formats are supported right now.
+// Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. Use 
+// `create_sound_instance` to create more instances of the same sound without duplicating data.
+//
+// Currently only supports 16 bit WAV files.
 load_sound_from_file :: proc(filename: string) -> Sound
 
-// Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Currently only
-// supports 16 bit WAV files, but the sample rate can be whatever.
+// Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Returns a `Sound`
+// which can be used with `play_sound`. Use `create_sound_instance` to create more instances of the
+// same sound without duplicating data.
+//
+// Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
+// including the header. If your data does not include the header, then please use
+// `load_sound_from_bytes_raw` instead.
 load_sound_from_bytes :: proc(bytes: []byte) -> Sound
 
+// Load a sound from some raw audio data. You need to specify the data, format and sample rate of
+// the sound yourself. This assumes that there is no header in the data. If your data has a header
+// (you read the data from a file on disk), then please use `load_sound_from_bytes` instead.
 load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_rate: int) -> Sound
 
+// Makes a new sound that uses the same data as the original sound, but you can have different
+// settings such as volume, pan and pitch. This makes it possible to play the same sound multiple
+// times at once with different settings. The data is destroyed when all the instances (including
+// the original instance) are destroyed.
+create_sound_instance :: proc(snd: Sound) -> Sound
+
+// Destroy a sound instance. If this is the last instance that uses the same data, then the data
+// will also be destroyed.
 destroy_sound :: proc(snd: Sound)
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
@@ -806,10 +828,21 @@ Sound :: distinct Handle
 
 SOUND_NONE :: Sound {}
 
+Sound_Data_Handle :: distinct Handle
+
 Sound_Data :: struct {
-	handle: Sound,
+	handle: Sound_Data_Handle,
 	samples: []Audio_Sample,
 	sample_rate: int,
+
+	// When a Sound_Instance is destroyed, we check if this reaches zero. If it does, then the
+	// Sound_Data and its samples slice are also destroyed/freed.
+	instances: int,
+}
+
+Sound_Instance :: struct {
+	handle: Sound,
+	sound_data_handle: Sound_Data_Handle,
 	volume: f32,
 	target_volume: f32,
 	pan: f32,
@@ -908,7 +941,8 @@ State :: struct {
 	audio_backend: Audio_Backend_Interface,
 	audio_backend_state: rawptr,
 
-	sounds: hm.Handle_Map(Sound_Data, Sound, 1024*10),
+	sound_data: hm.Handle_Map(Sound_Data, Sound_Data_Handle, 1024*10),
+	sound_instances: hm.Handle_Map(Sound_Instance, Sound, 1024*10),
 
 	// Sounds that have been started as because `play_sound` was called.
 	playing_sounds: [dynamic]Playing_Sound,

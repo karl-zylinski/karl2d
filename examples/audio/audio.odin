@@ -15,6 +15,7 @@ snd_pitch: f32
 snd2: k2.Sound  
 snd3: k2.Sound
 wav: k2.Sound
+wav_inst: k2.Sound
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Audio")
@@ -25,6 +26,7 @@ init :: proc() {
 	snd2 = make_sine_wave(440, 1, 44100)
 	snd3 = make_sine_wave(700, 1, 22050)
 	wav = k2.load_sound_from_bytes(#load("chord.wav"))
+	wav_inst = k2.create_sound_instance(wav)
 	k2.play_sound(snd, loop = true)
 }
 
@@ -85,6 +87,15 @@ step :: proc() -> bool {
 	if k2.key_is_held(.S) {
 		snd_pitch -= k2.get_frame_time() * 0.5
 	}
+
+	if k2.key_went_down(.T)	{
+		k2.set_sound_pitch(wav, 2)
+		k2.set_sound_pan(wav, -1)
+		k2.play_sound(wav)
+		k2.set_sound_pitch(wav_inst, 0.5)
+		k2.set_sound_pan(wav_inst, 1)
+		k2.play_sound(wav_inst)
+	}
 	
 	snd_pan = clamp(snd_pan, -1, 1)
 	snd_volume = clamp(snd_volume, 0, 1)
@@ -118,6 +129,7 @@ shutdown :: proc() {
 	k2.destroy_sound(snd2)
 	k2.destroy_sound(snd3)
 	k2.destroy_sound(wav)
+	k2.destroy_sound(wav_inst)
 	k2.shutdown()
 }
 
