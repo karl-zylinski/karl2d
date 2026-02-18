@@ -306,7 +306,7 @@ draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK)
 
 // Draw text at a position with a size, using a custom font. `pos` will be equal to the  top-left
 // position of the text.
-draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32, color := BLACK)
+draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32, color := BLACK, origin: Vec2 = {0,0}, rot:f32=0)
 
 //--------------------//
 // TEXTURE MANAGEMENT //
