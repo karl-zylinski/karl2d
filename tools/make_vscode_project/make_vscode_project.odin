@@ -64,8 +64,7 @@ main :: proc() {
 		launch_file: ^os.File,
 		name: string,
 		src: string,
-	) {
-		
+	) {		
 		TASKS_ENTRY_TEMPLATE ::
 `		{{
 			"label": "build %s",
@@ -74,9 +73,9 @@ main :: proc() {
 			"args": ["build", "%s", "-debug", "-vet", "-strict-style", "-vet-tabs", "-out:bin/%s"],
 			"group": {{
 				"kind": "build",
-				"isDefault": false
 			}}
-		}},`
+		}},
+`
 	
 		tasks_entry := fmt.tprintf(
 			TASKS_ENTRY_TEMPLATE,
@@ -87,6 +86,26 @@ main :: proc() {
 		
 		fmt.fprint(tasks_file, tasks_entry)
 
+		TASKS_ENTRY_GL_TEMPLATE ::
+`		{{
+			"label": "build %s (GL)",
+			"type": "shell",
+			"command": "odin",
+			"args": ["build", "%s", "-debug", "-vet", "-strict-style", "-vet-tabs", "-out:bin/%s", "-define:KARL2D_RENDER_BACKEND=gl"],
+			"group": {{
+				"kind": "build",
+			}}
+		}},
+`
+		gl_tasks_entry := fmt.tprintf(
+			TASKS_ENTRY_GL_TEMPLATE,
+			name,
+			src,
+			name_with_ext(name),
+		)
+		
+		fmt.fprint(tasks_file, gl_tasks_entry)
+
 		// add web build task
 		{
 			WEB_TASKS_ENTRY_TEMPLATE ::
@@ -96,9 +115,9 @@ main :: proc() {
 			"command": "odin run build_web -vet -strict-style -vet-tabs -- %s -vet -strict-style -vet-tabs",
 			"group": {{
 				"kind": "build",
-				"isDefault": false
 			}}
-		}},`
+		}},
+`
 	
 			web_tasks_entry := fmt.tprintf(
 				WEB_TASKS_ENTRY_TEMPLATE,
@@ -118,7 +137,8 @@ main :: proc() {
 			"args": [],
 			"cwd": "${{workspaceFolder}}",
 			"preLaunchTask": "build %s",
-		}},`
+		}},
+`
 
 		launch_entry := fmt.tprintf(
 			LAUNCH_ENTRY_TEMPLATE,
@@ -129,6 +149,27 @@ main :: proc() {
 		)
 		
 		fmt.fprint(launch_file, launch_entry)
+
+		LAUNCH_ENTRY_GL_TEMPLATE ::
+`		{{
+			"name": "%s (GL)",
+			"type": "%s",
+			"request": "launch",
+			"program": "${{workspaceFolder}}/bin/%s",
+			"args": [],
+			"cwd": "${{workspaceFolder}}",
+			"preLaunchTask": "build %s (GL)",
+		}},
+`
+		gl_launch_entry := fmt.tprintf(
+			LAUNCH_ENTRY_GL_TEMPLATE,
+			name,
+			ODIN_OS == .Windows ? "cppvsdbg" : "lldb",
+			name_with_ext(name),
+			name,
+		)
+		
+		fmt.fprint(launch_file, gl_launch_entry)
 	}
 	
 	for e in examples_entries {
@@ -139,6 +180,7 @@ main :: proc() {
 		write_debug_tasks_entry(tasksh, launchh, e.name, fmt.tprintf("examples/%v", e.name))
 	}
 	
+	write_debug_tasks_entry(tasksh, launchh, "scrap", "scrap")
 	write_debug_tasks_entry(tasksh, launchh, "test_examples", "tools/test_examples")
 	write_debug_tasks_entry(tasksh, launchh, "api_doc_builder", "tools/api_doc_builder")
 	write_debug_tasks_entry(tasksh, launchh, "api_verifier", "tools/api_verifier")
