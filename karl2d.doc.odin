@@ -262,6 +262,10 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color)
 // rectangles.
 draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color)
 
+// Draw rectangle with rounded edges
+// Segments represents how many triangles the corners will have multiplied by 2
+draw_rect_rounded :: proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, rot: f32 = 0, segments: int = 3,)
+
 // Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
 // perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16)

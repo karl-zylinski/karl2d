@@ -745,6 +745,244 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 	draw_rect(right, color)
 }
 
+// Draw rectangle with rounded edges
+// Segments represents how many triangles the corners will have multiplied by 2
+draw_rect_rounded::proc(rec: Rect, roundness: f32, c: Color, origin: Vec2 = 0, rot: f32 = 0, segments: int = 3,) {
+	roundness := roundness
+	segments := segments * 2
+
+	if roundness <= 0 { // if not a rounded rectangle will just draw a regular rect
+		draw_rect_ex(rec, origin, rot, c)
+		return
+	}
+	// (6 * segments * 4) 6 is the number of verts in a segment. 4 is the number of corners
+	// (6*5) 6 is the number of verts in a quad. 5 is the number of quads
+	vert_count:=(6 * segments * 4)+(6*5)
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * vert_count > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+	if s.batch_texture != s.shape_drawing_texture {
+		draw_current_batch()
+	}
+	s.batch_texture = s.shape_drawing_texture
+	
+	
+	if roundness >= 1 {// clamps the roundness value to 1
+		roundness = 1
+	}
+	
+	// Calculate corner radius
+	radius:f32
+	if rec.w > rec.h {
+		radius = (rec.h * roundness) / 2
+	}else{
+		radius = (rec.w * roundness) / 2
+	}
+
+	if radius <= 0 {
+		return
+	}
+	
+	stepLength:f32 = 90 / cast(f32)segments
+
+	// Diagram points and part of the math was adapted from Raylib's "DrawRectangleRounded"
+	/*
+	Quick sketch to make sense of all of this,
+	there are 9 parts to draw, also mark the 12 points we'll use
+	      P0____________________P1
+	      /|                    |\
+	     /1|          2         |3\
+	 P7 /__|____________________|__\ P2
+	   |   |P8                P9|   |
+	   | 8 |          9         | 4 |
+	   | __|____________________|__ |
+	 P6 \  |P11              P10|  / P3
+	     \7|          6         |5/
+	      \|____________________|/
+	      P5                    P4
+	*/
+	// Coordinates of the 12 points that define the rounded rect
+	// These cords are in locale space {0,0}
+	point:[12]Vec2
+	point = {
+		{ radius,			0},					// P0
+		{(rec.w) - radius,	0},					// P1
+		{ rec.w,			radius},			// P2
+		{ rec.w,			(rec.h) - radius},	// P3
+		{(rec.w) - radius,	rec.h},				// P4
+		{ radius,			rec.h},				// P5
+		{ 0,				(rec.h) - radius},	// P6
+		{ 0,				radius},			// P7
+		{ radius,			radius},			// P8
+		{(rec.w) - radius,	radius},			// P9
+		{(rec.w) - radius,	(rec.h) - radius},	// P10
+		{ radius,			(rec.h) - radius},	// P11
+	}
+	
+	centers:[4]Vec2= { point[8], point[9], point[10], point[11] }// The center of the 4 rounded corners
+	angles:[4]f32 = { 180, 270, 0, 90 }
+	tl, tr, bl, br :Vec2
+	
+	// Shifts all of the points "Pos and Origin"
+	// If rot != 0 then it will rotate them as well
+	if rot == 0 {
+		xy :Vec2= {rec.x,rec.y}
+		for &p in point{// this shifts all of the points to the correct pos
+			p += xy
+			p += -origin
+		}
+	}else{
+		sin_rot := math.sin(rot)
+		cos_rot := math.cos(rot)
+		x := rec.x
+		y := rec.y
+		dx := -origin.x
+		dy := -origin.y
+		// this shifts all of the points to the correct pos and rotates it
+		for &p in point{
+			p = {
+				x + (dx + p.x) * cos_rot - (dy + p.y) * sin_rot,
+				y + (dx + p.x) * sin_rot + (dy + p.y) * cos_rot,
+			}
+		}
+	}
+	
+	// Draw all the 4 corners: 
+	// [1] Upper Left Corner, 
+	// [3] Upper Right Corner, 
+	// [5] Lower Right Corner, 
+	// [7] Lower Left Corner
+	for k :int= 0; k < 4; k+=1 {
+		angle :f32= angles[k]
+		center :Vec2= centers[k]
+		// NOTE: Every QUAD actually represents two segments
+		for i := 0; i < segments/2; i+=1 {
+			// Shifts all of the points "Pos and Origin"
+			// if rot != 0 then it will rotate them as well
+			// It will then draw the corners
+			if rot == 0 {
+				x := center.x + rec.x - origin.x
+				y := center.y + rec.y - origin.y
+				tl = { x,y }
+				tr = { 
+					x + math.cos_f32((math.PI/180)*(angle + stepLength*2))*radius,
+					y + math.sin_f32((math.PI/180)*(angle + stepLength*2))*radius,
+				}
+				bl = {
+					x + math.cos_f32((math.PI/180)*(angle + stepLength))*radius,
+					y + math.sin_f32((math.PI/180)*(angle + stepLength))*radius,
+				}
+				br = {
+					x + math.cos_f32((math.PI/180)*angle)*radius,
+					y + math.sin_f32((math.PI/180)*angle)*radius,
+				}
+			} else {
+				sin_rot := math.sin(rot)
+				cos_rot := math.cos(rot)
+				x := rec.x
+				y := rec.y
+				dx := center.x - origin.x
+				dy := center.y - origin.y
+				
+				tl = {
+					x + (dx) * cos_rot - (dy) * sin_rot,
+					y + (dx) * sin_rot + (dy) * cos_rot,
+				}
+				
+				tr_cos_rot := math.cos_f32((math.PI/180)*(angle + stepLength*2))*radius
+				tr_sin_rot := math.sin_f32((math.PI/180)*(angle + stepLength*2))*radius
+				tr = {
+					x + (dx + tr_cos_rot) * cos_rot - (dy + tr_sin_rot) * sin_rot,
+					y + (dx + tr_cos_rot) * sin_rot + (dy + tr_sin_rot) * cos_rot,
+				}
+				
+				bl_cos_rot := math.cos_f32((math.PI/180)*(angle + stepLength))*radius
+				bl_sin_rot := math.sin_f32((math.PI/180)*(angle + stepLength))*radius
+				bl = {
+					x + (dx + bl_cos_rot) * cos_rot - (dy + bl_sin_rot) * sin_rot,
+					y + (dx + bl_cos_rot) * sin_rot + (dy + bl_sin_rot) * cos_rot,
+				}
+				
+				br_cos_rot := math.cos_f32((math.PI/180)*angle)*radius
+				br_sin_rot := math.sin_f32((math.PI/180)*angle)*radius
+				br = {
+					x + (dx + br_cos_rot) * cos_rot - (dy + br_sin_rot) * sin_rot,
+					y + (dx + br_cos_rot) * sin_rot + (dy + br_sin_rot) * cos_rot,
+				}
+			}
+			batch_vertex(tl, {0, 0}, c)
+			batch_vertex(br, {1, 0}, c)
+			batch_vertex(bl, {1, 1}, c)
+			
+			batch_vertex(tl, {0, 0}, c)
+			batch_vertex(tr, {1, 1}, c)
+			batch_vertex(bl, {0, 1}, c)
+
+			angle += (stepLength*2)
+		}
+	}
+	// [2] Upper Rectangle
+	tl = point[0]
+	tr = point[8]
+	bl = point[1]
+	br = point[9]
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(tr, {1, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(bl, {0, 1}, c)
+
+	// [4] Right Rectangle
+	tl = point[2]
+	tr = point[9]
+	bl = point[3]
+	br = point[10]
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(tr, {1, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(bl, {0, 1}, c)
+
+	// [6] Bottom Rectangle
+	tl = point[11]
+	tr = point[5]
+	bl = point[10]
+	br = point[4]
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(tr, {1, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(bl, {0, 1}, c)
+
+	// [8] Left Rectangle 
+	tl = point[7]
+	tr = point[6]
+	bl = point[8]
+	br = point[11]
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(tr, {1, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(bl, {0, 1}, c)
+
+	// [9] Middle Rectangle
+	tl = point[8]
+	tr = point[11]
+	bl = point[9]
+	br = point[10]
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(tr, {1, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(tl, {0, 0}, c)
+	batch_vertex(br, {1, 1}, c)
+	batch_vertex(bl, {0, 1}, c)
+}
+
+
 // Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
 // perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
