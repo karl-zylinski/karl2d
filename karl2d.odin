@@ -910,8 +910,12 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	}
 	
 	ts := Vec2{f32(tex.width), f32(tex.height)}
-	up := Vec2{src.x, src.y} / ts
-	us := Vec2{src.w, src.h} / ts
+
+	// Offset texcoords by half a texel (so they look at the center of the texel). This avoids
+	// bleeding when sampling to the edge of a texture that is within a bigger atlas.
+	up := (Vec2{src.x, src.y} + Vec2{0.5, 0.5}) / ts
+	us := (Vec2{src.w, src.h} - Vec2{1.0, 1.0}) / ts
+	
 	c := tint
 
 	uv0 := up
