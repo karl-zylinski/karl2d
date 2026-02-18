@@ -5,6 +5,7 @@ import "core:fmt"
 
 init :: proc() {
 	k2.init(1000, 600, "Karl2D Mouse Demo")
+	k2.set_cursor_visible(false)
 }
 
 wheel: f32

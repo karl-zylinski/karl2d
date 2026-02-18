@@ -17,6 +17,8 @@ PLATFORM_WEB :: Platform_Interface {
 	set_window_position = web_set_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
+	set_cursor_visible = web_set_cursor_visible,
+	get_cursor_visible = web_get_cursor_visible,
 	is_gamepad_active = web_is_gamepad_active,
 	get_gamepad_axis = web_get_gamepad_axis,
 	set_gamepad_vibration = web_set_gamepad_vibration,
@@ -45,6 +47,7 @@ web_init :: proc(
 	s.events = make([dynamic]Event, allocator)
 	s.key_from_js_event_key_code = make(map[string]Keyboard_Key, allocator)
 	s.canvas_id = "webgl-canvas"
+	s.cursor_visible = true
 
 	js.set_document_title(window_title)
 
@@ -308,6 +311,20 @@ web_set_window_mode :: proc(window_mode: Window_Mode) {
 	s.window_mode = window_mode
 }
 
+web_set_cursor_visible :: proc(visible: bool) {
+	if visible == s.cursor_visible do return
+	s.cursor_visible = visible
+	if visible {
+		js.set_element_style(s.canvas_id, "cursor", "default")
+	} else {
+		js.set_element_style(s.canvas_id, "cursor", "none")
+	}
+}
+
+web_get_cursor_visible :: proc() -> bool {
+	return s.cursor_visible
+}
+
 web_is_gamepad_active :: proc(gamepad: int) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
@@ -354,6 +371,7 @@ Web_State :: struct {
 	events: [dynamic]Event,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 	window_mode: Window_Mode,
+	cursor_visible: bool,
 	key_from_js_event_key_code: map[string]Keyboard_Key,
 }
 

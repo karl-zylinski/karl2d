@@ -16,6 +16,8 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	set_screen_size = windows_set_screen_size,
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
+	set_cursor_visible = windows_set_cursor_visible,
+	get_cursor_visible = windows_get_cursor_visible,
 
 	is_gamepad_active = windows_is_gamepad_active,
 	get_gamepad_axis = windows_get_gamepad_axis,
@@ -46,6 +48,7 @@ windows_init :: proc(
 	s.allocator = allocator
 	s.screen_width = screen_width
 	s.screen_height = screen_height
+	s.cursor_visible = true
 	s.events = make([dynamic]Event, allocator = allocator)
 	s.custom_context = context
 	
@@ -331,6 +334,7 @@ Windows_State :: struct {
 	custom_context: runtime.Context,
 	hwnd: win32.HWND,
 	window_mode: Window_Mode,
+	cursor_visible: bool,
 
 	screen_width: int,
 	screen_height: int,
@@ -398,6 +402,16 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 			win32.SWP_NOOWNERZORDER | win32.SWP_FRAMECHANGED)
 		}
 	}
+}
+
+windows_set_cursor_visible :: proc(visible: bool) {
+	if visible == s.cursor_visible do return
+	s.cursor_visible = visible
+	win32.ShowCursor(win32.BOOL(visible))
+}
+
+windows_get_cursor_visible :: proc() -> bool {
+	return s.cursor_visible
 }
 
 s: ^Windows_State
