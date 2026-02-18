@@ -32,7 +32,7 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 
 import "base:runtime"
 import gl "vendor:wasm/WebGL"
-import hm "handle_map"
+import hm "core:container/handle_map"
 import "log"
 import "core:strings"
 import la "core:math/linalg"
@@ -44,10 +44,10 @@ WebGL_State :: struct {
 	width: int,
 	height: int,
 	allocator: runtime.Allocator,
-	shaders: hm.Handle_Map(WebGL_Shader, Shader_Handle, 1024*10),
+	shaders: hm.Dynamic_Handle_Map(WebGL_Shader, Shader_Handle),
 	vertex_buffer_gpu: gl.Buffer,
-	textures: hm.Handle_Map(WebGL_Texture, Texture_Handle, 1024*10),
-	render_targets: hm.Handle_Map(WebGL_Render_Target, Render_Target_Handle, 128),
+	textures: hm.Dynamic_Handle_Map(WebGL_Texture, Texture_Handle),
+	render_targets: hm.Dynamic_Handle_Map(WebGL_Render_Target, Render_Target_Handle),
 }
 
 WebGL_Shader_Constant_Buffer :: struct {
@@ -142,6 +142,9 @@ webgl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swa
 
 webgl_shutdown :: proc() {
 	gl.DeleteBuffer(s.vertex_buffer_gpu)
+	hm.dynamic_destroy(&s.shaders)
+	hm.dynamic_destroy(&s.textures)
+	hm.dynamic_destroy(&s.render_targets)
 }
 
 webgl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
@@ -336,11 +339,25 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawp
 }
 
 webgl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return hm.add(&s.textures, create_texture(width, height, format, nil))
+	texture_handle, texture_handle_err := hm.add(&s.textures, create_texture(width, height, format, nil))
+
+	if texture_handle_err != nil {
+		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
+		return TEXTURE_NONE
+	}
+
+	return texture_handle
 }
 
 webgl_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return hm.add(&s.textures, create_texture(width, height, format, raw_data(data)))
+	texture_handle, texture_handle_err := hm.add(&s.textures, create_texture(width, height, format, raw_data(data)))
+
+	if texture_handle_err != nil {
+		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
+		return TEXTURE_NONE
+	}
+
+	return texture_handle
 }
 
 webgl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
@@ -388,7 +405,7 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 
 	if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
 		log.errorf("Failed creating frame buffer of size %v x %v", width, height)
-		return {}, {}
+		return TEXTURE_NONE, RENDER_TARGET_NONE
 	}
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
@@ -400,7 +417,25 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 		height = height,
 	}
 
-	return hm.add(&s.textures, texture), hm.add(&s.render_targets, rt)
+	texture_handle, texture_handle_err := hm.add(&s.textures, texture)
+
+	if texture_handle_err != nil {
+		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
+		gl.DeleteTexture(texture.id)
+		gl.DeleteFramebuffer(framebuffer)
+		return TEXTURE_NONE, RENDER_TARGET_NONE
+	}
+
+	render_target_handle, render_target_handle_err := hm.add(&s.render_targets, rt)
+
+	if render_target_handle_err != nil {
+		log.errorf("Failed adding render target to handle map: %v", render_target_handle_err)
+		gl.DeleteTexture(texture.id)
+		gl.DeleteFramebuffer(framebuffer)
+		return TEXTURE_NONE, RENDER_TARGET_NONE
+	}
+
+	return texture_handle, render_target_handle
 }
 
 webgl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
@@ -666,9 +701,17 @@ webgl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator :
 	gl_shd.constants = gl_constants[:]
 	gl_shd.texture_bindings = gl_texture_bindings[:]
 
-	h := hm.add(&s.shaders, gl_shd)
+	shader_handle, shader_handle_err := hm.add(&s.shaders, gl_shd)
 
-	return h, desc
+	if shader_handle_err != nil {
+		log.errorf("Failed adding shader to handle map: %v", shader_handle_err)
+		gl.DeleteProgram(program)
+		gl.DeleteShader(vs_shader)
+		gl.DeleteShader(fs_shader)
+		return SHADER_NONE, {}
+	}
+
+	return shader_handle, desc
 }
 
 // I might have missed something. But it doesn't seem like GL gives you this information.

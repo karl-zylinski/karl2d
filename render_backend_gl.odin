@@ -32,7 +32,7 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 
 import "base:runtime"
 import gl "vendor:OpenGL"
-import hm "handle_map"
+import hm "core:container/handle_map"
 import "log"
 import "core:strings"
 import "core:slice"
@@ -44,11 +44,11 @@ GL_State :: struct {
 	width: int,
 	height: int,
 	allocator: runtime.Allocator,
-	shaders: hm.Handle_Map(GL_Shader, Shader_Handle, 1024*10),
+	shaders: hm.Dynamic_Handle_Map(GL_Shader, Shader_Handle),
 	glue: Window_Render_Glue,
 	vertex_buffer_gpu: u32,
-	textures: hm.Handle_Map(GL_Texture, Texture_Handle, 1024*10),
-	render_targets: hm.Handle_Map(GL_Render_Target, Render_Target_Handle, 128),
+	textures: hm.Dynamic_Handle_Map(GL_Texture, Texture_Handle),
+	render_targets: hm.Dynamic_Handle_Map(GL_Render_Target, Render_Target_Handle),
 }
 
 GL_Shader_Constant_Buffer :: struct {
@@ -139,6 +139,9 @@ gl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapch
 
 gl_shutdown :: proc() {
 	gl.DeleteBuffers(1, &s.vertex_buffer_gpu)
+	hm.dynamic_destroy(&s.shaders)
+	hm.dynamic_destroy(&s.textures)
+	hm.dynamic_destroy(&s.render_targets)
 	s.glue->destroy()
 }
 
@@ -389,11 +392,25 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawp
 }
 
 gl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return hm.add(&s.textures, create_texture(width, height, format, nil))
+	tex, tex_add_err := hm.add(&s.textures, create_texture(width, height, format, nil))
+
+	if tex_add_err != nil {
+		log.errorf("Failed to create texture. Error: %v", tex_add_err)
+		return {}
+	}
+
+	return tex
 }
 
 gl_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return hm.add(&s.textures, create_texture(width, height, format, raw_data(data)))
+	tex, tex_add_err := hm.add(&s.textures, create_texture(width, height, format, raw_data(data)))
+
+	if tex_add_err != nil {
+		log.errorf("Failed to load texture. Error: %v", tex_add_err)
+		return {}
+	}
+
+	return tex
 }
 
 gl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
@@ -455,7 +472,20 @@ gl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Re
 		height = height,
 	}
 
-	return hm.add(&s.textures, texture), hm.add(&s.render_targets, rt)
+	tex_handle, tex_add_err := hm.add(&s.textures, texture)
+
+	if tex_add_err != nil {
+		log.errorf("Failed to create texture. Error: %v", tex_add_err)
+		return {}, {}
+	}
+
+	rt_handle, rt_add_err := hm.add(&s.render_targets, rt)
+	if rt_add_err != nil {
+		log.errorf("Failed to create render target. Error: %v", rt_add_err)
+		return {}, {}
+	}
+
+	return tex_handle, rt_handle
 }
 
 gl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
@@ -765,9 +795,13 @@ gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := f
 	gl_shd.constants = gl_constants[:]
 	gl_shd.texture_bindings = gl_texture_bindings[:]
 
-	h := hm.add(&s.shaders, gl_shd)
+	shader_handle, shader_add_err := hm.add(&s.shaders, gl_shd)
+	if shader_add_err != nil {
+		log.errorf("Failed to add shader. Error: %v", shader_add_err)
+		return SHADER_NONE, {}
+	}
 
-	return h, desc
+	return shader_handle, desc
 }
 
 // I might have missed something. But it doesn't seem like GL gives you this information.

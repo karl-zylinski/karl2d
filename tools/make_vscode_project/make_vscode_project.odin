@@ -64,14 +64,7 @@ main :: proc() {
 		launch_file: ^os.File,
 		name: string,
 		src: string,
-		first_task: ^bool,
-		first_launch: ^bool,
 	) {
-		
-		if !first_task^ {
-			fmt.fprintln(tasks_file, ",")
-		}
-		first_task^ = false
 		
 		TASKS_ENTRY_TEMPLATE ::
 `		{{
@@ -82,9 +75,8 @@ main :: proc() {
 			"group": {{
 				"kind": "build",
 				"isDefault": false
-			}},
-			"problemMatcher": []
-		}}`
+			}}
+		}},`
 	
 		tasks_entry := fmt.tprintf(
 			TASKS_ENTRY_TEMPLATE,
@@ -94,11 +86,28 @@ main :: proc() {
 		)
 		
 		fmt.fprint(tasks_file, tasks_entry)
-		
-		if !first_launch^ {
-			fmt.fprintln(launch_file, ",")
+
+		// add web build task
+		{
+			WEB_TASKS_ENTRY_TEMPLATE ::
+`		{{
+			"label": "build %s (web)",
+			"type": "shell",
+			"command": "odin run build_web -vet -strict-style -vet-tabs -- %s -vet -strict-style -vet-tabs",
+			"group": {{
+				"kind": "build",
+				"isDefault": false
+			}}
+		}},`
+	
+			web_tasks_entry := fmt.tprintf(
+				WEB_TASKS_ENTRY_TEMPLATE,
+				name,
+				src,
+			)
+			
+			fmt.fprint(tasks_file, web_tasks_entry)
 		}
-		first_launch^ = false
 		
 		LAUNCH_ENTRY_TEMPLATE ::
 `		{{
@@ -109,7 +118,7 @@ main :: proc() {
 			"args": [],
 			"cwd": "${{workspaceFolder}}",
 			"preLaunchTask": "build %s",
-		}}`
+		}},`
 
 		launch_entry := fmt.tprintf(
 			LAUNCH_ENTRY_TEMPLATE,
@@ -122,21 +131,18 @@ main :: proc() {
 		fmt.fprint(launch_file, launch_entry)
 	}
 	
-	first_task := true
-	first_launch := true
-	
 	for e in examples_entries {
 		if e.type != .Directory {
 			continue
 		}
 
-		write_debug_tasks_entry(tasksh, launchh, e.name, fmt.tprintf("examples/%v", e.name), &first_task, &first_launch)
+		write_debug_tasks_entry(tasksh, launchh, e.name, fmt.tprintf("examples/%v", e.name))
 	}
 	
-	write_debug_tasks_entry(tasksh, launchh, "test_examples", "tools/test_examples", &first_task, &first_launch)
-	write_debug_tasks_entry(tasksh, launchh, "api_doc_builder", "tools/api_doc_builder", &first_task, &first_launch)
-	write_debug_tasks_entry(tasksh, launchh, "api_verifier", "tools/api_verifier", &first_task, &first_launch)
-	write_debug_tasks_entry(tasksh, launchh, "make_vscode_project", "tools/make_vscode_project", &first_task, &first_launch)
+	write_debug_tasks_entry(tasksh, launchh, "test_examples", "tools/test_examples")
+	write_debug_tasks_entry(tasksh, launchh, "api_doc_builder", "tools/api_doc_builder")
+	write_debug_tasks_entry(tasksh, launchh, "api_verifier", "tools/api_verifier")
+	write_debug_tasks_entry(tasksh, launchh, "make_vscode_project", "tools/make_vscode_project")
 	
 	fmt.fprintln(tasksh)
 	fmt.fprintln(tasksh, "\t]")

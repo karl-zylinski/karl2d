@@ -37,7 +37,7 @@ import "core:strings"
 import "log"
 import "core:slice"
 import "core:mem"
-import hm "handle_map"
+import hm "core:container/handle_map"
 import "base:runtime"
 
 d3d11_state_size :: proc() -> int {
@@ -189,6 +189,10 @@ d3d11_shutdown :: proc() {
 	} else {
 		s.device->Release()
 	}
+
+	hm.dynamic_destroy(&s.shaders)
+	hm.dynamic_destroy(&s.textures)
+	hm.dynamic_destroy(&s.render_targets)
 }
 
 // For finding D3D11 resource leaks etc
@@ -475,7 +479,14 @@ create_texture :: proc(
 		sampler = create_sampler(.MIN_MAG_MIP_POINT),
 	}
 
-	return hm.add(&s.textures, tex)
+	tex_handle, tex_add_err := hm.add(&s.textures, tex)
+
+	if tex_add_err != nil {
+		log.errorf("Failed to add texture. Error: %v", tex_add_err)
+		return TEXTURE_NONE
+	}
+
+	return tex_handle
 }
 
 d3d11_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
@@ -522,7 +533,21 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 		height = height,
 	}
 
-	return hm.add(&s.textures, d3d11_texture), hm.add(&s.render_targets, d3d11_render_target)
+	tex_handle, tex_add_err := hm.add(&s.textures, d3d11_texture)
+
+	if tex_add_err != nil {
+		log.errorf("Failed to add texture. Error: %v", tex_add_err)
+		return TEXTURE_NONE, RENDER_TARGET_NONE
+	}
+
+	rt_handle, rt_add_err := hm.add(&s.render_targets, d3d11_render_target)
+
+	if rt_add_err != nil {
+		log.errorf("Failed to add render target. Error: %v", rt_add_err)
+		return TEXTURE_NONE, RENDER_TARGET_NONE
+	}
+
+	return tex_handle, rt_handle
 }
 
 d3d11_destroy_render_target :: proc(render_target: Render_Target_Handle) {
@@ -789,7 +814,13 @@ d3d11_load_shader :: proc(
 		texture_bindings = d3d_texture_bindings[:],
 	}
 
-	h := hm.add(&s.shaders, d3d_shd)
+	h, h_add_err := hm.add(&s.shaders, d3d_shd)
+
+	if h_add_err != nil {
+		log.errorf("Failed to add shader. Error: %v", h_add_err)
+		return SHADER_NONE, {}
+	}
+
 	return h, desc
 }
 
@@ -998,9 +1029,9 @@ D3D11_State :: struct {
 	blend_state_alpha: ^d3d11.IBlendState,
 	blend_state_premultiplied_alpha: ^d3d11.IBlendState,
 
-	textures: hm.Handle_Map(D3D11_Texture, Texture_Handle, 1024*10),
-	render_targets: hm.Handle_Map(D3D11_Render_Target, Render_Target_Handle, 1024*10),
-	shaders: hm.Handle_Map(D3D11_Shader, Shader_Handle, 1024*10),
+	textures: hm.Dynamic_Handle_Map(D3D11_Texture, Texture_Handle),
+	render_targets: hm.Dynamic_Handle_Map(D3D11_Render_Target, Render_Target_Handle),
+	shaders: hm.Dynamic_Handle_Map(D3D11_Shader, Shader_Handle),
 
 	info_queue: ^d3d11.IInfoQueue,
 	vertex_buffer_gpu: ^d3d11.IBuffer,
