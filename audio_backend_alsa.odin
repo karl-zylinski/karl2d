@@ -35,15 +35,15 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 
 	alsa_err: c.int
 	pcm: alsa.PCM
-	alsa_err = alsa.snd_pcm_open(&pcm, "default", .PLAYBACK, 0)
+	alsa_err = alsa.pcm_open(&pcm, "default", .PLAYBACK, 0)
 
 	if alsa_err < 0 {
-		log.errorf("snd_pcm_open failed for 'default': %s", alsa.snd_strerror(alsa_err))
+		log.errorf("pcm_open failed for 'default': %s", alsa.strerror(alsa_err))
 		return
 	}
 
 	LATENCY_MICROSECONDS :: 25000
-	alsa_err = alsa.snd_pcm_set_params(
+	alsa_err = alsa.pcm_set_params(
 		pcm,
 		.FLOAT_LE,
 		.RW_INTERLEAVED,
@@ -54,16 +54,16 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	)
 
 	if alsa_err < 0 {
-		log.errorf("snd_pcm_set_params failed: %s", alsa.snd_strerror(alsa_err))
-		alsa.snd_pcm_close(pcm)
+		log.errorf("pcm_set_params failed: %s", alsa.strerror(alsa_err))
+		alsa.pcm_close(pcm)
 		return
 	}
 
-	alsa_err = alsa.snd_pcm_prepare(pcm)
+	alsa_err = alsa.pcm_prepare(pcm)
 
 	if alsa_err < 0 {
-		log.errorf("snd_pcm_prepare failed: %s", alsa.snd_strerror(alsa_err))
-		alsa.snd_pcm_close(pcm)
+		log.errorf("pcm_prepare failed: %s", alsa.strerror(alsa_err))
+		alsa.pcm_close(pcm)
 		return
 	}
 
@@ -73,7 +73,7 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 alsa_shutdown :: proc() {
 	log.debug("Shutdown audio backend alsa")
 	if s.pcm != nil {
-		alsa.snd_pcm_close(s.pcm)
+		alsa.pcm_close(s.pcm)
 		s.pcm = nil
 	}
 }
@@ -92,12 +92,12 @@ alsa_feed :: proc(samples: []Audio_Sample) {
 
 	for len(remaining) > 0 {
 		// Note that this blocks. But this should run on a an audio thread, so it will be fine.
-		ret := alsa.snd_pcm_writei(s.pcm, raw_data(remaining), c.ulong(len(remaining)))
+		ret := alsa.pcm_writei(s.pcm, raw_data(remaining), c.ulong(len(remaining)))
 
 		if ret < 0 {
 			// Recover from errors. One possible error is an underrun. I.e. ALSA ran out of bytes.
 			// In that case we must recover the PCM device and then try feeding it data again.
-			recover_ret := alsa.snd_pcm_recover(s.pcm, c.int(ret), 1)
+			recover_ret := alsa.pcm_recover(s.pcm, c.int(ret), 1)
 
 			// Can't recover!
 			if recover_ret < 0 {
@@ -121,16 +121,16 @@ alsa_remaining_samples :: proc() -> int {
 	// now, how many frames will be played before it?". This means that it is essentially the same
 	// as "remaining samples".
 	delay: c.long
-	ret := alsa.snd_pcm_delay(s.pcm, &delay)
+	ret := alsa.pcm_delay(s.pcm, &delay)
 
 	if ret < 0 {
-		recover_ret := alsa.snd_pcm_recover(s.pcm, ret, 1)
+		recover_ret := alsa.pcm_recover(s.pcm, ret, 1)
 
 		if recover_ret < 0 {
 			return 0
 		}
 
-		ret = alsa.snd_pcm_delay(s.pcm, &delay)
+		ret = alsa.pcm_delay(s.pcm, &delay)
 
 		if ret < 0 {
 			return 0

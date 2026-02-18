@@ -25,12 +25,12 @@ PCM_Format :: enum c.int {
 	FLOAT_LE = 14,
 }
 
-@(default_calling_convention="c")
+@(default_calling_convention="c", link_prefix="snd_")
 foreign lib {
-	snd_pcm_open :: proc(pcm: ^PCM, name: cstring, stream: PCM_Stream, mode: c.int) -> c.int ---
-	snd_pcm_close :: proc(pcm: PCM) -> c.int ---
+	pcm_open :: proc(pcm: ^PCM, name: cstring, stream: PCM_Stream, mode: c.int) -> c.int ---
+	pcm_close :: proc(pcm: PCM) -> c.int ---
 	
-	snd_pcm_set_params :: proc(
+	pcm_set_params :: proc(
 		pcm: PCM,
 		format: PCM_Format,
 		access: PCM_Access,
@@ -40,9 +40,9 @@ foreign lib {
 		latency: c.ulong,
 	) -> c.int ---
 
-	snd_pcm_prepare :: proc(pcm: PCM) -> c.int ---
-	snd_pcm_writei :: proc(pcm: PCM, buffer: rawptr, size: c.ulong) -> c.long ---
-	snd_pcm_delay :: proc(pcm: PCM, delay: ^c.long) -> c.int ---
-	snd_pcm_recover :: proc(pcm: PCM, err: c.int, silent: c.int) -> c.int ---
-	snd_strerror :: proc(errnum: c.int) -> cstring ---
+	pcm_prepare :: proc(pcm: PCM) -> c.int ---
+	pcm_writei :: proc(pcm: PCM, buffer: rawptr, size: c.ulong) -> c.long ---
+	pcm_delay :: proc(pcm: PCM, delay: ^c.long) -> c.int ---
+	pcm_recover :: proc(pcm: PCM, err: c.int, silent: c.int) -> c.int ---
+	strerror :: proc(errnum: c.int) -> cstring ---
 }
