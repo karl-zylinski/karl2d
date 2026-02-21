@@ -1,7 +1,7 @@
 #+build darwin
 package AudioToolbox
 
-import CA "../coreAudio"
+import CA "../CoreAudio"
 
 foreign import audio_toolbox "system:AudioToolbox.framework"
 
