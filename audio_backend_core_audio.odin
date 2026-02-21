@@ -18,9 +18,9 @@ AUDIO_BACKEND_CORE_AUDIO :: Audio_Backend_Interface {
 import "base:intrinsics"
 import "base:runtime"
 
-import "core:log"
 import "core:sync"
 
+import       "log"
 import CA    "platform_bindings/mac/CoreAudio"
 import Audio "platform_bindings/mac/AudioToolbox"
 
