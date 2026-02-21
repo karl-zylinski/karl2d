@@ -17,6 +17,8 @@ snd3: k2.Sound
 wav: k2.Sound
 wav_inst: k2.Sound
 
+music: k2.Audio_Stream
+
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Audio")
 
@@ -28,6 +30,8 @@ init :: proc() {
 	wav = k2.load_sound_from_bytes(#load("chord.wav"))
 	wav_inst = k2.create_sound_instance(wav)
 	k2.play_sound(snd, loop = true)
+
+	music = k2.load_audio_stream_from_file("cat_and_onion.ogg")
 }
 
 // Makes a sine wave of min_length rounded up to so that it ends at the end of a period. This makes

@@ -23,6 +23,8 @@ import "core:image/tga"
 
 import hm "core:container/handle_map"
 
+import stbv "vendor:stb/vorbis"
+
 //-----------------------------------------------//
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
@@ -129,6 +131,12 @@ init :: proc(
 
 	// Audio
 	{
+		VORBIS_STATE_SIZE :: 500 * mem.Kilobyte
+		s.vorbis_alloc = {
+			alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
+			alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
+		}
+
 		s.audio_backend = AUDIO_BACKEND
 		ab = s.audio_backend
 
@@ -1593,6 +1601,13 @@ destroy_sound :: proc(snd: Sound) {
 	hm.remove(&s.sound_instances, snd)
 }
 
+load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
+	verr: stbv.Error
+	v := stbv.open_filename(frame_cstring(filename), &verr, &s.vorbis_alloc)
+	log.info(verr, v)
+	return {}
+}
+
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
 //
@@ -2633,6 +2648,13 @@ Playing_Sound :: struct {
 	loop: bool,
 }
 
+Audio_Stream :: distinct Handle
+
+Audio_Stream_Data :: struct {
+	handle: Audio_Stream,
+	vorbis: ^stbv.vorbis, 
+}
+
 // The format used to describe that data passed to `load_sound_from_bytes_raw`.
 Raw_Sound_Format :: enum {
 	Integer8,
@@ -2714,6 +2736,9 @@ State :: struct {
 
 	// Sounds that have been started as because `play_sound` was called.
 	playing_sounds: [dynamic]Playing_Sound,
+
+	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
+	vorbis_alloc: stbv.vorbis_alloc,
 
 	// 1 megabyte is arbitrarily chosen.
 	mix_buffer: [1*mem.Megabyte]Audio_Sample,

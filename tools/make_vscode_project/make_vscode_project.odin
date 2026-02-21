@@ -135,7 +135,7 @@ main :: proc() {
 			"request": "launch",
 			"program": "${{workspaceFolder}}/bin/%s",
 			"args": [],
-			"cwd": "${{workspaceFolder}}",
+			"cwd": "${{workspaceFolder}}/bin",
 			"preLaunchTask": "build %s",
 		}},
 `
