@@ -27,6 +27,9 @@ PLATFORM_LINUX :: Platform_Interface {
 	set_window_position = linux_set_window_position,
 	get_window_scale = linux_get_window_scale,
 	set_window_mode = linux_set_window_mode,
+	create_cursor = linux_create_cursor,
+	set_cursor = linux_set_cursor,
+	destroy_cursor = linux_destroy_cursor,
 	is_gamepad_active = linux_is_gamepad_active,
 	get_gamepad_axis = linux_get_gamepad_axis,
 	set_gamepad_vibration = linux_set_gamepad_vibration,
@@ -571,6 +574,18 @@ linux_set_window_mode :: proc(window_mode: Window_Mode) {
 	s.win.set_window_mode(window_mode)
 }
 
+linux_create_cursor :: proc(pixels: []Color, width: int, height: int, hotspot: [2]int) -> Cursor_Data {
+	return s.win.create_cursor(pixels, width, height, hotspot)
+}
+
+linux_set_cursor :: proc(cursor: Cursor_Data) {
+	s.win.set_cursor(cursor)
+}
+
+linux_destroy_cursor :: proc(cursor: Cursor_Data) {
+	s.win.destroy_cursor(cursor)
+}
+
 Linux_State :: struct {
 	win: Linux_Window_Interface,
 	win_state: rawptr,
@@ -603,6 +618,10 @@ Linux_Window_Interface :: struct {
 	get_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
+
+	create_cursor: proc(pixels: []Color, width: int, height: int, hotspot: [2]int) -> Cursor_Data,
+	set_cursor: proc(cursor: Cursor_Data),
+	destroy_cursor: proc(cursor: Cursor_Data),
 
 	set_internal_state: proc(state: rawptr),
 }

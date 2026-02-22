@@ -694,3 +694,172 @@ OUTPUT_TRANSFORM_FLIPPED :: 4
 OUTPUT_TRANSFORM_90 :: 1
 OUTPUT_MODE_CURRENT :: 0x1
 OUTPUT_MODE_PREFERRED :: 0x2
+
+SHM :: struct {
+	using proxy: Proxy,
+}
+
+SHM_Pool :: struct {
+	using proxy: Proxy,
+}
+
+SHM_FORMAT_ARGB8888 :: u32(0)
+
+shm_create_pool :: proc "c" (shm: ^SHM, fd: c.int32_t, size: c.int32_t) -> ^SHM_Pool {
+	return (^SHM_Pool)(proxy_marshal_flags(
+		shm,
+		0,
+		&shm_pool_interface,
+		proxy_get_version(shm),
+		0,
+		nil,
+		fd,
+		size,
+	))
+}
+
+shm_interface := Interface {
+	"wl_shm",
+	1,
+	1,
+	raw_data([]Message{{"create_pool", "nhi", raw_data([]^Interface{&shm_pool_interface, nil, nil})}}),
+	1,
+	raw_data([]Message{{"format", "u", raw_data([]^Interface{nil})}}),
+}
+
+shm_pool_interface := Interface {
+	"wl_shm_pool",
+	1,
+	3,
+	raw_data([]Message{
+		{"create_buffer", "niiiiu", raw_data([]^Interface{&buffer_interface, nil, nil, nil, nil, nil})},
+		{"destroy", "", raw_data([]^Interface{})},
+		{"resize", "i", raw_data([]^Interface{nil})},
+	}),
+	0,
+	nil,
+}
+
+shm_pool_create_buffer :: proc "c" (
+	pool: ^SHM_Pool,
+	offset: c.int32_t,
+	width: c.int32_t,
+	height: c.int32_t,
+	stride: c.int32_t,
+	format: u32,
+) -> ^Buffer {
+	return (^Buffer)(proxy_marshal_flags(
+		pool,
+		0,
+		&buffer_interface,
+		proxy_get_version(pool),
+		0,
+		nil,
+		offset,
+		width,
+		height,
+		stride,
+		format,
+	))
+}
+
+shm_pool_destroy :: proc "c" (pool: ^SHM_Pool) {
+	proxy_marshal_flags(pool, 1, nil, proxy_get_version(pool), MARSHAL_FLAG_DESTROY)
+}
+
+surface_attach :: proc "c" (surface: ^Surface, buffer: ^Buffer, x: c.int32_t, y: c.int32_t) {
+	proxy_marshal_flags(surface, 1, nil, proxy_get_version(surface), 0, buffer, x, y)
+}
+
+WP_Cursor_Shape_Manager_V1 :: struct {
+	using proxy: Proxy,
+}
+
+wp_cursor_shape_manager_v1_interface := Interface {
+	"wp_cursor_shape_manager_v1",
+	1,
+	2,
+	raw_data([]Message{
+		{"destroy", "", raw_data([]^Interface{})},
+		{"get_pointer", "no", raw_data([]^Interface{&cursor_shape_device_interface, &pointer_interface})},
+	}),
+	0,
+	nil,
+}
+
+cursor_shape_manager_get_pointer :: proc "c" (manager: ^WP_Cursor_Shape_Manager_V1, pointer: ^Pointer) -> ^WP_Cursor_Shape_Device_V1 {
+	return (^WP_Cursor_Shape_Device_V1)(proxy_marshal_flags(
+		manager,
+		1,
+		&cursor_shape_device_interface,
+		proxy_get_version(manager),
+		0,
+		nil,
+		pointer,
+	))
+}
+
+cursor_shape_manager_destroy :: proc "c" (manager: ^WP_Cursor_Shape_Manager_V1) {
+	proxy_marshal_flags(manager, 0, nil, proxy_get_version(manager), MARSHAL_FLAG_DESTROY)
+}
+
+WP_Cursor_Shape_Device_V1 :: struct {
+	using proxy: Proxy,
+}
+
+WP_Cursor_Shape :: enum u32 {
+	Default      = 1,
+	ContextMenu  = 2,
+	Help         = 3,
+	Pointer      = 4,
+	Progress     = 5,
+	Wait         = 6,
+	Cell         = 7,
+	Crosshair    = 8,
+	Text         = 9,
+	VerticalText = 10,
+	Alias        = 11,
+	Copy         = 12,
+	Move         = 13,
+	NoDrop       = 14,
+	NotAllowed   = 15,
+	Grab         = 16,
+	Grabbing     = 17,
+	EResize      = 18,
+	NResize      = 19,
+	NeResize     = 20,
+	NwResize     = 21,
+	SResize      = 22,
+	SeResize     = 23,
+	SwResize     = 24,
+	WResize      = 25,
+	EwResize     = 26,
+	NsResize     = 27,
+	NeswResize   = 28,
+	NwseResize   = 29,
+	ColResize    = 30,
+	RowResize    = 31,
+	AllScroll    = 32,
+	ZoomIn       = 33,
+	ZoomOut      = 34,
+}
+
+cursor_shape_device_interface := Interface {
+	"wp_cursor_shape_device_v1",
+	1,
+	2,
+	raw_data([]Message{
+		{"destroy", "", raw_data([]^Interface{})},
+		{"set_shape", "uu", raw_data([]^Interface{nil, nil})},
+	}),
+	0,
+	nil,
+}
+
+cursor_shape_device_set_shape :: proc "c" (device: ^WP_Cursor_Shape_Device_V1, serial: u32, shape: WP_Cursor_Shape) {
+	proxy_marshal_flags(device, 1, nil, proxy_get_version(device), 0, serial, u32(shape))
+}
+
+cursor_shape_device_destroy :: proc "c" (device: ^WP_Cursor_Shape_Device_V1) {
+	proxy_marshal_flags(device, 0, nil, proxy_get_version(device), MARSHAL_FLAG_DESTROY)
+}

@@ -5,6 +5,7 @@
 package karl2d
 
 import NS "core:sys/darwin/Foundation"
+import CF "core:sys/darwin/CoreFoundation"
 import ce "platform_bindings/mac/cocoa_extras"
 import gc "platform_bindings/mac/gamecontroller"
 import "base:runtime"
@@ -22,6 +23,10 @@ PLATFORM_MAC :: Platform_Interface {
 	set_window_position = mac_set_window_position,
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
+
+	create_cursor = mac_create_cursor,
+	set_cursor = mac_set_cursor,
+	destroy_cursor = mac_destroy_cursor,
 
 	is_gamepad_active = mac_is_gamepad_active,
 	get_gamepad_axis = mac_get_gamepad_axis,
@@ -460,6 +465,43 @@ mac_set_window_mode :: proc(window_mode: Window_Mode) {
 		s.screen_width = int(content_rect.width)
 		s.screen_height = int(content_rect.height)
 	}
+}
+
+mac_create_cursor :: proc(pixels: []Color, width: int, height: int, hotspot: [2]int) -> Cursor_Data {
+	planes := [?]^u8 {(^u8)(raw_data(pixels))}
+
+	rep := NS.BitmapImageRep_alloc()->initWithBitmapDataPlanes(
+		&planes[0],
+		NS.Integer(width),
+		NS.Integer(height),
+		8, 4, true, false,
+		NS.DeviceRGBColorSpace,
+		NS.BitmapFormatAlphaNonpremultiplied,
+		NS.Integer(width * 4),
+		32,
+	)
+	defer rep->release()
+
+	image := NS.Image_alloc()->initWithSize({CF.CGFloat(width), CF.CGFloat(height)})
+	image->addRepresentation((^NS.ImageRep)(rep))
+	defer image->release()
+
+	cursor := NS.Cursor_alloc()->initWithImage(image, {CF.CGFloat(hotspot.x), CF.CGFloat(hotspot.y)})
+
+	return {
+		os_handle = cursor,
+	}
+}
+
+mac_set_cursor :: proc(cursor: Cursor_Data) {
+	cursor := (^NS.Cursor)(cursor.os_handle)
+	cursor->set()
+}
+
+mac_destroy_cursor :: proc(cursor: Cursor_Data) {
+	NS.Cursor_arrowCursor()->set()
+	cursor := (^NS.Cursor)(cursor.os_handle)
+	cursor->release()
 }
 
 // Key code mapping from macOS virtual key codes to Keyboard_Key

@@ -14,6 +14,9 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	set_size = wl_set_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
+	create_cursor = wl_create_cursor,
+	set_cursor = wl_set_cursor,
+	destroy_cursor = wl_destroy_cursor,
 	set_internal_state = wl_set_internal_state,
 }
 
@@ -21,6 +24,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:strings"
 import "core:c"
+import "core:sys/linux"
 
 import "log"
 import wl "platform_bindings/linux/wayland"
@@ -154,6 +158,12 @@ registry_listener := wl.Registry_Listener {
 				&wl.wp_fractional_scale_manager_v1_interface,
 				version,
 			)
+
+		case wl.shm_interface.name:
+			s.cursor_shm = wl.registry_bind(wl.SHM, registry, name, &wl.shm_interface, version)
+
+		case wl.wp_cursor_shape_manager_v1_interface.name:
+			s.cursor_shape_manager = wl.registry_bind(wl.WP_Cursor_Shape_Manager_V1, registry, name, &wl.wp_cursor_shape_manager_v1_interface, version)
 		}
 	},
 }
@@ -164,12 +174,23 @@ seat_listener := wl.Seat_Listener {
 
 		if .Pointer in capabilities {
 			if s.pointer != nil {
+				if s.cursor_shape_device != nil {
+					wl.cursor_shape_device_destroy(s.cursor_shape_device)
+					s.cursor_shape_device = nil
+				}
 				wl.pointer_release(s.pointer)
 			}
 
 			s.pointer = wl.seat_get_pointer(seat)
 			wl.add_listener(s.pointer, &pointer_listener, nil)
+			if s.cursor_shape_manager != nil {
+				s.cursor_shape_device = wl.cursor_shape_manager_get_pointer(s.cursor_shape_manager, s.pointer)
+			}
 		} else if s.pointer != nil {
+			if s.cursor_shape_device != nil {
+				wl.cursor_shape_device_destroy(s.cursor_shape_device)
+				s.cursor_shape_device = nil
+			}
 			wl.pointer_release(s.pointer)
 			s.pointer = nil
 		}
@@ -310,7 +331,12 @@ pointer_listener := wl.Pointer_Listener {
 		surface_x: wl.Fixed,
 		surface_y: wl.Fixed,
 	) {
-
+		s.pointer_enter_serial = int(serial)
+		if s.cursor != nil {
+			wl.pointer_set_cursor(pointer, serial, s.cursor.surface, i32(s.cursor.hotspot.x), i32(s.cursor.hotspot.y))
+		} else if s.cursor_shape_device != nil {
+			wl.cursor_shape_device_set_shape(s.cursor_shape_device, serial, .Default)
+		}
 	},
 	leave = proc "c" (
 		data: rawptr,
@@ -433,6 +459,8 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 }
 
 wl_shutdown :: proc() {
+	wl.cursor_shape_device_destroy(s.cursor_shape_device)
+	wl.cursor_shape_manager_destroy(s.cursor_shape_manager)
 	delete(s.events)
 }
 
@@ -494,9 +522,77 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
+wl_create_cursor :: proc(pixels: []Color, width: int, height: int, hotspot: [2]int) -> Cursor_Data {
+	stride := width * 4
+	size := stride * height
+
+	fd, err_fd := linux.memfd_create("cursor", {})
+	if err_fd != .NONE {
+		log.errorf("Failed to create Wayland cursor: memfd failed with %v", err_fd)
+		return {}
+	}
+	defer linux.close(fd)
+	linux.ftruncate(fd, i64(size))
+
+	data, err_mmap := linux.mmap(0, uint(size), {.READ, .WRITE}, {.SHARED}, fd, 0)
+	if err_mmap != .NONE {
+		log.errorf("Failed to create Wayland cursor: mmap failed with %v", err_fd)
+		return {}
+	}
+	defer linux.munmap(data, uint(size))
+
+	// Convert RGBA -> premultiplied ARGB that Wayland expects
+	pixel_data := ([^]u32)(data)
+	for i in 0 ..< len(pixels) {
+		col := pixels[i]
+		a := u32(col.a)
+		r := u32(col.r) * a / 255
+		g := u32(col.g) * a / 255
+		b := u32(col.b) * a / 255
+		pixel_data[i] = a << 24 | r << 16 | g << 8 | b
+	}
+
+	pool := wl.shm_create_pool(s.cursor_shm, c.int32_t(fd), c.int32_t(size))
+	defer wl.shm_pool_destroy(pool)
+	
+	buffer := wl.shm_pool_create_buffer(pool, 0, c.int32_t(width), c.int32_t(height), c.int32_t(stride), wl.SHM_FORMAT_ARGB8888)
+	defer wl.buffer_destroy(buffer)
+
+	surface := wl.compositor_create_surface(s.compositor)
+	wl.surface_attach(surface, buffer, 0, 0)
+	wl.surface_commit(surface)
+
+	cursor := new(WL_Cursor, s.allocator)
+	cursor.surface = surface
+	cursor.hotspot = hotspot
+
+	return {
+		os_handle = cursor,
+	}
+}
+
+wl_set_cursor :: proc(cursor: Cursor_Data) {
+	cursor := (^WL_Cursor)(cursor.os_handle)
+	wl.pointer_set_cursor(s.pointer, u32(s.pointer_enter_serial), cursor.surface, c.int32_t(cursor.hotspot.x), c.int32_t(cursor.hotspot.y))
+	s.cursor = cursor
+}
+
+wl_destroy_cursor :: proc(cursor: Cursor_Data) {
+	cursor := (^WL_Cursor)(cursor.os_handle)
+	wl.cursor_shape_device_set_shape(s.cursor_shape_device, u32(s.pointer_enter_serial), .Default)
+	wl.surface_destroy(cursor.surface)
+	free(cursor, s.allocator)
+	s.cursor = nil
+}
+
 wl_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^WL_State)(state)
+}
+
+WL_Cursor :: struct {
+	surface:  ^wl.Surface,
+	hotspot:  [2]int,
 }
 
 WL_State :: struct {
@@ -524,6 +620,12 @@ WL_State :: struct {
 
 	keyboard: ^wl.Keyboard,
 	pointer: ^wl.Pointer,
+	pointer_enter_serial: int,
+
+	cursor: ^WL_Cursor,
+	cursor_shm: ^wl.SHM,
+	cursor_shape_manager: ^wl.WP_Cursor_Shape_Manager_V1,
+	cursor_shape_device:  ^wl.WP_Cursor_Shape_Device_V1,
 
 	// True if toplevel_listener.configure has run
 	configured: bool,

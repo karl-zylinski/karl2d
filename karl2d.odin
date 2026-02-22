@@ -127,6 +127,9 @@ init :: proc(
 	s.default_font = load_font_from_bytes(DEFAULT_FONT_DATA)
 	_set_font(s.default_font)
 
+	// Dummy element so cursor with index 0 means 'no cursor'.
+	append_nothing(&s.cursors)
+
 	// Audio
 	{
 		s.audio_backend = AUDIO_BACKEND
@@ -203,6 +206,11 @@ shutdown :: proc() {
 	destroy_shader(s.default_shader)
 	rb.shutdown()
 	delete(s.vertex_buffer_cpu, s.allocator)
+
+	for _, idx in s.cursors {
+		destroy_cursor(Cursor(idx))
+	}
+	delete(s.cursors)
 
 	pf.shutdown()
 
@@ -1967,6 +1975,60 @@ get_default_font :: proc() -> Font {
 	return s.default_font
 }
 
+//---------//
+// CURSORS //
+//--------//
+
+create_cursor :: proc(pixels: []Color, width: int, height: int, hotspot: [2]int) -> Cursor {
+	if len(pixels) != width * height {
+		log.errorf("You tried creating a cursor but the pixels buffer length is %v. It was expected to be %v (width*height)", len(pixels), width * height)
+		return 0
+	}
+
+	// We make our own copy of the pixels because the OS might not make its own (like macOS),
+	// in which case it will keep referencing the ones we sent.
+	new_pixels := slice.clone(pixels, s.allocator)
+
+	idx := len(s.cursors)
+	cursor := pf.create_cursor(new_pixels, width, height, hotspot)
+	if cursor.os_handle == nil {
+		return 0
+	}
+	cursor.pixels = new_pixels
+	append(&s.cursors, cursor)
+
+	return Cursor(idx)
+}
+
+set_cursor :: proc(id: Cursor) {
+	if id == 0 do return
+	if id < 0 || int(id) >= len(s.cursors) {
+		log.errorf("You tried setting cursor id %v but it doesn't exist or its handle is invalid.", id)
+		return
+	}
+	cursor := s.cursors[id]
+	if cursor.os_handle == nil || cursor.pixels == nil {
+		log.errorf("You tried setting cursor id %v but its data is invalid (it probably was destroyed).", id)
+		return
+	}
+	pf.set_cursor(cursor)
+}
+
+destroy_cursor :: proc(id: Cursor) {
+	if id == 0 do return
+	if id < 0 || int(id) >= len(s.cursors) {
+		log.errorf("You tried destroying cursor id %v but it doesn't exist or its handle is invalid.", id)
+		return
+	}
+	cursor := &s.cursors[id]
+	if cursor.os_handle == nil || cursor.pixels == nil {
+		log.errorf("You tried destroying cursor id %v but it was already destroyed.", id)
+		return
+	}
+	pf.destroy_cursor(cursor^)
+	delete(cursor.pixels, s.allocator)
+	cursor.pixels = nil
+}
 
 //---------//
 // SHADERS //
@@ -2582,6 +2644,11 @@ Handle :: hm.Handle64
 Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
+Cursor :: distinct int
+Cursor_Data :: struct {
+	os_handle: rawptr,
+	pixels: []Color,
+}
 
 FONT_NONE :: Font {}
 TEXTURE_NONE :: Texture_Handle {}
@@ -2679,6 +2746,7 @@ State :: struct {
 
 	default_font: Font,
 	fonts: [dynamic]Font_Data,
+	cursors: [dynamic]Cursor_Data,
 	shape_drawing_texture: Texture_Handle,
 	batch_font: Font,
 	batch_camera: Maybe(Camera),
