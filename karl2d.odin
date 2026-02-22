@@ -1663,6 +1663,24 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 	return stream
 }
 
+play_audio_stream :: proc(stream: Audio_Stream, loop := false) {
+	asd := hm.get(&s.audio_streams, stream)
+
+	if asd == nil {
+		log.error("Trying to play invalid audio stream.")
+		return
+	}
+
+	append(
+		&s.playing_audio_streams,
+		Playing_Audio_Stream {
+			stream = stream,
+			buf = make([dynamic]Audio_Sample, s.allocator),
+			loop = loop,
+		},
+	)
+}
+
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
 //
@@ -1757,6 +1775,42 @@ update_audio_mixer :: proc() {
 		}
 
 		return dest_idx
+	}
+
+	vorbis_decode_buf := make([dynamic]u8, frame_allocator)
+
+	for idx := 0; idx < len(s.playing_audio_streams); idx += 1 {
+		pas := &s.playing_audio_streams[idx]
+		stream := hm.get(&s.audio_streams, pas.stream)
+		
+		if len(pas.buf) < AUDIO_MIX_CHUNK_SIZE {
+			resize(&vorbis_decode_buf, len(vorbis_decode_buf) + 256)
+
+			for {
+				channels: i32
+				samples: i32
+				output: [^]^f32
+
+				bytes_used := stbv.decode_frame_pushdata(
+					stream.vorbis,
+					raw_data(vorbis_decode_buf),
+					i32(len(vorbis_decode_buf)),
+					&channels,
+					&output, 
+					&samples,
+				)
+
+				if bytes_used == 0 && samples == 0 {
+					resize(&vorbis_decode_buf, len(vorbis_decode_buf) + 256)
+					continue
+				} else if bytes_used > 0 && samples == 0 {
+					
+				}
+					
+
+				log.info(output)
+			}
+		}
 	}
 
 	for idx := 0; idx < len(s.playing_sounds); idx += 1 {
@@ -2712,6 +2766,12 @@ Audio_Stream_Data :: struct {
 	vorbis: ^stbv.vorbis,
 }
 
+Playing_Audio_Stream :: struct {
+	stream: Audio_Stream,
+	buf: [dynamic]Audio_Sample,
+	loop: bool,
+}
+
 // The format used to describe that data passed to `load_sound_from_bytes_raw`.
 Raw_Sound_Format :: enum {
 	Integer8,
@@ -2793,6 +2853,7 @@ State :: struct {
 
 	// Sounds that have been started as because `play_sound` was called.
 	playing_sounds: [dynamic]Playing_Sound,
+	playing_audio_streams: [dynamic]Playing_Audio_Stream,
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
 	vorbis_alloc: stbv.vorbis_alloc,
