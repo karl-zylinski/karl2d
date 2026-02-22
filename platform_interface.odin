@@ -24,6 +24,10 @@ Platform_Interface :: struct #all_or_none {
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
 
+	create_cursor: proc(pixels: []Color, width: int, height: int, hotspot: [2]int) -> Cursor_Data,
+	set_cursor: proc(cursor: Cursor_Data),
+	destroy_cursor: proc(cursor: Cursor_Data),
+
 	is_gamepad_active: proc(gamepad: int) -> bool,
 	get_gamepad_axis: proc(gamepad: int, axis: Gamepad_Axis) -> f32,
 	set_gamepad_vibration: proc(gamepad: int, left: f32, right: f32),

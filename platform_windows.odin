@@ -17,6 +17,10 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
 
+	create_cursor = windows_create_cursor,
+	set_cursor = windows_set_cursor,
+	destroy_cursor = windows_destroy_cursor,
+
 	is_gamepad_active = windows_is_gamepad_active,
 	get_gamepad_axis = windows_get_gamepad_axis,
 	set_gamepad_vibration = windows_set_gamepad_vibration,
@@ -398,6 +402,47 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 			win32.SWP_NOOWNERZORDER | win32.SWP_FRAMECHANGED)
 		}
 	}
+}
+
+windows_create_cursor :: proc(pixels: []Color, width: int, height: int, hotspot: [2]int) -> Cursor_Data {
+	// We receive RGBA but GDI uses BGRA, so we'll swap the channels.
+	for i in 0 ..< len(pixels) {
+		r := pixels[i].r
+		b := pixels[i].b
+		pixels[i].b = r
+		pixels[i].r = b
+	}
+
+	h_color := win32.CreateBitmap(i32(width), i32(height), 1, 32, raw_data(pixels))
+	h_mask  := win32.CreateBitmap(i32(width), i32(height), 1, 1, nil)
+	defer win32.DeleteObject(cast(win32.HGDIOBJ) h_color)
+	defer win32.DeleteObject(cast(win32.HGDIOBJ) h_mask)
+
+	ii := win32.ICONINFO {
+		fIcon    = false,
+		xHotspot = u32(hotspot.x),
+		yHotspot = u32(hotspot.y),
+		hbmColor = h_color,
+		hbmMask  = h_mask,
+	}
+	cursor := (win32.HCURSOR)(win32.CreateIconIndirect(&ii))
+
+	return {
+		os_handle = cursor,
+	}
+}
+
+windows_set_cursor :: proc(cursor: Cursor_Data) {	
+	win32.SetClassLongPtrW(s.hwnd, win32.GCLP_HCURSOR, (win32.LONG_PTR)(uintptr(cursor.os_handle)))
+	win32.SetCursor((win32.HCURSOR)(cursor.os_handle))
+}
+
+windows_destroy_cursor :: proc(cursor: Cursor_Data) {
+	default_arrow := win32.LoadCursorA(nil, win32.IDC_ARROW)
+	win32.SetClassLongPtrW(s.hwnd, win32.GCLP_HCURSOR, (win32.LONG_PTR)(uintptr(default_arrow)))
+	win32.SetCursor(default_arrow)
+
+	win32.DestroyCursor((win32.HCURSOR)(cursor.os_handle))
 }
 
 s: ^Windows_State
