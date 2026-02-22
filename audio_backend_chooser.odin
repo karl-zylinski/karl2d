@@ -11,6 +11,9 @@ when ODIN_OS == .Windows {
 } else when ODIN_OS == .Linux {
 	DEFAULT_AUDIO_BACKEND_NAME :: "alsa"
 	AVAILABLE_AUDIO_BACKENDS :: "alsa, nil"
+} else when ODIN_OS == .Darwin {
+	DEFAULT_AUDIO_BACKEND_NAME :: "core_audio"
+	AVAILABLE_AUDIO_BACKENDS :: "core_audio, nil"
 } else {
 	DEFAULT_AUDIO_BACKEND_NAME :: "nil"
 	AVAILABLE_AUDIO_BACKENDS :: "nil"
@@ -28,6 +31,8 @@ when AUDIO_BACKEND_NAME == "waveout" {
 	AUDIO_BACKEND :: AUDIO_BACKEND_WEB_AUDIO
 } else when AUDIO_BACKEND_NAME == "alsa" {
 	AUDIO_BACKEND :: AUDIO_BACKEND_ALSA
+} else when AUDIO_BACKEND_NAME == "core_audio" {
+	AUDIO_BACKEND :: AUDIO_BACKEND_CORE_AUDIO
 } else when AUDIO_BACKEND_NAME == "nil" {
 	AUDIO_BACKEND :: AUDIO_BACKEND_NIL
 } else {

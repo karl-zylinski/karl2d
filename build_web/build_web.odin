@@ -67,14 +67,14 @@ main :: proc() {
 	}
 
 	bin_dir := path_join({dir, "bin"})
-	os.make_directory(bin_dir, 0o755)
+	os.make_directory(bin_dir, os.perm_number(0o755))
 	bin_web_dir := path_join({bin_dir, "web"})
-	os.make_directory(bin_web_dir, 0o755)
+	os.make_directory(bin_web_dir, os.perm_number(0o755))
 
 	build_dir := path_join({dir, "build"})
-	os.make_directory(build_dir, 0o755)
+	os.make_directory(build_dir, os.perm_number(0o755))
 	build_web_dir := path_join({build_dir, "web"})
-	os.make_directory(build_web_dir, 0o755)
+	os.make_directory(build_web_dir, os.perm_number(0o755))
 
 	entry_odin_file_path := path_join({build_web_dir, fmt.tprintf("%v_web_entry.odin", dir_name)})
 	write_entry_odin_err := os.write_entire_file(entry_odin_file_path, WEB_ENTRY_TEMPLATE)

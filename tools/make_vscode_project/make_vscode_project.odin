@@ -7,7 +7,7 @@ import "core:fmt"
 main :: proc() {
 	make_dir_err := os.make_directory_all(".vscode")
 	
-	if make_dir_err != nil {
+	if make_dir_err != nil && make_dir_err != .Exist {
 		fmt.eprintfln("Failed to create .vscode directory: %v", make_dir_err)
 		return
 	}
