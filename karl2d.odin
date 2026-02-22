@@ -1602,10 +1602,65 @@ destroy_sound :: proc(snd: Sound) {
 }
 
 load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
-	verr: stbv.Error
-	v := stbv.open_filename(frame_cstring(filename), &verr, &s.vorbis_alloc)
-	log.info(verr, v)
-	return {}
+	f := open_file_read(filename)
+
+	if f == nil {
+		log.errorf("Failed opening audio stream file %v", filename)
+		return AUDIO_STREAM_NONE
+	}
+
+	buf := make([dynamic]u8, frame_allocator)
+	read_buf: [256]u8
+	nbytes_read := file_read(f, read_buf[:])
+	append(&buf, ..read_buf[:nbytes_read])
+	vorbis_res: ^stbv.vorbis
+
+	for {
+		vorbis_err: stbv.Error
+		consumed: i32
+		vorbis := stbv.open_pushdata(
+			raw_data(buf),
+			i32(len(buf)),
+			&consumed,
+			&vorbis_err,
+			&s.vorbis_alloc,
+		)
+
+		if vorbis_err == nil {
+			vorbis_res = vorbis
+			file_seek(f, i64(consumed), .Start)
+			break
+		} else if vorbis_err == .need_more_data {
+			nbytes_read = file_read(f, read_buf[:])
+
+			if nbytes_read == 0 {
+				log.error("Failed to load audio stream. Reached end of file before stream could be loaded.")
+				close_file(f)
+				return AUDIO_STREAM_NONE
+			}
+
+			append(&buf, ..read_buf[:nbytes_read])
+		} else {
+			log.errorf("Failed to load audio stream. Error: %v", vorbis_err)
+			close_file(f)
+			return AUDIO_STREAM_NONE
+		}
+	}
+
+	asd := Audio_Stream_Data {
+		file = f,
+		vorbis = vorbis_res,
+	}
+
+	stream, stream_add_err := hm.add(&s.audio_streams, asd)
+
+	if stream_add_err != nil {
+		log.errorf("Failed to create audio stream from file. Error: %v", stream_add_err)
+		close_file(f)
+		return AUDIO_STREAM_NONE
+	}
+
+	return stream
 }
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
@@ -2649,10 +2704,12 @@ Playing_Sound :: struct {
 }
 
 Audio_Stream :: distinct Handle
+AUDIO_STREAM_NONE :: Audio_Stream {}
 
 Audio_Stream_Data :: struct {
 	handle: Audio_Stream,
-	vorbis: ^stbv.vorbis, 
+	file: File,
+	vorbis: ^stbv.vorbis,
 }
 
 // The format used to describe that data passed to `load_sound_from_bytes_raw`.
