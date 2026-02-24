@@ -1611,7 +1611,14 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 
 	buf := make([dynamic]u8, frame_allocator)
 	read_buf: [256]u8
-	nbytes_read := file_read(f, read_buf[:])
+	nbytes_read, read_err := file_read(f, read_buf[:])
+
+	if read_err != nil {
+		log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
+		close_file(f)
+		return AUDIO_STREAM_NONE
+	}
+
 	append(&buf, ..read_buf[:nbytes_read])
 	vorbis_res: ^stbv.vorbis
 
@@ -1631,10 +1638,16 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 			file_seek(f, i64(consumed), .Start)
 			break
 		} else if vorbis_err == .need_more_data {
-			nbytes_read = file_read(f, read_buf[:])
+			nbytes_read, read_err = file_read(f, read_buf[:])
+
+			if read_err != nil {
+				log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
+				close_file(f)
+				return AUDIO_STREAM_NONE
+			}
 
 			if nbytes_read == 0 {
-				log.error("Failed to load audio stream. Reached end of file before stream could be loaded.")
+				log.errorf("Failed to load audio stream. Reached end of file before stream could be loaded.")
 				close_file(f)
 				return AUDIO_STREAM_NONE
 			}
@@ -1663,7 +1676,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 	return stream
 }
 
-play_audio_stream :: proc(stream: Audio_Stream, loop := false) {
+play_audio_stream :: proc(stream: Audio_Stream) {
 	asd := hm.get(&s.audio_streams, stream)
 
 	if asd == nil {
@@ -1673,11 +1686,7 @@ play_audio_stream :: proc(stream: Audio_Stream, loop := false) {
 
 	append(
 		&s.playing_audio_streams,
-		Playing_Audio_Stream {
-			stream = stream,
-			buf = make([dynamic]Audio_Sample, s.allocator),
-			loop = loop,
-		},
+		stream,
 	)
 }
 
@@ -1777,57 +1786,13 @@ update_audio_mixer :: proc() {
 		return dest_idx
 	}
 
-	vorbis_read_buf: [256]u8
-	vorbis_decode_buf := make([dynamic]u8, frame_allocator)
-	vorbis_decode_buf_offset: int
-
 	for idx := 0; idx < len(s.playing_audio_streams); idx += 1 {
-		runtime.clear(&vorbis_decode_buf)
-		vorbis_decode_buf_offset = 0
-		pas := &s.playing_audio_streams[idx]
-		stream := hm.get(&s.audio_streams, pas.stream)
+		pas := hm.get(&s.audio_streams, s.playing_audio_streams[idx])
 
-		for len(pas.buf) < AUDIO_MIX_CHUNK_SIZE {
-			channels: i32
-			samples: i32
-			output: [^]^f32
-
-			to_decode := vorbis_decode_buf[vorbis_decode_buf_offset:]
-			bytes_used := stbv.decode_frame_pushdata(
-				stream.vorbis,
-				raw_data(to_decode),
-				i32(len(to_decode)),
-				&channels,
-				&output, 
-				&samples,
-			)
-
-			if bytes_used == 0 && samples == 0 {
-				read := file_read(stream.file, vorbis_read_buf[:])
-				append(&vorbis_decode_buf, ..vorbis_read_buf[:read])
-			} else if bytes_used > 0 && samples == 0 {
-				vorbis_decode_buf_offset += int(bytes_used)
-				read := file_read(stream.file, vorbis_read_buf[:])
-				append(&vorbis_decode_buf, ..vorbis_read_buf[:read])
-			} else if bytes_used > 0 && samples > 0 {
-				if channels != 2 {
-					log.error("Invalid num channels")
-				}
-
-				append(&pas.buf, ..slice.reinterpret([]Audio_Sample, to_decode[:bytes_used]))
-				diff := len(vorbis_decode_buf) - int(bytes_used) 
-				runtime.clear(&vorbis_decode_buf)
-				vorbis_decode_buf_offset = 0
-				file_seek(stream.file, -i64(diff), .Current)
-			} else {
-				log.error("Invalid vorbis")
-				break
-			}
+		pan := [2]f32 {
+			math.cos(f32(0 + 1) * math.PI / 4),
+			math.sin(f32(0 + 1) * math.PI / 4),
 		}
-	}
-
-	for idx := 0; idx < len(s.playing_audio_streams); idx += 1 {
-		pas := &s.playing_audio_streams[idx]
 
 		num_mixed := add(
 			s.mix_buffer[s.mix_buffer_offset:],
@@ -1835,12 +1800,12 @@ update_audio_mixer :: proc() {
 			AUDIO_MIX_CHUNK_SIZE,
 			1,
 			1,
-			{},
-			{},
+			pan,
+			pan,
 		)
 
 		copy(pas.buf[:], pas.buf[num_mixed:])
-		resize(&pas.buf, len(pas.buf) - num_mixed)
+		shrink(&pas.buf, len(pas.buf) - num_mixed)
 	}
 
 	for idx := 0; idx < len(s.playing_sounds); idx += 1 {
@@ -2013,6 +1978,129 @@ update_audio_mixer :: proc() {
 
 	ab.feed(out)
 	s.mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
+}
+
+update_playing_audio_stream :: proc(stream_handle: Audio_Stream) {
+	stream := hm.get(&s.audio_streams, stream_handle)
+
+	// 2 seconds
+	needed_samples := 2 * AUDIO_MIX_SAMPLE_RATE
+	data_buf := make([dynamic]u8, frame_allocator)
+	data_buf_start: int
+	read_buf: [256]u8
+
+	for len(stream.buf) < needed_samples {
+		channels: i32
+		samples: i32
+		output: [^]^f32
+
+		bytes_used := stbv.decode_frame_pushdata(
+			stream.vorbis,
+			raw_data(data_buf[data_buf_start:]),
+			i32(len(data_buf) - data_buf_start),
+			&channels,
+			&output, 
+			&samples,
+		)
+
+		if bytes_used == 0 && samples == 0 {
+			read, read_err := file_read(stream.file, read_buf[:])
+
+			if read_err != nil {
+				log.errorf("Failed reading from audio stream file. Error: %v", read_err)
+				break
+			}
+
+			if read > 0 {
+				append(&data_buf, ..read_buf[:read])
+			}
+		} else if bytes_used > 0 && samples == 0 {
+			data_buf_start += int(bytes_used)
+		} else if bytes_used > 0 && samples > 0 {
+			if channels != 2 {
+				log.error("Invalid num channels")
+				break
+			}
+			left: [^]f32 = output[0]
+			right: [^]f32 = output[1]
+
+			for samp_idx in 0..<samples {
+				append(&stream.buf, Audio_Sample {
+					left[samp_idx],
+					right[samp_idx],
+				})
+			}
+			data_buf_start += int(bytes_used)
+		} else {
+			log.error("Invalid vorbis")
+			break
+		}
+
+		log.info(len(stream.buf))
+	}
+
+	if data_buf_start < len(data_buf) {
+		log.info(-i64(len(data_buf) - data_buf_start))
+		file_seek(stream.file, -i64(len(data_buf) - data_buf_start), .Current)
+	}
+
+
+
+	
+
+
+	/*
+	if asd.
+	
+
+	vorbis_read_buf: [256]u8
+	vorbis_decode_buf := make([dynamic]u8, frame_allocator)
+	vorbis_decode_buf_offset: int
+
+	for idx := 0; idx < len(s.playing_audio_streams); idx += 1 {
+		runtime.clear(&vorbis_decode_buf)
+		vorbis_decode_buf_offset = 0
+		pas := &s.playing_audio_streams[idx]
+		stream := hm.get(&s.audio_streams, pas.stream)
+
+		for len(pas.buf) < AUDIO_MIX_CHUNK_SIZE {
+			channels: i32
+			samples: i32
+			output: [^]^f32
+
+			to_decode := vorbis_decode_buf[vorbis_decode_buf_offset:]
+			bytes_used := stbv.decode_frame_pushdata(
+				stream.vorbis,
+				raw_data(to_decode),
+				i32(len(to_decode)),
+				&channels,
+				&output, 
+				&samples,
+			)
+
+			if bytes_used == 0 && samples == 0 {
+				read := file_read(stream.file, vorbis_read_buf[:])
+				append(&vorbis_decode_buf, ..vorbis_read_buf[:read])
+			} else if bytes_used > 0 && samples == 0 {
+				vorbis_decode_buf_offset += int(bytes_used)
+				read := file_read(stream.file, vorbis_read_buf[:])
+				append(&vorbis_decode_buf, ..vorbis_read_buf[:read])
+			} else if bytes_used > 0 && samples > 0 {
+				if channels != 2 {
+					log.error("Invalid num channels")
+				}
+
+				append(&pas.buf, ..slice.reinterpret([]Audio_Sample, to_decode[:bytes_used]))
+				diff := len(vorbis_decode_buf) - int(bytes_used) 
+				runtime.clear(&vorbis_decode_buf)
+				vorbis_decode_buf_offset = 0
+				file_seek(stream.file, -i64(diff), .Current)
+			} else {
+				log.error("Invalid vorbis")
+				break
+			}
+		}
+	}*/
 }
 
 //-----------------//
@@ -2794,10 +2882,6 @@ Audio_Stream_Data :: struct {
 	handle: Audio_Stream,
 	file: File,
 	vorbis: ^stbv.vorbis,
-}
-
-Playing_Audio_Stream :: struct {
-	stream: Audio_Stream,
 	buf: [dynamic]Audio_Sample,
 	loop: bool,
 }
@@ -2883,7 +2967,7 @@ State :: struct {
 
 	// Sounds that have been started as because `play_sound` was called.
 	playing_sounds: [dynamic]Playing_Sound,
-	playing_audio_streams: [dynamic]Playing_Audio_Stream,
+	playing_audio_streams: [dynamic]Audio_Stream,
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
 	vorbis_alloc: stbv.vorbis_alloc,

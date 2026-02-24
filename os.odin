@@ -33,20 +33,10 @@ close_file :: proc(f: ^os.File) {
 	}
 }
 
-file_seek :: proc(f: ^os.File, offset: i64, whence: io.Seek_From) -> i64 {
-	new_offset, err := os.seek(f, offset, whence)
-	if err != nil {
-		log.errorf("Failed seeking file. Error: %v", err)
-		return -1
-	}
-	return new_offset
+file_seek :: proc(f: ^os.File, offset: i64, whence: io.Seek_From) -> (i64, os.Error)  {
+	return os.seek(f, offset, whence)
 }
 
-file_read :: proc(f: ^os.File, buffer: []u8) -> int {
-	n, err := os.read(f, buffer)
-	if err != nil {
-		log.errorf("Failed reading file. Error: %v", err)
-		return -1
-	}
-	return n
+file_read :: proc(f: ^os.File, buffer: []u8) -> (int, os.Error) {
+	return os.read(f, buffer)
 }
