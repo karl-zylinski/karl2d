@@ -1663,6 +1663,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 	asd := Audio_Stream_Data {
 		file = f,
 		vorbis = vorbis_res,
+		buf = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
 	}
 
 	stream, stream_add_err := hm.add(&s.audio_streams, asd)
@@ -1791,6 +1792,8 @@ update_audio_mixer :: proc() {
 	stream_read_buf: [256]u8
 
 	for idx := 0; idx < len(s.playing_audio_streams); idx += 1 {
+		runtime.clear(&stream_data_buf)
+		stream_data_buf_start = 0
 		pas := hm.get(&s.audio_streams, s.playing_audio_streams[idx])
 
 		if pas == nil {
@@ -1800,10 +1803,17 @@ update_audio_mixer :: proc() {
 			continue
 		}
 
-		// 2 seconds
-		NEEDED_SAMPLES :: 2 * AUDIO_MIX_SAMPLE_RATE
+		remaining :: proc(pas: ^Audio_Stream_Data) -> int {
+			remaining := pas.buf_end - pas.buf_start
 
-		for len(pas.buf) < NEEDED_SAMPLES {
+			if remaining < 0 {
+				remaining = len(pas.buf) - pas.buf_start + pas.buf_end
+			}
+
+			return remaining
+		}
+
+		for remaining(pas) < len(pas.buf) / 2 {
 			channels: i32
 			samples: i32
 			output: [^]^f32
@@ -1839,17 +1849,17 @@ update_audio_mixer :: proc() {
 				right: [^]f32 = output[1]
 
 				for samp_idx in 0..<samples {
-					append(&pas.buf, Audio_Sample {
+					pas.buf[pas.buf_end] = Audio_Sample {
 						left[samp_idx],
 						right[samp_idx],
-					})
+					}
+					pas.buf_end = (pas.buf_end + 1) % len(pas.buf)
 				}
 				stream_data_buf_start += int(bytes_used)
 			} else {
 				log.error("Invalid vorbis")
 				break
 			}
-
 		}
 
 		if stream_data_buf_start < len(stream_data_buf) {
@@ -1862,18 +1872,47 @@ update_audio_mixer :: proc() {
 			math.sin(f32(0 + 1) * math.PI / 4),
 		}
 
-		num_mixed := add(
-			s.mix_buffer[s.mix_buffer_offset:],
-			pas.buf[:],
-			AUDIO_MIX_CHUNK_SIZE,
-			1,
-			1,
-			pan,
-			pan,
-		)
+		num_mixed: int
 
-		copy(pas.buf[:], pas.buf[num_mixed:])
-		shrink(&pas.buf, len(pas.buf) - num_mixed)
+		if pas.buf_start <= pas.buf_end {
+			num_mixed = add(
+				s.mix_buffer[s.mix_buffer_offset:],
+				pas.buf[pas.buf_start:pas.buf_end],
+				AUDIO_MIX_CHUNK_SIZE,
+				1,
+				1,
+				pan,
+				pan,
+			)
+		} else {
+			num_mixed = add(
+				s.mix_buffer[s.mix_buffer_offset:],
+				pas.buf[pas.buf_start:],
+				AUDIO_MIX_CHUNK_SIZE,
+				1,
+				1,
+				pan,
+				pan,
+			)
+
+			if num_mixed < AUDIO_MIX_CHUNK_SIZE {
+				num_mixed += add(
+					s.mix_buffer[s.mix_buffer_offset + num_mixed:],
+					pas.buf[:pas.buf_end],
+					AUDIO_MIX_CHUNK_SIZE - num_mixed,
+					1,
+					1,
+					pan,
+					pan,
+				)
+			}
+		}
+
+		if pas.buf_start + num_mixed >= len(pas.buf) {
+			pas.buf_start = (pas.buf_start + num_mixed) % len(pas.buf)
+		} else {
+			pas.buf_start += num_mixed
+		}
 	}
 
 	for idx := 0; idx < len(s.playing_sounds); idx += 1 {
@@ -2823,12 +2862,20 @@ Playing_Sound :: struct {
 Audio_Stream :: distinct Handle
 AUDIO_STREAM_NONE :: Audio_Stream {}
 
+AUDIO_STREAM_BUFFER_SIZE :: 3 * AUDIO_MIX_SAMPLE_RATE
+
 Audio_Stream_Data :: struct {
 	handle: Audio_Stream,
 	file: File,
 	vorbis: ^stbv.vorbis,
-	buf: [dynamic]Audio_Sample,
 	loop: bool,
+
+	// Circular buffer of decoded samples. Created with a size of AUDIO_STREAM_BUFFER_SIZE. When the
+	// difference between buf_start and buf_end is less than AUDIO_STREAM_BUFFER_SIZE / 2, then we
+	// start decoding new samples into here.
+	buf: []Audio_Sample,
+	buf_start: int,
+	buf_end: int,
 }
 
 // The format used to describe that data passed to `load_sound_from_bytes_raw`.
