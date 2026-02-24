@@ -1777,6 +1777,7 @@ update_audio_mixer :: proc() {
 		return dest_idx
 	}
 
+	vorbis_read_buf: [256]u8
 	vorbis_decode_buf := make([dynamic]u8, frame_allocator)
 	vorbis_decode_buf_offset: int
 
@@ -1785,41 +1786,61 @@ update_audio_mixer :: proc() {
 		vorbis_decode_buf_offset = 0
 		pas := &s.playing_audio_streams[idx]
 		stream := hm.get(&s.audio_streams, pas.stream)
-		
+
 		for len(pas.buf) < AUDIO_MIX_CHUNK_SIZE {
 			channels: i32
 			samples: i32
 			output: [^]^f32
 
+			to_decode := vorbis_decode_buf[vorbis_decode_buf_offset:]
 			bytes_used := stbv.decode_frame_pushdata(
 				stream.vorbis,
-				raw_data(vorbis_decode_buf[vorbis_decode_buf_offset:]),
-				i32(len(vorbis_decode_buf) - vorbis_decode_buf_offset),
+				raw_data(to_decode),
+				i32(len(to_decode)),
 				&channels,
 				&output, 
 				&samples,
 			)
 
 			if bytes_used == 0 && samples == 0 {
-				resize(&vorbis_decode_buf, len(vorbis_decode_buf) + 256)
-				file_read(stream.file, vorbis_decode_buf[vorbis_decode_buf_offset:])
-				continue
+				read := file_read(stream.file, vorbis_read_buf[:])
+				append(&vorbis_decode_buf, ..vorbis_read_buf[:read])
 			} else if bytes_used > 0 && samples == 0 {
-				file_seek(stream.file, i64(bytes_used), .Current)
 				vorbis_decode_buf_offset += int(bytes_used)
+				read := file_read(stream.file, vorbis_read_buf[:])
+				append(&vorbis_decode_buf, ..vorbis_read_buf[:read])
 			} else if bytes_used > 0 && samples > 0 {
 				if channels != 2 {
 					log.error("Invalid num channels")
 				}
 
-				append(&pas.buf, ..slice.reinterpret([]Audio_Sample, vorbis_decode_buf[:]))
-				vorbis_decode_buf_offset += int(bytes_used)
-				file_seek(stream.file, i64(bytes_used), .Current)
+				append(&pas.buf, ..slice.reinterpret([]Audio_Sample, to_decode[:bytes_used]))
+				diff := len(vorbis_decode_buf) - int(bytes_used) 
+				runtime.clear(&vorbis_decode_buf)
+				vorbis_decode_buf_offset = 0
+				file_seek(stream.file, -i64(diff), .Current)
 			} else {
 				log.error("Invalid vorbis")
 				break
 			}
 		}
+	}
+
+	for idx := 0; idx < len(s.playing_audio_streams); idx += 1 {
+		pas := &s.playing_audio_streams[idx]
+
+		num_mixed := add(
+			s.mix_buffer[s.mix_buffer_offset:],
+			pas.buf[:],
+			AUDIO_MIX_CHUNK_SIZE,
+			1,
+			1,
+			{},
+			{},
+		)
+
+		copy(pas.buf[:], pas.buf[num_mixed:])
+		resize(&pas.buf, len(pas.buf) - num_mixed)
 	}
 
 	for idx := 0; idx < len(s.playing_sounds); idx += 1 {
