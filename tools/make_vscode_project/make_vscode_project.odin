@@ -90,6 +90,9 @@ main :: proc() {
 `		{{
 			"label": "build %s (GL)",
 			"type": "shell",
+			"problemMatcher": [
+				"$odin"
+			],
 			"command": "odin",
 			"args": ["build", "%s", "-debug", "-vet", "-strict-style", "-vet-tabs", "-out:bin/%s", "-define:KARL2D_RENDER_BACKEND=gl"],
 			"group": {{
@@ -112,6 +115,9 @@ main :: proc() {
 `		{{
 			"label": "build %s (web)",
 			"type": "shell",
+			"problemMatcher": [
+				"$odin"
+			],
 			"command": "odin run build_web -vet -strict-style -vet-tabs -- %s -vet -strict-style -vet-tabs",
 			"group": {{
 				"kind": "build",

@@ -1778,37 +1778,46 @@ update_audio_mixer :: proc() {
 	}
 
 	vorbis_decode_buf := make([dynamic]u8, frame_allocator)
+	vorbis_decode_buf_offset: int
 
 	for idx := 0; idx < len(s.playing_audio_streams); idx += 1 {
+		runtime.clear(&vorbis_decode_buf)
+		vorbis_decode_buf_offset = 0
 		pas := &s.playing_audio_streams[idx]
 		stream := hm.get(&s.audio_streams, pas.stream)
 		
-		if len(pas.buf) < AUDIO_MIX_CHUNK_SIZE {
-			resize(&vorbis_decode_buf, len(vorbis_decode_buf) + 256)
+		for len(pas.buf) < AUDIO_MIX_CHUNK_SIZE {
+			channels: i32
+			samples: i32
+			output: [^]^f32
 
-			for {
-				channels: i32
-				samples: i32
-				output: [^]^f32
+			bytes_used := stbv.decode_frame_pushdata(
+				stream.vorbis,
+				raw_data(vorbis_decode_buf[vorbis_decode_buf_offset:]),
+				i32(len(vorbis_decode_buf) - vorbis_decode_buf_offset),
+				&channels,
+				&output, 
+				&samples,
+			)
 
-				bytes_used := stbv.decode_frame_pushdata(
-					stream.vorbis,
-					raw_data(vorbis_decode_buf),
-					i32(len(vorbis_decode_buf)),
-					&channels,
-					&output, 
-					&samples,
-				)
-
-				if bytes_used == 0 && samples == 0 {
-					resize(&vorbis_decode_buf, len(vorbis_decode_buf) + 256)
-					continue
-				} else if bytes_used > 0 && samples == 0 {
-					
+			if bytes_used == 0 && samples == 0 {
+				resize(&vorbis_decode_buf, len(vorbis_decode_buf) + 256)
+				file_read(stream.file, vorbis_decode_buf[vorbis_decode_buf_offset:])
+				continue
+			} else if bytes_used > 0 && samples == 0 {
+				file_seek(stream.file, i64(bytes_used), .Current)
+				vorbis_decode_buf_offset += int(bytes_used)
+			} else if bytes_used > 0 && samples > 0 {
+				if channels != 2 {
+					log.error("Invalid num channels")
 				}
-					
 
-				log.info(output)
+				append(&pas.buf, ..slice.reinterpret([]Audio_Sample, vorbis_decode_buf[:]))
+				vorbis_decode_buf_offset += int(bytes_used)
+				file_seek(stream.file, i64(bytes_used), .Current)
+			} else {
+				log.error("Invalid vorbis")
+				break
 			}
 		}
 	}
