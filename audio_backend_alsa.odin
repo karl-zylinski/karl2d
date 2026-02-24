@@ -17,9 +17,24 @@ import "base:runtime"
 import "core:c"
 import "log"
 import alsa "platform_bindings/linux/alsa"
+import "core:thread"
+import "core:time"
+import "core:sync"
 
 Alsa_State :: struct {
 	pcm: alsa.PCM,
+
+	// This is a "circular" buffer. We write new things at `buf_end` and read from `buf_start`.
+	// AUDIO_MIX_CHUNK_SIZE * 3 should be enough, but I added some head room. 3 should be enough
+	// because the mixer tends to not never produce more than 2.5 * AUDIO_MIX_CHUNK_SIZE samples
+	// (it throws in another chunk if the remaining number of samples is less than
+	// 1.5 * AUDIO_MIX_CHUNK_SIZE).
+	buf: [AUDIO_MIX_CHUNK_SIZE*5]Audio_Sample,
+	buf_start: int,
+	buf_end: int,
+
+	feed_thread: ^thread.Thread,
+	run_thread: bool,
 }
 
 alsa_state_size :: proc() -> int {
@@ -67,11 +82,60 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 		return
 	}
 
+	s.run_thread = true
+	s.feed_thread = thread.create(alsa_thread_proc)
+	thread.start(s.feed_thread)
 	s.pcm = pcm
+}
+
+alsa_thread_proc :: proc(t: ^thread.Thread) {
+	for s.run_thread {
+		time.sleep(5 * time.Millisecond)
+		start, end := sync.atomic_load(&s.buf_start), sync.atomic_load(&s.buf_end)
+
+		write :: proc(pcm: alsa.PCM, data: []Audio_Sample) {
+			remaining := data
+
+			for len(remaining) > 0 {
+				ret := alsa.pcm_writei(pcm, raw_data(remaining), c.ulong(len(remaining)))
+
+				if ret < 0 {
+					// Recover from errors. One possible error is an underrun. I.e. ALSA ran out of bytes.
+					// In that case we must recover the PCM device and then try feeding it data again.
+					recover_ret := alsa.pcm_recover(s.pcm, c.int(ret), 1)
+
+					// Can't recover!
+					if recover_ret < 0 {
+						log.errorf("Fatal sound error:pcm_writei failed and recovery also failed: %s", alsa.strerror(c.int(ret)))
+						s.run_thread = false
+						return
+					}
+
+					continue
+				}
+
+				remaining = remaining[ret:]
+			}
+		}
+
+		if start > end {
+			write(s.pcm, s.buf[start:])
+			write(s.pcm, s.buf[:end])
+		} else {
+			write(s.pcm, s.buf[start:end])
+		}
+
+		sync.atomic_store(&s.buf_start, end)
+	}
 }
 
 alsa_shutdown :: proc() {
 	log.debug("Shutdown audio backend alsa")
+
+	s.run_thread = false
+	thread.join(s.feed_thread)
+	thread.destroy(s.feed_thread)
+
 	if s.pcm != nil {
 		alsa.pcm_close(s.pcm)
 		s.pcm = nil
@@ -88,28 +152,19 @@ alsa_feed :: proc(samples: []Audio_Sample) {
 		return
 	}
 
-	remaining := samples
+	samples := samples
+	i := sync.atomic_load(&s.buf_end)
+	overflow := (i + len(samples)) - len(s.buf)
 
-	for len(remaining) > 0 {
-		// Note that this blocks. But this should run on a an audio thread, so it will be fine.
-		ret := alsa.pcm_writei(s.pcm, raw_data(remaining), c.ulong(len(remaining)))
-
-		if ret < 0 {
-			// Recover from errors. One possible error is an underrun. I.e. ALSA ran out of bytes.
-			// In that case we must recover the PCM device and then try feeding it data again.
-			recover_ret := alsa.pcm_recover(s.pcm, c.int(ret), 1)
-
-			// Can't recover!
-			if recover_ret < 0 {
-				break
-			}
-
-			continue
-		}
-
-		written := int(ret)
-		remaining = remaining[written:]
+	if overflow > 0 {
+		to_copy := len(samples) - overflow
+		copy(s.buf[i:], samples[:to_copy])
+		i = 0
+		samples = samples[to_copy:]
 	}
+
+	copy(s.buf[i:], samples[:])
+	sync.atomic_store(&s.buf_end, i + len(samples))
 }
 
 alsa_remaining_samples :: proc() -> int {
@@ -117,29 +172,11 @@ alsa_remaining_samples :: proc() -> int {
 		return 0
 	}
 
-	// The delay in ALSA says how many frames are buffered. So it means: "If you submit a sample
-	// now, how many frames will be played before it?". This means that it is essentially the same
-	// as "remaining samples".
-	delay: c.long
-	ret := alsa.pcm_delay(s.pcm, &delay)
+	start, end := sync.atomic_load(&s.buf_start), sync.atomic_load(&s.buf_end)
 
-	if ret < 0 {
-		recover_ret := alsa.pcm_recover(s.pcm, ret, 1)
-
-		if recover_ret < 0 {
-			return 0
-		}
-
-		ret = alsa.pcm_delay(s.pcm, &delay)
-
-		if ret < 0 {
-			return 0
-		}
-	}
-
-	if delay < 0 {
-		return 0
-	}
-
-	return int(delay)
+	if end >= start {
+		return end - start
+	} 
+	
+	return len(s.buf) - start + end
 }
