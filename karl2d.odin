@@ -147,6 +147,7 @@ init :: proc(
 		hm.dynamic_init(&s.playing_audio_buffers, s.allocator)
 		hm.dynamic_init(&s.audio_buffers, s.allocator)
 		hm.dynamic_init(&s.sound_instances, s.allocator)
+		hm.dynamic_init(&s.audio_streams, s.allocator)
 	}
 
 	return s
@@ -203,6 +204,7 @@ shutdown :: proc() {
 		ab.shutdown()
 		hm.dynamic_destroy(&s.playing_audio_buffers)
 		hm.dynamic_destroy(&s.sound_instances)
+		hm.dynamic_destroy(&s.audio_streams)
 		hm.dynamic_destroy(&s.audio_buffers)
 		free(s.audio_backend_state, s.allocator)
 	}
@@ -1226,6 +1228,11 @@ set_texture_filter_ex :: proc(
 play_sound :: proc(sound_handle: Sound, loop := false) {
 	sound := hm.get(&s.sound_instances, sound_handle)
 
+	if sound == nil {
+		log.error("Cannot play sound, sound does not exist.")
+		return
+	}
+
 	if existing := hm.get(&s.playing_audio_buffers, sound.playing_buffer_handle); existing != nil {
 		hm.remove(&s.playing_audio_buffers, sound.playing_buffer_handle)
 	}
@@ -1241,12 +1248,17 @@ play_sound :: proc(sound_handle: Sound, loop := false) {
 	sound.playing_buffer_handle, add_err = hm.add(&s.playing_audio_buffers, playing_audio_buffer)
 
 	if add_err != nil {
-		log.error("Failed to play sound. Error: %v", add_err)
+		log.errorf("Failed to play sound. Error: %v", add_err)
 	}
 }
 
 stop_sound :: proc(sound_handle: Sound) {
 	sound := hm.get(&s.sound_instances, sound_handle)
+
+	if sound == nil {
+		log.error("Cannot stop sound, sound does not exist.")
+		return
+	}
 
 	if existing := hm.get(&s.playing_audio_buffers, sound.playing_buffer_handle); existing != nil {
 		hm.remove(&s.playing_audio_buffers, sound.playing_buffer_handle)
@@ -1721,6 +1733,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 	if buffer_handle_add_err != nil {
 		log.errorf("Failed to load audio stream. Error: %v", buffer_handle_add_err)
 		close_file(f)
+		delete(buffer.samples, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -1740,6 +1753,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 	if stream_add_err != nil {
 		log.errorf("Failed to create audio stream from file. Error: %v", stream_add_err)
 		close_file(f)
+		delete(buffer.samples, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -1790,7 +1804,7 @@ play_audio_stream :: proc(audio_stream: Audio_Stream) {
 	as.playing_buffer_handle, add_err = hm.add(&s.playing_audio_buffers, playing_audio_buffer)
 
 	if add_err != nil {
-		log.error("Failed to play audio stream. Error: %v", add_err)
+		log.errorf("Failed to play audio stream. Error: %v", add_err)
 	}
 }
 
@@ -2957,7 +2971,7 @@ RENDER_TARGET_NONE :: Render_Target_Handle {}
 AUDIO_MIX_SAMPLE_RATE :: 44100
 AUDIO_MIX_CHUNK_SIZE :: 1400
 
-// Stereo audio sample, left and right channcel. Each channel can have a value between -1 and 1.
+// Stereo audio sample, left and right channel. Each channel can have a value between -1 and 1.
 Audio_Sample :: [2]f32
 
 // Represents a sound you can play using the `play_sound` procedure. Loaded using
