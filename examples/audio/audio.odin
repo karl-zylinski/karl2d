@@ -18,6 +18,7 @@ wav: k2.Sound
 wav_inst: k2.Sound
 
 music: k2.Audio_Stream
+music_pitch: f32 = 1
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Audio")
@@ -98,6 +99,24 @@ step :: proc() -> bool {
 	if k2.key_is_held(.S) {
 		snd_pitch -= k2.get_frame_time() * 0.5
 	}
+
+	if k2.key_went_down(.Home) {
+		k2.play_audio_stream(music)
+	}
+
+	if k2.key_went_down(.End) {
+		k2.stop_audio_stream(music)
+	}
+
+	if k2.key_is_held(.Page_Up) {
+		music_pitch += k2.get_frame_time() * 0.5
+	}
+
+	if k2.key_is_held(.Page_Down) {
+		music_pitch -= k2.get_frame_time() * 0.5
+	}
+
+	k2.set_audio_stream_pitch(music, music_pitch)
 
 	if k2.key_went_down(.Space) {
 		k2.set_sound_pitch(wav, 1)

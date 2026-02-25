@@ -1794,14 +1794,88 @@ play_audio_stream :: proc(audio_stream: Audio_Stream) {
 	}
 }
 
-stop_audio_stream :: proc(audio_stream: Audio_Stream) {
+pause_audio_stream :: proc(audio_stream: Audio_Stream) {
 	as := hm.get(&s.audio_streams, audio_stream)
+
+	if as == nil {
+		log.error("Cannot pause audio stream, stream does not exist.")
+		return
+	}
 
 	if existing := hm.get(&s.playing_audio_buffers, as.playing_buffer_handle); existing != nil {
 		hm.remove(&s.playing_audio_buffers, as.playing_buffer_handle)
 	}
 
 	as.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
+}
+
+stop_audio_stream :: proc(audio_stream: Audio_Stream) {
+	as := hm.get(&s.audio_streams, audio_stream)
+
+	if as == nil {
+		log.error("Cannot stop audio stream, stream does not exist.")
+		return
+	}
+
+	if existing := hm.get(&s.playing_audio_buffers, as.playing_buffer_handle); existing != nil {
+		hm.remove(&s.playing_audio_buffers, as.playing_buffer_handle)
+	}
+
+	as.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
+	as.buffer_write_pos = 0
+	file_seek(as.file, 0, .Start)
+	stbv.flush_pushdata(as.vorbis)
+}
+
+set_audio_stream_volume :: proc(audio_stream: Audio_Stream, volume: f32) {
+	as := hm.get(&s.audio_streams, audio_stream)
+	
+	if as == nil {
+		log.error("Cannot set audio stream volume, stream does not exist.")
+		return
+	}
+
+	clamped_volume := clamp(volume, 0, 1)
+
+	if playing := hm.get(&s.playing_audio_buffers, as.playing_buffer_handle); playing != nil {
+		playing.target_settings.volume = clamped_volume
+	}
+	
+	as.playback_settings.volume = clamped_volume
+}
+
+set_audio_stream_pan :: proc(audio_stream: Audio_Stream, pan: f32) {
+	as := hm.get(&s.audio_streams, audio_stream)
+	
+	if as == nil {
+		log.error("Cannot set audio stream pan, stream does not exist.")
+		return
+	}
+
+	clamped_pan := clamp(pan, -1, 1)
+
+	if playing := hm.get(&s.playing_audio_buffers, as.playing_buffer_handle); playing != nil {
+		playing.target_settings.pan = clamped_pan
+	}
+
+	as.playback_settings.pan = clamped_pan
+}
+
+set_audio_stream_pitch :: proc(audio_stream: Audio_Stream, pitch: f32) {
+	as := hm.get(&s.audio_streams, audio_stream)
+	
+	if as == nil {
+		log.error("Cannot set audio stream pitch, stream does not exist.")
+		return
+	}
+
+	capped_pitch := max(pitch, 0.01)
+
+	if playing := hm.get(&s.playing_audio_buffers, as.playing_buffer_handle); playing != nil {
+		playing.target_settings.pitch = capped_pitch
+	}
+	
+	as.playback_settings.pitch = capped_pitch
 }
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
@@ -2883,21 +2957,39 @@ RENDER_TARGET_NONE :: Render_Target_Handle {}
 AUDIO_MIX_SAMPLE_RATE :: 44100
 AUDIO_MIX_CHUNK_SIZE :: 1400
 
+// Stereo audio sample, left and right channcel. Each channel can have a value between -1 and 1.
 Audio_Sample :: [2]f32
 
+// Represents a sound you can play using the `play_sound` procedure. Loaded using
+// `load_sound_from_file` or `load_sound_from_bytes`. Create instances of an already loaded sound
+// using `create_sound_instance`.
 Sound :: distinct Handle
 
 SOUND_NONE :: Sound {}
 
+// A sound instance is what `Sound` handles are mapped to. They contain a handle to a an audio
+// buffer, and the settings for use when playing that buffer. The audio buffer may be shared between
+// multiple sound instances, which allows you to play the same sound multiple times at the same time
+// without having to clone the data.
 Sound_Instance :: struct {
 	handle: Sound,
-	playing_buffer_handle: Playing_Audio_Buffer_Handle,
+
+	// The audio buffer may be used by multiple sound instances. This is the key idea of sound
+	// instances: That you can use `create_sound_instance` to make it possible to play a sound
+	// multiple times at the same time, without having to clone the data.
 	audio_buffer_handle: Audio_Buffer_Handle,
+
+	// If this sound is currently playing, then this identifies the state of the playing sound. It
+	// is PLAYING_AUDIO_BUFFER_NONE (zero) when it is not playing.
+	playing_buffer_handle: Playing_Audio_Buffer_Handle,
+
+	// This exists both here and in the `Playing_Audio_Buffer`. That way we can store settings
+	// even when the sound isn't playing.
 	playback_settings: Audio_Buffer_Playback_Settings,
 }
 
-
 Audio_Stream :: distinct Handle
+
 AUDIO_STREAM_NONE :: Audio_Stream {}
 
 AUDIO_STREAM_BUFFER_SIZE :: 3 * AUDIO_MIX_SAMPLE_RATE
@@ -2947,7 +3039,6 @@ Playing_Audio_Buffer :: struct {
 
 	loop: bool,
 }
-
 
 // The format used to describe that data passed to `load_sound_from_bytes_raw`.
 Raw_Sound_Format :: enum {
