@@ -258,16 +258,41 @@ draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color)
 // Rotation unit: Radians.
 draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color)
 
-// Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
-// rectangles.
-draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color)
+//Feature toggle to switch between new and old logic
+USE_NEW_DRAW_RECT_OUTLINE :: true
+
+// Draw the outline of a rectangle with a specific thickness and color.
+draw_rect_outline :: proc(rect: Rect, thickness: f32, color: Color)
+
+// Draw the outline of a rectangle with a specific thickness.
+draw_rect_outline_old :: proc(r: Rect, thickness: f32, color: Color)
+
+// Draw the outline of a rectangle from its top-left corner with the given size, line thickness, and color.
+draw_rect_outline_vec :: proc(position: Vec2, size: Vec2, thickness: f32, color: Color)
+
+// Draw the outline of a rectangle with a specified line thickness and color.
+// Rotation is given in radians. The origin is at the top-left corner {0, 0}. 
+// To rotate around the rectangle’s center, use {width / 2, height / 2}.
+draw_rect_outline_ex :: proc(rect: Rect, origin: Vec2, rotation: f32, thickness: f32, color: Color)
 
 // Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
 // perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16)
 
-// Like `draw_circle` but only draws the outer edge of the circle.
+//Feature toggle to switch between new and old logic
+USE_NEW_DRAW_CIRCLE_OUTLINE :: true
+
+//Draw the outline of a circle with a specific radius, thickness and color.
+//Optionally specify the number of `segments` to control the smoothness.
 draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16)
+
+// Like `draw_circle` but only draws the outer edge of the circle.
+draw_circle_outline_old :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16)
+
+//Draw the outline of a circle with a specific radius, thickness and color.
+//Rotation is in radians and the origin {0, 0} is at the center of the circle.
+//Optionally specify the number of `segments` to control the smoothness.
+draw_circle_outline_ex :: proc(position: Vec2, radius: f32, origin: Vec2, rotation: f32, thickness: f32, color: Color, segments := 16)
 
 // Draws a line from `start` to `end` of a certain thickness.
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)

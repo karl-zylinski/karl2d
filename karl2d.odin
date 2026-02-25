@@ -704,9 +704,107 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 	batch_vertex(bl, {0, 1}, c)
 }
 
-// Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
-// rectangles.
-draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
+//Feature toggle to switch between new and old logic
+USE_NEW_DRAW_RECT_OUTLINE :: true
+
+// Draw the outline of a rectangle with a specific thickness and color.
+draw_rect_outline :: proc(rect: Rect, thickness: f32, color: Color) {
+	r := rect
+
+	if USE_NEW_DRAW_RECT_OUTLINE == false {
+		draw_rect_outline_old(r, thickness, color)
+		return;
+	}
+
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 24 > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+
+	if s.batch_texture != s.shape_drawing_texture {
+		draw_current_batch()
+	}
+
+	s.batch_texture = s.shape_drawing_texture
+
+	thickness_x := thickness
+	thickness_y := thickness
+
+	if thickness < 0 {
+		t := -thickness
+		thickness_x = t
+		thickness_y = t
+
+		r.x -= t
+		r.y -= t
+		r.w += t*2
+		r.h += t*2
+	} else {
+		if thickness_x > r.w / 2 {
+			thickness_x = r.w / 2
+		}
+	
+		if thickness_y > r.h / 2 {
+			thickness_y = r.h / 2
+		}
+	}
+	
+	tl := Vec2{r.x, r.y}
+	tr := Vec2{r.x + r.w, r.y}
+	br := Vec2{r.x + r.w, r.y + r.h}
+	bl := Vec2{r.x, r.y + r.h}
+
+	tlt := Vec2{r.x + thickness_x, r.y + thickness_y}
+	trt := Vec2{r.x + r.w - thickness_x, r.y + thickness_y}
+	brt := Vec2{r.x + r.w - thickness_x, r.y + r.h - thickness_y}
+	blt := Vec2{r.x + thickness_x, r.y + r.h - thickness_y}
+	
+	tluv := Vec2{0, 0}
+	truv := Vec2{1, 0}
+	bluv := Vec2{0, 1}
+	bruv := Vec2{1, 1}
+
+	centeruv := Vec2{0.5, 0.5}
+
+	//Top
+	batch_vertex(tlt, centeruv, color)
+	batch_vertex(tl, tluv, color)
+	batch_vertex(tr, tluv, color)
+	
+	batch_vertex(tlt, centeruv, color)
+	batch_vertex(tr, tluv, color)
+	batch_vertex(trt, centeruv, color)
+
+	//Right
+	batch_vertex(trt, centeruv, color)
+	batch_vertex(tr, tluv, color)
+	batch_vertex(br, bruv, color)
+
+	batch_vertex(trt, centeruv, color)
+	batch_vertex(br, bruv, color)
+	batch_vertex(brt, centeruv, color)
+
+	//Bottom
+	batch_vertex(brt, centeruv, color)
+	batch_vertex(br, bruv, color)
+	batch_vertex(bl, bluv, color)
+
+	batch_vertex(brt, centeruv, color)
+	batch_vertex(bl, bluv, color)
+	batch_vertex(blt, centeruv, color)
+
+	//Left
+	batch_vertex(blt, centeruv, color)
+	batch_vertex(bl, bluv, color)
+	batch_vertex(tl, tluv, color)
+
+	batch_vertex(blt, centeruv, color)
+	batch_vertex(tl, tluv, color)
+	batch_vertex(tlt, centeruv, color)
+	
+}
+
+// Draw the outline of a rectangle with a specific thickness.
+draw_rect_outline_old :: proc(r: Rect, thickness: f32, color: Color) {
 	t := thickness
 	
 	// Based on DrawRectangleLinesEx from Raylib
@@ -745,6 +843,168 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 	draw_rect(right, color)
 }
 
+// Draw the outline of a rectangle from its top-left corner with the given size, line thickness, and color.
+draw_rect_outline_vec :: proc(position: Vec2, size: Vec2, thickness: f32, color: Color) {
+	if USE_NEW_DRAW_RECT_OUTLINE == false {
+		return
+	}
+
+	draw_rect_outline({position.x, position.y, size.x, size.y}, thickness, color)
+}
+
+// Draw the outline of a rectangle with a specified line thickness and color.
+// Rotation is given in radians. The origin is at the top-left corner {0, 0}. 
+// To rotate around the rectangle’s center, use {width / 2, height / 2}.
+draw_rect_outline_ex :: proc(rect: Rect, origin: Vec2, rotation: f32, thickness: f32, color: Color) {
+	
+	if USE_NEW_DRAW_RECT_OUTLINE == false {
+		return
+	}
+	
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 24 > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+	
+	if s.batch_texture != s.shape_drawing_texture {
+		draw_current_batch()
+	}
+	
+	s.batch_texture = s.shape_drawing_texture
+	
+	r := rect
+	ori := origin
+	thickness_x := thickness
+	thickness_y := thickness
+
+	if thickness < 0 {
+		t := -thickness
+		thickness_x = t
+		thickness_y = t
+
+		r.w += t*2
+		r.h += t*2
+
+		ori.x += t
+		ori.y += t
+	} else {
+		if thickness_x > r.w / 2 {
+			thickness_x = r.w / 2
+		}
+	
+		if thickness_y > r.h / 2 {
+			thickness_y = r.h / 2
+		}
+	}
+
+	tl, tr, bl, br: Vec2
+	tlt, trt, brt, blt: Vec2
+	
+	if rotation == 0 {
+		x := r.x - ori.x
+		y := r.y - ori.y
+
+		tl = {x, y}
+		tr = {x + r.w, y}
+		br = {x + r.w, y + r.h}
+		bl = {x, y + r.h}
+
+		tlt = {x + thickness_x, y + thickness_y}
+		trt = {x + r.w - thickness_x, y + thickness_y}
+		brt = {x + r.w - thickness_x, y + r.h - thickness_y}
+		blt = {x + thickness_x, y + r.h - thickness_y}
+	} else {
+		sin_rot := math.sin(rotation)
+		cos_rot := math.cos(rotation)
+		x := r.x
+		y := r.y
+		dx := -ori.x
+		dy := -ori.y
+		
+		tl = {
+			x + dx * cos_rot - dy * sin_rot,
+			y + dx * sin_rot + dy * cos_rot,
+		}
+		
+		tr = {
+			x + (dx + r.w) * cos_rot - dy * sin_rot,
+			y + (dx + r.w) * sin_rot + dy * cos_rot,
+		}
+		
+		bl = {
+			x + dx * cos_rot - (dy + r.h) * sin_rot,
+			y + dx * sin_rot + (dy + r.h) * cos_rot,
+		}
+		
+		br = {
+			x + (dx + r.w) * cos_rot - (dy + r.h) * sin_rot,
+			y + (dx + r.w) * sin_rot + (dy + r.h) * cos_rot,
+		}
+		
+		tlt = {
+			x + (dx + thickness_x) * cos_rot - (dy + thickness_y) * sin_rot,
+			y + (dx + thickness_x) * sin_rot + (dy + thickness_y) * cos_rot,
+		}
+		
+		trt = {
+			x + (dx + r.w - thickness_x) * cos_rot - (dy + thickness_y) * sin_rot,
+			y + (dx + r.w - thickness_x) * sin_rot + (dy + thickness_y) * cos_rot,
+		}
+		
+		blt = {
+			x + (dx + thickness_x) * cos_rot - (dy + r.h - thickness_y) * sin_rot,
+			y + (dx + thickness_x) * sin_rot + (dy + r.h - thickness_y) * cos_rot,
+		}
+		
+		brt = {
+			x + (dx + r.w - thickness_x) * cos_rot - (dy + r.h - thickness_y) * sin_rot,
+			y + (dx + r.w - thickness_x) * sin_rot + (dy + r.h - thickness_y) * cos_rot,
+		}
+	}
+
+	tluv := Vec2{0, 0}
+	truv := Vec2{1, 0}
+	bluv := Vec2{0, 1}
+	bruv := Vec2{1, 1}
+
+	centeruv := Vec2{0.5, 0.5}
+
+	//Top
+	batch_vertex(tlt, centeruv, color)
+	batch_vertex(tl, tluv, color)
+	batch_vertex(tr, tluv, color)
+	
+	batch_vertex(tlt, centeruv, color)
+	batch_vertex(tr, tluv, color)
+	batch_vertex(trt, centeruv, color)
+
+	//Right
+	batch_vertex(trt, centeruv, color)
+	batch_vertex(tr, tluv, color)
+	batch_vertex(br, bruv, color)
+
+	batch_vertex(trt, centeruv, color)
+	batch_vertex(br, bruv, color)
+	batch_vertex(brt, centeruv, color)
+
+	//Bottom
+	batch_vertex(brt, centeruv, color)
+	batch_vertex(br, bruv, color)
+	batch_vertex(bl, bluv, color)
+
+	batch_vertex(brt, centeruv, color)
+	batch_vertex(bl, bluv, color)
+	batch_vertex(blt, centeruv, color)
+
+	//Left
+	batch_vertex(blt, centeruv, color)
+	batch_vertex(bl, bluv, color)
+	batch_vertex(tl, tluv, color)
+
+	batch_vertex(blt, centeruv, color)
+	batch_vertex(tl, tluv, color)
+	batch_vertex(tlt, centeruv, color)
+}
+
 // Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
 // perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
@@ -772,8 +1032,64 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 	}
 }
 
-// Like `draw_circle` but only draws the outer edge of the circle.
+//Feature toggle to switch between new and old logic
+USE_NEW_DRAW_CIRCLE_OUTLINE :: true
+
+//Draw the outline of a circle with a specific radius, thickness and color.
+//Optionally specify the number of `segments` to control the smoothness.
 draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16) {
+	if USE_NEW_DRAW_CIRCLE_OUTLINE == false {
+		draw_circle_outline_old(center, radius, thickness, color, segments)
+		return
+	}
+
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 * segments > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+
+	if s.batch_texture != s.shape_drawing_texture {
+		draw_current_batch()
+	}
+
+	s.batch_texture = s.shape_drawing_texture
+
+	t := thickness
+	r := radius
+
+	if t > radius {
+		t = radius
+	} else if t < 0 {
+		t = -t
+		r += t
+	}
+
+	radians_per_segment := f32(math.TAU / f32(segments))
+	rot := linalg.matrix2_rotate(radians_per_segment)
+	prev_p := center + rot * Vec2{r, 0}
+	prev_pt := center + rot * Vec2{r - t, 0}
+	
+	for s in 0..=segments {
+		radians_per_segment := (f32(s)/f32(segments)) * math.TAU
+		rot := linalg.matrix2_rotate(radians_per_segment)
+		
+		p := center + rot * Vec2{r, 0}
+		pt := center + rot * Vec2{r - t, 0}
+		
+		batch_vertex(prev_pt, {0, 0}, color)
+		batch_vertex(prev_p, {0, 0}, color)
+		batch_vertex(p, {0, 0}, color)
+
+		batch_vertex(prev_pt, {0, 0}, color)
+		batch_vertex(p, {0, 0}, color)
+		batch_vertex(pt, {0, 0}, color)
+
+		prev_p = p
+		prev_pt = pt
+	}
+}
+
+// Like `draw_circle` but only draws the outer edge of the circle.
+draw_circle_outline_old :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16) {
 	prev := center + {radius, 0}
 	for s in 1..=segments {
 		sr := (f32(s)/f32(segments)) * 2*math.PI
@@ -781,6 +1097,84 @@ draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Co
 		p := center + rot * Vec2{radius, 0}
 		draw_line(prev, p, thickness, color)
 		prev = p
+	}
+}
+
+//Draw the outline of a circle with a specific radius, thickness and color.
+//Rotation is in radians and the origin {0, 0} is at the center of the circle.
+//Optionally specify the number of `segments` to control the smoothness.
+draw_circle_outline_ex :: proc(position: Vec2, radius: f32, origin: Vec2, rotation: f32, thickness: f32, color: Color, segments := 16) {
+	if USE_NEW_DRAW_CIRCLE_OUTLINE == false {
+		return
+	}
+
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 * segments > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+
+	if s.batch_texture != s.shape_drawing_texture {
+		draw_current_batch()
+	}
+
+	s.batch_texture = s.shape_drawing_texture
+
+	thickness := thickness
+	radius := radius
+	
+	if thickness > radius {
+		thickness = radius
+	} else if thickness < 0 {
+		thickness = -thickness
+		radius += thickness
+	}
+
+	sin_rot := math.sin(rotation)
+	cos_rot := math.cos(rotation)
+
+	radians_per_segment := math.TAU / f32(segments)
+	segment_rotation := linalg.matrix2_rotate(radians_per_segment)
+
+	current_p0 := Vec2{radius - thickness, 0}
+	current_p1 := Vec2{radius, 0}
+
+	p0 := origin + current_p0
+	prev_p0 := Vec2{
+		position.x + p0.x * cos_rot - p0.y * sin_rot,
+		position.y + p0.x * sin_rot + p0.y * cos_rot,
+	}
+	
+	p1 := origin + current_p1
+	prev_p1 := Vec2{
+		position.x + p1.x * cos_rot - p1.y * sin_rot,
+		position.y + p1.x * sin_rot + p1.y * cos_rot,
+	}
+
+	for s in 0..=segments {
+		current_p0 = segment_rotation * current_p0
+		current_p1 = segment_rotation * current_p1
+
+		p0 := origin + current_p0
+		p0 = {
+			position.x + p0.x * cos_rot - p0.y * sin_rot,
+			position.y + p0.x * sin_rot + p0.y * cos_rot,
+		}
+
+		p1 := origin + current_p1
+		p1 = {
+			position.x + p1.x * cos_rot - p1.y * sin_rot,
+			position.y + p1.x * sin_rot + p1.y * cos_rot,
+		}
+
+		batch_vertex(prev_p0, {0, 0}, color)
+		batch_vertex(prev_p1, {0, 0}, color)
+		batch_vertex(p1, {0, 0}, color)
+
+		batch_vertex(prev_p0, {0, 0}, color)
+		batch_vertex(p1, {0, 0}, color)
+		batch_vertex(p0, {0, 0}, color)
+
+		prev_p1 = p1
+		prev_p0 = p0
 	}
 }
 
