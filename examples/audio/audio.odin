@@ -12,7 +12,7 @@ snd: k2.Sound
 snd_volume: f32
 snd_pan: f32
 snd_pitch: f32
-snd2: k2.Sound  
+snd2: k2.Sound
 snd3: k2.Sound
 wav: k2.Sound
 wav_inst: k2.Sound
@@ -29,10 +29,10 @@ init :: proc() {
 	snd3 = make_sine_wave(700, 1, 22050)
 	wav = k2.load_sound_from_bytes(#load("chord.wav"))
 	wav_inst = k2.create_sound_instance(wav)
-	k2.play_sound(snd, loop = true)
+	//k2.play_sound(snd, loop = true)
 
-	music = k2.load_audio_stream_from_file("thankscakes.ogg")
-	//k2.play_audio_stream(music)
+	music = k2.load_audio_stream_from_file("cat_and_onion.ogg")
+	k2.play_audio_stream(music)
 }
 
 // Makes a sine wave of min_length rounded up to so that it ends at the end of a period. This makes
@@ -53,9 +53,11 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Sound
 }
 
 step :: proc() -> bool {
+	k2.update_audio_stream(music)
 	if !k2.update() {
 		return false
 	}
+
 
 	if k2.key_went_down(.Enter) {
 		k2.play_sound(snd2)

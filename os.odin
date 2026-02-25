@@ -19,7 +19,7 @@ open_file_read :: proc(name: string) -> ^os.File {
 	f, err := os.open(name)
 
 	if err != nil {
-		log.error("Failed opening file %v. Error: %v", name, err)
+		log.errorf("Failed opening file %v. Error: %v", name, err)
 		return nil
 	}
 
