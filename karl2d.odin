@@ -144,7 +144,9 @@ init :: proc(
 		s.audio_backend_state, audio_alloc_error = mem.alloc(ab.state_size(), allocator = s.allocator)
 		log.assertf(audio_alloc_error == nil, "Failed allocating memory for audio backend: %v", audio_alloc_error)
 		ab.init(s.audio_backend_state, s.allocator)
-		s.playing_sounds = make([dynamic]Playing_Sound, s.allocator)
+		hm.dynamic_init(&s.playing_audio_buffers, s.allocator)
+		hm.dynamic_init(&s.audio_buffers, s.allocator)
+		hm.dynamic_init(&s.sound_instances, s.allocator)
 	}
 
 	return s
@@ -199,9 +201,9 @@ shutdown :: proc() {
 	// Audio
 	{
 		ab.shutdown()
-		delete(s.playing_sounds)
+		hm.dynamic_destroy(&s.playing_audio_buffers)
 		hm.dynamic_destroy(&s.sound_instances)
-		hm.dynamic_destroy(&s.sound_data)
+		hm.dynamic_destroy(&s.audio_buffers)
 		free(s.audio_backend_state, s.allocator)
 	}
 
@@ -1221,14 +1223,36 @@ set_texture_filter_ex :: proc(
 // Play a sound previous created using `load_sound_from_file` or `load_sound_from_bytes` or
 // `create_sound_instance`. The sound will be mixed when `update_audio_mixer` runs, which
 // happens as part of `update`.
-play_sound :: proc(snd: Sound, loop := false) {
-	append(
-		&s.playing_sounds,
-		Playing_Sound {
-			sound = snd,
-			loop = loop,
-		},
-	)
+play_sound :: proc(sound_handle: Sound, loop := false) {
+	sound := hm.get(&s.sound_instances, sound_handle)
+
+	if existing := hm.get(&s.playing_audio_buffers, sound.playing_buffer_handle); existing != nil {
+		hm.remove(&s.playing_audio_buffers, sound.playing_buffer_handle)
+	}
+
+	playing_audio_buffer := Playing_Audio_Buffer {
+		audio_buffer = sound.audio_buffer_handle,
+		target_settings = sound.playback_settings,
+		current_settings = sound.playback_settings,
+		loop = loop,
+	}
+
+	add_err: runtime.Allocator_Error
+	sound.playing_buffer_handle, add_err = hm.add(&s.playing_audio_buffers, playing_audio_buffer)
+
+	if add_err != nil {
+		log.error("Failed to play sound. Error: %v", add_err)
+	}
+}
+
+stop_sound :: proc(sound_handle: Sound) {
+	sound := hm.get(&s.sound_instances, sound_handle)
+
+	if existing := hm.get(&s.playing_audio_buffers, sound.playing_buffer_handle); existing != nil {
+		hm.remove(&s.playing_audio_buffers, sound.playing_buffer_handle)
+	}
+
+	sound.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
 }
 
 // Set the volume of a sound. Range: 0 to 1, where 0 is silence and 1 is the original volume of the
@@ -1241,8 +1265,14 @@ set_sound_volume :: proc(snd: Sound, volume: f32) {
 		log.error("Cannot set volume, sound does not exist.")
 		return
 	}
+
+	clamped_volume := clamp(volume, 0, 1)
+
+	if playing := hm.get(&s.playing_audio_buffers, d.playing_buffer_handle); playing != nil {
+		playing.target_settings.volume = clamped_volume
+	}
 	
-	d.target_volume = clamp(volume, 0, 1)
+	d.playback_settings.volume = clamped_volume
 }
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
@@ -1255,8 +1285,14 @@ set_sound_pan :: proc(snd: Sound, pan: f32) {
 		log.error("Cannot set pan, sound does not exist.")
 		return
 	}
-	
-	d.target_pan = clamp(pan, -1, 1)
+
+	clamped_pan := clamp(pan, -1, 1)
+
+	if playing := hm.get(&s.playing_audio_buffers, d.playing_buffer_handle); playing != nil {
+		playing.target_settings.pan = clamped_pan
+	}
+
+	d.playback_settings.pan = clamped_pan
 }
 
 // Set the pitch of a sound. Range: 0.01 to infinity, where 0.01 is the lowest pitch and higher
@@ -1269,8 +1305,14 @@ set_sound_pitch :: proc(snd: Sound, pitch: f32) {
 		log.error("Cannot set pitch, sound does not exist.")
 		return
 	}
+
+	capped_pitch := max(pitch, 0.01)
+
+	if playing := hm.get(&s.playing_audio_buffers, d.playing_buffer_handle); playing != nil {
+		playing.target_settings.pitch = capped_pitch
+	}
 	
-	d.target_pitch = max(pitch, 0.01)
+	d.playback_settings.pitch = capped_pitch
 }
 
 // Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. Use 
@@ -1511,36 +1553,37 @@ load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_
 		samples = slice.clone(slice.reinterpret([]Audio_Sample, bytes), s.allocator)
 	}
 
-	snd_data := Sound_Data {
+	buffer := Audio_Buffer {
 		sample_rate = sample_rate,
 		samples = samples,
-		instances = 1,
+		references = 1,
 	}
 
-	data_handle, data_handle_err := hm.add(&s.sound_data, snd_data)
+	buffer_handle, buffer_handle_add_err := hm.add(&s.audio_buffers, buffer)
 
-	if data_handle_err != nil {
-		log.errorf("Failed to load sound. Error: %v", data_handle_err)
+	if buffer_handle_add_err != nil {
+		log.errorf("Failed to load sound. Error: %v", buffer_handle_add_err)
 		return SOUND_NONE
 	}
 
 	snd_inst := Sound_Instance {
-		sound_data_handle = data_handle,
-		volume = 1,
-		target_volume = 1,
-		pitch = 1,
-		target_pitch = 1,
+		audio_buffer_handle = buffer_handle,
+		playback_settings = {
+			pan = 0,
+			volume = 1,
+			pitch = 1,
+		},
 	}
 
-	snd_handle, snd_handle_err := hm.add(&s.sound_instances, snd_inst)
+	snd_handle, snd_handle_add_err := hm.add(&s.sound_instances, snd_inst)
 
-	if snd_handle_err != nil {
-		log.errorf("Failed to load sound. Error: %v", snd_handle_err)
-		hm.remove(&s.sound_data, data_handle)
+	if snd_handle_add_err != nil {
+		log.errorf("Failed to load sound. Error: %v", snd_handle_add_err)
+		hm.remove(&s.audio_buffers, buffer_handle)
 		return SOUND_NONE
 	}
 
-return snd_handle
+	return snd_handle
 }
 
 // Makes a new sound that uses the same data as the original sound, but you can have different
@@ -1555,10 +1598,10 @@ create_sound_instance :: proc(snd: Sound) -> Sound {
 		return SOUND_NONE
 	}
 
-	data := hm.get(&s.sound_data, inst.sound_data_handle)
+	buffer := hm.get(&s.audio_buffers, inst.audio_buffer_handle)
 
-	if data == nil {
-		log.error("Cannot create sound instance, sound data does not exist.")
+	if buffer == nil {
+		log.error("Cannot create sound instance, sound buffer does not exist.")
 		return SOUND_NONE
 	}
 
@@ -1570,7 +1613,7 @@ create_sound_instance :: proc(snd: Sound) -> Sound {
 		return SOUND_NONE
 	}
 
-	data.instances += 1
+	buffer.references += 1
 	return snd_handle
 }
 
@@ -1584,18 +1627,23 @@ destroy_sound :: proc(snd: Sound) {
 		return
 	}
 
-	data := hm.get(&s.sound_data, inst.sound_data_handle)
+	if playing := hm.get(&s.playing_audio_buffers, inst.playing_buffer_handle); playing != nil {
+		hm.remove(&s.playing_audio_buffers, inst.playing_buffer_handle)
+	}
+	
+	inst.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
+	buffer := hm.get(&s.audio_buffers, inst.audio_buffer_handle)
 
-	if data == nil {
-		log.error("Trying to destroy sound instance, but its data does not exist.")
+	if buffer == nil {
+		log.error("Trying to destroy sound instance, but its buffer does not exist.")
 		return
 	}
 
-	data.instances -= 1
+	buffer.references -= 1
 
-	if data.instances == 0 {
-		delete(data.samples, s.allocator)
-		hm.remove(&s.sound_data, inst.sound_data_handle)
+	if buffer.references == 0 {
+		delete(buffer.samples, s.allocator)
+		hm.remove(&s.audio_buffers, inst.audio_buffer_handle)
 	}
 
 	hm.remove(&s.sound_instances, snd)
@@ -1660,10 +1708,13 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		}
 	}
 
+	info := stbv.get_info(vorbis_res)
+
 	asd := Audio_Stream_Data {
 		file = f,
 		vorbis = vorbis_res,
 		buf = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
+		sample_rate = int(info.sample_rate),
 	}
 
 	stream, stream_add_err := hm.add(&s.audio_streams, asd)
@@ -1676,7 +1727,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 
 	return stream
 }
-
+/*
 play_audio_stream :: proc(stream: Audio_Stream) {
 	asd := hm.get(&s.audio_streams, stream)
 
@@ -1689,7 +1740,7 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 		&s.playing_audio_streams,
 		stream,
 	)
-}
+}*/
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
@@ -1786,7 +1837,7 @@ update_audio_mixer :: proc() {
 
 		return dest_idx
 	}
-
+/*
 	stream_data_buf := make([dynamic]u8, frame_allocator)
 	stream_data_buf_start: int
 	stream_read_buf: [256]u8
@@ -1871,67 +1922,116 @@ update_audio_mixer :: proc() {
 			math.cos(f32(0 + 1) * math.PI / 4),
 			math.sin(f32(0 + 1) * math.PI / 4),
 		}
+		
+		interpolate := pas.sample_rate != AUDIO_MIX_SAMPLE_RATE
 
-		num_mixed: int
+		if interpolate {
+			num_mixed: int
 
-		if pas.buf_start <= pas.buf_end {
-			num_mixed = add(
-				s.mix_buffer[s.mix_buffer_offset:],
-				pas.buf[pas.buf_start:pas.buf_end],
-				AUDIO_MIX_CHUNK_SIZE,
-				1,
-				1,
-				pan,
-				pan,
-			)
-		} else {
-			num_mixed = add(
-				s.mix_buffer[s.mix_buffer_offset:],
-				pas.buf[pas.buf_start:],
-				AUDIO_MIX_CHUNK_SIZE,
-				1,
-				1,
-				pan,
-				pan,
-			)
+			samples_per_mixer_sample := f32(pas.sample_rate) / f32(AUDIO_MIX_SAMPLE_RATE)
 
-			if num_mixed < AUDIO_MIX_CHUNK_SIZE {
-				num_mixed += add(
-					s.mix_buffer[s.mix_buffer_offset + num_mixed:],
-					pas.buf[:pas.buf_end],
-					AUDIO_MIX_CHUNK_SIZE - num_mixed,
+			if pas.buf_start <= pas.buf_end {
+				num_mixed = add_interpolate(
+					s.mix_buffer[s.mix_buffer_offset:],
+					pas.buf[pas.buf_start:pas.buf_end],
+					f32(pas.buf_start_fraction),
+					AUDIO_MIX_CHUNK_SIZE,
+					samples_per_mixer_sample,
 					1,
 					1,
 					pan,
 					pan,
 				)
+
+				num_mixed_source := f32(num_mixed) * samples_per_mixer_sample
+				fraction_advance := pas.buf_start_fraction + num_mixed_source
+
+				if f32(pas.buf_start) + fraction_advance >= f32(len(pas.buf)) {
+					pas.buf_start = len(pas.buf) - pas.buf_start + int(fraction_advance)
+				} else {
+					pas.buf_start += int(fraction_advance)
+				}
+
+				pas.buf_start_fraction = linalg.fract(fraction_advance)
+			} else {
+				num_mixed = add_interpolate(
+					s.mix_buffer[s.mix_buffer_offset:],
+					pas.buf[pas.buf_start:],
+					f32(pas.buf_start_fraction),
+					AUDIO_MIX_CHUNK_SIZE,
+					samples_per_mixer_sample,
+					1,
+					1,
+					pan,
+					pan,
+				)
+
+				if num_mixed < AUDIO_MIX_CHUNK_SIZE {
+					num_mixed += add_interpolate(
+						s.mix_buffer[s.mix_buffer_offset + num_mixed:],
+						pas.buf[:pas.buf_end],
+						f32(pas.buf_start_fraction),
+						AUDIO_MIX_CHUNK_SIZE - num_mixed,
+						samples_per_mixer_sample,
+						1,
+						1,
+						pan,
+						pan,
+					)
+				}
+			}
+		} else {
+			num_mixed: int
+
+			if pas.buf_start <= pas.buf_end {
+				num_mixed = add(
+					s.mix_buffer[s.mix_buffer_offset:],
+					pas.buf[pas.buf_start:pas.buf_end],
+					AUDIO_MIX_CHUNK_SIZE,
+					1,
+					1,
+					pan,
+					pan,
+				)
+			} else {
+				num_mixed = add(
+					s.mix_buffer[s.mix_buffer_offset:],
+					pas.buf[pas.buf_start:],
+					AUDIO_MIX_CHUNK_SIZE,
+					1,
+					1,
+					pan,
+					pan,
+				)
+
+				if num_mixed < AUDIO_MIX_CHUNK_SIZE {
+					num_mixed += add(
+						s.mix_buffer[s.mix_buffer_offset + num_mixed:],
+						pas.buf[:pas.buf_end],
+						AUDIO_MIX_CHUNK_SIZE - num_mixed,
+						1,
+						1,
+						pan,
+						pan,
+					)
+				}
+			}
+			
+
+			if pas.buf_start + num_mixed >= len(pas.buf) {
+				pas.buf_start = (pas.buf_start + num_mixed) % len(pas.buf)
+			} else {
+				pas.buf_start += num_mixed
 			}
 		}
+	}*/
 
-		if pas.buf_start + num_mixed >= len(pas.buf) {
-			pas.buf_start = (pas.buf_start + num_mixed) % len(pas.buf)
-		} else {
-			pas.buf_start += num_mixed
-		}
-	}
-
-	for idx := 0; idx < len(s.playing_sounds); idx += 1 {
-		ps := &s.playing_sounds[idx]
-		inst := hm.get(&s.sound_instances, ps.sound)
-
-		if inst == nil {
-			log.error("Trying to play destroyed sound")
-			unordered_remove(&s.playing_sounds, idx)
-			idx -= 1
-			continue
-		}
-
-		data := hm.get(&s.sound_data, inst.sound_data_handle)
+	for ps_iter := hm.dynamic_iterator_make(&s.playing_audio_buffers); ps, ps_handle in hm.dynamic_iterate(&ps_iter) {
+		data := hm.get(&s.audio_buffers, ps.audio_buffer)
 
 		if data == nil {
 			log.error("Trying to play sound with destroyed data")
-			unordered_remove(&s.playing_sounds, idx)
-			idx -= 1
+			hm.remove(&s.playing_audio_buffers, ps_handle)
 			continue
 		}
 
@@ -1956,10 +2056,13 @@ update_audio_mixer :: proc() {
 			return current + dir * delta
 		}
 
+		settings := &ps.current_settings
+		target_settings := &ps.target_settings
+
 		// We get the delta twice because we first need to move the pitch towards its target.
-		adjust_parameter_delta := calc_adjust_parameter_delta(data.sample_rate, max(inst.pitch, 0.01))
-		inst.pitch = max(move_towards(inst.pitch, inst.target_pitch, adjust_parameter_delta), 0.01)
-		pitch := inst.pitch
+		adjust_parameter_delta := calc_adjust_parameter_delta(data.sample_rate, max(settings.pitch, 0.01))
+		settings.pitch = max(move_towards(settings.pitch, target_settings.pitch, adjust_parameter_delta), 0.01)
+		pitch := settings.pitch
 		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch)
 
 		// We can't just use the `volume_end` value for the volume. We are going to mix in
@@ -1968,17 +2071,17 @@ update_audio_mixer :: proc() {
 		// the last one should use. Then we feed those into the `add`/`add_interpolate` procedures.
 		// It will lerp across the range as it is mixing in the samples.
 
-		volume_start := clamp(inst.volume, 0, 1)
-		volume_end := clamp(move_towards(inst.volume, inst.target_volume, adjust_parameter_delta), 0, 1)
-		inst.volume = volume_end
+		volume_start := clamp(settings.volume, 0, 1)
+		volume_end := clamp(move_towards(settings.volume, target_settings.volume, adjust_parameter_delta), 0, 1)
+		settings.volume = volume_end
 
 		if volume_start == volume_end && volume_end == 0 {
 			continue
 		}
 		
-		pan_start := clamp(inst.pan, -1, 1)
-		pan_end := clamp(move_towards(inst.pan, inst.target_pan, adjust_parameter_delta), -1, 1)
-		inst.pan = pan_end
+		pan_start := clamp(settings.pan, -1, 1)
+		pan_end := clamp(move_towards(settings.pan, target_settings.pan, adjust_parameter_delta), -1, 1)
+		settings.pan = pan_end
 		
 		// Use cos/sine to get a constant-power audio curve. This means that the sound won't get
 		// quieter in the middle, but will instead just pan.
@@ -2077,8 +2180,8 @@ update_audio_mixer :: proc() {
 					ps.offset_fraction = 0
 				}
 			} else {
-				unordered_remove(&s.playing_sounds, idx)
-				idx -= 1
+				hm.remove(&s.playing_audio_buffers, ps_handle)
+				continue
 			}
 		}
 	}
@@ -2822,31 +2925,37 @@ Sound :: distinct Handle
 
 SOUND_NONE :: Sound {}
 
-Sound_Data_Handle :: distinct Handle
+Audio_Buffer_Handle :: distinct Handle
 
-Sound_Data :: struct {
-	handle: Sound_Data_Handle,
+Audio_Buffer :: struct {
+	handle: Audio_Buffer_Handle,
 	samples: []Audio_Sample,
 	sample_rate: int,
-
-	// When a Sound_Instance is destroyed, we check if this reaches zero. If it does, then the
-	// Sound_Data and its samples slice are also destroyed/freed.
-	instances: int,
+	references: int,
 }
 
 Sound_Instance :: struct {
 	handle: Sound,
-	sound_data_handle: Sound_Data_Handle,
-	volume: f32,
-	target_volume: f32,
-	pan: f32,
-	target_pan: f32,
-	pitch: f32,
-	target_pitch: f32,
+	playing_buffer_handle: Playing_Audio_Buffer_Handle,
+	audio_buffer_handle: Audio_Buffer_Handle,
+	playback_settings: Audio_Buffer_Playback_Settings,
 }
 
-Playing_Sound :: struct {
-	sound: Sound,
+Audio_Buffer_Playback_Settings :: struct {
+	volume: f32,
+	pan: f32,
+	pitch: f32,
+}
+
+PLAYING_AUDIO_BUFFER_NONE :: Playing_Audio_Buffer_Handle {}
+
+Playing_Audio_Buffer_Handle :: distinct Handle
+
+Playing_Audio_Buffer :: struct {
+	handle: Playing_Audio_Buffer_Handle,
+	audio_buffer: Audio_Buffer_Handle,
+	target_settings: Audio_Buffer_Playback_Settings,
+	current_settings: Audio_Buffer_Playback_Settings,
 
 	// How many samples have played?
 	offset: int,
@@ -2869,12 +2978,14 @@ Audio_Stream_Data :: struct {
 	file: File,
 	vorbis: ^stbv.vorbis,
 	loop: bool,
+	sample_rate: int,
 
 	// Circular buffer of decoded samples. Created with a size of AUDIO_STREAM_BUFFER_SIZE. When the
 	// difference between buf_start and buf_end is less than AUDIO_STREAM_BUFFER_SIZE / 2, then we
 	// start decoding new samples into here.
 	buf: []Audio_Sample,
 	buf_start: int,
+	buf_start_fraction: f32,
 	buf_end: int,
 }
 
@@ -2954,12 +3065,13 @@ State :: struct {
 	audio_backend: Audio_Backend_Interface,
 	audio_backend_state: rawptr,
 
-	sound_data: hm.Dynamic_Handle_Map(Sound_Data, Sound_Data_Handle),
+	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer, Audio_Buffer_Handle),
 	sound_instances: hm.Dynamic_Handle_Map(Sound_Instance, Sound),
 
-	// Sounds that have been started as because `play_sound` was called.
-	playing_sounds: [dynamic]Playing_Sound,
-	playing_audio_streams: [dynamic]Audio_Stream,
+	// Sounds that have been started because `play_sound` was called.
+	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
+
+	//playing_audio_streams: [dynamic]Audio_Stream,
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
 	vorbis_alloc: stbv.vorbis_alloc,
