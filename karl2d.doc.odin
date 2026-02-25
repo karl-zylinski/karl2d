@@ -367,7 +367,9 @@ set_texture_filter_ex :: proc(
 // Play a sound previous created using `load_sound_from_file` or `load_sound_from_bytes` or
 // `create_sound_instance`. The sound will be mixed when `update_audio_mixer` runs, which
 // happens as part of `update`.
-play_sound :: proc(snd: Sound, loop := false)
+play_sound :: proc(sound_handle: Sound, loop := false)
+
+stop_sound :: proc(sound_handle: Sound)
 
 // Set the volume of a sound. Range: 0 to 1, where 0 is silence and 1 is the original volume of the
 // sound. The volume change will only affect this instance of the sound. Use `create_sound_instance`
@@ -414,6 +416,22 @@ create_sound_instance :: proc(snd: Sound) -> Sound
 // will also be destroyed.
 destroy_sound :: proc(snd: Sound)
 
+load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream
+
+destroy_audio_stream :: proc(audio_stream: Audio_Stream)
+
+play_audio_stream :: proc(audio_stream: Audio_Stream)
+
+pause_audio_stream :: proc(audio_stream: Audio_Stream)
+
+stop_audio_stream :: proc(audio_stream: Audio_Stream)
+
+set_audio_stream_volume :: proc(audio_stream: Audio_Stream, volume: f32)
+
+set_audio_stream_pan :: proc(audio_stream: Audio_Stream, pan: f32)
+
+set_audio_stream_pitch :: proc(audio_stream: Audio_Stream, pitch: f32)
+
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
 //
@@ -422,6 +440,8 @@ destroy_sound :: proc(snd: Sound)
 //
 // Will only run if the audio backend is running low on audio data.
 update_audio_mixer :: proc()
+
+update_audio_stream :: proc(audio_stream: Audio_Stream)
 
 //-----------------//
 // RENDER TEXTURES //
@@ -822,37 +842,77 @@ RENDER_TARGET_NONE :: Render_Target_Handle {}
 AUDIO_MIX_SAMPLE_RATE :: 44100
 AUDIO_MIX_CHUNK_SIZE :: 1400
 
+// Stereo audio sample, left and right channel. Each channel can have a value between -1 and 1.
 Audio_Sample :: [2]f32
 
+// Represents a sound you can play using the `play_sound` procedure. Loaded using
+// `load_sound_from_file` or `load_sound_from_bytes`. Create instances of an already loaded sound
+// using `create_sound_instance`.
 Sound :: distinct Handle
 
 SOUND_NONE :: Sound {}
 
-Sound_Data_Handle :: distinct Handle
-
-Sound_Data :: struct {
-	handle: Sound_Data_Handle,
-	samples: []Audio_Sample,
-	sample_rate: int,
-
-	// When a Sound_Instance is destroyed, we check if this reaches zero. If it does, then the
-	// Sound_Data and its samples slice are also destroyed/freed.
-	instances: int,
-}
-
+// A sound instance is what `Sound` handles are mapped to. They contain a handle to a an audio
+// buffer, and the settings for use when playing that buffer. The audio buffer may be shared between
+// multiple sound instances, which allows you to play the same sound multiple times at the same time
+// without having to clone the data.
 Sound_Instance :: struct {
 	handle: Sound,
-	sound_data_handle: Sound_Data_Handle,
-	volume: f32,
-	target_volume: f32,
-	pan: f32,
-	target_pan: f32,
-	pitch: f32,
-	target_pitch: f32,
+
+	// The audio buffer may be used by multiple sound instances. This is the key idea of sound
+	// instances: That you can use `create_sound_instance` to make it possible to play a sound
+	// multiple times at the same time, without having to clone the data.
+	audio_buffer_handle: Audio_Buffer_Handle,
+
+	// If this sound is currently playing, then this identifies the state of the playing sound. It
+	// is PLAYING_AUDIO_BUFFER_NONE (zero) when it is not playing.
+	playing_buffer_handle: Playing_Audio_Buffer_Handle,
+
+	// This exists both here and in the `Playing_Audio_Buffer`. That way we can store settings
+	// even when the sound isn't playing.
+	playback_settings: Audio_Buffer_Playback_Settings,
 }
 
-Playing_Sound :: struct {
-	sound: Sound,
+Audio_Stream :: distinct Handle
+
+AUDIO_STREAM_NONE :: Audio_Stream {}
+
+AUDIO_STREAM_BUFFER_SIZE :: 3 * AUDIO_MIX_SAMPLE_RATE
+
+Audio_Stream_Data :: struct {
+	handle: Audio_Stream,
+	file: File,
+	buffer_write_pos: int,
+	vorbis: ^stbv.vorbis,
+	playing_buffer_handle: Playing_Audio_Buffer_Handle,
+	buffer_handle: Audio_Buffer_Handle,
+	playback_settings: Audio_Buffer_Playback_Settings,
+}
+
+Audio_Buffer_Handle :: distinct Handle
+
+Audio_Buffer :: struct {
+	handle: Audio_Buffer_Handle,
+	samples: []Audio_Sample,
+	sample_rate: int,
+	references: int,
+}
+
+Audio_Buffer_Playback_Settings :: struct {
+	volume: f32,
+	pan: f32,
+	pitch: f32,
+}
+
+PLAYING_AUDIO_BUFFER_NONE :: Playing_Audio_Buffer_Handle {}
+
+Playing_Audio_Buffer_Handle :: distinct Handle
+
+Playing_Audio_Buffer :: struct {
+	handle: Playing_Audio_Buffer_Handle,
+	audio_buffer: Audio_Buffer_Handle,
+	target_settings: Audio_Buffer_Playback_Settings,
+	current_settings: Audio_Buffer_Playback_Settings,
 
 	// How many samples have played?
 	offset: int,
@@ -941,11 +1001,13 @@ State :: struct {
 	audio_backend: Audio_Backend_Interface,
 	audio_backend_state: rawptr,
 
-	sound_data: hm.Dynamic_Handle_Map(Sound_Data, Sound_Data_Handle),
+	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer, Audio_Buffer_Handle),
 	sound_instances: hm.Dynamic_Handle_Map(Sound_Instance, Sound),
 
-	// Sounds that have been started as because `play_sound` was called.
-	playing_sounds: [dynamic]Playing_Sound,
+	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
+
+	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
+	vorbis_alloc: stbv.vorbis_alloc,
 
 	// 1 megabyte is arbitrarily chosen.
 	mix_buffer: [1*mem.Megabyte]Audio_Sample,

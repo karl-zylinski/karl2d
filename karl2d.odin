@@ -3133,10 +3133,7 @@ State :: struct {
 	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer, Audio_Buffer_Handle),
 	sound_instances: hm.Dynamic_Handle_Map(Sound_Instance, Sound),
 
-	// Sounds that have been started because `play_sound` was called.
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
-
-	//playing_audio_streams: [dynamic]Audio_Stream,
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
 	vorbis_alloc: stbv.vorbis_alloc,
