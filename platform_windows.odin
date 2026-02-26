@@ -16,7 +16,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	set_screen_size = windows_set_screen_size,
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
-
+	get_clipboard_text = windows_get_clipboard_text,
 	is_gamepad_active = windows_is_gamepad_active,
 	get_gamepad_axis = windows_get_gamepad_axis,
 	set_gamepad_vibration = windows_set_gamepad_vibration,
@@ -25,6 +25,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 }
 
 import win32 "core:sys/windows"
+import "core:strings"
 import "base:runtime"
 @require import "log"
 
@@ -49,6 +50,7 @@ windows_init :: proc(
 	s.events = make([dynamic]Event, allocator = allocator)
 	s.custom_context = context
 	
+	win32.SetConsoleOutputCP(.UTF8)
 	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 	win32.SetProcessDPIAware()
 	CLASS_NAME :: "karl2d"
@@ -93,6 +95,8 @@ windows_init :: proc(
 	windows_set_window_mode(options.window_mode)
 	
 	win32.XInputEnable(true)
+
+	win32.DragAcceptFiles(s.hwnd, true)
 
 	when RENDER_BACKEND_NAME == "d3d11" {
 		s.window_render_glue = {
@@ -340,6 +344,7 @@ Windows_State :: struct {
 	screen_height_before_resize_move: int,
 
 	events: [dynamic]Event,
+	high_surrogate: rune,
 
 	// for when returning from fullscreen to window mode
 	restore_window_pos_x: int,
@@ -400,6 +405,40 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
+windows_get_clipboard_text :: proc(allocator := context.allocator) -> (string, bool) {
+	format := u32(win32.CF_UNICODETEXT)
+
+	if !win32.IsClipboardFormatAvailable(format) {
+		return "", false
+	}
+
+	opened := win32.OpenClipboard(s.hwnd)
+	if !opened {
+		return "", false
+	}
+	defer win32.CloseClipboard()
+
+	handle := win32.GetClipboardData(format)	
+	if handle == nil {
+		return "", false
+	}
+
+	ptr := win32.GlobalLock((win32.HGLOBAL)(handle))
+	if ptr == nil {
+		return "", false
+	}
+	defer win32.GlobalUnlock((win32.HGLOBAL)(handle))
+
+	size := win32.GlobalSize(handle) / size_of(u16)
+	result, err := win32.utf16_to_utf8(([^]u16)(ptr)[:size], allocator)
+	if err != nil {
+		log.errorf("Couldn't get clipboard data in UTF8: %v", err)
+		return "", false
+	}
+
+	return result, true
+}
+
 s: ^Windows_State
 
 window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
@@ -413,16 +452,13 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		append(&s.events, Event_Close_Window_Requested{})
 
 	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:
-		repeat := bool(lparam & (1 << 30))
+		key := key_from_event_params(wparam, lparam)
 
-		if !repeat {
-			key := key_from_event_params(wparam, lparam)
-
-			if key != .None {
-				append(&s.events, Event_Key_Went_Down {
-					key = key,
-				})
-			}
+		if key != .None {
+			append(&s.events, Event_Key_Went_Down {
+				key = key,
+				repeat = bool(lparam & (1 << 30)),
+			})
 		}
 
 	case win32.WM_SYSKEYUP, win32.WM_KEYUP:
@@ -433,6 +469,50 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			})
 		}
 
+	case win32.WM_SYSCHAR, win32.WM_CHAR:
+		if wparam >= 0xD800 && wparam <= 0xDBFF {
+			s.high_surrogate = rune(wparam)
+		} else {
+			codepoint: rune
+
+			if wparam >= 0xDC00 && wparam <= 0xDFF {
+				if s.high_surrogate != 0 {
+					codepoint = 0x10000 + (s.high_surrogate - 0xD800) * 0x400 + (rune(wparam) - 0xDC00)
+				}
+			} else if wparam >= 32 {
+				codepoint = rune(wparam)
+			}
+
+			s.high_surrogate = 0
+			append(&s.events, Event_Char_Pressed {
+				char = codepoint,
+			})
+		}
+
+	case win32.WM_DROPFILES:
+		drop := (win32.HDROP)(wparam)
+		point: win32.POINT
+		win32.DragQueryPoint(drop, &point)
+		defer win32.DragFinish(drop)
+
+		count := win32.DragQueryFileW(drop, 0xFFFFFFFF, nil, 0)
+		if count == 0 do break
+
+		paths := make([]string, count, s.allocator)
+		for i in 0 ..< count {
+			len := win32.DragQueryFileW(drop, i, nil, 0) + 1
+			if len == 0 do continue
+
+			buf := make([]u16, len, context.temp_allocator)
+			win32.DragQueryFileW(drop, i, raw_data(buf), len)
+			path, _ := win32.utf16_to_utf8(buf, s.allocator)
+			paths[i] = path
+		}
+
+		append(&s.events, Event_Files_Drop {
+			filepaths = paths,
+		})
+	
 	case win32.WM_MOUSEMOVE:
 		x := win32.GET_X_LPARAM(lparam)
 		y := win32.GET_Y_LPARAM(lparam)
