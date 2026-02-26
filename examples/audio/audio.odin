@@ -33,7 +33,7 @@ init :: proc() {
 	//k2.play_sound(snd, loop = true)
 
 	music = k2.load_audio_stream_from_file("cat_and_onion.ogg")
-	k2.play_audio_stream(music)
+	k2.play_audio_stream(music, true)
 }
 
 // Makes a sine wave of min_length rounded up to so that it ends at the end of a period. This makes
@@ -166,6 +166,7 @@ shutdown :: proc() {
 	k2.destroy_sound(snd3)
 	k2.destroy_sound(wav)
 	k2.destroy_sound(wav_inst)
+	k2.destroy_audio_stream(music)
 	k2.shutdown()
 }
 
