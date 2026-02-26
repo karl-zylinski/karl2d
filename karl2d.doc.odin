@@ -367,9 +367,9 @@ set_texture_filter_ex :: proc(
 // Play a sound previous created using `load_sound_from_file` or `load_sound_from_bytes` or
 // `create_sound_instance`. The sound will be mixed when `update_audio_mixer` runs, which
 // happens as part of `update`.
-play_sound :: proc(sound_handle: Sound, loop := false)
+play_sound :: proc(snd: Sound, loop := false)
 
-stop_sound :: proc(sound_handle: Sound)
+stop_sound :: proc(snd: Sound)
 
 // Set the volume of a sound. Range: 0 to 1, where 0 is silence and 1 is the original volume of the
 // sound. The volume change will only affect this instance of the sound. Use `create_sound_instance`
@@ -420,7 +420,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream
 
 destroy_audio_stream :: proc(audio_stream: Audio_Stream)
 
-play_audio_stream :: proc(audio_stream: Audio_Stream)
+play_audio_stream :: proc(audio_stream: Audio_Stream, loop := false)
 
 pause_audio_stream :: proc(audio_stream: Audio_Stream)
 
@@ -884,9 +884,17 @@ Audio_Stream_Data :: struct {
 	file: File,
 	buffer_write_pos: int,
 	vorbis: ^stbv.vorbis,
+	read_buf: [dynamic]u8,
+	read_buf_offset: int,
 	playing_buffer_handle: Playing_Audio_Buffer_Handle,
 	buffer_handle: Audio_Buffer_Handle,
 	playback_settings: Audio_Buffer_Playback_Settings,
+
+	// Different from `loop` in `Playing_Audio_Buffer`. This says if the whole stream should loop
+	// when it reaches end-of-file. The `loop` in `Playing_Audio_Buffer` just says to loop the
+	// buffer itself. That's something you always want for a stream: We are continously writing
+	// data from a file into a small buffer that is a few seconds long.
+	loop: bool,
 }
 
 Audio_Buffer_Handle :: distinct Handle

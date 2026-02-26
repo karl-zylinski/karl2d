@@ -1226,8 +1226,8 @@ set_texture_filter_ex :: proc(
 // Play a sound previous created using `load_sound_from_file` or `load_sound_from_bytes` or
 // `create_sound_instance`. The sound will be mixed when `update_audio_mixer` runs, which
 // happens as part of `update`.
-play_sound :: proc(sound_handle: Sound, loop := false) {
-	sound := hm.get(&s.sound_instances, sound_handle)
+play_sound :: proc(snd: Sound, loop := false) {
+	sound := hm.get(&s.sound_instances, snd)
 
 	if sound == nil {
 		log.error("Cannot play sound, sound does not exist.")
@@ -1253,8 +1253,8 @@ play_sound :: proc(sound_handle: Sound, loop := false) {
 	}
 }
 
-stop_sound :: proc(sound_handle: Sound) {
-	sound := hm.get(&s.sound_instances, sound_handle)
+stop_sound :: proc(snd: Sound) {
+	sound := hm.get(&s.sound_instances, snd)
 
 	if sound == nil {
 		log.error("Cannot stop sound, sound does not exist.")
