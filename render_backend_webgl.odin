@@ -125,6 +125,10 @@ webgl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swa
 	s.height = swapchain_height
 	s.allocator = allocator
 
+	hm.dynamic_init(&s.shaders, allocator)
+	hm.dynamic_init(&s.textures, allocator)
+	hm.dynamic_init(&s.render_targets, allocator)
+
 	context_ok := gl.CreateCurrentContextById(s.canvas_id, gl.DEFAULT_CONTEXT_ATTRIBUTES)
 	log.ensuref(context_ok, "Could not create context for canvas ID %s", s.canvas_id)
 	set_context_ok := gl.SetCurrentContextById(s.canvas_id)
