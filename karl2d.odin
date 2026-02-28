@@ -1913,6 +1913,34 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 	}
 }
 
+//------------//
+// COLLISIONS //
+//------------//
+
+check_rect_overlap :: proc(a: Rect, b: Rect) -> bool {
+	return \
+		a.x < b.x + b.w &&
+		a.x + a.w > b.x &&
+		a.y < b.y + b.h &&
+		a.y + a.h > b.y
+}
+
+rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool) {
+	overlap_x := max(0, min(a.x + a.w, b.x + b.w) - max(a.x, b.x))
+	overlap_y := max(0, min(a.y + a.h, b.y + b.h) - max(a.y, b.y))
+
+	if overlap_x == 0 || overlap_y == 0 {
+		return {}, false
+	}
+
+	return Rect {
+		x = max(a.x, b.x),
+		y = max(a.y, b.y),
+		w = overlap_x,
+		h = overlap_y,
+	}, true
+}
+
 //-------//
 // FONTS //
 //-------//

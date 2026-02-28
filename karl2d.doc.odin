@@ -438,6 +438,13 @@ destroy_render_texture :: proc(render_texture: Render_Texture)
 // `create_render_texture`. Pass `nil` to resume drawing onto the screen.
 set_render_texture :: proc(render_texture: Maybe(Render_Texture))
 
+//------------//
+// COLLISIONS //
+//------------//
+check_rect_overlap :: proc(a: Rect, b: Rect) -> bool
+
+rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool)
+
 //-------//
 // FONTS //
 //-------//
