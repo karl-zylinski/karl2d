@@ -445,6 +445,8 @@ check_rect_overlap :: proc(a: Rect, b: Rect) -> bool
 
 rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool)
 
+rect_middle :: proc(r: Rect) -> Vec2
+
 //-------//
 // FONTS //
 //-------//
