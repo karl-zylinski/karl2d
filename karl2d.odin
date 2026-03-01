@@ -1941,6 +1941,10 @@ rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool) {
 	}, true
 }
 
+rect_middle :: proc(r: Rect) -> Vec2 {
+	return { r.x + r.w/2, r.y + r.h/2 }
+}
+
 //-------//
 // FONTS //
 //-------//
