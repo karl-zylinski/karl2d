@@ -8,11 +8,14 @@ package karl2d
 //-----------------------------------------------//
 
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
-// all dynamically allocated memory. The return value can be ignored unless you need to later call
-// `set_internal_state`.
+// all dynamically allocated memory.
 //
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
 // The window might be slightly larger due to borders and headers.
+//
+// The internal state created by this procedure can be fetched using `get_internal_state()`. You
+// restore the state using `set_internal_state()`. This is useful for example when doing game 
+// code reload.
 init :: proc(
 	screen_width: int,
 	screen_height: int,
@@ -20,7 +23,7 @@ init :: proc(
 	options := Init_Options {},
 	allocator := context.allocator,
 	loc := #caller_location
-) -> ^State
+)
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
 // frame times are up-to-date.
@@ -566,8 +569,14 @@ set_blend_mode :: proc(mode: Blend_Mode)
 // scissor rectangle by running `set_scissor_rect(nil)`.
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect))
 
-// Restore the internal state using the pointer returned by `init`. Useful after reloading the
-// library (for example, when doing code hot reload).
+// Fetch the pointer to the internal state of Karl2D. This pointer refers to memory that was
+// allocated when `init` ran. All of the library's needed state is contained in there.
+//
+// Restore the state using `set_internal_state`
+get_internal_state :: proc() -> ^State
+
+// Restore the internal state using the pointer returned by `get_internal_state`. Useful after
+// reloading the library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State)
 
 //---------------------//
