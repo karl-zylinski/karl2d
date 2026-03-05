@@ -435,7 +435,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 	case win32.WM_MOUSEMOVE:
 		x := win32.GET_X_LPARAM(lparam)
-		y := win32.GET_Y_LPARAM(lparam)
+		y := s.screen_height - int(win32.GET_Y_LPARAM(lparam))
 		append(&s.events, Event_Mouse_Move {
 			position = {f32(x), f32(y)},
 		})

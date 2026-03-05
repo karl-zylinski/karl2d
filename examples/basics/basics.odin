@@ -17,6 +17,7 @@ init :: proc() {
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
 	// them.
 	tex = k2.load_texture_from_bytes(#load("sixten.jpg"))
+	pos = {120, f32(k2.get_screen_height()) - 40}
 }
 
 step :: proc() -> bool {
@@ -37,11 +38,11 @@ step :: proc() -> bool {
 	}
 
 	if k2.key_is_held(.Up) {
-		movement.y -= 1
+		movement.y += 1
 	}
 
 	if k2.key_is_held(.Down) {
-		movement.y += 1
+		movement.y -= 1
 	}
 
 	// Normalizing makes the movement not go faster when going diagonally.
@@ -54,7 +55,7 @@ step :: proc() -> bool {
 	pos_x := f32(math.sin(t)*200)
 	rot := f32(t*1.5)
 	tex_rect := k2.get_texture_rect(tex)
-	tex_rect_dst := k2.Rect{pos_x + 600, 450, tex_rect.w*3, tex_rect.h*3}
+	tex_rect_dst := k2.Rect{pos_x + 600, 350, tex_rect.w*3, tex_rect.h*3}
 
 	k2.draw_texture_ex(
 		tex,
@@ -64,12 +65,14 @@ step :: proc() -> bool {
 		rot,
 	)
 
-	k2.draw_rect({10, 10, 60, 60}, k2.GREEN)
-	k2.draw_rect({20, 20, 40, 40}, k2.LIGHT_GREEN)
+	sh := f32(k2.get_screen_height())
+
+	k2.draw_rect({10, sh - 70, 60, 60}, k2.GREEN)
+	k2.draw_rect({20, sh - 60, 40, 40}, k2.LIGHT_GREEN)
 
 	// These two circles are controlled using the arrow keys via the `pos` variable.
-	k2.draw_circle(pos + {120, 40}, 30, k2.DARK_RED)
-	k2.draw_circle(pos + {120, 40}, 20, k2.RED)
+	k2.draw_circle(pos, 30, k2.DARK_RED)
+	k2.draw_circle(pos, 20, k2.RED)
 
 	dt := k2.get_frame_time()
 	msg1 := fmt.tprintf("Time since start: %.2f s", t)
@@ -77,13 +80,13 @@ step :: proc() -> bool {
 	msg2_width := k2.measure_text(msg2, 48).x
 
 	// k2.color_alpha takes a pre-defined color and replaces the alpha (transparency).
-	k2.draw_rect({4, 95, msg2_width+20, 162}, k2.color_alpha(k2.DARK_GRAY, 192))
-	k2.draw_text("Hellöpe!", {15, 105}, 48, k2.LIGHT_RED)
+	k2.draw_rect({4, sh - 257, msg2_width+20, 162}, k2.color_alpha(k2.DARK_GRAY, 192))
+	k2.draw_text("Hellöpe!", {15, sh - 148}, 48, k2.LIGHT_RED)
 
-	k2.draw_text(msg1, {15, 153}, 48, k2.ORANGE)
-	k2.draw_text(msg2, {15, 201}, 48, k2.LIGHT_PURPLE)
+	k2.draw_text(msg1, {15, sh - 199}, 48, k2.ORANGE)
+	k2.draw_text(msg2, {15, sh - 252}, 48, k2.LIGHT_PURPLE)
 
-	k2.draw_text("Move the red dot using arrow keys!", {10, f32(k2.get_screen_height()) - 50}, 40)
+	k2.draw_text("Move the red dot using arrow keys!", {0, 0}, 40)
 
 	k2.present()
 

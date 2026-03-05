@@ -119,8 +119,8 @@ init :: proc(
 	s.batch_shader = s.default_shader
 
 	// FontStash enables us to bake fonts from TTF files on-the-fly.
-	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
-	fs.SetAlignVertical(&s.fs, .TOP)
+	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .BOTTOMLEFT)
+	fs.SetAlignVertical(&s.fs, .BOTTOM)
 
 	DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
@@ -628,11 +628,11 @@ draw_rect :: proc(r: Rect, c: Color) {
 
 	s.batch_texture = s.shape_drawing_texture
 
-	batch_vertex({r.x, r.y}, {0, 0}, c)
 	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
-	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
 	batch_vertex({r.x, r.y}, {0, 0}, c)
 	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
+	batch_vertex({r.x, r.y}, {0, 0}, c)
 	batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
 }
 
@@ -664,10 +664,10 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 	if rot == 0 {
 		x := r.x - origin.x
 		y := r.y - origin.y
-		tl = { x,         y }
-		tr = { x + r.w, y }
-		bl = { x,         y + r.h }
-		br = { x + r.w, y + r.h }
+		bl = { x,         y }
+		br = { x + r.w, y }
+		tl = { x,         y + r.h }
+		tr = { x + r.w, y + r.h }
 	} else {
 		sin_rot := math.sin(rot)
 		cos_rot := math.cos(rot)
@@ -676,22 +676,22 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 		dx := -origin.x
 		dy := -origin.y
 
-		tl = {
+		bl = {
 			x + dx * cos_rot - dy * sin_rot,
 			y + dx * sin_rot + dy * cos_rot,
 		}
 
-		tr = {
+		br = {
 			x + (dx + r.w) * cos_rot - dy * sin_rot,
 			y + (dx + r.w) * sin_rot + dy * cos_rot,
 		}
 
-		bl = {
+		tl = {
 			x + dx * cos_rot - (dy + r.h) * sin_rot,
 			y + dx * sin_rot + (dy + r.h) * cos_rot,
 		}
 
-		br = {
+		tr = {
 			x + (dx + r.w) * cos_rot - (dy + r.h) * sin_rot,
 			y + (dx + r.w) * sin_rot + (dy + r.h) * cos_rot,
 		}
@@ -765,8 +765,8 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 		rot := linalg.matrix2_rotate(sr)
 		p := center + rot * Vec2{radius, 0}
 
-		batch_vertex(prev, {0, 0}, color)
 		batch_vertex(p, {1, 0}, color)
+		batch_vertex(prev, {0, 0}, color)
 		batch_vertex(center, {1, 1}, color)
 
 		prev = p
@@ -877,10 +877,10 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	if rotation == 0 {
 		x := dst.x - origin.x
 		y := dst.y - origin.y
-		tl = { x,         y }
-		tr = { x + dst.w, y }
-		bl = { x,         y + dst.h }
-		br = { x + dst.w, y + dst.h }
+		bl = { x,         y }
+		br = { x + dst.w, y }
+		tl = { x,         y + dst.h }
+		tr = { x + dst.w, y + dst.h }
 	} else {
 		sin_rot := math.sin(rotation)
 		cos_rot := math.cos(rotation)
@@ -889,22 +889,22 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		dx := -origin.x
 		dy := -origin.y
 
-		tl = {
+		bl = {
 			x + dx * cos_rot - dy * sin_rot,
 			y + dx * sin_rot + dy * cos_rot,
 		}
 
-		tr = {
+		br = {
 			x + (dx + dst.w) * cos_rot - dy * sin_rot,
 			y + (dx + dst.w) * sin_rot + dy * cos_rot,
 		}
 
-		bl = {
+		tl = {
 			x + dx * cos_rot - (dy + dst.h) * sin_rot,
 			y + dx * sin_rot + (dy + dst.h) * cos_rot,
 		}
 
-		br = {
+		tr = {
 			x + (dx + dst.w) * cos_rot - (dy + dst.h) * sin_rot,
 			y + (dx + dst.w) * sin_rot + (dy + dst.h) * cos_rot,
 		}
@@ -1048,7 +1048,7 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 	q: fs.Quad
 	for fs.TextIterNext(&s.fs, &iter, &q) {
 		if iter.codepoint == '\n' {
-			iter.nexty += font_size
+			iter.nexty -= font_size
 			iter.nextx = pos.x
 			continue
 		}
@@ -1073,9 +1073,11 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 		src.h *= h
 
 		dst := Rect {
-			q.x0, q.y0,
-			q.x1 - q.x0, q.y1 - q.y0,
+			q.x0, q.y1,
+			q.x1 - q.x0, q.y0 - q.y1,
 		}
+
+		log.info(dst)
 
 		draw_texture_ex(font.atlas, src, dst, {}, 0, color)
 	}
@@ -3143,7 +3145,7 @@ matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f
 }
 
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
-	return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+	return matrix_ortho3d_f32(0, f32(w), 0, f32(h), 0.001, 2)
 }
 
 FONT_DEFAULT_ATLAS_SIZE :: 1024

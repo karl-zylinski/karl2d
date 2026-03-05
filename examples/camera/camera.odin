@@ -33,8 +33,8 @@ step :: proc() -> bool {
 	camera_key_move_delta := CAMERA_KEY_MOVE_SPEED*frame_time / camera.zoom
 	if k2.key_is_held(.Right) { camera_target_movement.x += camera_key_move_delta }
 	if k2.key_is_held(.Left)  { camera_target_movement.x -= camera_key_move_delta }
-	if k2.key_is_held(.Down)  { camera_target_movement.y += camera_key_move_delta }
-	if k2.key_is_held(.Up) 	  { camera_target_movement.y -= camera_key_move_delta }
+	if k2.key_is_held(.Up)    { camera_target_movement.y += camera_key_move_delta }
+	if k2.key_is_held(.Down)  { camera_target_movement.y -= camera_key_move_delta }
 
 	// Multiplying camera movement with rotation matrix makes it move like the player expects,
 	// relative to the axes of the window, not the axes of the camera.
@@ -92,53 +92,53 @@ step :: proc() -> bool {
 
 	font_size := f32(32)
 	text_color := k2.WHITE
-	text_pos := Vec2 { 20, 20 }
+	text_pos := Vec2 { 20, screen_size.y - 20 - font_size }
 
 	frame_time_text := fmt.tprintf("frame time: %.3f ms", frame_time*1000)
 	k2.draw_text(frame_time_text, text_pos, font_size, text_color)
-	text_pos.y += font_size
+	text_pos.y -= font_size
 
 	screen_size_text := fmt.tprintf("screen size: %v", screen_size)
 	k2.draw_text(screen_size_text, text_pos, font_size, text_color)
-	text_pos.y += font_size
+	text_pos.y -= font_size
 
 	mouse_screen_pos_text := fmt.tprintf("mouse pos: %v", mouse_screen_pos)
 	k2.draw_text(mouse_screen_pos_text, text_pos, font_size, text_color)
-	text_pos.y += font_size
+	text_pos.y -= font_size
 
 	camera_zoom_text := fmt.tprintf("camera zoom: x%.1f", camera.zoom)
 	k2.draw_text(camera_zoom_text, text_pos, font_size, text_color)
-	text_pos.y += font_size
+	text_pos.y -= font_size
 
 	camera_rotation_text := fmt.tprintf("camera rotation: %.2f rad", camera.rotation)
 	k2.draw_text(camera_rotation_text, text_pos, font_size, text_color)
-	text_pos.y += font_size
+	text_pos.y -= font_size
 
 	camera_target_text := fmt.tprintf("camera target: %.3f", camera.target)
 	k2.draw_text(camera_target_text, text_pos, font_size, text_color)
-	text_pos.y += font_size
+	text_pos.y -= font_size
 
 	mouse_world_pos_text := fmt.tprintf("mouse world pos: %.3f", mouse_world_pos)
 	k2.draw_text(mouse_world_pos_text, text_pos, font_size, text_color)
-	text_pos.y += font_size
+	text_pos.y -= font_size
 
 	// DRAW HINTS
 
 	font_size = 24
 	text_color = k2.YELLOW
-	text_pos = Vec2 { 20, screen_size.y - 20 - font_size }
+	text_pos = Vec2 { 20, 20 }
 
 	k2.draw_text("use R to reset", text_pos, font_size, text_color)
-	text_pos.y -= font_size
+	text_pos.y += font_size
 
 	k2.draw_text("use Z/X keys to rotate", text_pos, font_size, text_color)
-	text_pos.y -= font_size
+	text_pos.y += font_size
 
 	k2.draw_text("use Plus/Minus keys or the mouse wheel to zoom", text_pos, font_size, text_color)
-	text_pos.y -= font_size
+	text_pos.y += font_size
 
 	k2.draw_text("use arrow keys or the left mouse button to pan", text_pos, font_size, text_color)
-	text_pos.y -= font_size
+	text_pos.y += font_size
 
 	// SHOW WHAT WE DREW TO PLAYER
 

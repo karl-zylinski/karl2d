@@ -106,7 +106,8 @@ step :: proc() -> bool {
 	k2.set_sound_volume(snd, snd_volume)
 	k2.set_sound_pan(snd, snd_pan)
 	k2.set_sound_pitch(snd, snd_pitch)
-	
+
+	y := f32(k2.get_screen_height()) - 60
 	k2.clear(k2.WHITE)
 	k2.draw_text(
 		fmt.tprintf(
@@ -115,11 +116,13 @@ step :: proc() -> bool {
 			snd_pan,
 			snd_pitch,
 		),
-		{20, 20},
+		{20, y},
 		40,
 	)
-	k2.draw_text("Press Space to play a familiar sound.", {20, 200}, 40)
-	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 240}, 40)
+	y -= 200
+	k2.draw_text("Press Space to play a familiar sound.", {20, y}, 40)
+	y -= 80
+	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, y}, 40)
 	k2.present()
 	free_all(context.temp_allocator)
 

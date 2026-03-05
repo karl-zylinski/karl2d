@@ -106,7 +106,7 @@ web_event_window_resize :: proc(e: js.Event) {
 
 web_event_mouse_move :: proc(e: js.Event) {
 	append(&s.events, Event_Mouse_Move {
-		position = {f32(e.mouse.client.x), f32(e.mouse.client.y)},
+		position = {f32(e.mouse.client.x), f32(s.height) - f32(e.mouse.client.y)},
 	})
 }
 
