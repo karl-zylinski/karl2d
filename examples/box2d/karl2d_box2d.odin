@@ -7,6 +7,7 @@ package karl2d_box2d_example
 import b2 "vendor:box2d"
 import k2 "../.."
 import "core:math"
+#assert(k2.Y_UP, "This example assumes Y up. Compile it with -define:KARL2D_Y_UP=true")
 
 world_id: b2.WorldId
 time_acc: f32
@@ -25,7 +26,7 @@ main :: proc() {
 }
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D + Box2D example", options = { coordinate_system = .Y_Up_X_Right_Origin_Bottom_Left })
+	k2.init(1280, 720, "Karl2D + Box2D example")
 
 	b2.SetLengthUnitsPerMeter(40)
 	world_def := b2.DefaultWorldDef()

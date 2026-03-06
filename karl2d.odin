@@ -23,6 +23,8 @@ import "core:image/tga"
 
 import hm "core:container/handle_map"
 
+Y_UP :: #config(KARL2D_Y_UP, false)
+
 //-----------------------------------------------//
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
@@ -56,7 +58,6 @@ init :: proc(
 	frame_allocator = s.frame_allocator
 
 	s.allocator = allocator
-	s.coordinate_system = options.coordinate_system
 
 	when ODIN_OS == .Windows {
 		s.platform = PLATFORM_WINDOWS
@@ -119,19 +120,15 @@ init :: proc(
 	s.default_shader = load_shader_from_bytes(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
 	s.batch_shader = s.default_shader
 
-	// FontStash enables us to bake fonts from TTF files on-the-fly.
-	fs_quad_location: fs.QuadLocation
-	fs_vertical_align: fs.AlignVertical
-
-	switch s.coordinate_system {
-	case .Y_Down_X_Right_Origin_Top_Left:
-		fs_quad_location = .TOPLEFT
-		fs_vertical_align = .TOP
-	case .Y_Up_X_Right_Origin_Bottom_Left:
-		fs_quad_location = .BOTTOMLEFT
-		fs_vertical_align = .BOTTOM
+	when Y_UP {
+		fs_quad_location := fs.QuadLocation.BOTTOMLEFT
+		fs_vertical_align := fs.AlignVertical.BOTTOM
+	} else {
+		fs_quad_location := fs.QuadLocation.TOPLEFT
+		fs_vertical_align := fs.AlignVertical.TOP
 	}
 
+	// FontStash enables us to bake fonts from TTF files on-the-fly.
 	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, fs_quad_location)
 	fs.SetAlignVertical(&s.fs, fs_vertical_align)
 
@@ -321,10 +318,8 @@ process_events :: proc() {
 			s.mouse_button_is_held[e.button] = false
 
 		case Event_Mouse_Move:
-			switch s.coordinate_system {
-			case .Y_Down_X_Right_Origin_Top_Left:
-				// nothing, this is the default
-			case .Y_Up_X_Right_Origin_Bottom_Left:
+			when Y_UP {
+				// We modify the event itself so that `get_events()` returns the correct position.
 				e.position.y = f32(pf.get_screen_height()) - e.position.y
 			}
 
@@ -868,6 +863,11 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	s.batch_texture = tex.handle
 
 	flip_x, flip_y: bool
+
+	when Y_UP {
+		flip_y = true
+	}
+
 	src := src
 	dst := dst
 
@@ -877,7 +877,7 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	}
 
 	if src.h < 0 {
-		flip_y = true
+		flip_y = !flip_y
 		src.h = -src.h
 	}
 
@@ -957,13 +957,6 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	// Could we do something with the projection matrix while drawing into those render textures
 	// instead? I tried that, but couldn't get it to work.
 	if rb.texture_needs_vertical_flip(tex.handle) {
-		flip_y = !flip_y
-	}
-
-	switch s.coordinate_system {
-	case .Y_Down_X_Right_Origin_Top_Left:
-		// nothing, this is the default
-	case .Y_Up_X_Right_Origin_Bottom_Left:
 		flip_y = !flip_y
 	}
 
@@ -1097,13 +1090,10 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 		src.w *= w
 		src.h *= h
 
-		pos_y: f32
-
-		switch s.coordinate_system {
-		case .Y_Down_X_Right_Origin_Top_Left:
-			pos_y = q.y0
-		case .Y_Up_X_Right_Origin_Bottom_Left:
-			pos_y = q.y1
+		when Y_UP {
+			pos_y := q.y1
+		} else {
+			pos_y := q.y0
 		}
 
 		dst := Rect {
@@ -2547,14 +2537,8 @@ Window_Mode :: enum {
 	Borderless_Fullscreen,
 }
 
-Coordiante_System :: enum {
-	Y_Down_X_Right_Origin_Top_Left,
-	Y_Up_X_Right_Origin_Bottom_Left,
-}
-
 Init_Options :: struct {
 	window_mode: Window_Mode,
-	coordinate_system: Coordiante_System,
 }
 
 Shader_Handle :: distinct Handle
@@ -2730,7 +2714,6 @@ State :: struct {
 	frame_allocator: runtime.Allocator,
 	platform: Platform_Interface,
 	platform_state: rawptr,
-	coordinate_system: Coordiante_System,
 	render_backend: Render_Backend_Interface,
 	render_backend_state: rawptr,
 
@@ -3184,15 +3167,12 @@ matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f
 }
 
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
-	top, bottom: f32
-
-	switch s.coordinate_system {
-	case .Y_Down_X_Right_Origin_Top_Left:
-		top = f32(h)
-		bottom = 0
-	case .Y_Up_X_Right_Origin_Bottom_Left:
-		top = 0
-		bottom = f32(h)
+	when Y_UP {
+		top := f32(0)
+		bottom := f32(h)
+	} else {
+		top := f32(h)
+		bottom := f32(0)
 	}
 
 	return matrix_ortho3d_f32(0, f32(w), top, bottom, 0.001, 2)
