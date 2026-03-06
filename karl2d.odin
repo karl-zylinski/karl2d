@@ -276,13 +276,16 @@ present :: proc() {
 process_events :: proc() {
 	s.key_went_up = {}
 	s.key_went_down = {}
+	s.key_went_down_repeat = {}
+	s.chars_pressed_len = 0
 	s.mouse_button_went_up = {}
 	s.mouse_button_went_down = {}
 	s.gamepad_button_went_up = {}
 	s.gamepad_button_went_down = {}
 	s.mouse_delta = {}
 	s.mouse_wheel_delta = 0
-
+	s.files_dropped_paths = {}
+	
 	runtime.clear(&s.events)
 	pf.get_events(&s.events)
 
@@ -292,12 +295,22 @@ process_events :: proc() {
 			s.close_window_requested = true
 
 		case Event_Key_Went_Down:
-			s.key_went_down[e.key] = true
+			s.key_went_down[e.key] = !e.repeat
+			s.key_went_down_repeat[e.key] = e.repeat
 			s.key_is_held[e.key] = true
 
 		case Event_Key_Went_Up:
 			s.key_went_up[e.key] = true
 			s.key_is_held[e.key] = false
+
+		case Event_Char_Pressed:
+			if s.chars_pressed_len < MAX_CHAR_PRESSED {
+				s.chars_pressed[s.chars_pressed_len] = e.char
+				s.chars_pressed_len += 1
+			}
+		
+		case Event_Files_Drop:
+			s.files_dropped_paths = e.filepaths
 
 		case Event_Mouse_Button_Went_Down:
 			s.mouse_button_went_down[e.button] = true
@@ -513,6 +526,10 @@ key_went_down :: proc(key: Keyboard_Key) -> bool {
 	return s.key_went_down[key]
 }
 
+key_went_down_repeat :: proc(key: Keyboard_Key) -> bool {
+	return s.key_went_down_repeat[key]
+}
+
 // Returns true if a keyboard key went up (was released) between the current and the previous frame.
 // Set when 'process_events' runs.
 key_went_up :: proc(key: Keyboard_Key) -> bool {
@@ -522,6 +539,36 @@ key_went_up :: proc(key: Keyboard_Key) -> bool {
 // Returns true if a keyboard is currently being held down. Set when 'process_events' runs.
 key_is_held :: proc(key: Keyboard_Key) -> bool {
 	return s.key_is_held[key]
+}
+
+get_char_pressed :: proc() -> rune {
+	if s.chars_pressed_len == 0 {
+		return 0
+	}
+	ch := s.chars_pressed[0]
+	copy(s.chars_pressed[:], s.chars_pressed[1:s.chars_pressed_len])
+	s.chars_pressed_len -= 1
+	return ch
+}
+
+get_clipboard_text :: proc(allocator := context.allocator) -> (string, bool) #optional_ok {
+	return pf.get_clipboard_text(allocator)
+}
+
+is_file_dropped :: proc() -> bool {
+	return len(s.files_dropped_paths) > 0
+}
+
+get_dropped_files :: proc() -> []string {
+	return s.files_dropped_paths
+}
+
+destroy_dropped_files :: proc(paths: []string) {
+	for path in paths {
+		delete(path, s.allocator)
+	}
+	delete(s.files_dropped_paths, s.allocator)
+	s.files_dropped_paths = {}
 }
 
 // Returns true if a mouse button went down between the current and the previous frame. Specify
@@ -1203,6 +1250,13 @@ set_texture_filter_ex :: proc(
 	mip_filter: Texture_Filter,
 ) {
 	rb.set_texture_filter(t.handle, scale_down_filter, scale_up_filter, mip_filter)
+}
+
+is_texture_valid :: proc(t: Texture) -> bool {
+	return \
+		t.handle != TEXTURE_NONE &&
+		t.width > 0 &&
+		t.height > 0
 }
 
 //-------//
@@ -1922,6 +1976,14 @@ check_rect_overlap :: proc(a: Rect, b: Rect) -> bool {
 		a.x + a.w > b.x &&
 		a.y < b.y + b.h &&
 		a.y + a.h > b.y
+}
+
+check_rect_point_overlap :: proc(r: Rect, p: Vec2) -> bool {
+	return \
+		(p.x >= r.x)        &&
+		(p.x < (r.x + r.w)) &&
+		(p.y >= r.y)        &&
+		(p.y < (r.y + r.h))
 }
 
 rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool) {
@@ -2705,8 +2767,13 @@ State :: struct {
 	mouse_wheel_delta: f32,
 
 	key_went_down: #sparse [Keyboard_Key]bool,
+	key_went_down_repeat: #sparse [Keyboard_Key]bool,
 	key_went_up: #sparse [Keyboard_Key]bool,
 	key_is_held: #sparse [Keyboard_Key]bool,
+	chars_pressed: [MAX_CHAR_PRESSED]rune,
+	chars_pressed_len: int,
+
+	files_dropped_paths: []string,
 
 	mouse_button_went_down: #sparse [Mouse_Button]bool,
 	mouse_button_went_up: #sparse [Mouse_Button]bool,
@@ -2892,6 +2959,7 @@ Keyboard_Key :: enum {
 }
 
 MAX_GAMEPADS :: 4
+MAX_CHAR_PRESSED :: 16
 
 // A value between 0 and MAX_GAMEPADS - 1
 Gamepad_Index :: int
@@ -2939,6 +3007,8 @@ Event :: union {
 	Event_Close_Window_Requested,
 	Event_Key_Went_Down,
 	Event_Key_Went_Up,
+	Event_Char_Pressed,
+	Event_Files_Drop,
 	Event_Mouse_Move,
 	Event_Mouse_Wheel,
 	Event_Mouse_Button_Went_Down,
@@ -2953,10 +3023,19 @@ Event :: union {
 
 Event_Key_Went_Down :: struct {
 	key: Keyboard_Key,
+	repeat: bool,
 }
 
 Event_Key_Went_Up :: struct {
 	key: Keyboard_Key,
+}
+
+Event_Char_Pressed :: struct {
+	char: rune,
+}
+
+Event_Files_Drop :: struct {
+	filepaths: []string,
 }
 
 Event_Mouse_Button_Went_Down :: struct {
