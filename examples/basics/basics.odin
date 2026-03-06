@@ -11,7 +11,7 @@ tex: k2.Texture
 pos: k2.Vec2
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Basics")
+	k2.init(1280, 720, "Karl2D Basics", options = { coordinate_system = .Y_Up_X_Right_Origin_Bottom_Left })
 
 	// Note that we #load the texture: This bakes it into the program's data. WASM has no filesystem
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
@@ -53,6 +53,7 @@ step :: proc() -> bool {
 	t := k2.get_time()
 	pos_x := f32(math.sin(t)*200)
 	rot := f32(t*1.5)
+	_ = rot
 	tex_rect := k2.get_texture_rect(tex)
 	tex_rect_dst := k2.Rect{pos_x + 600, 450, tex_rect.w*3, tex_rect.h*3}
 
@@ -61,7 +62,7 @@ step :: proc() -> bool {
 		tex_rect,
 		tex_rect_dst,
 		{tex_rect_dst.w/2, tex_rect_dst.h/2},
-		rot,
+		0,
 	)
 
 	k2.draw_rect({10, 10, 60, 60}, k2.GREEN)

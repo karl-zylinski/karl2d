@@ -56,6 +56,7 @@ init :: proc(
 	frame_allocator = s.frame_allocator
 
 	s.allocator = allocator
+	s.coordinate_system = options.coordinate_system
 
 	when ODIN_OS == .Windows {
 		s.platform = PLATFORM_WINDOWS
@@ -119,8 +120,20 @@ init :: proc(
 	s.batch_shader = s.default_shader
 
 	// FontStash enables us to bake fonts from TTF files on-the-fly.
-	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
-	fs.SetAlignVertical(&s.fs, .TOP)
+	fs_quad_location: fs.QuadLocation
+	fs_vertical_align: fs.AlignVertical
+
+	switch s.coordinate_system {
+	case .Y_Down_X_Right_Origin_Top_Left:
+		fs_quad_location = .TOPLEFT
+		fs_vertical_align = .TOP
+	case .Y_Up_X_Right_Origin_Bottom_Left:
+		fs_quad_location = .BOTTOMLEFT
+		fs_vertical_align = .BOTTOM
+	}
+
+	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, fs_quad_location)
+	fs.SetAlignVertical(&s.fs, fs_vertical_align)
 
 	DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
@@ -308,11 +321,16 @@ process_events :: proc() {
 			s.mouse_button_is_held[e.button] = false
 
 		case Event_Mouse_Move:
-			prev_pos := s.mouse_position
+			switch s.coordinate_system {
+			case .Y_Down_X_Right_Origin_Top_Left:
+				// nothing, this is the default
+			case .Y_Up_X_Right_Origin_Bottom_Left:
+				e.position.y = f32(pf.get_screen_height()) - e.position.y
+			}
 
+			prev_pos := s.mouse_position
 			s.mouse_position.x = e.position.x
 			s.mouse_position.y = e.position.y
-
 			s.mouse_delta = s.mouse_position - prev_pos
 
 		case Event_Mouse_Wheel:
@@ -942,6 +960,13 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		flip_y = !flip_y
 	}
 
+	switch s.coordinate_system {
+	case .Y_Down_X_Right_Origin_Top_Left:
+		// nothing, this is the default
+	case .Y_Up_X_Right_Origin_Bottom_Left:
+		flip_y = !flip_y
+	}
+
 	if flip_y {
 		uv0.y += us.y
 		uv1.y += us.y
@@ -1072,8 +1097,17 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 		src.w *= w
 		src.h *= h
 
+		pos_y: f32
+
+		switch s.coordinate_system {
+		case .Y_Down_X_Right_Origin_Top_Left:
+			pos_y = q.y0
+		case .Y_Up_X_Right_Origin_Bottom_Left:
+			pos_y = q.y1
+		}
+
 		dst := Rect {
-			q.x0, q.y0,
+			q.x0, pos_y,
 			q.x1 - q.x0, q.y1 - q.y0,
 		}
 
@@ -2513,8 +2547,14 @@ Window_Mode :: enum {
 	Borderless_Fullscreen,
 }
 
+Coordiante_System :: enum {
+	Y_Down_X_Right_Origin_Top_Left,
+	Y_Up_X_Right_Origin_Bottom_Left,
+}
+
 Init_Options :: struct {
 	window_mode: Window_Mode,
+	coordinate_system: Coordiante_System,
 }
 
 Shader_Handle :: distinct Handle
@@ -2690,6 +2730,7 @@ State :: struct {
 	frame_allocator: runtime.Allocator,
 	platform: Platform_Interface,
 	platform_state: rawptr,
+	coordinate_system: Coordiante_System,
 	render_backend: Render_Backend_Interface,
 	render_backend_state: rawptr,
 
@@ -3143,7 +3184,18 @@ matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f
 }
 
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
-	return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+	top, bottom: f32
+
+	switch s.coordinate_system {
+	case .Y_Down_X_Right_Origin_Top_Left:
+		top = f32(h)
+		bottom = 0
+	case .Y_Up_X_Right_Origin_Bottom_Left:
+		top = 0
+		bottom = f32(h)
+	}
+
+	return matrix_ortho3d_f32(0, f32(w), top, bottom, 0.001, 2)
 }
 
 FONT_DEFAULT_ATLAS_SIZE :: 1024
