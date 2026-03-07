@@ -1912,10 +1912,11 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 	}
 }
 
-//------------//
-// COLLISIONS //
-//------------//
+//-------------//
+// MATHEMATICS //
+//-------------//
 
+// Returns true if rectangles `a` and `b` overlap.
 check_rect_overlap :: proc(a: Rect, b: Rect) -> bool {
 	return \
 		a.x < b.x + b.w &&
@@ -1924,6 +1925,8 @@ check_rect_overlap :: proc(a: Rect, b: Rect) -> bool {
 		a.y + a.h > b.y
 }
 
+// Returns the overlap of rectangle `a` and `b`. The first return value is the overlap and the
+// second says if there there was an overlap not.
 rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool) {
 	overlap_x := max(0, min(a.x + a.w, b.x + b.w) - max(a.x, b.x))
 	overlap_y := max(0, min(a.y + a.h, b.y + b.h) - max(a.y, b.y))
@@ -1940,8 +1943,29 @@ rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool) {
 	}, true
 }
 
+// Returns the middle point of a rectangle.
+//
+// Useful when for passing as `origin` to drawing procedures, especially when you want the
+// drawn thing to rotate around its center.
 rect_middle :: proc(r: Rect) -> Vec2 {
 	return { r.x + r.w/2, r.y + r.h/2 }
+}
+
+rect_center :: rect_middle
+rect_centre :: rect_middle
+
+// Rotate `v` by `angle_radians` radians around the origin (0, 0).
+//
+// If you need to rotate around a point that is not the origin, then you can first subtract the
+// point from `v`, then rotate and then add the point back to the result.
+rotate :: proc(v: Vec2, angle_radians: f32) -> Vec2 {
+	cos := math.cos(angle_radians)
+	sin := math.sin(angle_radians)
+
+	return {
+		v.x * cos - v.y * sin,
+		v.x * sin + v.y * cos,
+	}
 }
 
 //-------//

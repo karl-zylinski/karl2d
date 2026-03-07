@@ -441,14 +441,31 @@ destroy_render_texture :: proc(render_texture: Render_Texture)
 // `create_render_texture`. Pass `nil` to resume drawing onto the screen.
 set_render_texture :: proc(render_texture: Maybe(Render_Texture))
 
-//------------//
-// COLLISIONS //
-//------------//
+//-------------//
+// MATHEMATICS //
+//-------------//
+
+// Returns true if rectangles `a` and `b` overlap.
 check_rect_overlap :: proc(a: Rect, b: Rect) -> bool
 
+// Returns the overlap of rectangle `a` and `b`. The first return value is the overlap and the
+// second says if there there was an overlap not.
 rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool)
 
+// Returns the middle point of a rectangle.
+//
+// Useful when for passing as `origin` to drawing procedures, especially when you want the
+// drawn thing to rotate around its center.
 rect_middle :: proc(r: Rect) -> Vec2
+
+rect_center :: rect_middle
+rect_centre :: rect_middle
+
+// Rotate `v` by `angle_radians` radians around the origin (0, 0).
+//
+// If you need to rotate around a point that is not the origin, then you can first subtract the
+// point from `v`, then rotate and then add the point back to the result.
+rotate :: proc(v: Vec2, angle_radians: f32) -> Vec2
 
 //-------//
 // FONTS //
