@@ -568,6 +568,10 @@ key_from_event_params :: proc(wparam: win32.WPARAM, lparam: win32.LPARAM) -> Key
 		}
 	}
 
+	if wparam >= len(WIN32_VK_MAP) {
+		return .None
+	}
+
 	return WIN32_VK_MAP[wparam]
 }
 
