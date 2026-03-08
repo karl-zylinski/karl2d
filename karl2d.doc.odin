@@ -446,13 +446,16 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture))
 //-------------//
 
 // Returns true if rectangles `a` and `b` overlap.
-check_rect_overlap :: proc(a: Rect, b: Rect) -> bool
+rect_overlapping :: proc(a: Rect, b: Rect) -> bool
 
 // Returns the overlap of rectangle `a` and `b`. The first return value is the overlap and the
 // second says if there there was an overlap not.
 rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool)
 
-// Returns the middle point of a rectangle.
+// Return true if `point` is inside `rect`.
+point_in_rect :: proc(point: Vec2, rect: Rect) -> bool
+
+// Returns the mid-point of a rectangle.
 //
 // Useful when for passing as `origin` to drawing procedures, especially when you want the
 // drawn thing to rotate around its center.
@@ -460,6 +463,14 @@ rect_middle :: proc(r: Rect) -> Vec2
 
 rect_center :: rect_middle
 rect_centre :: rect_middle
+
+rect_cut_top :: proc(r: ^Rect, h: f32, m: f32) -> Rect
+
+rect_cut_bottom :: proc(r: ^Rect, h: f32, m: f32) -> Rect
+
+rect_cut_left :: proc(r: ^Rect, w: f32, m: f32) -> Rect
+
+rect_cut_right :: proc(r: ^Rect, w: f32, m: f32) -> Rect
 
 // Rotate `v` by `angle_radians` radians around the origin (0, 0).
 //
@@ -573,6 +584,8 @@ get_camera_view_matrix :: proc(c: Camera) -> Mat4
 
 // Get the matrix that brings something in front of the camera.
 get_camera_world_matrix :: proc(c: Camera) -> Mat4
+
+get_fullscreen_rect :: proc() -> Rect
 
 //------//
 // MISC //
