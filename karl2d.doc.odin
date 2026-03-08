@@ -445,12 +445,12 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture))
 // MATHEMATICS //
 //-------------//
 
-// Returns true if rectangles `a` and `b` overlap.
+// Returns true if rectangles `a` and `b` are overlapping.
 rect_overlapping :: proc(a: Rect, b: Rect) -> bool
 
-// Returns the overlap of rectangle `a` and `b`. The first return value is the overlap and the
-// second says if there there was an overlap not.
-rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool)
+// Returns the overlap of rectangle `a` and `b`. If there is no overlap, then an empty rectangle
+// (all fields are zero) is returned.
+rect_overlap :: proc(a: Rect, b: Rect) -> Rect
 
 // Return true if `point` is inside `rect`.
 point_in_rect :: proc(point: Vec2, rect: Rect) -> bool
@@ -464,12 +464,20 @@ rect_middle :: proc(r: Rect) -> Vec2
 rect_center :: rect_middle
 rect_centre :: rect_middle
 
+// Cut off `h` pixels from the top of `r`. `r` is modified. The cut off part is returned.
+// `m` is the margin added above the cut part.
 rect_cut_top :: proc(r: ^Rect, h: f32, m: f32) -> Rect
 
+// Cut off `h` pixels from the bottom of `r`. `r` is modified. The cut off part is returned.
+// `m` is the margin added below the cut part.
 rect_cut_bottom :: proc(r: ^Rect, h: f32, m: f32) -> Rect
 
+// Cut off `w` pixels from the left of `r`. `r` is modified. The cut off part is returned.
+// `m` is the margin added to the left of the cut part.
 rect_cut_left :: proc(r: ^Rect, w: f32, m: f32) -> Rect
 
+// Cut off `w` pixels from the right of `r`. `r` is modified. The cut off part is returned.
+// `m` is the margin added to the right of the cut part.
 rect_cut_right :: proc(r: ^Rect, w: f32, m: f32) -> Rect
 
 // Rotate `v` by `angle_radians` radians around the origin (0, 0).
