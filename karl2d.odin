@@ -1917,7 +1917,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 //-------------//
 
 // Returns true if rectangles `a` and `b` overlap.
-check_rect_overlap :: proc(a: Rect, b: Rect) -> bool {
+rect_overlapping :: proc(a: Rect, b: Rect) -> bool {
 	return \
 		a.x < b.x + b.w &&
 		a.x + a.w > b.x &&
@@ -1943,16 +1943,58 @@ rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool) {
 	}, true
 }
 
-// Returns the middle point of a rectangle.
+// Return true if `point` is inside `rect`.
+point_in_rect :: proc(point: Vec2, rect: Rect) -> bool {
+	return \
+		point.x >= rect.x &&
+		point.x < rect.x + rect.w &&
+		point.y >= rect.y &&
+		point.y < rect.y + rect.h
+}
+
+// Returns the mid-point of a rectangle.
 //
 // Useful when for passing as `origin` to drawing procedures, especially when you want the
 // drawn thing to rotate around its center.
 rect_middle :: proc(r: Rect) -> Vec2 {
 	return { r.x + r.w/2, r.y + r.h/2 }
 }
-
 rect_center :: rect_middle
 rect_centre :: rect_middle
+
+rect_cut_top :: proc(r: ^Rect, h: f32, m: f32) -> Rect {
+	res := r^
+	res.y += m
+	res.h = h
+	r.y += h + m
+	r.h -= h + m
+	return res
+}
+
+rect_cut_bottom :: proc(r: ^Rect, h: f32, m: f32) -> Rect {
+	res := r^
+	res.h = h
+	res.y = r.y + r.h - h - m
+	r.h -= h + m
+	return res
+}
+
+rect_cut_left :: proc(r: ^Rect, w: f32, m: f32) -> Rect {
+	res := r^
+	res.x += m
+	res.w = w
+	r.x += w + m
+	r.w -= w + m
+	return res
+}
+
+rect_cut_right :: proc(r: ^Rect, w: f32, m: f32) -> Rect {
+	res := r^
+	res.w = w
+	res.x = r.x + r.w - w - m
+	r.w -= w + m
+	return res
+}
 
 // Rotate `v` by `angle_radians` radians around the origin (0, 0).
 //
@@ -2345,6 +2387,15 @@ get_camera_world_matrix :: proc(c: Camera) -> Mat4 {
 	target_translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
 
 	return target_translate * rot * scale * offset_translate
+}
+
+get_fullscreen_rect :: proc() -> Rect {
+	return Rect {
+		x = 0,
+		y = 0,
+		w = f32(pf.get_screen_width()),
+		h = f32(pf.get_screen_height()),
+	}
 }
 
 //------//
