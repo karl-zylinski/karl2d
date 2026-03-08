@@ -2341,7 +2341,7 @@ set_camera :: proc(camera: Maybe(Camera)) {
 	s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 
 	if c, c_ok := camera.?; c_ok {
-		s.view_matrix = get_camera_view_matrix(c)
+		s.view_matrix = camera_view_matrix(c)
 	} else {
 		s.view_matrix = 1
 	}
@@ -2350,16 +2350,16 @@ set_camera :: proc(camera: Maybe(Camera)) {
 // Transform a point `pos` that lives on the screen to a point in the world. This can be useful for
 // bringing (for example) mouse positions (k2.get_mouse_position()) into world-space.
 screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2 {
-	return (get_camera_world_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
+	return (camera_world_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
 }
 
-// Transform a point `pos` that lices in the world to a point on the screen. This can be useful when
+// Transform a point `pos` that lives in the world to a point on the screen. This can be useful when
 // you need to take a position in the world and compare it to a screen-space point.
 world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
-	return (get_camera_view_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
+	return (camera_view_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
 }
 
-// Get the matrix that `screen_to_world` and `world_to_screen` uses to do their transformations.
+// Calculate the matrix that `screen_to_world` and `world_to_screen` uses to do transformations.
 //
 // A view matrix is essentially the world transform matrix of the camera, but inverted. In other
 // words, instead of bringing the camera in front of things in the world, we bring everything in the
@@ -2378,7 +2378,7 @@ world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 //
 // The view matrix is a Mat4 because its easier to upload a Mat4 to the GPU. But only the upper-left
 // 3x3 matrix is actually used.
-get_camera_view_matrix :: proc(c: Camera) -> Mat4 {
+camera_view_matrix :: proc(c: Camera) -> Mat4 {
 	inv_target_translate := linalg.matrix4_translate(vec3_from_vec2(-c.target))
 	inv_rot := linalg.matrix4_rotate_f32(c.rotation, {0, 0, 1})
 	inv_scale := linalg.matrix4_scale(Vec3{c.zoom, c.zoom, 1})
@@ -2387,8 +2387,8 @@ get_camera_view_matrix :: proc(c: Camera) -> Mat4 {
 	return inv_offset_translate * inv_scale * inv_rot * inv_target_translate
 }
 
-// Get the matrix that brings something in front of the camera.
-get_camera_world_matrix :: proc(c: Camera) -> Mat4 {
+// Calculate the matrix that brings something in front of the camera.
+camera_world_matrix :: proc(c: Camera) -> Mat4 {
 	offset_translate := linalg.matrix4_translate(vec3_from_vec2(-c.offset))
 	rot := linalg.matrix4_rotate_f32(-c.rotation, {0, 0, 1})
 	scale := linalg.matrix4_scale(Vec3{1/c.zoom, 1/c.zoom, 1})

@@ -565,11 +565,11 @@ set_camera :: proc(camera: Maybe(Camera))
 // bringing (for example) mouse positions (k2.get_mouse_position()) into world-space.
 screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2
 
-// Transform a point `pos` that lices in the world to a point on the screen. This can be useful when
+// Transform a point `pos` that lives in the world to a point on the screen. This can be useful when
 // you need to take a position in the world and compare it to a screen-space point.
 world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
 
-// Get the matrix that `screen_to_world` and `world_to_screen` uses to do their transformations.
+// Calculate the matrix that `screen_to_world` and `world_to_screen` uses to do transformations.
 //
 // A view matrix is essentially the world transform matrix of the camera, but inverted. In other
 // words, instead of bringing the camera in front of things in the world, we bring everything in the
@@ -588,10 +588,10 @@ world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
 //
 // The view matrix is a Mat4 because its easier to upload a Mat4 to the GPU. But only the upper-left
 // 3x3 matrix is actually used.
-get_camera_view_matrix :: proc(c: Camera) -> Mat4
+camera_view_matrix :: proc(c: Camera) -> Mat4
 
-// Get the matrix that brings something in front of the camera.
-get_camera_world_matrix :: proc(c: Camera) -> Mat4
+// Calculate the matrix that brings something in front of the camera.
+camera_world_matrix :: proc(c: Camera) -> Mat4
 
 get_fullscreen_rect :: proc() -> Rect
 
