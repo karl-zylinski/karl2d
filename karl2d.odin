@@ -556,6 +556,8 @@ get_mouse_position :: proc() -> Vec2 {
 	return s.mouse_position
 }
 
+get_mouse_pos :: get_mouse_position
+
 // Returns how many pixels the mouse moved between the previous and the current frame.
 get_mouse_delta :: proc() -> Vec2 {
 	return s.mouse_delta
