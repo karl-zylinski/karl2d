@@ -448,9 +448,9 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture))
 // Returns true if rectangles `a` and `b` are overlapping.
 rect_overlapping :: proc(a: Rect, b: Rect) -> bool
 
-// Returns the overlap of rectangle `a` and `b`. If there is no overlap, then an empty rectangle
-// (all fields are zero) is returned.
-rect_overlap :: proc(a: Rect, b: Rect) -> Rect
+// Returns the overlap of rectangle `a` and `b`. The second return value is `false` if no overlap
+// was found, `true` otherwise.
+rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool)
 
 // Return true if `point` is inside `rect`.
 point_in_rect :: proc(point: Vec2, rect: Rect) -> bool

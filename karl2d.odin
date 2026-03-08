@@ -1925,22 +1925,22 @@ rect_overlapping :: proc(a: Rect, b: Rect) -> bool {
 		a.y + a.h > b.y
 }
 
-// Returns the overlap of rectangle `a` and `b`. If there is no overlap, then an empty rectangle
-// (all fields are zero) is returned.
-rect_overlap :: proc(a: Rect, b: Rect) -> Rect {
+// Returns the overlap of rectangle `a` and `b`. The second return value is `false` if no overlap
+// was found, `true` otherwise.
+rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool) {
 	overlap_x := max(0, min(a.x + a.w, b.x + b.w) - max(a.x, b.x))
 	overlap_y := max(0, min(a.y + a.h, b.y + b.h) - max(a.y, b.y))
 
 	if overlap_x == 0 || overlap_y == 0 {
-		return {}
+		return {}, false
 	}
 
-	return Rect {
+	return {
 		x = max(a.x, b.x),
 		y = max(a.y, b.y),
 		w = overlap_x,
 		h = overlap_y,
-	}
+	}, true
 }
 
 // Return true if `point` is inside `rect`.
