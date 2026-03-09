@@ -1964,6 +1964,15 @@ rect_middle :: proc(r: Rect) -> Vec2 {
 rect_center :: rect_middle
 rect_centre :: rect_middle
 
+rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect {
+	return {
+		r.x + x,
+		r.y + y,
+		r.w - x * 2,
+		r.h - y * 2,
+	}
+}
+
 // Cut off `h` pixels from the top of `r`. `r` is modified. The cut off part is returned.
 // `m` is the margin added above the cut part.
 rect_cut_top :: proc(r: ^Rect, h: f32, m: f32) -> Rect {
