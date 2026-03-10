@@ -524,6 +524,39 @@ key_is_held :: proc(key: Keyboard_Key) -> bool {
 	return s.key_is_held[key]
 }
 
+// Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
+// You can check that an exact set of modifiers are held like so:
+//
+// `if k2.get_held_modifiers() == { .Control, Shift} {}`
+//
+// This will only be true if left/right control are held and left/right shift are held, but it also
+// makes sure that no alt or super (windows) key are held.
+//
+// This is useful for checking for held modifiers for hotkeys in user interfaces. If you want to
+// associate an in-game action with a specific key such as Left Control, then it's better to just do
+// `if k2.key_is_held(.Left_Control) {}`
+get_held_modifiers :: proc() -> bit_set[Modifier] {
+	res: bit_set[Modifier]
+
+	if s.key_is_held[.Left_Control] || s.key_is_held[.Right_Control] {
+		res += { .Control }
+	}
+
+	if s.key_is_held[.Left_Alt] || s.key_is_held[.Right_Alt] {
+		res += { .Alt }
+	}
+
+	if s.key_is_held[.Left_Shift] || s.key_is_held[.Right_Shift] {
+		res += { .Shift }
+	}
+
+	if s.key_is_held[.Left_Super] || s.key_is_held[.Right_Super] {
+		res +=  { .Super }
+	}
+
+	return res
+}
+
 // Returns true if a mouse button went down between the current and the previous frame. Specify
 // which mouse button using the `button` parameter.
 //
@@ -2984,6 +3017,16 @@ Keyboard_Key :: enum {
 	NP_Enter        = 335,
 	NP_Equal        = 336,
 }
+
+// Returned as a bit_set by `get_held_modifiers`
+Modifier :: enum {
+	Control,
+	Alt,
+	Shift,
+	Super,
+}
+
+MODIFIERS_NONE :: bit_set[Modifier] {}
 
 MAX_GAMEPADS :: 4
 

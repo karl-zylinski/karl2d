@@ -190,6 +190,19 @@ key_went_up :: proc(key: Keyboard_Key) -> bool
 // Returns true if a keyboard is currently being held down. Set when 'process_events' runs.
 key_is_held :: proc(key: Keyboard_Key) -> bool
 
+// Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
+// You can check that an exact set of modifiers are held like so:
+//
+// `if k2.get_held_modifiers() == { .Control, Shift} {}`
+//
+// This will only be true if left/right control are held and left/right shift are held, but it also
+// makes sure that no alt or super (windows) key are held.
+//
+// This is useful for checking for held modifiers for hotkeys in user interfaces. If you want to
+// associate an in-game action with a specific key such as Left Control, then it's better to just do
+// `if k2.key_is_held(.Left_Control) {}`
+get_held_modifiers :: proc() -> bit_set[Modifier]
+
 // Returns true if a mouse button went down between the current and the previous frame. Specify
 // which mouse button using the `button` parameter.
 //
@@ -211,6 +224,8 @@ get_mouse_wheel_delta :: proc() -> f32
 
 // Returns the mouse position, measured from the top-left corner of the window.
 get_mouse_position :: proc() -> Vec2
+
+get_mouse_pos :: get_mouse_position
 
 // Returns how many pixels the mouse moved between the previous and the current frame.
 get_mouse_delta :: proc() -> Vec2
@@ -463,6 +478,8 @@ rect_middle :: proc(r: Rect) -> Vec2
 
 rect_center :: rect_middle
 rect_centre :: rect_middle
+
+rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect
 
 // Cut off `h` pixels from the top of `r`. `r` is modified. The cut off part is returned.
 // `m` is the margin added above the cut part.
@@ -1138,6 +1155,16 @@ Keyboard_Key :: enum {
 	NP_Enter        = 335,
 	NP_Equal        = 336,
 }
+
+// Returned as a bit_set by `get_held_modifiers`
+Modifier :: enum {
+	Control,
+	Alt,
+	Shift,
+	Super,
+}
+
+MODIFIERS_NONE :: bit_set[Modifier] {}
 
 MAX_GAMEPADS :: 4
 
