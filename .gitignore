@@ -16,7 +16,6 @@ examples/scraps/*/build
 examples/scraps/*/bin
 karl2d.doc.compare.odin
 .nvim.lua
-.github/copilot-instructions.md
 .zed
 .vscode
 scrap/

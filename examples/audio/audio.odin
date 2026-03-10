@@ -12,10 +12,13 @@ snd: k2.Sound
 snd_volume: f32
 snd_pan: f32
 snd_pitch: f32
-snd2: k2.Sound  
+snd2: k2.Sound
 snd3: k2.Sound
 wav: k2.Sound
 wav_inst: k2.Sound
+
+music: k2.Audio_Stream
+music_pitch: f32 = 1
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Audio")
@@ -27,7 +30,10 @@ init :: proc() {
 	snd3 = make_sine_wave(700, 1, 22050)
 	wav = k2.load_sound_from_bytes(#load("chord.wav"))
 	wav_inst = k2.create_sound_instance(wav)
-	k2.play_sound(snd, loop = true)
+	//k2.play_sound(snd, loop = true)
+
+	music = k2.load_audio_stream_from_file("cat_and_onion.ogg")
+	k2.play_audio_stream(music, true)
 }
 
 // Makes a sine wave of min_length rounded up to so that it ends at the end of a period. This makes
@@ -48,9 +54,11 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Sound
 }
 
 step :: proc() -> bool {
+	k2.update_audio_stream(music)
 	if !k2.update() {
 		return false
 	}
+
 
 	if k2.key_went_down(.Enter) {
 		k2.play_sound(snd2)
@@ -58,6 +66,14 @@ step :: proc() -> bool {
 
 	if k2.key_went_down(.N3) {
 		k2.play_sound(snd3)
+	}
+
+	if k2.key_went_down(.Z) {
+		k2.stop_sound(wav)
+	}
+
+	if k2.key_went_down(.X) {
+		k2.play_sound(wav, loop = true)
 	}
 	
 	if k2.key_is_held(.Up) {
@@ -83,6 +99,24 @@ step :: proc() -> bool {
 	if k2.key_is_held(.S) {
 		snd_pitch -= k2.get_frame_time() * 0.5
 	}
+
+	if k2.key_went_down(.Home) {
+		k2.play_audio_stream(music)
+	}
+
+	if k2.key_went_down(.End) {
+		k2.stop_audio_stream(music)
+	}
+
+	if k2.key_is_held(.Page_Up) {
+		music_pitch += k2.get_frame_time() * 0.5
+	}
+
+	if k2.key_is_held(.Page_Down) {
+		music_pitch -= k2.get_frame_time() * 0.5
+	}
+
+	k2.set_audio_stream_pitch(music, music_pitch)
 
 	if k2.key_went_down(.Space) {
 		k2.set_sound_pitch(wav, 1)
@@ -132,6 +166,7 @@ shutdown :: proc() {
 	k2.destroy_sound(snd3)
 	k2.destroy_sound(wav)
 	k2.destroy_sound(wav_inst)
+	k2.destroy_audio_stream(music)
 	k2.shutdown()
 }
 

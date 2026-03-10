@@ -48,6 +48,10 @@ d3d11_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swa
 	s = (^D3D11_State)(state)
 	s.allocator = allocator
 
+	hm.dynamic_init(&s.shaders, allocator)
+	hm.dynamic_init(&s.textures, allocator)
+	hm.dynamic_init(&s.render_targets, allocator)
+
 	/*
 	This come from
 	
