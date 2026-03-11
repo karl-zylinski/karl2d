@@ -185,10 +185,14 @@ close_window_requested :: proc() -> bool {
 	return s.close_window_requested
 }
 
-// Set a callback that will be called during live window resize on macOS.
+// Set a callback that will be called during live window resize on macOS and Windows.
 // This allows the application to render frames while the window is being resized interactively.
 // The callback should perform your drawing operations and call `present()`.
 // Events will be processed automatically before the callback is invoked.
+//
+// On macOS, the main thread is blocked by Cocoa's modal resize loop, so a CVDisplayLink
+// dispatches frames on a background thread. On Windows, WM_SIZE messages are delivered
+// during the modal resize loop, so the callback is invoked directly from the message handler.
 //
 // On other platforms this has no effect, as they handle live resize rendering differently.
 //

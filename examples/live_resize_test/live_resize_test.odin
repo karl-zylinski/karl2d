@@ -1,4 +1,4 @@
-// This example demonstrates live window resize rendering on macOS.
+// This example demonstrates live window resize rendering on macOS and Windows.
 // Without set_live_resize_callback, the window would freeze during resize.
 // With it, the content updates continuously while resizing.
 
@@ -11,7 +11,7 @@ import "core:math"
 main :: proc() {
 	k2.init(1280, 720, "Karl2D Live Resize Test", k2.Init_Options{window_mode = .Windowed_Resizable})
 
-	// Enable live resize rendering (macOS only - no effect on other platforms)
+	// Enable live resize rendering (macOS and Windows - no effect on other platforms)
 	k2.set_live_resize_callback(draw_frame)
 
 	frame_count := 0
