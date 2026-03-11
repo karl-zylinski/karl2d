@@ -34,7 +34,7 @@ import hm "core:container/handle_map"
 // The window might be slightly larger due to borders and headers.
 //
 // The internal state created by this procedure can be fetched using `get_internal_state()`. You
-// restore the state using `set_internal_state()`. This is useful for example when doing game 
+// restore the state using `set_internal_state()`. This is useful for example when doing game
 // code reload.
 init :: proc(
 	screen_width: int,
@@ -73,7 +73,7 @@ init :: proc(
 
 	// We allocate memory for the windowing backend and pass the blob of memory to it.
 	platform_state_alloc_error: runtime.Allocator_Error
-	
+
 	s.platform_state, platform_state_alloc_error = mem.alloc(
 		pf.state_size(),
 		allocator = allocator,
@@ -147,7 +147,7 @@ init :: proc(
 // frame times are up-to-date.
 //
 // Returns a bool that says if the player has attempted to close the window. It's up to the
-// application to decide if it wants to shut down or if it (for example) wants to show a 
+// application to decide if it wants to shut down or if it (for example) wants to show a
 // confirmation dialogue.
 //
 // Commonly used for creating the "main loop" of a game: `for k2.update() {}`
@@ -160,10 +160,10 @@ init :: proc(
 ////     k2.calculate_frame_time()
 ////     k2.process_events()
 ////     k2.update_audio_mixer()
-////     
+////
 ////     k2.clear(k2.BLUE)
 ////     k2.present()
-////     
+////
 ////     if k2.close_window_requested() {
 ////         break
 ////     }
@@ -183,6 +183,23 @@ update :: proc() -> bool {
 // Called by `update`, but can be called manually if you need more control.
 close_window_requested :: proc() -> bool {
 	return s.close_window_requested
+}
+
+// Set a callback that will be called during live window resize on macOS.
+// This allows the application to render frames while the window is being resized interactively.
+// The callback should perform your drawing operations and call `present()`.
+// Events will be processed automatically before the callback is invoked.
+//
+// On other platforms this has no effect, as they handle live resize rendering differently.
+//
+// Example:
+//     k2.set_live_resize_callback(proc() {
+//         k2.clear(k2.BLUE)
+//         k2.draw_text("Resizing!", {10, 10}, 50)
+//         k2.present()
+//     })
+set_live_resize_callback :: proc(callback: proc()) {
+	s.live_resize_callback = callback
 }
 
 // Closes the window and cleans up Karl2D's internal state.
@@ -334,7 +351,7 @@ process_events :: proc() {
 			rb.resize_swapchain(e.width, e.height)
 			s.proj_matrix = make_default_projection(e.width, e.height)
 
-		case Event_Window_Focused:			
+		case Event_Window_Focused:
 
 		case Event_Window_Unfocused:
 			for k in Keyboard_Key {
@@ -366,7 +383,26 @@ process_events :: proc() {
 	}
 }
 
-// Fetch a list of all events that happened this frame. Most games can use the `key_is_held`, 
+// Internal procedure called by the platform layer during live window resize (macOS).
+// This ensures rendering continues during the modal resize loop.
+@(private="package")
+_do_live_resize_frame :: proc() {
+	reset_frame_allocator()
+	calculate_frame_time()
+	process_events()
+
+	if s.live_resize_callback != nil {
+		// User provided a callback - they're responsible for drawing and calling present()
+		s.live_resize_callback()
+	} else {
+		// No callback: just flush any pending draws and swap buffers
+		// This ensures a properly-sized frame is displayed (no stretching or black screen)
+		draw_current_batch()
+		rb.present()
+	}
+}
+
+// Fetch a list of all events that happened this frame. Most games can use the `key_is_held`,
 // `mouse_button_went_down` etc procedures to check input state. But if you want a list of events
 // instead, then you can use this. These events will also include things like "Window Focus" events
 // and "Window Resize" events.
@@ -437,7 +473,7 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
 // procedures run:
-// 
+//
 // - present
 // - set_camera
 // - set_shader
@@ -448,7 +484,7 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 // - clear
 // - draw_texture_* IF previous draw did not use the same texture (1)
 // - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing texture (2)
-// 
+//
 // (1) When drawing textures, the current texture is fed into the active shader. Everything within
 //     the same batch must use the same texture. So drawing with a new texture forces the current to
 //     be drawn. You can combine several textures into an atlas to get bigger batches.
@@ -483,7 +519,7 @@ draw_current_batch :: proc() {
 			if constant.size == size_of(view_projection) {
 				dst := (^matrix[4,4]f32)(&shader.constants_data[constant.offset])
 				dst^ = view_projection
-			} 
+			}
 		}
 	}
 
@@ -499,7 +535,7 @@ draw_current_batch :: proc() {
 		s.batch_blend_mode,
 		s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used],
 	)
-	
+
 	s.vertex_buffer_cpu_used = 0
 }
 
@@ -744,7 +780,7 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 // rectangles.
 draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 	t := thickness
-	
+
 	// Based on DrawRectangleLinesEx from Raylib
 
 	top := Rect {
@@ -881,7 +917,7 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	if s.batch_texture != tex.handle {
 		draw_current_batch()
 	}
-	
+
 	s.batch_texture = tex.handle
 
 	flip_x, flip_y: bool
@@ -944,12 +980,12 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 			y + (dx + dst.w) * sin_rot + (dy + dst.h) * cos_rot,
 		}
 	}
-	
+
 	ts := Vec2{f32(tex.width), f32(tex.height)}
 
 	up := Vec2{src.x, src.y} / ts
 	us := Vec2{src.w, src.h} / ts
-	
+
 	c := tint
 
 	uv0 := up
@@ -983,7 +1019,7 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		uv2.y -= us.y
 		uv3.y += us.y
 		uv4.y -= us.y
-		uv5.y -= us.y		
+		uv5.y -= us.y
 	}
 
 	batch_vertex(tl, uv0, c)
@@ -1062,7 +1098,7 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 	return TextBounds(&s.fs, font.fontstash_handle, font_size, text)
 }
 
-// Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
+// Draw text at a position with a size. This uses the default font. `pos` will be equal to the
 // top-left position of the text.
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK) {
 	draw_text_ex(s.default_font, text, pos, font_size, color)
@@ -1262,12 +1298,12 @@ play_sound :: proc(snd: Sound, loop := false) {
 // to create more instances without duplicating data.
 set_sound_volume :: proc(snd: Sound, volume: f32) {
 	d := hm.get(&s.sound_instances, snd)
-	
+
 	if d == nil {
 		log.error("Cannot set volume, sound does not exist.")
 		return
 	}
-	
+
 	d.target_volume = clamp(volume, 0, 1)
 }
 
@@ -1276,12 +1312,12 @@ set_sound_volume :: proc(snd: Sound, volume: f32) {
 // more instances without duplicating data.
 set_sound_pan :: proc(snd: Sound, pan: f32) {
 	d := hm.get(&s.sound_instances, snd)
-	
+
 	if d == nil {
 		log.error("Cannot set pan, sound does not exist.")
 		return
 	}
-	
+
 	d.target_pan = clamp(pan, -1, 1)
 }
 
@@ -1290,16 +1326,16 @@ set_sound_pan :: proc(snd: Sound, pan: f32) {
 // `create_sound_instance` to create more instances without duplicating data.
 set_sound_pitch :: proc(snd: Sound, pitch: f32) {
 	d := hm.get(&s.sound_instances, snd)
-	
+
 	if d == nil {
 		log.error("Cannot set pitch, sound does not exist.")
 		return
 	}
-	
+
 	d.target_pitch = max(pitch, 0.01)
 }
 
-// Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. Use 
+// Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. Use
 // `create_sound_instance` to create more instances of the same sound without duplicating data.
 //
 // Currently only supports 16 bit WAV files.
@@ -1369,7 +1405,7 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 	for len(d) > 3 {
 		blk_id := string(d[:4])
 
-		d = d[4:]	
+		d = d[4:]
 
 		if blk_id == "fmt " {
 			blk_size, blk_size_ok := endian.get_u32(d, .Little)
@@ -1489,7 +1525,7 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 			samples = d[:data_size]
 		}
 	}
-	
+
 	return load_sound_from_bytes_raw(samples, format, int(sample_rate))
 }
 
@@ -1643,7 +1679,7 @@ update_audio_mixer :: proc() {
 	if ab.remaining_samples() > (3 * AUDIO_MIX_CHUNK_SIZE)/2 {
 		return
 	}
-	
+
 	// We are going to go past the end of the mix_buffer, so just hop to the start instead. It's
 	// 1 megabyte big, so hopping over a few bytes at the end is OK.
 	if (s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE) > len(s.mix_buffer) {
@@ -1652,7 +1688,7 @@ update_audio_mixer :: proc() {
 
 	// A slice of the mixed samples we are going to output.
 	out := s.mix_buffer[s.mix_buffer_offset:s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE]
-	
+
 	// Zero out old mixed data from buffer (the buffer is "circular", there may be old stuff in
 	// the `out` slice).
 	slice.zero(out)
@@ -1672,7 +1708,7 @@ update_audio_mixer :: proc() {
 		if to_write > len(source) {
 			to_write = len(source)
 		}
-		
+
 		for samp_idx in 0..<to_write {
 			t := f32(samp_idx) / f32(to_write)
 			volume := math.lerp(volume_start, volume_end, t)
@@ -1697,12 +1733,12 @@ update_audio_mixer :: proc() {
 		pan_start: [2]f32,
 		pan_end: [2]f32,
 	) -> int {
-		
+
 		dest_idx: int
 		for ; dest_idx < num_dest; dest_idx += 1 {
 			src_pos := source_offset + f32(dest_idx) * dest_source_ratio
 			src_idx := int(src_pos)
-			
+
 			if src_idx >= len(source) {
 				break
 			}
@@ -1783,11 +1819,11 @@ update_audio_mixer :: proc() {
 		if volume_start == volume_end && volume_end == 0 {
 			continue
 		}
-		
+
 		pan_start := clamp(inst.pan, -1, 1)
 		pan_end := clamp(move_towards(inst.pan, inst.target_pan, adjust_parameter_delta), -1, 1)
 		inst.pan = pan_end
-		
+
 		// Use cos/sine to get a constant-power audio curve. This means that the sound won't get
 		// quieter in the middle, but will instead just pan.
 		pan_stereo_start := [2]f32 {
@@ -1802,7 +1838,7 @@ update_audio_mixer :: proc() {
 
 		interpolate := data.sample_rate != AUDIO_MIX_SAMPLE_RATE || pitch != 1
 		num_mixed: int
-		
+
 		if interpolate {
 			samples_per_mixer_sample := (pitch*f32(data.sample_rate))/f32(AUDIO_MIX_SAMPLE_RATE)
 
@@ -1817,14 +1853,14 @@ update_audio_mixer :: proc() {
 				pan_stereo_start,
 				pan_stereo_end,
 			)
-			
+
 			num_mixed_f32 := f32(num_mixed) * samples_per_mixer_sample
 			fraction_advance := ps.offset_fraction + num_mixed_f32
 
 			// The fraction advance may become larger than 1, in which case the offset needs to eat
 			// the integer part.
 			ps.offset += int(fraction_advance)
-			
+
 			ps.offset_fraction = linalg.fract(fraction_advance)
 		} else {
 			num_mixed = add(
@@ -1836,7 +1872,7 @@ update_audio_mixer :: proc() {
 				pan_stereo_start,
 				pan_stereo_end,
 			)
-			
+
 			ps.offset += num_mixed
 			ps.offset_fraction = 0
 		}
@@ -1905,7 +1941,7 @@ create_render_texture :: proc(width: int, height: int) -> Render_Texture {
 	texture, render_target := rb.create_render_texture(width, height)
 
 	return {
-		texture = { 
+		texture = {
 			handle = texture,
 			width = width,
 			height = height,
@@ -2104,7 +2140,7 @@ destroy_font :: proc(font: Font) {
 	}
 
 	f := &s.fonts[font]
-	rb.destroy_texture(f.atlas.handle)	
+	rb.destroy_texture(f.atlas.handle)
 
 	// TODO fontstash has no "destroy font" proc... I should make my own version of fontstash
 	delete(s.fs.fonts[f.fontstash_handle].glyphs)
@@ -2139,7 +2175,7 @@ load_shader_from_file :: proc(
 	}
 
 	fragment_source: []byte
-	
+
 	if fragment_filename == vertex_filename {
 		fragment_source = vertex_source
 	} else {
@@ -2205,7 +2241,7 @@ load_shader_from_bytes :: proc(
 			size = constant_desc.size,
 		}
 
-		shd.constants[cidx] = loc 
+		shd.constants[cidx] = loc
 		constant_offset += constant_desc.size
 
 		if constant_desc.name != "" {
@@ -2238,7 +2274,7 @@ load_shader_from_bytes :: proc(
 		if default_format != .Unknown {
 			shd.default_input_offsets[default_format] = input_offset
 		}
-		
+
 		input_offset += pixel_format_size(input.format)
 	}
 
@@ -2517,8 +2553,8 @@ Color :: [4]u8
 BLACK        :: Color { 0, 0, 0, 255 }
 WHITE        :: Color { 255, 255, 255, 255 }
 BLANK        :: Color { 0, 0, 0, 0 }
-GRAY         :: Color { 183, 183, 183, 255 } 
-DARK_GRAY    :: Color { 66, 66, 66, 255} 
+GRAY         :: Color { 183, 183, 183, 255 }
+DARK_GRAY    :: Color { 66, 66, 66, 255}
 BLUE         :: Color { 25, 198, 236, 255 }
 DARK_BLUE    :: Color { 7, 47, 88, 255 }
 LIGHT_BLUE   :: Color { 200, 230, 255, 255 }
@@ -2724,7 +2760,7 @@ Shader_Input :: struct {
 
 Pixel_Format :: enum {
 	Unknown,
-	
+
 	RGBA_32_Float,
 	RGB_32_Float,
 	RG_32_Float,
@@ -2821,8 +2857,11 @@ State :: struct {
 	render_backend_state: rawptr,
 
 	fs: fs.FontContext,
-	
+
 	close_window_requested: bool,
+
+	// Optional callback for live window resize rendering (macOS)
+	live_resize_callback: proc(),
 
 	// All events for this frame. Cleared when `process_events` run
 	events: [dynamic]Event,
@@ -3035,7 +3074,7 @@ Gamepad_Index :: int
 
 Gamepad_Axis :: enum {
 	None,
-	
+
 	Left_Stick_X,
 	Left_Stick_Y,
 	Right_Stick_X,
@@ -3046,7 +3085,7 @@ Gamepad_Axis :: enum {
 
 Gamepad_Button :: enum {
 	None,
-	
+
 	// DPAD buttons
 	Left_Face_Up,
 	Left_Face_Down,
@@ -3155,7 +3194,7 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	pos_offset := shd.default_input_offsets[.Position]
 	uv_offset := shd.default_input_offsets[.UV]
 	color_offset := shd.default_input_offsets[.Color]
-	
+
 	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
 
 	if pos_offset != -1 {
@@ -3181,7 +3220,7 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 
 		override_offset += sz
 	}
-	
+
 	s.vertex_buffer_cpu_used += shd.vertex_size
 }
 
@@ -3217,7 +3256,7 @@ get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> 
 
 get_shader_format_num_components :: proc(format: Pixel_Format) -> int {
 	switch format {
-	case .Unknown: return 0 
+	case .Unknown: return 0
 	case .RGBA_32_Float: return 4
 	case .RGB_32_Float: return 3
 	case .RG_32_Float: return 2

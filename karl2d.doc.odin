@@ -14,7 +14,7 @@ package karl2d
 // The window might be slightly larger due to borders and headers.
 //
 // The internal state created by this procedure can be fetched using `get_internal_state()`. You
-// restore the state using `set_internal_state()`. This is useful for example when doing game 
+// restore the state using `set_internal_state()`. This is useful for example when doing game
 // code reload.
 init :: proc(
 	screen_width: int,
@@ -29,7 +29,7 @@ init :: proc(
 // frame times are up-to-date.
 //
 // Returns a bool that says if the player has attempted to close the window. It's up to the
-// application to decide if it wants to shut down or if it (for example) wants to show a 
+// application to decide if it wants to shut down or if it (for example) wants to show a
 // confirmation dialogue.
 //
 // Commonly used for creating the "main loop" of a game: `for k2.update() {}`
@@ -42,10 +42,10 @@ init :: proc(
 ////     k2.calculate_frame_time()
 ////     k2.process_events()
 ////     k2.update_audio_mixer()
-////     
+////
 ////     k2.clear(k2.BLUE)
 ////     k2.present()
-////     
+////
 ////     if k2.close_window_requested() {
 ////         break
 ////     }
@@ -58,6 +58,21 @@ update :: proc() -> bool
 //
 // Called by `update`, but can be called manually if you need more control.
 close_window_requested :: proc() -> bool
+
+// Set a callback that will be called during live window resize on macOS.
+// This allows the application to render frames while the window is being resized interactively.
+// The callback should perform your drawing operations and call `present()`.
+// Events will be processed automatically before the callback is invoked.
+//
+// On other platforms this has no effect, as they handle live resize rendering differently.
+//
+// Example:
+//     k2.set_live_resize_callback(proc() {
+//         k2.clear(k2.BLUE)
+//         k2.draw_text("Resizing!", {10, 10}, 50)
+//         k2.present()
+//     })
+set_live_resize_callback :: proc(callback: proc())
 
 // Closes the window and cleans up Karl2D's internal state.
 shutdown :: proc()
@@ -97,7 +112,7 @@ present :: proc()
 // Called by `update`, but can be called manually if you need more control.
 process_events :: proc()
 
-// Fetch a list of all events that happened this frame. Most games can use the `key_is_held`, 
+// Fetch a list of all events that happened this frame. Most games can use the `key_is_held`,
 // `mouse_button_went_down` etc procedures to check input state. But if you want a list of events
 // instead, then you can use this. These events will also include things like "Window Focus" events
 // and "Window Resize" events.
@@ -149,7 +164,7 @@ set_window_mode :: proc(window_mode: Window_Mode)
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
 // procedures run:
-// 
+//
 // - present
 // - set_camera
 // - set_shader
@@ -160,7 +175,7 @@ set_window_mode :: proc(window_mode: Window_Mode)
 // - clear
 // - draw_texture_* IF previous draw did not use the same texture (1)
 // - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing texture (2)
-// 
+//
 // (1) When drawing textures, the current texture is fed into the active shader. Everything within
 //     the same batch must use the same texture. So drawing with a new texture forces the current to
 //     be drawn. You can combine several textures into an atlas to get bigger batches.
@@ -318,7 +333,7 @@ measure_text :: proc(text: string, font_size: f32) -> Vec2
 // The return value contains the width and height of the text.
 measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 
-// Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
+// Draw text at a position with a size. This uses the default font. `pos` will be equal to the
 // top-left position of the text.
 draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK)
 
@@ -402,7 +417,7 @@ set_sound_pan :: proc(snd: Sound, pan: f32)
 // `create_sound_instance` to create more instances without duplicating data.
 set_sound_pitch :: proc(snd: Sound, pitch: f32)
 
-// Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. Use 
+// Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. Use
 // `create_sound_instance` to create more instances of the same sound without duplicating data.
 //
 // Currently only supports 16 bit WAV files.
@@ -863,7 +878,7 @@ Shader_Input :: struct {
 
 Pixel_Format :: enum {
 	Unknown,
-	
+
 	RGBA_32_Float,
 	RGB_32_Float,
 	RG_32_Float,
@@ -960,7 +975,7 @@ State :: struct {
 	render_backend_state: rawptr,
 
 	fs: fs.FontContext,
-	
+
 	close_window_requested: bool,
 
 	// All events for this frame. Cleared when `process_events` run
@@ -1173,7 +1188,7 @@ Gamepad_Index :: int
 
 Gamepad_Axis :: enum {
 	None,
-	
+
 	Left_Stick_X,
 	Left_Stick_Y,
 	Right_Stick_X,
@@ -1184,7 +1199,7 @@ Gamepad_Axis :: enum {
 
 Gamepad_Button :: enum {
 	None,
-	
+
 	// DPAD buttons
 	Left_Face_Up,
 	Left_Face_Down,
