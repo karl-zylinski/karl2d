@@ -8,11 +8,14 @@ package karl2d
 //-----------------------------------------------//
 
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
-// all dynamically allocated memory. The return value can be ignored unless you need to later call
-// `set_internal_state`.
+// all dynamically allocated memory.
 //
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
 // The window might be slightly larger due to borders and headers.
+//
+// The internal state created by this procedure can be fetched using `get_internal_state()`. You
+// restore the state using `set_internal_state()`. This is useful for example when doing game 
+// code reload.
 init :: proc(
 	screen_width: int,
 	screen_height: int,
@@ -20,7 +23,7 @@ init :: proc(
 	options := Init_Options {},
 	allocator := context.allocator,
 	loc := #caller_location
-) -> ^State
+)
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
 // frame times are up-to-date.
@@ -187,6 +190,19 @@ key_went_up :: proc(key: Keyboard_Key) -> bool
 // Returns true if a keyboard is currently being held down. Set when 'process_events' runs.
 key_is_held :: proc(key: Keyboard_Key) -> bool
 
+// Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
+// You can check that an exact set of modifiers are held like so:
+//
+// `if k2.get_held_modifiers() == { .Control, Shift} {}`
+//
+// This will only be true if left/right control are held and left/right shift are held, but it also
+// makes sure that no alt or super (windows) key are held.
+//
+// This is useful for checking for held modifiers for hotkeys in user interfaces. If you want to
+// associate an in-game action with a specific key such as Left Control, then it's better to just do
+// `if k2.key_is_held(.Left_Control) {}`
+get_held_modifiers :: proc() -> bit_set[Modifier]
+
 // Returns true if a mouse button went down between the current and the previous frame. Specify
 // which mouse button using the `button` parameter.
 //
@@ -208,6 +224,8 @@ get_mouse_wheel_delta :: proc() -> f32
 
 // Returns the mouse position, measured from the top-left corner of the window.
 get_mouse_position :: proc() -> Vec2
+
+get_mouse_pos :: get_mouse_position
 
 // Returns how many pixels the mouse moved between the previous and the current frame.
 get_mouse_delta :: proc() -> Vec2
@@ -463,6 +481,53 @@ destroy_render_texture :: proc(render_texture: Render_Texture)
 // `create_render_texture`. Pass `nil` to resume drawing onto the screen.
 set_render_texture :: proc(render_texture: Maybe(Render_Texture))
 
+//-------------//
+// MATHEMATICS //
+//-------------//
+
+// Returns true if rectangles `a` and `b` are overlapping.
+rect_overlapping :: proc(a: Rect, b: Rect) -> bool
+
+// Returns the overlap of rectangle `a` and `b`. The second return value is `false` if no overlap
+// was found, `true` otherwise.
+rect_overlap :: proc(a: Rect, b: Rect) -> (Rect, bool)
+
+// Return true if `point` is inside `rect`.
+point_in_rect :: proc(point: Vec2, rect: Rect) -> bool
+
+// Returns the mid-point of a rectangle.
+//
+// Useful when for passing as `origin` to drawing procedures, especially when you want the
+// drawn thing to rotate around its center.
+rect_middle :: proc(r: Rect) -> Vec2
+
+rect_center :: rect_middle
+rect_centre :: rect_middle
+
+rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect
+
+// Cut off `h` pixels from the top of `r`. `r` is modified. The cut off part is returned.
+// `m` is the margin added above the cut part.
+rect_cut_top :: proc(r: ^Rect, h: f32, m: f32) -> Rect
+
+// Cut off `h` pixels from the bottom of `r`. `r` is modified. The cut off part is returned.
+// `m` is the margin added below the cut part.
+rect_cut_bottom :: proc(r: ^Rect, h: f32, m: f32) -> Rect
+
+// Cut off `w` pixels from the left of `r`. `r` is modified. The cut off part is returned.
+// `m` is the margin added to the left of the cut part.
+rect_cut_left :: proc(r: ^Rect, w: f32, m: f32) -> Rect
+
+// Cut off `w` pixels from the right of `r`. `r` is modified. The cut off part is returned.
+// `m` is the margin added to the right of the cut part.
+rect_cut_right :: proc(r: ^Rect, w: f32, m: f32) -> Rect
+
+// Rotate `v` by `angle_radians` radians around the origin (0, 0).
+//
+// If you need to rotate around a point that is not the origin, then you can first subtract the
+// point from `v`, then rotate and then add the point back to the result.
+rotate :: proc(v: Vec2, angle_radians: f32) -> Vec2
+
 //-------//
 // FONTS //
 //-------//
@@ -542,11 +607,11 @@ set_camera :: proc(camera: Maybe(Camera))
 // bringing (for example) mouse positions (k2.get_mouse_position()) into world-space.
 screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2
 
-// Transform a point `pos` that lices in the world to a point on the screen. This can be useful when
+// Transform a point `pos` that lives in the world to a point on the screen. This can be useful when
 // you need to take a position in the world and compare it to a screen-space point.
 world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
 
-// Get the matrix that `screen_to_world` and `world_to_screen` uses to do their transformations.
+// Calculate the matrix that `screen_to_world` and `world_to_screen` uses to do transformations.
 //
 // A view matrix is essentially the world transform matrix of the camera, but inverted. In other
 // words, instead of bringing the camera in front of things in the world, we bring everything in the
@@ -565,10 +630,12 @@ world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
 //
 // The view matrix is a Mat4 because its easier to upload a Mat4 to the GPU. But only the upper-left
 // 3x3 matrix is actually used.
-get_camera_view_matrix :: proc(c: Camera) -> Mat4
+camera_view_matrix :: proc(c: Camera) -> Mat4
 
-// Get the matrix that brings something in front of the camera.
-get_camera_world_matrix :: proc(c: Camera) -> Mat4
+// Calculate the matrix that brings something in front of the camera.
+camera_world_matrix :: proc(c: Camera) -> Mat4
+
+get_fullscreen_rect :: proc() -> Rect
 
 //------//
 // MISC //
@@ -582,8 +649,14 @@ set_blend_mode :: proc(mode: Blend_Mode)
 // scissor rectangle by running `set_scissor_rect(nil)`.
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect))
 
-// Restore the internal state using the pointer returned by `init`. Useful after reloading the
-// library (for example, when doing code hot reload).
+// Fetch the pointer to the internal state of Karl2D. This pointer refers to memory that was
+// allocated when `init` ran. All of the library's needed state is contained in there.
+//
+// Restore the state using `set_internal_state`
+get_internal_state :: proc() -> ^State
+
+// Restore the internal state using the pointer returned by `get_internal_state`. Useful after
+// reloading the library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State)
 
 //---------------------//
@@ -1107,6 +1180,16 @@ Keyboard_Key :: enum {
 	NP_Enter        = 335,
 	NP_Equal        = 336,
 }
+
+// Returned as a bit_set by `get_held_modifiers`
+Modifier :: enum {
+	Control,
+	Alt,
+	Shift,
+	Super,
+}
+
+MODIFIERS_NONE :: bit_set[Modifier] {}
 
 MAX_GAMEPADS :: 4
 
