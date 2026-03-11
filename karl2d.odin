@@ -1997,6 +1997,30 @@ rect_middle :: proc(r: Rect) -> Vec2 {
 rect_center :: rect_middle
 rect_centre :: rect_middle
 
+rect_top_left :: proc(r: Rect) -> Vec2 {
+	return {r.x, r.y}
+}
+
+rect_top_middle :: proc(r: Rect) -> Vec2 {
+	return {r.x + r.w / 2, r.y}
+}
+
+rect_top_right :: proc(r: Rect) -> Vec2 {
+	return {r.x + r.w, r.y}
+}
+
+rect_bottom_left :: proc(r: Rect) -> Vec2 {
+	return {r.x, r.y + r.h}
+}
+
+rect_bottom_middle :: proc(r: Rect) -> Vec2 {
+	return {r.x + r.w / 2, r.y + r.h}
+}
+
+rect_bottom_right :: proc(r: Rect) -> Vec2 {
+	return {r.x + r.w, r.y + r.h}
+}
+
 rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect {
 	return {
 		r.x + x,
