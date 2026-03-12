@@ -17,6 +17,11 @@ PLATFORM_WEB :: Platform_Interface {
 	set_window_position = web_set_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
+
+	create_cursor = web_create_cursor,
+	set_cursor = web_set_cursor,
+	destroy_cursor = web_destroy_cursor,
+
 	is_gamepad_active = web_is_gamepad_active,
 	get_gamepad_axis = web_get_gamepad_axis,
 	set_gamepad_vibration = web_set_gamepad_vibration,
@@ -25,6 +30,9 @@ PLATFORM_WEB :: Platform_Interface {
 }
 
 import "core:sys/wasm/js"
+import "core:encoding/base64"
+import "core:fmt"
+import "core:slice"
 import "base:runtime"
 import "log"
 
@@ -308,6 +316,40 @@ web_set_window_mode :: proc(window_mode: Window_Mode) {
 	s.window_mode = window_mode
 }
 
+web_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
+	pixels_b64 := base64.encode(pixels, allocator = s.allocator)
+
+	cursor := new(Web_Cursor, s.allocator)
+	cursor.style_value = fmt.aprintf(
+		"url(data:image/png;base64,%v) %v %v, auto",
+		pixels_b64,
+		hotspot.x, hotspot.y,
+		allocator = s.allocator
+	)
+
+	return {
+		os_handle = cursor,
+		pixels = slice.reinterpret([]Color, transmute([]u8)pixels_b64),
+	}
+}
+
+web_set_cursor :: proc(cursor: Cursor_Data) {
+	if cursor.os_handle == nil {
+		js.set_element_style(s.canvas_id, "cursor", "default")	
+	} else {			
+		cursor := (^Web_Cursor)(cursor.os_handle)
+		js.set_element_style(s.canvas_id, "cursor", cursor.style_value)
+	}
+}
+
+web_destroy_cursor :: proc(cursor: Cursor_Data) {
+	js.set_element_style(s.canvas_id, "cursor", "default")
+	
+	cursor := (^Web_Cursor)(cursor.os_handle)
+	delete(cursor.style_value, s.allocator)
+	free(cursor, s.allocator)
+}
+
 web_is_gamepad_active :: proc(gamepad: int) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
@@ -355,6 +397,10 @@ Web_State :: struct {
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 	window_mode: Window_Mode,
 	key_from_js_event_key_code: map[string]Keyboard_Key,
+}
+
+Web_Cursor :: struct {
+	style_value: string,
 }
 
 s: ^Web_State

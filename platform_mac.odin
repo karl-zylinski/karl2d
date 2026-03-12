@@ -5,9 +5,13 @@
 package karl2d
 
 import NS "core:sys/darwin/Foundation"
+import CF "core:sys/darwin/CoreFoundation"
 import ce "platform_bindings/mac/cocoa_extras"
 import gc "platform_bindings/mac/gamecontroller"
 import "base:runtime"
+import "core:image/png"
+import "core:slice"
+import "log"
 
 @(private="package")
 PLATFORM_MAC :: Platform_Interface {
@@ -22,6 +26,10 @@ PLATFORM_MAC :: Platform_Interface {
 	set_window_position = mac_set_window_position,
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
+
+	create_cursor = mac_create_cursor,
+	set_cursor = mac_set_cursor,
+	destroy_cursor = mac_destroy_cursor,
 
 	is_gamepad_active = mac_is_gamepad_active,
 	get_gamepad_axis = mac_get_gamepad_axis,
@@ -460,6 +468,54 @@ mac_set_window_mode :: proc(window_mode: Window_Mode) {
 		s.screen_width = int(content_rect.width)
 		s.screen_height = int(content_rect.height)
 	}
+}
+
+mac_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
+	img, err := png.load(pixels, allocator = s.allocator)
+	if err != nil {
+		log.errorf("Failed to decode cursor PNG: %v", err)
+		return {}
+	}
+	pixels := slice.reinterpret([]Color, img.pixels.buf[:])
+	planes := [?]^u8 {(^u8)(raw_data(pixels))}
+
+	rep := NS.BitmapImageRep_alloc()->initWithBitmapDataPlanes(
+		&planes[0],
+		NS.Integer(img.width),
+		NS.Integer(img.height),
+		8, 4, true, false,
+		NS.DeviceRGBColorSpace,
+		NS.BitmapFormatFlags{.AlphaNonpremultiplied},
+		NS.Integer(img.width * 4),
+		32,
+	)
+	defer rep->release()
+
+	image := NS.Image_alloc()->initWithSize({CF.CGFloat(img.width), CF.CGFloat(img.height)})
+	image->addRepresentation((^NS.ImageRep)(rep))
+	defer image->release()
+
+	cursor := NS.Cursor_alloc()->initWithImage(image, {CF.CGFloat(hotspot.x), CF.CGFloat(hotspot.y)})
+
+	return {
+		os_handle = cursor,
+		pixels = pixels,
+	}
+}
+
+mac_set_cursor :: proc(cursor: Cursor_Data) {
+	if cursor.os_handle == nil {
+		NS.Cursor_arrowCursor()->set()
+	} else {
+		cursor := (^NS.Cursor)(cursor.os_handle)
+		cursor->set()
+	}
+}
+
+mac_destroy_cursor :: proc(cursor: Cursor_Data) {
+	NS.Cursor_arrowCursor()->set()
+	cursor := (^NS.Cursor)(cursor.os_handle)
+	cursor->release()
 }
 
 // Key code mapping from macOS virtual key codes to Keyboard_Key
