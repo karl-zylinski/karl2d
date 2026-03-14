@@ -3,6 +3,8 @@
 #+build ignore
 package karl2d
 
+Y_UP :: #config(KARL2D_Y_UP, false)
+
 //-----------------------------------------------//
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//

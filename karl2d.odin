@@ -23,6 +23,8 @@ import "core:image/tga"
 
 import hm "core:container/handle_map"
 
+Y_UP :: #config(KARL2D_Y_UP, false)
+
 //-----------------------------------------------//
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
@@ -118,9 +120,17 @@ init :: proc(
 	s.default_shader = load_shader_from_bytes(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
 	s.batch_shader = s.default_shader
 
+	when Y_UP {
+		fs_quad_location := fs.QuadLocation.BOTTOMLEFT
+		fs_vertical_align := fs.AlignVertical.BOTTOM
+	} else {
+		fs_quad_location := fs.QuadLocation.TOPLEFT
+		fs_vertical_align := fs.AlignVertical.TOP
+	}
+
 	// FontStash enables us to bake fonts from TTF files on-the-fly.
-	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
-	fs.SetAlignVertical(&s.fs, .TOP)
+	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, fs_quad_location)
+	fs.SetAlignVertical(&s.fs, fs_vertical_align)
 
 	DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
@@ -308,11 +318,14 @@ process_events :: proc() {
 			s.mouse_button_is_held[e.button] = false
 
 		case Event_Mouse_Move:
-			prev_pos := s.mouse_position
+			when Y_UP {
+				// We modify the event itself so that `get_events()` returns the correct position.
+				e.position.y = f32(pf.get_screen_height()) - e.position.y
+			}
 
+			prev_pos := s.mouse_position
 			s.mouse_position.x = e.position.x
 			s.mouse_position.y = e.position.y
-
 			s.mouse_delta = s.mouse_position - prev_pos
 
 		case Event_Mouse_Wheel:
@@ -885,6 +898,11 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	s.batch_texture = tex.handle
 
 	flip_x, flip_y: bool
+
+	when Y_UP {
+		flip_y = true
+	}
+
 	src := src
 	dst := dst
 
@@ -894,7 +912,7 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	}
 
 	if src.h < 0 {
-		flip_y = true
+		flip_y = !flip_y
 		src.h = -src.h
 	}
 
@@ -1107,8 +1125,14 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 		src.w *= w
 		src.h *= h
 
+		when Y_UP {
+			pos_y := q.y1
+		} else {
+			pos_y := q.y0
+		}
+
 		dst := Rect {
-			q.x0, q.y0,
+			q.x0, pos_y,
 			q.x1 - q.x0, q.y1 - q.y0,
 		}
 
@@ -3280,7 +3304,15 @@ matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f
 }
 
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
-	return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+	when Y_UP {
+		top := f32(0)
+		bottom := f32(h)
+	} else {
+		top := f32(h)
+		bottom := f32(0)
+	}
+
+	return matrix_ortho3d_f32(0, f32(w), top, bottom, 0.001, 2)
 }
 
 FONT_DEFAULT_ATLAS_SIZE :: 1024
