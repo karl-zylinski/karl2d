@@ -1994,33 +1994,43 @@ point_in_rect :: proc(point: Vec2, rect: Rect) -> bool {
 rect_middle :: proc(r: Rect) -> Vec2 {
 	return { r.x + r.w/2, r.y + r.h/2 }
 }
+
 rect_center :: rect_middle
 rect_centre :: rect_middle
 
+// Get the top left corner of a rectangle.
 rect_top_left :: proc(r: Rect) -> Vec2 {
 	return {r.x, r.y}
 }
 
+// Get the top middle point of a rectangle. That is, the mid-point between the top left and top
+// right corners.
 rect_top_middle :: proc(r: Rect) -> Vec2 {
 	return {r.x + r.w / 2, r.y}
 }
 
+// Get the top right corner of a rectangle.
 rect_top_right :: proc(r: Rect) -> Vec2 {
 	return {r.x + r.w, r.y}
 }
 
+// Get the bottom left corner of a rectangle.
 rect_bottom_left :: proc(r: Rect) -> Vec2 {
 	return {r.x, r.y + r.h}
 }
 
+// Get the bottom middle point of a rectangle. That is, the mid-point between the bottom left and
+// bottom right corners.
 rect_bottom_middle :: proc(r: Rect) -> Vec2 {
 	return {r.x + r.w / 2, r.y + r.h}
 }
 
+// Get the bottom right corner of a rectangle.
 rect_bottom_right :: proc(r: Rect) -> Vec2 {
 	return {r.x + r.w, r.y + r.h}
 }
 
+// Make a rectangle smaller by `x` pixels in the horizontal direction and `y` pixels in the vertical
 rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect {
 	return {
 		r.x + x,
@@ -2030,6 +2040,7 @@ rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect {
 	}
 }
 
+// Make a rectangle bigger by `x` pixels in the horizontal direction and `y` pixels in the vertical.
 rect_expand :: proc(r: Rect, x: f32, y: f32) -> Rect {
 	return {
 		r.x - x,
@@ -2081,7 +2092,7 @@ rect_cut_right :: proc(r: ^Rect, w: f32, m: f32) -> Rect {
 	return res
 }
 
-// Rotate `v` by `angle_radians` radians around the origin (0, 0).
+// Rotate 2D vector `v` by `angle_radians` radians around the origin (0, 0).
 //
 // If you need to rotate around a point that is not the origin, then you can first subtract the
 // point from `v`, then rotate and then add the point back to the result.
