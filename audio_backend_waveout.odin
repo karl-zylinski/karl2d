@@ -22,7 +22,6 @@ import "core:slice"
 
 Waveout_State :: struct {
 	device: win32.HWAVEOUT,
-	allocator: runtime.Allocator,
 	headers: [32]win32.WAVEHDR,
 	cur_header: int,
 	submitted_samples: int,
@@ -37,7 +36,6 @@ s: ^Waveout_State
 waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	assert(state != nil)
 	s = (^Waveout_State)(state)
-	s.allocator = allocator
 	log.debug("Init audio backend waveout")
 
 	// Added constant missing in bindings:

@@ -33,9 +33,10 @@ import hm "core:container/handle_map"
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
 // The window might be slightly larger due to borders and headers.
 //
-// The internal state created by this procedure can be fetched using `get_internal_state()`. You
-// restore the state using `set_internal_state()`. This is useful for example when doing game 
-// code reload.
+// The return value is a pointer to Karl2D's internal state. You can restore this state later using
+// `set_internal_state()`. This is useful for example when doing game code reload, as the state may
+// get reset when the library is reloaded. You can safely ignore the return value if you have no
+// such needs.
 init :: proc(
 	screen_width: int,
 	screen_height: int,
@@ -43,19 +44,16 @@ init :: proc(
 	options := Init_Options {},
 	allocator := context.allocator,
 	loc := #caller_location
-) {
+) -> ^State {
 	assert(s == nil, "Don't call 'init' twice.")
-	context.allocator = allocator
-
 	s = new(State, allocator, loc)
+	s.allocator = allocator
 
 	// This is the same type of arena as the default temp allocator. This arena is for allocations
 	// that have a lifetime of "one frame". They are valid until you call `present()`, at which
 	// point the frame allocator is cleared.
 	s.frame_allocator = runtime.arena_allocator(&s.frame_arena)
 	frame_allocator = s.frame_allocator
-
-	s.allocator = allocator
 
 	when ODIN_OS == .Windows {
 		s.platform = PLATFORM_WINDOWS
@@ -76,7 +74,7 @@ init :: proc(
 	
 	s.platform_state, platform_state_alloc_error = mem.alloc(
 		pf.state_size(),
-		allocator = allocator,
+		allocator = s.allocator,
 	)
 
 	log.assertf(
@@ -85,7 +83,7 @@ init :: proc(
 		platform_state_alloc_error,
 	)
 
-	pf.init(s.platform_state, screen_width, screen_height, window_title, options, allocator)
+	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
 
 	// This is an OS-independent handle that we can pass to any rendering backend.
 	window_render_glue := pf.get_window_render_glue()
@@ -95,17 +93,17 @@ init :: proc(
 
 	rb = s.render_backend
 	rb_alloc_error: runtime.Allocator_Error
-	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = allocator)
+	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = s.allocator)
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
 	s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.render_backend_state, window_render_glue, pf.get_screen_width(), pf.get_screen_height(), allocator)
+	rb.init(s.render_backend_state, window_render_glue, pf.get_screen_width(), pf.get_screen_height(), s.allocator)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`.
-	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, allocator, loc)
+	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, s.allocator, loc)
 
 	// The shapes drawing texture is sampled when any shape is drawn. This way we can use the same
 	// shader for textured drawing and shape drawing. It's just a white box.
@@ -141,6 +139,8 @@ init :: proc(
 		ab.init(s.audio_backend_state, s.allocator)
 		s.playing_sounds = make([dynamic]Playing_Sound, s.allocator)
 	}
+
+	return s
 }
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
@@ -1994,15 +1994,59 @@ point_in_rect :: proc(point: Vec2, rect: Rect) -> bool {
 rect_middle :: proc(r: Rect) -> Vec2 {
 	return { r.x + r.w/2, r.y + r.h/2 }
 }
+
 rect_center :: rect_middle
 rect_centre :: rect_middle
 
+// Get the top left corner of a rectangle.
+rect_top_left :: proc(r: Rect) -> Vec2 {
+	return {r.x, r.y}
+}
+
+// Get the top middle point of a rectangle. That is, the mid-point between the top left and top
+// right corners.
+rect_top_middle :: proc(r: Rect) -> Vec2 {
+	return {r.x + r.w / 2, r.y}
+}
+
+// Get the top right corner of a rectangle.
+rect_top_right :: proc(r: Rect) -> Vec2 {
+	return {r.x + r.w, r.y}
+}
+
+// Get the bottom left corner of a rectangle.
+rect_bottom_left :: proc(r: Rect) -> Vec2 {
+	return {r.x, r.y + r.h}
+}
+
+// Get the bottom middle point of a rectangle. That is, the mid-point between the bottom left and
+// bottom right corners.
+rect_bottom_middle :: proc(r: Rect) -> Vec2 {
+	return {r.x + r.w / 2, r.y + r.h}
+}
+
+// Get the bottom right corner of a rectangle.
+rect_bottom_right :: proc(r: Rect) -> Vec2 {
+	return {r.x + r.w, r.y + r.h}
+}
+
+// Make a rectangle smaller by `x` pixels in the horizontal direction and `y` pixels in the vertical
 rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect {
 	return {
 		r.x + x,
 		r.y + y,
 		r.w - x * 2,
 		r.h - y * 2,
+	}
+}
+
+// Make a rectangle bigger by `x` pixels in the horizontal direction and `y` pixels in the vertical.
+rect_expand :: proc(r: Rect, x: f32, y: f32) -> Rect {
+	return {
+		r.x - x,
+		r.y - y,
+		r.w + x * 2,
+		r.h + y * 2,
 	}
 }
 
@@ -2048,7 +2092,7 @@ rect_cut_right :: proc(r: ^Rect, w: f32, m: f32) -> Rect {
 	return res
 }
 
-// Rotate `v` by `angle_radians` radians around the origin (0, 0).
+// Rotate 2D vector `v` by `angle_radians` radians around the origin (0, 0).
 //
 // If you need to rotate around a point that is not the origin, then you can first subtract the
 // point from `v`, then rotate and then add the point back to the result.
@@ -2472,16 +2516,8 @@ set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 	s.batch_scissor = scissor_rect
 }
 
-// Fetch the pointer to the internal state of Karl2D. This pointer refers to memory that was
-// allocated when `init` ran. All of the library's needed state is contained in there.
-//
-// Restore the state using `set_internal_state`
-get_internal_state :: proc() -> ^State {
-	return s
-}
-
-// Restore the internal state using the pointer returned by `get_internal_state`. Useful after
-// reloading the library (for example, when doing code hot reload).
+// Restore the internal state using the pointer returned by `init`. Useful after reloading the
+// library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State) {
 	s = state
 	frame_allocator = s.frame_allocator
@@ -2490,6 +2526,7 @@ set_internal_state :: proc(state: ^State) {
 	ab = s.audio_backend
 	pf.set_internal_state(s.platform_state)
 	rb.set_internal_state(s.render_backend_state)
+	ab.set_internal_state(s.audio_backend_state)
 }
 
 //---------------------//
@@ -2808,9 +2845,8 @@ Raw_Sound_Format :: enum {
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
-// It is created and kept as a global variable when 'init' is called. However, 'init' also returns
-// the pointer to it, so you can later use 'set_internal_state' to restore it (after for example hot
-// reload).
+// It is created and kept as a global variable when 'init' is called. 'init' also returns a pointer
+// to it, so you can later use 'set_internal_state' to restore it (after for example hot reload).
 State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
