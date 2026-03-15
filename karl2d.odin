@@ -46,17 +46,14 @@ init :: proc(
 	loc := #caller_location
 ) -> ^State {
 	assert(s == nil, "Don't call 'init' twice.")
-	context.allocator = allocator
-
 	s = new(State, allocator, loc)
+	s.allocator = allocator
 
 	// This is the same type of arena as the default temp allocator. This arena is for allocations
 	// that have a lifetime of "one frame". They are valid until you call `present()`, at which
 	// point the frame allocator is cleared.
 	s.frame_allocator = runtime.arena_allocator(&s.frame_arena)
 	frame_allocator = s.frame_allocator
-
-	s.allocator = allocator
 
 	when ODIN_OS == .Windows {
 		s.platform = PLATFORM_WINDOWS
@@ -77,7 +74,7 @@ init :: proc(
 	
 	s.platform_state, platform_state_alloc_error = mem.alloc(
 		pf.state_size(),
-		allocator = allocator,
+		allocator = s.allocator,
 	)
 
 	log.assertf(
@@ -86,7 +83,7 @@ init :: proc(
 		platform_state_alloc_error,
 	)
 
-	pf.init(s.platform_state, screen_width, screen_height, window_title, options, allocator)
+	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
 
 	// This is an OS-independent handle that we can pass to any rendering backend.
 	window_render_glue := pf.get_window_render_glue()
@@ -96,17 +93,17 @@ init :: proc(
 
 	rb = s.render_backend
 	rb_alloc_error: runtime.Allocator_Error
-	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = allocator)
+	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = s.allocator)
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
 	s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.render_backend_state, window_render_glue, pf.get_screen_width(), pf.get_screen_height(), allocator)
+	rb.init(s.render_backend_state, window_render_glue, pf.get_screen_width(), pf.get_screen_height(), s.allocator)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`.
-	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, allocator, loc)
+	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, s.allocator, loc)
 
 	// The shapes drawing texture is sampled when any shape is drawn. This way we can use the same
 	// shader for textured drawing and shape drawing. It's just a white box.
