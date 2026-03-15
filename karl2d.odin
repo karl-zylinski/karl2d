@@ -33,9 +33,10 @@ import hm "core:container/handle_map"
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
 // The window might be slightly larger due to borders and headers.
 //
-// The internal state created by this procedure can be fetched using `get_internal_state()`. You
-// restore the state using `set_internal_state()`. This is useful for example when doing game 
-// code reload.
+// The return value is a pointer to Karl2D's internal state. You can restore this state later using
+// `set_internal_state()`. This is useful for example when doing game code reload, as the state may
+// get reset when the library is reloaded. You can safely ignore the return value if you have no
+// such needs.
 init :: proc(
 	screen_width: int,
 	screen_height: int,
@@ -43,7 +44,7 @@ init :: proc(
 	options := Init_Options {},
 	allocator := context.allocator,
 	loc := #caller_location
-) {
+) -> ^State {
 	assert(s == nil, "Don't call 'init' twice.")
 	context.allocator = allocator
 
@@ -141,6 +142,8 @@ init :: proc(
 		ab.init(s.audio_backend_state, s.allocator)
 		s.playing_sounds = make([dynamic]Playing_Sound, s.allocator)
 	}
+
+	return s
 }
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
@@ -2030,6 +2033,15 @@ rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect {
 	}
 }
 
+rect_expand :: proc(r: Rect, x: f32, y: f32) -> Rect {
+	return {
+		r.x - x,
+		r.y - y,
+		r.w + x * 2,
+		r.h + y * 2,
+	}
+}
+
 // Cut off `h` pixels from the top of `r`. `r` is modified. The cut off part is returned.
 // `m` is the margin added above the cut part.
 rect_cut_top :: proc(r: ^Rect, h: f32, m: f32) -> Rect {
@@ -2496,16 +2508,8 @@ set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 	s.batch_scissor = scissor_rect
 }
 
-// Fetch the pointer to the internal state of Karl2D. This pointer refers to memory that was
-// allocated when `init` ran. All of the library's needed state is contained in there.
-//
-// Restore the state using `set_internal_state`
-get_internal_state :: proc() -> ^State {
-	return s
-}
-
-// Restore the internal state using the pointer returned by `get_internal_state`. Useful after
-// reloading the library (for example, when doing code hot reload).
+// Restore the internal state using the pointer returned by `init`. Useful after reloading the
+// library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State) {
 	s = state
 	frame_allocator = s.frame_allocator
@@ -2514,6 +2518,7 @@ set_internal_state :: proc(state: ^State) {
 	ab = s.audio_backend
 	pf.set_internal_state(s.platform_state)
 	rb.set_internal_state(s.render_backend_state)
+	ab.set_internal_state(s.audio_backend_state)
 }
 
 //---------------------//
@@ -2832,9 +2837,8 @@ Raw_Sound_Format :: enum {
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
-// It is created and kept as a global variable when 'init' is called. However, 'init' also returns
-// the pointer to it, so you can later use 'set_internal_state' to restore it (after for example hot
-// reload).
+// It is created and kept as a global variable when 'init' is called. 'init' also returns a pointer
+// to it, so you can later use 'set_internal_state' to restore it (after for example hot reload).
 State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
