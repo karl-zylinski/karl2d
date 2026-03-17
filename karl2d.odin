@@ -120,8 +120,6 @@ init :: proc(
 	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
 	fs.SetAlignVertical(&s.fs, .TOP)
 
-	DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
-
 	// Dummy element so font with index 0 means 'no font'.
 	append_nothing(&s.fonts)
 
@@ -2111,33 +2109,36 @@ rotate :: proc(v: Vec2, angle_radians: f32) -> Vec2 {
 //-------//
 
 // Loads a font from disk and returns a handle that represents it.
-load_font_from_file :: proc(filename: string) -> Font {
+load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font {
 	when !FILESYSTEM_SUPPORTED {
 		log.errorf("load_font_from_file failed: OS %v has no filesystem support! Tip: Use load_font_from_bytes(#load(\"the_font.ttf\")) instead.", ODIN_OS)
 		return {}
 	}
 
 	if data, data_ok := read_entire_file(filename, frame_allocator); data_ok {
-		return load_font_from_bytes(data)
+		return load_font_from_bytes(data, options)
 	}
 
 	return FONT_NONE
 }
 
 // Loads a font from a block of memory and returns a handle that represents it.
-load_font_from_bytes :: proc(data: []u8) -> Font {
+load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
 	font := fs.AddFontMem(&s.fs, "", data, false)
 	h := Font(len(s.fonts))
 
-	append(&s.fonts, Font_Data {
+	data := Font_Data {
 		fontstash_handle = font,
 		atlas = {
 			handle = rb.create_texture(FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .RGBA_8_Norm),
 			width = FONT_DEFAULT_ATLAS_SIZE,
 			height = FONT_DEFAULT_ATLAS_SIZE,
 		},
-	})
+		options = options,
+	}
 
+	set_texture_filter(data.atlas, options.filter)
+	append(&s.fonts, data)
 	return h
 }
 
@@ -2774,8 +2775,18 @@ Pixel_Format :: enum {
 	R_8_UInt,
 }
 
+Font_Options :: struct {
+	// When the font is loaded, the alpha value of each pixel will be multiplied into its RGB values.
+	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
+	premultiply_alpha: bool,
+
+	// Passed on to font atlas creation.
+	filter: Texture_Filter,
+}
+
 Font_Data :: struct {
 	atlas: Texture,
+	options: Font_Options,
 
 	// internal
 	fontstash_handle: int,
@@ -2785,6 +2796,7 @@ Handle :: hm.Handle64
 Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
+DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
 FONT_NONE :: Font {}
 TEXTURE_NONE :: Texture_Handle {}
@@ -3353,7 +3365,18 @@ _update_font :: proc(fh: Font) {
 			src_pixel_idx := start + (px) + (py * tw)
 
 			src := s.fs.textureData[src_pixel_idx]
-			expanded_pixels[dst_pixel_idx] = {255,255,255, src}
+
+			if font.options.premultiply_alpha {
+				a := f32(src) / 255
+				expanded_pixels[dst_pixel_idx] = {
+					u8(f32(src) * a),
+					u8(f32(src) * a),
+					u8(f32(src) * a),
+					src,
+				}
+			} else {
+				expanded_pixels[dst_pixel_idx] = {255,255,255, src}
+			}
 		}
 
 		rb.update_texture(font.atlas.handle, slice.reinterpret([]u8, expanded_pixels), r)
