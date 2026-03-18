@@ -831,6 +831,25 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 	draw_rect_ex(r, origin, rot, color)
 }
 
+// Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
+// counter-clockwise triangles will give the same result.
+draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+
+	if s.batch_texture != s.shape_drawing_texture {
+		draw_current_batch()
+	}
+
+	s.batch_texture = s.shape_drawing_texture
+
+	batch_vertex(vertices[0], {0, 0}, c)
+	batch_vertex(vertices[1], {1, 1}, c)
+	batch_vertex(vertices[2], {0, 1}, c)
+}
+
+
 // Draw a texture at a specific position. The texture will be drawn with its top-left corner at
 // position `pos`.
 //
@@ -1995,6 +2014,15 @@ rect_middle :: proc(r: Rect) -> Vec2 {
 
 rect_center :: rect_middle
 rect_centre :: rect_middle
+
+rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect {
+	return {
+		x = pos.x,
+		y = pos.y,
+		w = size.x,
+		h = size.y,
+	}
+}
 
 // Get the top left corner of a rectangle.
 rect_top_left :: proc(r: Rect) -> Vec2 {
