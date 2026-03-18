@@ -2015,6 +2015,7 @@ rect_middle :: proc(r: Rect) -> Vec2 {
 rect_center :: rect_middle
 rect_centre :: rect_middle
 
+// Combine a position and a size into a rectangle.
 rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect {
 	return {
 		x = pos.x,
