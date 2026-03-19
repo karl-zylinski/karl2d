@@ -64,6 +64,7 @@ main :: proc() {
 		launch_file: ^os.File,
 		name: string,
 		src: string,
+		launch_from_root := false
 	) {		
 		TASKS_ENTRY_TEMPLATE ::
 `		{{
@@ -90,6 +91,9 @@ main :: proc() {
 `		{{
 			"label": "build %s (GL)",
 			"type": "shell",
+			"problemMatcher": [
+				"$odin"
+			],
 			"command": "odin",
 			"args": ["build", "%s", "-debug", "-vet", "-strict-style", "-vet-tabs", "-out:bin/%s", "-define:KARL2D_RENDER_BACKEND=gl"],
 			"group": {{
@@ -112,6 +116,9 @@ main :: proc() {
 `		{{
 			"label": "build %s (web)",
 			"type": "shell",
+			"problemMatcher": [
+				"$odin"
+			],
 			"command": "odin run build_web -vet -strict-style -vet-tabs -- %s -vet -strict-style -vet-tabs",
 			"group": {{
 				"kind": "build",
@@ -127,6 +134,8 @@ main :: proc() {
 			
 			fmt.fprint(tasks_file, web_tasks_entry)
 		}
+
+		cwd := launch_from_root ? "${workspaceFolder}" : "${workspaceFolder}/bin"
 		
 		LAUNCH_ENTRY_TEMPLATE ::
 `		{{
@@ -135,7 +144,7 @@ main :: proc() {
 			"request": "launch",
 			"program": "${{workspaceFolder}}/bin/%s",
 			"args": [],
-			"cwd": "${{workspaceFolder}}",
+			"cwd": "%s",
 			"preLaunchTask": "build %s",
 		}},
 `
@@ -145,6 +154,7 @@ main :: proc() {
 			name,
 			ODIN_OS == .Windows ? "cppvsdbg" : "lldb",
 			name_with_ext(name),
+			cwd,
 			name,
 		)
 		
@@ -157,7 +167,7 @@ main :: proc() {
 			"request": "launch",
 			"program": "${{workspaceFolder}}/bin/%s",
 			"args": [],
-			"cwd": "${{workspaceFolder}}",
+			"cwd": "%s",
 			"preLaunchTask": "build %s (GL)",
 		}},
 `
@@ -166,6 +176,7 @@ main :: proc() {
 			name,
 			ODIN_OS == .Windows ? "cppvsdbg" : "lldb",
 			name_with_ext(name),
+			cwd,
 			name,
 		)
 		
@@ -182,9 +193,9 @@ main :: proc() {
 	
 	write_debug_tasks_entry(tasksh, launchh, "scrap", "scrap")
 	write_debug_tasks_entry(tasksh, launchh, "test_examples", "tools/test_examples")
-	write_debug_tasks_entry(tasksh, launchh, "api_doc_builder", "tools/api_doc_builder")
-	write_debug_tasks_entry(tasksh, launchh, "api_verifier", "tools/api_verifier")
-	write_debug_tasks_entry(tasksh, launchh, "make_vscode_project", "tools/make_vscode_project")
+	write_debug_tasks_entry(tasksh, launchh, "api_doc_builder", "tools/api_doc_builder", true)
+	write_debug_tasks_entry(tasksh, launchh, "api_verifier", "tools/api_verifier", true)
+	write_debug_tasks_entry(tasksh, launchh, "make_vscode_project", "tools/make_vscode_project", true)
 	
 	fmt.fprintln(tasksh)
 	fmt.fprintln(tasksh, "\t]")
