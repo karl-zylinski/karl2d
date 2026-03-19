@@ -1,3 +1,10 @@
+// On web we currently do not support audio streams. This file just contains stubs. An error will
+// be printed if  you try to load an audio stream.
+//
+// Web asudio streams may be supported in the future. They need:
+// - A way to read files. May need to use Fetch API or similar.
+// - A way to decode audio data. For example, stb_vorbis can be used on web, but the one in vendor
+// currently is not set up for it.
 #+build js
 package karl2d
 

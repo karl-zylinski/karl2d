@@ -156,12 +156,10 @@ audio_stream_load_from_file :: proc(as: ^Audio_Stream_Manager, filename: string)
 
 	if stream_add_err != nil {
 		log.errorf("Failed to create audio stream from file. Error: %v", stream_add_err)
-
-		if close_err := os.close(f); close_err != nil {
-			log.errorf("Failed closing file. Error: %v", close_err)
-		}
-
+		os.close(asd.file)
+		delete(asd.read_buf)
 		delete(buffer.samples, as.allocator)
+		hm.remove(as.buffers, buffer_handle)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -189,10 +187,7 @@ audio_stream_destroy :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 		}
 	}
 
-	if os.close(sd.file) != nil {
-		log.errorf("Failed closing audio stream file. Error: %v", os.close(sd.file))
-	}
-
+	os.close(sd.file)
 	hm.remove(&as.streams, stream)
 	delete(sd.read_buf)
 }
@@ -206,7 +201,7 @@ audio_stream_play :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream, loop:
 	}
 
 	if existing := hm.get(as.playing_buffers, sd.playing_buffer_handle); existing != nil {
-		hm.remove(as.playing_buffers, sd.playing_buffer_handle)
+		audio_stream_stop(as, stream)
 	}
 
 	playing_audio_buffer := Playing_Audio_Buffer {
@@ -260,6 +255,8 @@ audio_stream_stop :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 	sd.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
 	sd.buffer_write_pos = 0
 	os.seek(sd.file, 0, .Start)
+	runtime.clear(&sd.read_buf)
+	sd.read_buf_offset = 0
 	stbv.flush_pushdata(sd.vorbis)
 }
 
@@ -325,7 +322,8 @@ audio_stream_update :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 	pab := hm.get(as.playing_buffers, sd.playing_buffer_handle)
 
 	if pab == nil {
-		log.error("Trying to update audio stream that is not playing")
+		// Don't log an error here: Not playing the stream is a valid state. It just doesn't need
+		// any updating.
 		return
 	}
 
@@ -366,6 +364,10 @@ audio_stream_update :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 			non_zero_resize(&sd.read_buf, read_buf_size + 256)
 			read, read_err := os.read(sd.file, sd.read_buf[read_buf_size:read_buf_size+256])
 
+			if read > 0 {
+				shrink(&sd.read_buf, read_buf_size + read)
+			}
+
 			if read_err != nil {
 				if read_err == .EOF {
 					if sd.loop {
@@ -381,10 +383,6 @@ audio_stream_update :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 					log.errorf("Failed reading from audio stream file. Error: %v", read_err)
 					break
 				}
-			}
-
-			if read >= 0 {
-				shrink(&sd.read_buf, read_buf_size + read)
 			}
 		} else if bytes_used > 0 && samples == 0 {
 			sd.read_buf_offset += int(bytes_used)

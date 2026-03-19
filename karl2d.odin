@@ -1708,34 +1708,58 @@ destroy_sound :: proc(snd: Sound) {
 	hm.remove(&s.sound_instances, snd)
 }
 
+// Load an audio stream from a file on disk. This is often used for playing music.
+//
+// Audio streams do not stream in data automatically from the disk. You need to call
+// `update_audio_stream` every frame to stream in the new data.
 load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 	return audio_stream_load_from_file(&s.audio_stream_manager, filename)
 }
 
+// Destroy an audio stream previously loaded using `load_audio_stream_from_file`.
 destroy_audio_stream :: proc(audio_stream: Audio_Stream) {
 	audio_stream_destroy(&s.audio_stream_manager, audio_stream)
 }
 
+// Call once per frame in order to stream new data into the Audio_Stream's buffer. Not calling this
+// will cause audio streams to not play, even though you call `play_audio_stream`.
+update_audio_stream :: proc(audio_stream: Audio_Stream) {
+	audio_stream_update(&s.audio_stream_manager, audio_stream)
+}
+
+// Start playing an audio stream. Don't forget to call `update_audio_stream` every frame in order to
+// stream in the new data.
+//
+// Running this this while the stream is already playing will restart it from the beginning. Use
+// `pause_audio_stream` if you just want to pause it.
 play_audio_stream :: proc(audio_stream: Audio_Stream, loop := false) {
 	audio_stream_play(&s.audio_stream_manager, audio_stream, loop)
 }
 
+// Pause an audio stream. Run `play_audio_stream` to unpause it.
 pause_audio_stream :: proc(audio_stream: Audio_Stream) {
 	audio_stream_pause(&s.audio_stream_manager, audio_stream)
 }
 
+// Stop an audio stream. If `play_audio_stream` is called again, the stream will start over from the
+// beginning.
 stop_audio_stream :: proc(audio_stream: Audio_Stream) {
 	audio_stream_stop(&s.audio_stream_manager, audio_stream)
 }
 
+// The the volume of the audio stream. Range: 0 to 1.
 set_audio_stream_volume :: proc(audio_stream: Audio_Stream, volume: f32) {
 	audio_stream_set_volume(&s.audio_stream_manager, audio_stream, volume)
 }
 
+// Set the pan (balance between left and right) of the audio stream. Range: -1 to 1, where -1 is
+// full left, 0 is center and 1 is full right.
 set_audio_stream_pan :: proc(audio_stream: Audio_Stream, pan: f32) {
 	audio_stream_set_pan(&s.audio_stream_manager, audio_stream, pan)
 }
 
+// Set the pitch of the audio stream. Range: 0.01 to infinity. A higher value will make the audio
+// play faster.
 set_audio_stream_pitch :: proc(audio_stream: Audio_Stream, pitch: f32) {
 	audio_stream_set_pitch(&s.audio_stream_manager, audio_stream, pitch)
 }
@@ -1998,10 +2022,6 @@ update_audio_mixer :: proc() {
 
 	ab.feed(out)
 	s.mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
-}
-
-update_audio_stream :: proc(audio_stream: Audio_Stream) {
-	audio_stream_update(&s.audio_stream_manager, audio_stream)
 }
 
 //-----------------//
