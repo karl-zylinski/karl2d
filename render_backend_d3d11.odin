@@ -124,7 +124,7 @@ d3d11_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swa
 
 	rasterizer_desc := d3d11.RASTERIZER_DESC{
 		FillMode = .SOLID,
-		CullMode = .BACK,
+		CullMode = .NONE,
 		ScissorEnable = true,
 	}
 	ch(s.device->CreateRasterizerState(&rasterizer_desc, &s.rasterizer_state))
