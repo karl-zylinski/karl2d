@@ -989,24 +989,6 @@ AUDIO_STREAM_NONE :: Audio_Stream {}
 
 AUDIO_STREAM_BUFFER_SIZE :: 3 * AUDIO_MIX_SAMPLE_RATE
 
-Audio_Stream_Data :: struct {
-	handle: Audio_Stream,
-	file: File,
-	buffer_write_pos: int,
-	vorbis: ^stbv.vorbis,
-	read_buf: [dynamic]u8,
-	read_buf_offset: int,
-	playing_buffer_handle: Playing_Audio_Buffer_Handle,
-	buffer_handle: Audio_Buffer_Handle,
-	playback_settings: Audio_Buffer_Playback_Settings,
-
-	// Different from `loop` in `Playing_Audio_Buffer`. This says if the whole stream should loop
-	// when it reaches end-of-file. The `loop` in `Playing_Audio_Buffer` just says to loop the
-	// buffer itself. That's something you always want for a stream: We are continously writing
-	// data from a file into a small buffer that is a few seconds long.
-	loop: bool,
-}
-
 Audio_Buffer_Handle :: distinct Handle
 
 Audio_Buffer :: struct {
@@ -1123,8 +1105,10 @@ State :: struct {
 
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
 
-	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
-	vorbis_alloc: stbv.vorbis_alloc,
+	// Kept separately in `karl2d_audio_stream_xxx.odin` due to platform differences such as some 
+	// platforms not having file system support properly. This may be addressed in future versions
+	// of Karl2D.
+	audio_stream_manager: Audio_Stream_Manager,
 
 	// 1 megabyte is arbitrarily chosen.
 	mix_buffer: [1*mem.Megabyte]Audio_Sample,
