@@ -439,20 +439,42 @@ create_sound_instance :: proc(snd: Sound) -> Sound
 // will also be destroyed.
 destroy_sound :: proc(snd: Sound)
 
+// Load an audio stream from a file on disk. This is often used for playing music.
+//
+// Audio streams do not stream in data automatically from the disk. You need to call
+// `update_audio_stream` every frame to stream in the new data.
 load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream
 
+// Destroy an audio stream previously loaded using `load_audio_stream_from_file`.
 destroy_audio_stream :: proc(audio_stream: Audio_Stream)
 
+// Call once per frame in order to stream new data into the Audio_Stream's buffer. Not calling this
+// will cause audio streams to not play, even though you call `play_audio_stream`.
+update_audio_stream :: proc(audio_stream: Audio_Stream)
+
+// Start playing an audio stream. Don't forget to call `update_audio_stream` every frame in order to
+// stream in the new data.
+//
+// Running this this while the stream is already playing will restart it from the beginning. Use
+// `pause_audio_stream` if you just want to pause it.
 play_audio_stream :: proc(audio_stream: Audio_Stream, loop := false)
 
+// Pause an audio stream. Run `play_audio_stream` to unpause it.
 pause_audio_stream :: proc(audio_stream: Audio_Stream)
 
+// Stop an audio stream. If `play_audio_stream` is called again, the stream will start over from the
+// beginning.
 stop_audio_stream :: proc(audio_stream: Audio_Stream)
 
+// The the volume of the audio stream. Range: 0 to 1.
 set_audio_stream_volume :: proc(audio_stream: Audio_Stream, volume: f32)
 
+// Set the pan (balance between left and right) of the audio stream. Range: -1 to 1, where -1 is
+// full left, 0 is center and 1 is full right.
 set_audio_stream_pan :: proc(audio_stream: Audio_Stream, pan: f32)
 
+// Set the pitch of the audio stream. Range: 0.01 to infinity. A higher value will make the audio
+// play faster.
 set_audio_stream_pitch :: proc(audio_stream: Audio_Stream, pitch: f32)
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
@@ -463,8 +485,6 @@ set_audio_stream_pitch :: proc(audio_stream: Audio_Stream, pitch: f32)
 //
 // Will only run if the audio backend is running low on audio data.
 update_audio_mixer :: proc()
-
-update_audio_stream :: proc(audio_stream: Audio_Stream)
 
 //-----------------//
 // RENDER TEXTURES //
