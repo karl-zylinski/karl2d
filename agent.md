@@ -1,14 +1,13 @@
-# Copilot Instructions for Karl2D
+# LLM agent instructions for Karl2D
 
-Note: These instructions primarily exist GitHub Copilot LLM agents to read. Humans can read it, but
-it's written in a way that is optimized for LLMs.
+This document provides guidelines for LLM agents to read. It provides conventions for writing code, writing documentation, and collaborating on this project. Please follow these instructions to ensure consistency and maintainability.
 
-Welcome to the Karl2D codebase! This document provides guidelines and conventions for contributing code, writing documentation, and collaborating on this project. Please follow these instructions to ensure consistency and maintainability.
+> Human can read this file too, but it might not be optimized for human consumption. Also, note that no form of vibe coded changes are allowed. You must understand each line submitted in a pull request. You can use an LLM to do code reviews and generate initial implementations, but you _must_ understand the code generated.
 
 ## Project Overview
-- **Karl2D** is a 2D game development library for the Odin programming language.
-- The focus is on minimal dependencies, performance, and beginner-friendly APIs.
-- Karl2D currently requires Odin **nightly/master** builds while the new `core:os` transition is in flight.
+- **Karl2D** is a 2D game development library written in the Odin programming language.
+- The focus is on beginner-friendly and using a minimal set of dependencies.
+- Karl2D usually requires the latest release of Odin.
 - The main entry point is `karl2d.odin`, which contains the platform-independent API and core logic.
 - Platform and rendering backends are implemented in separate files (e.g., `platform_windows.odin`, `render_backend_gl.odin`).
 - See `karl2d.doc.odin` for a full API overview.
@@ -41,6 +40,7 @@ Welcome to the Karl2D codebase! This document provides guidelines and convention
 - The core API is in `karl2d.odin`.
 - Platform-specific code is in files like `platform_windows.odin`, `platform_linux.odin`, etc.
 - Rendering backends are in files like `render_backend_gl.odin`, `render_backend_d3d11.odin`, etc.
+- There is some audio stream-related code in `audio_stream_default.odin` and `audio_stream_web.odin`.
 - No external windowing libraries (like GLFW) are used; all window/event handling is custom.
 - Rendering is batch-based for performance.
 - Web builds use Odin's JS runtime and a custom WebGL backend (no emscripten required).
