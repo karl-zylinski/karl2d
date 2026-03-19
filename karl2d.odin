@@ -1747,7 +1747,7 @@ stop_audio_stream :: proc(audio_stream: Audio_Stream) {
 	audio_stream_stop(&s.audio_stream_manager, audio_stream)
 }
 
-// The the volume of the audio stream. Range: 0 to 1.
+// Set the volume of the audio stream. Range: 0 to 1.
 set_audio_stream_volume :: proc(audio_stream: Audio_Stream, volume: f32) {
 	audio_stream_set_volume(&s.audio_stream_manager, audio_stream, volume)
 }

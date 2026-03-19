@@ -466,7 +466,7 @@ pause_audio_stream :: proc(audio_stream: Audio_Stream)
 // beginning.
 stop_audio_stream :: proc(audio_stream: Audio_Stream)
 
-// The the volume of the audio stream. Range: 0 to 1.
+// Set the volume of the audio stream. Range: 0 to 1.
 set_audio_stream_volume :: proc(audio_stream: Audio_Stream, volume: f32)
 
 // Set the pan (balance between left and right) of the audio stream. Range: -1 to 1, where -1 is

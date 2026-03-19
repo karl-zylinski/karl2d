@@ -1,6 +1,6 @@
 // For platforms with filesystem support, this file contains some stub implementations that just
-// print errors and return. See `karl2d_fs.odin` for the implemenatations that are used on platforms
-// that do support filesystems.
+// print errors and return. See `file_system_default.odin` for the implemenatations that are used on
+// platforms that do support filesystems.
 #+build js, freestanding
 package karl2d
 

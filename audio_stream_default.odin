@@ -40,6 +40,12 @@ audio_stream_init_manager :: proc(
 }
 
 audio_stream_destroy_manager :: proc(as: ^Audio_Stream_Manager) {
+	streams_iter := hm.iterator_make(&as.streams)
+
+	for _, h in hm.iterate(&streams_iter) {
+		audio_stream_destroy(as, h)
+	}
+
 	hm.dynamic_destroy(&as.streams)
 	free(as.vorbis_alloc.alloc_buffer, as.allocator)
 }
@@ -345,7 +351,7 @@ audio_stream_update :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 		return remaining
 	}
 
-	for remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2{
+	for remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
 		channels: i32
 		samples: i32
 		output: [^]^f32
@@ -375,7 +381,7 @@ audio_stream_update :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 						stbv.flush_pushdata(sd.vorbis)
 						continue
 					} else {
-						hm.remove(as.playing_buffers, sd.playing_buffer_handle)
+						audio_stream_stop(as, stream)
 						break
 					}
 				} else {
