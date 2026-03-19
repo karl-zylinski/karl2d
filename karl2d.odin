@@ -35,9 +35,10 @@ import stbv "vendor:stb/vorbis"
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
 // The window might be slightly larger due to borders and headers.
 //
-// The internal state created by this procedure can be fetched using `get_internal_state()`. You
-// restore the state using `set_internal_state()`. This is useful for example when doing game 
-// code reload.
+// The return value is a pointer to Karl2D's internal state. You can restore this state later using
+// `set_internal_state()`. This is useful for example when doing game code reload, as the state may
+// get reset when the library is reloaded. You can safely ignore the return value if you have no
+// such needs.
 init :: proc(
 	screen_width: int,
 	screen_height: int,
@@ -45,19 +46,16 @@ init :: proc(
 	options := Init_Options {},
 	allocator := context.allocator,
 	loc := #caller_location
-) {
+) -> ^State {
 	assert(s == nil, "Don't call 'init' twice.")
-	context.allocator = allocator
-
 	s = new(State, allocator, loc)
+	s.allocator = allocator
 
 	// This is the same type of arena as the default temp allocator. This arena is for allocations
 	// that have a lifetime of "one frame". They are valid until you call `present()`, at which
 	// point the frame allocator is cleared.
 	s.frame_allocator = runtime.arena_allocator(&s.frame_arena)
 	frame_allocator = s.frame_allocator
-
-	s.allocator = allocator
 
 	when ODIN_OS == .Windows {
 		s.platform = PLATFORM_WINDOWS
@@ -78,7 +76,7 @@ init :: proc(
 	
 	s.platform_state, platform_state_alloc_error = mem.alloc(
 		pf.state_size(),
-		allocator = allocator,
+		allocator = s.allocator,
 	)
 
 	log.assertf(
@@ -87,7 +85,7 @@ init :: proc(
 		platform_state_alloc_error,
 	)
 
-	pf.init(s.platform_state, screen_width, screen_height, window_title, options, allocator)
+	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
 
 	// This is an OS-independent handle that we can pass to any rendering backend.
 	window_render_glue := pf.get_window_render_glue()
@@ -97,17 +95,17 @@ init :: proc(
 
 	rb = s.render_backend
 	rb_alloc_error: runtime.Allocator_Error
-	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = allocator)
+	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = s.allocator)
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
 	s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.render_backend_state, window_render_glue, pf.get_screen_width(), pf.get_screen_height(), allocator)
+	rb.init(s.render_backend_state, window_render_glue, pf.get_screen_width(), pf.get_screen_height(), s.allocator)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`.
-	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, allocator, loc)
+	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, s.allocator, loc)
 
 	// The shapes drawing texture is sampled when any shape is drawn. This way we can use the same
 	// shader for textured drawing and shape drawing. It's just a white box.
@@ -123,8 +121,6 @@ init :: proc(
 	// FontStash enables us to bake fonts from TTF files on-the-fly.
 	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
 	fs.SetAlignVertical(&s.fs, .TOP)
-
-	DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
 	// Dummy element so font with index 0 means 'no font'.
 	append_nothing(&s.fonts)
@@ -152,6 +148,8 @@ init :: proc(
 		hm.dynamic_init(&s.sound_instances, s.allocator)
 		hm.dynamic_init(&s.audio_streams, s.allocator)
 	}
+
+	return s
 }
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
@@ -845,6 +843,25 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 
 	draw_rect_ex(r, origin, rot, color)
 }
+
+// Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
+// counter-clockwise triangles will give the same result.
+draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+
+	if s.batch_texture != s.shape_drawing_texture {
+		draw_current_batch()
+	}
+
+	s.batch_texture = s.shape_drawing_texture
+
+	batch_vertex(vertices[0], {0, 0}, c)
+	batch_vertex(vertices[1], {1, 1}, c)
+	batch_vertex(vertices[2], {0, 1}, c)
+}
+
 
 // Draw a texture at a specific position. The texture will be drawn with its top-left corner at
 // position `pos`.
@@ -2405,15 +2422,69 @@ point_in_rect :: proc(point: Vec2, rect: Rect) -> bool {
 rect_middle :: proc(r: Rect) -> Vec2 {
 	return { r.x + r.w/2, r.y + r.h/2 }
 }
+
 rect_center :: rect_middle
 rect_centre :: rect_middle
 
+// Combine a position and a size into a rectangle.
+rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect {
+	return {
+		x = pos.x,
+		y = pos.y,
+		w = size.x,
+		h = size.y,
+	}
+}
+
+// Get the top left corner of a rectangle.
+rect_top_left :: proc(r: Rect) -> Vec2 {
+	return {r.x, r.y}
+}
+
+// Get the top middle point of a rectangle. That is, the mid-point between the top left and top
+// right corners.
+rect_top_middle :: proc(r: Rect) -> Vec2 {
+	return {r.x + r.w / 2, r.y}
+}
+
+// Get the top right corner of a rectangle.
+rect_top_right :: proc(r: Rect) -> Vec2 {
+	return {r.x + r.w, r.y}
+}
+
+// Get the bottom left corner of a rectangle.
+rect_bottom_left :: proc(r: Rect) -> Vec2 {
+	return {r.x, r.y + r.h}
+}
+
+// Get the bottom middle point of a rectangle. That is, the mid-point between the bottom left and
+// bottom right corners.
+rect_bottom_middle :: proc(r: Rect) -> Vec2 {
+	return {r.x + r.w / 2, r.y + r.h}
+}
+
+// Get the bottom right corner of a rectangle.
+rect_bottom_right :: proc(r: Rect) -> Vec2 {
+	return {r.x + r.w, r.y + r.h}
+}
+
+// Make a rectangle smaller by `x` pixels in the horizontal direction and `y` pixels in the vertical
 rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect {
 	return {
 		r.x + x,
 		r.y + y,
 		r.w - x * 2,
 		r.h - y * 2,
+	}
+}
+
+// Make a rectangle bigger by `x` pixels in the horizontal direction and `y` pixels in the vertical.
+rect_expand :: proc(r: Rect, x: f32, y: f32) -> Rect {
+	return {
+		r.x - x,
+		r.y - y,
+		r.w + x * 2,
+		r.h + y * 2,
 	}
 }
 
@@ -2459,7 +2530,7 @@ rect_cut_right :: proc(r: ^Rect, w: f32, m: f32) -> Rect {
 	return res
 }
 
-// Rotate `v` by `angle_radians` radians around the origin (0, 0).
+// Rotate 2D vector `v` by `angle_radians` radians around the origin (0, 0).
 //
 // If you need to rotate around a point that is not the origin, then you can first subtract the
 // point from `v`, then rotate and then add the point back to the result.
@@ -2478,33 +2549,36 @@ rotate :: proc(v: Vec2, angle_radians: f32) -> Vec2 {
 //-------//
 
 // Loads a font from disk and returns a handle that represents it.
-load_font_from_file :: proc(filename: string) -> Font {
+load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font {
 	when !FILESYSTEM_SUPPORTED {
 		log.errorf("load_font_from_file failed: OS %v has no filesystem support! Tip: Use load_font_from_bytes(#load(\"the_font.ttf\")) instead.", ODIN_OS)
 		return {}
 	}
 
 	if data, data_ok := read_entire_file(filename, frame_allocator); data_ok {
-		return load_font_from_bytes(data)
+		return load_font_from_bytes(data, options)
 	}
 
 	return FONT_NONE
 }
 
 // Loads a font from a block of memory and returns a handle that represents it.
-load_font_from_bytes :: proc(data: []u8) -> Font {
+load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
 	font := fs.AddFontMem(&s.fs, "", data, false)
 	h := Font(len(s.fonts))
 
-	append(&s.fonts, Font_Data {
+	data := Font_Data {
 		fontstash_handle = font,
 		atlas = {
 			handle = rb.create_texture(FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .RGBA_8_Norm),
 			width = FONT_DEFAULT_ATLAS_SIZE,
 			height = FONT_DEFAULT_ATLAS_SIZE,
 		},
-	})
+		options = options,
+	}
 
+	set_texture_filter(data.atlas, options.filter)
+	append(&s.fonts, data)
 	return h
 }
 
@@ -2883,16 +2957,8 @@ set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 	s.batch_scissor = scissor_rect
 }
 
-// Fetch the pointer to the internal state of Karl2D. This pointer refers to memory that was
-// allocated when `init` ran. All of the library's needed state is contained in there.
-//
-// Restore the state using `set_internal_state`
-get_internal_state :: proc() -> ^State {
-	return s
-}
-
-// Restore the internal state using the pointer returned by `get_internal_state`. Useful after
-// reloading the library (for example, when doing code hot reload).
+// Restore the internal state using the pointer returned by `init`. Useful after reloading the
+// library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State) {
 	s = state
 	frame_allocator = s.frame_allocator
@@ -2901,6 +2967,7 @@ set_internal_state :: proc(state: ^State) {
 	ab = s.audio_backend
 	pf.set_internal_state(s.platform_state)
 	rb.set_internal_state(s.render_backend_state)
+	ab.set_internal_state(s.audio_backend_state)
 }
 
 //---------------------//
@@ -3148,8 +3215,18 @@ Pixel_Format :: enum {
 	R_8_UInt,
 }
 
+Font_Options :: struct {
+	// When the font is loaded, the alpha value of each pixel will be multiplied into its RGB values.
+	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
+	premultiply_alpha: bool,
+
+	// Passed on to font atlas creation.
+	filter: Texture_Filter,
+}
+
 Font_Data :: struct {
 	atlas: Texture,
+	options: Font_Options,
 
 	// internal
 	fontstash_handle: int,
@@ -3159,6 +3236,7 @@ Handle :: hm.Handle64
 Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
+DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
 FONT_NONE :: Font {}
 TEXTURE_NONE :: Texture_Handle {}
@@ -3267,9 +3345,8 @@ Raw_Sound_Format :: enum {
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
-// It is created and kept as a global variable when 'init' is called. However, 'init' also returns
-// the pointer to it, so you can later use 'set_internal_state' to restore it (after for example hot
-// reload).
+// It is created and kept as a global variable when 'init' is called. 'init' also returns a pointer
+// to it, so you can later use 'set_internal_state' to restore it (after for example hot reload).
 State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
@@ -3778,7 +3855,18 @@ _update_font :: proc(fh: Font) {
 			src_pixel_idx := start + (px) + (py * tw)
 
 			src := s.fs.textureData[src_pixel_idx]
-			expanded_pixels[dst_pixel_idx] = {255,255,255, src}
+
+			if font.options.premultiply_alpha {
+				a := f32(src) / 255
+				expanded_pixels[dst_pixel_idx] = {
+					u8(f32(src) * a),
+					u8(f32(src) * a),
+					u8(f32(src) * a),
+					src,
+				}
+			} else {
+				expanded_pixels[dst_pixel_idx] = {255,255,255, src}
+			}
 		}
 
 		rb.update_texture(font.atlas.handle, slice.reinterpret([]u8, expanded_pixels), r)

@@ -13,9 +13,10 @@ package karl2d
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
 // The window might be slightly larger due to borders and headers.
 //
-// The internal state created by this procedure can be fetched using `get_internal_state()`. You
-// restore the state using `set_internal_state()`. This is useful for example when doing game 
-// code reload.
+// The return value is a pointer to Karl2D's internal state. You can restore this state later using
+// `set_internal_state()`. This is useful for example when doing game code reload, as the state may
+// get reset when the library is reloaded. You can safely ignore the return value if you have no
+// such needs.
 init :: proc(
 	screen_width: int,
 	screen_height: int,
@@ -23,7 +24,7 @@ init :: proc(
 	options := Init_Options {},
 	allocator := context.allocator,
 	loc := #caller_location
-)
+) -> ^State
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
 // frame times are up-to-date.
@@ -290,6 +291,10 @@ draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Co
 // Draws a line from `start` to `end` of a certain thickness.
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
 
+// Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
+// counter-clockwise triangles will give the same result.
+draw_triangle :: proc(vertices: [3]Vec2, c: Color)
+
 // Draw a texture at a specific position. The texture will be drawn with its top-left corner at
 // position `pos`.
 //
@@ -499,7 +504,34 @@ rect_middle :: proc(r: Rect) -> Vec2
 rect_center :: rect_middle
 rect_centre :: rect_middle
 
+// Combine a position and a size into a rectangle.
+rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect
+
+// Get the top left corner of a rectangle.
+rect_top_left :: proc(r: Rect) -> Vec2
+
+// Get the top middle point of a rectangle. That is, the mid-point between the top left and top
+// right corners.
+rect_top_middle :: proc(r: Rect) -> Vec2
+
+// Get the top right corner of a rectangle.
+rect_top_right :: proc(r: Rect) -> Vec2
+
+// Get the bottom left corner of a rectangle.
+rect_bottom_left :: proc(r: Rect) -> Vec2
+
+// Get the bottom middle point of a rectangle. That is, the mid-point between the bottom left and
+// bottom right corners.
+rect_bottom_middle :: proc(r: Rect) -> Vec2
+
+// Get the bottom right corner of a rectangle.
+rect_bottom_right :: proc(r: Rect) -> Vec2
+
+// Make a rectangle smaller by `x` pixels in the horizontal direction and `y` pixels in the vertical
 rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect
+
+// Make a rectangle bigger by `x` pixels in the horizontal direction and `y` pixels in the vertical.
+rect_expand :: proc(r: Rect, x: f32, y: f32) -> Rect
 
 // Cut off `h` pixels from the top of `r`. `r` is modified. The cut off part is returned.
 // `m` is the margin added above the cut part.
@@ -517,7 +549,7 @@ rect_cut_left :: proc(r: ^Rect, w: f32, m: f32) -> Rect
 // `m` is the margin added to the right of the cut part.
 rect_cut_right :: proc(r: ^Rect, w: f32, m: f32) -> Rect
 
-// Rotate `v` by `angle_radians` radians around the origin (0, 0).
+// Rotate 2D vector `v` by `angle_radians` radians around the origin (0, 0).
 //
 // If you need to rotate around a point that is not the origin, then you can first subtract the
 // point from `v`, then rotate and then add the point back to the result.
@@ -528,10 +560,10 @@ rotate :: proc(v: Vec2, angle_radians: f32) -> Vec2
 //-------//
 
 // Loads a font from disk and returns a handle that represents it.
-load_font_from_file :: proc(filename: string) -> Font
+load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font
 
 // Loads a font from a block of memory and returns a handle that represents it.
-load_font_from_bytes :: proc(data: []u8) -> Font
+load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font
 
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
 destroy_font :: proc(font: Font)
@@ -644,14 +676,8 @@ set_blend_mode :: proc(mode: Blend_Mode)
 // scissor rectangle by running `set_scissor_rect(nil)`.
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect))
 
-// Fetch the pointer to the internal state of Karl2D. This pointer refers to memory that was
-// allocated when `init` ran. All of the library's needed state is contained in there.
-//
-// Restore the state using `set_internal_state`
-get_internal_state :: proc() -> ^State
-
-// Restore the internal state using the pointer returned by `get_internal_state`. Useful after
-// reloading the library (for example, when doing code hot reload).
+// Restore the internal state using the pointer returned by `init`. Useful after reloading the
+// library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State)
 
 //---------------------//
@@ -896,8 +922,18 @@ Pixel_Format :: enum {
 	R_8_UInt,
 }
 
+Font_Options :: struct {
+	// When the font is loaded, the alpha value of each pixel will be multiplied into its RGB values.
+	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
+	premultiply_alpha: bool,
+
+	// Passed on to font atlas creation.
+	filter: Texture_Filter,
+}
+
 Font_Data :: struct {
 	atlas: Texture,
+	options: Font_Options,
 
 	// internal
 	fontstash_handle: int,
@@ -907,6 +943,7 @@ Handle :: hm.Handle64
 Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
+DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
 FONT_NONE :: Font {}
 TEXTURE_NONE :: Texture_Handle {}
@@ -1015,9 +1052,8 @@ Raw_Sound_Format :: enum {
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
-// It is created and kept as a global variable when 'init' is called. However, 'init' also returns
-// the pointer to it, so you can later use 'set_internal_state' to restore it (after for example hot
-// reload).
+// It is created and kept as a global variable when 'init' is called. 'init' also returns a pointer
+// to it, so you can later use 'set_internal_state' to restore it (after for example hot reload).
 State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
