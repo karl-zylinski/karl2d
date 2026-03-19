@@ -17,8 +17,8 @@ snd3: k2.Sound
 wav: k2.Sound
 wav_inst: k2.Sound
 
-/*music: k2.Audio_Stream
-music_pitch: f32 = 1*/
+music: k2.Audio_Stream
+music_pitch: f32 = 1
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Audio")
@@ -28,12 +28,12 @@ init :: proc() {
 	snd_pitch = 1
 	snd2 = make_sine_wave(440, 1, 44100)
 	snd3 = make_sine_wave(700, 1, 22050)
-	wav = k2.load_sound_from_bytes(#load("chord.wav"))
+	wav = k2.load_sound_from_bytes(#load("letsgo.wav"))
 	wav_inst = k2.create_sound_instance(wav)
-	k2.play_sound(snd, loop = true)
+	//k2.play_sound(snd, loop = true)
 
-	//music = k2.load_audio_stream_from_file("cat_and_onion.ogg")
-	//k2.play_audio_stream(music, true)
+	music = k2.load_audio_stream_from_file("cat_and_onion.ogg")
+	k2.play_audio_stream(music, true)
 }
 
 // Makes a sine wave of min_length rounded up to so that it ends at the end of a period. This makes
@@ -46,15 +46,14 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Sound
 
 	for &samp, i in sine_data {
 		sf := math.sin(f32(i) * inc)*0.25
-		samp.x = sf
-		samp.y = sf
+		samp = sf
 	}
 
-	return k2.load_sound_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float, sample_rate)
+	return k2.load_sound_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float, sample_rate, .Mono)
 }
 
 step :: proc() -> bool {
-	//k2.update_audio_stream(music)
+	k2.update_audio_stream(music)
 	if !k2.update() {
 		return false
 	}
@@ -100,7 +99,7 @@ step :: proc() -> bool {
 		snd_pitch -= k2.get_frame_time() * 0.5
 	}
 
-	/*if k2.key_went_down(.Home) {
+	if k2.key_went_down(.Home) {
 		k2.play_audio_stream(music)
 	}
 
@@ -116,7 +115,7 @@ step :: proc() -> bool {
 		music_pitch -= k2.get_frame_time() * 0.5
 	}
 
-	k2.set_audio_stream_pitch(music, music_pitch)*/
+	k2.set_audio_stream_pitch(music, music_pitch)
 
 	if k2.key_went_down(.Space) {
 		k2.set_sound_pitch(wav, 1)
@@ -166,7 +165,7 @@ shutdown :: proc() {
 	k2.destroy_sound(snd3)
 	k2.destroy_sound(wav)
 	k2.destroy_sound(wav_inst)
-	//k2.destroy_audio_stream(music)
+	k2.destroy_audio_stream(music)
 	k2.shutdown()
 }
 

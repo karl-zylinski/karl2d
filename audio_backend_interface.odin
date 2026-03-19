@@ -8,6 +8,6 @@ Audio_Backend_Interface :: struct #all_or_none {
 	shutdown: proc(),
 	set_internal_state: proc(state: rawptr),
 
-	feed: proc(samples: []Audio_Sample),
+	feed: proc(samples: [][2]Audio_Sample),
 	remaining_samples: proc() -> int,
 }
