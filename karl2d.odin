@@ -1808,8 +1808,6 @@ update_audio_mixer :: proc() {
 	// the `out` slice).
 	slice.zero(out)
 
-	// For usage when the sample rates of the playing sound and the mixer match.
-	
 	audio_mix :: proc(
 		dest: [][2]Audio_Sample,
 		source: []Audio_Sample,
