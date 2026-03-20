@@ -427,7 +427,12 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound
 // Load a sound from some raw audio data. You need to specify the data, format and sample rate of
 // the sound yourself. This assumes that there is no header in the data. If your data has a header
 // (you read the data from a file on disk), then please use `load_sound_from_bytes` instead.
-load_sound_from_bytes_raw :: proc(bytes: []u8, format: Raw_Sound_Format, sample_rate: int) -> Sound
+load_sound_from_bytes_raw :: proc(
+	bytes: []u8,
+	format: Raw_Sound_Format,
+	sample_rate: int,
+	channels: Audio_Channels,
+) -> Sound
 
 // Makes a new sound that uses the same data as the original sound, but you can have different
 // settings such as volume, pan and pitch. This makes it possible to play the same sound multiple
@@ -972,8 +977,9 @@ RENDER_TARGET_NONE :: Render_Target_Handle {}
 AUDIO_MIX_SAMPLE_RATE :: 44100
 AUDIO_MIX_CHUNK_SIZE :: 1400
 
-// Stereo audio sample, left and right channel. Each channel can have a value between -1 and 1.
-Audio_Sample :: [2]f32
+// Single channel audio sample. Can have a value between -1 and 1. For stereo sound every other
+// sample in an array of samples will be interpreted as left and right respectively.
+Audio_Sample :: f32
 
 // Represents a sound you can play using the `play_sound` procedure. Loaded using
 // `load_sound_from_file` or `load_sound_from_bytes`. Create instances of an already loaded sound
@@ -1013,8 +1019,19 @@ Audio_Buffer_Handle :: distinct Handle
 
 Audio_Buffer :: struct {
 	handle: Audio_Buffer_Handle,
+
+	// All the samples of the audio buffer. In the case of stereo, the left and right samples are
+	// interleaved.
 	samples: []Audio_Sample,
+
+	// The number of samples per second. Note that the mixer uses 44100 samples per second (as
+	// defined by AUDIO_MIX_SAMPLE_RATE). When the sample rate of the buffer and the mixer do no
+	// match, then interpolation will happen during mixing.
 	sample_rate: int,
+
+	// If this is Stereo, then the left and right samples are interleaved in `samples`.
+	channels: Audio_Channels,
+
 	references: int,
 }
 
@@ -1051,6 +1068,11 @@ Raw_Sound_Format :: enum {
 	Integer16,
 	Integer32,
 	Float,
+}
+
+Audio_Channels :: enum {
+	Mono,
+	Stereo,
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
@@ -1131,7 +1153,7 @@ State :: struct {
 	audio_stream_manager: Audio_Stream_Manager,
 
 	// 1 megabyte is arbitrarily chosen.
-	mix_buffer: [1*mem.Megabyte]Audio_Sample,
+	mix_buffer: [AUDIO_MIX_CHUNK_SIZE*10][2]Audio_Sample,
 
 	// Where the mixer currently is in the mix buffer.
 	mix_buffer_offset: int,

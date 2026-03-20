@@ -29,7 +29,7 @@ abnil_shutdown :: proc() {
 abnil_set_internal_state :: proc(state: rawptr) {
 }
 
-abnil_feed :: proc(samples: []Audio_Sample) {
+abnil_feed :: proc(samples: [][2]Audio_Sample) {
 }
 
 abnil_remaining_samples :: proc() -> int {

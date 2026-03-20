@@ -89,7 +89,7 @@ waveout_set_internal_state :: proc(state: rawptr) {
 	s = (^Waveout_State)(state)
 }
 
-waveout_feed :: proc(samples: []Audio_Sample) {
+waveout_feed :: proc(samples: [][2]Audio_Sample) {
 	h := &s.headers[s.cur_header]
 
 	for win32.waveOutUnprepareHeader(s.device, h, size_of(win32.WAVEHDR)) == win32.WAVERR_STILLPLAYING {

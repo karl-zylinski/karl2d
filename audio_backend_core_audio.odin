@@ -51,7 +51,7 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	descriptor.mFormatID         = .LinearPCM
 	descriptor.mFormatFlags      = {.IsFloat, .IsPacked}
 	descriptor.mFramesPerPacket  = 1
-	descriptor.mChannelsPerFrame = len(Audio_Sample)
+	descriptor.mChannelsPerFrame = 2
 	descriptor.mBitsPerChannel   = size_of(f32) * 8
 	descriptor.mBytesPerFrame    = descriptor.mChannelsPerFrame * (descriptor.mBitsPerChannel / 8)
 	descriptor.mBytesPerPacket   = descriptor.mBytesPerFrame * descriptor.mFramesPerPacket
@@ -92,7 +92,7 @@ core_audio_set_internal_state :: proc(state: rawptr) {
 	s = (^Core_Audio_State)(state)
 }
 
-core_audio_feed :: proc(samples: []Audio_Sample) {
+core_audio_feed :: proc(samples: [][2]Audio_Sample) {
 	remaining := samples
 	for len(remaining) > 0 {
 		sync.sema_wait(&s.semaphore)

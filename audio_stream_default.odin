@@ -127,10 +127,27 @@ audio_stream_load_from_file :: proc(as: ^Audio_Stream_Manager, filename: string)
 
 	info := stbv.get_info(vorbis_res)
 
+	channels: Audio_Channels
+
+	if info.channels == 1 {
+		channels = Audio_Channels.Mono
+	} else if info.channels == 2 {
+		channels = Audio_Channels.Stereo
+	} else{
+		log.errorf("Unsupported number of channels: %v", info.channels)
+
+		if close_err := os.close(f); close_err != nil {
+			log.errorf("Failed closing file. Error: %v", close_err)
+		}
+		
+		return AUDIO_STREAM_NONE
+	}
+
 	buffer := Audio_Buffer {
 		sample_rate = int(info.sample_rate),
 		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, as.allocator),
 		references = 1,
+		channels = channels,
 	}
 
 	buffer_handle, buffer_handle_add_err := hm.add(as.buffers, buffer)
@@ -393,20 +410,26 @@ audio_stream_update :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 		} else if bytes_used > 0 && samples == 0 {
 			sd.read_buf_offset += int(bytes_used)
 		} else if bytes_used > 0 && samples > 0 {
-			if channels != 2 {
+			if channels == 1 {
+				mono: [^]f32 = output[0]
+
+				for samp_idx in 0..<samples {
+					ab.samples[sd.buffer_write_pos] = mono[samp_idx]
+					sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
+				}
+			} else if channels == 2 {
+				left: [^]f32 = output[0]
+				right: [^]f32 = output[1]
+
+				for samp_idx in 0..<samples {
+					ab.samples[sd.buffer_write_pos] = left[samp_idx]
+					ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
+					sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
+				}
+			} else {
 				hm.remove(as.playing_buffers, sd.playing_buffer_handle)
 				log.error("Invalid num channels")
 				break
-			}
-			left: [^]f32 = output[0]
-			right: [^]f32 = output[1]
-
-			for samp_idx in 0..<samples {
-				ab.samples[sd.buffer_write_pos] = Audio_Sample {
-					left[samp_idx],
-					right[samp_idx],
-				}
-				sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
 			}
 			sd.read_buf_offset += int(bytes_used)
 		} else {
