@@ -3057,10 +3057,19 @@ Audio_Buffer_Handle :: distinct Handle
 
 Audio_Buffer :: struct {
 	handle: Audio_Buffer_Handle,
+
+	// All the samples of the audio buffer. In the case of stereo, the left and right samples are
+	// interleaved.
 	samples: []Audio_Sample,
+
+	// The number of samples per second. Note that the mixer uses 44100 samples per second (as
+	// defined by AUDIO_MIX_SAMPLE_RATE). When the sample rate of the buffer and the mixer do no
+	// match, then interpolation will happen during mixing.
 	sample_rate: int,
+
 	// If this is Stereo, then the left and right samples are interleaved in `samples`.
 	channels: Audio_Channels,
+
 	references: int,
 }
 
