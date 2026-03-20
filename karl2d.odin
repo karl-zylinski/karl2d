@@ -1810,9 +1810,11 @@ update_audio_mixer :: proc() {
 
 	// For usage when the sample rates of the playing sound and the mixer match.
 	
-	add :: proc(
+	audio_mix :: proc(
 		dest: [][2]Audio_Sample,
-		source: [][$CHANNELS]Audio_Sample,
+		source: []Audio_Sample,
+		source_channels: Audio_Channels,
+		interpolate: bool,
 		dest_source_ratio: f32,
 		dest_to_write: int,
 		source_fractional_offset: f32,
@@ -1821,11 +1823,65 @@ update_audio_mixer :: proc() {
 		pan_start: [2]f32,
 		pan_end: [2]f32,
 	) -> int {
-		#assert(CHANNELS == 2 || CHANNELS == 1)
+		Audio_Mix_Kind :: enum {
+			Mono,
+			Stereo,
+			Mono_Interpolate,
+			Stereo_Interpolate,
+		}
 
-		if dest_source_ratio != 1 {
-			// Interpolate...
+		kind: Audio_Mix_Kind
 
+		if source_channels == .Mono && !interpolate {
+			kind = .Mono
+		} else if source_channels == .Stereo && !interpolate {
+			kind = .Stereo
+		} else if source_channels == .Mono && interpolate {
+			kind = .Mono_Interpolate
+		} else if source_channels == .Stereo && interpolate {
+			kind = .Stereo_Interpolate
+		} else {
+			log.error("Invalid combination of source channels and interpolate in add procedure")
+			return 0
+		}
+
+		switch kind {
+		case .Mono:
+			n := dest_to_write
+
+			if n > len(source) {
+				n = len(source)
+			}
+
+			for samp_idx in 0..<n {
+				t := f32(samp_idx) / f32(n)
+				volume := math.lerp(volume_start, volume_end, t)
+				pan := linalg.lerp(pan_start, pan_end, t)
+
+				dest[samp_idx].x += pan.x * source[samp_idx] * volume
+				dest[samp_idx].y += pan.y * source[samp_idx] * volume
+			}
+
+			return n
+		case .Stereo:
+			source_stereo := slice.reinterpret([][2]Audio_Sample, source)
+			n := dest_to_write
+
+			if n > len(source_stereo) {
+				n = len(source_stereo)
+			}
+
+			for samp_idx in 0..<n {
+				t := f32(samp_idx) / f32(n)
+				volume := math.lerp(volume_start, volume_end, t)
+				pan := linalg.lerp(pan_start, pan_end, t)
+
+				dest[samp_idx] += pan * source_stereo[samp_idx] * volume
+			}
+
+			return n
+
+		case .Mono_Interpolate:
 			dest_idx: int
 
 			for ; dest_idx < dest_to_write; dest_idx += 1 {
@@ -1846,37 +1902,41 @@ update_audio_mixer :: proc() {
 				volume := math.lerp(volume_start, volume_end, t)
 				pan := linalg.lerp(pan_start, pan_end, t)
 
-				when CHANNELS == 2 {
-					dest[dest_idx] += pan * linalg.lerp(prev_val, cur_val, frac) * volume
-				} else when CHANNELS == 1 {
-					dest[dest_idx].x += (pan.x * linalg.lerp(prev_val, cur_val, frac) * volume).x
-					dest[dest_idx].y += (pan.y * linalg.lerp(prev_val, cur_val, frac) * volume).x
+				dest[dest_idx].x += pan.x * linalg.lerp(prev_val, cur_val, frac) * volume
+				dest[dest_idx].y += pan.y * linalg.lerp(prev_val, cur_val, frac) * volume
+			}
+
+			return dest_idx
+
+		case .Stereo_Interpolate:
+			source_stereo := slice.reinterpret([][2]Audio_Sample, source)
+			dest_idx: int
+
+			for ; dest_idx < dest_to_write; dest_idx += 1 {
+				src_pos := source_fractional_offset + f32(dest_idx) * dest_source_ratio
+				src_idx := int(src_pos)
+				
+				if src_idx >= len(source_stereo) {
+					break
 				}
+
+				src_next := min(src_idx + 1, len(source_stereo) - 1)
+				frac := src_pos - f32(src_idx)
+
+				prev_val := source_stereo[src_idx]
+				cur_val := source_stereo[src_next]
+
+				t := f32(dest_idx) / f32(dest_to_write)
+				volume := math.lerp(volume_start, volume_end, t)
+				pan := linalg.lerp(pan_start, pan_end, t)
+
+				dest[dest_idx] += pan * linalg.lerp(prev_val, cur_val, frac) * volume
 			}
 
 			return dest_idx
 		}
 
-		n := dest_to_write
-
-		if n > len(source) {
-			n = len(source)
-		}
-
-		for samp_idx in 0..<n {
-			t := f32(samp_idx) / f32(n)
-			volume := math.lerp(volume_start, volume_end, t)
-			pan := linalg.lerp(pan_start, pan_end, t)
-
-			when CHANNELS == 2 {
-				dest[samp_idx] += pan * source[samp_idx] * volume
-			} else when CHANNELS == 1 {
-				dest[samp_idx].x += (pan.x * source[samp_idx] * volume).x
-				dest[samp_idx].y += (pan.y * source[samp_idx] * volume).x
-			}
-		}
-
-		return n
+		return 0
 	}
 
 
@@ -1949,9 +2009,10 @@ update_audio_mixer :: proc() {
 			math.sin((pan_end + 1) * math.PI / 4),
 		}
 
+		interpolate := data.sample_rate != AUDIO_MIX_SAMPLE_RATE || pitch != 1
 		source_dest_ratio: f32 = 1
 		
-		if data.sample_rate != AUDIO_MIX_SAMPLE_RATE || pitch != 1 {
+		if interpolate {
 			source_dest_ratio = (pitch * f32(data.sample_rate)) / f32(AUDIO_MIX_SAMPLE_RATE)
 		}
 
@@ -1960,35 +2021,21 @@ update_audio_mixer :: proc() {
 			source_channels = 2
 		}
 
-		num_mixed: int
-	
-		if data.channels == .Mono {
-			num_mixed = add(
-				s.mix_buffer[s.mix_buffer_offset:],
-				slice.reinterpret([][1]Audio_Sample, data.samples[ps.offset:]),
-				source_dest_ratio,
-				AUDIO_MIX_CHUNK_SIZE,
-				ps.offset_fraction,
-				volume_start,
-				volume_end,
-				pan_stereo_start,
-				pan_stereo_end,
-			)
-		} else {
-			num_mixed = add(
-				s.mix_buffer[s.mix_buffer_offset:],
-				slice.reinterpret([][2]Audio_Sample, data.samples[ps.offset:]),
-				source_dest_ratio,
-				AUDIO_MIX_CHUNK_SIZE,
-				ps.offset_fraction,
-				volume_start,
-				volume_end,
-				pan_stereo_start,
-				pan_stereo_end,
-			)
-		}
+		num_mixed := audio_mix(
+			s.mix_buffer[s.mix_buffer_offset:],
+			data.samples[ps.offset:],
+			data.channels,
+			interpolate,
+			source_dest_ratio,
+			AUDIO_MIX_CHUNK_SIZE,
+			ps.offset_fraction,
+			volume_start,
+			volume_end,
+			pan_stereo_start,
+			pan_stereo_end,
+		)
 		
-		if source_dest_ratio != 1 {
+		if interpolate {
 			num_mixed_f32 := f32(num_mixed) * source_dest_ratio
 			fraction_advance := ps.offset_fraction + num_mixed_f32
 
@@ -2012,33 +2059,21 @@ update_audio_mixer :: proc() {
 				// sound!
 				overflow := AUDIO_MIX_CHUNK_SIZE - num_mixed
 
-				if data.channels == .Mono {
-					num_mixed = add(
-						s.mix_buffer[s.mix_buffer_offset + num_mixed:],
-						slice.reinterpret([][1]Audio_Sample, data.samples[ps.offset:]),
-						source_dest_ratio,
-						overflow,
-						ps.offset_fraction,
-						volume_start,
-						volume_end,
-						pan_stereo_start,
-						pan_stereo_end,
-					)
-				} else {
-					num_mixed = add(
-						s.mix_buffer[s.mix_buffer_offset + num_mixed:],
-						slice.reinterpret([][2]Audio_Sample, data.samples[ps.offset:]),
-						source_dest_ratio,
-						overflow,
-						ps.offset_fraction,
-						volume_start,
-						volume_end,
-						pan_stereo_start,
-						pan_stereo_end,
-					)
-				}
+				num_mixed = audio_mix(
+					s.mix_buffer[s.mix_buffer_offset + num_mixed:],
+					data.samples[ps.offset:],
+					data.channels,
+					interpolate,
+					source_dest_ratio,
+					overflow,
+					ps.offset_fraction,
+					volume_start,
+					volume_end,
+					pan_stereo_start,
+					pan_stereo_end,
+				)
 				
-				if source_dest_ratio != 1 {
+				if interpolate {
 					num_mixed_f32 := f32(num_mixed) * source_dest_ratio
 					fraction_advance := ps.offset_fraction + num_mixed_f32
 
@@ -3026,6 +3061,7 @@ Audio_Buffer :: struct {
 	handle: Audio_Buffer_Handle,
 	samples: []Audio_Sample,
 	sample_rate: int,
+	// If this is Stereo, then the left and right samples are interleaved in `samples`.
 	channels: Audio_Channels,
 	references: int,
 }
@@ -3148,7 +3184,7 @@ State :: struct {
 	audio_stream_manager: Audio_Stream_Manager,
 
 	// 1 megabyte is arbitrarily chosen.
-	mix_buffer: [1*mem.Megabyte][2]Audio_Sample,
+	mix_buffer: [AUDIO_MIX_CHUNK_SIZE*10][2]Audio_Sample,
 
 	// Where the mixer currently is in the mix buffer.
 	mix_buffer_offset: int,
