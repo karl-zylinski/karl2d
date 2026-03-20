@@ -47,7 +47,7 @@ web_audio_set_internal_state :: proc(state: rawptr) {
 	// No hot reload on web.
 }
 
-web_audio_feed :: proc(samples: []Audio_Sample) {
+web_audio_feed :: proc(samples: [][2]Audio_Sample) {
 	// The JS backend just sees an array of f32. But it knows that they are interleaved Left & Right
 	js_web_audio_feed(slice.reinterpret([]f32, samples))
 }
