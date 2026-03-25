@@ -23,6 +23,10 @@ import "core:image/tga"
 
 import hm "core:container/handle_map"
 
+import "virtual_file_system"
+
+ASSETS_BUNDLE_PATH :: "build/assets_bundle"
+
 //-----------------------------------------------//
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
@@ -54,6 +58,17 @@ init :: proc(
 	// point the frame allocator is cleared.
 	s.frame_allocator = runtime.arena_allocator(&s.frame_arena)
 	frame_allocator = s.frame_allocator
+
+	if options.assets_bundle_data != nil {
+		vfs, vfs_ok := virtual_file_system.deserialize(options.assets_bundle_data, s.allocator)
+
+		if vfs_ok {
+			s.vfs = vfs
+			set_vfs(&s.vfs)
+		} else {
+			log.error("Failed deserializing VFS")
+		}
+	}
 
 	when ODIN_OS == .Windows {
 		s.platform = PLATFORM_WINDOWS
@@ -2890,6 +2905,7 @@ Window_Mode :: enum {
 
 Init_Options :: struct {
 	window_mode: Window_Mode,
+	assets_bundle_data: []u8,
 }
 
 Shader_Handle :: distinct Handle
@@ -3124,6 +3140,8 @@ State :: struct {
 	platform_state: rawptr,
 	render_backend: Render_Backend_Interface,
 	render_backend_state: rawptr,
+
+	vfs: virtual_file_system.Virtual_File_System,
 
 	fs: fs.FontContext,
 	

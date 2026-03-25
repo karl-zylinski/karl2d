@@ -101,7 +101,6 @@ step :: proc() -> bool {
 		snd_pitch -= k2.get_frame_time() * 0.5
 	}
 
-
 	if k2.key_went_down(.Space) {
 		k2.set_sound_pitch(wav, 1)
 		k2.set_sound_pan(wav, 0)

@@ -119,7 +119,7 @@ main :: proc() {
 			"problemMatcher": [
 				"$odin"
 			],
-			"command": "odin run build_web -vet -strict-style -vet-tabs -- %s -vet -strict-style -vet-tabs",
+			"command": "odin run build_web -vet -strict-style -vet-tabs -- %s -bundle-folder=%s/assets -vet -strict-style -vet-tabs",
 			"group": {{
 				"kind": "build",
 			}}
@@ -129,6 +129,7 @@ main :: proc() {
 			web_tasks_entry := fmt.tprintf(
 				WEB_TASKS_ENTRY_TEMPLATE,
 				name,
+				src,
 				src,
 			)
 			

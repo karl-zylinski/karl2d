@@ -16,6 +16,7 @@ package karl2d_build_web_tool
 import "core:fmt"
 import os "core:os"
 import "core:strings"
+import "../virtual_file_system"
 
 main :: proc() {
 	print_usage: bool
@@ -26,10 +27,13 @@ main :: proc() {
 
 	dir: string
 	compiler_params: [dynamic]string
+	bundle_folder: string
 
 	for a in os.args {
 		if a == "-help" || a == "--help" {
 			print_usage = true
+		} else if strings.has_prefix(a, "-bundle-folder=") {
+			bundle_folder = strings.trim_prefix(a, "-bundle-folder=")
 		} else if strings.has_prefix(a, "-") {
 			append(&compiler_params, a)
 		} else {
@@ -75,6 +79,42 @@ main :: proc() {
 	os.make_directory(build_dir, os.perm_number(0o755))
 	build_web_dir := path_join({build_dir, "web"})
 	os.make_directory(build_web_dir, os.perm_number(0o755))
+
+	if bundle_folder != "" {
+		walker := os.walker_create_path(bundle_folder)
+		files: [dynamic]virtual_file_system.Virtual_File
+
+		for info in os.walker_walk(&walker) {
+			if err_path, err := os.walker_error(&walker); err != nil {
+				fmt.eprintfln("bundle-folder failed walking %s: %s", err_path, err)
+				continue
+			}
+			
+			if info.type == .Directory {
+				continue
+			}
+
+			data, data_err := os.read_entire_file(info.fullpath, context.allocator)
+
+			if data_err != nil {
+				fmt.eprintfln("bundle-error failed reading file %s with error %v", info.fullpath, data_err)
+				continue
+			}
+		
+			append(&files, virtual_file_system.Virtual_File {
+				data = data,
+				path = info.fullpath,
+			})
+		}
+
+		data := virtual_file_system.serialize(files[:], context.allocator)
+		data_out_path := fmt.tprintf("%s/assets_bundle", build_dir)
+		write_bundle_err := os.write_entire_file(data_out_path, data)
+
+		if write_bundle_err != nil  {
+			fmt.eprintfln("Failed writing assets bundle file to %s. Error: %v", data_out_path, write_bundle_err)
+		}
+	}
 
 	entry_odin_file_path := path_join({build_web_dir, fmt.tprintf("%v_web_entry.odin", dir_name)})
 	write_entry_odin_err := os.write_entire_file(entry_odin_file_path, WEB_ENTRY_TEMPLATE)
