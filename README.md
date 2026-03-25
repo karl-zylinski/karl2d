@@ -1,6 +1,6 @@
 <img width="328" height="64" alt="karl2d_logo" src="https://github.com/user-attachments/assets/5ebd43c8-5a1d-4864-b8eb-7ce4b6a5dba0" />
 
-Karl2D is a 2D game library for the Odin programming language. It focuses on making 2D gamedev fun, fast and beginner friendly. It also uses as few dependencies as possible. See [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) for an API overview.
+Karl2D is a library for making 2D games using the Odin programming language. It focuses on making 2D gamedev fun, fast and beginner friendly. It also uses as few dependencies as possible. See [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) for an API overview.
 
 Support the project by becoming a sponsor here on [GitHub](https://github.com/sponsors/karl-zylinski) or on [Patreon](https://patreon.com/karl_zylinski).
 
