@@ -1,5 +1,3 @@
-*.sublime-project
-*.sublime-workspace
 raylib/
 bin/
 *.pdb
@@ -18,4 +16,5 @@ karl2d.doc.compare.odin
 .nvim.lua
 .zed
 .vscode
+.sublime
 scrap/
