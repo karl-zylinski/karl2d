@@ -1730,6 +1730,10 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 	return audio_stream_load_from_file(&s.audio_stream_manager, filename)
 }
 
+load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
+	return audio_stream_load_from_bytes(&s.audio_stream_manager, bytes)
+}
+
 // Destroy an audio stream previously loaded using `load_audio_stream_from_file`.
 destroy_audio_stream :: proc(audio_stream: Audio_Stream) {
 	audio_stream_destroy(&s.audio_stream_manager, audio_stream)

@@ -18,7 +18,7 @@ snd_volume: f32
 snd_pan: f32
 snd_pitch: f32 = 1
 
-MUSIC_FILE :: ""
+MUSIC_FILE :: "cat_and_onion.ogg"
 HAS_MUSIC :: MUSIC_FILE != ""
 
 init :: proc() {

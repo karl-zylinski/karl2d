@@ -1,10 +1,8 @@
 #+private package
-#+build !js
 package karl2d
 
 import stbv "vendor:stb/vorbis"
 import hm "core:container/handle_map"
-import "core:os"
 import "log"
 import "base:runtime"
 import "core:mem"
@@ -51,78 +49,162 @@ audio_stream_destroy_manager :: proc(as: ^Audio_Stream_Manager) {
 }
 
 audio_stream_load_from_file :: proc(as: ^Audio_Stream_Manager, filename: string) -> Audio_Stream {
-	f, f_err := os.open(filename)
-
-	if f_err != nil {
-		log.errorf("Failed opening file %v. Error: %v", filename, f_err)
+	when ODIN_OS == .JS {
+		log.error(`Audio stream loading from file not available on web. Tip: Use 'k2.load_audio_stream_from_bytes(#load("music.ogg"))'.`)
 		return AUDIO_STREAM_NONE
-	}
+	} else {
+		f, f_err := file_open(filename)
 
-	buf := make([dynamic]u8, frame_allocator)
-	read_buf: [256]u8
-	nbytes_read, read_err := os.read(f, read_buf[:])
-
-	if read_err != nil {
-		log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
-
-		if close_err := os.close(f); close_err != nil {
-			log.errorf("Failed closing file. Error: %v", close_err)
+		if f_err != nil {
+			log.errorf("Failed opening file %v. Error: %v", filename, f_err)
+			return AUDIO_STREAM_NONE
 		}
-		
-		return AUDIO_STREAM_NONE
-	}
 
-	append(&buf, ..read_buf[:nbytes_read])
-	vorbis_res: ^stbv.vorbis
+		buf := make([dynamic]u8, frame_allocator)
+		read_buf: [256]u8
+		nbytes_read, read_err := file_read(f, read_buf[:])
 
-	for {
-		vorbis_err: stbv.Error
-		consumed: i32
-		vorbis := stbv.open_pushdata(
-			raw_data(buf),
-			i32(len(buf)),
-			&consumed,
-			&vorbis_err,
-			&as.vorbis_alloc,
-		)
+		if read_err != nil {
+			log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
 
-		if vorbis_err == nil {
-			vorbis_res = vorbis
-			os.seek(f, i64(consumed), .Start)
-			break
-		} else if vorbis_err == .need_more_data {
-			nbytes_read, read_err = os.read(f, read_buf[:])
-
-			if read_err != nil {
-				log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
-				
-				if close_err := os.close(f); close_err != nil {
-					log.errorf("Failed closing file. Error: %v", close_err)
-				}
-				
-				return AUDIO_STREAM_NONE
-			}
-
-			if nbytes_read == 0 {
-				log.errorf("Failed to load audio stream. Reached end of file before stream could be loaded.")
-
-				if close_err := os.close(f); close_err != nil {
-					log.errorf("Failed closing file. Error: %v", close_err)
-				}
-				
-				return AUDIO_STREAM_NONE
-			}
-
-			append(&buf, ..read_buf[:nbytes_read])
-		} else {
-			log.errorf("Failed to load audio stream. Error: %v", vorbis_err)
-
-			if close_err := os.close(f); close_err != nil {
+			if close_err := file_close(f); close_err != nil {
 				log.errorf("Failed closing file. Error: %v", close_err)
 			}
 			
 			return AUDIO_STREAM_NONE
 		}
+
+		append(&buf, ..read_buf[:nbytes_read])
+		vorbis_res: ^stbv.vorbis
+
+		for {
+			vorbis_err: stbv.Error
+			consumed: i32
+			vorbis := stbv.open_pushdata(
+				raw_data(buf),
+				i32(len(buf)),
+				&consumed,
+				&vorbis_err,
+				&as.vorbis_alloc,
+			)
+
+			if vorbis_err == nil {
+				vorbis_res = vorbis
+				file_seek(f, i64(consumed), .Start)
+				break
+			} else if vorbis_err == .need_more_data {
+				nbytes_read, read_err = file_read(f, read_buf[:])
+
+				if read_err != nil {
+					log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
+					
+					if close_err := file_close(f); close_err != nil {
+						log.errorf("Failed closing file. Error: %v", close_err)
+					}
+					
+					return AUDIO_STREAM_NONE
+				}
+
+				if nbytes_read == 0 {
+					log.errorf("Failed to load audio stream. Reached end of file before stream could be loaded.")
+
+					if close_err := file_close(f); close_err != nil {
+						log.errorf("Failed closing file. Error: %v", close_err)
+					}
+					
+					return AUDIO_STREAM_NONE
+				}
+
+				append(&buf, ..read_buf[:nbytes_read])
+			} else {
+				log.errorf("Failed to load audio stream. Error: %v", vorbis_err)
+
+				if close_err := file_close(f); close_err != nil {
+					log.errorf("Failed closing file. Error: %v", close_err)
+				}
+				
+				return AUDIO_STREAM_NONE
+			}
+		}
+
+		info := stbv.get_info(vorbis_res)
+
+		channels: Audio_Channels
+
+		if info.channels == 1 {
+			channels = Audio_Channels.Mono
+		} else if info.channels == 2 {
+			channels = Audio_Channels.Stereo
+		} else{
+			log.errorf("Unsupported number of channels: %v", info.channels)
+
+			if close_err := file_close(f); close_err != nil {
+				log.errorf("Failed closing file. Error: %v", close_err)
+			}
+			
+			return AUDIO_STREAM_NONE
+		}
+
+		buffer := Audio_Buffer {
+			sample_rate = int(info.sample_rate),
+			samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, as.allocator),
+			references = 1,
+			channels = channels,
+		}
+
+		buffer_handle, buffer_handle_add_err := hm.add(as.buffers, buffer)
+
+		if buffer_handle_add_err != nil {
+			log.errorf("Failed to load audio stream. Error: %v", buffer_handle_add_err)
+			
+			if close_err := file_close(f); close_err != nil {
+				log.errorf("Failed closing file. Error: %v", close_err)
+			}
+
+			delete(buffer.samples, as.allocator)
+			return AUDIO_STREAM_NONE
+		}
+
+		asd := Audio_Stream_Data {
+			file = f,
+			vorbis = vorbis_res,
+			buffer_handle = buffer_handle,
+			playback_settings = {
+				pan = 0,
+				volume = 1,
+				pitch = 1,
+			},
+			read_buf = make([dynamic]u8, as.allocator),
+		}
+
+		stream, stream_add_err := hm.add(&as.streams, asd)
+
+		if stream_add_err != nil {
+			log.errorf("Failed to create audio stream from file. Error: %v", stream_add_err)
+			file_close(asd.file)
+			delete(asd.read_buf)
+			delete(buffer.samples, as.allocator)
+			hm.remove(as.buffers, buffer_handle)
+			return AUDIO_STREAM_NONE
+		}
+
+		return stream
+	}
+}
+
+audio_stream_load_from_bytes :: proc(as: ^Audio_Stream_Manager, bytes: []u8) -> Audio_Stream {
+	vorbis_err: stbv.Error
+
+	vorbis_res := stbv.open_memory(
+		raw_data(bytes),
+		i32(len(bytes)),
+		&vorbis_err,
+		&as.vorbis_alloc,
+	)
+
+	if vorbis_err != nil {
+		log.errorf("Failed opening audio stream from bytes. Error: %v", vorbis_err)
+		return AUDIO_STREAM_NONE
 	}
 
 	info := stbv.get_info(vorbis_res)
@@ -135,11 +217,6 @@ audio_stream_load_from_file :: proc(as: ^Audio_Stream_Manager, filename: string)
 		channels = Audio_Channels.Stereo
 	} else{
 		log.errorf("Unsupported number of channels: %v", info.channels)
-
-		if close_err := os.close(f); close_err != nil {
-			log.errorf("Failed closing file. Error: %v", close_err)
-		}
-		
 		return AUDIO_STREAM_NONE
 	}
 
@@ -154,17 +231,13 @@ audio_stream_load_from_file :: proc(as: ^Audio_Stream_Manager, filename: string)
 
 	if buffer_handle_add_err != nil {
 		log.errorf("Failed to load audio stream. Error: %v", buffer_handle_add_err)
-		
-		if close_err := os.close(f); close_err != nil {
-			log.errorf("Failed closing file. Error: %v", close_err)
-		}
-
 		delete(buffer.samples, as.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
 	asd := Audio_Stream_Data {
-		file = f,
+		source_mode = .Bytes,
+		bytes = bytes,
 		vorbis = vorbis_res,
 		buffer_handle = buffer_handle,
 		playback_settings = {
@@ -179,7 +252,6 @@ audio_stream_load_from_file :: proc(as: ^Audio_Stream_Manager, filename: string)
 
 	if stream_add_err != nil {
 		log.errorf("Failed to create audio stream from file. Error: %v", stream_add_err)
-		os.close(asd.file)
 		delete(asd.read_buf)
 		delete(buffer.samples, as.allocator)
 		hm.remove(as.buffers, buffer_handle)
@@ -210,7 +282,13 @@ audio_stream_destroy :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 		}
 	}
 
-	os.close(sd.file)
+	switch sd.source_mode {
+	case .File:
+		file_close(sd.file)
+	case .Bytes:
+		// don't free the bytes, they are owned by the game
+	}
+	
 	hm.remove(&as.streams, stream)
 	delete(sd.read_buf)
 }
@@ -277,7 +355,15 @@ audio_stream_stop :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 
 	sd.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
 	sd.buffer_write_pos = 0
-	os.seek(sd.file, 0, .Start)
+
+	switch sd.source_mode {
+	case .File:
+		file_seek(sd.file, 0, .Start)
+
+	case .Bytes:
+		stbv.seek_start(sd.vorbis)
+	}
+	
 	runtime.clear(&sd.read_buf)
 	sd.read_buf_offset = 0
 	stbv.flush_pushdata(sd.vorbis)
@@ -342,6 +428,26 @@ audio_stream_update :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 		return
 	}
 
+	switch sd.source_mode {
+	case .File:
+		_audio_stream_update_file(as, stream)
+	case .Bytes:
+		_audio_stream_update_bytes(as, stream)
+	}
+}
+
+_audio_stream_update_bytes :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
+}
+
+_audio_stream_update_file :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
+
+	sd := hm.get(&as.streams, stream)
+
+	if sd == nil {
+		log.error("Trying to update destroyed audio stream")
+		return
+	}
+
 	pab := hm.get(as.playing_buffers, sd.playing_buffer_handle)
 
 	if pab == nil {
@@ -385,7 +491,7 @@ audio_stream_update :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 		if bytes_used == 0 && samples == 0 {
 			read_buf_size := len(sd.read_buf)
 			non_zero_resize(&sd.read_buf, read_buf_size + 256)
-			read, read_err := os.read(sd.file, sd.read_buf[read_buf_size:read_buf_size+256])
+			read, read_err := file_read(sd.file, sd.read_buf[read_buf_size:read_buf_size+256])
 
 			if read > 0 {
 				shrink(&sd.read_buf, read_buf_size + read)
@@ -394,7 +500,7 @@ audio_stream_update :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 			if read_err != nil {
 				if read_err == .EOF {
 					if sd.loop {
-						os.seek(sd.file, 0, .Start)
+						file_seek(sd.file, 0, .Start)
 						stbv.flush_pushdata(sd.vorbis)
 						continue
 					} else {
@@ -448,9 +554,18 @@ audio_stream_update :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 	}
 }
 
+Audio_Stream_Source_Mode :: enum {
+	File,
+	Bytes,
+}
+
 Audio_Stream_Data :: struct {
 	handle: Audio_Stream,
-	file: ^os.File,
+	file: ^File,
+	bytes: []u8,
+
+	source_mode: Audio_Stream_Source_Mode,
+
 	buffer_write_pos: int,
 	vorbis: ^stbv.vorbis,
 	read_buf: [dynamic]u8,
