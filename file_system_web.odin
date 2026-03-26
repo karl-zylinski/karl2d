@@ -1,4 +1,4 @@
-// For platforms with filesystem support, this file contains some stub implementations that just
+// For platforms without filesystem support, this file contains some stub implementations that just
 // print errors and return. See `file_system_default.odin` for the implemenatations that are used on
 // platforms that do support filesystems.
 #+build js, freestanding
@@ -15,25 +15,26 @@ read_entire_file :: proc(path: string, allocator: runtime.Allocator) -> ([]u8, b
 
 File :: struct {}
 File_Error :: enum {
+	Unsupported,
 	EOF,
 }
 
 file_open :: proc(filename: string) -> (^File, File_Error) {
 	log.error("file_open not available on web")
-	return nil, {}
+	return nil, .Unsupported
 }
 
 file_read :: proc(f: ^File, p: []byte) -> (n: int, err: File_Error) {
 	log.error("file_read not available on web")
-	return 0, {}
+	return 0, .Unsupported
 }
 
 file_seek :: proc(f: ^File, offset: i64, whence: io.Seek_From) -> (ret: i64, err: File_Error) {
 	log.error("file-seek not available on web")
-	return 0, {}
+	return 0, .Unsupported
 }
 
 file_close :: proc(f: ^File) -> File_Error {
 	log.error("file_close not available on web")
-	return {}
+	return .Unsupported
 }
