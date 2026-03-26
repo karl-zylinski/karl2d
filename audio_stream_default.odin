@@ -437,10 +437,82 @@ audio_stream_update :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
 }
 
 _audio_stream_update_bytes :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
+	sd := hm.get(&as.streams, stream)
+
+	if sd == nil {
+		log.error("Trying to update destroyed audio stream")
+		return
+	}
+
+
+	pab := hm.get(as.playing_buffers, sd.playing_buffer_handle)
+
+	if pab == nil {
+		// Don't log an error here: Not playing the stream is a valid state. It just doesn't need
+		// any updating.
+		return
+	}
+
+
+	ab := hm.get(as.buffers, pab.audio_buffer)
+
+	if ab == nil {
+		hm.remove(as.playing_buffers, sd.playing_buffer_handle)
+		log.error("Trying to update audio stream with destroyed buffer")
+		return
+	}
+
+	channels: i32
+	output: [^]^f32
+
+	for _audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+		samples := stbv.get_frame_float(sd.vorbis, &channels, &output)
+
+		if samples == 0 {
+			if sd.loop {
+				stbv.seek_start(sd.vorbis)
+				continue
+			} else {
+				audio_stream_stop(as, stream)
+				break
+			}
+		}
+
+		if channels == 1 {
+			mono: [^]f32 = output[0]
+
+			for samp_idx in 0..<samples {
+				ab.samples[sd.buffer_write_pos] = mono[samp_idx]
+				sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
+			}
+		} else if channels == 2 {
+			left: [^]f32 = output[0]
+			right: [^]f32 = output[1]
+
+			for samp_idx in 0..<samples {
+				ab.samples[sd.buffer_write_pos] = left[samp_idx]
+				ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
+				sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
+			}
+		} else {
+			hm.remove(as.playing_buffers, sd.playing_buffer_handle)
+			log.error("Invalid num channels")
+			break
+		}
+	}
+}
+
+_audio_stream_remaining :: proc(as: ^Audio_Stream_Data, pab: ^Playing_Audio_Buffer, ab: ^Audio_Buffer) -> int {
+	remaining := as.buffer_write_pos - pab.offset 
+
+	if remaining < 0 {
+		remaining = len(ab.samples) - pab.offset + as.buffer_write_pos 
+	}
+
+	return remaining
 }
 
 _audio_stream_update_file :: proc(as: ^Audio_Stream_Manager, stream: Audio_Stream) {
-
 	sd := hm.get(&as.streams, stream)
 
 	if sd == nil {
@@ -464,17 +536,7 @@ _audio_stream_update_file :: proc(as: ^Audio_Stream_Manager, stream: Audio_Strea
 		return
 	}
 
-	remaining :: proc(as: ^Audio_Stream_Data, pab: ^Playing_Audio_Buffer, ab: ^Audio_Buffer) -> int {
-		remaining := as.buffer_write_pos - pab.offset 
-
-		if remaining < 0 {
-			remaining = len(ab.samples) - pab.offset + as.buffer_write_pos 
-		}
-
-		return remaining
-	}
-
-	for remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+	for _audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
 		channels: i32
 		samples: i32
 		output: [^]^f32
