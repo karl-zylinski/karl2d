@@ -1,10 +1,10 @@
 <img width="328" height="64" alt="karl2d_logo" src="https://github.com/user-attachments/assets/5ebd43c8-5a1d-4864-b8eb-7ce4b6a5dba0" />
 
-Karl2D is a library for creating 2D games using the Odin programming language. The focus is on making 2D gamdev fun, fast and beginner friendly. All that, while using as few dependencies as I can. Less dependencies, less problems when you need to ship the game!
+Karl2D is a library for making 2D games using the Odin programming language. It focuses on making 2D gamedev fun, fast and beginner friendly. It also uses as few dependencies as possible. See [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) for an API overview.
 
-See [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) for an API overview.
+Support the project by becoming a sponsor here on [GitHub](https://github.com/sponsors/karl-zylinski) or on [Patreon](https://patreon.com/karl_zylinski).
 
-Here's a minimal "Hello world" program:
+"Hello world" program (draws the text "Hellope!" in a window):
 
 ```odin
 package hello_world
@@ -30,7 +30,6 @@ Some examples are available as live web builds: [hellope](https://zylinski.se/ka
 
 Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
 
-Support the project financially by becoming a sponsor here on [GitHub](https://github.com/sponsors/karl-zylinski) or on [Patreon](https://patreon.com/karl_zylinski).
 
 ## Beta 2
 
