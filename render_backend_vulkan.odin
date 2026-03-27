@@ -1,6 +1,6 @@
 // Vulkan render backend for Karl2D.
 // Phase 1: Foundation & Initialization — instance, device, swapchain, command buffers, synchronization.
-// Later phases will add textures, shaders, pipelines, render targets, etc.
+// Phase 2: Textures, shaders, pipelines, vertex buffers, draw calls.
 #+build linux, windows
 #+private file
 
@@ -10,11 +10,8 @@ import "base:runtime"
 import vk "vendor:vulkan"
 import hm "core:container/handle_map"
 import "log"
-
-when ODIN_OS == .Linux {
-        import wl "platform_bindings/linux/wayland"
-        import X "vendor:x11/xlib"
-}
+import "core:mem"
+import "core:strings"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -22,28 +19,19 @@ when ODIN_OS == .Linux {
 
 MAX_FRAMES_IN_FLIGHT :: 2
 
-// ---------------------------------------------------------------------------
-// Vulkan glue state — common header for platform-specific glue structs.
-// The concrete types (Vulkan_Wayland_Glue_State, Vulkan_X11_Glue_State) place
-// these two fields first so the render backend can safely cast the glue state
-// pointer and read platform_type / vk_surface regardless of which platform
-// glue was actually created.
-// ---------------------------------------------------------------------------
+// Maximum number of descriptor sets we can allocate per frame.
+// This limits how many draw calls (batch breaks) we can have per frame.
+MAX_DESCRIPTOR_SETS_PER_FRAME :: 4096
 
-Vulkan_Glue_Platform_Type :: enum {
-        Unknown,
-        Wayland,
-        X11,
-        Win32,
-}
-
-Vulkan_Glue_State :: struct {
-        platform_type: Vulkan_Glue_Platform_Type,
-        vk_surface:    vk.SurfaceKHR,
-}
+// Staging buffer size for texture uploads (16 MB)
+STAGING_BUFFER_SIZE :: 16 * 1024 * 1024
 
 // ---------------------------------------------------------------------------
-// Sub-structures (textures, shaders, render targets — stubs for Phase 1)
+// Vulkan glue state types are in render_backend_vulkan_types.odin (package-visible).
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Sub-structures
 // ---------------------------------------------------------------------------
 
 Vulkan_Texture :: struct {
@@ -59,10 +47,33 @@ Vulkan_Texture :: struct {
         needs_vertical_flip: bool,
 }
 
+Vulkan_Shader_Constant :: struct {
+        offset: u32,
+        size:   u32,
+}
+
 Vulkan_Shader :: struct {
-        handle:          Shader_Handle,
-        vertex_module:   vk.ShaderModule,
-        fragment_module: vk.ShaderModule,
+        handle:                Shader_Handle,
+        vertex_module:         vk.ShaderModule,
+        fragment_module:       vk.ShaderModule,
+
+        // Pipeline cache: one pipeline per blend mode
+        pipelines:             [Blend_Mode]vk.Pipeline,
+        pipeline_layout:       vk.PipelineLayout,
+        descriptor_set_layout: vk.DescriptorSetLayout,
+
+        // Whether this shader uses push constants for view_projection
+        uses_push_constants:   bool,
+
+        // Uniform buffer info
+        ubo_size:              int,
+        ubo_binding:           u32,
+
+        // Texture binding count
+        texture_binding_count: int,
+
+        // Vertex stride
+        vertex_stride:         int,
 }
 
 Vulkan_Render_Target :: struct {
@@ -124,6 +135,29 @@ Vulkan_State :: struct {
 
         // Whether we are currently inside a render pass recording
         in_render_pass: bool,
+
+        // Dynamic vertex buffers (one per frame-in-flight to avoid write-after-read hazards)
+        vertex_buffers:        [MAX_FRAMES_IN_FLIGHT]vk.Buffer,
+        vertex_buffer_memories: [MAX_FRAMES_IN_FLIGHT]vk.DeviceMemory,
+        vertex_buffer_mapped:  [MAX_FRAMES_IN_FLIGHT]rawptr,
+
+        // Staging buffer for texture uploads
+        staging_buffer:        vk.Buffer,
+        staging_buffer_memory: vk.DeviceMemory,
+        staging_buffer_mapped: rawptr,
+        staging_buffer_size:   int,
+
+        // Descriptor pool (reset each frame)
+        descriptor_pools: [MAX_FRAMES_IN_FLIGHT]vk.DescriptorPool,
+
+        // Default sampler (nearest-neighbor)
+        default_sampler:       vk.Sampler,
+        default_linear_sampler: vk.Sampler,
+
+        // A 1x1 white texture used when no texture is bound
+        white_texture_image:   vk.Image,
+        white_texture_memory:  vk.DeviceMemory,
+        white_texture_view:    vk.ImageView,
 
         // Resource handle maps (same pattern as GL / D3D11)
         textures:       hm.Dynamic_Handle_Map(Vulkan_Texture, Texture_Handle),
@@ -217,8 +251,6 @@ vk_init :: proc(
         }
 
         // 3. Create surface via the platform glue handles.
-        //    The glue's make_context signals the glue is ready. The actual VkSurfaceKHR is
-        //    created here by the render backend using the platform handles stored in the glue state.
         if glue.make_context != nil {
                 if !glue.make_context(glue.state) {
                         log.error("Vulkan: Platform glue make_context failed")
@@ -281,7 +313,37 @@ vk_init :: proc(
                 return
         }
 
-        log.info("Vulkan: Initialization complete")
+        // 11. Create vertex buffers (Phase 2)
+        if !vk_create_vertex_buffers() {
+                log.error("Vulkan: Failed to create vertex buffers")
+                return
+        }
+
+        // 12. Create staging buffer (Phase 2)
+        if !vk_create_staging_buffer() {
+                log.error("Vulkan: Failed to create staging buffer")
+                return
+        }
+
+        // 13. Create descriptor pools (Phase 2)
+        if !vk_create_descriptor_pools() {
+                log.error("Vulkan: Failed to create descriptor pools")
+                return
+        }
+
+        // 14. Create default samplers (Phase 2)
+        if !vk_create_default_samplers() {
+                log.error("Vulkan: Failed to create default samplers")
+                return
+        }
+
+        // 15. Create 1x1 white texture for untextured draws (Phase 2)
+        if !vk_create_white_texture() {
+                log.error("Vulkan: Failed to create white texture")
+                return
+        }
+
+        log.info("Vulkan: Initialization complete (Phase 2)")
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +354,86 @@ vk_shutdown :: proc() {
         if s == nil { return }
         if s.device != nil {
                 vk.DeviceWaitIdle(s.device)
+        }
+
+        // Destroy white texture
+        if s.white_texture_view != 0 {
+                vk.DestroyImageView(s.device, s.white_texture_view, nil)
+        }
+        if s.white_texture_image != 0 {
+                vk.DestroyImage(s.device, s.white_texture_image, nil)
+        }
+        if s.white_texture_memory != 0 {
+                vk.FreeMemory(s.device, s.white_texture_memory, nil)
+        }
+
+        // Destroy default samplers
+        if s.default_sampler != 0 {
+                vk.DestroySampler(s.device, s.default_sampler, nil)
+        }
+        if s.default_linear_sampler != 0 {
+                vk.DestroySampler(s.device, s.default_linear_sampler, nil)
+        }
+
+        // Destroy descriptor pools
+        for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
+                if s.descriptor_pools[i] != 0 {
+                        vk.DestroyDescriptorPool(s.device, s.descriptor_pools[i], nil)
+                }
+        }
+
+        // Destroy staging buffer
+        if s.staging_buffer_mapped != nil && s.staging_buffer_memory != 0 {
+                vk.UnmapMemory(s.device, s.staging_buffer_memory)
+        }
+        if s.staging_buffer != 0 {
+                vk.DestroyBuffer(s.device, s.staging_buffer, nil)
+        }
+        if s.staging_buffer_memory != 0 {
+                vk.FreeMemory(s.device, s.staging_buffer_memory, nil)
+        }
+
+        // Destroy vertex buffers
+        for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
+                if s.vertex_buffer_mapped[i] != nil && s.vertex_buffer_memories[i] != 0 {
+                        vk.UnmapMemory(s.device, s.vertex_buffer_memories[i])
+                }
+                if s.vertex_buffers[i] != 0 {
+                        vk.DestroyBuffer(s.device, s.vertex_buffers[i], nil)
+                }
+                if s.vertex_buffer_memories[i] != 0 {
+                        vk.FreeMemory(s.device, s.vertex_buffer_memories[i], nil)
+                }
+        }
+
+        // Destroy all managed textures
+        {
+                tex_iter := hm.dynamic_iterator_make(&s.textures)
+                for {
+                        tex, _, ok := hm.dynamic_iterate(&tex_iter)
+                        if !ok { break }
+                        vk_destroy_texture_resources(tex)
+                }
+        }
+
+        // Destroy all managed shaders
+        {
+                shd_iter := hm.dynamic_iterator_make(&s.shaders)
+                for {
+                        shd, _, ok := hm.dynamic_iterate(&shd_iter)
+                        if !ok { break }
+                        vk_destroy_shader_resources(shd)
+                }
+        }
+
+        // Destroy all managed render targets
+        {
+                rt_iter := hm.dynamic_iterator_make(&s.render_targets)
+                for {
+                        rt, _, ok := hm.dynamic_iterate(&rt_iter)
+                        if !ok { break }
+                        vk_destroy_render_target_resources(rt)
+                }
         }
 
         // Destroy sync objects
@@ -389,23 +531,19 @@ vk_create_instance :: proc() -> bool {
 
         // Required extensions
         extensions := make([dynamic]cstring, 0, 8, context.temp_allocator)
-        append(&extensions, vk.KHR_SURFACE_EXTENSION_NAME)
+        append(&extensions, cstring("VK_KHR_surface"))
 
-        // Platform-specific surface extension
         when ODIN_OS == .Linux {
-                // We add both — only the one matching the active windowing system will be used at runtime.
-                // The instance extension just needs to be available.
-                append(&extensions, vk.KHR_WAYLAND_SURFACE_EXTENSION_NAME)
-                append(&extensions, vk.KHR_XLIB_SURFACE_EXTENSION_NAME)
+                append(&extensions, cstring("VK_KHR_wayland_surface"))
+                append(&extensions, cstring("VK_KHR_xlib_surface"))
         } else when ODIN_OS == .Windows {
-                append(&extensions, vk.KHR_WIN32_SURFACE_EXTENSION_NAME)
+                append(&extensions, cstring("VK_KHR_win32_surface"))
         }
 
         when ODIN_DEBUG {
-                append(&extensions, vk.EXT_DEBUG_UTILS_EXTENSION_NAME)
+                append(&extensions, cstring("VK_EXT_debug_utils"))
         }
 
-        // Validation layers (debug only)
         layer_count: u32 = 0
         layer_names: [^]cstring = nil
         validation_layer := cstring("VK_LAYER_KHRONOS_validation")
@@ -453,7 +591,7 @@ when ODIN_DEBUG {
                                 log.infof("Vulkan Validation: %s", p_callback_data.pMessage)
                         }
                 }
-                return false // Don't abort the Vulkan call
+                return false
         }
 
         vk_setup_debug_messenger :: proc() {
@@ -480,7 +618,6 @@ vk_create_surface_from_glue :: proc(glue: Window_Render_Glue) -> bool {
                 return false
         }
 
-        // Read the common header to determine which platform we are on
         vk_glue := (^Vulkan_Glue_State)(glue.state)
 
         when ODIN_OS == .Linux {
@@ -497,7 +634,6 @@ vk_create_surface_from_glue :: proc(glue: Window_Render_Glue) -> bool {
                                 log.errorf("Vulkan: vkCreateWaylandSurfaceKHR failed with %v", result)
                                 return false
                         }
-                        // Store the surface in the glue state so cleanup can find it if needed
                         wl_glue.vk_surface = s.surface
                         return true
 
@@ -521,7 +657,6 @@ vk_create_surface_from_glue :: proc(glue: Window_Render_Glue) -> bool {
                         return false
                 }
         } else when ODIN_OS == .Windows {
-                // Windows surface creation will be added in Phase 4
                 log.error("Vulkan: Windows surface creation not yet implemented (Phase 4)")
                 return false
         }
@@ -544,7 +679,6 @@ vk_pick_physical_device :: proc() -> bool {
         devices := make([]vk.PhysicalDevice, device_count, context.temp_allocator)
         vk.EnumeratePhysicalDevices(s.instance, &device_count, raw_data(devices))
 
-        // Score devices: prefer discrete GPU, require graphics + present queue, require swapchain ext
         best_score := -1
         for dev in devices {
                 score := vk_rate_physical_device(dev)
@@ -558,7 +692,6 @@ vk_pick_physical_device :: proc() -> bool {
                 return false
         }
 
-        // Find queue families for the chosen device
         return vk_find_queue_families(s.physical_device)
 }
 
@@ -566,12 +699,10 @@ vk_rate_physical_device :: proc(device: vk.PhysicalDevice) -> int {
         props: vk.PhysicalDeviceProperties
         vk.GetPhysicalDeviceProperties(device, &props)
 
-        // Check required extensions
         if !vk_device_supports_extensions(device) {
                 return -1
         }
 
-        // Check queue family support
         if !vk_has_required_queue_families(device) {
                 return -1
         }
@@ -595,7 +726,6 @@ vk_device_supports_extensions :: proc(device: vk.PhysicalDevice) -> bool {
         extensions := make([]vk.ExtensionProperties, ext_count, context.temp_allocator)
         vk.EnumerateDeviceExtensionProperties(device, nil, &ext_count, raw_data(extensions))
 
-        // Require VK_KHR_swapchain
         swapchain_found := false
         for &ext in extensions {
                 name := cstring(raw_data(&ext.extensionName))
@@ -669,7 +799,6 @@ vk_find_queue_families :: proc(device: vk.PhysicalDevice) -> bool {
 // ---------------------------------------------------------------------------
 
 vk_create_logical_device :: proc() -> bool {
-        // Unique queue family indices
         unique_families: [2]u32
         unique_count: int = 1
         unique_families[0] = s.graphics_queue_family
@@ -689,9 +818,9 @@ vk_create_logical_device :: proc() -> bool {
                 }
         }
 
-        device_features: vk.PhysicalDeviceFeatures // All zeroed = no special features needed for 2D
+        device_features: vk.PhysicalDeviceFeatures
 
-        swapchain_ext := vk.KHR_SWAPCHAIN_EXTENSION_NAME
+        swapchain_ext: cstring = "VK_KHR_swapchain"
         device_create_info := vk.DeviceCreateInfo {
                 sType                   = .DEVICE_CREATE_INFO,
                 queueCreateInfoCount    = u32(unique_count),
@@ -745,18 +874,15 @@ vk_query_swapchain_support :: proc(device: vk.PhysicalDevice) -> Swapchain_Suppo
 }
 
 vk_choose_swap_surface_format :: proc(formats: []vk.SurfaceFormatKHR) -> vk.SurfaceFormatKHR {
-        // Prefer B8G8R8A8_UNORM with SRGB_NONLINEAR color space (matches D3D11 choice)
         for f in formats {
                 if f.format == .B8G8R8A8_UNORM && f.colorSpace == .SRGB_NONLINEAR {
                         return f
                 }
         }
-        // Fallback to first available
         return formats[0]
 }
 
 vk_choose_swap_present_mode :: proc(modes: []vk.PresentModeKHR) -> vk.PresentModeKHR {
-        // FIFO is guaranteed available and gives vsync behaviour (matches existing GL/D3D11)
         return .FIFO
 }
 
@@ -764,7 +890,6 @@ vk_choose_swap_extent :: proc(capabilities: ^vk.SurfaceCapabilitiesKHR) -> vk.Ex
         if capabilities.currentExtent.width != max(u32) {
                 return capabilities.currentExtent
         }
-        // Pick the extent that matches our desired window size, clamped to surface capabilities
         extent := vk.Extent2D {
                 width  = clamp(u32(s.width), capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
                 height = clamp(u32(s.height), capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
@@ -783,7 +908,6 @@ vk_create_swapchain :: proc() -> bool {
         present_mode := vk_choose_swap_present_mode(support.present_modes)
         extent := vk_choose_swap_extent(&support.capabilities)
 
-        // Request one more image than the minimum for triple-/double-buffering headroom
         image_count := support.capabilities.minImageCount + 1
         if support.capabilities.maxImageCount > 0 && image_count > support.capabilities.maxImageCount {
                 image_count = support.capabilities.maxImageCount
@@ -822,13 +946,11 @@ vk_create_swapchain :: proc() -> bool {
         s.swapchain_format = surface_format.format
         s.swapchain_extent = extent
 
-        // Retrieve swapchain images
         actual_count: u32
         vk.GetSwapchainImagesKHR(s.device, s.swapchain, &actual_count, nil)
         s.swapchain_images = make([]vk.Image, actual_count, s.allocator)
         vk.GetSwapchainImagesKHR(s.device, s.swapchain, &actual_count, raw_data(s.swapchain_images))
 
-        // Create image views
         s.swapchain_image_views = make([]vk.ImageView, len(s.swapchain_images), s.allocator)
         for img, i in s.swapchain_images {
                 view_info := vk.ImageViewCreateInfo {
@@ -863,7 +985,6 @@ vk_destroy_swapchain_resources :: proc() {
                         }
                 }
         }
-        // swapchain_images are owned by the swapchain; no need to destroy individually
 }
 
 // ---------------------------------------------------------------------------
@@ -893,7 +1014,6 @@ vk_create_render_pass :: proc() -> bool {
                 pColorAttachments    = &color_attachment_ref,
         }
 
-        // Subpass dependency to synchronise the image layout transition
         dependency := vk.SubpassDependency {
                 srcSubpass    = vk.SUBPASS_EXTERNAL,
                 dstSubpass    = 0,
@@ -1005,7 +1125,7 @@ vk_create_sync_objects :: proc() -> bool {
         }
         fence_info := vk.FenceCreateInfo {
                 sType = .FENCE_CREATE_INFO,
-                flags = {.SIGNALED}, // Start signaled so first frame doesn't block
+                flags = {.SIGNALED},
         }
 
         for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
@@ -1016,6 +1136,247 @@ vk_create_sync_objects :: proc() -> bool {
                         return false
                 }
         }
+        return true
+}
+
+// ---------------------------------------------------------------------------
+// Vertex buffer management (Phase 2)
+// ---------------------------------------------------------------------------
+
+vk_create_vertex_buffers :: proc() -> bool {
+        for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
+                buf, buf_mem, mapped := vk_create_buffer(
+                        VERTEX_BUFFER_MAX,
+                        {.VERTEX_BUFFER},
+                        {.HOST_VISIBLE, .HOST_COHERENT},
+                        map_memory = true,
+                )
+                if buf == 0 {
+                        log.error("Vulkan: Failed to create vertex buffer")
+                        return false
+                }
+                s.vertex_buffers[i] = buf
+                s.vertex_buffer_memories[i] = buf_mem
+                s.vertex_buffer_mapped[i] = mapped
+        }
+        return true
+}
+
+// ---------------------------------------------------------------------------
+// Staging buffer for texture uploads (Phase 2)
+// ---------------------------------------------------------------------------
+
+vk_create_staging_buffer :: proc() -> bool {
+        s.staging_buffer_size = STAGING_BUFFER_SIZE
+        buf, buf_mem, mapped := vk_create_buffer(
+                s.staging_buffer_size,
+                {.TRANSFER_SRC},
+                {.HOST_VISIBLE, .HOST_COHERENT},
+                map_memory = true,
+        )
+        if buf == 0 {
+                log.error("Vulkan: Failed to create staging buffer")
+                return false
+        }
+        s.staging_buffer = buf
+        s.staging_buffer_memory = buf_mem
+        s.staging_buffer_mapped = mapped
+        return true
+}
+
+// ---------------------------------------------------------------------------
+// Descriptor pools (Phase 2)
+// ---------------------------------------------------------------------------
+
+vk_create_descriptor_pools :: proc() -> bool {
+        pool_sizes := [2]vk.DescriptorPoolSize {
+                {
+                        type            = .COMBINED_IMAGE_SAMPLER,
+                        descriptorCount = MAX_DESCRIPTOR_SETS_PER_FRAME * 4, // up to 4 textures per draw
+                },
+                {
+                        type            = .UNIFORM_BUFFER,
+                        descriptorCount = MAX_DESCRIPTOR_SETS_PER_FRAME,
+                },
+        }
+
+        for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
+                pool_info := vk.DescriptorPoolCreateInfo {
+                        sType         = .DESCRIPTOR_POOL_CREATE_INFO,
+                        maxSets       = MAX_DESCRIPTOR_SETS_PER_FRAME,
+                        poolSizeCount = len(pool_sizes),
+                        pPoolSizes    = &pool_sizes[0],
+                }
+
+                result := vk.CreateDescriptorPool(s.device, &pool_info, nil, &s.descriptor_pools[i])
+                if result != .SUCCESS {
+                        log.errorf("Vulkan: Failed to create descriptor pool %d (%v)", i, result)
+                        return false
+                }
+        }
+        return true
+}
+
+// ---------------------------------------------------------------------------
+// Default samplers (Phase 2)
+// ---------------------------------------------------------------------------
+
+vk_create_default_samplers :: proc() -> bool {
+        // Nearest-neighbor sampler (default for 2D pixel art)
+        sampler_info := vk.SamplerCreateInfo {
+                sType        = .SAMPLER_CREATE_INFO,
+                magFilter    = .NEAREST,
+                minFilter    = .NEAREST,
+                addressModeU = .REPEAT,
+                addressModeV = .REPEAT,
+                addressModeW = .REPEAT,
+                mipmapMode   = .NEAREST,
+                maxLod       = 0,
+        }
+
+        result := vk.CreateSampler(s.device, &sampler_info, nil, &s.default_sampler)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create default sampler (%v)", result)
+                return false
+        }
+
+        // Linear sampler
+        sampler_info.magFilter = .LINEAR
+        sampler_info.minFilter = .LINEAR
+
+        result = vk.CreateSampler(s.device, &sampler_info, nil, &s.default_linear_sampler)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create linear sampler (%v)", result)
+                return false
+        }
+
+        return true
+}
+
+// ---------------------------------------------------------------------------
+// 1x1 white texture (used for untextured/shape draws) (Phase 2)
+// ---------------------------------------------------------------------------
+
+vk_create_white_texture :: proc() -> bool {
+        // Create a 1x1 RGBA white pixel
+        white_pixel := [4]u8{255, 255, 255, 255}
+
+        // Create the image
+        img_info := vk.ImageCreateInfo {
+                sType       = .IMAGE_CREATE_INFO,
+                imageType   = .D2,
+                format      = .R8G8B8A8_UNORM,
+                extent      = {width = 1, height = 1, depth = 1},
+                mipLevels   = 1,
+                arrayLayers = 1,
+                samples     = {._1},
+                tiling      = .OPTIMAL,
+                usage       = {.SAMPLED, .TRANSFER_DST},
+                initialLayout = .UNDEFINED,
+        }
+
+        result := vk.CreateImage(s.device, &img_info, nil, &s.white_texture_image)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create white texture image (%v)", result)
+                return false
+        }
+
+        // Allocate memory
+        mem_req: vk.MemoryRequirements
+        vk.GetImageMemoryRequirements(s.device, s.white_texture_image, &mem_req)
+
+        mem_type_idx := vk_find_memory_type(mem_req.memoryTypeBits, {.DEVICE_LOCAL})
+        if mem_type_idx < 0 {
+                log.error("Vulkan: Failed to find memory type for white texture")
+                return false
+        }
+
+        alloc_info := vk.MemoryAllocateInfo {
+                sType           = .MEMORY_ALLOCATE_INFO,
+                allocationSize  = mem_req.size,
+                memoryTypeIndex = u32(mem_type_idx),
+        }
+
+        result = vk.AllocateMemory(s.device, &alloc_info, nil, &s.white_texture_memory)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to allocate white texture memory (%v)", result)
+                return false
+        }
+
+        vk.BindImageMemory(s.device, s.white_texture_image, s.white_texture_memory, 0)
+
+        // Upload pixel data via staging buffer
+        dst := ([^]u8)(s.staging_buffer_mapped)
+        mem.copy(dst, &white_pixel[0], 4)
+
+        // Transition + copy + transition
+        vk_immediate_submit(proc(cmd: vk.CommandBuffer) {
+                // Transition to TRANSFER_DST_OPTIMAL
+                barrier := vk.ImageMemoryBarrier {
+                        sType               = .IMAGE_MEMORY_BARRIER,
+                        srcAccessMask       = {},
+                        dstAccessMask       = {.TRANSFER_WRITE},
+                        oldLayout           = .UNDEFINED,
+                        newLayout           = .TRANSFER_DST_OPTIMAL,
+                        srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                        dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                        image               = s.white_texture_image,
+                        subresourceRange    = {
+                                aspectMask     = {.COLOR},
+                                baseMipLevel   = 0,
+                                levelCount     = 1,
+                                baseArrayLayer = 0,
+                                layerCount     = 1,
+                        },
+                }
+                vk.CmdPipelineBarrier(cmd, {.TOP_OF_PIPE}, {.TRANSFER}, {}, 0, nil, 0, nil, 1, &barrier)
+
+                // Copy from staging buffer
+                region := vk.BufferImageCopy {
+                        bufferOffset      = 0,
+                        bufferRowLength   = 0,
+                        bufferImageHeight = 0,
+                        imageSubresource  = {
+                                aspectMask     = {.COLOR},
+                                mipLevel       = 0,
+                                baseArrayLayer = 0,
+                                layerCount     = 1,
+                        },
+                        imageOffset = {0, 0, 0},
+                        imageExtent = {1, 1, 1},
+                }
+                vk.CmdCopyBufferToImage(cmd, s.staging_buffer, s.white_texture_image, .TRANSFER_DST_OPTIMAL, 1, &region)
+
+                // Transition to SHADER_READ_ONLY_OPTIMAL
+                barrier.srcAccessMask = {.TRANSFER_WRITE}
+                barrier.dstAccessMask = {.SHADER_READ}
+                barrier.oldLayout = .TRANSFER_DST_OPTIMAL
+                barrier.newLayout = .SHADER_READ_ONLY_OPTIMAL
+                vk.CmdPipelineBarrier(cmd, {.TRANSFER}, {.FRAGMENT_SHADER}, {}, 0, nil, 0, nil, 1, &barrier)
+        })
+
+        // Create image view
+        view_info := vk.ImageViewCreateInfo {
+                sType    = .IMAGE_VIEW_CREATE_INFO,
+                image    = s.white_texture_image,
+                viewType = .D2,
+                format   = .R8G8B8A8_UNORM,
+                components = {r = .IDENTITY, g = .IDENTITY, b = .IDENTITY, a = .IDENTITY},
+                subresourceRange = {
+                        aspectMask     = {.COLOR},
+                        baseMipLevel   = 0,
+                        levelCount     = 1,
+                        baseArrayLayer = 0,
+                        layerCount     = 1,
+                },
+        }
+
+        result = vk.CreateImageView(s.device, &view_info, nil, &s.white_texture_view)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create white texture image view (%v)", result)
+                return false
+        }
+
         return true
 }
 
@@ -1032,12 +1393,10 @@ vk_resize_swapchain :: proc(width, height: int) {
         s.width = width
         s.height = height
 
-        // Destroy old framebuffers, image views, swapchain — then recreate
         vk_destroy_swapchain_framebuffers()
         vk_destroy_swapchain_resources()
 
         old_swapchain := s.swapchain
-        // Free old arrays
         if s.swapchain_images != nil {
                 delete(s.swapchain_images, s.allocator)
                 s.swapchain_images = nil
@@ -1051,7 +1410,6 @@ vk_resize_swapchain :: proc(width, height: int) {
                 s.framebuffers = nil
         }
 
-        // Destroy old swapchain after creating a new one would be ideal, but we destroy first here
         if old_swapchain != 0 {
                 vk.DestroySwapchainKHR(s.device, old_swapchain, nil)
                 s.swapchain = {}
@@ -1070,7 +1428,7 @@ vk_resize_swapchain :: proc(width, height: int) {
 }
 
 // ---------------------------------------------------------------------------
-// Clear / Present / Draw  (Phase 1 minimal implementations)
+// Clear / Present / Draw
 // ---------------------------------------------------------------------------
 
 vk_clear :: proc(render_target: Render_Target_Handle, color: Color) {
@@ -1079,6 +1437,9 @@ vk_clear :: proc(render_target: Render_Target_Handle, color: Color) {
         // Wait for the previous frame using this slot to finish
         vk.WaitForFences(s.device, 1, &s.in_flight_fences[s.current_frame], true, max(u64))
         vk.ResetFences(s.device, 1, &s.in_flight_fences[s.current_frame])
+
+        // Reset the descriptor pool for this frame
+        vk.ResetDescriptorPool(s.device, s.descriptor_pools[s.current_frame], {})
 
         // Acquire the next swapchain image
         result := vk.AcquireNextImageKHR(
@@ -1134,7 +1495,6 @@ vk_present :: proc() {
 
         cmd := s.command_buffers[s.current_frame]
 
-        // End the render pass if one is active
         if s.in_render_pass {
                 vk.CmdEndRenderPass(cmd)
                 s.in_render_pass = false
@@ -1188,8 +1548,149 @@ vk_draw :: proc(
         blend_mode: Blend_Mode,
         vertex_buffer: []u8,
 ) {
-        // Phase 1 stub — draw calls will be implemented in Phase 2 (pipelines + shaders + vertex upload)
-        // For now this is intentionally empty so the backend compiles and clears work.
+        if s == nil { return }
+        if len(vertex_buffer) == 0 { return }
+
+        vk_shd := hm.get(&s.shaders, shd.handle)
+        if vk_shd == nil { return }
+
+        cmd := s.command_buffers[s.current_frame]
+
+        // Ensure we are in a render pass
+        if !s.in_render_pass { return }
+
+        // 1. Copy vertex data to the mapped vertex buffer for this frame
+        vb_mapped := s.vertex_buffer_mapped[s.current_frame]
+        if vb_mapped != nil {
+                mem.copy(vb_mapped, raw_data(vertex_buffer), len(vertex_buffer))
+        }
+
+        // 2. Bind the pipeline for this shader + blend mode
+        pipeline := vk_shd.pipelines[blend_mode]
+        if pipeline == 0 { return }
+        vk.CmdBindPipeline(cmd, .GRAPHICS, pipeline)
+
+        // 3. Set dynamic viewport
+        viewport_width:  f32
+        viewport_height: f32
+        rt := hm.get(&s.render_targets, render_target)
+        if rt != nil {
+                viewport_width  = f32(rt.width)
+                viewport_height = f32(rt.height)
+        } else {
+                viewport_width  = f32(s.swapchain_extent.width)
+                viewport_height = f32(s.swapchain_extent.height)
+        }
+
+        viewport := vk.Viewport {
+                x        = 0,
+                y        = 0,
+                width    = viewport_width,
+                height   = viewport_height,
+                minDepth = 0,
+                maxDepth = 1,
+        }
+        vk.CmdSetViewport(cmd, 0, 1, &viewport)
+
+        // 4. Set dynamic scissor
+        if scissor_rect, has_scissor := scissor.(Rect); has_scissor {
+                sc := vk.Rect2D {
+                        offset = {i32(scissor_rect.x), i32(scissor_rect.y)},
+                        extent = {u32(scissor_rect.w), u32(scissor_rect.h)},
+                }
+                vk.CmdSetScissor(cmd, 0, 1, &sc)
+        } else {
+                sc := vk.Rect2D {
+                        offset = {0, 0},
+                        extent = {u32(viewport_width), u32(viewport_height)},
+                }
+                vk.CmdSetScissor(cmd, 0, 1, &sc)
+        }
+
+        // 5. Push constants (view_projection matrix)
+        if vk_shd.uses_push_constants && len(shd.constants) > 0 {
+                // Push all constants data as push constants (up to 128 bytes minimum guaranteed)
+                push_size := min(len(shd.constants_data), 128)
+                if push_size > 0 {
+                        vk.CmdPushConstants(
+                                cmd,
+                                vk_shd.pipeline_layout,
+                                {.VERTEX},
+                                0,
+                                u32(push_size),
+                                raw_data(shd.constants_data),
+                        )
+                }
+        }
+
+        // 6. Allocate and update descriptor set for texture bindings
+        desc_set: vk.DescriptorSet
+        alloc_info := vk.DescriptorSetAllocateInfo {
+                sType              = .DESCRIPTOR_SET_ALLOCATE_INFO,
+                descriptorPool     = s.descriptor_pools[s.current_frame],
+                descriptorSetCount = 1,
+                pSetLayouts        = &vk_shd.descriptor_set_layout,
+        }
+
+        result := vk.AllocateDescriptorSets(s.device, &alloc_info, &desc_set)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to allocate descriptor set (%v)", result)
+                return
+        }
+
+        // Write texture descriptors
+        // We support up to 4 texture bindings; use white texture as fallback
+        MAX_TEX_BINDINGS :: 4
+        image_infos: [MAX_TEX_BINDINGS]vk.DescriptorImageInfo
+        writes := make([dynamic]vk.WriteDescriptorSet, 0, MAX_TEX_BINDINGS, context.temp_allocator)
+
+        tex_count := min(vk_shd.texture_binding_count, len(bound_textures), MAX_TEX_BINDINGS)
+        if tex_count == 0 { tex_count = 1 } // Always bind at least one texture (the white tex)
+
+        for i in 0 ..< tex_count {
+                tex_view := s.white_texture_view
+                tex_sampler := s.default_sampler
+
+                if i < len(bound_textures) {
+                        if vk_tex := hm.get(&s.textures, bound_textures[i]); vk_tex != nil {
+                                tex_view = vk_tex.view
+                                tex_sampler = vk_tex.sampler
+                        }
+                }
+
+                image_infos[i] = vk.DescriptorImageInfo {
+                        sampler     = tex_sampler,
+                        imageView   = tex_view,
+                        imageLayout = .SHADER_READ_ONLY_OPTIMAL,
+                }
+
+                append(&writes, vk.WriteDescriptorSet {
+                        sType           = .WRITE_DESCRIPTOR_SET,
+                        dstSet          = desc_set,
+                        dstBinding      = u32(i),
+                        dstArrayElement = 0,
+                        descriptorCount = 1,
+                        descriptorType  = .COMBINED_IMAGE_SAMPLER,
+                        pImageInfo      = &image_infos[i],
+                })
+        }
+
+        if len(writes) > 0 {
+                vk.UpdateDescriptorSets(s.device, u32(len(writes)), raw_data(writes[:]), 0, nil)
+        }
+
+        vk.CmdBindDescriptorSets(cmd, .GRAPHICS, vk_shd.pipeline_layout, 0, 1, &desc_set, 0, nil)
+
+        // 7. Bind vertex buffer
+        vb := s.vertex_buffers[s.current_frame]
+        offset := vk.DeviceSize(0)
+        vk.CmdBindVertexBuffers(cmd, 0, 1, &vb, &offset)
+
+        // 8. Draw
+        vertex_count := u32(len(vertex_buffer) / shd.vertex_size) if shd.vertex_size > 0 else 0
+        if vertex_count > 0 {
+                vk.CmdDraw(cmd, vertex_count, 1, 0, 0)
+        }
 }
 
 // ---------------------------------------------------------------------------
@@ -1205,51 +1706,311 @@ vk_get_swapchain_height :: proc() -> int {
 }
 
 // ---------------------------------------------------------------------------
-// Texture stubs (Phase 2)
+// Texture implementation (Phase 2)
 // ---------------------------------------------------------------------------
 
 vk_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-        log.warn("Vulkan: create_texture not yet implemented (Phase 2)")
-        return {}
+        tex := vk_create_texture_internal(width, height, format, nil)
+        if tex.image == 0 { return {} }
+
+        handle, err := hm.add(&s.textures, tex)
+        if err != nil {
+                log.errorf("Vulkan: Failed to add texture to handle map: %v", err)
+                vk_destroy_texture_resources(&tex)
+                return {}
+        }
+        return handle
 }
 
 vk_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-        log.warn("Vulkan: load_texture not yet implemented (Phase 2)")
-        return {}
+        tex := vk_create_texture_internal(width, height, format, data)
+        if tex.image == 0 { return {} }
+
+        handle, err := hm.add(&s.textures, tex)
+        if err != nil {
+                log.errorf("Vulkan: Failed to add texture to handle map: %v", err)
+                vk_destroy_texture_resources(&tex)
+                return {}
+        }
+        return handle
 }
 
-vk_update_texture :: proc(handle: Texture_Handle, data: []u8, rect: Rect) -> bool {
-        log.warn("Vulkan: update_texture not yet implemented (Phase 2)")
-        return false
+vk_create_texture_internal :: proc(width: int, height: int, format: Pixel_Format, data: []u8) -> Vulkan_Texture {
+        tex: Vulkan_Texture
+        tex.width = width
+        tex.height = height
+        tex.format = format
+        tex.sampler = s.default_sampler
+
+        vk_format := vk_translate_pixel_format(format)
+
+        // Create image
+        img_info := vk.ImageCreateInfo {
+                sType       = .IMAGE_CREATE_INFO,
+                imageType   = .D2,
+                format      = vk_format,
+                extent      = {width = u32(width), height = u32(height), depth = 1},
+                mipLevels   = 1,
+                arrayLayers = 1,
+                samples     = {._1},
+                tiling      = .OPTIMAL,
+                usage       = {.SAMPLED, .TRANSFER_DST},
+                initialLayout = .UNDEFINED,
+        }
+
+        result := vk.CreateImage(s.device, &img_info, nil, &tex.image)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create image (%v)", result)
+                return tex
+        }
+
+        // Allocate device-local memory
+        mem_req: vk.MemoryRequirements
+        vk.GetImageMemoryRequirements(s.device, tex.image, &mem_req)
+
+        mem_type_idx := vk_find_memory_type(mem_req.memoryTypeBits, {.DEVICE_LOCAL})
+        if mem_type_idx < 0 {
+                log.error("Vulkan: Failed to find device-local memory type for texture")
+                vk.DestroyImage(s.device, tex.image, nil)
+                tex.image = 0
+                return tex
+        }
+
+        alloc_info := vk.MemoryAllocateInfo {
+                sType           = .MEMORY_ALLOCATE_INFO,
+                allocationSize  = mem_req.size,
+                memoryTypeIndex = u32(mem_type_idx),
+        }
+
+        result = vk.AllocateMemory(s.device, &alloc_info, nil, &tex.memory)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to allocate texture memory (%v)", result)
+                vk.DestroyImage(s.device, tex.image, nil)
+                tex.image = 0
+                return tex
+        }
+
+        vk.BindImageMemory(s.device, tex.image, tex.memory, 0)
+
+        // If data provided, upload via staging buffer
+        if data != nil && len(data) > 0 {
+                vk_upload_texture_data(&tex, data, 0, 0, width, height)
+        } else {
+                // Just transition layout to SHADER_READ_ONLY
+                tex_image := tex.image
+                vk_immediate_submit(proc(cmd: vk.CommandBuffer) {
+                        barrier := vk.ImageMemoryBarrier {
+                                sType               = .IMAGE_MEMORY_BARRIER,
+                                srcAccessMask       = {},
+                                dstAccessMask       = {.SHADER_READ},
+                                oldLayout           = .UNDEFINED,
+                                newLayout           = .SHADER_READ_ONLY_OPTIMAL,
+                                srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                                dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                                image               = _immediate_submit_image,
+                                subresourceRange    = {
+                                        aspectMask     = {.COLOR},
+                                        baseMipLevel   = 0,
+                                        levelCount     = 1,
+                                        baseArrayLayer = 0,
+                                        layerCount     = 1,
+                                },
+                        }
+                        vk.CmdPipelineBarrier(cmd, {.TOP_OF_PIPE}, {.FRAGMENT_SHADER}, {}, 0, nil, 0, nil, 1, &barrier)
+                }, tex.image)
+        }
+        tex.layout = .SHADER_READ_ONLY_OPTIMAL
+
+        // Create image view
+        view_info := vk.ImageViewCreateInfo {
+                sType    = .IMAGE_VIEW_CREATE_INFO,
+                image    = tex.image,
+                viewType = .D2,
+                format   = vk_format,
+                components = {r = .IDENTITY, g = .IDENTITY, b = .IDENTITY, a = .IDENTITY},
+                subresourceRange = {
+                        aspectMask     = {.COLOR},
+                        baseMipLevel   = 0,
+                        levelCount     = 1,
+                        baseArrayLayer = 0,
+                        layerCount     = 1,
+                },
+        }
+
+        result = vk.CreateImageView(s.device, &view_info, nil, &tex.view)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create image view (%v)", result)
+                vk.FreeMemory(s.device, tex.memory, nil)
+                vk.DestroyImage(s.device, tex.image, nil)
+                tex.image = 0
+                return tex
+        }
+
+        return tex
 }
 
-vk_destroy_texture :: proc(handle: Texture_Handle) {
+vk_upload_texture_data :: proc(tex: ^Vulkan_Texture, data: []u8, x, y, w, h: int) {
+        data_size := len(data)
+        if data_size > s.staging_buffer_size {
+                log.errorf("Vulkan: Texture data (%d bytes) exceeds staging buffer size (%d)", data_size, s.staging_buffer_size)
+                return
+        }
+
+        // Copy to staging buffer
+        dst := ([^]u8)(s.staging_buffer_mapped)
+        mem.copy(dst, raw_data(data), data_size)
+
+        // Record and submit transfer commands
+        img := tex.image
+        bx := i32(x)
+        by := i32(y)
+        bw := u32(w)
+        bh := u32(h)
+
+        vk_immediate_submit(proc(cmd: vk.CommandBuffer) {
+                // Transition to TRANSFER_DST_OPTIMAL
+                barrier := vk.ImageMemoryBarrier {
+                        sType               = .IMAGE_MEMORY_BARRIER,
+                        srcAccessMask       = {.SHADER_READ},
+                        dstAccessMask       = {.TRANSFER_WRITE},
+                        oldLayout           = .UNDEFINED,
+                        newLayout           = .TRANSFER_DST_OPTIMAL,
+                        srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                        dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                        image               = _immediate_submit_image,
+                        subresourceRange    = {
+                                aspectMask     = {.COLOR},
+                                baseMipLevel   = 0,
+                                levelCount     = 1,
+                                baseArrayLayer = 0,
+                                layerCount     = 1,
+                        },
+                }
+                vk.CmdPipelineBarrier(cmd, {.FRAGMENT_SHADER}, {.TRANSFER}, {}, 0, nil, 0, nil, 1, &barrier)
+
+                // Copy buffer to image
+                region := vk.BufferImageCopy {
+                        bufferOffset      = 0,
+                        bufferRowLength   = 0,
+                        bufferImageHeight = 0,
+                        imageSubresource  = {
+                                aspectMask     = {.COLOR},
+                                mipLevel       = 0,
+                                baseArrayLayer = 0,
+                                layerCount     = 1,
+                        },
+                        imageOffset = {_immediate_submit_offset_x, _immediate_submit_offset_y, 0},
+                        imageExtent = {_immediate_submit_width, _immediate_submit_height, 1},
+                }
+                vk.CmdCopyBufferToImage(cmd, s.staging_buffer, _immediate_submit_image, .TRANSFER_DST_OPTIMAL, 1, &region)
+
+                // Transition to SHADER_READ_ONLY_OPTIMAL
+                barrier.srcAccessMask = {.TRANSFER_WRITE}
+                barrier.dstAccessMask = {.SHADER_READ}
+                barrier.oldLayout = .TRANSFER_DST_OPTIMAL
+                barrier.newLayout = .SHADER_READ_ONLY_OPTIMAL
+                vk.CmdPipelineBarrier(cmd, {.TRANSFER}, {.FRAGMENT_SHADER}, {}, 0, nil, 0, nil, 1, &barrier)
+        }, img, bx, by, bw, bh)
 }
 
-vk_texture_needs_vertical_flip :: proc(handle: Texture_Handle) -> bool {
+vk_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
+        tex := hm.get(&s.textures, th)
+        if tex == nil { return false }
+
+        vk_upload_texture_data(tex, data, int(rect.x), int(rect.y), int(rect.w), int(rect.h))
+        return true
+}
+
+vk_destroy_texture :: proc(th: Texture_Handle) {
+        tex := hm.get(&s.textures, th)
+        if tex == nil { return }
+
+        // Wait for any in-flight commands to complete before destroying
+        vk.DeviceWaitIdle(s.device)
+
+        vk_destroy_texture_resources(tex)
+        hm.remove(&s.textures, th)
+}
+
+vk_destroy_texture_resources :: proc(tex: ^Vulkan_Texture) {
+        if tex.view != 0 {
+                vk.DestroyImageView(s.device, tex.view, nil)
+        }
+        if tex.image != 0 {
+                vk.DestroyImage(s.device, tex.image, nil)
+        }
+        if tex.memory != 0 {
+                vk.FreeMemory(s.device, tex.memory, nil)
+        }
+        // Don't destroy sampler here - it's shared (default_sampler)
+        // Custom samplers are handled separately
+}
+
+vk_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
         // Vulkan does not need the GL vertical flip hack
-        return false
-}
-
-vk_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
-        log.warn("Vulkan: create_render_texture not yet implemented (Phase 3)")
-        return {}, {}
-}
-
-vk_destroy_render_target :: proc(render_target: Render_Target_Handle) {
+        tex := hm.get(&s.textures, th)
+        if tex == nil { return false }
+        return tex.needs_vertical_flip
 }
 
 vk_set_texture_filter :: proc(
-        handle: Texture_Handle,
+        th: Texture_Handle,
         scale_down_filter: Texture_Filter,
         scale_up_filter: Texture_Filter,
         mip_filter: Texture_Filter,
 ) {
-        log.warn("Vulkan: set_texture_filter not yet implemented (Phase 2)")
+        tex := hm.get(&s.textures, th)
+        if tex == nil {
+                log.error("Vulkan: Trying to set texture filter for invalid texture")
+                return
+        }
+
+        // Use the pre-created samplers
+        if scale_down_filter == .Linear || scale_up_filter == .Linear {
+                tex.sampler = s.default_linear_sampler
+        } else {
+                tex.sampler = s.default_sampler
+        }
 }
 
 // ---------------------------------------------------------------------------
-// Shader stubs (Phase 2)
+// Render texture (Phase 3 stub — minimal implementation)
+// ---------------------------------------------------------------------------
+
+vk_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
+        log.warn("Vulkan: create_render_texture not yet fully implemented (Phase 3)")
+        return {}, {}
+}
+
+vk_destroy_render_target :: proc(render_target: Render_Target_Handle) {
+        rt := hm.get(&s.render_targets, render_target)
+        if rt == nil { return }
+
+        vk.DeviceWaitIdle(s.device)
+        vk_destroy_render_target_resources(rt)
+        hm.remove(&s.render_targets, render_target)
+}
+
+vk_destroy_render_target_resources :: proc(rt: ^Vulkan_Render_Target) {
+        if rt.framebuffer != 0 {
+                vk.DestroyFramebuffer(s.device, rt.framebuffer, nil)
+        }
+        if rt.render_pass != 0 {
+                vk.DestroyRenderPass(s.device, rt.render_pass, nil)
+        }
+        if rt.view != 0 {
+                vk.DestroyImageView(s.device, rt.view, nil)
+        }
+        if rt.image != 0 {
+                vk.DestroyImage(s.device, rt.image, nil)
+        }
+        if rt.memory != 0 {
+                vk.FreeMemory(s.device, rt.memory, nil)
+        }
+}
+
+// ---------------------------------------------------------------------------
+// Shader implementation (Phase 2)
 // ---------------------------------------------------------------------------
 
 vk_load_shader :: proc(
@@ -1261,50 +2022,520 @@ vk_load_shader :: proc(
         handle: Shader_Handle,
         desc: Shader_Desc,
 ) {
-        log.warn("Vulkan: load_shader not yet implemented (Phase 2)")
-        return {}, {}
+        if len(vs_source) == 0 || len(fs_source) == 0 {
+                log.error("Vulkan: Shader source is empty")
+                return {}, {}
+        }
+
+        vk_shd: Vulkan_Shader
+
+        // Create shader modules from SPIR-V bytecode
+        vs_ok: bool
+        vk_shd.vertex_module, vs_ok = vk_create_shader_module(vs_source)
+        if !vs_ok {
+                log.error("Vulkan: Failed to create vertex shader module")
+                return {}, {}
+        }
+
+        fs_ok: bool
+        vk_shd.fragment_module, fs_ok = vk_create_shader_module(fs_source)
+        if !fs_ok {
+                log.error("Vulkan: Failed to create fragment shader module")
+                vk.DestroyShaderModule(s.device, vk_shd.vertex_module, nil)
+                return {}, {}
+        }
+
+        // For the default shader, we use a hardcoded layout:
+        // - Push constants: mat4 view_projection (64 bytes) at vertex stage
+        // - Descriptor set 0, binding 0: sampler2D tex
+        // - Vertex inputs: position (vec2), texcoord (vec2), color (vec4 normalized u8)
+        vk_shd.uses_push_constants = true
+        vk_shd.texture_binding_count = 1
+
+        // Build descriptor set layout: one combined image sampler at binding 0
+        sampler_binding := vk.DescriptorSetLayoutBinding {
+                binding         = 0,
+                descriptorType  = .COMBINED_IMAGE_SAMPLER,
+                descriptorCount = 1,
+                stageFlags      = {.FRAGMENT},
+        }
+
+        ds_layout_info := vk.DescriptorSetLayoutCreateInfo {
+                sType        = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                bindingCount = 1,
+                pBindings    = &sampler_binding,
+        }
+
+        result := vk.CreateDescriptorSetLayout(s.device, &ds_layout_info, nil, &vk_shd.descriptor_set_layout)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create descriptor set layout (%v)", result)
+                vk.DestroyShaderModule(s.device, vk_shd.vertex_module, nil)
+                vk.DestroyShaderModule(s.device, vk_shd.fragment_module, nil)
+                return {}, {}
+        }
+
+        // Push constant range: 64 bytes for mat4 view_projection
+        push_constant_range := vk.PushConstantRange {
+                stageFlags = {.VERTEX},
+                offset     = 0,
+                size       = 64, // size_of(mat4)
+        }
+
+        pipeline_layout_info := vk.PipelineLayoutCreateInfo {
+                sType                  = .PIPELINE_LAYOUT_CREATE_INFO,
+                setLayoutCount         = 1,
+                pSetLayouts            = &vk_shd.descriptor_set_layout,
+                pushConstantRangeCount = 1,
+                pPushConstantRanges    = &push_constant_range,
+        }
+
+        result = vk.CreatePipelineLayout(s.device, &pipeline_layout_info, nil, &vk_shd.pipeline_layout)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create pipeline layout (%v)", result)
+                vk.DestroyDescriptorSetLayout(s.device, vk_shd.descriptor_set_layout, nil)
+                vk.DestroyShaderModule(s.device, vk_shd.vertex_module, nil)
+                vk.DestroyShaderModule(s.device, vk_shd.fragment_module, nil)
+                return {}, {}
+        }
+
+        // Set up vertex input description
+        // Default vertex format: position (vec2, RG_32_Float) + texcoord (vec2, RG_32_Float) + color (vec4, RGBA_8_Norm)
+        // Stride: 8 + 8 + 4 = 20 bytes
+        desc.inputs = make([]Shader_Input, 3, desc_allocator)
+        desc.inputs[0] = {name = strings.clone("position", desc_allocator), register = 0, type = .Vec2, format = .RG_32_Float}
+        desc.inputs[1] = {name = strings.clone("texcoord", desc_allocator), register = 1, type = .Vec2, format = .RG_32_Float}
+        desc.inputs[2] = {name = strings.clone("color", desc_allocator), register = 2, type = .Vec4, format = .RGBA_8_Norm}
+
+        if len(layout_formats) >= 3 {
+                desc.inputs[0].format = layout_formats[0]
+                desc.inputs[1].format = layout_formats[1]
+                desc.inputs[2].format = layout_formats[2]
+        }
+
+        stride: int
+        for input in desc.inputs {
+                stride += pixel_format_size(input.format)
+        }
+        vk_shd.vertex_stride = stride
+
+        // Build Vulkan vertex input attribute descriptions
+        binding_desc := vk.VertexInputBindingDescription {
+                binding   = 0,
+                stride    = u32(stride),
+                inputRate = .VERTEX,
+        }
+
+        attr_descs: [3]vk.VertexInputAttributeDescription
+        offset: u32 = 0
+        for input, i in desc.inputs {
+                attr_descs[i] = vk.VertexInputAttributeDescription {
+                        location = u32(input.register),
+                        binding  = 0,
+                        format   = vk_translate_shader_input_format(input.format),
+                        offset   = offset,
+                }
+                offset += u32(pixel_format_size(input.format))
+        }
+
+        // Create graphics pipelines for each blend mode
+        for blend_mode in Blend_Mode {
+                pipeline := vk_create_graphics_pipeline(
+                        &vk_shd,
+                        &binding_desc,
+                        attr_descs[:len(desc.inputs)],
+                        blend_mode,
+                )
+                vk_shd.pipelines[blend_mode] = pipeline
+        }
+
+        // Set up shader desc constants (push constants exposed as "view_projection")
+        desc.constants = make([]Shader_Constant_Desc, 1, desc_allocator)
+        desc.constants[0] = {
+                name = strings.clone("view_projection", desc_allocator),
+                size = 64, // mat4
+        }
+
+        // Set up texture bindpoints
+        desc.texture_bindpoints = make([]Shader_Texture_Bindpoint_Desc, 1, desc_allocator)
+        desc.texture_bindpoints[0] = {
+                name = strings.clone("tex", desc_allocator),
+        }
+
+        // Add to handle map
+        shader_handle, add_err := hm.add(&s.shaders, vk_shd)
+        if add_err != nil {
+                log.errorf("Vulkan: Failed to add shader to handle map: %v", add_err)
+                vk_destroy_shader_resources(&vk_shd)
+                return SHADER_NONE, {}
+        }
+
+        return shader_handle, desc
 }
 
-vk_destroy_shader :: proc(handle: Shader_Handle) {
+vk_create_shader_module :: proc(code: []byte) -> (vk.ShaderModule, bool) {
+        // SPIR-V must be aligned to 4 bytes and length must be multiple of 4
+        if len(code) % 4 != 0 {
+                log.error("Vulkan: SPIR-V code size is not a multiple of 4")
+                return 0, false
+        }
+
+        create_info := vk.ShaderModuleCreateInfo {
+                sType    = .SHADER_MODULE_CREATE_INFO,
+                codeSize = len(code),
+                pCode    = (^u32)(raw_data(code)),
+        }
+
+        mod: vk.ShaderModule
+        result := vk.CreateShaderModule(s.device, &create_info, nil, &mod)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create shader module (%v)", result)
+                return 0, false
+        }
+
+        return mod, true
+}
+
+vk_create_graphics_pipeline :: proc(
+        shd: ^Vulkan_Shader,
+        binding_desc: ^vk.VertexInputBindingDescription,
+        attr_descs: []vk.VertexInputAttributeDescription,
+        blend_mode: Blend_Mode,
+) -> vk.Pipeline {
+        // Shader stages
+        shader_stages := [2]vk.PipelineShaderStageCreateInfo {
+                {
+                        sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
+                        stage  = {.VERTEX},
+                        module = shd.vertex_module,
+                        pName  = "main",
+                },
+                {
+                        sType  = .PIPELINE_SHADER_STAGE_CREATE_INFO,
+                        stage  = {.FRAGMENT},
+                        module = shd.fragment_module,
+                        pName  = "main",
+                },
+        }
+
+        // Vertex input state
+        vertex_input_info := vk.PipelineVertexInputStateCreateInfo {
+                sType                           = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+                vertexBindingDescriptionCount   = 1,
+                pVertexBindingDescriptions      = binding_desc,
+                vertexAttributeDescriptionCount = u32(len(attr_descs)),
+                pVertexAttributeDescriptions    = raw_data(attr_descs),
+        }
+
+        // Input assembly
+        input_assembly := vk.PipelineInputAssemblyStateCreateInfo {
+                sType    = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+                topology = .TRIANGLE_LIST,
+        }
+
+        // Viewport state (dynamic)
+        viewport_state := vk.PipelineViewportStateCreateInfo {
+                sType         = .PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+                viewportCount = 1,
+                scissorCount  = 1,
+        }
+
+        // Rasterization
+        rasterizer := vk.PipelineRasterizationStateCreateInfo {
+                sType       = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+                polygonMode = .FILL,
+                cullMode    = {},    // No culling for 2D
+                frontFace   = .COUNTER_CLOCKWISE,
+                lineWidth   = 1.0,
+        }
+
+        // Multisampling (no MSAA)
+        multisampling := vk.PipelineMultisampleStateCreateInfo {
+                sType                = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+                rasterizationSamples = {._1},
+        }
+
+        // Color blending
+        color_blend_attachment: vk.PipelineColorBlendAttachmentState
+
+        switch blend_mode {
+        case .Alpha:
+                color_blend_attachment = vk.PipelineColorBlendAttachmentState {
+                        blendEnable         = true,
+                        srcColorBlendFactor = .SRC_ALPHA,
+                        dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
+                        colorBlendOp        = .ADD,
+                        srcAlphaBlendFactor = .ONE,
+                        dstAlphaBlendFactor = .ONE_MINUS_SRC_ALPHA,
+                        alphaBlendOp        = .ADD,
+                        colorWriteMask      = {.R, .G, .B, .A},
+                }
+        case .Premultiplied_Alpha:
+                color_blend_attachment = vk.PipelineColorBlendAttachmentState {
+                        blendEnable         = true,
+                        srcColorBlendFactor = .ONE,
+                        dstColorBlendFactor = .ONE_MINUS_SRC_ALPHA,
+                        colorBlendOp        = .ADD,
+                        srcAlphaBlendFactor = .ONE,
+                        dstAlphaBlendFactor = .ONE_MINUS_SRC_ALPHA,
+                        alphaBlendOp        = .ADD,
+                        colorWriteMask      = {.R, .G, .B, .A},
+                }
+        }
+
+        color_blending := vk.PipelineColorBlendStateCreateInfo {
+                sType           = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+                attachmentCount = 1,
+                pAttachments    = &color_blend_attachment,
+        }
+
+        // Dynamic state
+        dynamic_states := [2]vk.DynamicState{.VIEWPORT, .SCISSOR}
+        dynamic_state := vk.PipelineDynamicStateCreateInfo {
+                sType             = .PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+                dynamicStateCount = len(dynamic_states),
+                pDynamicStates    = &dynamic_states[0],
+        }
+
+        pipeline_info := vk.GraphicsPipelineCreateInfo {
+                sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
+                stageCount          = len(shader_stages),
+                pStages             = &shader_stages[0],
+                pVertexInputState   = &vertex_input_info,
+                pInputAssemblyState = &input_assembly,
+                pViewportState      = &viewport_state,
+                pRasterizationState = &rasterizer,
+                pMultisampleState   = &multisampling,
+                pColorBlendState    = &color_blending,
+                pDynamicState       = &dynamic_state,
+                layout              = shd.pipeline_layout,
+                renderPass          = s.render_pass,
+                subpass             = 0,
+        }
+
+        pipeline: vk.Pipeline
+        result := vk.CreateGraphicsPipelines(s.device, 0, 1, &pipeline_info, nil, &pipeline)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create graphics pipeline for blend mode %v (%v)", blend_mode, result)
+                return 0
+        }
+
+        return pipeline
+}
+
+vk_destroy_shader :: proc(h: Shader_Handle) {
+        shd := hm.get(&s.shaders, h)
+        if shd == nil {
+                log.errorf("Vulkan: Invalid shader: %v", h)
+                return
+        }
+
+        vk.DeviceWaitIdle(s.device)
+        vk_destroy_shader_resources(shd)
+        hm.remove(&s.shaders, h)
+}
+
+vk_destroy_shader_resources :: proc(shd: ^Vulkan_Shader) {
+        for &pipeline in shd.pipelines {
+                if pipeline != 0 {
+                        vk.DestroyPipeline(s.device, pipeline, nil)
+                        pipeline = 0
+                }
+        }
+        if shd.pipeline_layout != 0 {
+                vk.DestroyPipelineLayout(s.device, shd.pipeline_layout, nil)
+        }
+        if shd.descriptor_set_layout != 0 {
+                vk.DestroyDescriptorSetLayout(s.device, shd.descriptor_set_layout, nil)
+        }
+        if shd.vertex_module != 0 {
+                vk.DestroyShaderModule(s.device, shd.vertex_module, nil)
+        }
+        if shd.fragment_module != 0 {
+                vk.DestroyShaderModule(s.device, shd.fragment_module, nil)
+        }
 }
 
 vk_default_shader_vertex_source :: proc() -> []byte {
-        // Phase 2 will embed pre-compiled SPIR-V via #load
-        return {}
+        vertex_source := #load("default_shaders/default_shader_vulkan_vertex.spv")
+        return vertex_source
 }
 
 vk_default_shader_fragment_source :: proc() -> []byte {
-        return {}
+        fragment_source := #load("default_shaders/default_shader_vulkan_fragment.spv")
+        return fragment_source
 }
 
 // ---------------------------------------------------------------------------
-// Vulkan proc address loader (platform-specific)
+// Helper: Buffer creation
 // ---------------------------------------------------------------------------
 
-when ODIN_OS == .Linux {
-        import "core:dynlib"
-
-        vk_get_proc_address :: proc() -> rawptr {
-                lib, ok := dynlib.load_library("libvulkan.so.1", {})
-                if !ok {
-                        lib, ok = dynlib.load_library("libvulkan.so", {})
-                }
-                if !ok {
-                        log.error("Vulkan: Failed to load libvulkan.so")
-                        return nil
-                }
-                addr, _ := dynlib.symbol_address(lib, "vkGetInstanceProcAddr")
-                return addr
+vk_create_buffer :: proc(
+        size: int,
+        usage: vk.BufferUsageFlags,
+        properties: vk.MemoryPropertyFlags,
+        map_memory := false,
+) -> (vk.Buffer, vk.DeviceMemory, rawptr) {
+        buf_info := vk.BufferCreateInfo {
+                sType = .BUFFER_CREATE_INFO,
+                size  = vk.DeviceSize(size),
+                usage = usage,
+                sharingMode = .EXCLUSIVE,
         }
-} else when ODIN_OS == .Windows {
-        import "core:sys/windows"
 
-        vk_get_proc_address :: proc() -> rawptr {
-                lib := windows.LoadLibraryW(windows.L("vulkan-1.dll"))
-                if lib == nil {
-                        log.error("Vulkan: Failed to load vulkan-1.dll")
-                        return nil
-                }
-                return rawptr(windows.GetProcAddress(lib, "vkGetInstanceProcAddr"))
+        buf: vk.Buffer
+        result := vk.CreateBuffer(s.device, &buf_info, nil, &buf)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create buffer (%v)", result)
+                return 0, 0, nil
         }
+
+        mem_req: vk.MemoryRequirements
+        vk.GetBufferMemoryRequirements(s.device, buf, &mem_req)
+
+        mem_type_idx := vk_find_memory_type(mem_req.memoryTypeBits, properties)
+        if mem_type_idx < 0 {
+                log.error("Vulkan: Failed to find suitable memory type for buffer")
+                vk.DestroyBuffer(s.device, buf, nil)
+                return 0, 0, nil
+        }
+
+        alloc_info := vk.MemoryAllocateInfo {
+                sType           = .MEMORY_ALLOCATE_INFO,
+                allocationSize  = mem_req.size,
+                memoryTypeIndex = u32(mem_type_idx),
+        }
+
+        buf_mem: vk.DeviceMemory
+        result = vk.AllocateMemory(s.device, &alloc_info, nil, &buf_mem)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to allocate buffer memory (%v)", result)
+                vk.DestroyBuffer(s.device, buf, nil)
+                return 0, 0, nil
+        }
+
+        vk.BindBufferMemory(s.device, buf, buf_mem, 0)
+
+        mapped: rawptr = nil
+        if map_memory {
+                result = vk.MapMemory(s.device, buf_mem, 0, vk.DeviceSize(size), {}, &mapped)
+                if result != .SUCCESS {
+                        log.errorf("Vulkan: Failed to map buffer memory (%v)", result)
+                        // Still return the buffer, just without mapping
+                        mapped = nil
+                }
+        }
+
+        return buf, buf_mem, mapped
 }
+
+// ---------------------------------------------------------------------------
+// Helper: Find memory type
+// ---------------------------------------------------------------------------
+
+vk_find_memory_type :: proc(type_filter: u32, properties: vk.MemoryPropertyFlags) -> int {
+        mem_props: vk.PhysicalDeviceMemoryProperties
+        vk.GetPhysicalDeviceMemoryProperties(s.physical_device, &mem_props)
+
+        for i in 0 ..< mem_props.memoryTypeCount {
+                if (type_filter & (1 << i)) != 0 {
+                        if properties <= mem_props.memoryTypes[i].propertyFlags {
+                                return int(i)
+                        }
+                }
+        }
+
+        return -1
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Immediate command buffer submission (for texture uploads, etc.)
+// We store temporary state in module-level variables since Odin closures
+// don't capture local variables.
+// ---------------------------------------------------------------------------
+
+// Temporary state for immediate submit callbacks.
+// Odin procs cannot capture locals, so we use module-level variables.
+_immediate_submit_image: vk.Image
+_immediate_submit_offset_x: i32
+_immediate_submit_offset_y: i32
+_immediate_submit_width: u32
+_immediate_submit_height: u32
+
+vk_immediate_submit :: proc(record_fn: proc(cmd: vk.CommandBuffer), image: vk.Image = {}, ox: i32 = 0, oy: i32 = 0, w: u32 = 0, h: u32 = 0) {
+        // Store parameters for the callback
+        _immediate_submit_image = image
+        _immediate_submit_offset_x = ox
+        _immediate_submit_offset_y = oy
+        _immediate_submit_width = w
+        _immediate_submit_height = h
+
+        alloc_info := vk.CommandBufferAllocateInfo {
+                sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
+                commandPool        = s.command_pool,
+                level              = .PRIMARY,
+                commandBufferCount = 1,
+        }
+
+        cmd: vk.CommandBuffer
+        vk.AllocateCommandBuffers(s.device, &alloc_info, &cmd)
+
+        begin_info := vk.CommandBufferBeginInfo {
+                sType = .COMMAND_BUFFER_BEGIN_INFO,
+                flags = {.ONE_TIME_SUBMIT},
+        }
+        vk.BeginCommandBuffer(cmd, &begin_info)
+
+        record_fn(cmd)
+
+        vk.EndCommandBuffer(cmd)
+
+        submit_info := vk.SubmitInfo {
+                sType              = .SUBMIT_INFO,
+                commandBufferCount = 1,
+                pCommandBuffers    = &cmd,
+        }
+
+        vk.QueueSubmit(s.graphics_queue, 1, &submit_info, 0)
+        vk.QueueWaitIdle(s.graphics_queue)
+
+        vk.FreeCommandBuffers(s.device, s.command_pool, 1, &cmd)
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Pixel format translation
+// ---------------------------------------------------------------------------
+
+vk_translate_pixel_format :: proc(f: Pixel_Format) -> vk.Format {
+        switch f {
+        case .RGBA_32_Float: return .R32G32B32A32_SFLOAT
+        case .RGB_32_Float:  return .R32G32B32_SFLOAT
+        case .RG_32_Float:   return .R32G32_SFLOAT
+        case .R_32_Float:    return .R32_SFLOAT
+        case .RGBA_8_Norm:   return .R8G8B8A8_UNORM
+        case .RG_8_Norm:     return .R8G8_UNORM
+        case .R_8_Norm:      return .R8_UNORM
+        case .R_8_UInt:      return .R8_UINT
+        case .Unknown:       return .R8G8B8A8_UNORM
+        }
+        return .R8G8B8A8_UNORM
+}
+
+vk_translate_shader_input_format :: proc(f: Pixel_Format) -> vk.Format {
+        switch f {
+        case .RGBA_32_Float: return .R32G32B32A32_SFLOAT
+        case .RGB_32_Float:  return .R32G32B32_SFLOAT
+        case .RG_32_Float:   return .R32G32_SFLOAT
+        case .R_32_Float:    return .R32_SFLOAT
+        case .RGBA_8_Norm:   return .R8G8B8A8_UNORM
+        case .RG_8_Norm:     return .R8G8_UNORM
+        case .R_8_Norm:      return .R8_UNORM
+        case .R_8_UInt:      return .R8_UINT
+        case .Unknown:       return .R32G32B32A32_SFLOAT
+        }
+        return .R32G32B32A32_SFLOAT
+}
+
+// ---------------------------------------------------------------------------
+// Vulkan proc address loader — see render_backend_vulkan_linux.odin /
+// render_backend_vulkan_windows.odin for vk_get_proc_address().
+// ---------------------------------------------------------------------------
