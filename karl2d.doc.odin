@@ -444,49 +444,90 @@ create_sound_instance :: proc(snd: Sound) -> Sound
 // will also be destroyed.
 destroy_sound :: proc(snd: Sound)
 
-// Load an audio stream from a file on disk. This is often used for playing music.
+// Load an audio stream from a file on disk. This is often used for playing music. An audio stream
+// only loads a small part of the file at a time. As the the file is played, new parts are said to
+// be streamed into memory.
+//
+// Supported file formats: ogg
 //
 // Audio streams do not stream in data automatically from the disk. You need to call
 // `update_audio_stream` every frame to stream in the new data.
 load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream
 
-// Destroy an audio stream previously loaded using `load_audio_stream_from_file`.
-destroy_audio_stream :: proc(audio_stream: Audio_Stream)
+// Load an audio stream from a byte slice that is completely in memory. This makes it possible to
+// have an encoded audio file in memory and decode it, a small bit a time.
+//
+// The `bytes` parameter is NOT copied. Do not unload that memory while the audio stream is playing.
+//
+// Supported formats: ogg -- in other words, the kind of data this procedure accepts is the kind of
+// data you get by doing `#load("some_music.ogg")` or `os.read_entire_file("some_music.ogg")` 
+//
+// This procedure is useful in some specific cases. One such case is web builds. Web builds don't
+// support `load_audio_stream_from_file` since they don't have a file system. Instead, you can do
+// `k2.load_audio_stream_from_bytes(#load("some_music.ogg"))` to embed the whole ogg file in the
+// `.wasm` file.
+//
+// Another use case is if you're making a desktop game and you want to embed all the assets in the
+// executable (so the game is a single file). In that case you'd could also use `#load` to fetch the
+// file and then send it into this procedure.
+//
+// Note that this procedure wants the encoded file, for example an ogg file just like it was on
+// disk. For normal sounds there is a `load_sound_from_bytes_raw` procedure where you just send in
+// the samples. There is no such procedure for audio streams since the whole idea is to stream an
+// encoded file into memory without having to decode the whole thing first.  
+load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream
 
-// Call once per frame in order to stream new data into the Audio_Stream's buffer. Not calling this
-// will cause audio streams to not play, even though you call `play_audio_stream`.
-update_audio_stream :: proc(audio_stream: Audio_Stream)
+// Destroy an audio stream previously loaded using `load_audio_stream_from_file` or
+// `load_audio_stream_from_bytes`. This cleans up some internal state and closes file handles.
+//
+// If you created the stream using `load_audio_stream_from_bytes`, then this procedure will NOT
+// deallocate the bytes that you sent into that procedure.
+destroy_audio_stream :: proc(stream: Audio_Stream)
+
+// Streams in new audio data from the audio stream. You need to call this once per frame in order
+// for the streaming to actually happen. 
+update_audio_stream :: proc(stream: Audio_Stream)
 
 // Start playing an audio stream. Don't forget to call `update_audio_stream` every frame in order to
-// stream in the new data.
+// stream in new data.
 //
 // Running this this while the stream is already playing will restart it from the beginning. Use
 // `pause_audio_stream` if you just want to pause it.
-play_audio_stream :: proc(audio_stream: Audio_Stream, loop := false)
+play_audio_stream :: proc(stream: Audio_Stream, loop := false)
 
 // Pause an audio stream. Run `play_audio_stream` to unpause it.
-pause_audio_stream :: proc(audio_stream: Audio_Stream)
+pause_audio_stream :: proc(stream: Audio_Stream)
 
 // Stop an audio stream. If `play_audio_stream` is called again, the stream will start over from the
 // beginning.
-stop_audio_stream :: proc(audio_stream: Audio_Stream)
+stop_audio_stream :: proc(stream: Audio_Stream)
 
 // Set the volume of the audio stream. Range: 0 to 1.
-set_audio_stream_volume :: proc(audio_stream: Audio_Stream, volume: f32)
+//
+// You can use this both with a playing and non-playing stream. If its already playing, then this
+// will affect the playing stream.
+set_audio_stream_volume :: proc(stream: Audio_Stream, volume: f32)
 
 // Set the pan (balance between left and right) of the audio stream. Range: -1 to 1, where -1 is
 // full left, 0 is center and 1 is full right.
-set_audio_stream_pan :: proc(audio_stream: Audio_Stream, pan: f32)
+//
+// You can use this both with a playing and non-playing stream. If its already playing, then this
+// will affect the playing stream.
+set_audio_stream_pan :: proc(stream: Audio_Stream, pan: f32)
 
 // Set the pitch of the audio stream. Range: 0.01 to infinity. A higher value will make the audio
 // play faster.
-set_audio_stream_pitch :: proc(audio_stream: Audio_Stream, pitch: f32)
+//
+// You can use this both with a playing and non-playing stream. If its already playing, then this
+// will affect the playing stream.
+set_audio_stream_pitch :: proc(stream: Audio_Stream, pitch: f32)
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
 //
-// This procedure implements a custom software audio mixer. The backend is just fed the resulting
-// mix. Therefore, you can see everything regarding how audio is processed in this procedure.
+// This procedure implements a custom software audio mixer. The audio backend is just fed the
+// resulting mix. Therefore, you can see everything regarding how audio is processed in this
+// procedure.
 //
 // Will only run if the audio backend is running low on audio data.
 update_audio_mixer :: proc()
@@ -1075,6 +1116,42 @@ Audio_Channels :: enum {
 	Stereo,
 }
 
+Audio_Stream_Mode :: enum {
+	From_File,
+	From_Bytes,
+}
+
+Audio_Stream_Data :: struct {
+	handle: Audio_Stream,
+	
+	vorbis: ^stbv.vorbis,
+	playing_buffer_handle: Playing_Audio_Buffer_Handle,
+	buffer_handle: Audio_Buffer_Handle,
+	
+	// Where in the audio buffer referred to by `buffer_handle` that we have most recently written
+	// samples. Together with the `offset` of the Playing_Audio_Buffer, this forms a circular
+	// buffer.
+	buffer_write_pos: int,
+
+	playback_settings: Audio_Buffer_Playback_Settings,
+
+	// Different from `loop` in `Playing_Audio_Buffer`. This says if the whole stream should loop
+	// when it reaches end-of-file. The `loop` in `Playing_Audio_Buffer` just says to loop the
+	// buffer itself. That's something you always want for a stream: We are continously writing
+	// data from a file into a small buffer that is a few seconds long.
+	loop: bool,
+
+	mode: Audio_Stream_Mode,
+
+	// From_File mode
+	file: ^File,
+	file_read_buf: [dynamic]u8,
+	file_read_buf_offset: int,
+
+	// From_Bytes mode
+	bytes: []u8,
+}
+
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
 // It is created and kept as a global variable when 'init' is called. 'init' also returns a pointer
 // to it, so you can later use 'set_internal_state' to restore it (after for example hot reload).
@@ -1147,12 +1224,11 @@ State :: struct {
 
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
 
-	// Kept separately in `karl2d_audio_stream_xxx.odin` due to platform differences such as some 
-	// platforms not having file system support properly. This may be addressed in future versions
-	// of Karl2D.
-	audio_stream_manager: Audio_Stream_Manager,
+	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
+	vorbis_alloc: stbv.vorbis_alloc,
 
-	// 1 megabyte is arbitrarily chosen.
+	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
+	// ample.
 	mix_buffer: [AUDIO_MIX_CHUNK_SIZE*10][2]Audio_Sample,
 
 	// Where the mixer currently is in the mix buffer.
