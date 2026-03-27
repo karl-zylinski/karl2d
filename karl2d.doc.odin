@@ -445,8 +445,8 @@ create_sound_instance :: proc(snd: Sound) -> Sound
 destroy_sound :: proc(snd: Sound)
 
 // Load an audio stream from a file on disk. This is often used for playing music. An audio stream
-// only loads a small part of the file at a time. As the the file is played, new parts are said to
-// be streamed into memory.
+// only loads a small part of the file at a time. As the file is played, new parts are streamed into
+// memory.
 //
 // Supported file formats: ogg
 //
@@ -461,6 +461,9 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream
 //
 // Supported formats: ogg -- in other words, the kind of data this procedure accepts is the kind of
 // data you get by doing `#load("some_music.ogg")` or `os.read_entire_file("some_music.ogg")` 
+//
+// Audio streams do not stream in data automatically from the source. You need to call
+// `update_audio_stream` every frame to stream in the new data.
 //
 // This procedure is useful in some specific cases. One such case is web builds. Web builds don't
 // support `load_audio_stream_from_file` since they don't have a file system. Instead, you can do
