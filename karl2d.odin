@@ -143,11 +143,11 @@ init :: proc(
 		VORBIS_STATE_SIZE :: 500 * mem.Kilobyte
 
 		s.vorbis_alloc = {
-			alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, allocator),
+			alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
 			alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
 		}
 
-		hm.dynamic_init(&s.audio_streams, allocator)
+		hm.dynamic_init(&s.audio_streams, s.allocator)
 	}
 
 	return s
@@ -1733,8 +1733,8 @@ destroy_sound :: proc(snd: Sound) {
 }
 
 // Load an audio stream from a file on disk. This is often used for playing music. An audio stream
-// only loads a small part of the file at a time. As the the file is played, new parts are said to
-// be streamed into memory.
+// only loads a small part of the file at a time. As the file is played, new parts are streamed into
+// memory.
 //
 // Supported file formats: ogg
 //
@@ -1766,7 +1766,8 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 	vorbis_res: ^stbv.vorbis
 
 	// This loop tries to read in just enough from the file so that it has enough info to play it.
-	// It `stbv.open_pushdata` will return an if it needs more data.
+	// `stbv.open_pushdata` returns an error if it needs more data, in which case the the loop
+	// might continue.
 	for {
 		vorbis_err: stbv.Error
 		consumed: i32
@@ -1781,7 +1782,14 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		if vorbis_err == nil {
 			// The file was properly loaded!
 			vorbis_res = vorbis
-			file_seek(f, i64(consumed), .Start)
+			_, seek_err := file_seek(f, i64(consumed), .Start)
+
+			if seek_err != nil {
+				log.errorf("Failed seeking in audio stream file %v. Error: %v", filename, seek_err)
+				file_close(f)
+				return AUDIO_STREAM_NONE
+			}
+
 			break
 		} else if vorbis_err == .need_more_data {
 			// Read in more data from the file so that maybe `stbv.open_pushdata` succeeds next
@@ -1790,32 +1798,20 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 
 			if read_err != nil {
 				log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
-				
-				if close_err := file_close(f); close_err != nil {
-					log.errorf("Failed closing file. Error: %v", close_err)
-				}
-				
+				file_close(f)
 				return AUDIO_STREAM_NONE
 			}
 
 			if nbytes_read == 0 {
 				log.errorf("Failed to load audio stream. Reached end of file before stream could be loaded.")
-
-				if close_err := file_close(f); close_err != nil {
-					log.errorf("Failed closing file. Error: %v", close_err)
-				}
-				
+				file_close(f)
 				return AUDIO_STREAM_NONE
 			}
 
 			append(&buf, ..read_buf[:nbytes_read])
 		} else {
 			log.errorf("Failed to load audio stream. Error: %v", vorbis_err)
-
-			if close_err := file_close(f); close_err != nil {
-				log.errorf("Failed closing file. Error: %v", close_err)
-			}
-			
+			file_close(f)
 			return AUDIO_STREAM_NONE
 		}
 	}
@@ -1892,6 +1888,9 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 // Supported formats: ogg -- in other words, the kind of data this procedure accepts is the kind of
 // data you get by doing `#load("some_music.ogg")` or `os.read_entire_file("some_music.ogg")` 
 //
+// Audio streams do not stream in data automatically from the source. You need to call
+// `update_audio_stream` every frame to stream in the new data.
+//
 // This procedure is useful in some specific cases. One such case is web builds. Web builds don't
 // support `load_audio_stream_from_file` since they don't have a file system. Instead, you can do
 // `k2.load_audio_stream_from_bytes(#load("some_music.ogg"))` to embed the whole ogg file in the
@@ -1964,7 +1963,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 	stream, stream_add_err := hm.add(&s.audio_streams, asd)
 
 	if stream_add_err != nil {
-		log.errorf("Failed to create audio stream from file. Error: %v", stream_add_err)
+		log.errorf("Failed to create audio stream from bytes. Error: %v", stream_add_err)
 		delete(buffer.samples, s.allocator)
 		hm.remove(&s.audio_buffers, buffer_handle)
 		return AUDIO_STREAM_NONE
@@ -2070,7 +2069,14 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 				if read_err != nil {
 					if read_err == .EOF {
 						if sd.loop {
-							file_seek(sd.file, 0, .Start)
+							_, seek_err := file_seek(sd.file, 0, .Start)
+
+							if seek_err != nil {
+								log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
+								stop_audio_stream(stream)
+								break
+							}
+
 							stbv.flush_pushdata(sd.vorbis)
 							continue
 						} else {
@@ -2199,7 +2205,7 @@ play_audio_stream :: proc(stream: Audio_Stream, loop := false) {
 	sd.playing_buffer_handle, add_err = hm.add(&s.playing_audio_buffers, playing_audio_buffer)
 
 	if add_err != nil {
-		log.errorf("Failed adding audio stream's buffer to list of playing audio buffers. Error: %v", add_err)
+		log.errorf("Failed playing the audio stream because the audio buffer could not be set up for playing. Error: %v", add_err)
 	}
 
 	sd.loop = loop
