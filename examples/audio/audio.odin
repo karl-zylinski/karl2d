@@ -18,8 +18,8 @@ snd_volume: f32
 snd_pan: f32
 snd_pitch: f32 = 1
 
-MUSIC_FILE :: ""
-HAS_MUSIC :: MUSIC_FILE != ""
+MUSIC_FILE :: "cat_and_onion.ogg"
+HAS_MUSIC :: #exists(MUSIC_FILE)
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Audio")
