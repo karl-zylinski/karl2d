@@ -1,6 +1,7 @@
 // Vulkan render backend for Karl2D.
 // Phase 1: Foundation & Initialization — instance, device, swapchain, command buffers, synchronization.
 // Phase 2: Textures, shaders, pipelines, vertex buffers, draw calls.
+// Phase 3: Render targets, render target switching, advanced blending, performance optimizations.
 #+build linux, windows
 #+private file
 
@@ -57,8 +58,10 @@ Vulkan_Shader :: struct {
         vertex_module:         vk.ShaderModule,
         fragment_module:       vk.ShaderModule,
 
-        // Pipeline cache: one pipeline per blend mode
+        // Pipeline cache: one pipeline per blend mode for swapchain render pass
         pipelines:             [Blend_Mode]vk.Pipeline,
+        // Pipeline cache: one pipeline per blend mode for render target render pass
+        rt_pipelines:          [Blend_Mode]vk.Pipeline,
         pipeline_layout:       vk.PipelineLayout,
         descriptor_set_layout: vk.DescriptorSetLayout,
 
@@ -74,17 +77,24 @@ Vulkan_Shader :: struct {
 
         // Vertex stride
         vertex_stride:         int,
+
+        // Cached vertex input state for creating render-target pipelines on demand
+        binding_desc:          vk.VertexInputBindingDescription,
+        attr_descs:            [3]vk.VertexInputAttributeDescription,
+        attr_desc_count:       int,
 }
 
 Vulkan_Render_Target :: struct {
-        handle:      Render_Target_Handle,
-        image:       vk.Image,
-        memory:      vk.DeviceMemory,
-        view:        vk.ImageView,
-        framebuffer: vk.Framebuffer,
-        render_pass: vk.RenderPass,
-        width:       int,
-        height:      int,
+        handle:       Render_Target_Handle,
+        image:        vk.Image,
+        memory:       vk.DeviceMemory,
+        view:         vk.ImageView,
+        framebuffer:  vk.Framebuffer,
+        render_pass:  vk.RenderPass,
+        width:        int,
+        height:       int,
+        // The associated texture handle so we can look up the texture for sampling
+        texture_handle: Texture_Handle,
 }
 
 // ---------------------------------------------------------------------------
@@ -130,11 +140,28 @@ Vulkan_State :: struct {
         command_buffers: [MAX_FRAMES_IN_FLIGHT]vk.CommandBuffer,
 
         // Default render pass and framebuffers for the swapchain
-        render_pass:  vk.RenderPass,
-        framebuffers: []vk.Framebuffer,
+        render_pass:       vk.RenderPass,     // CLEAR loadOp — used for first clear each frame
+        render_pass_load:  vk.RenderPass,     // LOAD loadOp — used for subsequent rendering without clear
+        framebuffers:      []vk.Framebuffer,  // Compatible with both render_pass and render_pass_load
+        framebuffers_load: []vk.Framebuffer,  // Framebuffers for the load render pass
 
         // Whether we are currently inside a render pass recording
         in_render_pass: bool,
+
+        // Currently active render target (RENDER_TARGET_NONE means swapchain)
+        current_render_target: Render_Target_Handle,
+
+        // Whether the frame has been started (swapchain image acquired, cmd buffer recording)
+        frame_started: bool,
+
+        // Whether the swapchain has been cleared this frame (first render pass uses CLEAR, subsequent use LOAD)
+        swapchain_cleared: bool,
+
+        // Render pass for render targets (different final layout than swapchain render pass)
+        render_target_render_pass: vk.RenderPass,
+
+        // Pipeline cache for faster pipeline creation on subsequent runs
+        pipeline_cache: vk.PipelineCache,
 
         // Dynamic vertex buffers (one per frame-in-flight to avoid write-after-read hazards)
         vertex_buffers:        [MAX_FRAMES_IN_FLIGHT]vk.Buffer,
@@ -284,15 +311,23 @@ vk_init :: proc(
                 return
         }
 
-        // 7. Create default render pass
+        // 7. Create default render passes (clear and load variants)
         if !vk_create_render_pass() {
                 log.error("Vulkan: Failed to create render pass")
                 return
         }
+        if !vk_create_render_pass_load() {
+                log.error("Vulkan: Failed to create load render pass")
+                return
+        }
 
-        // 8. Create framebuffers for swapchain images
+        // 8. Create framebuffers for swapchain images (both clear and load variants)
         if !vk_create_framebuffers() {
                 log.error("Vulkan: Failed to create framebuffers")
+                return
+        }
+        if !vk_create_framebuffers_load() {
+                log.error("Vulkan: Failed to create load framebuffers")
                 return
         }
 
@@ -343,7 +378,16 @@ vk_init :: proc(
                 return
         }
 
-        log.info("Vulkan: Initialization complete (Phase 2)")
+        // 16. Create render target render pass (Phase 3)
+        if !vk_create_render_target_render_pass() {
+                log.error("Vulkan: Failed to create render target render pass")
+                return
+        }
+
+        // 17. Create pipeline cache (Phase 3)
+        vk_create_pipeline_cache()
+
+        log.info("Vulkan: Initialization complete (Phase 3)")
 }
 
 // ---------------------------------------------------------------------------
@@ -354,6 +398,16 @@ vk_shutdown :: proc() {
         if s == nil { return }
         if s.device != nil {
                 vk.DeviceWaitIdle(s.device)
+        }
+
+        // Destroy pipeline cache
+        if s.pipeline_cache != 0 {
+                vk.DestroyPipelineCache(s.device, s.pipeline_cache, nil)
+        }
+
+        // Destroy render target render pass
+        if s.render_target_render_pass != 0 {
+                vk.DestroyRenderPass(s.device, s.render_target_render_pass, nil)
         }
 
         // Destroy white texture
@@ -456,10 +510,14 @@ vk_shutdown :: proc() {
 
         // Destroy framebuffers
         vk_destroy_swapchain_framebuffers()
+        vk_destroy_swapchain_framebuffers_load()
 
-        // Destroy render pass
+        // Destroy render passes
         if s.render_pass != 0 {
                 vk.DestroyRenderPass(s.device, s.render_pass, nil)
+        }
+        if s.render_pass_load != 0 {
+                vk.DestroyRenderPass(s.device, s.render_pass_load, nil)
         }
 
         // Destroy swapchain image views and swapchain
@@ -505,6 +563,9 @@ vk_shutdown :: proc() {
         }
         if s.framebuffers != nil {
                 delete(s.framebuffers, s.allocator)
+        }
+        if s.framebuffers_load != nil {
+                delete(s.framebuffers_load, s.allocator)
         }
 
         // Destroy the glue
@@ -1043,6 +1104,61 @@ vk_create_render_pass :: proc() -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// Load render pass (LOAD_OP_LOAD — for non-clearing draws to swapchain)
+// ---------------------------------------------------------------------------
+
+vk_create_render_pass_load :: proc() -> bool {
+        color_attachment := vk.AttachmentDescription {
+                format         = s.swapchain_format,
+                samples        = {._1},
+                loadOp         = .LOAD,
+                storeOp        = .STORE,
+                stencilLoadOp  = .DONT_CARE,
+                stencilStoreOp = .DONT_CARE,
+                initialLayout  = .PRESENT_SRC_KHR,  // After the clear render pass, image is in PRESENT_SRC_KHR
+                finalLayout    = .PRESENT_SRC_KHR,
+        }
+
+        color_attachment_ref := vk.AttachmentReference {
+                attachment = 0,
+                layout     = .COLOR_ATTACHMENT_OPTIMAL,
+        }
+
+        subpass := vk.SubpassDescription {
+                pipelineBindPoint    = .GRAPHICS,
+                colorAttachmentCount = 1,
+                pColorAttachments    = &color_attachment_ref,
+        }
+
+        dependency := vk.SubpassDependency {
+                srcSubpass    = vk.SUBPASS_EXTERNAL,
+                dstSubpass    = 0,
+                srcStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
+                srcAccessMask = {.COLOR_ATTACHMENT_WRITE},
+                dstStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
+                dstAccessMask = {.COLOR_ATTACHMENT_WRITE},
+        }
+
+        render_pass_info := vk.RenderPassCreateInfo {
+                sType           = .RENDER_PASS_CREATE_INFO,
+                attachmentCount = 1,
+                pAttachments    = &color_attachment,
+                subpassCount    = 1,
+                pSubpasses      = &subpass,
+                dependencyCount = 1,
+                pDependencies   = &dependency,
+        }
+
+        result := vk.CreateRenderPass(s.device, &render_pass_info, nil, &s.render_pass_load)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: vkCreateRenderPass (load) failed with %v", result)
+                return false
+        }
+
+        return true
+}
+
+// ---------------------------------------------------------------------------
 // Framebuffers
 // ---------------------------------------------------------------------------
 
@@ -1070,9 +1186,43 @@ vk_create_framebuffers :: proc() -> bool {
         return true
 }
 
+vk_create_framebuffers_load :: proc() -> bool {
+        s.framebuffers_load = make([]vk.Framebuffer, len(s.swapchain_image_views), s.allocator)
+
+        for view, i in s.swapchain_image_views {
+                attachments := [1]vk.ImageView{view}
+                fb_info := vk.FramebufferCreateInfo {
+                        sType           = .FRAMEBUFFER_CREATE_INFO,
+                        renderPass      = s.render_pass_load,
+                        attachmentCount = 1,
+                        pAttachments    = &attachments[0],
+                        width           = s.swapchain_extent.width,
+                        height          = s.swapchain_extent.height,
+                        layers          = 1,
+                }
+
+                result := vk.CreateFramebuffer(s.device, &fb_info, nil, &s.framebuffers_load[i])
+                if result != .SUCCESS {
+                        log.errorf("Vulkan: Failed to create load framebuffer %d (%v)", i, result)
+                        return false
+                }
+        }
+        return true
+}
+
 vk_destroy_swapchain_framebuffers :: proc() {
         if s.framebuffers != nil {
                 for fb in s.framebuffers {
+                        if fb != 0 {
+                                vk.DestroyFramebuffer(s.device, fb, nil)
+                        }
+                }
+        }
+}
+
+vk_destroy_swapchain_framebuffers_load :: proc() {
+        if s.framebuffers_load != nil {
+                for fb in s.framebuffers_load {
                         if fb != 0 {
                                 vk.DestroyFramebuffer(s.device, fb, nil)
                         }
@@ -1381,6 +1531,111 @@ vk_create_white_texture :: proc() -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// Render target render pass (Phase 3)
+// ---------------------------------------------------------------------------
+
+// Create a render pass suitable for offscreen render targets.
+// The key differences from the swapchain render pass:
+// - Format: R32G32B32A32_SFLOAT (matches GL backend's render target format)
+// - Final layout: COLOR_ATTACHMENT_OPTIMAL (we transition manually to SHADER_READ_ONLY)
+// - Load op: CLEAR (we always clear render targets when vk_clear is called)
+vk_create_render_target_render_pass :: proc() -> bool {
+        color_attachment := vk.AttachmentDescription {
+                format         = .R32G32B32A32_SFLOAT,
+                samples        = {._1},
+                loadOp         = .LOAD,     // Use LOAD; we handle clear via clearValues when needed
+                storeOp        = .STORE,
+                stencilLoadOp  = .DONT_CARE,
+                stencilStoreOp = .DONT_CARE,
+                initialLayout  = .COLOR_ATTACHMENT_OPTIMAL,
+                finalLayout    = .COLOR_ATTACHMENT_OPTIMAL,
+        }
+
+        color_attachment_ref := vk.AttachmentReference {
+                attachment = 0,
+                layout     = .COLOR_ATTACHMENT_OPTIMAL,
+        }
+
+        subpass := vk.SubpassDescription {
+                pipelineBindPoint    = .GRAPHICS,
+                colorAttachmentCount = 1,
+                pColorAttachments    = &color_attachment_ref,
+        }
+
+        dependency := vk.SubpassDependency {
+                srcSubpass    = vk.SUBPASS_EXTERNAL,
+                dstSubpass    = 0,
+                srcStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
+                srcAccessMask = {},
+                dstStageMask  = {.COLOR_ATTACHMENT_OUTPUT},
+                dstAccessMask = {.COLOR_ATTACHMENT_WRITE},
+        }
+
+        render_pass_info := vk.RenderPassCreateInfo {
+                sType           = .RENDER_PASS_CREATE_INFO,
+                attachmentCount = 1,
+                pAttachments    = &color_attachment,
+                subpassCount    = 1,
+                pSubpasses      = &subpass,
+                dependencyCount = 1,
+                pDependencies   = &dependency,
+        }
+
+        result := vk.CreateRenderPass(s.device, &render_pass_info, nil, &s.render_target_render_pass)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: vkCreateRenderPass (render target) failed with %v", result)
+                return false
+        }
+
+        return true
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline cache (Phase 3)
+// ---------------------------------------------------------------------------
+
+vk_create_pipeline_cache :: proc() {
+        cache_info := vk.PipelineCacheCreateInfo {
+                sType = .PIPELINE_CACHE_CREATE_INFO,
+        }
+
+        result := vk.CreatePipelineCache(s.device, &cache_info, nil, &s.pipeline_cache)
+        if result != .SUCCESS {
+                log.warnf("Vulkan: Failed to create pipeline cache (%v), continuing without caching", result)
+                s.pipeline_cache = 0
+        }
+}
+
+// ---------------------------------------------------------------------------
+// Debug markers / labels (Phase 3 — only active when validation layers are enabled)
+// ---------------------------------------------------------------------------
+
+when ODIN_DEBUG {
+        vk_cmd_begin_label :: proc(cmd: vk.CommandBuffer, name: cstring, color: [4]f32 = {1, 1, 1, 1}) {
+                label := vk.DebugUtilsLabelEXT {
+                        sType      = .DEBUG_UTILS_LABEL_EXT,
+                        pLabelName = name,
+                        color      = color,
+                }
+                vk.CmdBeginDebugUtilsLabelEXT(cmd, &label)
+        }
+
+        vk_cmd_end_label :: proc(cmd: vk.CommandBuffer) {
+                vk.CmdEndDebugUtilsLabelEXT(cmd)
+        }
+
+        vk_set_object_name :: proc(object_type: vk.ObjectType, object_handle: u64, name: cstring) {
+                name_info := vk.DebugUtilsObjectNameInfoEXT {
+                        sType        = .DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+                        objectType   = object_type,
+                        objectHandle = object_handle,
+                        pObjectName  = name,
+                }
+                vk.SetDebugUtilsObjectNameEXT(s.device, &name_info)
+        }
+}
+
+// ---------------------------------------------------------------------------
 // Swapchain resize
 // ---------------------------------------------------------------------------
 
@@ -1394,6 +1649,7 @@ vk_resize_swapchain :: proc(width, height: int) {
         s.height = height
 
         vk_destroy_swapchain_framebuffers()
+        vk_destroy_swapchain_framebuffers_load()
         vk_destroy_swapchain_resources()
 
         old_swapchain := s.swapchain
@@ -1409,6 +1665,10 @@ vk_resize_swapchain :: proc(width, height: int) {
                 delete(s.framebuffers, s.allocator)
                 s.framebuffers = nil
         }
+        if s.framebuffers_load != nil {
+                delete(s.framebuffers_load, s.allocator)
+                s.framebuffers_load = nil
+        }
 
         if old_swapchain != 0 {
                 vk.DestroySwapchainKHR(s.device, old_swapchain, nil)
@@ -1423,6 +1683,10 @@ vk_resize_swapchain :: proc(width, height: int) {
                 log.error("Vulkan: Failed to recreate framebuffers on resize")
                 return
         }
+        if !vk_create_framebuffers_load() {
+                log.error("Vulkan: Failed to recreate load framebuffers on resize")
+                return
+        }
 
         log.infof("Vulkan: Swapchain resized to %dx%d", width, height)
 }
@@ -1434,60 +1698,13 @@ vk_resize_swapchain :: proc(width, height: int) {
 vk_clear :: proc(render_target: Render_Target_Handle, color: Color) {
         if s == nil { return }
 
-        // Wait for the previous frame using this slot to finish
-        vk.WaitForFences(s.device, 1, &s.in_flight_fences[s.current_frame], true, max(u64))
-        vk.ResetFences(s.device, 1, &s.in_flight_fences[s.current_frame])
-
-        // Reset the descriptor pool for this frame
-        vk.ResetDescriptorPool(s.device, s.descriptor_pools[s.current_frame], {})
-
-        // Acquire the next swapchain image
-        result := vk.AcquireNextImageKHR(
-                s.device,
-                s.swapchain,
-                max(u64),
-                s.image_available_semaphores[s.current_frame],
-                0,
-                &s.current_image_index,
-        )
-
-        if result == .ERROR_OUT_OF_DATE_KHR {
-                vk_resize_swapchain(s.width, s.height)
-                return
+        // Start frame if not already started (acquire swapchain image, begin command buffer)
+        if !s.frame_started {
+                vk_begin_frame()
         }
 
-        // Reset and begin the command buffer
-        cmd := s.command_buffers[s.current_frame]
-        vk.ResetCommandBuffer(cmd, {})
-
-        begin_info := vk.CommandBufferBeginInfo {
-                sType = .COMMAND_BUFFER_BEGIN_INFO,
-                flags = {.ONE_TIME_SUBMIT},
-        }
-        vk.BeginCommandBuffer(cmd, &begin_info)
-
-        // Begin render pass with clear colour
-        clear_color := vk.ClearValue{}
-        clear_color.color.float32 = {
-                f32(color[0]) / 255.0,
-                f32(color[1]) / 255.0,
-                f32(color[2]) / 255.0,
-                f32(color[3]) / 255.0,
-        }
-
-        render_pass_info := vk.RenderPassBeginInfo {
-                sType       = .RENDER_PASS_BEGIN_INFO,
-                renderPass  = s.render_pass,
-                framebuffer = s.framebuffers[s.current_image_index],
-                renderArea  = {
-                        offset = {0, 0},
-                        extent = s.swapchain_extent,
-                },
-                clearValueCount = 1,
-                pClearValues    = &clear_color,
-        }
-        vk.CmdBeginRenderPass(cmd, &render_pass_info, .INLINE)
-        s.in_render_pass = true
+        // Switch render target if needed
+        vk_ensure_render_target(render_target, color, true)
 }
 
 vk_present :: proc() {
@@ -1495,9 +1712,24 @@ vk_present :: proc() {
 
         cmd := s.command_buffers[s.current_frame]
 
+        // If we were rendering to a render target, transition it for sampling
+        // and switch back to swapchain for presentation
         if s.in_render_pass {
                 vk.CmdEndRenderPass(cmd)
                 s.in_render_pass = false
+        }
+
+        // Transition any render target that was active back to shader-read layout
+        if s.current_render_target != RENDER_TARGET_NONE {
+                if rt := hm.get(&s.render_targets, s.current_render_target); rt != nil {
+                        vk_transition_render_target_for_sampling(cmd, rt)
+                }
+                s.current_render_target = RENDER_TARGET_NONE
+        }
+
+        if !s.frame_started {
+                // Nothing was rendered this frame
+                return
         }
 
         vk.EndCommandBuffer(cmd)
@@ -1538,7 +1770,228 @@ vk_present :: proc() {
         }
 
         s.current_frame = (s.current_frame + 1) % MAX_FRAMES_IN_FLIGHT
+        s.frame_started = false
+        s.current_render_target = RENDER_TARGET_NONE
 }
+
+// ---------------------------------------------------------------------------
+// Frame management helpers (Phase 3)
+// ---------------------------------------------------------------------------
+
+// Begin a new frame: wait for fence, acquire swapchain image, begin command buffer.
+vk_begin_frame :: proc() {
+        if s.frame_started { return }
+
+        // Wait for the previous frame using this slot to finish
+        vk.WaitForFences(s.device, 1, &s.in_flight_fences[s.current_frame], true, max(u64))
+        vk.ResetFences(s.device, 1, &s.in_flight_fences[s.current_frame])
+
+        // Reset the descriptor pool for this frame
+        vk.ResetDescriptorPool(s.device, s.descriptor_pools[s.current_frame], {})
+
+        // Acquire the next swapchain image
+        result := vk.AcquireNextImageKHR(
+                s.device,
+                s.swapchain,
+                max(u64),
+                s.image_available_semaphores[s.current_frame],
+                0,
+                &s.current_image_index,
+        )
+
+        if result == .ERROR_OUT_OF_DATE_KHR {
+                vk_resize_swapchain(s.width, s.height)
+                return
+        }
+
+        // Reset and begin the command buffer
+        cmd := s.command_buffers[s.current_frame]
+        vk.ResetCommandBuffer(cmd, {})
+
+        begin_info := vk.CommandBufferBeginInfo {
+                sType = .COMMAND_BUFFER_BEGIN_INFO,
+                flags = {.ONE_TIME_SUBMIT},
+        }
+        vk.BeginCommandBuffer(cmd, &begin_info)
+
+        s.frame_started = true
+        s.in_render_pass = false
+        s.current_render_target = RENDER_TARGET_NONE
+        s.swapchain_cleared = false
+}
+
+// Ensure the correct render target is active. If switching targets, end the current
+// render pass and begin a new one. If `do_clear` is true, use LOAD_OP_CLEAR.
+vk_ensure_render_target :: proc(render_target: Render_Target_Handle, clear_color: Color = {0, 0, 0, 255}, do_clear: bool = false) {
+        cmd := s.command_buffers[s.current_frame]
+
+        // Check if we need to switch render targets
+        needs_switch := s.current_render_target != render_target || !s.in_render_pass || do_clear
+
+        if !needs_switch { return }
+
+        // End current render pass if active
+        if s.in_render_pass {
+                vk.CmdEndRenderPass(cmd)
+                s.in_render_pass = false
+
+                // If we were rendering to a render target, transition it for sampling
+                if s.current_render_target != RENDER_TARGET_NONE {
+                        if old_rt := hm.get(&s.render_targets, s.current_render_target); old_rt != nil {
+                                vk_transition_render_target_for_sampling(cmd, old_rt)
+                        }
+                }
+        }
+
+        // Begin new render pass
+        clear_value := vk.ClearValue{}
+        clear_value.color.float32 = {
+                f32(clear_color[0]) / 255.0,
+                f32(clear_color[1]) / 255.0,
+                f32(clear_color[2]) / 255.0,
+                f32(clear_color[3]) / 255.0,
+        }
+
+        rt := hm.get(&s.render_targets, render_target)
+        if rt != nil {
+                // Rendering to an offscreen render target
+                // Transition the render target image for color attachment usage
+                vk_transition_render_target_for_rendering(cmd, rt)
+
+                // If clearing, use vkCmdClearColorImage before beginning the render pass
+                if do_clear {
+                        // Temporarily transition to TRANSFER_DST for the clear
+                        clear_barrier := vk.ImageMemoryBarrier {
+                                sType               = .IMAGE_MEMORY_BARRIER,
+                                srcAccessMask       = {.COLOR_ATTACHMENT_WRITE},
+                                dstAccessMask       = {.TRANSFER_WRITE},
+                                oldLayout           = .COLOR_ATTACHMENT_OPTIMAL,
+                                newLayout           = .TRANSFER_DST_OPTIMAL,
+                                srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                                dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                                image               = rt.image,
+                                subresourceRange    = {
+                                        aspectMask     = {.COLOR},
+                                        baseMipLevel   = 0,
+                                        levelCount     = 1,
+                                        baseArrayLayer = 0,
+                                        layerCount     = 1,
+                                },
+                        }
+                        vk.CmdPipelineBarrier(cmd, {.COLOR_ATTACHMENT_OUTPUT}, {.TRANSFER}, {}, 0, nil, 0, nil, 1, &clear_barrier)
+
+                        clear_range := vk.ImageSubresourceRange {
+                                aspectMask     = {.COLOR},
+                                baseMipLevel   = 0,
+                                levelCount     = 1,
+                                baseArrayLayer = 0,
+                                layerCount     = 1,
+                        }
+                        vk.CmdClearColorImage(cmd, rt.image, .TRANSFER_DST_OPTIMAL, &clear_value.color, 1, &clear_range)
+
+                        // Transition back to COLOR_ATTACHMENT_OPTIMAL
+                        clear_barrier.srcAccessMask = {.TRANSFER_WRITE}
+                        clear_barrier.dstAccessMask = {.COLOR_ATTACHMENT_WRITE}
+                        clear_barrier.oldLayout = .TRANSFER_DST_OPTIMAL
+                        clear_barrier.newLayout = .COLOR_ATTACHMENT_OPTIMAL
+                        vk.CmdPipelineBarrier(cmd, {.TRANSFER}, {.COLOR_ATTACHMENT_OUTPUT}, {}, 0, nil, 0, nil, 1, &clear_barrier)
+                }
+
+                render_pass_info := vk.RenderPassBeginInfo {
+                        sType       = .RENDER_PASS_BEGIN_INFO,
+                        renderPass  = rt.render_pass,
+                        framebuffer = rt.framebuffer,
+                        renderArea  = {
+                                offset = {0, 0},
+                                extent = {u32(rt.width), u32(rt.height)},
+                        },
+                }
+                vk.CmdBeginRenderPass(cmd, &render_pass_info, .INLINE)
+        } else {
+                // Rendering to the swapchain
+                // Use CLEAR render pass for first clear, LOAD render pass for subsequent use
+                use_clear := do_clear && !s.swapchain_cleared
+                rp: vk.RenderPass
+                fb: vk.Framebuffer
+                if use_clear {
+                        rp = s.render_pass
+                        fb = s.framebuffers[s.current_image_index]
+                } else {
+                        rp = s.render_pass_load
+                        fb = s.framebuffers_load[s.current_image_index]
+                }
+
+                cv_count: u32 = 1 if use_clear else 0
+                cv_ptr: ^vk.ClearValue = &clear_value if use_clear else nil
+
+                render_pass_info := vk.RenderPassBeginInfo {
+                        sType       = .RENDER_PASS_BEGIN_INFO,
+                        renderPass  = rp,
+                        framebuffer = fb,
+                        renderArea  = {
+                                offset = {0, 0},
+                                extent = s.swapchain_extent,
+                        },
+                        clearValueCount = cv_count,
+                        pClearValues    = cv_ptr,
+                }
+                vk.CmdBeginRenderPass(cmd, &render_pass_info, .INLINE)
+                if use_clear {
+                        s.swapchain_cleared = true
+                }
+        }
+
+        s.in_render_pass = true
+        s.current_render_target = render_target
+}
+
+// Transition render target image from SHADER_READ_ONLY_OPTIMAL to COLOR_ATTACHMENT_OPTIMAL
+vk_transition_render_target_for_rendering :: proc(cmd: vk.CommandBuffer, rt: ^Vulkan_Render_Target) {
+        barrier := vk.ImageMemoryBarrier {
+                sType               = .IMAGE_MEMORY_BARRIER,
+                srcAccessMask       = {.SHADER_READ},
+                dstAccessMask       = {.COLOR_ATTACHMENT_WRITE},
+                oldLayout           = .SHADER_READ_ONLY_OPTIMAL,
+                newLayout           = .COLOR_ATTACHMENT_OPTIMAL,
+                srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                image               = rt.image,
+                subresourceRange    = {
+                        aspectMask     = {.COLOR},
+                        baseMipLevel   = 0,
+                        levelCount     = 1,
+                        baseArrayLayer = 0,
+                        layerCount     = 1,
+                },
+        }
+        vk.CmdPipelineBarrier(cmd, {.FRAGMENT_SHADER}, {.COLOR_ATTACHMENT_OUTPUT}, {}, 0, nil, 0, nil, 1, &barrier)
+}
+
+// Transition render target image from COLOR_ATTACHMENT_OPTIMAL to SHADER_READ_ONLY_OPTIMAL
+vk_transition_render_target_for_sampling :: proc(cmd: vk.CommandBuffer, rt: ^Vulkan_Render_Target) {
+        barrier := vk.ImageMemoryBarrier {
+                sType               = .IMAGE_MEMORY_BARRIER,
+                srcAccessMask       = {.COLOR_ATTACHMENT_WRITE},
+                dstAccessMask       = {.SHADER_READ},
+                oldLayout           = .COLOR_ATTACHMENT_OPTIMAL,
+                newLayout           = .SHADER_READ_ONLY_OPTIMAL,
+                srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                image               = rt.image,
+                subresourceRange    = {
+                        aspectMask     = {.COLOR},
+                        baseMipLevel   = 0,
+                        levelCount     = 1,
+                        baseArrayLayer = 0,
+                        layerCount     = 1,
+                },
+        }
+        vk.CmdPipelineBarrier(cmd, {.COLOR_ATTACHMENT_OUTPUT}, {.FRAGMENT_SHADER}, {}, 0, nil, 0, nil, 1, &barrier)
+}
+
+// ---------------------------------------------------------------------------
+// Draw
+// ---------------------------------------------------------------------------
 
 vk_draw :: proc(
         shd: Shader,
@@ -1554,6 +2007,14 @@ vk_draw :: proc(
         vk_shd := hm.get(&s.shaders, shd.handle)
         if vk_shd == nil { return }
 
+        // Start frame if not already started
+        if !s.frame_started {
+                vk_begin_frame()
+        }
+
+        // Ensure we are rendering to the correct target
+        vk_ensure_render_target(render_target)
+
         cmd := s.command_buffers[s.current_frame]
 
         // Ensure we are in a render pass
@@ -1565,8 +2026,27 @@ vk_draw :: proc(
                 mem.copy(vb_mapped, raw_data(vertex_buffer), len(vertex_buffer))
         }
 
-        // 2. Bind the pipeline for this shader + blend mode
-        pipeline := vk_shd.pipelines[blend_mode]
+        // 2. Select the correct pipeline (swapchain vs render target)
+        is_render_target := render_target != RENDER_TARGET_NONE && hm.get(&s.render_targets, render_target) != nil
+        pipeline: vk.Pipeline
+
+        if is_render_target {
+                pipeline = vk_shd.rt_pipelines[blend_mode]
+                // Lazily create render target pipelines on first use
+                if pipeline == 0 {
+                        pipeline = vk_create_graphics_pipeline(
+                                vk_shd,
+                                &vk_shd.binding_desc,
+                                vk_shd.attr_descs[:vk_shd.attr_desc_count],
+                                blend_mode,
+                                s.render_target_render_pass,
+                        )
+                        vk_shd.rt_pipelines[blend_mode] = pipeline
+                }
+        } else {
+                pipeline = vk_shd.pipelines[blend_mode]
+        }
+
         if pipeline == 0 { return }
         vk.CmdBindPipeline(cmd, .GRAPHICS, pipeline)
 
@@ -1974,12 +2454,181 @@ vk_set_texture_filter :: proc(
 }
 
 // ---------------------------------------------------------------------------
-// Render texture (Phase 3 stub — minimal implementation)
+// Render texture (Phase 3 — full implementation)
 // ---------------------------------------------------------------------------
 
 vk_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
-        log.warn("Vulkan: create_render_texture not yet fully implemented (Phase 3)")
-        return {}, {}
+        if s == nil { return {}, {} }
+
+        // Use RGBA_32_Float format to match GL backend (for HDR render targets)
+        vk_format := vk.Format.R32G32B32A32_SFLOAT
+        pixel_format := Pixel_Format.RGBA_32_Float
+
+        // 1. Create the image with both COLOR_ATTACHMENT and SAMPLED usage
+        img_info := vk.ImageCreateInfo {
+                sType       = .IMAGE_CREATE_INFO,
+                imageType   = .D2,
+                format      = vk_format,
+                extent      = {width = u32(width), height = u32(height), depth = 1},
+                mipLevels   = 1,
+                arrayLayers = 1,
+                samples     = {._1},
+                tiling      = .OPTIMAL,
+                usage       = {.COLOR_ATTACHMENT, .SAMPLED, .TRANSFER_SRC, .TRANSFER_DST},
+                initialLayout = .UNDEFINED,
+        }
+
+        rt_image: vk.Image
+        result := vk.CreateImage(s.device, &img_info, nil, &rt_image)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create render target image (%v)", result)
+                return {}, {}
+        }
+
+        // 2. Allocate device-local memory
+        mem_req: vk.MemoryRequirements
+        vk.GetImageMemoryRequirements(s.device, rt_image, &mem_req)
+
+        mem_type_idx := vk_find_memory_type(mem_req.memoryTypeBits, {.DEVICE_LOCAL})
+        if mem_type_idx < 0 {
+                log.error("Vulkan: Failed to find device-local memory type for render target")
+                vk.DestroyImage(s.device, rt_image, nil)
+                return {}, {}
+        }
+
+        alloc_info := vk.MemoryAllocateInfo {
+                sType           = .MEMORY_ALLOCATE_INFO,
+                allocationSize  = mem_req.size,
+                memoryTypeIndex = u32(mem_type_idx),
+        }
+
+        rt_memory: vk.DeviceMemory
+        result = vk.AllocateMemory(s.device, &alloc_info, nil, &rt_memory)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to allocate render target memory (%v)", result)
+                vk.DestroyImage(s.device, rt_image, nil)
+                return {}, {}
+        }
+
+        vk.BindImageMemory(s.device, rt_image, rt_memory, 0)
+
+        // 3. Transition to SHADER_READ_ONLY_OPTIMAL initially
+        vk_immediate_submit(proc(cmd: vk.CommandBuffer) {
+                barrier := vk.ImageMemoryBarrier {
+                        sType               = .IMAGE_MEMORY_BARRIER,
+                        srcAccessMask       = {},
+                        dstAccessMask       = {.SHADER_READ},
+                        oldLayout           = .UNDEFINED,
+                        newLayout           = .SHADER_READ_ONLY_OPTIMAL,
+                        srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                        dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED,
+                        image               = _immediate_submit_image,
+                        subresourceRange    = {
+                                aspectMask     = {.COLOR},
+                                baseMipLevel   = 0,
+                                levelCount     = 1,
+                                baseArrayLayer = 0,
+                                layerCount     = 1,
+                        },
+                }
+                vk.CmdPipelineBarrier(cmd, {.TOP_OF_PIPE}, {.FRAGMENT_SHADER}, {}, 0, nil, 0, nil, 1, &barrier)
+        }, rt_image)
+
+        // 4. Create image view
+        rt_view: vk.ImageView
+        view_info := vk.ImageViewCreateInfo {
+                sType    = .IMAGE_VIEW_CREATE_INFO,
+                image    = rt_image,
+                viewType = .D2,
+                format   = vk_format,
+                components = {r = .IDENTITY, g = .IDENTITY, b = .IDENTITY, a = .IDENTITY},
+                subresourceRange = {
+                        aspectMask     = {.COLOR},
+                        baseMipLevel   = 0,
+                        levelCount     = 1,
+                        baseArrayLayer = 0,
+                        layerCount     = 1,
+                },
+        }
+
+        result = vk.CreateImageView(s.device, &view_info, nil, &rt_view)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create render target image view (%v)", result)
+                vk.FreeMemory(s.device, rt_memory, nil)
+                vk.DestroyImage(s.device, rt_image, nil)
+                return {}, {}
+        }
+
+        // 5. Create framebuffer using the render target render pass
+        attachments := [1]vk.ImageView{rt_view}
+        fb_info := vk.FramebufferCreateInfo {
+                sType           = .FRAMEBUFFER_CREATE_INFO,
+                renderPass      = s.render_target_render_pass,
+                attachmentCount = 1,
+                pAttachments    = &attachments[0],
+                width           = u32(width),
+                height          = u32(height),
+                layers          = 1,
+        }
+
+        rt_framebuffer: vk.Framebuffer
+        result = vk.CreateFramebuffer(s.device, &fb_info, nil, &rt_framebuffer)
+        if result != .SUCCESS {
+                log.errorf("Vulkan: Failed to create render target framebuffer (%v)", result)
+                vk.DestroyImageView(s.device, rt_view, nil)
+                vk.FreeMemory(s.device, rt_memory, nil)
+                vk.DestroyImage(s.device, rt_image, nil)
+                return {}, {}
+        }
+
+        // 6. Create the texture entry (so the render target can be sampled)
+        tex := Vulkan_Texture {
+                image   = rt_image,
+                memory  = rt_memory,
+                view    = rt_view,
+                sampler = s.default_sampler,
+                format  = pixel_format,
+                width   = width,
+                height  = height,
+                layout  = .SHADER_READ_ONLY_OPTIMAL,
+                needs_vertical_flip = false, // Vulkan doesn't need the GL flip
+        }
+
+        tex_handle, tex_add_err := hm.add(&s.textures, tex)
+        if tex_add_err != nil {
+                log.errorf("Vulkan: Failed to add render target texture to handle map: %v", tex_add_err)
+                vk.DestroyFramebuffer(s.device, rt_framebuffer, nil)
+                vk.DestroyImageView(s.device, rt_view, nil)
+                vk.FreeMemory(s.device, rt_memory, nil)
+                vk.DestroyImage(s.device, rt_image, nil)
+                return {}, {}
+        }
+
+        // 7. Create the render target entry
+        vk_rt := Vulkan_Render_Target {
+                image       = rt_image,
+                memory      = rt_memory,
+                view        = rt_view,
+                framebuffer = rt_framebuffer,
+                render_pass = s.render_target_render_pass,
+                width       = width,
+                height      = height,
+                texture_handle = tex_handle,
+        }
+
+        rt_handle, rt_add_err := hm.add(&s.render_targets, vk_rt)
+        if rt_add_err != nil {
+                log.errorf("Vulkan: Failed to add render target to handle map: %v", rt_add_err)
+                hm.remove(&s.textures, tex_handle)
+                vk.DestroyFramebuffer(s.device, rt_framebuffer, nil)
+                vk.DestroyImageView(s.device, rt_view, nil)
+                vk.FreeMemory(s.device, rt_memory, nil)
+                vk.DestroyImage(s.device, rt_image, nil)
+                return {}, {}
+        }
+
+        log.infof("Vulkan: Created render texture %dx%d", width, height)
+        return tex_handle, rt_handle
 }
 
 vk_destroy_render_target :: proc(render_target: Render_Target_Handle) {
@@ -1987,7 +2636,18 @@ vk_destroy_render_target :: proc(render_target: Render_Target_Handle) {
         if rt == nil { return }
 
         vk.DeviceWaitIdle(s.device)
-        vk_destroy_render_target_resources(rt)
+
+        // Destroy framebuffer (the image/memory/view are owned by the texture)
+        if rt.framebuffer != 0 {
+                vk.DestroyFramebuffer(s.device, rt.framebuffer, nil)
+        }
+
+        // Also destroy the associated texture
+        if tex := hm.get(&s.textures, rt.texture_handle); tex != nil {
+                vk_destroy_texture_resources(tex)
+                hm.remove(&s.textures, rt.texture_handle)
+        }
+
         hm.remove(&s.render_targets, render_target)
 }
 
@@ -1995,18 +2655,8 @@ vk_destroy_render_target_resources :: proc(rt: ^Vulkan_Render_Target) {
         if rt.framebuffer != 0 {
                 vk.DestroyFramebuffer(s.device, rt.framebuffer, nil)
         }
-        if rt.render_pass != 0 {
-                vk.DestroyRenderPass(s.device, rt.render_pass, nil)
-        }
-        if rt.view != 0 {
-                vk.DestroyImageView(s.device, rt.view, nil)
-        }
-        if rt.image != 0 {
-                vk.DestroyImage(s.device, rt.image, nil)
-        }
-        if rt.memory != 0 {
-                vk.FreeMemory(s.device, rt.memory, nil)
-        }
+        // Don't destroy render_pass here — it's shared (render_target_render_pass)
+        // Don't destroy image/view/memory here — they're owned by the texture entry
 }
 
 // ---------------------------------------------------------------------------
@@ -2137,7 +2787,14 @@ vk_load_shader :: proc(
                 offset += u32(pixel_format_size(input.format))
         }
 
-        // Create graphics pipelines for each blend mode
+        // Cache vertex input state for lazy render-target pipeline creation (Phase 3)
+        vk_shd.binding_desc = binding_desc
+        for i in 0 ..< len(desc.inputs) {
+                vk_shd.attr_descs[i] = attr_descs[i]
+        }
+        vk_shd.attr_desc_count = len(desc.inputs)
+
+        // Create graphics pipelines for each blend mode (swapchain render pass)
         for blend_mode in Blend_Mode {
                 pipeline := vk_create_graphics_pipeline(
                         &vk_shd,
@@ -2200,7 +2857,15 @@ vk_create_graphics_pipeline :: proc(
         binding_desc: ^vk.VertexInputBindingDescription,
         attr_descs: []vk.VertexInputAttributeDescription,
         blend_mode: Blend_Mode,
+        render_pass: vk.RenderPass = {},
 ) -> vk.Pipeline {
+        // Use the swapchain render pass by default
+        target_render_pass: vk.RenderPass
+        if render_pass != 0 {
+                target_render_pass = render_pass
+        } else {
+                target_render_pass = s.render_pass
+        }
         // Shader stages
         shader_stages := [2]vk.PipelineShaderStageCreateInfo {
                 {
@@ -2308,12 +2973,12 @@ vk_create_graphics_pipeline :: proc(
                 pColorBlendState    = &color_blending,
                 pDynamicState       = &dynamic_state,
                 layout              = shd.pipeline_layout,
-                renderPass          = s.render_pass,
+                renderPass          = target_render_pass,
                 subpass             = 0,
         }
 
         pipeline: vk.Pipeline
-        result := vk.CreateGraphicsPipelines(s.device, 0, 1, &pipeline_info, nil, &pipeline)
+        result := vk.CreateGraphicsPipelines(s.device, s.pipeline_cache, 1, &pipeline_info, nil, &pipeline)
         if result != .SUCCESS {
                 log.errorf("Vulkan: Failed to create graphics pipeline for blend mode %v (%v)", blend_mode, result)
                 return 0
@@ -2336,6 +3001,12 @@ vk_destroy_shader :: proc(h: Shader_Handle) {
 
 vk_destroy_shader_resources :: proc(shd: ^Vulkan_Shader) {
         for &pipeline in shd.pipelines {
+                if pipeline != 0 {
+                        vk.DestroyPipeline(s.device, pipeline, nil)
+                        pipeline = 0
+                }
+        }
+        for &pipeline in shd.rt_pipelines {
                 if pipeline != 0 {
                         vk.DestroyPipeline(s.device, pipeline, nil)
                         pipeline = 0
