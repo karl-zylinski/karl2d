@@ -1,6 +1,6 @@
 // This is a port of https://www.raylib.com/examples/textures/loader.html?name=textures_bunnymark
 
-package karl2d_bunnymark
+package odingame_bunnymark
 
 import k2 "../../.."
 import "core:math/rand"

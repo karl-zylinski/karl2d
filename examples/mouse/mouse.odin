@@ -1,10 +1,10 @@
-package karl2d_gamepad_example
+package odingame_gamepad_example
 
 import k2 "../.."
 import "core:fmt"
 
 init :: proc() {
-	k2.init(1000, 600, "Karl2D Mouse Demo")
+	k2.init(1000, 600, "Odingame Mouse Demo")
 }
 
 wheel: f32

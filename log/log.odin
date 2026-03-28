@@ -1,5 +1,5 @@
 // A logger that can default to "stdout" if no logger is set.
-package karl2d_logger
+package odingame_logger
 
 import "core:fmt"
 import "core:log"

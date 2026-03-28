@@ -1,4 +1,4 @@
-package karl2d_multitexture_example
+package odingame_multitexture_example
 
 import k2 "../.."
 import "core:mem"
@@ -18,7 +18,7 @@ tex1: k2.Texture
 tex2: k2.Texture
 
 init :: proc() {
-	k2.init(1080, 1080, "Karl2D Multitexture Example")
+	k2.init(1080, 1080, "Odingame Multitexture Example")
 
 	when k2.RENDER_BACKEND_NAME == "gl" {
 		shd = k2.load_shader_from_file("gl_multitexture_vertex_shader.glsl", "gl_multitexture_fragment_shader.glsl")

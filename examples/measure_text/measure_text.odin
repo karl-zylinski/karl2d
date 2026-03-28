@@ -1,4 +1,4 @@
-package karl2d_measure_text_example
+package odingame_measure_text_example
 
 // Fonts used:
 // - https://fonts.google.com/specimen/Josefin+Slab
@@ -30,7 +30,7 @@ current_font_idx: int
 current_font_size := f32(50)
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Measure Text Example", { window_mode = .Windowed_Resizable })
+	k2.init(1280, 720, "Odingame Measure Text Example", { window_mode = .Windowed_Resizable })
 
 	for &f in fonts {
 		f.font = f.bytes != nil\
@@ -119,7 +119,7 @@ step :: proc() -> bool {
 		}
 
 		pos = { LEFT+400, pos.y + 2*current_font_size }
-		text := "/*\nHellöpe Karl2D!\nNext line goes here\nAnd one more\n*/"
+		text := "/*\nHellöpe Odingame!\nNext line goes here\nAnd one more\n*/"
 		size := k2.measure_text_ex(font, text, current_font_size)
 		k2.draw_rect_vec(pos, size, k2.LIGHT_RED)
 		k2.draw_text_ex(font, text, pos, current_font_size)

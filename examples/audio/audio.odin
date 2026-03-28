@@ -1,4 +1,4 @@
-package karl2d_audio_example
+package odingame_audio_example
 
 import k2 "../.."
 import "core:math"
@@ -22,7 +22,7 @@ MUSIC_FILE :: ""
 HAS_MUSIC :: MUSIC_FILE != ""
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Audio")
+	k2.init(1280, 720, "Odingame Audio")
 
 	snd = make_sine_wave(200, 0.5, 44100)
 	snd_volume = 1

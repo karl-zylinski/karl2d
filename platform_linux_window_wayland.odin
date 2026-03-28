@@ -1,5 +1,5 @@
 #+build linux
-package karl2d
+package odingame
 
 @(private="package")
 LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {

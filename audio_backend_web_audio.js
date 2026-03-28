@@ -8,8 +8,8 @@ function setWasmMemory(memory) {
 	wasmMemory = memory;
 }
 
-const karl2dAudioJsImports = {
-	karl2d_web_audio: {
+const odingameAudioJsImports = {
+	odingame_web_audio: {
 		web_audio_init: function () {
 			this.remaining_samples = 0;
 
@@ -25,7 +25,7 @@ const karl2dAudioJsImports = {
 
 				this.audio_node = new AudioWorkletNode(
 					this.audio_ctx,
-					"karl2d-audio-processor",
+					"odingame-audio-processor",
 					{
 						outputChannelCount: [2]
 					}
@@ -94,4 +94,4 @@ const karl2dAudioJsImports = {
 	}
 };
 
-window.setKarl2dAudioWasmMemory = setWasmMemory;
+window.setOdingameAudioWasmMemory = setWasmMemory;

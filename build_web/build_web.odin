@@ -1,4 +1,4 @@
-// This program builds a Karl2D game as a web version.
+// This program builds a Odingame game as a web version.
 //
 // Usage:
 //    odin run build_web -- directory_name 
@@ -11,7 +11,7 @@
 // file into the `build/web` folder. That's the file which is actually built. It contains some
 // wrapper code that calls into your game. The wrapper, and your game, is built using the
 // `js_wasm32` target. The resulting `main.wasm` file is also put in the `build/web` folder.
-package karl2d_build_web_tool
+package odingame_build_web_tool
 
 import "core:fmt"
 import os "core:os"

@@ -2,7 +2,7 @@
 //
 // This example needs some cleaning up: It leaks lots of box2D things and can perhaps be done more
 // compactly. Originally made during a 1h stream: https://www.youtube.com/watch?v=LYW7jdwEnaI
-package karl2d_box2d_example
+package odingame_box2d_example
 
 import b2 "vendor:box2d"
 import k2 "../.."
@@ -25,7 +25,7 @@ main :: proc() {
 }
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D + Box2D example")
+	k2.init(1280, 720, "Odingame + Box2D example")
 
 	b2.SetLengthUnitsPerMeter(40)
 	world_def := b2.DefaultWorldDef()

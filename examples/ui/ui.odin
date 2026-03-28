@@ -1,6 +1,6 @@
 // Some simple UI things that show how to make a button and some advanced sizing tricks
 
-package karl2d_ui_example
+package odingame_ui_example
 
 import k2 "../.."
 import "core:fmt"
@@ -11,7 +11,7 @@ Rect :: k2.Rect
 Vec2 :: k2.Vec2
 
 main :: proc() {
-	k2.init(1280, 720, "Karl2D: Simple UI")
+	k2.init(1280, 720, "Odingame: Simple UI")
 	button_click_count: int
 	random_numbers: [dynamic]int
 

@@ -1,7 +1,7 @@
 // Vulkan proc address loader for Linux.
 #+build linux
 
-package karl2d
+package odingame
 
 import "core:dynlib"
 import "log"

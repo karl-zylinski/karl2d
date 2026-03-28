@@ -2,7 +2,7 @@
 #+vet explicit-allocators
 #+private file
 
-package karl2d
+package odingame
 
 @(private="package")
 RENDER_BACKEND_D3D11 :: Render_Backend_Interface {

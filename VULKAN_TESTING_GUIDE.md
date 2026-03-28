@@ -1,4 +1,4 @@
-# Karl2D Vulkan Backend — Testing Guide & Validation Checklist
+# Odingame Vulkan Backend — Testing Guide & Validation Checklist
 
 ## Table of Contents
 
@@ -50,13 +50,13 @@ The backend is selected at compile time via the `-define` flag:
 
 ```bash
 # Build any example with Vulkan backend:
-odin build examples/minimal_hello_world -define:KARL2D_RENDER_BACKEND=vulkan
+odin build examples/minimal_hello_world -define:ODINGAME_RENDER_BACKEND=vulkan
 
 # Build with debug mode (enables Vulkan validation layers + debug messenger):
-odin build examples/minimal_hello_world -define:KARL2D_RENDER_BACKEND=vulkan -debug
+odin build examples/minimal_hello_world -define:ODINGAME_RENDER_BACKEND=vulkan -debug
 
 # Run directly:
-odin run examples/minimal_hello_world -define:KARL2D_RENDER_BACKEND=vulkan -debug
+odin run examples/minimal_hello_world -define:ODINGAME_RENDER_BACKEND=vulkan -debug
 ```
 
 ### Quick Comparison: GL vs Vulkan
@@ -65,13 +65,13 @@ odin run examples/minimal_hello_world -define:KARL2D_RENDER_BACKEND=vulkan -debu
 odin run examples/basics
 
 # Run with Vulkan:
-odin run examples/basics -define:KARL2D_RENDER_BACKEND=vulkan -debug
+odin run examples/basics -define:ODINGAME_RENDER_BACKEND=vulkan -debug
 ```
 
 ### Compile-Only Check (no GPU needed)
 ```bash
 # Just check compilation without running:
-odin check examples/basics -define:KARL2D_RENDER_BACKEND=vulkan
+odin check examples/basics -define:ODINGAME_RENDER_BACKEND=vulkan
 ```
 
 ---
@@ -124,7 +124,7 @@ These examples use **custom shaders** written in GLSL/HLSL for GL/D3D11. They wi
 
 **Test with:**
 ```bash
-odin run examples/minimal_hello_world -define:KARL2D_RENDER_BACKEND=vulkan -debug
+odin run examples/minimal_hello_world -define:ODINGAME_RENDER_BACKEND=vulkan -debug
 ```
 
 **Expected behavior:**
@@ -149,9 +149,9 @@ odin run examples/minimal_hello_world -define:KARL2D_RENDER_BACKEND=vulkan -debu
 
 **Test with:**
 ```bash
-odin run examples/basics -define:KARL2D_RENDER_BACKEND=vulkan -debug
-odin run examples/fonts -define:KARL2D_RENDER_BACKEND=vulkan -debug
-odin run examples/camera -define:KARL2D_RENDER_BACKEND=vulkan -debug
+odin run examples/basics -define:ODINGAME_RENDER_BACKEND=vulkan -debug
+odin run examples/fonts -define:ODINGAME_RENDER_BACKEND=vulkan -debug
+odin run examples/camera -define:ODINGAME_RENDER_BACKEND=vulkan -debug
 ```
 
 **Expected behavior:**
@@ -163,7 +163,7 @@ odin run examples/camera -define:KARL2D_RENDER_BACKEND=vulkan -debug
 - Garbled textures → Pixel format mismatch or staging buffer upload issue
 - Missing textures (everything white) → Texture not uploaded, descriptor not bound
 - Wrong colors → Format (RGBA vs BGRA) mismatch
-- Upside-down textures → Vulkan has Y-axis flipped vs GL (but `texture_needs_vertical_flip` returns false for Vulkan, which is correct — Karl2D handles this)
+- Upside-down textures → Vulkan has Y-axis flipped vs GL (but `texture_needs_vertical_flip` returns false for Vulkan, which is correct — Odingame handles this)
 - Crash on texture load → Staging buffer too small, or memory type selection failed
 - No text visible → Font atlas texture failed to create/upload
 
@@ -180,19 +180,19 @@ odin run examples/camera -define:KARL2D_RENDER_BACKEND=vulkan -debug
 **Test with:**
 ```bash
 # Render texture (THE critical Phase 3 test)
-odin run examples/render_texture -define:KARL2D_RENDER_BACKEND=vulkan -debug
+odin run examples/render_texture -define:ODINGAME_RENDER_BACKEND=vulkan -debug
 
 # Premultiplied alpha blending
-odin run examples/premultiplied_alpha -define:KARL2D_RENDER_BACKEND=vulkan -debug
+odin run examples/premultiplied_alpha -define:ODINGAME_RENDER_BACKEND=vulkan -debug
 
 # Window resize
-odin run examples/scaling_auto_window_resize -define:KARL2D_RENDER_BACKEND=vulkan -debug
+odin run examples/scaling_auto_window_resize -define:ODINGAME_RENDER_BACKEND=vulkan -debug
 
 # Scissor + complex UI
-odin run examples/ui -define:KARL2D_RENDER_BACKEND=vulkan -debug
+odin run examples/ui -define:ODINGAME_RENDER_BACKEND=vulkan -debug
 
 # Performance/stress test (many batch breaks)
-odin run examples/bunnymark -define:KARL2D_RENDER_BACKEND=vulkan -debug
+odin run examples/bunnymark -define:ODINGAME_RENDER_BACKEND=vulkan -debug
 ```
 
 **Expected behavior for `render_texture`:**
@@ -313,7 +313,7 @@ The shutdown correctly uses `DeviceWaitIdle` and iterates handle maps to destroy
 
 **Location:** `vk_create_render_texture()` line ~2516 and `vk_create_texture_internal()`
 
-The `vk_immediate_submit` pattern uses a module-level `_immediate_submit_image` variable to pass the image handle into the closure (since Odin closures can't capture local variables). This is a threading concern but since Karl2D is single-threaded, it's fine. However, it's fragile — ensure `vk_immediate_submit` is never called from multiple threads.
+The `vk_immediate_submit` pattern uses a module-level `_immediate_submit_image` variable to pass the image handle into the closure (since Odin closures can't capture local variables). This is a threading concern but since Odingame is single-threaded, it's fine. However, it's fragile — ensure `vk_immediate_submit` is never called from multiple threads.
 
 ---
 
@@ -322,10 +322,10 @@ The `vk_immediate_submit` pattern uses a module-level `_immediate_submit_image` 
 ### Enable Validation Layers
 Always build with `-debug` to enable Vulkan validation layers:
 ```bash
-odin run examples/basics -define:KARL2D_RENDER_BACKEND=vulkan -debug
+odin run examples/basics -define:ODINGAME_RENDER_BACKEND=vulkan -debug
 ```
 
-Validation messages will appear in the console via Karl2D's log system.
+Validation messages will appear in the console via Odingame's log system.
 
 ### Use RenderDoc for GPU Debugging
 1. Install [RenderDoc](https://renderdoc.org/)
@@ -385,7 +385,7 @@ export GDK_BACKEND=x11
 
 ## 7. Phase 3 Validation Checklist
 
-This checklist validates the Phase 3 implementation against the requirements specified in `karl2d_vulkan_plan.md` (Section 7, Phase 3).
+This checklist validates the Phase 3 implementation against the requirements specified in `odingame_vulkan_plan.md` (Section 7, Phase 3).
 
 ### Phase 3 Requirements from Plan
 
@@ -417,18 +417,18 @@ Run each test and mark pass/fail:
 
 | Test | Command | Pass? | Notes |
 |------|---------|-------|-------|
-| **Compilation** | `odin check examples/basics -define:KARL2D_RENDER_BACKEND=vulkan` | ☐ | |
-| **Debug compilation** | `odin check examples/basics -define:KARL2D_RENDER_BACKEND=vulkan -debug` | ☐ | |
-| **Window + clear** | `odin run examples/minimal_hello_world -define:KARL2D_RENDER_BACKEND=vulkan -debug` | ☐ | |
-| **Textures + shapes** | `odin run examples/basics -define:KARL2D_RENDER_BACKEND=vulkan -debug` | ☐ | |
-| **Font rendering** | `odin run examples/fonts -define:KARL2D_RENDER_BACKEND=vulkan -debug` | ☐ | |
-| **Camera (push constants)** | `odin run examples/camera -define:KARL2D_RENDER_BACKEND=vulkan -debug` | ☐ | |
-| **Render texture** | `odin run examples/render_texture -define:KARL2D_RENDER_BACKEND=vulkan -debug` | ☐ | |
-| **Premultiplied alpha** | `odin run examples/premultiplied_alpha -define:KARL2D_RENDER_BACKEND=vulkan -debug` | ☐ | |
-| **Window resize** | `odin run examples/scaling_auto_window_resize -define:KARL2D_RENDER_BACKEND=vulkan -debug` | ☐ | |
-| **Scissor/UI** | `odin run examples/ui -define:KARL2D_RENDER_BACKEND=vulkan -debug` | ☐ | |
-| **Performance (bunnymark)** | `odin run examples/bunnymark -define:KARL2D_RENDER_BACKEND=vulkan -debug` | ☐ | |
-| **Complete game (snake)** | `odin run examples/snake -define:KARL2D_RENDER_BACKEND=vulkan -debug` | ☐ | |
+| **Compilation** | `odin check examples/basics -define:ODINGAME_RENDER_BACKEND=vulkan` | ☐ | |
+| **Debug compilation** | `odin check examples/basics -define:ODINGAME_RENDER_BACKEND=vulkan -debug` | ☐ | |
+| **Window + clear** | `odin run examples/minimal_hello_world -define:ODINGAME_RENDER_BACKEND=vulkan -debug` | ☐ | |
+| **Textures + shapes** | `odin run examples/basics -define:ODINGAME_RENDER_BACKEND=vulkan -debug` | ☐ | |
+| **Font rendering** | `odin run examples/fonts -define:ODINGAME_RENDER_BACKEND=vulkan -debug` | ☐ | |
+| **Camera (push constants)** | `odin run examples/camera -define:ODINGAME_RENDER_BACKEND=vulkan -debug` | ☐ | |
+| **Render texture** | `odin run examples/render_texture -define:ODINGAME_RENDER_BACKEND=vulkan -debug` | ☐ | |
+| **Premultiplied alpha** | `odin run examples/premultiplied_alpha -define:ODINGAME_RENDER_BACKEND=vulkan -debug` | ☐ | |
+| **Window resize** | `odin run examples/scaling_auto_window_resize -define:ODINGAME_RENDER_BACKEND=vulkan -debug` | ☐ | |
+| **Scissor/UI** | `odin run examples/ui -define:ODINGAME_RENDER_BACKEND=vulkan -debug` | ☐ | |
+| **Performance (bunnymark)** | `odin run examples/bunnymark -define:ODINGAME_RENDER_BACKEND=vulkan -debug` | ☐ | |
+| **Complete game (snake)** | `odin run examples/snake -define:ODINGAME_RENDER_BACKEND=vulkan -debug` | ☐ | |
 | **No validation errors** | All above with `-debug`, check console | ☐ | |
 | **Clean shutdown** | Close window, no crash or hang | ☐ | |
 | **Rapid resize** | Resize window quickly multiple times | ☐ | |

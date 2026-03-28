@@ -1,5 +1,5 @@
 // Makes a VS Code project for developing and testing examples.
-package karl2d_make_vscode_project
+package odingame_make_vscode_project
 
 import "core:os"
 import "core:fmt"
@@ -95,7 +95,7 @@ main :: proc() {
 				"$odin"
 			],
 			"command": "odin",
-			"args": ["build", "%s", "-debug", "-vet", "-strict-style", "-vet-tabs", "-out:bin/%s", "-define:KARL2D_RENDER_BACKEND=gl"],
+			"args": ["build", "%s", "-debug", "-vet", "-strict-style", "-vet-tabs", "-out:bin/%s", "-define:ODINGAME_RENDER_BACKEND=gl"],
 			"group": {{
 				"kind": "build",
 			}}

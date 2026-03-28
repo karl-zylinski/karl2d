@@ -1,6 +1,6 @@
 #+vet explicit-allocators
 #+private file
-package karl2d
+package odingame
 
 @(private="package")
 AUDIO_BACKEND_NIL :: Audio_Backend_Interface {

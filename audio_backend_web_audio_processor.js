@@ -1,6 +1,6 @@
 // This file takes care of sending samples of audio to the browser. The stuff in here actually runs
 // on a separate thread.
-class Karl2DAudioProcessor extends AudioWorkletProcessor {
+class OdingameAudioProcessor extends AudioWorkletProcessor {
 	process(inputs, outputs, parameters) {
 		if (this.chunks.length == 0 || outputs[0].length !== 2) {
 			return true;
@@ -64,4 +64,4 @@ class Karl2DAudioProcessor extends AudioWorkletProcessor {
 	}
 }
 
-registerProcessor("karl2d-audio-processor", Karl2DAudioProcessor);
+registerProcessor("odingame-audio-processor", OdingameAudioProcessor);

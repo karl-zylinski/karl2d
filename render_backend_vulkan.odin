@@ -1,11 +1,11 @@
-// Vulkan render backend for Karl2D.
+// Vulkan render backend for Odingame.
 // Phase 1: Foundation & Initialization — instance, device, swapchain, command buffers, synchronization.
 // Phase 2: Textures, shaders, pipelines, vertex buffers, draw calls.
 // Phase 3: Render targets, render target switching, advanced blending, performance optimizations.
 #+build linux, windows
 #+private file
 
-package karl2d
+package odingame
 
 import "base:runtime"
 import vk "vendor:vulkan"
@@ -583,9 +583,9 @@ vk_shutdown :: proc() {
 vk_create_instance :: proc() -> bool {
         app_info := vk.ApplicationInfo {
                 sType              = .APPLICATION_INFO,
-                pApplicationName   = "Karl2D Application",
+                pApplicationName   = "Odingame Application",
                 applicationVersion = vk.MAKE_VERSION(1, 0, 0),
-                pEngineName        = "Karl2D",
+                pEngineName        = "Odingame",
                 engineVersion      = vk.MAKE_VERSION(1, 0, 0),
                 apiVersion         = vk.API_VERSION_1_0,
         }

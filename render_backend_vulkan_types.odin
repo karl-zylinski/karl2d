@@ -2,7 +2,7 @@
 // These are needed by the platform glue files.
 #+build linux, windows
 
-package karl2d
+package odingame
 
 import vk "vendor:vulkan"
 

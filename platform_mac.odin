@@ -2,7 +2,7 @@
 #+vet explicit-allocators
 #+private file
 
-package karl2d
+package odingame
 
 import NS "core:sys/darwin/Foundation"
 import ce "platform_bindings/mac/cocoa_extras"
@@ -152,7 +152,7 @@ mac_init :: proc(
 				return .TerminateCancel
 			},
 		},
-		"Karl2DApplicationDelegate",
+		"OdingameApplicationDelegate",
 		context,
 	)
 
@@ -193,7 +193,7 @@ mac_init :: proc(
 				append(&s.events, Event_Window_Unfocused{})
 			},
 		},
-		"Karl2DWindowDelegate",
+		"OdingameWindowDelegate",
 		context,
 	)
 

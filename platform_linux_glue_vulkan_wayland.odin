@@ -3,7 +3,7 @@
 // This follows the same pattern as D3D11 on Windows where the HWND is passed through glue.state.
 #+build linux
 
-package karl2d
+package odingame
 
 import vk "vendor:vulkan"
 import wl "platform_bindings/linux/wayland"

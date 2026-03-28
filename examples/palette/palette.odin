@@ -1,4 +1,4 @@
-package karl2d_palette
+package odingame_palette
 
 import k2 "../.."
 import "core:fmt"
@@ -14,7 +14,7 @@ SH :: 50
 MID_WIDTH :: (len(COLOR_BY_NAME) - 1) * SW + PAD*2
 
 init :: proc() {
-	k2.init(290*2 + MID_WIDTH, (len(COLOR_BY_NAME) - 1)*(SH + PAD*2), "Karl2D Palette Demo")
+	k2.init(290*2 + MID_WIDTH, (len(COLOR_BY_NAME) - 1)*(SH + PAD*2), "Odingame Palette Demo")
 }
 
 step :: proc() -> bool {

@@ -1,7 +1,7 @@
 // This file is a just a wrapper that takes care of context setup and provides an entry for the
 // javascript Odin runtime to call into. `main` will run on start and then `step` will run for each
 // frame.
-package karl2d_web_entry
+package odingame_web_entry
 
 import ex "../.."
 import "base:runtime"

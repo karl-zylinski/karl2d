@@ -5,16 +5,16 @@
 //
 // The web compatibility comes from splitting the example up into `init` and `step`.
 //
-// Compile using command-line by going to the Karl2D repository root folder and executing:
+// Compile using command-line by going to the Odingame repository root folder and executing:
 // `odin run build_web -- examples/minimal_hello_world_web`
 // The output will be in `examples/minimal_hello_world_web/bin/web`
-package karl2d_minimal_hello_world_web
+package odingame_minimal_hello_world_web
 
 import k2 "../.."
 
 init :: proc() {
-	// Init Karl2D and open a window with drawing area of 1280x720 pixels and the supplied title.
-	k2.init(1280, 720, "Greetings from Karl2D!")
+	// Init Odingame and open a window with drawing area of 1280x720 pixels and the supplied title.
+	k2.init(1280, 720, "Greetings from Odingame!")
 }
 
 step :: proc() -> bool {

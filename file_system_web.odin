@@ -2,7 +2,7 @@
 // print errors and return. See `file_system_default.odin` for the implemenatations that are used on
 // platforms that do support filesystems.
 #+build js, freestanding
-package karl2d
+package odingame
 
 import "log"
 import "base:runtime"

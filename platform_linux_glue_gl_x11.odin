@@ -2,7 +2,7 @@
 // SwapBuffers etc.
 #+build linux
 
-package karl2d
+package odingame
 
 import "platform_bindings/linux/glx"
 import gl "vendor:OpenGL"

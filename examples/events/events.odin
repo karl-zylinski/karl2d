@@ -7,13 +7,13 @@
 //
 // If you rather want examples on how to use the `k2.key_is_held` etc procedures, then have a look
 // at examples such as `basics`, `gamepads`, `mouse` and `snake`.
-package karl2d_events_example
+package odingame_events_example
 
 import k2 "../.."
 import "core:fmt"
 
 main :: proc() {
-	k2.init(720, 1280, "Karl2D Events", options = { window_mode = .Windowed_Resizable })
+	k2.init(720, 1280, "Odingame Events", options = { window_mode = .Windowed_Resizable })
 	MAX_HISTORY :: 32
 	event_history: [dynamic]k2.Event
 	num_mouse_clicks := 0

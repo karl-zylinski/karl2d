@@ -1,18 +1,18 @@
 // This program shows how to do the work that `k2.update()` does, but manually. This gives you more
 // control.
 //
-// Most Karl2D examples use `k2.update()`. It updates the internal state of the library and returns
+// Most Odingame examples use `k2.update()`. It updates the internal state of the library and returns
 // a bool that says if the user is trying to close the window.
 //
 // Instead, one can skip `k2.update()`. In that case you need to call `k2.reset_frame_allocator()`,
 // `k2.calculate_frame_time()`, `k2.process_events()` and `k2.close_window_requested()` manually.
-package karl2d_custom_frame_update
+package odingame_custom_frame_update
 
 import k2 "../.."
 import "core:fmt"
 
 main :: proc() {
-	k2.init(1280, 720, "Karl2D Custom Frame Update")
+	k2.init(1280, 720, "Odingame Custom Frame Update")
 
 	// This loop runs forever until something stops it using `break`
 	for {

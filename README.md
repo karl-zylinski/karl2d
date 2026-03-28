@@ -1,6 +1,6 @@
-<img width="328" height="64" alt="karl2d_logo" src="https://github.com/user-attachments/assets/5ebd43c8-5a1d-4864-b8eb-7ce4b6a5dba0" />
+<img width="328" height="64" alt="odingame_logo" src="https://github.com/user-attachments/assets/5ebd43c8-5a1d-4864-b8eb-7ce4b6a5dba0" />
 
-Karl2D is a library for making 2D games using the Odin programming language. It focuses on making 2D gamedev fun, fast and beginner friendly. It also uses as few dependencies as possible. See [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) for an API overview.
+Odingame is a library for making 2D games using the Odin programming language. It focuses on making 2D gamedev fun, fast and beginner friendly. It also uses as few dependencies as possible. See [odingame.doc.odin](https://github.com/karl-zylinski/odingame/blob/master/odingame.doc.odin) for an API overview.
 
 Support the project by becoming a sponsor here on [GitHub](https://github.com/sponsors/karl-zylinski) or on [Patreon](https://patreon.com/karl_zylinski).
 
@@ -9,10 +9,10 @@ Support the project by becoming a sponsor here on [GitHub](https://github.com/sp
 ```odin
 package hello_world
 
-import k2 "karl2d"
+import k2 "odingame"
 
 main :: proc() {
-    k2.init(1280, 720, "Greetings from Karl2D!")
+    k2.init(1280, 720, "Greetings from Odingame!")
 
     for k2.update() {
         k2.clear(k2.LIGHT_BLUE)
@@ -24,16 +24,16 @@ main :: proc() {
 }
 ```
 
-See the [examples](https://github.com/karl-zylinski/karl2d/tree/master/examples) folder for a wide variety of example programs.
+See the [examples](https://github.com/karl-zylinski/odingame/tree/master/examples) folder for a wide variety of example programs.
 
-Some examples are available as live web builds: [hellope](https://zylinski.se/karl2d/hellope/), [basics](https://zylinski.se/karl2d/basics/), [camera](https://zylinski.se/karl2d/camera/), [box2d](https://zylinski.se/karl2d/box2d/), [fonts](https://zylinski.se/karl2d/fonts/), [gamepad](https://zylinski.se/karl2d/gamepad/), [mouse](https://zylinski.se/karl2d/mouse/), [render_texture](https://zylinski.se/karl2d/render_texture/), [snake](https://zylinski.se/karl2d/snake/).
+Some examples are available as live web builds: [hellope](https://zylinski.se/odingame/hellope/), [basics](https://zylinski.se/odingame/basics/), [camera](https://zylinski.se/odingame/camera/), [box2d](https://zylinski.se/odingame/box2d/), [fonts](https://zylinski.se/odingame/fonts/), [gamepad](https://zylinski.se/odingame/gamepad/), [mouse](https://zylinski.se/odingame/mouse/), [render_texture](https://zylinski.se/odingame/render_texture/), [snake](https://zylinski.se/odingame/snake/).
 
-Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
+Discuss and get help in the #odingame channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
 
 
 ## Beta 2
 
-Karl2D is currently in its SECOND BETA period. If you find _any_ issues, then please create an issue here on GitHub!
+Odingame is currently in its SECOND BETA period. If you find _any_ issues, then please create an issue here on GitHub!
 
 Beta 2 has these features:
 - Rendering of shapes, textures and text with automatic batching
@@ -52,12 +52,12 @@ Beta 2 has these features:
 >
 > When I've gotten through this list, then the library is close to `1.0`
 >
-> See the list of [milestones](https://github.com/karl-zylinski/karl2d/milestones) to see the progress on each Beta version and what is included in each.
+> See the list of [milestones](https://github.com/karl-zylinski/odingame/milestones) to see the progress on each Beta version and what is included in each.
 
 >[!WARNING]
 >As this is a beta test version, changes to the API will happen.
 
-I wrote a newsletter about the beta 2 release: https://news.zylinski.se/p/karl2d-beta-is-here
+I wrote a newsletter about the beta 2 release: https://news.zylinski.se/p/odingame-beta-is-here
 
 ## How to make a web build of your game
 
@@ -72,14 +72,14 @@ The web build will end up in `your_game_path/bin/web`.
 
 >[!NOTE]
 >You can run the build_web script from anywhere by doing:
->`odin run path/to/karl2d/build_web -- your_game_path`
+>`odin run path/to/odingame/build_web -- your_game_path`
 
 >[!WARNING]
 >On Linux / Mac you may need to install some `lld` package that contains the `wasm-ld` linker. It's included with Odin on Windows.
 
 It requires that your game contains an `init` procedure and a `step` procedure. The `init` procedure is called once on startup and the `step` procedure will be called every frame of your game.
 
-Also, see the [`minimal_hello_world_web.odin`](https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_hello_world_web/minimal_hello_world_web.odin) example.
+Also, see the [`minimal_hello_world_web.odin`](https://github.com/karl-zylinski/odingame/blob/master/examples/minimal_hello_world_web/minimal_hello_world_web.odin) example.
 
 The `build_web` tool will copy `odin.js` file from `<odin>/core/sys/wasm/js/odin.js` into the `bin/web folder`. It will also copy a HTML index file into that folder.
 
@@ -97,15 +97,15 @@ Launch your game by opening `bin/web/index.html` in a browser.
 
 ## Architecture notes
 
-The platform-independent parts and the API lives in `karl2d.odin`.
+The platform-independent parts and the API lives in `odingame.odin`.
 
-`karl2d.odin` in turn has a window interface and a rendering backend.
+`odingame.odin` in turn has a window interface and a rendering backend.
 
 The window interface depends on the operating system. I do not use anything like GLFW in order to abstract away window creation and event handling. Less libraries between you and the OS, less trouble when shipping!
 
-The rendering backend tells Karl2D how to talk to the GPU. I currently support three rendering APIs: D3D11, OpenGL and WebGL. On some platforms you have multiple choices, for example on Windows you can use both D3D11 and OpenGL.
+The rendering backend tells Odingame how to talk to the GPU. I currently support three rendering APIs: D3D11, OpenGL and WebGL. On some platforms you have multiple choices, for example on Windows you can use both D3D11 and OpenGL.
 
-The platform independent code in `karl2d.odin` creates a list of vertices for each batch it needs to render. That's done independently of the rendering backend. The backend is just fed that list, along with information about what shader and such to use.
+The platform independent code in `odingame.odin` creates a list of vertices for each batch it needs to render. That's done independently of the rendering backend. The backend is just fed that list, along with information about what shader and such to use.
 
 The web builds do not need emscripten, instead I've written a WebGL backend and make use of the official Odin JS runtime. This makes building for the web easier and less error-prone.
 
@@ -117,7 +117,7 @@ Try installing a package such as `systemd-devel` or `systemd-dev`.
 
 ## Contributing and Pull Request rules
 
-Are you interested in helping with Karl2D development? Thank you! You can look at open issues here on GitHub. You get your contributions into the project using a Pull Request.
+Are you interested in helping with Odingame development? Thank you! You can look at open issues here on GitHub. You get your contributions into the project using a Pull Request.
 
 You can always open a _draft_ Pull Request and work on your stuff in there. There are no rules for draft pull requests. However, when you want to turn your draft into a ready-for-review Pull Request (which means that I might look at it), then please follow these rules:
 
@@ -125,11 +125,11 @@ You can always open a _draft_ Pull Request and work on your stuff in there. Ther
 2. Do not submit "basic" or "rudimentary" code that needs further work to actually be finished. Finish the code to the best of your abilities.
 3. Do not modify any code that is unrelated to your changes. That just makes reviewing your code harder: I'll have a hard time seeing what you actually did. Do not use auto formatters such as odinfmt.
 4. If you commit changes that were unintended, just do additional commits that undo them. Don't worry about polluting the commit history: I will do a "squash merge" of your Pull Request. Just make sure that the diff in the "Files changed" tab looks tidy.
-5. The GitHub testing actions will make sure that the [`karl2d.doc.odin`](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) file is up-to-date. I enforce this because it will make you see if you changed any parts of the user-facing API. This way we find API-breaking changes before they are merged. Regenerate `karl2d.doc.odin` by running `odin run tools/api_doc_builder` in the root folder of the repository.
-6. Finally, about code style: Make sure that the code follows the same style as in [`karl2d.odin`](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.odin):
+5. The GitHub testing actions will make sure that the [`odingame.doc.odin`](https://github.com/karl-zylinski/odingame/blob/master/odingame.doc.odin) file is up-to-date. I enforce this because it will make you see if you changed any parts of the user-facing API. This way we find API-breaking changes before they are merged. Regenerate `odingame.doc.odin` by running `odin run tools/api_doc_builder` in the root folder of the repository.
+6. Finally, about code style: Make sure that the code follows the same style as in [`odingame.odin`](https://github.com/karl-zylinski/odingame/blob/master/odingame.odin):
 	- Please look through that file and pay attention to how characters such as `:` `=`, `(` `{` etc are placed.
 	- Use tabs, not spaces.
-	- Lines cannot be longer than 100 characters. See the `init` proc in [`karl2d.odin`](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.odin) for an example of how to split up procedure signatures that are too long. That proc also shows how to write API comments. Use a _ruler_ in your editor to make it easy to spot long lines.
+	- Lines cannot be longer than 100 characters. See the `init` proc in [`odingame.odin`](https://github.com/karl-zylinski/odingame/blob/master/odingame.odin) for an example of how to split up procedure signatures that are too long. That proc also shows how to write API comments. Use a _ruler_ in your editor to make it easy to spot long lines.
 
 ## Have fun!
 

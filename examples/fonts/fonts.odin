@@ -1,4 +1,4 @@
-package karl2d_fonts_example
+package odingame_fonts_example
 
 import k2 "../.."
 import "core:fmt"
@@ -12,7 +12,7 @@ main :: proc() {
 cat_and_onion_font: k2.Font
 
 init :: proc() {
-	k2.init(1080, 1080, "Karl2D Fonts Example")
+	k2.init(1080, 1080, "Odingame Fonts Example")
 	cat_and_onion_font = k2.load_font_from_bytes(#load("cat_and_onion_dialogue_font.ttf"))
 }
 

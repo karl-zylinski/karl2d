@@ -6,7 +6,7 @@
 // - A way to decode audio data. For example, stb_vorbis can be used on web, but the one in vendor
 // currently is not set up for it.
 #+build js
-package karl2d
+package odingame
 
 import "log"
 import "base:runtime"

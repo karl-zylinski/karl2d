@@ -2,7 +2,7 @@
 // through the glue state so the Vulkan render backend can create a VkSurfaceKHR from them.
 #+build linux
 
-package karl2d
+package odingame
 
 import vk "vendor:vulkan"
 import X "vendor:x11/xlib"

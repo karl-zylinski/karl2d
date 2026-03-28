@@ -1,6 +1,6 @@
-package karl2d
+package odingame
 
-CONFIG_RENDER_BACKEND_NAME :: #config(KARL2D_RENDER_BACKEND, "")
+CONFIG_RENDER_BACKEND_NAME :: #config(ODINGAME_RENDER_BACKEND, "")
 
 when ODIN_OS == .Windows {
 	DEFAULT_RENDER_BACKEND_NAME :: "d3d11"
@@ -33,5 +33,5 @@ when RENDER_BACKEND_NAME == "gl" {
 } else when RENDER_BACKEND_NAME == "nil" {
 	RENDER_BACKEND :: RENDER_BACKEND_NIL
 } else {
-	#panic("'" + RENDER_BACKEND_NAME + "' is not a valid value for 'KARL2D_RENDER_BACKEND' on Operating System " + ODIN_OS_STRING + ". Available backends are: " + AVAILABLE_RENDER_BACKENDS)
+	#panic("'" + RENDER_BACKEND_NAME + "' is not a valid value for 'ODINGAME_RENDER_BACKEND' on Operating System " + ODIN_OS_STRING + ". Available backends are: " + AVAILABLE_RENDER_BACKENDS)
 }

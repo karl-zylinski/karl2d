@@ -1,5 +1,5 @@
 // I add things I often want to test in here while devving.
-package karl2d_playground
+package odingame_playground
 
 import k2 "../../.."
 import "core:fmt"
@@ -10,7 +10,7 @@ _ :: fmt
 tex: k2.Texture
 
 init :: proc() {
-	k2.init(1080, 1080, "Karl2D Minimal Program", options = {
+	k2.init(1080, 1080, "Odingame Minimal Program", options = {
 		window_mode = .Windowed_Resizable,
 	})
 

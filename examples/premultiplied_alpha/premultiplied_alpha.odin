@@ -1,9 +1,9 @@
-package karl2d_example_premultiplied_alpha
+package odingame_example_premultiplied_alpha
 
 import k2 "../.."
 
 main :: proc() {
-	k2.init(1080, 1080, "Karl2D Premultiplied Alpha")
+	k2.init(1080, 1080, "Odingame Premultiplied Alpha")
 	k2.set_window_position(300, 100)
 
 	// Load a texture and premultiply the alpha while loading it.

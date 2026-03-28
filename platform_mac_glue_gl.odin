@@ -2,7 +2,7 @@
 // to swap back buffer etc.
 #+build darwin
 #+private file
-package karl2d
+package odingame
 
 import "core:sys/posix"
 import gl "vendor:OpenGL"

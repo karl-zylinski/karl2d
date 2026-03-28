@@ -8,7 +8,7 @@ SCREEN_WIDTH :: 800
 SCREEN_HEIGHT :: 450
 
 main :: proc() {
-	k2.init(SCREEN_WIDTH, SCREEN_HEIGHT, "Karl2D: texture waves (raylib [shaders] example - texture waves)")
+	k2.init(SCREEN_WIDTH, SCREEN_HEIGHT, "Odingame: texture waves (raylib [shaders] example - texture waves)")
 
 	texture := k2.load_texture_from_file("space.png")
 

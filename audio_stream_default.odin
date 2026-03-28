@@ -1,6 +1,6 @@
 #+private package
 #+build !js
-package karl2d
+package odingame
 
 import stbv "vendor:stb/vorbis"
 import hm "core:container/handle_map"

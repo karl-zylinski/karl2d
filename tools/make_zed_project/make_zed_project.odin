@@ -1,5 +1,5 @@
 // Makes a zed project for developing and testing examples.
-package karl2d_make_zed_project
+package odingame_make_zed_project
 
 import "core:os"
 import "core:fmt"

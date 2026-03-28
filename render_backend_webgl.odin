@@ -1,7 +1,7 @@
 #+build js
 #+private file
 
-package karl2d
+package odingame
 
 @(private="package")
 RENDER_BACKEND_WEBGL :: Render_Backend_Interface {

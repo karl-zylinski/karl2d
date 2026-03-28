@@ -1,6 +1,6 @@
-package karl2d
+package odingame
 
-CONFIG_AUDIO_BACKEND_NAME :: #config(KARL2D_AUDIO_BACKEND, "")
+CONFIG_AUDIO_BACKEND_NAME :: #config(ODINGAME_AUDIO_BACKEND, "")
 
 when ODIN_OS == .Windows {
 	DEFAULT_AUDIO_BACKEND_NAME :: "waveout"
@@ -36,5 +36,5 @@ when AUDIO_BACKEND_NAME == "waveout" {
 } else when AUDIO_BACKEND_NAME == "nil" {
 	AUDIO_BACKEND :: AUDIO_BACKEND_NIL
 } else {
-	#panic("'" + AUDIO_BACKEND_NAME + "' is not a valid value for 'KARL2D_AUDIO_BACKEND' on Operating System " + ODIN_OS_STRING + ". Available backends are: " + AVAILABLE_AUDIO_BACKENDS)
+	#panic("'" + AUDIO_BACKEND_NAME + "' is not a valid value for 'ODINGAME_AUDIO_BACKEND' on Operating System " + ODIN_OS_STRING + ". Available backends are: " + AVAILABLE_AUDIO_BACKENDS)
 }

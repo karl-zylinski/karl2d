@@ -2,7 +2,7 @@
 #+feature dynamic-literals
 #+private file
 
-package karl2d
+package odingame
 
 @(private="package")
 PLATFORM_WEB :: Platform_Interface {
@@ -199,7 +199,7 @@ web_get_window_render_glue :: proc() -> Window_Render_Glue {
 }
 
 // This works for XBox controller -- does it work for PlayStation?
-KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
+ODINGAME_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
 	.None = 0,
 	
 	.Left_Face_Up = 12,
@@ -245,7 +245,7 @@ web_get_events :: proc(events: ^[dynamic]Event) {
 		ps := s.gamepad_state[gamepad_idx]
 
 		// We check if any button changed from pressed to not pressed and the other way around.
-		for js_idx, button in KARL2D_GAMEPAD_BUTTON_FROM_JS {
+		for js_idx, button in ODINGAME_GAMEPAD_BUTTON_FROM_JS {
 			if js_idx == -1 {
 				continue
 			}
@@ -322,11 +322,11 @@ web_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	}
 
 	if axis == .Left_Trigger {
-		return f32(s.gamepad_state[gamepad].buttons[KARL2D_GAMEPAD_BUTTON_FROM_JS[.Left_Trigger]].value)
+		return f32(s.gamepad_state[gamepad].buttons[ODINGAME_GAMEPAD_BUTTON_FROM_JS[.Left_Trigger]].value)
 	}
 
 	if axis == .Right_Trigger {
-		return f32(s.gamepad_state[gamepad].buttons[KARL2D_GAMEPAD_BUTTON_FROM_JS[.Right_Trigger]].value)
+		return f32(s.gamepad_state[gamepad].buttons[ODINGAME_GAMEPAD_BUTTON_FROM_JS[.Right_Trigger]].value)
 	}
 
 	return f32(s.gamepad_state[gamepad].axes[int(axis)])

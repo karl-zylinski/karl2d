@@ -1,7 +1,7 @@
 #+build js
 #+vet explicit-allocators
 #+private file
-package karl2d
+package odingame
 
 @(private="package")
 AUDIO_BACKEND_WEB_AUDIO :: Audio_Backend_Interface {
@@ -16,11 +16,11 @@ AUDIO_BACKEND_WEB_AUDIO :: Audio_Backend_Interface {
 import "base:runtime"
 import "core:slice"
 
-foreign import karl2d_web_audio "karl2d_web_audio"
+foreign import odingame_web_audio "odingame_web_audio"
 
 // The `js_` prefix is there to just avoid clashes with the procs in this file.
 @(default_calling_convention="contextless")
-foreign karl2d_web_audio {
+foreign odingame_web_audio {
 	@(link_name="web_audio_init")
 	js_web_audio_init :: proc() ---
 	@(link_name="web_audio_shutdown")

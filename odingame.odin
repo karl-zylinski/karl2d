@@ -1,6 +1,6 @@
 #+vet explicit-allocators
 
-package karl2d
+package odingame
 
 import "base:runtime"
 import "core:mem"
@@ -33,7 +33,7 @@ import hm "core:container/handle_map"
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
 // The window might be slightly larger due to borders and headers.
 //
-// The return value is a pointer to Karl2D's internal state. You can restore this state later using
+// The return value is a pointer to Odingame's internal state. You can restore this state later using
 // `set_internal_state()`. This is useful for example when doing game code reload, as the state may
 // get reset when the library is reloaded. You can safely ignore the return value if you have no
 // such needs.
@@ -192,7 +192,7 @@ close_window_requested :: proc() -> bool {
 	return s.close_window_requested
 }
 
-// Closes the window and cleans up Karl2D's internal state.
+// Closes the window and cleans up Odingame's internal state.
 shutdown :: proc() {
 	assert(s != nil, "You've called 'shutdown' without calling 'init' first")
 
@@ -430,7 +430,7 @@ set_window_position :: proc(x: int, y: int) {
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
 // 1 means 100% scale, 1.5 means 150% etc.
 //
-// Karl2D does not do any automatic scaling. If you want a scaled resolution, then multiply the
+// Odingame does not do any automatic scaling. If you want a scaled resolution, then multiply the
 // wanted resolution by the scale and send it into `set_screen_size`. You can use a camera and set
 // the zoom to the window scale in order to make things the same percieved size.
 get_window_scale :: proc() -> f32 {
@@ -2366,7 +2366,7 @@ destroy_font :: proc(font: Font) {
 	s.fs.fonts[f.fontstash_handle].glyphs = {}
 }
 
-// Returns the built-in font of Karl2D (the font is known as "roboto")
+// Returns the built-in font of Odingame (the font is known as "roboto")
 get_default_font :: proc() -> Font {
 	return s.default_font
 }
@@ -2524,7 +2524,7 @@ destroy_shader :: proc(shader: Shader) {
 	delete(shader.input_overrides, a)
 }
 
-// Fetches the shader that Karl2D uses by default.
+// Fetches the shader that Odingame uses by default.
 get_default_shader :: proc() -> Shader {
 	return s.default_shader
 }
@@ -2628,7 +2628,7 @@ pixel_format_size :: proc(f: Pixel_Format) -> int {
 // CAMERA AND COORDINATE SYSTEMS //
 //-------------------------------//
 
-// Make Karl2D use a camera. Return to the "default camera" by passing `nil`. All drawing operations
+// Make Odingame use a camera. Return to the "default camera" by passing `nil`. All drawing operations
 // will use this camera until you again change it.
 set_camera :: proc(camera: Maybe(Camera)) {
 	if camera == s.batch_camera {
@@ -2786,7 +2786,7 @@ MAGENTA      :: Color { 209, 17, 209, 255 }
 YELLOW       :: Color { 250, 250, 129, 255 }
 LIGHT_YELLOW :: Color { 253, 250, 222, 255 }
 
-// These are from Raylib. They are here so you can easily port a Raylib program to Karl2D.
+// These are from Raylib. They are here so you can easily port a Raylib program to Odingame.
 RL_LIGHTGRAY  :: Color { 200, 200, 200, 255 }
 RL_GRAY       :: Color { 130, 130, 130, 255 }
 RL_DARKGRAY   :: Color { 80, 80, 80, 255 }
@@ -3185,9 +3185,9 @@ State :: struct {
 
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
 
-	// Kept separately in `karl2d_audio_stream_xxx.odin` due to platform differences such as some 
+	// Kept separately in `odingame_audio_stream_xxx.odin` due to platform differences such as some 
 	// platforms not having file system support properly. This may be addressed in future versions
-	// of Karl2D.
+	// of Odingame.
 	audio_stream_manager: Audio_Stream_Manager,
 
 	// 1 megabyte is arbitrarily chosen.
@@ -3448,7 +3448,7 @@ Event_Window_Focused :: struct {}
 Event_Window_Unfocused :: struct {}
 
 
-// Used by API builder. Everything after this constant will not be in karl2d.doc.odin
+// Used by API builder. Everything after this constant will not be in odingame.doc.odin
 API_END :: true
 
 batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {

@@ -1,7 +1,7 @@
 #+build windows
 #+private file
 
-package karl2d
+package odingame
 
 @(private="package")
 PLATFORM_WINDOWS :: Platform_Interface {
@@ -51,7 +51,7 @@ windows_init :: proc(
 	
 	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 	win32.SetProcessDPIAware()
-	CLASS_NAME :: "karl2d"
+	CLASS_NAME :: "odingame"
 	instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
 
 	cls := win32.WNDCLASSW {

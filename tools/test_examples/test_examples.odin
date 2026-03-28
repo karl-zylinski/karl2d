@@ -1,7 +1,7 @@
 // Goes through all the examples and builds them. This script is used by the GitHub CI.
 #+feature dynamic-literals
 
-package karl2d_test_examples
+package odingame_test_examples
 
 import os "core:os"
 import "core:fmt"

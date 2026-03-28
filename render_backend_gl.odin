@@ -1,7 +1,7 @@
 #+build windows, darwin, linux
 #+private file
 
-package karl2d
+package odingame
 
 @(private="package")
 RENDER_BACKEND_GL :: Render_Backend_Interface {

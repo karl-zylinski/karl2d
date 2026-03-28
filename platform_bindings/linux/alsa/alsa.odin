@@ -1,4 +1,4 @@
-// Minimal ALSA bindings. The enums are missing some members. This is just the stuff Karl2D needs.
+// Minimal ALSA bindings. The enums are missing some members. This is just the stuff Odingame needs.
 package alsa
 
 import "core:c"

@@ -1,13 +1,13 @@
 // A minimal program that opens a window and draws some text in it each frame.
 //
 // There's a web-compatible version of this example in `../minimal_hello_world_web`.
-package karl2d_minimal_hello_world
+package odingame_minimal_hello_world
 
 import k2 "../.."
 
 main :: proc() {
-	// Init Karl2D and open a window with drawing area of 1280x720 pixels and the supplied title.
-	k2.init(1280, 720, "Greetings from Karl2D!")
+	// Init Odingame and open a window with drawing area of 1280x720 pixels and the supplied title.
+	k2.init(1280, 720, "Greetings from Odingame!")
 
 	// Main game loop. Runs until `update` returns false, which it does when the player tries to
 	// close the window.

@@ -1,5 +1,5 @@
 // Partial glX bindings. Just enough to make a context.
-package karl2d_glx_bindings
+package odingame_glx_bindings
 
 import "vendor:x11/xlib"
 

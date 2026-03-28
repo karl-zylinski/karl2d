@@ -7,7 +7,7 @@
 //
 // Note: This example currently only works as expected on Windows. I am still adding the proper DPI
 // scaling settings for the other platforms.
-package karl2d_scaling_example
+package odingame_scaling_example
 
 import k2 "../.."
 import "core:fmt"
@@ -20,7 +20,7 @@ Vec2 :: k2.Vec2
 main :: proc() {
 	width := 1000
 	height := 1000
-	k2.init(width, height, "Karl2D: Auto resize when DPI changes", options = { window_mode = .Windowed_Resizable})
+	k2.init(width, height, "Odingame: Auto resize when DPI changes", options = { window_mode = .Windowed_Resizable})
 	
 	// We change the windwo size just after creation so the window scale gets taken into account.
 	//
@@ -34,7 +34,7 @@ main :: proc() {
 		for event in events {
 			#partial switch e in event {
 			case k2.Event_Window_Scale_Changed:
-				// Karl2D does not automatically resize the window when the scale changes. Instead
+				// Odingame does not automatically resize the window when the scale changes. Instead
 				// you can do that yourself by looking for this event.
 				k2.set_screen_size(int(f32(width) * e.scale), int(f32(height) * e.scale))
 

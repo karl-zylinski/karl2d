@@ -1,6 +1,6 @@
 // A small progarm that shows off some basic stuff you'd need to make a game: Draws shapes, text
 // and textures as well as some basic input handling.
-package karl2d_basics_example
+package odingame_basics_example
 
 import k2 "../.."
 import "core:fmt"
@@ -11,7 +11,7 @@ tex: k2.Texture
 pos: k2.Vec2
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Basics")
+	k2.init(1280, 720, "Odingame Basics")
 
 	// Note that we #load the texture: This bakes it into the program's data. WASM has no filesystem
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch

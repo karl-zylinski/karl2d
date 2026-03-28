@@ -1,7 +1,7 @@
-// This program creates the `karl2d.doc.odin` file by parsing `karl2d.odin`. It skips procedure
+// This program creates the `odingame.doc.odin` file by parsing `odingame.odin`. It skips procedure
 // bodies and stops when it reaches `API_END :: true`. The resulting file is a nice overview of the
 // library's API surface.
-package karl2d_api_doc_builder
+package odingame_api_doc_builder
 
 import "core:os"
 import "core:log"
@@ -16,27 +16,27 @@ main :: proc() {
 	pkg_ast, pkg_ast_ok := parser.parse_package_from_path(".")
 	log.ensuref(pkg_ast_ok, "Could not generate AST for package")
 
-	output_filename := "karl2d.doc.odin"
+	output_filename := "odingame.doc.odin"
 
 	if len(os.args) > 1 {
 		output_filename = os.args[1]
 	}
 
 	o, o_err := os.open(output_filename, {.Create, .Trunc, .Write}, os.perm_number(0o644))
-	log.assertf(o_err == nil, "Couldn't open karl2d.doc.odin: %v", o_err)
+	log.assertf(o_err == nil, "Couldn't open odingame.doc.odin: %v", o_err)
 
 	pln :: fmt.fprintln
 
-	pln(o, `// This file gives an overview of the Karl2D API. It shows all procedures without their bodies.`)
-	pln(o, `// This file is generated from the contents of 'karl2d.odin'. It should not be compiled.`)
+	pln(o, `// This file gives an overview of the Odingame API. It shows all procedures without their bodies.`)
+	pln(o, `// This file is generated from the contents of 'odingame.odin'. It should not be compiled.`)
 	
 	pln(o, "#+build ignore")
-	pln(o, "package karl2d")
+	pln(o, "package odingame")
 
 	prev_line: int
 
 	for n, &f in pkg_ast.files {
-		if !strings.ends_with(n, "karl2d.odin") {
+		if !strings.ends_with(n, "odingame.odin") {
 			continue
 		}
 

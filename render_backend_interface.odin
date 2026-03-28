@@ -1,4 +1,4 @@
-package karl2d
+package odingame
 
 import "base:runtime"
 

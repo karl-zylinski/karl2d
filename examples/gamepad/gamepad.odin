@@ -1,4 +1,4 @@
-package karl2d_gamepad_example
+package odingame_gamepad_example
 
 import k2 "../.."
 import "core:fmt"
@@ -70,7 +70,7 @@ main :: proc() {
 }
 
 init :: proc() {
-	k2.init(1000, 600, "Karl2D Gamepad Demo")
+	k2.init(1000, 600, "Odingame Gamepad Demo")
 }
 
 step :: proc() -> bool {

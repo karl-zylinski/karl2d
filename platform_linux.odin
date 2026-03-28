@@ -2,7 +2,7 @@
 #+private file
 #+vet explicit-allocators
 
-package karl2d
+package odingame
 
 import "base:runtime"
 import "log"

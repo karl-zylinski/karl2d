@@ -1,5 +1,5 @@
 // Makes a Sublime project for developing and testing examples.
-package karl2d_make_sublime_project
+package odingame_make_sublime_project
 
 import "core:os"
 import "core:fmt"
@@ -23,7 +23,7 @@ main :: proc() {
 	[
 		{{
 			"file_regex": "^(.+)\\(([0-9]+):([0-9]+)\\) (.+)$",
-			"name": "Karl2D",
+			"name": "Odingame",
 			"working_dir": "$project_path/..",
 			"variants": [
 %s
@@ -90,7 +90,7 @@ main :: proc() {
 		GL_VARIANT_TEMPLATE ::
 `				{{
 					"name": "%s (gl)",
-					"cmd": "odin run %s -debug -vet -strict-style -vet-tabs -out:bin/%s -define:KARL2D_RENDER_BACKEND=gl",
+					"cmd": "odin run %s -debug -vet -strict-style -vet-tabs -out:bin/%s -define:ODINGAME_RENDER_BACKEND=gl",
 				}},
 `
 		gl_variant := fmt.tprintf(GL_VARIANT_TEMPLATE, name, src_path, executable_name)
@@ -155,7 +155,7 @@ main :: proc() {
 		strings.to_string(folders_builder),
 		strings.to_string(variants_builder),
 	)
-	project_file_write_err := os.write_entire_file(".sublime/karl2d-examples.sublime-project", transmute([]u8)(project_str))
+	project_file_write_err := os.write_entire_file(".sublime/odingame-examples.sublime-project", transmute([]u8)(project_str))
 
 	if project_file_write_err != nil {
 		fmt.eprintfln("Failed writing project file. Error: %v", project_file_write_err)

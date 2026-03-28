@@ -1,7 +1,7 @@
 #+build linux
 #+private file
 
-package karl2d
+package odingame
 
 @(private="package")
 LINUX_WINDOW_X11 :: Linux_Window_Interface {

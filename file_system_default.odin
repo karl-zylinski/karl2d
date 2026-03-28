@@ -2,10 +2,10 @@
 //
 // Rational for a separate file: In the past `core:os` could be imported as long as the usages were
 // behind `when` checks. But these days `core:os` will compile-time error on web targets. Therefore
-// I put underscore-prefixed implementations of some procs in this file and `karl2d_no_fs.odin`.
+// I put underscore-prefixed implementations of some procs in this file and `odingame_no_fs.odin`.
 #+build !js
 #+build !freestanding
-package karl2d
+package odingame
 
 import "core:os"
 import "log"

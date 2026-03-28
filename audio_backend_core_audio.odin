@@ -1,7 +1,7 @@
 #+build darwin
 #+vet explicit-allocators
 #+private file
-package karl2d
+package odingame
 
 @(private="package")
 AUDIO_BACKEND_CORE_AUDIO :: Audio_Backend_Interface {

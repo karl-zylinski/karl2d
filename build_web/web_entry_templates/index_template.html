@@ -3,7 +3,7 @@
 	<head>
 		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1">
-		<title>Karl2D Web Build</title>
+		<title>Odingame Web Build</title>
 	</head>
 	<body id="body" style="height: 100%; padding: 0; margin: 0; overflow: hidden; background-color: black;">
 		<canvas id="webgl-canvas" oncontextmenu="return false;" onmousedown="event.target.focus()" onkeydown="event.preventDefault()"></canvas>
@@ -16,7 +16,7 @@
 				wasmMemoryInterface.setIntSize(4);
 
 				let imports = odin.setupDefaultImports(wasmMemoryInterface, null, wasmMemoryInterface.memory);
-				imports = { ...imports, ...karl2dAudioJsImports };
+				imports = { ...imports, ...odingameAudioJsImports };
 
 				const response = await fetch("main.wasm");
 				const file = await response.arrayBuffer();
@@ -26,7 +26,7 @@
 
 				if (exports.memory) {
 					wasmMemoryInterface.setMemory(exports.memory);
-					setKarl2dAudioWasmMemory(exports.memory);
+					setOdingameAudioWasmMemory(exports.memory);
 				}
 
 				if (exports._start) {

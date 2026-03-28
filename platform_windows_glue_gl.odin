@@ -2,7 +2,7 @@
 // to SwapBuffers etc.
 #+build windows
 #+private file
-package karl2d
+package odingame
 
 import win32 "core:sys/windows"
 import gl "vendor:OpenGL"

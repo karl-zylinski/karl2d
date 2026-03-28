@@ -1,4 +1,4 @@
-package karl2d_minimal_example
+package odingame_minimal_example
 
 import k2 "../.."
 import "core:mem"
@@ -17,7 +17,7 @@ main :: proc() {
 render_texture: k2.Render_Texture
 
 init :: proc() {
-	k2.init(1080, 1080, "Karl2D Render Texture Example")
+	k2.init(1080, 1080, "Odingame Render Texture Example")
 	render_texture = k2.create_render_texture(75, 48)
 }
 

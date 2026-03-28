@@ -1,7 +1,7 @@
 // Vulkan proc address loader for Windows.
 #+build windows
 
-package karl2d
+package odingame
 
 import "core:sys/windows"
 import "log"
