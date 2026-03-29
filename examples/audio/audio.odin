@@ -18,8 +18,8 @@ snd_volume: f32
 snd_pan: f32
 snd_pitch: f32 = 1
 
-MUSIC_FILE :: ""
-HAS_MUSIC :: MUSIC_FILE != ""
+MUSIC_FILE :: "cat_and_onion.ogg"
+HAS_MUSIC :: #exists(MUSIC_FILE)
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Audio")
@@ -33,7 +33,7 @@ init :: proc() {
 	wav_inst = k2.create_sound_instance(wav)
 
 	when HAS_MUSIC {
-		music = k2.load_audio_stream_from_file(MUSIC_FILE)
+		music = k2.load_audio_stream_from_bytes(#load(MUSIC_FILE))
 		k2.play_audio_stream(music, true)
 	} else {
 		k2.play_sound(snd, loop = true)
