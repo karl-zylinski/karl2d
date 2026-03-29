@@ -119,7 +119,8 @@ Try installing a package such as `systemd-devel` or `systemd-dev`.
 
 Are you interested in helping with Karl2D development? Thank you! You can look at open issues here on GitHub. You get your contributions into the project using a Pull Request.
 
-You can always open a _draft_ Pull Request and work on your stuff in there. There are no rules for draft pull requests. However, when you want to turn your draft into a ready-for-review Pull Request (which means that I might look at it), then please follow the rules that you find in the Pull Request template: https://github.com/karl-zylinski/karl2d/blob/master/.github/pull_request_template.md
+You can always open a _draft_ Pull Request and work on your stuff in there. There are no rules for draft pull requests. When you want to turn your draft into a ready-for-review Pull Request, then please follow this rule checklist: https://github.com/karl-zylinski/karl2d/blob/master/.github/pull_request_template.md
+
 ## Have fun!
 
 Logo by chris_php.
