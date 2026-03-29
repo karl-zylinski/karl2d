@@ -119,19 +119,7 @@ Try installing a package such as `systemd-devel` or `systemd-dev`.
 
 Are you interested in helping with Karl2D development? Thank you! You can look at open issues here on GitHub. You get your contributions into the project using a Pull Request.
 
-You can always open a _draft_ Pull Request and work on your stuff in there. There are no rules for draft pull requests. However, when you want to turn your draft into a ready-for-review Pull Request (which means that I might look at it), then please follow these rules:
-
-1. Make sure that the code you submit is working and tested.
-2. Do not submit "basic" or "rudimentary" code that needs further work to actually be finished. Finish the code to the best of your abilities.
-3. Do not modify any code that is unrelated to your changes. That just makes reviewing your code harder: I'll have a hard time seeing what you actually did. Do not use auto formatters such as odinfmt.
-4. If you used an LLM to generate any code, then make that you understand every single line. In other words: No form of "vibe coded" PRs are allowed.
-5. If you commit changes that were unintended, just do additional commits that undo them. Don't worry about polluting the commit history: I will do a "squash merge" of your Pull Request. Just make sure that the diff in the "Files changed" tab looks tidy.
-6. The GitHub testing actions will make sure that the [`karl2d.doc.odin`](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) file is up-to-date. I enforce this because it will make you see if you changed any parts of the user-facing API. This way we find API-breaking changes before they are merged. Regenerate `karl2d.doc.odin` by running `odin run tools/api_doc_builder` in the root folder of the repository.
-7. Finally, about code style: Make sure that the code follows the same style as in [`karl2d.odin`](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.odin):
-	- Please look through that file and pay attention to how characters such as `:` `=`, `(` `{` etc are placed.
-	- Use tabs, not spaces.
-	- Lines cannot be longer than 100 characters. See the `init` proc in [`karl2d.odin`](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.odin) for an example of how to split up procedure signatures that are too long. That proc also shows how to write API comments. Use a _ruler_ in your editor to make it easy to spot long lines.
-
+You can always open a _draft_ Pull Request and work on your stuff in there. There are no rules for draft pull requests. However, when you want to turn your draft into a ready-for-review Pull Request (which means that I might look at it), then please follow the rules that you find in the Pull Request template: https://github.com/karl-zylinski/karl2d/blob/master/.github/pull_request_template.md
 ## Have fun!
 
 Logo by chris_php.
