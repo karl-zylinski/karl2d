@@ -6,10 +6,10 @@ import "core:math"
 import "core:slice"
 
 player_pos: k2.Vec2
-base_snd: k2.Sound
+sine_wave_sound: k2.Sound
 
 Positioned_Sound :: struct {
-	snd: k2.Sound,
+	playing_sound: k2.Playing_Sound,
 	pos: k2.Vec2,
 }
 
@@ -19,7 +19,7 @@ SOUND_LENGTH :: 20
 
 main :: proc() {
 	k2.init(1280, 720, "Audio Positional", options = { window_mode = .Windowed_Resizable })
-	base_snd = make_sine_wave(440, SOUND_LENGTH, 44100)
+	sine_wave_sound = make_sine_wave(440, SOUND_LENGTH, 44100)
 	player_pos = {200, 200}
 
 	for k2.update() {
@@ -48,10 +48,8 @@ main :: proc() {
 		if k2.key_went_down(.Space) {
 			ps := Positioned_Sound {
 				pos = player_pos,
-				snd = k2.create_sound_instance(base_snd),
+				playing_sound = k2.play_sound(sine_wave_sound),
 			}
-
-			k2.play_sound(ps.snd)
 
 			append(&playing_sounds, ps)
 		}
@@ -67,10 +65,10 @@ main :: proc() {
 
 			player_to_snd := s.pos - player_pos
 			pan := math.remap_clamped(player_to_snd.x, -200, 200, -1, 1)			
-			k2.set_sound_pan(s.snd, pan)
+			k2.set_playing_audio_pan(s.playing_sound, pan)
 			dist := linalg.length(player_to_snd) * 0.015
 			intensity := dist < 1 ? 1 : 1/(dist*dist) // inverse square falloff
-			k2.set_sound_volume(s.snd, intensity)
+			k2.set_playing_audio_volume(s.playing_sound, intensity)
 		}
 
 		k2.clear(k2.GREEN)

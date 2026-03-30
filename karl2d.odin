@@ -1341,61 +1341,34 @@ sound_is_playing :: proc(snd: Sound) -> bool {
 // Set the volume of a sound. Range: 0 to 1, where 0 is silence and 1 is the original volume of the
 // sound. The volume change will only affect this instance of the sound. Use `create_sound_instance`
 // to create more instances without duplicating data.
-set_sound_volume :: proc(snd: Sound, volume: f32) {
-	d := hm.get(&s.sound_instances, snd)
-	
-	if d == nil {
-		log.error("Cannot set volume, sound does not exist.")
-		return
-	}
-
+set_sound_volume :: proc(playing_buffer_handle: Playing_Audio_Buffer_Handle, volume: f32) {
 	clamped_volume := clamp(volume, 0, 1)
 
-	if playing := hm.get(&s.playing_audio_buffers, d.playing_buffer_handle); playing != nil {
-		playing.target_settings.volume = clamped_volume
+	if pab := hm.get(&s.playing_audio_buffers, playing_buffer_handle); pab != nil {
+		pab.target_settings.volume = clamped_volume
 	}
-	
-	d.playback_settings.volume = clamped_volume
 }
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
 // The pan change will only affect this instance of the sound. Use `create_sound_instance` to create
 // more instances without duplicating data.
-set_sound_pan :: proc(snd: Sound, pan: f32) {
-	d := hm.get(&s.sound_instances, snd)
-	
-	if d == nil {
-		log.error("Cannot set pan, sound does not exist.")
-		return
-	}
-
+set_sound_pan :: proc(playing_buffer_handle: Playing_Audio_Buffer_Handle, pan: f32) {
 	clamped_pan := clamp(pan, -1, 1)
 
-	if playing := hm.get(&s.playing_audio_buffers, d.playing_buffer_handle); playing != nil {
+	if playing := hm.get(&s.playing_audio_buffers, playing_buffer_handle); playing != nil {
 		playing.target_settings.pan = clamped_pan
 	}
-
-	d.playback_settings.pan = clamped_pan
 }
 
 // Set the pitch of a sound. Range: 0.01 to infinity, where 0.01 is the lowest pitch and higher
 // values increase the pitch. The pitch change will only affect this instance of the sound. Use
 // `create_sound_instance` to create more instances without duplicating data.
-set_sound_pitch :: proc(snd: Sound, pitch: f32) {
-	d := hm.get(&s.sound_instances, snd)
-	
-	if d == nil {
-		log.error("Cannot set pitch, sound does not exist.")
-		return
-	}
-
+set_sound_pitch :: proc(playing_buffer_handle: Playing_Audio_Buffer_Handle, pitch: f32) {
 	capped_pitch := max(pitch, 0.01)
 
-	if playing := hm.get(&s.playing_audio_buffers, d.playing_buffer_handle); playing != nil {
+	if playing := hm.get(&s.playing_audio_buffers, playing_buffer_handle); playing != nil {
 		playing.target_settings.pitch = capped_pitch
 	}
-	
-	d.playback_settings.pitch = capped_pitch
 }
 
 // Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. Use 
@@ -3575,30 +3548,14 @@ Audio_Sample :: f32
 // Represents a sound you can play using the `play_sound` procedure. Loaded using
 // `load_sound_from_file` or `load_sound_from_bytes`. Create instances of an already loaded sound
 // using `create_sound_instance`.
-Sound :: distinct Handle
+Sound :: struct {
+	buffer: Audio_Buffer_Handle,
+	volume: f32,
+	pan: f32,
+	pitch: f32,
+}
 
 SOUND_NONE :: Sound {}
-
-// A sound instance is what `Sound` handles are mapped to. They contain a handle to a an audio
-// buffer, and the settings for use when playing that buffer. The audio buffer may be shared between
-// multiple sound instances, which allows you to play the same sound multiple times at the same time
-// without having to clone the data.
-Sound_Instance :: struct {
-	handle: Sound,
-
-	// The audio buffer may be used by multiple sound instances. This is the key idea of sound
-	// instances: That you can use `create_sound_instance` to make it possible to play a sound
-	// multiple times at the same time, without having to clone the data.
-	audio_buffer_handle: Audio_Buffer_Handle,
-
-	// If this sound is currently playing, then this identifies the state of the playing sound. It
-	// is PLAYING_AUDIO_BUFFER_NONE (zero) when it is not playing.
-	playing_buffer_handle: Playing_Audio_Buffer_Handle,
-
-	// This exists both here and in the `Playing_Audio_Buffer`. That way we can store settings
-	// even when the sound isn't playing.
-	playback_settings: Audio_Buffer_Playback_Settings,
-}
 
 Audio_Stream :: distinct Handle
 
