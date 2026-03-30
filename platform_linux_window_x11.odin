@@ -16,6 +16,9 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_size = x11_set_size,
 	get_window_scale = x11_get_window_scale,
 	set_window_mode = x11_set_window_mode,
+	create_cursor = x11_create_cursor,
+	set_cursor = x11_set_cursor,
+	destroy_cursor = x11_destroy_cursor,
 	set_internal_state = x11_set_internal_state,
 }
 
@@ -23,6 +26,8 @@ import X "vendor:x11/xlib"
 import "base:runtime"
 import "log"
 import "core:fmt"
+import "core:image/png"
+import "core:slice"
 
 _ :: log
 _ :: fmt
@@ -300,6 +305,54 @@ x11_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
+x11_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
+	img_decoded, err := png.load(pixels, allocator = s.allocator)
+	if err != nil {
+		log.errorf("Failed to decode cursor PNG: %v", err)
+		return {}
+	}
+
+	// Convert to ARGB and premultiply alpha
+	pixels := slice.reinterpret([]Color, img_decoded.pixels.buf[:])
+	for i in 0 ..< len(pixels) {
+		a := pixels[i].a
+		r := u8(f32(pixels[i].r) * (f32(a) / 255))
+		g := u8(f32(pixels[i].g) * (f32(a) / 255))
+		b := u8(f32(pixels[i].b) * (f32(a) / 255))
+		pixels[i] = {b, g, r, a}
+	}
+
+	img := X.cursorImageCreate(i32(img_decoded.width), i32(img_decoded.height))
+	defer X.cursorImageDestroy(img)
+
+	img.pixels = (^X.CursorPixel)(raw_data(pixels))
+	img.xhot   = X.CursorDim(hotspot.x)
+	img.yhot   = X.CursorDim(hotspot.y)
+
+	cursor := X.cursorImageLoadCursor(s.display, img)
+
+	return {
+		os_handle = rawptr(uintptr(cursor)),
+		pixels = pixels,
+	}
+}
+
+x11_set_cursor :: proc(cursor: Cursor_Data) {
+	if cursor.os_handle == nil {
+		X.UndefineCursor(s.display, s.window)
+	} else {
+		cursor := X.Cursor(uintptr(cursor.os_handle))
+		X.DefineCursor(s.display, s.window, cursor)
+	}
+	X.Flush(s.display)
+}
+
+x11_destroy_cursor :: proc(cursor: Cursor_Data) {
+	cursor := X.Cursor(uintptr(cursor.os_handle))
+	X.UndefineCursor(s.display, s.window)
+	X.FreeCursor(s.display, cursor)
+	X.Flush(s.display)
+}
 
 x11_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
