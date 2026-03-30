@@ -34,6 +34,8 @@ init :: proc() {
 
 	when HAS_MUSIC {
 		when ODIN_OS == .JS {
+			// You could do this on non-JS (web) as well, I just try both so we get test coverage of
+			// these different modes of operation.
 			music = k2.load_audio_stream_from_bytes(#load(MUSIC_FILE))
 		} else {
 			music = k2.load_audio_stream_from_file(MUSIC_FILE)
