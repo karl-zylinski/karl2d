@@ -1059,6 +1059,55 @@ AUDIO_STREAM_NONE :: Audio_Stream {}
 
 AUDIO_STREAM_BUFFER_SIZE :: 3 * AUDIO_MIX_SAMPLE_RATE
 
+Audio_Channels :: enum {
+	Mono,
+	Stereo,
+}
+
+Audio_Stream_Mode :: enum {
+	From_File,
+	From_Bytes,
+}
+
+Audio_Stream_Data :: struct {
+	handle: Audio_Stream,
+	
+	vorbis: ^stbv.vorbis,
+	playing_buffer_handle: Playing_Audio_Buffer_Handle,
+	buffer_handle: Audio_Buffer_Handle,
+	
+	// Where in the audio buffer referred to by `buffer_handle` that we have most recently written
+	// samples. Together with the `offset` of the Playing_Audio_Buffer, this forms a circular
+	// buffer.
+	buffer_write_pos: int,
+
+	playback_settings: Audio_Buffer_Playback_Settings,
+
+	// Different from `loop` in `Playing_Audio_Buffer`. This says if the whole stream should loop
+	// when it reaches end-of-file. The `loop` in `Playing_Audio_Buffer` just says to loop the
+	// buffer itself. That's something you always want for a stream: We are continously writing
+	// data from a file into a small buffer that is a few seconds long.
+	loop: bool,
+
+	mode: Audio_Stream_Mode,
+
+	// use if mode = .From_File
+	file: ^File,
+	file_read_buf: [dynamic]u8,
+	file_read_buf_offset: int,
+
+	// use if mode == .From_Bytes
+	bytes: []u8,
+}
+
+// The format used to describe that data passed to `load_sound_from_bytes_raw`.
+Raw_Sound_Format :: enum {
+	Integer8,
+	Integer16,
+	Integer32,
+	Float,
+}
+
 Audio_Buffer_Handle :: distinct Handle
 
 Audio_Buffer :: struct {
@@ -1104,55 +1153,6 @@ Playing_Audio_Buffer :: struct {
 	offset_fraction: f32,
 
 	loop: bool,
-}
-
-// The format used to describe that data passed to `load_sound_from_bytes_raw`.
-Raw_Sound_Format :: enum {
-	Integer8,
-	Integer16,
-	Integer32,
-	Float,
-}
-
-Audio_Channels :: enum {
-	Mono,
-	Stereo,
-}
-
-Audio_Stream_Mode :: enum {
-	From_File,
-	From_Bytes,
-}
-
-Audio_Stream_Data :: struct {
-	handle: Audio_Stream,
-	
-	vorbis: ^stbv.vorbis,
-	playing_buffer_handle: Playing_Audio_Buffer_Handle,
-	buffer_handle: Audio_Buffer_Handle,
-	
-	// Where in the audio buffer referred to by `buffer_handle` that we have most recently written
-	// samples. Together with the `offset` of the Playing_Audio_Buffer, this forms a circular
-	// buffer.
-	buffer_write_pos: int,
-
-	playback_settings: Audio_Buffer_Playback_Settings,
-
-	// Different from `loop` in `Playing_Audio_Buffer`. This says if the whole stream should loop
-	// when it reaches end-of-file. The `loop` in `Playing_Audio_Buffer` just says to loop the
-	// buffer itself. That's something you always want for a stream: We are continously writing
-	// data from a file into a small buffer that is a few seconds long.
-	loop: bool,
-
-	mode: Audio_Stream_Mode,
-
-	// From_File mode
-	file: ^File,
-	file_read_buf: [dynamic]u8,
-	file_read_buf_offset: int,
-
-	// From_Bytes mode
-	bytes: []u8,
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
