@@ -1883,10 +1883,9 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 // Load an audio stream from a byte slice that is completely in memory. This makes it possible to
 // have an encoded audio file in memory and decode it, a small bit a time.
 //
-// The `bytes` parameter is NOT copied. Do not unload that memory while the audio stream is playing.
+// The `bytes` parameter is NOT copied. Do not deallocate that memory while the stream is playing.
 //
-// Supported formats: ogg -- in other words, the kind of data this procedure accepts is the kind of
-// data you get by doing `#load("some_music.ogg")` or `os.read_entire_file("some_music.ogg")` 
+// Supported formats: ogg
 //
 // Audio streams do not stream in data automatically from the source. You need to call
 // `update_audio_stream` every frame to stream in the new data.
