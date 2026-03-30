@@ -14,6 +14,7 @@ import "core:time"
 import "core:encoding/endian"
 
 import fs "vendor:fontstash"
+import stbv "vendor:stb/vorbis"
 
 import "core:image"
 import "core:image/jpeg"
@@ -139,12 +140,14 @@ init :: proc(
 		hm.dynamic_init(&s.audio_buffers, s.allocator)
 		hm.dynamic_init(&s.sound_instances, s.allocator)
 
-		audio_stream_init_manager(
-			&s.audio_stream_manager,
-			&s.audio_buffers,
-			&s.playing_audio_buffers,
-			s.allocator,
-		)
+		VORBIS_STATE_SIZE :: 500 * mem.Kilobyte
+
+		s.vorbis_alloc = {
+			alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
+			alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
+		}
+
+		hm.dynamic_init(&s.audio_streams, s.allocator)
 	}
 
 	return s
@@ -198,7 +201,14 @@ shutdown :: proc() {
 
 	// Audio
 	{
-		audio_stream_destroy_manager(&s.audio_stream_manager)
+		streams_iter := hm.iterator_make(&s.audio_streams)
+
+		for _, stream_handle in hm.iterate(&streams_iter) {
+			destroy_audio_stream(stream_handle)
+		}
+
+		hm.dynamic_destroy(&s.audio_streams)
+		free(s.vorbis_alloc.alloc_buffer, s.allocator)
 		ab.shutdown()
 		hm.dynamic_destroy(&s.playing_audio_buffers)
 		hm.dynamic_destroy(&s.sound_instances)
@@ -1722,67 +1732,600 @@ destroy_sound :: proc(snd: Sound) {
 	hm.remove(&s.sound_instances, snd)
 }
 
-// Load an audio stream from a file on disk. This is often used for playing music.
+// Load an audio stream from a file on disk. This is often used for playing music. An audio stream
+// only loads a small part of the file at a time. As the file is played, new parts are streamed into
+// memory.
+//
+// Supported file formats: ogg
 //
 // Audio streams do not stream in data automatically from the disk. You need to call
 // `update_audio_stream` every frame to stream in the new data.
 load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
-	return audio_stream_load_from_file(&s.audio_stream_manager, filename)
+	f, f_err := file_open(filename)
+
+	if f_err != nil {
+		log.errorf("Failed opening file %v. Error: %v", filename, f_err)
+		return AUDIO_STREAM_NONE
+	}
+
+	buf := make([dynamic]u8, frame_allocator)
+	read_buf: [256]u8
+	nbytes_read, read_err := file_read(f, read_buf[:])
+
+	if read_err != nil {
+		log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
+
+		if close_err := file_close(f); close_err != nil {
+			log.errorf("Failed closing file. Error: %v", close_err)
+		}
+		
+		return AUDIO_STREAM_NONE
+	}
+
+	append(&buf, ..read_buf[:nbytes_read])
+	vorbis_res: ^stbv.vorbis
+
+	// This loop tries to read in just enough from the file so that it has enough info to play it.
+	// `stbv.open_pushdata` returns an error if it needs more data, in which case the the loop
+	// might continue.
+	for {
+		vorbis_err: stbv.Error
+		consumed: i32
+		vorbis := stbv.open_pushdata(
+			raw_data(buf),
+			i32(len(buf)),
+			&consumed,
+			&vorbis_err,
+			&s.vorbis_alloc,
+		)
+
+		if vorbis_err == nil {
+			// The file was properly loaded!
+			vorbis_res = vorbis
+			_, seek_err := file_seek(f, i64(consumed), .Start)
+
+			if seek_err != nil {
+				log.errorf("Failed seeking in audio stream file %v. Error: %v", filename, seek_err)
+				file_close(f)
+				return AUDIO_STREAM_NONE
+			}
+
+			break
+		} else if vorbis_err == .need_more_data {
+			// Read in more data from the file so that maybe `stbv.open_pushdata` succeeds next
+			// iteration.
+			nbytes_read, read_err = file_read(f, read_buf[:])
+
+			if read_err != nil {
+				log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
+				file_close(f)
+				return AUDIO_STREAM_NONE
+			}
+
+			if nbytes_read == 0 {
+				log.errorf("Failed to load audio stream. Reached end of file before stream could be loaded.")
+				file_close(f)
+				return AUDIO_STREAM_NONE
+			}
+
+			append(&buf, ..read_buf[:nbytes_read])
+		} else {
+			log.errorf("Failed to load audio stream. Error: %v", vorbis_err)
+			file_close(f)
+			return AUDIO_STREAM_NONE
+		}
+	}
+
+	info := stbv.get_info(vorbis_res)
+	channels: Audio_Channels
+
+	if info.channels == 1 {
+		channels = Audio_Channels.Mono
+	} else if info.channels == 2 {
+		channels = Audio_Channels.Stereo
+	} else{
+		log.errorf("Unsupported number of channels: %v", info.channels)
+
+		if close_err := file_close(f); close_err != nil {
+			log.errorf("Failed closing file. Error: %v", close_err)
+		}
+		
+		return AUDIO_STREAM_NONE
+	}
+
+	buffer := Audio_Buffer {
+		sample_rate = int(info.sample_rate),
+		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
+		references = 1,
+		channels = channels,
+	}
+
+	buffer_handle, buffer_handle_add_err := hm.add(&s.audio_buffers, buffer)
+
+	if buffer_handle_add_err != nil {
+		log.errorf("Failed to load audio stream. Error: %v", buffer_handle_add_err)
+		
+		if close_err := file_close(f); close_err != nil {
+			log.errorf("Failed closing file. Error: %v", close_err)
+		}
+
+		delete(buffer.samples, s.allocator)
+		return AUDIO_STREAM_NONE
+	}
+
+	asd := Audio_Stream_Data {
+		mode = .From_File,
+		file = f,
+		vorbis = vorbis_res,
+		buffer_handle = buffer_handle,
+		playback_settings = {
+			pan = 0,
+			volume = 1,
+			pitch = 1,
+		},
+		file_read_buf = make([dynamic]u8, s.allocator),
+	}
+
+	stream, stream_add_err := hm.add(&s.audio_streams, asd)
+
+	if stream_add_err != nil {
+		log.errorf("Failed to create audio stream from file. Error: %v", stream_add_err)
+		file_close(asd.file)
+		delete(asd.file_read_buf)
+		delete(buffer.samples, s.allocator)
+		hm.remove(&s.audio_buffers, buffer_handle)
+		return AUDIO_STREAM_NONE
+	}
+
+	return stream
 }
 
-// Destroy an audio stream previously loaded using `load_audio_stream_from_file`.
-destroy_audio_stream :: proc(audio_stream: Audio_Stream) {
-	audio_stream_destroy(&s.audio_stream_manager, audio_stream)
+// Load an audio stream from a byte slice that is completely in memory. This makes it possible to
+// have an encoded audio file in memory and decode it, a small bit a time.
+//
+// The `bytes` parameter is NOT copied. Do not deallocate that memory while the stream is playing.
+//
+// Supported formats: ogg
+//
+// Audio streams do not stream in data automatically from the source. You need to call
+// `update_audio_stream` every frame to stream in the new data.
+//
+// This procedure is useful in some specific cases. One such case is web builds. Web builds don't
+// support `load_audio_stream_from_file` since they don't have a file system. Instead, you can do
+// `k2.load_audio_stream_from_bytes(#load("some_music.ogg"))` to embed the whole ogg file in the
+// `.wasm` file.
+//
+// Another use case is if you're making a desktop game and you want to embed all the assets in the
+// executable (so the game is a single file). In that case you'd could also use `#load` to fetch the
+// file and then send it into this procedure.
+//
+// Note that this procedure wants the encoded file, for example an ogg file just like it was on
+// disk. For normal sounds there is a `load_sound_from_bytes_raw` procedure where you just send in
+// the samples. There is no such procedure for audio streams since the whole idea is to stream an
+// encoded file into memory without having to decode the whole thing first.  
+load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
+	vorbis_err: stbv.Error
+
+	// This procedure is specifically made for our use case: Streaming from a file that is already
+	// completely in memory.
+	vorbis_res := stbv.open_memory(
+		raw_data(bytes),
+		i32(len(bytes)),
+		&vorbis_err,
+		&s.vorbis_alloc,
+	)
+
+	if vorbis_err != nil {
+		log.errorf("Failed opening audio stream from bytes. Error: %v", vorbis_err)
+		return AUDIO_STREAM_NONE
+	}
+
+	info := stbv.get_info(vorbis_res)
+	channels: Audio_Channels
+
+	if info.channels == 1 {
+		channels = Audio_Channels.Mono
+	} else if info.channels == 2 {
+		channels = Audio_Channels.Stereo
+	} else{
+		log.errorf("Unsupported number of channels: %v", info.channels)
+		return AUDIO_STREAM_NONE
+	}
+
+	buffer := Audio_Buffer {
+		sample_rate = int(info.sample_rate),
+		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
+		references = 1,
+		channels = channels,
+	}
+
+	buffer_handle, buffer_handle_add_err := hm.add(&s.audio_buffers, buffer)
+
+	if buffer_handle_add_err != nil {
+		log.errorf("Failed to load audio stream. Error: %v", buffer_handle_add_err)
+		delete(buffer.samples, s.allocator)
+		return AUDIO_STREAM_NONE
+	}
+
+	asd := Audio_Stream_Data {
+		mode = .From_Bytes,
+		bytes = bytes,
+		vorbis = vorbis_res,
+		buffer_handle = buffer_handle,
+		playback_settings = {
+			pan = 0,
+			volume = 1,
+			pitch = 1,
+		},
+	}
+
+	stream, stream_add_err := hm.add(&s.audio_streams, asd)
+
+	if stream_add_err != nil {
+		log.errorf("Failed to create audio stream from bytes. Error: %v", stream_add_err)
+		delete(buffer.samples, s.allocator)
+		hm.remove(&s.audio_buffers, buffer_handle)
+		return AUDIO_STREAM_NONE
+	}
+
+	return stream
 }
 
-// Call once per frame in order to stream new data into the Audio_Stream's buffer. Not calling this
-// will cause audio streams to not play, even though you call `play_audio_stream`.
-update_audio_stream :: proc(audio_stream: Audio_Stream) {
-	audio_stream_update(&s.audio_stream_manager, audio_stream)
+// Destroy an audio stream previously loaded using `load_audio_stream_from_file` or
+// `load_audio_stream_from_bytes`. This cleans up some internal state and closes file handles.
+//
+// If you created the stream using `load_audio_stream_from_bytes`, then this procedure will NOT
+// deallocate the bytes that you sent into that procedure.
+destroy_audio_stream :: proc(stream: Audio_Stream) {
+	sd := hm.get(&s.audio_streams, stream)
+
+	if sd == nil {
+		log.error("Trying to destroy invalid audio stream. It may already be destroyed, or the handle may be invalid.")
+		return
+	}
+
+	if playing := hm.get(&s.playing_audio_buffers, sd.playing_buffer_handle); playing != nil {
+		hm.remove(&s.playing_audio_buffers, sd.playing_buffer_handle)
+	}
+
+	if ab := hm.get(&s.audio_buffers, sd.buffer_handle); ab != nil {
+		delete(ab.samples, s.allocator)
+		hm.remove(&s.audio_buffers, sd.buffer_handle)
+	}
+
+	switch sd.mode {
+	case .From_File:
+		file_close(sd.file)
+		delete(sd.file_read_buf)
+	case .From_Bytes:
+		// don't free the bytes, they are owned by the game
+	}
+
+	hm.remove(&s.audio_streams, stream)
+}
+
+// Streams in new audio data from the audio stream. You need to call this once per frame in order
+// for the streaming to actually happen. 
+update_audio_stream :: proc(stream: Audio_Stream) {
+	sd := hm.get(&s.audio_streams, stream)
+
+	if sd == nil {
+		log.error("Trying to update destroyed audio stream")
+		return
+	}
+
+	pab := hm.get(&s.playing_audio_buffers, sd.playing_buffer_handle)
+
+	if pab == nil {
+		// Don't log an error here: Not playing the stream is a valid state. It just doesn't need
+		// any updating.
+		return
+	}
+
+	ab := hm.get(&s.audio_buffers, pab.audio_buffer)
+
+	if ab == nil {
+		hm.remove(&s.playing_audio_buffers, sd.playing_buffer_handle)
+		log.error("Trying to update audio stream with destroyed buffer")
+		return
+	}
+
+	audio_stream_remaining :: proc(as: ^Audio_Stream_Data, pab: ^Playing_Audio_Buffer, ab: ^Audio_Buffer) -> int {
+		remaining := as.buffer_write_pos - pab.offset 
+
+		if remaining < 0 {
+			remaining = len(ab.samples) - pab.offset + as.buffer_write_pos 
+		}
+
+		return remaining
+	}
+
+	switch sd.mode {
+	case .From_File:
+		for audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+			channels: i32
+			samples: i32
+			output: [^]^f32
+
+			bytes_used := stbv.decode_frame_pushdata(
+				sd.vorbis,
+				raw_data(sd.file_read_buf[sd.file_read_buf_offset:]),
+				i32(len(sd.file_read_buf) - sd.file_read_buf_offset),
+				&channels,
+				&output, 
+				&samples,
+			)
+
+			if bytes_used == 0 && samples == 0 {
+				read_buf_size := len(sd.file_read_buf)
+				non_zero_resize(&sd.file_read_buf, read_buf_size + 256)
+				read, read_err := file_read(sd.file, sd.file_read_buf[read_buf_size:read_buf_size+256])
+
+				if read > 0 {
+					shrink(&sd.file_read_buf, read_buf_size + read)
+				}
+
+				if read_err != nil {
+					if read_err == .EOF {
+						if sd.loop {
+							_, seek_err := file_seek(sd.file, 0, .Start)
+
+							if seek_err != nil {
+								log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
+								stop_audio_stream(stream)
+								break
+							}
+
+							stbv.flush_pushdata(sd.vorbis)
+							continue
+						} else {
+							stop_audio_stream(stream)
+							break
+						}
+					} else {
+						hm.remove(&s.playing_audio_buffers, sd.playing_buffer_handle)
+						log.errorf("Failed reading from audio stream file. Error: %v", read_err)
+						break
+					}
+				}
+			} else if bytes_used > 0 && samples == 0 {
+				sd.file_read_buf_offset += int(bytes_used)
+			} else if bytes_used > 0 && samples > 0 {
+				if channels == 1 {
+					mono: [^]f32 = output[0]
+
+					for samp_idx in 0..<samples {
+						ab.samples[sd.buffer_write_pos] = mono[samp_idx]
+						sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
+					}
+				} else if channels == 2 {
+					left: [^]f32 = output[0]
+					right: [^]f32 = output[1]
+
+					for samp_idx in 0..<samples {
+						ab.samples[sd.buffer_write_pos] = left[samp_idx]
+						ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
+						sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
+					}
+				} else {
+					hm.remove(&s.playing_audio_buffers, sd.playing_buffer_handle)
+					log.error("Invalid num channels")
+					break
+				}
+				sd.file_read_buf_offset += int(bytes_used)
+			} else {
+				hm.remove(&s.playing_audio_buffers, sd.playing_buffer_handle)
+				log.error("Invalid vorbis")
+				break
+			}
+		}
+
+		if len(sd.file_read_buf) > 0 {
+			// We didn't consume all the data in the read buffer. Move the remaining data to the start
+			// of the buffer so that it can be consumed in the next update.
+			copy(sd.file_read_buf[:], sd.file_read_buf[sd.file_read_buf_offset:])
+			shrink(&sd.file_read_buf, len(sd.file_read_buf) - sd.file_read_buf_offset)
+			sd.file_read_buf_offset = 0
+		}
+	case .From_Bytes:
+		channels: i32
+		output: [^]^f32
+
+		for audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+			samples := stbv.get_frame_float(sd.vorbis, &channels, &output)
+
+			if samples == 0 {
+				if sd.loop {
+					stbv.seek_start(sd.vorbis)
+					continue
+				} else {
+					// TODO: Stopping here is bad as the samples haven't been mixed in yet. Remove the
+					// stream but push the final samples into the audio buffer and destroy that one
+					// when it finishes playing (in the mixer).
+					stop_audio_stream(stream)
+					break
+				}
+			}
+
+			if channels == 1 {
+				mono: [^]f32 = output[0]
+
+				for samp_idx in 0..<samples {
+					ab.samples[sd.buffer_write_pos] = mono[samp_idx]
+					sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
+				}
+			} else if channels == 2 {
+				left: [^]f32 = output[0]
+				right: [^]f32 = output[1]
+
+				for samp_idx in 0..<samples {
+					ab.samples[sd.buffer_write_pos] = left[samp_idx]
+					ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
+					sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
+				}
+			} else {
+				hm.remove(&s.playing_audio_buffers, sd.playing_buffer_handle)
+				log.error("Invalid num channels")
+				break
+			}
+		}
+	}
 }
 
 // Start playing an audio stream. Don't forget to call `update_audio_stream` every frame in order to
-// stream in the new data.
+// stream in new data.
 //
 // Running this this while the stream is already playing will restart it from the beginning. Use
 // `pause_audio_stream` if you just want to pause it.
-play_audio_stream :: proc(audio_stream: Audio_Stream, loop := false) {
-	audio_stream_play(&s.audio_stream_manager, audio_stream, loop)
+play_audio_stream :: proc(stream: Audio_Stream, loop := false) {
+	sd := hm.get(&s.audio_streams, stream)
+
+	if sd == nil {
+		log.error("Cannot play audio stream, stream does not exist.")
+		return
+	}
+
+	if existing := hm.get(&s.playing_audio_buffers, sd.playing_buffer_handle); existing != nil {
+		stop_audio_stream(stream)
+	}
+
+	playing_audio_buffer := Playing_Audio_Buffer {
+		audio_buffer = sd.buffer_handle,
+		target_settings = sd.playback_settings,
+		current_settings = sd.playback_settings,
+
+		// This means that we are looping the buffer itself. We will use this buffer as a circular
+		// buffer, filling it with samples as we stream in more. Thus it needs to be looped to not
+		// stop when the end of the circular buffer is reached.
+		loop = true,
+	}
+
+	add_err: runtime.Allocator_Error
+	sd.playing_buffer_handle, add_err = hm.add(&s.playing_audio_buffers, playing_audio_buffer)
+
+	if add_err != nil {
+		log.errorf("Failed playing the audio stream because the audio buffer could not be set up for playing. Error: %v", add_err)
+	}
+
+	sd.loop = loop
 }
 
 // Pause an audio stream. Run `play_audio_stream` to unpause it.
-pause_audio_stream :: proc(audio_stream: Audio_Stream) {
-	audio_stream_pause(&s.audio_stream_manager, audio_stream)
+pause_audio_stream :: proc(stream: Audio_Stream) {
+	sd := hm.get(&s.audio_streams, stream)
+
+	if sd == nil {
+		log.error("Cannot pause audio stream, stream does not exist.")
+		return
+	}
+
+	if existing := hm.get(&s.playing_audio_buffers, sd.playing_buffer_handle); existing != nil {
+		hm.remove(&s.playing_audio_buffers, sd.playing_buffer_handle)
+	}
+
+	sd.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
 }
 
 // Stop an audio stream. If `play_audio_stream` is called again, the stream will start over from the
 // beginning.
-stop_audio_stream :: proc(audio_stream: Audio_Stream) {
-	audio_stream_stop(&s.audio_stream_manager, audio_stream)
+stop_audio_stream :: proc(stream: Audio_Stream) {
+	sd := hm.get(&s.audio_streams, stream)
+
+	if sd == nil {
+		log.error("Cannot stop audio stream, stream does not exist.")
+		return
+	}
+
+	if existing := hm.get(&s.playing_audio_buffers, sd.playing_buffer_handle); existing != nil {
+		hm.remove(&s.playing_audio_buffers, sd.playing_buffer_handle)
+	}
+
+	sd.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
+	sd.buffer_write_pos = 0
+
+	switch sd.mode {
+	case .From_File:
+		file_seek(sd.file, 0, .Start)
+		runtime.clear(&sd.file_read_buf)
+		sd.file_read_buf_offset = 0
+		stbv.flush_pushdata(sd.vorbis)
+
+	case .From_Bytes:
+		stbv.seek_start(sd.vorbis)
+	}
 }
 
 // Set the volume of the audio stream. Range: 0 to 1.
-set_audio_stream_volume :: proc(audio_stream: Audio_Stream, volume: f32) {
-	audio_stream_set_volume(&s.audio_stream_manager, audio_stream, volume)
+//
+// You can use this both with a playing and non-playing stream. If its already playing, then this
+// will affect the playing stream.
+set_audio_stream_volume :: proc(stream: Audio_Stream, volume: f32) {
+	sd := hm.get(&s.audio_streams, stream)
+	
+	if sd == nil {
+		log.error("Cannot set audio stream volume, stream does not exist.")
+		return
+	}
+
+	clamped_volume := clamp(volume, 0, 1)
+
+	if playing := hm.get(&s.playing_audio_buffers, sd.playing_buffer_handle); playing != nil {
+		playing.target_settings.volume = clamped_volume
+	}
+	
+	sd.playback_settings.volume = clamped_volume
 }
 
 // Set the pan (balance between left and right) of the audio stream. Range: -1 to 1, where -1 is
 // full left, 0 is center and 1 is full right.
-set_audio_stream_pan :: proc(audio_stream: Audio_Stream, pan: f32) {
-	audio_stream_set_pan(&s.audio_stream_manager, audio_stream, pan)
+//
+// You can use this both with a playing and non-playing stream. If its already playing, then this
+// will affect the playing stream.
+set_audio_stream_pan :: proc(stream: Audio_Stream, pan: f32) {
+	sd := hm.get(&s.audio_streams, stream)
+	
+	if sd == nil {
+		log.error("Cannot set audio stream pan, stream does not exist.")
+		return
+	}
+
+	clamped_pan := clamp(pan, -1, 1)
+
+	if playing := hm.get(&s.playing_audio_buffers, sd.playing_buffer_handle); playing != nil {
+		playing.target_settings.pan = clamped_pan
+	}
+
+	sd.playback_settings.pan = clamped_pan
 }
 
 // Set the pitch of the audio stream. Range: 0.01 to infinity. A higher value will make the audio
 // play faster.
-set_audio_stream_pitch :: proc(audio_stream: Audio_Stream, pitch: f32) {
-	audio_stream_set_pitch(&s.audio_stream_manager, audio_stream, pitch)
+//
+// You can use this both with a playing and non-playing stream. If its already playing, then this
+// will affect the playing stream.
+set_audio_stream_pitch :: proc(stream: Audio_Stream, pitch: f32) {
+	sd := hm.get(&s.audio_streams, stream)
+	
+	if sd == nil {
+		log.error("Cannot set audio stream pitch, stream does not exist.")
+		return
+	}
+
+	capped_pitch := max(pitch, 0.01)
+
+	if playing := hm.get(&s.playing_audio_buffers, sd.playing_buffer_handle); playing != nil {
+		playing.target_settings.pitch = capped_pitch
+	}
+	
+	sd.playback_settings.pitch = capped_pitch
 }
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
 //
-// This procedure implements a custom software audio mixer. The backend is just fed the resulting
-// mix. Therefore, you can see everything regarding how audio is processed in this procedure.
+// This procedure implements a custom software audio mixer. The audio backend is just fed the
+// resulting mix. Therefore, you can see everything regarding how audio is processed in this
+// procedure.
 //
 // Will only run if the audio backend is running low on audio data.
 update_audio_mixer :: proc() {
@@ -3053,6 +3596,55 @@ AUDIO_STREAM_NONE :: Audio_Stream {}
 
 AUDIO_STREAM_BUFFER_SIZE :: 3 * AUDIO_MIX_SAMPLE_RATE
 
+Audio_Channels :: enum {
+	Mono,
+	Stereo,
+}
+
+Audio_Stream_Mode :: enum {
+	From_File,
+	From_Bytes,
+}
+
+Audio_Stream_Data :: struct {
+	handle: Audio_Stream,
+	
+	vorbis: ^stbv.vorbis,
+	playing_buffer_handle: Playing_Audio_Buffer_Handle,
+	buffer_handle: Audio_Buffer_Handle,
+	
+	// Where in the audio buffer referred to by `buffer_handle` that we have most recently written
+	// samples. Together with the `offset` of the Playing_Audio_Buffer, this forms a circular
+	// buffer.
+	buffer_write_pos: int,
+
+	playback_settings: Audio_Buffer_Playback_Settings,
+
+	// Different from `loop` in `Playing_Audio_Buffer`. This says if the whole stream should loop
+	// when it reaches end-of-file. The `loop` in `Playing_Audio_Buffer` just says to loop the
+	// buffer itself. That's something you always want for a stream: We are continously writing
+	// data from a file into a small buffer that is a few seconds long.
+	loop: bool,
+
+	mode: Audio_Stream_Mode,
+
+	// use if mode = .From_File
+	file: ^File,
+	file_read_buf: [dynamic]u8,
+	file_read_buf_offset: int,
+
+	// use if mode == .From_Bytes
+	bytes: []u8,
+}
+
+// The format used to describe that data passed to `load_sound_from_bytes_raw`.
+Raw_Sound_Format :: enum {
+	Integer8,
+	Integer16,
+	Integer32,
+	Float,
+}
+
 Audio_Buffer_Handle :: distinct Handle
 
 Audio_Buffer :: struct {
@@ -3098,19 +3690,6 @@ Playing_Audio_Buffer :: struct {
 	offset_fraction: f32,
 
 	loop: bool,
-}
-
-// The format used to describe that data passed to `load_sound_from_bytes_raw`.
-Raw_Sound_Format :: enum {
-	Integer8,
-	Integer16,
-	Integer32,
-	Float,
-}
-
-Audio_Channels :: enum {
-	Mono,
-	Stereo,
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
@@ -3185,12 +3764,11 @@ State :: struct {
 
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
 
-	// Kept separately in `karl2d_audio_stream_xxx.odin` due to platform differences such as some 
-	// platforms not having file system support properly. This may be addressed in future versions
-	// of Karl2D.
-	audio_stream_manager: Audio_Stream_Manager,
+	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
+	vorbis_alloc: stbv.vorbis_alloc,
 
-	// 1 megabyte is arbitrarily chosen.
+	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
+	// ample.
 	mix_buffer: [AUDIO_MIX_CHUNK_SIZE*10][2]Audio_Sample,
 
 	// Where the mixer currently is in the mix buffer.

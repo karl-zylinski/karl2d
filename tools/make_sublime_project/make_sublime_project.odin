@@ -71,16 +71,16 @@ main :: proc() {
 		builder: ^strings.Builder,
 		name: string,
 		src_path: string,
-		executable_name: string,
 		only_default_variant: bool,
 	) {
 		DEFAULT_VARIANT_TEMPLATE ::
 `				{{
 					"name": "%s",
-					"cmd": "odin run %s -debug -vet -strict-style -vet-tabs -out:bin/%s",
+					"working_dir": "$project_path/../%s",
+					"cmd": "odin run . -debug -vet -strict-style -vet-tabs",
 				}},
 `
-		variant := fmt.tprintf(DEFAULT_VARIANT_TEMPLATE, name, src_path, executable_name)
+		variant := fmt.tprintf(DEFAULT_VARIANT_TEMPLATE, name, src_path)
 		strings.write_string(builder, variant)
 
 		if only_default_variant {
@@ -90,10 +90,11 @@ main :: proc() {
 		GL_VARIANT_TEMPLATE ::
 `				{{
 					"name": "%s (gl)",
-					"cmd": "odin run %s -debug -vet -strict-style -vet-tabs -out:bin/%s -define:KARL2D_RENDER_BACKEND=gl",
+					"working_dir": "$project_path/../%s",
+					"cmd": "odin run . -debug -vet -strict-style -vet-tabs -define:KARL2D_RENDER_BACKEND=gl",
 				}},
 `
-		gl_variant := fmt.tprintf(GL_VARIANT_TEMPLATE, name, src_path, executable_name)
+		gl_variant := fmt.tprintf(GL_VARIANT_TEMPLATE, name, src_path)
 		strings.write_string(builder, gl_variant)
 
 		WEB_VARIANT_TEMPLATE ::
@@ -113,32 +114,27 @@ main :: proc() {
 
 		name := e.name
 		src_path := fmt.tprintf("examples/%v", e.name)
-		executable_name := name_with_ext(name)
 
-		write_build_variant(&variants_builder, name, src_path, executable_name, false)
+		write_build_variant(&variants_builder, name, src_path, false)
 	}
 
 	write_build_variant(
 		&variants_builder,
 		"test_examples",
 		"tools/test_examples",
-		"test_examples.exe",
 		true,
 	)
 
 	write_build_variant(
 		&variants_builder,
 		"api_doc_builder",
-		"tools/api_doc_builder",
-		"api_doc_builder.exe",
-		true,
+		"tools/api_doc_builder",		true,
 	)
 
 	write_build_variant(
 		&variants_builder,
 		"api_verifier",
 		"tools/api_verifier",
-		"api_verifier.exe",
 		true,
 	)
 
@@ -146,7 +142,6 @@ main :: proc() {
 		&variants_builder,
 		"make_sublime_project",
 		"tools/make_sublime_project",
-		"make_sublime_project.exe",
 		true,
 	)
 
