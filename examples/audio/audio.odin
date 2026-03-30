@@ -18,7 +18,7 @@ snd_volume: f32
 snd_pan: f32
 snd_pitch: f32 = 1
 
-MUSIC_FILE :: "cat_and_onion.ogg"
+MUSIC_FILE :: "brahms.ogg"
 HAS_MUSIC :: #exists(MUSIC_FILE)
 
 init :: proc() {
@@ -33,7 +33,11 @@ init :: proc() {
 	wav_inst = k2.create_sound_instance(wav)
 
 	when HAS_MUSIC {
-		music = k2.load_audio_stream_from_bytes(#load(MUSIC_FILE))
+		when ODIN_OS == .JS {
+			music = k2.load_audio_stream_from_bytes(#load(MUSIC_FILE))
+		} else {
+			music = k2.load_audio_stream_from_file(MUSIC_FILE)
+		}
 		k2.play_audio_stream(music, true)
 	} else {
 		k2.play_sound(snd, loop = true)
@@ -174,7 +178,11 @@ shutdown :: proc() {
 	k2.destroy_sound(snd3)
 	k2.destroy_sound(wav)
 	k2.destroy_sound(wav_inst)
-	k2.destroy_audio_stream(music)
+
+	when HAS_MUSIC {
+		k2.destroy_audio_stream(music)
+	}
+	
 	k2.shutdown()
 }
 
