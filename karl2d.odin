@@ -1328,6 +1328,16 @@ stop_sound :: proc(snd: Sound) {
 	sound.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
 }
 
+sound_is_playing :: proc(snd: Sound) -> bool {
+	sound := hm.get(&s.sound_instances, snd)
+
+	if sound == nil {
+		return false
+	}
+
+	return hm.is_valid(&s.playing_audio_buffers, sound.playing_buffer_handle)
+}
+
 // Set the volume of a sound. Range: 0 to 1, where 0 is silence and 1 is the original volume of the
 // sound. The volume change will only affect this instance of the sound. Use `create_sound_instance`
 // to create more instances without duplicating data.

@@ -71,7 +71,6 @@ main :: proc() {
 		builder: ^strings.Builder,
 		name: string,
 		src_path: string,
-		only_default_variant: bool,
 	) {
 		DEFAULT_VARIANT_TEMPLATE ::
 `				{{
@@ -82,10 +81,6 @@ main :: proc() {
 `
 		variant := fmt.tprintf(DEFAULT_VARIANT_TEMPLATE, name, src_path)
 		strings.write_string(builder, variant)
-
-		if only_default_variant {
-			return
-		}
 
 		GL_VARIANT_TEMPLATE ::
 `				{{
@@ -115,34 +110,47 @@ main :: proc() {
 		name := e.name
 		src_path := fmt.tprintf("examples/%v", e.name)
 
-		write_build_variant(&variants_builder, name, src_path, false)
+		write_build_variant(&variants_builder, name, src_path)
 	}
 
-	write_build_variant(
+
+	write_build_tool_variant :: proc(
+		builder: ^strings.Builder,
+		name: string,
+		src_path: string,
+	) {
+		DEFAULT_VARIANT_TEMPLATE ::
+`				{{
+					"name": "%s",
+					"cmd": "odin run %s -debug -vet -strict-style -vet-tabs",
+				}},
+`
+		variant := fmt.tprintf(DEFAULT_VARIANT_TEMPLATE, name, src_path)
+		strings.write_string(builder, variant)
+	}
+
+	write_build_tool_variant(
 		&variants_builder,
 		"test_examples",
 		"tools/test_examples",
-		true,
 	)
 
-	write_build_variant(
+	write_build_tool_variant(
 		&variants_builder,
 		"api_doc_builder",
-		"tools/api_doc_builder",		true,
+		"tools/api_doc_builder",
 	)
 
-	write_build_variant(
+	write_build_tool_variant(
 		&variants_builder,
 		"api_verifier",
 		"tools/api_verifier",
-		true,
 	)
 
-	write_build_variant(
+	write_build_tool_variant(
 		&variants_builder,
 		"make_sublime_project",
 		"tools/make_sublime_project",
-		true,
 	)
 
 	project_str := fmt.tprintf(
