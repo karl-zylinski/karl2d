@@ -1392,8 +1392,12 @@ set_sound_pitch :: proc(snd: Sound, pitch: f32) {
 	d.playback_settings.pitch = capped_pitch
 }
 
-// Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. Use 
-// `create_sound_instance` to create more instances of the same sound without duplicating data.
+// Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. If you need to
+// play a sound multiple times simultaneously, then use `load_audio_buffer_from_file` followed by
+// one or more calls to `create_sound_from_audio_buffer`.
+//
+// Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
+// will also destroy the audio buffer.
 //
 // Currently only supports 16 bit WAV files.
 load_sound_from_file :: proc(filename: string) -> Sound {
@@ -1408,12 +1412,16 @@ load_sound_from_file :: proc(filename: string) -> Sound {
 }
 
 // Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Returns a `Sound`
-// which can be used with `play_sound`. Use `create_sound_instance` to create more instances of the
-// same sound without duplicating data.
+// which can be used with `play_sound`. If you need to play a sound multiple times simultaneously,
+// then use `load_audio_buffer_from_bytes` followed by one or more calls to
+// `create_sound_from_audio_buffer`.
+//
+// Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
+// will also destroy the audio buffer.
 //
 // Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
 // including the header. If your data does not include the header, then please use
-// `load_sound_from_bytes_raw` instead.
+// `load_audio_buffer_from_bytes_raw` combined with `create_sound_from_audio_buffer`.
 load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 	audio_buffer := load_audio_buffer_from_bytes(bytes)
 
@@ -1437,6 +1445,10 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 	return sound
 }
 
+// Load a WAV file from disk. Returns an `Audio_Buffer` which can be used with
+// `create_sound_from_audio_buffer` in order to play the audio buffer multiple times simultaneously.
+//
+// Currently only supports 16 bit WAV data.
 load_audio_buffer_from_file :: proc(filename: string) -> Audio_Buffer {
 	data, data_ok := read_entire_file(filename, frame_allocator)
 
@@ -1448,6 +1460,13 @@ load_audio_buffer_from_file :: proc(filename: string) -> Audio_Buffer {
 	return load_audio_buffer_from_bytes(data)
 }
 
+// Load a WAV file from some pre-loaded memory (can be loaded using `#load("sound.wav")`). Returns
+// an `Audio_Buffer` which can be used with `create_sound_from_audio_buffer` in order to play the
+// audio buffer multiple times simultaneously.
+//
+// Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
+// including the header. If your data does not include the header, then please use
+// `load_audio_buffer_from_bytes_raw`.
 load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
 	d := bytes
 
@@ -1633,9 +1652,10 @@ load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
 	return load_audio_buffer_from_bytes_raw(samples, format, int(sample_rate), channels)
 }
 
-// Load a sound from some raw audio data. You need to specify the data, format and sample rate of
-// the sound yourself. This assumes that there is no header in the data. If your data has a header
-// (you read the data from a file on disk), then please use `load_sound_from_bytes` instead.
+// Load an audio buffer from some raw audio data. You need to specify the data, format and sample
+// rate of the sound yourself. This assumes that there is no header in the data. If your data has a
+// header (you read the data from a file on disk), then please use `load_audio_buffer_from_bytes`
+// instead.
 load_audio_buffer_from_bytes_raw :: proc(
 	bytes: []u8,
 	format: Raw_Sound_Format,
@@ -1689,6 +1709,13 @@ load_audio_buffer_from_bytes_raw :: proc(
 	return buffer_handle
 }
 
+// Creates a sound that can be used to play the contents of an `Audio_Buffer`. This can be used to
+// load a sound once and have multiple variants of it playing simultaneously.
+//
+// Sounds created using this procedure do not own the buffer. This means that calling
+// `destroy_sound` on the Sound will only remove the Sound from Karl2D's internal state, but it
+// won't destroy the Audio_Buffer. Such auto-destroying of the `Audio_Buffer` only happen with
+// sounds created using `load_sound_from_file` and `load_sound_from_bytes`.
 create_sound_from_audio_buffer :: proc(buffer: Audio_Buffer) -> Sound {
 	buffer_object := hm.get(&s.audio_buffers, buffer)
 
@@ -1713,8 +1740,11 @@ create_sound_from_audio_buffer :: proc(buffer: Audio_Buffer) -> Sound {
 	return sound
 }
 
-// Destroy a sound instance. If this is the last instance that uses the same data, then the data
-// will also be destroyed.
+// Destroy a sound, removing it from Karl2D's internal list of sounds.
+//
+// If the sound was created using `create_sound_from_audio_buffer`, then this procedure will not
+// destroy the audio buffer. If the sound was created using `load_sound_from_file` or
+// `load_sound_from_bytes`, then this procedure WILL destroy the audio buffer.
 destroy_sound :: proc(snd: Sound) {
 	inst := hm.get(&s.sounds, snd)
 
@@ -1736,6 +1766,9 @@ destroy_sound :: proc(snd: Sound) {
 	hm.remove(&s.sounds, snd)
 }
 
+// Destroy an audio buffer previously loaded using `load_audio_buffer_from_xxx`. Before destroying
+// this audio buffer, make sure it is not in use by any playing sounds. Destroy the sounds that
+// reference it using `destroy_sound` first.
 destroy_audio_buffer :: proc(audio_buffer: Audio_Buffer)  {
 	audio_buffer_object := hm.get(&s.audio_buffers, audio_buffer)
 

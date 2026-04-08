@@ -93,15 +93,11 @@ main :: proc() {
 		}
 
 		k2.draw_circle(player_pos, 10, k2.LIGHT_RED)
-
 		k2.present()
 	}
 
 	k2.destroy_audio_buffer(sine_wave)
-
 	k2.shutdown()
-
-
 
 	if len(track.allocation_map) > 0 {
 		fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
@@ -109,6 +105,7 @@ main :: proc() {
 			fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
 		}
 	}
+	
 	mem.tracking_allocator_destroy(&track)
 }
 
