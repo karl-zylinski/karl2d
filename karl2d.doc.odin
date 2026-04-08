@@ -434,6 +434,16 @@ load_sound_from_file :: proc(filename: string) -> Sound
 // `load_audio_buffer_from_bytes_raw` combined with `create_sound_from_audio_buffer`.
 load_sound_from_bytes :: proc(bytes: []byte) -> Sound
 
+// Load a sound from some raw audio data. You need to specify the data, format and sample rate of
+// the audio data yourself. This assumes that there is no header in the data. If your data has a
+// header (you read the data from a file on disk), then please use `load_sound_from_bytes` instead.
+load_sound_from_bytes_raw :: proc(
+	bytes: []u8,
+	format: Raw_Sound_Format,
+	sample_rate: int,
+	channels: Audio_Channels,
+) -> Sound
+
 // Load a WAV file from disk. Returns an `Audio_Buffer` which can be used with
 // `create_sound_from_audio_buffer` in order to play the audio buffer multiple times simultaneously.
 //
