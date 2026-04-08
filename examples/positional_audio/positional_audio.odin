@@ -38,11 +38,7 @@ draw_audio_source :: proc(as: Audio_Source) {
 	k2.draw_rect(r, k2.LIGHT_YELLOW)
 }
 
-main :: proc() {
-	track: mem.Tracking_Allocator
-	mem.tracking_allocator_init(&track, context.allocator)
-	context.allocator = mem.tracking_allocator(&track)
-
+init :: proc() {
 	k2.init(1280, 720, "Audio Positional")
 	sine_wave = make_sine_wave(200, SOUND_LENGTH, 44100)
 	player_pos = {200, 200}
@@ -68,7 +64,7 @@ main :: proc() {
 	}
 
 	k2.play_sound(stationary_2.sound, true)
-	k2.set_sound_pitch(stationary_2.sound, 0.75)
+	k2.set_sound_pitch(stationary_2.sound, 0.45)
 	append(&stationary_audio_sources, stationary_2)
 
 	stationary_3 := Audio_Source {
@@ -77,7 +73,7 @@ main :: proc() {
 	}
 
 	k2.play_sound(stationary_3.sound, true)
-	k2.set_sound_pitch(stationary_2.sound, 1.25)
+	k2.set_sound_pitch(stationary_3.sound, 0.55)
 	append(&stationary_audio_sources, stationary_3)
 
 	stationary_4 := Audio_Source {
@@ -86,53 +82,61 @@ main :: proc() {
 	}
 
 	k2.play_sound(stationary_4.sound, true)
-	k2.set_sound_pitch(stationary_2.sound, 1.5)
+	k2.set_sound_pitch(stationary_4.sound, 0.6)
 	append(&stationary_audio_sources, stationary_4)
+}
 
-	for k2.update() {
-		movement: k2.Vec2
-
-		if k2.key_is_held(.Up) {
-			movement.y -= 1
-		}
-
-		if k2.key_is_held(.Down) {
-			movement.y += 1
-		}
-
-		if k2.key_is_held(.Left) {
-			movement.x -= 1
-		}
-
-		if k2.key_is_held(.Right) {
-			movement.x += 1
-		}
-
-		dt := k2.get_frame_time()
-
-		player_pos += linalg.normalize0(movement) * dt * 200
-		t := k2.get_time()
-
-		{
-			spinning_audio_source.pos = player_pos + {f32(math.cos(t*3)), f32(math.sin(t*3))*0.5} * 150
-			update_audio_source(&spinning_audio_source)
-		}
-
-		for &as in stationary_audio_sources {
-			update_audio_source(&as)
-		}
-
-		k2.clear(k2.GREEN)
-
-		draw_audio_source(spinning_audio_source)
-		for &as in stationary_audio_sources {
-			draw_audio_source(as)
-		}
-
-		k2.draw_circle(player_pos, 10, k2.LIGHT_RED)
-		k2.present()
+step :: proc() -> bool {
+	if !k2.update() {
+		return false
 	}
 
+	movement: k2.Vec2
+
+	if k2.key_is_held(.Up) {
+		movement.y -= 1
+	}
+
+	if k2.key_is_held(.Down) {
+		movement.y += 1
+	}
+
+	if k2.key_is_held(.Left) {
+		movement.x -= 1
+	}
+
+	if k2.key_is_held(.Right) {
+		movement.x += 1
+	}
+
+	dt := k2.get_frame_time()
+
+	player_pos += linalg.normalize0(movement) * dt * 200
+	t := k2.get_time()
+
+	{
+		spinning_audio_source.pos = player_pos + {f32(math.cos(t*3)), f32(math.sin(t*3))*0.5} * 150
+		update_audio_source(&spinning_audio_source)
+	}
+
+	for &as in stationary_audio_sources {
+		update_audio_source(&as)
+	}
+
+	k2.clear(k2.GREEN)
+
+	draw_audio_source(spinning_audio_source)
+	for &as in stationary_audio_sources {
+		draw_audio_source(as)
+	}
+
+	k2.draw_circle(player_pos, 10, k2.LIGHT_RED)
+	k2.present()
+
+	return true
+}
+
+shutdown :: proc() {
 	k2.destroy_sound(spinning_audio_source.sound)
 
 	for s in stationary_audio_sources {
@@ -142,15 +146,6 @@ main :: proc() {
 	delete(stationary_audio_sources)
 	k2.destroy_audio_buffer(sine_wave)
 	k2.shutdown()
-
-	if len(track.allocation_map) > 0 {
-		fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
-		for _, entry in track.allocation_map {
-			fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
-		}
-	}
-
-	mem.tracking_allocator_destroy(&track)
 }
 
 make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio_Buffer {
@@ -165,4 +160,23 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio
 	}
 
 	return k2.load_audio_buffer_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float, sample_rate, .Mono)
+}
+
+// This is not run by the web version, but it makes this program also work on non-web!
+main :: proc() {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	context.allocator = mem.tracking_allocator(&track)
+
+	init()
+	for step() {}
+	shutdown()
+
+	if len(track.allocation_map) > 0 {
+		fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+		for _, entry in track.allocation_map {
+			fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+		}
+	}
+	mem.tracking_allocator_destroy(&track)
 }
