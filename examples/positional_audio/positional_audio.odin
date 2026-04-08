@@ -46,9 +46,10 @@ main :: proc() {
 		player_pos += linalg.normalize0(movement) * dt * 200
 
 		if k2.key_went_down(.Space) {
-			s := k2.create_sound_instance(sine_wave_sound)
+			ab := k2.get_audio_buffer_from_sound(sine_wave_sound)
+			s := k2.create_sound_from_audio_buffer(ab)
 			k2.play_sound(s)
-			
+
 			ps := Positioned_Sound {
 				pos = player_pos,
 				sound = s,
