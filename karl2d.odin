@@ -1741,7 +1741,8 @@ load_audio_buffer_from_bytes_raw :: proc(
 }
 
 // Creates a sound that can be used to play the contents of an `Audio_Buffer`. This can be used to
-// load a sound once and have multiple variants of it playing simultaneously.
+// load an audio buffer once and have multiple sounds playing the contents of it, simultaneously.
+// This makes all those sounds share the same audio data.
 //
 // Sounds created using this procedure do not own the buffer. This means that calling
 // `destroy_sound` on the Sound will only remove the Sound from Karl2D's internal state, but it
