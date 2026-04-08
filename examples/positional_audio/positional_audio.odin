@@ -4,9 +4,11 @@ import k2 "../.."
 import "core:math/linalg"
 import "core:math"
 import "core:slice"
+import "core:mem"
+import "core:fmt"
 
 player_pos: k2.Vec2
-sine_wave_sound: k2.Sound
+sine_wave: k2.Audio_Buffer
 
 Positioned_Sound :: struct {
 	sound: k2.Sound,
@@ -18,8 +20,12 @@ playing_sounds: [dynamic; 256]Positioned_Sound
 SOUND_LENGTH :: 20
 
 main :: proc() {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	context.allocator = mem.tracking_allocator(&track)
+
 	k2.init(1280, 720, "Audio Positional", options = { window_mode = .Windowed_Resizable })
-	sine_wave_sound = make_sine_wave(440, SOUND_LENGTH, 44100)
+	sine_wave = make_sine_wave(440, SOUND_LENGTH, 44100)
 	player_pos = {200, 200}
 
 	for k2.update() {
@@ -46,8 +52,7 @@ main :: proc() {
 		player_pos += linalg.normalize0(movement) * dt * 200
 
 		if k2.key_went_down(.Space) {
-			ab := k2.get_audio_buffer_from_sound(sine_wave_sound)
-			s := k2.create_sound_from_audio_buffer(ab)
+			s := k2.create_sound_from_audio_buffer(sine_wave)
 			k2.play_sound(s)
 
 			ps := Positioned_Sound {
@@ -92,10 +97,22 @@ main :: proc() {
 		k2.present()
 	}
 
+	k2.destroy_audio_buffer(sine_wave)
+
 	k2.shutdown()
+
+
+
+	if len(track.allocation_map) > 0 {
+		fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+		for _, entry in track.allocation_map {
+			fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+		}
+	}
+	mem.tracking_allocator_destroy(&track)
 }
 
-make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Sound {
+make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio_Buffer {
 	period_num_samples := f32(sample_rate) / f32(freq)
 	num_periods := math.ceil(f32(sample_rate) * min_length)
 	sine_data := make([]k2.Audio_Sample, int(num_periods), allocator = context.temp_allocator)
@@ -106,5 +123,5 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Sound
 		samp = sf
 	}
 
-	return k2.load_sound_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float, sample_rate, .Mono)
+	return k2.load_audio_buffer_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float, sample_rate, .Mono)
 }
