@@ -1200,14 +1200,12 @@ Audio_Buffer_Playback_Settings :: struct {
 	volume: f32,
 	pan: f32,
 	pitch: f32,
-	loop: bool,
 }
 
 DEFAULT_AUDIO_BUFFER_PLAYBACK_SETTINGS :: Audio_Buffer_Playback_Settings {
 	volume = 1,
 	pan = 0,
 	pitch = 1,
-	loop = false,
 }
 
 PLAYING_AUDIO_BUFFER_NONE :: Playing_Audio_Buffer_Handle {}
