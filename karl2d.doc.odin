@@ -387,46 +387,64 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
-// Play a sound previous created using `load_sound_from_file` or `load_sound_from_bytes` or
-// `create_sound_instance`. The sound will be mixed when `update_audio_mixer` runs, which
-// happens as part of `update`.
-play_sound :: proc(snd: Sound, loop := false)
+// Play a sound previous created using `load_sound_from_xxx` or `create_sound_from_audio_buffer`.
+// The sound will be mixed when `update_audio_mixer` runs, which happens as part of `update`.
+play_sound :: proc(sound: Sound)
 
-stop_sound :: proc(snd: Sound)
+// Stop a sound. Rewinds it to the start.
+stop_sound :: proc(sound: Sound)
+
+// Returns true if the sound is currently playing.
+sound_is_playing :: proc(sound: Sound) -> bool
 
 // Set the volume of a sound. Range: 0 to 1, where 0 is silence and 1 is the original volume of the
 // sound. The volume change will only affect this instance of the sound. Use `create_sound_instance`
 // to create more instances without duplicating data.
-set_sound_volume :: proc(snd: Sound, volume: f32)
+set_sound_volume :: proc(sound: Sound, volume: f32)
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
 // The pan change will only affect this instance of the sound. Use `create_sound_instance` to create
 // more instances without duplicating data.
-set_sound_pan :: proc(snd: Sound, pan: f32)
+set_sound_pan :: proc(sound: Sound, pan: f32)
 
 // Set the pitch of a sound. Range: 0.01 to infinity, where 0.01 is the lowest pitch and higher
 // values increase the pitch. The pitch change will only affect this instance of the sound. Use
 // `create_sound_instance` to create more instances without duplicating data.
-set_sound_pitch :: proc(snd: Sound, pitch: f32)
+set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
-// Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. Use 
-// `create_sound_instance` to create more instances of the same sound without duplicating data.
+// Makes a sound loop when it reaches the end. You can set this before playing but also while
+// playing the sound.
+set_sound_loop :: proc(sound: Sound, loop: bool)
+
+// Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. If you need to
+// play a sound multiple times simultaneously, then use `load_audio_buffer_from_file` followed by
+// one or more calls to `create_sound_from_audio_buffer`.
+//
+// Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
+// will also destroy the audio buffer. 
 //
 // Currently only supports 16 bit WAV files.
 load_sound_from_file :: proc(filename: string) -> Sound
 
 // Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Returns a `Sound`
-// which can be used with `play_sound`. Use `create_sound_instance` to create more instances of the
-// same sound without duplicating data.
+// which can be used with `play_sound`. If you need to play a sound multiple times simultaneously,
+// then use `load_audio_buffer_from_bytes` followed by one or more calls to
+// `create_sound_from_audio_buffer`.
+//
+// Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
+// will also destroy the audio buffer.
 //
 // Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
 // including the header. If your data does not include the header, then please use
-// `load_sound_from_bytes_raw` instead.
+// `load_audio_buffer_from_bytes_raw` combined with `create_sound_from_audio_buffer`.
 load_sound_from_bytes :: proc(bytes: []byte) -> Sound
 
 // Load a sound from some raw audio data. You need to specify the data, format and sample rate of
-// the sound yourself. This assumes that there is no header in the data. If your data has a header
-// (you read the data from a file on disk), then please use `load_sound_from_bytes` instead.
+// the audio data yourself. This assumes that there is no header in the data. If your data has a
+// header (you read the data from a file on disk), then please use `load_sound_from_bytes` instead.
+//
+// The returned Sound owns its internal Audio_Buffer: Calling `destroy_sound` with it will destroy
+// the audio buffer.
 load_sound_from_bytes_raw :: proc(
 	bytes: []u8,
 	format: Raw_Sound_Format,
@@ -434,15 +452,53 @@ load_sound_from_bytes_raw :: proc(
 	channels: Audio_Channels,
 ) -> Sound
 
-// Makes a new sound that uses the same data as the original sound, but you can have different
-// settings such as volume, pan and pitch. This makes it possible to play the same sound multiple
-// times at once with different settings. The data is destroyed when all the instances (including
-// the original instance) are destroyed.
-create_sound_instance :: proc(snd: Sound) -> Sound
+// Load a WAV file from disk. Returns an `Audio_Buffer` which can be used with
+// `create_sound_from_audio_buffer` in order to play the audio buffer multiple times simultaneously.
+//
+// Currently only supports 16 bit WAV data.
+load_audio_buffer_from_file :: proc(filename: string) -> Audio_Buffer
 
-// Destroy a sound instance. If this is the last instance that uses the same data, then the data
-// will also be destroyed.
-destroy_sound :: proc(snd: Sound)
+// Load a WAV file from some pre-loaded memory (can be loaded using `#load("sound.wav")`). Returns
+// an `Audio_Buffer` which can be used with `create_sound_from_audio_buffer` in order to play the
+// audio buffer multiple times simultaneously.
+//
+// Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
+// including the header. If your data does not include the header, then please use
+// `load_audio_buffer_from_bytes_raw`.
+load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer
+
+// Load an audio buffer from some raw audio data. You need to specify the data, format and sample
+// rate of the sound yourself. This assumes that there is no header in the data. If your data has a
+// header (you read the data from a file on disk), then please use `load_audio_buffer_from_bytes`
+// instead.
+load_audio_buffer_from_bytes_raw :: proc(
+	bytes: []u8,
+	format: Raw_Sound_Format,
+	sample_rate: int,
+	channels: Audio_Channels,
+) -> Audio_Buffer
+
+// Creates a sound that can be used to play the contents of an `Audio_Buffer`. This can be used to
+// load an audio buffer once and have multiple sounds playing the contents of it, simultaneously.
+// This makes all those sounds share the same audio data.
+//
+// Sounds created using this procedure do not own the buffer. This means that calling
+// `destroy_sound` on the Sound will only remove the Sound from Karl2D's internal state, but it
+// won't destroy the Audio_Buffer. Such auto-destroying of the `Audio_Buffer` only happen with
+// sounds created using `load_sound_from_file` and `load_sound_from_bytes`.
+create_sound_from_audio_buffer :: proc(buffer: Audio_Buffer) -> Sound
+
+// Destroy a sound, removing it from Karl2D's internal list of sounds.
+//
+// If the sound was created using `create_sound_from_audio_buffer`, then this procedure will not
+// destroy the audio buffer. If the sound was created using `load_sound_from_file` or
+// `load_sound_from_bytes`, then this procedure WILL destroy the audio buffer.
+destroy_sound :: proc(sound: Sound)
+
+// Destroy an audio buffer previously loaded using `load_audio_buffer_from_xxx`. Before destroying
+// this audio buffer, make sure it is not in use by any playing sounds. Destroy the sounds that
+// reference it using `destroy_sound` first.
+destroy_audio_buffer :: proc(audio_buffer: Audio_Buffer)
 
 // Load an audio stream from a file on disk. This is often used for playing music. An audio stream
 // only loads a small part of the file at a time. As the file is played, new parts are streamed into
@@ -495,7 +551,7 @@ update_audio_stream :: proc(stream: Audio_Stream)
 //
 // Running this this while the stream is already playing will restart it from the beginning. Use
 // `pause_audio_stream` if you just want to pause it.
-play_audio_stream :: proc(stream: Audio_Stream, loop := false)
+play_audio_stream :: proc(stream: Audio_Stream)
 
 // Pause an audio stream. Run `play_audio_stream` to unpause it.
 pause_audio_stream :: proc(stream: Audio_Stream)
@@ -523,6 +579,10 @@ set_audio_stream_pan :: proc(stream: Audio_Stream, pan: f32)
 // You can use this both with a playing and non-playing stream. If its already playing, then this
 // will affect the playing stream.
 set_audio_stream_pitch :: proc(stream: Audio_Stream, pitch: f32)
+
+// Set the audio stream to loop when it reaches the end of the stream. You can set this before
+// playing the stream. You can also modify the loop state of an already playing stream.
+set_audio_stream_loop :: proc(stream: Audio_Stream, loop: bool)
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
@@ -1035,21 +1095,30 @@ SOUND_NONE :: Sound {}
 // buffer, and the settings for use when playing that buffer. The audio buffer may be shared between
 // multiple sound instances, which allows you to play the same sound multiple times at the same time
 // without having to clone the data.
-Sound_Instance :: struct {
+Sound_Object :: struct {
 	handle: Sound,
 
 	// The audio buffer may be used by multiple sound instances. This is the key idea of sound
 	// instances: That you can use `create_sound_instance` to make it possible to play a sound
 	// multiple times at the same time, without having to clone the data.
-	audio_buffer_handle: Audio_Buffer_Handle,
+	audio_buffer: Audio_Buffer,
+
+	// If true, then the audio buffer will be destroyed when this sound is destroyed. This is true
+	// when the sound was loaded using the `load_sound_xxx` procedures. It's false when the sound
+	// is created from `create_sound_from_audio_buffer`.
+	owns_audio_buffer: bool,
 
 	// If this sound is currently playing, then this identifies the state of the playing sound. It
 	// is PLAYING_AUDIO_BUFFER_NONE (zero) when it is not playing.
 	playing_buffer_handle: Playing_Audio_Buffer_Handle,
 
 	// This exists both here and in the `Playing_Audio_Buffer`. That way we can store settings
-	// even when the sound isn't playing.
+	// even when the sound isn't playing. Set using `set_sound_volume/pan/pitch`.
 	playback_settings: Audio_Buffer_Playback_Settings,
+
+	// If true, then the playing sound will be set up as "looping" when `play_sound` is called. Set
+	// using `set_sound_loop`.
+	loop: bool,
 }
 
 Audio_Stream :: distinct Handle
@@ -1073,7 +1142,7 @@ Audio_Stream_Data :: struct {
 	
 	vorbis: ^stbv.vorbis,
 	playing_buffer_handle: Playing_Audio_Buffer_Handle,
-	buffer_handle: Audio_Buffer_Handle,
+	buffer: Audio_Buffer,
 	
 	// Where in the audio buffer referred to by `buffer_handle` that we have most recently written
 	// samples. Together with the `offset` of the Playing_Audio_Buffer, this forms a circular
@@ -1107,10 +1176,12 @@ Raw_Sound_Format :: enum {
 	Float,
 }
 
-Audio_Buffer_Handle :: distinct Handle
+Audio_Buffer :: distinct Handle
 
-Audio_Buffer :: struct {
-	handle: Audio_Buffer_Handle,
+AUDIO_BUFFER_NONE :: Audio_Buffer{}
+
+Audio_Buffer_Object :: struct {
+	handle: Audio_Buffer,
 
 	// All the samples of the audio buffer. In the case of stereo, the left and right samples are
 	// interleaved.
@@ -1123,8 +1194,6 @@ Audio_Buffer :: struct {
 
 	// If this is Stereo, then the left and right samples are interleaved in `samples`.
 	channels: Audio_Channels,
-
-	references: int,
 }
 
 Audio_Buffer_Playback_Settings :: struct {
@@ -1133,13 +1202,19 @@ Audio_Buffer_Playback_Settings :: struct {
 	pitch: f32,
 }
 
+DEFAULT_AUDIO_BUFFER_PLAYBACK_SETTINGS :: Audio_Buffer_Playback_Settings {
+	volume = 1,
+	pan = 0,
+	pitch = 1,
+}
+
 PLAYING_AUDIO_BUFFER_NONE :: Playing_Audio_Buffer_Handle {}
 
 Playing_Audio_Buffer_Handle :: distinct Handle
 
 Playing_Audio_Buffer :: struct {
 	handle: Playing_Audio_Buffer_Handle,
-	audio_buffer: Audio_Buffer_Handle,
+	audio_buffer: Audio_Buffer,
 	target_settings: Audio_Buffer_Playback_Settings,
 	current_settings: Audio_Buffer_Playback_Settings,
 
@@ -1221,8 +1296,8 @@ State :: struct {
 	audio_backend: Audio_Backend_Interface,
 	audio_backend_state: rawptr,
 
-	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer, Audio_Buffer_Handle),
-	sound_instances: hm.Dynamic_Handle_Map(Sound_Instance, Sound),
+	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
+	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),
 
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
 

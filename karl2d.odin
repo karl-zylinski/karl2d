@@ -138,7 +138,7 @@ init :: proc(
 		ab.init(s.audio_backend_state, s.allocator)
 		hm.dynamic_init(&s.playing_audio_buffers, s.allocator)
 		hm.dynamic_init(&s.audio_buffers, s.allocator)
-		hm.dynamic_init(&s.sound_instances, s.allocator)
+		hm.dynamic_init(&s.sounds, s.allocator)
 
 		VORBIS_STATE_SIZE :: 500 * mem.Kilobyte
 
@@ -201,17 +201,11 @@ shutdown :: proc() {
 
 	// Audio
 	{
-		streams_iter := hm.iterator_make(&s.audio_streams)
-
-		for _, stream_handle in hm.iterate(&streams_iter) {
-			destroy_audio_stream(stream_handle)
-		}
-
 		hm.dynamic_destroy(&s.audio_streams)
 		free(s.vorbis_alloc.alloc_buffer, s.allocator)
 		ab.shutdown()
 		hm.dynamic_destroy(&s.playing_audio_buffers)
-		hm.dynamic_destroy(&s.sound_instances)
+		hm.dynamic_destroy(&s.sounds)
 		hm.dynamic_destroy(&s.audio_buffers)
 		free(s.audio_backend_state, s.allocator)
 	}
@@ -1283,113 +1277,145 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
-// Play a sound previous created using `load_sound_from_file` or `load_sound_from_bytes` or
-// `create_sound_instance`. The sound will be mixed when `update_audio_mixer` runs, which
-// happens as part of `update`.
-play_sound :: proc(snd: Sound, loop := false) {
-	sound := hm.get(&s.sound_instances, snd)
+// Play a sound previous created using `load_sound_from_xxx` or `create_sound_from_audio_buffer`.
+// The sound will be mixed when `update_audio_mixer` runs, which happens as part of `update`.
+play_sound :: proc(sound: Sound) {
+	sound_object := hm.get(&s.sounds, sound)
 
-	if sound == nil {
+	if sound_object == nil {
 		log.error("Cannot play sound, sound does not exist.")
 		return
 	}
 
-	if existing := hm.get(&s.playing_audio_buffers, sound.playing_buffer_handle); existing != nil {
-		hm.remove(&s.playing_audio_buffers, sound.playing_buffer_handle)
+	if existing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); existing != nil {
+		hm.remove(&s.playing_audio_buffers, sound_object.playing_buffer_handle)
 	}
 
 	playing_audio_buffer := Playing_Audio_Buffer {
-		audio_buffer = sound.audio_buffer_handle,
-		target_settings = sound.playback_settings,
-		current_settings = sound.playback_settings,
-		loop = loop,
+		audio_buffer = sound_object.audio_buffer,
+		target_settings = sound_object.playback_settings,
+		current_settings = sound_object.playback_settings,
+		loop = sound_object.loop,
 	}
 
 	add_err: runtime.Allocator_Error
-	sound.playing_buffer_handle, add_err = hm.add(&s.playing_audio_buffers, playing_audio_buffer)
+	sound_object.playing_buffer_handle, add_err = hm.add(&s.playing_audio_buffers, playing_audio_buffer)
 
 	if add_err != nil {
 		log.errorf("Failed to play sound. Error: %v", add_err)
 	}
 }
 
-stop_sound :: proc(snd: Sound) {
-	sound := hm.get(&s.sound_instances, snd)
+// Stop a sound. Rewinds it to the start.
+stop_sound :: proc(sound: Sound) {
+	sound_object := hm.get(&s.sounds, sound)
 
-	if sound == nil {
+	if sound_object == nil {
 		log.error("Cannot stop sound, sound does not exist.")
 		return
 	}
 
-	if existing := hm.get(&s.playing_audio_buffers, sound.playing_buffer_handle); existing != nil {
-		hm.remove(&s.playing_audio_buffers, sound.playing_buffer_handle)
+	if existing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); existing != nil {
+		hm.remove(&s.playing_audio_buffers, sound_object.playing_buffer_handle)
 	}
 
-	sound.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
+	sound_object.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
+}
+
+// Returns true if the sound is currently playing.
+sound_is_playing :: proc(sound: Sound) -> bool {
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return false
+	}
+
+	return hm.is_valid(&s.playing_audio_buffers, sound_object.playing_buffer_handle)
 }
 
 // Set the volume of a sound. Range: 0 to 1, where 0 is silence and 1 is the original volume of the
 // sound. The volume change will only affect this instance of the sound. Use `create_sound_instance`
 // to create more instances without duplicating data.
-set_sound_volume :: proc(snd: Sound, volume: f32) {
-	d := hm.get(&s.sound_instances, snd)
+set_sound_volume :: proc(sound: Sound, volume: f32) {
+	sound_object := hm.get(&s.sounds, sound)
 	
-	if d == nil {
+	if sound_object == nil {
 		log.error("Cannot set volume, sound does not exist.")
 		return
 	}
 
 	clamped_volume := clamp(volume, 0, 1)
 
-	if playing := hm.get(&s.playing_audio_buffers, d.playing_buffer_handle); playing != nil {
+	if playing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); playing != nil {
 		playing.target_settings.volume = clamped_volume
 	}
 	
-	d.playback_settings.volume = clamped_volume
+	sound_object.playback_settings.volume = clamped_volume
 }
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
 // The pan change will only affect this instance of the sound. Use `create_sound_instance` to create
 // more instances without duplicating data.
-set_sound_pan :: proc(snd: Sound, pan: f32) {
-	d := hm.get(&s.sound_instances, snd)
+set_sound_pan :: proc(sound: Sound, pan: f32) {
+	sound_object := hm.get(&s.sounds, sound)
 	
-	if d == nil {
+	if sound_object == nil {
 		log.error("Cannot set pan, sound does not exist.")
 		return
 	}
 
 	clamped_pan := clamp(pan, -1, 1)
 
-	if playing := hm.get(&s.playing_audio_buffers, d.playing_buffer_handle); playing != nil {
+	if playing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); playing != nil {
 		playing.target_settings.pan = clamped_pan
 	}
 
-	d.playback_settings.pan = clamped_pan
+	sound_object.playback_settings.pan = clamped_pan
 }
 
 // Set the pitch of a sound. Range: 0.01 to infinity, where 0.01 is the lowest pitch and higher
 // values increase the pitch. The pitch change will only affect this instance of the sound. Use
 // `create_sound_instance` to create more instances without duplicating data.
-set_sound_pitch :: proc(snd: Sound, pitch: f32) {
-	d := hm.get(&s.sound_instances, snd)
+set_sound_pitch :: proc(sound: Sound, pitch: f32) {
+	sound_object := hm.get(&s.sounds, sound)
 	
-	if d == nil {
+	if sound_object == nil {
 		log.error("Cannot set pitch, sound does not exist.")
 		return
 	}
 
 	capped_pitch := max(pitch, 0.01)
 
-	if playing := hm.get(&s.playing_audio_buffers, d.playing_buffer_handle); playing != nil {
+	if playing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); playing != nil {
 		playing.target_settings.pitch = capped_pitch
 	}
 	
-	d.playback_settings.pitch = capped_pitch
+	sound_object.playback_settings.pitch = capped_pitch
 }
 
-// Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. Use 
-// `create_sound_instance` to create more instances of the same sound without duplicating data.
+// Makes a sound loop when it reaches the end. You can set this before playing but also while
+// playing the sound.
+set_sound_loop :: proc(sound: Sound, loop: bool) {
+	sound_object := hm.get(&s.sounds, sound)
+	
+	if sound_object == nil {
+		log.errorf("Cannot set loop = %v, sound does not exist.", loop)
+		return
+	}
+
+	if playing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); playing != nil {
+		playing.loop = loop
+	}
+	
+	sound_object.loop = loop
+}
+
+// Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. If you need to
+// play a sound multiple times simultaneously, then use `load_audio_buffer_from_file` followed by
+// one or more calls to `create_sound_from_audio_buffer`.
+//
+// Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
+// will also destroy the audio buffer. 
 //
 // Currently only supports 16 bit WAV files.
 load_sound_from_file :: proc(filename: string) -> Sound {
@@ -1404,23 +1430,106 @@ load_sound_from_file :: proc(filename: string) -> Sound {
 }
 
 // Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Returns a `Sound`
-// which can be used with `play_sound`. Use `create_sound_instance` to create more instances of the
-// same sound without duplicating data.
+// which can be used with `play_sound`. If you need to play a sound multiple times simultaneously,
+// then use `load_audio_buffer_from_bytes` followed by one or more calls to
+// `create_sound_from_audio_buffer`.
+//
+// Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
+// will also destroy the audio buffer.
 //
 // Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
 // including the header. If your data does not include the header, then please use
-// `load_sound_from_bytes_raw` instead.
+// `load_audio_buffer_from_bytes_raw` combined with `create_sound_from_audio_buffer`.
 load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
+	audio_buffer := load_audio_buffer_from_bytes(bytes)
+
+	if audio_buffer == AUDIO_BUFFER_NONE {
+		return SOUND_NONE
+	}
+
+	sound_object := Sound_Object {
+		playback_settings = DEFAULT_AUDIO_BUFFER_PLAYBACK_SETTINGS,
+		audio_buffer = audio_buffer,
+		owns_audio_buffer = true,
+	}
+
+	sound, sound_add_error := hm.add(&s.sounds, sound_object)
+
+	if sound_add_error != nil {
+		log.errorf("Failed adding sound. Error: %v", sound_add_error)
+		return SOUND_NONE
+	}
+
+	return sound
+}
+
+// Load a sound from some raw audio data. You need to specify the data, format and sample rate of
+// the audio data yourself. This assumes that there is no header in the data. If your data has a
+// header (you read the data from a file on disk), then please use `load_sound_from_bytes` instead.
+//
+// The returned Sound owns its internal Audio_Buffer: Calling `destroy_sound` with it will destroy
+// the audio buffer.
+load_sound_from_bytes_raw :: proc(
+	bytes: []u8,
+	format: Raw_Sound_Format,
+	sample_rate: int,
+	channels: Audio_Channels,
+) -> Sound {
+	audio_buffer := load_audio_buffer_from_bytes_raw(bytes, format, sample_rate, channels)
+
+	if audio_buffer == AUDIO_BUFFER_NONE {
+		return SOUND_NONE
+	}
+
+	sound_object := Sound_Object {
+		playback_settings = DEFAULT_AUDIO_BUFFER_PLAYBACK_SETTINGS,
+		audio_buffer = audio_buffer,
+		owns_audio_buffer = true,
+	}
+
+	sound, sound_add_error := hm.add(&s.sounds, sound_object)
+
+	if sound_add_error != nil {
+		log.errorf("Failed adding sound. Error: %v", sound_add_error)
+		return SOUND_NONE
+	}
+
+	return sound
+}
+
+// Load a WAV file from disk. Returns an `Audio_Buffer` which can be used with
+// `create_sound_from_audio_buffer` in order to play the audio buffer multiple times simultaneously.
+//
+// Currently only supports 16 bit WAV data.
+load_audio_buffer_from_file :: proc(filename: string) -> Audio_Buffer {
+	data, data_ok := read_entire_file(filename, frame_allocator)
+
+	if !data_ok {
+		log.errorf("Failed to load audio buffer from file '%v'", filename)
+		return AUDIO_BUFFER_NONE
+	}
+
+	return load_audio_buffer_from_bytes(data)
+}
+
+// Load a WAV file from some pre-loaded memory (can be loaded using `#load("sound.wav")`). Returns
+// an `Audio_Buffer` which can be used with `create_sound_from_audio_buffer` in order to play the
+// audio buffer multiple times simultaneously.
+//
+// Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
+// including the header. If your data does not include the header, then please use
+// `load_audio_buffer_from_bytes_raw`.
+load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
 	d := bytes
 
 	if len(d) < 8 {
 		log.error("Invalid WAV")
-		return SOUND_NONE
+		return AUDIO_BUFFER_NONE
 	}
 
 	if string(d[:4]) != "RIFF" {
 		log.error("Invalid wav file: No RIFF identifier")
-		return SOUND_NONE
+		return AUDIO_BUFFER_NONE
 	}
 
 	d = d[4:]
@@ -1429,19 +1538,19 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 
 	if !file_size_ok {
 		log.error("Invalid wav file: No size")
-		return SOUND_NONE
+		return AUDIO_BUFFER_NONE
 	}
 
 	if int(file_size) != len(bytes) - 8 {
 		log.error("File size mismiatch")
-		return SOUND_NONE
+		return AUDIO_BUFFER_NONE
 	}
 
 	d = d[4:]
 
 	if string(d[:4]) != "WAVE" {
 		log.error("Invalid wav file: Not WAVE format")
-		return SOUND_NONE
+		return AUDIO_BUFFER_NONE
 	}
 
 	d = d[4:]
@@ -1592,18 +1701,19 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 		}
 	}
 	
-	return load_sound_from_bytes_raw(samples, format, int(sample_rate), channels)
+	return load_audio_buffer_from_bytes_raw(samples, format, int(sample_rate), channels)
 }
 
-// Load a sound from some raw audio data. You need to specify the data, format and sample rate of
-// the sound yourself. This assumes that there is no header in the data. If your data has a header
-// (you read the data from a file on disk), then please use `load_sound_from_bytes` instead.
-load_sound_from_bytes_raw :: proc(
+// Load an audio buffer from some raw audio data. You need to specify the data, format and sample
+// rate of the sound yourself. This assumes that there is no header in the data. If your data has a
+// header (you read the data from a file on disk), then please use `load_audio_buffer_from_bytes`
+// instead.
+load_audio_buffer_from_bytes_raw :: proc(
 	bytes: []u8,
 	format: Raw_Sound_Format,
 	sample_rate: int,
 	channels: Audio_Channels,
-) -> Sound {
+) -> Audio_Buffer {
 	samples: []Audio_Sample
 
 	switch format{
@@ -1635,101 +1745,91 @@ load_sound_from_bytes_raw :: proc(
 		samples = slice.clone(slice.reinterpret([]Audio_Sample, bytes), s.allocator)
 	}
 
-	buffer := Audio_Buffer {
+	buffer_object := Audio_Buffer_Object {
 		sample_rate = sample_rate,
 		samples = samples,
 		channels = channels,
-		references = 1,
 	}
 
-	buffer_handle, buffer_handle_add_err := hm.add(&s.audio_buffers, buffer)
+	buffer, buffer_add_error := hm.add(&s.audio_buffers, buffer_object)
 
-	if buffer_handle_add_err != nil {
-		log.errorf("Failed to load sound. Error: %v", buffer_handle_add_err)
-		return SOUND_NONE
+	if buffer_add_error != nil {
+		log.errorf("Failed to load sound. Error: %v", buffer_add_error)
+		return AUDIO_BUFFER_NONE
 	}
 
-	snd_inst := Sound_Instance {
-		audio_buffer_handle = buffer_handle,
-		playback_settings = {
-			pan = 0,
-			volume = 1,
-			pitch = 1,
-		},
-	}
-
-	snd_handle, snd_handle_add_err := hm.add(&s.sound_instances, snd_inst)
-
-	if snd_handle_add_err != nil {
-		log.errorf("Failed to load sound. Error: %v", snd_handle_add_err)
-		hm.remove(&s.audio_buffers, buffer_handle)
-		return SOUND_NONE
-	}
-
-	return snd_handle
+	return buffer
 }
 
-// Makes a new sound that uses the same data as the original sound, but you can have different
-// settings such as volume, pan and pitch. This makes it possible to play the same sound multiple
-// times at once with different settings. The data is destroyed when all the instances (including
-// the original instance) are destroyed.
-create_sound_instance :: proc(snd: Sound) -> Sound {
-	inst := hm.get(&s.sound_instances, snd)
+// Creates a sound that can be used to play the contents of an `Audio_Buffer`. This can be used to
+// load an audio buffer once and have multiple sounds playing the contents of it, simultaneously.
+// This makes all those sounds share the same audio data.
+//
+// Sounds created using this procedure do not own the buffer. This means that calling
+// `destroy_sound` on the Sound will only remove the Sound from Karl2D's internal state, but it
+// won't destroy the Audio_Buffer. Such auto-destroying of the `Audio_Buffer` only happen with
+// sounds created using `load_sound_from_file` and `load_sound_from_bytes`.
+create_sound_from_audio_buffer :: proc(buffer: Audio_Buffer) -> Sound {
+	buffer_object := hm.get(&s.audio_buffers, buffer)
 
-	if inst == nil {
-		log.error("Cannot create sound instance, sound does not exist.")
+	if buffer_object == nil {
+		log.error("Trying to create sound from invalid audio buffer")
 		return SOUND_NONE
 	}
 
-	buffer := hm.get(&s.audio_buffers, inst.audio_buffer_handle)
+	sound_object := Sound_Object {
+		playback_settings = DEFAULT_AUDIO_BUFFER_PLAYBACK_SETTINGS,
+		audio_buffer = buffer,
+		owns_audio_buffer = false,
+	}
 
-	if buffer == nil {
-		log.error("Cannot create sound instance, sound buffer does not exist.")
+	sound, sound_add_error := hm.add(&s.sounds, sound_object)
+
+	if sound_add_error != nil {
+		log.errorf("Failed to create sound from audio buffer. Error: %v", sound_add_error)
 		return SOUND_NONE
 	}
 
-	inst_copy := inst^
-	snd_handle, snd_handle_err := hm.add(&s.sound_instances, inst_copy)
-
-	if snd_handle_err != nil {
-		log.errorf("Failed to create sound instance. Error: %v", snd_handle_err)
-		return SOUND_NONE
-	}
-
-	buffer.references += 1
-	return snd_handle
+	return sound
 }
 
-// Destroy a sound instance. If this is the last instance that uses the same data, then the data
-// will also be destroyed.
-destroy_sound :: proc(snd: Sound) {
-	inst := hm.get(&s.sound_instances, snd)
+// Destroy a sound, removing it from Karl2D's internal list of sounds.
+//
+// If the sound was created using `create_sound_from_audio_buffer`, then this procedure will not
+// destroy the audio buffer. If the sound was created using `load_sound_from_file` or
+// `load_sound_from_bytes`, then this procedure WILL destroy the audio buffer.
+destroy_sound :: proc(sound: Sound) {
+	sound_object := hm.get(&s.sounds, sound)
 
-	if inst == nil {
+	if sound_object == nil {
 		log.error("Trying to destroy invalid sound. It may already be destroyed, or the handle may be invalid.")
 		return
 	}
 
-	if playing := hm.get(&s.playing_audio_buffers, inst.playing_buffer_handle); playing != nil {
-		hm.remove(&s.playing_audio_buffers, inst.playing_buffer_handle)
+	if playing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); playing != nil {
+		hm.remove(&s.playing_audio_buffers, sound_object.playing_buffer_handle)
 	}
 	
-	inst.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
-	buffer := hm.get(&s.audio_buffers, inst.audio_buffer_handle)
+	if sound_object.owns_audio_buffer {
+		destroy_audio_buffer(sound_object.audio_buffer)
+	}
 
-	if buffer == nil {
-		log.error("Trying to destroy sound instance, but its buffer does not exist.")
+	hm.remove(&s.sounds, sound)
+}
+
+// Destroy an audio buffer previously loaded using `load_audio_buffer_from_xxx`. Before destroying
+// this audio buffer, make sure it is not in use by any playing sounds. Destroy the sounds that
+// reference it using `destroy_sound` first.
+destroy_audio_buffer :: proc(audio_buffer: Audio_Buffer)  {
+	audio_buffer_object := hm.get(&s.audio_buffers, audio_buffer)
+
+	if audio_buffer_object == nil {
+		log.debug("Tried to destroy non-existing audio buffer")
 		return
 	}
 
-	buffer.references -= 1
-
-	if buffer.references == 0 {
-		delete(buffer.samples, s.allocator)
-		hm.remove(&s.audio_buffers, inst.audio_buffer_handle)
-	}
-
-	hm.remove(&s.sound_instances, snd)
+	delete(audio_buffer_object.samples, s.allocator)
+	hm.remove(&s.audio_buffers, audio_buffer)
 }
 
 // Load an audio stream from a file on disk. This is often used for playing music. An audio stream
@@ -1833,10 +1933,9 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		return AUDIO_STREAM_NONE
 	}
 
-	buffer := Audio_Buffer {
+	buffer := Audio_Buffer_Object {
 		sample_rate = int(info.sample_rate),
 		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
-		references = 1,
 		channels = channels,
 	}
 
@@ -1857,7 +1956,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		mode = .From_File,
 		file = f,
 		vorbis = vorbis_res,
-		buffer_handle = buffer_handle,
+		buffer = buffer_handle,
 		playback_settings = {
 			pan = 0,
 			volume = 1,
@@ -1932,10 +2031,9 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		return AUDIO_STREAM_NONE
 	}
 
-	buffer := Audio_Buffer {
+	buffer := Audio_Buffer_Object {
 		sample_rate = int(info.sample_rate),
 		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
-		references = 1,
 		channels = channels,
 	}
 
@@ -1951,7 +2049,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		mode = .From_Bytes,
 		bytes = bytes,
 		vorbis = vorbis_res,
-		buffer_handle = buffer_handle,
+		buffer = buffer_handle,
 		playback_settings = {
 			pan = 0,
 			volume = 1,
@@ -1988,9 +2086,9 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 		hm.remove(&s.playing_audio_buffers, sd.playing_buffer_handle)
 	}
 
-	if ab := hm.get(&s.audio_buffers, sd.buffer_handle); ab != nil {
+	if ab := hm.get(&s.audio_buffers, sd.buffer); ab != nil {
 		delete(ab.samples, s.allocator)
-		hm.remove(&s.audio_buffers, sd.buffer_handle)
+		hm.remove(&s.audio_buffers, sd.buffer)
 	}
 
 	switch sd.mode {
@@ -2030,7 +2128,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	audio_stream_remaining :: proc(as: ^Audio_Stream_Data, pab: ^Playing_Audio_Buffer, ab: ^Audio_Buffer) -> int {
+	audio_stream_remaining :: proc(as: ^Audio_Stream_Data, pab: ^Playing_Audio_Buffer, ab: ^Audio_Buffer_Object) -> int {
 		remaining := as.buffer_write_pos - pab.offset 
 
 		if remaining < 0 {
@@ -2177,7 +2275,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 //
 // Running this this while the stream is already playing will restart it from the beginning. Use
 // `pause_audio_stream` if you just want to pause it.
-play_audio_stream :: proc(stream: Audio_Stream, loop := false) {
+play_audio_stream :: proc(stream: Audio_Stream) {
 	sd := hm.get(&s.audio_streams, stream)
 
 	if sd == nil {
@@ -2190,7 +2288,7 @@ play_audio_stream :: proc(stream: Audio_Stream, loop := false) {
 	}
 
 	playing_audio_buffer := Playing_Audio_Buffer {
-		audio_buffer = sd.buffer_handle,
+		audio_buffer = sd.buffer,
 		target_settings = sd.playback_settings,
 		current_settings = sd.playback_settings,
 
@@ -2206,8 +2304,6 @@ play_audio_stream :: proc(stream: Audio_Stream, loop := false) {
 	if add_err != nil {
 		log.errorf("Failed playing the audio stream because the audio buffer could not be set up for playing. Error: %v", add_err)
 	}
-
-	sd.loop = loop
 }
 
 // Pause an audio stream. Run `play_audio_stream` to unpause it.
@@ -2318,6 +2414,24 @@ set_audio_stream_pitch :: proc(stream: Audio_Stream, pitch: f32) {
 	}
 	
 	sd.playback_settings.pitch = capped_pitch
+}
+
+// Set the audio stream to loop when it reaches the end of the stream. You can set this before
+// playing the stream. You can also modify the loop state of an already playing stream.
+set_audio_stream_loop :: proc(stream: Audio_Stream, loop: bool) {
+	sd := hm.get(&s.audio_streams, stream)
+	
+	if sd == nil {
+		log.errorf("Cannot set audio stream loop = %v, stream does not exist.", loop)
+		return
+	}
+
+	// Note a difference from `set_sound_loop`: We don't set the looping state of the playing audio
+	// buffer. That one should always loop for an audio stream. The stream is continuously writing
+	// data into a small looping buffer. We just set the stream itself to not loop, so it will stop
+	// feeding in data when it reaches the end.
+	
+	sd.loop = loop
 }
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
@@ -3573,21 +3687,30 @@ SOUND_NONE :: Sound {}
 // buffer, and the settings for use when playing that buffer. The audio buffer may be shared between
 // multiple sound instances, which allows you to play the same sound multiple times at the same time
 // without having to clone the data.
-Sound_Instance :: struct {
+Sound_Object :: struct {
 	handle: Sound,
 
 	// The audio buffer may be used by multiple sound instances. This is the key idea of sound
 	// instances: That you can use `create_sound_instance` to make it possible to play a sound
 	// multiple times at the same time, without having to clone the data.
-	audio_buffer_handle: Audio_Buffer_Handle,
+	audio_buffer: Audio_Buffer,
+
+	// If true, then the audio buffer will be destroyed when this sound is destroyed. This is true
+	// when the sound was loaded using the `load_sound_xxx` procedures. It's false when the sound
+	// is created from `create_sound_from_audio_buffer`.
+	owns_audio_buffer: bool,
 
 	// If this sound is currently playing, then this identifies the state of the playing sound. It
 	// is PLAYING_AUDIO_BUFFER_NONE (zero) when it is not playing.
 	playing_buffer_handle: Playing_Audio_Buffer_Handle,
 
 	// This exists both here and in the `Playing_Audio_Buffer`. That way we can store settings
-	// even when the sound isn't playing.
+	// even when the sound isn't playing. Set using `set_sound_volume/pan/pitch`.
 	playback_settings: Audio_Buffer_Playback_Settings,
+
+	// If true, then the playing sound will be set up as "looping" when `play_sound` is called. Set
+	// using `set_sound_loop`.
+	loop: bool,
 }
 
 Audio_Stream :: distinct Handle
@@ -3611,7 +3734,7 @@ Audio_Stream_Data :: struct {
 	
 	vorbis: ^stbv.vorbis,
 	playing_buffer_handle: Playing_Audio_Buffer_Handle,
-	buffer_handle: Audio_Buffer_Handle,
+	buffer: Audio_Buffer,
 	
 	// Where in the audio buffer referred to by `buffer_handle` that we have most recently written
 	// samples. Together with the `offset` of the Playing_Audio_Buffer, this forms a circular
@@ -3645,10 +3768,12 @@ Raw_Sound_Format :: enum {
 	Float,
 }
 
-Audio_Buffer_Handle :: distinct Handle
+Audio_Buffer :: distinct Handle
 
-Audio_Buffer :: struct {
-	handle: Audio_Buffer_Handle,
+AUDIO_BUFFER_NONE :: Audio_Buffer{}
+
+Audio_Buffer_Object :: struct {
+	handle: Audio_Buffer,
 
 	// All the samples of the audio buffer. In the case of stereo, the left and right samples are
 	// interleaved.
@@ -3661,8 +3786,6 @@ Audio_Buffer :: struct {
 
 	// If this is Stereo, then the left and right samples are interleaved in `samples`.
 	channels: Audio_Channels,
-
-	references: int,
 }
 
 Audio_Buffer_Playback_Settings :: struct {
@@ -3671,13 +3794,19 @@ Audio_Buffer_Playback_Settings :: struct {
 	pitch: f32,
 }
 
+DEFAULT_AUDIO_BUFFER_PLAYBACK_SETTINGS :: Audio_Buffer_Playback_Settings {
+	volume = 1,
+	pan = 0,
+	pitch = 1,
+}
+
 PLAYING_AUDIO_BUFFER_NONE :: Playing_Audio_Buffer_Handle {}
 
 Playing_Audio_Buffer_Handle :: distinct Handle
 
 Playing_Audio_Buffer :: struct {
 	handle: Playing_Audio_Buffer_Handle,
-	audio_buffer: Audio_Buffer_Handle,
+	audio_buffer: Audio_Buffer,
 	target_settings: Audio_Buffer_Playback_Settings,
 	current_settings: Audio_Buffer_Playback_Settings,
 
@@ -3759,8 +3888,8 @@ State :: struct {
 	audio_backend: Audio_Backend_Interface,
 	audio_backend_state: rawptr,
 
-	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer, Audio_Buffer_Handle),
-	sound_instances: hm.Dynamic_Handle_Map(Sound_Instance, Sound),
+	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
+	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),
 
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
 

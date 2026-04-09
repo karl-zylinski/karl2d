@@ -10,8 +10,9 @@ pos: k2.Vec2
 snd: k2.Sound
 snd2: k2.Sound
 snd3: k2.Sound
-wav: k2.Sound
-wav_inst: k2.Sound
+wav: k2.Audio_Buffer
+wav_1: k2.Sound
+wav_2: k2.Sound
 
 music: k2.Audio_Stream
 snd_volume: f32
@@ -29,8 +30,9 @@ init :: proc() {
 	snd_pitch = 1
 	snd2 = make_sine_wave(440, 1, 44100)
 	snd3 = make_sine_wave(700, 1, 22050)
-	wav = k2.load_sound_from_bytes(#load("chord.wav"))
-	wav_inst = k2.create_sound_instance(wav)
+	wav = k2.load_audio_buffer_from_bytes(#load("chord.wav"))
+	wav_1 = k2.create_sound_from_audio_buffer(wav)
+	wav_2 = k2.create_sound_from_audio_buffer(wav)
 
 	when HAS_MUSIC {
 		when ODIN_OS == .JS {
@@ -40,9 +42,11 @@ init :: proc() {
 		} else {
 			music = k2.load_audio_stream_from_file(MUSIC_FILE)
 		}
-		k2.play_audio_stream(music, true)
+		k2.set_audio_stream_loop(music, true)
+		k2.play_audio_stream(music)
 	} else {
-		k2.play_sound(snd, loop = true)
+		k2.set_sound_loop(snd, true)
+		k2.play_sound(snd)
 	}
 }
 
@@ -74,14 +78,6 @@ step :: proc() -> bool {
 	if k2.key_went_down(.N3) {
 		k2.play_sound(snd3)
 	}
-
-	if k2.key_went_down(.Z) {
-		k2.stop_sound(wav)
-	}
-
-	if k2.key_went_down(.X) {
-		k2.play_sound(wav, loop = true)
-	}
 	
 	if k2.key_is_held(.Up) {
 		snd_volume += k2.get_frame_time() * 2
@@ -109,18 +105,18 @@ step :: proc() -> bool {
 
 
 	if k2.key_went_down(.Space) {
-		k2.set_sound_pitch(wav, 1)
-		k2.set_sound_pan(wav, 0)
-		k2.play_sound(wav)
+		k2.set_sound_pitch(wav_1, 1)
+		k2.set_sound_pan(wav_1, 0)
+		k2.play_sound(wav_1)
 	}
 
 	if k2.key_went_down(.T)	{
-		k2.set_sound_pitch(wav, 2)
-		k2.set_sound_pan(wav, -1)
-		k2.play_sound(wav)
-		k2.set_sound_pitch(wav_inst, 0.5)
-		k2.set_sound_pan(wav_inst, 1)
-		k2.play_sound(wav_inst)
+		k2.set_sound_pitch(wav_1, 2)
+		k2.set_sound_pan(wav_1, -1)
+		k2.play_sound(wav_1)
+		k2.set_sound_pitch(wav_2, 0.5)
+		k2.set_sound_pan(wav_2, 1)
+		k2.play_sound(wav_2)
 	}
 	
 	snd_pan = clamp(snd_pan, -1, 1)
@@ -178,8 +174,9 @@ shutdown :: proc() {
 	k2.destroy_sound(snd)
 	k2.destroy_sound(snd2)
 	k2.destroy_sound(snd3)
-	k2.destroy_sound(wav)
-	k2.destroy_sound(wav_inst)
+	k2.destroy_sound(wav_1)
+	k2.destroy_sound(wav_2)
+	k2.destroy_audio_buffer(wav)
 
 	when HAS_MUSIC {
 		k2.destroy_audio_stream(music)
