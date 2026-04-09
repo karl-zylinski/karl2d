@@ -1,6 +1,8 @@
 <img width="328" height="64" alt="karl2d_logo" src="https://github.com/user-attachments/assets/5ebd43c8-5a1d-4864-b8eb-7ce4b6a5dba0" />
 
-Karl2D is a library for making 2D games using the Odin programming language. It focuses on making 2D gamedev fun, fast and beginner friendly. It also uses as few dependencies as possible. See [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) for an API overview.
+Make 2D games using the Odin Programming Language! Karl2D is a beginner friendly game creation library. It strives to minimize the number of dependencies, making you feel in control of the technology stack.
+
+See [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) for an API overview.
 
 Support the project by becoming a sponsor here on [GitHub](https://github.com/sponsors/karl-zylinski) or on [Patreon](https://patreon.com/karl_zylinski).
 
@@ -30,13 +32,13 @@ Some examples are available as live web builds: [hellope](https://zylinski.se/ka
 
 Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
 
+## Beta 3
 
-## Beta 2
+Karl2D is currently in its THIRD BETA period. If you find _any_ issues, then please create an issue here on GitHub!
 
-Karl2D is currently in its SECOND BETA period. If you find _any_ issues, then please create an issue here on GitHub!
-
-Beta 2 has these features:
+Beta 3 has these features:
 - Rendering of shapes, textures and text with automatic batching
+- Audio playback using custom software mixer
 - Support for shaders and cameras
 - Windows support (D3D11 and OpenGL)
 - Mac support (OpenGL)
@@ -44,20 +46,12 @@ Beta 2 has these features:
 - Web support (WebGL, no emscripten needed!)
 - Input: Mouse, keyboard, gamepad
 
->[!WARNING]
->Beta 2 does NOT have the following features, but they are planned in the order stated:
->- Sound
->- System for cross-compiling shaders between different backends (HLSL, GLSL, GLSL ES, MSL etc)
->- Metal rendering backend for Mac (OpenGL already works)
->
-> When I've gotten through this list, then the library is close to `1.0`
->
-> See the list of [milestones](https://github.com/karl-zylinski/karl2d/milestones) to see the progress on each Beta version and what is included in each.
+## Roadmap
 
->[!WARNING]
->As this is a beta test version, changes to the API will happen.
-
-I wrote a newsletter about the beta 2 release: https://news.zylinski.se/p/karl2d-beta-is-here
+- [Beta 4: Rendering improvements](https://github.com/karl-zylinski/karl2d/milestone/3)
+- [Beta 5: Metal backend](https://github.com/karl-zylinski/karl2d/milestone/4)
+- [Beta 6: Cross-API shader compiler](https://github.com/karl-zylinski/karl2d/milestone/5)
+- 1.0
 
 ## How to make a web build of your game
 
