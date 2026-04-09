@@ -17,7 +17,7 @@ Audio_Source :: struct {
 	pos: k2.Vec2,
 }
 
-SOUND_LENGTH :: 20
+SOUND_LENGTH :: 1
 
 update_audio_source :: proc(as: ^Audio_Source) {
 	player_to_snd := as.pos - player_pos
@@ -47,14 +47,16 @@ init :: proc() {
 		sound = k2.create_sound_from_audio_buffer(sine_wave),
 	}
 
-	k2.play_sound(spinning_audio_source.sound, true)
+	k2.set_sound_loop(spinning_audio_source.sound, true)
+	k2.play_sound(spinning_audio_source.sound)
 
 	stationary_1 := Audio_Source {
 		sound = k2.create_sound_from_audio_buffer(sine_wave),
 		pos = {50, 50},
 	}
 
-	k2.play_sound(stationary_1.sound, true)
+	k2.set_sound_loop(stationary_1.sound, true)
+	k2.play_sound(stationary_1.sound)
 	k2.set_sound_pitch(stationary_1.sound, 0.5)
 	append(&stationary_audio_sources, stationary_1)
 
@@ -63,7 +65,8 @@ init :: proc() {
 		pos = {450, 50},
 	}
 
-	k2.play_sound(stationary_2.sound, true)
+	k2.set_sound_loop(stationary_2.sound, true)
+	k2.play_sound(stationary_2.sound)
 	k2.set_sound_pitch(stationary_2.sound, 0.45)
 	append(&stationary_audio_sources, stationary_2)
 
@@ -72,7 +75,8 @@ init :: proc() {
 		pos = {450, 450},
 	}
 
-	k2.play_sound(stationary_3.sound, true)
+	k2.set_sound_loop(stationary_3.sound, true)
+	k2.play_sound(stationary_3.sound)
 	k2.set_sound_pitch(stationary_3.sound, 0.55)
 	append(&stationary_audio_sources, stationary_3)
 
@@ -80,8 +84,9 @@ init :: proc() {
 		sound = k2.create_sound_from_audio_buffer(sine_wave),
 		pos = {50, 450},
 	}
-
-	k2.play_sound(stationary_4.sound, true)
+	
+	k2.set_sound_loop(stationary_4.sound, true)
+	k2.play_sound(stationary_4.sound)
 	k2.set_sound_pitch(stationary_4.sound, 0.6)
 	append(&stationary_audio_sources, stationary_4)
 }

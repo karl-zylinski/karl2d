@@ -1279,7 +1279,7 @@ set_texture_filter_ex :: proc(
 
 // Play a sound previous created using `load_sound_from_xxx` or `create_sound_from_audio_buffer`.
 // The sound will be mixed when `update_audio_mixer` runs, which happens as part of `update`.
-play_sound :: proc(sound: Sound, loop := false) {
+play_sound :: proc(sound: Sound) {
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -1295,7 +1295,7 @@ play_sound :: proc(sound: Sound, loop := false) {
 		audio_buffer = sound_object.audio_buffer,
 		target_settings = sound_object.playback_settings,
 		current_settings = sound_object.playback_settings,
-		loop = loop,
+		loop = sound_object.loop,
 	}
 
 	add_err: runtime.Allocator_Error
@@ -1391,6 +1391,23 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 	}
 	
 	sound_object.playback_settings.pitch = capped_pitch
+}
+
+// Makes a sound loop when it reaches the end. You can set this before playing but also while
+// playing the sound.
+set_sound_loop :: proc(sound: Sound, loop: bool) {
+	sound_object := hm.get(&s.sounds, sound)
+	
+	if sound_object == nil {
+		log.errorf("Cannot set loop = %v, sound does not exist.", loop)
+		return
+	}
+
+	if playing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); playing != nil {
+		playing.loop = loop
+	}
+	
+	sound_object.loop = loop
 }
 
 // Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. If you need to
@@ -2258,7 +2275,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 //
 // Running this this while the stream is already playing will restart it from the beginning. Use
 // `pause_audio_stream` if you just want to pause it.
-play_audio_stream :: proc(stream: Audio_Stream, loop := false) {
+play_audio_stream :: proc(stream: Audio_Stream) {
 	sd := hm.get(&s.audio_streams, stream)
 
 	if sd == nil {
@@ -2287,8 +2304,6 @@ play_audio_stream :: proc(stream: Audio_Stream, loop := false) {
 	if add_err != nil {
 		log.errorf("Failed playing the audio stream because the audio buffer could not be set up for playing. Error: %v", add_err)
 	}
-
-	sd.loop = loop
 }
 
 // Pause an audio stream. Run `play_audio_stream` to unpause it.
@@ -2399,6 +2414,24 @@ set_audio_stream_pitch :: proc(stream: Audio_Stream, pitch: f32) {
 	}
 	
 	sd.playback_settings.pitch = capped_pitch
+}
+
+// Set the audio stream to loop when it reaches the end of the stream. You can set this before
+// playing the stream. You can also modify the loop state of an already playing stream.
+set_audio_stream_loop :: proc(stream: Audio_Stream, loop: bool) {
+	sd := hm.get(&s.audio_streams, stream)
+	
+	if sd == nil {
+		log.errorf("Cannot set audio stream loop = %v, stream does not exist.", loop)
+		return
+	}
+
+	// Note a difference from `set_sound_loop`: We don't set the looping state of the playing audio
+	// buffer. That one should always loop for an audio stream. The stream is continuously writing
+	// data into a small looping buffer. We just set the stream itself to not loop, so it will stop
+	// feeding in data when it reaches the end.
+	
+	sd.loop = loop
 }
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
@@ -3672,8 +3705,12 @@ Sound_Object :: struct {
 	playing_buffer_handle: Playing_Audio_Buffer_Handle,
 
 	// This exists both here and in the `Playing_Audio_Buffer`. That way we can store settings
-	// even when the sound isn't playing.
+	// even when the sound isn't playing. Set using `set_sound_volume/pan/pitch`.
 	playback_settings: Audio_Buffer_Playback_Settings,
+
+	// If true, then the playing sound will be set up as "looping" when `play_sound` is called. Set
+	// using `set_sound_loop`.
+	loop: bool,
 }
 
 Audio_Stream :: distinct Handle

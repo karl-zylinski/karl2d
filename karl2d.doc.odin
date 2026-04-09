@@ -389,7 +389,7 @@ set_texture_filter_ex :: proc(
 
 // Play a sound previous created using `load_sound_from_xxx` or `create_sound_from_audio_buffer`.
 // The sound will be mixed when `update_audio_mixer` runs, which happens as part of `update`.
-play_sound :: proc(sound: Sound, loop := false)
+play_sound :: proc(sound: Sound)
 
 // Stop a sound. Rewinds it to the start.
 stop_sound :: proc(sound: Sound)
@@ -411,6 +411,10 @@ set_sound_pan :: proc(sound: Sound, pan: f32)
 // values increase the pitch. The pitch change will only affect this instance of the sound. Use
 // `create_sound_instance` to create more instances without duplicating data.
 set_sound_pitch :: proc(sound: Sound, pitch: f32)
+
+// Makes a sound loop when it reaches the end. You can set this before playing but also while
+// playing the sound.
+set_sound_loop :: proc(sound: Sound, loop: bool)
 
 // Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. If you need to
 // play a sound multiple times simultaneously, then use `load_audio_buffer_from_file` followed by
@@ -547,7 +551,7 @@ update_audio_stream :: proc(stream: Audio_Stream)
 //
 // Running this this while the stream is already playing will restart it from the beginning. Use
 // `pause_audio_stream` if you just want to pause it.
-play_audio_stream :: proc(stream: Audio_Stream, loop := false)
+play_audio_stream :: proc(stream: Audio_Stream)
 
 // Pause an audio stream. Run `play_audio_stream` to unpause it.
 pause_audio_stream :: proc(stream: Audio_Stream)
@@ -575,6 +579,10 @@ set_audio_stream_pan :: proc(stream: Audio_Stream, pan: f32)
 // You can use this both with a playing and non-playing stream. If its already playing, then this
 // will affect the playing stream.
 set_audio_stream_pitch :: proc(stream: Audio_Stream, pitch: f32)
+
+// Set the audio stream to loop when it reaches the end of the stream. You can set this before
+// playing the stream. You can also modify the loop state of an already playing stream.
+set_audio_stream_loop :: proc(stream: Audio_Stream, loop: bool)
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
@@ -1105,8 +1113,12 @@ Sound_Object :: struct {
 	playing_buffer_handle: Playing_Audio_Buffer_Handle,
 
 	// This exists both here and in the `Playing_Audio_Buffer`. That way we can store settings
-	// even when the sound isn't playing.
+	// even when the sound isn't playing. Set using `set_sound_volume/pan/pitch`.
 	playback_settings: Audio_Buffer_Playback_Settings,
+
+	// If true, then the playing sound will be set up as "looping" when `play_sound` is called. Set
+	// using `set_sound_loop`.
+	loop: bool,
 }
 
 Audio_Stream :: distinct Handle
@@ -1188,12 +1200,14 @@ Audio_Buffer_Playback_Settings :: struct {
 	volume: f32,
 	pan: f32,
 	pitch: f32,
+	loop: bool,
 }
 
 DEFAULT_AUDIO_BUFFER_PLAYBACK_SETTINGS :: Audio_Buffer_Playback_Settings {
 	volume = 1,
 	pan = 0,
 	pitch = 1,
+	loop = false,
 }
 
 PLAYING_AUDIO_BUFFER_NONE :: Playing_Audio_Buffer_Handle {}

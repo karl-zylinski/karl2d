@@ -42,9 +42,11 @@ init :: proc() {
 		} else {
 			music = k2.load_audio_stream_from_file(MUSIC_FILE)
 		}
-		k2.play_audio_stream(music, true)
+		k2.set_audio_stream_loop(music, true)
+		k2.play_audio_stream(music)
 	} else {
-		k2.play_sound(snd, loop = true)
+		k2.set_sound_loop(snd, true)
+		k2.play_sound(snd)
 	}
 }
 
@@ -75,14 +77,6 @@ step :: proc() -> bool {
 
 	if k2.key_went_down(.N3) {
 		k2.play_sound(snd3)
-	}
-
-	if k2.key_went_down(.Z) {
-		k2.stop_sound(wav_1)
-	}
-
-	if k2.key_went_down(.X) {
-		k2.play_sound(wav_1, loop = true)
 	}
 	
 	if k2.key_is_held(.Up) {
