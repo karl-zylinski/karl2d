@@ -41,6 +41,8 @@ Render_Backend_Interface :: struct #all_or_none {
 	destroy_texture: proc(handle: Texture_Handle),
 	texture_needs_vertical_flip: proc(handle: Texture_Handle) -> bool,
 
+	read_texture: proc(handle: Texture_Handle, width: int, height: int, format: Pixel_Format, allocator: runtime.Allocator) -> []u8,
+
 	create_render_texture: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle),
 	destroy_render_target: proc(render_texture: Render_Target_Handle),
 	
