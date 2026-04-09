@@ -24,7 +24,7 @@ import       "log"
 import CA    "platform_bindings/mac/CoreAudio"
 import Audio "platform_bindings/mac/AudioToolbox"
 
-BUFFER_SIZE :: AUDIO_MIX_CHUNK_SIZE * size_of(Audio_Sample)
+BUFFER_SIZE :: AUDIO_MIX_CHUNK_SIZE * size_of([2]Audio_Sample)
 
 Core_Audio_State :: struct {
 	queue:          Audio.QueueRef,
@@ -99,8 +99,8 @@ core_audio_feed :: proc(samples: [][2]Audio_Sample) {
 		buffer := s.buffers[s.buffer]
 		s.buffer = (s.buffer + 1) % len(s.buffers)
 
-		to_write_samples := min(int(buffer.mAudioDataBytesCapacity / size_of(Audio_Sample)), len(remaining))
-		to_write_bytes   := to_write_samples * size_of(Audio_Sample)
+		to_write_samples := min(int(buffer.mAudioDataBytesCapacity / size_of([2]Audio_Sample)), len(remaining))
+		to_write_bytes   := to_write_samples * size_of([2]Audio_Sample)
 		intrinsics.mem_copy_non_overlapping(buffer.mAudioData, raw_data(remaining), to_write_bytes)
 		buffer.mAudioDataByteSize = u32(to_write_bytes)
 		remaining = remaining[to_write_samples:]
