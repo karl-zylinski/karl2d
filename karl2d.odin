@@ -1277,36 +1277,36 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
-// Play a sound previous created using `load_sound_from_file` or `load_sound_from_bytes` or
-// `create_sound_instance`. The sound will be mixed when `update_audio_mixer` runs, which
-// happens as part of `update`.
-play_sound :: proc(snd: Sound, loop := false) {
-	sound := hm.get(&s.sounds, snd)
+// Play a sound previous created using `load_sound_from_xxx` or `create_sound_from_audio_buffer`.
+// The sound will be mixed when `update_audio_mixer` runs, which happens as part of `update`.
+play_sound :: proc(sound: Sound, loop := false) {
+	sound_object := hm.get(&s.sounds, sound)
 
-	if sound == nil {
+	if sound_object == nil {
 		log.error("Cannot play sound, sound does not exist.")
 		return
 	}
 
-	if existing := hm.get(&s.playing_audio_buffers, sound.playing_buffer_handle); existing != nil {
-		hm.remove(&s.playing_audio_buffers, sound.playing_buffer_handle)
+	if existing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); existing != nil {
+		hm.remove(&s.playing_audio_buffers, sound_object.playing_buffer_handle)
 	}
 
 	playing_audio_buffer := Playing_Audio_Buffer {
-		audio_buffer = sound.audio_buffer,
-		target_settings = sound.playback_settings,
-		current_settings = sound.playback_settings,
+		audio_buffer = sound_object.audio_buffer,
+		target_settings = sound_object.playback_settings,
+		current_settings = sound_object.playback_settings,
 		loop = loop,
 	}
 
 	add_err: runtime.Allocator_Error
-	sound.playing_buffer_handle, add_err = hm.add(&s.playing_audio_buffers, playing_audio_buffer)
+	sound_object.playing_buffer_handle, add_err = hm.add(&s.playing_audio_buffers, playing_audio_buffer)
 
 	if add_err != nil {
 		log.errorf("Failed to play sound. Error: %v", add_err)
 	}
 }
 
+// Stop a sound. Rewinds it to the start.
 stop_sound :: proc(sound: Sound) {
 	sound_object := hm.get(&s.sounds, sound)
 
@@ -1322,74 +1322,75 @@ stop_sound :: proc(sound: Sound) {
 	sound_object.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
 }
 
-sound_is_playing :: proc(snd: Sound) -> bool {
-	sound := hm.get(&s.sounds, snd)
+// Returns true if the sound is currently playing.
+sound_is_playing :: proc(sound: Sound) -> bool {
+	sound_object := hm.get(&s.sounds, sound)
 
-	if sound == nil {
+	if sound_object == nil {
 		return false
 	}
 
-	return hm.is_valid(&s.playing_audio_buffers, sound.playing_buffer_handle)
+	return hm.is_valid(&s.playing_audio_buffers, sound_object.playing_buffer_handle)
 }
 
 // Set the volume of a sound. Range: 0 to 1, where 0 is silence and 1 is the original volume of the
 // sound. The volume change will only affect this instance of the sound. Use `create_sound_instance`
 // to create more instances without duplicating data.
-set_sound_volume :: proc(snd: Sound, volume: f32) {
-	d := hm.get(&s.sounds, snd)
+set_sound_volume :: proc(sound: Sound, volume: f32) {
+	sound_object := hm.get(&s.sounds, sound)
 	
-	if d == nil {
+	if sound_object == nil {
 		log.error("Cannot set volume, sound does not exist.")
 		return
 	}
 
 	clamped_volume := clamp(volume, 0, 1)
 
-	if playing := hm.get(&s.playing_audio_buffers, d.playing_buffer_handle); playing != nil {
+	if playing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); playing != nil {
 		playing.target_settings.volume = clamped_volume
 	}
 	
-	d.playback_settings.volume = clamped_volume
+	sound_object.playback_settings.volume = clamped_volume
 }
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
 // The pan change will only affect this instance of the sound. Use `create_sound_instance` to create
 // more instances without duplicating data.
-set_sound_pan :: proc(snd: Sound, pan: f32) {
-	d := hm.get(&s.sounds, snd)
+set_sound_pan :: proc(sound: Sound, pan: f32) {
+	sound_object := hm.get(&s.sounds, sound)
 	
-	if d == nil {
+	if sound_object == nil {
 		log.error("Cannot set pan, sound does not exist.")
 		return
 	}
 
 	clamped_pan := clamp(pan, -1, 1)
 
-	if playing := hm.get(&s.playing_audio_buffers, d.playing_buffer_handle); playing != nil {
+	if playing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); playing != nil {
 		playing.target_settings.pan = clamped_pan
 	}
 
-	d.playback_settings.pan = clamped_pan
+	sound_object.playback_settings.pan = clamped_pan
 }
 
 // Set the pitch of a sound. Range: 0.01 to infinity, where 0.01 is the lowest pitch and higher
 // values increase the pitch. The pitch change will only affect this instance of the sound. Use
 // `create_sound_instance` to create more instances without duplicating data.
-set_sound_pitch :: proc(snd: Sound, pitch: f32) {
-	d := hm.get(&s.sounds, snd)
+set_sound_pitch :: proc(sound: Sound, pitch: f32) {
+	sound_object := hm.get(&s.sounds, sound)
 	
-	if d == nil {
+	if sound_object == nil {
 		log.error("Cannot set pitch, sound does not exist.")
 		return
 	}
 
 	capped_pitch := max(pitch, 0.01)
 
-	if playing := hm.get(&s.playing_audio_buffers, d.playing_buffer_handle); playing != nil {
+	if playing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); playing != nil {
 		playing.target_settings.pitch = capped_pitch
 	}
 	
-	d.playback_settings.pitch = capped_pitch
+	sound_object.playback_settings.pitch = capped_pitch
 }
 
 // Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. If you need to
@@ -1397,7 +1398,7 @@ set_sound_pitch :: proc(snd: Sound, pitch: f32) {
 // one or more calls to `create_sound_from_audio_buffer`.
 //
 // Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
-// will also destroy the audio buffer.
+// will also destroy the audio buffer. 
 //
 // Currently only supports 16 bit WAV files.
 load_sound_from_file :: proc(filename: string) -> Sound {
@@ -1448,6 +1449,9 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 // Load a sound from some raw audio data. You need to specify the data, format and sample rate of
 // the audio data yourself. This assumes that there is no header in the data. If your data has a
 // header (you read the data from a file on disk), then please use `load_sound_from_bytes` instead.
+//
+// The returned Sound owns its internal Audio_Buffer: Calling `destroy_sound` with it will destroy
+// the audio buffer.
 load_sound_from_bytes_raw :: proc(
 	bytes: []u8,
 	format: Raw_Sound_Format,
@@ -1724,20 +1728,20 @@ load_audio_buffer_from_bytes_raw :: proc(
 		samples = slice.clone(slice.reinterpret([]Audio_Sample, bytes), s.allocator)
 	}
 
-	buffer := Audio_Buffer_Object {
+	buffer_object := Audio_Buffer_Object {
 		sample_rate = sample_rate,
 		samples = samples,
 		channels = channels,
 	}
 
-	buffer_handle, buffer_handle_add_err := hm.add(&s.audio_buffers, buffer)
+	buffer, buffer_add_error := hm.add(&s.audio_buffers, buffer_object)
 
-	if buffer_handle_add_err != nil {
-		log.errorf("Failed to load sound. Error: %v", buffer_handle_add_err)
+	if buffer_add_error != nil {
+		log.errorf("Failed to load sound. Error: %v", buffer_add_error)
 		return AUDIO_BUFFER_NONE
 	}
 
-	return buffer_handle
+	return buffer
 }
 
 // Creates a sound that can be used to play the contents of an `Audio_Buffer`. This can be used to
@@ -1777,25 +1781,23 @@ create_sound_from_audio_buffer :: proc(buffer: Audio_Buffer) -> Sound {
 // If the sound was created using `create_sound_from_audio_buffer`, then this procedure will not
 // destroy the audio buffer. If the sound was created using `load_sound_from_file` or
 // `load_sound_from_bytes`, then this procedure WILL destroy the audio buffer.
-destroy_sound :: proc(snd: Sound) {
-	inst := hm.get(&s.sounds, snd)
+destroy_sound :: proc(sound: Sound) {
+	sound_object := hm.get(&s.sounds, sound)
 
-	if inst == nil {
+	if sound_object == nil {
 		log.error("Trying to destroy invalid sound. It may already be destroyed, or the handle may be invalid.")
 		return
 	}
 
-	if playing := hm.get(&s.playing_audio_buffers, inst.playing_buffer_handle); playing != nil {
-		hm.remove(&s.playing_audio_buffers, inst.playing_buffer_handle)
+	if playing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); playing != nil {
+		hm.remove(&s.playing_audio_buffers, sound_object.playing_buffer_handle)
 	}
 	
-	inst.playing_buffer_handle = PLAYING_AUDIO_BUFFER_NONE
-
-	if inst.owns_audio_buffer {
-		destroy_audio_buffer(inst.audio_buffer)
+	if sound_object.owns_audio_buffer {
+		destroy_audio_buffer(sound_object.audio_buffer)
 	}
 
-	hm.remove(&s.sounds, snd)
+	hm.remove(&s.sounds, sound)
 }
 
 // Destroy an audio buffer previously loaded using `load_audio_buffer_from_xxx`. Before destroying

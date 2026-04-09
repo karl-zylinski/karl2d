@@ -387,36 +387,37 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
-// Play a sound previous created using `load_sound_from_file` or `load_sound_from_bytes` or
-// `create_sound_instance`. The sound will be mixed when `update_audio_mixer` runs, which
-// happens as part of `update`.
-play_sound :: proc(snd: Sound, loop := false)
+// Play a sound previous created using `load_sound_from_xxx` or `create_sound_from_audio_buffer`.
+// The sound will be mixed when `update_audio_mixer` runs, which happens as part of `update`.
+play_sound :: proc(sound: Sound, loop := false)
 
+// Stop a sound. Rewinds it to the start.
 stop_sound :: proc(sound: Sound)
 
-sound_is_playing :: proc(snd: Sound) -> bool
+// Returns true if the sound is currently playing.
+sound_is_playing :: proc(sound: Sound) -> bool
 
 // Set the volume of a sound. Range: 0 to 1, where 0 is silence and 1 is the original volume of the
 // sound. The volume change will only affect this instance of the sound. Use `create_sound_instance`
 // to create more instances without duplicating data.
-set_sound_volume :: proc(snd: Sound, volume: f32)
+set_sound_volume :: proc(sound: Sound, volume: f32)
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
 // The pan change will only affect this instance of the sound. Use `create_sound_instance` to create
 // more instances without duplicating data.
-set_sound_pan :: proc(snd: Sound, pan: f32)
+set_sound_pan :: proc(sound: Sound, pan: f32)
 
 // Set the pitch of a sound. Range: 0.01 to infinity, where 0.01 is the lowest pitch and higher
 // values increase the pitch. The pitch change will only affect this instance of the sound. Use
 // `create_sound_instance` to create more instances without duplicating data.
-set_sound_pitch :: proc(snd: Sound, pitch: f32)
+set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
 // Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. If you need to
 // play a sound multiple times simultaneously, then use `load_audio_buffer_from_file` followed by
 // one or more calls to `create_sound_from_audio_buffer`.
 //
 // Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
-// will also destroy the audio buffer.
+// will also destroy the audio buffer. 
 //
 // Currently only supports 16 bit WAV files.
 load_sound_from_file :: proc(filename: string) -> Sound
@@ -437,6 +438,9 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound
 // Load a sound from some raw audio data. You need to specify the data, format and sample rate of
 // the audio data yourself. This assumes that there is no header in the data. If your data has a
 // header (you read the data from a file on disk), then please use `load_sound_from_bytes` instead.
+//
+// The returned Sound owns its internal Audio_Buffer: Calling `destroy_sound` with it will destroy
+// the audio buffer.
 load_sound_from_bytes_raw :: proc(
 	bytes: []u8,
 	format: Raw_Sound_Format,
@@ -485,7 +489,7 @@ create_sound_from_audio_buffer :: proc(buffer: Audio_Buffer) -> Sound
 // If the sound was created using `create_sound_from_audio_buffer`, then this procedure will not
 // destroy the audio buffer. If the sound was created using `load_sound_from_file` or
 // `load_sound_from_bytes`, then this procedure WILL destroy the audio buffer.
-destroy_sound :: proc(snd: Sound)
+destroy_sound :: proc(sound: Sound)
 
 // Destroy an audio buffer previously loaded using `load_audio_buffer_from_xxx`. Before destroying
 // this audio buffer, make sure it is not in use by any playing sounds. Destroy the sounds that
