@@ -166,7 +166,12 @@ step :: proc() -> bool {
 	k2.draw_text("use arrow keys or the left mouse button to pan", text_pos, font_size, text_color)
 	text_pos.y -= font_size
 
-	k2.draw_text("gamepad: left stick pan, right stick rotate, triggers zoom, A reset", text_pos, font_size, text_color)
+	k2.draw_text(
+		"gamepad: left stick pan, right stick rotate, triggers zoom, A reset",
+		text_pos,
+		font_size,
+		text_color,
+	)
 	text_pos.y -= font_size
 
 	// SHOW WHAT WE DREW TO PLAYER
