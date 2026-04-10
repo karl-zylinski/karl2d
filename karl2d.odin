@@ -601,8 +601,6 @@ get_mouse_position :: proc() -> Vec2 {
 	return s.mouse_position
 }
 
-get_mouse_pos :: get_mouse_position
-
 // Returns how many pixels the mouse moved between the previous and the current frame.
 get_mouse_delta :: proc() -> Vec2 {
 	return s.mouse_delta
@@ -3360,6 +3358,21 @@ get_fullscreen_rect :: proc() -> Rect {
 		w = f32(pf.get_screen_width()),
 		h = f32(pf.get_screen_height()),
 	}
+}
+
+get_fullscreen_camera_rect :: proc(camera: Camera) -> Rect {
+	pos := screen_to_world({0, 0}, camera)
+
+	size := Vec2 {
+		f32(pf.get_screen_width()),
+		f32(pf.get_screen_height()),
+	}
+
+	if abs(camera.zoom) > 0.0001 {
+		size /= camera.zoom
+	}
+	
+	return rect_from_pos_size(pos, size)
 }
 
 //------//
