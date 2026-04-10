@@ -77,7 +77,7 @@ main :: proc() {
 `				{{
 					"name": "%s",
 					"working_dir": "$project_path/../%s",
-					"cmd": "odin run . -debug -vet -strict-style -vet-tabs",
+					"shell_cmd": "odin run . -debug -vet -strict-style -vet-tabs",
 				}},
 `
 		variant := fmt.tprintf(DEFAULT_VARIANT_TEMPLATE, name, src_path)
@@ -91,7 +91,7 @@ main :: proc() {
 `				{{
 					"name": "%s (gl)",
 					"working_dir": "$project_path/../%s",
-					"cmd": "odin run . -debug -vet -strict-style -vet-tabs -define:KARL2D_RENDER_BACKEND=gl",
+					"shell_cmd": "odin run . -debug -vet -strict-style -vet-tabs -define:KARL2D_RENDER_BACKEND=gl",
 				}},
 `
 		gl_variant := fmt.tprintf(GL_VARIANT_TEMPLATE, name, src_path)
@@ -100,7 +100,7 @@ main :: proc() {
 		WEB_VARIANT_TEMPLATE ::
 `				{{
 					"name": "%s (web)",
-					"cmd": "odin run build_web -debug -vet -strict-style -vet-tabs -- %s -vet -strict-style -vet-tabs",
+					"shell_cmd": "odin run build_web -debug -vet -strict-style -vet-tabs -- %s -vet -strict-style -vet-tabs",
 				}},
 `
 		web_variant := fmt.tprintf(WEB_VARIANT_TEMPLATE, name, src_path)
