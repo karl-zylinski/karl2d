@@ -36,6 +36,19 @@ step :: proc() -> bool {
 	if k2.key_is_held(.Down)  { camera_target_movement.y += camera_key_move_delta }
 	if k2.key_is_held(.Up) 	  { camera_target_movement.y -= camera_key_move_delta }
 
+	GAMEPAD_DEADZONE :: 0.2
+	if k2.is_gamepad_active(0) {
+		left_stick := Vec2 {
+			k2.get_gamepad_axis(0, .Left_Stick_X),
+			k2.get_gamepad_axis(0, .Left_Stick_Y),
+		}
+
+		if abs(left_stick.x) < GAMEPAD_DEADZONE { left_stick.x = 0 }
+		if abs(left_stick.y) < GAMEPAD_DEADZONE { left_stick.y = 0 }
+
+		camera_target_movement += left_stick * camera_key_move_delta
+	}
+
 	// Multiplying camera movement with rotation matrix makes it move like the player expects,
 	// relative to the axes of the window, not the axes of the camera.
 	rotation_matrix := linalg.matrix2_rotate(-camera.rotation)
@@ -49,12 +62,19 @@ step :: proc() -> bool {
 	// CAMERA RESET
 
 	if k2.key_went_down(.R) { camera = { zoom = 1 } }
+	if k2.gamepad_button_went_down(0, .Right_Face_Down) { camera = { zoom = 1 } }
 
 	// CAMERA ZOOM
 
 	mouse_wheel_delta := k2.get_mouse_wheel_delta()
 	if mouse_wheel_delta > 0 || k2.key_went_down(.NP_Add) { camera.zoom += .3 }
 	if mouse_wheel_delta < 0 || k2.key_went_down(.NP_Subtract) { camera.zoom -= .3 }
+
+	if k2.is_gamepad_active(0) {
+		left_trigger := k2.get_gamepad_axis(0, .Left_Trigger)
+		right_trigger := k2.get_gamepad_axis(0, .Right_Trigger)
+		camera.zoom += (right_trigger - left_trigger) * 2.0 * frame_time
+	}
 
 	camera.zoom = clamp(camera.zoom, 1, 4)
 	camera.offset = screen_size / 2
@@ -65,6 +85,12 @@ step :: proc() -> bool {
 	camera_key_rotation_delta := CAMERA_KEY_ROTATION_SPEED*frame_time
 	if k2.key_is_held(.Z) { camera.rotation += camera_key_rotation_delta }
 	if k2.key_is_held(.X) { camera.rotation -= camera_key_rotation_delta }
+
+	if k2.is_gamepad_active(0) {
+		right_stick_x := k2.get_gamepad_axis(0, .Right_Stick_X)
+		if abs(right_stick_x) < GAMEPAD_DEADZONE { right_stick_x = 0 }
+		camera.rotation -= right_stick_x * 1.5 * frame_time
+	}
 
 	// DRAW WORLD
 
@@ -138,6 +164,9 @@ step :: proc() -> bool {
 	text_pos.y -= font_size
 
 	k2.draw_text("use arrow keys or the left mouse button to pan", text_pos, font_size, text_color)
+	text_pos.y -= font_size
+
+	k2.draw_text("gamepad: left stick pan, right stick rotate, triggers zoom, A reset", text_pos, font_size, text_color)
 	text_pos.y -= font_size
 
 	// SHOW WHAT WE DREW TO PLAYER
