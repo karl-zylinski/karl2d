@@ -226,8 +226,6 @@ get_mouse_wheel_delta :: proc() -> f32
 // Returns the mouse position, measured from the top-left corner of the window.
 get_mouse_position :: proc() -> Vec2
 
-get_mouse_pos :: get_mouse_position
-
 // Returns how many pixels the mouse moved between the previous and the current frame.
 get_mouse_delta :: proc() -> Vec2
 
@@ -808,6 +806,9 @@ set_scissor_rect :: proc(scissor_rect: Maybe(Rect))
 // library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State)
 
+// Open a URL in the default web browser, if possible.
+open_url :: proc(url: string)
+
 //---------------------//
 // TYPES AND CONSTANTS //
 //---------------------//
@@ -832,7 +833,8 @@ Color :: [4]u8
 BLACK        :: Color { 0, 0, 0, 255 }
 WHITE        :: Color { 255, 255, 255, 255 }
 BLANK        :: Color { 0, 0, 0, 0 }
-GRAY         :: Color { 183, 183, 183, 255 }
+LIGHT_GRAY   :: Color { 183, 183, 183, 255 }
+GRAY         :: Color { 100, 100, 100, 255}
 DARK_GRAY    :: Color { 66, 66, 66, 255}
 BLUE         :: Color { 25, 198, 236, 255 }
 DARK_BLUE    :: Color { 7, 47, 88, 255 }
