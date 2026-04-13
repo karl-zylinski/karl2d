@@ -21,6 +21,8 @@ PLATFORM_WEB :: Platform_Interface {
 	get_gamepad_axis = web_get_gamepad_axis,
 	set_gamepad_vibration = web_set_gamepad_vibration,
 
+	open_url = web_open_url,
+
 	set_internal_state = web_set_internal_state,
 }
 
@@ -336,6 +338,10 @@ web_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return
 	}
+}
+
+web_open_url :: proc(url: string) {
+	js.open(url)
 }
 
 web_set_internal_state :: proc(state: rawptr) {
