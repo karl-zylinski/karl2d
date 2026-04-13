@@ -3360,21 +3360,6 @@ get_fullscreen_rect :: proc() -> Rect {
 	}
 }
 
-get_fullscreen_camera_rect :: proc(camera: Camera) -> Rect {
-	pos := screen_to_world({0, 0}, camera)
-
-	size := Vec2 {
-		f32(pf.get_screen_width()),
-		f32(pf.get_screen_height()),
-	}
-
-	if abs(camera.zoom) > 0.0001 {
-		size /= camera.zoom
-	}
-	
-	return rect_from_pos_size(pos, size)
-}
-
 //------//
 // MISC //
 //------//
@@ -3440,7 +3425,8 @@ Color :: [4]u8
 BLACK        :: Color { 0, 0, 0, 255 }
 WHITE        :: Color { 255, 255, 255, 255 }
 BLANK        :: Color { 0, 0, 0, 0 }
-GRAY         :: Color { 183, 183, 183, 255 } 
+LIGHT_GRAY   :: Color { 183, 183, 183, 255 } 
+GRAY         :: Color { 100, 100, 100, 255} 
 DARK_GRAY    :: Color { 66, 66, 66, 255} 
 BLUE         :: Color { 25, 198, 236, 255 }
 DARK_BLUE    :: Color { 7, 47, 88, 255 }

@@ -159,18 +159,13 @@ step :: proc() -> bool {
 
 	k2.draw_rect(hovered_grid_rect, {255, 255, 255, 128})
 
-	// Camera with same zoom as game but without translation: Used for UI.
-	ui_camera := k2.Camera {
-		zoom = f32(k2.get_screen_height())/(WORLD_WIDTH*TILE_SIZE+UI_HEIGHT),
-	}
-
-	k2.set_camera(ui_camera)
-	fullscreen_rect := k2.get_fullscreen_camera_rect(ui_camera)
-	ui_bg := k2.rect_cut_bottom(&fullscreen_rect, UI_HEIGHT, 0)
+	k2.set_camera(nil)
+	fullscreen_rect := k2.get_fullscreen_rect()
+	ui_bg := k2.rect_cut_bottom(&fullscreen_rect, UI_HEIGHT * camera.zoom, 0)
 	k2.draw_rect(ui_bg, k2.DARK_GRAY)
-	ui_text_area := k2.rect_shrink(ui_bg, 2, 2)
+	ui_text_area := k2.rect_shrink(ui_bg, 2*camera.zoom, 2*camera.zoom)
 
-	if ui_button(k2.rect_cut_right(&ui_text_area, 100, 0), "Source code") {
+	if ui_button(k2.rect_cut_right(&ui_text_area, ui_button_width("Source Code", ui_text_area.h) + 50, 0), "Source Code") {
 		k2.open_url("https://github.com/karl-zylinski/karl2d/examples/dual_grid_tilemap/dual_grid_tilemap.odin")
 	}
 
@@ -181,42 +176,8 @@ step :: proc() -> bool {
 	return true
 }
 
-calc_ui_scale :: proc() -> f32 {
-	return f32(k2.get_screen_height())/(WORLD_WIDTH*TILE_SIZE+UI_HEIGHT)
-}
-
-calc_ui_mouse_position :: proc() -> k2.Vec2 {
-	scale := calc_ui_scale()
-	mp := k2.get_mouse_position()
-	return abs(scale) > 0.0001 ? mp / scale : mp
-}
-
-ui_button :: proc(r: k2.Rect, text: string) -> bool {
-	in_rect := k2.point_in_rect(calc_ui_mouse_position(), r)
-	bg_color := k2.DARK_GRAY
-
-	if in_rect {
-		bg_color = k2.BLACK
-
-		if k2.mouse_button_is_held(.Left) {
-			bg_color = k2.DARK_GREEN
-		}
-	}
-	
-	k2.draw_rect(r, bg_color)
-	k2.draw_rect_outline(r, 1, k2.WHITE)
-
-	text_width := k2.measure_text(text, r.h).x
-	k2.draw_text(text, {r.x + r.w/2 - text_width/2, r.y}, r.h, k2.WHITE)
-
-	if in_rect && k2.mouse_button_went_down(.Left) {
-		return true
-	}
-
-	return false
-}
-
 shutdown :: proc() {
+	k2.destroy_texture(tileset_path_texture)
 	k2.shutdown()
 }
 
@@ -225,4 +186,37 @@ main :: proc() {
 	init()
 	for step() {}
 	shutdown()
+}
+
+// --------------------------
+// These UI things are experiments that may get moved to some official KarlUI package
+//
+
+ui_button_width :: proc(text: string, button_height: f32) -> f32 {
+	return k2.measure_text(text, button_height).x
+}
+
+ui_button :: proc(r: k2.Rect, text: string) -> bool {
+	in_rect := k2.point_in_rect(k2.get_mouse_position(), r)
+	bg_color := k2.DARK_GRAY
+	border_color := k2.WHITE
+	text_color := k2.WHITE
+	res := false
+
+	if in_rect {
+		bg_color = k2.GRAY
+		text_color = k2.WHITE
+
+		if k2.mouse_button_went_down(.Left) {
+			res = true
+			bg_color = k2.BLACK
+		}
+	}
+	
+	k2.draw_rect(r, bg_color)
+	k2.draw_rect_outline(r, 2, border_color)
+
+	text_width := k2.measure_text(text, r.h).x
+	k2.draw_text(text, {r.x + r.w/2 - text_width/2, r.y}, r.h, k2.WHITE)
+	return res
 }
