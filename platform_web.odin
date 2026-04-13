@@ -1,4 +1,5 @@
 #+build js
+#+vet explicit-allocators
 #+feature dynamic-literals
 #+private file
 
