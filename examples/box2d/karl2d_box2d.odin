@@ -7,6 +7,7 @@ package karl2d_box2d_example
 import b2 "vendor:box2d"
 import k2 "../.."
 import "core:math"
+#assert(k2.Y_UP, "This example assumes Y up. Compile it with -define:KARL2D_Y_UP=true")
 
 world_id: b2.WorldId
 time_acc: f32
@@ -14,7 +15,7 @@ circle_body_id: b2.BodyId
 bodies: [dynamic]b2.BodyId
 
 GROUND :: k2.Rect {
-	0, 600,
+	0, 0,
 	1280, 120,
 }
 
@@ -33,7 +34,7 @@ init :: proc() {
 	world_id = b2.CreateWorld(world_def)
 	
 	ground_body_def := b2.DefaultBodyDef()
-	ground_body_def.position = b2.Vec2{GROUND.x, -GROUND.y-GROUND.h}
+	ground_body_def.position = b2.Vec2{GROUND.x, GROUND.y}
 	ground_body_id := b2.CreateBody(world_id, ground_body_def)
 
 	ground_box := b2.MakeBox(GROUND.w, GROUND.h)
@@ -41,7 +42,7 @@ init :: proc() {
 	_ = b2.CreatePolygonShape(ground_body_id, ground_shape_def, ground_box)
 
 	px: f32 = 400
-	py: f32 = -400
+	py: f32 = 400
 
 	num_per_row := 10
 	num_in_row := 0
@@ -106,7 +107,7 @@ step :: proc() -> bool {
 
 	pos := k2.get_mouse_position()
 
-	b2.Body_SetTransform(circle_body_id, {pos.x, -pos.y}, {})
+	b2.Body_SetTransform(circle_body_id, {pos.x, pos.y}, {})
 
 	SUB_STEPS :: 4
 	TIME_STEP :: 1.0 / 60
@@ -121,7 +122,7 @@ step :: proc() -> bool {
 		r := b2.Body_GetRotation(b)
 		rot := math.atan2(r.s, r.c)
 		// Y position is flipped because raylib has Y down and box2d has Y up.
-		k2.draw_rect_ex({position.x, -position.y, 40, 40}, {20, 20}, rot, k2.BROWN)
+		k2.draw_rect_ex({position.x, position.y, 40, 40}, {20, 20}, rot, k2.BROWN)
 	}
 
 	k2.draw_circle(pos, 40, k2.RED)
