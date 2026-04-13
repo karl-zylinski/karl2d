@@ -1,3 +1,4 @@
+#+vet explicit-allocators
 #+build windows
 #+private file
 
@@ -21,10 +22,13 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	get_gamepad_axis = windows_get_gamepad_axis,
 	set_gamepad_vibration = windows_set_gamepad_vibration,
 
+	open_url = windows_open_url,
+
 	set_internal_state = windows_set_internal_state,
 }
 
 import win32 "core:sys/windows"
+import "core:fmt"
 import "base:runtime"
 @require import "log"
 
@@ -81,7 +85,7 @@ windows_init :: proc(
 	// `windows_set_window_mode`.
 	s.hwnd = win32.CreateWindowW(
 		CLASS_NAME,
-		win32.utf8_to_wstring(window_title),
+		win32.utf8_to_wstring(window_title, frame_allocator),
 		win32.WS_VISIBLE,
 		win32.CW_USEDEFAULT, win32.CW_USEDEFAULT,
 		i32(initial_rect.right - initial_rect.left),
@@ -306,6 +310,17 @@ windows_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	}
 
 	return 0
+}
+
+windows_open_url :: proc(url: string) {
+	cmd_str := fmt.aprintf(
+		"url.dll,FileProtocolHandler %s",
+		url,
+		allocator = frame_allocator,
+	)
+
+	cmd := win32.utf8_to_wstring(cmd_str, frame_allocator)
+	win32.ShellExecuteW(s.hwnd, "open", "rundll32", cmd, nil, win32.SW_NORMAL)
 }
 
 windows_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {

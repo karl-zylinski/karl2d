@@ -3410,6 +3410,11 @@ set_internal_state :: proc(state: ^State) {
 	ab.set_internal_state(s.audio_backend_state)
 }
 
+// Open a URL in the default web browser, if possible.
+open_url :: proc(url: string) {
+	pf.open_url(url)
+}
+
 //---------------------//
 // TYPES AND CONSTANTS //
 //---------------------//
