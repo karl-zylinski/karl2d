@@ -89,6 +89,13 @@ Launch your game by opening `bin/web/index.html` in a browser.
 >[!WARNING]
 >If you open the `index.html` file and see nothing, then there might be an error about "cross site policy" stuff in the browser's console. In that case you can use python to run a local web-server and access the web build through it. Run `python -m http.server` in the `bin/web` folder and then navigate to `https://localhost:8000`.
 
+## Linux Dependencies
+
+While Karl2D avoids big dependencies that add abstractions between the library and the OS, it still requires the installation of some dependencies on Linux.
+
+- Linux: `libasound2-dev libgl1-mesa-dev libudev-dev libwayland-dev libegl1-mesa-dev` (names may vary per distribution)
+- Web build on Linux: `lld`
+
 ## Architecture notes
 
 The platform-independent parts and the API lives in `karl2d.odin`.
@@ -102,12 +109,6 @@ The rendering backend tells Karl2D how to talk to the GPU. I currently support t
 The platform independent code in `karl2d.odin` creates a list of vertices for each batch it needs to render. That's done independently of the rendering backend. The backend is just fed that list, along with information about what shader and such to use.
 
 The web builds do not need emscripten, instead I've written a WebGL backend and make use of the official Odin JS runtime. This makes building for the web easier and less error-prone.
-
-## Troubleshooting
-
-### Linux build error: libudev is missing
-
-Try installing a package such as `systemd-devel` or `systemd-dev`.
 
 ## Contributing and Pull Request rules
 
