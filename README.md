@@ -96,6 +96,8 @@ While Karl2D avoids big dependencies that add abstractions between the library a
 - Linux: `libasound2-dev libgl1-mesa-dev libudev-dev libwayland-dev libegl1-mesa-dev` (names may vary per distribution)
 - Web build on Linux: `lld`
 
+This may sound like there are lots of dependencies -- But in reality it just means that this library talks directly to low-level libraries. If you use something like GLFW then GLFW in turn talks to these kinds of libraries. However, then you must hop into a C library in the debugger when you want to see those calls. This means that you can go deeper in the callstack using Karl2D without leaving the Odin code.
+
 ## Architecture notes
 
 The platform-independent parts and the API lives in `karl2d.odin`.
