@@ -7,6 +7,7 @@ package karl2d
 import NS "core:sys/darwin/Foundation"
 import ce "platform_bindings/mac/cocoa_extras"
 import gc "platform_bindings/mac/gamecontroller"
+import "core:os"
 import "base:runtime"
 
 @(private="package")
@@ -26,6 +27,7 @@ PLATFORM_MAC :: Platform_Interface {
 	is_gamepad_active = mac_is_gamepad_active,
 	get_gamepad_axis = mac_get_gamepad_axis,
 	set_gamepad_vibration = mac_set_gamepad_vibration,
+	open_url = mac_open_url,
 
 	set_internal_state = mac_set_internal_state,
 }
@@ -418,6 +420,17 @@ mac_set_gamepad_vibration :: proc(gamepad_index: int, left: f32, right: f32) {
 		create_haptic_player(0, left, gamepad)
 		create_haptic_player(1, right, gamepad)
 	}
+}
+
+mac_open_url :: proc(url: string) {
+	_, _ = os.process_start(
+		{
+			command = {
+				"open",
+				url,
+			},
+		},
+	)
 }
 
 mac_set_internal_state :: proc(state: rawptr) {
