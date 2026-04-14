@@ -9,6 +9,7 @@ import ce "platform_bindings/mac/cocoa_extras"
 import gc "platform_bindings/mac/gamecontroller"
 import "core:os"
 import "base:runtime"
+import "core:time"
 
 @(private="package")
 PLATFORM_MAC :: Platform_Interface {
@@ -422,8 +423,8 @@ mac_set_gamepad_vibration :: proc(gamepad_index: int, left: f32, right: f32) {
 	}
 }
 
-mac_open_url :: proc(url: string) {
-	_, _ = os.process_start(
+mac_open_url :: proc(url: string) -> bool {
+	process, process_err := os.process_start(
 		{
 			command = {
 				"open",
@@ -431,6 +432,19 @@ mac_open_url :: proc(url: string) {
 			},
 		},
 	)
+
+	if process_err != nil {
+		return false
+	}
+
+	process_state, _ := os.process_wait(process, 1 * time.Second)
+
+	if !process_state.exited {
+		_ = os.process_terminate(process)
+		return false
+	}
+
+	return process_state.exit_code == 0
 }
 
 mac_set_internal_state :: proc(state: rawptr) {
