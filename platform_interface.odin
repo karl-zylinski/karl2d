@@ -28,7 +28,7 @@ Platform_Interface :: struct #all_or_none {
 	get_gamepad_axis: proc(gamepad: int, axis: Gamepad_Axis) -> f32,
 	set_gamepad_vibration: proc(gamepad: int, left: f32, right: f32),
 
-	open_url: proc(url: string),
+	open_url: proc(url: string) -> bool,
 
 	set_internal_state: proc(state: rawptr),
 }

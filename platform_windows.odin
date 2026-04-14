@@ -28,7 +28,6 @@ PLATFORM_WINDOWS :: Platform_Interface {
 }
 
 import win32 "core:sys/windows"
-import "core:fmt"
 import "base:runtime"
 @require import "log"
 
@@ -312,15 +311,13 @@ windows_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	return 0
 }
 
-windows_open_url :: proc(url: string) {
-	cmd_str := fmt.aprintf(
-		"url.dll,FileProtocolHandler %s",
-		url,
-		allocator = frame_allocator,
-	)
+windows_open_url :: proc(url: string) -> bool {
+	cmd := win32.utf8_to_wstring(url, frame_allocator)
+	res := win32.ShellExecuteW(s.hwnd, "open", cmd, nil, nil, win32.SW_NORMAL)
 
-	cmd := win32.utf8_to_wstring(cmd_str, frame_allocator)
-	win32.ShellExecuteW(s.hwnd, "open", "rundll32", cmd, nil, win32.SW_NORMAL)
+	// https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecutew#return-value:
+	// If the function succeeds, it returns a value greater than 32.
+	return uintptr(res) > 32
 }
 
 windows_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {

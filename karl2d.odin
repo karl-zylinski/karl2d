@@ -3395,9 +3395,44 @@ set_internal_state :: proc(state: ^State) {
 	ab.set_internal_state(s.audio_backend_state)
 }
 
+Open_URL_Error :: enum {
+	None,
+
+	// The URL does not start with https://, http:// or file:///, or contains a space
+	Invalid_URL,
+
+	// Platform-specific failure: Perhaps the OS-specific utility that opens URLs failed.
+	Failed_To_Open,
+}
+
 // Open a URL in the default web browser, if possible.
-open_url :: proc(url: string) {
-	pf.open_url(url)
+//
+// Requirements:
+// - The URL must start with https://, http:// or file:///
+// - The URL may not contain spaces
+//
+// Returns Open_URL_Error.None if the call was succesful.
+open_url :: proc(url: string) -> Open_URL_Error {
+	if (
+		!strings.has_prefix(url, "https://") &&
+		!strings.has_prefix(url, "http://") &&
+		!strings.has_prefix(url, "file:///")
+	) {
+		return .Invalid_URL
+	}
+
+	// Shouldn't contain spaces in the middle.
+	if strings.contains_space(strings.trim_space(url)) {
+		return .Invalid_URL
+	}
+
+	platform_call_ok := pf.open_url(url)
+
+	if !platform_call_ok {
+		return .Failed_To_Open
+	}
+
+	return .None
 }
 
 //---------------------//
