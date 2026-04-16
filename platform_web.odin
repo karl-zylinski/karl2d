@@ -341,8 +341,9 @@ web_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
 	}
 }
 
-web_open_url :: proc(url: string) {
+web_open_url :: proc(url: string) -> bool {
 	js.open(url)
+	return true
 }
 
 web_set_internal_state :: proc(state: rawptr) {
