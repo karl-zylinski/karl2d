@@ -3475,6 +3475,7 @@ Rect :: struct {
 }
 
 RECT_EMPTY :: Rect{}
+WHOLE_TEXTURE :: Rect{}
 
 // An RGBA (Red, Green, Blue, Alpha) color. Each channel can have a value between 0 and 255.
 Color :: [4]u8

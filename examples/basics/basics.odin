@@ -53,19 +53,17 @@ step :: proc() -> bool {
 	t := k2.get_time()
 	pos_x := f32(math.sin(t)*200)
 	rot := f32(t*1.5)
-	tex_source_rect := k2.get_texture_rect(tex)
-	tex_into_rect := k2.Rect{
-		pos_x + 600, 450,
-		tex_source_rect.w*3, tex_source_rect.h*3,
-	}
 
+	tex_fit_into := k2.Rect{
+		pos_x + 600, 450,
+		f32(tex.width*3), f32(tex.height*3),
+	}
 
 	k2.draw_texture_fit(
 		tex,
-		tex_into_rect,
-		tex_source_rect,
-		{tex_into_rect.w/2, tex_into_rect.h/2},
-		rot,
+		tex_fit_into,
+		origin = {tex_fit_into.w/2, tex_fit_into.h/2},
+		rotation = rot,
 	)
 
 	k2.draw_rect({10, 10, 60, 60}, k2.GREEN)
