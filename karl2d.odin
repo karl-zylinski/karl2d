@@ -3130,7 +3130,7 @@ load_shader_from_bytes :: proc(
 	}
 
 	for tbp, tbp_idx in desc.texture_bindpoints {
-		shd.texture_lookup[tbp.name] = tbp_idx
+		shd.texture_lookup[strings.clone(tbp.name, s.allocator)] = tbp_idx
 
 		if tbp.name == "tex" {
 			shd.default_texture_index = tbp_idx
@@ -3165,7 +3165,12 @@ destroy_shader :: proc(shader: Shader) {
 
 	delete(shader.constants_data, a)
 	delete(shader.constants, a)
+
+	for k, _ in shader.texture_lookup {
+		delete(k, a)
+	}
 	delete(shader.texture_lookup)
+
 	delete(shader.texture_bindpoints, a)
 
 	for k, _ in shader.constant_lookup {
