@@ -377,7 +377,7 @@ pointer_listener := wl.Pointer_Listener {
 
 		// Vertical scroll
 		if axis == 0 {
-			event_direction: f32 = value > 0 ? 1 : -1
+			event_direction: f32 = value > 0 ? -1 : 1
 			
 			append(&s.events, Event_Mouse_Wheel {
 				delta = event_direction,
