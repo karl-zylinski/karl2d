@@ -166,7 +166,7 @@ step :: proc() -> bool {
 	ui_text_area := k2.rect_shrink(ui_bg, 2*camera.zoom, 2*camera.zoom)
 
 	if ui_button(k2.rect_cut_right(&ui_text_area, ui_button_width("Source Code", ui_text_area.h) + 50, 0), "Source Code") {
-		k2.open_url("https://github.com/karl-zylinski/karl2d/examples/dual_grid_tilemap/dual_grid_tilemap.odin")
+		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/dual_grid_tilemap/dual_grid_tilemap.odin")
 	}
 
 	k2.draw_text("LMB: Paint path. Ctrl + LMB: Erase path.", k2.rect_top_left(ui_text_area), ui_text_area.h, k2.WHITE)
