@@ -1091,16 +1091,17 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 	return TextBounds(&s.fs, font_object.fontstash_handle, font_size, text)
 }
 
-// Draw text at a position with a size, using a custom font. `pos` will be equal to the  top-left
-// position of the text.
-// Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
-// top-left position of the text.
+// Draw text at a position with a size.
+//
+// Optional parameters:
+// - color: The color of the text.
+// - font: The font to use, uses a default font if none is specified.
 draw_text :: proc(
 	text: string,
 	pos: Vec2,
 	font_size: f32,
-	color := BLACK,
 	font := FONT_DEFAULT,
+	color := BLACK,
 ) {
 	if int(font) >= len(s.fonts) {
 		return

@@ -30,7 +30,7 @@ step :: proc() -> bool {
 	}
 
 	msg := "Hellöpe! Hold K to swap font.\nLine breaks work too!"
-	k2.draw_text(msg, {20, 20}, 64, k2.WHITE, font)
+	k2.draw_text(msg, {20, 20}, 64, font, k2.WHITE)
 
 	size := k2.measure_text(msg, 64, font)
 	size_msg := fmt.tprintf("The text above uses %.1f x %.1f pixels of space", size.x, size.y)
