@@ -82,10 +82,10 @@ step :: proc() -> bool {
 
 	// k2.color_alpha takes a pre-defined color and replaces the alpha (transparency).
 	k2.draw_rect({4, 95, msg2_width+20, 162}, k2.color_alpha(k2.DARK_GRAY, 192))
-	k2.draw_text("Hellöpe!", {15, 105}, 48, color = k2.LIGHT_RED)
+	k2.draw_text("Hellöpe!", {15, 105}, 48, k2.LIGHT_RED)
 
-	k2.draw_text(msg1, {15, 153}, 48, color = k2.ORANGE)
-	k2.draw_text(msg2, {15, 201}, 48, color = k2.LIGHT_PURPLE)
+	k2.draw_text(msg1, {15, 153}, 48, k2.ORANGE)
+	k2.draw_text(msg2, {15, 201}, 48, k2.LIGHT_PURPLE)
 
 	k2.draw_text("Move the red dot using arrow keys!", {10, f32(k2.get_screen_height()) - 50}, 40)
 
