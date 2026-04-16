@@ -124,8 +124,9 @@ init :: proc(
 	// Dummy element so font with index 0 means 'no font'.
 	append_nothing(&s.fonts)
 
-	s.default_font = load_font_from_bytes(DEFAULT_FONT_DATA)
-	_set_font(s.default_font)
+	default_font := load_font_from_bytes(DEFAULT_FONT_DATA)
+	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
+	_set_font(FONT_DEFAULT)
 
 	// Audio
 	{
@@ -211,7 +212,7 @@ shutdown :: proc() {
 	}
 
 	delete(s.events)
-	destroy_font(s.default_font)
+	destroy_font(FONT_DEFAULT)
 	rb.destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
 	rb.shutdown()
@@ -861,32 +862,41 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 	batch_vertex(vertices[2], {0, 1}, c)
 }
 
-
-// Draw a texture at a specific position. The texture will be drawn with its top-left corner at
-// position `pos`.
-//
-// Load textures using `load_texture_from_file` or `load_texture_from_bytes`.
-draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
-	draw_texture_ex(
-		tex,
-		{0, 0, f32(tex.width), f32(tex.height)},
-		{pos.x, pos.y, f32(tex.width), f32(tex.height)},
-		{},
-		0,
-		tint,
-	)
-}
-
 // Draw a section of a texture at a specific position. `rect` is a rectangle measured in pixels. It
 // tells the procedure which part of the texture to display. The texture will be drawn with its
 // top-left corner at position `pos`.
-draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
-	draw_texture_ex(
-		tex,
-		rect,
-		{pos.x, pos.y, rect.w, rect.h},
-		{},
-		0,
+draw_texture :: proc(
+	texture: Texture,
+	position: Vec2,
+	texture_src: Rect = RECT_EMPTY,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE
+) {
+	if texture.handle == TEXTURE_NONE || texture.width == 0 || texture.height == 0 {
+		return
+	}
+
+	dst: Rect
+
+	if texture_src != RECT_EMPTY {
+		dst = {
+			position.x, position.y,
+			texture_src.w, texture_src.h,
+		}
+	} else {
+		dst = {
+			position.x, position.y,
+			f32(texture.width), f32(texture.height),
+		}
+	}
+
+	draw_texture_fit(
+		texture,
+		dst,
+		texture_src,
+		origin,
+		rotation,
 		tint,
 	)
 }
@@ -898,8 +908,15 @@ draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 // Tip: Use `k2.get_texture_rect(tex)` for `src` if you want to draw the whole texture.
 //
 // Rotation unit: Radians.
-draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE) {
-	if tex.width == 0 || tex.height == 0 {
+draw_texture_fit :: proc(
+	texture: Texture,
+	into: Rect,
+	texture_src: Rect = RECT_EMPTY,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE,
+) {
+	if texture.handle == TEXTURE_NONE || texture.width == 0 || texture.height == 0 {
 		return
 	}
 
@@ -907,15 +924,20 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		draw_current_batch()
 	}
 
-	if s.batch_texture != tex.handle {
+	if s.batch_texture != texture.handle {
 		draw_current_batch()
 	}
 	
-	s.batch_texture = tex.handle
+	s.batch_texture = texture.handle
 
 	flip_x, flip_y: bool
-	src := src
-	dst := dst
+	src := texture_src
+
+	if src == RECT_EMPTY {
+		src = get_texture_rect(texture)
+	}
+
+	dst := into
 
 	if src.w < 0 {
 		flip_x = true
@@ -974,7 +996,7 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		}
 	}
 	
-	ts := Vec2{f32(tex.width), f32(tex.height)}
+	ts := Vec2{f32(texture.width), f32(texture.height)}
 
 	up := Vec2{src.x, src.y} / ts
 	us := Vec2{src.w, src.h} / ts
@@ -1002,7 +1024,7 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	//
 	// Could we do something with the projection matrix while drawing into those render textures
 	// instead? I tried that, but couldn't get it to work.
-	if rb.texture_needs_vertical_flip(tex.handle) {
+	if rb.texture_needs_vertical_flip(texture.handle) {
 		flip_y = !flip_y
 	}
 
@@ -1025,21 +1047,17 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 
 // Tells you how much space some text of a certain size will use on the screen. The font used is the
 // default font. The return value contains the width and height of the text.
-measure_text :: proc(text: string, font_size: f32) -> Vec2 {
-	return measure_text_ex(s.default_font, text, font_size)
-}
-
 // Tells you how much space some text of a certain size will use on the screen, using a custom font.
 // The return value contains the width and height of the text.
-measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2 {
-	if font_handle < 0 || int(font_handle) >= len(s.fonts) {
+measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) -> Vec2 {
+	if font < 0 || int(font) >= len(s.fonts) {
 		return {}
 	}
 
-	font := s.fonts[font_handle]
+	font_object := s.fonts[font]
 
 	// Temporary until I rewrite the font caching system.
-	_set_font(font_handle)
+	_set_font(font)
 
 	// TextBounds from fontstash, but fixed and simplified for my purposes.
 	// The version in there is broken.
@@ -1088,24 +1106,26 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 		return { max_x, f32(lines)*size }
 	}
 
-	return TextBounds(&s.fs, font.fontstash_handle, font_size, text)
-}
-
-// Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
-// top-left position of the text.
-draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK) {
-	draw_text_ex(s.default_font, text, pos, font_size, color)
+	return TextBounds(&s.fs, font_object.fontstash_handle, font_size, text)
 }
 
 // Draw text at a position with a size, using a custom font. `pos` will be equal to the  top-left
 // position of the text.
-draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32, color := BLACK) {
-	if int(font_handle) >= len(s.fonts) {
+// Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
+// top-left position of the text.
+draw_text :: proc(
+	text: string,
+	pos: Vec2,
+	font_size: f32,
+	color := BLACK,
+	font := FONT_DEFAULT,
+) {
+	if int(font) >= len(s.fonts) {
 		return
 	}
 
-	_set_font(font_handle)
-	font := &s.fonts[font_handle]
+	_set_font(font)
+	font_object := &s.fonts[font]
 	fs.SetSize(&s.fs, font_size)
 	iter := fs.TextIterInit(&s.fs, pos.x, pos.y, text)
 
@@ -1141,7 +1161,7 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 			q.x1 - q.x0, q.y1 - q.y0,
 		}
 
-		draw_texture_ex(font.atlas, src, dst, {}, 0, color)
+		draw_texture_fit(font_object.atlas, dst, src, {}, 0, color)
 	}
 }
 
@@ -3022,11 +3042,6 @@ destroy_font :: proc(font: Font) {
 	s.fs.fonts[f.fontstash_handle].glyphs = {}
 }
 
-// Returns the built-in font of Karl2D (the font is known as "roboto")
-get_default_font :: proc() -> Font {
-	return s.default_font
-}
-
 
 //---------//
 // SHADERS //
@@ -3459,6 +3474,8 @@ Rect :: struct {
 	w, h: f32,
 }
 
+RECT_EMPTY :: Rect{}
+
 // An RGBA (Red, Green, Blue, Alpha) color. Each channel can have a value between 0 and 255.
 Color :: [4]u8
 
@@ -3710,7 +3727,9 @@ Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
-FONT_NONE :: Font {}
+FONT_NONE :: Font(0)
+FONT_DEFAULT :: Font(1) // There is always a default font at index 1, loaded in `init`
+
 TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
@@ -3901,7 +3920,7 @@ State :: struct {
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 
-	default_font: Font,
+	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
 	shape_drawing_texture: Texture_Handle,
 	batch_font: Font,
@@ -4413,7 +4432,7 @@ _set_font :: proc(fh: Font) {
 	}
 
 	if fh == 0 {
-		fh = s.default_font
+		fh = FONT_DEFAULT
 	}
 
 	font := &s.fonts[fh]

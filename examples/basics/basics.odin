@@ -53,14 +53,18 @@ step :: proc() -> bool {
 	t := k2.get_time()
 	pos_x := f32(math.sin(t)*200)
 	rot := f32(t*1.5)
-	tex_rect := k2.get_texture_rect(tex)
-	tex_rect_dst := k2.Rect{pos_x + 600, 450, tex_rect.w*3, tex_rect.h*3}
+	tex_source_rect := k2.get_texture_rect(tex)
+	tex_into_rect := k2.Rect{
+		pos_x + 600, 450,
+		tex_source_rect.w*3, tex_source_rect.h*3,
+	}
 
-	k2.draw_texture_ex(
+
+	k2.draw_texture_fit(
 		tex,
-		tex_rect,
-		tex_rect_dst,
-		{tex_rect_dst.w/2, tex_rect_dst.h/2},
+		tex_into_rect,
+		tex_source_rect,
+		{tex_into_rect.w/2, tex_into_rect.h/2},
 		rot,
 	)
 
@@ -78,10 +82,10 @@ step :: proc() -> bool {
 
 	// k2.color_alpha takes a pre-defined color and replaces the alpha (transparency).
 	k2.draw_rect({4, 95, msg2_width+20, 162}, k2.color_alpha(k2.DARK_GRAY, 192))
-	k2.draw_text("Hellöpe!", {15, 105}, 48, k2.LIGHT_RED)
+	k2.draw_text("Hellöpe!", {15, 105}, 48, color = k2.LIGHT_RED)
 
-	k2.draw_text(msg1, {15, 153}, 48, k2.ORANGE)
-	k2.draw_text(msg2, {15, 201}, 48, k2.LIGHT_PURPLE)
+	k2.draw_text(msg1, {15, 153}, 48, color = k2.ORANGE)
+	k2.draw_text(msg2, {15, 201}, 48, color = k2.LIGHT_PURPLE)
 
 	k2.draw_text("Move the red dot using arrow keys!", {10, f32(k2.get_screen_height()) - 50}, 40)
 

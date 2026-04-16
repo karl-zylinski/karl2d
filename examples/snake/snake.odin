@@ -164,7 +164,12 @@ step :: proc() -> bool {
 	food_sprite.width = CELL_SIZE
 	food_sprite.height = CELL_SIZE
 
-	k2.draw_texture(food_sprite, {f32(food_pos.x), f32(food_pos.y)}*CELL_SIZE)
+	food_pos := k2.Vec2 {
+		f32(food_pos.x),
+		f32(food_pos.y),
+	}*CELL_SIZE
+
+	k2.draw_texture(food_sprite, food_pos)
 
 	for i in 0..<snake_length {
 		part_sprite := body_sprite
@@ -187,14 +192,12 @@ step :: proc() -> bool {
 			f32(part_sprite.width), f32(part_sprite.height),
 		}
 
-		dest := k2.Rect {
+		part_pos := k2.Vec2 {
 			f32(snake[i].x)*CELL_SIZE + 0.5*CELL_SIZE,
 			f32(snake[i].y)*CELL_SIZE + 0.5*CELL_SIZE,
-			CELL_SIZE,
-			CELL_SIZE,
 		}
 
-		k2.draw_texture_ex(part_sprite, source, dest, {CELL_SIZE, CELL_SIZE}*0.5, rot)
+		k2.draw_texture(part_sprite, part_pos, source, {CELL_SIZE, CELL_SIZE}*0.5, rot)
 	}
 
 	if game_over {

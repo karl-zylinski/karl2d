@@ -293,16 +293,17 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color)
 
-// Draw a texture at a specific position. The texture will be drawn with its top-left corner at
-// position `pos`.
-//
-// Load textures using `load_texture_from_file` or `load_texture_from_bytes`.
-draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE)
-
 // Draw a section of a texture at a specific position. `rect` is a rectangle measured in pixels. It
 // tells the procedure which part of the texture to display. The texture will be drawn with its
 // top-left corner at position `pos`.
-draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE)
+draw_texture :: proc(
+	texture: Texture,
+	position: Vec2,
+	texture_src: Rect = RECT_EMPTY,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE
+)
 
 // Draw a texture by taking a section of the texture specified by `src` and draw it into the area of
 // the screen specified by `dst`. You can also rotate the texture around an origin point of your
@@ -311,23 +312,32 @@ draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE)
 // Tip: Use `k2.get_texture_rect(tex)` for `src` if you want to draw the whole texture.
 //
 // Rotation unit: Radians.
-draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE)
+draw_texture_fit :: proc(
+	texture: Texture,
+	into: Rect,
+	texture_src: Rect = RECT_EMPTY,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE,
+)
 
 // Tells you how much space some text of a certain size will use on the screen. The font used is the
 // default font. The return value contains the width and height of the text.
-measure_text :: proc(text: string, font_size: f32) -> Vec2
-
 // Tells you how much space some text of a certain size will use on the screen, using a custom font.
 // The return value contains the width and height of the text.
-measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
-
-// Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
-// top-left position of the text.
-draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK)
+measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) -> Vec2
 
 // Draw text at a position with a size, using a custom font. `pos` will be equal to the  top-left
 // position of the text.
-draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32, color := BLACK)
+// Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
+// top-left position of the text.
+draw_text :: proc(
+	text: string,
+	pos: Vec2,
+	font_size: f32,
+	color := BLACK,
+	font := FONT_DEFAULT,
+)
 
 //--------------------//
 // TEXTURE MANAGEMENT //
@@ -694,9 +704,6 @@ load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
 destroy_font :: proc(font: Font)
 
-// Returns the built-in font of Karl2D (the font is known as "roboto")
-get_default_font :: proc() -> Font
-
 //---------//
 // SHADERS //
 //---------//
@@ -841,6 +848,8 @@ Rect :: struct {
 	x, y: f32,
 	w, h: f32,
 }
+
+RECT_EMPTY :: Rect{}
 
 // An RGBA (Red, Green, Blue, Alpha) color. Each channel can have a value between 0 and 255.
 Color :: [4]u8
@@ -1091,7 +1100,9 @@ Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
-FONT_NONE :: Font {}
+FONT_NONE :: Font(0)
+FONT_DEFAULT :: Font(1)
+
 TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
@@ -1282,7 +1293,7 @@ State :: struct {
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 
-	default_font: Font,
+	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
 	shape_drawing_texture: Texture_Handle,
 	batch_font: Font,
