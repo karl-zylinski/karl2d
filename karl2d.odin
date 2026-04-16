@@ -663,38 +663,13 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 
 // Draw a colored rectangle. The rectangles have their (x, y) position in the top-left corner of the
 // rectangle.
-draw_rect :: proc(r: Rect, c: Color) {
-	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
-		draw_current_batch()
-	}
-
-	if s.batch_texture != s.shape_drawing_texture {
-		draw_current_batch()
-	}
-
-	s.batch_texture = s.shape_drawing_texture
-
-	batch_vertex({r.x, r.y}, {0, 0}, c)
-	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
-	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	batch_vertex({r.x, r.y}, {0, 0}, c)
-	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
-}
-
-// Creates a rectangle from a position and a size and draws it.
-draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color) {
-	draw_rect({pos.x, pos.y, size.x, size.y}, c)
-}
-
-// Draw a rectangle with a custom origin and rotation.
 //
-// The origin says which point the rotation rotates around. If the origin is `(0, 0)`, then the
-// rectangle rotates around the top-left corner of the rectangle. If it is `(rect.w/2, rect.h/2)`
-// then the rectangle rotates around its center.
-//
-// Rotation unit: Radians.
-draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
+// Optional parameters:
+// - origin: The point to rotate around, also offsets the position of the rect. If the origin is
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
+// - rotation: The rotation to apply, in radians
+draw_rect :: proc(rect: Rect, c: Color, origin: Vec2 = {}, rotation: f32 = 0) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
@@ -707,18 +682,18 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
-	if rot == 0 {
-		x := r.x - origin.x
-		y := r.y - origin.y
-		tl = { x,         y }
-		tr = { x + r.w, y }
-		bl = { x,         y + r.h }
-		br = { x + r.w, y + r.h }
+	if rotation == 0 {
+		x := rect.x - origin.x
+		y := rect.y - origin.y
+		tl = { x,          y }
+		tr = { x + rect.w, y }
+		bl = { x,          y + rect.h }
+		br = { x + rect.w, y + rect.h }
 	} else {
-		sin_rot := math.sin(rot)
-		cos_rot := math.cos(rot)
-		x := r.x
-		y := r.y
+		sin_rot := math.sin(rotation)
+		cos_rot := math.cos(rotation)
+		x := rect.x
+		y := rect.y
 		dx := -origin.x
 		dy := -origin.y
 
@@ -728,18 +703,18 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 		}
 
 		tr = {
-			x + (dx + r.w) * cos_rot - dy * sin_rot,
-			y + (dx + r.w) * sin_rot + dy * cos_rot,
+			x + (dx + rect.w) * cos_rot - dy * sin_rot,
+			y + (dx + rect.w) * sin_rot + dy * cos_rot,
 		}
 
 		bl = {
-			x + dx * cos_rot - (dy + r.h) * sin_rot,
-			y + dx * sin_rot + (dy + r.h) * cos_rot,
+			x + dx * cos_rot - (dy + rect.h) * sin_rot,
+			y + dx * sin_rot + (dy + rect.h) * cos_rot,
 		}
 
 		br = {
-			x + (dx + r.w) * cos_rot - (dy + r.h) * sin_rot,
-			y + (dx + r.w) * sin_rot + (dy + r.h) * cos_rot,
+			x + (dx + rect.w) * cos_rot - (dy + rect.h) * sin_rot,
+			y + (dx + rect.w) * sin_rot + (dy + rect.h) * cos_rot,
 		}
 	}
 
@@ -841,7 +816,7 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 
 	rot := math.atan2(end.y - start.y, end.x - start.x)
 
-	draw_rect_ex(r, origin, rot, color)
+	draw_rect(r, color, origin, rot)
 }
 
 // Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and

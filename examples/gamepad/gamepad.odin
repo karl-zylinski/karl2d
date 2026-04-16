@@ -36,8 +36,8 @@ gamepad_demo :: proc(gamepad: k2.Gamepad_Index, offset: k2.Vec2) {
 	k2.draw_circle(o + {300+50, 140}, 10, button_color(g, .Right_Face_Left))
 	k2.draw_circle(o + {340+50, 140}, 10, button_color(g, .Right_Face_Right))
 
-	k2.draw_rect_vec(o + {250 - 30, 140}, {20, 10}, button_color(g, .Middle_Face_Left))
-	k2.draw_rect_vec(o + {250 + 10, 140}, {20, 10}, button_color(g, .Middle_Face_Right))
+	k2.draw_rect(k2.rect_from_pos_size(o + {250 - 30, 140}, {20, 10}), button_color(g, .Middle_Face_Left))
+	k2.draw_rect(k2.rect_from_pos_size(o + {250 + 10, 140}, {20, 10}), button_color(g, .Middle_Face_Right))
 
 	left_stick := k2.Vec2 {
 		k2.get_gamepad_axis(gamepad, .Left_Stick_X),
@@ -54,11 +54,11 @@ gamepad_demo :: proc(gamepad: k2.Gamepad_Index, offset: k2.Vec2) {
 
 	k2.set_gamepad_vibration(gamepad, left_trigger, right_trigger)
 
-	k2.draw_rect_vec(o + {80, 50}, {20, 10}, button_color(g, .Left_Shoulder))
-	k2.draw_rect_vec(o + {50, 50} + {0, left_trigger * 20}, {20, 10}, button_color(g, .Left_Trigger, k2.WHITE, k2.GRAY))
+	k2.draw_rect(k2.rect_from_pos_size(o + {80, 50}, {20, 10}), button_color(g, .Left_Shoulder))
+	k2.draw_rect(k2.rect_from_pos_size(o + {50, 50} + {0, left_trigger * 20}, {20, 10}), button_color(g, .Left_Trigger, k2.WHITE, k2.GRAY))
 
-	k2.draw_rect_vec(o + {420, 50}, {20, 10}, button_color(g, .Right_Shoulder))
-	k2.draw_rect_vec(o + {450, 50} + {0, right_trigger * 20}, {20, 10}, button_color(g, .Right_Trigger, k2.WHITE, k2.GRAY))
+	k2.draw_rect(k2.rect_from_pos_size(o + {420, 50}, {20, 10}), button_color(g, .Right_Shoulder))
+	k2.draw_rect(k2.rect_from_pos_size(o + {450, 50} + {0, right_trigger * 20}, {20, 10}), button_color(g, .Right_Trigger, k2.WHITE, k2.GRAY))
 	k2.draw_circle(o + {200, 200} + 20 * left_stick, 20, button_color(g, .Left_Stick_Press, k2.WHITE, k2.GRAY))
 	k2.draw_circle(o + {300, 200} + 20 * right_stick, 20, button_color(g, .Right_Stick_Press, k2.WHITE, k2.GRAY))
 }
