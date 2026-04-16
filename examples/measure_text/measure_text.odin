@@ -64,7 +64,7 @@ step :: proc() -> bool {
 
 			if i == current_font_idx {
 				size := k2.measure_text(text, UI_FONT_SIZE)
-				k2.draw_rect(k2.rect_from_pos_size(pos, size), k2.LIGHT_YELLOW)
+				k2.draw_rect_vec(pos, size, k2.LIGHT_YELLOW)
 			}
 
 			k2.draw_text(text, pos, UI_FONT_SIZE)
@@ -96,7 +96,7 @@ step :: proc() -> bool {
 		for char in ' '..='~' {
 			text := string([]u8 { u8(char) })
 			size := k2.measure_text(text, current_font_size, font)
-			k2.draw_rect(k2.rect_from_pos_size(pos, size), k2.LIGHT_RED)
+			k2.draw_rect_vec(pos, size, k2.LIGHT_RED)
 			k2.draw_text(text, pos, current_font_size, font = font)
 
 			pos.x += current_font_size
@@ -114,14 +114,14 @@ step :: proc() -> bool {
 		}) {
 			pos1 := Vec2 { LEFT, pos.y + f32(i+2)*current_font_size }
 			size := k2.measure_text(text, current_font_size, font)
-			k2.draw_rect(k2.rect_from_pos_size(pos1, size), k2.LIGHT_RED)
+			k2.draw_rect_vec(pos1, size, k2.LIGHT_RED)
 			k2.draw_text(text, pos1, current_font_size, font = font)
 		}
 
 		pos = { LEFT+400, pos.y + 2*current_font_size }
 		text := "/*\nHellöpe Karl2D!\nNext line goes here\nAnd one more\n*/"
 		size := k2.measure_text(text, current_font_size, font)
-		k2.draw_rect(k2.rect_from_pos_size(pos, size), k2.LIGHT_RED)
+		k2.draw_rect_vec(pos, size, k2.LIGHT_RED)
 		k2.draw_text(text, pos, current_font_size, font = font)
 	}
 

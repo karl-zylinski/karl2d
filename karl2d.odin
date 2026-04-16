@@ -669,7 +669,7 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 //   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
-draw_rect :: proc(rect: Rect, c: Color, origin: Vec2 = {}, rotation: f32 = 0) {
+draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
@@ -718,12 +718,29 @@ draw_rect :: proc(rect: Rect, c: Color, origin: Vec2 = {}, rotation: f32 = 0) {
 		}
 	}
 
-	batch_vertex(tl, {0, 0}, c)
-	batch_vertex(tr, {1, 0}, c)
-	batch_vertex(br, {1, 1}, c)
-	batch_vertex(tl, {0, 0}, c)
-	batch_vertex(br, {1, 1}, c)
-	batch_vertex(bl, {0, 1}, c)
+	batch_vertex(tl, {0, 0}, color)
+	batch_vertex(tr, {1, 0}, color)
+	batch_vertex(br, {1, 1}, color)
+	batch_vertex(tl, {0, 0}, color)
+	batch_vertex(br, {1, 1}, color)
+	batch_vertex(bl, {0, 1}, color)
+}
+
+// Creates a rectangle from a position and a size and draws it using the specified color.
+//
+// Optional parameters:
+// - origin: The point to rotate around, also offsets the position of the rect. If the origin is
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
+// - rotation: The rotation to apply, in radians
+draw_rect_vec :: proc(
+	position: Vec2,
+	size: Vec2,
+	color: Color,
+	origin: Vec2 = {},
+	rotation: f32 = 0
+) {
+	draw_rect(rect_from_pos_size(position, size), color, origin, rotation)
 }
 
 // Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
