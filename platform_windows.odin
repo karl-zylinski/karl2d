@@ -135,6 +135,10 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 		for win32.XInputGetKeystroke(win32.XUSER(gamepad), 0, &gp_event) == .SUCCESS {
 			button: Maybe(Gamepad_Button)
 
+			if .REPEAT in gp_event.Flags {
+				continue
+			}
+
 			#partial switch gp_event.VirtualKey {
 			case .DPAD_UP:    button = .Left_Face_Up
 			case .DPAD_DOWN:  button = .Left_Face_Down
