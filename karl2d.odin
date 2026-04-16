@@ -916,8 +916,9 @@ draw_texture :: proc(
 //
 // Optional parameters:
 // - crop: A rectangle that describes which part of `texture` to display. Note that it is a Maybe
-//   type, which means that `nil` means "no cropping".
-// - origin: An offset of the `into` rectangle and also the point which `rotation` rotates around.
+//   type, which means that `nil` means "no cropping". Uses pixel coordinates.
+// - origin: The point within `into` to rotate around, measured from the top-left corner. Also
+//   offsets the position of `into`.
 // - rotation: Rotation around `origin`, measured in radians.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 draw_texture_fit :: proc(
