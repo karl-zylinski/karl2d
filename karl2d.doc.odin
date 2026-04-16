@@ -267,7 +267,22 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32)
 //   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
-draw_rect :: proc(rect: Rect, c: Color, origin: Vec2 = {}, rotation: f32 = 0)
+draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0)
+
+// Creates a rectangle from a position and a size and draws it using the specified color.
+//
+// Optional parameters:
+// - origin: The point to rotate around, also offsets the position of the rect. If the origin is
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
+// - rotation: The rotation to apply, in radians
+draw_rect_vec :: proc(
+	position: Vec2,
+	size: Vec2,
+	color: Color,
+	origin: Vec2 = {},
+	rotation: f32 = 0
+)
 
 // Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
 // rectangles.
