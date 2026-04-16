@@ -1059,6 +1059,11 @@ draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
 	draw_texture(tex, pos, crop = rect, tint = tint)
 }
 
+@(deprecated="Use draw_texture_fit instead. Note that `dst` is equivalent to `into` and `src` is equivalent to `crop`, which have switched positions in the parameter list.")
+draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE) {
+	draw_texture_fit(tex, dst, src, origin, rotation, tint)
+}
+
 // Tells you how much space some text of a certain size will use on the screen. The font used is the
 // default font. The return value contains the width and height of the text.
 // Tells you how much space some text of a certain size will use on the screen, using a custom font.
