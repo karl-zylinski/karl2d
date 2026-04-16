@@ -861,9 +861,13 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 
 // Draw a texture a specific position.
 //
+// The top-left corner of the texture will end up at the position. If you use the `crop` parameter
+// to crop out a part of the texture, then the top-left corner of the cropped-out part will be at
+// the position. Also, any non-zero origin will offset the position as well.
+//
 // Optional parameters:
 // - crop: A rectangle that describes which part of `texture` to display. Note that it is a Maybe
-//   type, which means that `nil` means "no cropping".
+//   type, which means that `nil` means "no cropping". Uses pixel coordinates.
 // - origin: The point which `rotation` rotates around. Effectively an offset of `position`.
 // - rotation: Rotation around `origin`, measured in radians.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
@@ -871,7 +875,7 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 // If you want to rotate around the middle of the texture, then try this:
 // 
 //// middle := k2.rect_middle(k2.get_texture_rect(tex))
-//// draw_texture(tex, pos + middle, origin = middle, rot)
+//// draw_texture(tex, pos + middle, origin = middle, rotation = rot)
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
