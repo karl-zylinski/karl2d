@@ -347,17 +347,21 @@ draw_texture_fit :: proc(
 // The return value contains the width and height of the text.
 measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) -> Vec2
 
-// Draw text at a position with a size.
+// Draw text at a position, with a size and color. The position is the top-left position of the
+// text.
 //
 // Optional parameters:
-// - color: The color of the text.
 // - font: The font to use, uses a default font if none is specified.
+// - origin: The origin relative top the top-left position of the text. Used when rotating the text.
+// - rotation: Rotating to apply to the text, measured in radians.
 draw_text :: proc(
 	text: string,
-	pos: Vec2,
+	position: Vec2,
 	font_size: f32,
+	color: Color,
 	font := FONT_DEFAULT,
-	color := BLACK,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
 )
 
 //--------------------//

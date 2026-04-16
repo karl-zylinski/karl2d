@@ -1123,17 +1123,21 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 	return measure_text(text, font_size, font_handle)
 }
 
-// Draw text at a position with a size.
+// Draw text at a position, with a size and color. The position is the top-left position of the
+// text.
 //
 // Optional parameters:
-// - color: The color of the text.
 // - font: The font to use, uses a default font if none is specified.
+// - origin: The origin relative top the top-left position of the text. Used when rotating the text.
+// - rotation: Rotating to apply to the text, measured in radians.
 draw_text :: proc(
 	text: string,
-	pos: Vec2,
+	position: Vec2,
 	font_size: f32,
+	color: Color,
 	font := FONT_DEFAULT,
-	color := BLACK,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
 ) {
 	if int(font) >= len(s.fonts) {
 		return
@@ -1142,13 +1146,13 @@ draw_text :: proc(
 	_set_font(font)
 	font_object := &s.fonts[font]
 	fs.SetSize(&s.fs, font_size)
-	iter := fs.TextIterInit(&s.fs, pos.x, pos.y, text)
+	iter := fs.TextIterInit(&s.fs, position.x, position.y, text)
 
 	q: fs.Quad
 	for fs.TextIterNext(&s.fs, &iter, &q) {
 		if iter.codepoint == '\n' {
 			iter.nexty += font_size
-			iter.nextx = pos.x
+			iter.nextx = position.x
 			continue
 		}
 
@@ -1172,17 +1176,18 @@ draw_text :: proc(
 		src.h *= h
 
 		dst := Rect {
-			q.x0, q.y0,
+			position.x, position.y,
 			q.x1 - q.x0, q.y1 - q.y0,
 		}
 
-		draw_texture_fit(font_object.atlas, dst, src, {}, 0, color)
+		char_origin := origin + {position.x - q.x0, position.y - q.y0}
+		draw_texture_fit(font_object.atlas, dst, src, char_origin, rotation, color)
 	}
 }
 
 @(deprecated="Use draw_text instead")
 draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32, color := BLACK) {
-	draw_text(text, pos, font_size, font_handle, color)
+	draw_text(text, pos, font_size, color, font_handle)
 }
 
 //--------------------//

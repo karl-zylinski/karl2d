@@ -67,7 +67,7 @@ step :: proc() -> bool {
 				k2.draw_rect_vec(pos, size, k2.LIGHT_YELLOW)
 			}
 
-			k2.draw_text(text, pos, UI_FONT_SIZE)
+			k2.draw_text(text, pos, UI_FONT_SIZE, k2.BLACK)
 		}
 	}
 
@@ -84,7 +84,7 @@ step :: proc() -> bool {
 
 		text := fmt.tprintf("[+/-] Font size: %.1f", current_font_size)
 		pos := Vec2 { 40, 30 + (len(fonts)+1)*UI_FONT_SIZE }
-		k2.draw_text(text, pos, UI_FONT_SIZE)
+		k2.draw_text(text, pos, UI_FONT_SIZE, k2.BLACK)
 	}
 
 	// CURRENT FONT FACE
@@ -97,7 +97,7 @@ step :: proc() -> bool {
 			text := string([]u8 { u8(char) })
 			size := k2.measure_text(text, current_font_size, font)
 			k2.draw_rect_vec(pos, size, k2.LIGHT_RED)
-			k2.draw_text(text, pos, current_font_size, font = font)
+			k2.draw_text(text, pos, current_font_size, k2.BLACK, font)
 
 			pos.x += current_font_size
 			if pos.x+current_font_size > screen_size.x-40 {
@@ -115,21 +115,21 @@ step :: proc() -> bool {
 			pos1 := Vec2 { LEFT, pos.y + f32(i+2)*current_font_size }
 			size := k2.measure_text(text, current_font_size, font)
 			k2.draw_rect_vec(pos1, size, k2.LIGHT_RED)
-			k2.draw_text(text, pos1, current_font_size, font = font)
+			k2.draw_text(text, pos1, current_font_size, k2.BLACK, font)
 		}
 
 		pos = { LEFT+400, pos.y + 2*current_font_size }
 		text := "/*\nHellöpe Karl2D!\nNext line goes here\nAnd one more\n*/"
 		size := k2.measure_text(text, current_font_size, font)
 		k2.draw_rect_vec(pos, size, k2.LIGHT_RED)
-		k2.draw_text(text, pos, current_font_size, font = font)
+		k2.draw_text(text, pos, current_font_size, k2.BLACK, font)
 	}
 
 	// HINTS
 	{
 		hits_text := fmt.tprintf("Press 1..%i to change font\nPress +/- to change size", len(fonts))
 		hits_pos := Vec2 { 40, screen_size.y-30-2*UI_FONT_SIZE }
-		k2.draw_text(hits_text, hits_pos, UI_FONT_SIZE)
+		k2.draw_text(hits_text, hits_pos, UI_FONT_SIZE, k2.BLACK)
 	}
 
 	k2.present()
