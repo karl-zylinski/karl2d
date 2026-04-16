@@ -1180,6 +1180,11 @@ draw_text :: proc(
 	}
 }
 
+@(deprecated="Use draw_text instead")
+draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32, color := BLACK) {
+	draw_text(text, pos, font_size, font_handle, color)
+}
+
 //--------------------//
 // TEXTURE MANAGEMENT //
 //--------------------//
