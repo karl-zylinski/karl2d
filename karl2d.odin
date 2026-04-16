@@ -2989,7 +2989,7 @@ load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Fon
 
 // Loads a font from a block of memory and returns a handle that represents it.
 load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
-	font := fs.AddFontMem(&s.fs, "", data, false)
+	font := fs.AddFontMem(&s.fs, "", slice.clone(data, s.allocator), false)
 	h := Font(len(s.fonts))
 
 	data := Font_Data {
@@ -3018,6 +3018,7 @@ destroy_font :: proc(font: Font) {
 
 	// TODO fontstash has no "destroy font" proc... I should make my own version of fontstash
 	delete(s.fs.fonts[f.fontstash_handle].glyphs)
+	delete(s.fs.fonts[f.fontstash_handle].loadedData, s.allocator)
 	s.fs.fonts[f.fontstash_handle].glyphs = {}
 }
 
