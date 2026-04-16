@@ -1118,6 +1118,11 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 	return TextBounds(&s.fs, font_object.fontstash_handle, font_size, text)
 }
 
+@(deprecated="Use measure_text(text, font_size, font) instead")
+measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2 {
+	return measure_text(text, font_size, font_handle)
+}
+
 // Draw text at a position with a size.
 //
 // Optional parameters:
