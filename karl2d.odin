@@ -1049,6 +1049,11 @@ draw_texture_fit :: proc(
 	batch_vertex(bl, uv5, c)
 }
 
+@(deprecated="Use draw_texture instead. Pass the `rect` into its `crop` argument")
+draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
+	draw_texture(tex, pos, crop = rect, tint = tint)
+}
+
 // Tells you how much space some text of a certain size will use on the screen. The font used is the
 // default font. The return value contains the width and height of the text.
 // Tells you how much space some text of a certain size will use on the screen, using a custom font.
