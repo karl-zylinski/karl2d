@@ -1120,6 +1120,9 @@ Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
 FONT_NONE :: Font(0)
+
+// The default font. It's a font called "roboto". It is loaded from `DEFAULT_FONT_DATA` on Karl2D is
+// initialized.
 FONT_DEFAULT :: Font(1)
 
 TEXTURE_NONE :: Texture_Handle {}

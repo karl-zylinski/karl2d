@@ -3062,6 +3062,10 @@ destroy_font :: proc(font: Font) {
 	s.fs.fonts[f.fontstash_handle].glyphs = {}
 }
 
+@(deprecated="Use FONT_DEFAULT constant instead")
+get_default_font :: proc() -> Font {
+	return FONT_DEFAULT
+}
 
 //---------//
 // SHADERS //
@@ -3746,7 +3750,10 @@ Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
 FONT_NONE :: Font(0)
-FONT_DEFAULT :: Font(1) // There is always a default font at index 1, loaded in `init`
+
+// The default font. It's a font called "roboto". It is loaded from `DEFAULT_FONT_DATA` on Karl2D is
+// initialized.
+FONT_DEFAULT :: Font(1) 
 
 TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
