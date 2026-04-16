@@ -90,7 +90,10 @@ step :: proc() -> bool {
 			tiles[hovered_grid_idx] = .Path
 		}
 
-		if modifiers == { .Control } && k2.mouse_button_is_held(.Left) {
+		if (
+			(modifiers == { .Control } && k2.mouse_button_is_held(.Left)) ||
+			k2.mouse_button_is_held(.Right)
+		) {
 			tiles[hovered_grid_idx] = .Grass
 		}
 	}
@@ -169,7 +172,7 @@ step :: proc() -> bool {
 		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/dual_grid_tilemap/dual_grid_tilemap.odin")
 	}
 
-	k2.draw_text("LMB: Paint path. Ctrl + LMB: Erase path.", k2.rect_top_left(ui_text_area), ui_text_area.h, k2.WHITE)
+	k2.draw_text("Paint path: LMB | Erase path: RMB or Ctrl + LMB", k2.rect_top_left(ui_text_area), ui_text_area.h, k2.WHITE)
 	k2.present()
 	free_all(context.temp_allocator)
 
