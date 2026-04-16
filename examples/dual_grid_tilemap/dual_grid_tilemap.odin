@@ -52,7 +52,7 @@ Tile_Type :: enum {
 }
 
 init :: proc() {
-	k2.init(1280, 1024, "Karl2D: Dual Grid Tilemap", options = { window_mode = .Windowed_Resizable })
+	k2.init(800, 640, "Karl2D: Dual Grid Tilemap", options = { window_mode = .Windowed_Resizable })
 	tileset_path_texture = k2.load_texture_from_bytes(#load("tileset_path.png"))
 }
 
@@ -214,7 +214,7 @@ ui_button :: proc(r: k2.Rect, text: string) -> bool {
 	}
 	
 	k2.draw_rect(r, bg_color)
-	k2.draw_rect_outline(r, 2, border_color)
+	k2.draw_rect_outline(r, 1, border_color)
 
 	text_width := k2.measure_text(text, r.h).x
 	k2.draw_text(text, {r.x + r.w/2 - text_width/2, r.y}, r.h, k2.WHITE)

@@ -13,6 +13,7 @@ import "core:sys/posix"
 import "core:strings"
 import "platform_bindings/linux/udev"
 import "platform_bindings/linux/evdev"
+import "core:time"
 
 @(private="package")
 PLATFORM_LINUX :: Platform_Interface {
@@ -562,8 +563,8 @@ linux_set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f3
 	os.write(gp.fd, mem.any_to_bytes(syn_event))
 }
 
-linux_open_url :: proc(url: string) {
-	_, _ = os.process_start(
+linux_open_url :: proc(url: string) -> bool {
+	process, process_err := os.process_start(
 		{
 			command = {
 				"xdg-open",
@@ -571,6 +572,19 @@ linux_open_url :: proc(url: string) {
 			},
 		},
 	)
+
+	if process_err != nil {
+		return false
+	}
+
+	process_state, _ := os.process_wait(process, 1 * time.Second)
+
+	if !process_state.exited {
+		_ = os.process_terminate(process)
+		return false
+	}
+
+	return process_state.exit_code == 0
 }
 
 linux_set_internal_state :: proc(state: rawptr) {
