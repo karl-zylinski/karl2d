@@ -806,8 +806,24 @@ set_scissor_rect :: proc(scissor_rect: Maybe(Rect))
 // library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State)
 
+Open_URL_Error :: enum {
+	None,
+
+	// The URL does not start with https://, http:// or file:///, or contains a space
+	Invalid_URL,
+
+	// Platform-specific failure: Perhaps the OS-specific utility that opens URLs failed.
+	Failed_To_Open,
+}
+
 // Open a URL in the default web browser, if possible.
-open_url :: proc(url: string)
+//
+// Requirements:
+// - The URL must start with https://, http:// or file:///
+// - The URL may not contain spaces
+//
+// Returns Open_URL_Error.None if the call was succesful.
+open_url :: proc(url: string) -> Open_URL_Error
 
 //---------------------//
 // TYPES AND CONSTANTS //
