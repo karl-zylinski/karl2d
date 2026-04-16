@@ -1,3 +1,4 @@
+#+vet explicit-allocators
 #+build windows
 #+private file
 
@@ -20,6 +21,8 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	is_gamepad_active = windows_is_gamepad_active,
 	get_gamepad_axis = windows_get_gamepad_axis,
 	set_gamepad_vibration = windows_set_gamepad_vibration,
+
+	open_url = windows_open_url,
 
 	set_internal_state = windows_set_internal_state,
 }
@@ -81,7 +84,7 @@ windows_init :: proc(
 	// `windows_set_window_mode`.
 	s.hwnd = win32.CreateWindowW(
 		CLASS_NAME,
-		win32.utf8_to_wstring(window_title),
+		win32.utf8_to_wstring(window_title, frame_allocator),
 		win32.WS_VISIBLE,
 		win32.CW_USEDEFAULT, win32.CW_USEDEFAULT,
 		i32(initial_rect.right - initial_rect.left),
@@ -306,6 +309,15 @@ windows_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	}
 
 	return 0
+}
+
+windows_open_url :: proc(url: string) -> bool {
+	cmd := win32.utf8_to_wstring(url, frame_allocator)
+	res := win32.ShellExecuteW(s.hwnd, "open", cmd, nil, nil, win32.SW_NORMAL)
+
+	// https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecutew#return-value:
+	// If the function succeeds, it returns a value greater than 32.
+	return uintptr(res) > 32
 }
 
 windows_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {

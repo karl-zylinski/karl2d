@@ -601,8 +601,6 @@ get_mouse_position :: proc() -> Vec2 {
 	return s.mouse_position
 }
 
-get_mouse_pos :: get_mouse_position
-
 // Returns how many pixels the mouse moved between the previous and the current frame.
 get_mouse_delta :: proc() -> Vec2 {
 	return s.mouse_delta
@@ -3397,6 +3395,46 @@ set_internal_state :: proc(state: ^State) {
 	ab.set_internal_state(s.audio_backend_state)
 }
 
+Open_URL_Error :: enum {
+	None,
+
+	// The URL does not start with https://, http:// or file:///, or contains a space
+	Invalid_URL,
+
+	// Platform-specific failure: Perhaps the OS-specific utility that opens URLs failed.
+	Failed_To_Open,
+}
+
+// Open a URL in the default web browser, if possible.
+//
+// Requirements:
+// - The URL must start with https://, http:// or file:///
+// - The URL may not contain spaces
+//
+// Returns Open_URL_Error.None if the call was succesful.
+open_url :: proc(url: string) -> Open_URL_Error {
+	if (
+		!strings.has_prefix(url, "https://") &&
+		!strings.has_prefix(url, "http://") &&
+		!strings.has_prefix(url, "file:///")
+	) {
+		return .Invalid_URL
+	}
+
+	// Shouldn't contain spaces in the middle.
+	if strings.contains_space(strings.trim_space(url)) {
+		return .Invalid_URL
+	}
+
+	platform_call_ok := pf.open_url(url)
+
+	if !platform_call_ok {
+		return .Failed_To_Open
+	}
+
+	return .None
+}
+
 //---------------------//
 // TYPES AND CONSTANTS //
 //---------------------//
@@ -3422,7 +3460,8 @@ Color :: [4]u8
 BLACK        :: Color { 0, 0, 0, 255 }
 WHITE        :: Color { 255, 255, 255, 255 }
 BLANK        :: Color { 0, 0, 0, 0 }
-GRAY         :: Color { 183, 183, 183, 255 } 
+LIGHT_GRAY   :: Color { 183, 183, 183, 255 } 
+GRAY         :: Color { 100, 100, 100, 255} 
 DARK_GRAY    :: Color { 66, 66, 66, 255} 
 BLUE         :: Color { 25, 198, 236, 255 }
 DARK_BLUE    :: Color { 7, 47, 88, 255 }
