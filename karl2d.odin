@@ -862,13 +862,23 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 	batch_vertex(vertices[2], {0, 1}, c)
 }
 
-// Draw a section of a texture at a specific position. `rect` is a rectangle measured in pixels. It
-// tells the procedure which part of the texture to display. The texture will be drawn with its
-// top-left corner at position `pos`.
+// Draw a texture a specific position.
+//
+// Optional parameters:
+// - crop: A rectangle that describes which part of `texture` to display. Note that it is a Maybe
+//   type, which means that `nil` means "no cropping".
+// - origin: The point which `rotation` rotates around. Effectively an offset of `position`.
+// - rotation: Rotation around `origin`, measured in radians.
+// - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
+//
+// If you want to rotate around the middle of the texture, then try this:
+// 
+//// middle := k2.rect_middle(k2.get_texture_rect(tex))
+//// draw_texture(tex, pos + middle, origin = middle, rot)
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
-	texture_src: Rect = RECT_EMPTY,
+	crop: Maybe(Rect) = nil,
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE
@@ -877,15 +887,15 @@ draw_texture :: proc(
 		return
 	}
 
-	dst: Rect
+	fit_into: Rect
 
-	if texture_src != RECT_EMPTY {
-		dst = {
+	if crop_val, has_crop := crop.?; has_crop {
+		fit_into = {
 			position.x, position.y,
-			texture_src.w, texture_src.h,
+			crop_val.w, crop_val.h,
 		}
 	} else {
-		dst = {
+		fit_into = {
 			position.x, position.y,
 			f32(texture.width), f32(texture.height),
 		}
@@ -893,25 +903,26 @@ draw_texture :: proc(
 
 	draw_texture_fit(
 		texture,
-		dst,
-		texture_src,
+		fit_into,
+		crop,
 		origin,
 		rotation,
 		tint,
 	)
 }
 
-// Draw a texture by taking a section of the texture specified by `src` and draw it into the area of
-// the screen specified by `dst`. You can also rotate the texture around an origin point of your
-// choice.
+// Draw a texture by fitting it into a rectangle.
 //
-// Tip: Use `k2.get_texture_rect(tex)` for `src` if you want to draw the whole texture.
-//
-// Rotation unit: Radians.
+// Optional parameters:
+// - crop: A rectangle that describes which part of `texture` to display. Note that it is a Maybe
+//   type, which means that `nil` means "no cropping".
+// - origin: An offset of the `into` rectangle and also the point which `rotation` rotates around.
+// - rotation: Rotation around `origin`, measured in radians.
+// - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 draw_texture_fit :: proc(
 	texture: Texture,
 	into: Rect,
-	texture_src: Rect = RECT_EMPTY,
+	crop: Maybe(Rect) = nil,
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
@@ -931,12 +942,8 @@ draw_texture_fit :: proc(
 	s.batch_texture = texture.handle
 
 	flip_x, flip_y: bool
-	src := texture_src
 
-	if src == RECT_EMPTY {
-		src = get_texture_rect(texture)
-	}
-
+	src := crop.? or_else get_texture_rect(texture)
 	dst := into
 
 	if src.w < 0 {
@@ -3473,9 +3480,6 @@ Rect :: struct {
 	x, y: f32,
 	w, h: f32,
 }
-
-RECT_EMPTY :: Rect{}
-WHOLE_TEXTURE :: Rect{}
 
 // An RGBA (Red, Green, Blue, Alpha) color. Each channel can have a value between 0 and 255.
 Color :: [4]u8

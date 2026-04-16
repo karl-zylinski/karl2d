@@ -132,31 +132,27 @@ step :: proc() -> bool {
 		tx := txty.x
 		ty := txty.y
 
-		src := k2.Rect {
+		crop := k2.Rect {
 			x = f32(tx) * TILE_SIZE,
 			y = f32(ty) * TILE_SIZE,
 			w = TILE_SIZE,
 			h = TILE_SIZE,
 		}
 
-		dst := k2.Rect {
-			// Note the half-tile offset here: This is what "undoes" the half-tile offset that dual
-			// tile grids need.
-			x = f32(x) * TILE_SIZE - TILE_SIZE/2,
-			y = f32(y) * TILE_SIZE - TILE_SIZE/2,
-			w = TILE_SIZE,
-			h = TILE_SIZE,
+		// Note the half-tile offset here: This is what "undoes" the half-tile offset that dual
+		// tile grids need.
+		pos := k2.Vec2 {
+			f32(x) * TILE_SIZE - TILE_SIZE/2,
+			f32(y) * TILE_SIZE - TILE_SIZE/2,
 		}
 
 		// Always draw "grass" below the tile, as they have transparent pixels.
-		k2.draw_rect(dst, k2.LIGHT_GREEN)
+		k2.draw_rect(k2.rect_from_pos_size(pos, {TILE_SIZE, TILE_SIZE}), k2.LIGHT_GREEN)
 
-		k2.draw_texture_ex(
+		k2.draw_texture(
 			tileset_path_texture,
-			src,
-			dst,
-			{},
-			0,
+			pos,
+			crop,
 		)
 	}
 

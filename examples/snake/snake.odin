@@ -161,6 +161,7 @@ step :: proc() -> bool {
 	}
 	
 	k2.set_camera(camera)
+	
 	food_pos := k2.Vec2 { f32(food_pos.x), f32(food_pos.y) } * CELL_SIZE
 	k2.draw_texture(food_sprite, food_pos)
 
