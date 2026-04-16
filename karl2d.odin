@@ -743,6 +743,11 @@ draw_rect_vec :: proc(
 	draw_rect(rect_from_pos_size(position, size), color, origin, rotation)
 }
 
+@(deprecated="Use draw_rect instead")
+draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
+	draw_rect(r, c, origin, rot)
+}
+
 // Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
 // rectangles.
 draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
