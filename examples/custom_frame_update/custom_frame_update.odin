@@ -33,7 +33,7 @@ main :: proc() {
 
 		// Draw things
 		k2.clear(k2.BLUE)
-		k2.draw_text(fmt.tprintf("Hellope! Time: %.3f s", k2.get_time()), {10, 10}, 50)
+		k2.draw_text(fmt.tprintf("Hellope! Time: %.3f s", k2.get_time()), {10, 10}, 50, k2.BLACK)
 
 		// Present what we drew to the user.
 		k2.present()
