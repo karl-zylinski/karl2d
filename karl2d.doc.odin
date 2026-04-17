@@ -322,7 +322,7 @@ draw_texture :: proc(
 )
 
 // Draw a section of a texture at a position. The section is chosen using the `source` parameter,
-// which is a rectangle that uses pixel cooridnates.
+// which is a rectangle that uses pixel coordinates.
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
@@ -354,10 +354,8 @@ draw_texture_fit :: proc(
 	tint := WHITE,
 )
 
-// Tells you how much space some text of a certain size will use on the screen. The font used is the
-// default font. The return value contains the width and height of the text.
-// Tells you how much space some text of a certain size will use on the screen, using a custom font.
-// The return value contains the width and height of the text.
+// Measures how much space some text of a certain size will use on the screen. Will use the default
+// font unless you specify a custom font.
 measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) -> Vec2
 
 // Draw text at a position, with a size and color. The position is the top-left position of the
