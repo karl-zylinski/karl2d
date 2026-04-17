@@ -54,15 +54,18 @@ step :: proc() -> bool {
 	pos_x := f32(math.sin(t)*200)
 	rot := f32(t*1.5)
 
-	tex_fit_into := k2.Rect{
+	tex_src := k2.get_texture_rect(tex)
+
+	tex_dest := k2.Rect{
 		pos_x + 600, 450,
-		f32(tex.width*3), f32(tex.height*3),
+		tex_src.w*3, tex_src.h*3,
 	}
 
 	k2.draw_texture_fit(
 		tex,
-		tex_fit_into,
-		origin = {tex_fit_into.w/2, tex_fit_into.h/2},
+		tex_src,
+		tex_dest,
+		origin = {tex_dest.w/2, tex_dest.h/2},
 		rotation = rot,
 	)
 
@@ -85,7 +88,12 @@ step :: proc() -> bool {
 	k2.draw_text(msg1, {15, 153}, 48, color = k2.ORANGE)
 	k2.draw_text(msg2, {15, 201}, 48, color = k2.LIGHT_PURPLE)
 
-	k2.draw_text("Move the red dot using arrow keys!", {10, f32(k2.get_screen_height()) - 50}, 40)
+	k2.draw_text(
+		"Move the red dot using arrow keys!",
+		{10, f32(k2.get_screen_height()) - 50},
+		40,
+		k2.BLACK,
+	)
 
 	k2.present()
 

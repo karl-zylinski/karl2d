@@ -302,45 +302,53 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color)
 
-// Draw a texture a specific position.
-//
-// The top-left corner of the texture will end up at the position. If you use the `crop` parameter
-// to crop out a part of the texture, then the top-left corner of the cropped-out part will be at
-// the position. Also, any non-zero origin will offset the position as well.
+// Draw a texture at a position. The top-left corner of the texture will end up at the position.
 //
 // Optional parameters:
-// - crop: A rectangle that describes which part of `texture` to display. Note that it is a Maybe
-//   type, which means that `nil` means "no cropping". Uses pixel coordinates.
-// - origin: The point which `rotation` rotates around. Effectively an offset of `position`.
-// - rotation: Rotation around `origin`, measured in radians.
+// - origin: An offset for the position, and also the point to rotate around.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 //
 // If you want to rotate around the middle of the texture, then try this:
 // 
 //// middle := k2.rect_middle(k2.get_texture_rect(tex))
-//// draw_texture(tex, pos + middle, origin = middle, rotation = rot)
+//// draw_texture(tex, pos + middle, middle, rot)
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
-	crop: Maybe(Rect) = nil,
 	origin: Vec2 = {},
 	rotation: f32 = 0,
-	tint := WHITE
+	tint := WHITE,
 )
 
-// Draw a texture by fitting it into a rectangle.
+// Draw a section of a texture at a position. The section is chosen using the `source` parameter,
+// which is a rectangle that uses pixel cooridnates.
 //
 // Optional parameters:
-// - crop: A rectangle that describes which part of `texture` to display. Note that it is a Maybe
-//   type, which means that `nil` means "no cropping". Uses pixel coordinates.
-// - origin: The point within `into` to rotate around, measured from the top-left corner. Also
-//   offsets the position of `into`.
-// - rotation: Rotation around `origin`, measured in radians.
+// - origin: An offset for the position, and also the point to rotate around.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
+draw_texture_section :: proc(
+	texture: Texture,
+	source: Rect,
+	position: Vec2,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE,
+)
+
+// Draw a section of a texture by fitting it into a rectangle. The section is chosen using the
+// rectangle parameter `source`, measured in pixels. The `dest` parameter is the rectangle on the
+// screen (or in the world) that we want to fit the texture section into.
+//
+// Optional parameters:
+// - origin: An offset for the dest rectangle, and also the point to rotate around.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 draw_texture_fit :: proc(
 	texture: Texture,
-	into: Rect,
-	crop: Maybe(Rect) = nil,
+	source: Rect,
+	dest: Rect,
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,

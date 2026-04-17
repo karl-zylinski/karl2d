@@ -161,9 +161,10 @@ step :: proc() -> bool {
 		),
 		{20, 20},
 		40,
+		k2.BLACK,
 	)
-	k2.draw_text("Press Space to play a familiar sound.", {20, 200}, 40)
-	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 240}, 40)
+	k2.draw_text("Press Space to play a familiar sound.", {20, 200}, 40, k2.BLACK)
+	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 240}, 40, k2.BLACK)
 	k2.present()
 	free_all(context.temp_allocator)
 

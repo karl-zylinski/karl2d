@@ -859,72 +859,87 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 	batch_vertex(vertices[2], {0, 1}, c)
 }
 
-// Draw a texture a specific position.
-//
-// The top-left corner of the texture will end up at the position. If you use the `crop` parameter
-// to crop out a part of the texture, then the top-left corner of the cropped-out part will be at
-// the position. Also, any non-zero origin will offset the position as well.
+// Draw a texture at a position. The top-left corner of the texture will end up at the position.
 //
 // Optional parameters:
-// - crop: A rectangle that describes which part of `texture` to display. Note that it is a Maybe
-//   type, which means that `nil` means "no cropping". Uses pixel coordinates.
-// - origin: The point which `rotation` rotates around. Effectively an offset of `position`.
-// - rotation: Rotation around `origin`, measured in radians.
+// - origin: An offset for the position, and also the point to rotate around.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 //
 // If you want to rotate around the middle of the texture, then try this:
 // 
 //// middle := k2.rect_middle(k2.get_texture_rect(tex))
-//// draw_texture(tex, pos + middle, origin = middle, rotation = rot)
+//// draw_texture(tex, pos + middle, middle, rot)
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
-	crop: Maybe(Rect) = nil,
 	origin: Vec2 = {},
 	rotation: f32 = 0,
-	tint := WHITE
+	tint := WHITE,
 ) {
 	if texture.handle == TEXTURE_NONE || texture.width == 0 || texture.height == 0 {
 		return
 	}
 
-	fit_into: Rect
+	source := get_texture_rect(texture)
 
-	if crop_val, has_crop := crop.?; has_crop {
-		fit_into = {
-			position.x, position.y,
-			crop_val.w, crop_val.h,
-		}
-	} else {
-		fit_into = {
-			position.x, position.y,
-			f32(texture.width), f32(texture.height),
-		}
+	dest := Rect {
+		position.x, position.y,
+		source.w, source.h,
 	}
 
 	draw_texture_fit(
 		texture,
-		fit_into,
-		crop,
+		source,
+		dest,
 		origin,
 		rotation,
 		tint,
 	)
 }
 
-// Draw a texture by fitting it into a rectangle.
+// Draw a section of a texture at a position. The section is chosen using the `source` parameter,
+// which is a rectangle that uses pixel cooridnates.
 //
 // Optional parameters:
-// - crop: A rectangle that describes which part of `texture` to display. Note that it is a Maybe
-//   type, which means that `nil` means "no cropping". Uses pixel coordinates.
-// - origin: The point within `into` to rotate around, measured from the top-left corner. Also
-//   offsets the position of `into`.
-// - rotation: Rotation around `origin`, measured in radians.
+// - origin: An offset for the position, and also the point to rotate around.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
+draw_texture_section :: proc(
+	texture: Texture,
+	source: Rect,
+	position: Vec2,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE,
+) {
+	dest := Rect {
+		position.x, position.y,
+		source.w, source.h,
+	}
+
+	draw_texture_fit(
+		texture,
+		source,
+		dest,
+		origin,
+		rotation,
+		tint,
+	)
+}
+
+// Draw a section of a texture by fitting it into a rectangle. The section is chosen using the
+// rectangle parameter `source`, measured in pixels. The `dest` parameter is the rectangle on the
+// screen (or in the world) that we want to fit the texture section into.
+//
+// Optional parameters:
+// - origin: An offset for the dest rectangle, and also the point to rotate around.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 draw_texture_fit :: proc(
 	texture: Texture,
-	into: Rect,
-	crop: Maybe(Rect) = nil,
+	source: Rect,
+	dest: Rect,
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
@@ -944,43 +959,42 @@ draw_texture_fit :: proc(
 	s.batch_texture = texture.handle
 
 	flip_x, flip_y: bool
+	source := source
+	dest := dest
 
-	src := crop.? or_else get_texture_rect(texture)
-	dst := into
-
-	if src.w < 0 {
+	if source.w < 0 {
 		flip_x = true
-		src.w = -src.w
+		source.w = -source.w
 	}
 
-	if src.h < 0 {
+	if source.h < 0 {
 		flip_y = true
-		src.h = -src.h
+		source.h = -source.h
 	}
 
-	if dst.w < 0 {
-		dst.w *= -1
+	if dest.w < 0 {
+		dest.w *= -1
 	}
 
-	if dst.h < 0 {
-		dst.h *= -1
+	if dest.h < 0 {
+		dest.h *= -1
 	}
 
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
 	if rotation == 0 {
-		x := dst.x - origin.x
-		y := dst.y - origin.y
+		x := dest.x - origin.x
+		y := dest.y - origin.y
 		tl = { x,         y }
-		tr = { x + dst.w, y }
-		bl = { x,         y + dst.h }
-		br = { x + dst.w, y + dst.h }
+		tr = { x + dest.w, y }
+		bl = { x,         y + dest.h }
+		br = { x + dest.w, y + dest.h }
 	} else {
 		sin_rot := math.sin(rotation)
 		cos_rot := math.cos(rotation)
-		x := dst.x
-		y := dst.y
+		x := dest.x
+		y := dest.y
 		dx := -origin.x
 		dy := -origin.y
 
@@ -990,25 +1004,25 @@ draw_texture_fit :: proc(
 		}
 
 		tr = {
-			x + (dx + dst.w) * cos_rot - dy * sin_rot,
-			y + (dx + dst.w) * sin_rot + dy * cos_rot,
+			x + (dx + dest.w) * cos_rot - dy * sin_rot,
+			y + (dx + dest.w) * sin_rot + dy * cos_rot,
 		}
 
 		bl = {
-			x + dx * cos_rot - (dy + dst.h) * sin_rot,
-			y + dx * sin_rot + (dy + dst.h) * cos_rot,
+			x + dx * cos_rot - (dy + dest.h) * sin_rot,
+			y + dx * sin_rot + (dy + dest.h) * cos_rot,
 		}
 
 		br = {
-			x + (dx + dst.w) * cos_rot - (dy + dst.h) * sin_rot,
-			y + (dx + dst.w) * sin_rot + (dy + dst.h) * cos_rot,
+			x + (dx + dest.w) * cos_rot - (dy + dest.h) * sin_rot,
+			y + (dx + dest.w) * sin_rot + (dy + dest.h) * cos_rot,
 		}
 	}
 	
 	ts := Vec2{f32(texture.width), f32(texture.height)}
 
-	up := Vec2{src.x, src.y} / ts
-	us := Vec2{src.w, src.h} / ts
+	up := Vec2{source.x, source.y} / ts
+	us := Vec2{source.w, source.h} / ts
 	
 	c := tint
 
@@ -1054,14 +1068,14 @@ draw_texture_fit :: proc(
 	batch_vertex(bl, uv5, c)
 }
 
-@(deprecated="Use draw_texture instead. Pass the `rect` into its `crop` argument")
+@(deprecated="Use draw_texture_section instead")
 draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
-	draw_texture(tex, pos, crop = rect, tint = tint)
+	draw_texture_section(tex, rect, pos, tint = tint)
 }
 
-@(deprecated="Use draw_texture_fit instead. Note that `dst` is equivalent to `into` and `src` is equivalent to `crop`, which have switched positions in the parameter list.")
+@(deprecated="Use draw_texture_fit instead")
 draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE) {
-	draw_texture_fit(tex, dst, src, origin, rotation, tint)
+	draw_texture_fit(tex, src, dst, origin, rotation, tint)
 }
 
 // Tells you how much space some text of a certain size will use on the screen. The font used is the
@@ -1191,7 +1205,7 @@ draw_text :: proc(
 		}
 
 		char_origin := origin + {position.x - q.x0, position.y - q.y0}
-		draw_texture_fit(font_object.atlas, dst, src, char_origin, rotation, color)
+		draw_texture_fit(font_object.atlas, src, dst, char_origin, rotation, color)
 	}
 }
 

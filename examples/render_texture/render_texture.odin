@@ -48,11 +48,12 @@ step :: proc() -> bool {
 
 	rt_rect := k2.get_texture_rect(render_texture.texture)
 
-	k2.draw_texture_fit(render_texture.texture, {0, 0, rt_rect.w * 5, rt_rect.h * 5})
+	k2.draw_texture_fit(render_texture.texture, rt_rect, {0, 0, rt_rect.w * 5, rt_rect.h * 5})
 	k2.draw_texture(render_texture.texture, {400, 20})
 	k2.draw_texture_fit(
 		render_texture.texture,
-		into = {512, 512, rt_rect.w * 5, rt_rect.h * 5},
+		rt_rect,
+		{512, 512, rt_rect.w * 5, rt_rect.h * 5},
 		origin = {rt_rect.w * 2.5, rt_rect.h * 2.5}, // half the dst rect size
 		rotation = rot2,
 	)

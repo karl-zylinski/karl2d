@@ -132,7 +132,7 @@ step :: proc() -> bool {
 		tx := txty.x
 		ty := txty.y
 
-		crop := k2.Rect {
+		tile_rect := k2.Rect {
 			x = f32(tx) * TILE_SIZE,
 			y = f32(ty) * TILE_SIZE,
 			w = TILE_SIZE,
@@ -149,10 +149,10 @@ step :: proc() -> bool {
 		// Always draw "grass" below the tile, as they have transparent pixels.
 		k2.draw_rect(k2.rect_from_pos_size(pos, {TILE_SIZE, TILE_SIZE}), k2.LIGHT_GREEN)
 
-		k2.draw_texture(
+		k2.draw_texture_section(
 			tileset_path_texture,
+			tile_rect,
 			pos,
-			crop,
 		)
 	}
 

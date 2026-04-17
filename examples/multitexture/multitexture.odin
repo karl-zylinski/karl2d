@@ -47,7 +47,7 @@ step :: proc() -> bool {
 	k2.draw_circle({120, 40}, 30, k2.BLACK)
 	k2.draw_circle({120, 40}, 20, k2.GREEN)
 	k2.draw_text("Hellöpe!", {10, 100}, 64, k2.WHITE)
-	k2.draw_texture_fit(tex1, {10, 200, 900, 500})
+	k2.draw_texture_fit(tex1, k2.get_texture_rect(tex1), {10, 200, 900, 500})
 
 	k2.present()
 	free_all(context.temp_allocator)

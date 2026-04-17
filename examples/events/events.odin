@@ -39,12 +39,12 @@ main :: proc() {
 		}
 
 		k2.clear(k2.LIGHT_BLUE)
-		k2.draw_text(fmt.tprintf("Left mouse button pressed %v times", num_mouse_clicks), {10, 10}, 50)
-		k2.draw_text(fmt.tprintf("%v latest events:", MAX_HISTORY), {10, 100}, 40)
+		k2.draw_text(fmt.tprintf("Left mouse button pressed %v times", num_mouse_clicks), {10, 10}, 50, k2.BLACK)
+		k2.draw_text(fmt.tprintf("%v latest events:", MAX_HISTORY), {10, 100}, 40, k2.BLACK)
 		y_pos := f32(145)
 
 		#reverse for te in event_history {
-			k2.draw_text(fmt.tprint(te), {10, y_pos}, 30)
+			k2.draw_text(fmt.tprint(te), {10, y_pos}, 30, k2.BLACK)
 			y_pos += 35
 		}
 
