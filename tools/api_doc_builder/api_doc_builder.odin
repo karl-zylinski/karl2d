@@ -43,6 +43,13 @@ main :: proc() {
 		decl_loop: for &d in f.decls {
 			#partial switch &dd in d.derived {
 			case ^ast.Value_Decl:
+				for a in dd.attributes {
+					attr_text := f.src[a.pos.offset:a.close.offset]
+					if strings.contains(attr_text, "deprecated") {
+						continue decl_loop						
+					}
+				}
+
 				val: string
 				for v, vi in dd.values {
 					#partial switch vd in v.derived {

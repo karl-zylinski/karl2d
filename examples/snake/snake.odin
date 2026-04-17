@@ -161,10 +161,9 @@ step :: proc() -> bool {
 	}
 	
 	k2.set_camera(camera)
-	food_sprite.width = CELL_SIZE
-	food_sprite.height = CELL_SIZE
-
-	k2.draw_texture(food_sprite, {f32(food_pos.x), f32(food_pos.y)}*CELL_SIZE)
+	
+	food_pos := k2.Vec2 { f32(food_pos.x), f32(food_pos.y) } * CELL_SIZE
+	k2.draw_texture(food_sprite, food_pos)
 
 	for i in 0..<snake_length {
 		part_sprite := body_sprite
@@ -180,21 +179,20 @@ step :: proc() -> bool {
 			dir = snake[i - 1] - snake[i]
 		}
 
-		rot := math.atan2(f32(dir.y), f32(dir.x))
+		origin := k2.rect_middle(k2.get_texture_rect(part_sprite))
+		rotation := math.atan2(f32(dir.y), f32(dir.x))
 
-		source := k2.Rect {
-			0, 0,
-			f32(part_sprite.width), f32(part_sprite.height),
+		part_pos := k2.Vec2 {
+			f32(snake[i].x)*CELL_SIZE + origin.x,
+			f32(snake[i].y)*CELL_SIZE + origin.y,
 		}
 
-		dest := k2.Rect {
-			f32(snake[i].x)*CELL_SIZE + 0.5*CELL_SIZE,
-			f32(snake[i].y)*CELL_SIZE + 0.5*CELL_SIZE,
-			CELL_SIZE,
-			CELL_SIZE,
-		}
-
-		k2.draw_texture_ex(part_sprite, source, dest, {CELL_SIZE, CELL_SIZE}*0.5, rot)
+		k2.draw_texture(
+			part_sprite,
+			part_pos,
+			origin = origin,
+			rotation = rotation,
+		)
 	}
 
 	if game_over {

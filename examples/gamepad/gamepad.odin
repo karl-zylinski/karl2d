@@ -7,13 +7,13 @@ gamepad_demo :: proc(gamepad: k2.Gamepad_Index, offset: k2.Vec2) {
 	if !k2.is_gamepad_active(gamepad) {
 		title := fmt.tprintf("Gamepad %v (not connected)", gamepad + 1)
 		ts := k2.measure_text(title, 30)
-		k2.draw_text(title, offset + {250, 60} - {ts.x/2, 0}, 30, k2.WHITE)
+		k2.draw_text(title, offset + {250, 60} - {ts.x/2, 0}, 30, color = k2.WHITE)
 		return
 	}
 
 	title := fmt.tprintf("Gamepad %v", gamepad + 1)
 	ts := k2.measure_text(title, 30)
-	k2.draw_text(title, offset + {250, 60} - {ts.x/2, 0}, 30, k2.WHITE)
+	k2.draw_text(title, offset + {250, 60} - {ts.x/2, 0}, 30, color = k2.WHITE)
 
 	button_color :: proc(
 		gamepad: k2.Gamepad_Index,

@@ -15,9 +15,9 @@ main :: proc() {
 	for k2.update() {
 		k2.clear(k2.BLUE)
 
-		src := k2.get_texture_rect(tex)
-		dst := k2.Rect { 20, 100, src.w*20, src.h*20}
-		k2.draw_texture_ex(tex, src, dst, {}, 0)
+		tex_src := k2.get_texture_rect(tex)
+		tex_dest := k2.Rect { 20, 100, tex_src.w*20, tex_src.h*20 }
+		k2.draw_texture_fit(tex, tex_src, tex_dest)
 
 		k2.present()
 		free_all(context.temp_allocator)

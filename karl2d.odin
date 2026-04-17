@@ -124,8 +124,9 @@ init :: proc(
 	// Dummy element so font with index 0 means 'no font'.
 	append_nothing(&s.fonts)
 
-	s.default_font = load_font_from_bytes(DEFAULT_FONT_DATA)
-	_set_font(s.default_font)
+	default_font := load_font_from_bytes(DEFAULT_FONT_DATA)
+	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
+	_set_font(FONT_DEFAULT)
 
 	// Audio
 	{
@@ -211,7 +212,7 @@ shutdown :: proc() {
 	}
 
 	delete(s.events)
-	destroy_font(s.default_font)
+	destroy_font(FONT_DEFAULT)
 	rb.destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
 	rb.shutdown()
@@ -662,38 +663,13 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 
 // Draw a colored rectangle. The rectangles have their (x, y) position in the top-left corner of the
 // rectangle.
-draw_rect :: proc(r: Rect, c: Color) {
-	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
-		draw_current_batch()
-	}
-
-	if s.batch_texture != s.shape_drawing_texture {
-		draw_current_batch()
-	}
-
-	s.batch_texture = s.shape_drawing_texture
-
-	batch_vertex({r.x, r.y}, {0, 0}, c)
-	batch_vertex({r.x + r.w, r.y}, {1, 0}, c)
-	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	batch_vertex({r.x, r.y}, {0, 0}, c)
-	batch_vertex({r.x + r.w, r.y + r.h}, {1, 1}, c)
-	batch_vertex({r.x, r.y + r.h}, {0, 1}, c)
-}
-
-// Creates a rectangle from a position and a size and draws it.
-draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color) {
-	draw_rect({pos.x, pos.y, size.x, size.y}, c)
-}
-
-// Draw a rectangle with a custom origin and rotation.
 //
-// The origin says which point the rotation rotates around. If the origin is `(0, 0)`, then the
-// rectangle rotates around the top-left corner of the rectangle. If it is `(rect.w/2, rect.h/2)`
-// then the rectangle rotates around its center.
-//
-// Rotation unit: Radians.
-draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
+// Optional parameters:
+// - origin: The point to rotate around, also offsets the position of the rect. If the origin is
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
+// - rotation: The rotation to apply, in radians
+draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
@@ -706,18 +682,18 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
-	if rot == 0 {
-		x := r.x - origin.x
-		y := r.y - origin.y
-		tl = { x,         y }
-		tr = { x + r.w, y }
-		bl = { x,         y + r.h }
-		br = { x + r.w, y + r.h }
+	if rotation == 0 {
+		x := rect.x - origin.x
+		y := rect.y - origin.y
+		tl = { x,          y }
+		tr = { x + rect.w, y }
+		bl = { x,          y + rect.h }
+		br = { x + rect.w, y + rect.h }
 	} else {
-		sin_rot := math.sin(rot)
-		cos_rot := math.cos(rot)
-		x := r.x
-		y := r.y
+		sin_rot := math.sin(rotation)
+		cos_rot := math.cos(rotation)
+		x := rect.x
+		y := rect.y
 		dx := -origin.x
 		dy := -origin.y
 
@@ -727,27 +703,49 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
 		}
 
 		tr = {
-			x + (dx + r.w) * cos_rot - dy * sin_rot,
-			y + (dx + r.w) * sin_rot + dy * cos_rot,
+			x + (dx + rect.w) * cos_rot - dy * sin_rot,
+			y + (dx + rect.w) * sin_rot + dy * cos_rot,
 		}
 
 		bl = {
-			x + dx * cos_rot - (dy + r.h) * sin_rot,
-			y + dx * sin_rot + (dy + r.h) * cos_rot,
+			x + dx * cos_rot - (dy + rect.h) * sin_rot,
+			y + dx * sin_rot + (dy + rect.h) * cos_rot,
 		}
 
 		br = {
-			x + (dx + r.w) * cos_rot - (dy + r.h) * sin_rot,
-			y + (dx + r.w) * sin_rot + (dy + r.h) * cos_rot,
+			x + (dx + rect.w) * cos_rot - (dy + rect.h) * sin_rot,
+			y + (dx + rect.w) * sin_rot + (dy + rect.h) * cos_rot,
 		}
 	}
 
-	batch_vertex(tl, {0, 0}, c)
-	batch_vertex(tr, {1, 0}, c)
-	batch_vertex(br, {1, 1}, c)
-	batch_vertex(tl, {0, 0}, c)
-	batch_vertex(br, {1, 1}, c)
-	batch_vertex(bl, {0, 1}, c)
+	batch_vertex(tl, {0, 0}, color)
+	batch_vertex(tr, {1, 0}, color)
+	batch_vertex(br, {1, 1}, color)
+	batch_vertex(tl, {0, 0}, color)
+	batch_vertex(br, {1, 1}, color)
+	batch_vertex(bl, {0, 1}, color)
+}
+
+// Creates a rectangle from a position and a size and draws it using the specified color.
+//
+// Optional parameters:
+// - origin: The point to rotate around, also offsets the position of the rect. If the origin is
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
+// - rotation: The rotation to apply, in radians
+draw_rect_vec :: proc(
+	position: Vec2,
+	size: Vec2,
+	color: Color,
+	origin: Vec2 = {},
+	rotation: f32 = 0
+) {
+	draw_rect(rect_from_pos_size(position, size), color, origin, rotation)
+}
+
+@(deprecated="Use draw_rect instead")
+draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color) {
+	draw_rect(r, c, origin, rot)
 }
 
 // Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
@@ -840,7 +838,7 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 
 	rot := math.atan2(end.y - start.y, end.x - start.x)
 
-	draw_rect_ex(r, origin, rot, color)
+	draw_rect(r, color, origin, rot)
 }
 
 // Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
@@ -861,45 +859,92 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 	batch_vertex(vertices[2], {0, 1}, c)
 }
 
-
-// Draw a texture at a specific position. The texture will be drawn with its top-left corner at
-// position `pos`.
+// Draw a texture at a position. The top-left corner of the texture will end up at the position.
 //
-// Load textures using `load_texture_from_file` or `load_texture_from_bytes`.
-draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE) {
-	draw_texture_ex(
-		tex,
-		{0, 0, f32(tex.width), f32(tex.height)},
-		{pos.x, pos.y, f32(tex.width), f32(tex.height)},
-		{},
-		0,
+// Optional parameters:
+// - origin: An offset for the position, and also the point to rotate around.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
+//
+// If you want to rotate around the middle of the texture, then try this:
+// 
+//// middle := k2.rect_middle(k2.get_texture_rect(tex))
+//// draw_texture(tex, pos + middle, middle, rot)
+draw_texture :: proc(
+	texture: Texture,
+	position: Vec2,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE,
+) {
+	if texture.handle == TEXTURE_NONE || texture.width == 0 || texture.height == 0 {
+		return
+	}
+
+	source := get_texture_rect(texture)
+
+	dest := Rect {
+		position.x, position.y,
+		source.w, source.h,
+	}
+
+	draw_texture_fit(
+		texture,
+		source,
+		dest,
+		origin,
+		rotation,
 		tint,
 	)
 }
 
-// Draw a section of a texture at a specific position. `rect` is a rectangle measured in pixels. It
-// tells the procedure which part of the texture to display. The texture will be drawn with its
-// top-left corner at position `pos`.
-draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
-	draw_texture_ex(
-		tex,
-		rect,
-		{pos.x, pos.y, rect.w, rect.h},
-		{},
-		0,
+// Draw a section of a texture at a position. The section is chosen using the `source` parameter,
+// which is a rectangle that uses pixel coordinates.
+//
+// Optional parameters:
+// - origin: An offset for the position, and also the point to rotate around.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
+draw_texture_section :: proc(
+	texture: Texture,
+	source: Rect,
+	position: Vec2,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE,
+) {
+	dest := Rect {
+		position.x, position.y,
+		source.w, source.h,
+	}
+
+	draw_texture_fit(
+		texture,
+		source,
+		dest,
+		origin,
+		rotation,
 		tint,
 	)
 }
 
-// Draw a texture by taking a section of the texture specified by `src` and draw it into the area of
-// the screen specified by `dst`. You can also rotate the texture around an origin point of your
-// choice.
+// Draw a section of a texture by fitting it into a rectangle. The section is chosen using the
+// rectangle parameter `source`, measured in pixels. The `dest` parameter is the rectangle on the
+// screen (or in the world) that we want to fit the texture section into.
 //
-// Tip: Use `k2.get_texture_rect(tex)` for `src` if you want to draw the whole texture.
-//
-// Rotation unit: Radians.
-draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE) {
-	if tex.width == 0 || tex.height == 0 {
+// Optional parameters:
+// - origin: An offset for the dest rectangle, and also the point to rotate around.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
+draw_texture_fit :: proc(
+	texture: Texture,
+	source: Rect,
+	dest: Rect,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE,
+) {
+	if texture.handle == TEXTURE_NONE || texture.width == 0 || texture.height == 0 {
 		return
 	}
 
@@ -907,49 +952,49 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		draw_current_batch()
 	}
 
-	if s.batch_texture != tex.handle {
+	if s.batch_texture != texture.handle {
 		draw_current_batch()
 	}
 	
-	s.batch_texture = tex.handle
+	s.batch_texture = texture.handle
 
 	flip_x, flip_y: bool
-	src := src
-	dst := dst
+	source := source
+	dest := dest
 
-	if src.w < 0 {
+	if source.w < 0 {
 		flip_x = true
-		src.w = -src.w
+		source.w = -source.w
 	}
 
-	if src.h < 0 {
+	if source.h < 0 {
 		flip_y = true
-		src.h = -src.h
+		source.h = -source.h
 	}
 
-	if dst.w < 0 {
-		dst.w *= -1
+	if dest.w < 0 {
+		dest.w *= -1
 	}
 
-	if dst.h < 0 {
-		dst.h *= -1
+	if dest.h < 0 {
+		dest.h *= -1
 	}
 
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
 	if rotation == 0 {
-		x := dst.x - origin.x
-		y := dst.y - origin.y
+		x := dest.x - origin.x
+		y := dest.y - origin.y
 		tl = { x,         y }
-		tr = { x + dst.w, y }
-		bl = { x,         y + dst.h }
-		br = { x + dst.w, y + dst.h }
+		tr = { x + dest.w, y }
+		bl = { x,         y + dest.h }
+		br = { x + dest.w, y + dest.h }
 	} else {
 		sin_rot := math.sin(rotation)
 		cos_rot := math.cos(rotation)
-		x := dst.x
-		y := dst.y
+		x := dest.x
+		y := dest.y
 		dx := -origin.x
 		dy := -origin.y
 
@@ -959,25 +1004,25 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 		}
 
 		tr = {
-			x + (dx + dst.w) * cos_rot - dy * sin_rot,
-			y + (dx + dst.w) * sin_rot + dy * cos_rot,
+			x + (dx + dest.w) * cos_rot - dy * sin_rot,
+			y + (dx + dest.w) * sin_rot + dy * cos_rot,
 		}
 
 		bl = {
-			x + dx * cos_rot - (dy + dst.h) * sin_rot,
-			y + dx * sin_rot + (dy + dst.h) * cos_rot,
+			x + dx * cos_rot - (dy + dest.h) * sin_rot,
+			y + dx * sin_rot + (dy + dest.h) * cos_rot,
 		}
 
 		br = {
-			x + (dx + dst.w) * cos_rot - (dy + dst.h) * sin_rot,
-			y + (dx + dst.w) * sin_rot + (dy + dst.h) * cos_rot,
+			x + (dx + dest.w) * cos_rot - (dy + dest.h) * sin_rot,
+			y + (dx + dest.w) * sin_rot + (dy + dest.h) * cos_rot,
 		}
 	}
 	
-	ts := Vec2{f32(tex.width), f32(tex.height)}
+	ts := Vec2{f32(texture.width), f32(texture.height)}
 
-	up := Vec2{src.x, src.y} / ts
-	us := Vec2{src.w, src.h} / ts
+	up := Vec2{source.x, source.y} / ts
+	us := Vec2{source.w, source.h} / ts
 	
 	c := tint
 
@@ -1002,7 +1047,7 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	//
 	// Could we do something with the projection matrix while drawing into those render textures
 	// instead? I tried that, but couldn't get it to work.
-	if rb.texture_needs_vertical_flip(tex.handle) {
+	if rb.texture_needs_vertical_flip(texture.handle) {
 		flip_y = !flip_y
 	}
 
@@ -1023,23 +1068,27 @@ draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotati
 	batch_vertex(bl, uv5, c)
 }
 
-// Tells you how much space some text of a certain size will use on the screen. The font used is the
-// default font. The return value contains the width and height of the text.
-measure_text :: proc(text: string, font_size: f32) -> Vec2 {
-	return measure_text_ex(s.default_font, text, font_size)
+@(deprecated="Use draw_texture_section instead")
+draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
+	draw_texture_section(tex, rect, pos, tint = tint)
 }
 
-// Tells you how much space some text of a certain size will use on the screen, using a custom font.
-// The return value contains the width and height of the text.
-measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2 {
-	if font_handle < 0 || int(font_handle) >= len(s.fonts) {
+@(deprecated="Use draw_texture_fit instead")
+draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE) {
+	draw_texture_fit(tex, src, dst, origin, rotation, tint)
+}
+
+// Measures how much space some text of a certain size will use on the screen. Will use the default
+// font unless you specify a custom font.
+measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) -> Vec2 {
+	if font < 0 || int(font) >= len(s.fonts) {
 		return {}
 	}
 
-	font := s.fonts[font_handle]
+	font_object := s.fonts[font]
 
 	// Temporary until I rewrite the font caching system.
-	_set_font(font_handle)
+	_set_font(font)
 
 	// TextBounds from fontstash, but fixed and simplified for my purposes.
 	// The version in there is broken.
@@ -1088,32 +1137,44 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 		return { max_x, f32(lines)*size }
 	}
 
-	return TextBounds(&s.fs, font.fontstash_handle, font_size, text)
+	return TextBounds(&s.fs, font_object.fontstash_handle, font_size, text)
 }
 
-// Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
-// top-left position of the text.
-draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK) {
-	draw_text_ex(s.default_font, text, pos, font_size, color)
+@(deprecated="Use measure_text(text, font_size, font) instead")
+measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2 {
+	return measure_text(text, font_size, font_handle)
 }
 
-// Draw text at a position with a size, using a custom font. `pos` will be equal to the  top-left
-// position of the text.
-draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32, color := BLACK) {
-	if int(font_handle) >= len(s.fonts) {
+// Draw text at a position, with a size and color. The position is the top-left position of the
+// text.
+//
+// Optional parameters:
+// - font: The font to use, uses a default font if none is specified.
+// - origin: The origin relative top the top-left position of the text. Used when rotating the text.
+// - rotation: Rotating to apply to the text, measured in radians.
+draw_text :: proc(
+	text: string,
+	position: Vec2,
+	font_size: f32,
+	color: Color,
+	font := FONT_DEFAULT,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+) {
+	if int(font) >= len(s.fonts) {
 		return
 	}
 
-	_set_font(font_handle)
-	font := &s.fonts[font_handle]
+	_set_font(font)
+	font_object := &s.fonts[font]
 	fs.SetSize(&s.fs, font_size)
-	iter := fs.TextIterInit(&s.fs, pos.x, pos.y, text)
+	iter := fs.TextIterInit(&s.fs, position.x, position.y, text)
 
 	q: fs.Quad
 	for fs.TextIterNext(&s.fs, &iter, &q) {
 		if iter.codepoint == '\n' {
 			iter.nexty += font_size
-			iter.nextx = pos.x
+			iter.nextx = position.x
 			continue
 		}
 
@@ -1137,12 +1198,18 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 		src.h *= h
 
 		dst := Rect {
-			q.x0, q.y0,
+			position.x, position.y,
 			q.x1 - q.x0, q.y1 - q.y0,
 		}
 
-		draw_texture_ex(font.atlas, src, dst, {}, 0, color)
+		char_origin := origin + {position.x - q.x0, position.y - q.y0}
+		draw_texture_fit(font_object.atlas, src, dst, char_origin, rotation, color)
 	}
+}
+
+@(deprecated="Use draw_text instead")
+draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32, color := BLACK) {
+	draw_text(text, pos, font_size, color, font_handle)
 }
 
 //--------------------//
@@ -3022,11 +3089,10 @@ destroy_font :: proc(font: Font) {
 	s.fs.fonts[f.fontstash_handle].glyphs = {}
 }
 
-// Returns the built-in font of Karl2D (the font is known as "roboto")
+@(deprecated="Use FONT_DEFAULT constant instead")
 get_default_font :: proc() -> Font {
-	return s.default_font
+	return FONT_DEFAULT
 }
-
 
 //---------//
 // SHADERS //
@@ -3710,7 +3776,12 @@ Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
-FONT_NONE :: Font {}
+FONT_NONE :: Font(0)
+
+// The default font. It's a font called "roboto". It is loaded from `DEFAULT_FONT_DATA` on Karl2D is
+// initialized.
+FONT_DEFAULT :: Font(1) 
+
 TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
@@ -3901,7 +3972,7 @@ State :: struct {
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 
-	default_font: Font,
+	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
 	shape_drawing_texture: Texture_Handle,
 	batch_font: Font,
@@ -4413,7 +4484,7 @@ _set_font :: proc(fh: Font) {
 	}
 
 	if fh == 0 {
-		fh = s.default_font
+		fh = FONT_DEFAULT
 	}
 
 	font := &s.fonts[fh]

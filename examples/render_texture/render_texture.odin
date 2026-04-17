@@ -39,24 +39,23 @@ step :: proc() -> bool {
 		rot -= 2*math.PI
 	}
 
-	k2.draw_rect_ex({12, 12, 12, 12}, {6, 6}, rot, k2.BLACK)
+	k2.draw_rect({12, 12, 12, 12}, k2.BLACK, {6, 6}, rot)
 	k2.draw_text("Hellöpe!", {f32(math.sin(k2.get_time() * 10))*5 + 7, 20}, 20, k2.BLACK)
 	
 	k2.set_render_texture(nil)
 
 	k2.clear(k2.BLACK)
 
-	rt_size := k2.get_texture_rect(render_texture.texture)
+	rt_rect := k2.get_texture_rect(render_texture.texture)
 
-	k2.draw_texture_ex(render_texture.texture, rt_size, {0, 0, rt_size.w * 5, rt_size.h * 5}, {}, 0)
+	k2.draw_texture_fit(render_texture.texture, rt_rect, {0, 0, rt_rect.w * 5, rt_rect.h * 5})
 	k2.draw_texture(render_texture.texture, {400, 20})
-	k2.draw_texture_ex(
+	k2.draw_texture_fit(
 		render_texture.texture,
-		rt_size,
-		{512, 512, rt_size.w * 5, rt_size.h * 5}, // dst rect
-		{rt_size.w * 2.5, rt_size.h * 2.5}, // half the dst rect size
-		rot2,
-		k2.WHITE,
+		rt_rect,
+		{512, 512, rt_rect.w * 5, rt_rect.h * 5},
+		origin = {rt_rect.w * 2.5, rt_rect.h * 2.5}, // half the dst rect size
+		rotation = rot2,
 	)
 
 	k2.present()

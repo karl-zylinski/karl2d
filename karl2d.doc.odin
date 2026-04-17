@@ -261,19 +261,28 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32)
 
 // Draw a colored rectangle. The rectangles have their (x, y) position in the top-left corner of the
 // rectangle.
-draw_rect :: proc(r: Rect, c: Color)
-
-// Creates a rectangle from a position and a size and draws it.
-draw_rect_vec :: proc(pos: Vec2, size: Vec2, c: Color)
-
-// Draw a rectangle with a custom origin and rotation.
 //
-// The origin says which point the rotation rotates around. If the origin is `(0, 0)`, then the
-// rectangle rotates around the top-left corner of the rectangle. If it is `(rect.w/2, rect.h/2)`
-// then the rectangle rotates around its center.
+// Optional parameters:
+// - origin: The point to rotate around, also offsets the position of the rect. If the origin is
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
+// - rotation: The rotation to apply, in radians
+draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0)
+
+// Creates a rectangle from a position and a size and draws it using the specified color.
 //
-// Rotation unit: Radians.
-draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color)
+// Optional parameters:
+// - origin: The point to rotate around, also offsets the position of the rect. If the origin is
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
+// - rotation: The rotation to apply, in radians
+draw_rect_vec :: proc(
+	position: Vec2,
+	size: Vec2,
+	color: Color,
+	origin: Vec2 = {},
+	rotation: f32 = 0
+)
 
 // Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
 // rectangles.
@@ -293,41 +302,78 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color)
 
-// Draw a texture at a specific position. The texture will be drawn with its top-left corner at
-// position `pos`.
+// Draw a texture at a position. The top-left corner of the texture will end up at the position.
 //
-// Load textures using `load_texture_from_file` or `load_texture_from_bytes`.
-draw_texture :: proc(tex: Texture, pos: Vec2, tint := WHITE)
-
-// Draw a section of a texture at a specific position. `rect` is a rectangle measured in pixels. It
-// tells the procedure which part of the texture to display. The texture will be drawn with its
-// top-left corner at position `pos`.
-draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE)
-
-// Draw a texture by taking a section of the texture specified by `src` and draw it into the area of
-// the screen specified by `dst`. You can also rotate the texture around an origin point of your
-// choice.
+// Optional parameters:
+// - origin: An offset for the position, and also the point to rotate around.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 //
-// Tip: Use `k2.get_texture_rect(tex)` for `src` if you want to draw the whole texture.
+// If you want to rotate around the middle of the texture, then try this:
+// 
+//// middle := k2.rect_middle(k2.get_texture_rect(tex))
+//// draw_texture(tex, pos + middle, middle, rot)
+draw_texture :: proc(
+	texture: Texture,
+	position: Vec2,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE,
+)
+
+// Draw a section of a texture at a position. The section is chosen using the `source` parameter,
+// which is a rectangle that uses pixel coordinates.
 //
-// Rotation unit: Radians.
-draw_texture_ex :: proc(tex: Texture, src: Rect, dst: Rect, origin: Vec2, rotation: f32, tint := WHITE)
+// Optional parameters:
+// - origin: An offset for the position, and also the point to rotate around.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
+draw_texture_section :: proc(
+	texture: Texture,
+	source: Rect,
+	position: Vec2,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE,
+)
 
-// Tells you how much space some text of a certain size will use on the screen. The font used is the
-// default font. The return value contains the width and height of the text.
-measure_text :: proc(text: string, font_size: f32) -> Vec2
+// Draw a section of a texture by fitting it into a rectangle. The section is chosen using the
+// rectangle parameter `source`, measured in pixels. The `dest` parameter is the rectangle on the
+// screen (or in the world) that we want to fit the texture section into.
+//
+// Optional parameters:
+// - origin: An offset for the dest rectangle, and also the point to rotate around.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
+draw_texture_fit :: proc(
+	texture: Texture,
+	source: Rect,
+	dest: Rect,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE,
+)
 
-// Tells you how much space some text of a certain size will use on the screen, using a custom font.
-// The return value contains the width and height of the text.
-measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
+// Measures how much space some text of a certain size will use on the screen. Will use the default
+// font unless you specify a custom font.
+measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) -> Vec2
 
-// Draw text at a position with a size. This uses the default font. `pos` will be equal to the 
-// top-left position of the text.
-draw_text :: proc(text: string, pos: Vec2, font_size: f32, color := BLACK)
-
-// Draw text at a position with a size, using a custom font. `pos` will be equal to the  top-left
-// position of the text.
-draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32, color := BLACK)
+// Draw text at a position, with a size and color. The position is the top-left position of the
+// text.
+//
+// Optional parameters:
+// - font: The font to use, uses a default font if none is specified.
+// - origin: The origin relative top the top-left position of the text. Used when rotating the text.
+// - rotation: Rotating to apply to the text, measured in radians.
+draw_text :: proc(
+	text: string,
+	position: Vec2,
+	font_size: f32,
+	color: Color,
+	font := FONT_DEFAULT,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+)
 
 //--------------------//
 // TEXTURE MANAGEMENT //
@@ -693,9 +739,6 @@ load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font
 
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
 destroy_font :: proc(font: Font)
-
-// Returns the built-in font of Karl2D (the font is known as "roboto")
-get_default_font :: proc() -> Font
 
 //---------//
 // SHADERS //
@@ -1091,7 +1134,12 @@ Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
-FONT_NONE :: Font {}
+FONT_NONE :: Font(0)
+
+// The default font. It's a font called "roboto". It is loaded from `DEFAULT_FONT_DATA` on Karl2D is
+// initialized.
+FONT_DEFAULT :: Font(1)
+
 TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
@@ -1282,7 +1330,7 @@ State :: struct {
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 
-	default_font: Font,
+	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
 	shape_drawing_texture: Texture_Handle,
 	batch_font: Font,
