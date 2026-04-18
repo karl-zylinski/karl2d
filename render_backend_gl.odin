@@ -17,6 +17,7 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	set_internal_state = gl_set_internal_state,
 	create_texture = gl_create_texture,
 	load_texture = gl_load_texture,
+	read_texture = gl_read_texture,
 	update_texture = gl_update_texture,
 	destroy_texture = gl_destroy_texture,
 	texture_needs_vertical_flip = gl_texture_needs_vertical_flip,
@@ -415,6 +416,60 @@ gl_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Forma
 	}
 
 	return tex
+}
+
+gl_read_texture :: proc(th: Texture_Handle, width: int, height: int, format: Pixel_Format, allocator := context.allocator) -> []u8 {  
+    tex := hm.get(&s.textures, th)  
+  
+    if tex == nil {  
+        log.error("Trying to read invalid texture")  
+        return nil  
+    }  
+  
+    bpp := pixel_format_size(format)  
+    data_size := width * height * bpp  
+    pixels := make([]u8, data_size, allocator)  
+  
+    gl.BindTexture(gl.TEXTURE_2D, tex.id)  
+  
+    // Determine the GL format and type for the readback  
+    gl_type: u32  
+    gl_fmt: u32  
+  
+    switch format {  
+    case .RGBA_8_Norm:  
+        gl_fmt = gl.RGBA  
+        gl_type = gl.UNSIGNED_BYTE  
+    case .RGBA_32_Float:  
+        gl_fmt = gl.RGBA  
+        gl_type = gl.FLOAT  
+    case .RGB_32_Float:  
+        gl_fmt = gl.RGB  
+        gl_type = gl.FLOAT  
+    case .RG_32_Float:  
+        gl_fmt = gl.RG  
+        gl_type = gl.FLOAT  
+    case .R_32_Float:  
+        gl_fmt = gl.RED  
+        gl_type = gl.FLOAT  
+    case .RG_8_Norm:  
+        gl_fmt = gl.RG  
+        gl_type = gl.UNSIGNED_BYTE  
+    case .R_8_Norm:  
+        gl_fmt = gl.RED  
+        gl_type = gl.UNSIGNED_BYTE  
+    case .R_8_UInt:  
+        gl_fmt = gl.RED_INTEGER  
+        gl_type = gl.UNSIGNED_BYTE  
+    case .Unknown:  
+        log.error("Cannot read texture with unknown pixel format")  
+        delete(pixels, allocator)  
+        return nil  
+    }  
+  
+    gl.GetTexImage(gl.TEXTURE_2D, 0, gl_fmt, gl_type, raw_data(pixels))  
+  
+    return pixels  
 }
 
 gl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {

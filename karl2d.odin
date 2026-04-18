@@ -12,6 +12,7 @@ import "core:strings"
 import "core:reflect"
 import "core:time"
 import "core:encoding/endian"
+import "core:os"
 
 import fs "vendor:fontstash"
 import stbv "vendor:stb/vorbis"
@@ -1295,6 +1296,72 @@ load_texture_from_bytes_raw :: proc(bytes: []u8, width: int, height: int, format
 		width = width,
 		height = height,
 	}
+}
+
+save_texture_to_bmp :: proc(tex: Texture, filename: string, flip := false, allocator := context.allocator) -> os.Error {  
+
+	write_int :: proc(num: int, buf: []u8, offset: int) {
+		buf[offset+0] = u8( num & 0xFF)
+		buf[offset+1] = u8((num >> 8) & 0xFF)
+		buf[offset+2] = u8((num >> 16) & 0xFF)
+		buf[offset+3] = u8((num >> 24) & 0xFF)
+	}
+
+	pixels := rb.read_texture(tex.handle, tex.width, tex.height, .RGBA_8_Norm, allocator)
+	defer delete(pixels, allocator)
+
+	HEADER_SIZE :: 12 // 12 for CORE, 108 for V4
+
+	bpp := 8*3
+
+	row_size := int(math.ceil_f32((f32(bpp)*f32(tex.width))/32)*4)
+	pixel_array_size := row_size*tex.height
+
+	offset := 14 + HEADER_SIZE
+	file_size := 14 + HEADER_SIZE + pixel_array_size  // file header + DIB header + pixels
+
+	buf := make([]u8, file_size, allocator)
+	defer delete(buf, allocator)
+
+	// BMP file header (14 bytes)
+	buf[0] = 'B'; buf[1] = 'M'
+
+	// File size (4 bytes)
+	write_int_le(u64(file_size), buf, 2)
+
+	// Reserved, not used / unnecesary (4 bytes)
+	write_int_le(u64(0), buf, 6)
+
+	// Starting offset (4 bytes)
+	write_int_le(u64(offset), buf, 10)
+	// DIB header
+	// https://en.wikipedia.org/wiki/BMP_file_format#DIB_header_(bitmap_information_header)
+
+	// BITMAPCOREHEADER (12 bytes)
+	write_int_le(12, buf, 14) // Size of header
+	w := u16(tex.width)
+	write_int_le(u16(w), buf, 18)
+	h := u16(tex.height)
+	write_int_le(u16(h), buf, 20)
+	buf[22] = 1 ; buf[23] = 0
+	write_int_le(u16(bpp), buf, 24)
+	// Color table not needed, since bpp > 16 (and only core header is used)
+
+	// Data
+	for y in 0..<tex.height {
+		src_row: int
+		if !flip {src_row = y} else {src_row = (tex.height - 1 - y)} // BMP normally stored flipped
+		// added flip option since Render_Texture is also flipped
+		dst_off := offset + y * row_size
+		for x in 0..<tex.width {
+			src_off := (src_row * tex.width + x) * 4 // RGBA, 4 bytes per pixel
+			buf[dst_off + x*3 + 0] = pixels[src_off + 2] // B
+			buf[dst_off + x*3 + 1] = pixels[src_off + 1] // G
+			buf[dst_off + x*3 + 2] = pixels[src_off + 0] // R
+			// Skip Alpha, not supported by simple core header
+		}
+	}
+	return os.write_entire_file(filename, buf)
 }
 
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
