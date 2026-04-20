@@ -40,8 +40,8 @@ windows_state_size :: proc() -> int {
 
 windows_init :: proc(
 	platform_state: rawptr,
-	screen_width: int,
-	screen_height: int,
+	canvas_width: int,
+	canvas_height: int,
 	window_title: string,
 	options: Init_Options,
 	allocator: runtime.Allocator,
@@ -71,18 +71,18 @@ windows_init :: proc(
 	win32.GetDpiForMonitor(win32.MonitorFromWindow(nil, .MONITOR_DEFAULTTOPRIMARY), {}, &dpix, &dpiy)
 	scale := f32(dpix) / 96.0
 
-	s.logical_width  = screen_width
-	s.logical_height = screen_height
-	s.screen_width = int(f32(screen_width) * scale)
-	s.screen_height = int(f32(screen_height) * scale)
+	s.canvas_width  = canvas_width
+	s.canvas_height = canvas_height
+	s.backbuffer_width = int(f32(canvas_width) * scale)
+	s.backbuffer_height = int(f32(canvas_height) * scale)
 
 	// Since this is the size of the screen we adjust it to become the size of the window. This is
 	// done using `AdjustWindowRectExForDpi`. It adds the space needed for the window borders etc.
 	initial_rect := win32.RECT {
 		0,
 		0,
-		i32(s.screen_width),
-		i32(s.screen_height),
+		i32(s.backbuffer_width),
+		i32(s.backbuffer_height),
 	}
 
 	win32.AdjustWindowRectExForDpi(&initial_rect, windows_get_style(options.window_mode), false, {}, dpix)
@@ -199,19 +199,19 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 }
 
 windows_get_canvas_width :: proc() -> int {
-	return s.logical_width
+	return s.canvas_width
 }
 
 windows_get_canvas_height :: proc() -> int {
-	return s.logical_height
+	return s.canvas_height
 }
 
 windows_get_backbuffer_width :: proc() -> int {
-	return s.screen_width
+	return s.backbuffer_width
 }
 
 windows_get_backbuffer_height :: proc() -> int {
-	return s.screen_height
+	return s.backbuffer_height
 }
 
 // Because positions can be offset in Windows: There is an "inivisble border" on Windows. This makes
@@ -269,8 +269,8 @@ windows_get_style :: proc(window_mode: Window_Mode) -> win32.DWORD {
 }
 
 windows_set_canvas_size :: proc(w, h: int) {
-	s.screen_width = w
-	s.screen_height = h
+	s.canvas_width = w
+	s.canvas_height = h
 
 	r: win32.RECT
 	r.left = 0
@@ -278,7 +278,12 @@ windows_set_canvas_size :: proc(w, h: int) {
 	r.right = i32(w)
 	r.bottom = i32(h)
 
-	win32.AdjustWindowRectExForDpi(&r, windows_get_style(s.window_mode), false, 0, win32.GetDpiForWindow(s.hwnd))
+	dpi := win32.GetDpiForWindow(s.hwnd)
+	scale := f32(dpi) / 96.0
+	s.backbuffer_width = int(f32(w) * scale)
+	s.backbuffer_height = int(f32(h) * scale)
+
+	win32.AdjustWindowRectExForDpi(&r, windows_get_style(s.window_mode), false, 0, dpi)
 	win32.SetWindowPos(
 		s.hwnd,
 		{},
@@ -363,15 +368,16 @@ Windows_State :: struct {
 	hwnd: win32.HWND,
 	window_mode: Window_Mode,
 
-	screen_width: int,
-	screen_height: int,
+	// This is the size the user specified.
+	canvas_width: int,
+	canvas_height: int,
 
-	logical_width: int,
-	logical_height: int,
+	backbuffer_width: int,
+	backbuffer_height: int,
 
 	in_resize_move_state: bool,
-	screen_width_before_resize_move: int,
-	screen_height_before_resize_move: int,
+	canvas_width_before_resize_move: int,
+	canvas_height_before_resize_move: int,
 
 	events: [dynamic]Event,
 
@@ -403,8 +409,8 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 		} else {
 			r.left = 0
 			r.top = 0
-			r.right = i32(s.screen_width)
-			r.bottom = i32(s.screen_height)
+			r.right = i32(s.backbuffer_width)
+			r.bottom = i32(s.backbuffer_height)
 			set_window_pos_style |= win32.SWP_NOMOVE
 		}
 
@@ -468,10 +474,11 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		}
 
 	case win32.WM_MOUSEMOVE:
-		x := win32.GET_X_LPARAM(lparam)
-		y := win32.GET_Y_LPARAM(lparam)
+		scale := windows_get_window_scale()
+		x := f32(win32.GET_X_LPARAM(lparam)) / scale
+		y := f32(win32.GET_Y_LPARAM(lparam)) / scale
 		append(&s.events, Event_Mouse_Move {
-			position = {f32(x), f32(y)},
+			position = {x, y},
 		})
 
 	case win32.WM_MOUSEWHEEL:
@@ -532,13 +539,13 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 		// The DPI has changed, but not the expected window size. The logical size remains the same
 		// as before, but we figure out the new true screen size.
-		s.screen_width  = int(f32(s.logical_width) * scale)
-		s.screen_height = int(f32(s.logical_height) * scale)
+		s.backbuffer_width  = int(f32(s.canvas_width) * scale)
+		s.backbuffer_height = int(f32(s.canvas_height) * scale)
 
 		// Use Window's suggested position for the window, but use the calculated screen size for
 		// the window size.
 		suggested := (^win32.RECT)(uintptr(lparam))^
-		r := win32.RECT { 0, 0, i32(s.screen_width), i32(s.screen_height) }
+		r := win32.RECT { 0, 0, i32(s.backbuffer_width), i32(s.backbuffer_height) }
 		win32.AdjustWindowRectExForDpi(&r, windows_get_style(s.window_mode), false, 0, u32(new_dpi))
 
 		win32.SetWindowPos(
@@ -553,25 +560,25 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 		append(&s.events, Event_Window_Scale_Changed {
 			scale = scale,
-			backbuffer_width = s.screen_width,
-			backbuffer_height = s.screen_height,
+			backbuffer_width = s.backbuffer_width,
+			backbuffer_height = s.backbuffer_height,
 		})
 
 	case win32.WM_ENTERSIZEMOVE:
 		s.in_resize_move_state = true
-		s.screen_width_before_resize_move = s.logical_width
-		s.screen_height_before_resize_move = s.logical_height
+		s.canvas_width_before_resize_move = s.canvas_width
+		s.canvas_height_before_resize_move = s.canvas_height
 
 	case win32.WM_EXITSIZEMOVE:
 		s.in_resize_move_state = false
 
-		if s.screen_width_before_resize_move != s.logical_width ||
-		   s.screen_height_before_resize_move != s.logical_height {
+		if s.canvas_width_before_resize_move != s.canvas_width ||
+		   s.canvas_height_before_resize_move != s.canvas_height {
 			append(&s.events, Event_Window_Resize {
-				canvas_width = s.logical_width,
-				canvas_height = s.logical_height,
-				backbuffer_width = s.screen_width,
-				backbuffer_height = s.screen_height,
+				canvas_width = s.canvas_width,
+				canvas_height = s.canvas_height,
+				backbuffer_width = s.backbuffer_width,
+				backbuffer_height = s.backbuffer_height,
 			})
 		}
 
@@ -579,28 +586,28 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		width := win32.LOWORD(lparam)
 		height := win32.HIWORD(lparam)
 
-		s.screen_width = int(width)
-		s.screen_height = int(height)
+		s.backbuffer_width = int(width)
+		s.backbuffer_height = int(height)
 
 		dpi := win32.GetDpiForWindow(hwnd)
 		scale := f32(dpi) / 96.0
 
 		if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-			s.restore_screen_width = s.screen_width
-			s.restore_screen_height = s.screen_height
+			s.restore_screen_width = s.backbuffer_width
+			s.restore_screen_height = s.backbuffer_height
 		}
 
-		s.logical_width = int(f32(width) / scale)
-		s.logical_height = int(f32(height) / scale)
+		s.canvas_width = int(f32(width) / scale)
+		s.canvas_height = int(f32(height) / scale)
 
 		// We are actively resizing or moving the window, we'll save the event for later so it does
 		// not get spammy.
 		if !s.in_resize_move_state {
 			append(&s.events, Event_Window_Resize {
-				canvas_width = s.logical_width,
-				canvas_height = s.logical_height,
-				backbuffer_width = s.screen_width,
-				backbuffer_height = s.screen_height,
+				canvas_width = s.canvas_width,
+				canvas_height = s.canvas_height,
+				backbuffer_width = s.backbuffer_width,
+				backbuffer_height = s.backbuffer_height,
 			})
 		}
 
