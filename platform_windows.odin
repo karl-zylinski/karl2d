@@ -47,8 +47,6 @@ windows_init :: proc(
 	assert(platform_state != nil)
 	s = (^Windows_State)(platform_state)
 	s.allocator = allocator
-	s.screen_width = screen_width
-	s.screen_height = screen_height
 	s.events = make([dynamic]Event, allocator = allocator)
 	s.custom_context = context
 	
@@ -67,17 +65,24 @@ windows_init :: proc(
 
 	win32.RegisterClassW(&cls)
 
+	dpix, dpiy: win32.UINT
+	win32.GetDpiForMonitor(win32.MonitorFromWindow(nil, .MONITOR_DEFAULTTOPRIMARY), {}, &dpix, &dpiy)
+	scale := f32(dpix) / 96.0
+
+	s.logical_width  = screen_width
+	s.logical_height = screen_height
+	s.screen_width = int(f32(screen_width) * scale)
+	s.screen_height = int(f32(screen_height) * scale)
+
 	// Since this is the size of the screen we adjust it to become the size of the window. This is
 	// done using `AdjustWindowRectExForDpi`. It adds the space needed for the window borders etc.
 	initial_rect := win32.RECT {
 		0,
 		0,
-		i32(screen_width),
-		i32(screen_height),
+		i32(s.screen_width),
+		i32(s.screen_height),
 	}
 
-	dpix, dpiy: win32.UINT
-	win32.GetDpiForMonitor(win32.MonitorFromWindow(nil, .MONITOR_DEFAULTTOPRIMARY), {}, &dpix, &dpiy)
 	win32.AdjustWindowRectExForDpi(&initial_rect, windows_get_style(options.window_mode), false, {}, dpix)
 
 	// We create a window with default position and size. We set the correct size in
@@ -192,11 +197,11 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 }
 
 windows_get_screen_width :: proc() -> int {
-	return s.screen_width
+	return s.logical_width
 }
 
 windows_get_screen_height :: proc() -> int {
-	return s.screen_height
+	return s.logical_height
 }
 
 // Because positions can be offset in Windows: There is an "inivisble border" on Windows. This makes
@@ -350,6 +355,9 @@ Windows_State :: struct {
 
 	screen_width: int,
 	screen_height: int,
+
+	logical_width: int,
+	logical_height: int,
 
 	in_resize_move_state: bool,
 	screen_width_before_resize_move: int,
@@ -509,26 +517,47 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		}
 
 	case win32.WM_DPICHANGED:
-		// Set the window mode again so everything is correct size after DPI change.
-		windows_set_window_mode(s.window_mode)
+		new_dpi := win32.LOWORD(wparam)
+		scale := f32(new_dpi) / 96.0
+
+		// The DPI has changed, but not the expected window size. The logical size remains the same
+		// as before, but we figure out the new true screen size.
+		s.screen_width  = int(f32(s.logical_width) * scale)
+		s.screen_height = int(f32(s.logical_height) * scale)
+
+		// Use Window's suggested position for the window, but use the calculated screen size for
+		// the window size.
+		suggested := (^win32.RECT)(uintptr(lparam))^
+		r := win32.RECT { 0, 0, i32(s.screen_width), i32(s.screen_height) }
+		win32.AdjustWindowRectExForDpi(&r, windows_get_style(s.window_mode), false, 0, u32(new_dpi))
+
+		win32.SetWindowPos(
+			s.hwnd,
+			{},
+			suggested.left,
+			suggested.top,
+			r.right - r.left,
+			r.bottom - r.top,
+			win32.SWP_NOZORDER | win32.SWP_NOACTIVATE,
+		)
 
 		append(&s.events, Event_Window_Scale_Changed {
-			scale = windows_get_window_scale(),
+			scale = scale,
 		})
 
 	case win32.WM_ENTERSIZEMOVE:
 		s.in_resize_move_state = true
-		s.screen_width_before_resize_move = s.screen_width
-		s.screen_height_before_resize_move = s.screen_height
+		s.screen_width_before_resize_move = s.logical_width
+		s.screen_height_before_resize_move = s.logical_height
 
 	case win32.WM_EXITSIZEMOVE:
 		s.in_resize_move_state = false
 
-		if s.screen_width_before_resize_move != s.screen_width ||
-		   s.screen_height_before_resize_move != s.screen_height {
+		if s.screen_width_before_resize_move != s.logical_width ||
+		   s.screen_height_before_resize_move != s.logical_height {
 			append(&s.events, Event_Screen_Resize {
-				width = s.screen_width,
-				height = s.screen_height,
+				width = s.logical_width,
+				height = s.logical_height,
 			})
 		}
 
@@ -539,17 +568,23 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		s.screen_width = int(width)
 		s.screen_height = int(height)
 
+		dpi := win32.GetDpiForWindow(hwnd)
+		scale := f32(dpi) / 96.0
+
 		if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
 			s.restore_screen_width = s.screen_width
 			s.restore_screen_height = s.screen_height
 		}
 
+		s.logical_width = int(f32(width) / scale)
+		s.logical_height = int(f32(height) / scale)
+
 		// We are actively resizing or moving the window, we'll save the event for later so it does
 		// not get spammy.
 		if !s.in_resize_move_state {
 			append(&s.events, Event_Screen_Resize {
-				width = int(width),
-				height = int(height),
+				width = int(s.logical_width),
+				height = int(s.logical_height),
 			})
 		}
 

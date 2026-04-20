@@ -145,6 +145,13 @@ main :: proc() {
 		true,
 	)
 
+	write_build_variant(
+		&variants_builder,
+		"karl_playground",
+		"examples/scraps/karl_playground",
+		false,
+	)
+
 	project_str := fmt.tprintf(
 		PROJECT_FILE_TEMPLATE,
 		strings.to_string(folders_builder),
