@@ -11,10 +11,12 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	shutdown = windows_shutdown,
 	get_window_render_glue = windows_get_window_render_glue,
 	get_events = windows_get_events,
-	get_screen_width = windows_get_screen_width,
-	get_screen_height = windows_get_screen_height,
+	get_canvas_width = windows_get_canvas_width,
+	get_canvas_height = windows_get_canvas_height,
+	get_backbuffer_width = windows_get_backbuffer_width,
+	get_backbuffer_height = windows_get_backbuffer_height,
 	set_window_position = windows_set_window_position,
-	set_screen_size = windows_set_screen_size,
+	set_canvas_size = windows_set_canvas_size,
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
 
@@ -196,12 +198,20 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 	runtime.clear(&s.events)
 }
 
-windows_get_screen_width :: proc() -> int {
+windows_get_canvas_width :: proc() -> int {
 	return s.logical_width
 }
 
-windows_get_screen_height :: proc() -> int {
+windows_get_canvas_height :: proc() -> int {
 	return s.logical_height
+}
+
+windows_get_backbuffer_width :: proc() -> int {
+	return s.screen_width
+}
+
+windows_get_backbuffer_height :: proc() -> int {
+	return s.screen_height
 }
 
 // Because positions can be offset in Windows: There is an "inivisble border" on Windows. This makes
@@ -258,7 +268,7 @@ windows_get_style :: proc(window_mode: Window_Mode) -> win32.DWORD {
 	return style
 }
 
-windows_set_screen_size :: proc(w, h: int) {
+windows_set_canvas_size :: proc(w, h: int) {
 	s.screen_width = w
 	s.screen_height = h
 
@@ -543,6 +553,8 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 		append(&s.events, Event_Window_Scale_Changed {
 			scale = scale,
+			backbuffer_width = s.screen_width,
+			backbuffer_height = s.screen_height,
 		})
 
 	case win32.WM_ENTERSIZEMOVE:
@@ -555,9 +567,11 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 		if s.screen_width_before_resize_move != s.logical_width ||
 		   s.screen_height_before_resize_move != s.logical_height {
-			append(&s.events, Event_Screen_Resize {
-				width = s.logical_width,
-				height = s.logical_height,
+			append(&s.events, Event_Window_Resize {
+				canvas_width = s.logical_width,
+				canvas_height = s.logical_height,
+				backbuffer_width = s.screen_width,
+				backbuffer_height = s.screen_height,
 			})
 		}
 
@@ -582,9 +596,11 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		// We are actively resizing or moving the window, we'll save the event for later so it does
 		// not get spammy.
 		if !s.in_resize_move_state {
-			append(&s.events, Event_Screen_Resize {
-				width = int(s.logical_width),
-				height = int(s.logical_height),
+			append(&s.events, Event_Window_Resize {
+				canvas_width = s.logical_width,
+				canvas_height = s.logical_height,
+				backbuffer_width = s.screen_width,
+				backbuffer_height = s.screen_height,
 			})
 		}
 

@@ -7,8 +7,8 @@ Platform_Interface :: struct #all_or_none {
 
 	init: proc(
 		platform_state: rawptr,
-		window_width: int,
-		window_height: int,
+		canvas_width: int,
+		canvas_height: int,
 		window_title: string,
 		init_options: Init_Options,
 		allocator: runtime.Allocator,
@@ -18,9 +18,11 @@ Platform_Interface :: struct #all_or_none {
 	get_window_render_glue: proc() -> Window_Render_Glue,
 	get_events: proc(events: ^[dynamic]Event),
 	set_window_position: proc(x: int, y: int),
-	set_screen_size: proc(w, h: int),
-	get_screen_width: proc() -> int,
-	get_screen_height: proc() -> int,
+	set_canvas_size: proc(w, h: int),
+	get_canvas_width: proc() -> int,
+	get_canvas_height: proc() -> int,
+	get_backbuffer_width: proc() -> int,
+	get_backbuffer_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
 

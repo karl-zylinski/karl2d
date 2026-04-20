@@ -31,16 +31,18 @@ import hm "core:container/handle_map"
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory.
 //
-// `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
-// The window might be slightly larger due to borders and headers.
+// `canvas_width` and `canvas_height` refer to the logical size of the drawable area of the window.
+// Here "logical" means that a the size will get scaled by any scaling, known as "DPI scaling". So
+// if you send int `canvas_height = 720` and have `150%` scaling for the monitor, then you'll the
+// true resolution will be `1080`. The window might be slightly larger due to borders and headers. 
 //
 // The return value is a pointer to Karl2D's internal state. You can restore this state later using
 // `set_internal_state()`. This is useful for example when doing game code reload, as the state may
 // get reset when the library is reloaded. You can safely ignore the return value if you have no
 // such needs.
 init :: proc(
-	screen_width: int,
-	screen_height: int,
+	canvas_width: int,
+	canvas_height: int,
 	window_title: string,
 	options := Init_Options {},
 	allocator := context.allocator,
@@ -84,7 +86,7 @@ init :: proc(
 		platform_state_alloc_error,
 	)
 
-	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
+	pf.init(s.platform_state, canvas_width, canvas_height, window_title, options, s.allocator)
 
 	// This is an OS-independent handle that we can pass to any rendering backend.
 	window_render_glue := pf.get_window_render_glue()
@@ -96,11 +98,11 @@ init :: proc(
 	rb_alloc_error: runtime.Allocator_Error
 	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = s.allocator)
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
-	s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
+	s.proj_matrix = make_default_projection(pf.get_canvas_width(), pf.get_canvas_height())
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.render_backend_state, window_render_glue, pf.get_screen_width(), pf.get_screen_height(), s.allocator)
+	rb.init(s.render_backend_state, window_render_glue, pf.get_backbuffer_width(), pf.get_backbuffer_height(), s.allocator)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`.
@@ -343,9 +345,9 @@ process_events :: proc() {
 				s.gamepad_button_is_held[e.gamepad][e.button] = false
 			}
 
-		case Event_Screen_Resize:
-			rb.resize_swapchain(e.width, e.height)
-			s.proj_matrix = make_default_projection(e.width, e.height)
+		case Event_Window_Resize:
+			rb.resize_swapchain(e.backbuffer_width, e.backbuffer_height)
+			s.proj_matrix = make_default_projection(e.canvas_width, e.canvas_height)
 
 		case Event_Window_Focused:			
 
@@ -374,6 +376,7 @@ process_events :: proc() {
 			}
 
 		case Event_Window_Scale_Changed:
+			rb.resize_swapchain(e.backbuffer_width, e.backbuffer_height)
 			// Doesn't do anything, only here so people can fetch it via `get_events()`.
 		}
 	}
@@ -411,18 +414,18 @@ get_time :: proc() -> f64 {
 // Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
 // windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
 set_screen_size :: proc(width: int, height: int) {
-	pf.set_screen_size(width, height)
+	pf.set_canvas_size(width, height)
 	rb.resize_swapchain(width, height)
 }
 
 // Gets the width of the drawing area within the window.
 get_screen_width :: proc() -> int {
-	return pf.get_screen_width()
+	return pf.get_canvas_width()
 }
 
 // Gets the height of the drawing area within the window.
 get_screen_height :: proc() -> int  {
-	return pf.get_screen_height()
+	return pf.get_canvas_height()
 }
 
 // Moves the window.
@@ -2865,7 +2868,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 
 		draw_current_batch()
 		s.batch_render_target = RENDER_TARGET_NONE
-		s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
+		s.proj_matrix = make_default_projection(pf.get_canvas_width(), pf.get_canvas_height())
 	}
 }
 
@@ -3364,7 +3367,7 @@ set_camera :: proc(camera: Maybe(Camera)) {
 
 	draw_current_batch()
 	s.batch_camera = camera
-	s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
+	s.proj_matrix = make_default_projection(pf.get_canvas_width(), pf.get_canvas_height())
 
 	if c, c_ok := camera.?; c_ok {
 		s.view_matrix = camera_view_matrix(c)
@@ -3427,8 +3430,8 @@ get_fullscreen_rect :: proc() -> Rect {
 	return Rect {
 		x = 0,
 		y = 0,
-		w = f32(pf.get_screen_width()),
-		h = f32(pf.get_screen_height()),
+		w = f32(pf.get_canvas_width()),
+		h = f32(pf.get_canvas_height()),
 	}
 }
 
@@ -4214,7 +4217,7 @@ Event :: union {
 	Event_Mouse_Button_Went_Up,
 	Event_Gamepad_Button_Went_Down,
 	Event_Gamepad_Button_Went_Up,
-	Event_Screen_Resize,
+	Event_Window_Resize,
 	Event_Window_Focused,
 	Event_Window_Unfocused,
 	Event_Window_Scale_Changed,
@@ -4257,13 +4260,15 @@ Event_Mouse_Wheel :: struct {
 }
 
 // Reports the new size of the drawable game area
-Event_Screen_Resize :: struct {
-	width, height: int,
+Event_Window_Resize :: struct {
+	canvas_width, canvas_height: int,
+	backbuffer_width, backbuffer_height: int,
 }
 
 // You can also use `k2.get_window_scale()`
 Event_Window_Scale_Changed :: struct {
 	scale: f32,
+	backbuffer_width, backbuffer_height: int,
 }
 
 Event_Window_Focused :: struct {}
