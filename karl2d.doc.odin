@@ -10,16 +10,18 @@ package karl2d
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory.
 //
-// `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
-// The window might be slightly larger due to borders and headers.
+// `canvas_width` and `canvas_height` refer to the logical size of the drawable area of the window.
+// Here "logical" means that a the size will get scaled by any scaling, known as "DPI scaling". So
+// if you send int `canvas_height = 720` and have `150%` scaling for the monitor, then you'll the
+// true resolution will be `1080`. The window might be slightly larger due to borders and headers. 
 //
 // The return value is a pointer to Karl2D's internal state. You can restore this state later using
 // `set_internal_state()`. This is useful for example when doing game code reload, as the state may
 // get reset when the library is reloaded. You can safely ignore the return value if you have no
 // such needs.
 init :: proc(
-	screen_width: int,
-	screen_height: int,
+	canvas_width: int,
+	canvas_height: int,
 	window_title: string,
 	options := Init_Options {},
 	allocator := context.allocator,
@@ -1571,7 +1573,7 @@ Event :: union {
 	Event_Mouse_Button_Went_Up,
 	Event_Gamepad_Button_Went_Down,
 	Event_Gamepad_Button_Went_Up,
-	Event_Screen_Resize,
+	Event_Window_Resize,
 	Event_Window_Focused,
 	Event_Window_Unfocused,
 	Event_Window_Scale_Changed,
@@ -1614,13 +1616,16 @@ Event_Mouse_Wheel :: struct {
 }
 
 // Reports the new size of the drawable game area
-Event_Screen_Resize :: struct {
-	width, height: int,
+Event_Window_Resize :: struct {
+	screen_width, screen_height: int,
+	render_width, render_height: int,
 }
 
 // You can also use `k2.get_window_scale()`
 Event_Window_Scale_Changed :: struct {
 	scale: f32,
+	render_width: int,
+	render_height: int,
 }
 
 Event_Window_Focused :: struct {}
