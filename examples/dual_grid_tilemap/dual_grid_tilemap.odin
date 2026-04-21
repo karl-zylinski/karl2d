@@ -159,8 +159,8 @@ step :: proc() -> bool {
 	k2.draw_rect(hovered_grid_rect, {255, 255, 255, 128})
 
 	k2.set_camera(nil)
-	fullscreen_rect := k2.get_fullscreen_rect()
-	ui_bg := k2.rect_cut_bottom(&fullscreen_rect, UI_HEIGHT * camera.zoom, 0)
+	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size())
+	ui_bg := k2.rect_cut_bottom(&screen_rect, UI_HEIGHT * camera.zoom, 0)
 	k2.draw_rect(ui_bg, k2.DARK_GRAY)
 	ui_text_area := k2.rect_shrink(ui_bg, 2*camera.zoom, 2*camera.zoom)
 

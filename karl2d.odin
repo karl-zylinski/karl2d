@@ -418,14 +418,21 @@ set_screen_size :: proc(width: int, height: int) {
 	rb.resize_swapchain(pf.get_render_width(), pf.get_render_height())
 }
 
-// Gets the width of the drawing area within the window.
+// Gets the width of the drawing area within the window. This is the logical width of the drawable
+// area. It does not have any kind of DPI scaling applied.
 get_screen_width :: proc() -> int {
 	return pf.get_screen_width()
 }
 
-// Gets the height of the drawing area within the window.
+// Gets the height of the drawing area within the window. This is the logical height of the drawable
+// area. It does not have kind DPI scaling applied.
 get_screen_height :: proc() -> int  {
 	return pf.get_screen_height()
+}
+
+// Gets the screen width and height as a 2D vector.
+get_screen_size :: proc() -> Vec2 {
+	return { f32(pf.get_screen_width()), f32(pf.get_screen_height()) }
 }
 
 // Moves the window.
@@ -3424,15 +3431,6 @@ camera_world_matrix :: proc(c: Camera) -> Mat4 {
 	target_translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
 
 	return target_translate * rot * scale * offset_translate
-}
-
-get_fullscreen_rect :: proc() -> Rect {
-	return Rect {
-		x = 0,
-		y = 0,
-		w = f32(pf.get_screen_width()),
-		h = f32(pf.get_screen_height()),
-	}
 }
 
 //------//

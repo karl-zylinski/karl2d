@@ -32,6 +32,7 @@ PLATFORM_WEB :: Platform_Interface {
 import "core:sys/wasm/js"
 import "base:runtime"
 import "log"
+import "core:fmt"
 
 web_state_size :: proc() -> int {
 	return size_of(Web_State)
@@ -39,8 +40,8 @@ web_state_size :: proc() -> int {
 
 web_init :: proc(
 	window_state: rawptr,
-	window_width: int,
-	window_height: int,
+	screen_width: int,
+	screen_height: int,
 	window_title: string,
 	init_options: Init_Options,
 	allocator: runtime.Allocator,
@@ -56,14 +57,14 @@ web_init :: proc(
 	// The browser window probably has some other size than what was sent in.
 	switch init_options.window_mode {
 	case .Windowed:
-		web_set_screen_size(window_width, window_height)
+		web_set_screen_size(screen_width, screen_height)
 	case .Windowed_Resizable:
-		add_window_event_listener(.Resize, web_event_window_resize)
-		update_canvas_size(s.canvas_id)
+		web_set_screen_size_to_window_size(s.canvas_id)
 	case .Borderless_Fullscreen:
 		log.error("Borderless_Fullscreen not implemented on web, but you can make it happen by using Window_Mode.Windowed_Resizable and putting the game in a fullscreen iframe.")
 	}
 
+	add_window_event_listener(.Resize, web_event_window_resize)
 	s.window_mode = init_options.window_mode
 
 	add_canvas_event_listener(.Mouse_Move, web_event_mouse_move)
@@ -106,7 +107,23 @@ web_event_blur :: proc(e: js.Event) {
 }
 
 web_event_window_resize :: proc(e: js.Event) {
-	update_canvas_size(s.canvas_id)
+	new_scale := f32(js.device_pixel_ratio())
+
+	// We get a window resize event on DPI scale change. Therefore we can piggyback on this to do
+	// send the event about the DPI changing.
+	if new_scale != s.prev_scale {
+		s.prev_scale = new_scale
+		web_set_screen_size(s.screen_width, s.screen_height)
+		append(&s.events, Event_Window_Scale_Changed {
+			scale = new_scale,
+			render_width = s.canvas_width,
+			render_height = s.canvas_height,
+		})
+	}
+
+	if s.window_mode == .Windowed_Resizable {
+		web_set_screen_size_to_window_size(s.canvas_id)
+	}
 }
 
 web_event_mouse_move :: proc(e: js.Event) {
@@ -173,21 +190,30 @@ remove_window_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Ev
 	js.remove_window_event_listener(evt, nil, callback, true)
 }
 
-update_canvas_size :: proc(canvas_id: HTML_Canvas_ID) {
+web_set_screen_size_to_window_size :: proc(canvas_id: HTML_Canvas_ID) {
 	rect := js.get_bounding_client_rect("body")
 
-	width := f64(rect.width)
-	height := f64(rect.height) 
+	s.screen_width  = int(rect.width)
+	s.screen_height = int(rect.height)
 
-	js.set_element_key_f64(canvas_id, "width", width)
-	js.set_element_key_f64(canvas_id, "height", height)
+	scale := web_get_window_scale()
+	s.canvas_width  = int(f32(s.screen_width) * scale)
+	s.canvas_height = int(f32(s.screen_height) * scale)
 
-	s.canvas_width = int(rect.width)
-	s.canvas_height = int(rect.height)
+	// This sets the "back buffer" size.
+	js.set_element_key_f64(canvas_id, "width", f64(s.canvas_width))
+	js.set_element_key_f64(canvas_id, "height", f64(s.canvas_height))
+
+	// This sets the scale of the canvas HTML element. It is auto scaled by the scale, so don't
+	// apply scaling.
+	js.set_element_style(canvas_id, "width", fmt.tprintf("%fpx", f64(s.screen_width)))
+	js.set_element_style(canvas_id, "height", fmt.tprintf("%fpx", f64(s.screen_height)))
 
 	append(&s.events, Event_Window_Resize {
-		screen_width = int(width),
-		screen_height = int(height),
+		screen_width = s.screen_width,
+		screen_height = s.screen_height,
+		render_width = s.canvas_width,
+		render_height = s.canvas_height,
 	})
 }
 
@@ -290,7 +316,6 @@ web_get_render_height :: proc() -> int {
 	return s.canvas_height
 }
 
-
 web_clear_events :: proc() {
 	runtime.clear(&s.events)
 }
@@ -304,11 +329,17 @@ web_set_screen_size :: proc(w, h: int) {
 	s.screen_height = h
 
 	scale := web_get_window_scale()
-
-	s.canvas_width = int(f32(w) * scale)
+	s.canvas_width  = int(f32(w) * scale)
 	s.canvas_height = int(f32(h) * scale)
-	js.set_element_key_f64(s.canvas_id, "width", f64(s.screen_width))
-	js.set_element_key_f64(s.canvas_id, "height", f64(s.screen_height))
+
+	// This sets the "back buffer" size.
+	js.set_element_key_f64(s.canvas_id, "width",  f64(s.canvas_width))
+	js.set_element_key_f64(s.canvas_id, "height", f64(s.canvas_height))
+
+	// This sets the scale of the canvas HTML element. It is auto scaled by the scale, so don't
+	// apply scaling.
+	js.set_element_style(s.canvas_id, "width",  fmt.tprintf("%fpx", f64(s.screen_width)))
+	js.set_element_style(s.canvas_id, "height", fmt.tprintf("%fpx", f64(s.screen_height)))
 }
 
 web_get_window_scale :: proc() -> f32 {
@@ -320,10 +351,8 @@ web_set_window_mode :: proc(new_mode: Window_Mode) {
 	s.window_mode = new_mode
 
 	if new_mode == .Windowed_Resizable && old_mode == .Windowed {
-		add_window_event_listener(.Resize, web_event_window_resize)
-		update_canvas_size(s.canvas_id)
+		web_set_screen_size_to_window_size(s.canvas_id)
 	} else if new_mode == .Windowed && old_mode == .Windowed_Resizable {
-		remove_window_event_listener(.Resize, web_event_window_resize)
 		web_set_screen_size(s.screen_width, s.screen_height)
 	}
 }
@@ -378,6 +407,7 @@ Web_State :: struct {
 	screen_height: int,
 	canvas_width: int,
 	canvas_height: int,
+	prev_scale: f32,
 	events: [dynamic]Event,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 	window_mode: Window_Mode,
