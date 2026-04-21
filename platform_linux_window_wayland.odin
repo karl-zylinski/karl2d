@@ -95,11 +95,10 @@ wl_init :: proc(
 	callback := wl.surface_frame(s.surface)
 	wl.add_listener(callback, &frame_callback, nil)
 
-	s.window = wl.egl_window_create(s.surface, i32(s.screen_width), i32(s.screen_height))
-	
+	s.window = wl.egl_window_create(s.surface, i32(s.render_width), i32(s.render_height))
 	viewport := wl.wp_viewporter_get_viewport(s.viewporter, s.surface)
-	wl.wp_viewport_set_source(viewport, 0, 0, i32(s.render_width*256), i32(s.render_height*256))
 	wl.wp_viewport_set_destination(viewport, i32(s.screen_width), i32(s.screen_height))
+	wl.surface_commit(s.surface)
 	
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
