@@ -10,10 +10,10 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	shutdown = x11_shutdown,
 	get_window_render_glue = x11_get_window_render_glue,
 	get_events = x11_get_events,
-	get_width = x11_get_width,
-	get_height = x11_get_height,
+	get_screen_width = x11_get_width,
+	get_screen_height = x11_get_height,
 	set_position = x11_set_position,
-	set_size = x11_set_size,
+	set_screen_size = x11_set_size,
 	get_window_scale = x11_get_window_scale,
 	set_window_mode = x11_set_window_mode,
 	set_internal_state = x11_set_internal_state,
@@ -173,9 +173,9 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 					s.windowed_height = h
 				}
 
-				append(events, Event_Screen_Resize {
-					width = w,
-					height = h,
+				append(events, Event_Window_Resize {
+					screen_width = w,
+					screen_height = h,
 				})
 			}
 		case .FocusIn:
