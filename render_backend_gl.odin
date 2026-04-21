@@ -35,7 +35,6 @@ import gl "vendor:OpenGL"
 import hm "core:container/handle_map"
 import "log"
 import "core:strings"
-import "core:slice"
 import la "core:math/linalg"
 
 _ :: la
@@ -137,6 +136,7 @@ gl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapch
 	gl.GenBuffers(1, &s.vertex_buffer_gpu)
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
 	gl.Enable(gl.BLEND)
 }
@@ -303,14 +303,9 @@ gl_draw :: proc(
 	}
 	
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
-	vb_data := gl.MapBuffer(gl.ARRAY_BUFFER, gl.WRITE_ONLY)
-	{
-		gpu_map := slice.from_ptr((^u8)(vb_data), VERTEX_BUFFER_MAX)
-		copy(
-			gpu_map,
-			vertex_buffer,
-		)
-	}
+	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
+	gl.BufferSubData(gl.ARRAY_BUFFER, 0, len(vertex_buffer), raw_data(vertex_buffer))
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
 	if len(bound_textures) == len(gl_shd.texture_bindings) {
 		for t, t_idx in bound_textures {
@@ -327,8 +322,6 @@ gl_draw :: proc(
 			}
 		}
 	}
-
-	gl.UnmapBuffer(gl.ARRAY_BUFFER)
 
 	rt := hm.get(&s.render_targets, render_target)
 
@@ -655,6 +648,8 @@ gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := f
 		program = program,
 	}
 
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 	gl.GenVertexArrays(1, &gl_shd.vao)
 	gl.BindVertexArray(gl_shd.vao)
 
@@ -667,6 +662,8 @@ gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := f
 		gl.VertexAttribPointer(u32(input.register), num_components, format, norm ? gl.TRUE : gl.FALSE, i32(stride), uintptr(offset))
 		offset += format_size
 	}
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
 	constant_descs := make([dynamic]Shader_Constant_Desc, desc_allocator)
 	gl_constants := make([dynamic]GL_Shader_Constant, s.allocator)
