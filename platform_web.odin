@@ -182,8 +182,8 @@ update_canvas_size :: proc(canvas_id: HTML_Canvas_ID) {
 	js.set_element_key_f64(canvas_id, "width", width)
 	js.set_element_key_f64(canvas_id, "height", height)
 
-	s.width = int(rect.width)
-	s.height = int(rect.height)
+	s.canvas_width = int(rect.width)
+	s.canvas_height = int(rect.height)
 
 	append(&s.events, Event_Window_Resize {
 		screen_width = int(width),
@@ -275,19 +275,19 @@ web_get_events :: proc(events: ^[dynamic]Event) {
 }
 
 web_get_screen_width :: proc() -> int {
-	return s.width
+	return s.screen_width
 }
 
 web_get_screen_height :: proc() -> int {
-	return s.height
+	return s.screen_height
 }
 
 web_get_render_width :: proc() -> int {
-	return s.width
+	return s.canvas_width
 }
 
 web_get_render_height :: proc() -> int {
-	return s.height
+	return s.canvas_height
 }
 
 
@@ -300,26 +300,32 @@ web_set_position :: proc(x: int, y: int) {
 }
 
 web_set_screen_size :: proc(w, h: int) {
-	s.width = w
-	s.height = h
-	js.set_element_key_f64(s.canvas_id, "width", f64(w))
-	js.set_element_key_f64(s.canvas_id, "height", f64(h))
+	s.screen_width = w
+	s.screen_height = h
+
+	scale := web_get_window_scale()
+
+	s.canvas_width = int(f32(w) * scale)
+	s.canvas_height = int(f32(h) * scale)
+	js.set_element_key_f64(s.canvas_id, "width", f64(s.screen_width))
+	js.set_element_key_f64(s.canvas_id, "height", f64(s.screen_height))
 }
 
 web_get_window_scale :: proc() -> f32 {
 	return f32(js.device_pixel_ratio())
 }
 
-web_set_window_mode :: proc(window_mode: Window_Mode) {
-	if window_mode == .Windowed_Resizable && s.window_mode == .Windowed {
+web_set_window_mode :: proc(new_mode: Window_Mode) {
+	old_mode := s.window_mode
+	s.window_mode = new_mode
+
+	if new_mode == .Windowed_Resizable && old_mode == .Windowed {
 		add_window_event_listener(.Resize, web_event_window_resize)
 		update_canvas_size(s.canvas_id)
-	} else if window_mode == .Windowed && s.window_mode == .Windowed_Resizable {
+	} else if new_mode == .Windowed && old_mode == .Windowed_Resizable {
 		remove_window_event_listener(.Resize, web_event_window_resize)
-		web_set_screen_size(s.width, s.height)
+		web_set_screen_size(s.screen_width, s.screen_height)
 	}
-
-	s.window_mode = window_mode
 }
 
 web_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -368,8 +374,10 @@ HTML_Canvas_ID :: string
 Web_State :: struct {
 	allocator: runtime.Allocator,
 	canvas_id: HTML_Canvas_ID,
-	width: int,
-	height: int,
+	screen_width: int,
+	screen_height: int,
+	canvas_width: int,
+	canvas_height: int,
 	events: [dynamic]Event,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 	window_mode: Window_Mode,
