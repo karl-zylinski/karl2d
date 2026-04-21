@@ -12,11 +12,11 @@ PLATFORM_WEB :: Platform_Interface {
 	shutdown = web_shutdown,
 	get_window_render_glue = web_get_window_render_glue,
 	get_events = web_get_events,
-	set_canvas_size = web_set_screen_size,
-	get_canvas_width = web_get_screen_width,
-	get_canvas_height = web_get_screen_height,
-	get_backbuffer_width = web_get_backbuffer_width,
-	get_backbuffer_height = web_get_backbuffer_height,
+	set_screen_size = web_set_screen_size,
+	get_screen_width = web_get_screen_width,
+	get_screen_height = web_get_screen_height,
+	get_render_width = web_get_render_width,
+	get_render_height = web_get_render_height,
 	set_window_position = web_set_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
@@ -186,8 +186,8 @@ update_canvas_size :: proc(canvas_id: HTML_Canvas_ID) {
 	s.height = int(rect.height)
 
 	append(&s.events, Event_Window_Resize {
-		width = int(width),
-		height = int(height),
+		screen_width = int(width),
+		screen_height = int(height),
 	})
 }
 
@@ -282,11 +282,11 @@ web_get_screen_height :: proc() -> int {
 	return s.height
 }
 
-web_get_backbuffer_width :: proc() -> int {
+web_get_render_width :: proc() -> int {
 	return s.width
 }
 
-web_get_backbuffer_height :: proc() -> int {
+web_get_render_height :: proc() -> int {
 	return s.height
 }
 
