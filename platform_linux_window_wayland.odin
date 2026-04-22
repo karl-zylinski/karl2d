@@ -8,10 +8,12 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
 	get_events = wl_get_events,
-	get_width = wl_get_width,
-	get_height = wl_get_height,
+	get_screen_width = wl_get_screen_width,
+	get_screen_height = wl_get_screen_height,
+	get_render_width = wl_get_render_width,
+	get_render_height = wl_get_render_height,
 	set_position = wl_set_position,
-	set_size = wl_set_size,
+	set_screen_size = wl_set_screen_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
 	set_internal_state = wl_set_internal_state,
@@ -36,18 +38,17 @@ wl_state_size :: proc() -> int {
 
 wl_init :: proc(
 	window_state: rawptr,
-	window_width: int,
-	window_height: int,
+	screen_width: int,
+	screen_height: int,
 	window_title: string,
 	options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
 	s = (^WL_State)(window_state)
 	s.allocator = allocator
-	s.windowed_width = window_width
-	s.windowed_height = window_height
-	s.width = window_width
-	s.height = window_height
+	s.screen_width = screen_width
+	s.screen_height = screen_height
+	s.scale = 1
 	s.odin_ctx = context
 
 	s.display = wl.display_connect(nil)
@@ -61,7 +62,7 @@ wl_init :: proc(
 
 	s.surface = wl.compositor_create_surface(s.compositor)
 	log.ensure(s.surface != nil, "Error creating Wayland surface")
-	
+
 	// Makes sure the window does "pings" that keeps it alive.
 	wl.add_listener(s.xdg_base, &wm_base_listener, nil)
 	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, s.surface)
@@ -85,11 +86,17 @@ wl_init :: proc(
 
 	wl.surface_commit(s.surface)
 	wl.display_dispatch_pending(s.display)
+	wl.display_roundtrip(s.display)
+
+	s.render_width = int(f32(screen_width) * s.scale)
+	s.render_height = int(f32(screen_height) * s.scale)
 
 	callback := wl.surface_frame(s.surface)
 	wl.add_listener(callback, &frame_callback, nil)
 
-	s.window = wl.egl_window_create(s.surface, i32(s.windowed_width), i32(s.windowed_height))
+	s.window = wl.egl_window_create(s.surface, i32(s.render_width), i32(s.render_height))
+	s.viewport = wl.wp_viewporter_get_viewport(s.viewporter, s.surface)
+	wl.wp_viewport_set_destination(s.viewport, i32(s.screen_width), i32(s.screen_height))
 
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
@@ -99,7 +106,7 @@ wl_init :: proc(
 		#panic("Unsupported combo of Linux + X11 and render backend '" + RENDER_BACKEND_NAME + "'")
 	}
 
-	set_window_mode(options.window_mode)
+	wl_set_window_mode(options.window_mode)
 }
 
 registry_listener := wl.Registry_Listener {
@@ -156,6 +163,15 @@ registry_listener := wl.Registry_Listener {
 				&wl.wp_fractional_scale_manager_v1_interface,
 				version,
 			)
+
+		case wl.wp_viewporter_interface.name:
+			s.viewporter = wl.registry_bind(
+				wl.WP_Viewporter,
+				registry,
+				name,
+				&wl.wp_viewporter_interface,
+				version,
+			)
 		}
 	},
 }
@@ -205,22 +221,31 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 		height: c.int32_t,
 		states: ^wl.Array,
 	) {
-		if s.configured && (s.width != int(width) || s.height != int(height)) {
-			wl.egl_window_resize(s.window, c.int(width), c.int(height), 0, 0)
+		w := width == 0 ? s.screen_width : int(width)
+		h := height == 0 ? s.screen_height : int(height)
+		if (s.screen_width != int(w) || s.screen_height != int(h)) {
 
 			if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-				s.windowed_width = int(width)
-				s.windowed_height = int(height)
+				s.last_windowed_screen_width = int(w)
+				s.last_windowed_screen_height = int(h)
 			}
 
-			s.width = int(width)
-			s.height = int(height)
+			s.screen_width = int(w)
+			s.screen_height = int(h)
+
+			s.render_width = int(f32(s.screen_width) * s.scale)
+			s.render_height = int(f32(s.screen_height) * s.scale)
 
 			context = s.odin_ctx
 
-			append(&s.events, Event_Screen_Resize {
-				width = s.width,
-				height = s.height,
+			wl.egl_window_resize(s.window, i32(s.render_width), i32(s.render_height), 0, 0)
+			wl.wp_viewport_set_destination(s.viewport, i32(s.screen_width), i32(s.screen_height))
+
+			append(&s.events, Event_Window_Resize {
+				screen_width = s.screen_width,
+				screen_height = s.screen_height,
+				render_width = s.render_width,
+				render_height = s.render_height,
 			})
 		}
 		s.configured = true
@@ -426,11 +451,16 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		scl := f32(scale)/120
 		s.scale = scl
 
+		s.render_width = int(f32(s.screen_width) * s.scale)
+		s.render_height = int(f32(s.screen_height) * s.scale)
+
 		// Disabled because we don't yet make the base scale of the
 		// window correct.
-		/*append(&s.events, Event_Window_Scale_Changed {
+		append(&s.events, Event_Window_Scale_Changed {
 			scale = scl,
-		})*/
+			render_width = s.render_width,
+			render_height = s.render_height,
+		})
 	},
 }
 
@@ -448,31 +478,38 @@ wl_get_events :: proc(events: ^[dynamic]Event) {
 	runtime.clear(&s.events)
 }
 
-wl_get_width :: proc() -> int {
-	return s.width
+wl_get_screen_width :: proc() -> int {
+	return s.screen_width
 }
 
-wl_get_height :: proc() -> int {
-	return s.height
+wl_get_screen_height :: proc() -> int {
+	return s.screen_height
+}
+
+wl_get_render_width :: proc() -> int {
+	return s.render_width
+}
+
+wl_get_render_height :: proc() -> int {
+	return s.render_height
 }
 
 wl_set_position :: proc(x: int, y: int) {
 	log.error("set_position not implemented when using wayland")
 }
 
-wl_set_size :: proc(w, h: int) {
-	if s.window_mode == .Borderless_Fullscreen {
-		return
-	}
+wl_set_screen_size :: proc(w, h: int) {
+	s.screen_width = w
+	s.screen_height = h
+	s.render_width = int(f32(s.screen_width) * s.scale)
+	s.render_height = int(f32(s.screen_height) * s.scale)
 
-	s.windowed_width = w
-	s.windowed_height = h
-	wl.egl_window_resize(s.window, i32(w), i32(h), 0, 0)
+	wl.egl_window_resize(s.window, i32(s.render_width), i32(s.render_height), 0, 0)
+	wl.wp_viewport_set_destination(s.viewport, i32(s.screen_width), i32(s.screen_height))
 }
 
 wl_get_window_scale :: proc() -> f32 {
-	// Disabled for now, as we don't make the base scale of the window correct yet.
-	return 1
+	return s.scale
 }
 
 wl_set_window_mode :: proc(window_mode: Window_Mode) {
@@ -481,8 +518,8 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	switch window_mode {
 	case .Windowed:
 		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
-		w := i32(s.windowed_width)
-		h := i32(s.windowed_height)
+		w := i32(s.last_windowed_screen_width)
+		h := i32(s.last_windowed_screen_height)
 		wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
 		wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
 
@@ -503,10 +540,14 @@ wl_set_internal_state :: proc(state: rawptr) {
 
 WL_State :: struct {
 	allocator: runtime.Allocator,
-	width: int,
-	height: int,
-	windowed_width: int,
-	windowed_height: int,
+	screen_width: int,
+	screen_height: int,
+	render_width: int,
+	render_height: int,
+
+	last_windowed_screen_width: int,
+	last_windowed_screen_height: int,
+	
 	events: [dynamic]Event,
 	window_mode: Window_Mode,
 
@@ -517,6 +558,8 @@ WL_State :: struct {
 	compositor: ^wl.Compositor,
 	window: ^wl.EGL_Window,
 	toplevel: ^wl.XDG_Toplevel,
+	viewporter: ^wl.WP_Viewporter,
+	viewport: ^wl.WP_Viewport,
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
