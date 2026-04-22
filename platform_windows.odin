@@ -17,7 +17,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	get_render_height = windows_get_render_height,
 	set_window_position = windows_set_window_position,
 	set_screen_size = windows_set_screen_size,
-	get_window_scale = windows_get_window_scale,
+	get_render_scale = windows_get_render_scale,
 	set_window_mode = windows_set_window_mode,
 
 	is_gamepad_active = windows_is_gamepad_active,
@@ -67,9 +67,15 @@ windows_init :: proc(
 
 	win32.RegisterClassW(&cls)
 
+	s.disable_scaling = options.disable_scaling_hint
+
 	dpix, dpiy: win32.UINT
 	win32.GetDpiForMonitor(win32.MonitorFromWindow(nil, .MONITOR_DEFAULTTOPRIMARY), {}, &dpix, &dpiy)
 	scale := f32(dpix) / 96.0
+
+	if s.disable_scaling {
+		scale = 1
+	}
 
 	s.screen_width = screen_width
 	s.screen_height = screen_height
@@ -279,7 +285,7 @@ windows_set_screen_size :: proc(w, h: int) {
 	r.bottom = i32(h)
 
 	dpi := win32.GetDpiForWindow(s.hwnd)
-	scale := f32(dpi) / 96.0
+	scale := s.disable_scaling ? 1 : f32(dpi) / 96.0
 	s.client_width = int(f32(w) * scale)
 	s.client_height = int(f32(h) * scale)
 
@@ -295,7 +301,7 @@ windows_set_screen_size :: proc(w, h: int) {
 	)
 }
 
-windows_get_window_scale :: proc() -> f32 {
+windows_get_render_scale :: proc() -> f32 {
 	return f32(win32.GetDpiForWindow(s.hwnd))/96.0
 }
 
@@ -303,7 +309,7 @@ windows_is_gamepad_active :: proc(gamepad: int) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
 	}
-
+	
 	gp_state: win32.XINPUT_STATE
 	return win32.XInputGetState(win32.XUSER(gamepad), &gp_state) == .SUCCESS
 }
@@ -368,8 +374,10 @@ Windows_State :: struct {
 	hwnd: win32.HWND,
 	window_mode: Window_Mode,
 
+	disable_scaling: bool,
+
 	// This is the size the user specified. It's the "logical size", which is the same as
-	// client_width / windows_get_window_scale()
+	// client_width / windows_get_render_scale()
 	screen_width: int,
 	screen_height: int,
 
@@ -475,7 +483,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		}
 
 	case win32.WM_MOUSEMOVE:
-		scale := windows_get_window_scale()
+		scale := windows_get_render_scale()
 		x := f32(win32.GET_X_LPARAM(lparam)) / scale
 		y := f32(win32.GET_Y_LPARAM(lparam)) / scale
 		append(&s.events, Event_Mouse_Move {
@@ -536,7 +544,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 	case win32.WM_DPICHANGED:
 		new_dpi := win32.LOWORD(wparam)
-		scale := f32(new_dpi) / 96.0
+		scale := s.disable_scaling ? 1 : f32(new_dpi) / 96.0
 
 		// The DPI has changed, but not the expected window size. The logical size remains the same
 		// as before, but we figure out the new true screen size.
@@ -593,7 +601,7 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		s.client_height = int(height)
 
 		dpi := win32.GetDpiForWindow(hwnd)
-		scale := f32(dpi) / 96.0
+		scale := s.disable_scaling ? 1 : f32(dpi) / 96.0
 
 		if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
 			s.restore_screen_width = s.client_width

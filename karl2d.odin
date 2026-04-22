@@ -435,21 +435,21 @@ get_screen_size :: proc() -> Vec2 {
 	return { f32(pf.get_screen_width()), f32(pf.get_screen_height()) }
 }
 
-// Moves the window.
-//
-// This does nothing for web builds.
-set_window_position :: proc(x: int, y: int) {
-	pf.set_window_position(x, y)
-}
-
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
 // 1 means 100% scale, 1.5 means 150% etc.
 //
 // Karl2D does not do any automatic scaling. If you want a scaled resolution, then multiply the
 // wanted resolution by the scale and send it into `set_screen_size`. You can use a camera and set
 // the zoom to the window scale in order to make things the same percieved size.
-get_window_scale :: proc() -> f32 {
-	return pf.get_window_scale()
+get_render_scale :: proc() -> f32 {
+	return pf.get_render_scale()
+}
+
+// Moves the window.
+//
+// This does nothing for web builds.
+set_window_position :: proc(x: int, y: int) {
+	pf.set_window_position(x, y)
 }
 
 // Use to change between windowed mode, resizable windowed mode and fullscreen
@@ -3659,6 +3659,12 @@ Window_Mode :: enum {
 
 Init_Options :: struct {
 	window_mode: Window_Mode,
+
+	// Try to disable "DPI scaling" from automatically happening. This means that the window will
+	// get exactly the size you request, with no scaling applied. Currently only works on Windows.
+	// You can still fetch the scale using `get_render_scale`, but the window and backbuffer will
+	// not take it into account automatically.
+	disable_scaling_hint: bool,
 }
 
 Shader_Handle :: distinct Handle

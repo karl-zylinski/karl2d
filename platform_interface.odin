@@ -23,7 +23,7 @@ Platform_Interface :: struct #all_or_none {
 	get_screen_height: proc() -> int,
 	get_render_width: proc() -> int,
 	get_render_height: proc() -> int,
-	get_window_scale: proc() -> f32,
+	get_render_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
 
 	is_gamepad_active: proc(gamepad: int) -> bool,

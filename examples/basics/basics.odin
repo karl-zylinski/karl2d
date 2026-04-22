@@ -11,7 +11,7 @@ tex: k2.Texture
 pos: k2.Vec2
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Basics")
+	k2.init(1280, 720, "Karl2D Basics", options = { disable_scaling_hint = true })
 
 	// Note that we #load the texture: This bakes it into the program's data. WASM has no filesystem
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
