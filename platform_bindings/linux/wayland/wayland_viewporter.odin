@@ -55,7 +55,7 @@ wp_viewport_set_source :: proc (
 	proxy_marshal_flags(
 		wp_viewport,
 		1,
-		&wp_viewport_interface,
+		nil,
 		proxy_get_version(wp_viewport),
 		0,
 		x,
@@ -73,7 +73,7 @@ wp_viewport_set_destination :: proc (
 	proxy_marshal_flags(
 		wp_viewport,
 		2,
-		&wp_viewport_interface,
+		nil,
 		proxy_get_version(wp_viewport),
 		0,
 		width,

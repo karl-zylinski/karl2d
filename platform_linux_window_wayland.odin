@@ -84,7 +84,6 @@ wl_init :: proc(
 	fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(s.fractional_scale_manager, s.surface)
 	wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
 
-
 	wl.surface_commit(s.surface)
 	wl.display_dispatch_pending(s.display)
 	wl.display_roundtrip(s.display)
@@ -96,10 +95,9 @@ wl_init :: proc(
 	wl.add_listener(callback, &frame_callback, nil)
 
 	s.window = wl.egl_window_create(s.surface, i32(s.render_width), i32(s.render_height))
-	viewport := wl.wp_viewporter_get_viewport(s.viewporter, s.surface)
-	wl.wp_viewport_set_destination(viewport, i32(s.screen_width), i32(s.screen_height))
-	wl.surface_commit(s.surface)
-	
+	s.viewport = wl.wp_viewporter_get_viewport(s.viewporter, s.surface)
+	wl.wp_viewport_set_destination(s.viewport, i32(s.screen_width), i32(s.screen_height))
+
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
 	} else when RENDER_BACKEND_NAME == "nil" {
@@ -223,21 +221,25 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 		height: c.int32_t,
 		states: ^wl.Array,
 	) {
-		if s.configured && (s.screen_width != int(width) || s.screen_height != int(height)) {
-			wl.egl_window_resize(s.window, c.int(width), c.int(height), 0, 0)
+		w := width == 0 ? s.screen_width : int(width)
+		h := height == 0 ? s.screen_height : int(height)
+		if (s.screen_width != int(w) || s.screen_height != int(h)) {
 
 			if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-				s.last_windowed_screen_width = int(width)
-				s.last_windowed_screen_height = int(height)
+				s.last_windowed_screen_width = int(w)
+				s.last_windowed_screen_height = int(h)
 			}
 
-			s.screen_width = int(width)
-			s.screen_height = int(height)
+			s.screen_width = int(w)
+			s.screen_height = int(h)
 
 			s.render_width = int(f32(s.screen_width) * s.scale)
 			s.render_height = int(f32(s.screen_height) * s.scale)
 
 			context = s.odin_ctx
+
+			wl.egl_window_resize(s.window, i32(s.render_width), i32(s.render_height), 0, 0)
+			wl.wp_viewport_set_destination(s.viewport, i32(s.screen_width), i32(s.screen_height))
 
 			append(&s.events, Event_Window_Resize {
 				screen_width = s.screen_width,
@@ -502,7 +504,8 @@ wl_set_screen_size :: proc(w, h: int) {
 	s.render_width = int(f32(s.screen_width) * s.scale)
 	s.render_height = int(f32(s.screen_height) * s.scale)
 
-	wl.egl_window_resize(s.window, i32(w), i32(h), 0, 0)
+	wl.egl_window_resize(s.window, i32(s.render_width), i32(s.render_height), 0, 0)
+	wl.wp_viewport_set_destination(s.viewport, i32(s.screen_width), i32(s.screen_height))
 }
 
 wl_get_window_scale :: proc() -> f32 {
@@ -556,6 +559,7 @@ WL_State :: struct {
 	window: ^wl.EGL_Window,
 	toplevel: ^wl.XDG_Toplevel,
 	viewporter: ^wl.WP_Viewporter,
+	viewport: ^wl.WP_Viewport,
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
