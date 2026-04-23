@@ -131,6 +131,9 @@ get_screen_width :: proc() -> int
 // Gets the height of the drawing area within the window.
 get_screen_height :: proc() -> int
 
+// Gets the screen width and height as a 2D vector.
+get_screen_size :: proc() -> Vec2
+
 // Moves the window.
 //
 // This does nothing for web builds.
@@ -831,8 +834,6 @@ camera_view_matrix :: proc(c: Camera) -> Mat4
 // Calculate the matrix that brings something in front of the camera.
 camera_world_matrix :: proc(c: Camera) -> Mat4
 
-get_fullscreen_rect :: proc() -> Rect
-
 //------//
 // MISC //
 //------//
@@ -867,6 +868,21 @@ Open_URL_Error :: enum {
 //
 // Returns Open_URL_Error.None if the call was succesful.
 open_url :: proc(url: string) -> Open_URL_Error
+
+//--------------//
+// EXPERIMENTAL //
+//--------------//
+//
+// These procedures are experimental and may not stay.
+
+// The witdth a button drawn using `ui_button` will have
+ui_button_width :: proc(text: string, button_height: f32) -> f32
+
+// Experimental UI button. Returns true if the button was pressed. Currently only works properly
+// when no camera is set.
+//
+// Mainly used by the samples in order to create the "Source" button.
+ui_button :: proc(r: Rect, text: string) -> bool
 
 //---------------------//
 // TYPES AND CONSTANTS //

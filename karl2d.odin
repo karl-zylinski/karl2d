@@ -425,6 +425,11 @@ get_screen_height :: proc() -> int  {
 	return pf.get_screen_height()
 }
 
+// Gets the screen width and height as a 2D vector.
+get_screen_size :: proc() -> Vec2 {
+	return { f32(pf.get_screen_width()), f32(pf.get_screen_height()) }
+}
+
 // Moves the window.
 //
 // This does nothing for web builds.
@@ -3423,15 +3428,6 @@ camera_world_matrix :: proc(c: Camera) -> Mat4 {
 	return target_translate * rot * scale * offset_translate
 }
 
-get_fullscreen_rect :: proc() -> Rect {
-	return Rect {
-		x = 0,
-		y = 0,
-		w = f32(pf.get_screen_width()),
-		h = f32(pf.get_screen_height()),
-	}
-}
-
 //------//
 // MISC //
 //------//
@@ -3506,6 +3502,47 @@ open_url :: proc(url: string) -> Open_URL_Error {
 
 	return .None
 }
+
+//--------------//
+// EXPERIMENTAL //
+//--------------//
+//
+// These procedures are experimental and may not stay.
+
+// The witdth a button drawn using `ui_button` will have
+ui_button_width :: proc(text: string, button_height: f32) -> f32 {
+	return measure_text(text, button_height).x
+}
+
+// Experimental UI button. Returns true if the button was pressed. Currently only works properly
+// when no camera is set.
+//
+// Mainly used by the samples in order to create the "Source" button.
+ui_button :: proc(r: Rect, text: string) -> bool {
+	in_rect := point_in_rect(get_mouse_position(), r)
+	bg_color := DARK_GRAY
+	border_color := WHITE
+	text_color := WHITE
+	res := false
+
+	if in_rect {
+		bg_color = GRAY
+		text_color = WHITE
+
+		if mouse_button_went_down(.Left) {
+			res = true
+			bg_color = BLACK
+		}
+	}
+	
+	draw_rect(r, bg_color)
+	draw_rect_outline(r, 1, border_color)
+
+	text_width := measure_text(text, r.h).x
+	draw_text(text, {r.x + r.w/2 - text_width/2, r.y}, r.h, WHITE)
+	return res
+}
+
 
 //---------------------//
 // TYPES AND CONSTANTS //
