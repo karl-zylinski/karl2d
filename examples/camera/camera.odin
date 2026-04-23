@@ -140,6 +140,17 @@ step :: proc() -> bool {
 	k2.draw_text("use arrow keys or the left mouse button to pan", text_pos, font_size, text_color)
 	text_pos.y -= font_size
 
+	source_code_rect := k2.Rect {
+		f32(k2.get_screen_width()) - 210,
+		f32(k2.get_screen_height()) - 40,
+		200,
+		30,
+	}
+
+	if k2.ui_button(source_code_rect, "Source Code") {
+		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/camera/camera.odin")
+	}
+
 	// SHOW WHAT WE DREW TO PLAYER
 
 	k2.present()

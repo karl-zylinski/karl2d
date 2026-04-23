@@ -104,7 +104,6 @@ step :: proc() -> bool {
 		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/basics/basics.odin")
 	}
 
-
 	k2.present()
 
 	// The calls to `fmt.tprintf` above allocate using `context.temp_allocator`. Those allocations
