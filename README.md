@@ -1,4 +1,4 @@
-<img width="400"  alt="logo" src="https://github.com/user-attachments/assets/eb44b13a-5b2d-4b95-a46c-9022f478545f" />
+<img width="400" alt="logo" src="https://github.com/user-attachments/assets/6dedd9e3-6965-46cb-afef-048470697f17" />
 
 Make 2D games using the Odin Programming Language! Karl2D is a beginner friendly game creation library. It strives to minimize the number of dependencies, making you feel in control of the technology stack.
 
