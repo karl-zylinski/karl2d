@@ -131,5 +131,3 @@ Are you interested in helping with Karl2D development? Thank you! You can look a
 You can always open a _draft_ Pull Request and work on your stuff in there. There are no rules for draft pull requests. When you want to turn your draft into a ready-for-review Pull Request, then please follow this rule checklist: https://github.com/karl-zylinski/karl2d/blob/master/.github/pull_request_template.md
 
 ## Have fun!
-
-Logo by chris_php.
