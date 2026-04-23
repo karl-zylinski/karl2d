@@ -9,9 +9,8 @@ import "core:fmt"
 import "core:time"
 
 CLEAR_COLOR :: k2.Color{6, 6, 8, 255}
-SKY_COLOR :: k2.Color{28, 38, 56, 255}
+SPACE_COLOR :: k2.Color{28, 38, 56, 255}
 GROUND_COLOR :: k2.Color{35, 73, 93, 255}
-WALL_COLOR :: k2.Color{28, 38, 56, 255}
 HIGHLIGHT_COLOR :: k2.Color{149, 224, 204, 255}
 
 SCREEN_WIDTH :: 240
@@ -321,7 +320,7 @@ draw :: proc() {
 
 		pos := map_origin + Vec2{f32(x)*6,f32(y)*6}
 
-		map_square_color := SKY_COLOR
+		map_square_color := SPACE_COLOR
 
 		if r_idx == current_room_idx {
 			map_square_color = HIGHLIGHT_COLOR
@@ -386,56 +385,15 @@ editor_update :: proc() {
 		x := tile_idx % ROOM_TILE_WIDTH
 		y := tile_idx / ROOM_TILE_WIDTH
 
-		/*tile_type :: proc(x, y: int, cur: Tile_Type) -> Tile_Type {
-			if x < 0 || y < 0 || x >= ROOM_WIDTH || y >= ROOM_WIDTH {
-				return .Space
-			}
-
-			return current_room.tiles[y*ROOM_WIDTH+x]
-		}
-
-		mask := 0
-
-		t := current_room.tiles[tile_idx]
-
-		if tile_type(x-1, y-1, t) == .Space {
-			mask |= 1 // TL
-		}
-		if tile_type(x, y-1, t) == .Space {
-			mask |= 2 // TR
-		}
-		if tile_type(x, y, t) == .Space {
-			mask |= 4 // BR
-		}
-		if tile_type(x-1, y, t) == .Space {
-			mask |= 8 // BL
-		}
-
-		txty := DUAL_GRID_MASK_TO_TXTY[mask]
-		tx := txty.x
-		ty := txty.y
-
-		tile_rect := k2.Rect {
-			x = f32(tx) * TILE_SIZE,
-			y = f32(ty) * TILE_SIZE,
-			w = TILE_SIZE,
-			h = TILE_SIZE,
-		}*/
-
-		// Note the half-tile offset here: This is what "undoes" the half-tile offset that dual
-		// tile grids need.
 		pos := k2.Vec2 {
 			f32(x) * TILE_SIZE,
 			f32(y) * TILE_SIZE,
 		}
 
-		// Always draw "grass" below the tile, as they have transparent pixels.
-
-
 		color := GROUND_COLOR
 
 		if tile == .Space {
-			color = SKY_COLOR
+			color = SPACE_COLOR
 		}
 
 		k2.draw_rect(k2.rect_from_pos_size(pos, {TILE_SIZE, TILE_SIZE}), color)
