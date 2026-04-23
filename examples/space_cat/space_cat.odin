@@ -6,6 +6,7 @@ import "core:math"
 import "core:encoding/json"
 import "core:os"
 import "core:fmt"
+import "core:time"
 
 CLEAR_COLOR :: k2.Color{6, 6, 8, 255}
 SKY_COLOR :: k2.Color{28, 38, 56, 255}
@@ -39,6 +40,11 @@ Tile_Type :: enum {
 	Space,
 }
 
+tile_walkable_lookup := [Tile_Type]bool {
+	.Ground = true,
+	.Space = false,
+}
+
 Direction :: enum {
 	East,
 	West,
@@ -47,8 +53,10 @@ Direction :: enum {
 player: Player
 current_room_idx: int
 editing: bool
-camera: k2.Camera
+game_camera: k2.Camera
+ui_camera: k2.Camera
 space_tileset: k2.Texture
+space_tileset_version: time.Time
 
 WORLD_WIDTH :: 2
 WORLD_HEIGHT :: 3
@@ -63,6 +71,7 @@ main :: proc() {
 	k2.init(SCREEN_WIDTH*4, SCREEN_HEIGHT*4, "SPACE CAT", options = {window_mode = .Windowed_Resizable})
 	current_room_idx = 4
 	space_tileset = k2.load_texture_from_file("space_tileset.png")
+	space_tileset_version, _ = os.modification_time_by_path("space_tileset.png")
 
 	world_json_data, world_json_data_err := os.read_entire_file("world.json", context.temp_allocator)
 
@@ -76,6 +85,13 @@ main :: proc() {
 	}
 
 	for k2.update() {
+		space_tileset_new_version, _ := os.modification_time_by_path("space_tileset.png")
+
+		if space_tileset_version != space_tileset_new_version {
+			k2.destroy_texture(space_tileset)
+			space_tileset = k2.load_texture_from_file("space_tileset.png")
+		}
+
 		if k2.key_went_down(.F2) {
 			if editing {
 				editor_save()
@@ -84,7 +100,12 @@ main :: proc() {
 			editing = !editing
 		}
 
-		camera = {
+		game_camera = {
+			zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
+			target = {0, -STATUS_BAR_HEIGHT},
+		}
+
+		ui_camera = {
 			zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
 		}
 
@@ -126,7 +147,49 @@ update :: proc() {
 		player.dir = .West
 	}
 
-	player.pos += movement * k2.get_frame_time() * 50
+	to_move := movement * k2.get_frame_time() * 50
+
+	player.pos.x += to_move.x
+
+	current_room := world.rooms[current_room_idx]
+
+	for tile_type, tile_idx in current_room.tiles {
+		if tile_walkable_lookup[tile_type] {
+			continue
+		}
+
+		tile_pos := k2.Vec2 {
+			f32(tile_idx % ROOM_TILE_WIDTH) * TILE_SIZE,
+			f32(tile_idx / ROOM_TILE_WIDTH) * TILE_SIZE,
+		}
+
+		tile_rect := k2.rect_from_pos_size(tile_pos, {TILE_SIZE, TILE_SIZE})
+
+		if k2.point_in_rect(player.pos, tile_rect) {
+			player.pos.x -= to_move.x
+			break
+		}
+	}
+
+	player.pos.y += to_move.y
+
+	for tile_type, tile_idx in current_room.tiles {
+		if tile_walkable_lookup[tile_type] {
+			continue
+		}
+		
+		tile_pos := k2.Vec2 {
+			f32(tile_idx % ROOM_TILE_WIDTH) * TILE_SIZE,
+			f32(tile_idx / ROOM_TILE_WIDTH) * TILE_SIZE,
+		}
+
+		tile_rect := k2.rect_from_pos_size(tile_pos, {TILE_SIZE, TILE_SIZE})
+
+		if k2.point_in_rect(player.pos, tile_rect) {
+			player.pos.y -= to_move.y
+			break
+		}
+	}
 
 	ROOM_HEIGHT :: ROOM_TILE_HEIGHT * TILE_SIZE
 	ROOM_WIDTH :: ROOM_TILE_WIDTH * TILE_SIZE
@@ -142,13 +205,11 @@ update :: proc() {
 		room_move_y += 1
 	}
 
-	player_mid_x := player.pos.x + f32(player.tex.width)/2
-
-	if player_mid_x < 0 {
+	if player.pos.x < 0 {
 		room_move_x -= 1
 	}
 
-	if player_mid_x > ROOM_WIDTH {
+	if player.pos.x > ROOM_WIDTH {
 		room_move_x += 1
 	}
 
@@ -176,84 +237,80 @@ update :: proc() {
 draw :: proc() {
 	k2.clear(CLEAR_COLOR)
 
-	k2.set_camera(camera)
-	k2.draw_rect(
-		{
-			0,
-			STATUS_BAR_HEIGHT,
-			SCREEN_WIDTH,
-			SCREEN_HEIGHT - STATUS_BAR_HEIGHT,
-		},
-		SKY_COLOR,
-	)
+	k2.set_camera(game_camera)
 
-	current_room := &world.rooms[current_room_idx]
+	for x in 0..<(ROOM_TILE_WIDTH+1) {
+		for y in 0..<(ROOM_TILE_HEIGHT+1) {
 
-	for tile, tile_idx in current_room.tiles {
-		x := tile_idx % ROOM_TILE_WIDTH
-		y := tile_idx / ROOM_TILE_WIDTH
+			tile_type :: proc(x, y: int) -> Tile_Type {
+				if x < 0 {
+					return tile_type(x + 1, y)
+				}
 
-		/*tile_type :: proc(x, y: int, cur: Tile_Type) -> Tile_Type {
-			if x < 0 || y < 0 || x >= ROOM_WIDTH || y >= ROOM_WIDTH {
-				return .Space
+				if x >= ROOM_TILE_WIDTH {
+					return tile_type(x - 1, y)
+				}
+
+				if y < 0 {
+					return tile_type(x, y + 1)
+				}
+
+				if y >= ROOM_TILE_HEIGHT {
+					return tile_type(x, y - 1)
+				}
+
+				return world.rooms[current_room_idx].tiles[y*ROOM_TILE_WIDTH+x]
 			}
 
-			return current_room.tiles[y*ROOM_WIDTH+x]
+			mask := 0
+
+			if tile_type(x-1, y-1) == .Space {
+				mask |= 1 // TL
+			}
+			if tile_type(x, y-1) == .Space {
+				mask |= 2 // TR
+			}
+			if tile_type(x, y) == .Space {
+				mask |= 4 // BR
+			}
+			if tile_type(x-1, y) == .Space {
+				mask |= 8 // BL
+			}
+
+			txty := DUAL_GRID_MASK_TO_TXTY[mask]
+			tx := txty.x
+			ty := txty.y
+
+			tile_rect := k2.Rect {
+				x = f32(tx) * TILE_SIZE,
+				y = f32(ty) * TILE_SIZE,
+				w = TILE_SIZE,
+				h = TILE_SIZE,
+			}
+
+			pos := k2.Vec2 {
+				f32(x) * TILE_SIZE - TILE_SIZE/2,
+				f32(y) * TILE_SIZE - TILE_SIZE/2,
+			}
+
+			k2.draw_texture_section(space_tileset, tile_rect, pos)
 		}
-
-		mask := 0
-
-		t := current_room.tiles[tile_idx]
-
-		if tile_type(x-1, y-1, t) == .Space {
-			mask |= 1 // TL
-		}
-		if tile_type(x, y-1, t) == .Space {
-			mask |= 2 // TR
-		}
-		if tile_type(x, y, t) == .Space {
-			mask |= 4 // BR
-		}
-		if tile_type(x-1, y, t) == .Space {
-			mask |= 8 // BL
-		}
-
-		txty := DUAL_GRID_MASK_TO_TXTY[mask]
-		tx := txty.x
-		ty := txty.y
-
-		tile_rect := k2.Rect {
-			x = f32(tx) * TILE_SIZE,
-			y = f32(ty) * TILE_SIZE,
-			w = TILE_SIZE,
-			h = TILE_SIZE,
-		}*/
-
-		// Note the half-tile offset here: This is what "undoes" the half-tile offset that dual
-		// tile grids need.
-		pos := k2.Vec2 {
-			f32(x) * TILE_SIZE,
-			f32(y) * TILE_SIZE + STATUS_BAR_HEIGHT,
-		}
-
-		// Always draw "grass" below the tile, as they have transparent pixels.
-
-
-		color := GROUND_COLOR
-
-		if tile == .Space {
-			color = SKY_COLOR
-		}
-
-		k2.draw_rect(k2.rect_from_pos_size(pos, {TILE_SIZE, TILE_SIZE}), color)
 	}
 
 	player_tex_rect := k2.get_texture_rect(player.tex)
+	
 	if player.dir == .West {
 		player_tex_rect.w *= -1
 	}
-	k2.draw_texture_section(player.tex, player_tex_rect, player.pos)
 
+	k2.draw_texture_section(
+		player.tex,
+		player_tex_rect,
+		player.pos,
+		origin = {f32(player.tex.width/2), f32(player.tex.height)-2},
+	)
+
+	k2.set_camera(ui_camera)
 	k2.draw_rect({0, 0, SCREEN_WIDTH, STATUS_BAR_HEIGHT}, CLEAR_COLOR)
 
 	map_origin := Vec2{200, 2}
@@ -296,7 +353,7 @@ DUAL_GRID_MASK_TO_TXTY := [16][2]int {
 }
 
 editor_update :: proc() {
-	mouse_pos_world := k2.screen_to_world(k2.get_mouse_position(), camera)
+	mouse_pos_world := k2.screen_to_world(k2.get_mouse_position(), game_camera)
 	grid_x := int(math.floor(mouse_pos_world.x / TILE_SIZE))
 	grid_y := int(math.floor(mouse_pos_world.y / TILE_SIZE))
 	hovered_grid_rect: k2.Rect
@@ -323,8 +380,7 @@ editor_update :: proc() {
 	}
 
 	k2.clear(CLEAR_COLOR)
-	k2.set_camera(camera)
-
+	k2.set_camera(game_camera)
 	
 	for tile, tile_idx in current_room.tiles {
 		x := tile_idx % ROOM_TILE_WIDTH
