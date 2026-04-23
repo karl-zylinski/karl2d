@@ -17,7 +17,7 @@ main :: proc() {
 render_texture: k2.Render_Texture
 
 init :: proc() {
-	k2.init(1080, 1080, "Karl2D Render Texture Example")
+	k2.init(1000, 750, "Karl2D Render Texture Example", options = { window_mode = .Windowed_Resizable })
 	render_texture = k2.create_render_texture(75, 48)
 }
 
@@ -58,7 +58,24 @@ step :: proc() -> bool {
 		rotation = rot2,
 	)
 
+	//
+	// BOTTOM BAR
+	//
+
+	k2.set_camera(nil)
+	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size())
+	bottom_bar := k2.rect_cut_bottom(&screen_rect, 30, 0)
+	k2.draw_rect(bottom_bar, k2.DARK_GRAY)
+	bottom_bar = k2.rect_shrink(bottom_bar, 4, 4)
+	k2.draw_text("Drawn once into a render texture. The render texture is drawn 3 times.", k2.rect_top_left(bottom_bar), bottom_bar.h, k2.WHITE)
+	source_code_rect := k2.rect_cut_right(&bottom_bar, k2.ui_button_width("Source Code", bottom_bar.h) + 50, 0)
+
+	if k2.ui_button(source_code_rect, "Source Code") {
+		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/render_texture/render_texture.odin")
+	}
+
 	k2.present()
+
 	free_all(context.temp_allocator)
 	return true
 }

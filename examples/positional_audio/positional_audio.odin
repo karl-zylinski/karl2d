@@ -39,7 +39,7 @@ draw_audio_source :: proc(as: Audio_Source) {
 }
 
 init :: proc() {
-	k2.init(1280, 720, "Audio Positional")
+	k2.init(1000, 536, "Audio Positional", options = { window_mode = .Windowed_Resizable })
 	sine_wave = make_sine_wave(200, SOUND_LENGTH, 44100)
 	player_pos = {200, 200}
 
@@ -136,6 +136,24 @@ step :: proc() -> bool {
 	}
 
 	k2.draw_circle(player_pos, 10, k2.LIGHT_RED)
+
+
+	//
+	// BOTTOM BAR
+	//
+
+	k2.set_camera(nil)
+	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size())
+	bottom_bar := k2.rect_cut_bottom(&screen_rect, 36, 0)
+	k2.draw_rect(bottom_bar, k2.DARK_GRAY)
+	bottom_bar = k2.rect_shrink(bottom_bar, 4, 4)
+	k2.draw_text("Move circle using arrow keys. The squares emit sound.", k2.rect_top_left(bottom_bar), bottom_bar.h, k2.WHITE)
+	source_code_rect := k2.rect_cut_right(&bottom_bar, k2.ui_button_width("Source Code", bottom_bar.h) + 50, 0)
+
+	if k2.ui_button(source_code_rect, "Source Code") {
+		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/positional_audio/positional_audio.odin")
+	}
+
 	k2.present()
 
 	return true
