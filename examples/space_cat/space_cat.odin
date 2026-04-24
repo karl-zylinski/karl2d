@@ -7,6 +7,7 @@ import "core:encoding/json"
 import "core:os"
 import "core:fmt"
 import "core:time"
+import "core:math/noise"
 
 CLEAR_COLOR :: k2.Color{6, 6, 8, 255}
 SPACE_COLOR :: k2.Color{28, 38, 56, 255}
@@ -21,7 +22,9 @@ Vec2 :: k2.Vec2
 
 Player :: struct {
 	pos: Vec2,
-	tex: k2.Texture,
+	tex_east_west: k2.Texture,
+	tex_up: k2.Texture,
+	tex_down: k2.Texture,
 	dir: Direction,
 }
 
@@ -47,6 +50,8 @@ tile_walkable_lookup := [Tile_Type]bool {
 Direction :: enum {
 	East,
 	West,
+	North,
+	South,
 }
 
 player: Player
@@ -56,6 +61,8 @@ game_camera: k2.Camera
 ui_camera: k2.Camera
 space_tileset: k2.Texture
 space_tileset_version: time.Time
+
+star_texs: [5]k2.Texture
 
 WORLD_WIDTH :: 2
 WORLD_HEIGHT :: 3
@@ -70,6 +77,13 @@ main :: proc() {
 	k2.init(SCREEN_WIDTH*4, SCREEN_HEIGHT*4, "SPACE CAT", options = {window_mode = .Windowed_Resizable})
 	current_room_idx = 4
 	space_tileset = k2.load_texture_from_file("space_tileset.png")
+	star_texs = {
+		k2.load_texture_from_file("star_1.png"),
+		k2.load_texture_from_file("star_2.png"),
+		k2.load_texture_from_file("star_3.png"),
+		k2.load_texture_from_file("star_4.png"),
+		k2.load_texture_from_file("star_5.png"),
+	}
 	space_tileset_version, _ = os.modification_time_by_path("space_tileset.png")
 
 	world_json_data, world_json_data_err := os.read_entire_file("world.json", context.temp_allocator)
@@ -80,7 +94,9 @@ main :: proc() {
 
 	player = {
 		pos = {30, 100},
-		tex = k2.load_texture_from_file("cat.png"),
+		tex_east_west = k2.load_texture_from_file("cat_east_west.png"),
+		tex_up = k2.load_texture_from_file("cat_up.png"),
+		tex_down = k2.load_texture_from_file("cat_down.png"),
 	}
 
 	for k2.update() {
@@ -144,6 +160,10 @@ update :: proc() {
 		player.dir = .East
 	} else if movement.x < 0 {
 		player.dir = .West
+	} else if movement.y > 0 {
+		player.dir = .South
+	} else if movement.y < 0 {
+		player.dir = .North
 	}
 
 	to_move := movement * k2.get_frame_time() * 50
@@ -234,9 +254,26 @@ update :: proc() {
 }
 
 draw :: proc() {
-	k2.clear(CLEAR_COLOR)
+	k2.clear(SPACE_COLOR)
 
 	k2.set_camera(game_camera)
+	
+	STARS_PER_DIR :: 4
+
+	szx := f32((ROOM_TILE_WIDTH)*TILE_SIZE)/(STARS_PER_DIR-1)
+	szy := f32((ROOM_TILE_HEIGHT)*TILE_SIZE)/(STARS_PER_DIR-1)
+
+	for st, st_idx in star_texs {
+		for s_idx in 0..<STARS_PER_DIR*STARS_PER_DIR {
+			x_r := noise.noise_2d(i64(current_room_idx), {f64(st_idx), f64(s_idx)}) * 0.5
+			y_r := noise.noise_2d(i64(current_room_idx), {f64(st_idx*st_idx), f64(s_idx)}) * 0.5
+
+			xp := f32(f32(s_idx % (STARS_PER_DIR)) + x_r) * szx
+			yp := f32(f32(s_idx / (STARS_PER_DIR)) + y_r) * szy
+
+			k2.draw_texture(st, {math.floor(xp), math.floor(yp)})
+		}
+	}
 
 	for x in 0..<(ROOM_TILE_WIDTH+1) {
 		for y in 0..<(ROOM_TILE_HEIGHT+1) {
@@ -296,17 +333,32 @@ draw :: proc() {
 		}
 	}
 
-	player_tex_rect := k2.get_texture_rect(player.tex)
+	player_tex: k2.Texture
+	flip_x := false
 	
-	if player.dir == .West {
+	switch player.dir {
+	case .East:
+		player_tex = player.tex_east_west
+	case .West:
+		player_tex = player.tex_east_west
+		flip_x = true
+	case .North:
+		player_tex = player.tex_up
+	case .South:
+		player_tex = player.tex_down
+	}
+
+	player_tex_rect := k2.get_texture_rect(player_tex)
+
+	if flip_x {
 		player_tex_rect.w *= -1
 	}
 
 	k2.draw_texture_section(
-		player.tex,
+		player_tex,
 		player_tex_rect,
 		player.pos,
-		origin = {f32(player.tex.width/2), f32(player.tex.height)-2},
+		origin = {f32(player_tex.width/2), f32(player_tex.height)-2},
 	)
 
 	k2.set_camera(ui_camera)
