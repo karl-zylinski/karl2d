@@ -1,4 +1,4 @@
-<img width="328" height="64" alt="karl2d_logo" src="https://github.com/user-attachments/assets/5ebd43c8-5a1d-4864-b8eb-7ce4b6a5dba0" />
+<img width="400" alt="logo" src="https://github.com/user-attachments/assets/6dedd9e3-6965-46cb-afef-048470697f17" />
 
 Make 2D games using the Odin Programming Language! Karl2D is a beginner friendly game creation library. It strives to minimize the number of dependencies, making you feel in control of the technology stack.
 
@@ -131,5 +131,3 @@ Are you interested in helping with Karl2D development? Thank you! You can look a
 You can always open a _draft_ Pull Request and work on your stuff in there. There are no rules for draft pull requests. When you want to turn your draft into a ready-for-review Pull Request, then please follow this rule checklist: https://github.com/karl-zylinski/karl2d/blob/master/.github/pull_request_template.md
 
 ## Have fun!
-
-Logo by chris_php.

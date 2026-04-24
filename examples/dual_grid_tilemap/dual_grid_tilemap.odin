@@ -10,7 +10,7 @@ TILE_SIZE :: 16
 WORLD_WIDTH :: 20
 
 // The height of the toolbar at the bottom
-UI_HEIGHT :: 16
+BOTTOM_BAR_HEIGHT :: 36
 
 // By default, everything is of .Grass type. We just store what kind of ground each tile has, the
 // actual selection of tile is done at runtime based on the values of the neighboring tiles.
@@ -51,6 +51,13 @@ Tile_Type :: enum {
 	Path,
 }
 
+// Program entry point for desktop builds. Web builds call `init` and `step` directly.
+main :: proc() {
+	init()
+	for step() {}
+	shutdown()
+}
+
 init :: proc() {
 	k2.init(800, 640, "Karl2D: Dual Grid Tilemap", options = { window_mode = .Windowed_Resizable })
 	tileset_path_texture = k2.load_texture_from_bytes(#load("tileset_path.png"))
@@ -63,14 +70,14 @@ step :: proc() -> bool {
 
 	camera := k2.Camera {
 		// Fit the whole world, but also zoom out a little so the UI fits
-		zoom = f32(k2.get_screen_height())/(WORLD_WIDTH*TILE_SIZE+UI_HEIGHT),
-		// Make the game look in the middle of the world (middle of the tiles). The half tile offset
-		// is here because the dual-grid tiles are offset by half a tile.
+		zoom = f32(k2.get_screen_height() - BOTTOM_BAR_HEIGHT)/(WORLD_WIDTH*TILE_SIZE),
+		
+		// Center the world.
 		target = k2.Vec2{
 			TILE_SIZE * WORLD_WIDTH,
-			TILE_SIZE * WORLD_WIDTH + UI_HEIGHT,
-		} * 0.5 - {TILE_SIZE, TILE_SIZE} * 0.5,
-		offset = k2.Vec2{f32(k2.get_screen_width()), f32(k2.get_screen_height())} * 0.5,
+			0,
+		} * 0.5 - {TILE_SIZE/2, TILE_SIZE/2},
+		offset = k2.Vec2{f32(k2.get_screen_width()), 0} * 0.5,
 	}
 
 	mouse_pos_world := k2.screen_to_world(k2.get_mouse_position(), camera)
@@ -158,17 +165,22 @@ step :: proc() -> bool {
 
 	k2.draw_rect(hovered_grid_rect, {255, 255, 255, 128})
 
-	k2.set_camera(nil)
-	fullscreen_rect := k2.get_fullscreen_rect()
-	ui_bg := k2.rect_cut_bottom(&fullscreen_rect, UI_HEIGHT * camera.zoom, 0)
-	k2.draw_rect(ui_bg, k2.DARK_GRAY)
-	ui_text_area := k2.rect_shrink(ui_bg, 2*camera.zoom, 2*camera.zoom)
+	//
+	// BOTTOM BAR
+	//
 
-	if ui_button(k2.rect_cut_right(&ui_text_area, ui_button_width("Source Code", ui_text_area.h) + 50, 0), "Source Code") {
+	k2.set_camera(nil)
+	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size())
+	bottom_bar := k2.rect_cut_bottom(&screen_rect, BOTTOM_BAR_HEIGHT, 0)
+	k2.draw_rect(bottom_bar, k2.DARK_GRAY)
+	bottom_bar = k2.rect_shrink(bottom_bar, 4, 4)
+	k2.draw_text("Paint path: LMB | Erase path: RMB or Ctrl + LMB", k2.rect_top_left(bottom_bar), bottom_bar.h, k2.WHITE)
+	source_code_rect := k2.rect_cut_right(&bottom_bar, k2.ui_button_width("Source Code", bottom_bar.h) + 50, 0)
+
+	if k2.ui_button(source_code_rect, "Source Code") {
 		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/dual_grid_tilemap/dual_grid_tilemap.odin")
 	}
 
-	k2.draw_text("Paint path: LMB | Erase path: RMB or Ctrl + LMB", k2.rect_top_left(ui_text_area), ui_text_area.h, k2.WHITE)
 	k2.present()
 	free_all(context.temp_allocator)
 
@@ -178,44 +190,4 @@ step :: proc() -> bool {
 shutdown :: proc() {
 	k2.destroy_texture(tileset_path_texture)
 	k2.shutdown()
-}
-
-// This is not run by the web version, but it makes this program also work on non-web!
-main :: proc() {
-	init()
-	for step() {}
-	shutdown()
-}
-
-// --------------------------
-// These UI things are experiments that may get moved to some official KarlUI package
-//
-
-ui_button_width :: proc(text: string, button_height: f32) -> f32 {
-	return k2.measure_text(text, button_height).x
-}
-
-ui_button :: proc(r: k2.Rect, text: string) -> bool {
-	in_rect := k2.point_in_rect(k2.get_mouse_position(), r)
-	bg_color := k2.DARK_GRAY
-	border_color := k2.WHITE
-	text_color := k2.WHITE
-	res := false
-
-	if in_rect {
-		bg_color = k2.GRAY
-		text_color = k2.WHITE
-
-		if k2.mouse_button_went_down(.Left) {
-			res = true
-			bg_color = k2.BLACK
-		}
-	}
-	
-	k2.draw_rect(r, bg_color)
-	k2.draw_rect_outline(r, 1, border_color)
-
-	text_width := k2.measure_text(text, r.h).x
-	k2.draw_text(text, {r.x + r.w/2 - text_width/2, r.y}, r.h, k2.WHITE)
-	return res
 }
