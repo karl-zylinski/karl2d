@@ -21,6 +21,7 @@ main :: proc() {
 		"scaling_auto_window_resize",
 		"ui",
 		"scraps",
+		"hot_reload",
 	}
 
 	// These examples are only for web -- Running a pure "check" on them will fail
