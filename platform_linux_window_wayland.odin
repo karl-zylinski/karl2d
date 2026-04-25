@@ -8,10 +8,10 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
 	get_events = wl_get_events,
-	get_width = wl_get_width,
-	get_height = wl_get_height,
+	get_screen_width = wl_get_screen_width,
+	get_screen_height = wl_get_screen_height,
 	set_position = wl_set_position,
-	set_size = wl_set_size,
+	set_screen_size = wl_set_screen_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
 	set_internal_state = wl_set_internal_state,
@@ -469,11 +469,11 @@ wl_get_events :: proc(events: ^[dynamic]Event) {
 	runtime.clear(&s.events)
 }
 
-wl_get_width :: proc() -> int {
+wl_get_screen_width :: proc() -> int {
 	return s.screen_width
 }
 
-wl_get_height :: proc() -> int {
+wl_get_screen_height :: proc() -> int {
 	return s.screen_height
 }
 
@@ -481,7 +481,7 @@ wl_set_position :: proc(x: int, y: int) {
 	log.error("set_position not implemented when using wayland")
 }
 
-wl_set_size :: proc(w, h: int) {
+wl_set_screen_size :: proc(w, h: int) {
 	s.screen_width = int(f32(w) * s.scale)
 	s.screen_height = int(f32(h) * s.scale)
 
