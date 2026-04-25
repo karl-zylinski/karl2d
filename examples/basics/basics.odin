@@ -26,11 +26,11 @@ step :: proc() -> bool {
 		return false
 	}
 
-	cam := k2.Camera {
+	camera := k2.Camera {
 		zoom = k2.get_window_scale(),
 	}
 
-	k2.set_camera(cam)
+	k2.set_camera(camera)
 
 	movement: k2.Vec2
 
@@ -98,7 +98,7 @@ step :: proc() -> bool {
 	// BOTTOM BAR
 	//
 
-	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size() / cam.zoom)
+	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size() / camera.zoom)
 	bottom_bar := k2.rect_cut_bottom(&screen_rect, 36, 0)
 	k2.draw_rect(bottom_bar, k2.DARK_GRAY)
 	bottom_bar = k2.rect_shrink(bottom_bar, 4, 4)
