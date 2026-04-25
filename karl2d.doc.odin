@@ -1032,6 +1032,15 @@ Window_Mode :: enum {
 
 Init_Options :: struct {
 	window_mode: Window_Mode,
+
+	// This hint may disable scaling of the window when created. Scaling here refers to the scaling
+	// that is set for the monitor in the OS settings (the same number returned by
+	// `get_window_scale`).
+	//
+	// Note that this is a _hint_. It only works on some platforms, such as Windows. On other
+	// platforms, such as Linux+Wayland, it does not work, because Wayland always auto scales all
+	// windows.
+	disable_auto_scale_hint: bool,
 }
 
 Shader_Handle :: distinct Handle
@@ -1637,6 +1646,8 @@ Event_Screen_Resize :: struct {
 // You can also use `k2.get_window_scale()`
 Event_Window_Scale_Changed :: struct {
 	scale: f32,
+	screen_width: int,
+	screen_height: int,
 }
 
 Event_Window_Focused :: struct {}

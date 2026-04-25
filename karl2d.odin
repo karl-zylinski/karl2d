@@ -3428,10 +3428,6 @@ camera_world_matrix :: proc(c: Camera) -> Mat4 {
 	return target_translate * rot * scale * offset_translate
 }
 
-get_camera_screen_size :: proc(camera: Camera) -> Vec2 {
-	return screen_to_world(get_screen_size(), camera)
-}
-
 //------//
 // MISC //
 //------//
