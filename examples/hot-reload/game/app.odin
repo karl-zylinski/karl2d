@@ -1,6 +1,8 @@
 #+vet explicit-allocators
 package karl2d_hot_reload_app
 
+// If you use this as the basis for an actual game, then copy karl2d into this folder and just do
+// `import k2 "karl2d"`
 import k2 "../../.."
 import "base:runtime"
 import "core:math/linalg"
