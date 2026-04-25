@@ -3428,6 +3428,10 @@ camera_world_matrix :: proc(c: Camera) -> Mat4 {
 	return target_translate * rot * scale * offset_translate
 }
 
+get_camera_screen_size :: proc(camera: Camera) -> Vec2 {
+	return screen_to_world(get_screen_size(), camera)
+}
+
 //------//
 // MISC //
 //------//
@@ -3695,6 +3699,15 @@ Window_Mode :: enum {
 
 Init_Options :: struct {
 	window_mode: Window_Mode,
+
+	// This hint may disable scaling of the window when created. Scaling here refers to the scaling
+	// that is set for the monitor in the OS settings (the same number returned by
+	// `get_window_scale`).
+	//
+	// Note that this is a _hint_. It only works on some platforms, such as Windows. On other
+	// platforms, such as Linux+Wayland, it does not work, because Wayland always auto scales all
+	// windows.
+	disable_auto_scale_hint: bool,
 }
 
 Shader_Handle :: distinct Handle
