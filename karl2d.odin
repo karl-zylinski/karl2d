@@ -374,7 +374,7 @@ process_events :: proc() {
 			}
 
 		case Event_Window_Scale_Changed:
-			// Doesn't do anything, only here so people can fetch it via `get_events()`.
+			rb.resize_swapchain(e.screen_width, e.screen_height)
 		}
 	}
 }
@@ -4314,6 +4314,8 @@ Event_Screen_Resize :: struct {
 // You can also use `k2.get_window_scale()`
 Event_Window_Scale_Changed :: struct {
 	scale: f32,
+	screen_width: int,
+	screen_height: int,
 }
 
 Event_Window_Focused :: struct {}
