@@ -528,6 +528,8 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 		append(&s.events, Event_Window_Scale_Changed {
 			scale = s.window_scale,
+			screen_width = s.screen_width,
+			screen_height = s.screen_height,
 		})
 
 	case win32.WM_ENTERSIZEMOVE:
