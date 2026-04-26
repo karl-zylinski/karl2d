@@ -561,8 +561,8 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		// not get spammy.
 		if !s.in_resize_move_state {
 			append(&s.events, Event_Screen_Resize {
-				width = int(width),
-				height = int(height),
+				width = s.screen_width,
+				height = s.screen_height,
 			})
 		}
 
