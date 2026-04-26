@@ -99,6 +99,7 @@ windows_init :: proc(
 		i32(initial_rect.bottom - initial_rect.top),
 		nil, nil, instance, nil,
 	)
+
 	assert(s.hwnd != nil, "Failed creating window")
 
 	windows_set_window_mode(options.window_mode)
