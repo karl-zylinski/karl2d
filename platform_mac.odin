@@ -112,10 +112,6 @@ mac_init :: proc(
 	s.window = s.window->initWithContentRect(rect, style, .Buffered, false)
 	s.windowed_rect = rect
 
-	main_screen := NS.Screen_mainScreen()
-	scale := f32(main_screen->backingScaleFactor())
-	s.screen_width = int(f32(screen_width) * scale)
-	s.screen_height = int(f32(screen_height) * scale)
 
 	title_str := NS.String_alloc()->initWithOdinString(window_title)
 	s.window->setTitle(title_str)
@@ -123,6 +119,10 @@ mac_init :: proc(
 	s.window->center()
 	s.window->setAcceptsMouseMovedEvents(true)
 	s.window->makeKeyAndOrderFront(nil)
+
+	scale := f32(s.window->backingScaleFactor())
+	s.screen_width = int(f32(screen_width) * scale)
+	s.screen_height = int(f32(screen_height) * scale)
 
 	mac_set_window_mode(init_options.window_mode)
 
@@ -360,6 +360,9 @@ mac_set_window_position :: proc(x: int, y: int) {
 }
 
 mac_set_screen_size :: proc(w, h: int) {
+	scale := mac_get_window_scale()
+	s.screen_width = int(f32(w) * scale)
+	s.screen_height = int(f32(h) * scale)
 	ce.Window_setContentSize(s.window, {NS.Float(w), NS.Float(h)})
 }
 
