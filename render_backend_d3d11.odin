@@ -362,6 +362,11 @@ d3d11_draw :: proc(
 		bottom = i32(s.height),
 	}
 
+	if rt := hm.get(&s.render_targets, render_target); rt != nil {
+		scissor_rect.right = i32(rt.width)
+		scissor_rect.bottom = i32(rt.height)
+	}
+
 	if sciss, sciss_ok := scissor.?; sciss_ok {
 		scissor_rect = d3d11.RECT {
 			left = i32(sciss.x),
