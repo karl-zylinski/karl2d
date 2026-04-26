@@ -44,6 +44,11 @@ mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue_State) -> bool {
 		nsgl.OpenGLPFADepthSize, 24,
 		nsgl.OpenGLPFAAccelerated,
 		nsgl.OpenGLPFANoRecovery,
+
+		// 4x MSAA:
+		nsgl.OpenGLPFASampleBuffers, 1,
+		nsgl.OpenGLPFASamples, 4,
+
 		nsgl.OpenGLPFAOpenGLProfile, nsgl.OpenGLProfileVersion3_2Core,
 		0, // Terminator
 	}
