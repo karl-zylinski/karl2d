@@ -229,7 +229,7 @@ mac_init :: proc(
 	}
 
 	if init_options.disable_auto_scale_hint {
-		log.warn("disable_auto_scale_hint not supported on linux/wayland")
+		log.warn("disable_auto_scale_hint not supported on mac")
 	}
 }
 

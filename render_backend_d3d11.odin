@@ -653,9 +653,9 @@ d3d11_set_texture_filter :: proc(
 create_sampler :: proc(filter: d3d11.FILTER) -> ^d3d11.ISamplerState {
 	sampler_desc := d3d11.SAMPLER_DESC{
 		Filter = filter,
-		AddressU = .WRAP,
-		AddressV = .WRAP,
-		AddressW = .WRAP,
+		AddressU = .CLAMP,
+		AddressV = .CLAMP,
+		AddressW = .CLAMP,
 		ComparisonFunc = .NEVER,
 	}
 
