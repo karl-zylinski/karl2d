@@ -44,7 +44,14 @@ d3d11_state_size :: proc() -> int {
 	return size_of(D3D11_State)
 }
 
-d3d11_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+d3d11_init :: proc(
+	state: rawptr,
+	glue: Window_Render_Glue,
+	swapchain_width: int,
+	swapchain_height: int,
+	options: Init_Options,
+	allocator := context.allocator,
+) {
 	s = (^D3D11_State)(state)
 	s.allocator = allocator
 
@@ -119,6 +126,7 @@ d3d11_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swa
 	base_device_context->Release()
 	
 	ch(dxgi_device->GetAdapter(&s.dxgi_adapter))
+	s.anti_alias = options.anti_alias
 
 	create_swapchain(swapchain_width, swapchain_height)
 
@@ -126,7 +134,9 @@ d3d11_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swa
 		FillMode = .SOLID,
 		CullMode = .BACK,
 		ScissorEnable = true,
+		MultisampleEnable = d3d11.BOOL(options.anti_alias),
 	}
+
 	ch(s.device->CreateRasterizerState(&rasterizer_desc, &s.rasterizer_state))
 
 	vertex_buffer_desc := d3d11.BUFFER_DESC{
@@ -1037,6 +1047,7 @@ D3D11_State :: struct {
 	framebuffer: ^d3d11.ITexture2D,
 	blend_state_alpha: ^d3d11.IBlendState,
 	blend_state_premultiplied_alpha: ^d3d11.IBlendState,
+	anti_alias: bool,
 
 	textures: hm.Dynamic_Handle_Map(D3D11_Texture, Texture_Handle),
 	render_targets: hm.Dynamic_Handle_Map(D3D11_Render_Target, Render_Target_Handle),
@@ -1054,7 +1065,7 @@ create_swapchain :: proc(w, h: int) {
 		Height = u32(h),
 		Format = .B8G8R8A8_UNORM,
 		SampleDesc = {
-			Count   = 1,
+			Count = s.anti_alias ? 4 : 1,
 		},
 		BufferUsage = {.RENDER_TARGET_OUTPUT},
 		BufferCount = 2,

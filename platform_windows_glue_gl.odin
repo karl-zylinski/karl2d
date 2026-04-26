@@ -37,7 +37,43 @@ Windows_GL_Glue_State :: struct {
 }
 
 windows_gl_glue_make_context :: proc(s: ^Windows_GL_Glue_State) -> bool {
-	s.device_ctx = win32.GetWindowDC(s.hwnd)
+	// We make an invisible dummy window and use that to get a dummy context. We need the dummy
+	// context because we can't get the actual context we need without already having a context.
+	DUMMY_CLASS :: "karl2d_wgl_dummy"
+
+	wc := win32.WNDCLASSW{
+		style = win32.CS_OWNDC,
+		lpfnWndProc = win32.DefWindowProcW,
+		hInstance = win32.HINSTANCE(win32.GetModuleHandleW(nil)),
+		lpszClassName = DUMMY_CLASS,
+	}
+
+	win32.RegisterClassW(&wc)
+
+	dummy_hwnd := win32.CreateWindowExW(
+		0,
+		wc.lpszClassName,
+		"dummy",
+		0, // hidden
+		0, 0, 1, 1,
+		nil, nil,
+		wc.hInstance,
+		nil,
+	)
+
+	if dummy_hwnd == nil {
+		return false
+	}
+
+	defer win32.DestroyWindow(dummy_hwnd)
+
+	dummy_dc := win32.GetDC(dummy_hwnd)
+
+	if dummy_dc == nil {
+		return false
+	}
+
+	defer win32.ReleaseDC(dummy_hwnd, dummy_dc)
 
 	pfd := win32.PIXELFORMATDESCRIPTOR {
 		nSize = size_of(win32.PIXELFORMATDESCRIPTOR),
@@ -48,11 +84,12 @@ windows_gl_glue_make_context :: proc(s: ^Windows_GL_Glue_State) -> bool {
 		iLayerType = win32.PFD_MAIN_PLANE,
 	}
 
-	fmt := win32.ChoosePixelFormat(s.device_ctx, &pfd)
-	win32.SetPixelFormat(s.device_ctx, fmt, &pfd)
-	dummy_ctx := win32.wglCreateContext(s.device_ctx)
+	fmt := win32.ChoosePixelFormat(dummy_dc, &pfd)
+	win32.SetPixelFormat(dummy_dc, fmt, &pfd)
+	dummy_ctx := win32.wglCreateContext(dummy_dc)
+	defer win32.wglDeleteContext(dummy_ctx)
 
-	win32.wglMakeCurrent(s.device_ctx, dummy_ctx)
+	win32.wglMakeCurrent(dummy_dc, dummy_ctx)
 
 	win32.gl_set_proc_address(&win32.wglChoosePixelFormatARB, "wglChoosePixelFormatARB")
 	win32.gl_set_proc_address(&win32.wglCreateContextAttribsARB, "wglCreateContextAttribsARB")
@@ -79,12 +116,17 @@ windows_gl_glue_make_context :: proc(s: ^Windows_GL_Glue_State) -> bool {
 		win32.WGL_DOUBLE_BUFFER_ARB, 1,
 		win32.WGL_PIXEL_TYPE_ARB, win32.WGL_TYPE_RGBA_ARB,
 		win32.WGL_COLOR_BITS_ARB, 32,
+		win32.WGL_ALPHA_BITS_ARB, 8,
+		win32.WGL_DEPTH_BITS_ARB, 24,
+		win32.WGL_SAMPLE_BUFFERS_ARB, 1,
+		win32.WGL_SAMPLES_ARB, 4, // 4x MSAA
 		0,
 	}
 
 	pixel_format: i32
 	num_formats: u32
 
+	s.device_ctx = win32.GetWindowDC(s.hwnd)
 	valid_pixel_format := win32.wglChoosePixelFormatARB(s.device_ctx, raw_data(pixel_format_ilist[:]),
 		nil, 1, &pixel_format, &num_formats)
 
