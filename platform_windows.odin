@@ -522,10 +522,6 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		new_dpi := win32.LOWORD(wparam)
 		s.window_scale = f32(new_dpi) / 96.0
 
-		// When the scale changes, then the chrome of the window may change size. This makes sure to
-		// compensate for that. Note that we do no auto-reize of the window on scale change.
-		windows_set_window_mode(s.window_mode)
-
 		append(&s.events, Event_Window_Scale_Changed {
 			scale = s.window_scale,
 			screen_width = s.screen_width,
