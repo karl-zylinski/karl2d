@@ -203,6 +203,9 @@ mac_init :: proc(
 
 			windowDidChangeBackingProperties = proc(_: ^NS.Notification) {
 				new_scale := f32(s.window->backingScaleFactor())
+				content_rect := s.window->contentLayoutRect()
+				s.screen_width = int(f32(content_rect.size.width) * new_scale)
+				s.screen_height = int(f32(content_rect.size.height) * new_scale)
 
 				append(&s.events, Event_Window_Scale_Changed{
 					scale = new_scale,
