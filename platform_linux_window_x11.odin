@@ -107,6 +107,7 @@ x11_init :: proc(
 }
 
 x11_shutdown :: proc() {
+	X.FreeCursor(s.display, s.blank_cursor)
 	X.DestroyWindow(s.display, s.window)
 }
 
