@@ -9,7 +9,7 @@ Vec2 :: k2.Vec2
 camera: k2.Camera // world camera
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Camera Demo", {window_mode = .Windowed_Resizable })
+	k2.init(1280, 720, "Karl2D Camera Demo", {window_mode = .Windowed_Resizable})
 }
 
 step :: proc() -> bool {
