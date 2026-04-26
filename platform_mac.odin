@@ -10,6 +10,7 @@ import gc "platform_bindings/mac/gamecontroller"
 import "core:os"
 import "base:runtime"
 import "core:time"
+import "log"
 
 @(private="package")
 PLATFORM_MAC :: Platform_Interface {
@@ -225,6 +226,10 @@ mac_init :: proc(
 		s.window_render_glue = {}
 	} else {
 		#panic("Unsupported combo of Mac platform and render backend '" + RENDER_BACKEND_NAME + "'")
+	}
+
+	if init_options.disable_auto_scale_hint {
+		log.warn("disable_auto_scale_hint not supported on linux/wayland")
 	}
 }
 

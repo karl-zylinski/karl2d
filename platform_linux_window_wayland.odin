@@ -107,6 +107,10 @@ wl_init :: proc(
 	}
 
 	wl_set_window_mode(options.window_mode)
+
+	if options.disable_auto_scale_hint {
+		log.warn("disable_auto_scale_hint not supported on linux/wayland")
+	}
 }
 
 registry_listener := wl.Registry_Listener {
