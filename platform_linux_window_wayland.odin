@@ -80,23 +80,25 @@ wl_init :: proc(
 	fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(s.fractional_scale_manager, s.surface)
 	wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
 
-	wl.surface_commit(s.surface)
-	wl.display_dispatch_pending(s.display)
-
-	wl.display_roundtrip(s.display)
-
 	unscaled_width := screen_width
 	unscaled_height := screen_height
 
-	s.screen_width = int(f32(screen_width) * s.scale)
-	s.screen_height = int(f32(screen_height) * s.scale)
+	scaled_width := int(f32(unscaled_width) * s.scale)
+	scaled_height := int(f32(unscaled_height) * s.scale)
 
 	callback := wl.surface_frame(s.surface)
 	wl.add_listener(callback, &frame_callback, nil)
 
-	s.window = wl.egl_window_create(s.surface, i32(s.screen_width), i32(s.screen_height))
 	s.viewport = wl.wp_viewporter_get_viewport(s.viewporter, s.surface)
 	wl.wp_viewport_set_destination(s.viewport, i32(unscaled_width), i32(unscaled_height))
+	s.window = wl.egl_window_create(s.surface, i32(scaled_width), i32(scaled_height))
+
+	s.screen_width = scaled_width
+	s.screen_height = scaled_height
+
+	wl.surface_commit(s.surface)
+	wl.display_dispatch_pending(s.display)
+	wl.display_roundtrip(s.display)
 
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
@@ -225,19 +227,21 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 		height: c.int32_t,
 		states: ^wl.Array,
 	) {
-		w := width == 0 ? s.screen_width : int(width)
-		h := height == 0 ? s.screen_height : int(height)
+		w := int(width)
+		h := int(height)
 
-		if s.screen_width != int(w) || s.screen_height != int(h) {
+		context = s.odin_ctx
+
+		if s.last_configure_width != w || s.last_configure_height != h  {
 			if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-				s.last_windowed_screen_width = int(w)
-				s.last_windowed_screen_height = int(h)
+				s.last_configure_windowed_width = w
+				s.last_configure_windowed_height = h
 			}
 
 			s.screen_width = int(f32(w) * s.scale)
 			s.screen_height = int(f32(h) * s.scale)
-
-			context = s.odin_ctx
+			s.last_configure_width = w
+			s.last_configure_height = h
 
 			wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
 			wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
@@ -253,7 +257,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 		context = s.odin_ctx
 		append(&s.events, Event_Close_Window_Requested{})
 	},
-	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, width: c.int32_t, height: c.int32_t,) { },
+	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, width: c.int32_t, height: c.int32_t,) {},
 	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, capabilities: ^wl.Array,) {},
 }
 
@@ -451,6 +455,11 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		scl := f32(scale)/120
 		s.scale = scl
 
+		s.screen_width = int(f32(s.last_configure_width) * s.scale)
+		s.screen_height = int(f32(s.last_configure_height) * s.scale)
+
+		wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+
 		append(&s.events, Event_Window_Scale_Changed {
 			scale = scl,
 			screen_width = s.screen_width,
@@ -488,6 +497,8 @@ wl_set_position :: proc(x: int, y: int) {
 wl_set_screen_size :: proc(w, h: int) {
 	s.screen_width = int(f32(w) * s.scale)
 	s.screen_height = int(f32(h) * s.scale)
+	s.last_configure_width = w
+	s.last_configure_height = h
 
 	wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
 	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
@@ -503,8 +514,8 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	switch window_mode {
 	case .Windowed:
 		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
-		w := i32(s.last_windowed_screen_width)
-		h := i32(s.last_windowed_screen_height)
+		w := i32(s.last_configure_windowed_width)
+		h := i32(s.last_configure_windowed_height)
 		wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
 		wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
 
@@ -528,8 +539,13 @@ WL_State :: struct {
 
 	screen_width: int,
 	screen_height: int,
-	last_windowed_screen_width: int,
-	last_windowed_screen_height: int,
+
+	// The last width/height we've gotten from wayland: Keeping this separate from screen_width and
+	// screen_height simplifies state management a bit.
+	last_configure_width: int,
+	last_configure_height: int,
+	last_configure_windowed_width: int,
+	last_configure_windowed_height: int,
 
 	events: [dynamic]Event,
 	window_mode: Window_Mode,
