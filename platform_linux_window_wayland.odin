@@ -21,6 +21,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:strings"
 import "core:c"
+import "core:math"
 
 import "log"
 import wl "platform_bindings/linux/wayland"
@@ -364,7 +365,7 @@ pointer_listener := wl.Pointer_Listener {
 		// Just bitshift them to remove the decimal part and obtain 
 		// a screen coordinate
 		append(&s.events, Event_Mouse_Move {
-			position = { f32(surface_x >> 8), f32(surface_y >> 8) }, 
+			position = { math.floor(f32(surface_x >> 8) * s.scale), math.floor(f32(surface_y >> 8) * s.scale) }, 
 		})
 	},
 	button = proc "c" (
