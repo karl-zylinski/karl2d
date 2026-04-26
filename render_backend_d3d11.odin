@@ -1062,6 +1062,7 @@ create_swapchain :: proc(w, h: int) {
 	ch(dxgi_factory->CreateSwapChainForHwnd(s.device, s.window_handle, &swapchain_desc, nil, nil, &s.swapchain))
 	ch(s.swapchain->GetBuffer(0, d3d11.ITexture2D_UUID, (^rawptr)(&s.framebuffer)))
 	ch(s.device->CreateRenderTargetView(s.framebuffer, nil, &s.framebuffer_view))
+	dxgi_factory->MakeWindowAssociation(s.window_handle, { .NO_ALT_ENTER })
 }
 
 D3D11_Texture :: struct {
