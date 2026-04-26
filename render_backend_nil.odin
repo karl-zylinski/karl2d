@@ -24,6 +24,7 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	set_texture_filter = rbnil_set_texture_filter,
 	load_shader = rbnil_load_shader,
 	destroy_shader = rbnil_destroy_shader,
+	set_anti_alias_enabled = rbnil_set_anti_alias_enabled,
 
 	default_shader_vertex_source = rbnil_default_shader_vertex_source,
 	default_shader_fragment_source = rbnil_default_shader_fragment_source,
@@ -121,6 +122,9 @@ rbnil_load_shader :: proc(
 }
 
 rbnil_destroy_shader :: proc(h: Shader_Handle) {
+}
+
+rbnil_set_anti_alias_enabled :: proc(enabled: bool) {
 }
 
 rbnil_default_shader_vertex_source :: proc() -> []byte {

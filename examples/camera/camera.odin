@@ -16,6 +16,14 @@ step :: proc() -> bool {
 	if !k2.update() {
 		return false
 	}
+
+	if k2.key_went_down(.P) {
+		k2.set_anti_alias_enabled(true)
+	}
+
+	if k2.key_went_down(.N) {
+		k2.set_anti_alias_enabled(false)
+	}
 	
 	screen_size := Vec2 { f32(k2.get_screen_width()), f32(k2.get_screen_height()) }
 	mouse_screen_pos := k2.get_mouse_position()

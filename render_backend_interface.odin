@@ -19,7 +19,15 @@ Shader_Desc :: struct {
 
 Render_Backend_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
-	init: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapchain_height: int, allocator := context.allocator),
+	
+	init: proc(
+		state: rawptr,
+		glue: Window_Render_Glue,
+		swapchain_width: int,
+		swapchain_height: int,
+		allocator: runtime.Allocator,
+	),
+
 	shutdown: proc(),
 	clear: proc(render_target: Render_Target_Handle, color: Color),
 	present: proc(),
@@ -66,6 +74,8 @@ Render_Backend_Interface :: struct #all_or_none {
 	resize_swapchain: proc(width, height: int),
 	get_swapchain_width: proc() -> int,
 	get_swapchain_height: proc() -> int,
+
+	set_anti_alias_enabled: proc(enabled: bool),
 
 	default_shader_vertex_source: proc() -> []byte,
 	default_shader_fragment_source: proc() -> []byte,

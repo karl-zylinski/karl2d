@@ -25,6 +25,7 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	set_texture_filter = gl_set_texture_filter,
 	load_shader = gl_load_shader,
 	destroy_shader = gl_destroy_shader,
+	set_anti_alias_enabled = gl_set_anti_alias_enabled,
 
 	default_shader_vertex_source = gl_default_shader_vertex_source,
 	default_shader_fragment_source = gl_default_shader_fragment_source,
@@ -139,6 +140,7 @@ gl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapch
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
 	gl.Enable(gl.BLEND)
+	gl.Disable(gl.MULTISAMPLE)
 }
 
 gl_shutdown :: proc() {
@@ -914,6 +916,14 @@ gl_destroy_shader :: proc(h: Shader_Handle) {
 	delete(shd.constant_buffers, s.allocator)
 	delete(shd.constants, s.allocator)
 	delete(shd.texture_bindings, s.allocator)
+}
+
+gl_set_anti_alias_enabled :: proc(enabled: bool) {
+	if enabled {
+		gl.Enable(gl.MULTISAMPLE)
+	} else {
+		gl.Disable(gl.MULTISAMPLE)
+	}
 }
 
 gl_default_shader_vertex_source :: proc() -> []byte {

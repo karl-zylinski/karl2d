@@ -453,6 +453,11 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 	pf.set_window_mode(window_mode)
 }
 
+// Enabled or disable 4x Multi Sample Anti Alias
+set_anti_alias_enabled :: proc(enabled: bool) {
+	rb.set_anti_alias_enabled(enabled)
+}
+
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
 // procedures run:
@@ -3704,6 +3709,9 @@ Window_Mode :: enum {
 
 Init_Options :: struct {
 	window_mode: Window_Mode,
+
+	// Enable for 4x Multi Sample Anti Alias
+	anti_alias: bool,
 
 	// This hint may disable scaling of the window when created. Scaling here refers to the scaling
 	// that is set for the monitor in the OS settings (the same number returned by

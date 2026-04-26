@@ -46,6 +46,8 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State) -> b
 	// Create a context based on a "chosen" configuration
 	EGL_CONTEXT_FLAGS_KHR :: 0x30FC
 	EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR :: 0x00000001
+	EGL_SAMPLE_BUFFERS :: 0x3032
+	EGL_SAMPLES :: 0x3031
 
 	major, minor, n: i32
 	egl_config: egl.Config
@@ -57,6 +59,8 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State) -> b
 		egl.ALPHA_SIZE, 0, // Disable surface alpha for now
 		egl.DEPTH_SIZE, 24, // Request 24-bit depth buffer
 		egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
+		EGL_SAMPLE_BUFFERS, 1,
+		EGL_SAMPLES, 4,  // 4x MSAA
 		egl.NONE,
 	}
 	context_flags_bitfield: i32 = EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR

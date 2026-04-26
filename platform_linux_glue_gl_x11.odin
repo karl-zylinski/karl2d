@@ -48,6 +48,8 @@ linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State) -> bool {
 		glx.GREEN_SIZE, 8,
 		glx.BLUE_SIZE, 8,
 		glx.ALPHA_SIZE, 8,
+		glx.SAMPLE_BUFFERS, 1,
+		glx.SAMPLES, 4,
 		0,
 	}
 
