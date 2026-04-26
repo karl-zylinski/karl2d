@@ -24,7 +24,6 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	set_texture_filter = rbnil_set_texture_filter,
 	load_shader = rbnil_load_shader,
 	destroy_shader = rbnil_destroy_shader,
-	set_anti_alias_enabled = rbnil_set_anti_alias_enabled,
 
 	default_shader_vertex_source = rbnil_default_shader_vertex_source,
 	default_shader_fragment_source = rbnil_default_shader_fragment_source,
@@ -36,7 +35,14 @@ rbnil_state_size :: proc() -> int {
 	return 0
 }
 
-rbnil_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+rbnil_init :: proc(
+	state: rawptr,
+	glue: Window_Render_Glue,
+	swapchain_width,
+	swapchain_height: int, 
+	options: Init_Options,
+	allocator := context.allocator
+) {
 	log.info("Render Backend nil init")
 }
 

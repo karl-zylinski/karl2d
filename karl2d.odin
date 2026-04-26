@@ -101,7 +101,14 @@ init :: proc(
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.render_backend_state, window_render_glue, pf.get_screen_width(), pf.get_screen_height(), s.allocator)
+	rb.init(
+		s.render_backend_state,
+		window_render_glue,
+		pf.get_screen_width(),
+		pf.get_screen_height(), 
+		options,
+		s.allocator,
+	)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`.
@@ -451,11 +458,6 @@ get_window_scale :: proc() -> f32 {
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode) {
 	pf.set_window_mode(window_mode)
-}
-
-// Enabled or disable 4x Multi Sample Anti Alias
-set_anti_alias_enabled :: proc(enabled: bool) {
-	rb.set_anti_alias_enabled(enabled)
 }
 
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the

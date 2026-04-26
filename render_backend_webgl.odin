@@ -114,7 +114,14 @@ webgl_state_size :: proc() -> int {
 	return size_of(WebGL_State)
 }
 
-webgl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+webgl_init :: proc(
+	state: rawptr,
+	glue: Window_Render_Glue,
+	swapchain_width: int,
+	swapchain_height: int,
+	options: Init_Options,
+	allocator := context.allocator
+) {
 	s = (^WebGL_State)(state)
 
 	// see web_get_window_render_glue

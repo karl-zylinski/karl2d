@@ -25,7 +25,6 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	set_texture_filter = gl_set_texture_filter,
 	load_shader = gl_load_shader,
 	destroy_shader = gl_destroy_shader,
-	set_anti_alias_enabled = gl_set_anti_alias_enabled,
 
 	default_shader_vertex_source = gl_default_shader_vertex_source,
 	default_shader_fragment_source = gl_default_shader_fragment_source,
@@ -117,7 +116,14 @@ gl_state_size :: proc() -> int {
 	return size_of(GL_State)
 }
 
-gl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+gl_init :: proc(
+	state: rawptr,
+	glue: Window_Render_Glue,
+	swapchain_width: int,
+	swapchain_height: int,
+	options: Init_Options,
+	allocator := context.allocator
+) {
 	s = (^GL_State)(state)
 	s.glue = glue
 	s.width = swapchain_width
@@ -140,7 +146,14 @@ gl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapch
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
 	gl.Enable(gl.BLEND)
-	gl.Disable(gl.MULTISAMPLE)
+
+	// Note that AA also requries setup in when choosing format for backbuffer, see for example
+	// SAMPLE_BUFFER etc in the glue files.
+	if options.anti_alias {
+		gl.Enable(gl.MULTISAMPLE)
+	} else {
+		gl.Disable(gl.MULTISAMPLE)
+	}
 }
 
 gl_shutdown :: proc() {

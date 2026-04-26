@@ -9,20 +9,12 @@ Vec2 :: k2.Vec2
 camera: k2.Camera // world camera
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Camera Demo", {window_mode = .Windowed_Resizable})
+	k2.init(1280, 720, "Karl2D Camera Demo", {window_mode = .Windowed_Resizable })
 }
 
 step :: proc() -> bool {
 	if !k2.update() {
 		return false
-	}
-
-	if k2.key_went_down(.P) {
-		k2.set_anti_alias_enabled(true)
-	}
-
-	if k2.key_went_down(.N) {
-		k2.set_anti_alias_enabled(false)
 	}
 	
 	screen_size := Vec2 { f32(k2.get_screen_width()), f32(k2.get_screen_height()) }

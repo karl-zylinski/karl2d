@@ -25,6 +25,7 @@ Render_Backend_Interface :: struct #all_or_none {
 		glue: Window_Render_Glue,
 		swapchain_width: int,
 		swapchain_height: int,
+		options: Init_Options,
 		allocator: runtime.Allocator,
 	),
 
@@ -74,8 +75,6 @@ Render_Backend_Interface :: struct #all_or_none {
 	resize_swapchain: proc(width, height: int),
 	get_swapchain_width: proc() -> int,
 	get_swapchain_height: proc() -> int,
-
-	set_anti_alias_enabled: proc(enabled: bool),
 
 	default_shader_vertex_source: proc() -> []byte,
 	default_shader_fragment_source: proc() -> []byte,
