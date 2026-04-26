@@ -297,12 +297,27 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			append(&s.events, Event_Mouse_Button_Went_Up{button = .Middle})
 
 		case .MouseMoved, .LeftMouseDragged, .RightMouseDragged, .OtherMouseDragged:
-			// Convert to view coordinates (flip Y - macOS origin is bottom-left)
-			loc := event->locationInWindow()
-			// Flip Y coordinate
-			y := NS.Float(s.screen_height) - loc.y
+			event_window := event->window()
+
+			// event_window is nil when the cursor is outside all windows —
+			// in that case locationInWindow() returns screen coords, so convert.
+			// If the event belongs to a completely different window, skip it.
+			loc: NS.Point
+			if event_window == s.window {
+				loc = event->locationInWindow()
+			} else if event_window == nil {
+				loc = s.window->convertPointFromScreen(event->locationInWindow())
+			} else {
+				break
+			}
+
+			// locationInWindow returns points; scale to pixels to match screen_width/height
+			scale := NS.Float(s.window->backingScaleFactor())
+			px := loc.x * scale
+			py := NS.Float(s.screen_height) - loc.y * scale
+			
 			append(&s.events, Event_Mouse_Move{
-				position = {f32(loc.x), f32(y)},
+				position = {f32(px), f32(py)},
 			})
 
 		case .ScrollWheel:
