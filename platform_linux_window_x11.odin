@@ -16,6 +16,7 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_size = x11_set_size,
 	get_window_scale = x11_get_window_scale,
 	set_window_mode = x11_set_window_mode,
+	set_cursor_visible = x11_set_cursor_visible,
 	set_internal_state = x11_set_internal_state,
 }
 
@@ -74,6 +75,28 @@ x11_init :: proc(
 
 	x11_set_window_mode(init_options.window_mode)
 
+	// blank cursor for hiding it
+	{
+		blank_pixmap := X.CreatePixmap(s.display, s.window, 1, 1, 1)
+		black: X.XColor
+
+		// The binding for this proc is broken, so I fixed it locally.
+		CreatePixmapCursor_Correct :: proc(
+			display:   ^X.Display,
+			source:    X.Pixmap,
+			mask:      X.Pixmap,
+			fg:        ^X.XColor,
+			bg:        ^X.XColor,
+			x:         u32,
+			y:         u32,
+		) -> X.Cursor
+
+		binding := cast(CreatePixmapCursor_Correct)(X.CreatePixmapCursor)
+
+		s.blank_cursor = binding(s.display, blank_pixmap, blank_pixmap, &black, &black, 0, 0)
+		X.FreePixmap(s.display, blank_pixmap)
+	}
+	
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_linux_gl_x11_glue(s.display, s.window, s.allocator)
 	} else when RENDER_BACKEND_NAME == "nil" {
@@ -300,6 +323,14 @@ x11_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
+x11_set_cursor_visible :: proc(visible: bool) {
+	if visible {
+		X.UndefineCursor(s.display, s.window)
+	} else {
+		X.DefineCursor(s.display, s.window, s.blank_cursor)
+	}
+	X.Flush(s.display)
+}
 
 x11_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
@@ -317,6 +348,7 @@ X11_State :: struct {
 	delete_msg: X.Atom,
 	window_mode: Window_Mode,
 	window_render_glue: Window_Render_Glue,
+	blank_cursor: X.Cursor,
 }
 
 s: ^X11_State

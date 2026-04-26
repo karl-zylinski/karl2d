@@ -599,7 +599,7 @@ linux_set_window_mode :: proc(window_mode: Window_Mode) {
 }
 
 linux_set_cursor_visible :: proc(visible: bool) {
-	// TODO: implement
+	s.win.set_cursor_visible(visible)
 }
 
 Linux_State :: struct {
@@ -613,7 +613,7 @@ Linux_State :: struct {
 }
 
 @(private="package")
-Linux_Window_Interface :: struct {
+Linux_Window_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 
 	init: proc(
@@ -634,6 +634,7 @@ Linux_Window_Interface :: struct {
 	get_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
+	set_cursor_visible: proc(visible: bool),
 
 	set_internal_state: proc(state: rawptr),
 }

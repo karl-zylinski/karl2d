@@ -14,6 +14,7 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	set_size = wl_set_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
+	set_cursor_visible = wl_set_cursor_visible,
 	set_internal_state = wl_set_internal_state,
 }
 
@@ -312,7 +313,9 @@ pointer_listener := wl.Pointer_Listener {
 		surface_x: wl.Fixed,
 		surface_y: wl.Fixed,
 	) {
-
+		context = s.odin_ctx
+		s.pointer_enter_serial = u32(serial)
+		apply_cursor_visible()
 	},
 	leave = proc "c" (
 		data: rawptr,
@@ -496,6 +499,17 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
+wl_set_cursor_visible :: proc(visible: bool) {
+	s.cursor_visible = visible
+	apply_cursor_visible()
+}
+
+apply_cursor_visible :: proc() {
+	if s.pointer != nil && !s.cursor_visible {
+		wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
+	}
+}
+
 wl_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^WL_State)(state)
@@ -526,6 +540,8 @@ WL_State :: struct {
 
 	keyboard: ^wl.Keyboard,
 	pointer: ^wl.Pointer,
+	pointer_enter_serial: u32,
+	cursor_visible: bool,
 
 	// True if toplevel_listener.configure has run
 	configured: bool,
