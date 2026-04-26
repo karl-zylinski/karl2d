@@ -98,7 +98,8 @@ step :: proc() -> bool {
 	// BOTTOM BAR
 	//
 
-	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size() / camera.zoom)
+	k2.set_camera(nil)
+	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size())
 	bottom_bar := k2.rect_cut_bottom(&screen_rect, 36, 0)
 	k2.draw_rect(bottom_bar, k2.DARK_GRAY)
 	bottom_bar = k2.rect_shrink(bottom_bar, 4, 4)
