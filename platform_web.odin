@@ -28,6 +28,7 @@ PLATFORM_WEB :: Platform_Interface {
 }
 
 import "core:sys/wasm/js"
+import "core:math"
 import "base:runtime"
 import "log"
 import "core:fmt"
@@ -130,7 +131,10 @@ web_event_window_resize :: proc(e: js.Event) {
 
 web_event_mouse_move :: proc(e: js.Event) {
 	append(&s.events, Event_Mouse_Move {
-		position = {f32(e.mouse.client.x), f32(e.mouse.client.y)},
+		position = {
+			math.floor(f32(e.mouse.client.x) * f32(js.device_pixel_ratio())),
+			math.floor(f32(e.mouse.client.y) * f32(js.device_pixel_ratio())),
+		},
 	})
 }
 
@@ -327,6 +331,11 @@ web_get_window_scale :: proc() -> f32 {
 }
 
 web_set_window_mode :: proc(new_mode: Window_Mode) {
+	if new_mode == .Borderless_Fullscreen {
+		log.error("Borderless_Fullscreen not implemented on web, but you can make it happen by using Window_Mode.Windowed_Resizable and putting the game in a fullscreen iframe.")
+		return
+	}
+
 	old_mode := s.window_mode
 	s.window_mode = new_mode
 
