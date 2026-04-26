@@ -653,9 +653,9 @@ d3d11_set_texture_filter :: proc(
 create_sampler :: proc(filter: d3d11.FILTER) -> ^d3d11.ISamplerState {
 	sampler_desc := d3d11.SAMPLER_DESC{
 		Filter = filter,
-		AddressU = .WRAP,
-		AddressV = .WRAP,
-		AddressW = .WRAP,
+		AddressU = .CLAMP,
+		AddressV = .CLAMP,
+		AddressW = .CLAMP,
 		ComparisonFunc = .NEVER,
 	}
 
@@ -1062,6 +1062,7 @@ create_swapchain :: proc(w, h: int) {
 	ch(dxgi_factory->CreateSwapChainForHwnd(s.device, s.window_handle, &swapchain_desc, nil, nil, &s.swapchain))
 	ch(s.swapchain->GetBuffer(0, d3d11.ITexture2D_UUID, (^rawptr)(&s.framebuffer)))
 	ch(s.device->CreateRenderTargetView(s.framebuffer, nil, &s.framebuffer_view))
+	dxgi_factory->MakeWindowAssociation(s.window_handle, { .NO_ALT_ENTER })
 }
 
 D3D11_Texture :: struct {

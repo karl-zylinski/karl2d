@@ -10,6 +10,7 @@ import gc "platform_bindings/mac/gamecontroller"
 import "core:os"
 import "base:runtime"
 import "core:time"
+import "log"
 
 @(private="package")
 PLATFORM_MAC :: Platform_Interface {
@@ -84,8 +85,6 @@ mac_init :: proc(
 	s.odin_ctx = context
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
-	s.screen_width = screen_width
-	s.screen_height = screen_height
 
 	// Initialize NSApplication
 	s.app = NS.Application_sharedApplication()
@@ -114,12 +113,17 @@ mac_init :: proc(
 	s.window = s.window->initWithContentRect(rect, style, .Buffered, false)
 	s.windowed_rect = rect
 
+
 	title_str := NS.String_alloc()->initWithOdinString(window_title)
 	s.window->setTitle(title_str)
 
 	s.window->center()
 	s.window->setAcceptsMouseMovedEvents(true)
 	s.window->makeKeyAndOrderFront(nil)
+
+	scale := f32(s.window->backingScaleFactor())
+	s.screen_width = int(f32(screen_width) * scale)
+	s.screen_height = int(f32(screen_height) * scale)
 
 	mac_set_window_mode(init_options.window_mode)
 
@@ -166,9 +170,10 @@ mac_init :: proc(
 		NS.WindowDelegateTemplate{
 			windowDidResize = proc(_: ^NS.Notification) {
 				content_rect := s.window->contentLayoutRect()
-				new_width := int(content_rect.size.width)
-				new_height := int(content_rect.size.height)
-
+				scale := f32(s.window->backingScaleFactor())
+				new_width := int(f32(content_rect.size.width) * scale)
+				new_height := int(f32(content_rect.size.height) * scale)
+	
 				if new_width != s.screen_width || new_height != s.screen_height {
 					s.screen_width = new_width
 					s.screen_height = new_height
@@ -176,8 +181,8 @@ mac_init :: proc(
 						s.windowed_rect = content_rect
 					}
 					append(&s.events, Event_Screen_Resize{
-						width = new_width,
-						height = new_height,
+						width = s.screen_width,
+						height = s.screen_height,
 					})
 				}
 			},
@@ -195,6 +200,19 @@ mac_init :: proc(
 			windowDidResignKey = proc(_: ^NS.Notification) {
 				append(&s.events, Event_Window_Unfocused{})
 			},
+
+			windowDidChangeBackingProperties = proc(_: ^NS.Notification) {
+				new_scale := f32(s.window->backingScaleFactor())
+				content_rect := s.window->contentLayoutRect()
+				s.screen_width = int(f32(content_rect.size.width) * new_scale)
+				s.screen_height = int(f32(content_rect.size.height) * new_scale)
+
+				append(&s.events, Event_Window_Scale_Changed{
+					scale = new_scale,
+					screen_width = s.screen_width,
+					screen_height = s.screen_height,
+				})
+			},
 		},
 		"Karl2DWindowDelegate",
 		context,
@@ -208,6 +226,10 @@ mac_init :: proc(
 		s.window_render_glue = {}
 	} else {
 		#panic("Unsupported combo of Mac platform and render backend '" + RENDER_BACKEND_NAME + "'")
+	}
+
+	if init_options.disable_auto_scale_hint {
+		log.warn("disable_auto_scale_hint not supported on mac")
 	}
 }
 
@@ -275,12 +297,27 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			append(&s.events, Event_Mouse_Button_Went_Up{button = .Middle})
 
 		case .MouseMoved, .LeftMouseDragged, .RightMouseDragged, .OtherMouseDragged:
-			// Convert to view coordinates (flip Y - macOS origin is bottom-left)
-			loc := event->locationInWindow()
-			// Flip Y coordinate
-			y := NS.Float(s.screen_height) - loc.y
+			event_window := event->window()
+
+			// event_window is nil when the cursor is outside all windows —
+			// in that case locationInWindow() returns screen coords, so convert.
+			// If the event belongs to a completely different window, skip it.
+			loc: NS.Point
+			if event_window == s.window {
+				loc = event->locationInWindow()
+			} else if event_window == nil {
+				loc = s.window->convertPointFromScreen(event->locationInWindow())
+			} else {
+				break
+			}
+
+			// locationInWindow returns points; scale to pixels to match screen_width/height
+			scale := NS.Float(s.window->backingScaleFactor())
+			px := loc.x * scale
+			py := NS.Float(s.screen_height) - loc.y * scale
+			
 			append(&s.events, Event_Mouse_Move{
-				position = {f32(loc.x), f32(y)},
+				position = {f32(px), f32(py)},
 			})
 
 		case .ScrollWheel:
@@ -343,6 +380,9 @@ mac_set_window_position :: proc(x: int, y: int) {
 }
 
 mac_set_screen_size :: proc(w, h: int) {
+	scale := mac_get_window_scale()
+	s.screen_width = int(f32(w) * scale)
+	s.screen_height = int(f32(h) * scale)
 	ce.Window_setContentSize(s.window, {NS.Float(w), NS.Float(h)})
 }
 
@@ -484,8 +524,10 @@ mac_set_window_mode :: proc(window_mode: Window_Mode) {
 
 		// same as frame() b/c no decorations, but semantically more correct
 		content_rect := s.window->contentLayoutRect()
-		s.screen_width = int(content_rect.width)
-		s.screen_height = int(content_rect.height)
+
+		scale := mac_get_window_scale()
+		s.screen_width  = int(f32(content_rect.width) * scale)
+		s.screen_height = int(f32(content_rect.height) * scale)
 	}
 }
 
