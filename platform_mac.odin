@@ -10,7 +10,6 @@ import gc "platform_bindings/mac/gamecontroller"
 import "core:os"
 import "base:runtime"
 import "core:time"
-import "log"
 
 @(private="package")
 PLATFORM_MAC :: Platform_Interface {
