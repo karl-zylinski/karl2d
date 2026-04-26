@@ -11,7 +11,8 @@ package karl2d
 // all dynamically allocated memory.
 //
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
-// The window might be slightly larger due to borders and headers.
+// The window might be slightly larger due to borders and headers. The true width and height will be
+// scaled up by the scaling setting in the operating system.
 //
 // The return value is a pointer to Karl2D's internal state. You can restore this state later using
 // `set_internal_state()`. This is useful for example when doing game code reload, as the state may
@@ -882,6 +883,10 @@ ui_button_width :: proc(text: string, button_height: f32) -> f32
 // when no camera is set.
 //
 // Mainly used by the samples in order to create the "Source" button.
+//
+// Note that this does not support zoomed cameras right now, since it uses unscaled mouse positions.
+// As this is experimental, you are probably better off copying this procedure to your own code and
+// modifying it, rather than using it as-is.
 ui_button :: proc(r: Rect, text: string) -> bool
 
 //---------------------//
@@ -1032,6 +1037,15 @@ Window_Mode :: enum {
 
 Init_Options :: struct {
 	window_mode: Window_Mode,
+
+	// This hint may disable scaling of the window when created. Scaling here refers to the scaling
+	// that is set for the monitor in the OS settings (the same number returned by
+	// `get_window_scale`).
+	//
+	// Note that this is a _hint_. It only works on some platforms, such as Windows. On other
+	// platforms, such as Linux+Wayland, it does not work, because Wayland always auto scales all
+	// windows.
+	disable_auto_scale_hint: bool,
 }
 
 Shader_Handle :: distinct Handle
@@ -1637,6 +1651,8 @@ Event_Screen_Resize :: struct {
 // You can also use `k2.get_window_scale()`
 Event_Window_Scale_Changed :: struct {
 	scale: f32,
+	screen_width: int,
+	screen_height: int,
 }
 
 Event_Window_Focused :: struct {}

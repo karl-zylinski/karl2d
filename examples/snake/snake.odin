@@ -157,7 +157,7 @@ step :: proc() -> bool {
 	k2.clear({76, 53, 83, 255})
 
 	camera := k2.Camera {
-		zoom = f32(WINDOW_SIZE) / CANVAS_SIZE,
+		zoom = k2.get_window_scale() * (f32(WINDOW_SIZE) / CANVAS_SIZE),
 	}
 	
 	k2.set_camera(camera)
