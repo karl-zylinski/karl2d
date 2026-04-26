@@ -72,11 +72,7 @@ mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue_State) -> bool {
 		return false
 	}
 
-	// Disable Retina resolution - render at point size and let macOS stretch
-	// This allows draw calls to use expected coords (e.g. 1280x720) without scaling
-	// TODO: we should fix this, but will need to decide on how to handle HiDPI
 	view := s.window->contentView()
-	nsgl.View_setWantsBestResolutionOpenGLSurface(view, false)
 
 	s.gl_ctx->setView(view)
 	s.gl_ctx->makeCurrentContext()

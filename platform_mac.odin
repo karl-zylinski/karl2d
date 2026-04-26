@@ -10,6 +10,7 @@ import gc "platform_bindings/mac/gamecontroller"
 import "core:os"
 import "base:runtime"
 import "core:time"
+import "log"
 
 @(private="package")
 PLATFORM_MAC :: Platform_Interface {
@@ -84,8 +85,6 @@ mac_init :: proc(
 	s.odin_ctx = context
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
-	s.screen_width = screen_width
-	s.screen_height = screen_height
 
 	// Initialize NSApplication
 	s.app = NS.Application_sharedApplication()
@@ -113,6 +112,11 @@ mac_init :: proc(
 	style := NS.WindowStyleMaskTitled | NS.WindowStyleMaskClosable | NS.WindowStyleMaskMiniaturizable
 	s.window = s.window->initWithContentRect(rect, style, .Buffered, false)
 	s.windowed_rect = rect
+
+	main_screen := NS.Screen_mainScreen()
+	scale := f32(main_screen->backingScaleFactor())
+	s.screen_width = int(f32(screen_width) * scale)
+	s.screen_height = int(f32(screen_height) * scale)
 
 	title_str := NS.String_alloc()->initWithOdinString(window_title)
 	s.window->setTitle(title_str)
@@ -166,9 +170,10 @@ mac_init :: proc(
 		NS.WindowDelegateTemplate{
 			windowDidResize = proc(_: ^NS.Notification) {
 				content_rect := s.window->contentLayoutRect()
-				new_width := int(content_rect.size.width)
-				new_height := int(content_rect.size.height)
-
+				scale := f32(s.window->backingScaleFactor())
+				new_width := int(f32(content_rect.size.width) * scale)
+				new_height := int(f32(content_rect.size.height) * scale)
+	
 				if new_width != s.screen_width || new_height != s.screen_height {
 					s.screen_width = new_width
 					s.screen_height = new_height
@@ -176,8 +181,8 @@ mac_init :: proc(
 						s.windowed_rect = content_rect
 					}
 					append(&s.events, Event_Screen_Resize{
-						width = new_width,
-						height = new_height,
+						width = s.screen_width,
+						height = s.screen_height,
 					})
 				}
 			},
@@ -194,6 +199,16 @@ mac_init :: proc(
 
 			windowDidResignKey = proc(_: ^NS.Notification) {
 				append(&s.events, Event_Window_Unfocused{})
+			},
+
+			windowDidChangeBackingProperties = proc(_: ^NS.Notification) {
+				new_scale := f32(s.window->backingScaleFactor())
+
+				append(&s.events, Event_Window_Scale_Changed{
+					scale = new_scale,
+					screen_width = s.screen_width,
+					screen_height = s.screen_height,
+				})
 			},
 		},
 		"Karl2DWindowDelegate",
@@ -484,8 +499,10 @@ mac_set_window_mode :: proc(window_mode: Window_Mode) {
 
 		// same as frame() b/c no decorations, but semantically more correct
 		content_rect := s.window->contentLayoutRect()
-		s.screen_width = int(content_rect.width)
-		s.screen_height = int(content_rect.height)
+
+		scale := mac_get_window_scale()
+		s.screen_width  = int(f32(content_rect.width) * scale)
+		s.screen_height = int(f32(content_rect.height) * scale)
 	}
 }
 
