@@ -4,7 +4,6 @@ import k2 "../.."
 import "core:math/linalg"
 import "core:math"
 import "core:encoding/json"
-import "core:os"
 import "core:fmt"
 import "core:time"
 
@@ -69,6 +68,7 @@ Edit_Mode :: enum {
 }
 
 edit_mode: Edit_Mode
+editor_bg_current_idx: int
 
 WORLD_WIDTH :: 2
 WORLD_HEIGHT :: 3
@@ -86,65 +86,81 @@ Background_Object :: struct {
 world: World
 
 main :: proc() {
+	init()
+	for step() {}
+	shutdown()
+}
+
+init :: proc() {
 	k2.init(SCREEN_WIDTH*4, SCREEN_HEIGHT*4, "SPACE CAT", options = {window_mode = .Windowed_Resizable})
 	current_room_idx = 4
-	space_tileset = k2.load_texture_from_file("space_tileset.png")
+	space_tileset = k2.load_texture_from_bytes(#load("space_tileset.png"))
 	bg_objects = {
-		k2.load_texture_from_file("star_1.png"),
-		k2.load_texture_from_file("star_2.png"),
-		k2.load_texture_from_file("star_3.png"),
-		k2.load_texture_from_file("star_4.png"),
-		k2.load_texture_from_file("star_5.png"),
-		k2.load_texture_from_file("moon.png"),
+		k2.load_texture_from_bytes(#load("star_1.png")),
+		k2.load_texture_from_bytes(#load("star_2.png")),
+		k2.load_texture_from_bytes(#load("star_3.png")),
+		k2.load_texture_from_bytes(#load("star_4.png")),
+		k2.load_texture_from_bytes(#load("star_5.png")),
+		k2.load_texture_from_bytes(#load("moon.png")),
 	}
-	space_tileset_version, _ = os.modification_time_by_path("space_tileset.png")
+	space_tileset_version = file_version("space_tileset.png")
 
-	world_json_data, world_json_data_err := os.read_entire_file("world.json", context.temp_allocator)
+	world_json_data, world_json_data_ok := get_file_contents("world.json")
 
-	if world_json_data_err == nil {
+	if world_json_data_ok {
 		json.unmarshal(world_json_data, &world)
 	}
 
 	player = {
 		pos = {30, 100},
-		tex_east_west = k2.load_texture_from_file("cat_east_west.png"),
-		tex_up = k2.load_texture_from_file("cat_up.png"),
-		tex_down = k2.load_texture_from_file("cat_down.png"),
+		tex_east_west = k2.load_texture_from_bytes(#load("cat_east_west.png")),
+		tex_up = k2.load_texture_from_bytes(#load("cat_up.png")),
+		tex_down = k2.load_texture_from_bytes(#load("cat_down.png")),
+	}
+}
+
+step :: proc() -> bool {
+	if !k2.update() {
+		return false
 	}
 
-	for k2.update() {
-		space_tileset_new_version, _ := os.modification_time_by_path("space_tileset.png")
+	when ODIN_OS != .JS {
+		space_tileset_new_version := file_version("space_tileset.png")
 
 		if space_tileset_version != space_tileset_new_version {
 			k2.destroy_texture(space_tileset)
 			space_tileset = k2.load_texture_from_file("space_tileset.png")
 		}
-
-		if k2.key_went_down(.F2) {
-			if editing {
-				editor_save()
-			}
-
-			editing = !editing
-		}
-
-		game_camera = {
-			zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
-			target = {0, -STATUS_BAR_HEIGHT},
-		}
-
-		ui_camera = {
-			zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
-		}
-
-		if editing {
-			editor_update()
-		} else {
-			update()
-			draw()
-		}
 	}
 
+	if k2.key_went_down(.F2) {
+		if editing {
+			editor_save()
+		}
+
+		editing = !editing
+	}
+
+	game_camera = {
+		zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
+		target = {0, -STATUS_BAR_HEIGHT},
+	}
+
+	ui_camera = {
+		zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
+	}
+
+	if editing {
+		editor_update()
+	} else {
+		update()
+		draw()
+	}
+
+	return true
+}
+
+shutdown :: proc() {
 	k2.shutdown()
 }
 
@@ -506,6 +522,13 @@ editor_update :: proc() {
 		edit_mode = new_mode
 	}
 
+	switch edit_mode {
+	case .Tiles:
+
+	case .Background_Objects:
+
+	}
+
 	map_origin := Vec2{200, 2}
 
 	for _, r_idx in world.rooms {
@@ -544,10 +567,12 @@ editor_save :: proc() {
 		return
 	}
 
-	write_world_err := os.write_entire_file("world.json", world_json)
+	write_world_ok := write_file("world.json", world_json)
 
-	if write_world_err != nil {
-		fmt.eprintln(write_world_err)
+	if !write_world_ok {
+		when ODIN_OS != .JS {
+			fmt.eprintln("Failed writing 'world.json'")
+		}
 		return
 	}
 }
