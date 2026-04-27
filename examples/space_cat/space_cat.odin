@@ -7,7 +7,6 @@ import "core:encoding/json"
 import "core:os"
 import "core:fmt"
 import "core:time"
-import "core:reflect"
 
 CLEAR_COLOR :: k2.Color{6, 6, 8, 255}
 SPACE_COLOR :: k2.Color{28, 38, 56, 255}
@@ -439,24 +438,30 @@ editor_update :: proc() {
 
 	current_room := &world.rooms[current_room_idx]
 
-	if grid_x >= 0 && grid_x < ROOM_TILE_WIDTH && grid_y >= 0 && grid_y < ROOM_TILE_HEIGHT {
-		hovered_grid_idx := grid_y*ROOM_TILE_WIDTH+grid_x
-		grid_pos := k2.Vec2 { f32(grid_x) * TILE_SIZE, f32(grid_y) *TILE_SIZE}
-		hovered_grid_rect = k2.rect_from_pos_size(grid_pos, {TILE_SIZE, TILE_SIZE})
+	switch edit_mode {
+	case .Tiles:
+		if grid_x >= 0 && grid_x < ROOM_TILE_WIDTH && grid_y >= 0 && grid_y < ROOM_TILE_HEIGHT {
+			hovered_grid_idx := grid_y*ROOM_TILE_WIDTH+grid_x
+			grid_pos := k2.Vec2 { f32(grid_x) * TILE_SIZE, f32(grid_y) *TILE_SIZE}
+			hovered_grid_rect = k2.rect_from_pos_size(grid_pos, {TILE_SIZE, TILE_SIZE})
 
-		modifiers := k2.get_held_modifiers()
+			modifiers := k2.get_held_modifiers()
 
-		if modifiers == k2.MODIFIERS_NONE && k2.mouse_button_is_held(.Left) {
-			current_room.tiles[hovered_grid_idx] = .Space
+			if modifiers == k2.MODIFIERS_NONE && k2.mouse_button_is_held(.Left) {
+				current_room.tiles[hovered_grid_idx] = .Space
+			}
+
+			if (
+				(modifiers == { .Control } && k2.mouse_button_is_held(.Left)) ||
+				k2.mouse_button_is_held(.Right)
+			) {
+				current_room.tiles[hovered_grid_idx] = .Ground
+			}
 		}
 
-		if (
-			(modifiers == { .Control } && k2.mouse_button_is_held(.Left)) ||
-			k2.mouse_button_is_held(.Right)
-		) {
-			current_room.tiles[hovered_grid_idx] = .Ground
-		}
+	case .Background_Objects:
 	}
+
 
 	k2.clear(SPACE_COLOR)
 	k2.set_camera(game_camera)
@@ -476,17 +481,24 @@ editor_update :: proc() {
 	k2.draw_rect(top_bar, CLEAR_COLOR)
 	top_bar = k2.rect_shrink(top_bar, 1, 1)
 
-	edit_mode_field_names := reflect.enum_field_names(Edit_Mode)
+	edit_mode_names := [len(Edit_Mode)]string {
+		"Tiles",
+		"BG",
+	}
+
 	edit_modes: [len(Edit_Mode)]Edit_Mode
 	
 	for m in Edit_Mode {
 		edit_modes[m] = m
 	}
 
+	edit_mode_selector_rect := k2.rect_cut_left(&top_bar, editor_ui_state_selector_width(edit_mode_names[:]), 3)
+	edit_mode_selector_rect = k2.rect_shrink(edit_mode_selector_rect, 0, 3)
+
 	new_mode, mode_changed := editor_ui_state_selector(
-		k2.rect_cut_left(&top_bar, editor_ui_state_selector_width(edit_mode_field_names), 0),
+		edit_mode_selector_rect,
 		edit_modes[:],
-		edit_mode_field_names,
+		edit_mode_names[:],
 		edit_mode,
 	)
 
