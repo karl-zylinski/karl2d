@@ -135,6 +135,15 @@ main :: proc() {
 	k2.shutdown()
 }
 
+calc_player_collider :: proc(player_pos: Vec2) -> k2.Rect {
+	return {
+		player_pos.x - 5,
+		player_pos.y - 3,
+		10,
+		6,
+	}
+}
+
 update :: proc() {
 	movement: Vec2
 
@@ -183,10 +192,13 @@ update :: proc() {
 		}
 
 		tile_rect := k2.rect_from_pos_size(tile_pos, {TILE_SIZE, TILE_SIZE})
+		pc := calc_player_collider(player.pos)
+		overlap, overlapping := k2.rect_overlap(pc, tile_rect)
 
-		if k2.point_in_rect(player.pos, tile_rect) {
-			player.pos.x -= to_move.x
-			break
+		if overlapping && overlap.w != 0 {
+			sign: f32 = pc.x + pc.w / 2 < (tile_rect.x + tile_rect.w / 2) ? -1 : 1
+			fix := overlap.w * sign
+			player.pos.x += fix
 		}
 	}
 
@@ -203,10 +215,13 @@ update :: proc() {
 		}
 
 		tile_rect := k2.rect_from_pos_size(tile_pos, {TILE_SIZE, TILE_SIZE})
+		pc := calc_player_collider(player.pos)
+		overlap, overlapping := k2.rect_overlap(pc, tile_rect)
 
-		if k2.point_in_rect(player.pos, tile_rect) {
-			player.pos.y -= to_move.y
-			break
+		if overlapping && overlap.h != 0 {
+			sign: f32 = pc.y + pc.h / 2 < (tile_rect.y + tile_rect.h / 2) ? -1 : 1
+			fix := overlap.h * sign
+			player.pos.y += fix
 		}
 	}
 
