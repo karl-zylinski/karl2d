@@ -18,6 +18,7 @@ PLATFORM_WEB :: Platform_Interface {
 	set_window_position = web_set_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
+	set_cursor_visible = web_set_cursor_visible,
 	is_gamepad_active = web_is_gamepad_active,
 	get_gamepad_axis = web_get_gamepad_axis,
 	set_gamepad_vibration = web_set_gamepad_vibration,
@@ -343,6 +344,14 @@ web_set_window_mode :: proc(new_mode: Window_Mode) {
 		web_set_screen_size_to_window_size(s.canvas_id)
 	} else if new_mode == .Windowed && old_mode == .Windowed_Resizable {
 		web_set_screen_size(s.width, s.height)
+	}
+}
+
+web_set_cursor_visible :: proc(visible: bool) {
+	if visible {
+		js.set_element_style(s.canvas_id, "cursor", "default")
+	} else {
+		js.set_element_style(s.canvas_id, "cursor", "none")
 	}
 }
 
