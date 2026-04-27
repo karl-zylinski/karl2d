@@ -1211,12 +1211,6 @@ draw_text :: proc(
 			continue
 		}
 
-		// Unscale quad positions from atlas-space back to world-space.
-		qx0 := q.x0 / camera_zoom
-		qy0 := q.y0 / camera_zoom
-		qx1 := q.x1 / camera_zoom
-		qy1 := q.y1 / camera_zoom
-
 		src := Rect {
 			q.s0, q.t0,
 			q.s1 - q.s0, q.t1 - q.t0,
@@ -1229,6 +1223,12 @@ draw_text :: proc(
 		src.w *= w
 		src.h *= h
 
+		// Unscale quad positions from atlas-space back to world-space.
+		qx0 := q.x0 / camera_zoom
+		qy0 := q.y0 / camera_zoom
+		qx1 := q.x1 / camera_zoom
+		qy1 := q.y1 / camera_zoom
+		
 		dst := Rect {
 			position.x, position.y,
 			qx1 - qx0, qy1 - qy0,
