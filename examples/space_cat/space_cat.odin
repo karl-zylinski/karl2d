@@ -4,6 +4,8 @@ import k2 "../.."
 import "core:math/linalg"
 import "core:encoding/json"
 import "core:time"
+import "core:math/rand"
+import "core:math"
 
 CLEAR_COLOR :: k2.Color{6, 6, 8, 255}
 SPACE_COLOR :: k2.Color{28, 38, 56, 255}
@@ -64,6 +66,7 @@ vec2_from_direction := [Direction]Vec2 {
 	.South = {0, 1},
 }
 
+twinkle_timer: f32
 player: Player
 plasma_balls: [dynamic]Plasma_Ball
 current_room_idx: int
@@ -74,6 +77,8 @@ space_tileset: k2.Texture
 space_tileset_version: time.Time
 bg_objects: [6]k2.Texture
 plasma_ball_tex: [3]k2.Texture
+ab_shoot: k2.Audio_Buffer
+enemy_texture: k2.Texture
 
 WORLD_FILE_NAME :: "world.json"
 WORLD_WIDTH :: 2
@@ -86,6 +91,7 @@ World :: struct {
 Background_Object :: struct {
 	texture_index: int,
 	pos: Vec2,
+	dim_timer: f32,
 }
 
 world: World
@@ -114,6 +120,9 @@ init :: proc() {
 		k2.load_texture_from_bytes(#load("plasma_2.png")),
 		k2.load_texture_from_bytes(#load("plasma_3.png")),
 	}
+
+	enemy_texture = k2.load_texture_from_bytes(#load("enemy.png"))
+	ab_shoot = k2.load_audio_buffer_from_bytes(#load("laser_shoot.wav"))
 
 	space_tileset_version = file_version("space_tileset.png")
 
@@ -293,6 +302,30 @@ update :: proc() {
 			pos = player.pos + offset,
 			dir = vec2_from_direction[player.dir],
 		})
+
+		shoot_snd := k2.create_sound_from_audio_buffer(ab_shoot)
+		k2.set_sound_pitch(shoot_snd, rand.float32_range(0.8, 1.2))
+		pan := math.remap_clamped(player.pos.x, 0, SCREEN_WIDTH, -0.5, 0.5)
+		k2.set_sound_pan(shoot_snd, pan)
+		k2.set_sound_volume(shoot_snd, rand.float32_range(0.7, 0.9))
+		k2.play_sound(shoot_snd)
+	}
+
+	twinkle_timer -= dt
+
+	if twinkle_timer <= 0 {
+		twinkle_timer = rand.float32_range(0.05, 0.1)
+		to_twinkle_idx := rand.int_max(len(current_room.background_objects))
+		to_twinkle := &current_room.background_objects[to_twinkle_idx]
+
+		// Don't twinkle moon
+		if to_twinkle.texture_index != 5 {
+			to_twinkle.dim_timer = rand.float32_range(0.2, 0.3)
+		}
+	}
+
+	for &bgo in current_room.background_objects {
+		bgo.dim_timer -= dt
 	}
 
 	world_rect := k2.rect_from_pos_size(
@@ -305,7 +338,7 @@ update :: proc() {
 		p.pos += p.dir * dt * 120
 		p.age += dt
 
-		if !k2.point_in_rect(p.pos, world_rect) {
+		if !k2.point_in_rect(p.pos, k2.rect_expand(world_rect, 20, 20)) {
 			unordered_remove(&plasma_balls, pidx)
 			pidx -= 1
 		}
@@ -346,6 +379,7 @@ update :: proc() {
 			new_idx := room_y * WORLD_WIDTH + room_x
 			assert(new_idx >= 0 && new_idx < len(world.rooms))
 			current_room_idx = new_idx
+			clear(&plasma_balls)
 			player.pos -= {
 				f32(room_move_x * ROOM_WIDTH),
 				f32(room_move_y * ROOM_HEIGHT),
@@ -368,8 +402,19 @@ draw :: proc() {
 			continue
 		}
 
+		tint := k2.WHITE
+
+		if bgo.dim_timer > 0 {
+			tint = {
+				210,
+				210,
+				255,
+				230,
+			}
+		}
+
 		tex := bg_objects[tex_idx]
-		k2.draw_texture(tex, bgo.pos, origin = k2.rect_middle(k2.get_texture_rect(tex)))
+		k2.draw_texture(tex, bgo.pos, origin = k2.rect_middle(k2.get_texture_rect(tex)), tint = tint)
 	}
 
 	for x in 0..<(ROOM_TILE_WIDTH+1) {
