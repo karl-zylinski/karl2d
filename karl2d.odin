@@ -32,7 +32,8 @@ import hm "core:container/handle_map"
 // all dynamically allocated memory.
 //
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
-// The window might be slightly larger due to borders and headers.
+// The window might be slightly larger due to borders and headers. The true width and height will be
+// scaled up by the scaling setting in the operating system.
 //
 // The return value is a pointer to Karl2D's internal state. You can restore this state later using
 // `set_internal_state()`. This is useful for example when doing game code reload, as the state may
@@ -374,7 +375,7 @@ process_events :: proc() {
 			}
 
 		case Event_Window_Scale_Changed:
-			// Doesn't do anything, only here so people can fetch it via `get_events()`.
+			rb.resize_swapchain(e.screen_width, e.screen_height)
 		}
 	}
 }
@@ -982,6 +983,19 @@ draw_texture_fit :: proc(
 		source.h = -source.h
 	}
 
+	// HACK: We ask the render backend if this texture needs flipping. The idea is that GL will
+	// flip render textures, so we need to automatically unflip them.
+	//
+	// Could we do something with the projection matrix while drawing into those render textures
+	// instead? I tried that, but couldn't get it to work.
+	if rb.texture_needs_vertical_flip(texture.handle) {
+		flip_y = !flip_y
+
+		if source.h != f32(texture.height) {
+			source.y = f32(texture.height) - source.h - source.y
+		}
+	}
+
 	if dest.w < 0 {
 		dest.w *= -1
 	}
@@ -1050,15 +1064,6 @@ draw_texture_fit :: proc(
 		uv3.x += us.x
 		uv4.x -= us.x
 		uv5.x += us.x
-	}
-
-	// HACK: We ask the render backend if this texture needs flipping. The idea is that GL will
-	// flip render textures, so we need to automatically unflip them.
-	//
-	// Could we do something with the projection matrix while drawing into those render textures
-	// instead? I tried that, but couldn't get it to work.
-	if rb.texture_needs_vertical_flip(texture.handle) {
-		flip_y = !flip_y
 	}
 
 	if flip_y {
@@ -3523,6 +3528,10 @@ ui_button_width :: proc(text: string, button_height: f32) -> f32 {
 // when no camera is set.
 //
 // Mainly used by the samples in order to create the "Source" button.
+//
+// Note that this does not support zoomed cameras right now, since it uses unscaled mouse positions.
+// As this is experimental, you are probably better off copying this procedure to your own code and
+// modifying it, rather than using it as-is.
 ui_button :: proc(r: Rect, text: string) -> bool {
 	in_rect := point_in_rect(get_mouse_position(), r)
 	bg_color := DARK_GRAY
@@ -3700,6 +3709,15 @@ Window_Mode :: enum {
 
 Init_Options :: struct {
 	window_mode: Window_Mode,
+
+	// This hint may disable scaling of the window when created. Scaling here refers to the scaling
+	// that is set for the monitor in the OS settings (the same number returned by
+	// `get_window_scale`).
+	//
+	// Note that this is a _hint_. It only works on some platforms, such as Windows. On other
+	// platforms, such as Linux+Wayland, it does not work, because Wayland always auto scales all
+	// windows.
+	disable_auto_scale_hint: bool,
 }
 
 Shader_Handle :: distinct Handle
@@ -4306,6 +4324,8 @@ Event_Screen_Resize :: struct {
 // You can also use `k2.get_window_scale()`
 Event_Window_Scale_Changed :: struct {
 	scale: f32,
+	screen_width: int,
+	screen_height: int,
 }
 
 Event_Window_Focused :: struct {}

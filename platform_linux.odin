@@ -155,11 +155,11 @@ linux_poll_for_new_gamepads :: proc() {
 }
 
 linux_get_screen_width :: proc() -> int {
-	return s.win.get_width()
+	return s.win.get_screen_width()
 }
 
 linux_get_screen_height :: proc() -> int {
-	return s.win.get_height()
+	return s.win.get_screen_height()
 }
 
 linux_set_window_position :: proc(x: int, y: int) {
@@ -167,7 +167,7 @@ linux_set_window_position :: proc(x: int, y: int) {
 }
 
 set_screen_size :: proc(w, h: int) {
-	s.win.set_size(w, h)
+	s.win.set_screen_size(w, h)
 }
 
 linux_get_window_scale :: proc() -> f32 {
@@ -618,8 +618,8 @@ Linux_Window_Interface :: struct #all_or_none {
 
 	init: proc(
 		window_state: rawptr,
-		window_width: int,
-		window_height: int,
+		screen_width: int,
+		screen_height: int,
 		window_title: string,
 		init_options: Init_Options,
 		allocator: runtime.Allocator,
@@ -629,9 +629,9 @@ Linux_Window_Interface :: struct #all_or_none {
 	get_window_render_glue: proc() -> Window_Render_Glue,
 	get_events: proc(events: ^[dynamic]Event),
 	set_position: proc(x: int, y: int),
-	set_size: proc(w, h: int),
-	get_width: proc() -> int,
-	get_height: proc() -> int,
+	set_screen_size: proc(w, h: int),
+	get_screen_width: proc() -> int,
+	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
 	set_cursor_visible: proc(visible: bool),

@@ -48,8 +48,6 @@ windows_init :: proc(
 	assert(platform_state != nil)
 	s = (^Windows_State)(platform_state)
 	s.allocator = allocator
-	s.screen_width = screen_width
-	s.screen_height = screen_height
 	s.events = make([dynamic]Event, allocator = allocator)
 	s.custom_context = context
 	
@@ -68,17 +66,27 @@ windows_init :: proc(
 
 	win32.RegisterClassW(&cls)
 
+	dpix, dpiy: win32.UINT
+	win32.GetDpiForMonitor(win32.MonitorFromWindow(nil, .MONITOR_DEFAULTTOPRIMARY), {}, &dpix, &dpiy)
+	s.window_scale = f32(dpix)/96.0
+
+	if options.disable_auto_scale_hint {
+		s.screen_width = screen_width
+		s.screen_height = screen_height
+	} else {
+		s.screen_width = int(f32(screen_width) * s.window_scale)
+		s.screen_height = int(f32(screen_height) * s.window_scale)
+	}
+
 	// Since this is the size of the screen we adjust it to become the size of the window. This is
 	// done using `AdjustWindowRectExForDpi`. It adds the space needed for the window borders etc.
 	initial_rect := win32.RECT {
 		0,
 		0,
-		i32(screen_width),
-		i32(screen_height),
+		i32(s.screen_width),
+		i32(s.screen_height),
 	}
 
-	dpix, dpiy: win32.UINT
-	win32.GetDpiForMonitor(win32.MonitorFromWindow(nil, .MONITOR_DEFAULTTOPRIMARY), {}, &dpix, &dpiy)
 	win32.AdjustWindowRectExForDpi(&initial_rect, windows_get_style(options.window_mode), false, {}, dpix)
 
 	// We create a window with default position and size. We set the correct size in
@@ -92,6 +100,7 @@ windows_init :: proc(
 		i32(initial_rect.bottom - initial_rect.top),
 		nil, nil, instance, nil,
 	)
+
 	assert(s.hwnd != nil, "Failed creating window")
 
 	windows_set_window_mode(options.window_mode)
@@ -277,7 +286,7 @@ windows_set_screen_size :: proc(w, h: int) {
 }
 
 windows_get_window_scale :: proc() -> f32 {
-	return f32(win32.GetDpiForWindow(s.hwnd))/96.0
+	return s.window_scale
 }
 
 windows_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -351,6 +360,8 @@ Windows_State :: struct {
 
 	screen_width: int,
 	screen_height: int,
+
+	window_scale: f32,
 
 	in_resize_move_state: bool,
 	screen_width_before_resize_move: int,
@@ -514,11 +525,13 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		}
 
 	case win32.WM_DPICHANGED:
-		// Set the window mode again so everything is correct size after DPI change.
-		windows_set_window_mode(s.window_mode)
+		new_dpi := win32.LOWORD(wparam)
+		s.window_scale = f32(new_dpi) / 96.0
 
 		append(&s.events, Event_Window_Scale_Changed {
-			scale = windows_get_window_scale(),
+			scale = s.window_scale,
+			screen_width = s.screen_width,
+			screen_height = s.screen_height,
 		})
 
 	case win32.WM_ENTERSIZEMOVE:
@@ -553,8 +566,8 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		// not get spammy.
 		if !s.in_resize_move_state {
 			append(&s.events, Event_Screen_Resize {
-				width = int(width),
-				height = int(height),
+				width = s.screen_width,
+				height = s.screen_height,
 			})
 		}
 

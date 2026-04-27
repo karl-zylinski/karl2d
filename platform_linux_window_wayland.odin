@@ -8,10 +8,10 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
 	get_events = wl_get_events,
-	get_width = wl_get_width,
-	get_height = wl_get_height,
+	get_screen_width = wl_get_screen_width,
+	get_screen_height = wl_get_screen_height,
 	set_position = wl_set_position,
-	set_size = wl_set_size,
+	set_screen_size = wl_set_screen_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
 	set_cursor_visible = wl_set_cursor_visible,
@@ -22,6 +22,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:strings"
 import "core:c"
+import "core:math"
 
 import "log"
 import wl "platform_bindings/linux/wayland"
@@ -37,18 +38,15 @@ wl_state_size :: proc() -> int {
 
 wl_init :: proc(
 	window_state: rawptr,
-	window_width: int,
-	window_height: int,
+	screen_width: int,
+	screen_height: int,
 	window_title: string,
 	options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
 	s = (^WL_State)(window_state)
 	s.allocator = allocator
-	s.windowed_width = window_width
-	s.windowed_height = window_height
-	s.width = window_width
-	s.height = window_height
+	s.scale = 1
 	s.odin_ctx = context
 
 	s.display = wl.display_connect(nil)
@@ -84,13 +82,25 @@ wl_init :: proc(
 	fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(s.fractional_scale_manager, s.surface)
 	wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
 
-	wl.surface_commit(s.surface)
-	wl.display_dispatch_pending(s.display)
+	unscaled_width := screen_width
+	unscaled_height := screen_height
+
+	scaled_width := int(f32(unscaled_width) * s.scale)
+	scaled_height := int(f32(unscaled_height) * s.scale)
 
 	callback := wl.surface_frame(s.surface)
 	wl.add_listener(callback, &frame_callback, nil)
 
-	s.window = wl.egl_window_create(s.surface, i32(s.windowed_width), i32(s.windowed_height))
+	s.viewport = wl.wp_viewporter_get_viewport(s.viewporter, s.surface)
+	wl.wp_viewport_set_destination(s.viewport, i32(unscaled_width), i32(unscaled_height))
+	s.window = wl.egl_window_create(s.surface, i32(scaled_width), i32(scaled_height))
+
+	s.screen_width = scaled_width
+	s.screen_height = scaled_height
+
+	wl.surface_commit(s.surface)
+	wl.display_dispatch_pending(s.display)
+	wl.display_roundtrip(s.display)
 
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
@@ -100,7 +110,11 @@ wl_init :: proc(
 		#panic("Unsupported combo of Linux + X11 and render backend '" + RENDER_BACKEND_NAME + "'")
 	}
 
-	set_window_mode(options.window_mode)
+	wl_set_window_mode(options.window_mode)
+
+	if options.disable_auto_scale_hint {
+		log.warn("disable_auto_scale_hint not supported on linux/wayland")
+	}
 }
 
 registry_listener := wl.Registry_Listener {
@@ -157,6 +171,15 @@ registry_listener := wl.Registry_Listener {
 				&wl.wp_fractional_scale_manager_v1_interface,
 				version,
 			)
+
+		case wl.wp_viewporter_interface.name:
+			s.viewporter = wl.registry_bind(
+				wl.WP_Viewporter,
+				registry,
+				name,
+				&wl.wp_viewporter_interface,
+				version,
+			)
 		}
 	},
 }
@@ -206,22 +229,28 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 		height: c.int32_t,
 		states: ^wl.Array,
 	) {
-		if s.configured && (s.width != int(width) || s.height != int(height)) {
-			wl.egl_window_resize(s.window, c.int(width), c.int(height), 0, 0)
+		w := int(width)
+		h := int(height)
 
+		context = s.odin_ctx
+
+		if s.last_configure_width != w || s.last_configure_height != h  {
 			if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-				s.windowed_width = int(width)
-				s.windowed_height = int(height)
+				s.last_configure_windowed_width = w
+				s.last_configure_windowed_height = h
 			}
 
-			s.width = int(width)
-			s.height = int(height)
+			s.screen_width = int(f32(w) * s.scale)
+			s.screen_height = int(f32(h) * s.scale)
+			s.last_configure_width = w
+			s.last_configure_height = h
 
-			context = s.odin_ctx
+			wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+			wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
 
 			append(&s.events, Event_Screen_Resize {
-				width = s.width,
-				height = s.height,
+				width = s.screen_width,
+				height = s.screen_height,
 			})
 		}
 		s.configured = true
@@ -230,9 +259,10 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 		context = s.odin_ctx
 		append(&s.events, Event_Close_Window_Requested{})
 	},
-	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, width: c.int32_t, height: c.int32_t,) { },
+	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, width: c.int32_t, height: c.int32_t,) {},
 	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, capabilities: ^wl.Array,) {},
 }
+
 
 window_listener := wl.XDG_Surface_Listener {
 	configure = proc "c" (data: rawptr, surface: ^wl.XDG_Surface, serial: c.uint32_t) {
@@ -338,7 +368,7 @@ pointer_listener := wl.Pointer_Listener {
 		// Just bitshift them to remove the decimal part and obtain 
 		// a screen coordinate
 		append(&s.events, Event_Mouse_Move {
-			position = { f32(surface_x >> 8), f32(surface_y >> 8) }, 
+			position = { math.floor(f32(surface_x >> 8) * s.scale), math.floor(f32(surface_y >> 8) * s.scale) }, 
 		})
 	},
 	button = proc "c" (
@@ -429,11 +459,16 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		scl := f32(scale)/120
 		s.scale = scl
 
-		// Disabled because we don't yet make the base scale of the
-		// window correct.
-		/*append(&s.events, Event_Window_Scale_Changed {
+		s.screen_width = int(f32(s.last_configure_width) * s.scale)
+		s.screen_height = int(f32(s.last_configure_height) * s.scale)
+
+		wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+
+		append(&s.events, Event_Window_Scale_Changed {
 			scale = scl,
-		})*/
+			screen_width = s.screen_width,
+			screen_height = s.screen_height,
+		})
 	},
 }
 
@@ -451,31 +486,30 @@ wl_get_events :: proc(events: ^[dynamic]Event) {
 	runtime.clear(&s.events)
 }
 
-wl_get_width :: proc() -> int {
-	return s.width
+wl_get_screen_width :: proc() -> int {
+	return s.screen_width
 }
 
-wl_get_height :: proc() -> int {
-	return s.height
+wl_get_screen_height :: proc() -> int {
+	return s.screen_height
 }
 
 wl_set_position :: proc(x: int, y: int) {
 	log.error("set_position not implemented when using wayland")
 }
 
-wl_set_size :: proc(w, h: int) {
-	if s.window_mode == .Borderless_Fullscreen {
-		return
-	}
+wl_set_screen_size :: proc(w, h: int) {
+	s.screen_width = int(f32(w) * s.scale)
+	s.screen_height = int(f32(h) * s.scale)
+	s.last_configure_width = w
+	s.last_configure_height = h
 
-	s.windowed_width = w
-	s.windowed_height = h
-	wl.egl_window_resize(s.window, i32(w), i32(h), 0, 0)
+	wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
 }
 
 wl_get_window_scale :: proc() -> f32 {
-	// Disabled for now, as we don't make the base scale of the window correct yet.
-	return 1
+	return s.scale
 }
 
 wl_set_window_mode :: proc(window_mode: Window_Mode) {
@@ -484,8 +518,8 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	switch window_mode {
 	case .Windowed:
 		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
-		w := i32(s.windowed_width)
-		h := i32(s.windowed_height)
+		w := i32(s.last_configure_windowed_width)
+		h := i32(s.last_configure_windowed_height)
 		wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
 		wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
 
@@ -517,10 +551,17 @@ wl_set_internal_state :: proc(state: rawptr) {
 
 WL_State :: struct {
 	allocator: runtime.Allocator,
-	width: int,
-	height: int,
-	windowed_width: int,
-	windowed_height: int,
+
+	screen_width: int,
+	screen_height: int,
+
+	// The last width/height we've gotten from wayland: Keeping this separate from screen_width and
+	// screen_height simplifies state management a bit.
+	last_configure_width: int,
+	last_configure_height: int,
+	last_configure_windowed_width: int,
+	last_configure_windowed_height: int,
+
 	events: [dynamic]Event,
 	window_mode: Window_Mode,
 
@@ -531,6 +572,8 @@ WL_State :: struct {
 	compositor: ^wl.Compositor,
 	window: ^wl.EGL_Window,
 	toplevel: ^wl.XDG_Toplevel,
+	viewporter: ^wl.WP_Viewporter,
+	viewport: ^wl.WP_Viewport,
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
