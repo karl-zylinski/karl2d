@@ -7,7 +7,7 @@ import "core:encoding/json"
 import "core:os"
 import "core:fmt"
 import "core:time"
-import "core:math/noise"
+import "core:reflect"
 
 CLEAR_COLOR :: k2.Color{6, 6, 8, 255}
 SPACE_COLOR :: k2.Color{28, 38, 56, 255}
@@ -62,13 +62,26 @@ ui_camera: k2.Camera
 space_tileset: k2.Texture
 space_tileset_version: time.Time
 
-star_texs: [5]k2.Texture
+bg_objects: [6]k2.Texture
+
+Edit_Mode :: enum {
+	Tiles,
+	Background_Objects,
+}
+
+edit_mode: Edit_Mode
 
 WORLD_WIDTH :: 2
 WORLD_HEIGHT :: 3
 
 World :: struct {
 	rooms: [WORLD_WIDTH*WORLD_HEIGHT]Room,
+	background_objects: []Background_Object,
+}
+
+Background_Object :: struct {
+	texture_index: int,
+	pos: Vec2,
 }
 
 world: World
@@ -77,12 +90,13 @@ main :: proc() {
 	k2.init(SCREEN_WIDTH*4, SCREEN_HEIGHT*4, "SPACE CAT", options = {window_mode = .Windowed_Resizable})
 	current_room_idx = 4
 	space_tileset = k2.load_texture_from_file("space_tileset.png")
-	star_texs = {
+	bg_objects = {
 		k2.load_texture_from_file("star_1.png"),
 		k2.load_texture_from_file("star_2.png"),
 		k2.load_texture_from_file("star_3.png"),
 		k2.load_texture_from_file("star_4.png"),
 		k2.load_texture_from_file("star_5.png"),
+		k2.load_texture_from_file("moon.png"),
 	}
 	space_tileset_version, _ = os.modification_time_by_path("space_tileset.png")
 
@@ -275,76 +289,20 @@ draw :: proc() {
 	
 	STARS_PER_DIR :: 4
 
-	szx := f32((ROOM_TILE_WIDTH)*TILE_SIZE)/(STARS_PER_DIR-1)
-	szy := f32((ROOM_TILE_HEIGHT)*TILE_SIZE)/(STARS_PER_DIR-1)
+	for bgo in world.background_objects {
+		tex_idx := bgo.texture_index
 
-	for st, st_idx in star_texs {
-		for s_idx in 0..<STARS_PER_DIR*STARS_PER_DIR {
-			x_r := noise.noise_2d(i64(current_room_idx), {f64(st_idx), f64(s_idx)}) * 0.5
-			y_r := noise.noise_2d(i64(current_room_idx), {f64(st_idx*st_idx), f64(s_idx)}) * 0.5
-
-			xp := f32(f32(s_idx % (STARS_PER_DIR)) + x_r) * szx
-			yp := f32(f32(s_idx / (STARS_PER_DIR)) + y_r) * szy
-
-			k2.draw_texture(st, {math.floor(xp), math.floor(yp)})
+		if tex_idx < 0 || tex_idx >= len(bg_objects) {
+			continue
 		}
+
+		tex := bg_objects[tex_idx]
+		k2.draw_texture(tex, bgo.pos, origin = k2.rect_middle(k2.get_texture_rect(tex)))
 	}
 
 	for x in 0..<(ROOM_TILE_WIDTH+1) {
 		for y in 0..<(ROOM_TILE_HEIGHT+1) {
-
-			tile_type :: proc(x, y: int) -> Tile_Type {
-				if x < 0 {
-					return tile_type(x + 1, y)
-				}
-
-				if x >= ROOM_TILE_WIDTH {
-					return tile_type(x - 1, y)
-				}
-
-				if y < 0 {
-					return tile_type(x, y + 1)
-				}
-
-				if y >= ROOM_TILE_HEIGHT {
-					return tile_type(x, y - 1)
-				}
-
-				return world.rooms[current_room_idx].tiles[y*ROOM_TILE_WIDTH+x]
-			}
-
-			mask := 0
-
-			if tile_type(x-1, y-1) == .Space {
-				mask |= 1 // TL
-			}
-			if tile_type(x, y-1) == .Space {
-				mask |= 2 // TR
-			}
-			if tile_type(x, y) == .Space {
-				mask |= 4 // BR
-			}
-			if tile_type(x-1, y) == .Space {
-				mask |= 8 // BL
-			}
-
-			txty := DUAL_GRID_MASK_TO_TXTY[mask]
-			tx := txty.x
-			ty := txty.y
-
-			tile_rect := k2.Rect {
-				x = f32(tx) * TILE_SIZE,
-				y = f32(ty) * TILE_SIZE,
-				w = TILE_SIZE,
-				h = TILE_SIZE,
-			}
-
-			pos := k2.Vec2 {
-				f32(x) * TILE_SIZE - TILE_SIZE/2,
-				f32(y) * TILE_SIZE - TILE_SIZE/2,
-			}
-
-			k2.draw_texture_section(space_tileset, tile_rect, pos)
+			dual_grid_draw(x, y)
 		}
 	}
 
@@ -399,6 +357,61 @@ draw :: proc() {
 	k2.present()
 }
 
+dual_grid_draw :: proc(x, y: int) {
+	tile_type :: proc(x, y: int) -> Tile_Type {
+		if x < 0 {
+			return tile_type(x + 1, y)
+		}
+
+		if x >= ROOM_TILE_WIDTH {
+			return tile_type(x - 1, y)
+		}
+
+		if y < 0 {
+			return tile_type(x, y + 1)
+		}
+
+		if y >= ROOM_TILE_HEIGHT {
+			return tile_type(x, y - 1)
+		}
+
+		return world.rooms[current_room_idx].tiles[y*ROOM_TILE_WIDTH+x]
+	}
+
+	mask := 0
+
+	if tile_type(x-1, y-1) == .Space {
+		mask |= 1 // TL
+	}
+	if tile_type(x, y-1) == .Space {
+		mask |= 2 // TR
+	}
+	if tile_type(x, y) == .Space {
+		mask |= 4 // BR
+	}
+	if tile_type(x-1, y) == .Space {
+		mask |= 8 // BL
+	}
+
+	txty := DUAL_GRID_MASK_TO_TXTY[mask]
+	tx := txty.x
+	ty := txty.y
+
+	tile_rect := k2.Rect {
+		x = f32(tx) * TILE_SIZE,
+		y = f32(ty) * TILE_SIZE,
+		w = TILE_SIZE,
+		h = TILE_SIZE,
+	}
+
+	pos := k2.Vec2 {
+		f32(x) * TILE_SIZE - TILE_SIZE/2,
+		f32(y) * TILE_SIZE - TILE_SIZE/2,
+	}
+
+	k2.draw_texture_section(space_tileset, tile_rect, pos)
+}
+
 DUAL_GRID_MASK_TO_TXTY := [16][2]int {
 	{0, 3}, // 0000
 	{3, 3}, // 0001
@@ -445,28 +458,69 @@ editor_update :: proc() {
 		}
 	}
 
-	k2.clear(CLEAR_COLOR)
+	k2.clear(SPACE_COLOR)
 	k2.set_camera(game_camera)
 	
-	for tile, tile_idx in current_room.tiles {
-		x := tile_idx % ROOM_TILE_WIDTH
-		y := tile_idx / ROOM_TILE_WIDTH
-
-		pos := k2.Vec2 {
-			f32(x) * TILE_SIZE,
-			f32(y) * TILE_SIZE,
+	for x in 0..<(ROOM_TILE_WIDTH+1) {
+		for y in 0..<(ROOM_TILE_HEIGHT+1) {
+			dual_grid_draw(x, y)
 		}
-
-		color := GROUND_COLOR
-
-		if tile == .Space {
-			color = SPACE_COLOR
-		}
-
-		k2.draw_rect(k2.rect_from_pos_size(pos, {TILE_SIZE, TILE_SIZE}), color)
 	}
 
 	k2.draw_rect(hovered_grid_rect, {255, 255, 255, 128})
+
+	k2.set_camera(ui_camera)
+
+	ui_mp := k2.screen_to_world(k2.get_mouse_position(), ui_camera)
+	top_bar := k2.Rect {0, 0, SCREEN_WIDTH, STATUS_BAR_HEIGHT}
+	k2.draw_rect(top_bar, CLEAR_COLOR)
+	top_bar = k2.rect_shrink(top_bar, 1, 1)
+
+	edit_mode_field_names := reflect.enum_field_names(Edit_Mode)
+	edit_modes: [len(Edit_Mode)]Edit_Mode
+	
+	for m in Edit_Mode {
+		edit_modes[m] = m
+	}
+
+	new_mode, mode_changed := editor_ui_state_selector(
+		k2.rect_cut_left(&top_bar, editor_ui_state_selector_width(edit_mode_field_names), 0),
+		edit_modes[:],
+		edit_mode_field_names,
+		edit_mode,
+	)
+
+	if mode_changed {
+		edit_mode = new_mode
+	}
+
+	map_origin := Vec2{200, 2}
+
+	for _, r_idx in world.rooms {
+		x := r_idx % WORLD_WIDTH
+		y := r_idx / WORLD_WIDTH
+
+		pos := map_origin + Vec2{f32(x)*6,f32(y)*6}
+
+		map_square_color := SPACE_COLOR
+
+		if r_idx == current_room_idx {
+			map_square_color = HIGHLIGHT_COLOR
+		}
+
+		r := k2.rect_from_pos_size(pos, {5, 5})
+
+		if k2.point_in_rect(ui_mp, r) {
+			map_square_color = k2.YELLOW
+
+			if k2.mouse_button_went_down(.Left) {
+				current_room_idx = r_idx
+			}
+		}
+
+		k2.draw_rect(r, map_square_color)
+	}
+
 	k2.present()
 }
 
@@ -484,4 +538,80 @@ editor_save :: proc() {
 		fmt.eprintln(write_world_err)
 		return
 	}
+}
+
+
+editor_ui_state_selector_width :: proc(state_names: []string) -> f32 {
+	total_width: f32
+
+	for s in state_names {
+		total_width += k2.measure_text(s, EDITOR_FONT_SIZE).x + 2 * STATE_SELECTOR_TEXT_MARGIN
+	}
+
+	return total_width
+}
+
+EDITOR_FONT_SIZE :: 10
+
+STATE_SELECTOR_TEXT_MARGIN :: 5
+
+editor_ui_state_selector :: proc(
+	rect: k2.Rect,
+	states: []$T,
+	state_names: []string,
+	cur_state: T,
+	label: string = ""
+) -> (T, bool) {
+	rect := rect
+	//rect = editor_ui_property_label(rect, label)
+
+	if len(states) == 0 {
+		return cur_state, false
+	}
+
+	if len(states) != len(state_names) {
+		return cur_state, false
+	}
+	
+	r := rect
+	k2.draw_rect(r, k2.GRAY)
+	new_state := cur_state
+	changed := false
+
+	needed_width := editor_ui_state_selector_width(state_names)
+
+	extra_button_width: f32
+	if rect.w > needed_width {
+		extra_button_width = (rect.w - needed_width)/f32(len(states))
+	}
+
+	for s, s_idx in states {
+		button_size := k2.measure_text(state_names[s_idx], EDITOR_FONT_SIZE)
+		button_rect := k2.rect_cut_left(&r, button_size.x + STATE_SELECTOR_TEXT_MARGIN * 2 + extra_button_width, 0)
+
+		if k2.point_in_rect(k2.get_mouse_position() / ui_camera.zoom, button_rect) {
+			k2.draw_rect(button_rect, k2.BLUE)
+
+			if k2.mouse_button_went_down(.Left) {
+				if new_state != s {
+					changed = true
+					new_state = s   
+				}
+			}
+		}
+
+		if cur_state == s || new_state == s {
+			k2.draw_rect(button_rect, k2.GREEN)
+		}
+
+		k2.draw_text(
+			state_names[s_idx],
+			{button_rect.x + button_rect.w/2 - k2.measure_text(state_names[s_idx], EDITOR_FONT_SIZE).x/2, button_rect.y + button_rect.h/2 - EDITOR_FONT_SIZE/2},
+			EDITOR_FONT_SIZE,
+			k2.WHITE,
+		)
+	}
+
+	k2.draw_rect_outline(rect, 1, k2.WHITE)
+	return new_state, changed
 }
