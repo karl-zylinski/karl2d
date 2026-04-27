@@ -152,6 +152,9 @@
 				1,
 				1,
 				1
+			],
+			"background_objects": [
+
 			]
 		},
 		{
@@ -306,6 +309,9 @@
 				0,
 				0,
 				0
+			],
+			"background_objects": [
+
 			]
 		},
 		{
@@ -460,6 +466,9 @@
 				1,
 				1,
 				1
+			],
+			"background_objects": [
+
 			]
 		},
 		{
@@ -614,6 +623,9 @@
 				0,
 				0,
 				0
+			],
+			"background_objects": [
+
 			]
 		},
 		{
@@ -768,6 +780,9 @@
 				1,
 				1,
 				1
+			],
+			"background_objects": [
+
 			]
 		},
 		{
@@ -922,10 +937,10 @@
 				1,
 				1,
 				1
+			],
+			"background_objects": [
+
 			]
 		}
-	],
-	"background_objects": [
-
 	]
 }
