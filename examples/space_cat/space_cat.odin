@@ -24,6 +24,12 @@ Player :: struct {
 	dir: Direction,
 }
 
+Plasma_Ball :: struct {
+	pos: Vec2,
+	dir: Vec2,
+	age: f32,
+}
+
 // Counted in tiles
 ROOM_TILE_WIDTH :: 15
 ROOM_TILE_HEIGHT :: 10
@@ -51,7 +57,15 @@ Direction :: enum {
 	South,
 }
 
+vec2_from_direction := [Direction]Vec2 {
+	.East = {1, 0},
+	.West = {-1, 0},
+	.North = {0, -1},
+	.South = {0, 1},
+}
+
 player: Player
+plasma_balls: [dynamic]Plasma_Ball
 current_room_idx: int
 editing: bool
 game_camera: k2.Camera
@@ -59,6 +73,7 @@ ui_camera: k2.Camera
 space_tileset: k2.Texture
 space_tileset_version: time.Time
 bg_objects: [6]k2.Texture
+plasma_ball_tex: [3]k2.Texture
 
 WORLD_FILE_NAME :: "world.json"
 WORLD_WIDTH :: 2
@@ -93,6 +108,13 @@ init :: proc() {
 		k2.load_texture_from_bytes(#load("star_5.png")),
 		k2.load_texture_from_bytes(#load("moon.png")),
 	}
+
+	plasma_ball_tex = {
+		k2.load_texture_from_bytes(#load("plasma_1.png")),
+		k2.load_texture_from_bytes(#load("plasma_2.png")),
+		k2.load_texture_from_bytes(#load("plasma_3.png")),
+	}
+
 	space_tileset_version = file_version("space_tileset.png")
 
 	world_json_data, world_json_data_ok := get_file_contents(WORLD_FILE_NAME)
@@ -163,6 +185,7 @@ shutdown :: proc() {
 	k2.destroy_texture(player.tex_east_west)
 	k2.destroy_texture(player.tex_up)
 	k2.destroy_texture(player.tex_down)
+	delete(plasma_balls)
 	
 	k2.shutdown()
 }
@@ -207,7 +230,8 @@ update :: proc() {
 		player.dir = .North
 	}
 
-	to_move := movement * k2.get_frame_time() * 50
+	dt := k2.get_frame_time()
+	to_move := movement * dt * 50
 
 	player.pos.x += to_move.x
 
@@ -254,6 +278,36 @@ update :: proc() {
 			sign: f32 = pc.y + pc.h / 2 < (tile_rect.y + tile_rect.h / 2) ? -1 : 1
 			fix := overlap.h * sign
 			player.pos.y += fix
+		}
+	}
+
+	if k2.key_went_down(.Space) {
+		offset: Vec2
+
+		#partial switch player.dir {
+		case .East: offset = {6, -2}
+		case .West: offset = {-6, -2}
+		}
+
+		append(&plasma_balls, Plasma_Ball {
+			pos = player.pos + offset,
+			dir = vec2_from_direction[player.dir],
+		})
+	}
+
+	world_rect := k2.rect_from_pos_size(
+		{0, -STATUS_BAR_HEIGHT},
+		k2.get_screen_size()/game_camera.zoom,
+	)
+
+	for pidx := 0; pidx < len(plasma_balls); pidx += 1 {
+		p := &plasma_balls[pidx]
+		p.pos += p.dir * dt * 120
+		p.age += dt
+
+		if !k2.point_in_rect(p.pos, world_rect) {
+			unordered_remove(&plasma_balls, pidx)
+			pidx -= 1
 		}
 	}
 
@@ -351,6 +405,21 @@ draw :: proc() {
 		player.pos,
 		origin = {f32(player_tex.width/2), f32(player_tex.height)-2},
 	)
+
+	for &p in plasma_balls {
+		tex_idx := 2
+
+		if p.age < 0.3 {
+			tex_idx = 1
+		}
+
+		if p.age < 0.2 {
+			tex_idx = 0
+		}
+
+		tex := plasma_ball_tex[tex_idx]
+		k2.draw_texture(tex, p.pos, origin = k2.rect_middle(k2.get_texture_rect(tex)))
+	}
 
 	k2.set_camera(ui_camera)
 	k2.draw_rect({0, 0, SCREEN_WIDTH, STATUS_BAR_HEIGHT}, CLEAR_COLOR)
