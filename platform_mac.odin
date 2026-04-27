@@ -8,6 +8,7 @@ import NS "core:sys/darwin/Foundation"
 import ce "platform_bindings/mac/cocoa_extras"
 import gc "platform_bindings/mac/gamecontroller"
 import "core:os"
+import "base:intrinsics"
 import "base:runtime"
 import "core:time"
 import "log"
@@ -25,6 +26,7 @@ PLATFORM_MAC :: Platform_Interface {
 	set_window_position = mac_set_window_position,
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
+	set_cursor_visible = mac_set_cursor_visible,
 
 	is_gamepad_active = mac_is_gamepad_active,
 	get_gamepad_axis = mac_get_gamepad_axis,
@@ -43,6 +45,12 @@ Mac_State :: struct {
 	app:              ^NS.Application,
 	window:           ^NS.Window,
 	window_mode:      Window_Mode,
+
+	// Cursor visibility (the user's intent). The OS cursor is only actually hidden while
+	// the cursor is inside the content area of a key window — see `apply_cursor_state`.
+	cursor_visible:      bool,
+	cursor_hidden_by_us: bool,
+	cursor_tracker:      NS.id,
 
 	screen_width:     int,
 	screen_height:    int,
@@ -85,6 +93,7 @@ mac_init :: proc(
 	s.odin_ctx = context
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
+	s.cursor_visible = true
 
 	// Initialize NSApplication
 	s.app = NS.Application_sharedApplication()
@@ -194,10 +203,14 @@ mac_init :: proc(
 
 			// Focus and unfocus events
 			windowDidBecomeKey = proc(_: ^NS.Notification) {
+				apply_cursor_state()
 				append(&s.events, Event_Window_Focused{})
 			},
 
 			windowDidResignKey = proc(_: ^NS.Notification) {
+				// Tracking is NSTrackingActiveInKeyWindow, so mouseExited won't fire on focus
+				// loss. Restore the OS cursor so it stays visible in other apps / the menu bar.
+				unhide_cursor_now()
 				append(&s.events, Event_Window_Unfocused{})
 			},
 
@@ -219,6 +232,8 @@ mac_init :: proc(
 	)
 
 	s.window->setDelegate(window_delegates)
+
+	install_cursor_tracker()
 
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_mac_gl_glue(s.window, s.allocator)
@@ -388,6 +403,78 @@ mac_set_screen_size :: proc(w, h: int) {
 
 mac_get_window_scale :: proc() -> f32 {
 	return f32(s.window->backingScaleFactor())
+}
+
+mac_set_cursor_visible :: proc(visible: bool) {
+	s.cursor_visible = visible
+	apply_cursor_state()
+}
+
+// NSCursor.hide/unhide are reference counted. These helpers ensure each hide is paired
+// with exactly one unhide so the counter never drifts.
+hide_cursor_now :: proc() {
+	if !s.cursor_hidden_by_us {
+		NS.Cursor.hide()
+		s.cursor_hidden_by_us = true
+	}
+}
+
+unhide_cursor_now :: proc() {
+	if s.cursor_hidden_by_us {
+		NS.Cursor.unhide()
+		s.cursor_hidden_by_us = false
+	}
+}
+
+cursor_in_content_area :: proc() -> bool {
+	view := s.window->contentView()
+	if view == nil do return false
+	pos := ce.Window_mouseLocationOutsideOfEventStream(s.window)
+	return bool(ce.View_mouse_inRect(view, pos, ce.View_frame(view)))
+}
+
+apply_cursor_state :: proc() {
+	if s.cursor_visible || !cursor_in_content_area() {
+		unhide_cursor_now()
+	} else {
+		hide_cursor_now()
+	}
+}
+
+install_cursor_tracker :: proc() {
+	view := s.window->contentView()
+	if view == nil do return
+
+	class_name := cstring("Karl2DCursorTracker")
+	class := NS.objc_lookUpClass(class_name)
+	if class == nil {
+		class = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), class_name, 0)
+		NS.class_addMethod(class, intrinsics.objc_find_selector("mouseEntered:"), auto_cast cursor_tracker_mouse_entered, "v@:@")
+		NS.class_addMethod(class, intrinsics.objc_find_selector("mouseExited:"),  auto_cast cursor_tracker_mouse_exited,  "v@:@")
+		NS.objc_registerClassPair(class)
+	}
+
+	s.cursor_tracker = NS.class_createInstance(class, 0)
+
+	options := ce.TRACKING_MOUSE_ENTERED_AND_EXITED |
+	           ce.TRACKING_ACTIVE_IN_KEY_WINDOW |
+	           ce.TRACKING_IN_VISIBLE_RECT |
+	           ce.TRACKING_ASSUME_INSIDE
+	area := ce.TrackingArea_alloc()
+	area  = ce.TrackingArea_initWithRect(area, ce.View_frame(view), options, s.cursor_tracker, nil)
+	ce.View_addTrackingArea(view, area)
+}
+
+cursor_tracker_mouse_entered :: proc "c" (self: NS.id, cmd: NS.SEL, event: NS.id) {
+	context = s.odin_ctx
+	if !s.cursor_visible {
+		hide_cursor_now()
+	}
+}
+
+cursor_tracker_mouse_exited :: proc "c" (self: NS.id, cmd: NS.SEL, event: NS.id) {
+	context = s.odin_ctx
+	unhide_cursor_now()
 }
 
 mac_is_gamepad_active :: proc(gamepad: int) -> bool {

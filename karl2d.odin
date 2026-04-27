@@ -453,6 +453,11 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 	pf.set_window_mode(window_mode)
 }
 
+// Hide or show the OS cursor.
+set_cursor_visible :: proc(visible: bool) {
+	pf.set_cursor_visible(visible)
+}
+
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
 // procedures run:
@@ -978,6 +983,19 @@ draw_texture_fit :: proc(
 		source.h = -source.h
 	}
 
+	// HACK: We ask the render backend if this texture needs flipping. The idea is that GL will
+	// flip render textures, so we need to automatically unflip them.
+	//
+	// Could we do something with the projection matrix while drawing into those render textures
+	// instead? I tried that, but couldn't get it to work.
+	if rb.texture_needs_vertical_flip(texture.handle) {
+		flip_y = !flip_y
+
+		if source.h != f32(texture.height) {
+			source.y = f32(texture.height) - source.h - source.y
+		}
+	}
+
 	if dest.w < 0 {
 		dest.w *= -1
 	}
@@ -1046,15 +1064,6 @@ draw_texture_fit :: proc(
 		uv3.x += us.x
 		uv4.x -= us.x
 		uv5.x += us.x
-	}
-
-	// HACK: We ask the render backend if this texture needs flipping. The idea is that GL will
-	// flip render textures, so we need to automatically unflip them.
-	//
-	// Could we do something with the projection matrix while drawing into those render textures
-	// instead? I tried that, but couldn't get it to work.
-	if rb.texture_needs_vertical_flip(texture.handle) {
-		flip_y = !flip_y
 	}
 
 	if flip_y {
@@ -1152,7 +1161,8 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 }
 
 // Draw text at a position, with a size and color. The position is the top-left position of the
-// text.
+// text. If you've set a camera using `set_camera`, then the font size will be internally scaled
+// so that the text appear sharp.
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
@@ -1173,22 +1183,39 @@ draw_text :: proc(
 
 	_set_font(font)
 	font_object := &s.fonts[font]
-	fs.SetSize(&s.fs, font_size)
-	iter := fs.TextIterInit(&s.fs, position.x, position.y, text)
+
+	camera_zoom: f32 = 1
+
+	if cam, cam_ok := s.batch_camera.?; cam_ok && cam.zoom > 0.001 {
+		camera_zoom = cam.zoom
+	}
+
+	// Bake the glyph at font_size*camera_zoom pixels so it is sharp at the current zoom level.
+	// We then divide quad positions back by camera_zoom to recover world-space coordinates.
+	render_size := font_size * camera_zoom
+	scaled_pos  := position * camera_zoom
+
+	fs.SetSize(&s.fs, render_size)
+	iter := fs.TextIterInit(&s.fs, scaled_pos.x, scaled_pos.y, text)
 
 	q: fs.Quad
 	for fs.TextIterNext(&s.fs, &iter, &q) {
 		if iter.codepoint == '\n' {
-			iter.nexty += font_size
-			iter.nextx = position.x
+			iter.nexty += render_size
+			iter.nextx = scaled_pos.x
 			continue
 		}
 
 		if iter.codepoint == '\t' {
-			// This is not really correct, but I'll replace it later when I redo the font stuff.
-			iter.nextx += 2*font_size
+			iter.nextx += 2*render_size
 			continue
 		}
+
+		// Unscale quad positions from atlas-space back to world-space.
+		qx0 := q.x0 / camera_zoom
+		qy0 := q.y0 / camera_zoom
+		qx1 := q.x1 / camera_zoom
+		qy1 := q.y1 / camera_zoom
 
 		src := Rect {
 			q.s0, q.t0,
@@ -1197,7 +1224,6 @@ draw_text :: proc(
 
 		w := f32(FONT_DEFAULT_ATLAS_SIZE)
 		h := f32(FONT_DEFAULT_ATLAS_SIZE)
-
 		src.x *= w
 		src.y *= h
 		src.w *= w
@@ -1205,10 +1231,10 @@ draw_text :: proc(
 
 		dst := Rect {
 			position.x, position.y,
-			q.x1 - q.x0, q.y1 - q.y0,
+			qx1 - qx0, qy1 - qy0,
 		}
 
-		char_origin := origin + {position.x - q.x0, position.y - q.y0}
+		char_origin := origin + {position.x - qx0, position.y - qy0}
 		draw_texture_fit(font_object.atlas, src, dst, char_origin, rotation, color)
 	}
 }
@@ -4468,7 +4494,7 @@ make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 	return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
 }
 
-FONT_DEFAULT_ATLAS_SIZE :: 1024
+FONT_DEFAULT_ATLAS_SIZE :: 2048
 
 _update_font :: proc(fh: Font) {
 	font := &s.fonts[fh]
