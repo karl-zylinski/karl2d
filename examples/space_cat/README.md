@@ -1,5 +1,7 @@
 This is a small example video game where you can shoot, pick up a key, open a door and get to the end.
 
+<img width="600" alt="space_cat" src="https://github.com/user-attachments/assets/ffc33774-8a9c-48ea-9b70-6cf753cb0ef8" />
+
 Controls:
 - Move player: Arrows
 - Shoot: Space
