@@ -74,6 +74,7 @@ vec2_from_direction := [Direction]Vec2 {
 
 twinkle_timer: f32
 player: Player
+has_key: bool
 plasma_balls: [dynamic]Plasma_Ball
 current_room_idx: int
 editing: bool
@@ -85,6 +86,12 @@ bg_object_textures: [6]k2.Texture
 fg_object_textures: [7]k2.Texture
 plasma_ball_textures: [3]k2.Texture
 ab_shoot: k2.Audio_Buffer
+ab_pickup: k2.Audio_Buffer
+ab_hit: k2.Audio_Buffer
+flash_texture: k2.Texture
+flash_texture_pos: Vec2
+flash_texture_timer: f32
+game_finished: bool
 
 WORLD_FILE_NAME :: "world.json"
 WORLD_WIDTH :: 2
@@ -109,6 +116,8 @@ Interactable_Type :: enum {
 	Enemy,
 	Key,
 	Wall,
+	Wall_Down,
+	The_Object,
 }
 
 Interactable :: struct {
@@ -120,6 +129,7 @@ Interactable :: struct {
 interactable_type_texture: [Interactable_Type]k2.Texture
 enemy_hidden_tex: k2.Texture
 
+@(private="file")
 world: World
 
 main :: proc() {
@@ -161,11 +171,15 @@ init :: proc() {
 		.Enemy = k2.load_texture_from_bytes(#load("enemy.png")),
 		.Key = k2.load_texture_from_bytes(#load("key.png")),
 		.Wall = k2.load_texture_from_bytes(#load("wall.png")),
+		.Wall_Down = k2.load_texture_from_bytes(#load("wall_down.png")),
+		.The_Object = k2.load_texture_from_bytes(#load("the_object.png")),
 	}
 
 	enemy_hidden_tex = k2.load_texture_from_bytes(#load("enemy_hidden.png"))
 
 	ab_shoot = k2.load_audio_buffer_from_bytes(#load("laser_shoot.wav"))
+	ab_hit = k2.load_audio_buffer_from_bytes(#load("hit_hurt.wav"))
+	ab_pickup = k2.load_audio_buffer_from_bytes(#load("power_up.wav"))
 
 	space_tileset_version = file_version("space_tileset.png")
 
@@ -174,6 +188,8 @@ init :: proc() {
 	if world_json_data_ok {
 		json.unmarshal(world_json_data, &world)
 	}
+
+	editor_init(world_json_data)
 
 	player = {
 		pos = {30, 100},
@@ -200,6 +216,13 @@ step :: proc() -> bool {
 	if k2.key_went_down(.F2) {
 		if editing {
 			editor_save()
+			destroy_world(world)
+
+			world_json_data, world_json_data_ok := get_file_contents(WORLD_FILE_NAME)
+
+			if world_json_data_ok {
+				json.unmarshal(world_json_data, &world)
+			}
 		}
 
 		editing = !editing
@@ -225,9 +248,8 @@ step :: proc() -> bool {
 }
 
 shutdown :: proc() {
-	for r in world.rooms {
-		delete(r.background_objects)
-	}
+	destroy_world(world)
+	editor_shutdown()
 
 	for bgo in bg_object_textures {
 		k2.destroy_texture(bgo)	
@@ -246,6 +268,14 @@ shutdown :: proc() {
 	k2.shutdown()
 }
 
+destroy_world :: proc(w: World) {
+	for r in w.rooms {
+		delete(r.background_objects)
+		delete(r.foreground_objects)
+		delete(r.interactables)
+	}
+}
+
 calc_player_collider :: proc(player_pos: Vec2) -> k2.Rect {
 	return {
 		player_pos.x - 5,
@@ -256,6 +286,10 @@ calc_player_collider :: proc(player_pos: Vec2) -> k2.Rect {
 }
 
 update :: proc() {
+	if game_finished {
+		return
+	}
+
 	movement: Vec2
 
 	if k2.key_is_held(.Up) {
@@ -310,8 +344,18 @@ update :: proc() {
 	}
 
 	for &inter in current_room.interactables {
-		inter.hurt_timer -= dt
+		if inter.hurt_timer <= 0 {
+			inter.hurt_timer -= dt
+		}
+
 		if inter.type == .Enemy && inter.hurt_timer <= 0 {
+			r := k2.get_texture_rect(interactable_type_texture[inter.type])
+			r.x = inter.pos.x - r.w/2
+			r.y = inter.pos.y - r.h
+			append(&colliders, r)
+		}
+
+		if inter.type == .Wall {
 			r := k2.get_texture_rect(interactable_type_texture[inter.type])
 			r.x = inter.pos.x - r.w/2
 			r.y = inter.pos.y - r.h
@@ -347,8 +391,8 @@ update :: proc() {
 		offset: Vec2
 
 		#partial switch player.dir {
-		case .East: offset = {6, -2}
-		case .West: offset = {-6, -2}
+		case .East: offset = {6, -4}
+		case .West: offset = {-6, -4}
 		}
 
 		append(&plasma_balls, Plasma_Ball {
@@ -407,19 +451,52 @@ update :: proc() {
 		case .Enemy:
 			for pidx := 0; pidx < len(plasma_balls); pidx += 1 {
 				p := &plasma_balls[pidx]
-				if k2.point_in_rect(p.pos, r) {
+				if inter.hurt_timer < 0 && k2.point_in_rect(p.pos, r) {
 					inter.hurt_timer = 5
 					unordered_remove(&plasma_balls, pidx)
 					pidx -= 1
+					k2.play_sound(k2.create_sound_from_audio_buffer(ab_hit))
 				}
 			}
 		case .Key:
 			if k2.rect_overlapping(calc_player_collider(player.pos), r) {
 				unordered_remove(&current_room.interactables, inter_idx)
 				inter_idx -= 1
+				has_key = true
+				k2.play_sound(k2.create_sound_from_audio_buffer(ab_pickup))
 			}
 		case .Wall:
+			for pidx := 0; pidx < len(plasma_balls); pidx += 1 {
+				p := &plasma_balls[pidx]
+				if k2.point_in_rect(p.pos, r) {
+					unordered_remove(&plasma_balls, pidx)
+					pidx -= 1
+				}
+			}
+
+			// expand to be sure player can hit
+			expanded_wall_collider := k2.rect_expand(r, 4, 4)
+
+			if has_key && k2.rect_overlapping(calc_player_collider(player.pos), expanded_wall_collider) {
+				inter.type = .Wall_Down
+				flash_texture = interactable_type_texture[.Key]
+				flash_texture_pos = inter.pos
+				flash_texture_timer = 0.5
+			}
+
+		case .Wall_Down:
+
+		case .The_Object:
+			rr := r
+			rr.h -= 3
+			if k2.rect_overlapping(calc_player_collider(player.pos), rr) {
+				game_finished = true
+			}
 		}
+	}
+
+	if flash_texture_timer > 0 {
+		flash_texture_timer -= dt
 	}
 
 	ROOM_HEIGHT :: ROOM_TILE_HEIGHT * TILE_SIZE
@@ -470,6 +547,23 @@ draw :: proc() {
 	k2.clear(SPACE_COLOR)
 
 	k2.set_camera(game_camera)
+
+	if game_finished {
+		tex := interactable_type_texture[.The_Object]
+		src := k2.get_texture_rect(tex)
+		dst := k2.Rect {
+			x = SCREEN_WIDTH/2 - (src.w*5)/2,
+			y = 20,
+			w = src.w*5,
+			h = src.h*5,
+		}
+		k2.draw_texture_fit(tex, src, dst)
+		END_TEXT :: "Thank you - This is the end"
+		thanks_size := k2.measure_text(END_TEXT, 10)
+		k2.draw_text(END_TEXT, {SCREEN_WIDTH/2-thanks_size.x/2, dst.y + dst.h + 3}, 10, k2.WHITE)
+		k2.present()
+		return
+	}
 	
 	STARS_PER_DIR :: 4
 
@@ -497,7 +591,7 @@ draw :: proc() {
 
 	for x in 0..<(ROOM_TILE_WIDTH+1) {
 		for y in 0..<(ROOM_TILE_HEIGHT+1) {
-			dual_grid_draw(x, y)
+			dual_grid_draw(world, x, y)
 		}
 	}
 
@@ -617,10 +711,16 @@ draw :: proc() {
 		k2.draw_texture(tex, p.pos, origin = k2.rect_middle(k2.get_texture_rect(tex)))
 	}
 
-	k2.draw_rect(calc_player_collider(player.pos), k2.color_alpha(k2.RED, 128))
+	if flash_texture_timer > 0 {
+		k2.draw_texture(flash_texture, flash_texture_pos, origin = k2.rect_middle(k2.get_texture_rect(flash_texture)))
+	}
 
 	k2.set_camera(ui_camera)
 	k2.draw_rect({0, 0, SCREEN_WIDTH, STATUS_BAR_HEIGHT}, CLEAR_COLOR)
+
+	if has_key {
+		k2.draw_texture(interactable_type_texture[.Key], {5, 5})
+	}
 
 	map_origin := Vec2{200, 2}
 
@@ -642,22 +742,22 @@ draw :: proc() {
 	k2.present()
 }
 
-dual_grid_draw :: proc(x, y: int) {
-	tile_type :: proc(x, y: int) -> Tile_Type {
+dual_grid_draw :: proc(world: World, x, y: int) {
+	tile_type :: proc(world: World, x, y: int) -> Tile_Type {
 		if x < 0 {
-			return tile_type(x + 1, y)
+			return tile_type(world, x + 1, y)
 		}
 
 		if x >= ROOM_TILE_WIDTH {
-			return tile_type(x - 1, y)
+			return tile_type(world, x - 1, y)
 		}
 
 		if y < 0 {
-			return tile_type(x, y + 1)
+			return tile_type(world, x, y + 1)
 		}
 
 		if y >= ROOM_TILE_HEIGHT {
-			return tile_type(x, y - 1)
+			return tile_type(world, x, y - 1)
 		}
 
 		return world.rooms[current_room_idx].tiles[y*ROOM_TILE_WIDTH+x]
@@ -665,16 +765,16 @@ dual_grid_draw :: proc(x, y: int) {
 
 	mask := 0
 
-	if tile_type(x-1, y-1) == .Space {
+	if tile_type(world, x-1, y-1) == .Space {
 		mask |= 1 // TL
 	}
-	if tile_type(x, y-1) == .Space {
+	if tile_type(world, x, y-1) == .Space {
 		mask |= 2 // TR
 	}
-	if tile_type(x, y) == .Space {
+	if tile_type(world, x, y) == .Space {
 		mask |= 4 // BR
 	}
-	if tile_type(x-1, y) == .Space {
+	if tile_type(world, x-1, y) == .Space {
 		mask |= 8 // BL
 	}
 

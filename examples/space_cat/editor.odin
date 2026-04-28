@@ -18,12 +18,23 @@ editor_bg_current_idx: int
 editor_fg_current_idx: int
 editor_interactable_current_type: Interactable_Type
 
+@(private="file")
+editor_world: World
+
+editor_init :: proc(world_data: []u8) {
+	json.unmarshal(world_data, &editor_world)
+}
+
+editor_shutdown :: proc() {
+	destroy_world(editor_world)
+}
+
 editor_update :: proc() {
 	k2.clear(SPACE_COLOR)
 	k2.set_camera(game_camera)
 
 	mouse_pos_world := k2.screen_to_world(k2.get_mouse_position(), game_camera)
-	current_room := &world.rooms[current_room_idx]
+	current_room := &editor_world.rooms[current_room_idx]
 
 	if edit_mode == .Tiles {
 		hovered_grid_rect: k2.Rect
@@ -108,7 +119,7 @@ editor_update :: proc() {
 
 	for x in 0..<(ROOM_TILE_WIDTH+1) {
 		for y in 0..<(ROOM_TILE_HEIGHT+1) {
-			dual_grid_draw(x, y)
+			dual_grid_draw(editor_world, x, y)
 		}
 	}
 
@@ -282,7 +293,7 @@ editor_update :: proc() {
 
 	map_origin := Vec2{200, 2}
 
-	for _, r_idx in world.rooms {
+	for _, r_idx in editor_world.rooms {
 		x := r_idx % WORLD_WIDTH
 		y := r_idx / WORLD_WIDTH
 
@@ -311,7 +322,7 @@ editor_update :: proc() {
 }
 
 editor_save :: proc() {
-	world_json, world_json_error := json.marshal(world, opt = {sort_maps_by_key = true, pretty = true}, allocator = context.temp_allocator)
+	world_json, world_json_error := json.marshal(editor_world, opt = {sort_maps_by_key = true, pretty = true}, allocator = context.temp_allocator)
 
 	if world_json_error != nil {
 		fmt.eprintln(world_json_error)
