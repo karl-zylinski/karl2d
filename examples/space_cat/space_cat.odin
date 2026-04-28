@@ -850,7 +850,7 @@ draw :: proc() {
 			r.w *= -1
 		}
 
-		k2.draw_texture_section(
+		k2.draw_texture_rect(
 			s.tex,
 			r,
 			s.pos,
@@ -971,7 +971,7 @@ dual_grid_draw :: proc(world: World, x, y: int) {
 		f32(y) * TILE_SIZE - TILE_SIZE/2,
 	}
 
-	k2.draw_texture_section(space_tileset, tile_rect, pos)
+	k2.draw_texture_rect(space_tileset, tile_rect, pos)
 }
 
 DUAL_GRID_MASK_TO_TXTY := [16][2]int {
