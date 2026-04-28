@@ -36,9 +36,9 @@ editor_update :: proc() {
 
 	mouse_pos_world := k2.screen_to_world(k2.get_mouse_position(), game_camera)
 	current_room := &editor_world.rooms[current_room_idx]
+	hovered_grid_rect: k2.Rect
 
 	if edit_mode == .Tiles {
-		hovered_grid_rect: k2.Rect
 		grid_x := int(math.floor(mouse_pos_world.x / TILE_SIZE))
 		grid_y := int(math.floor(mouse_pos_world.y / TILE_SIZE))
 
@@ -60,8 +60,6 @@ editor_update :: proc() {
 				current_room.tiles[hovered_grid_idx] = .Ground
 			}
 		}
-
-		k2.draw_rect(hovered_grid_rect, {255, 255, 255, 128})
 	} else if edit_mode == .Background_Objects {
 		mwm := k2.get_mouse_wheel_delta()
 
@@ -123,6 +121,8 @@ editor_update :: proc() {
 			dual_grid_draw(editor_world, x, y)
 		}
 	}
+
+	k2.draw_rect(hovered_grid_rect, {255, 255, 255, 128})
 
 	for fgo in current_room.foreground_objects {
 		tex_idx := fgo.texture_index

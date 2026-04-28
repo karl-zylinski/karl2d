@@ -31,6 +31,7 @@ SPACE_COLOR :: k2.Color{28, 38, 56, 255}
 GROUND_COLOR :: k2.Color{35, 73, 93, 255}
 HIGHLIGHT_COLOR :: k2.Color{149, 224, 204, 255}
 
+// We zoom the game up to fit this size
 SCREEN_WIDTH :: 240
 SCREEN_HEIGHT :: 180
 STATUS_BAR_HEIGHT :: 20
@@ -39,21 +40,27 @@ Vec2 :: k2.Vec2
 
 Player :: struct {
 	pos: Vec2,
+
+	// Textures for walking in different directions
 	tex_east_west: k2.Texture,
 	tex_up: k2.Texture,
 	tex_down: k2.Texture,
+
 	dir: Direction,
 }
 
+// The things the player shoots
 Plasma_Ball :: struct {
 	pos: Vec2,
 	dir: Vec2,
 	age: f32,
 }
 
-// Counted in tiles
+// Counted in number of tiles
 ROOM_TILE_WIDTH :: 15
 ROOM_TILE_HEIGHT :: 10
+
+// Pixel size of a tile
 TILE_SIZE :: 16
 
 Room :: struct {
@@ -87,7 +94,9 @@ vec2_from_direction := [Direction]Vec2 {
 	.South = {0, 1},
 }
 
+// How long until a star should twinkle
 twinkle_timer: f32
+
 player: Player
 has_key: bool
 plasma_balls: [dynamic]Plasma_Ball
@@ -95,21 +104,33 @@ current_room_idx: int
 editing: bool
 game_camera: k2.Camera
 ui_camera: k2.Camera
+
+// Dual-grid tileset
 space_tileset: k2.Texture
 space_tileset_version: time.Time
+
+// The textures used by different kinds of objects in the level, filled in `init`
 bg_object_textures: [6]k2.Texture
 fg_object_textures: [7]k2.Texture
 plasma_ball_textures: [3]k2.Texture
+
+// We use audio buffers from which we create sounds when needed. This way multiple sounds can be
+// played at once.
 ab_shoot: k2.Audio_Buffer
 ab_pickup: k2.Audio_Buffer
 ab_hit: k2.Audio_Buffer
+
+// For making a texture appear on the screen for a short period.
 flash_texture: k2.Texture
 flash_texture_pos: Vec2
 flash_texture_timer: f32
+
 game_finished: bool
 show_controls: bool
 
 WORLD_FILE_NAME :: "world.json"
+
+// Conted in "number of rooms"
 WORLD_WIDTH :: 2
 WORLD_HEIGHT :: 3
 
@@ -120,6 +141,9 @@ World :: struct {
 Background_Object :: struct {
 	texture_index: int,
 	pos: Vec2,
+
+	// We use the same structures for the serialized data and the in-game data. We don't want this
+	// run-time value to get written into the JSON. Therefore we use the `json:"-"` tag.
 	dim_timer: f32 `json:"-"`,
 }
 
@@ -145,9 +169,14 @@ Interactable :: struct {
 interactable_type_texture: [Interactable_Type]k2.Texture
 enemy_hidden_tex: k2.Texture
 
+// There is an `editor_world` in `editor.odin` we keep the private and separate to avoid accidents.
+// It's important that the editor has its own copy of the data. If runnin game and editor share the
+// data, then you could pick up an object in the game, enter the editor and the object is gone in
+// the editor. Not good!
 @(private="file")
 world: World
 
+// Use by desktop builds. Web builds call `init` and `step` directly.
 main :: proc() {
 	track: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&track, context.allocator)
@@ -170,6 +199,17 @@ init :: proc() {
 	k2.init(SCREEN_WIDTH*4, SCREEN_HEIGHT*4, "SPACE CAT", options = {window_mode = .Windowed_Resizable})
 	show_controls = true
 	current_room_idx = 4
+
+	// ----
+	// Here you'll see lots of `load_texture_from_bytes(#load(blabla))`. Using #load bakes the
+	// resources into the executable at compile-time. The result of it is a slice of bytes `[]u8`.
+	//
+	// We do this because web builds can't load files from disk (there is no "OS"). In the future
+	// Karl2D may get some kind of async file loading for web, or similar... For now, you can do
+	// stuff like this. You can also generate an `assets.odin` file and `#load` files in there based
+	// on what existed on disk when the file was generated.
+	//
+
 	space_tileset = k2.load_texture_from_bytes(#load("space_tileset.png"))
 	bg_object_textures = {
 		k2.load_texture_from_bytes(#load("star_1.png")),
@@ -233,7 +273,9 @@ step :: proc() -> bool {
 		return false
 	}
 
-	when ODIN_OS != .JS {
+	when ODIN_OS != .JS && ODIN_DEBUG {
+		// Hot reload of the tileset. This makes it possible to edit the tileset and see changes to
+		// it live as you re-save the file.
 		space_tileset_new_version := file_version("space_tileset.png")
 
 		if space_tileset_version != space_tileset_new_version {
@@ -257,6 +299,8 @@ step :: proc() -> bool {
 		editing = !editing
 	}
 
+	// These cameras zoom everything so the height of the screen fits SCREEN_HEIGHT number of world-
+	// space pixels.
 	game_camera = {
 		zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
 		target = {0, -STATUS_BAR_HEIGHT},
@@ -378,12 +422,11 @@ update :: proc() {
 	dt := k2.get_frame_time()
 	to_move := movement * dt * 50
 
-	player.pos.x += to_move.x
-
 	current_room := &world.rooms[current_room_idx]
 
+	// Generate a temporary list of colliders in the room. This is fine for a game with so few
+	// colliders per room.
 	colliders := make([dynamic]k2.Rect, context.temp_allocator)
-
 	for tile_type, tile_idx in current_room.tiles {
 		if tile_walkable_lookup[tile_type] {
 			continue
@@ -403,6 +446,10 @@ update :: proc() {
 			inter.hurt_timer -= dt
 		}
 
+		// Only some interactables have "blocks colliders"
+
+		// hurt_timer > 0 means that this enemy has recently been hit and therefore hidden in the
+		// ground.
 		if inter.type == .Enemy && inter.hurt_timer <= 0 {
 			r := k2.get_texture_rect(interactable_type_texture[inter.type])
 			r.x = inter.pos.x - r.w/2
@@ -417,6 +464,13 @@ update :: proc() {
 			append(&colliders, r)
 		}
 	}
+
+	// --
+	// We do the collision between player and colliders first in X and then in Y. This makes the
+	// collision handling stable. It's perhaps not very efficient in a game where lots of things
+	// collide with lots of other things. In that case you may need some kind "broadphase".
+
+	player.pos.x += to_move.x
 
 	for c in colliders {
 		pc := calc_player_collider(player.pos)
@@ -442,6 +496,7 @@ update :: proc() {
 		}
 	}
 
+	// Shoot
 	if k2.key_went_down(.Space) {
 		offset: Vec2
 
@@ -455,6 +510,7 @@ update :: proc() {
 			dir = vec2_from_direction[player.dir],
 		})
 
+		// The shoot sound has pitch randomization and spatial panning.
 		shoot_snd := k2.create_sound_from_audio_buffer(ab_shoot)
 		k2.set_sound_pitch(shoot_snd, rand.float32_range(0.8, 1.2))
 		pan := math.remap_clamped(player.pos.x, 0, SCREEN_WIDTH, -0.5, 0.5)
@@ -463,6 +519,7 @@ update :: proc() {
 		k2.play_sound(shoot_snd)
 	}
 
+	// Make stars twinkle. It's just a timer that makes a single star, picked at random, twinkle.
 	twinkle_timer -= dt
 
 	if twinkle_timer <= 0 {
@@ -470,21 +527,25 @@ update :: proc() {
 		to_twinkle_idx := rand.int_max(len(current_room.background_objects))
 		to_twinkle := &current_room.background_objects[to_twinkle_idx]
 
-		// Don't twinkle moon
+		// Don't twinkle moon. I know, using an index here feels hacky. We could use an enumerated
+		// array or have a "type" enum on each background object.
 		if to_twinkle.texture_index != 5 {
 			to_twinkle.dim_timer = rand.float32_range(0.2, 0.3)
 		}
 	}
 
 	for &bgo in current_room.background_objects {
-		bgo.dim_timer -= dt
+		if bgo.dim_timer > 0 {
+			bgo.dim_timer -= dt
+		}
 	}
 
 	world_rect := k2.rect_from_pos_size(
-		{0, -STATUS_BAR_HEIGHT},
+		{0, 0},
 		k2.get_screen_size()/game_camera.zoom,
 	)
 
+	// Despawn plasma balls that have left screen.
 	for pidx := 0; pidx < len(plasma_balls); pidx += 1 {
 		p := &plasma_balls[pidx]
 		p.pos += p.dir * dt * 120
@@ -496,6 +557,11 @@ update :: proc() {
 		}
 	}
 
+	// -------------
+	// Interactables are stuff like enemies, keys and walls. In this loop we'll see lots of overlap
+	// checks between the player/plasma_balls and the interactables, which results in the 
+	// interactivity of the game.
+
 	for inter_idx := 0; inter_idx < len(current_room.interactables); inter_idx += 1 {
 		inter := &current_room.interactables[inter_idx]
 		r := k2.get_texture_rect(interactable_type_texture[inter.type])
@@ -506,11 +572,13 @@ update :: proc() {
 		case .Enemy:
 			for pidx := 0; pidx < len(plasma_balls); pidx += 1 {
 				p := &plasma_balls[pidx]
+
 				plasma_ball_rect := k2.Rect {
 					p.pos.x - 3,
 					p.pos.y - 3,
 					6, 6,
 				}
+
 				if inter.hurt_timer <= 0 && k2.rect_overlapping(plasma_ball_rect, r) {
 					inter.hurt_timer = 5
 					unordered_remove(&plasma_balls, pidx)
@@ -521,6 +589,7 @@ update :: proc() {
 					k2.play_sound(k2.create_sound_from_audio_buffer(ab_hit))
 				}
 			}
+
 		case .Key:
 			if k2.rect_overlapping(calc_player_collider(player.pos), r) {
 				unordered_remove(&current_room.interactables, inter_idx)
@@ -528,6 +597,7 @@ update :: proc() {
 				has_key = true
 				k2.play_sound(k2.create_sound_from_audio_buffer(ab_pickup))
 			}
+
 		case .Wall:
 			for pidx := 0; pidx < len(plasma_balls); pidx += 1 {
 				p := &plasma_balls[pidx]
@@ -561,6 +631,10 @@ update :: proc() {
 	if flash_texture_timer > 0 {
 		flash_texture_timer -= dt
 	}
+
+	// ----
+	// Move between rooms
+	//
 
 	ROOM_HEIGHT :: ROOM_TILE_HEIGHT * TILE_SIZE
 	ROOM_WIDTH :: ROOM_TILE_WIDTH * TILE_SIZE
@@ -636,8 +710,6 @@ draw :: proc() {
 	k2.set_camera(game_camera)
 	k2.draw_rect({0, 0, SCREEN_WIDTH, SCREEN_HEIGHT}, SPACE_COLOR)
 	
-	STARS_PER_DIR :: 4
-
 	for bgo in world.rooms[current_room_idx].background_objects {
 		tex_idx := bgo.texture_index
 
@@ -665,6 +737,12 @@ draw :: proc() {
 			dual_grid_draw(world, x, y)
 		}
 	}
+
+	// ----
+	// Some things should be drawn behind player when player is below them on screen, and vice versa
+	// However, some things, such as dirt on the ground, should always be under the player. This
+	// code implements both.
+	//
 
 	Sorted_Draw :: struct {
 		tex: k2.Texture,
@@ -804,6 +882,9 @@ draw :: proc() {
 		k2.draw_texture(interactable_type_texture[.Key], {5, 5})
 	}
 
+	// -------
+	// Minimap
+
 	map_origin := Vec2{200, 2}
 
 	for _, r_idx in world.rooms {
@@ -837,6 +918,7 @@ draw :: proc() {
 	k2.present()
 }
 
+// There is a separate example called dual_grid_tilemap that explains this technique in more detail.
 dual_grid_draw :: proc(world: World, x, y: int) {
 	tile_type :: proc(world: World, x, y: int) -> Tile_Type {
 		if x < 0 {
