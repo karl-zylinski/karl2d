@@ -8,6 +8,7 @@ import "core:math/rand"
 import "core:math"
 import "core:slice"
 import "core:fmt"
+import "core:mem"
 
 _ :: fmt
 
@@ -133,9 +134,21 @@ enemy_hidden_tex: k2.Texture
 world: World
 
 main :: proc() {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	context.allocator = mem.tracking_allocator(&track)
+
 	init()
 	for step() {}
 	shutdown()
+
+	if len(track.allocation_map) > 0 {
+		fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+		for _, entry in track.allocation_map {
+			fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+		}
+	}
+	mem.tracking_allocator_destroy(&track)
 }
 
 init :: proc() {
@@ -259,10 +272,22 @@ shutdown :: proc() {
 		k2.destroy_texture(fgo)	
 	}
 
+	for t, _ in interactable_type_texture {
+		k2.destroy_texture(t)	
+	}
+
+	for t in plasma_ball_textures {
+		k2.destroy_texture(t)	
+	}
+
+	k2.destroy_audio_buffer(ab_hit)
+	k2.destroy_audio_buffer(ab_pickup)
+	k2.destroy_audio_buffer(ab_shoot)
 	k2.destroy_texture(space_tileset)
 	k2.destroy_texture(player.tex_east_west)
 	k2.destroy_texture(player.tex_up)
 	k2.destroy_texture(player.tex_down)
+	k2.destroy_texture(enemy_hidden_tex)
 	delete(plasma_balls)
 	
 	k2.shutdown()
@@ -344,7 +369,7 @@ update :: proc() {
 	}
 
 	for &inter in current_room.interactables {
-		if inter.hurt_timer <= 0 {
+		if inter.hurt_timer > 0 {
 			inter.hurt_timer -= dt
 		}
 
@@ -451,9 +476,17 @@ update :: proc() {
 		case .Enemy:
 			for pidx := 0; pidx < len(plasma_balls); pidx += 1 {
 				p := &plasma_balls[pidx]
-				if inter.hurt_timer < 0 && k2.point_in_rect(p.pos, r) {
+				plasma_ball_rect := k2.Rect {
+					p.pos.x - 3,
+					p.pos.y - 3,
+					6, 6,
+				}
+				if inter.hurt_timer <= 0 && k2.rect_overlapping(plasma_ball_rect, r) {
 					inter.hurt_timer = 5
 					unordered_remove(&plasma_balls, pidx)
+					flash_texture = plasma_ball_textures[2]
+					flash_texture_timer = 0.2
+					flash_texture_pos = p.pos
 					pidx -= 1
 					k2.play_sound(k2.create_sound_from_audio_buffer(ab_hit))
 				}
@@ -642,6 +675,17 @@ draw :: proc() {
 					origin = k2.rect_bottom_middle(k2.get_texture_rect(tex)),
 				)
 			}
+
+			continue
+		}
+
+		if inter.type == .Wall_Down {
+			tex := interactable_type_texture[.Wall_Down]
+			k2.draw_texture(
+				tex,
+				inter.pos,
+				origin = k2.rect_bottom_middle(k2.get_texture_rect(tex)),
+			)
 
 			continue
 		}
