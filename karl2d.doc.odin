@@ -329,13 +329,14 @@ draw_texture :: proc(
 )
 
 // Draw a section of a texture at a position. The section is chosen using the `source` parameter,
-// which is a rectangle that uses pixel coordinates.
+// which is a rectangle that uses pixel coordinates. You can flip the texture by using negative
+// width/height in `source`.
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
 // - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
-draw_texture_section :: proc(
+draw_texture_rect :: proc(
 	texture: Texture,
 	source: Rect,
 	position: Vec2,
