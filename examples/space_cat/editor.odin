@@ -9,10 +9,14 @@ import "core:math/linalg"
 Edit_Mode :: enum {
 	Tiles,
 	Background_Objects,
+	Foreground_Objects,
+	Interactables,
 }
 
 edit_mode: Edit_Mode
 editor_bg_current_idx: int
+editor_fg_current_idx: int
+editor_interactable_current_type: Interactable_Type
 
 editor_update :: proc() {
 	k2.clear(SPACE_COLOR)
@@ -21,8 +25,7 @@ editor_update :: proc() {
 	mouse_pos_world := k2.screen_to_world(k2.get_mouse_position(), game_camera)
 	current_room := &world.rooms[current_room_idx]
 
-	switch edit_mode {
-	case .Tiles:
+	if edit_mode == .Tiles {
 		hovered_grid_rect: k2.Rect
 		grid_x := int(math.floor(mouse_pos_world.x / TILE_SIZE))
 		grid_y := int(math.floor(mouse_pos_world.y / TILE_SIZE))
@@ -47,8 +50,7 @@ editor_update :: proc() {
 		}
 
 		k2.draw_rect(hovered_grid_rect, {255, 255, 255, 128})
-
-	case .Background_Objects:
+	} else if edit_mode == .Background_Objects {
 		mwm := k2.get_mouse_wheel_delta()
 
 		if mwm > 0 {
@@ -57,7 +59,7 @@ editor_update :: proc() {
 			editor_bg_current_idx -= 1
 		}
 
-		editor_bg_current_idx = clamp(editor_bg_current_idx, 0, len(bg_objects) - 1)
+		editor_bg_current_idx = clamp(editor_bg_current_idx, 0, len(bg_object_textures) - 1)
 
 		if k2.mouse_button_went_down(.Left) {
 			pos := linalg.floor(mouse_pos_world)
@@ -71,7 +73,7 @@ editor_update :: proc() {
 		hovered_existing := -1
 
 		for bgo, bgo_idx in current_room.background_objects {
-			bg_tex := bg_objects[bgo.texture_index]
+			bg_tex := bg_object_textures[bgo.texture_index]
 			tex_rect := k2.get_texture_rect(bg_tex)
 			tex_rect.x = bgo.pos.x - tex_rect.w/2
 			tex_rect.y = bgo.pos.y - tex_rect.h/2
@@ -88,7 +90,7 @@ editor_update :: proc() {
 		}
 
 		if hovered_existing == -1 {
-			bg_tex := bg_objects[editor_bg_current_idx]
+			bg_tex := bg_object_textures[editor_bg_current_idx]
 			k2.draw_texture(bg_tex, linalg.floor(mouse_pos_world), k2.rect_middle(k2.get_texture_rect(bg_tex)))
 		}
 	}
@@ -96,17 +98,126 @@ editor_update :: proc() {
 	for bgo in current_room.background_objects {
 		tex_idx := bgo.texture_index
 
-		if tex_idx < 0 || tex_idx >= len(bg_objects) {
+		if tex_idx < 0 || tex_idx >= len(bg_object_textures) {
 			continue
 		}
 
-		tex := bg_objects[tex_idx]
+		tex := bg_object_textures[tex_idx]
 		k2.draw_texture(tex, bgo.pos, origin = k2.rect_middle(k2.get_texture_rect(tex)))
 	}
 
 	for x in 0..<(ROOM_TILE_WIDTH+1) {
 		for y in 0..<(ROOM_TILE_HEIGHT+1) {
 			dual_grid_draw(x, y)
+		}
+	}
+
+	for fgo in current_room.foreground_objects {
+		tex_idx := fgo.texture_index
+
+		if tex_idx < 0 || tex_idx >= len(fg_object_textures) {
+			continue
+		}
+
+		tex := fg_object_textures[tex_idx]
+		k2.draw_texture(tex, fgo.pos, origin = k2.rect_bottom_middle(k2.get_texture_rect(tex)))
+	}
+
+	for interactable in current_room.interactables {
+		tex := interactable_type_texture[interactable.type]
+		k2.draw_texture(tex, interactable.pos, origin = k2.rect_bottom_middle(k2.get_texture_rect(tex)))
+	}
+
+	if edit_mode == .Foreground_Objects {
+		mwm := k2.get_mouse_wheel_delta()
+
+		if mwm > 0 {
+			editor_fg_current_idx += 1
+		} else if mwm < 0 {
+			editor_fg_current_idx -= 1
+		}
+
+		editor_fg_current_idx = clamp(editor_fg_current_idx, 0, len(fg_object_textures) - 1)
+
+		if k2.mouse_button_went_down(.Left) {
+			pos := linalg.floor(mouse_pos_world)
+
+			append(&current_room.foreground_objects, Foreground_Object {
+				texture_index = editor_fg_current_idx,
+				pos = pos,
+			})
+		}
+
+		hovered_existing := -1
+
+		for fgo, fgo_idx in current_room.foreground_objects {
+			fg_tex := fg_object_textures[fgo.texture_index]
+			tex_rect := k2.get_texture_rect(fg_tex)
+			tex_rect.x = fgo.pos.x - tex_rect.w/2
+			tex_rect.y = fgo.pos.y - tex_rect.h
+
+			if k2.point_in_rect(mouse_pos_world, tex_rect) {
+				k2.draw_rect(tex_rect, k2.color_alpha(k2.RED, 128))
+				hovered_existing = fgo_idx
+
+				if k2.mouse_button_went_down(.Right) {
+					unordered_remove(&current_room.foreground_objects, fgo_idx)
+					break
+				}
+			}
+		}
+
+		if hovered_existing == -1 {
+			fg_tex := fg_object_textures[editor_fg_current_idx]
+			k2.draw_texture(fg_tex, linalg.floor(mouse_pos_world), k2.rect_bottom_middle(k2.get_texture_rect(fg_tex)))
+		}
+	}
+
+	if edit_mode == .Interactables {
+		mwm := k2.get_mouse_wheel_delta()
+
+		type := int(editor_interactable_current_type)
+
+		if mwm > 0 {
+			type += 1
+		} else if mwm < 0 {
+			type -= 1
+		}
+
+		type = clamp(type, 0, len(Interactable_Type) - 1)
+		editor_interactable_current_type = Interactable_Type(type)
+
+		if k2.mouse_button_went_down(.Left) {
+			pos := linalg.floor(mouse_pos_world)
+
+			append(&current_room.interactables, Interactable {
+				type = editor_interactable_current_type,
+				pos = pos,
+			})
+		}
+
+		hovered_existing := -1
+
+		for interactable, interactable_idx in current_room.interactables {
+			i_tex := interactable_type_texture[interactable.type]
+			tex_rect := k2.get_texture_rect(i_tex)
+			tex_rect.x = interactable.pos.x - tex_rect.w/2
+			tex_rect.y = interactable.pos.y - tex_rect.h
+
+			if k2.point_in_rect(mouse_pos_world, tex_rect) {
+				k2.draw_rect(tex_rect, k2.color_alpha(k2.RED, 128))
+				hovered_existing = interactable_idx
+
+				if k2.mouse_button_went_down(.Right) {
+					unordered_remove(&current_room.interactables, interactable_idx)
+					break
+				}
+			}
+		}
+
+		if hovered_existing == -1 {
+			i_tex := interactable_type_texture[editor_interactable_current_type]
+			k2.draw_texture(i_tex, linalg.floor(mouse_pos_world), k2.rect_bottom_middle(k2.get_texture_rect(i_tex)))
 		}
 	}
 
@@ -120,6 +231,8 @@ editor_update :: proc() {
 	edit_mode_names := [len(Edit_Mode)]string {
 		"Tiles",
 		"BG",
+		"FG",
+		"Interact",
 	}
 
 	edit_modes: [len(Edit_Mode)]Edit_Mode
@@ -146,7 +259,21 @@ editor_update :: proc() {
 	case .Tiles:
 
 	case .Background_Objects:
-		tex := bg_objects[editor_bg_current_idx]
+		tex := bg_object_textures[editor_bg_current_idx]
+		src := k2.get_texture_rect(tex)
+		dst := k2.rect_shrink(k2.rect_cut_left(&top_bar, top_bar.h, 5), 4, 4)
+		k2.draw_texture_fit(tex, src, dst)
+		k2.draw_text("Wheel ^v", k2.rect_top_left(top_bar) + EDITOR_FONT_SIZE/2, EDITOR_FONT_SIZE, k2.WHITE)
+
+	case .Foreground_Objects:
+		tex := fg_object_textures[editor_fg_current_idx]
+		src := k2.get_texture_rect(tex)
+		dst := k2.rect_shrink(k2.rect_cut_left(&top_bar, top_bar.h, 5), 4, 4)
+		k2.draw_texture_fit(tex, src, dst)
+		k2.draw_text("Wheel ^v", k2.rect_top_left(top_bar) + EDITOR_FONT_SIZE/2, EDITOR_FONT_SIZE, k2.WHITE)
+
+	case .Interactables:
+		tex := interactable_type_texture[editor_interactable_current_type]
 		src := k2.get_texture_rect(tex)
 		dst := k2.rect_shrink(k2.rect_cut_left(&top_bar, top_bar.h, 5), 4, 4)
 		k2.draw_texture_fit(tex, src, dst)

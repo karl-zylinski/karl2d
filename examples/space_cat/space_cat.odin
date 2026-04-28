@@ -6,6 +6,10 @@ import "core:encoding/json"
 import "core:time"
 import "core:math/rand"
 import "core:math"
+import "core:slice"
+import "core:fmt"
+
+_ :: fmt
 
 CLEAR_COLOR :: k2.Color{6, 6, 8, 255}
 SPACE_COLOR :: k2.Color{28, 38, 56, 255}
@@ -40,6 +44,8 @@ TILE_SIZE :: 16
 Room :: struct {
 	tiles: [ROOM_TILE_WIDTH*ROOM_TILE_HEIGHT]Tile_Type,
 	background_objects: [dynamic]Background_Object,
+	foreground_objects: [dynamic]Foreground_Object,
+	interactables: [dynamic]Interactable,
 }
 
 Tile_Type :: enum {
@@ -75,10 +81,10 @@ game_camera: k2.Camera
 ui_camera: k2.Camera
 space_tileset: k2.Texture
 space_tileset_version: time.Time
-bg_objects: [6]k2.Texture
-plasma_ball_tex: [3]k2.Texture
+bg_object_textures: [6]k2.Texture
+fg_object_textures: [7]k2.Texture
+plasma_ball_textures: [3]k2.Texture
 ab_shoot: k2.Audio_Buffer
-enemy_texture: k2.Texture
 
 WORLD_FILE_NAME :: "world.json"
 WORLD_WIDTH :: 2
@@ -91,8 +97,28 @@ World :: struct {
 Background_Object :: struct {
 	texture_index: int,
 	pos: Vec2,
-	dim_timer: f32,
+	dim_timer: f32 `json:"-"`,
 }
+
+Foreground_Object :: struct {
+	texture_index: int,
+	pos: Vec2,
+}
+
+Interactable_Type :: enum {
+	Enemy,
+	Key,
+	Wall,
+}
+
+Interactable :: struct {
+	type: Interactable_Type,
+	pos: Vec2,
+	hurt_timer: f32 `json:"-"`,
+}
+
+interactable_type_texture: [Interactable_Type]k2.Texture
+enemy_hidden_tex: k2.Texture
 
 world: World
 
@@ -106,7 +132,7 @@ init :: proc() {
 	k2.init(SCREEN_WIDTH*4, SCREEN_HEIGHT*4, "SPACE CAT", options = {window_mode = .Windowed_Resizable})
 	current_room_idx = 4
 	space_tileset = k2.load_texture_from_bytes(#load("space_tileset.png"))
-	bg_objects = {
+	bg_object_textures = {
 		k2.load_texture_from_bytes(#load("star_1.png")),
 		k2.load_texture_from_bytes(#load("star_2.png")),
 		k2.load_texture_from_bytes(#load("star_3.png")),
@@ -115,13 +141,30 @@ init :: proc() {
 		k2.load_texture_from_bytes(#load("moon.png")),
 	}
 
-	plasma_ball_tex = {
+	fg_object_textures = {
+		k2.load_texture_from_bytes(#load("grass.png")),
+		k2.load_texture_from_bytes(#load("stone_1.png")),
+		k2.load_texture_from_bytes(#load("stone_2.png")),
+		k2.load_texture_from_bytes(#load("stone_3.png")),
+		k2.load_texture_from_bytes(#load("ground_texture_1.png")),
+		k2.load_texture_from_bytes(#load("ground_texture_2.png")),
+		k2.load_texture_from_bytes(#load("ground_texture_3.png")),
+	}
+
+	plasma_ball_textures = {
 		k2.load_texture_from_bytes(#load("plasma_1.png")),
 		k2.load_texture_from_bytes(#load("plasma_2.png")),
 		k2.load_texture_from_bytes(#load("plasma_3.png")),
 	}
+	
+	interactable_type_texture = {
+		.Enemy = k2.load_texture_from_bytes(#load("enemy.png")),
+		.Key = k2.load_texture_from_bytes(#load("key.png")),
+		.Wall = k2.load_texture_from_bytes(#load("wall.png")),
+	}
 
-	enemy_texture = k2.load_texture_from_bytes(#load("enemy.png"))
+	enemy_hidden_tex = k2.load_texture_from_bytes(#load("enemy_hidden.png"))
+
 	ab_shoot = k2.load_audio_buffer_from_bytes(#load("laser_shoot.wav"))
 
 	space_tileset_version = file_version("space_tileset.png")
@@ -186,8 +229,12 @@ shutdown :: proc() {
 		delete(r.background_objects)
 	}
 
-	for bgo in bg_objects {
+	for bgo in bg_object_textures {
 		k2.destroy_texture(bgo)	
+	}
+
+	for fgo in fg_object_textures {
+		k2.destroy_texture(fgo)	
 	}
 
 	k2.destroy_texture(space_tileset)
@@ -202,7 +249,7 @@ shutdown :: proc() {
 calc_player_collider :: proc(player_pos: Vec2) -> k2.Rect {
 	return {
 		player_pos.x - 5,
-		player_pos.y - 3,
+		player_pos.y - 6,
 		10,
 		6,
 	}
@@ -244,7 +291,9 @@ update :: proc() {
 
 	player.pos.x += to_move.x
 
-	current_room := world.rooms[current_room_idx]
+	current_room := &world.rooms[current_room_idx]
+
+	colliders := make([dynamic]k2.Rect, context.temp_allocator)
 
 	for tile_type, tile_idx in current_room.tiles {
 		if tile_walkable_lookup[tile_type] {
@@ -257,11 +306,25 @@ update :: proc() {
 		}
 
 		tile_rect := k2.rect_from_pos_size(tile_pos, {TILE_SIZE, TILE_SIZE})
+		append(&colliders, tile_rect)
+	}
+
+	for &inter in current_room.interactables {
+		inter.hurt_timer -= dt
+		if inter.type == .Enemy && inter.hurt_timer <= 0 {
+			r := k2.get_texture_rect(interactable_type_texture[inter.type])
+			r.x = inter.pos.x - r.w/2
+			r.y = inter.pos.y - r.h
+			append(&colliders, r)
+		}
+	}
+
+	for c in colliders {
 		pc := calc_player_collider(player.pos)
-		overlap, overlapping := k2.rect_overlap(pc, tile_rect)
+		overlap, overlapping := k2.rect_overlap(pc, c)
 
 		if overlapping && overlap.w != 0 {
-			sign: f32 = pc.x + pc.w / 2 < (tile_rect.x + tile_rect.w / 2) ? -1 : 1
+			sign: f32 = pc.x + pc.w / 2 < (c.x + c.w / 2) ? -1 : 1
 			fix := overlap.w * sign
 			player.pos.x += fix
 		}
@@ -269,22 +332,12 @@ update :: proc() {
 
 	player.pos.y += to_move.y
 
-	for tile_type, tile_idx in current_room.tiles {
-		if tile_walkable_lookup[tile_type] {
-			continue
-		}
-		
-		tile_pos := k2.Vec2 {
-			f32(tile_idx % ROOM_TILE_WIDTH) * TILE_SIZE,
-			f32(tile_idx / ROOM_TILE_WIDTH) * TILE_SIZE,
-		}
-
-		tile_rect := k2.rect_from_pos_size(tile_pos, {TILE_SIZE, TILE_SIZE})
+	for c in colliders {
 		pc := calc_player_collider(player.pos)
-		overlap, overlapping := k2.rect_overlap(pc, tile_rect)
+		overlap, overlapping := k2.rect_overlap(pc, c)
 
 		if overlapping && overlap.h != 0 {
-			sign: f32 = pc.y + pc.h / 2 < (tile_rect.y + tile_rect.h / 2) ? -1 : 1
+			sign: f32 = pc.y + pc.h / 2 < (c.y + c.h / 2) ? -1 : 1
 			fix := overlap.h * sign
 			player.pos.y += fix
 		}
@@ -344,6 +397,31 @@ update :: proc() {
 		}
 	}
 
+	for inter_idx := 0; inter_idx < len(current_room.interactables); inter_idx += 1 {
+		inter := &current_room.interactables[inter_idx]
+		r := k2.get_texture_rect(interactable_type_texture[inter.type])
+		r.x = inter.pos.x - r.w/2
+		r.y = inter.pos.y - r.h
+
+		switch inter.type {
+		case .Enemy:
+			for pidx := 0; pidx < len(plasma_balls); pidx += 1 {
+				p := &plasma_balls[pidx]
+				if k2.point_in_rect(p.pos, r) {
+					inter.hurt_timer = 5
+					unordered_remove(&plasma_balls, pidx)
+					pidx -= 1
+				}
+			}
+		case .Key:
+			if k2.rect_overlapping(calc_player_collider(player.pos), r) {
+				unordered_remove(&current_room.interactables, inter_idx)
+				inter_idx -= 1
+			}
+		case .Wall:
+		}
+	}
+
 	ROOM_HEIGHT :: ROOM_TILE_HEIGHT * TILE_SIZE
 	ROOM_WIDTH :: ROOM_TILE_WIDTH * TILE_SIZE
 
@@ -398,7 +476,7 @@ draw :: proc() {
 	for bgo in world.rooms[current_room_idx].background_objects {
 		tex_idx := bgo.texture_index
 
-		if tex_idx < 0 || tex_idx >= len(bg_objects) {
+		if tex_idx < 0 || tex_idx >= len(bg_object_textures) {
 			continue
 		}
 
@@ -413,7 +491,7 @@ draw :: proc() {
 			}
 		}
 
-		tex := bg_objects[tex_idx]
+		tex := bg_object_textures[tex_idx]
 		k2.draw_texture(tex, bgo.pos, origin = k2.rect_middle(k2.get_texture_rect(tex)), tint = tint)
 	}
 
@@ -421,6 +499,66 @@ draw :: proc() {
 		for y in 0..<(ROOM_TILE_HEIGHT+1) {
 			dual_grid_draw(x, y)
 		}
+	}
+
+	Sorted_Draw :: struct {
+		tex: k2.Texture,
+		pos: Vec2,
+		origin: Vec2,
+		flip_x: bool,
+	}
+
+	sorted_draws := make([dynamic]Sorted_Draw, context.temp_allocator)
+
+	for fgo in world.rooms[current_room_idx].foreground_objects {
+		tex_idx := fgo.texture_index
+
+		if tex_idx < 0 || tex_idx >= len(fg_object_textures) {
+			continue
+		}
+
+		tex := fg_object_textures[tex_idx]
+		always_behind := tex_idx == 4 || tex_idx == 5 || tex_idx == 6
+
+		if always_behind {
+			k2.draw_texture(
+				tex,
+				fgo.pos,
+				origin = k2.rect_bottom_middle(k2.get_texture_rect(tex)),
+			)
+
+			continue
+		}
+
+		append(&sorted_draws, Sorted_Draw {
+			tex = tex,
+			pos = fgo.pos,
+			origin = k2.rect_bottom_middle(k2.get_texture_rect(tex)),
+		})
+	}
+
+	for inter in world.rooms[current_room_idx].interactables {
+		if inter.hurt_timer > 0 {
+			if inter.type == .Enemy {
+				tex := enemy_hidden_tex
+
+				k2.draw_texture(
+					tex,
+					inter.pos,
+					origin = k2.rect_bottom_middle(k2.get_texture_rect(tex)),
+				)
+			}
+
+			continue
+		}
+
+		tex := interactable_type_texture[inter.type]
+
+		append(&sorted_draws, Sorted_Draw {
+			tex = tex,
+			pos = inter.pos,
+			origin = k2.rect_bottom_middle(k2.get_texture_rect(tex)),
+		})
 	}
 
 	player_tex: k2.Texture
@@ -438,18 +576,31 @@ draw :: proc() {
 		player_tex = player.tex_down
 	}
 
-	player_tex_rect := k2.get_texture_rect(player_tex)
+	append(&sorted_draws, Sorted_Draw {
+		tex = player_tex,
+		pos = player.pos,
+		origin = {f32(player_tex.width/2), f32(player_tex.height)},
+		flip_x = flip_x,
+	})
 
-	if flip_x {
-		player_tex_rect.w *= -1
+	slice.sort_by(sorted_draws[:], proc(i, j: Sorted_Draw) -> bool {
+		return i.pos.y < j.pos.y
+	})
+
+	for s in sorted_draws {
+		r := k2.get_texture_rect(s.tex)
+
+		if s.flip_x {
+			r.w *= -1
+		}
+
+		k2.draw_texture_section(
+			s.tex,
+			r,
+			s.pos,
+			origin = s.origin,
+		)
 	}
-
-	k2.draw_texture_section(
-		player_tex,
-		player_tex_rect,
-		player.pos,
-		origin = {f32(player_tex.width/2), f32(player_tex.height)-2},
-	)
 
 	for &p in plasma_balls {
 		tex_idx := 2
@@ -462,9 +613,11 @@ draw :: proc() {
 			tex_idx = 0
 		}
 
-		tex := plasma_ball_tex[tex_idx]
+		tex := plasma_ball_textures[tex_idx]
 		k2.draw_texture(tex, p.pos, origin = k2.rect_middle(k2.get_texture_rect(tex)))
 	}
+
+	k2.draw_rect(calc_player_collider(player.pos), k2.color_alpha(k2.RED, 128))
 
 	k2.set_camera(ui_camera)
 	k2.draw_rect({0, 0, SCREEN_WIDTH, STATUS_BAR_HEIGHT}, CLEAR_COLOR)
