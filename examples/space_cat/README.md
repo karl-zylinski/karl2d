@@ -2,6 +2,8 @@ This is a small example video game where you can shoot, pick up a key, open a do
 
 <img width="600" alt="space_cat" src="https://github.com/user-attachments/assets/ffc33774-8a9c-48ea-9b70-6cf753cb0ef8" />
 
+Play in browser at: https://karl2d.com/examples/space_cat/
+
 Controls:
 - Move player: Arrows
 - Shoot: Space
