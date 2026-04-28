@@ -30,8 +30,9 @@ editor_shutdown :: proc() {
 }
 
 editor_update :: proc() {
-	k2.clear(SPACE_COLOR)
+	k2.clear(CLEAR_COLOR)
 	k2.set_camera(game_camera)
+	k2.draw_rect({0, 0, SCREEN_WIDTH, SCREEN_HEIGHT}, SPACE_COLOR)
 
 	mouse_pos_world := k2.screen_to_world(k2.get_mouse_position(), game_camera)
 	current_room := &editor_world.rooms[current_room_idx]

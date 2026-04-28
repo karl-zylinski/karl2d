@@ -295,12 +295,27 @@ webgl_draw :: proc(
 		}
 	}
 
-	if rt := hm.get(&s.render_targets, render_target); rt != nil {
+	rt := hm.get(&s.render_targets, render_target)
+	
+	if rt != nil {
 		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer)
 		gl.Viewport(0, 0, i32(rt.width), i32(rt.height))
 	} else {
 		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 		gl.Viewport(0, 0, i32(s.width), i32(s.height))
+	}
+
+	if scissor, has_scissor := scissor.(Rect); has_scissor {
+		height: int
+		if rt != nil {
+			height = rt.height
+		} else {
+			height = s.height
+		}
+		flipped_y := f32(height) - scissor.h - scissor.y
+
+		gl.Enable(gl.SCISSOR_TEST)
+		gl.Scissor(i32(scissor.x), i32(flipped_y), i32(scissor.w), i32(scissor.h))
 	}
 
 	gl.DrawArrays(gl.TRIANGLES, 0, int(len(vertex_buffer)/shd.vertex_size))

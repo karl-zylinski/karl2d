@@ -1,3 +1,17 @@
+// This is a small example video game where you can shoot, pick up a key, open a door and get to the end.
+// 
+// Controls:
+// - Move player: Arrows
+// - Shoot: Space
+// - F2: Level editor
+// 
+// Art by Gerry Mander: https://bsky.app/profile/mandelbaumski.bsky.social
+// Code by Karl Zylinski: https://zylinski.se
+//
+// There is also a level editor, accessible using the F2 key.
+//
+// This file implements most of the game, while the editor is implemented in the `editor.odin` file.
+
 package space_cat
 
 import k2 "../.."
@@ -93,6 +107,7 @@ flash_texture: k2.Texture
 flash_texture_pos: Vec2
 flash_texture_timer: f32
 game_finished: bool
+show_controls: bool
 
 WORLD_FILE_NAME :: "world.json"
 WORLD_WIDTH :: 2
@@ -153,6 +168,7 @@ main :: proc() {
 
 init :: proc() {
 	k2.init(SCREEN_WIDTH*4, SCREEN_HEIGHT*4, "SPACE CAT", options = {window_mode = .Windowed_Resizable})
+	show_controls = true
 	current_room_idx = 4
 	space_tileset = k2.load_texture_from_bytes(#load("space_tileset.png"))
 	bg_object_textures = {
@@ -250,6 +266,12 @@ step :: proc() -> bool {
 		zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
 	}
 
+	k2.set_scissor_rect(k2.Rect{
+		0, 0,
+		SCREEN_WIDTH*game_camera.zoom,
+		SCREEN_HEIGHT*game_camera.zoom,
+	})
+
 	if editing {
 		editor_update()
 	} else {
@@ -312,6 +334,14 @@ calc_player_collider :: proc(player_pos: Vec2) -> k2.Rect {
 
 update :: proc() {
 	if game_finished {
+		return
+	}
+
+	if show_controls {
+		if k2.key_went_down(.Space) {
+			show_controls = false
+		}
+
 		return
 	}
 
@@ -577,11 +607,9 @@ update :: proc() {
 }
 
 draw :: proc() {
-	k2.clear(SPACE_COLOR)
-
-	k2.set_camera(game_camera)
-
 	if game_finished {
+		k2.clear(SPACE_COLOR)
+		k2.set_camera(game_camera)
 		tex := interactable_type_texture[.The_Object]
 		src := k2.get_texture_rect(tex)
 		dst := k2.Rect {
@@ -594,9 +622,19 @@ draw :: proc() {
 		END_TEXT :: "Thank you - This is the end"
 		thanks_size := k2.measure_text(END_TEXT, 10)
 		k2.draw_text(END_TEXT, {SCREEN_WIDTH/2-thanks_size.x/2, dst.y + dst.h + 3}, 10, k2.WHITE)
+
+		k2.set_camera(nil)
+		if k2.ui_button({k2.get_screen_size().x/2, 10, 120, 20}, "Source code") {
+			k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/space_cat")
+		}
+
 		k2.present()
 		return
 	}
+
+	k2.clear(CLEAR_COLOR)
+	k2.set_camera(game_camera)
+	k2.draw_rect({0, 0, SCREEN_WIDTH, SCREEN_HEIGHT}, SPACE_COLOR)
 	
 	STARS_PER_DIR :: 4
 
@@ -781,6 +819,19 @@ draw :: proc() {
 		}
 
 		k2.draw_rect(k2.rect_from_pos_size(pos, {5, 5}), map_square_color)
+	}
+
+	if show_controls {
+		k2.draw_rect({50, 50, SCREEN_WIDTH-120, SCREEN_HEIGHT-110}, CLEAR_COLOR)
+		k2.draw_text("Move: Arrows", { 60, 60}, 10, k2.WHITE)
+		k2.draw_text("Shoot: Space", { 60, 80}, 10, k2.WHITE)
+		k2.draw_text("Shoot to start!", { 60, 100}, 10, k2.WHITE)
+	}
+
+	k2.set_camera(nil)
+
+	if k2.ui_button({k2.get_screen_size().x/2, 10, 120, 20}, "Source code") {
+		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/space_cat")
 	}
 
 	k2.present()
