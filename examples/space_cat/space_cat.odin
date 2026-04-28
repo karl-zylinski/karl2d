@@ -697,9 +697,11 @@ draw :: proc() {
 		thanks_size := k2.measure_text(END_TEXT, 10)
 		k2.draw_text(END_TEXT, {SCREEN_WIDTH/2-thanks_size.x/2, dst.y + dst.h + 3}, 10, k2.WHITE)
 
-		k2.set_camera(nil)
-		if k2.ui_button({k2.get_screen_size().x/2, 10, 120, 20}, "Source code") {
-			k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/space_cat")
+
+		button_width := k2.measure_text("Source code", 10).x
+
+		if ui_button({SCREEN_WIDTH/2-button_width/2, dst.y + dst.h + 20, 50, 10}, "Source code", game_camera) {
+			k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/space_cat/space_cat.odin")
 		}
 
 		k2.present()
@@ -909,10 +911,8 @@ draw :: proc() {
 		k2.draw_text("Shoot to start!", { 60, 100}, 10, k2.WHITE)
 	}
 
-	k2.set_camera(nil)
-
-	if k2.ui_button({k2.get_screen_size().x/2, 10, 120, 20}, "Source code") {
-		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/space_cat")
+	if ui_button({100, 3, 60, (STATUS_BAR_HEIGHT)/2}, "Source code", ui_camera) {
+		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/space_cat/space_cat.odin")
 	}
 
 	k2.present()
@@ -991,4 +991,29 @@ DUAL_GRID_MASK_TO_TXTY := [16][2]int {
 	{2, 0}, // 1101
 	{1, 1}, // 1110
 	{2, 1}, // 1111
+}
+
+ui_button :: proc(r: k2.Rect, text: string, camera: k2.Camera) -> bool {
+	in_rect := k2.point_in_rect(k2.screen_to_world(k2.get_mouse_position(), camera), r)
+	bg_color := k2.DARK_GRAY
+	border_color := k2.WHITE
+	text_color := k2.WHITE
+	res := false
+
+	if in_rect {
+		bg_color = k2.GRAY
+		text_color = k2.WHITE
+
+		if k2.mouse_button_went_down(.Left) {
+			res = true
+			bg_color = k2.BLACK
+		}
+	}
+	
+	k2.draw_rect(r, bg_color)
+	k2.draw_rect_outline(r, 1/camera.zoom, border_color)
+
+	text_width := k2.measure_text(text, r.h).x
+	k2.draw_text(text, {r.x + r.w/2 - text_width/2, r.y}, r.h, k2.WHITE)
+	return res
 }
