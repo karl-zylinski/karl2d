@@ -149,7 +149,12 @@ windows_gl_glue_make_context :: proc(s: ^Windows_GL_Glue_State, options: Init_Op
 		return false
 	}
 
-	win32.SetPixelFormat(s.device_ctx, pixel_format, nil)
+	set_pixel_format_ok := win32.SetPixelFormat(s.device_ctx, pixel_format, &pfd)
+
+	if !set_pixel_format_ok {
+		return false
+	}
+
 	s.gl_ctx = win32.wglCreateContextAttribsARB(s.device_ctx, nil, nil)
 	win32.wglMakeCurrent(s.device_ctx, s.gl_ctx)
 
