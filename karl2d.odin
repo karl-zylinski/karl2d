@@ -909,14 +909,15 @@ draw_texture :: proc(
 	)
 }
 
-// Draw a section of a texture at a position. The section is chosen using the `source` parameter,
-// which is a rectangle that uses pixel coordinates.
+// Draw a texture at a position, but only draw the region specified by the `source` rectangle. The
+// `source` rectangle is specified in pixel coordinates. You can flip the texture by using negative
+// width/height in `source`.
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
 // - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
-draw_texture_section :: proc(
+draw_texture_rect :: proc(
 	texture: Texture,
 	source: Rect,
 	position: Vec2,
@@ -939,9 +940,9 @@ draw_texture_section :: proc(
 	)
 }
 
-// Draw a section of a texture by fitting it into a rectangle. The section is chosen using the
-// rectangle parameter `source`, measured in pixels. The `dest` parameter is the rectangle on the
-// screen (or in the world) that we want to fit the texture section into.
+// Draw a texture by selecting a `source` rectangle and fitting it into a `dest` (destination)
+// rectangle. `source` is measured in texture-space pixels and `dest` is measured in world-space
+// pixels. You can flip the texture by using negative width/height for the `source` rectangle.
 //
 // Optional parameters:
 // - origin: An offset for the dest rectangle, and also the point to rotate around.
@@ -1083,9 +1084,16 @@ draw_texture_fit :: proc(
 	batch_vertex(bl, uv5, c)
 }
 
-@(deprecated="Use draw_texture_section instead")
-draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
-	draw_texture_section(tex, rect, pos, tint = tint)
+@(deprecated="Use draw_texture_rect instead")
+draw_texture_section :: proc(
+	texture: Texture,
+	source: Rect,
+	position: Vec2,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE,
+) {
+	draw_texture_rect(texture, source, position, origin, rotation, tint)
 }
 
 @(deprecated="Use draw_texture_fit instead")
