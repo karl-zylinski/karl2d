@@ -166,6 +166,7 @@ windows_gl_glue_present :: proc(s: ^Windows_GL_Glue_State) {
 }
 
 windows_gl_glue_destroy :: proc(s: ^Windows_GL_Glue_State) {
+	win32.ReleaseDC(s.hwnd, s.device_ctx)
 	win32.wglDeleteContext(s.gl_ctx)
 	a := s.allocator
 	free(s, a)
