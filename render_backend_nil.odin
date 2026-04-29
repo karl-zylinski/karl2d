@@ -130,9 +130,6 @@ rbnil_load_shader :: proc(
 rbnil_destroy_shader :: proc(h: Shader_Handle) {
 }
 
-rbnil_set_anti_alias_enabled :: proc(enabled: bool) {
-}
-
 rbnil_default_shader_vertex_source :: proc() -> []byte {
 	return {}
 }
