@@ -1060,12 +1060,26 @@ D3D11_State :: struct {
 }
 
 create_swapchain :: proc(w, h: int) {
+	sample_count: u32 = 1
+	num_sample_quality_levels: u32
+
+	SWAPCHAIN_FORMAT :: dxgi.FORMAT.B8G8R8A8_UNORM
+
+	if s.anti_alias {
+		check_multisample_res := s.device->CheckMultisampleQualityLevels(SWAPCHAIN_FORMAT, 4, &num_sample_quality_levels)
+
+		if check_multisample_res >= 0 {
+			sample_count = 4
+		}
+	}
+
 	swapchain_desc := dxgi.SWAP_CHAIN_DESC1 {
 		Width = u32(w),
 		Height = u32(h),
-		Format = .B8G8R8A8_UNORM,
+		Format = SWAPCHAIN_FORMAT,
 		SampleDesc = {
-			Count = s.anti_alias ? 4 : 1,
+			Count = sample_count,
+			Quality = num_sample_quality_levels > 0 ? num_sample_quality_levels - 1 : 0,
 		},
 		BufferUsage = {.RENDER_TARGET_OUTPUT},
 		BufferCount = 2,
