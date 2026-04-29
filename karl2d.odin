@@ -3742,7 +3742,7 @@ Window_Mode :: enum {
 Init_Options :: struct {
 	window_mode: Window_Mode,
 
-	// Enable for 4x Multi Sample Anti Alias
+	// Enable to request anti-alias. On most systems this means 4x Multi Sample Anti Alias
 	anti_alias: bool,
 
 	// This hint may disable scaling of the window when created. Scaling here refers to the scaling
