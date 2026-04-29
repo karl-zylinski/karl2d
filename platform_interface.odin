@@ -44,7 +44,10 @@ Window_Render_Glue_State :: struct {}
 // such an example. See Windows + GL or Linux + GL for an example of more complicated setups.
 Window_Render_Glue :: struct {
 	using state: ^Window_Render_Glue_State,
-	make_context: proc(state: ^Window_Render_Glue_State) -> bool,
+	make_context: proc(
+		state: ^Window_Render_Glue_State,
+		init_options: Init_Options,
+	) -> bool,
 	present: proc(state: ^Window_Render_Glue_State),
 	destroy: proc(state: ^Window_Render_Glue_State),
 	viewport_resized: proc(state: ^Window_Render_Glue_State),
