@@ -931,14 +931,6 @@ gl_destroy_shader :: proc(h: Shader_Handle) {
 	delete(shd.texture_bindings, s.allocator)
 }
 
-gl_set_anti_alias_enabled :: proc(enabled: bool) {
-	if enabled {
-		gl.Enable(gl.MULTISAMPLE)
-	} else {
-		gl.Disable(gl.MULTISAMPLE)
-	}
-}
-
 gl_default_shader_vertex_source :: proc() -> []byte {
 	vertex_source := #load("default_shaders/default_shader_gl_vertex.glsl")
 	return vertex_source
