@@ -114,7 +114,14 @@ webgl_state_size :: proc() -> int {
 	return size_of(WebGL_State)
 }
 
-webgl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+webgl_init :: proc(
+	state: rawptr,
+	glue: Window_Render_Glue,
+	swapchain_width: int,
+	swapchain_height: int,
+	options: Init_Options,
+	allocator := context.allocator
+) {
 	s = (^WebGL_State)(state)
 
 	// see web_get_window_render_glue
@@ -129,7 +136,15 @@ webgl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swa
 	hm.dynamic_init(&s.textures, allocator)
 	hm.dynamic_init(&s.render_targets, allocator)
 
-	context_ok := gl.CreateCurrentContextById(s.canvas_id, gl.DEFAULT_CONTEXT_ATTRIBUTES)
+	context_attribs := gl.DEFAULT_CONTEXT_ATTRIBUTES
+
+	if options.anti_alias {
+		context_attribs -= { .disableAntialias }
+	} else {
+		context_attribs += { .disableAntialias }
+	}
+
+	context_ok := gl.CreateCurrentContextById(s.canvas_id, context_attribs)
 	log.ensuref(context_ok, "Could not create context for canvas ID %s", s.canvas_id)
 	set_context_ok := gl.SetCurrentContextById(s.canvas_id)
 	log.ensuref(set_context_ok, "Failed setting context with canvas ID %s", s.canvas_id)

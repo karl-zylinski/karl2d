@@ -101,7 +101,14 @@ init :: proc(
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.render_backend_state, window_render_glue, pf.get_screen_width(), pf.get_screen_height(), s.allocator)
+	rb.init(
+		s.render_backend_state,
+		window_render_glue,
+		pf.get_screen_width(),
+		pf.get_screen_height(), 
+		options,
+		s.allocator,
+	)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`.
@@ -3734,6 +3741,9 @@ Window_Mode :: enum {
 
 Init_Options :: struct {
 	window_mode: Window_Mode,
+
+	// Enable to request anti-alias. On most systems this means 4x Multi Sample Anti Alias
+	anti_alias: bool,
 
 	// This hint may disable scaling of the window when created. Scaling here refers to the scaling
 	// that is set for the monitor in the OS settings (the same number returned by

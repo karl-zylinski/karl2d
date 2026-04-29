@@ -9,6 +9,7 @@ import gl "vendor:OpenGL"
 import X "vendor:x11/xlib"
 import "log"
 import "base:runtime"
+import "core:slice"
 
 @(private="package")
 make_linux_gl_x11_glue :: proc(
@@ -25,7 +26,7 @@ make_linux_gl_x11_glue :: proc(
 		state = (^Window_Render_Glue_State)(state),
 
 		// these casts just make the proc take a Windows_GL_Glue_State instead of a Window_Render_Glue_State
-		make_context = cast(proc(state: ^Window_Render_Glue_State) -> bool)(linux_gl_x11_glue_make_context),
+		make_context = cast(proc(state: ^Window_Render_Glue_State, options: Init_Options) -> bool)(linux_gl_x11_glue_make_context),
 		present = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_x11_glue_present),
 		destroy = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_x11_glue_destroy),
 		viewport_resized = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_x11_glue_viewport_resized),
@@ -39,17 +40,27 @@ Linux_GL_X11_Glue_State :: struct {
 	allocator: runtime.Allocator,
 }
 
-linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State) -> bool {
-	visual_attribs := []i32 {
-		glx.RENDER_TYPE, glx.RGBA_BIT,
-		glx.DRAWABLE_TYPE, glx.WINDOW_BIT,
-		glx.DOUBLEBUFFER, 1,
-		glx.RED_SIZE, 8,
-		glx.GREEN_SIZE, 8,
-		glx.BLUE_SIZE, 8,
-		glx.ALPHA_SIZE, 8,
-		0,
+linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State, options: Init_Options) -> bool {
+	visual_attribs := slice.to_dynamic(
+		[]i32 {
+			glx.RENDER_TYPE, glx.RGBA_BIT,
+			glx.DRAWABLE_TYPE, glx.WINDOW_BIT,
+			glx.DOUBLEBUFFER, 1,
+			glx.RED_SIZE, 8,
+			glx.GREEN_SIZE, 8,
+			glx.BLUE_SIZE, 8,
+			glx.ALPHA_SIZE, 8,
+		},
+		frame_allocator,
+	)
+
+	if options.anti_alias {
+		append(&visual_attribs, glx.SAMPLE_BUFFERS, 1)
+		append(&visual_attribs, glx.SAMPLES, 4)
 	}
+
+	// null termination
+	append(&visual_attribs, 0)
 
 	num_fbc: i32
 	screen := X.DefaultScreen(s.display)

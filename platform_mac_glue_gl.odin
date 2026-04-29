@@ -10,6 +10,7 @@ import "platform_bindings/mac/nsgl"
 import NS "core:sys/darwin/Foundation"
 import "log"
 import "base:runtime"
+import "core:slice"
 
 @(private="package")
 make_mac_gl_glue :: proc(
@@ -23,7 +24,7 @@ make_mac_gl_glue :: proc(
 		state = (^Window_Render_Glue_State)(state),
 
 		// these casts just make the proc take a Mac_GL_Glue_State instead of a Window_Render_Glue_State
-		make_context = cast(proc(state: ^Window_Render_Glue_State) -> bool)(mac_gl_glue_make_context),
+		make_context = cast(proc(state: ^Window_Render_Glue_State, options: Init_Options) -> bool)(mac_gl_glue_make_context),
 		present = cast(proc(state: ^Window_Render_Glue_State))(mac_gl_glue_present),
 		destroy = cast(proc(state: ^Window_Render_Glue_State))(mac_gl_glue_destroy),
 		viewport_resized = cast(proc(state: ^Window_Render_Glue_State))(mac_gl_glue_viewport_resized),
@@ -35,18 +36,27 @@ Mac_GL_Glue_State :: struct {
 	gl_ctx: ^nsgl.OpenGLContext,
 }
 
-mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue_State) -> bool {
+mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue_State, options: Init_Options) -> bool {
 	// Create pixel format attributes (null-terminated array)
-	attrs := [?]u32 {
-		nsgl.OpenGLPFADoubleBuffer,
-		nsgl.OpenGLPFAColorSize, 24,
-		nsgl.OpenGLPFAAlphaSize, 8,
-		nsgl.OpenGLPFADepthSize, 24,
-		nsgl.OpenGLPFAAccelerated,
-		nsgl.OpenGLPFANoRecovery,
-		nsgl.OpenGLPFAOpenGLProfile, nsgl.OpenGLProfileVersion3_2Core,
-		0, // Terminator
+	attrs := slice.to_dynamic(
+		[]u32 {
+			nsgl.OpenGLPFADoubleBuffer,
+			nsgl.OpenGLPFAColorSize, 24,
+			nsgl.OpenGLPFAAlphaSize, 8,
+			nsgl.OpenGLPFADepthSize, 24,
+			nsgl.OpenGLPFAAccelerated,
+			nsgl.OpenGLPFANoRecovery,
+			nsgl.OpenGLPFAOpenGLProfile, nsgl.OpenGLProfileVersion3_2Core,
+		},
+		frame_allocator,
+	)
+
+	if options.anti_alias {
+		append(&attrs, nsgl.OpenGLPFASampleBuffers, 1)
+		append(&attrs, nsgl.OpenGLPFASamples, 4)
 	}
+
+	append(&attrs, 0)	
 
 	// Create pixel format
 	pixel_format := nsgl.OpenGLPixelFormat_alloc()

@@ -116,7 +116,14 @@ gl_state_size :: proc() -> int {
 	return size_of(GL_State)
 }
 
-gl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+gl_init :: proc(
+	state: rawptr,
+	glue: Window_Render_Glue,
+	swapchain_width: int,
+	swapchain_height: int,
+	options: Init_Options,
+	allocator := context.allocator
+) {
 	s = (^GL_State)(state)
 	s.glue = glue
 	s.width = swapchain_width
@@ -127,7 +134,7 @@ gl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapch
 	hm.dynamic_init(&s.textures, allocator)
 	hm.dynamic_init(&s.render_targets, allocator)
 
-	make_context_ok := s.glue->make_context()
+	make_context_ok := s.glue->make_context(options)
 
 	if !make_context_ok {
 		log.panic("Could not create a valid gl context")
@@ -139,6 +146,14 @@ gl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapch
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
 	gl.Enable(gl.BLEND)
+
+	// Note that AA also requires setup when choosing format for backbuffer, see for example
+	// SAMPLE_BUFFER etc in the glue files.
+	if options.anti_alias {
+		gl.Enable(gl.MULTISAMPLE)
+	} else {
+		gl.Disable(gl.MULTISAMPLE)
+	}
 }
 
 gl_shutdown :: proc() {
