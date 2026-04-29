@@ -9,6 +9,7 @@ import "log"
 import "vendor:egl"
 import wl "platform_bindings/linux/wayland"
 import "base:runtime"
+import "core:slice"
 
 @(private="package")
 make_linux_gl_wayland_glue :: proc(
@@ -25,7 +26,7 @@ make_linux_gl_wayland_glue :: proc(
 		state = (^Window_Render_Glue_State)(state),
 
 		// these casts just make the proc take a Windows_GL_Glue_State instead of a Window_Render_Glue_State
-		make_context = cast(proc(state: ^Window_Render_Glue_State) -> bool)(linux_gl_wayland_glue_make_context),
+		make_context = cast(proc(state: ^Window_Render_Glue_State, options: Init_Options) -> bool)(linux_gl_wayland_glue_make_context),
 		present = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_wayland_glue_present),
 		destroy = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_wayland_glue_destroy),
 		viewport_resized = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_wayland_glue_viewport_resized),
@@ -41,7 +42,7 @@ Linux_GL_Wayland_Glue_State :: struct {
 	allocator: runtime.Allocator,
 }
 
-linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State) -> bool {
+linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State, options: Init_Options) -> bool {
 	// Get a valid EGL configuration based on some attribute guidelines
 	// Create a context based on a "chosen" configuration
 	EGL_CONTEXT_FLAGS_KHR :: 0x30FC
@@ -51,18 +52,28 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State) -> b
 
 	major, minor, n: i32
 	egl_config: egl.Config
-	config_attribs: []i32 = {
-		egl.SURFACE_TYPE, egl.WINDOW_BIT,
-		egl.RED_SIZE, 8,
-		egl.GREEN_SIZE, 8,
-		egl.BLUE_SIZE, 8,
-		egl.ALPHA_SIZE, 0, // Disable surface alpha for now
-		egl.DEPTH_SIZE, 24, // Request 24-bit depth buffer
-		egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
-		EGL_SAMPLE_BUFFERS, 1,
-		EGL_SAMPLES, 4,  // 4x MSAA
-		egl.NONE,
+
+	config_attribs := slice.to_dynamic(
+		[]i32 {
+			egl.SURFACE_TYPE, egl.WINDOW_BIT,
+			egl.RED_SIZE, 8,
+			egl.GREEN_SIZE, 8,
+			egl.BLUE_SIZE, 8,
+			egl.ALPHA_SIZE, 0, // Disable surface alpha for now
+			egl.DEPTH_SIZE, 24, // Request 24-bit depth buffer
+			egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
+		},
+		frame_allocator,
+	)
+
+	if options.anti_alias {
+		append(&config_attribs, EGL_SAMPLE_BUFFERS, 1)
+		append(&config_attribs, EGL_SAMPLES, 4)
 	}
+
+	// null termination
+	append(&config_attribs, egl.NONE)
+
 	context_flags_bitfield: i32 = EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR
 
 	context_attribs: []i32 = {
