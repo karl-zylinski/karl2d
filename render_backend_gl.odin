@@ -147,7 +147,7 @@ gl_init :: proc(
 
 	gl.Enable(gl.BLEND)
 
-	// Note that AA also requires setup in when choosing format for backbuffer, see for example
+	// Note that AA also requires setup when choosing format for backbuffer, see for example
 	// SAMPLE_BUFFER etc in the glue files.
 	if options.anti_alias {
 		gl.Enable(gl.MULTISAMPLE)
