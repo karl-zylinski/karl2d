@@ -119,7 +119,7 @@ shutdown :: proc() {
 
 There is still a `main` procedure that is used for desktop builds. The web builds will use the `init` and `step` procedures directly. This is because the web build can't have an "loop" like `for k2.update() {}`. Instead, it will run `step` when the browser wants to redraw its content.
 
-To compile the web build, run the `build_web` tool that is bundled with `karl2d`. Using a command prompt, navigate to your game folder and run (note the double dash and the period!)
+To compile the web build, run the `build_web` tool that is bundled with `karl2d`. Using a command prompt, navigate to your game folder and run (note the double dash and the period! The period is the path to where your game lives, where a single `.` means "current folder")
 ```
 odin run karl2d/build_web -- .
 ```
@@ -132,18 +132,38 @@ The web build will end up in `bin/web`. Run your game by navigating into it and 
 >[!WARNING]
 >On Linux / Mac you may need to install some `lld` package that contains the `wasm-ld` linker. It's included with Odin on Windows.
 
+>[!NOTE]
+>To get better in-browser debug symbols, you can add `-debug` when running the `build_web` script:
+>`odin run build_web -- your_game_path -debug`
+>Note that it comes after the `--`: That's the flags that get sent on to the `build_web` program! There are also `-o:speed/size` flags to turn on optimization.
+
 ### What the `build_web` script does
 
 The `build_web` tool will copy `odin.js` file from `<odin>/core/sys/wasm/js/odin.js` into the `bin/web folder`. It will also copy a HTML index file into that folder.
 
 It will also create a `build/web` folder. That's the package it actually builds. It contains a bit of wrapper code that then calls the `init` and `step` functions of your game. The result of building the wrapper (and your game) is a `main.wasm` file that also ends up in `bin/web`.
 
-Launch your game by opening `bin/web/index.html` in a browser.
+### Loading assets on the web
 
->[!NOTE]
->To get better in-browser debug symbols, you can add `-debug` when running the `build_web` script:
->`odin run build_web -- your_game_path -debug`
->Note that it comes after the `--`: That's the flags that get sent on to the `build_web` program! There are also `-o:speed/size` flags to turn on optimization.
+Procedures such as `k2.load_texture_from_file("image.png")` do not work on the web because they depend on there being a file system. Instead you can do `k2.load_texture_from_bytes(#load("image.png"))`. The `#load` call will bake the image into your executable at compile time.
+
+If you want to load using `k2.load_texture_from_file` on desktop and `k2.load_texture_from_bytes` + `#load` on web, then you can create an abstraction.
+
+Desktop version (put in a file with `#+build !js` at the top):
+```odin
+load_texture :: proc($name: string) -> k2.Texture {
+    return k2.load_texture_from_file(name)
+}
+```
+
+Web version (put in a file with `#+build js` at the top):
+```odin
+load_texture :: proc($name: string) -> k2.Texture {
+    return k2.load_texture_from_bytes(#load(name))
+}
+```
+
+The `$` in front of the `name` parameter ensures that you're passing a compile-time constant, which makes it possible to use `#load` within the web version.
 
 ## Beta 3
 
