@@ -35,6 +35,7 @@ main :: proc() {
 5. Navigate into the your game folder using a command prompt and run your game by writing `odin run .` (note the period!)
 6. A simple program that just shows the word "Hellope!" will appear. See the examples below for ideas on what to do next, or read [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) for an API overview.
 7. Enjoy!
+8. If you want to make a web build of your game, continue to the [Making a web build](#making-a-web-build) section below.
 
 ## Get help
 
@@ -58,28 +59,49 @@ Here are links to live web builds of some of the examples:
 - [Mouse](https://zylinski.se/karl2d/mouse/)
 - [Snake](https://zylinski.se/karl2d/snake/)
 
-## Beta 3
+## Making a web build
 
-Karl2D is currently in its THIRD BETA period. If you find _any_ issues, then please create an issue here on GitHub!
+Let's look at how to make your game playable on the web.
 
-Beta 3 has these features:
-- Rendering of shapes, textures and text with automatic batching
-- Audio playback using custom software mixer
-- Support for shaders and cameras
-- Windows support (D3D11 and OpenGL)
-- Mac support (OpenGL)
-- Linux support (OpenGL)
-- Web support (WebGL, no emscripten needed!)
-- Input: Mouse, keyboard, gamepad
+Let's say that you've set your project up like the [Getting started](#getting-started) guide above says. Change the the following code:
 
-## Roadmap
+```odin
+package hello_world
 
-- [Beta 4: Rendering improvements](https://github.com/karl-zylinski/karl2d/milestone/3)
-- [Beta 5: Metal backend](https://github.com/karl-zylinski/karl2d/milestone/4)
-- [Beta 6: Cross-API shader compiler](https://github.com/karl-zylinski/karl2d/milestone/5)
-- 1.0
+import k2 "karl2d"
 
-## How to make a web build of your game
+main :: proc() {
+    k2.init(1280, 720, "Greetings from Karl2D!")
+
+    for k2.update() {
+        k2.clear(k2.LIGHT_BLUE)
+        k2.draw_text("Hellope!", {50, 50}, 100, k2.DARK_BLUE)
+        k2.present()
+    }
+
+    k2.shutdown()
+}
+```
+into this:
+```odin
+
+package hello_world
+
+import k2 "karl2d"
+
+main :: proc() {
+    init()
+    k2.init(1280, 720, "Greetings from Karl2D!")
+
+    for k2.update() {
+        k2.clear(k2.LIGHT_BLUE)
+        k2.draw_text("Hellope!", {50, 50}, 100, k2.DARK_BLUE)
+        k2.present()
+    }
+
+    k2.shutdown()
+}
+```
 
 There's a build script located in the `build_web` folder. Run it like this:
 
@@ -114,6 +136,27 @@ Launch your game by opening `bin/web/index.html` in a browser.
 
 >[!WARNING]
 >If you open the `index.html` file and see nothing, then there might be an error about "cross site policy" stuff in the browser's console. In that case you can use python to run a local web-server and access the web build through it. Run `python -m http.server` in the `bin/web` folder and then navigate to `https://localhost:8000`.
+
+## Beta 3
+
+Karl2D is currently in its THIRD BETA period. If you find _any_ issues, then please create an issue here on GitHub!
+
+Beta 3 has these features:
+- Rendering of shapes, textures and text with automatic batching
+- Audio playback using custom software mixer
+- Support for shaders and cameras
+- Windows support (D3D11 and OpenGL)
+- Mac support (OpenGL)
+- Linux support (OpenGL)
+- Web support (WebGL, no emscripten needed!)
+- Input: Mouse, keyboard, gamepad
+
+## Roadmap
+
+- [Beta 4: Rendering improvements](https://github.com/karl-zylinski/karl2d/milestone/3)
+- [Beta 5: Metal backend](https://github.com/karl-zylinski/karl2d/milestone/4)
+- [Beta 6: Cross-API shader compiler](https://github.com/karl-zylinski/karl2d/milestone/5)
+- 1.0
 
 ## Linux Dependencies
 
