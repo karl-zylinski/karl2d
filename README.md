@@ -6,9 +6,6 @@ See [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d
 
 Support the project by becoming a sponsor here on [GitHub](https://github.com/sponsors/karl-zylinski) or on [Patreon](https://patreon.com/karl_zylinski).
 
-"Hello world" program (draws the text "Hellope!" in a window):
-
-
 ## Getting started
 
 1. Install the Odin compiler using the instructions on [odin-lang.org](https://odin-lang.org)
