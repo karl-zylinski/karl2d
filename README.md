@@ -188,17 +188,19 @@ Beta 3 has these features:
 
 ## Architecture notes
 
-The platform-independent parts and the API lives in `karl2d.odin`.
+The platform-independent parts and the API lives in `karl2d.odin`. There is a `karl2d.doc.odin` file that is generated from `karl2d.odin`. It simply stripts the bodies of the procedures, creating an overview.
 
-`karl2d.odin` in turn has a window interface and a rendering backend.
+`karl2d.odin` in turn uses interfaces for creating abstractions for the platform, rendering and audio. 
 
-The window interface depends on the operating system. I do not use anything like GLFW in order to abstract away window creation and event handling. Less libraries between you and the OS, less trouble when shipping!
+The platform abstraction depends on the operating system. I do not use anything like GLFW in order to abstract away window creation and event handling. Less libraries between you and the OS, less trouble when shipping!
 
-The rendering backend tells Karl2D how to talk to the GPU. I currently support three rendering APIs: D3D11, OpenGL and WebGL. On some platforms you have multiple choices, for example on Windows you can use both D3D11 and OpenGL.
+The rendering abstraction tells Karl2D how to talk to the GPU. I currently support three rendering APIs: D3D11, OpenGL and WebGL. On some platforms you have multiple choices, for example on Windows you can use both D3D11 and OpenGL (using the compile flag `-define:KARL2D_RENDER_BACKEND=gl/d3d11`).
 
 The platform independent code in `karl2d.odin` creates a list of vertices for each batch it needs to render. That's done independently of the rendering backend. The backend is just fed that list, along with information about what shader and such to use.
 
-The web builds do not need emscripten, instead I've written a WebGL backend and make use of the official Odin JS runtime. This makes building for the web easier and less error-prone.
+The audio support in Karl2D is done using a software mixer that is part of `karl2d.odin`. The audio abstraction is small, it takes care of feeding the mixed audio samples into the platform's audio API. I wrote a blog post called [Audio in Karl2D: Software mixing, OS APIs and general design](https://zylinski.se/posts/audio-in-karl2d-software-mixing/) where I describe how the audio system works.
+
+The web builds do not need emscripten, instead I've written a WebGL backend and make use of the official Odin JS runtime.
 
 ## Contributing and Pull Request rules
 
