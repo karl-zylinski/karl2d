@@ -34,6 +34,11 @@ main :: proc() {
 7. Enjoy!
 8. If you want to make a web build of your game, continue to the [Making a web build](#making-a-web-build) section below.
 
+>[!NOTE]
+>On *Linux*, you may run into build errors due to missing depdencies. Exactly what you need to install may vary from distribution to distribution. On Ubuntu / Debian, something like this may help:
+>`sudo apt install libasound2-dev libgl1-mesa-dev libudev-dev libwayland-dev libegl1-mesa-dev`
+>Did you have to install something else on your distro? Let me know!
+
 ## Get help
 
 Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
