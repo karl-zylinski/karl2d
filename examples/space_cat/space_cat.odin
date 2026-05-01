@@ -522,7 +522,7 @@ update :: proc() {
 	// Make stars twinkle. It's just a timer that makes a single star, picked at random, twinkle.
 	twinkle_timer -= dt
 
-	if twinkle_timer <= 0 {
+	if twinkle_timer <= 0 && len(current_room.background_objects) > 0 {
 		twinkle_timer = rand.float32_range(0.05, 0.1)
 		to_twinkle_idx := rand.int_max(len(current_room.background_objects))
 		to_twinkle := &current_room.background_objects[to_twinkle_idx]
