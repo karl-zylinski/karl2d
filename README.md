@@ -8,6 +8,13 @@ Support the project by becoming a sponsor here on [GitHub](https://github.com/sp
 
 "Hello world" program (draws the text "Hellope!" in a window):
 
+
+## Getting started
+
+1. Install the Odin compiler using the instruction on [odin-lang.org](https://odin-lang.org)
+2. Create a folder for your game
+3. Within your game folder, put the contents of this repository into a folder called `karl2d`
+4. Within your game folder, create a file called `game.odin` and copy this into it:
 ```odin
 package hello_world
 
@@ -25,8 +32,9 @@ main :: proc() {
     k2.shutdown()
 }
 ```
-
-## Getting started
+5. Navigate into the your game folder using a command prompt and run your game by writing `odin run .` (note the period!)
+6. A simple program that just shows the word "Hellope!" will appear. See the examples below for ideas on what to do next, or read [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d.doc.odin) for an API overview.
+7. Enjoy!
 
 ## Get help
 
