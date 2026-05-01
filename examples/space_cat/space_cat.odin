@@ -25,6 +25,7 @@ import "core:fmt"
 import "core:mem"
 
 _ :: fmt
+_ :: mem
 
 CLEAR_COLOR :: k2.Color{6, 6, 8, 255}
 SPACE_COLOR :: k2.Color{28, 38, 56, 255}
@@ -178,21 +179,25 @@ world: World
 
 // Use by desktop builds. Web builds call `init` and `step` directly.
 main :: proc() {
-	track: mem.Tracking_Allocator
-	mem.tracking_allocator_init(&track, context.allocator)
-	context.allocator = mem.tracking_allocator(&track)
+	when ODIN_DEBUG {
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
+	}
 
 	init()
 	for step() {}
 	shutdown()
 
-	if len(track.allocation_map) > 0 {
-		fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
-		for _, entry in track.allocation_map {
-			fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+	when ODIN_DEBUG {
+		if len(track.allocation_map) > 0 {
+			fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+			for _, entry in track.allocation_map {
+				fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+			}
 		}
+		mem.tracking_allocator_destroy(&track)
 	}
-	mem.tracking_allocator_destroy(&track)
 }
 
 init :: proc() {
