@@ -131,7 +131,7 @@ main :: proc() {
 	}
 
 	if build_status.exit_code == 0 {
-		fmt.println("Success. Web build is in `bin/web`. Note: You may need to run a web server to test it locally, for example using `python -m http.server` from within the `bin/web` folder.")
+		fmt.printfln("Success. Web build is in `%v/bin/web`. Note: You may need to run a web server to test it locally, for example using `python -m http.server` from within the `bin/web` folder.", dir)
 
 		if !has_opt_param {
 			fmt.println("\nNote: Unoptmized build was created. Add `-o:size` parameter to create a drastically smaller web build. Your game will then load quicker.")
