@@ -26,12 +26,17 @@ main :: proc() {
 
 	dir: string
 	compiler_params: [dynamic]string
+	has_opt_param := false
 
 	for a in os.args {
 		if a == "-help" || a == "--help" {
 			print_usage = true
 		} else if strings.has_prefix(a, "-") {
 			append(&compiler_params, a)
+
+			if strings.has_prefix(a, "-o:") {
+				has_opt_param = true
+			}
 		} else {
 			dir = a
 		}
@@ -42,7 +47,7 @@ main :: proc() {
 	}
 
 	if print_usage {
-		fmt.eprintfln("Usage: 'odin run build_web -- directory_name -extra -parameters' Any extra parameter that start with a dash will be passed on to Odin compiler.\nExample: 'odin run build_web -- examples/minimal_web -debug'")
+		fmt.eprintfln("Usage: 'odin run karl2d/build_web -- directory_name -extra -parameters' Any extra parameter that start with a dash will be passed on to Odin compiler.\nExample: 'odin run karl2d/build_web -- my_game -o:size'")
 		return
 	}
 
@@ -123,6 +128,16 @@ main :: proc() {
 
 	if len(build_std_err) > 0 {
 		fmt.println(string(build_std_err))
+	}
+
+	if build_status.exit_code == 0 {
+		fmt.println("Success. Web build is in `bin/web`. Note: You may need to run a web server to test it locally, for example using `python -m http.server` from within the `bin/web` folder.")
+
+		if !has_opt_param {
+			fmt.println("\nNote: Unoptmized build was created. Add `-o:size` parameter to create a drastically smaller web build. Your game will then load quicker.")
+		}
+	} else {
+		fmt.eprintln("Build failed.")
 	}
 
 	os.exit(build_status.exit_code)
