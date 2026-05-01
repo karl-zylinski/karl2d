@@ -376,7 +376,19 @@ web_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 		return f32(s.gamepad_state[gamepad].buttons[KARL2D_GAMEPAD_BUTTON_FROM_JS[.Right_Trigger]].value)
 	}
 
-	return f32(s.gamepad_state[gamepad].axes[int(axis)])
+	js_axis: int
+
+	switch axis {
+	case .None: return 0
+	case .Left_Stick_X: js_axis = 0
+	case .Left_Stick_Y: js_axis = 1
+	case .Right_Stick_X: js_axis = 2
+	case .Right_Stick_Y: js_axis = 3
+	case .Left_Trigger: return 0 // virtually unreachable
+	case .Right_Trigger: return 0 // virtually unreachable
+	}
+
+	return f32(s.gamepad_state[gamepad].axes[js_axis])
 }
 
 web_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
