@@ -165,6 +165,9 @@ load_texture :: proc($name: string) -> k2.Texture {
 
 The `$` in front of the `name` parameter ensures that you're passing a compile-time constant, which makes it possible to use `#load` within the web version.
 
+## Hot reload
+Some kind of gameplay code hot reload is planned as part of the library. Currently, there is an experimental implementation of this in a separate repository: https://github.com/karl-zylinski/karl2d-hot-reload-template
+
 ## Beta 3
 
 Karl2D is currently in its THIRD BETA period. If you find _any_ issues, then please create an issue here on GitHub!
