@@ -63,7 +63,7 @@ Here are links to live web builds of some of the examples:
 
 Let's look at how to make your game playable on the web.
 
-Let's say that you've set your project up like the [Getting started](#getting-started) guide above says. Change the the following code:
+Here I assume that you've set your project up like the [Getting started](#getting-started) guide above says. Change the the following code:
 
 ```odin
 package hello_world
@@ -84,44 +84,53 @@ main :: proc() {
 ```
 into this:
 ```odin
-
 package hello_world
 
 import k2 "karl2d"
 
 main :: proc() {
     init()
-    k2.init(1280, 720, "Greetings from Karl2D!")
+    for step() {}
+    shutdown()
+}
 
-    for k2.update() {
-        k2.clear(k2.LIGHT_BLUE)
-        k2.draw_text("Hellope!", {50, 50}, 100, k2.DARK_BLUE)
-        k2.present()
+init :: proc() {
+    k2.init(1280, 720, "Greetings from Karl2D!")
+}
+
+step :: proc() -> bool {
+    if !k2.update() {
+        return false
     }
 
+    k2.clear(k2.LIGHT_BLUE)
+    k2.draw_text("Hellope!", {50, 50}, 100, k2.DARK_BLUE)
+    k2.present()
+
+    return true
+}
+
+shutdown :: proc() {
     k2.shutdown()
 }
 ```
 
-There's a build script located in the `build_web` folder. Run it like this:
+There is still a `main` procedure that is used for desktop builds. The web builds will use the `init` and `step` procedures directly. This is because the web build can't have an "loop" like `for k2.update() {}`. Instead, it will run `step` when the browser wants to redraw its content.
 
+Nwo you need to run the `build_web` tool that is bundled with `karl2d`. Using a command prompt, navigate to your game folder and run:
 ```
-odin run build_web -- your_game_path
+odin run karl2d/build_web -- .
 ```
 
-The web build will end up in `your_game_path/bin/web`.
+The web build will end up in `bin/web`. Run your game by navigating into it and opening `index.html`
 
-
->[!NOTE]
->You can run the build_web script from anywhere by doing:
->`odin run path/to/karl2d/build_web -- your_game_path`
+>[!WARNING]
+>If you open the `index.html` file and see nothing, then there might be an error about "cross site policy" stuff in the browser's console. In that case you can use python to run a local web-server and access the web build through it. Run `python -m http.server` in the `bin/web` folder and then navigate to `https://localhost:8000`.
 
 >[!WARNING]
 >On Linux / Mac you may need to install some `lld` package that contains the `wasm-ld` linker. It's included with Odin on Windows.
 
-It requires that your game contains an `init` procedure and a `step` procedure. The `init` procedure is called once on startup and the `step` procedure will be called every frame of your game.
-
-Also, see the [`minimal_hello_world_web.odin`](https://github.com/karl-zylinski/karl2d/blob/master/examples/minimal_hello_world_web/minimal_hello_world_web.odin) example.
+### What the `build_web` script does
 
 The `build_web` tool will copy `odin.js` file from `<odin>/core/sys/wasm/js/odin.js` into the `bin/web folder`. It will also copy a HTML index file into that folder.
 
@@ -133,9 +142,6 @@ Launch your game by opening `bin/web/index.html` in a browser.
 >To get better in-browser debug symbols, you can add `-debug` when running the `build_web` script:
 >`odin run build_web -- your_game_path -debug`
 >Note that it comes after the `--`: That's the flags that get sent on to the `build_web` program! There are also `-o:speed/size` flags to turn on optimization.
-
->[!WARNING]
->If you open the `index.html` file and see nothing, then there might be an error about "cross site policy" stuff in the browser's console. In that case you can use python to run a local web-server and access the web build through it. Run `python -m http.server` in the `bin/web` folder and then navigate to `https://localhost:8000`.
 
 ## Beta 3
 
