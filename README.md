@@ -11,7 +11,7 @@ Support the project by becoming a sponsor here on [GitHub](https://github.com/sp
 
 ## Getting started
 
-1. Install the Odin compiler using the instruction on [odin-lang.org](https://odin-lang.org)
+1. Install the Odin compiler using the instructions on [odin-lang.org](https://odin-lang.org)
 2. Create a folder for your game
 3. Within your game folder, put the contents of this repository into a folder called `karl2d`
 4. Within your game folder, create a file called `game.odin` and copy this into it:
