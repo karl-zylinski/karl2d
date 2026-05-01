@@ -49,7 +49,7 @@ linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State, options: Ini
 			glx.RED_SIZE, 8,
 			glx.GREEN_SIZE, 8,
 			glx.BLUE_SIZE, 8,
-			glx.ALPHA_SIZE, 8,
+			glx.ALPHA_SIZE, 0,
 		},
 		frame_allocator,
 	)
