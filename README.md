@@ -134,7 +134,7 @@ The web build will end up in `bin/web`. Run your game by navigating into it and 
 
 >[!NOTE]
 >To get better in-browser debug symbols, you can add `-debug` when running the `build_web` script:
->`odin run build_web -- your_game_path -debug`
+>`odin run karl2d/build_web -- . -debug`
 >Note that it comes after the `--`: That's the flags that get sent on to the `build_web` program! There are also `-o:speed/size` flags to turn on optimization.
 
 ### What the `build_web` script does
