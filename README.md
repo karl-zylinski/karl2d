@@ -114,7 +114,7 @@ shutdown :: proc() {
 
 There is still a `main` procedure that is used for desktop builds. The web builds will use the `init` and `step` procedures directly. This is because the web build can't have an "loop" like `for k2.update() {}`. Instead, it will run `step` when the browser wants to redraw its content.
 
-Nwo you need to run the `build_web` tool that is bundled with `karl2d`. Using a command prompt, navigate to your game folder and run:
+To compile the web build, run the `build_web` tool that is bundled with `karl2d`. Using a command prompt, navigate to your game folder and run (note the double dash and the period!)
 ```
 odin run karl2d/build_web -- .
 ```
