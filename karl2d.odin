@@ -148,14 +148,6 @@ init :: proc(
 		hm.dynamic_init(&s.playing_audio_buffers, s.allocator)
 		hm.dynamic_init(&s.audio_buffers, s.allocator)
 		hm.dynamic_init(&s.sounds, s.allocator)
-
-		VORBIS_STATE_SIZE :: 500 * mem.Kilobyte
-
-		s.vorbis_alloc = {
-			alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
-			alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
-		}
-
 		hm.dynamic_init(&s.audio_streams, s.allocator)
 	}
 
@@ -211,7 +203,6 @@ shutdown :: proc() {
 	// Audio
 	{
 		hm.dynamic_destroy(&s.audio_streams)
-		free(s.vorbis_alloc.alloc_buffer, s.allocator)
 		ab.shutdown()
 		hm.dynamic_destroy(&s.playing_audio_buffers)
 		hm.dynamic_destroy(&s.sounds)
@@ -1974,6 +1965,11 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		return AUDIO_STREAM_NONE
 	}
 
+	vorbis_buffer := stbv.vorbis_alloc {
+		alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
+		alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
+	}
+
 	append(&buf, ..read_buf[:nbytes_read])
 	vorbis_res: ^stbv.vorbis
 
@@ -1988,7 +1984,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 			i32(len(buf)),
 			&consumed,
 			&vorbis_err,
-			&s.vorbis_alloc,
+			&vorbis_buffer,
 		)
 
 		if vorbis_err == nil {
@@ -1999,6 +1995,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 			if seek_err != nil {
 				log.errorf("Failed seeking in audio stream file %v. Error: %v", filename, seek_err)
 				file_close(f)
+				free(vorbis_buffer.alloc_buffer, s.allocator)
 				return AUDIO_STREAM_NONE
 			}
 
@@ -2011,12 +2008,14 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 			if read_err != nil {
 				log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
 				file_close(f)
+				free(vorbis_buffer.alloc_buffer, s.allocator)
 				return AUDIO_STREAM_NONE
 			}
 
 			if nbytes_read == 0 {
 				log.errorf("Failed to load audio stream. Reached end of file before stream could be loaded.")
 				file_close(f)
+				free(vorbis_buffer.alloc_buffer, s.allocator)
 				return AUDIO_STREAM_NONE
 			}
 
@@ -2024,6 +2023,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		} else {
 			log.errorf("Failed to load audio stream. Error: %v", vorbis_err)
 			file_close(f)
+			free(vorbis_buffer.alloc_buffer, s.allocator)
 			return AUDIO_STREAM_NONE
 		}
 	}
@@ -2041,7 +2041,8 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		if close_err := file_close(f); close_err != nil {
 			log.errorf("Failed closing file. Error: %v", close_err)
 		}
-		
+				
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2061,6 +2062,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		}
 
 		delete(buffer.samples, s.allocator)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2068,6 +2070,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		mode = .From_File,
 		file = f,
 		vorbis = vorbis_res,
+		vorbis_buffer = vorbis_buffer,
 		buffer = buffer_handle,
 		playback_settings = {
 			pan = 0,
@@ -2085,6 +2088,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		delete(asd.file_read_buf)
 		delete(buffer.samples, s.allocator)
 		hm.remove(&s.audio_buffers, buffer_handle)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2117,17 +2121,23 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 	vorbis_err: stbv.Error
 
+	vorbis_buffer := stbv.vorbis_alloc {
+		alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
+		alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
+	}
+
 	// This procedure is specifically made for our use case: Streaming from a file that is already
 	// completely in memory.
 	vorbis_res := stbv.open_memory(
 		raw_data(bytes),
 		i32(len(bytes)),
 		&vorbis_err,
-		&s.vorbis_alloc,
+		&vorbis_buffer,
 	)
 
 	if vorbis_err != nil {
 		log.errorf("Failed opening audio stream from bytes. Error: %v", vorbis_err)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2140,6 +2150,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		channels = Audio_Channels.Stereo
 	} else{
 		log.errorf("Unsupported number of channels: %v", info.channels)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2154,6 +2165,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 	if buffer_handle_add_err != nil {
 		log.errorf("Failed to load audio stream. Error: %v", buffer_handle_add_err)
 		delete(buffer.samples, s.allocator)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2162,6 +2174,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		bytes = bytes,
 		vorbis = vorbis_res,
 		buffer = buffer_handle,
+		vorbis_buffer = vorbis_buffer,
 		playback_settings = {
 			pan = 0,
 			volume = 1,
@@ -2175,6 +2188,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		log.errorf("Failed to create audio stream from bytes. Error: %v", stream_add_err)
 		delete(buffer.samples, s.allocator)
 		hm.remove(&s.audio_buffers, buffer_handle)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2211,6 +2225,7 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 		// don't free the bytes, they are owned by the game
 	}
 
+	free(sd.vorbis_buffer.alloc_buffer, s.allocator)
 	hm.remove(&s.audio_streams, stream)
 }
 
@@ -3940,10 +3955,14 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
+// From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
+VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
+
 Audio_Stream_Data :: struct {
 	handle: Audio_Stream,
 	
 	vorbis: ^stbv.vorbis,
+	vorbis_buffer: stbv.vorbis_alloc,
 	playing_buffer_handle: Playing_Audio_Buffer_Handle,
 	buffer: Audio_Buffer,
 	
@@ -4105,7 +4124,6 @@ State :: struct {
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
-	vorbis_alloc: stbv.vorbis_alloc,
 
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
 	// ample.
