@@ -16,6 +16,7 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	set_internal_state = rbnil_set_internal_state,
 	create_texture = rbnil_create_texture,
 	load_texture = rbnil_load_texture,
+	read_texture = rbnil_read_texture,
 	update_texture = rbnil_update_texture,
 	destroy_texture = rbnil_destroy_texture,
 	texture_needs_vertical_flip = rbnil_texture_needs_vertical_flip,
@@ -61,8 +62,8 @@ rbnil_draw :: proc(
 	render_texture: Render_Target_Handle,
 	bound_textures: []Texture_Handle,
 	scissor: Maybe(Rect),
-	blend_mode: Blend_Mode,
-	vertex_buffer: []u8,
+				   blend_mode: Blend_Mode,
+				   vertex_buffer: []u8,
 ) {
 }
 
@@ -88,6 +89,10 @@ rbnil_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Fo
 	return {}
 }
 
+rbnil_read_texture :: proc(th: Texture_Handle, width: int, height: int, format: Pixel_Format, allocator := context.allocator) -> []u8 {
+	return nil
+}
+
 rbnil_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
 	return true
 }
@@ -104,7 +109,7 @@ rbnil_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 }
 
 rbnil_destroy_render_target :: proc(render_target: Render_Target_Handle) {
-	
+
 }
 
 rbnil_set_texture_filter :: proc(
@@ -137,4 +142,3 @@ rbnil_default_shader_vertex_source :: proc() -> []byte {
 rbnil_default_shader_fragment_source :: proc() -> []byte {
 	return {}
 }
-
