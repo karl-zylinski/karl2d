@@ -1241,10 +1241,14 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
+// From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
+VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
+
 Audio_Stream_Data :: struct {
 	handle: Audio_Stream,
 	
 	vorbis: ^stbv.vorbis,
+	vorbis_buffer: stbv.vorbis_alloc,
 	playing_buffer_handle: Playing_Audio_Buffer_Handle,
 	buffer: Audio_Buffer,
 	
@@ -1406,7 +1410,6 @@ State :: struct {
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
-	vorbis_alloc: stbv.vorbis_alloc,
 
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
 	// ample.
