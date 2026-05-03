@@ -22,9 +22,19 @@ step :: proc() -> bool {
 	mouse_world_pos := k2.screen_to_world(k2.get_mouse_position(), camera)
 	frame_time := k2.get_frame_time()
 
+	// We use the first connected gamepad. Sticks have a small deadzone so a
+	// resting controller doesn't drift the camera.
+	gamepad := k2.Gamepad_Index(0)
+	gamepad_active := k2.is_gamepad_active(gamepad)
+	GAMEPAD_AXIS_DEADZONE :: f32(0.15)
+
+	apply_deadzone :: proc(v: f32) -> f32 {
+		return abs(v) < GAMEPAD_AXIS_DEADZONE ? 0 : v
+	}
+
 	// CAMERA PANNING
 
-	camera_target_movement: Vec2 
+	camera_target_movement: Vec2
 	if k2.mouse_button_is_held(.Left) {
 		camera_target_movement -= k2.get_mouse_delta() / camera.zoom
 	}
@@ -35,6 +45,13 @@ step :: proc() -> bool {
 	if k2.key_is_held(.Left)  { camera_target_movement.x -= camera_key_move_delta }
 	if k2.key_is_held(.Down)  { camera_target_movement.y += camera_key_move_delta }
 	if k2.key_is_held(.Up) 	  { camera_target_movement.y -= camera_key_move_delta }
+
+	if gamepad_active {
+		left_stick_x := apply_deadzone(k2.get_gamepad_axis(gamepad, .Left_Stick_X))
+		left_stick_y := apply_deadzone(k2.get_gamepad_axis(gamepad, .Left_Stick_Y))
+		camera_target_movement.x += left_stick_x * camera_key_move_delta
+		camera_target_movement.y += left_stick_y * camera_key_move_delta
+	}
 
 	// Multiplying camera movement with rotation matrix makes it move like the player expects,
 	// relative to the axes of the window, not the axes of the camera.
@@ -49,12 +66,19 @@ step :: proc() -> bool {
 	// CAMERA RESET
 
 	if k2.key_went_down(.R) { camera = { zoom = 1 } }
+	if gamepad_active && k2.gamepad_button_went_down(gamepad, .Right_Face_Down) {
+		camera = { zoom = 1 }
+	}
 
 	// CAMERA ZOOM
 
 	mouse_wheel_delta := k2.get_mouse_wheel_delta()
 	if mouse_wheel_delta > 0 || k2.key_went_down(.NP_Add) { camera.zoom += .3 }
 	if mouse_wheel_delta < 0 || k2.key_went_down(.NP_Subtract) { camera.zoom -= .3 }
+	if gamepad_active {
+		if k2.gamepad_button_went_down(gamepad, .Right_Shoulder) { camera.zoom += .3 }
+		if k2.gamepad_button_went_down(gamepad, .Left_Shoulder)  { camera.zoom -= .3 }
+	}
 
 	camera.zoom = clamp(camera.zoom, 1, 4)
 	camera.offset = screen_size / 2
@@ -65,6 +89,10 @@ step :: proc() -> bool {
 	camera_key_rotation_delta := CAMERA_KEY_ROTATION_SPEED*frame_time
 	if k2.key_is_held(.Z) { camera.rotation += camera_key_rotation_delta }
 	if k2.key_is_held(.X) { camera.rotation -= camera_key_rotation_delta }
+	if gamepad_active {
+		right_stick_x := apply_deadzone(k2.get_gamepad_axis(gamepad, .Right_Stick_X))
+		camera.rotation += right_stick_x * camera_key_rotation_delta
+	}
 
 	// DRAW WORLD
 
@@ -128,16 +156,16 @@ step :: proc() -> bool {
 	text_color = k2.YELLOW
 	text_pos = Vec2 { 20, screen_size.y - 20 - font_size }
 
-	k2.draw_text("use R to reset", text_pos, font_size, text_color)
+	k2.draw_text("use R or the gamepad A/X (Right_Face_Down) button to reset", text_pos, font_size, text_color)
 	text_pos.y -= font_size
 
-	k2.draw_text("use Z/X keys to rotate", text_pos, font_size, text_color)
+	k2.draw_text("use Z/X keys or the gamepad right stick to rotate", text_pos, font_size, text_color)
 	text_pos.y -= font_size
 
-	k2.draw_text("use Plus/Minus keys or the mouse wheel to zoom", text_pos, font_size, text_color)
+	k2.draw_text("use Plus/Minus keys, the mouse wheel or the gamepad shoulders to zoom", text_pos, font_size, text_color)
 	text_pos.y -= font_size
 
-	k2.draw_text("use arrow keys or the left mouse button to pan", text_pos, font_size, text_color)
+	k2.draw_text("use arrow keys, the left mouse button or the gamepad left stick to pan", text_pos, font_size, text_color)
 	text_pos.y -= font_size
 
 	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size())
