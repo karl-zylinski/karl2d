@@ -120,6 +120,7 @@ plasma_ball_textures: [3]k2.Texture
 ab_shoot: k2.Audio_Buffer
 ab_pickup: k2.Audio_Buffer
 ab_hit: k2.Audio_Buffer
+playing_sounds: [dynamic]k2.Sound
 
 // For making a texture appear on the screen for a short period.
 flash_texture: k2.Texture
@@ -340,7 +341,7 @@ shutdown :: proc() {
 	}
 
 	for fgo in fg_object_textures {
-		k2.destroy_texture(fgo)	
+		k2.destroy_texture(fgo)
 	}
 
 	for t, _ in interactable_type_texture {
@@ -351,6 +352,11 @@ shutdown :: proc() {
 		k2.destroy_texture(t)	
 	}
 
+	for ps in playing_sounds {
+		k2.destroy_sound(ps)
+	}
+
+	delete(playing_sounds)
 	k2.destroy_audio_buffer(ab_hit)
 	k2.destroy_audio_buffer(ab_pickup)
 	k2.destroy_audio_buffer(ab_shoot)
@@ -392,6 +398,14 @@ update :: proc() {
 		}
 
 		return
+	}
+
+	for ps_idx := 0; ps_idx < len(playing_sounds); ps_idx += 1 {
+		if !k2.sound_is_playing(playing_sounds[ps_idx]) {
+			k2.destroy_sound(playing_sounds[ps_idx])
+			unordered_remove(&playing_sounds, ps_idx)
+			ps_idx -= 1
+		}
 	}
 
 	movement: Vec2
@@ -522,6 +536,7 @@ update :: proc() {
 		k2.set_sound_pan(shoot_snd, pan)
 		k2.set_sound_volume(shoot_snd, rand.float32_range(0.7, 0.9))
 		k2.play_sound(shoot_snd)
+		append(&playing_sounds, shoot_snd)
 	}
 
 	// Make stars twinkle. It's just a timer that makes a single star, picked at random, twinkle.
@@ -591,7 +606,9 @@ update :: proc() {
 					flash_texture_timer = 0.2
 					flash_texture_pos = p.pos
 					pidx -= 1
-					k2.play_sound(k2.create_sound_from_audio_buffer(ab_hit))
+					hit_snd := k2.create_sound_from_audio_buffer(ab_hit)
+					k2.play_sound(hit_snd)
+					append(&playing_sounds, hit_snd)
 				}
 			}
 
@@ -600,7 +617,9 @@ update :: proc() {
 				unordered_remove(&current_room.interactables, inter_idx)
 				inter_idx -= 1
 				has_key = true
-				k2.play_sound(k2.create_sound_from_audio_buffer(ab_pickup))
+				pickup_snd := k2.create_sound_from_audio_buffer(ab_pickup)
+				k2.play_sound(pickup_snd)
+				append(&playing_sounds, pickup_snd)
 			}
 
 		case .Wall:
