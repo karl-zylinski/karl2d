@@ -1409,6 +1409,26 @@ play_sound :: proc(sound: Sound) {
 	}
 }
 
+play_audio_buffer :: proc(ab: Audio_Buffer, volume: f32 = 1, pan: f32 = 0, pitch: f32 = 1) {
+	playback_settings := Audio_Buffer_Playback_Settings {
+		volume = volume,
+		pan = pan,
+		pitch = pitch,
+	}
+
+	playing_audio_buffer := Playing_Audio_Buffer {
+		audio_buffer = ab,
+		target_settings = playback_settings,
+		current_settings = playback_settings,
+	}
+
+	_, add_error := hm.add(&s.playing_audio_buffers, playing_audio_buffer)
+
+	if add_error != nil {
+		log.errorf("Failed playing audio buffer. Error %v", add_error)
+	}
+}
+
 // Stop a sound. Rewinds it to the start.
 stop_sound :: proc(sound: Sound) {
 	sound_object := hm.get(&s.sounds, sound)

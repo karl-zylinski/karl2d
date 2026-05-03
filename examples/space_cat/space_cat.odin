@@ -515,13 +515,12 @@ update :: proc() {
 			dir = vec2_from_direction[player.dir],
 		})
 
-		// The shoot sound has pitch randomization and spatial panning.
-		shoot_snd := k2.create_sound_from_audio_buffer(ab_shoot)
-		k2.set_sound_pitch(shoot_snd, rand.float32_range(0.8, 1.2))
-		pan := math.remap_clamped(player.pos.x, 0, SCREEN_WIDTH, -0.5, 0.5)
-		k2.set_sound_pan(shoot_snd, pan)
-		k2.set_sound_volume(shoot_snd, rand.float32_range(0.7, 0.9))
-		k2.play_sound(shoot_snd)
+		k2.play_audio_buffer(
+			ab_shoot,
+			volume = rand.float32_range(0.7, 0.9),
+			pan = math.remap_clamped(player.pos.x, 0, SCREEN_WIDTH, -0.5, 0.5),
+			pitch = rand.float32_range(0.8, 1.2),
+		)
 	}
 
 	// Make stars twinkle. It's just a timer that makes a single star, picked at random, twinkle.
@@ -591,7 +590,7 @@ update :: proc() {
 					flash_texture_timer = 0.2
 					flash_texture_pos = p.pos
 					pidx -= 1
-					k2.play_sound(k2.create_sound_from_audio_buffer(ab_hit))
+					k2.play_audio_buffer(ab_hit)
 				}
 			}
 
@@ -600,7 +599,7 @@ update :: proc() {
 				unordered_remove(&current_room.interactables, inter_idx)
 				inter_idx -= 1
 				has_key = true
-				k2.play_sound(k2.create_sound_from_audio_buffer(ab_pickup))
+				k2.play_audio_buffer(ab_pickup)
 			}
 
 		case .Wall:
