@@ -229,6 +229,8 @@ web_get_window_render_glue :: proc() -> Window_Render_Glue {
 }
 
 // This works for XBox controller -- does it work for PlayStation?
+//
+// The magic numbers are from https://gamepad-tester.net/
 KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
 	.None = 0,
 	

@@ -161,14 +161,11 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 			case .B: button = .Right_Face_Right
 
 			case .LSHOULDER: button = .Left_Shoulder
-			case .LTRIGGER:  button = .Left_Trigger
-
 			case .RSHOULDER: button = .Right_Shoulder
-			case .RTRIGGER:  button = .Right_Trigger
 
 			case .BACK: button = .Middle_Face_Left
 			
-			// Not sure you can get the "middle button" with XInput (the one that goe to dashboard)
+			// Not sure you can get the "middle button" with XInput (the one that goes to dashboard)
 
 			case .START: button = .Middle_Face_Right
 
@@ -194,6 +191,47 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 			if evt != nil {
 				append(&s.events, evt)
 			}
+		}
+
+		// Triggers are handled separately because RTRIGGER and LTRIGGER don't get key down events
+		// while held at same time.
+		gp_state: win32.XINPUT_STATE
+		if win32.XInputGetState(win32.XUSER(gamepad), &gp_state) == .SUCCESS {
+			THRESHOLD :: win32.BYTE(win32.XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
+
+			cur_lt := gp_state.Gamepad.bLeftTrigger
+			cur_rt := gp_state.Gamepad.bRightTrigger
+
+			prev := &s.previous_gamepad_triggers[gamepad]
+			prev_lt := prev[0]
+			prev_rt := prev[1]
+
+			if cur_lt >= THRESHOLD && prev_lt < THRESHOLD {
+				append(&s.events, Event_Gamepad_Button_Went_Down {
+					gamepad = gamepad,
+					button = .Left_Trigger,
+				})
+			} else if cur_lt < THRESHOLD && prev_lt >= THRESHOLD {
+				append(&s.events, Event_Gamepad_Button_Went_Up {
+					gamepad = gamepad,
+					button = .Left_Trigger,
+				})
+			}
+
+			if cur_rt >= THRESHOLD && prev_rt < THRESHOLD {
+				append(&s.events, Event_Gamepad_Button_Went_Down {
+					gamepad = gamepad,
+					button = .Right_Trigger,
+				})
+			} else if cur_rt < THRESHOLD && prev_rt >= THRESHOLD {
+				append(&s.events, Event_Gamepad_Button_Went_Up {
+					gamepad = gamepad,
+					button = .Right_Trigger,
+				})
+			}
+
+			prev[0] = cur_lt
+			prev[1] = cur_rt
 		}
 	}
 
@@ -366,6 +404,10 @@ Windows_State :: struct {
 	in_resize_move_state: bool,
 	screen_width_before_resize_move: int,
 	screen_height_before_resize_move: int,
+
+	// left and right values for the triggers of each gamepad. We use this to known if a trigger has
+	// been pressed/released like a button.
+	previous_gamepad_triggers: [MAX_GAMEPADS][2]win32.BYTE,
 
 	events: [dynamic]Event,
 
