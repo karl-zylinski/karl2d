@@ -161,24 +161,27 @@ init :: proc(
 // application to decide if it wants to shut down or if it (for example) wants to show a 
 // confirmation dialogue.
 //
-// Commonly used for creating the "main loop" of a game: `for k2.update() {}`
+// Commonly used for creating the "main loop" of a game: 
+// 
+//	for k2.update() {}
 //
 // To get more control over how the frame is set up, you can skip calling this proc and instead use
 // the procs it calls directly:
 //
-//// for {
-////     k2.reset_frame_allocator()
-////     k2.calculate_frame_time()
-////     k2.process_events()
-////     k2.update_audio_mixer()
-////     
-////     k2.clear(k2.BLUE)
-////     k2.present()
-////     
-////     if k2.close_window_requested() {
-////         break
-////     }
-//// }
+//
+////	for {
+////	     k2.reset_frame_allocator()
+////	     k2.calculate_frame_time()
+////	     k2.process_events()
+////	     k2.update_audio_mixer()
+////	     
+////	     k2.clear(k2.BLUE)
+////	     k2.present()
+////	     
+////	     if k2.close_window_requested() {
+////	         break
+////	     }
+////	 }
 update :: proc() -> bool {
 	reset_frame_allocator()
 	calculate_frame_time()
@@ -549,14 +552,15 @@ key_is_held :: proc(key: Keyboard_Key) -> bool {
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
 // You can check that an exact set of modifiers are held like so:
 //
-// `if k2.get_held_modifiers() == { .Control, Shift} {}`
+//	if k2.get_held_modifiers() == { .Control, Shift} {}
 //
 // This will only be true if left/right control are held and left/right shift are held, but it also
 // makes sure that no alt or super (windows) key are held.
 //
 // This is useful for checking for held modifiers for hotkeys in user interfaces. If you want to
 // associate an in-game action with a specific key such as Left Control, then it's better to just do
-// `if k2.key_is_held(.Left_Control) {}`
+// 
+//	if k2.key_is_held(.Left_Control) {}
 get_held_modifiers :: proc() -> bit_set[Modifier] {
 	res: bit_set[Modifier]
 
@@ -877,8 +881,8 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 //
 // If you want to rotate around the middle of the texture, then try this:
 // 
-//// middle := k2.rect_middle(k2.get_texture_rect(tex))
-//// draw_texture(tex, pos + middle, middle, rot)
+//// 	middle := k2.rect_middle(k2.get_texture_rect(tex))
+//// 	draw_texture(tex, pos + middle, middle, rot)
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
