@@ -47,6 +47,7 @@ wl_init :: proc(
 	s = (^WL_State)(window_state)
 	s.allocator = allocator
 	s.scale = 1
+	s.cursor_visible = true
 	s.odin_ctx = context
 
 	s.display = wl.display_connect(nil)
