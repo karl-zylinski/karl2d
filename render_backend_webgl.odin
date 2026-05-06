@@ -23,6 +23,7 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 	create_render_texture = webgl_create_render_texture,
 	destroy_render_target = webgl_destroy_render_target,
 	set_texture_filter = webgl_set_texture_filter,
+	set_texture_wrap = webgl_set_texture_wrap,
 	load_shader = webgl_load_shader,
 	destroy_shader = webgl_destroy_shader,
 
@@ -500,6 +501,22 @@ webgl_set_texture_filter :: proc(
 
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, i32(min_filter))
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, i32(mag_filter))
+}
+
+webgl_set_texture_wrap :: proc(th: Texture_Handle, wrap: Texture_Wrap) {
+	t := hm.get(&s.textures, th)
+
+	if t == nil {
+		log.error("Trying to set texture wrap for invalid texture %v", th)
+		return
+	}
+
+	gl.BindTexture(gl.TEXTURE_2D, t.id)
+
+	param := wrap == .Repeat ? i32(gl.REPEAT) : i32(gl.CLAMP_TO_EDGE)
+
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, param)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, param)
 }
 
 Shader_Compile_Result_OK :: struct {}

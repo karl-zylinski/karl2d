@@ -22,6 +22,7 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	create_render_texture = rbnil_create_render_texture,
 	destroy_render_target = rbnil_destroy_render_target,
 	set_texture_filter = rbnil_set_texture_filter,
+	set_texture_wrap = rbnil_set_texture_wrap,
 	load_shader = rbnil_load_shader,
 	destroy_shader = rbnil_destroy_shader,
 
@@ -113,6 +114,9 @@ rbnil_set_texture_filter :: proc(
 	scale_up_filter: Texture_Filter,
 	mip_filter: Texture_Filter,
 ) {
+}
+
+rbnil_set_texture_wrap :: proc(th: Texture_Handle, wrap: Texture_Wrap) {
 }
 
 rbnil_load_shader :: proc(

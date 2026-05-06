@@ -868,6 +868,40 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 	batch_vertex(vertices[2], {0, 1}, c)
 }
 
+// One vertex has a position (2D), texture coordinates (2D) and a color attribute.
+Vertex :: struct {
+	position: Vec2,
+	texcoord: Vec2,
+	color:    Color,
+}
+
+// Draw a triangle using a list of vertices. Every group of 3 consecutive vertices form a triangle.
+// each vertex can carry custom uv coordinates to make it possible to create texture patterns.
+// If no texture is supplied it uses a solid color
+draw_polygon :: proc(vertices: []Vertex, texture := TEXTURE_NONE) {
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * len(vertices) > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+
+	if texture == TEXTURE_NONE {
+		if s.batch_texture != s.shape_drawing_texture {
+			draw_current_batch()
+		}
+
+		s.batch_texture = s.shape_drawing_texture
+	} else {
+		if s.batch_texture != texture {
+			draw_current_batch()
+		}
+
+		s.batch_texture = texture
+	}
+
+	for v in vertices {
+		batch_vertex(v.position, v.texcoord, v.color)
+	}
+}
+
 // Draw a texture at a position. The top-left corner of the texture will end up at the position.
 //
 // Optional parameters:
@@ -1374,6 +1408,11 @@ set_texture_filter_ex :: proc(
 	mip_filter: Texture_Filter,
 ) {
 	rb.set_texture_filter(t.handle, scale_down_filter, scale_up_filter, mip_filter)
+}
+
+// Controls how a texture wraps when UV coordinates fall outside the [0, 1] range.
+set_texture_wrap :: proc(t: Texture, wrap: Texture_Wrap) {
+	rb.set_texture_wrap(t.handle, wrap)
 }
 
 //-------//
@@ -3726,6 +3765,11 @@ Render_Texture :: struct {
 Texture_Filter :: enum {
 	Point,  // Similar to "nearest neighbor". Pixly texture scaling.
 	Linear, // Smoothed texture scaling.
+}
+
+Texture_Wrap :: enum {
+	Clamp,  // UV coords get clamped to the edge of the texture.
+	Repeat, // Coordinates tile and wrap around the texture.
 }
 
 Camera :: struct {
