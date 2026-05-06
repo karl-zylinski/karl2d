@@ -214,7 +214,7 @@ linux_create_connected_gamepads :: proc() {
 }
 
 linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
-	fd, err := os.open(device_path, { .Read, .Non_Blocking })
+	fd, err := os.open(device_path, { .Read, .Write, .Non_Blocking })
 
 	if err != nil {
 		log.errorf("Failed creating gamepad for device %v", device_path)
