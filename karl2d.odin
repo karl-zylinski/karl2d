@@ -151,7 +151,19 @@ init :: proc(
 		hm.dynamic_init(&s.audio_streams, s.allocator)
 	}
 
+	// Register a callback for handling window redraw -- this is necessary for a platform like Windows
+	// where moving/resizing the window locks the main thread in an event loop
+	// This must be done after the render/audio setup so that they are available for redraw events on windows creation
+	callback := options.redraw_callback != nil ? options.redraw_callback : default_redraw_callback
+	pf.set_window_redraw_callback(callback);
+
 	return s
+}
+
+@(private="file")
+default_redraw_callback :: proc() {
+	// Just redraw current frame again (will cause stretching if window was resized)
+	present()
 }
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
@@ -3768,6 +3780,10 @@ Init_Options :: struct {
 	// platforms, such as Linux+Wayland, it does not work, because Wayland always auto scales all
 	// windows.
 	disable_auto_scale_hint: bool,
+
+	// In Windows, WM_SIZE and WM_MOVE events lock the message loop until the action is finished.
+	// You can provide a callback function here that will be called during these events
+	redraw_callback: proc()
 }
 
 Shader_Handle :: distinct Handle
