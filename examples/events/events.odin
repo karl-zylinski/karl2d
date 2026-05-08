@@ -12,6 +12,8 @@ package karl2d_events_example
 import k2 "../.."
 import "core:fmt"
 
+captured: bool
+
 main :: proc() {
 	k2.init(720, 1280, "Karl2D Events", options = { window_mode = .Windowed_Resizable })
 	MAX_HISTORY :: 32
@@ -19,6 +21,22 @@ main :: proc() {
 	num_mouse_clicks := 0
 
 	for k2.update() {
+		if k2.key_went_down(.Escape) {
+			k2.set_mouse_captured(false)
+		}
+
+		pos := k2.get_mouse_position()
+		screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size())
+
+		if k2.mouse_button_went_down(.Left) && k2.point_in_rect(pos, screen_rect) {
+			captured = true
+		}
+
+		if captured {
+			k2.set_mouse_captured(true)
+			k2.set_mouse_position(k2.get_screen_size() * 0.5)
+		}
+		
 		events := k2.get_events()
 
 		for event in events {

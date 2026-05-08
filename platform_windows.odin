@@ -17,6 +17,8 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	set_screen_size = windows_set_screen_size,
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
+	set_mouse_captured = windows_set_mouse_captured,
+	set_mouse_position = windows_set_mouse_position,
 	set_cursor_visible = windows_set_cursor_visible,
 
 	is_gamepad_active = windows_is_gamepad_active,
@@ -280,19 +282,19 @@ windows_get_style :: proc(window_mode: Window_Mode) -> win32.DWORD {
 	switch window_mode {
 	case .Windowed:
 		style = win32.WS_OVERLAPPED |
-	            win32.WS_CAPTION |
-	            win32.WS_SYSMENU |
-	            win32.WS_MINIMIZEBOX |
-	            win32.WS_VISIBLE
+				win32.WS_CAPTION |
+				win32.WS_SYSMENU |
+				win32.WS_MINIMIZEBOX |
+				win32.WS_VISIBLE
 
 	case .Windowed_Resizable:
 		style = win32.WS_OVERLAPPED |
-	            win32.WS_CAPTION |
-	            win32.WS_SYSMENU |
-	            win32.WS_MINIMIZEBOX |
-	            win32.WS_VISIBLE |
-	            win32.WS_THICKFRAME |
-	            win32.WS_MAXIMIZEBOX
+				win32.WS_CAPTION |
+				win32.WS_SYSMENU |
+				win32.WS_MINIMIZEBOX |
+				win32.WS_VISIBLE |
+				win32.WS_THICKFRAME |
+				win32.WS_MAXIMIZEBOX
 
 	case .Borderless_Fullscreen:
 		style = win32.WS_VISIBLE
@@ -411,6 +413,10 @@ Windows_State :: struct {
 
 	events: [dynamic]Event,
 
+	mouse_captured: bool,
+	mouse_teleported: bool,
+	mouse_teleported_to: [2]i32,
+
 	// for when returning from fullscreen to window mode
 	restore_window_pos_x: int,
 	restore_window_pos_y: int,
@@ -470,6 +476,31 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
+windows_set_mouse_captured :: proc(captured: bool) {
+	s.mouse_captured = captured
+
+	if captured {
+		r: win32.RECT
+		win32.GetClientRect(s.hwnd, &r)
+		tl := win32.POINT{r.left, r.top}
+		br := win32.POINT{r.right, r.bottom}
+		win32.ClientToScreen(s.hwnd, &tl)
+		win32.ClientToScreen(s.hwnd, &br)
+		clip := win32.RECT{tl.x, tl.y, br.x, br.y}
+		win32.ClipCursor(&clip)
+	} else {
+		win32.ClipCursor(nil)
+	}
+}
+
+windows_set_mouse_position :: proc(pos: Vec2) {
+	p := win32.POINT{i32(pos.x), i32(pos.y)}
+	win32.ClientToScreen(s.hwnd, &p)
+	win32.SetCursorPos(p.x, p.y)
+	s.mouse_teleported = true
+	s.mouse_teleported_to = {i32(pos.x), i32(pos.y)}
+}
+
 windows_set_cursor_visible :: proc(visible: bool) {
 	win32.ShowCursor(win32.BOOL(visible))
 }
@@ -510,6 +541,15 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_MOUSEMOVE:
 		x := win32.GET_X_LPARAM(lparam)
 		y := win32.GET_Y_LPARAM(lparam)
+
+		if s.mouse_teleported {
+			if s.mouse_teleported_to == {x, y} {
+				break
+			}
+
+			s.mouse_teleported = false
+		}
+
 		append(&s.events, Event_Mouse_Move {
 			position = {f32(x), f32(y)},
 		})
@@ -615,9 +655,13 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 	case win32.WM_SETFOCUS:
 		append(&s.events, Event_Window_Focused {})
+		if s.mouse_captured {
+			windows_set_mouse_captured(true)
+		}
 
 	case win32.WM_KILLFOCUS:
 		append(&s.events, Event_Window_Unfocused {})
+		win32.ClipCursor(nil)
 	}
 
 	return win32.DefWindowProcW(hwnd, msg, wparam, lparam)

@@ -5,19 +5,35 @@ import "core:fmt"
 
 init :: proc() {
 	k2.init(1000, 600, "Karl2D Mouse Demo")
-	k2.set_cursor_visible(false)
 }
 
 wheel: f32
+captured: bool
 
 step :: proc() -> bool {
 	if !k2.update() {
 		return false
 	}
 
-	k2.clear(k2.BLUE)
+	if k2.key_went_down(.Escape) {
+		k2.set_mouse_captured(false)
+	}
 
 	pos := k2.get_mouse_position()
+	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size())
+
+	if k2.mouse_button_went_down(.Left) && k2.point_in_rect(pos, screen_rect) {
+		captured = true
+	}
+
+	if captured {
+		k2.set_cursor_visible(false)
+		k2.set_mouse_captured(true)
+		k2.set_mouse_position(k2.get_screen_size() * 0.5)
+	}
+
+	k2.clear(k2.BLUE)
+
 	k2.draw_circle(pos, 50, k2.WHITE)
 
 	left_pos := pos - {30, 20}
@@ -61,6 +77,9 @@ step :: proc() -> bool {
 	wheel_msg := fmt.tprintf("Wheel: %.1f", wheel)
 	wheel_msg_width := k2.measure_text(wheel_msg, 20).x
 	k2.draw_text(wheel_msg, pos + {-wheel_msg_width/2, 70}, 20, k2.WHITE)
+	delta_msg := fmt.tprintf("Delta: %.1f", k2.get_mouse_delta())
+	delta_msg_width := k2.measure_text(delta_msg, 20).x
+	k2.draw_text(delta_msg, pos + {-delta_msg_width/2, 100}, 20, k2.WHITE)
 
 	k2.present()
 	free_all(context.temp_allocator)

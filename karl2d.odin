@@ -451,6 +451,14 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 	pf.set_window_mode(window_mode)
 }
 
+set_mouse_captured :: proc(captured: bool) {
+	pf.set_mouse_captured(captured)
+}
+
+set_mouse_position :: proc(pos: Vec2) {
+	pf.set_mouse_position(pos)
+}
+
 // Hide or show the OS cursor.
 set_cursor_visible :: proc(visible: bool) {
 	pf.set_cursor_visible(visible)
@@ -3610,6 +3618,8 @@ ui_button :: proc(r: Rect, text: string) -> bool {
 //---------------------//
 
 Vec2 :: [2]f32
+
+Vec2i :: [2]int
 
 Vec3 :: [3]f32
 
