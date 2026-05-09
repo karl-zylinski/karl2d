@@ -15,6 +15,7 @@ import "core:encoding/endian"
 
 import fs "vendor:fontstash"
 import stbv "vendor:stb/vorbis"
+import stbtt "vendor:stb/truetype"
 
 import "core:image"
 import "core:image/jpeg"
@@ -3118,11 +3119,11 @@ load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Fon
 
 // Loads a font from a block of memory and returns a handle that represents it.
 load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
-	font := fs.AddFontMem(&s.fs, "", slice.clone(data, s.allocator), false)
+	fontstash_handle := fs.AddFontMem(&s.fs, "", slice.clone(data, s.allocator), false)
 	h := Font(len(s.fonts))
 
 	data := Font_Data {
-		fontstash_handle = font,
+		fontstash_handle = fontstash_handle,
 		atlas = {
 			handle = rb.create_texture(FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .RGBA_8_Norm),
 			width = FONT_DEFAULT_ATLAS_SIZE,
@@ -3134,6 +3135,68 @@ load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
 	set_texture_filter(data.atlas, options.filter)
 	append(&s.fonts, data)
 	return h
+}
+
+load_bitmap_font_from_file :: proc(filename: string, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font {
+	data, data_ok := read_entire_file(filename, s.frame_allocator)
+
+	if !data_ok {
+		log.errorf("Failed loading font %s", filename)
+		return FONT_NONE
+	}
+
+	return load_bitmap_font_from_bytes(data, font_size, codepoints, options)
+}
+
+load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font {
+	//
+	// This implementation is based on LoadFontData in Raylib.
+	//
+
+	codepoints := codepoints
+	font_info: stbtt.fontinfo
+	init_ok := stbtt.InitFont(&font_info, raw_data(data), 0)
+
+	if !init_ok {
+		log.error("Failed loading TTF bitmap font")
+		return FONT_NONE
+	}
+
+	scale_factor := stbtt.ScaleForPixelHeight(&font_info, font_size)
+
+	ascent, descent, line_gap: i32
+	stbtt.GetFontVMetrics(&font_info, &ascent, &descent, &line_gap)
+
+	default_codepoints: [95]rune
+
+	if len(codepoints) == 0 {
+		for &d, idx in default_codepoints {
+			d = rune(idx + 32)
+		}
+
+		codepoints = default_codepoints[:]
+	}
+
+	num_glyphs: int
+
+	for c in codepoints {
+		if stbtt.FindGlyphIndex(&font_info, c) > 0 {
+			num_glyphs += 1
+		}
+	}
+
+	glyphs := make([]Font_Bitmap_Glyph, num_glyphs, s.allocator)
+
+	for c, c_idx in codepoints {
+		w, h: i32
+		index := stbtt.FindGlyphIndex(&font_info, c) 
+
+		if index > 0 {
+			glyphs[c_idx].value = c
+
+
+		}
+	}
 }
 
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
@@ -3885,6 +3948,12 @@ Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
+
+Font_Bitmap_Glyph :: struct {
+	value: rune,
+	offset: Vec2,
+	advance: f32,
+}
 
 FONT_NONE :: Font(0)
 
