@@ -20,3 +20,9 @@ step :: proc(dt: f64) -> bool {
 	context = ctx
 	return ex.step()
 }
+
+@export
+shutdown :: proc(dt: f64) {
+	context = ctx
+	ex.shutdown()
+}
