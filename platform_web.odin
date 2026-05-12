@@ -217,6 +217,7 @@ web_set_screen_size_to_window_size :: proc(canvas_id: HTML_Canvas_ID) {
 }
 
 web_shutdown :: proc() {
+	delete(s.events)
 	delete(s.key_from_js_event_key_code)
 }
 
