@@ -37,3 +37,8 @@ step :: proc() -> bool {
 
 	return true
 }
+
+shutdown :: proc() {
+	// Close the window and clean up the library's internal state.
+	k2.shutdown()
+}
