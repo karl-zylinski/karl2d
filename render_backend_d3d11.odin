@@ -24,6 +24,7 @@ RENDER_BACKEND_D3D11 :: Render_Backend_Interface {
 	create_render_texture = d3d11_create_render_texture,
 	destroy_render_target = d3d11_destroy_render_target,
 	set_texture_filter = d3d11_set_texture_filter,
+	set_texture_wrap = d3d11_set_texture_wrap,
 	load_shader = d3d11_load_shader,
 	destroy_shader = d3d11_destroy_shader,
 	default_shader_vertex_source = d3d11_default_shader_vertex_source,
@@ -495,7 +496,7 @@ create_texture :: proc(
 		tex = texture,
 		format = format,
 		view = texture_view,
-		sampler = create_sampler(.MIN_MAG_MIP_POINT),
+		sampler = create_sampler(.MIN_MAG_MIP_POINT, .Clamp), // use clamp as it was the defualt option before adding "t.wrap"
 	}
 
 	tex_handle, tex_add_err := hm.add(&s.textures, tex)
@@ -543,7 +544,7 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 		tex = texture,
 		view = texture_view,
 		format = .RGBA_32_Float,
-		sampler = create_sampler(.MIN_MAG_MIP_POINT),
+		sampler = create_sampler(.MIN_MAG_MIP_POINT, .Clamp), // use clamp as it was the defualt option before adding "t.wrap"
 	}
 
 	d3d11_render_target := D3D11_Render_Target {
@@ -658,19 +659,43 @@ d3d11_set_texture_filter :: proc(
 		f = .MIN_POINT_MAG_LINEAR_MIP_POINT
 	}
 
+	t.filter = f
+
 	if t.sampler != nil {
 		t.sampler->Release()
 	}
 
-	t.sampler = create_sampler(f)
+	t.sampler = create_sampler(f, t.wrap)
 }
 
-create_sampler :: proc(filter: d3d11.FILTER) -> ^d3d11.ISamplerState {
+d3d11_set_texture_wrap :: proc(th: Texture_Handle, wrap: Texture_Wrap) {
+	t := hm.get(&s.textures, th)
+
+	if t == nil {
+		log.error("Trying to set texture wrap for invalid texture %v", th)
+		return
+	}
+
+	t.wrap = wrap
+
+	if t.sampler != nil {
+		t.sampler->Release()
+	}
+
+	// As far as I understand D3D11 packs both filter and wrap in a single sampler.
+	// because of this the cleanest approach I could come up with was to pass the filter
+	// through the texture struct, assign it in the "set_filter" proc and use it here.
+	t.sampler = create_sampler(t.filter, wrap)
+}
+
+create_sampler :: proc(filter: d3d11.FILTER, wrap: Texture_Wrap) -> ^d3d11.ISamplerState {
+	address_mode: d3d11.TEXTURE_ADDRESS_MODE = wrap == .Repeat ? .WRAP : .CLAMP
+
 	sampler_desc := d3d11.SAMPLER_DESC{
-		Filter = filter,
-		AddressU = .CLAMP,
-		AddressV = .CLAMP,
-		AddressW = .CLAMP,
+		Filter         = filter,
+		AddressU       = address_mode,
+		AddressV       = address_mode,
+		AddressW       = address_mode,
 		ComparisonFunc = .NEVER,
 	}
 
@@ -1100,6 +1125,8 @@ D3D11_Texture :: struct {
 	tex: ^d3d11.ITexture2D,
 	view: ^d3d11.IShaderResourceView,
 	format: Pixel_Format,
+	wrap: Texture_Wrap,
+	filter: d3d11.FILTER,
 
 	// It may seem strange that we have a sampler here. But samplers are reused if you recreate them
 	// with the same options. D3D11 will return the same object. So each time we set the filter

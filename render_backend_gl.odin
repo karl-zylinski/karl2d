@@ -23,6 +23,7 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	create_render_texture = gl_create_render_texture,
 	destroy_render_target = gl_destroy_render_target,
 	set_texture_filter = gl_set_texture_filter,
+	set_texture_wrap = gl_set_texture_wrap,
 	load_shader = gl_load_shader,
 	destroy_shader = gl_destroy_shader,
 
@@ -526,6 +527,22 @@ gl_set_texture_filter :: proc(
 
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, min_filter)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, mag_filter)
+}
+
+gl_set_texture_wrap :: proc(th: Texture_Handle, wrap: Texture_Wrap) {
+	t := hm.get(&s.textures, th)
+
+	if t == nil {
+		log.error("Trying to set texture wrap for invalid texture %v", th)
+		return
+	}
+
+	gl.BindTexture(gl.TEXTURE_2D, t.id)
+
+	param: i32 = wrap == .Repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE
+
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, param)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, param)
 }
 
 Shader_Compile_Result_OK :: struct {}

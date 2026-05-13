@@ -309,6 +309,18 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color)
 
+// One vertex has a position (2D), texture coordinates (2D) and a color attribute.
+Vertex :: struct {
+	position: Vec2,
+	texcoord: Vec2,
+	color:    Color,
+}
+
+// Draw a triangle using a list of vertices. Every group of 3 consecutive vertices form a triangle.
+// each vertex can carry custom uv coordinates to make it possible to create texture patterns.
+// If no texture is supplied it uses a solid color
+draw_polygon :: proc(vertices: []Vertex, texture := TEXTURE_NONE)
+
 // Draw a texture at a position. The top-left corner of the texture will end up at the position.
 //
 // Optional parameters:
@@ -435,6 +447,9 @@ set_texture_filter_ex :: proc(
 	scale_up_filter: Texture_Filter,
 	mip_filter: Texture_Filter,
 )
+
+// Controls how a texture wraps when UV coordinates fall outside the [0, 1] range.
+set_texture_wrap :: proc(t: Texture, wrap: Texture_Wrap)
 
 //-------//
 // AUDIO //
@@ -1012,6 +1027,11 @@ Render_Texture :: struct {
 Texture_Filter :: enum {
 	Point,  // Similar to "nearest neighbor". Pixly texture scaling.
 	Linear, // Smoothed texture scaling.
+}
+
+Texture_Wrap :: enum {
+	Clamp,  // UV coords get clamped to the edge of the texture.
+	Repeat, // Coordinates tile and wrap around the texture.
 }
 
 Camera :: struct {

@@ -60,6 +60,11 @@ Render_Backend_Interface :: struct #all_or_none {
 		mip_filter: Texture_Filter,
 	),
 
+	set_texture_wrap: proc(
+		handle: Texture_Handle,
+		wrap: Texture_Wrap,
+	),
+
 	load_shader: proc(
 		vertex_shader_data: []byte,
 		pixel_shader_data: []byte,
