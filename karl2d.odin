@@ -16,6 +16,7 @@ import "core:encoding/endian"
 import fs "vendor:fontstash"
 import stbv "vendor:stb/vorbis"
 import stbtt "vendor:stb/truetype"
+import stbrp "vendor:stb/rect_pack"
 
 import "core:image"
 import "core:image/jpeg"
@@ -1188,6 +1189,79 @@ draw_text :: proc(
 		return
 	}
 
+	font_object := &s.fonts[font]
+
+	switch font_object.type {
+	case .Bitmap:
+		_draw_text_bitmap(
+			text,
+			position,
+			font_size,
+			color,
+			font,
+			origin,
+			rotation,
+		)
+
+	case .Fontstash:
+		_draw_text_fontstash(
+			text,
+			position,
+			font_size,
+			color,
+			font,
+			origin,
+			rotation,
+		)
+	}
+}
+
+_draw_text_bitmap :: proc(
+	text: string,
+	position: Vec2,
+	font_size: f32,
+	color: Color,
+	font := FONT_DEFAULT,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+) {
+	if int(font) >= len(s.fonts) {
+		return
+	}
+
+	font_object := &s.fonts[font]
+
+	position := position
+
+	for c in text {
+		for g in font_object.glyphs {
+			if g.value == c {
+				draw_texture_rect(
+					font_object.atlas,
+					g.rect,
+					position + g.offset,
+					tint = color,
+				)
+
+				position.x += g.advance
+			}
+		}
+	}
+}
+
+_draw_text_fontstash :: proc(
+	text: string,
+	position: Vec2,
+	font_size: f32,
+	color: Color,
+	font := FONT_DEFAULT,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+) {
+	if int(font) >= len(s.fonts) {
+		return
+	}
+
 	_set_font(font)
 	font_object := &s.fonts[font]
 
@@ -1333,6 +1407,30 @@ load_texture_from_bytes_raw :: proc(bytes: []u8, width: int, height: int, format
 		handle = backend_tex,
 		width = width,
 		height = height,
+	}
+}
+
+load_texture_from_image :: proc(image: Image) -> Texture {
+	if image.width == 0 || image.height == 0 {
+		log.error("Invalid image: Height or width is zero")
+		return {}
+	}
+
+	if len(image.pixels) != (image.width*image.height) {
+		log.error("Invalid image: the pixels array is not of size image.width*image.height")
+		return {}
+	}
+
+	backend_tex := rb.load_texture(slice.reinterpret([]u8, image.pixels[:]), image.width, image.height, .RGBA_8_Norm)
+
+	if backend_tex == TEXTURE_NONE {
+		return {}
+	}
+
+	return {
+		handle = backend_tex,
+		width = image.width,
+		height = image.height,
 	}
 }
 
@@ -3129,6 +3227,7 @@ load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
 			width = FONT_DEFAULT_ATLAS_SIZE,
 			height = FONT_DEFAULT_ATLAS_SIZE,
 		},
+		type = .Fontstash,
 		options = options,
 	}
 
@@ -3149,10 +3248,6 @@ load_bitmap_font_from_file :: proc(filename: string, font_size: f32, codepoints:
 }
 
 load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font {
-	//
-	// This implementation is based on LoadFontData in Raylib.
-	//
-
 	codepoints := codepoints
 	font_info: stbtt.fontinfo
 	init_ok := stbtt.InitFont(&font_info, raw_data(data), 0)
@@ -3177,26 +3272,187 @@ load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []
 		codepoints = default_codepoints[:]
 	}
 
-	num_glyphs: int
+	glyphs := make([dynamic]Font_Bitmap_Glyph, s.frame_allocator)
 
 	for c in codepoints {
-		if stbtt.FindGlyphIndex(&font_info, c) > 0 {
-			num_glyphs += 1
+		idx := stbtt.FindGlyphIndex(&font_info, c)
+		
+		if idx > 0 {
+			advance: i32
+			stbtt.GetGlyphHMetrics(&font_info, idx, &advance, nil)
+
+			append(&glyphs, Font_Bitmap_Glyph {
+				value = c,
+				index = int(idx),
+				advance = f32(advance) * scale_factor,
+			})
 		}
 	}
 
-	glyphs := make([]Font_Bitmap_Glyph, num_glyphs, s.allocator)
+	Glyph_Image_Data :: struct {
+		pixels: [^]byte,
+		width: i32,
+		height: i32,
+	}
 
-	for c, c_idx in codepoints {
+	glyphs_img_data := make([]Glyph_Image_Data, len(glyphs), s.frame_allocator)
+	glyphs_pack_rects := make([]stbrp.Rect, len(glyphs), s.frame_allocator)
+
+	for &g, g_idx in glyphs {
+		x_off, y_off: i32
 		w, h: i32
-		index := stbtt.FindGlyphIndex(&font_info, c) 
 
-		if index > 0 {
-			glyphs[c_idx].value = c
+		pixels := stbtt.GetCodepointBitmap(
+			&font_info,
+			scale_factor,
+			scale_factor,
+			g.value,
+			&w,
+			&h,
+			&x_off,
+			&y_off,
+		)
 
+		glyphs_img_data[g_idx] = {
+			pixels = pixels,
+			width = w,
+			height = h,
+		}
 
+		g.offset = {
+			f32(x_off),
+			f32(y_off),
+		}
+
+		glyphs_pack_rects[g_idx] = {
+			w = stbrp.Coord(w),
+			h = stbrp.Coord(h),
 		}
 	}
+
+	atlas_size := 128
+	MAX_ATLAS_SIZE :: 4096
+	atlas_packed := false
+
+	for atlas_size <= MAX_ATLAS_SIZE {
+		rp_ctx: stbrp.Context
+		rp_nodes := make([]stbrp.Node, i32(atlas_size), s.frame_allocator)
+		
+		stbrp.init_target(
+			&rp_ctx,
+			i32(atlas_size),
+			i32(atlas_size),
+			raw_data(rp_nodes),
+			i32(len(rp_nodes)),
+		)
+		
+		rect_pack_res := stbrp.pack_rects(
+			&rp_ctx,
+			raw_data(glyphs_pack_rects),
+			i32(len(glyphs_pack_rects)),
+		)
+
+		if rect_pack_res == 1 {
+			atlas_packed = true
+			break
+		}
+
+		atlas_size *= 2
+	}
+
+	if !atlas_packed {
+		log.error("Failed packing font atlas")
+		return {}
+	}
+
+	atlas := make([]Color, atlas_size*atlas_size, s.frame_allocator)
+
+	if options.premultiply_alpha {
+		for pr, pr_idx in glyphs_pack_rects {
+			g := &glyphs[pr_idx]
+
+			g.rect = {
+				f32(pr.x),
+				f32(pr.y),
+				f32(pr.w),
+				f32(pr.h),
+			}
+
+			gimg := glyphs_img_data[pr_idx]
+
+			for sx in 0..<gimg.width {
+				for sy in 0..<gimg.height {
+					dx := int(pr.x) + int(sx)
+					dy := int(pr.y) + int(sy)
+
+					assert(dx >= 0 && dx < atlas_size)
+					assert(dy >= 0 && dy < atlas_size)
+
+					alpha := gimg.pixels[sx * gimg.width + sy]
+					alpha_norm := f32(alpha)/255
+
+					atlas[dy * atlas_size + dx] = {
+						u8(255 * alpha_norm),
+						u8(255 * alpha_norm),
+						u8(255 * alpha_norm),
+						alpha,
+					}
+				}
+			}
+		}
+	} else {
+		for pr, pr_idx in glyphs_pack_rects {
+			g := &glyphs[pr_idx]
+
+			g.rect = {
+				f32(pr.x),
+				f32(pr.y),
+				f32(pr.w),
+				f32(pr.h),
+			}
+
+			gimg := glyphs_img_data[pr_idx]
+
+			for sx in 0..<gimg.width {
+				for sy in 0..<gimg.height {
+					dx := int(pr.x) + int(sx)
+					dy := int(pr.y) + int(sy)
+
+					assert(dx >= 0 && dx < atlas_size)
+					assert(dy >= 0 && dy < atlas_size)
+
+					alpha := gimg.pixels[sy * gimg.width + sx]
+
+					atlas[dy * atlas_size + dx] = {
+						255,
+						255,
+						255,
+						alpha,
+					}
+				}
+			}
+		}
+	}
+
+	img := Image {
+		pixels = atlas,
+		width = atlas_size,
+		height = atlas_size,
+	}
+
+	tex := load_texture_from_image(img)
+	set_texture_filter(tex, options.filter)
+
+	font := Font_Data {
+		atlas = tex,
+		type = .Bitmap,
+		options = options,
+		glyphs = slice.clone(glyphs[:], s.allocator),
+	}
+
+	font_handle := Font(len(s.fonts))
+	append(&s.fonts, font)
+	return font_handle
 }
 
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
@@ -3674,6 +3930,8 @@ ui_button :: proc(r: Rect, text: string) -> bool {
 
 Vec2 :: [2]f32
 
+Vec2i :: [2]int
+
 Vec3 :: [3]f32
 
 Vec4 :: [4]f32
@@ -3789,6 +4047,12 @@ Render_Texture :: struct {
 Texture_Filter :: enum {
 	Point,  // Similar to "nearest neighbor". Pixly texture scaling.
 	Linear, // Smoothed texture scaling.
+}
+
+Image :: struct {
+	pixels: []Color,
+	width: int,
+	height: int,
 }
 
 Camera :: struct {
@@ -3935,11 +4199,21 @@ Font_Options :: struct {
 	filter: Texture_Filter,
 }
 
+Font_Type :: enum {
+	Bitmap,
+	Fontstash,
+}
+
 Font_Data :: struct {
 	atlas: Texture,
 	options: Font_Options,
 
-	// internal
+	type: Font_Type,
+
+	// type == .Bitmap
+	glyphs: []Font_Bitmap_Glyph,
+
+	// type == .Fontstash
 	fontstash_handle: int,
 }
 
@@ -3951,6 +4225,9 @@ DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
 Font_Bitmap_Glyph :: struct {
 	value: rune,
+	// stbtt index, for faster lookup
+	index: int,
+	rect: Rect,
 	offset: Vec2,
 	advance: f32,
 }
@@ -4688,5 +4965,14 @@ f32_color_from_color :: proc(color: Color) -> Color_F32 {
 		f32(color.g) / 255,
 		f32(color.b) / 255,
 		f32(color.a) / 255,
+	}
+}
+
+color_from_f32_color :: proc(color: Color_F32) -> Color {
+	return {
+		u8(color.r * 255),
+		u8(color.g * 255),
+		u8(color.b * 255),
+		u8(color.a * 255),
 	}
 }

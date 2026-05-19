@@ -9,6 +9,7 @@ import "core:math/linalg"
 
 tex: k2.Texture
 pos: k2.Vec2
+cat_and_onion_font: k2.Font
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Basics", options = {window_mode = .Windowed_Resizable})
@@ -17,6 +18,8 @@ init :: proc() {
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
 	// them.
 	tex = k2.load_texture_from_bytes(#load("sixten.jpg"))
+
+	cat_and_onion_font = k2.load_bitmap_font_from_bytes(#load("../fonts/cat_and_onion_dialogue_font.ttf"), 48)
 }
 
 step :: proc() -> bool {
@@ -89,10 +92,10 @@ step :: proc() -> bool {
 
 	// k2.color_alpha takes a pre-defined color and replaces the alpha (transparency).
 	k2.draw_rect({4, 95, msg2_width+20, 162}, k2.color_alpha(k2.DARK_GRAY, 192))
-	k2.draw_text("Hellöpe!", {15, 105}, 48, k2.LIGHT_RED)
+	k2.draw_text("Hellöpe!", {15, 105}, 48, k2.LIGHT_RED, font = cat_and_onion_font)
 
-	k2.draw_text(msg1, {15, 153}, 48, k2.ORANGE)
-	k2.draw_text(msg2, {15, 201}, 48, k2.LIGHT_PURPLE)
+	k2.draw_text(msg1, {15, 153}, 48, k2.ORANGE, font = cat_and_onion_font)
+	k2.draw_text(msg2, {15, 201}, 48, k2.LIGHT_PURPLE, font = cat_and_onion_font)
 
 	//
 	// BOTTOM BAR
