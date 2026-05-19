@@ -6,6 +6,7 @@ import k2 "../.."
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:unicode/utf8"
 
 tex: k2.Texture
 pos: k2.Vec2
@@ -19,7 +20,16 @@ init :: proc() {
 	// them.
 	tex = k2.load_texture_from_bytes(#load("sixten.jpg"))
 
-	cat_and_onion_font = k2.load_bitmap_font_from_bytes(#load("../fonts/cat_and_onion_dialogue_font.ttf"), 48)
+	font_codepoints := utf8.string_to_runes(
+		"abcdefghiklmnopqrstuvxyzåäöABCDEFGHIKLMNOPQRSTUVXYZÅÄÖ!()1234567890., :",
+		context.temp_allocator,
+	)
+
+	cat_and_onion_font = k2.load_bitmap_font_from_bytes(
+		#load("../fonts/cat_and_onion_dialogue_font.ttf"),
+		48,
+		codepoints = font_codepoints,
+	)
 }
 
 step :: proc() -> bool {

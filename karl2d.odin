@@ -1230,21 +1230,37 @@ _draw_text_bitmap :: proc(
 	}
 
 	font_object := &s.fonts[font]
-
 	position := position
 
 	for c in text {
-		for g in font_object.glyphs {
-			if g.value == c {
-				draw_texture_rect(
-					font_object.atlas,
-					g.rect,
-					position + g.offset,
-					tint = color,
-				)
+		g: ^Font_Bitmap_Glyph
 
-				position.x += g.advance
+		for &gc in font_object.glyphs {
+			if gc.value == c {
+				g = &gc
+				break
 			}
+		}
+
+		if g != nil {
+			draw_texture_rect(
+				font_object.atlas,
+				g.rect,
+				position + g.offset,
+				tint = color,
+			)
+
+			position.x += g.advance
+		} else {
+			invalid_rect_size := Vec2 {font_size*0.5, font_size*0.5}
+			invalid_rect := rect_from_pos_size(position + {0, invalid_rect_size.y/2}, invalid_rect_size)
+			
+			draw_rect(
+				invalid_rect,
+				RED,
+			)
+
+			position.x += invalid_rect_size.x
 		}
 	}
 }
@@ -3321,7 +3337,7 @@ load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []
 
 		g.offset = {
 			f32(x_off),
-			f32(y_off),
+			f32(y_off) + f32(ascent) * scale_factor,
 		}
 
 		glyphs_pack_rects[g_idx] = {
