@@ -2,6 +2,7 @@ package karl2d_fonts_example
 
 import k2 "../.."
 import "core:fmt"
+import "core:unicode/utf8"
 
 main :: proc() {
 	init()
@@ -13,9 +14,16 @@ cat_and_onion_font: k2.Font
 
 init :: proc() {
 	k2.init(1080, 1080, "Karl2D Fonts Example")
+
+	font_codepoints := utf8.string_to_runes(
+		"abcdefghiklmnopqrstuvwxyzåäöABCDEFGHIKLMNOPQRSTUVWXYZÅÄÖ!()1234567890., :",
+		context.temp_allocator,
+	)
+
 	cat_and_onion_font = k2.load_bitmap_font_from_bytes(
 		#load("cat_and_onion_dialogue_font.ttf"),
 		48,
+		font_codepoints,
 	)
 }
 

@@ -1147,12 +1147,12 @@ _measure_text_bitmap :: proc(text: string, font_size: f32, font: Font) -> Vec2 {
 			num_linebreaks += 1
 			continue
 		}
-
+		
 		g: ^Font_Bitmap_Glyph
 
-		for &gc in font_object.glyphs {
-			if gc.value == c {
-				g = &gc
+		for &r in font_object.glyph_ranges {
+			if c >= r.start && c < r.end {
+				g = &font_object.glyphs[r.start_idx + int(c - r.start)]
 				break
 			}
 		}
@@ -1321,9 +1321,9 @@ _draw_text_bitmap :: proc(
 
 		g: ^Font_Bitmap_Glyph
 
-		for &gc in font_object.glyphs {
-			if gc.value == c {
-				g = &gc
+		for &r in font_object.glyph_ranges {
+			if c >= r.start && c < r.end {
+				g = &font_object.glyphs[r.start_idx + int(c - r.start)]
 				break
 			}
 		}
@@ -3363,7 +3363,8 @@ load_bitmap_font_from_file :: proc(filename: string, font_size: f32, codepoints:
 load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font {
 	codepoints := codepoints
 	font_info: stbtt.fontinfo
-	init_ok := stbtt.InitFont(&font_info, raw_data(data), 0)
+	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), 0)
+	init_ok := stbtt.InitFont(&font_info, raw_data(data), font_offset)
 
 	if !init_ok {
 		log.error("Failed loading TTF bitmap font")
@@ -3385,6 +3386,7 @@ load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []
 		codepoints = default_codepoints[:]
 	}
 
+	glyph_ranges := make([dynamic]Font_Bitmap_Glyph_Range, s.frame_allocator)
 	glyphs := make([dynamic]Font_Bitmap_Glyph, s.frame_allocator)
 
 	for c in codepoints {
@@ -3401,6 +3403,34 @@ load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []
 			})
 		}
 	}
+
+	slice.sort_by(
+		glyphs[:],
+		proc(i, j: Font_Bitmap_Glyph) -> bool {
+			return i.value < j.value
+		},
+	)
+
+	cur_glyph_range: Font_Bitmap_Glyph_Range
+
+	for g, g_idx in glyphs {
+		if g_idx == 0 {
+			cur_glyph_range = {
+				start = g.value,
+				start_idx = g_idx,
+			}
+		} else if g.value != cur_glyph_range.end {
+			append(&glyph_ranges, cur_glyph_range)
+			cur_glyph_range = {
+				start = g.value,
+				start_idx = g_idx,
+			}
+		}
+
+		cur_glyph_range.end = g.value + 1
+	}
+
+	append(&glyph_ranges, cur_glyph_range)
 
 	Glyph_Image_Data :: struct {
 		pixels: [^]byte,
@@ -3561,6 +3591,7 @@ load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []
 		type = .Bitmap,
 		options = options,
 		glyphs = slice.clone(glyphs[:], s.allocator),
+		glyph_ranges = slice.clone(glyph_ranges[:], s.allocator),
 		bitmap_font_size = font_size,
 
 		// from stbtt.GetFontVMetrics docs 
@@ -3579,12 +3610,19 @@ destroy_font :: proc(font: Font) {
 	}
 
 	f := &s.fonts[font]
-	rb.destroy_texture(f.atlas.handle)	
+	rb.destroy_texture(f.atlas.handle)
 
-	// TODO fontstash has no "destroy font" proc... I should make my own version of fontstash
-	delete(s.fs.fonts[f.fontstash_handle].glyphs)
-	delete(s.fs.fonts[f.fontstash_handle].loadedData, s.allocator)
-	s.fs.fonts[f.fontstash_handle].glyphs = {}
+	switch f.type {
+	case .Bitmap:
+		delete(f.glyphs, s.allocator)
+		delete(f.glyph_ranges, s.allocator)
+	case .Fontstash:
+		// TODO fontstash has no "destroy font" proc... I should make my own version of fontstash
+		delete(s.fs.fonts[f.fontstash_handle].glyphs)
+		delete(s.fs.fonts[f.fontstash_handle].loadedData, s.allocator)
+		s.fs.fonts[f.fontstash_handle].glyphs = {}
+	}
+
 }
 
 @(deprecated="Use FONT_DEFAULT constant instead")
@@ -4329,6 +4367,7 @@ Font_Data :: struct {
 
 	// type == .Bitmap
 	glyphs: []Font_Bitmap_Glyph,
+	glyph_ranges: []Font_Bitmap_Glyph_Range,
 	bitmap_font_size: f32,
 	bitmap_line_spacing: f32,
 
@@ -4341,6 +4380,12 @@ Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
+
+Font_Bitmap_Glyph_Range :: struct {
+	start_idx: int,
+	start: rune,
+	end: rune,
+}
 
 Font_Bitmap_Glyph :: struct {
 	value: rune,
