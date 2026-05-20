@@ -20,7 +20,7 @@ init :: proc() {
 		context.temp_allocator,
 	)
 
-	cat_and_onion_font = k2.load_bitmap_font_from_bytes(
+	cat_and_onion_font = k2.load_static_font_from_bytes(
 		#load("cat_and_onion_dialogue_font.ttf"),
 		48,
 		font_codepoints,

@@ -134,7 +134,7 @@ init :: proc(
 	// Dummy element so font with index 0 means 'no font'.
 	append_nothing(&s.fonts)
 
-	default_font := load_font_from_bytes(DEFAULT_FONT_DATA)
+	default_font := load_dynamic_font_from_bytes(DEFAULT_FONT_DATA)
 	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
 	_set_font(FONT_DEFAULT)
 
@@ -1111,130 +1111,132 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 	font_object := s.fonts[font]
 
 	switch font_object.type {
-	case .Bitmap:
-		return _measure_text_bitmap(text, font_size, font)
+	case .Static:
+		return measure_text_static(text, font_size, font)
 
-	case .Fontstash:
-		return _measure_text_fontstash(text, font_size, font)
+	case .Dynamic:
+		return measure_text_dynamic(text, font_size, font)
 	}
 
 	return {}
-}
 
-_measure_text_bitmap :: proc(text: string, font_size: f32, font: Font) -> Vec2 {
-	w: f32
-	line_w: f32
+	// ----------
 
-	if int(font) >= len(s.fonts) {
-		return {}
-	}
+	measure_text_static :: proc(text: string, font_size: f32, font: Font) -> Vec2 {
+		w: f32
+		line_w: f32
 
-	font_object := &s.fonts[font]
-	scl := font_size / font_object.bitmap_font_size
-	num_linebreaks := 0
-
-	for c in text {
-		if c == '\r' {
-			continue
+		if int(font) >= len(s.fonts) {
+			return {}
 		}
 
-		if c == '\n' {
-			if line_w > w {
-				w = line_w
-			}
+		font_object := &s.fonts[font]
+		scl := font_size / font_object.static_font_size
+		num_linebreaks := 0
 
-			line_w = 0
-			num_linebreaks += 1
-			continue
-		}
-		
-		g: ^Font_Bitmap_Glyph
-
-		for &r in font_object.glyph_ranges {
-			if c >= r.start && c < r.end {
-				g = &font_object.glyphs[r.start_idx + int(c - r.start)]
-				break
-			}
-		}
-
-		if g != nil {
-			line_w += g.advance*scl
-		} else {
-			line_w += font_size * 0.5
-		}
-	}
-
-	// Check last line
-	if line_w > w {
-		w = line_w
-	}
-
-	h := f32(num_linebreaks + 1) * font_object.bitmap_line_spacing * scl
-
-	return {
-		w,
-		h,
-	}
-}
-
-_measure_text_fontstash :: proc(text: string, font_size: f32, font: Font) -> Vec2 {
-	if font < 0 || int(font) >= len(s.fonts) {
-		return {}
-	}
-
-	font_object := s.fonts[font]
-
-	// Temporary until I rewrite the font caching system.
-	_set_font(font)
-
-	// TextBounds from fontstash, but fixed and simplified for my purposes.
-	// The version in there is broken.
-	TextBounds :: proc(
-		ctx:  ^fs.FontContext,
-		font_idx: int,
-		size: f32,
-		text: string,
-	) -> Vec2 {
-		font  := fs.__getFont(ctx, font_idx)
-		isize := i16(size * 10)
-
-		x, y: f32
-		max_x := x
-
-		scale := fs.__getPixelHeightScale(font, f32(isize) / 10)
-		previousGlyphIndex: fs.Glyph_Index = -1
-		quad: fs.Quad
-		lines := 1
-
-		for codepoint in text {
-			if codepoint == '\n' {
-				x = 0
-				lines += 1
+		for c in text {
+			if c == '\r' {
 				continue
 			}
 
-			if glyph, ok := fs.__getGlyph(ctx, font, codepoint, isize); ok {
-				if glyph.xadvance > 0 {
-					x += f32(int(f32(glyph.xadvance) / 10 + 0.5))
-				} else {
-					// updates x
-					fs.__getQuad(ctx, font, previousGlyphIndex, glyph, scale, 0, &x, &y, &quad)
+			if c == '\n' {
+				if line_w > w {
+					w = line_w
 				}
 
-				if x > max_x {
-					max_x = x
-				}
+				line_w = 0
+				num_linebreaks += 1
+				continue
+			}
+			
+			g: ^Font_Baked_Glyph
 
-				previousGlyphIndex = glyph.index
-			} else {
-				previousGlyphIndex = -1
+			for &r in font_object.static_glyph_ranges {
+				if c >= r.start && c < r.end {
+					g = &font_object.static_glyphs[r.start_idx + int(c - r.start)]
+					break
+				}
 			}
 
+			if g != nil {
+				line_w += g.advance*scl
+			} else {
+				line_w += font_size * 0.5
+			}
 		}
-		return { max_x, f32(lines)*size }
+
+		// Check last line
+		if line_w > w {
+			w = line_w
+		}
+
+		h := f32(num_linebreaks + 1) * font_object.static_line_spacing * scl
+
+		return {
+			w,
+			h,
+		}
 	}
 
-	return TextBounds(&s.fs, font_object.fontstash_handle, font_size, text)
+	measure_text_dynamic :: proc(text: string, font_size: f32, font: Font) -> Vec2 {
+		if font < 0 || int(font) >= len(s.fonts) {
+			return {}
+		}
+
+		font_object := s.fonts[font]
+
+		// Temporary until I rewrite the font caching system.
+		_set_font(font)
+
+		// TextBounds from fontstash, but fixed and simplified for my purposes.
+		// The version in there is broken.
+		TextBounds :: proc(
+			ctx:  ^fs.FontContext,
+			font_idx: int,
+			size: f32,
+			text: string,
+		) -> Vec2 {
+			font  := fs.__getFont(ctx, font_idx)
+			isize := i16(size * 10)
+
+			x, y: f32
+			max_x := x
+
+			scale := fs.__getPixelHeightScale(font, f32(isize) / 10)
+			previousGlyphIndex: fs.Glyph_Index = -1
+			quad: fs.Quad
+			lines := 1
+
+			for codepoint in text {
+				if codepoint == '\n' {
+					x = 0
+					lines += 1
+					continue
+				}
+
+				if glyph, ok := fs.__getGlyph(ctx, font, codepoint, isize); ok {
+					if glyph.xadvance > 0 {
+						x += f32(int(f32(glyph.xadvance) / 10 + 0.5))
+					} else {
+						// updates x
+						fs.__getQuad(ctx, font, previousGlyphIndex, glyph, scale, 0, &x, &y, &quad)
+					}
+
+					if x > max_x {
+						max_x = x
+					}
+
+					previousGlyphIndex = glyph.index
+				} else {
+					previousGlyphIndex = -1
+				}
+
+			}
+			return { max_x, f32(lines)*size }
+		}
+
+		return TextBounds(&s.fs, font_object.dynamic_fontstash_handle, font_size, text)
+	}
 
 }
 
@@ -1267,8 +1269,8 @@ draw_text :: proc(
 	font_object := &s.fonts[font]
 
 	switch font_object.type {
-	case .Bitmap:
-		_draw_text_bitmap(
+	case .Static:
+		draw_text_static(
 			text,
 			position,
 			font_size,
@@ -1278,8 +1280,8 @@ draw_text :: proc(
 			rotation,
 		)
 
-	case .Fontstash:
-		_draw_text_fontstash(
+	case .Dynamic:
+		draw_text_dynamic(
 			text,
 			position,
 			font_size,
@@ -1289,148 +1291,151 @@ draw_text :: proc(
 			rotation,
 		)
 	}
-}
 
-_draw_text_bitmap :: proc(
-	text: string,
-	position: Vec2,
-	font_size: f32,
-	color: Color,
-	font := FONT_DEFAULT,
-	origin: Vec2 = {},
-	rotation: f32 = 0,
-) {
-	if int(font) >= len(s.fonts) {
-		return
-	}
+	// ----------
 
-	font_object := &s.fonts[font]
-	char_offset: Vec2
-	scl := font_size / font_object.bitmap_font_size
-
-	for c in text {
-		if c == '\r' {
-			continue
+	draw_text_static :: proc(
+		text: string,
+		position: Vec2,
+		font_size: f32,
+		color: Color,
+		font := FONT_DEFAULT,
+		origin: Vec2 = {},
+		rotation: f32 = 0,
+	) {
+		if int(font) >= len(s.fonts) {
+			return
 		}
 
-		if c == '\n' {
-			char_offset.x = 0 
-			char_offset.y += font_object.bitmap_line_spacing * scl
-			continue
-		}
+		font_object := &s.fonts[font]
+		char_offset: Vec2
+		scl := font_size / font_object.static_font_size
 
-		g: ^Font_Bitmap_Glyph
+		for c in text {
+			if c == '\r' {
+				continue
+			}
 
-		for &r in font_object.glyph_ranges {
-			if c >= r.start && c < r.end {
-				g = &font_object.glyphs[r.start_idx + int(c - r.start)]
-				break
+			if c == '\n' {
+				char_offset.x = 0 
+				char_offset.y += font_object.static_line_spacing * scl
+				continue
+			}
+
+			g: ^Font_Baked_Glyph
+
+			for &r in font_object.static_glyph_ranges {
+				if c >= r.start && c < r.end {
+					g = &font_object.static_glyphs[r.start_idx + int(c - r.start)]
+					break
+				}
+			}
+
+			if g != nil {
+				src := g.rect
+
+				dst := Rect {
+					position.x, position.y,
+					src.w * scl, src.h * scl,
+				}
+
+				char_origin := origin - (char_offset + g.offset*scl)
+
+				draw_texture_fit(
+					font_object.atlas,
+					src,
+					dst,
+					tint = color,
+					origin = char_origin,
+					rotation = rotation,
+				)
+
+				char_offset.x += g.advance*scl
+			} else {
+				invalid_rect_size := Vec2 {font_size*0.5, font_size*0.5}
+				invalid_rect := rect_from_pos_size(position + char_offset + {0, invalid_rect_size.y/2}, invalid_rect_size)
+				
+				draw_rect(
+					invalid_rect,
+					RED,
+				)
+
+				char_offset.x += invalid_rect_size.x
 			}
 		}
+	}
 
-		if g != nil {
-			src := g.rect
+	draw_text_dynamic :: proc(
+		text: string,
+		position: Vec2,
+		font_size: f32,
+		color: Color,
+		font := FONT_DEFAULT,
+		origin: Vec2 = {},
+		rotation: f32 = 0,
+	) {
+		if int(font) >= len(s.fonts) {
+			return
+		}
 
+		_set_font(font)
+		font_object := &s.fonts[font]
+
+		camera_zoom: f32 = 1
+
+		if cam, cam_ok := s.batch_camera.?; cam_ok && cam.zoom > 0.001 {
+			camera_zoom = cam.zoom
+		}
+
+		// Bake the glyph at font_size*camera_zoom pixels so it is sharp at the current zoom level.
+		// We then divide quad positions back by camera_zoom to recover world-space coordinates.
+		render_size := font_size * camera_zoom
+		scaled_pos  := position * camera_zoom
+
+		fs.SetSize(&s.fs, render_size)
+		iter := fs.TextIterInit(&s.fs, scaled_pos.x, scaled_pos.y, text)
+
+		q: fs.Quad
+		for fs.TextIterNext(&s.fs, &iter, &q) {
+			if iter.codepoint == '\n' {
+				iter.nexty += render_size
+				iter.nextx = scaled_pos.x
+				continue
+			}
+
+			if iter.codepoint == '\t' {
+				iter.nextx += 2*render_size
+				continue
+			}
+
+			src := Rect {
+				q.s0, q.t0,
+				q.s1 - q.s0, q.t1 - q.t0,
+			}
+
+			w := f32(FONT_DEFAULT_ATLAS_SIZE)
+			h := f32(FONT_DEFAULT_ATLAS_SIZE)
+			src.x *= w
+			src.y *= h
+			src.w *= w
+			src.h *= h
+
+			// Unscale quad positions from atlas-space back to world-space.
+			qx0 := q.x0 / camera_zoom
+			qy0 := q.y0 / camera_zoom
+			qx1 := q.x1 / camera_zoom
+			qy1 := q.y1 / camera_zoom
+			
 			dst := Rect {
 				position.x, position.y,
-				src.w * scl, src.h * scl,
+				qx1 - qx0, qy1 - qy0,
 			}
 
-			char_origin := origin - (char_offset + g.offset*scl)
-
-			draw_texture_fit(
-				font_object.atlas,
-				src,
-				dst,
-				tint = color,
-				origin = char_origin,
-				rotation = rotation,
-			)
-
-			char_offset.x += g.advance*scl
-		} else {
-			invalid_rect_size := Vec2 {font_size*0.5, font_size*0.5}
-			invalid_rect := rect_from_pos_size(position + char_offset + {0, invalid_rect_size.y/2}, invalid_rect_size)
-			
-			draw_rect(
-				invalid_rect,
-				RED,
-			)
-
-			char_offset.x += invalid_rect_size.x
+			char_origin := origin + {position.x - qx0, position.y - qy0}
+			draw_texture_fit(font_object.atlas, src, dst, char_origin, rotation, color)
 		}
 	}
-}
 
-_draw_text_fontstash :: proc(
-	text: string,
-	position: Vec2,
-	font_size: f32,
-	color: Color,
-	font := FONT_DEFAULT,
-	origin: Vec2 = {},
-	rotation: f32 = 0,
-) {
-	if int(font) >= len(s.fonts) {
-		return
-	}
-
-	_set_font(font)
-	font_object := &s.fonts[font]
-
-	camera_zoom: f32 = 1
-
-	if cam, cam_ok := s.batch_camera.?; cam_ok && cam.zoom > 0.001 {
-		camera_zoom = cam.zoom
-	}
-
-	// Bake the glyph at font_size*camera_zoom pixels so it is sharp at the current zoom level.
-	// We then divide quad positions back by camera_zoom to recover world-space coordinates.
-	render_size := font_size * camera_zoom
-	scaled_pos  := position * camera_zoom
-
-	fs.SetSize(&s.fs, render_size)
-	iter := fs.TextIterInit(&s.fs, scaled_pos.x, scaled_pos.y, text)
-
-	q: fs.Quad
-	for fs.TextIterNext(&s.fs, &iter, &q) {
-		if iter.codepoint == '\n' {
-			iter.nexty += render_size
-			iter.nextx = scaled_pos.x
-			continue
-		}
-
-		if iter.codepoint == '\t' {
-			iter.nextx += 2*render_size
-			continue
-		}
-
-		src := Rect {
-			q.s0, q.t0,
-			q.s1 - q.s0, q.t1 - q.t0,
-		}
-
-		w := f32(FONT_DEFAULT_ATLAS_SIZE)
-		h := f32(FONT_DEFAULT_ATLAS_SIZE)
-		src.x *= w
-		src.y *= h
-		src.w *= w
-		src.h *= h
-
-		// Unscale quad positions from atlas-space back to world-space.
-		qx0 := q.x0 / camera_zoom
-		qy0 := q.y0 / camera_zoom
-		qx1 := q.x1 / camera_zoom
-		qy1 := q.y1 / camera_zoom
-		
-		dst := Rect {
-			position.x, position.y,
-			qx1 - qx0, qy1 - qy0,
-		}
-
-		char_origin := origin + {position.x - qx0, position.y - qy0}
-		draw_texture_fit(font_object.atlas, src, dst, char_origin, rotation, color)
-	}
 }
 
 @(deprecated="Use draw_text instead")
@@ -3316,8 +3321,7 @@ rotate :: proc(v: Vec2, angle_radians: f32) -> Vec2 {
 // FONTS //
 //-------//
 
-// Loads a font from disk and returns a handle that represents it.
-load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font {
+load_static_font_from_file :: proc(filename: string, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font {
 	data, data_ok := read_entire_file(filename, s.frame_allocator)
 
 	if !data_ok {
@@ -3325,49 +3329,17 @@ load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Fon
 		return FONT_NONE
 	}
 
-	return load_font_from_bytes(data, options)
+	return load_static_font_from_bytes(data, font_size, codepoints, options)
 }
 
-// Loads a font from a block of memory and returns a handle that represents it.
-load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
-	fontstash_handle := fs.AddFontMem(&s.fs, "", slice.clone(data, s.allocator), false)
-	h := Font(len(s.fonts))
-
-	data := Font_Data {
-		fontstash_handle = fontstash_handle,
-		atlas = {
-			handle = rb.create_texture(FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .RGBA_8_Norm),
-			width = FONT_DEFAULT_ATLAS_SIZE,
-			height = FONT_DEFAULT_ATLAS_SIZE,
-		},
-		type = .Fontstash,
-		options = options,
-	}
-
-	set_texture_filter(data.atlas, options.filter)
-	append(&s.fonts, data)
-	return h
-}
-
-load_bitmap_font_from_file :: proc(filename: string, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font {
-	data, data_ok := read_entire_file(filename, s.frame_allocator)
-
-	if !data_ok {
-		log.errorf("Failed loading font %s", filename)
-		return FONT_NONE
-	}
-
-	return load_bitmap_font_from_bytes(data, font_size, codepoints, options)
-}
-
-load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font {
+load_static_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font {
 	codepoints := codepoints
 	font_info: stbtt.fontinfo
 	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), 0)
 	init_ok := stbtt.InitFont(&font_info, raw_data(data), font_offset)
 
 	if !init_ok {
-		log.error("Failed loading TTF bitmap font")
+		log.error("Failed loading TTF/TTC font")
 		return FONT_NONE
 	}
 
@@ -3386,8 +3358,8 @@ load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []
 		codepoints = default_codepoints[:]
 	}
 
-	glyph_ranges := make([dynamic]Font_Bitmap_Glyph_Range, s.frame_allocator)
-	glyphs := make([dynamic]Font_Bitmap_Glyph, s.frame_allocator)
+	glyph_ranges := make([dynamic]Font_Baked_Glyph_Range, s.frame_allocator)
+	glyphs := make([dynamic]Font_Baked_Glyph, s.frame_allocator)
 
 	for c in codepoints {
 		idx := stbtt.FindGlyphIndex(&font_info, c)
@@ -3396,7 +3368,7 @@ load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []
 			advance: i32
 			stbtt.GetGlyphHMetrics(&font_info, idx, &advance, nil)
 
-			append(&glyphs, Font_Bitmap_Glyph {
+			append(&glyphs, Font_Baked_Glyph {
 				value = c,
 				index = int(idx),
 				advance = f32(advance) * scale_factor,
@@ -3406,12 +3378,12 @@ load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []
 
 	slice.sort_by(
 		glyphs[:],
-		proc(i, j: Font_Bitmap_Glyph) -> bool {
+		proc(i, j: Font_Baked_Glyph) -> bool {
 			return i.value < j.value
 		},
 	)
 
-	cur_glyph_range: Font_Bitmap_Glyph_Range
+	cur_glyph_range: Font_Baked_Glyph_Range
 
 	for g, g_idx in glyphs {
 		if g_idx == 0 {
@@ -3588,19 +3560,62 @@ load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []
 
 	font := Font_Data {
 		atlas = tex,
-		type = .Bitmap,
+		type = .Static,
 		options = options,
-		glyphs = slice.clone(glyphs[:], s.allocator),
-		glyph_ranges = slice.clone(glyph_ranges[:], s.allocator),
-		bitmap_font_size = font_size,
+		static_glyphs = slice.clone(glyphs[:], s.allocator),
+		static_glyph_ranges = slice.clone(glyph_ranges[:], s.allocator),
+		static_font_size = font_size,
 
-		// from stbtt.GetFontVMetrics docs 
-		bitmap_line_spacing = f32(ascent - descent + line_gap) * scale_factor,
+		// Fomula from stbtt.GetFontVMetrics docs 
+		static_line_spacing = f32(ascent - descent + line_gap) * scale_factor,
 	}
 
 	font_handle := Font(len(s.fonts))
 	append(&s.fonts, font)
 	return font_handle
+}
+
+// Loads a font from disk and returns a handle that represents it.
+load_dynamic_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font {
+	data, data_ok := read_entire_file(filename, s.frame_allocator)
+
+	if !data_ok {
+		log.errorf("Failed loading font %s", filename)
+		return FONT_NONE
+	}
+
+	return load_dynamic_font_from_bytes(data, options)
+}
+
+// Loads a font from a block of memory and returns a handle that represents it.
+load_dynamic_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
+	fontstash_handle := fs.AddFontMem(&s.fs, "", slice.clone(data, s.allocator), false)
+	h := Font(len(s.fonts))
+
+	data := Font_Data {
+		dynamic_fontstash_handle = fontstash_handle,
+		atlas = {
+			handle = rb.create_texture(FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .RGBA_8_Norm),
+			width = FONT_DEFAULT_ATLAS_SIZE,
+			height = FONT_DEFAULT_ATLAS_SIZE,
+		},
+		type = .Dynamic,
+		options = options,
+	}
+
+	set_texture_filter(data.atlas, options.filter)
+	append(&s.fonts, data)
+	return h
+}
+
+@(deprecated="Use load_dynamic_font_from_file or load_static_font_from_file.")
+load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font {
+	return load_dynamic_font_from_file(filename, options)
+}
+
+@(deprecated="Use load_dynamic_font_from_bytes or load_static_font_from_bytes")
+load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
+	return load_dynamic_font_from_bytes(data, options)
 }
 
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
@@ -3613,14 +3628,14 @@ destroy_font :: proc(font: Font) {
 	rb.destroy_texture(f.atlas.handle)
 
 	switch f.type {
-	case .Bitmap:
-		delete(f.glyphs, s.allocator)
-		delete(f.glyph_ranges, s.allocator)
-	case .Fontstash:
+	case .Static:
+		delete(f.static_glyphs, s.allocator)
+		delete(f.static_glyph_ranges, s.allocator)
+	case .Dynamic:
 		// TODO fontstash has no "destroy font" proc... I should make my own version of fontstash
-		delete(s.fs.fonts[f.fontstash_handle].glyphs)
-		delete(s.fs.fonts[f.fontstash_handle].loadedData, s.allocator)
-		s.fs.fonts[f.fontstash_handle].glyphs = {}
+		delete(s.fs.fonts[f.dynamic_fontstash_handle].glyphs)
+		delete(s.fs.fonts[f.dynamic_fontstash_handle].loadedData, s.allocator)
+		s.fs.fonts[f.dynamic_fontstash_handle].glyphs = {}
 	}
 
 }
@@ -4354,9 +4369,18 @@ Font_Options :: struct {
 	filter: Texture_Filter,
 }
 
+// Supported font types:
+// - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
+// - Dynamic: A font where an atlas is continuously updated as you need need new characters. This
+//            mode current uses fontstash.
+//
+// Future types (TODO):
+// - Slug: Upload the character bezier curves to the GPU and render the text on the GPU without the
+//         need for any atlas texture. This will be based on the "slug font algorithm" that was
+//         recently put into public domain.
 Font_Type :: enum {
-	Bitmap,
-	Fontstash,
+	Static,
+	Dynamic,
 }
 
 Font_Data :: struct {
@@ -4365,14 +4389,14 @@ Font_Data :: struct {
 
 	type: Font_Type,
 
-	// type == .Bitmap
-	glyphs: []Font_Bitmap_Glyph,
-	glyph_ranges: []Font_Bitmap_Glyph_Range,
-	bitmap_font_size: f32,
-	bitmap_line_spacing: f32,
+	// type == .Static
+	static_glyphs: []Font_Baked_Glyph,
+	static_glyph_ranges: []Font_Baked_Glyph_Range,
+	static_font_size: f32,
+	static_line_spacing: f32,
 
-	// type == .Fontstash
-	fontstash_handle: int,
+	// type == .Dynamic
+	dynamic_fontstash_handle: int,
 }
 
 Handle :: hm.Handle64
@@ -4381,13 +4405,13 @@ Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
-Font_Bitmap_Glyph_Range :: struct {
+Font_Baked_Glyph_Range :: struct {
 	start_idx: int,
 	start: rune,
 	end: rune,
 }
 
-Font_Bitmap_Glyph :: struct {
+Font_Baked_Glyph :: struct {
 	value: rune,
 	// stbtt index, for faster lookup
 	index: int,
@@ -5113,7 +5137,7 @@ _set_font :: proc(fh: Font) {
 	}
 
 	font := &s.fonts[fh]
-	fs.SetFont(&s.fs, font.fontstash_handle)
+	fs.SetFont(&s.fs, font.dynamic_fontstash_handle)
 }
 
 _ :: jpeg
