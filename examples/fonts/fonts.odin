@@ -3,11 +3,24 @@ package karl2d_fonts_example
 import k2 "../.."
 import "core:fmt"
 import "core:unicode/utf8"
+import "core:mem"
 
 main :: proc() {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	context.allocator = mem.tracking_allocator(&track)
+
 	init()
 	for step() {}
 	shutdown()
+
+	if len(track.allocation_map) > 0 {
+		fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+		for _, entry in track.allocation_map {
+			fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+		}
+	}
+	mem.tracking_allocator_destroy(&track)
 }
 
 cat_and_onion_font: k2.Font
@@ -45,9 +58,6 @@ step :: proc() -> bool {
 
 	size := k2.measure_text(msg, 64, font)
 	size_msg := fmt.tprintf("The text above uses %.1f x %.1f pixels of space", size.x, size.y)
-
-	k2.draw_rect(k2.rect_from_pos_size({20, 20}, size), k2.color_alpha(k2.RED, 128))
-
 	k2.draw_text(size_msg, {20, 200}, 32, k2.BLACK)
 
 	ROTATING_TEXT :: "rotating text!"
