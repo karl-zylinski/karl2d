@@ -3321,6 +3321,7 @@ rotate :: proc(v: Vec2, angle_radians: f32) -> Vec2 {
 // FONTS //
 //-------//
 
+// Like `load_static_font_from_bytes` but reads a file from disk using a specified name.
 load_static_font_from_file :: proc(filename: string, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font {
 	data, data_ok := read_entire_file(filename, s.frame_allocator)
 
@@ -3332,7 +3333,15 @@ load_static_font_from_file :: proc(filename: string, font_size: f32, codepoints:
 	return load_static_font_from_bytes(data, font_size, codepoints, options)
 }
 
-load_static_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font {
+// Load the TTF font contained in `data` and bake it into a texture. The characters in the texture
+// will be of of the specified `font_size`. If you do not specify a list of `codepoints`, then this
+// procedure defaults to using all codepoints between 32 to 127 (ASCII).
+load_static_font_from_bytes :: proc(
+	data: []byte,
+	font_size: f32,
+	codepoints: []rune = {},
+	options: Font_Options = {},
+) -> Font {
 	codepoints := codepoints
 	font_info: stbtt.fontinfo
 	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), 0)
@@ -3575,7 +3584,7 @@ load_static_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []
 	return font_handle
 }
 
-// Loads a font from disk and returns a handle that represents it.
+// Like `load_dynamic_font_from_bytes`, but reads a file from disk using a filename.
 load_dynamic_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font {
 	data, data_ok := read_entire_file(filename, s.frame_allocator)
 
@@ -3587,7 +3596,8 @@ load_dynamic_font_from_file :: proc(filename: string, options: Font_Options = {}
 	return load_dynamic_font_from_bytes(data, options)
 }
 
-// Loads a font from a block of memory and returns a handle that represents it.
+// Load a TTF font stored in `data` as a dynamic font. This means that an atlas will be dynamically
+// built as you draw characters using this font.
 load_dynamic_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
 	fontstash_handle := fs.AddFontMem(&s.fs, "", slice.clone(data, s.allocator), false)
 	h := Font(len(s.fonts))
@@ -4099,8 +4109,6 @@ ui_button :: proc(r: Rect, text: string) -> bool {
 //---------------------//
 
 Vec2 :: [2]f32
-
-Vec2i :: [2]int
 
 Vec3 :: [3]f32
 
