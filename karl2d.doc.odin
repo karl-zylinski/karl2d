@@ -408,6 +408,10 @@ load_texture_from_bytes :: proc(bytes: []u8, options: Load_Texture_Options = {})
 // from a file on disk), then please use `load_texture_from_bytes` instead.
 load_texture_from_bytes_raw :: proc(bytes: []u8, width: int, height: int, format: Pixel_Format) -> Texture
 
+// Create a GPU texture from an image stored in RAM. There are currently no procedures to manipulate
+// the image. However, you can create an `Image` struct manually and fill out the data as needed.
+load_texture_from_image :: proc(image: Image) -> Texture
+
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
 // (w, h) = (texture_width, texture_height)
 get_texture_rect :: proc(t: Texture) -> Rect
@@ -740,11 +744,25 @@ rotate :: proc(v: Vec2, angle_radians: f32) -> Vec2
 // FONTS //
 //-------//
 
-// Loads a font from disk and returns a handle that represents it.
-load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font
+// Like `load_static_font_from_bytes` but reads a file from disk using a specified name.
+load_static_font_from_file :: proc(filename: string, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font
 
-// Loads a font from a block of memory and returns a handle that represents it.
-load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font
+// Load the TTF font contained in `data` and bake it into a texture. The characters in the texture
+// will be of of the specified `font_size`. If you do not specify a list of `codepoints`, then this
+// procedure defaults to using all codepoints between 32 to 127 (ASCII).
+load_static_font_from_bytes :: proc(
+	data: []byte,
+	font_size: f32,
+	codepoints: []rune = {},
+	options: Font_Options = {},
+) -> Font
+
+// Like `load_dynamic_font_from_bytes`, but reads a file from disk using a filename.
+load_dynamic_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font
+
+// Load a TTF font stored in `data` as a dynamic font. This means that an atlas will be dynamically
+// built as you draw characters using this font.
+load_dynamic_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font
 
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
 destroy_font :: proc(font: Font)
@@ -1014,6 +1032,14 @@ Texture_Filter :: enum {
 	Linear, // Smoothed texture scaling.
 }
 
+// An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order
+// to transport it to the GPU.
+Image :: struct {
+	pixels: []Color,
+	width: int,
+	height: int,
+}
+
 Camera :: struct {
 	// Where the camera looks.
 	target: Vec2,
@@ -1158,12 +1184,34 @@ Font_Options :: struct {
 	filter: Texture_Filter,
 }
 
+// Supported font types:
+// - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
+// - Dynamic: A font where an atlas is continuously updated as you need need new characters. This
+//            mode current uses fontstash.
+//
+// Future types (TODO):
+// - Slug: Upload the character bezier curves to the GPU and render the text on the GPU without the
+//         need for any atlas texture. This will be based on the "slug font algorithm" that was
+//         recently put into public domain.
+Font_Type :: enum {
+	Static,
+	Dynamic,
+}
+
 Font_Data :: struct {
 	atlas: Texture,
 	options: Font_Options,
 
-	// internal
-	fontstash_handle: int,
+	type: Font_Type,
+
+	// type == .Static
+	static_glyphs: []Font_Baked_Glyph,
+	static_glyph_ranges: []Font_Baked_Glyph_Range,
+	static_font_size: f32,
+	static_line_spacing: f32,
+
+	// type == .Dynamic
+	dynamic_fontstash_handle: int,
 }
 
 Handle :: hm.Handle64
@@ -1171,6 +1219,21 @@ Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
+
+Font_Baked_Glyph_Range :: struct {
+	start_idx: int,
+	start: rune,
+	end: rune,
+}
+
+Font_Baked_Glyph :: struct {
+	value: rune,
+	// stbtt index, for faster lookup
+	index: int,
+	rect: Rect,
+	offset: Vec2,
+	advance: f32,
+}
 
 FONT_NONE :: Font(0)
 
