@@ -165,6 +165,7 @@ webgl_shutdown :: proc() {
 	hm.dynamic_destroy(&s.shaders)
 	hm.dynamic_destroy(&s.textures)
 	hm.dynamic_destroy(&s.render_targets)
+	delete_string(s.canvas_id)
 }
 
 webgl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
