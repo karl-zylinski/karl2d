@@ -1148,6 +1148,11 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 				num_linebreaks += 1
 				continue
 			}
+
+			if c == '\t' {
+				line_w += font_size * 2
+				continue
+			}
 			
 			g: ^Font_Baked_Glyph
 
@@ -1303,6 +1308,8 @@ draw_text :: proc(
 		origin: Vec2 = {},
 		rotation: f32 = 0,
 	) {
+		// TODO: Add kerning.
+
 		if int(font) >= len(s.fonts) {
 			return
 		}
@@ -3454,7 +3461,7 @@ load_static_font_from_bytes :: proc(
 		}
 
 		glyphs_pack_rects[g_idx] = {
-			// w & h are packed wit 1 pixel padding, so we get 1 px spacing betwen characters.
+			// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
 			w = stbrp.Coord(w) + 1,
 			h = stbrp.Coord(h) + 1,
 		}
@@ -3504,7 +3511,7 @@ load_static_font_from_bytes :: proc(
 			g.rect = {
 				f32(pr.x),
 				f32(pr.y),
-				// w & h are packed wit 1 pixel padding, so we get 1 px spacing betwen characters.
+				// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
 				f32(pr.w) - 1,
 				f32(pr.h) - 1,
 			}
@@ -3538,7 +3545,7 @@ load_static_font_from_bytes :: proc(
 			g.rect = {
 				f32(pr.x),
 				f32(pr.y),
-				// w & h are packed wit 1 pixel padding, so we get 1 px spacing betwen characters.
+				// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
 				f32(pr.w) - 1,
 				f32(pr.h) - 1,
 			}
