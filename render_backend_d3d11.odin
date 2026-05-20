@@ -132,7 +132,7 @@ d3d11_init :: proc(
 
 	rasterizer_desc := d3d11.RASTERIZER_DESC{
 		FillMode = .SOLID,
-		CullMode = .BACK,
+		CullMode = .NONE,
 		ScissorEnable = true,
 		MultisampleEnable = d3d11.BOOL(options.anti_alias),
 	}

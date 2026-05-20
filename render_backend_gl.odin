@@ -146,6 +146,7 @@ gl_init :: proc(
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
 	gl.Enable(gl.BLEND)
+	gl.Disable(gl.CULL_FACE)
 
 	// Note that AA also requires setup when choosing format for backbuffer, see for example
 	// SAMPLE_BUFFER etc in the glue files.

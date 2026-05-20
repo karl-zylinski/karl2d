@@ -155,6 +155,7 @@ webgl_init :: proc(
 	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.STREAM_DRAW)
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
+	gl.Disable(gl.CULL_FACE)
 	gl.Enable(gl.BLEND)
 
 	gl.Viewport(0, 0, i32(s.width), i32(s.height))
