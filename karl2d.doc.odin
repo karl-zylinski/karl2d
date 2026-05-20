@@ -408,6 +408,8 @@ load_texture_from_bytes :: proc(bytes: []u8, options: Load_Texture_Options = {})
 // from a file on disk), then please use `load_texture_from_bytes` instead.
 load_texture_from_bytes_raw :: proc(bytes: []u8, width: int, height: int, format: Pixel_Format) -> Texture
 
+// Create a GPU texture from an image stored in RAM. There are currently no procedures to manipulate
+// the image. However, you can create an `Image` struct manually and fill out the data as needed.
 load_texture_from_image :: proc(image: Image) -> Texture
 
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
@@ -1030,6 +1032,8 @@ Texture_Filter :: enum {
 	Linear, // Smoothed texture scaling.
 }
 
+// An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order
+// to transport it to the GPU.
 Image :: struct {
 	pixels: []Color,
 	width: int,
