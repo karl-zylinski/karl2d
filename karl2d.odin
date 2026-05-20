@@ -1110,6 +1110,80 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 
 	font_object := s.fonts[font]
 
+	switch font_object.type {
+	case .Bitmap:
+		return _measure_text_bitmap(text, font_size, font)
+
+	case .Fontstash:
+		return _measure_text_fontstash(text, font_size, font)
+	}
+
+	return {}
+}
+
+_measure_text_bitmap :: proc(text: string, font_size: f32, font: Font) -> Vec2 {
+	w: f32
+	line_w: f32
+
+	if int(font) >= len(s.fonts) {
+		return {}
+	}
+
+	font_object := &s.fonts[font]
+	scl := font_size / font_object.bitmap_font_size
+	num_linebreaks := 0
+
+	for c in text {
+		if c == '\r' {
+			continue
+		}
+
+		if c == '\n' {
+			if line_w > w {
+				w = line_w
+			}
+
+			line_w = 0
+			num_linebreaks += 1
+			continue
+		}
+
+		g: ^Font_Bitmap_Glyph
+
+		for &gc in font_object.glyphs {
+			if gc.value == c {
+				g = &gc
+				break
+			}
+		}
+
+		if g != nil {
+			line_w += g.advance*scl
+		} else {
+			line_w += font_size * 0.5
+		}
+	}
+
+	// Check last line
+	if line_w > w {
+		w = line_w
+	}
+
+	h := f32(num_linebreaks + 1) * font_object.bitmap_line_spacing * scl
+
+	return {
+		w,
+		h,
+	}
+}
+
+_measure_text_fontstash :: proc(text: string, font_size: f32, font: Font) -> Vec2 {
+	if font < 0 || int(font) >= len(s.fonts) {
+		return {}
+	}
+
+	font_object := s.fonts[font]
+
 	// Temporary until I rewrite the font caching system.
 	_set_font(font)
 
@@ -1161,6 +1235,7 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 	}
 
 	return TextBounds(&s.fs, font_object.fontstash_handle, font_size, text)
+
 }
 
 @(deprecated="Use measure_text(text, font_size, font) instead")
@@ -1230,9 +1305,20 @@ _draw_text_bitmap :: proc(
 	}
 
 	font_object := &s.fonts[font]
-	position := position
+	char_offset: Vec2
+	scl := font_size / font_object.bitmap_font_size
 
 	for c in text {
+		if c == '\r' {
+			continue
+		}
+
+		if c == '\n' {
+			char_offset.x = 0 
+			char_offset.y += font_object.bitmap_line_spacing * scl
+			continue
+		}
+
 		g: ^Font_Bitmap_Glyph
 
 		for &gc in font_object.glyphs {
@@ -1243,24 +1329,35 @@ _draw_text_bitmap :: proc(
 		}
 
 		if g != nil {
-			draw_texture_rect(
+			src := g.rect
+
+			dst := Rect {
+				position.x, position.y,
+				src.w * scl, src.h * scl,
+			}
+
+			char_origin := origin - (char_offset + g.offset*scl)
+
+			draw_texture_fit(
 				font_object.atlas,
-				g.rect,
-				position + g.offset,
+				src,
+				dst,
 				tint = color,
+				origin = char_origin,
+				rotation = rotation,
 			)
 
-			position.x += g.advance
+			char_offset.x += g.advance*scl
 		} else {
 			invalid_rect_size := Vec2 {font_size*0.5, font_size*0.5}
-			invalid_rect := rect_from_pos_size(position + {0, invalid_rect_size.y/2}, invalid_rect_size)
+			invalid_rect := rect_from_pos_size(position + char_offset + {0, invalid_rect_size.y/2}, invalid_rect_size)
 			
 			draw_rect(
 				invalid_rect,
 				RED,
 			)
 
-			position.x += invalid_rect_size.x
+			char_offset.x += invalid_rect_size.x
 		}
 	}
 }
@@ -3464,6 +3561,10 @@ load_bitmap_font_from_bytes :: proc(data: []byte, font_size: f32, codepoints: []
 		type = .Bitmap,
 		options = options,
 		glyphs = slice.clone(glyphs[:], s.allocator),
+		bitmap_font_size = font_size,
+
+		// from stbtt.GetFontVMetrics docs 
+		bitmap_line_spacing = f32(ascent - descent + line_gap) * scale_factor,
 	}
 
 	font_handle := Font(len(s.fonts))
@@ -4228,6 +4329,8 @@ Font_Data :: struct {
 
 	// type == .Bitmap
 	glyphs: []Font_Bitmap_Glyph,
+	bitmap_font_size: f32,
+	bitmap_line_spacing: f32,
 
 	// type == .Fontstash
 	fontstash_handle: int,

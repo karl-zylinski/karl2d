@@ -13,7 +13,10 @@ cat_and_onion_font: k2.Font
 
 init :: proc() {
 	k2.init(1080, 1080, "Karl2D Fonts Example")
-	cat_and_onion_font = k2.load_font_from_bytes(#load("cat_and_onion_dialogue_font.ttf"))
+	cat_and_onion_font = k2.load_bitmap_font_from_bytes(
+		#load("cat_and_onion_dialogue_font.ttf"),
+		48,
+	)
 }
 
 step :: proc() -> bool {
@@ -34,6 +37,8 @@ step :: proc() -> bool {
 
 	size := k2.measure_text(msg, 64, font)
 	size_msg := fmt.tprintf("The text above uses %.1f x %.1f pixels of space", size.x, size.y)
+
+	k2.draw_rect(k2.rect_from_pos_size({20, 20}, size), k2.color_alpha(k2.RED, 128))
 
 	k2.draw_text(size_msg, {20, 200}, 32, k2.BLACK)
 
