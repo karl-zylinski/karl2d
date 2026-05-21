@@ -329,6 +329,10 @@ process_events :: proc() {
 
 			s.mouse_delta = s.mouse_position - prev_pos
 
+		case Event_Mouse_Teleported:
+			s.mouse_position.x = e.position.x
+			s.mouse_position.y = e.position.y
+
 		case Event_Mouse_Wheel:
 			s.mouse_wheel_delta = e.delta
 
@@ -616,6 +620,10 @@ get_mouse_position :: proc() -> Vec2 {
 // Returns how many pixels the mouse moved between the previous and the current frame.
 get_mouse_delta :: proc() -> Vec2 {
 	return s.mouse_delta
+}
+
+set_mouse_captured :: proc(captured: bool) {
+	pf.set_mouse_captured(captured)
 }
 
 // Returns true if a gamepad with the supplied index is connected. The parameter should be a value
@@ -4892,6 +4900,7 @@ Event :: union {
 	Event_Mouse_Wheel,
 	Event_Mouse_Button_Went_Down,
 	Event_Mouse_Button_Went_Up,
+	Event_Mouse_Teleported,
 	Event_Gamepad_Button_Went_Down,
 	Event_Gamepad_Button_Went_Up,
 	Event_Screen_Resize,
@@ -4927,6 +4936,12 @@ Event_Gamepad_Button_Went_Up :: struct {
 }
 
 Event_Close_Window_Requested :: struct {}
+
+// Used by mouse capturing to inform us that the cursor was teleported. This is like a mouse move,
+// but will not be used for calculating mouse delta movement.
+Event_Mouse_Teleported :: struct {
+	position: Vec2,
+}
 
 Event_Mouse_Move :: struct {
 	position: Vec2,
