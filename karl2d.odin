@@ -548,6 +548,10 @@ key_is_held :: proc(key: Keyboard_Key) -> bool {
 	return s.key_is_held[key]
 }
 
+get_clipboard_text :: proc(allocator: runtime.Allocator) -> (string, bool) #optional_ok {
+	return pf.get_clipboard_text(allocator)
+}
+
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
 // You can check that an exact set of modifiers are held like so:
 //
