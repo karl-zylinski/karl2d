@@ -46,6 +46,9 @@
 						prevTimeStamp = currTimeStamp;
 
 						if (!exports.step(dt, odin_ctx)) {
+							if (exports.shutdown) {
+								exports.shutdown(dt, odin_ctx);
+							}
 							if (exports._end) {
 								exports._end();
 							}
