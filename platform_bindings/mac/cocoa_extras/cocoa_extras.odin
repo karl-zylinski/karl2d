@@ -24,7 +24,6 @@ Window_setContentSize :: proc "c" (self: ^NS.Window, size: NS.Size) {
 }
 
 Event_pressedMouseButtons :: proc "c" () -> NS.UInteger {
-	NSEvent := intrinsics.objc_find_class("NSEvent")
 	return msgSend(NS.UInteger, NS.Event, "pressedMouseButtons")
 }
 
