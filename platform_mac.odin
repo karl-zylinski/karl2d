@@ -27,6 +27,7 @@ PLATFORM_MAC :: Platform_Interface {
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
 	set_cursor_visible = mac_set_cursor_visible,
+	set_mouse_captured = mac_set_mouse_captured,
 
 	is_gamepad_active = mac_is_gamepad_active,
 	get_gamepad_axis = mac_get_gamepad_axis,
@@ -51,6 +52,8 @@ Mac_State :: struct {
 	cursor_visible:      bool,
 	cursor_hidden_by_us: bool,
 	cursor_tracker:      NS.id,
+
+	mouse_captured:      bool,
 
 	screen_width:     int,
 	screen_height:    int,
@@ -345,9 +348,11 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			px := loc.x * scale
 			py := NS.Float(s.screen_height) - loc.y * scale
 			
-			append(&s.events, Event_Mouse_Move{
-				position = {f32(px), f32(py)},
-			})
+			append(&s.events, Event_Mouse_Move { position = { f32(px), f32(py) }})
+			
+			if s.mouse_captured {
+				_mac_teleport_cursor_to_center()
+			}
 
 		case .ScrollWheel:
 			delta := event->scrollingDeltaY()
@@ -422,6 +427,28 @@ mac_get_window_scale :: proc() -> f32 {
 mac_set_cursor_visible :: proc(visible: bool) {
 	s.cursor_visible = visible
 	apply_cursor_state()
+}
+
+mac_set_mouse_captured :: proc(captured: bool) {
+	s.mouse_captured = captured
+
+	if captured {
+		_mac_teleport_cursor_to_center()
+	}
+}
+
+_mac_teleport_cursor_to_center :: proc() {
+	cx := s.screen_width/2
+	cy := s.screen_height/2
+	scale := mac_get_window_scale()
+	frame := s.window->frame()
+	x := f64(frame.origin.x) + f64(cx)/f64(scale)
+	y := f64(frame.origin.y) + f64(cy)/f64(scale)
+	ce.CGWarpMouseCursorPosition({x, y})
+
+	append(&s.events, Event_Mouse_Teleported {
+		position = {f32(cx), f32(cy)}
+	})
 }
 
 // NSCursor.hide/unhide are reference counted. These helpers ensure each hide is paired

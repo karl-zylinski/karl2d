@@ -62,3 +62,14 @@ View_mouse_inRect :: proc "c" (self: ^NS.View, point: NS.Point, rect: NS.Rect) -
 Window_mouseLocationOutsideOfEventStream :: proc "c" (self: ^NS.Window) -> NS.Point {
 	return msgSend(NS.Point, self, "mouseLocationOutsideOfEventStream")
 }
+
+CGPoint :: [2]f64
+
+CGError :: distinct i32
+
+foreign import CoreGraphics "system:CoreGraphics.framework"
+
+@(default_calling_convention="c")
+foreign CoreGraphics {
+	CGWarpMouseCursorPosition :: proc(point: CGPoint) -> CGError ---
+}
