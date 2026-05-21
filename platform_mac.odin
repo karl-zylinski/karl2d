@@ -53,7 +53,8 @@ Mac_State :: struct {
 	cursor_hidden_by_us: bool,
 	cursor_tracker:      NS.id,
 
-	mouse_captured:      bool,
+	mouse_captured: bool,
+	mouse_ignore_next_move: bool,
 
 	screen_width:     int,
 	screen_height:    int,
@@ -329,6 +330,11 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			append(&s.events, Event_Mouse_Button_Went_Up{button = .Middle})
 
 		case .MouseMoved, .LeftMouseDragged, .RightMouseDragged, .OtherMouseDragged:
+			if s.mouse_ignore_next_move {
+				s.mouse_ignore_next_move = false
+				break
+			}
+
 			event_window := event->window()
 
 			// event_window is nil when the cursor is outside all windows —
@@ -438,6 +444,7 @@ mac_set_mouse_captured :: proc(captured: bool) {
 	s.mouse_captured = captured
 
 	if captured {
+		s.mouse_ignore_next_move = true
 		ce.CGAssociateMouseAndMouseCursorPosition(false)
 		_mac_teleport_cursor_to_center()
 	} else {
@@ -451,7 +458,7 @@ _mac_teleport_cursor_to_center :: proc() {
 	scale := mac_get_window_scale()
 	frame := s.window->frame()
 	x := f64(frame.origin.x) + f64(cx)/f64(scale)
-	y := f64(frame.origin.y) + f64(cy)/f64(scale)
+	y := f64(frame.origin.y) + f64(s.screen_height)/f64(scale) - f64(cy)/f64(scale)
 	ce.CGWarpMouseCursorPosition({x, y})
 
 	append(&s.events, Event_Mouse_Teleported {
