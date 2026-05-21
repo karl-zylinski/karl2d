@@ -114,7 +114,14 @@ webgl_state_size :: proc() -> int {
 	return size_of(WebGL_State)
 }
 
-webgl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+webgl_init :: proc(
+	state: rawptr,
+	glue: Window_Render_Glue,
+	swapchain_width: int,
+	swapchain_height: int,
+	options: Init_Options,
+	allocator := context.allocator
+) {
 	s = (^WebGL_State)(state)
 
 	// see web_get_window_render_glue
@@ -129,7 +136,15 @@ webgl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swa
 	hm.dynamic_init(&s.textures, allocator)
 	hm.dynamic_init(&s.render_targets, allocator)
 
-	context_ok := gl.CreateCurrentContextById(s.canvas_id, gl.DEFAULT_CONTEXT_ATTRIBUTES)
+	context_attribs := gl.DEFAULT_CONTEXT_ATTRIBUTES
+
+	if options.anti_alias {
+		context_attribs -= { .disableAntialias }
+	} else {
+		context_attribs += { .disableAntialias }
+	}
+
+	context_ok := gl.CreateCurrentContextById(s.canvas_id, context_attribs)
 	log.ensuref(context_ok, "Could not create context for canvas ID %s", s.canvas_id)
 	set_context_ok := gl.SetCurrentContextById(s.canvas_id)
 	log.ensuref(set_context_ok, "Failed setting context with canvas ID %s", s.canvas_id)
@@ -140,6 +155,7 @@ webgl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swa
 	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.STREAM_DRAW)
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
+	gl.Disable(gl.CULL_FACE)
 	gl.Enable(gl.BLEND)
 
 	gl.Viewport(0, 0, i32(s.width), i32(s.height))
@@ -150,6 +166,7 @@ webgl_shutdown :: proc() {
 	hm.dynamic_destroy(&s.shaders)
 	hm.dynamic_destroy(&s.textures)
 	hm.dynamic_destroy(&s.render_targets)
+	delete_string(s.canvas_id)
 }
 
 webgl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
@@ -295,12 +312,27 @@ webgl_draw :: proc(
 		}
 	}
 
-	if rt := hm.get(&s.render_targets, render_target); rt != nil {
+	rt := hm.get(&s.render_targets, render_target)
+	
+	if rt != nil {
 		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer)
 		gl.Viewport(0, 0, i32(rt.width), i32(rt.height))
 	} else {
 		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 		gl.Viewport(0, 0, i32(s.width), i32(s.height))
+	}
+
+	if scissor, has_scissor := scissor.(Rect); has_scissor {
+		height: int
+		if rt != nil {
+			height = rt.height
+		} else {
+			height = s.height
+		}
+		flipped_y := f32(height) - scissor.h - scissor.y
+
+		gl.Enable(gl.SCISSOR_TEST)
+		gl.Scissor(i32(scissor.x), i32(flipped_y), i32(scissor.w), i32(scissor.h))
 	}
 
 	gl.DrawArrays(gl.TRIANGLES, 0, int(len(vertex_buffer)/shd.vertex_size))
@@ -328,8 +360,8 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawp
 	id := gl.CreateTexture()
 	gl.BindTexture(gl.TEXTURE_2D, id)
 
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, i32(gl.REPEAT))
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, i32(gl.REPEAT))
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, i32(gl.CLAMP_TO_EDGE))
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, i32(gl.CLAMP_TO_EDGE))
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, i32(gl.NEAREST))
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, i32(gl.NEAREST))
 

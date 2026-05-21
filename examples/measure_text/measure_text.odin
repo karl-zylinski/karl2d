@@ -34,7 +34,7 @@ init :: proc() {
 
 	for &f in fonts {
 		f.font = f.bytes != nil\
-			? k2.load_font_from_bytes(f.bytes)\
+			? k2.load_dynamic_font_from_bytes(f.bytes)\
 			: k2.FONT_DEFAULT
 	}
 }

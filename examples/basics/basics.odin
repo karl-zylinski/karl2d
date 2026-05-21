@@ -11,7 +11,7 @@ tex: k2.Texture
 pos: k2.Vec2
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Basics", options = { window_mode = .Windowed_Resizable })
+	k2.init(1280, 720, "Karl2D Basics", options = {window_mode = .Windowed_Resizable})
 
 	// Note that we #load the texture: This bakes it into the program's data. WASM has no filesystem
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
@@ -25,6 +25,12 @@ step :: proc() -> bool {
 	if !k2.update() {
 		return false
 	}
+
+	camera := k2.Camera {
+		zoom = k2.get_window_scale(),
+	}
+
+	k2.set_camera(camera)
 
 	movement: k2.Vec2
 
@@ -98,10 +104,21 @@ step :: proc() -> bool {
 	k2.draw_rect(bottom_bar, k2.DARK_GRAY)
 	bottom_bar = k2.rect_shrink(bottom_bar, 4, 4)
 	k2.draw_text("Move the red dot using arrow keys!", k2.rect_top_left(bottom_bar), bottom_bar.h, k2.WHITE)
-	source_code_rect := k2.rect_cut_right(&bottom_bar, k2.ui_button_width("Source Code", bottom_bar.h) + 50, 0)
 
-	if k2.ui_button(source_code_rect, "Source Code") {
+	button_rect :: proc(text: string, r: ^k2.Rect) -> k2.Rect {
+		return k2.rect_cut_right(r, k2.ui_button_width(text, r.h) + 25, 5)
+	}
+	
+	if k2.ui_button(button_rect("Source code", &bottom_bar), "Source Code") {
 		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/basics/basics.odin")
+	}
+
+	if k2.ui_button(button_rect("Fullscreen", &bottom_bar), "Fullscreen") {
+		k2.set_window_mode(.Borderless_Fullscreen)
+	}
+
+	if k2.ui_button(button_rect("Windowed", &bottom_bar), "Windowed") {
+		k2.set_window_mode(.Windowed_Resizable)
 	}
 
 	k2.present()

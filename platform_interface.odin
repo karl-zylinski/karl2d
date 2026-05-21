@@ -23,6 +23,7 @@ Platform_Interface :: struct #all_or_none {
 	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
+	set_cursor_visible: proc(visible: bool),
 
 	is_gamepad_active: proc(gamepad: int) -> bool,
 	get_gamepad_axis: proc(gamepad: int, axis: Gamepad_Axis) -> f32,
@@ -43,7 +44,10 @@ Window_Render_Glue_State :: struct {}
 // such an example. See Windows + GL or Linux + GL for an example of more complicated setups.
 Window_Render_Glue :: struct {
 	using state: ^Window_Render_Glue_State,
-	make_context: proc(state: ^Window_Render_Glue_State) -> bool,
+	make_context: proc(
+		state: ^Window_Render_Glue_State,
+		init_options: Init_Options,
+	) -> bool,
 	present: proc(state: ^Window_Render_Glue_State),
 	destroy: proc(state: ^Window_Render_Glue_State),
 	viewport_resized: proc(state: ^Window_Render_Glue_State),

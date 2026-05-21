@@ -28,6 +28,7 @@ PLATFORM_LINUX :: Platform_Interface {
 	set_window_position = linux_set_window_position,
 	get_window_scale = linux_get_window_scale,
 	set_window_mode = linux_set_window_mode,
+	set_cursor_visible = linux_set_cursor_visible,
 	is_gamepad_active = linux_is_gamepad_active,
 	get_gamepad_axis = linux_get_gamepad_axis,
 	set_gamepad_vibration = linux_set_gamepad_vibration,
@@ -154,11 +155,11 @@ linux_poll_for_new_gamepads :: proc() {
 }
 
 linux_get_screen_width :: proc() -> int {
-	return s.win.get_width()
+	return s.win.get_screen_width()
 }
 
 linux_get_screen_height :: proc() -> int {
-	return s.win.get_height()
+	return s.win.get_screen_height()
 }
 
 linux_set_window_position :: proc(x: int, y: int) {
@@ -166,7 +167,7 @@ linux_set_window_position :: proc(x: int, y: int) {
 }
 
 set_screen_size :: proc(w, h: int) {
-	s.win.set_size(w, h)
+	s.win.set_screen_size(w, h)
 }
 
 linux_get_window_scale :: proc() -> f32 {
@@ -213,7 +214,7 @@ linux_create_connected_gamepads :: proc() {
 }
 
 linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
-	fd, err := os.open(device_path, { .Read, .Non_Blocking })
+	fd, err := os.open(device_path, { .Read, .Write, .Non_Blocking })
 
 	if err != nil {
 		log.errorf("Failed creating gamepad for device %v", device_path)
@@ -597,6 +598,10 @@ linux_set_window_mode :: proc(window_mode: Window_Mode) {
 	s.win.set_window_mode(window_mode)
 }
 
+linux_set_cursor_visible :: proc(visible: bool) {
+	s.win.set_cursor_visible(visible)
+}
+
 Linux_State :: struct {
 	win: Linux_Window_Interface,
 	win_state: rawptr,
@@ -608,13 +613,13 @@ Linux_State :: struct {
 }
 
 @(private="package")
-Linux_Window_Interface :: struct {
+Linux_Window_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 
 	init: proc(
 		window_state: rawptr,
-		window_width: int,
-		window_height: int,
+		screen_width: int,
+		screen_height: int,
 		window_title: string,
 		init_options: Init_Options,
 		allocator: runtime.Allocator,
@@ -624,11 +629,12 @@ Linux_Window_Interface :: struct {
 	get_window_render_glue: proc() -> Window_Render_Glue,
 	get_events: proc(events: ^[dynamic]Event),
 	set_position: proc(x: int, y: int),
-	set_size: proc(w, h: int),
-	get_width: proc() -> int,
-	get_height: proc() -> int,
+	set_screen_size: proc(w, h: int),
+	get_screen_width: proc() -> int,
+	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
+	set_cursor_visible: proc(visible: bool),
 
 	set_internal_state: proc(state: rawptr),
 }

@@ -15,6 +15,8 @@ import "core:encoding/endian"
 
 import fs "vendor:fontstash"
 import stbv "vendor:stb/vorbis"
+import stbtt "vendor:stb/truetype"
+import stbrp "vendor:stb/rect_pack"
 
 import "core:image"
 import "core:image/jpeg"
@@ -32,7 +34,8 @@ import hm "core:container/handle_map"
 // all dynamically allocated memory.
 //
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
-// The window might be slightly larger due to borders and headers.
+// The window might be slightly larger due to borders and headers. The true width and height will be
+// scaled up by the scaling setting in the operating system.
 //
 // The return value is a pointer to Karl2D's internal state. You can restore this state later using
 // `set_internal_state()`. This is useful for example when doing game code reload, as the state may
@@ -100,7 +103,14 @@ init :: proc(
 	s.view_matrix = 1
 
 	// Boot up the render backend. It will render into our previously created window.
-	rb.init(s.render_backend_state, window_render_glue, pf.get_screen_width(), pf.get_screen_height(), s.allocator)
+	rb.init(
+		s.render_backend_state,
+		window_render_glue,
+		pf.get_screen_width(),
+		pf.get_screen_height(), 
+		options,
+		s.allocator,
+	)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`.
@@ -124,7 +134,7 @@ init :: proc(
 	// Dummy element so font with index 0 means 'no font'.
 	append_nothing(&s.fonts)
 
-	default_font := load_font_from_bytes(DEFAULT_FONT_DATA)
+	default_font := load_dynamic_font_from_bytes(DEFAULT_FONT_DATA)
 	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
 	_set_font(FONT_DEFAULT)
 
@@ -140,14 +150,6 @@ init :: proc(
 		hm.dynamic_init(&s.playing_audio_buffers, s.allocator)
 		hm.dynamic_init(&s.audio_buffers, s.allocator)
 		hm.dynamic_init(&s.sounds, s.allocator)
-
-		VORBIS_STATE_SIZE :: 500 * mem.Kilobyte
-
-		s.vorbis_alloc = {
-			alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
-			alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
-		}
-
 		hm.dynamic_init(&s.audio_streams, s.allocator)
 	}
 
@@ -203,7 +205,6 @@ shutdown :: proc() {
 	// Audio
 	{
 		hm.dynamic_destroy(&s.audio_streams)
-		free(s.vorbis_alloc.alloc_buffer, s.allocator)
 		ab.shutdown()
 		hm.dynamic_destroy(&s.playing_audio_buffers)
 		hm.dynamic_destroy(&s.sounds)
@@ -374,7 +375,7 @@ process_events :: proc() {
 			}
 
 		case Event_Window_Scale_Changed:
-			// Doesn't do anything, only here so people can fetch it via `get_events()`.
+			rb.resize_swapchain(e.screen_width, e.screen_height)
 		}
 	}
 }
@@ -450,6 +451,11 @@ get_window_scale :: proc() -> f32 {
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode) {
 	pf.set_window_mode(window_mode)
+}
+
+// Hide or show the OS cursor.
+set_cursor_visible :: proc(visible: bool) {
+	pf.set_cursor_visible(visible)
 }
 
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
@@ -903,14 +909,15 @@ draw_texture :: proc(
 	)
 }
 
-// Draw a section of a texture at a position. The section is chosen using the `source` parameter,
-// which is a rectangle that uses pixel coordinates.
+// Draw a texture at a position, but only draw the region specified by the `source` rectangle. The
+// `source` rectangle is specified in pixel coordinates. You can flip the texture by using negative
+// width/height in `source`.
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
 // - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
-draw_texture_section :: proc(
+draw_texture_rect :: proc(
 	texture: Texture,
 	source: Rect,
 	position: Vec2,
@@ -933,9 +940,9 @@ draw_texture_section :: proc(
 	)
 }
 
-// Draw a section of a texture by fitting it into a rectangle. The section is chosen using the
-// rectangle parameter `source`, measured in pixels. The `dest` parameter is the rectangle on the
-// screen (or in the world) that we want to fit the texture section into.
+// Draw a texture by selecting a `source` rectangle and fitting it into a `dest` (destination)
+// rectangle. `source` is measured in texture-space pixels and `dest` is measured in world-space
+// pixels. You can flip the texture by using negative width/height for the `source` rectangle.
 //
 // Optional parameters:
 // - origin: An offset for the dest rectangle, and also the point to rotate around.
@@ -975,6 +982,19 @@ draw_texture_fit :: proc(
 	if source.h < 0 {
 		flip_y = true
 		source.h = -source.h
+	}
+
+	// HACK: We ask the render backend if this texture needs flipping. The idea is that GL will
+	// flip render textures, so we need to automatically unflip them.
+	//
+	// Could we do something with the projection matrix while drawing into those render textures
+	// instead? I tried that, but couldn't get it to work.
+	if rb.texture_needs_vertical_flip(texture.handle) {
+		flip_y = !flip_y
+
+		if source.h != f32(texture.height) {
+			source.y = f32(texture.height) - source.h - source.y
+		}
 	}
 
 	if dest.w < 0 {
@@ -1047,15 +1067,6 @@ draw_texture_fit :: proc(
 		uv5.x += us.x
 	}
 
-	// HACK: We ask the render backend if this texture needs flipping. The idea is that GL will
-	// flip render textures, so we need to automatically unflip them.
-	//
-	// Could we do something with the projection matrix while drawing into those render textures
-	// instead? I tried that, but couldn't get it to work.
-	if rb.texture_needs_vertical_flip(texture.handle) {
-		flip_y = !flip_y
-	}
-
 	if flip_y {
 		uv0.y += us.y
 		uv1.y += us.y
@@ -1073,9 +1084,16 @@ draw_texture_fit :: proc(
 	batch_vertex(bl, uv5, c)
 }
 
-@(deprecated="Use draw_texture_section instead")
-draw_texture_rect :: proc(tex: Texture, rect: Rect, pos: Vec2, tint := WHITE) {
-	draw_texture_section(tex, rect, pos, tint = tint)
+@(deprecated="Use draw_texture_rect instead")
+draw_texture_section :: proc(
+	texture: Texture,
+	source: Rect,
+	position: Vec2,
+	origin: Vec2 = {},
+	rotation: f32 = 0,
+	tint := WHITE,
+) {
+	draw_texture_rect(texture, source, position, origin, rotation, tint)
 }
 
 @(deprecated="Use draw_texture_fit instead")
@@ -1092,57 +1110,139 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 
 	font_object := s.fonts[font]
 
-	// Temporary until I rewrite the font caching system.
-	_set_font(font)
+	switch font_object.type {
+	case .Static:
+		return measure_text_static(text, font_size, font)
 
-	// TextBounds from fontstash, but fixed and simplified for my purposes.
-	// The version in there is broken.
-	TextBounds :: proc(
-		ctx:  ^fs.FontContext,
-		font_idx: int,
-		size: f32,
-		text: string,
-	) -> Vec2 {
-		font  := fs.__getFont(ctx, font_idx)
-		isize := i16(size * 10)
+	case .Dynamic:
+		return measure_text_dynamic(text, font_size, font)
+	}
 
-		x, y: f32
-		max_x := x
+	return {}
 
-		scale := fs.__getPixelHeightScale(font, f32(isize) / 10)
-		previousGlyphIndex: fs.Glyph_Index = -1
-		quad: fs.Quad
-		lines := 1
+	// ----------
 
-		for codepoint in text {
-			if codepoint == '\n' {
-				x = 0
-				lines += 1
+	measure_text_static :: proc(text: string, font_size: f32, font: Font) -> Vec2 {
+		w: f32
+		line_w: f32
+
+		if int(font) >= len(s.fonts) {
+			return {}
+		}
+
+		font_object := &s.fonts[font]
+		scl := font_size / font_object.static_font_size
+		num_linebreaks := 0
+
+		for c in text {
+			if c == '\r' {
 				continue
 			}
 
-			if glyph, ok := fs.__getGlyph(ctx, font, codepoint, isize); ok {
-				if glyph.xadvance > 0 {
-					x += f32(int(f32(glyph.xadvance) / 10 + 0.5))
-				} else {
-					// updates x
-					fs.__getQuad(ctx, font, previousGlyphIndex, glyph, scale, 0, &x, &y, &quad)
+			if c == '\n' {
+				if line_w > w {
+					w = line_w
 				}
 
-				if x > max_x {
-					max_x = x
-				}
-
-				previousGlyphIndex = glyph.index
-			} else {
-				previousGlyphIndex = -1
+				line_w = 0
+				num_linebreaks += 1
+				continue
 			}
 
+			if c == '\t' {
+				line_w += font_size * 2
+				continue
+			}
+			
+			g: ^Font_Baked_Glyph
+
+			for &r in font_object.static_glyph_ranges {
+				if c >= r.start && c < r.end {
+					g = &font_object.static_glyphs[r.start_idx + int(c - r.start)]
+					break
+				}
+			}
+
+			if g != nil {
+				line_w += g.advance*scl
+			} else {
+				line_w += font_size * 0.5
+			}
 		}
-		return { max_x, f32(lines)*size }
+
+		// Check last line
+		if line_w > w {
+			w = line_w
+		}
+
+		h := f32(num_linebreaks + 1) * font_object.static_line_spacing * scl
+
+		return {
+			w,
+			h,
+		}
 	}
 
-	return TextBounds(&s.fs, font_object.fontstash_handle, font_size, text)
+	measure_text_dynamic :: proc(text: string, font_size: f32, font: Font) -> Vec2 {
+		if font < 0 || int(font) >= len(s.fonts) {
+			return {}
+		}
+
+		font_object := s.fonts[font]
+
+		// Temporary until I rewrite the font caching system.
+		_set_font(font)
+
+		// TextBounds from fontstash, but fixed and simplified for my purposes.
+		// The version in there is broken.
+		TextBounds :: proc(
+			ctx:  ^fs.FontContext,
+			font_idx: int,
+			size: f32,
+			text: string,
+		) -> Vec2 {
+			font  := fs.__getFont(ctx, font_idx)
+			isize := i16(size * 10)
+
+			x, y: f32
+			max_x := x
+
+			scale := fs.__getPixelHeightScale(font, f32(isize) / 10)
+			previousGlyphIndex: fs.Glyph_Index = -1
+			quad: fs.Quad
+			lines := 1
+
+			for codepoint in text {
+				if codepoint == '\n' {
+					x = 0
+					lines += 1
+					continue
+				}
+
+				if glyph, ok := fs.__getGlyph(ctx, font, codepoint, isize); ok {
+					if glyph.xadvance > 0 {
+						x += f32(int(f32(glyph.xadvance) / 10 + 0.5))
+					} else {
+						// updates x
+						fs.__getQuad(ctx, font, previousGlyphIndex, glyph, scale, 0, &x, &y, &quad)
+					}
+
+					if x > max_x {
+						max_x = x
+					}
+
+					previousGlyphIndex = glyph.index
+				} else {
+					previousGlyphIndex = -1
+				}
+
+			}
+			return { max_x, f32(lines)*size }
+		}
+
+		return TextBounds(&s.fs, font_object.dynamic_fontstash_handle, font_size, text)
+	}
+
 }
 
 @(deprecated="Use measure_text(text, font_size, font) instead")
@@ -1151,7 +1251,8 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 }
 
 // Draw text at a position, with a size and color. The position is the top-left position of the
-// text.
+// text. If you've set a camera using `set_camera`, then the font size will be internally scaled
+// so that the text appear sharp.
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
@@ -1170,46 +1271,183 @@ draw_text :: proc(
 		return
 	}
 
-	_set_font(font)
 	font_object := &s.fonts[font]
-	fs.SetSize(&s.fs, font_size)
-	iter := fs.TextIterInit(&s.fs, position.x, position.y, text)
 
-	q: fs.Quad
-	for fs.TextIterNext(&s.fs, &iter, &q) {
-		if iter.codepoint == '\n' {
-			iter.nexty += font_size
-			iter.nextx = position.x
-			continue
-		}
+	switch font_object.type {
+	case .Static:
+		draw_text_static(
+			text,
+			position,
+			font_size,
+			color,
+			font,
+			origin,
+			rotation,
+		)
 
-		if iter.codepoint == '\t' {
-			// This is not really correct, but I'll replace it later when I redo the font stuff.
-			iter.nextx += 2*font_size
-			continue
-		}
-
-		src := Rect {
-			q.s0, q.t0,
-			q.s1 - q.s0, q.t1 - q.t0,
-		}
-
-		w := f32(FONT_DEFAULT_ATLAS_SIZE)
-		h := f32(FONT_DEFAULT_ATLAS_SIZE)
-
-		src.x *= w
-		src.y *= h
-		src.w *= w
-		src.h *= h
-
-		dst := Rect {
-			position.x, position.y,
-			q.x1 - q.x0, q.y1 - q.y0,
-		}
-
-		char_origin := origin + {position.x - q.x0, position.y - q.y0}
-		draw_texture_fit(font_object.atlas, src, dst, char_origin, rotation, color)
+	case .Dynamic:
+		draw_text_dynamic(
+			text,
+			position,
+			font_size,
+			color,
+			font,
+			origin,
+			rotation,
+		)
 	}
+
+	// ----------
+
+	draw_text_static :: proc(
+		text: string,
+		position: Vec2,
+		font_size: f32,
+		color: Color,
+		font := FONT_DEFAULT,
+		origin: Vec2 = {},
+		rotation: f32 = 0,
+	) {
+		// TODO: Add kerning.
+
+		if int(font) >= len(s.fonts) {
+			return
+		}
+
+		font_object := &s.fonts[font]
+		char_offset: Vec2
+		scl := font_size / font_object.static_font_size
+
+		for c in text {
+			if c == '\r' {
+				continue
+			}
+
+			if c == '\n' {
+				char_offset.x = 0 
+				char_offset.y += font_object.static_line_spacing * scl
+				continue
+			}
+
+			if c == '\t' {
+				char_offset.x += font_size * 2
+				continue
+			}
+
+			g: ^Font_Baked_Glyph
+
+			for &r in font_object.static_glyph_ranges {
+				if c >= r.start && c < r.end {
+					g = &font_object.static_glyphs[r.start_idx + int(c - r.start)]
+					break
+				}
+			}
+
+			if g != nil {
+				src := g.rect
+
+				dst := Rect {
+					position.x, position.y,
+					src.w * scl, src.h * scl,
+				}
+
+				char_origin := origin - (char_offset + g.offset*scl)
+
+				draw_texture_fit(
+					font_object.atlas,
+					src,
+					dst,
+					tint = color,
+					origin = char_origin,
+					rotation = rotation,
+				)
+
+				char_offset.x += g.advance*scl
+			} else {
+				invalid_rect_size := Vec2 {font_size*0.5, font_size*0.5}
+				invalid_rect := rect_from_pos_size(position + char_offset + {0, invalid_rect_size.y/2}, invalid_rect_size)
+				
+				draw_rect(
+					invalid_rect,
+					RED,
+				)
+
+				char_offset.x += invalid_rect_size.x
+			}
+		}
+	}
+
+	draw_text_dynamic :: proc(
+		text: string,
+		position: Vec2,
+		font_size: f32,
+		color: Color,
+		font := FONT_DEFAULT,
+		origin: Vec2 = {},
+		rotation: f32 = 0,
+	) {
+		if int(font) >= len(s.fonts) {
+			return
+		}
+
+		_set_font(font)
+		font_object := &s.fonts[font]
+
+		camera_zoom: f32 = 1
+
+		if cam, cam_ok := s.batch_camera.?; cam_ok && cam.zoom > 0.001 {
+			camera_zoom = cam.zoom
+		}
+
+		// Bake the glyph at font_size*camera_zoom pixels so it is sharp at the current zoom level.
+		// We then divide quad positions back by camera_zoom to recover world-space coordinates.
+		render_size := font_size * camera_zoom
+		scaled_pos  := position * camera_zoom
+
+		fs.SetSize(&s.fs, render_size)
+		iter := fs.TextIterInit(&s.fs, scaled_pos.x, scaled_pos.y, text)
+
+		q: fs.Quad
+		for fs.TextIterNext(&s.fs, &iter, &q) {
+			if iter.codepoint == '\n' {
+				iter.nexty += render_size
+				iter.nextx = scaled_pos.x
+				continue
+			}
+
+			if iter.codepoint == '\t' {
+				iter.nextx += 2*render_size
+				continue
+			}
+
+			src := Rect {
+				q.s0, q.t0,
+				q.s1 - q.s0, q.t1 - q.t0,
+			}
+
+			w := f32(FONT_DEFAULT_ATLAS_SIZE)
+			h := f32(FONT_DEFAULT_ATLAS_SIZE)
+			src.x *= w
+			src.y *= h
+			src.w *= w
+			src.h *= h
+
+			// Unscale quad positions from atlas-space back to world-space.
+			qx0 := q.x0 / camera_zoom
+			qy0 := q.y0 / camera_zoom
+			qx1 := q.x1 / camera_zoom
+			qy1 := q.y1 / camera_zoom
+			
+			dst := Rect {
+				position.x, position.y,
+				qx1 - qx0, qy1 - qy0,
+			}
+
+			char_origin := origin + {position.x - qx0, position.y - qy0}
+			draw_texture_fit(font_object.atlas, src, dst, char_origin, rotation, color)
+		}
+	}
+
 }
 
 @(deprecated="Use draw_text instead")
@@ -1299,6 +1537,32 @@ load_texture_from_bytes_raw :: proc(bytes: []u8, width: int, height: int, format
 		handle = backend_tex,
 		width = width,
 		height = height,
+	}
+}
+
+// Create a GPU texture from an image stored in RAM. There are currently no procedures to manipulate
+// the image. However, you can create an `Image` struct manually and fill out the data as needed.
+load_texture_from_image :: proc(image: Image) -> Texture {
+	if image.width == 0 || image.height == 0 {
+		log.error("Invalid image: Height or width is zero")
+		return {}
+	}
+
+	if len(image.pixels) != (image.width*image.height) {
+		log.error("Invalid image: the pixels array is not of size image.width*image.height")
+		return {}
+	}
+
+	backend_tex := rb.load_texture(slice.reinterpret([]u8, image.pixels[:]), image.width, image.height, .RGBA_8_Norm)
+
+	if backend_tex == TEXTURE_NONE {
+		return {}
+	}
+
+	return {
+		handle = backend_tex,
+		width = image.width,
+		height = image.height,
 	}
 }
 
@@ -1932,6 +2196,11 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		return AUDIO_STREAM_NONE
 	}
 
+	vorbis_buffer := stbv.vorbis_alloc {
+		alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
+		alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
+	}
+
 	append(&buf, ..read_buf[:nbytes_read])
 	vorbis_res: ^stbv.vorbis
 
@@ -1946,7 +2215,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 			i32(len(buf)),
 			&consumed,
 			&vorbis_err,
-			&s.vorbis_alloc,
+			&vorbis_buffer,
 		)
 
 		if vorbis_err == nil {
@@ -1957,6 +2226,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 			if seek_err != nil {
 				log.errorf("Failed seeking in audio stream file %v. Error: %v", filename, seek_err)
 				file_close(f)
+				free(vorbis_buffer.alloc_buffer, s.allocator)
 				return AUDIO_STREAM_NONE
 			}
 
@@ -1969,12 +2239,14 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 			if read_err != nil {
 				log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
 				file_close(f)
+				free(vorbis_buffer.alloc_buffer, s.allocator)
 				return AUDIO_STREAM_NONE
 			}
 
 			if nbytes_read == 0 {
 				log.errorf("Failed to load audio stream. Reached end of file before stream could be loaded.")
 				file_close(f)
+				free(vorbis_buffer.alloc_buffer, s.allocator)
 				return AUDIO_STREAM_NONE
 			}
 
@@ -1982,6 +2254,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		} else {
 			log.errorf("Failed to load audio stream. Error: %v", vorbis_err)
 			file_close(f)
+			free(vorbis_buffer.alloc_buffer, s.allocator)
 			return AUDIO_STREAM_NONE
 		}
 	}
@@ -1999,7 +2272,8 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		if close_err := file_close(f); close_err != nil {
 			log.errorf("Failed closing file. Error: %v", close_err)
 		}
-		
+				
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2019,6 +2293,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		}
 
 		delete(buffer.samples, s.allocator)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2026,6 +2301,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		mode = .From_File,
 		file = f,
 		vorbis = vorbis_res,
+		vorbis_buffer = vorbis_buffer,
 		buffer = buffer_handle,
 		playback_settings = {
 			pan = 0,
@@ -2043,6 +2319,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		delete(asd.file_read_buf)
 		delete(buffer.samples, s.allocator)
 		hm.remove(&s.audio_buffers, buffer_handle)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2075,17 +2352,23 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 	vorbis_err: stbv.Error
 
+	vorbis_buffer := stbv.vorbis_alloc {
+		alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
+		alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
+	}
+
 	// This procedure is specifically made for our use case: Streaming from a file that is already
 	// completely in memory.
 	vorbis_res := stbv.open_memory(
 		raw_data(bytes),
 		i32(len(bytes)),
 		&vorbis_err,
-		&s.vorbis_alloc,
+		&vorbis_buffer,
 	)
 
 	if vorbis_err != nil {
 		log.errorf("Failed opening audio stream from bytes. Error: %v", vorbis_err)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2098,6 +2381,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		channels = Audio_Channels.Stereo
 	} else{
 		log.errorf("Unsupported number of channels: %v", info.channels)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2112,6 +2396,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 	if buffer_handle_add_err != nil {
 		log.errorf("Failed to load audio stream. Error: %v", buffer_handle_add_err)
 		delete(buffer.samples, s.allocator)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2120,6 +2405,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		bytes = bytes,
 		vorbis = vorbis_res,
 		buffer = buffer_handle,
+		vorbis_buffer = vorbis_buffer,
 		playback_settings = {
 			pan = 0,
 			volume = 1,
@@ -2133,6 +2419,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		log.errorf("Failed to create audio stream from bytes. Error: %v", stream_add_err)
 		delete(buffer.samples, s.allocator)
 		hm.remove(&s.audio_buffers, buffer_handle)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
 
@@ -2169,6 +2456,7 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 		// don't free the bytes, they are owned by the game
 	}
 
+	free(sd.vorbis_buffer.alloc_buffer, s.allocator)
 	hm.remove(&s.audio_streams, stream)
 }
 
@@ -3047,8 +3335,8 @@ rotate :: proc(v: Vec2, angle_radians: f32) -> Vec2 {
 // FONTS //
 //-------//
 
-// Loads a font from disk and returns a handle that represents it.
-load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font {
+// Like `load_static_font_from_bytes` but reads a file from disk using a specified name.
+load_static_font_from_file :: proc(filename: string, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font {
 	data, data_ok := read_entire_file(filename, s.frame_allocator)
 
 	if !data_ok {
@@ -3056,27 +3344,311 @@ load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Fon
 		return FONT_NONE
 	}
 
-	return load_font_from_bytes(data, options)
+	return load_static_font_from_bytes(data, font_size, codepoints, options)
 }
 
-// Loads a font from a block of memory and returns a handle that represents it.
-load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
-	font := fs.AddFontMem(&s.fs, "", slice.clone(data, s.allocator), false)
+// Load the TTF font contained in `data` and bake it into a texture. The characters in the texture
+// will be of of the specified `font_size`. If you do not specify a list of `codepoints`, then this
+// procedure defaults to using all codepoints between 32 to 127 (ASCII).
+load_static_font_from_bytes :: proc(
+	data: []byte,
+	font_size: f32,
+	codepoints: []rune = {},
+	options: Font_Options = {},
+) -> Font {
+	codepoints := codepoints
+	font_info: stbtt.fontinfo
+	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), 0)
+	init_ok := stbtt.InitFont(&font_info, raw_data(data), font_offset)
+
+	if !init_ok {
+		log.error("Failed loading TTF/TTC font")
+		return FONT_NONE
+	}
+
+	scale_factor := stbtt.ScaleForPixelHeight(&font_info, font_size)
+
+	ascent, descent, line_gap: i32
+	stbtt.GetFontVMetrics(&font_info, &ascent, &descent, &line_gap)
+
+	default_codepoints: [95]rune
+
+	if len(codepoints) == 0 {
+		for &d, idx in default_codepoints {
+			d = rune(idx + 32)
+		}
+
+		codepoints = default_codepoints[:]
+	}
+
+	glyph_ranges := make([dynamic]Font_Baked_Glyph_Range, s.frame_allocator)
+	glyphs := make([dynamic]Font_Baked_Glyph, s.frame_allocator)
+
+	for c in codepoints {
+		idx := stbtt.FindGlyphIndex(&font_info, c)
+		
+		if idx > 0 {
+			advance: i32
+			stbtt.GetGlyphHMetrics(&font_info, idx, &advance, nil)
+
+			append(&glyphs, Font_Baked_Glyph {
+				value = c,
+				index = int(idx),
+				advance = f32(advance) * scale_factor,
+			})
+		}
+	}
+
+	slice.sort_by(
+		glyphs[:],
+		proc(i, j: Font_Baked_Glyph) -> bool {
+			return i.value < j.value
+		},
+	)
+
+	cur_glyph_range: Font_Baked_Glyph_Range
+
+	for g, g_idx in glyphs {
+		if g_idx == 0 {
+			cur_glyph_range = {
+				start = g.value,
+				start_idx = g_idx,
+			}
+		} else if g.value != cur_glyph_range.end {
+			append(&glyph_ranges, cur_glyph_range)
+			cur_glyph_range = {
+				start = g.value,
+				start_idx = g_idx,
+			}
+		}
+
+		cur_glyph_range.end = g.value + 1
+	}
+
+	append(&glyph_ranges, cur_glyph_range)
+
+	Glyph_Image_Data :: struct {
+		pixels: [^]byte,
+		width: i32,
+		height: i32,
+	}
+
+	glyphs_img_data := make([]Glyph_Image_Data, len(glyphs), s.frame_allocator)
+	glyphs_pack_rects := make([]stbrp.Rect, len(glyphs), s.frame_allocator)
+
+	for &g, g_idx in glyphs {
+		x_off, y_off: i32
+		w, h: i32
+
+		pixels := stbtt.GetGlyphBitmap(
+			&font_info,
+			scale_factor,
+			scale_factor,
+			i32(g.index),
+			&w,
+			&h,
+			&x_off,
+			&y_off,
+		)
+
+		glyphs_img_data[g_idx] = {
+			pixels = pixels,
+			width = w,
+			height = h,
+		}
+
+		g.offset = {
+			f32(x_off),
+			f32(y_off) + f32(ascent) * scale_factor,
+		}
+
+		glyphs_pack_rects[g_idx] = {
+			// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
+			w = stbrp.Coord(w) + 1,
+			h = stbrp.Coord(h) + 1,
+		}
+	}
+
+	atlas_size := 128
+	MAX_ATLAS_SIZE :: 4096
+	atlas_packed := false
+
+	for atlas_size <= MAX_ATLAS_SIZE {
+		rp_ctx: stbrp.Context
+		rp_nodes := make([]stbrp.Node, i32(atlas_size), s.frame_allocator)
+		
+		stbrp.init_target(
+			&rp_ctx,
+			i32(atlas_size),
+			i32(atlas_size),
+			raw_data(rp_nodes),
+			i32(len(rp_nodes)),
+		)
+		
+		rect_pack_res := stbrp.pack_rects(
+			&rp_ctx,
+			raw_data(glyphs_pack_rects),
+			i32(len(glyphs_pack_rects)),
+		)
+
+		if rect_pack_res == 1 {
+			atlas_packed = true
+			break
+		}
+
+		atlas_size *= 2
+	}
+
+	if !atlas_packed {
+		log.error("Failed packing font atlas")
+		return {}
+	}
+
+	atlas := make([]Color, atlas_size*atlas_size, s.frame_allocator)
+
+	if options.premultiply_alpha {
+		for pr, pr_idx in glyphs_pack_rects {
+			g := &glyphs[pr_idx]
+
+			g.rect = {
+				f32(pr.x),
+				f32(pr.y),
+				// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
+				f32(pr.w) - 1,
+				f32(pr.h) - 1,
+			}
+
+			gimg := glyphs_img_data[pr_idx]
+
+			for sx in 0..<gimg.width {
+				for sy in 0..<gimg.height {
+					dx := int(pr.x) + int(sx)
+					dy := int(pr.y) + int(sy)
+
+					assert(dx >= 0 && dx < atlas_size)
+					assert(dy >= 0 && dy < atlas_size)
+
+					alpha := gimg.pixels[sy * gimg.width + sx]
+					alpha_norm := f32(alpha)/255
+
+					atlas[dy * atlas_size + dx] = {
+						u8(255 * alpha_norm),
+						u8(255 * alpha_norm),
+						u8(255 * alpha_norm),
+						alpha,
+					}
+				}
+			}
+		}
+	} else {
+		for pr, pr_idx in glyphs_pack_rects {
+			g := &glyphs[pr_idx]
+
+			g.rect = {
+				f32(pr.x),
+				f32(pr.y),
+				// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
+				f32(pr.w) - 1,
+				f32(pr.h) - 1,
+			}
+
+			gimg := glyphs_img_data[pr_idx]
+
+			for sx in 0..<gimg.width {
+				for sy in 0..<gimg.height {
+					dx := int(pr.x) + int(sx)
+					dy := int(pr.y) + int(sy)
+
+					assert(dx >= 0 && dx < atlas_size)
+					assert(dy >= 0 && dy < atlas_size)
+
+					alpha := gimg.pixels[sy * gimg.width + sx]
+
+					atlas[dy * atlas_size + dx] = {
+						255,
+						255,
+						255,
+						alpha,
+					}
+				}
+			}
+		}
+	}
+
+	for gimg in glyphs_img_data {
+		if gimg.pixels != nil {
+			stbtt.FreeBitmap(gimg.pixels, nil)
+		}
+	}
+
+	img := Image {
+		pixels = atlas,
+		width = atlas_size,
+		height = atlas_size,
+	}
+
+	tex := load_texture_from_image(img)
+	set_texture_filter(tex, options.filter)
+
+	font := Font_Data {
+		atlas = tex,
+		type = .Static,
+		options = options,
+		static_glyphs = slice.clone(glyphs[:], s.allocator),
+		static_glyph_ranges = slice.clone(glyph_ranges[:], s.allocator),
+		static_font_size = font_size,
+
+		// Fomula from stbtt.GetFontVMetrics docs 
+		static_line_spacing = f32(ascent - descent + line_gap) * scale_factor,
+	}
+
+	font_handle := Font(len(s.fonts))
+	append(&s.fonts, font)
+	return font_handle
+}
+
+// Like `load_dynamic_font_from_bytes`, but reads a file from disk using a filename.
+load_dynamic_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font {
+	data, data_ok := read_entire_file(filename, s.frame_allocator)
+
+	if !data_ok {
+		log.errorf("Failed loading font %s", filename)
+		return FONT_NONE
+	}
+
+	return load_dynamic_font_from_bytes(data, options)
+}
+
+// Load a TTF font stored in `data` as a dynamic font. This means that an atlas will be dynamically
+// built as you draw characters using this font.
+load_dynamic_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
+	fontstash_handle := fs.AddFontMem(&s.fs, "", slice.clone(data, s.allocator), false)
 	h := Font(len(s.fonts))
 
 	data := Font_Data {
-		fontstash_handle = font,
+		dynamic_fontstash_handle = fontstash_handle,
 		atlas = {
 			handle = rb.create_texture(FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .RGBA_8_Norm),
 			width = FONT_DEFAULT_ATLAS_SIZE,
 			height = FONT_DEFAULT_ATLAS_SIZE,
 		},
+		type = .Dynamic,
 		options = options,
 	}
 
 	set_texture_filter(data.atlas, options.filter)
 	append(&s.fonts, data)
 	return h
+}
+
+@(deprecated="Use load_dynamic_font_from_file or load_static_font_from_file.")
+load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font {
+	return load_dynamic_font_from_file(filename, options)
+}
+
+@(deprecated="Use load_dynamic_font_from_bytes or load_static_font_from_bytes")
+load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
+	return load_dynamic_font_from_bytes(data, options)
 }
 
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
@@ -3086,12 +3658,19 @@ destroy_font :: proc(font: Font) {
 	}
 
 	f := &s.fonts[font]
-	rb.destroy_texture(f.atlas.handle)	
+	rb.destroy_texture(f.atlas.handle)
 
-	// TODO fontstash has no "destroy font" proc... I should make my own version of fontstash
-	delete(s.fs.fonts[f.fontstash_handle].glyphs)
-	delete(s.fs.fonts[f.fontstash_handle].loadedData, s.allocator)
-	s.fs.fonts[f.fontstash_handle].glyphs = {}
+	switch f.type {
+	case .Static:
+		delete(f.static_glyphs, s.allocator)
+		delete(f.static_glyph_ranges, s.allocator)
+	case .Dynamic:
+		// TODO fontstash has no "destroy font" proc... I should make my own version of fontstash
+		delete(s.fs.fonts[f.dynamic_fontstash_handle].glyphs)
+		delete(s.fs.fonts[f.dynamic_fontstash_handle].loadedData, s.allocator)
+		s.fs.fonts[f.dynamic_fontstash_handle].glyphs = {}
+	}
+
 }
 
 @(deprecated="Use FONT_DEFAULT constant instead")
@@ -3518,6 +4097,10 @@ ui_button_width :: proc(text: string, button_height: f32) -> f32 {
 // when no camera is set.
 //
 // Mainly used by the samples in order to create the "Source" button.
+//
+// Note that this does not support zoomed cameras right now, since it uses unscaled mouse positions.
+// As this is experimental, you are probably better off copying this procedure to your own code and
+// modifying it, rather than using it as-is.
 ui_button :: proc(r: Rect, text: string) -> bool {
 	in_rect := point_in_rect(get_mouse_position(), r)
 	bg_color := DARK_GRAY
@@ -3667,6 +4250,14 @@ Texture_Filter :: enum {
 	Linear, // Smoothed texture scaling.
 }
 
+// An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order
+// to transport it to the GPU.
+Image :: struct {
+	pixels: []Color,
+	width: int,
+	height: int,
+}
+
 Camera :: struct {
 	// Where the camera looks.
 	target: Vec2,
@@ -3695,6 +4286,18 @@ Window_Mode :: enum {
 
 Init_Options :: struct {
 	window_mode: Window_Mode,
+
+	// Enable to request anti-alias. On most systems this means 4x Multi Sample Anti Alias
+	anti_alias: bool,
+
+	// This hint may disable scaling of the window when created. Scaling here refers to the scaling
+	// that is set for the monitor in the OS settings (the same number returned by
+	// `get_window_scale`).
+	//
+	// Note that this is a _hint_. It only works on some platforms, such as Windows. On other
+	// platforms, such as Linux+Wayland, it does not work, because Wayland always auto scales all
+	// windows.
+	disable_auto_scale_hint: bool,
 }
 
 Shader_Handle :: distinct Handle
@@ -3799,12 +4402,34 @@ Font_Options :: struct {
 	filter: Texture_Filter,
 }
 
+// Supported font types:
+// - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
+// - Dynamic: A font where an atlas is continuously updated as you need need new characters. This
+//            mode current uses fontstash.
+//
+// Future types (TODO):
+// - Slug: Upload the character bezier curves to the GPU and render the text on the GPU without the
+//         need for any atlas texture. This will be based on the "slug font algorithm" that was
+//         recently put into public domain.
+Font_Type :: enum {
+	Static,
+	Dynamic,
+}
+
 Font_Data :: struct {
 	atlas: Texture,
 	options: Font_Options,
 
-	// internal
-	fontstash_handle: int,
+	type: Font_Type,
+
+	// type == .Static
+	static_glyphs: []Font_Baked_Glyph,
+	static_glyph_ranges: []Font_Baked_Glyph_Range,
+	static_font_size: f32,
+	static_line_spacing: f32,
+
+	// type == .Dynamic
+	dynamic_fontstash_handle: int,
 }
 
 Handle :: hm.Handle64
@@ -3812,6 +4437,21 @@ Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
+
+Font_Baked_Glyph_Range :: struct {
+	start_idx: int,
+	start: rune,
+	end: rune,
+}
+
+Font_Baked_Glyph :: struct {
+	value: rune,
+	// stbtt index, for faster lookup
+	index: int,
+	rect: Rect,
+	offset: Vec2,
+	advance: f32,
+}
 
 FONT_NONE :: Font(0)
 
@@ -3882,10 +4522,14 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
+// From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
+VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
+
 Audio_Stream_Data :: struct {
 	handle: Audio_Stream,
 	
 	vorbis: ^stbv.vorbis,
+	vorbis_buffer: stbv.vorbis_alloc,
 	playing_buffer_handle: Playing_Audio_Buffer_Handle,
 	buffer: Audio_Buffer,
 	
@@ -4047,7 +4691,6 @@ State :: struct {
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
-	vorbis_alloc: stbv.vorbis_alloc,
 
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
 	// ample.
@@ -4301,6 +4944,8 @@ Event_Screen_Resize :: struct {
 // You can also use `k2.get_window_scale()`
 Event_Window_Scale_Changed :: struct {
 	scale: f32,
+	screen_width: int,
+	screen_height: int,
 }
 
 Event_Window_Focused :: struct {}
@@ -4452,7 +5097,7 @@ make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 	return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
 }
 
-FONT_DEFAULT_ATLAS_SIZE :: 1024
+FONT_DEFAULT_ATLAS_SIZE :: 2048
 
 _update_font :: proc(fh: Font) {
 	font := &s.fonts[fh]
@@ -4525,7 +5170,7 @@ _set_font :: proc(fh: Font) {
 	}
 
 	font := &s.fonts[fh]
-	fs.SetFont(&s.fs, font.fontstash_handle)
+	fs.SetFont(&s.fs, font.dynamic_fontstash_handle)
 }
 
 _ :: jpeg
@@ -4541,5 +5186,14 @@ f32_color_from_color :: proc(color: Color) -> Color_F32 {
 		f32(color.g) / 255,
 		f32(color.b) / 255,
 		f32(color.a) / 255,
+	}
+}
+
+color_from_f32_color :: proc(color: Color_F32) -> Color {
+	return {
+		u8(color.r * 255),
+		u8(color.g * 255),
+		u8(color.b * 255),
+		u8(color.a * 255),
 	}
 }

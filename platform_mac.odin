@@ -8,8 +8,10 @@ import NS "core:sys/darwin/Foundation"
 import ce "platform_bindings/mac/cocoa_extras"
 import gc "platform_bindings/mac/gamecontroller"
 import "core:os"
+import "base:intrinsics"
 import "base:runtime"
 import "core:time"
+import "log"
 
 @(private="package")
 PLATFORM_MAC :: Platform_Interface {
@@ -24,6 +26,7 @@ PLATFORM_MAC :: Platform_Interface {
 	set_window_position = mac_set_window_position,
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
+	set_cursor_visible = mac_set_cursor_visible,
 
 	is_gamepad_active = mac_is_gamepad_active,
 	get_gamepad_axis = mac_get_gamepad_axis,
@@ -42,6 +45,12 @@ Mac_State :: struct {
 	app:              ^NS.Application,
 	window:           ^NS.Window,
 	window_mode:      Window_Mode,
+
+	// Cursor visibility (the user's intent). The OS cursor is only actually hidden while
+	// the cursor is inside the content area of a key window — see `apply_cursor_state`.
+	cursor_visible:      bool,
+	cursor_hidden_by_us: bool,
+	cursor_tracker:      NS.id,
 
 	screen_width:     int,
 	screen_height:    int,
@@ -87,8 +96,7 @@ mac_init :: proc(
 	s.odin_ctx = context
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
-	s.screen_width = screen_width
-	s.screen_height = screen_height
+	s.cursor_visible = true
 
 	// Initialize NSApplication
 	s.app = NS.Application_sharedApplication()
@@ -117,12 +125,17 @@ mac_init :: proc(
 	s.window = s.window->initWithContentRect(rect, style, .Buffered, false)
 	s.windowed_rect = rect
 
+
 	title_str := NS.String_alloc()->initWithOdinString(window_title)
 	s.window->setTitle(title_str)
 
 	s.window->center()
 	s.window->setAcceptsMouseMovedEvents(true)
 	s.window->makeKeyAndOrderFront(nil)
+
+	scale := f32(s.window->backingScaleFactor())
+	s.screen_width = int(f32(screen_width) * scale)
+	s.screen_height = int(f32(screen_height) * scale)
 
 	mac_set_window_mode(init_options.window_mode)
 
@@ -169,9 +182,10 @@ mac_init :: proc(
 		NS.WindowDelegateTemplate{
 			windowDidResize = proc(_: ^NS.Notification) {
 				content_rect := s.window->contentLayoutRect()
-				new_width := int(content_rect.size.width)
-				new_height := int(content_rect.size.height)
-
+				scale := f32(s.window->backingScaleFactor())
+				new_width := int(f32(content_rect.size.width) * scale)
+				new_height := int(f32(content_rect.size.height) * scale)
+	
 				if new_width != s.screen_width || new_height != s.screen_height {
 					s.screen_width = new_width
 					s.screen_height = new_height
@@ -179,8 +193,8 @@ mac_init :: proc(
 						s.windowed_rect = content_rect
 					}
 					append(&s.events, Event_Screen_Resize{
-						width = new_width,
-						height = new_height,
+						width = s.screen_width,
+						height = s.screen_height,
 					})
 				}
 			},
@@ -192,10 +206,14 @@ mac_init :: proc(
 
 			// Focus and unfocus events
 			windowDidBecomeKey = proc(_: ^NS.Notification) {
+				apply_cursor_state()
 				append(&s.events, Event_Window_Focused{})
 			},
 
 			windowDidResignKey = proc(_: ^NS.Notification) {
+				// Tracking is NSTrackingActiveInKeyWindow, so mouseExited won't fire on focus
+				// loss. Restore the OS cursor so it stays visible in other apps / the menu bar.
+				unhide_cursor_now()
 				append(&s.events, Event_Window_Unfocused{})
 			},
 
@@ -207,6 +225,19 @@ mac_init :: proc(
 					s.left_mouse_held = false
 				}
 			},
+
+			windowDidChangeBackingProperties = proc(_: ^NS.Notification) {
+				new_scale := f32(s.window->backingScaleFactor())
+				content_rect := s.window->contentLayoutRect()
+				s.screen_width = int(f32(content_rect.size.width) * new_scale)
+				s.screen_height = int(f32(content_rect.size.height) * new_scale)
+
+				append(&s.events, Event_Window_Scale_Changed{
+					scale = new_scale,
+					screen_width = s.screen_width,
+					screen_height = s.screen_height,
+				})
+			},
 		},
 		"Karl2DWindowDelegate",
 		context,
@@ -214,12 +245,18 @@ mac_init :: proc(
 
 	s.window->setDelegate(window_delegates)
 
+	install_cursor_tracker()
+
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_mac_gl_glue(s.window, s.allocator)
 	} else when RENDER_BACKEND_NAME == "nil" {
 		s.window_render_glue = {}
 	} else {
 		#panic("Unsupported combo of Mac platform and render backend '" + RENDER_BACKEND_NAME + "'")
+	}
+
+	if init_options.disable_auto_scale_hint {
+		log.warn("disable_auto_scale_hint not supported on mac")
 	}
 }
 
@@ -289,12 +326,27 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			append(&s.events, Event_Mouse_Button_Went_Up{button = .Middle})
 
 		case .MouseMoved, .LeftMouseDragged, .RightMouseDragged, .OtherMouseDragged:
-			// Convert to view coordinates (flip Y - macOS origin is bottom-left)
-			loc := event->locationInWindow()
-			// Flip Y coordinate
-			y := NS.Float(s.screen_height) - loc.y
+			event_window := event->window()
+
+			// event_window is nil when the cursor is outside all windows —
+			// in that case locationInWindow() returns screen coords, so convert.
+			// If the event belongs to a completely different window, skip it.
+			loc: NS.Point
+			if event_window == s.window {
+				loc = event->locationInWindow()
+			} else if event_window == nil {
+				loc = s.window->convertPointFromScreen(event->locationInWindow())
+			} else {
+				break
+			}
+
+			// locationInWindow returns points; scale to pixels to match screen_width/height
+			scale := NS.Float(s.window->backingScaleFactor())
+			px := loc.x * scale
+			py := NS.Float(s.screen_height) - loc.y * scale
+			
 			append(&s.events, Event_Mouse_Move{
-				position = {f32(loc.x), f32(y)},
+				position = {f32(px), f32(py)},
 			})
 
 		case .ScrollWheel:
@@ -357,11 +409,86 @@ mac_set_window_position :: proc(x: int, y: int) {
 }
 
 mac_set_screen_size :: proc(w, h: int) {
+	scale := mac_get_window_scale()
+	s.screen_width = int(f32(w) * scale)
+	s.screen_height = int(f32(h) * scale)
 	ce.Window_setContentSize(s.window, {NS.Float(w), NS.Float(h)})
 }
 
 mac_get_window_scale :: proc() -> f32 {
 	return f32(s.window->backingScaleFactor())
+}
+
+mac_set_cursor_visible :: proc(visible: bool) {
+	s.cursor_visible = visible
+	apply_cursor_state()
+}
+
+// NSCursor.hide/unhide are reference counted. These helpers ensure each hide is paired
+// with exactly one unhide so the counter never drifts.
+hide_cursor_now :: proc() {
+	if !s.cursor_hidden_by_us {
+		NS.Cursor.hide()
+		s.cursor_hidden_by_us = true
+	}
+}
+
+unhide_cursor_now :: proc() {
+	if s.cursor_hidden_by_us {
+		NS.Cursor.unhide()
+		s.cursor_hidden_by_us = false
+	}
+}
+
+cursor_in_content_area :: proc() -> bool {
+	view := s.window->contentView()
+	if view == nil do return false
+	pos := ce.Window_mouseLocationOutsideOfEventStream(s.window)
+	return bool(ce.View_mouse_inRect(view, pos, ce.View_frame(view)))
+}
+
+apply_cursor_state :: proc() {
+	if s.cursor_visible || !cursor_in_content_area() {
+		unhide_cursor_now()
+	} else {
+		hide_cursor_now()
+	}
+}
+
+install_cursor_tracker :: proc() {
+	view := s.window->contentView()
+	if view == nil do return
+
+	class_name := cstring("Karl2DCursorTracker")
+	class := NS.objc_lookUpClass(class_name)
+	if class == nil {
+		class = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), class_name, 0)
+		NS.class_addMethod(class, intrinsics.objc_find_selector("mouseEntered:"), auto_cast cursor_tracker_mouse_entered, "v@:@")
+		NS.class_addMethod(class, intrinsics.objc_find_selector("mouseExited:"),  auto_cast cursor_tracker_mouse_exited,  "v@:@")
+		NS.objc_registerClassPair(class)
+	}
+
+	s.cursor_tracker = NS.class_createInstance(class, 0)
+
+	options := ce.TRACKING_MOUSE_ENTERED_AND_EXITED |
+	           ce.TRACKING_ACTIVE_IN_KEY_WINDOW |
+	           ce.TRACKING_IN_VISIBLE_RECT |
+	           ce.TRACKING_ASSUME_INSIDE
+	area := ce.TrackingArea_alloc()
+	area  = ce.TrackingArea_initWithRect(area, ce.View_frame(view), options, s.cursor_tracker, nil)
+	ce.View_addTrackingArea(view, area)
+}
+
+cursor_tracker_mouse_entered :: proc "c" (self: NS.id, cmd: NS.SEL, event: NS.id) {
+	context = s.odin_ctx
+	if !s.cursor_visible {
+		hide_cursor_now()
+	}
+}
+
+cursor_tracker_mouse_exited :: proc "c" (self: NS.id, cmd: NS.SEL, event: NS.id) {
+	context = s.odin_ctx
+	unhide_cursor_now()
 }
 
 mac_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -498,8 +625,10 @@ mac_set_window_mode :: proc(window_mode: Window_Mode) {
 
 		// same as frame() b/c no decorations, but semantically more correct
 		content_rect := s.window->contentLayoutRect()
-		s.screen_width = int(content_rect.width)
-		s.screen_height = int(content_rect.height)
+
+		scale := mac_get_window_scale()
+		s.screen_width  = int(f32(content_rect.width) * scale)
+		s.screen_height = int(f32(content_rect.height) * scale)
 	}
 }
 

@@ -11,7 +11,8 @@ package karl2d
 // all dynamically allocated memory.
 //
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
-// The window might be slightly larger due to borders and headers.
+// The window might be slightly larger due to borders and headers. The true width and height will be
+// scaled up by the scaling setting in the operating system.
 //
 // The return value is a pointer to Karl2D's internal state. You can restore this state later using
 // `set_internal_state()`. This is useful for example when doing game code reload, as the state may
@@ -149,6 +150,9 @@ get_window_scale :: proc() -> f32
 
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode)
+
+// Hide or show the OS cursor.
+set_cursor_visible :: proc(visible: bool)
 
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
@@ -324,14 +328,15 @@ draw_texture :: proc(
 	tint := WHITE,
 )
 
-// Draw a section of a texture at a position. The section is chosen using the `source` parameter,
-// which is a rectangle that uses pixel coordinates.
+// Draw a texture at a position, but only draw the region specified by the `source` rectangle. The
+// `source` rectangle is specified in pixel coordinates. You can flip the texture by using negative
+// width/height in `source`.
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
 // - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
-draw_texture_section :: proc(
+draw_texture_rect :: proc(
 	texture: Texture,
 	source: Rect,
 	position: Vec2,
@@ -340,9 +345,9 @@ draw_texture_section :: proc(
 	tint := WHITE,
 )
 
-// Draw a section of a texture by fitting it into a rectangle. The section is chosen using the
-// rectangle parameter `source`, measured in pixels. The `dest` parameter is the rectangle on the
-// screen (or in the world) that we want to fit the texture section into.
+// Draw a texture by selecting a `source` rectangle and fitting it into a `dest` (destination)
+// rectangle. `source` is measured in texture-space pixels and `dest` is measured in world-space
+// pixels. You can flip the texture by using negative width/height for the `source` rectangle.
 //
 // Optional parameters:
 // - origin: An offset for the dest rectangle, and also the point to rotate around.
@@ -362,7 +367,8 @@ draw_texture_fit :: proc(
 measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) -> Vec2
 
 // Draw text at a position, with a size and color. The position is the top-left position of the
-// text.
+// text. If you've set a camera using `set_camera`, then the font size will be internally scaled
+// so that the text appear sharp.
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
@@ -401,6 +407,10 @@ load_texture_from_bytes :: proc(bytes: []u8, options: Load_Texture_Options = {})
 // This assumes that there is no header in the data. If your data has a header (you read the data
 // from a file on disk), then please use `load_texture_from_bytes` instead.
 load_texture_from_bytes_raw :: proc(bytes: []u8, width: int, height: int, format: Pixel_Format) -> Texture
+
+// Create a GPU texture from an image stored in RAM. There are currently no procedures to manipulate
+// the image. However, you can create an `Image` struct manually and fill out the data as needed.
+load_texture_from_image :: proc(image: Image) -> Texture
 
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
 // (w, h) = (texture_width, texture_height)
@@ -734,11 +744,25 @@ rotate :: proc(v: Vec2, angle_radians: f32) -> Vec2
 // FONTS //
 //-------//
 
-// Loads a font from disk and returns a handle that represents it.
-load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font
+// Like `load_static_font_from_bytes` but reads a file from disk using a specified name.
+load_static_font_from_file :: proc(filename: string, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font
 
-// Loads a font from a block of memory and returns a handle that represents it.
-load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font
+// Load the TTF font contained in `data` and bake it into a texture. The characters in the texture
+// will be of of the specified `font_size`. If you do not specify a list of `codepoints`, then this
+// procedure defaults to using all codepoints between 32 to 127 (ASCII).
+load_static_font_from_bytes :: proc(
+	data: []byte,
+	font_size: f32,
+	codepoints: []rune = {},
+	options: Font_Options = {},
+) -> Font
+
+// Like `load_dynamic_font_from_bytes`, but reads a file from disk using a filename.
+load_dynamic_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font
+
+// Load a TTF font stored in `data` as a dynamic font. This means that an atlas will be dynamically
+// built as you draw characters using this font.
+load_dynamic_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font
 
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
 destroy_font :: proc(font: Font)
@@ -882,6 +906,10 @@ ui_button_width :: proc(text: string, button_height: f32) -> f32
 // when no camera is set.
 //
 // Mainly used by the samples in order to create the "Source" button.
+//
+// Note that this does not support zoomed cameras right now, since it uses unscaled mouse positions.
+// As this is experimental, you are probably better off copying this procedure to your own code and
+// modifying it, rather than using it as-is.
 ui_button :: proc(r: Rect, text: string) -> bool
 
 //---------------------//
@@ -1004,6 +1032,14 @@ Texture_Filter :: enum {
 	Linear, // Smoothed texture scaling.
 }
 
+// An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order
+// to transport it to the GPU.
+Image :: struct {
+	pixels: []Color,
+	width: int,
+	height: int,
+}
+
 Camera :: struct {
 	// Where the camera looks.
 	target: Vec2,
@@ -1032,6 +1068,18 @@ Window_Mode :: enum {
 
 Init_Options :: struct {
 	window_mode: Window_Mode,
+
+	// Enable to request anti-alias. On most systems this means 4x Multi Sample Anti Alias
+	anti_alias: bool,
+
+	// This hint may disable scaling of the window when created. Scaling here refers to the scaling
+	// that is set for the monitor in the OS settings (the same number returned by
+	// `get_window_scale`).
+	//
+	// Note that this is a _hint_. It only works on some platforms, such as Windows. On other
+	// platforms, such as Linux+Wayland, it does not work, because Wayland always auto scales all
+	// windows.
+	disable_auto_scale_hint: bool,
 }
 
 Shader_Handle :: distinct Handle
@@ -1136,12 +1184,34 @@ Font_Options :: struct {
 	filter: Texture_Filter,
 }
 
+// Supported font types:
+// - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
+// - Dynamic: A font where an atlas is continuously updated as you need need new characters. This
+//            mode current uses fontstash.
+//
+// Future types (TODO):
+// - Slug: Upload the character bezier curves to the GPU and render the text on the GPU without the
+//         need for any atlas texture. This will be based on the "slug font algorithm" that was
+//         recently put into public domain.
+Font_Type :: enum {
+	Static,
+	Dynamic,
+}
+
 Font_Data :: struct {
 	atlas: Texture,
 	options: Font_Options,
 
-	// internal
-	fontstash_handle: int,
+	type: Font_Type,
+
+	// type == .Static
+	static_glyphs: []Font_Baked_Glyph,
+	static_glyph_ranges: []Font_Baked_Glyph_Range,
+	static_font_size: f32,
+	static_line_spacing: f32,
+
+	// type == .Dynamic
+	dynamic_fontstash_handle: int,
 }
 
 Handle :: hm.Handle64
@@ -1149,6 +1219,21 @@ Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
+
+Font_Baked_Glyph_Range :: struct {
+	start_idx: int,
+	start: rune,
+	end: rune,
+}
+
+Font_Baked_Glyph :: struct {
+	value: rune,
+	// stbtt index, for faster lookup
+	index: int,
+	rect: Rect,
+	offset: Vec2,
+	advance: f32,
+}
 
 FONT_NONE :: Font(0)
 
@@ -1219,10 +1304,14 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
+// From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
+VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
+
 Audio_Stream_Data :: struct {
 	handle: Audio_Stream,
 	
 	vorbis: ^stbv.vorbis,
+	vorbis_buffer: stbv.vorbis_alloc,
 	playing_buffer_handle: Playing_Audio_Buffer_Handle,
 	buffer: Audio_Buffer,
 	
@@ -1384,7 +1473,6 @@ State :: struct {
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
-	vorbis_alloc: stbv.vorbis_alloc,
 
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
 	// ample.
@@ -1637,6 +1725,8 @@ Event_Screen_Resize :: struct {
 // You can also use `k2.get_window_scale()`
 Event_Window_Scale_Changed :: struct {
 	scale: f32,
+	screen_width: int,
+	screen_height: int,
 }
 
 Event_Window_Focused :: struct {}

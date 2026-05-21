@@ -156,7 +156,7 @@ step :: proc() -> bool {
 		// Always draw "grass" below the tile, as they have transparent pixels.
 		k2.draw_rect(k2.rect_from_pos_size(pos, {TILE_SIZE, TILE_SIZE}), k2.LIGHT_GREEN)
 
-		k2.draw_texture_section(
+		k2.draw_texture_rect(
 			tileset_path_texture,
 			tile_rect,
 			pos,

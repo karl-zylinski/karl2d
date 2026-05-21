@@ -140,15 +140,24 @@ step :: proc() -> bool {
 	k2.draw_text("use arrow keys or the left mouse button to pan", text_pos, font_size, text_color)
 	text_pos.y -= font_size
 
-	source_code_rect := k2.Rect {
-		f32(k2.get_screen_width()) - 210,
-		f32(k2.get_screen_height()) - 40,
-		200,
-		30,
+	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size())
+	bottom_bar := k2.rect_cut_bottom(&screen_rect, 36, 0)
+	bottom_bar = k2.rect_shrink(bottom_bar, 4, 4)
+
+	button_rect :: proc(text: string, r: ^k2.Rect) -> k2.Rect {
+		return k2.rect_cut_right(r, k2.ui_button_width(text, r.h) + 25, 5)
+	}
+	
+	if k2.ui_button(button_rect("Source code", &bottom_bar), "Source Code") {
+		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/camera/camera.odin")
 	}
 
-	if k2.ui_button(source_code_rect, "Source Code") {
-		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/camera/camera.odin")
+	if k2.ui_button(button_rect("Fullscreen", &bottom_bar), "Fullscreen") {
+		k2.set_window_mode(.Borderless_Fullscreen)
+	}
+
+	if k2.ui_button(button_rect("Windowed", &bottom_bar), "Windowed") {
+		k2.set_window_mode(.Windowed_Resizable)
 	}
 
 	// SHOW WHAT WE DREW TO PLAYER

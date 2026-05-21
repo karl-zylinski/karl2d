@@ -44,7 +44,14 @@ d3d11_state_size :: proc() -> int {
 	return size_of(D3D11_State)
 }
 
-d3d11_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+d3d11_init :: proc(
+	state: rawptr,
+	glue: Window_Render_Glue,
+	swapchain_width: int,
+	swapchain_height: int,
+	options: Init_Options,
+	allocator := context.allocator,
+) {
 	s = (^D3D11_State)(state)
 	s.allocator = allocator
 
@@ -119,14 +126,17 @@ d3d11_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swa
 	base_device_context->Release()
 	
 	ch(dxgi_device->GetAdapter(&s.dxgi_adapter))
+	s.anti_alias = options.anti_alias
 
 	create_swapchain(swapchain_width, swapchain_height)
 
 	rasterizer_desc := d3d11.RASTERIZER_DESC{
 		FillMode = .SOLID,
-		CullMode = .BACK,
+		CullMode = .NONE,
 		ScissorEnable = true,
+		MultisampleEnable = d3d11.BOOL(options.anti_alias),
 	}
+
 	ch(s.device->CreateRasterizerState(&rasterizer_desc, &s.rasterizer_state))
 
 	vertex_buffer_desc := d3d11.BUFFER_DESC{
@@ -360,6 +370,11 @@ d3d11_draw :: proc(
 	scissor_rect := d3d11.RECT {
 		right = i32(s.width),
 		bottom = i32(s.height),
+	}
+
+	if rt := hm.get(&s.render_targets, render_target); rt != nil {
+		scissor_rect.right = i32(rt.width)
+		scissor_rect.bottom = i32(rt.height)
 	}
 
 	if sciss, sciss_ok := scissor.?; sciss_ok {
@@ -653,9 +668,9 @@ d3d11_set_texture_filter :: proc(
 create_sampler :: proc(filter: d3d11.FILTER) -> ^d3d11.ISamplerState {
 	sampler_desc := d3d11.SAMPLER_DESC{
 		Filter = filter,
-		AddressU = .WRAP,
-		AddressV = .WRAP,
-		AddressW = .WRAP,
+		AddressU = .CLAMP,
+		AddressV = .CLAMP,
+		AddressW = .CLAMP,
 		ComparisonFunc = .NEVER,
 	}
 
@@ -1032,6 +1047,7 @@ D3D11_State :: struct {
 	framebuffer: ^d3d11.ITexture2D,
 	blend_state_alpha: ^d3d11.IBlendState,
 	blend_state_premultiplied_alpha: ^d3d11.IBlendState,
+	anti_alias: bool,
 
 	textures: hm.Dynamic_Handle_Map(D3D11_Texture, Texture_Handle),
 	render_targets: hm.Dynamic_Handle_Map(D3D11_Render_Target, Render_Target_Handle),
@@ -1044,12 +1060,26 @@ D3D11_State :: struct {
 }
 
 create_swapchain :: proc(w, h: int) {
+	sample_count: u32 = 1
+	num_sample_quality_levels: u32
+
+	SWAPCHAIN_FORMAT :: dxgi.FORMAT.B8G8R8A8_UNORM
+
+	if s.anti_alias {
+		check_multisample_res := s.device->CheckMultisampleQualityLevels(SWAPCHAIN_FORMAT, 4, &num_sample_quality_levels)
+
+		if check_multisample_res >= 0 {
+			sample_count = 4
+		}
+	}
+
 	swapchain_desc := dxgi.SWAP_CHAIN_DESC1 {
 		Width = u32(w),
 		Height = u32(h),
-		Format = .B8G8R8A8_UNORM,
+		Format = SWAPCHAIN_FORMAT,
 		SampleDesc = {
-			Count   = 1,
+			Count = sample_count,
+			Quality = num_sample_quality_levels > 0 ? num_sample_quality_levels - 1 : 0,
 		},
 		BufferUsage = {.RENDER_TARGET_OUTPUT},
 		BufferCount = 2,
@@ -1062,6 +1092,7 @@ create_swapchain :: proc(w, h: int) {
 	ch(dxgi_factory->CreateSwapChainForHwnd(s.device, s.window_handle, &swapchain_desc, nil, nil, &s.swapchain))
 	ch(s.swapchain->GetBuffer(0, d3d11.ITexture2D_UUID, (^rawptr)(&s.framebuffer)))
 	ch(s.device->CreateRenderTargetView(s.framebuffer, nil, &s.framebuffer_view))
+	dxgi_factory->MakeWindowAssociation(s.window_handle, { .NO_ALT_ENTER })
 }
 
 D3D11_Texture :: struct {
