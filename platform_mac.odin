@@ -348,10 +348,15 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			px := loc.x * scale
 			py := NS.Float(s.screen_height) - loc.y * scale
 			
-			append(&s.events, Event_Mouse_Move { position = { f32(px), f32(py) }})
-			
 			if s.mouse_captured {
-				_mac_teleport_cursor_to_center()
+				dx := f32(ce.Event_deltaX(event)) * f32(s.window->backingScaleFactor())
+				dy := f32(ce.Event_deltaY(event)) * f32(s.window->backingScaleFactor())
+				cx := f32(s.screen_width/2)
+				cy := f32(s.screen_height/2)
+				append(&s.events, Event_Mouse_Move { position = { cx + dx, cy + dy}})
+				append(&s.events, Event_Mouse_Teleported { position = { cx, cy }})
+			} else {
+				append(&s.events, Event_Mouse_Move { position = { f32(px), f32(py) }})
 			}
 
 		case .ScrollWheel:
@@ -433,7 +438,10 @@ mac_set_mouse_captured :: proc(captured: bool) {
 	s.mouse_captured = captured
 
 	if captured {
+		ce.CGAssociateMouseAndMouseCursorPosition(false)
 		_mac_teleport_cursor_to_center()
+	} else {
+		ce.CGAssociateMouseAndMouseCursorPosition(true)
 	}
 }
 

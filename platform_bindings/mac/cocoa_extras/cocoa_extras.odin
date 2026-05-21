@@ -27,6 +27,14 @@ Event_pressedMouseButtons :: proc "c" () -> NS.UInteger {
 	return msgSend(NS.UInteger, NS.Event, "pressedMouseButtons")
 }
 
+Event_deltaX :: proc "c" (self: ^NS.Event) -> NS.Float {
+	return msgSend(NS.Float, self, "deltaX")
+}
+
+Event_deltaY :: proc "c" (self: ^NS.Event) -> NS.Float {
+	return msgSend(NS.Float, self, "deltaY")
+}
+
 // NSTrackingArea options (bit flags). See NSTrackingArea documentation for the full list.
 TRACKING_MOUSE_ENTERED_AND_EXITED :: NS.UInteger(0x01)
 TRACKING_CURSOR_UPDATE            :: NS.UInteger(0x04)
@@ -72,4 +80,5 @@ foreign import CoreGraphics "system:CoreGraphics.framework"
 @(default_calling_convention="c")
 foreign CoreGraphics {
 	CGWarpMouseCursorPosition :: proc(point: CGPoint) -> CGError ---
+	CGAssociateMouseAndMouseCursorPosition :: proc(connected: NS.BOOL) -> CGError ---
 }
