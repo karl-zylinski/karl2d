@@ -57,6 +57,9 @@ Mac_State :: struct {
 	windowed_rect:    NS.Rect,
 	events:           [dynamic]Event,
 
+	// for emitting mouse up events after a live resize
+	left_mouse_held:  bool,
+
 	window_render_glue: Window_Render_Glue,
 
 	gamepads:           [MAX_GAMEPADS]Gamepad,
@@ -214,6 +217,15 @@ mac_init :: proc(
 				append(&s.events, Event_Window_Unfocused{})
 			},
 
+			windowDidEndLiveResize = proc(_: ^NS.Notification) {
+				pressed := ce.Event_pressedMouseButtons()
+
+				if s.left_mouse_held && (pressed & 1) == 0 {
+					append(&s.events, Event_Mouse_Button_Went_Up{button = .Left})
+					s.left_mouse_held = false
+				}
+			},
+
 			windowDidChangeBackingProperties = proc(_: ^NS.Notification) {
 				new_scale := f32(s.window->backingScaleFactor())
 				content_rect := s.window->contentLayoutRect()
@@ -294,9 +306,11 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			}
 
 		case .LeftMouseDown:
+			s.left_mouse_held = true
 			append(&s.events, Event_Mouse_Button_Went_Down{button = .Left})
 
 		case .LeftMouseUp:
+			s.left_mouse_held = false
 			append(&s.events, Event_Mouse_Button_Went_Up{button = .Left})
 
 		case .RightMouseDown:

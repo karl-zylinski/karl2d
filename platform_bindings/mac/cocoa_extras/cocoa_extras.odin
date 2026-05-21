@@ -23,6 +23,10 @@ Window_setContentSize :: proc "c" (self: ^NS.Window, size: NS.Size) {
 	msgSend(nil, self, "setContentSize:", size)
 }
 
+Event_pressedMouseButtons :: proc "c" () -> NS.UInteger {
+	return msgSend(NS.UInteger, NS.Event, "pressedMouseButtons")
+}
+
 // NSTrackingArea options (bit flags). See NSTrackingArea documentation for the full list.
 TRACKING_MOUSE_ENTERED_AND_EXITED :: NS.UInteger(0x01)
 TRACKING_CURSOR_UPDATE            :: NS.UInteger(0x04)
