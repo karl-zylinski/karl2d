@@ -19,6 +19,7 @@ PLATFORM_WEB :: Platform_Interface {
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
 	set_cursor_visible = web_set_cursor_visible,
+	set_mouse_captured = web_set_mouse_captured,
 	is_gamepad_active = web_is_gamepad_active,
 	get_gamepad_axis = web_get_gamepad_axis,
 	set_gamepad_vibration = web_set_gamepad_vibration,
@@ -131,12 +132,21 @@ web_event_window_resize :: proc(e: js.Event) {
 }
 
 web_event_mouse_move :: proc(e: js.Event) {
-	append(&s.events, Event_Mouse_Move {
-		position = {
-			math.floor(f32(e.mouse.client.x) * f32(js.device_pixel_ratio())),
-			math.floor(f32(e.mouse.client.y) * f32(js.device_pixel_ratio())),
-		},
-	})
+	if s.mouse_captured {
+		cx := f32(s.width / 2)
+		cy := f32(s.height / 2)
+		dx := f32(e.mouse.movement.x) * f32(js.device_pixel_ratio())
+		dy := f32(e.mouse.movement.y) * f32(js.device_pixel_ratio())
+		append(&s.events, Event_Mouse_Move { position = {cx + dx, cy + dy} })
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	} else {
+		append(&s.events, Event_Mouse_Move {
+			position = {
+				math.floor(f32(e.mouse.client.x) * f32(js.device_pixel_ratio())),
+				math.floor(f32(e.mouse.client.y) * f32(js.device_pixel_ratio())),
+			},
+		})
+	}
 }
 
 web_event_mouse_down :: proc(e: js.Event) {
@@ -358,6 +368,19 @@ web_set_cursor_visible :: proc(visible: bool) {
 	}
 }
 
+web_set_mouse_captured :: proc(captured: bool) {
+	s.mouse_captured = captured
+
+	if captured {
+		js.evaluate("document.getElementById('webgl-canvas').requestPointerLock()")
+		cx := f32(s.width / 2)
+		cy := f32(s.height / 2)
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	} else {
+		js.evaluate("document.exitPointerLock()")
+	}
+}
+
 web_is_gamepad_active :: proc(gamepad: int) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
@@ -420,6 +443,7 @@ Web_State :: struct {
 	height: int,
 	prev_scale: f32,
 	events: [dynamic]Event,
+	mouse_captured: bool,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 	window_mode: Window_Mode,
 	key_from_js_event_key_code: map[string]Keyboard_Key,

@@ -6,20 +6,33 @@ import k2 "../.."
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Mouse Capture", options = {window_mode = .Windowed_Resizable})
 	pos = k2.get_screen_size() * 0.5
-	k2.set_mouse_captured(true)
-	k2.set_cursor_visible(false)
 }
 
 pos: k2.Vec2
+captured: bool
 
 step :: proc() -> bool {
 	if !k2.update() {
 		return false
 	}
 
+	if k2.mouse_button_went_down(.Left) {
+		k2.set_mouse_captured(true)
+		k2.set_cursor_visible(false)
+		captured = true
+	}
+
+	if k2.key_went_down(.Escape) {
+		k2.set_mouse_captured(false)
+		k2.set_cursor_visible(true)
+		captured = false
+	}
+
 	delta := k2.get_mouse_delta()
 
-	pos += delta * k2.get_frame_time() * 100
+	if captured {
+		pos += delta * k2.get_frame_time() * 100
+	}
 
 	if pos.x > f32(k2.get_screen_width()) {
 		pos.x = 0
