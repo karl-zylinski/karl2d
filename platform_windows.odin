@@ -18,7 +18,10 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
 	set_cursor_visible = windows_set_cursor_visible,
-	set_mouse_captured = windows_set_mouse_captured,
+	is_cursor_visible = windows_is_cursor_visible,
+	lock_mouse = windows_lock_mouse,
+	unlock_mouse = windows_unlock_mouse,
+	is_mouse_locked = windows_is_mouse_locked,
 
 	is_gamepad_active = windows_is_gamepad_active,
 	get_gamepad_axis = windows_get_gamepad_axis,
@@ -32,7 +35,6 @@ PLATFORM_WINDOWS :: Platform_Interface {
 import win32 "core:sys/windows"
 import "base:runtime"
 @require import "log"
-
 
 windows_state_size :: proc() -> int {
 	return size_of(Windows_State)
@@ -51,6 +53,7 @@ windows_init :: proc(
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator = allocator)
 	s.custom_context = context
+	s.cursor_visible = true
 	
 	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 	win32.SetProcessDPIAware()
@@ -411,7 +414,8 @@ Windows_State :: struct {
 	previous_gamepad_triggers: [MAX_GAMEPADS][2]win32.BYTE,
 
 	events: [dynamic]Event,
-	mouse_captured: bool,
+	mouse_locked: bool,
+	cursor_visible: bool,
 
 	// for when returning from fullscreen to window mode
 	restore_window_pos_x: int,
@@ -474,26 +478,34 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 
 windows_set_cursor_visible :: proc(visible: bool) {
 	win32.ShowCursor(win32.BOOL(visible))
+	s.cursor_visible = visible
 }
 
-windows_set_mouse_captured :: proc(captured: bool) {
-	s.mouse_captured = captured
+windows_is_cursor_visible :: proc() -> bool {
+	return s.cursor_visible
+}
 
-	if captured {
-		// Clip cursor to window client rect. Makes it stay within the window.
-		r: win32.RECT
-		win32.GetClientRect(s.hwnd, &r)
-		tl := win32.POINT{r.left, r.top}
-		br := win32.POINT{r.right, r.bottom}
-		win32.ClientToScreen(s.hwnd, &tl)
-		win32.ClientToScreen(s.hwnd, &br)
-		clip := win32.RECT{tl.x, tl.y, br.x, br.y}
-		win32.ClipCursor(&clip)
-		
-		_windows_teleport_cursor_to_center()
-	} else {
-		win32.ClipCursor(nil)
-	}
+windows_lock_mouse :: proc() {
+	s.mouse_locked = true
+	r: win32.RECT
+	win32.GetClientRect(s.hwnd, &r)
+	tl := win32.POINT{r.left, r.top}
+	br := win32.POINT{r.right, r.bottom}
+	win32.ClientToScreen(s.hwnd, &tl)
+	win32.ClientToScreen(s.hwnd, &br)
+	clip := win32.RECT{tl.x, tl.y, br.x, br.y}
+	win32.ClipCursor(&clip)
+	
+	_windows_teleport_cursor_to_center()
+}
+
+windows_unlock_mouse :: proc() {
+	s.mouse_locked = false
+	win32.ClipCursor(nil)
+}
+
+windows_is_mouse_locked :: proc() -> bool {
+	return s.mouse_locked
 }
 
 _windows_teleport_cursor_to_center :: proc() {
@@ -545,7 +557,7 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 		x := win32.GET_X_LPARAM(lparam)
 		y := win32.GET_Y_LPARAM(lparam)
 
-		if s.mouse_captured {
+		if s.mouse_locked {
 			cx := i32(s.screen_width / 2)
 			cy := i32(s.screen_height / 2)
 
