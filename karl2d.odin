@@ -619,7 +619,7 @@ get_mouse_delta :: proc() -> Vec2 {
 
 // Hide or show the mouse cursor. The cursor may get shown again if the window loses focus.
 // Therefore, it's often best to use `is_cursor_hidden` to check the current status and use this
-// proc to hide the cursor as needed.
+// procedure to hide the cursor as needed.
 //
 // This call does not lock the cursor within the window, do that using a separate call to
 // `set_cursor_locked`.
@@ -655,8 +655,8 @@ set_cursor_locked :: proc(locked: bool) {
 }
 
 // Returns true if the mouse cursor is currently locked. Note that the mouse can get unlocked by the
-// OS, even though you previously called `lock_mouse`. Therefore, it's best to check the current
-// status using this procedure and then lock the mouse if needed.
+// OS, even though you previously called `set_cursor_locked(true)`. Therefore, it's best to check
+// the current status using this procedure and then lock the mouse if needed.
 is_cursor_locked :: proc() -> bool {
 	return pf.is_cursor_locked()
 }
