@@ -16,8 +16,8 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_screen_size = x11_set_screen_size,
 	get_window_scale = x11_get_window_scale,
 	set_window_mode = x11_set_window_mode,
-	set_cursor_visible = x11_set_cursor_visible,
-	is_cursor_visible = x11_is_cursor_visible,
+	set_cursor_hidden = x11_set_cursor_hidden,
+	is_cursor_hidden = x11_is_cursor_hidden,
 	set_cursor_locked = x11_set_cursor_locked,
 	is_cursor_locked = x11_is_cursor_locked,
 	set_internal_state = x11_set_internal_state,
@@ -354,19 +354,19 @@ x11_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-x11_set_cursor_visible :: proc(visible: bool) {
-	s.cursor_visible = visible
+x11_set_cursor_hidden :: proc(hidden: bool) {
+	s.cursor_hidden = hidden
 
-	if visible {
-		X.UndefineCursor(s.display, s.window)
-	} else {
+	if hidden {
 		X.DefineCursor(s.display, s.window, s.blank_cursor)
+	} else {
+		X.UndefineCursor(s.display, s.window)
 	}
 	X.Flush(s.display)
 }
 
-x11_is_cursor_visible :: proc() -> bool {
-	return s.cursor_visible	
+x11_is_cursor_hidden :: proc() -> bool {
+	return s.cursor_hidden	
 }
 
 x11_set_cursor_locked :: proc(locked: bool) {
@@ -429,7 +429,7 @@ X11_State :: struct {
 	window_mode: Window_Mode,
 	window_render_glue: Window_Render_Glue,
 	blank_cursor: X.Cursor,
-	cursor_visible: bool,
+	cursor_hidden: bool,
 	cursor_locked: bool,
 	events: [dynamic]Event,
 }

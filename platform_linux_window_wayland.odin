@@ -14,8 +14,8 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	set_screen_size = wl_set_screen_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
-	set_cursor_visible = wl_set_cursor_visible,
-	is_cursor_visible = wl_is_cursor_visible,
+	set_cursor_hidden = wl_set_cursor_hidden,
+	is_cursor_hidden = wl_is_cursor_hidden,
 	set_cursor_locked = wl_set_cursor_locked,
 	is_cursor_locked = wl_is_cursor_locked,
 	set_internal_state = wl_set_internal_state,
@@ -50,7 +50,6 @@ wl_init :: proc(
 	s = (^WL_State)(window_state)
 	s.allocator = allocator
 	s.scale = 1
-	s.cursor_visible = true
 	s.odin_ctx = context
 
 	s.display = wl.display_connect(nil)
@@ -390,7 +389,7 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 		s.pointer_enter_serial = u32(serial)
-		apply_cursor_visible()
+		apply_cursor_visiblity()
 	},
 	leave = proc "c" (
 		data: rawptr,
@@ -576,13 +575,13 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-wl_set_cursor_visible :: proc(visible: bool) {
-	s.cursor_visible = visible
-	apply_cursor_visible()
+wl_set_cursor_hidden :: proc(hidden: bool) {
+	s.cursor_hidden = hidden
+	apply_cursor_visiblity()
 }
 
-wl_is_cursor_visible :: proc() -> bool {
-	return s.cursor_visible
+wl_is_cursor_hidden :: proc() -> bool {
+	return s.cursor_hidden
 }
 
 locked_pointer_listener := wl.ZWP_Locked_Pointer_V1_Listener {
@@ -650,16 +649,17 @@ wl_set_cursor_locked :: proc(locked: bool) {
 		s.locked_pointer = nil
 	}
 }
+
 wl_is_cursor_locked :: proc() -> bool {
 	return s.locked_pointer != nil
 }
 
-apply_cursor_visible :: proc() {
+apply_cursor_visiblity :: proc() {
 	if s.pointer == nil {
 		return
 	}
 
-	if !s.cursor_visible {
+	if s.cursor_hidden {
 		wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
 	} else {
 		// Restore the default cursor. This would also happen if you leave and re-enter wind.
@@ -724,7 +724,7 @@ WL_State :: struct {
 	keyboard: ^wl.Keyboard,
 	pointer: ^wl.Pointer,
 	pointer_enter_serial: u32,
-	cursor_visible: bool,
+	cursor_hidden: bool,
 	shm: ^wl.SHM,
 	cursor_surface: ^wl.Surface,
 	cursor_theme: ^wl.Cursor_Theme,
