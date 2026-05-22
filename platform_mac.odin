@@ -27,7 +27,10 @@ PLATFORM_MAC :: Platform_Interface {
 	set_window_position = mac_set_window_position,
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
-	set_cursor_visible = mac_set_cursor_visible,
+	set_cursor_hidden = mac_set_cursor_hidden,
+	is_cursor_hidden = mac_is_cursor_hidden,
+	set_cursor_locked = mac_set_cursor_locked,
+	is_cursor_locked = mac_is_cursor_locked,
 
 	is_gamepad_active = mac_is_gamepad_active,
 	get_gamepad_axis = mac_get_gamepad_axis,
@@ -49,9 +52,12 @@ Mac_State :: struct {
 
 	// Cursor visibility (the user's intent). The OS cursor is only actually hidden while
 	// the cursor is inside the content area of a key window — see `apply_cursor_state`.
-	cursor_visible:      bool,
+	cursor_hidden:       bool,
 	cursor_hidden_by_us: bool,
 	cursor_tracker:      NS.id,
+
+	cursor_locked: bool,
+	mouse_ignore_next_move: bool,
 
 	screen_width:     int,
 	screen_height:    int,
@@ -97,7 +103,6 @@ mac_init :: proc(
 	s.odin_ctx = context
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
-	s.cursor_visible = true
 
 	// Initialize NSApplication
 	s.app = NS.Application_sharedApplication()
@@ -327,6 +332,11 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			append(&s.events, Event_Mouse_Button_Went_Up{button = .Middle})
 
 		case .MouseMoved, .LeftMouseDragged, .RightMouseDragged, .OtherMouseDragged:
+			if s.mouse_ignore_next_move {
+				s.mouse_ignore_next_move = false
+				break
+			}
+
 			event_window := event->window()
 
 			// event_window is nil when the cursor is outside all windows —
@@ -346,9 +356,16 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			px := loc.x * scale
 			py := NS.Float(s.screen_height) - loc.y * scale
 			
-			append(&s.events, Event_Mouse_Move{
-				position = {f32(px), f32(py)},
-			})
+			if s.cursor_locked {
+				dx := f32(ce.Event_deltaX(event)) * f32(s.window->backingScaleFactor())
+				dy := f32(ce.Event_deltaY(event)) * f32(s.window->backingScaleFactor())
+				cx := f32(s.screen_width/2)
+				cy := f32(s.screen_height/2)
+				append(&s.events, Event_Mouse_Move { position = { cx + dx, cy + dy}})
+				append(&s.events, Event_Mouse_Teleported { position = { cx, cy }})
+			} else {
+				append(&s.events, Event_Mouse_Move { position = { f32(px), f32(py) }})
+			}
 
 		case .ScrollWheel:
 			delta := event->scrollingDeltaY()
@@ -425,9 +442,43 @@ mac_get_window_scale :: proc() -> f32 {
 	return f32(s.window->backingScaleFactor())
 }
 
-mac_set_cursor_visible :: proc(visible: bool) {
-	s.cursor_visible = visible
+mac_set_cursor_hidden :: proc(hidden: bool) {
+	s.cursor_hidden = hidden
 	apply_cursor_state()
+}
+
+mac_is_cursor_hidden :: proc() -> bool {
+	return s.cursor_hidden
+}
+
+mac_set_cursor_locked :: proc(locked: bool) {
+	s.cursor_locked = locked
+
+	if locked {
+		s.mouse_ignore_next_move = true
+		ce.CGAssociateMouseAndMouseCursorPosition(false)
+		_mac_teleport_cursor_to_center()
+	} else {
+		ce.CGAssociateMouseAndMouseCursorPosition(true)
+	}
+}
+
+mac_is_cursor_locked :: proc() -> bool {
+	return s.cursor_locked
+}
+
+_mac_teleport_cursor_to_center :: proc() {
+	cx := s.screen_width/2
+	cy := s.screen_height/2
+	scale := mac_get_window_scale()
+	frame := s.window->frame()
+	x := f64(frame.origin.x) + f64(cx)/f64(scale)
+	y := f64(frame.origin.y) + f64(s.screen_height)/f64(scale) - f64(cy)/f64(scale)
+	ce.CGWarpMouseCursorPosition({x, y})
+
+	append(&s.events, Event_Mouse_Teleported {
+		position = {f32(cx), f32(cy)},
+	})
 }
 
 // NSCursor.hide/unhide are reference counted. These helpers ensure each hide is paired
@@ -454,10 +505,10 @@ cursor_in_content_area :: proc() -> bool {
 }
 
 apply_cursor_state :: proc() {
-	if s.cursor_visible || !cursor_in_content_area() {
-		unhide_cursor_now()
-	} else {
+	if s.cursor_hidden && cursor_in_content_area() {
 		hide_cursor_now()
+	} else {
+		unhide_cursor_now()
 	}
 }
 
@@ -487,7 +538,7 @@ install_cursor_tracker :: proc() {
 
 cursor_tracker_mouse_entered :: proc "c" (self: NS.id, cmd: NS.SEL, event: NS.id) {
 	context = s.odin_ctx
-	if !s.cursor_visible {
+	if s.cursor_hidden {
 		hide_cursor_now()
 	}
 }

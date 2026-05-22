@@ -18,7 +18,10 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	set_screen_size = windows_set_screen_size,
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
-	set_cursor_visible = windows_set_cursor_visible,
+	set_cursor_hidden = windows_set_cursor_hidden,
+	is_cursor_hidden = windows_is_cursor_hidden,
+	set_cursor_locked = windows_set_cursor_locked,
+	is_cursor_locked = windows_is_cursor_locked,
 
 	is_gamepad_active = windows_is_gamepad_active,
 	get_gamepad_axis = windows_get_gamepad_axis,
@@ -32,7 +35,6 @@ PLATFORM_WINDOWS :: Platform_Interface {
 import win32 "core:sys/windows"
 import "base:runtime"
 @require import "log"
-
 
 windows_state_size :: proc() -> int {
 	return size_of(Windows_State)
@@ -59,7 +61,7 @@ windows_init :: proc(
 
 	cls := win32.WNDCLASSW {
 		style = win32.CS_OWNDC,
-		lpfnWndProc = window_proc,
+		lpfnWndProc = _windows_window_proc,
 		lpszClassName = CLASS_NAME,
 		hInstance = instance,
 		hCursor = win32.LoadCursorA(nil, win32.IDC_ARROW),
@@ -133,7 +135,7 @@ windows_get_window_render_glue :: proc() -> Window_Render_Glue {
 windows_get_events :: proc(events: ^[dynamic]Event) {
 	msg: win32.MSG
 
-	// This loop will call `window_proc` which will add more things to `frame_events`.
+	// This loop will call `_windows_window_proc` which will add more things to `frame_events`.
 	for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
 		win32.TranslateMessage(&msg)
 		win32.DispatchMessageW(&msg)
@@ -415,6 +417,8 @@ Windows_State :: struct {
 	previous_gamepad_triggers: [MAX_GAMEPADS][2]win32.BYTE,
 
 	events: [dynamic]Event,
+	cursor_locked: bool,
+	cursor_hidden: bool,
 
 	// for when returning from fullscreen to window mode
 	restore_window_pos_x: int,
@@ -475,13 +479,53 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-windows_set_cursor_visible :: proc(visible: bool) {
-	win32.ShowCursor(win32.BOOL(visible))
+windows_set_cursor_hidden :: proc(hidden: bool) {
+	win32.ShowCursor(win32.BOOL(!hidden))
+	s.cursor_hidden = hidden
+}
+
+windows_is_cursor_hidden :: proc() -> bool {
+	return s.cursor_hidden
+}
+
+windows_set_cursor_locked :: proc(locked: bool) {
+	s.cursor_locked = locked
+
+	if locked {
+		r: win32.RECT
+		win32.GetClientRect(s.hwnd, &r)
+		tl := win32.POINT{r.left, r.top}
+		br := win32.POINT{r.right, r.bottom}
+		win32.ClientToScreen(s.hwnd, &tl)
+		win32.ClientToScreen(s.hwnd, &br)
+		clip := win32.RECT{tl.x, tl.y, br.x, br.y}
+		win32.ClipCursor(&clip)
+		
+		_windows_teleport_cursor_to_center()
+	} else {
+		win32.ClipCursor(nil)
+	}
+}
+
+windows_is_cursor_locked :: proc() -> bool {
+	return s.cursor_locked
+}
+
+_windows_teleport_cursor_to_center :: proc() {
+	cx := s.screen_width / 2
+	cy := s.screen_height / 2
+	pt := win32.POINT{i32(cx), i32(cy)}
+	win32.ClientToScreen(s.hwnd, &pt)
+	win32.SetCursorPos(pt.x, pt.y)
+
+	append(&s.events, Event_Mouse_Teleported {
+		position = {f32(cx), f32(cy)},
+	})
 }
 
 s: ^Windows_State
 
-window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
+_windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
 	context = s.custom_context
 
 	switch msg {
@@ -515,9 +559,23 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_MOUSEMOVE:
 		x := win32.GET_X_LPARAM(lparam)
 		y := win32.GET_Y_LPARAM(lparam)
-		append(&s.events, Event_Mouse_Move {
-			position = {f32(x), f32(y)},
-		})
+
+		if s.cursor_locked {
+			cx := i32(s.screen_width / 2)
+			cy := i32(s.screen_height / 2)
+
+			if x != cx || y != cy {
+				append(&s.events, Event_Mouse_Move {
+					position = {f32(x), f32(y)},
+				})
+
+				_windows_teleport_cursor_to_center()
+			}
+		} else {
+			append(&s.events, Event_Mouse_Move {
+				position = {f32(x), f32(y)},
+			})
+		}
 
 	case win32.WM_MOUSEWHEEL:
 		delta := f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
@@ -622,6 +680,11 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		append(&s.events, Event_Window_Focused {})
 
 	case win32.WM_KILLFOCUS:
+		s.cursor_locked = false
+		if s.cursor_hidden {
+			win32.ShowCursor(true)
+			s.cursor_hidden = false
+		}
 		append(&s.events, Event_Window_Unfocused {})
 	}
 

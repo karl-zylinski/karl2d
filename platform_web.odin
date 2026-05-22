@@ -19,7 +19,10 @@ PLATFORM_WEB :: Platform_Interface {
 	set_window_position = web_set_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
-	set_cursor_visible = web_set_cursor_visible,
+	set_cursor_hidden = web_set_cursor_hidden,
+	is_cursor_hidden = web_is_cursor_hidden,
+	set_cursor_locked = web_set_cursor_locked,
+	is_cursor_locked = web_is_cursor_locked,
 	is_gamepad_active = web_is_gamepad_active,
 	get_gamepad_axis = web_get_gamepad_axis,
 	set_gamepad_vibration = web_set_gamepad_vibration,
@@ -78,6 +81,8 @@ web_init :: proc(
 	add_window_event_listener(.Focus, web_event_focus)
 	add_window_event_listener(.Blur, web_event_blur)
 
+	add_window_event_listener(.Pointer_Lock_Change, _web_event_pointer_lock_change)
+
 	if init_options.disable_auto_scale_hint {
 		log.warn("disable_auto_scale_hint not supported on web")
 	}
@@ -102,13 +107,12 @@ web_event_key_up :: proc(e: js.Event) {
 }
 
 web_event_focus :: proc(e: js.Event) {
-	append(&s.events, Event_Window_Focused {
-	})
+	append(&s.events, Event_Window_Focused {})
 }
 
 web_event_blur :: proc(e: js.Event) {
-	append(&s.events, Event_Window_Unfocused {
-	})
+	s.cursor_locked = false
+	append(&s.events, Event_Window_Unfocused {})
 }
 
 web_event_window_resize :: proc(e: js.Event) {
@@ -132,12 +136,21 @@ web_event_window_resize :: proc(e: js.Event) {
 }
 
 web_event_mouse_move :: proc(e: js.Event) {
-	append(&s.events, Event_Mouse_Move {
-		position = {
-			math.floor(f32(e.mouse.client.x) * f32(js.device_pixel_ratio())),
-			math.floor(f32(e.mouse.client.y) * f32(js.device_pixel_ratio())),
-		},
-	})
+	if s.cursor_locked {
+		cx := f32(s.width / 2)
+		cy := f32(s.height / 2)
+		dx := f32(e.mouse.movement.x) * f32(js.device_pixel_ratio())
+		dy := f32(e.mouse.movement.y) * f32(js.device_pixel_ratio())
+		append(&s.events, Event_Mouse_Move { position = {cx + dx, cy + dy} })
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	} else {
+		append(&s.events, Event_Mouse_Move {
+			position = {
+				math.floor(f32(e.mouse.client.x) * f32(js.device_pixel_ratio())),
+				math.floor(f32(e.mouse.client.y) * f32(js.device_pixel_ratio())),
+			},
+		})
+	}
 }
 
 web_event_mouse_down :: proc(e: js.Event) {
@@ -355,12 +368,39 @@ web_set_window_mode :: proc(new_mode: Window_Mode) {
 	}
 }
 
-web_set_cursor_visible :: proc(visible: bool) {
-	if visible {
-		js.set_element_style(s.canvas_id, "cursor", "default")
-	} else {
+web_set_cursor_hidden :: proc(hidden: bool) {
+	s.cursor_hidden = hidden
+	if hidden {
 		js.set_element_style(s.canvas_id, "cursor", "none")
+	} else {
+		js.set_element_style(s.canvas_id, "cursor", "default")
 	}
+}
+
+web_is_cursor_hidden :: proc() -> bool {
+	return s.cursor_hidden
+}
+
+_web_event_pointer_lock_change :: proc(e: js.Event) {
+	js.evaluate("document.getElementById('webgl-canvas')._pointerLocked = document.pointerLockElement !== null ? 1 : 0")
+	s.cursor_locked = js.get_element_key_f64("webgl-canvas", "_pointerLocked") != 0
+}
+
+web_set_cursor_locked :: proc(locked: bool) {
+	if locked {
+		js.evaluate("document.getElementById('webgl-canvas').requestPointerLock()")
+		cx := f32(s.width / 2)
+		cy := f32(s.height / 2)
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	} else {
+		js.evaluate("document.exitPointerLock()")
+	}
+
+	// s.cursor_locked set by _web_event_pointer_lock_change
+}
+
+web_is_cursor_locked :: proc() -> bool {
+	return s.cursor_locked
 }
 
 web_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -425,6 +465,8 @@ Web_State :: struct {
 	height: int,
 	prev_scale: f32,
 	events: [dynamic]Event,
+	cursor_locked: bool,
+	cursor_hidden: bool,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 	window_mode: Window_Mode,
 	key_from_js_event_key_code: map[string]Keyboard_Key,

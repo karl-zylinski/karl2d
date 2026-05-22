@@ -17,7 +17,10 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_screen_size = x11_set_screen_size,
 	get_window_scale = x11_get_window_scale,
 	set_window_mode = x11_set_window_mode,
-	set_cursor_visible = x11_set_cursor_visible,
+	set_cursor_hidden = x11_set_cursor_hidden,
+	is_cursor_hidden = x11_is_cursor_hidden,
+	set_cursor_locked = x11_set_cursor_locked,
+	is_cursor_locked = x11_is_cursor_locked,
 	set_internal_state = x11_set_internal_state,
 }
 
@@ -35,23 +38,24 @@ x11_state_size :: proc() -> int {
 
 x11_init :: proc(
 	window_state: rawptr,
-	window_width: int,
-	window_height: int,
+	screen_width: int,
+	screen_height: int,
 	window_title: string,
 	init_options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
 	s = (^X11_State)(window_state)
 	s.allocator = allocator
-	s.windowed_width = window_width
-	s.windowed_height = window_height
+	s.screen_width = screen_width
+	s.screen_height = screen_height
 	s.display = X.OpenDisplay(nil)
+	s.events = make([dynamic]Event, allocator)
 
 	s.window = X.CreateSimpleWindow(
 		s.display,
 		X.DefaultRootWindow(s.display),
 		0, 0,
-		u32(window_width), u32(window_height),
+		u32(screen_width), u32(screen_height),
 		0,
 		0,
 		0,
@@ -108,6 +112,7 @@ x11_init :: proc(
 }
 
 x11_shutdown :: proc() {
+	delete(s.events)
 	X.FreeCursor(s.display, s.blank_cursor)
 	X.DestroyWindow(s.display, s.window)
 }
@@ -181,22 +186,37 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 			}
 
 		case .MotionNotify:
-			append(events, Event_Mouse_Move {
-				position = { f32(event.xmotion.x), f32(event.xmotion.y) }, 
-			})
+			if s.cursor_locked {
+				cx := i32(s.screen_width / 2)
+				cy := i32(s.screen_height / 2)
+
+				if event.xmotion.x != cx || event.xmotion.y != cy {
+					append(events, Event_Mouse_Move {
+						position = {f32(event.xmotion.x), f32(event.xmotion.y)},
+					})
+					_x11_teleport_cursor_to_center()
+				}
+			} else {
+				append(events, Event_Mouse_Move {
+					position = {f32(event.xmotion.x), f32(event.xmotion.y)},
+				})
+			}
 
 		case .ConfigureNotify:
 			w := int(event.xconfigure.width)
 			h := int(event.xconfigure.height)
 
-			if w != s.width || h != s.height {
-				s.width = w
-				s.height = h
+			if w != s.last_configure_width || h != s.last_configure_height {
+				s.last_configure_width = w
+				s.last_configure_height = h
 
 				if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-					s.windowed_width = w
-					s.windowed_height = h
+					s.last_configure_windowed_width = w
+					s.last_configure_windowed_height = h
 				}
+
+				s.screen_width = w
+				s.screen_height = h
 
 				append(events, Event_Screen_Resize {
 					width = w,
@@ -207,9 +227,14 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 			append(events, Event_Window_Focused{})
 
 		case .FocusOut:
+			// X11 unlocks the cursor if program loses focus
+			s.cursor_locked = false
 			append(events, Event_Window_Unfocused{})
 		}
 	}
+
+	append(events, ..s.events[:])
+	runtime.clear(&s.events)
 }
 
 x11_set_title :: proc(title: string) {
@@ -217,11 +242,11 @@ x11_set_title :: proc(title: string) {
 }
 
 x11_get_screen_width :: proc() -> int {
-	return s.width
+	return s.screen_width
 }
 
 x11_get_screen_height :: proc() -> int {
-	return s.height
+	return s.screen_height
 }
 
 x11_set_position :: proc(x: int, y: int) {
@@ -262,9 +287,14 @@ enter_borderless_fullscreen :: proc() {
 }
 
 leave_borderless_fullscreen :: proc() {
-	X.ResizeWindow(s.display, s.window, u32(s.windowed_width), u32(s.windowed_height))
-	s.width = s.windowed_width
-	s.height = s.windowed_height
+	X.ResizeWindow(
+		s.display,
+		s.window,
+		u32(s.last_configure_windowed_width),
+		u32(s.last_configure_windowed_height),
+	)
+	s.screen_width = s.last_configure_windowed_width
+	s.screen_height = s.last_configure_windowed_height
 
 	wm_state := X.InternAtom(s.display, "_NET_WM_STATE", true)
 	wm_fullscreen := X.InternAtom(s.display, "_NET_WM_STATE_FULLSCREEN", true)
@@ -306,10 +336,10 @@ x11_set_window_mode :: proc(window_mode: Window_Mode) {
 
 		hints := X.XSizeHints {
 			flags = { .PMinSize, .PMaxSize },
-			min_width = i32(s.width),
-			max_width = i32(s.width),
-			min_height = i32(s.height),
-			max_height = i32(s.height),
+			min_width = i32(s.screen_width),
+			max_width = i32(s.screen_width),
+			min_height = i32(s.screen_height),
+			max_height = i32(s.screen_height),
 		}
 
 		X.SetWMNormalHints(s.display, s.window, &hints)
@@ -329,13 +359,57 @@ x11_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-x11_set_cursor_visible :: proc(visible: bool) {
-	if visible {
-		X.UndefineCursor(s.display, s.window)
-	} else {
+x11_set_cursor_hidden :: proc(hidden: bool) {
+	s.cursor_hidden = hidden
+
+	if hidden {
 		X.DefineCursor(s.display, s.window, s.blank_cursor)
+	} else {
+		X.UndefineCursor(s.display, s.window)
 	}
 	X.Flush(s.display)
+}
+
+x11_is_cursor_hidden :: proc() -> bool {
+	return s.cursor_hidden	
+}
+
+x11_set_cursor_locked :: proc(locked: bool) {
+	s.cursor_locked = locked
+
+	if locked {
+		// Confine pointer to window (equivalent of Windows' ClipCursor)
+		X.GrabPointer(
+			s.display,
+			s.window,
+			false, // owner_events
+			{.PointerMotion, .ButtonPress, .ButtonRelease},
+			.GrabModeAsync,
+			.GrabModeAsync,
+			s.window, // confine_to: restrict to this window
+			0, // cursor: 0 = keep current
+			X.CurrentTime,
+		)
+
+		_x11_teleport_cursor_to_center()
+	} else {
+		X.UngrabPointer(s.display, X.CurrentTime)
+		X.Flush(s.display)
+	}
+}
+
+x11_is_cursor_locked :: proc() -> bool {
+	return s.cursor_locked
+}
+
+_x11_teleport_cursor_to_center :: proc() {
+	cx := s.screen_width / 2
+	cy := s.screen_height / 2
+	X.WarpPointer(s.display, 0, s.window, 0, 0, 0, 0, i32(cx), i32(cy))
+	X.Flush(s.display)
+	append(&s.events, Event_Mouse_Teleported {
+		position = {f32(cx), f32(cy)},
+	})
 }
 
 x11_set_internal_state :: proc(state: rawptr) {
@@ -345,16 +419,24 @@ x11_set_internal_state :: proc(state: rawptr) {
 
 X11_State :: struct {
 	allocator: runtime.Allocator,
-	width: int,
-	height: int,
-	windowed_width: int,
-	windowed_height: int,
+	
+	screen_width: int,
+	screen_height: int,
+	
+	last_configure_width: int,
+	last_configure_height: int,
+	last_configure_windowed_width: int,
+	last_configure_windowed_height: int,
+	
 	display: ^X.Display,
 	window: X.Window,
 	delete_msg: X.Atom,
 	window_mode: Window_Mode,
 	window_render_glue: Window_Render_Glue,
 	blank_cursor: X.Cursor,
+	cursor_hidden: bool,
+	cursor_locked: bool,
+	events: [dynamic]Event,
 }
 
 s: ^X11_State

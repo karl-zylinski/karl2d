@@ -15,7 +15,10 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	set_screen_size = wl_set_screen_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
-	set_cursor_visible = wl_set_cursor_visible,
+	set_cursor_hidden = wl_set_cursor_hidden,
+	is_cursor_hidden = wl_is_cursor_hidden,
+	set_cursor_locked = wl_set_cursor_locked,
+	is_cursor_locked = wl_is_cursor_locked,
 	set_internal_state = wl_set_internal_state,
 }
 
@@ -48,7 +51,6 @@ wl_init :: proc(
 	s = (^WL_State)(window_state)
 	s.allocator = allocator
 	s.scale = 1
-	s.cursor_visible = true
 	s.odin_ctx = context
 
 	s.display = wl.display_connect(nil)
@@ -83,6 +85,20 @@ wl_init :: proc(
 
 	fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(s.fractional_scale_manager, s.surface)
 	wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
+
+	wl.surface_commit(s.surface)
+	wl.display_dispatch_pending(s.display)
+	wl.display_roundtrip(s.display)
+
+	s.relative_pointer = wl.zwp_relative_pointer_manager_v1_get_relative_pointer(
+		s.relative_pointer_manager,
+		s.pointer,
+	)
+
+	wl.add_listener(s.relative_pointer, &relative_pointer_listener, nil)
+
+	s.cursor_surface = wl.compositor_create_surface(s.compositor)
+	s.cursor_theme = wl.cursor_theme_load(nil, 24, s.shm)
 
 	unscaled_width := screen_width
 	unscaled_height := screen_height
@@ -180,6 +196,33 @@ registry_listener := wl.Registry_Listener {
 				registry,
 				name,
 				&wl.wp_viewporter_interface,
+				version,
+			)
+
+		case wl.zwp_relative_pointer_manager_v1_interface.name:
+			s.relative_pointer_manager = wl.registry_bind(
+				wl.ZWP_Relative_Pointer_Manager_V1,
+				registry,
+				name,
+				&wl.zwp_relative_pointer_manager_v1_interface,
+				version,
+			)
+
+		case wl.zwp_pointer_constraints_v1_interface.name:
+			s.pointer_constraints = wl.registry_bind(
+				wl.ZWP_Pointer_Constraints_V1,
+				registry,
+				name,
+				&wl.zwp_pointer_constraints_v1_interface,
+				version,
+			)
+
+		case wl.shm_interface.name:
+			s.shm = wl.registry_bind(
+				wl.SHM,
+				registry,
+				name,
+				&wl.shm_interface,
 				version,
 			)
 		}
@@ -347,7 +390,7 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 		s.pointer_enter_serial = u32(serial)
-		apply_cursor_visible()
+		apply_cursor_visibility()
 	},
 	leave = proc "c" (
 		data: rawptr,
@@ -460,10 +503,8 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		context = s.odin_ctx
 		scl := f32(scale)/120
 		s.scale = scl
-
 		s.screen_width = int(f32(s.last_configure_width) * s.scale)
 		s.screen_height = int(f32(s.last_configure_height) * s.scale)
-
 		wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
 
 		append(&s.events, Event_Window_Scale_Changed {
@@ -539,14 +580,112 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-wl_set_cursor_visible :: proc(visible: bool) {
-	s.cursor_visible = visible
-	apply_cursor_visible()
+wl_set_cursor_hidden :: proc(hidden: bool) {
+	s.cursor_hidden = hidden
+	apply_cursor_visibility()
 }
 
-apply_cursor_visible :: proc() {
-	if s.pointer != nil && !s.cursor_visible {
+wl_is_cursor_hidden :: proc() -> bool {
+	return s.cursor_hidden
+}
+
+locked_pointer_listener := wl.ZWP_Locked_Pointer_V1_Listener {
+	locked = proc "c"(data: rawptr, lp: ^wl.ZWP_Locked_Pointer_V1) {
+		context = s.odin_ctx
+		s.locked_pointer = lp
+		cx := f32(s.screen_width / 2)
+		cy := f32(s.screen_height / 2)
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	},
+	unlocked = proc "c"(data: rawptr, lp: ^wl.ZWP_Locked_Pointer_V1) {
+		context = s.odin_ctx
+		s.locked_pointer = nil
+	},
+}
+
+
+relative_pointer_listener := wl.ZWP_Relative_Pointer_V1_Listener {
+	relative_motion = proc "c" (
+		data: rawptr,
+		rp: ^wl.ZWP_Relative_Pointer_V1,
+		t_hi, t_lo: c.uint32_t,
+		dx, dy, dx_unaccel, dy_unaccel: wl.Fixed,
+	) {
+		// Only used when pointer is locked
+		if s.locked_pointer == nil {
+			return
+		}
+		context = s.odin_ctx
+		cx := f32(s.screen_width / 2)
+		cy := f32(s.screen_height / 2)
+		fdx := f32(dx_unaccel >> 8)
+		fdy := f32(dy_unaccel >> 8)
+		// Move relative to center, matching the warp-based platforms
+		append(&s.events, Event_Mouse_Move {
+			position = {cx + fdx, cy + fdy},
+		})
+		// Teleport back so next delta is also relative to center
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	},
+}
+
+wl_set_cursor_locked :: proc(locked: bool) {
+	if locked {
+		if s.locked_pointer != nil {
+			return
+		}
+
+		s.locked_pointer = wl.zwp_pointer_constraints_v1_lock_pointer(
+			s.pointer_constraints, s.surface, s.pointer, nil,
+			wl.ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT,
+		)
+		wl.add_listener(s.locked_pointer, &locked_pointer_listener, nil)
+
+		// Synthetic teleport to center, so karl2d has the correct "previous position".
+		cx := f32(s.screen_width / 2)
+		cy := f32(s.screen_height / 2)
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	} else {
+		if s.locked_pointer == nil {
+			return
+		}
+
+		wl.zwp_locked_pointer_v1_destroy(s.locked_pointer)
+		s.locked_pointer = nil
+	}
+}
+
+wl_is_cursor_locked :: proc() -> bool {
+	return s.locked_pointer != nil
+}
+
+apply_cursor_visibility :: proc() {
+	if s.pointer == nil {
+		return
+	}
+
+	if s.cursor_hidden {
 		wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
+	} else {
+		// Restore the default cursor. This would also happen if you leave and re-enter wind.
+		// This makes it happen instantly.
+		cursor := wl.cursor_theme_get_cursor(s.cursor_theme, "left_ptr")
+
+		if cursor != nil && cursor.image_count > 0 {
+			image := cursor.images[0]
+			buf := wl.cursor_image_get_buffer(image)
+			
+			wl.pointer_set_cursor(
+				s.pointer,
+				s.pointer_enter_serial,
+				s.cursor_surface,
+				i32(image.hotspot_x),
+				i32(image.hotspot_y),
+			)
+
+			wl.surface_attach(s.cursor_surface, buf, 0, 0)
+			wl.surface_commit(s.cursor_surface)
+		}
 	}
 }
 
@@ -590,7 +729,15 @@ WL_State :: struct {
 	keyboard: ^wl.Keyboard,
 	pointer: ^wl.Pointer,
 	pointer_enter_serial: u32,
-	cursor_visible: bool,
+	cursor_hidden: bool,
+	shm: ^wl.SHM,
+	cursor_surface: ^wl.Surface,
+	cursor_theme: ^wl.Cursor_Theme,
+
+	pointer_constraints: ^wl.ZWP_Pointer_Constraints_V1,
+	relative_pointer_manager: ^wl.ZWP_Relative_Pointer_Manager_V1,
+	locked_pointer: ^wl.ZWP_Locked_Pointer_V1,
+	relative_pointer: ^wl.ZWP_Relative_Pointer_V1,
 
 	// True if toplevel_listener.configure has run
 	configured: bool,

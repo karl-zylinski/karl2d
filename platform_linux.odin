@@ -29,7 +29,10 @@ PLATFORM_LINUX :: Platform_Interface {
 	set_window_position = linux_set_window_position,
 	get_window_scale = linux_get_window_scale,
 	set_window_mode = linux_set_window_mode,
-	set_cursor_visible = linux_set_cursor_visible,
+	set_cursor_hidden = linux_set_cursor_hidden,
+	is_cursor_hidden = linux_is_cursor_hidden,
+	set_cursor_locked = linux_set_cursor_locked,
+	is_cursor_locked = linux_is_cursor_locked,
 	is_gamepad_active = linux_is_gamepad_active,
 	get_gamepad_axis = linux_get_gamepad_axis,
 	set_gamepad_vibration = linux_set_gamepad_vibration,
@@ -603,8 +606,20 @@ linux_set_window_mode :: proc(window_mode: Window_Mode) {
 	s.win.set_window_mode(window_mode)
 }
 
-linux_set_cursor_visible :: proc(visible: bool) {
-	s.win.set_cursor_visible(visible)
+linux_set_cursor_hidden :: proc(hidden: bool) {
+	s.win.set_cursor_hidden(hidden)
+}
+
+linux_is_cursor_hidden :: proc() -> bool {
+	return s.win.is_cursor_hidden()
+}
+
+linux_set_cursor_locked :: proc(locked: bool) {
+	s.win.set_cursor_locked(locked)
+}
+
+linux_is_cursor_locked :: proc() -> bool {
+	return s.win.is_cursor_locked()
 }
 
 Linux_State :: struct {
@@ -640,7 +655,10 @@ Linux_Window_Interface :: struct #all_or_none {
 	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
-	set_cursor_visible: proc(visible: bool),
+	set_cursor_hidden: proc(hidden: bool),
+	is_cursor_hidden: proc() -> bool,
+	set_cursor_locked: proc(locked: bool),
+	is_cursor_locked: proc() -> bool,
 
 	set_internal_state: proc(state: rawptr),
 }

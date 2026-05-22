@@ -24,7 +24,10 @@ Platform_Interface :: struct #all_or_none {
 	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
-	set_cursor_visible: proc(visible: bool),
+	set_cursor_hidden: proc(hidden: bool),
+	is_cursor_hidden: proc() -> bool,
+	set_cursor_locked: proc(locked: bool),
+	is_cursor_locked: proc() -> bool,
 
 	is_gamepad_active: proc(gamepad: int) -> bool,
 	get_gamepad_axis: proc(gamepad: int, axis: Gamepad_Axis) -> f32,
