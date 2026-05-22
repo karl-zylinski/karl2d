@@ -19,6 +19,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
 	set_cursor_visible = windows_set_cursor_visible,
+	get_clipboard_text = windows_get_clipboard_text,
 
 	is_gamepad_active = windows_is_gamepad_active,
 	get_gamepad_axis = windows_get_gamepad_axis,
@@ -477,6 +478,40 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 
 windows_set_cursor_visible :: proc(visible: bool) {
 	win32.ShowCursor(win32.BOOL(visible))
+}
+
+windows_get_clipboard_text :: proc(allocator: runtime.Allocator) -> (string, bool) {
+	format := u32(win32.CF_UNICODETEXT)
+
+	if !win32.IsClipboardFormatAvailable(format) {
+		return "", false
+	}
+
+	opened := win32.OpenClipboard(s.hwnd)
+	if !opened {
+		return "", false
+	}
+	defer win32.CloseClipboard()
+
+	handle := win32.GetClipboardData(format)	
+	if handle == nil {
+		return "", false
+	}
+
+	ptr := win32.GlobalLock((win32.HGLOBAL)(handle))
+	if ptr == nil {
+		return "", false
+	}
+	defer win32.GlobalUnlock((win32.HGLOBAL)(handle))
+
+	size := win32.GlobalSize(handle) / size_of(u16)
+	result, err := win32.utf16_to_utf8(([^]u16)(ptr)[:size], allocator)
+	if err != nil {
+		log.errorf("Couldn't get clipboard data in UTF8: %v", err)
+		return "", false
+	}
+
+	return result, true
 }
 
 s: ^Windows_State
