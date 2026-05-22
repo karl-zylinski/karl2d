@@ -19,16 +19,22 @@ step :: proc() -> bool {
 
 	if k2.key_went_down(.Escape) {
 		k2.set_cursor_locked(false)
-		k2.set_cursor_hidden(false)
 	}
-	
+
 	if k2.mouse_button_went_down(.Left) {
 		k2.set_cursor_locked(true)
-		k2.set_cursor_hidden(true)
 	}
 
 	if k2.is_cursor_locked() {
+		if !k2.is_cursor_hidden() {
+			k2.set_cursor_hidden(true)
+		}
+
 		pos += delta * k2.get_frame_time() * 100
+	} else {
+		if k2.is_cursor_hidden() {
+			k2.set_cursor_hidden(false)
+		}
 	}
 
 	if pos.x > f32(k2.get_screen_width()) {

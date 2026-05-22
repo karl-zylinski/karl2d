@@ -80,6 +80,8 @@ web_init :: proc(
 	add_window_event_listener(.Focus, web_event_focus)
 	add_window_event_listener(.Blur, web_event_blur)
 
+	add_window_event_listener(.Pointer_Lock_Change, _web_event_pointer_lock_change)
+
 	if init_options.disable_auto_scale_hint {
 		log.warn("disable_auto_scale_hint not supported on web")
 	}
@@ -374,9 +376,12 @@ web_is_cursor_hidden :: proc() -> bool {
 	return s.cursor_hidden
 }
 
-web_set_cursor_locked :: proc(locked: bool) {
-	s.cursor_locked = locked
+_web_event_pointer_lock_change :: proc(e: js.Event) {
+	js.evaluate("document.getElementById('webgl-canvas')._pointerLocked = document.pointerLockElement !== null ? 1 : 0")
+	s.cursor_locked = js.get_element_key_f64("webgl-canvas", "_pointerLocked") != 0
+}
 
+web_set_cursor_locked :: proc(locked: bool) {
 	if locked {
 		js.evaluate("document.getElementById('webgl-canvas').requestPointerLock()")
 		cx := f32(s.width / 2)
@@ -385,6 +390,8 @@ web_set_cursor_locked :: proc(locked: bool) {
 	} else {
 		js.evaluate("document.exitPointerLock()")
 	}
+
+	// s.cursor_locked set by _web_event_pointer_lock_change
 }
 
 web_is_cursor_locked :: proc() -> bool {
