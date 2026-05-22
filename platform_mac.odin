@@ -27,7 +27,9 @@ PLATFORM_MAC :: Platform_Interface {
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
 	set_cursor_visible = mac_set_cursor_visible,
-	set_mouse_captured = mac_set_mouse_captured,
+	is_cursor_visible = mac_is_cursor_visible,
+	set_cursor_locked = mac_set_cursor_locked,
+	is_cursor_locked = mac_is_cursor_locked,
 
 	is_gamepad_active = mac_is_gamepad_active,
 	get_gamepad_axis = mac_get_gamepad_axis,
@@ -53,7 +55,7 @@ Mac_State :: struct {
 	cursor_hidden_by_us: bool,
 	cursor_tracker:      NS.id,
 
-	mouse_captured: bool,
+	cursor_locked: bool,
 	mouse_ignore_next_move: bool,
 
 	screen_width:     int,
@@ -354,7 +356,7 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			px := loc.x * scale
 			py := NS.Float(s.screen_height) - loc.y * scale
 			
-			if s.mouse_captured {
+			if s.cursor_locked {
 				dx := f32(ce.Event_deltaX(event)) * f32(s.window->backingScaleFactor())
 				dy := f32(ce.Event_deltaY(event)) * f32(s.window->backingScaleFactor())
 				cx := f32(s.screen_width/2)
@@ -440,16 +442,24 @@ mac_set_cursor_visible :: proc(visible: bool) {
 	apply_cursor_state()
 }
 
-mac_set_mouse_captured :: proc(captured: bool) {
-	s.mouse_captured = captured
+mac_is_cursor_visible :: proc() -> bool {
+	return s.cursor_visible
+}
 
-	if captured {
+mac_set_cursor_locked :: proc(locked: bool) {
+	s.cursor_locked = locked
+
+	if locked {
 		s.mouse_ignore_next_move = true
 		ce.CGAssociateMouseAndMouseCursorPosition(false)
 		_mac_teleport_cursor_to_center()
 	} else {
 		ce.CGAssociateMouseAndMouseCursorPosition(true)
 	}
+}
+
+mac_is_cursor_locked :: proc() -> bool {
+	return s.cursor_locked
 }
 
 _mac_teleport_cursor_to_center :: proc() {
