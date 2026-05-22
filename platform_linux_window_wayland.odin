@@ -15,6 +15,8 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
 	set_cursor_visible = wl_set_cursor_visible,
+	lock_mouse = wl_lock_mouse,
+	unlock_mouse = wl_unlock_mouse,
 	set_internal_state = wl_set_internal_state,
 }
 
@@ -82,6 +84,13 @@ wl_init :: proc(
 
 	fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(s.fractional_scale_manager, s.surface)
 	wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
+
+	s.relative_pointer = wl.zwp_relative_pointer_manager_v1_get_relative_pointer(
+		s.relative_pointer_manager,
+		s.pointer,
+	)
+
+	wl.add_listener(s.relative_pointer, &relative_pointer_listener, nil)
 
 	unscaled_width := screen_width
 	unscaled_height := screen_height
@@ -179,6 +188,24 @@ registry_listener := wl.Registry_Listener {
 				registry,
 				name,
 				&wl.wp_viewporter_interface,
+				version,
+			)
+
+		case wl.zwp_relative_pointer_manager_v1_interface.name:
+			s.relative_pointer_manager = wl.registry_bind(
+				wl.ZWP_Relative_Pointer_Manager_V1,
+				registry,
+				name,
+				&wl.zwp_relative_pointer_manager_v1_interface,
+				version,
+			)
+
+		case wl.zwp_pointer_constraints_v1_interface.name:
+			s.pointer_constraints = wl.registry_bind(
+				wl.ZWP_Pointer_Constraints_V1,
+				registry,
+				name,
+				&wl.zwp_pointer_constraints_v1_interface,
 				version,
 			)
 		}
@@ -539,6 +566,68 @@ wl_set_cursor_visible :: proc(visible: bool) {
 	apply_cursor_visible()
 }
 
+locked_pointer_listener := wl.ZWP_Locked_Pointer_V1_Listener {
+	locked = proc "c"(data: rawptr, lp: ^wl.ZWP_Locked_Pointer_V1) {
+		context = s.odin_ctx
+		s.locked_pointer = lp
+		cx := f32(s.screen_width / 2)
+		cy := f32(s.screen_height / 2)
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	},
+	unlocked = proc "c"(data: rawptr, lp: ^wl.ZWP_Locked_Pointer_V1) {
+		context = s.odin_ctx
+		s.locked_pointer = nil
+	},
+}
+
+
+relative_pointer_listener := wl.ZWP_Relative_Pointer_V1_Listener {
+	relative_motion = proc "c" (
+		data: rawptr,
+		rp: ^wl.ZWP_Relative_Pointer_V1,
+		t_hi, t_lo: c.uint32_t,
+		dx, dy, dx_unaccel, dy_unaccel: wl.Fixed,
+	) {
+		// Only used when pointer is locked
+		if s.locked_pointer == nil {
+			return
+		}
+		context = s.odin_ctx
+		cx := f32(s.screen_width / 2)
+		cy := f32(s.screen_height / 2)
+		fdx := f32(dx_unaccel >> 8)
+		fdy := f32(dy_unaccel >> 8)
+		// Move relative to center, matching the warp-based platforms
+		append(&s.events, Event_Mouse_Move {
+			position = {cx + fdx, cy + fdy},
+		})
+		// Teleport back so next delta is also relative to center
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	},
+}
+
+wl_lock_mouse :: proc() {
+	if s.locked_pointer == nil {
+		s.locked_pointer = wl.zwp_pointer_constraints_v1_lock_pointer(
+			s.pointer_constraints, s.surface, s.pointer, nil,
+			wl.ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT,
+		)
+		wl.add_listener(s.locked_pointer, &locked_pointer_listener, nil)
+	}
+
+	// Synthetic teleport to center, so karl2d has the correct "previous position".
+	cx := f32(s.screen_width / 2)
+	cy := f32(s.screen_height / 2)
+	append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+}
+
+wl_unlock_mouse :: proc() {
+	if s.locked_pointer != nil {
+		wl.destroy(s.locked_pointer)
+		s.locked_pointer = nil
+	}
+}
+
 apply_cursor_visible :: proc() {
 	if s.pointer != nil && !s.cursor_visible {
 		wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
@@ -586,6 +675,11 @@ WL_State :: struct {
 	pointer: ^wl.Pointer,
 	pointer_enter_serial: u32,
 	cursor_visible: bool,
+
+	pointer_constraints: ^wl.ZWP_Pointer_Constraints_V1,
+	relative_pointer_manager: ^wl.ZWP_Relative_Pointer_Manager_V1,
+	locked_pointer: ^wl.ZWP_Locked_Pointer_V1,
+	relative_pointer: ^wl.ZWP_Relative_Pointer_V1,
 
 	// True if toplevel_listener.configure has run
 	configured: bool,

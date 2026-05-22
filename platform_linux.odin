@@ -29,6 +29,8 @@ PLATFORM_LINUX :: Platform_Interface {
 	get_window_scale = linux_get_window_scale,
 	set_window_mode = linux_set_window_mode,
 	set_cursor_visible = linux_set_cursor_visible,
+	lock_mouse = linux_lock_mouse,
+	unlock_mouse = linux_unlock_mouse,
 	is_gamepad_active = linux_is_gamepad_active,
 	get_gamepad_axis = linux_get_gamepad_axis,
 	set_gamepad_vibration = linux_set_gamepad_vibration,
@@ -602,6 +604,14 @@ linux_set_cursor_visible :: proc(visible: bool) {
 	s.win.set_cursor_visible(visible)
 }
 
+linux_lock_mouse :: proc() {
+	s.win.lock_mouse()
+}
+
+linux_unlock_mouse :: proc() {
+	s.win.unlock_mouse()
+}
+
 Linux_State :: struct {
 	win: Linux_Window_Interface,
 	win_state: rawptr,
@@ -635,6 +645,8 @@ Linux_Window_Interface :: struct #all_or_none {
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
 	set_cursor_visible: proc(visible: bool),
+	lock_mouse: proc(),
+	unlock_mouse: proc(),
 
 	set_internal_state: proc(state: rawptr),
 }

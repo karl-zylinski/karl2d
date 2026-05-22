@@ -622,8 +622,12 @@ get_mouse_delta :: proc() -> Vec2 {
 	return s.mouse_delta
 }
 
-set_mouse_captured :: proc(captured: bool) {
-	pf.set_mouse_captured(captured)
+lock_mouse :: proc() {
+	pf.lock_mouse()
+}
+
+unlock_mouse :: proc() {
+	pf.unlock_mouse()
 }
 
 // Returns true if a gamepad with the supplied index is connected. The parameter should be a value

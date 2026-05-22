@@ -17,6 +17,8 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	get_window_scale = x11_get_window_scale,
 	set_window_mode = x11_set_window_mode,
 	set_cursor_visible = x11_set_cursor_visible,
+	lock_mouse = x11_lock_mouse,
+	unlock_mouse = x11_unlock_mouse,
 	set_internal_state = x11_set_internal_state,
 }
 
@@ -331,6 +333,14 @@ x11_set_cursor_visible :: proc(visible: bool) {
 		X.DefineCursor(s.display, s.window, s.blank_cursor)
 	}
 	X.Flush(s.display)
+}
+
+x11_lock_mouse :: proc() {
+
+}
+
+x11_unlock_mouse :: proc() {
+	
 }
 
 x11_set_internal_state :: proc(state: rawptr) {

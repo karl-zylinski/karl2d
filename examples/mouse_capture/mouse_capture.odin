@@ -17,13 +17,13 @@ step :: proc() -> bool {
 	}
 
 	if k2.mouse_button_went_down(.Left) {
-		k2.set_mouse_captured(true)
+		k2.lock_mouse()
 		k2.set_cursor_visible(false)
 		captured = true
 	}
 
 	if k2.key_went_down(.Escape) {
-		k2.set_mouse_captured(false)
+		k2.unlock_mouse()
 		k2.set_cursor_visible(true)
 		captured = false
 	}
