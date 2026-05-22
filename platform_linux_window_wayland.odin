@@ -623,7 +623,7 @@ wl_lock_mouse :: proc() {
 
 wl_unlock_mouse :: proc() {
 	if s.locked_pointer != nil {
-		wl.destroy(s.locked_pointer)
+		wl.zwp_locked_pointer_v1_destroy(s.locked_pointer)
 		s.locked_pointer = nil
 	}
 }
