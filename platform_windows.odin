@@ -19,6 +19,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
 	set_cursor_visible = windows_set_cursor_visible,
+	set_window_redraw_callback = windows_set_redraw_callback,
 
 	is_gamepad_active = windows_is_gamepad_active,
 	get_gamepad_axis = windows_get_gamepad_axis,
@@ -409,6 +410,7 @@ Windows_State :: struct {
 	in_resize_move_state: bool,
 	screen_width_before_resize_move: int,
 	screen_height_before_resize_move: int,
+	redraw_callback: proc(),
 
 	// left and right values for the triggers of each gamepad. We use this to known if a trigger has
 	// been pressed/released like a button.
@@ -569,6 +571,10 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 
 			s.restore_window_pos_x = int(x)
 			s.restore_window_pos_y = int(y)
+
+			if(s.redraw_callback != nil) {
+				s.redraw_callback()
+			}
 		}
 
 	case win32.WM_DPICHANGED:
@@ -609,13 +615,17 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 			s.restore_screen_height = s.screen_height
 		}
 
-		// We are actively resizing or moving the window, we'll save the event for later so it does
-		// not get spammy.
-		if !s.in_resize_move_state {
+		// During resize the windows event loop locks the main thread but will keep calling window_proc
+		// with WM_SIZE events, if a redraw callback is set the program can trigger a redraw during resize
+		if s.in_resize_move_state {
 			append(&s.events, Event_Screen_Resize {
 				width = s.screen_width,
 				height = s.screen_height,
 			})
+			
+			if(s.redraw_callback != nil) {
+				s.redraw_callback()
+			}
 		}
 
 	case win32.WM_SETFOCUS:
@@ -626,6 +636,10 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	}
 
 	return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
+}
+
+windows_set_redraw_callback :: proc(callback: proc()) {
+	s.redraw_callback = callback
 }
 
 key_from_event_params :: proc(wparam: win32.WPARAM, lparam: win32.LPARAM) -> Keyboard_Key{
