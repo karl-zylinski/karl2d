@@ -151,8 +151,11 @@ get_window_scale :: proc() -> f32
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode)
 
-// Hide or show the OS cursor.
+// Hide or show the mouse cursor. This is usually remembered if you unfocus and refocus the game.
 set_cursor_visible :: proc(visible: bool)
+
+// Returns true if the cursor is hidden.
+is_cursor_visible :: proc() -> bool
 
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
@@ -235,6 +238,27 @@ get_mouse_position :: proc() -> Vec2
 
 // Returns how many pixels the mouse moved between the previous and the current frame.
 get_mouse_delta :: proc() -> Vec2
+
+// Locks the mouse cursor within the window. While the cursor is locked, you should no longer try to
+// use get_mouse_position, as it may have weird/static values. Instead, use get_mouse_delta to fetch
+// how much the mouse have been moved.
+//
+// On some platforms the cursor is just stuck at a specific point. On other platforms it may be
+// teleported back to the center of the window on each frame.
+//
+// This call does not hide the cursor, do that separately using `set_cursor_visible`.
+//
+// If the window loses focus, then the mouse may get unlocked. You can query the current lock status
+// using `is_mouse_locked`, which should take into account if the OS has unlocked it for you.
+lock_mouse :: proc()
+
+// Unlock the mouse, so that it is free to move outside the window.
+unlock_mouse :: proc()
+
+// Returns true if the mouse is currently locked. Note that the mouse can get unlocked by the OS,
+// even though you called `lock_mouse` in the past. Therefore, it's best to check the current status
+// using this procedure and then lock the mouse if needed.
+is_mouse_locked :: proc() -> bool
 
 // Returns true if a gamepad with the supplied index is connected. The parameter should be a value
 // between 0 and MAX_GAMEPADS.
@@ -1673,6 +1697,7 @@ Event :: union {
 	Event_Mouse_Wheel,
 	Event_Mouse_Button_Went_Down,
 	Event_Mouse_Button_Went_Up,
+	Event_Mouse_Teleported,
 	Event_Gamepad_Button_Went_Down,
 	Event_Gamepad_Button_Went_Up,
 	Event_Screen_Resize,
@@ -1708,6 +1733,12 @@ Event_Gamepad_Button_Went_Up :: struct {
 }
 
 Event_Close_Window_Requested :: struct {}
+
+// Used by mouse capturing to inform us that the cursor was teleported. This is like a mouse move,
+// but will not be used for calculating mouse delta movement.
+Event_Mouse_Teleported :: struct {
+	position: Vec2,
+}
 
 Event_Mouse_Move :: struct {
 	position: Vec2,
