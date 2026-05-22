@@ -233,14 +233,18 @@ get_mouse_position :: proc() -> Vec2
 // Returns how many pixels the mouse moved between the previous and the current frame.
 get_mouse_delta :: proc() -> Vec2
 
-// Hide or show the mouse cursor. This is usually remembered if you unfocus and refocus the game.
+// Hide or show the mouse cursor. The cursor may get shown again if the window loses focus.
+// Therefore, it's often best to use `is_cursor_hidden` to check the current status and use this
+// proc to hide the cursor as needed.
 //
 // This call does not lock the cursor within the window, do that using a separate call to
 // `set_cursor_locked`.
-set_cursor_visible :: proc(visible: bool)
+set_cursor_hidden :: proc(hidden: bool)
 
-// Returns true if the cursor is hidden.
-is_cursor_visible :: proc() -> bool
+// Returns true if the cursor is hidden. The cursor may get re-shown by the OS, for example when the
+// window loses focus. Therefore, this procedure may return false even though you've hidden the
+// cursor previously. It should always reflect the true hide-state of the cursor.
+is_cursor_hidden :: proc() -> bool
 
 // Locks the mouse cursor within the window. While the cursor is locked, you should no longer use
 // get_mouse_position, as it may have weird/static values. Instead, use get_mouse_delta to fetch how
