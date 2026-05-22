@@ -18,8 +18,8 @@ PLATFORM_WEB :: Platform_Interface {
 	set_window_position = web_set_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
-	set_cursor_visible = web_set_cursor_visible,
-	is_cursor_visible = web_is_cursor_visible,
+	set_cursor_hidden = web_set_cursor_hidden,
+	is_cursor_hidden = web_is_cursor_hidden,
 	set_cursor_locked = web_set_cursor_locked,
 	is_cursor_locked = web_is_cursor_locked,
 	is_gamepad_active = web_is_gamepad_active,
@@ -54,7 +54,6 @@ web_init :: proc(
 	s.events = make([dynamic]Event, allocator)
 	s.key_from_js_event_key_code = make(map[string]Keyboard_Key, allocator)
 	s.canvas_id = "webgl-canvas"
-	s.cursor_visible = true
 
 	js.set_document_title(window_title)
 	s.prev_scale = f32(js.device_pixel_ratio())
@@ -362,17 +361,17 @@ web_set_window_mode :: proc(new_mode: Window_Mode) {
 	}
 }
 
-web_set_cursor_visible :: proc(visible: bool) {
-	s.cursor_visible = visible
-	if visible {
-		js.set_element_style(s.canvas_id, "cursor", "default")
-	} else {
+web_set_cursor_hidden :: proc(hidden: bool) {
+	s.cursor_hidden = hidden
+	if hidden {
 		js.set_element_style(s.canvas_id, "cursor", "none")
+	} else {
+		js.set_element_style(s.canvas_id, "cursor", "default")
 	}
 }
 
-web_is_cursor_visible :: proc() -> bool {
-	return s.cursor_visible
+web_is_cursor_hidden :: proc() -> bool {
+	return s.cursor_hidden
 }
 
 web_set_cursor_locked :: proc(locked: bool) {
@@ -455,7 +454,7 @@ Web_State :: struct {
 	prev_scale: f32,
 	events: [dynamic]Event,
 	cursor_locked: bool,
-	cursor_visible: bool,
+	cursor_hidden: bool,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 	window_mode: Window_Mode,
 	key_from_js_event_key_code: map[string]Keyboard_Key,

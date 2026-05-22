@@ -634,6 +634,11 @@ is_cursor_hidden :: proc() -> bool {
 	return pf.is_cursor_hidden()
 }
 
+@(deprecated="Use set_cursor_hidden")
+set_cursor_visible :: proc(visible: bool) {
+	pf.set_cursor_hidden(!visible)
+}
+
 // Locks the mouse cursor within the window. While the cursor is locked, you should no longer use
 // get_mouse_position, as it may have weird/static values. Instead, use get_mouse_delta to fetch how
 // much the mouse have been moved.
