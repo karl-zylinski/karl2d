@@ -1,10 +1,10 @@
-// Shows how to capture mouse cursor so that you can use it for non-cursor input.
-package karl2d_mouse_capture_example
+// Shows how to lock/capture mouse cursor so that you can use it for non-cursor input.
+package karl2d_mouse_locking_example
 
 import k2 "../.."
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Mouse Capture", options = {window_mode = .Windowed_Resizable})
+	k2.init(1280, 720, "Karl2D Mouse Locking", options = {window_mode = .Windowed_Resizable})
 	pos = k2.get_screen_size() * 0.5
 }
 
