@@ -189,6 +189,19 @@ surface_destroy :: proc "c" (surface: ^Surface) {
 	)
 }
 
+surface_attach :: proc "c" (surface: ^Surface, buffer: ^Buffer, x: c.int32_t, y: c.int32_t) {
+	proxy_marshal_flags(
+		surface,
+		1,
+		nil,
+		proxy_get_version(surface),
+		0,
+		buffer,
+		x,
+		y,
+	)
+}
+
 surface_frame :: proc "c" (surface: ^Surface) -> ^Callback {
 	callback: ^Proxy
 	callback = proxy_marshal_flags(

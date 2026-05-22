@@ -92,6 +92,9 @@ wl_init :: proc(
 
 	wl.add_listener(s.relative_pointer, &relative_pointer_listener, nil)
 
+	s.cursor_surface = wl.compositor_create_surface(s.compositor)
+	s.cursor_theme = wl.cursor_theme_load(nil, 24, s.shm)
+
 	unscaled_width := screen_width
 	unscaled_height := screen_height
 
@@ -206,6 +209,15 @@ registry_listener := wl.Registry_Listener {
 				registry,
 				name,
 				&wl.zwp_pointer_constraints_v1_interface,
+				version,
+			)
+
+		case wl.shm_interface.name:
+			s.shm = wl.registry_bind(
+				wl.SHM,
+				registry,
+				name,
+				&wl.shm_interface,
 				version,
 			)
 		}
@@ -629,8 +641,33 @@ wl_unlock_mouse :: proc() {
 }
 
 apply_cursor_visible :: proc() {
-	if s.pointer != nil && !s.cursor_visible {
+	if s.pointer == nil {
+		return
+	}
+
+	if !s.cursor_visible {
 		wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
+	} else {
+		// Restore the default cursor. This would also happen if you leave and re-enter wind.
+		// This makes it happen instantly.
+		cursor_theme := wl.cursor_theme_load(nil, 24, s.shm)
+		cursor := wl.cursor_theme_get_cursor(cursor_theme, "left_ptr")
+
+		if cursor != nil && cursor.image_count > 0 {
+			image := cursor.images[0]
+			buf := wl.cursor_image_get_buffer(image)
+			
+			wl.pointer_set_cursor(
+				s.pointer,
+				s.pointer_enter_serial,
+				s.cursor_surface,
+				i32(image.hotspot_x),
+				i32(image.hotspot_y),
+			)
+
+			wl.surface_attach(s.cursor_surface, buf, 0, 0)
+			wl.surface_commit(s.cursor_surface)
+		}
 	}
 }
 
@@ -675,6 +712,9 @@ WL_State :: struct {
 	pointer: ^wl.Pointer,
 	pointer_enter_serial: u32,
 	cursor_visible: bool,
+	shm: ^wl.SHM,
+	cursor_surface: ^wl.Surface,
+	cursor_theme: ^wl.Cursor_Theme,
 
 	pointer_constraints: ^wl.ZWP_Pointer_Constraints_V1,
 	relative_pointer_manager: ^wl.ZWP_Relative_Pointer_Manager_V1,
