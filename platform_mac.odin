@@ -471,7 +471,7 @@ _mac_teleport_cursor_to_center :: proc() {
 	ce.CGWarpMouseCursorPosition({x, y})
 
 	append(&s.events, Event_Mouse_Teleported {
-		position = {f32(cx), f32(cy)}
+		position = {f32(cx), f32(cy)},
 	})
 }
 
