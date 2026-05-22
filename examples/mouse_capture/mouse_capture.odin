@@ -30,7 +30,7 @@ step :: proc() -> bool {
 
 	delta := k2.get_mouse_delta()
 
-	if captured {
+	if k2.is_mouse_locked() {
 		pos += delta * k2.get_frame_time() * 100
 	}
 

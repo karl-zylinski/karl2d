@@ -17,6 +17,7 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	set_cursor_visible = wl_set_cursor_visible,
 	lock_mouse = wl_lock_mouse,
 	unlock_mouse = wl_unlock_mouse,
+	is_mouse_locked = wl_is_mouse_locked,
 	set_internal_state = wl_set_internal_state,
 }
 
@@ -84,6 +85,10 @@ wl_init :: proc(
 
 	fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(s.fractional_scale_manager, s.surface)
 	wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
+
+	wl.surface_commit(s.surface)
+	wl.display_dispatch_pending(s.display)
+	wl.display_roundtrip(s.display)
 
 	s.relative_pointer = wl.zwp_relative_pointer_manager_v1_get_relative_pointer(
 		s.relative_pointer_manager,
@@ -498,10 +503,8 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		context = s.odin_ctx
 		scl := f32(scale)/120
 		s.scale = scl
-
 		s.screen_width = int(f32(s.last_configure_width) * s.scale)
 		s.screen_height = int(f32(s.last_configure_height) * s.scale)
-
 		wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
 
 		append(&s.events, Event_Window_Scale_Changed {
@@ -638,6 +641,10 @@ wl_unlock_mouse :: proc() {
 		wl.zwp_locked_pointer_v1_destroy(s.locked_pointer)
 		s.locked_pointer = nil
 	}
+}
+
+wl_is_mouse_locked :: proc() -> bool {
+	return s.locked_pointer != nil
 }
 
 apply_cursor_visible :: proc() {

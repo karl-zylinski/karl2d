@@ -19,6 +19,7 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_cursor_visible = x11_set_cursor_visible,
 	lock_mouse = x11_lock_mouse,
 	unlock_mouse = x11_unlock_mouse,
+	is_mouse_locked = x11_is_mouse_locked,
 	set_internal_state = x11_set_internal_state,
 }
 
@@ -340,7 +341,11 @@ x11_lock_mouse :: proc() {
 }
 
 x11_unlock_mouse :: proc() {
-	
+
+}
+
+x11_is_mouse_locked :: proc() -> bool {
+	return false
 }
 
 x11_set_internal_state :: proc(state: rawptr) {

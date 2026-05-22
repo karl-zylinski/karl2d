@@ -31,6 +31,7 @@ PLATFORM_LINUX :: Platform_Interface {
 	set_cursor_visible = linux_set_cursor_visible,
 	lock_mouse = linux_lock_mouse,
 	unlock_mouse = linux_unlock_mouse,
+	is_mouse_locked = linux_is_mouse_locked,
 	is_gamepad_active = linux_is_gamepad_active,
 	get_gamepad_axis = linux_get_gamepad_axis,
 	set_gamepad_vibration = linux_set_gamepad_vibration,
@@ -612,6 +613,10 @@ linux_unlock_mouse :: proc() {
 	s.win.unlock_mouse()
 }
 
+linux_is_mouse_locked :: proc() -> bool {
+	return s.win.is_mouse_locked(),
+}
+
 Linux_State :: struct {
 	win: Linux_Window_Interface,
 	win_state: rawptr,
@@ -647,6 +652,7 @@ Linux_Window_Interface :: struct #all_or_none {
 	set_cursor_visible: proc(visible: bool),
 	lock_mouse: proc(),
 	unlock_mouse: proc(),
+	is_mouse_locked: proc() -> bool,
 
 	set_internal_state: proc(state: rawptr),
 }

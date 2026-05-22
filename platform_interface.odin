@@ -26,6 +26,7 @@ Platform_Interface :: struct #all_or_none {
 	set_cursor_visible: proc(visible: bool),
 	lock_mouse: proc(),
 	unlock_mouse: proc(),
+	is_mouse_locked: proc() -> bool,
 
 	is_gamepad_active: proc(gamepad: int) -> bool,
 	get_gamepad_axis: proc(gamepad: int, axis: Gamepad_Axis) -> f32,
