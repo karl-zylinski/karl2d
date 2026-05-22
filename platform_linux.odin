@@ -58,7 +58,7 @@ linux_init :: proc(
 	s.allocator = allocator
 	xdg_session_type := os.get_env("XDG_SESSION_TYPE", frame_allocator)
 	
-	if xdg_session_type == "waylanda" {
+	if xdg_session_type == "wayland" {
 		s.win = LINUX_WINDOW_WAYLAND
 	} else {
 		s.win = LINUX_WINDOW_X11
