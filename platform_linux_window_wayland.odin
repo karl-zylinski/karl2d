@@ -15,6 +15,7 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
 	set_cursor_visible = wl_set_cursor_visible,
+	is_cursor_visible = wl_is_cursor_visible,
 	lock_mouse = wl_lock_mouse,
 	unlock_mouse = wl_unlock_mouse,
 	is_mouse_locked = wl_is_mouse_locked,
@@ -579,6 +580,10 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 wl_set_cursor_visible :: proc(visible: bool) {
 	s.cursor_visible = visible
 	apply_cursor_visible()
+}
+
+wl_is_cursor_visible :: proc() -> bool {
+	return s.cursor_visible
 }
 
 locked_pointer_listener := wl.ZWP_Locked_Pointer_V1_Listener {

@@ -462,6 +462,10 @@ set_cursor_visible :: proc(visible: bool) {
 	pf.set_cursor_visible(visible)
 }
 
+is_cursor_visible :: proc() -> bool {
+	return pf.is_cursor_visible()
+}
+
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
 // procedures run:

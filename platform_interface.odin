@@ -24,6 +24,7 @@ Platform_Interface :: struct #all_or_none {
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
 	set_cursor_visible: proc(visible: bool),
+	is_cursor_visible: proc() -> bool,
 	lock_mouse: proc(),
 	unlock_mouse: proc(),
 	is_mouse_locked: proc() -> bool,
