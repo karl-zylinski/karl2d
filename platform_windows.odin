@@ -488,7 +488,6 @@ windows_set_cursor_locked :: proc(locked: bool) {
 	s.mouse_locked = locked
 
 	if locked {
-		s.mouse_locked = true
 		r: win32.RECT
 		win32.GetClientRect(s.hwnd, &r)
 		tl := win32.POINT{r.left, r.top}

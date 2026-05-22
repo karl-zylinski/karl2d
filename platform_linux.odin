@@ -614,7 +614,7 @@ linux_set_cursor_locked :: proc(locked: bool) {
 }
 
 linux_is_cursor_locked :: proc() -> bool {
-	return s.win.is_cursor_locked(),
+	return s.win.is_cursor_locked()
 }
 
 Linux_State :: struct {

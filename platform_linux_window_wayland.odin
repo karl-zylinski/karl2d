@@ -664,8 +664,7 @@ apply_cursor_visible :: proc() {
 	} else {
 		// Restore the default cursor. This would also happen if you leave and re-enter wind.
 		// This makes it happen instantly.
-		cursor_theme := wl.cursor_theme_load(nil, 24, s.shm)
-		cursor := wl.cursor_theme_get_cursor(cursor_theme, "left_ptr")
+		cursor := wl.cursor_theme_get_cursor(s.cursor_theme, "left_ptr")
 
 		if cursor != nil && cursor.image_count > 0 {
 			image := cursor.images[0]

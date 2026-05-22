@@ -207,7 +207,7 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 
 			if w != s.last_configure_width || h != s.last_configure_height {
 				s.last_configure_width = w
-				s.last_configure_width = h
+				s.last_configure_height = h
 
 				if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
 					s.last_configure_windowed_width = w
