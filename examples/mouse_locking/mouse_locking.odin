@@ -20,20 +20,14 @@ step :: proc() -> bool {
 	if k2.is_cursor_locked() {
 		if k2.key_went_down(.Escape) {
 			k2.set_cursor_locked(false)
-		}
-		
-		if k2.is_cursor_visible() {
-			k2.set_cursor_visible(false)
+			k2.set_cursor_hidden(false)
 		}
 
 		pos += delta * k2.get_frame_time() * 100
 	} else {
 		if k2.mouse_button_went_down(.Left) {
 			k2.set_cursor_locked(true)
-		}
-
-		if !k2.is_cursor_visible() {
-			k2.set_cursor_visible(true)
+			k2.set_cursor_hidden(true)
 		}
 	}
 
