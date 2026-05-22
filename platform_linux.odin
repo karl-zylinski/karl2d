@@ -30,9 +30,8 @@ PLATFORM_LINUX :: Platform_Interface {
 	set_window_mode = linux_set_window_mode,
 	set_cursor_visible = linux_set_cursor_visible,
 	is_cursor_visible = linux_is_cursor_visible,
-	lock_mouse = linux_lock_mouse,
-	unlock_mouse = linux_unlock_mouse,
-	is_mouse_locked = linux_is_mouse_locked,
+	set_cursor_locked = linux_set_cursor_locked,
+	is_cursor_locked = linux_is_cursor_locked,
 	is_gamepad_active = linux_is_gamepad_active,
 	get_gamepad_axis = linux_get_gamepad_axis,
 	set_gamepad_vibration = linux_set_gamepad_vibration,
@@ -59,7 +58,7 @@ linux_init :: proc(
 	s.allocator = allocator
 	xdg_session_type := os.get_env("XDG_SESSION_TYPE", frame_allocator)
 	
-	if xdg_session_type == "wayland" {
+	if xdg_session_type == "waylanda" {
 		s.win = LINUX_WINDOW_WAYLAND
 	} else {
 		s.win = LINUX_WINDOW_X11
@@ -610,16 +609,12 @@ linux_is_cursor_visible :: proc() -> bool {
 	return s.win.is_cursor_visible()
 }
 
-linux_lock_mouse :: proc() {
-	s.win.lock_mouse()
+linux_set_cursor_locked :: proc(locked: bool) {
+	s.win.set_cursor_locked(locked)
 }
 
-linux_unlock_mouse :: proc() {
-	s.win.unlock_mouse()
-}
-
-linux_is_mouse_locked :: proc() -> bool {
-	return s.win.is_mouse_locked(),
+linux_is_cursor_locked :: proc() -> bool {
+	return s.win.is_cursor_locked(),
 }
 
 Linux_State :: struct {
@@ -656,9 +651,8 @@ Linux_Window_Interface :: struct #all_or_none {
 	set_window_mode: proc(window_mode: Window_Mode),
 	set_cursor_visible: proc(visible: bool),
 	is_cursor_visible: proc() -> bool,
-	lock_mouse: proc(),
-	unlock_mouse: proc(),
-	is_mouse_locked: proc() -> bool,
+	set_cursor_locked: proc(locked: bool),
+	is_cursor_locked: proc() -> bool,
 
 	set_internal_state: proc(state: rawptr),
 }

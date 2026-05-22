@@ -16,9 +16,8 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	set_window_mode = wl_set_window_mode,
 	set_cursor_visible = wl_set_cursor_visible,
 	is_cursor_visible = wl_is_cursor_visible,
-	lock_mouse = wl_lock_mouse,
-	unlock_mouse = wl_unlock_mouse,
-	is_mouse_locked = wl_is_mouse_locked,
+	set_cursor_locked = wl_set_cursor_locked,
+	is_cursor_locked = wl_is_cursor_locked,
 	set_internal_state = wl_set_internal_state,
 }
 
@@ -626,29 +625,32 @@ relative_pointer_listener := wl.ZWP_Relative_Pointer_V1_Listener {
 	},
 }
 
-wl_lock_mouse :: proc() {
-	if s.locked_pointer == nil {
+wl_set_cursor_locked :: proc(locked: bool) {
+	if locked {
+		if s.locked_pointer != nil {
+			return
+		}
+
 		s.locked_pointer = wl.zwp_pointer_constraints_v1_lock_pointer(
 			s.pointer_constraints, s.surface, s.pointer, nil,
 			wl.ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT,
 		)
 		wl.add_listener(s.locked_pointer, &locked_pointer_listener, nil)
-	}
 
-	// Synthetic teleport to center, so karl2d has the correct "previous position".
-	cx := f32(s.screen_width / 2)
-	cy := f32(s.screen_height / 2)
-	append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
-}
+		// Synthetic teleport to center, so karl2d has the correct "previous position".
+		cx := f32(s.screen_width / 2)
+		cy := f32(s.screen_height / 2)
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	} else {
+		if s.locked_pointer == nil {
+			return
+		}
 
-wl_unlock_mouse :: proc() {
-	if s.locked_pointer != nil {
 		wl.zwp_locked_pointer_v1_destroy(s.locked_pointer)
 		s.locked_pointer = nil
 	}
 }
-
-wl_is_mouse_locked :: proc() -> bool {
+wl_is_cursor_locked :: proc() -> bool {
 	return s.locked_pointer != nil
 }
 
