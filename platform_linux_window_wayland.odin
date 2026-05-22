@@ -389,7 +389,7 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 		s.pointer_enter_serial = u32(serial)
-		apply_cursor_visiblity()
+		apply_cursor_visibility()
 	},
 	leave = proc "c" (
 		data: rawptr,
@@ -577,7 +577,7 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 
 wl_set_cursor_hidden :: proc(hidden: bool) {
 	s.cursor_hidden = hidden
-	apply_cursor_visiblity()
+	apply_cursor_visibility()
 }
 
 wl_is_cursor_hidden :: proc() -> bool {
@@ -654,7 +654,7 @@ wl_is_cursor_locked :: proc() -> bool {
 	return s.locked_pointer != nil
 }
 
-apply_cursor_visiblity :: proc() {
+apply_cursor_visibility :: proc() {
 	if s.pointer == nil {
 		return
 	}
