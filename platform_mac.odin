@@ -26,8 +26,8 @@ PLATFORM_MAC :: Platform_Interface {
 	set_window_position = mac_set_window_position,
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
-	set_cursor_visible = mac_set_cursor_visible,
-	is_cursor_visible = mac_is_cursor_visible,
+	set_cursor_hidden = mac_set_cursor_hidden,
+	is_cursor_hidden = mac_is_cursor_hidden,
 	set_cursor_locked = mac_set_cursor_locked,
 	is_cursor_locked = mac_is_cursor_locked,
 
@@ -51,7 +51,7 @@ Mac_State :: struct {
 
 	// Cursor visibility (the user's intent). The OS cursor is only actually hidden while
 	// the cursor is inside the content area of a key window — see `apply_cursor_state`.
-	cursor_visible:      bool,
+	cursor_hidden:       bool,
 	cursor_hidden_by_us: bool,
 	cursor_tracker:      NS.id,
 
@@ -102,7 +102,6 @@ mac_init :: proc(
 	s.odin_ctx = context
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
-	s.cursor_visible = true
 
 	// Initialize NSApplication
 	s.app = NS.Application_sharedApplication()
@@ -437,13 +436,13 @@ mac_get_window_scale :: proc() -> f32 {
 	return f32(s.window->backingScaleFactor())
 }
 
-mac_set_cursor_visible :: proc(visible: bool) {
-	s.cursor_visible = visible
+mac_set_cursor_hidden :: proc(hidden: bool) {
+	s.cursor_hidden = hidden
 	apply_cursor_state()
 }
 
-mac_is_cursor_visible :: proc() -> bool {
-	return s.cursor_visible
+mac_is_cursor_hidden :: proc() -> bool {
+	return s.cursor_hidden
 }
 
 mac_set_cursor_locked :: proc(locked: bool) {
@@ -500,10 +499,10 @@ cursor_in_content_area :: proc() -> bool {
 }
 
 apply_cursor_state :: proc() {
-	if s.cursor_visible || !cursor_in_content_area() {
-		unhide_cursor_now()
-	} else {
+	if s.cursor_hidden && cursor_in_content_area() {
 		hide_cursor_now()
+	} else {
+		unhide_cursor_now()
 	}
 }
 
@@ -533,7 +532,7 @@ install_cursor_tracker :: proc() {
 
 cursor_tracker_mouse_entered :: proc "c" (self: NS.id, cmd: NS.SEL, event: NS.id) {
 	context = s.odin_ctx
-	if !s.cursor_visible {
+	if s.cursor_hidden {
 		hide_cursor_now()
 	}
 }
