@@ -10,6 +10,7 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	shutdown = x11_shutdown,
 	get_window_render_glue = x11_get_window_render_glue,
 	get_events = x11_get_events,
+	set_title = x11_set_title,
 	get_screen_width = x11_get_screen_width,
 	get_screen_height = x11_get_screen_height,
 	set_position = x11_set_position,
@@ -209,6 +210,10 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 			append(events, Event_Window_Unfocused{})
 		}
 	}
+}
+
+x11_set_title :: proc(title: string) {
+	X.StoreName(s.display, s.window, frame_cstring(title))
 }
 
 x11_get_screen_width :: proc() -> int {

@@ -431,6 +431,11 @@ get_screen_size :: proc() -> Vec2 {
 	return { f32(pf.get_screen_width()), f32(pf.get_screen_height()) }
 }
 
+// Change the window title.
+set_window_title :: proc(title: string) {
+	pf.set_window_title(title)
+}
+
 // Moves the window.
 //
 // This does nothing for web builds.
