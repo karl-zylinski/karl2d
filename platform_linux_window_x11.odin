@@ -48,6 +48,7 @@ x11_init :: proc(
 	s.windowed_width = window_width
 	s.windowed_height = window_height
 	s.display = X.OpenDisplay(nil)
+	s.events = make([dynamic]Event, allocator)
 
 	s.window = X.CreateSimpleWindow(
 		s.display,
@@ -110,6 +111,7 @@ x11_init :: proc(
 }
 
 x11_shutdown :: proc() {
+	delete(s.events)
 	X.FreeCursor(s.display, s.blank_cursor)
 	X.DestroyWindow(s.display, s.window)
 }
@@ -183,9 +185,21 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 			}
 
 		case .MotionNotify:
-			append(events, Event_Mouse_Move {
-				position = { f32(event.xmotion.x), f32(event.xmotion.y) }, 
-			})
+			if s.mouse_locked {
+				cx := i32(s.width / 2)
+				cy := i32(s.height / 2)
+
+				if event.xmotion.x != cx || event.xmotion.y != cy {
+					append(events, Event_Mouse_Move {
+						position = {f32(event.xmotion.x), f32(event.xmotion.y)},
+					})
+					_x11_teleport_cursor_to_center()
+				}
+			} else {
+				append(events, Event_Mouse_Move {
+					position = {f32(event.xmotion.x), f32(event.xmotion.y)},
+				})
+			}
 
 		case .ConfigureNotify:
 			w := int(event.xconfigure.width)
@@ -209,9 +223,14 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 			append(events, Event_Window_Focused{})
 
 		case .FocusOut:
+			// X11 unlocks the cursor if program loses focus
+			s.mouse_locked = false
 			append(events, Event_Window_Unfocused{})
 		}
 	}
+
+	append(events, ..s.events[:])
+	runtime.clear(&s.events)
 }
 
 x11_get_screen_width :: proc() -> int {
@@ -337,15 +356,48 @@ x11_set_cursor_visible :: proc(visible: bool) {
 }
 
 x11_lock_mouse :: proc() {
+	if s.mouse_locked {
+		return
+	}
+	s.mouse_locked = true
 
+	// Confine pointer to window (equivalent of Windows' ClipCursor)
+	X.GrabPointer(
+		s.display,
+		s.window,
+		false, // owner_events
+		{.PointerMotion, .ButtonPress, .ButtonRelease},
+		.GrabModeAsync,
+		.GrabModeAsync,
+		s.window, // confine_to: restrict to this window
+		0, // cursor: 0 = keep current
+		X.CurrentTime,
+	)
+
+	_x11_teleport_cursor_to_center()
 }
 
 x11_unlock_mouse :: proc() {
-
+	if !s.mouse_locked {
+		return
+	}
+	s.mouse_locked = false
+	X.UngrabPointer(s.display, X.CurrentTime)
+	X.Flush(s.display)
 }
 
 x11_is_mouse_locked :: proc() -> bool {
-	return false
+	return s.mouse_locked
+}
+
+_x11_teleport_cursor_to_center :: proc() {
+	cx := s.width / 2
+	cy := s.height / 2
+	X.WarpPointer(s.display, 0, s.window, 0, 0, 0, 0, i32(cx), i32(cy))
+	X.Flush(s.display)
+	append(&s.events, Event_Mouse_Teleported {
+		position = {f32(cx), f32(cy)},
+	})
 }
 
 x11_set_internal_state :: proc(state: rawptr) {
@@ -365,6 +417,8 @@ X11_State :: struct {
 	window_mode: Window_Mode,
 	window_render_glue: Window_Render_Glue,
 	blank_cursor: X.Cursor,
+	mouse_locked: bool,
+	events: [dynamic]Event,
 }
 
 s: ^X11_State
