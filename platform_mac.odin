@@ -20,6 +20,7 @@ PLATFORM_MAC :: Platform_Interface {
 	shutdown = mac_shutdown,
 	get_window_render_glue = mac_get_window_render_glue,
 	get_events = mac_get_events,
+	set_window_title = mac_set_window_title,
 	set_screen_size = mac_set_screen_size,
 	get_screen_width = mac_get_screen_width,
 	get_screen_height = mac_get_screen_height,
@@ -400,6 +401,11 @@ mac_get_screen_width :: proc() -> int {
 
 mac_get_screen_height :: proc() -> int {
 	return s.screen_height
+}
+
+mac_set_window_title :: proc(title: string) {
+	title_str := NS.String_alloc()->initWithOdinString(title)
+	s.window->setTitle(title_str)
 }
 
 mac_set_window_position :: proc(x: int, y: int) {

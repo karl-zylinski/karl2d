@@ -12,6 +12,7 @@ PLATFORM_WEB :: Platform_Interface {
 	shutdown = web_shutdown,
 	get_window_render_glue = web_get_window_render_glue,
 	get_events = web_get_events,
+	set_window_title = web_set_window_title,
 	set_screen_size = web_set_screen_size,
 	get_screen_width = web_get_screen_width,
 	get_screen_height = web_get_screen_height,
@@ -312,6 +313,10 @@ web_get_screen_height :: proc() -> int {
 
 web_clear_events :: proc() {
 	runtime.clear(&s.events)
+}
+
+web_set_window_title :: proc(title: string) {
+	js.set_document_title(title)
 }
 
 web_set_position :: proc(x: int, y: int) {

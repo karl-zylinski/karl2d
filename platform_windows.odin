@@ -11,6 +11,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	shutdown = windows_shutdown,
 	get_window_render_glue = windows_get_window_render_glue,
 	get_events = windows_get_events,
+	set_window_title = windows_set_window_title,
 	get_screen_width = windows_get_screen_width,
 	get_screen_height = windows_get_screen_height,
 	set_window_position = windows_set_window_position,
@@ -245,6 +246,10 @@ windows_get_screen_width :: proc() -> int {
 
 windows_get_screen_height :: proc() -> int {
 	return s.screen_height
+}
+
+windows_set_window_title :: proc(title: string) {
+	win32.SetWindowTextW(s.hwnd, win32.utf8_to_wstring(title, frame_allocator))
 }
 
 // Because positions can be offset in Windows: There is an "inivisble border" on Windows. This makes

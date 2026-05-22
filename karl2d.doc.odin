@@ -135,6 +135,9 @@ get_screen_height :: proc() -> int
 // Gets the screen width and height as a 2D vector.
 get_screen_size :: proc() -> Vec2
 
+// Change the window title.
+set_window_title :: proc(title: string)
+
 // Moves the window.
 //
 // This does nothing for web builds.

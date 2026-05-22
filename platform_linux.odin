@@ -22,6 +22,7 @@ PLATFORM_LINUX :: Platform_Interface {
 	shutdown = linux_shutdown,
 	get_window_render_glue = linux_get_window_render_glue,
 	get_events = linux_get_events,
+	set_window_title = linux_set_window_title,
 	set_screen_size = set_screen_size,
 	get_screen_width = linux_get_screen_width,
 	get_screen_height = linux_get_screen_height,
@@ -160,6 +161,10 @@ linux_get_screen_width :: proc() -> int {
 
 linux_get_screen_height :: proc() -> int {
 	return s.win.get_screen_height()
+}
+
+linux_set_window_title :: proc(title: string) {
+	s.win.set_title(title)
 }
 
 linux_set_window_position :: proc(x: int, y: int) {
@@ -628,6 +633,7 @@ Linux_Window_Interface :: struct #all_or_none {
 	shutdown: proc(),
 	get_window_render_glue: proc() -> Window_Render_Glue,
 	get_events: proc(events: ^[dynamic]Event),
+	set_title: proc(title: string),
 	set_position: proc(x: int, y: int),
 	set_screen_size: proc(w, h: int),
 	get_screen_width: proc() -> int,

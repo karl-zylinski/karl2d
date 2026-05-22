@@ -8,6 +8,7 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
 	get_events = wl_get_events,
+	set_title = wl_set_title,
 	get_screen_width = wl_get_screen_width,
 	get_screen_height = wl_get_screen_height,
 	set_position = wl_set_position,
@@ -485,6 +486,10 @@ wl_get_events :: proc(events: ^[dynamic]Event) {
 	wl.display_dispatch_pending(s.display)
 	append(events, ..s.events[:])
 	runtime.clear(&s.events)
+}
+
+wl_set_title :: proc(title: string) {
+	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(title, frame_allocator))
 }
 
 wl_get_screen_width :: proc() -> int {
