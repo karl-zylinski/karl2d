@@ -457,16 +457,6 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 	pf.set_window_mode(window_mode)
 }
 
-// Hide or show the mouse cursor. This is usually remembered if you unfocus and refocus the game.
-set_cursor_visible :: proc(visible: bool) {
-	pf.set_cursor_visible(visible)
-}
-
-// Returns true if the cursor is hidden.
-is_cursor_visible :: proc() -> bool {
-	return pf.is_cursor_visible()
-}
-
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
 // procedures run:
@@ -627,31 +617,39 @@ get_mouse_delta :: proc() -> Vec2 {
 	return s.mouse_delta
 }
 
-// Locks the mouse cursor within the window. While the cursor is locked, you should no longer try to
-// use get_mouse_position, as it may have weird/static values. Instead, use get_mouse_delta to fetch
-// how much the mouse have been moved.
+// Hide or show the mouse cursor. This is usually remembered if you unfocus and refocus the game.
+//
+// This call does not lock the cursor within the window, do that using a separate call to
+// `set_cursor_locked`.
+set_cursor_visible :: proc(visible: bool) {
+	pf.set_cursor_visible(visible)
+}
+
+// Returns true if the cursor is hidden.
+is_cursor_visible :: proc() -> bool {
+	return pf.is_cursor_visible()
+}
+
+// Locks the mouse cursor within the window. While the cursor is locked, you should no longer use
+// get_mouse_position, as it may have weird/static values. Instead, use get_mouse_delta to fetch how
+// much the mouse have been moved.
 //
 // On some platforms the cursor is just stuck at a specific point. On other platforms it may be
 // teleported back to the center of the window on each frame.
 //
 // This call does not hide the cursor, do that separately using `set_cursor_visible`.
 //
-// If the window loses focus, then the mouse may get unlocked. You can query the current lock status
-// using `is_mouse_locked`, which should take into account if the OS has unlocked it for you.
-lock_mouse :: proc() {
-	pf.lock_mouse()
+// If the window loses focus, then the cursor may get unlocked. You can query the current lock
+// status using `is_cursor_locked`, which should take into account if the OS has unlocked it for you
+set_cursor_locked :: proc(locked: bool) {
+	pf.set_cursor_locked(locked)
 }
 
-// Unlock the mouse, so that it is free to move outside the window.
-unlock_mouse :: proc() {
-	pf.unlock_mouse()
-}
-
-// Returns true if the mouse is currently locked. Note that the mouse can get unlocked by the OS,
-// even though you called `lock_mouse` in the past. Therefore, it's best to check the current status
-// using this procedure and then lock the mouse if needed.
-is_mouse_locked :: proc() -> bool {
-	return pf.is_mouse_locked()
+// Returns true if the mouse cursor is currently locked. Note that the mouse can get unlocked by the
+// OS, even though you previously called `lock_mouse`. Therefore, it's best to check the current
+// status using this procedure and then lock the mouse if needed.
+is_cursor_locked :: proc() -> bool {
+	return pf.is_cursor_locked()
 }
 
 // Returns true if a gamepad with the supplied index is connected. The parameter should be a value

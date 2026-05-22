@@ -17,9 +17,9 @@ step :: proc() -> bool {
 
 	delta := k2.get_mouse_delta()
 
-	if k2.is_mouse_locked() {
+	if k2.is_cursor_locked() {
 		if k2.key_went_down(.Escape) {
-			k2.unlock_mouse()
+			k2.set_cursor_locked(false)
 		}
 		
 		if k2.is_cursor_visible() {
@@ -29,7 +29,7 @@ step :: proc() -> bool {
 		pos += delta * k2.get_frame_time() * 100
 	} else {
 		if k2.mouse_button_went_down(.Left) {
-			k2.lock_mouse()
+			k2.set_cursor_locked(true)
 		}
 
 		if !k2.is_cursor_visible() {
