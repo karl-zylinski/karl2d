@@ -3996,7 +3996,10 @@ set_camera :: proc(camera: Maybe(Camera)) {
 
 	draw_current_batch()
 	s.batch_camera = camera
-	s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
+
+	if s.batch_render_target == RENDER_TARGET_NONE {
+		s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
+	}
 
 	if c, c_ok := camera.?; c_ok {
 		s.view_matrix = camera_view_matrix(c)
