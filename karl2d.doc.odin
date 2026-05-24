@@ -14,6 +14,10 @@ package karl2d
 // The window might be slightly larger due to borders and headers. The true width and height will be
 // scaled up by the scaling setting in the operating system.
 //
+// Call `init` before using Karl2D procedures that depend on runtime state, such as window,
+// drawing, input, audio, texture, font and shader procedures. Pure helper procedures, types and
+// constants can be used before `init`.
+//
 // The return value is a pointer to Karl2D's internal state. You can restore this state later using
 // `set_internal_state()`. This is useful for example when doing game code reload, as the state may
 // get reset when the library is reloaded. You can safely ignore the return value if you have no

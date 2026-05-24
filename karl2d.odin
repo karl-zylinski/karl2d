@@ -37,6 +37,10 @@ import hm "core:container/handle_map"
 // The window might be slightly larger due to borders and headers. The true width and height will be
 // scaled up by the scaling setting in the operating system.
 //
+// Call `init` before using Karl2D procedures that depend on runtime state, such as window,
+// drawing, input, audio, texture, font and shader procedures. Pure helper procedures, types and
+// constants can be used before `init`.
+//
 // The return value is a pointer to Karl2D's internal state. You can restore this state later using
 // `set_internal_state()`. This is useful for example when doing game code reload, as the state may
 // get reset when the library is reloaded. You can safely ignore the return value if you have no
@@ -182,6 +186,7 @@ init :: proc(
 ////     }
 //// }
 update :: proc() -> bool {
+	assert_initialized()
 	reset_frame_allocator()
 	calculate_frame_time()
 	update_audio_mixer()
@@ -195,6 +200,7 @@ update :: proc() -> bool {
 //
 // Called by `update`, but can be called manually if you need more control.
 close_window_requested :: proc() -> bool {
+	assert_initialized()
 	return s.close_window_requested
 }
 
@@ -235,6 +241,7 @@ shutdown :: proc() {
 // have set a Render Texture using the `set_render_texture` procedure, then that Render Texture will
 // be cleared instead.
 clear :: proc(color: Color) {
+	assert_initialized()
 	draw_current_batch()
 	rb.clear(s.batch_render_target, color)
 }
@@ -244,6 +251,7 @@ clear :: proc(color: Color) {
 //
 // Called as part of `update`, but can be called manually if you need more control.
 reset_frame_allocator :: proc() {
+	assert_initialized()
 	free_all(s.frame_allocator)
 }
 
@@ -252,6 +260,7 @@ reset_frame_allocator :: proc() {
 //
 // Called as part of `update`, but can be called manually if you need more control.
 calculate_frame_time :: proc() {
+	assert_initialized()
 	now := time.now()
 
 	if s.prev_frame_time != {} {
@@ -278,6 +287,7 @@ calculate_frame_time :: proc() {
 // WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
 // make sure that all rendering has been sent off to the GPU (as it calls `draw_current_batch()`).
 present :: proc() {
+	assert_initialized()
 	draw_current_batch()
 	rb.present()
 }
@@ -288,6 +298,7 @@ present :: proc() {
 //
 // Called by `update`, but can be called manually if you need more control.
 process_events :: proc() {
+	assert_initialized()
 	s.key_went_up = {}
 	s.key_went_down = {}
 	s.mouse_button_went_up = {}
@@ -395,6 +406,7 @@ process_events :: proc() {
 // Warning: The returned slice is only valid during the current frame! You can make a clone of it
 // using the `slice.clone` procedure (import `core:slice`).
 get_events :: proc() -> []Event {
+	assert_initialized()
 	return s.events[:]
 }
 
@@ -402,6 +414,7 @@ get_events :: proc() -> []Event {
 //
 // This value is updated when `calculate_frame_time()` runs (which is also called by `update()`).
 get_frame_time :: proc() -> f32 {
+	assert_initialized()
 	return s.frame_time
 }
 
@@ -410,33 +423,39 @@ get_frame_time :: proc() -> f32 {
 //
 // This value is updated when `calculate_frame_time()` runs (which is also called by `update()`).
 get_time :: proc() -> f64 {
+	assert_initialized()
 	return s.time
 }
 
 // Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
 // windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
 set_screen_size :: proc(width: int, height: int) {
+	assert_initialized()
 	pf.set_screen_size(width, height)
 	rb.resize_swapchain(width, height)
 }
 
 // Gets the width of the drawing area within the window.
 get_screen_width :: proc() -> int {
+	assert_initialized()
 	return pf.get_screen_width()
 }
 
 // Gets the height of the drawing area within the window.
 get_screen_height :: proc() -> int  {
+	assert_initialized()
 	return pf.get_screen_height()
 }
 
 // Gets the screen width and height as a 2D vector.
 get_screen_size :: proc() -> Vec2 {
+	assert_initialized()
 	return { f32(pf.get_screen_width()), f32(pf.get_screen_height()) }
 }
 
 // Change the window title.
 set_window_title :: proc(title: string) {
+	assert_initialized()
 	pf.set_window_title(title)
 }
 
@@ -444,6 +463,7 @@ set_window_title :: proc(title: string) {
 //
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int) {
+	assert_initialized()
 	pf.set_window_position(x, y)
 }
 
@@ -454,11 +474,13 @@ set_window_position :: proc(x: int, y: int) {
 // wanted resolution by the scale and send it into `set_screen_size`. You can use a camera and set
 // the zoom to the window scale in order to make things the same percieved size.
 get_window_scale :: proc() -> f32 {
+	assert_initialized()
 	return pf.get_window_scale()
 }
 
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode) {
+	assert_initialized()
 	pf.set_window_mode(window_mode)
 }
 
@@ -5010,6 +5032,10 @@ Event_Window_Unfocused :: struct {}
 
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
+
+assert_initialized :: proc(loc := #caller_location) {
+	assert(s != nil, "Call k2.init before using this Karl2D procedure", loc)
+}
 
 batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
