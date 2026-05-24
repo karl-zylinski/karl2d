@@ -12,6 +12,7 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	get_screen_width = wl_get_screen_width,
 	get_screen_height = wl_get_screen_height,
 	set_position = wl_set_position,
+	get_position = wl_get_position,
 	set_screen_size = wl_set_screen_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
@@ -543,6 +544,11 @@ wl_get_screen_height :: proc() -> int {
 
 wl_set_position :: proc(x: int, y: int) {
 	log.error("set_position not implemented when using wayland")
+}
+
+wl_get_position :: proc() -> Vec2 {
+	log.error("get_position not implemented when using wayland")
+	return {}
 }
 
 wl_set_screen_size :: proc(w, h: int) {

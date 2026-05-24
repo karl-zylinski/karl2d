@@ -25,6 +25,7 @@ PLATFORM_MAC :: Platform_Interface {
 	get_screen_width = mac_get_screen_width,
 	get_screen_height = mac_get_screen_height,
 	set_window_position = mac_set_window_position,
+	get_window_position = mac_get_window_position,
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
 	set_cursor_hidden = mac_set_cursor_hidden,
@@ -429,6 +430,12 @@ mac_set_window_position :: proc(x: int, y: int) {
 	// macOS uses bottom-left origin for screen coordinates
 	origin := NS.Point{NS.Float(x), NS.Float(y)}
 	s.window->setFrameOrigin(origin)
+}
+
+mac_get_window_position :: proc() -> Vec2 {
+	// macOS uses bottom-left origin for screen coordinates
+	origin := s.window->frame().origin
+	return {f32(origin.x), f32(origin.y)}
 }
 
 mac_set_screen_size :: proc(w, h: int) {

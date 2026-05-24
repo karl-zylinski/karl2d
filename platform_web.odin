@@ -17,6 +17,7 @@ PLATFORM_WEB :: Platform_Interface {
 	get_screen_width = web_get_screen_width,
 	get_screen_height = web_get_screen_height,
 	set_window_position = web_set_position,
+	get_window_position = web_get_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
 	set_cursor_hidden = web_set_cursor_hidden,
@@ -334,6 +335,11 @@ web_set_window_title :: proc(title: string) {
 
 web_set_position :: proc(x: int, y: int) {
 	log.warn("set_window_position not implemented on web")
+}
+
+web_get_position :: proc() -> Vec2 {
+	log.warn("get_window_position not implemented on web")
+	return {}
 }
 
 web_set_screen_size :: proc(w, h: int) {
