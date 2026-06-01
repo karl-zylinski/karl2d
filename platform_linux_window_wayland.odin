@@ -57,10 +57,20 @@ wl_init :: proc(
 
 	display_registry := wl.display_get_registry(s.display)
 	wl.add_listener(display_registry, &registry_listener, nil)
+
+	// Collects all the globals.
 	wl.display_roundtrip(s.display)
 
 	wl.add_listener(s.seat, &seat_listener, nil)
+
+	// Initializes pointer and keyboard based on seat capabilities.
 	wl.display_roundtrip(s.display)
+
+	// Sets default size that gets used if the compositor doesn't suggest a size.
+	s.last_configure_width = screen_width
+	s.last_configure_height = screen_height
+	s.last_configure_windowed_width = screen_width
+	s.last_configure_windowed_height = screen_height
 
 	s.surface = wl.compositor_create_surface(s.compositor)
 	log.ensure(s.surface != nil, "Error creating Wayland surface")
@@ -76,6 +86,8 @@ wl_init :: proc(
 	wl.add_listener(xdg_surface, &window_listener, nil)
 	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(window_title, frame_allocator))
 
+	wl_set_window_mode(options.window_mode)
+
 	if s.decoration_manager != nil {
 		decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
 
@@ -83,13 +95,12 @@ wl_init :: proc(
 		wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
 	}
 
-	fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(s.fractional_scale_manager, s.surface)
-	wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
+	if s.fractional_scale_manager != nil {
+		fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(s.fractional_scale_manager, s.surface)
+		wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
+	}
 
-	wl.surface_commit(s.surface)
-	wl.display_dispatch_pending(s.display)
-	wl.display_roundtrip(s.display)
-
+	log.ensure(s.relative_pointer_manager != nil)
 	s.relative_pointer = wl.zwp_relative_pointer_manager_v1_get_relative_pointer(
 		s.relative_pointer_manager,
 		s.pointer,
@@ -100,25 +111,14 @@ wl_init :: proc(
 	s.cursor_surface = wl.compositor_create_surface(s.compositor)
 	s.cursor_theme = wl.cursor_theme_load(nil, 24, s.shm)
 
-	unscaled_width := screen_width
-	unscaled_height := screen_height
-
-	scaled_width := int(f32(unscaled_width) * s.scale)
-	scaled_height := int(f32(unscaled_height) * s.scale)
-
-	callback := wl.surface_frame(s.surface)
-	wl.add_listener(callback, &frame_callback, nil)
-
 	s.viewport = wl.wp_viewporter_get_viewport(s.viewporter, s.surface)
-	wl.wp_viewport_set_destination(s.viewport, i32(unscaled_width), i32(unscaled_height))
-	s.window = wl.egl_window_create(s.surface, i32(scaled_width), i32(scaled_height))
-
-	s.screen_width = scaled_width
-	s.screen_height = scaled_height
-
+	
 	wl.surface_commit(s.surface)
-	wl.display_dispatch_pending(s.display)
+
+	// Ensure first configure initializes egl window.
 	wl.display_roundtrip(s.display)
+
+	wl_set_window_mode(options.window_mode)
 
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
@@ -127,8 +127,6 @@ wl_init :: proc(
 	} else {
 		#panic("Unsupported combo of Linux + X11 and render backend '" + RENDER_BACKEND_NAME + "'")
 	}
-
-	wl_set_window_mode(options.window_mode)
 
 	if options.disable_auto_scale_hint {
 		log.warn("disable_auto_scale_hint not supported on linux/wayland")
@@ -227,6 +225,11 @@ registry_listener := wl.Registry_Listener {
 			)
 		}
 	},
+	global_remove = proc "c" (
+		data: rawptr,
+		registry: ^wl.Registry,
+		name: u32,
+	) {}
 }
 
 seat_listener := wl.Seat_Listener {
@@ -279,19 +282,38 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 
 		context = s.odin_ctx
 
-		if s.last_configure_width != w || s.last_configure_height != h  {
-			if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-				s.last_configure_windowed_width = w
-				s.last_configure_windowed_height = h
+		new_width := s.last_configure_width
+		new_height := s.last_configure_height
+			
+		if w != 0 && h != 0 {
+			if s.window_mode != .Windowed {
+				new_width = w
+				new_height = h
 			}
+		} else {
+			new_width = s.last_configure_windowed_width
+			new_height = s.last_configure_windowed_height
+		}
 
-			s.screen_width = int(f32(w) * s.scale)
-			s.screen_height = int(f32(h) * s.scale)
-			s.last_configure_width = w
-			s.last_configure_height = h
+		window_resized := new_width != s.last_configure_width || new_height != s.last_configure_height 
 
-			wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
-			wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
+		if window_resized || !s.configured {
+			s.screen_width = int(f32(new_width) * s.scale)
+			s.screen_height = int(f32(new_height) * s.scale)
+
+			if !s.configured {
+				s.window = wl.egl_window_create(s.surface, i32(s.screen_width), i32(s.screen_height))
+			} else {
+				wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+			}
+			wl.wp_viewport_set_destination(s.viewport, i32(new_width), i32(new_height))
+
+			s.last_configure_width = new_width
+			s.last_configure_height = new_height
+			if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
+				s.last_configure_windowed_width = new_width
+				s.last_configure_windowed_height = new_height
+			}
 
 			append(&s.events, Event_Screen_Resize {
 				width = s.screen_width,
@@ -505,7 +527,10 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		s.scale = scl
 		s.screen_width = int(f32(s.last_configure_width) * s.scale)
 		s.screen_height = int(f32(s.last_configure_height) * s.scale)
-		wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+
+		if s.configured {
+			wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+		}
 
 		append(&s.events, Event_Window_Scale_Changed {
 			scale = scl,
@@ -565,10 +590,12 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	switch window_mode {
 	case .Windowed:
 		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
-		w := i32(s.last_configure_windowed_width)
-		h := i32(s.last_configure_windowed_height)
-		wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
-		wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
+		if s.configured {
+			w := i32(s.last_configure_windowed_width)
+			h := i32(s.last_configure_windowed_height)
+			wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
+			wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
+		}
 
 	case .Windowed_Resizable:
 		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
