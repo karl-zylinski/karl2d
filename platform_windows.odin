@@ -33,6 +33,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 }
 
 import win32 "core:sys/windows"
+import "core:unicode/utf16"
 import "base:runtime"
 @require import "log"
 
@@ -427,6 +428,10 @@ Windows_State :: struct {
 	restore_screen_height: int,
 
 	window_render_glue: Window_Render_Glue,
+
+	// Half of UTF-16 characters when it is a character when the character is outside the Basic
+	// Multilingual Plane (BMP). Emojis are examples of such characters.
+	char_high_surrogate: rune,
 }
 
 windows_set_window_mode :: proc(window_mode: Window_Mode) {
@@ -537,15 +542,18 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 
 	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:
 		repeat := bool(lparam & (1 << 30))
+		key := key_from_event_params(wparam, lparam)
+		if key != .None {
+		}
 
-		if !repeat {
-			key := key_from_event_params(wparam, lparam)
-
-			if key != .None {
-				append(&s.events, Event_Key_Went_Down {
-					key = key,
-				})
-			}
+		if repeat {
+			append(&s.events, Event_Key_Repeat {
+				key = key,
+			})
+		} else {
+			append(&s.events, Event_Key_Went_Down {
+				key = key,
+			})
 		}
 
 	case win32.WM_SYSKEYUP, win32.WM_KEYUP:
@@ -554,6 +562,26 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 			append(&s.events, Event_Key_Went_Up {
 				key = key,
 			})
+		}
+
+	case win32.WM_CHAR, win32.WM_SYSCHAR:
+		r := rune(wparam)
+
+		if utf16.is_surrogate(r) {
+			s.char_high_surrogate = r
+		} else {
+			codepoint: rune
+
+			if s.char_high_surrogate != 0 {
+				codepoint = utf16.decode_surrogate_pair(s.char_high_surrogate, r)
+				s.char_high_surrogate = 0
+			} else if r >= 32 {
+				codepoint = r
+			}
+
+			if codepoint != 0 {
+				append(&s.events, Event_Typed_Rune { typed = codepoint })
+			}
 		}
 
 	case win32.WM_MOUSEMOVE:
