@@ -543,17 +543,17 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:
 		repeat := bool(lparam & (1 << 30))
 		key := key_from_event_params(wparam, lparam)
-		if key != .None {
-		}
 
-		if repeat {
-			append(&s.events, Event_Key_Repeat {
-				key = key,
-			})
-		} else {
-			append(&s.events, Event_Key_Went_Down {
-				key = key,
-			})
+		if key != .None {
+			if repeat {
+				append(&s.events, Event_Key_Repeat {
+					key = key,
+				})
+			} else {
+				append(&s.events, Event_Key_Went_Down {
+					key = key,
+				})
+			}
 		}
 
 	case win32.WM_SYSKEYUP, win32.WM_KEYUP:
@@ -567,14 +567,20 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 	case win32.WM_CHAR, win32.WM_SYSCHAR:
 		r := rune(wparam)
 
-		if utf16.is_surrogate(r) {
+		if wparam >= 0xD800 && wparam <= 0xDBFF {
+			// ^ High surrogate
+			
 			s.char_high_surrogate = r
 		} else {
 			codepoint: rune
 
-			if s.char_high_surrogate != 0 {
-				codepoint = utf16.decode_surrogate_pair(s.char_high_surrogate, r)
-				s.char_high_surrogate = 0
+			if wparam >= 0xDC00 && wparam <= 0xDFFF {
+				// ^ Low surrogate
+
+				if s.char_high_surrogate != 0 {
+					codepoint = utf16.decode_surrogate_pair(s.char_high_surrogate, r)
+					s.char_high_surrogate = 0
+				}
 			} else if r >= 32 {
 				codepoint = r
 			}

@@ -70,11 +70,10 @@ text_input :: proc(pos: Vec2, builder: ^strings.Builder) {
 	}
 
 	typed_text_size := k2.measure_text(typed_text, 30)
-	INPUT_BOX_POS :: Vec2 {15, 25}
-	input_box := k2.rect_expand(k2.rect_from_pos_size(INPUT_BOX_POS, typed_text_size), 5, 3)
+	input_box := k2.rect_expand(k2.rect_from_pos_size(pos, typed_text_size), 5, 3)
 	k2.draw_rect(input_box, k2.WHITE)
 	k2.draw_rect_outline(input_box, 1, k2.BLACK)
-	k2.draw_text(typed_text, INPUT_BOX_POS, 30, k2.BLACK)
+	k2.draw_text(typed_text, pos, 30, k2.BLACK)
 }
 
 button :: proc(r: Rect, text: string) -> bool {
