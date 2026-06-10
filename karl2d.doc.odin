@@ -1517,8 +1517,8 @@ State :: struct {
 	mix_buffer_offset: int,
 }
 
-// Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
-// options presented here.
+// Karl2D currently reports left, right, and middle mouse buttons.
+// `Max` defines the upper bound of the `Mouse_Button` enum.
 Mouse_Button :: enum {
 	Left,
 	Right,
