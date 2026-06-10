@@ -652,6 +652,10 @@ pause_audio_stream :: proc(stream: Audio_Stream)
 // beginning.
 stop_audio_stream :: proc(stream: Audio_Stream)
 
+// Returns true if the audio stream is currently playing. Note that a looping audio stream will
+// always return true.
+is_audio_stream_playing :: proc(stream: Audio_Stream) -> bool
+
 // Set the volume of the audio stream. Range: 0 to 1.
 //
 // You can use this both with a playing and non-playing stream. If its already playing, then this
