@@ -290,8 +290,12 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 			s.last_configure_width = w
 			s.last_configure_height = h
 
-			wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
-			wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
+            if s.window != nil {
+                wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+            }
+            if s.viewport != nil {
+                wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
+            }
 
 			append(&s.events, Event_Screen_Resize {
 				width = s.screen_width,
