@@ -229,7 +229,7 @@ registry_listener := wl.Registry_Listener {
 		data: rawptr,
 		registry: ^wl.Registry,
 		name: u32,
-	) {}
+	) {},
 }
 
 seat_listener := wl.Seat_Listener {
