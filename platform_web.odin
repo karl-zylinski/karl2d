@@ -80,6 +80,7 @@ web_init :: proc(
 	add_window_event_listener(.Key_Up, web_event_key_up)
 	add_window_event_listener(.Focus, web_event_focus)
 	add_window_event_listener(.Blur, web_event_blur)
+	add_window_event_listener(.Key_Press, web_event_key_press)
 
 	add_window_event_listener(.Pointer_Lock_Change, _web_event_pointer_lock_change)
 
@@ -89,14 +90,17 @@ web_init :: proc(
 }
 
 web_event_key_down :: proc(e: js.Event) {
-	if e.key.repeat {
-		return
-	}
-
 	key := key_from_js_event(e)
-	append(&s.events, Event_Key_Went_Down {
-		key = key,
-	})
+
+	if e.key.repeat {
+		append(&s.events, Event_Key_Repeat {
+			key = key,
+		})
+	} else {
+		append(&s.events, Event_Key_Went_Down {
+			key = key,
+		})
+	}
 }
 
 web_event_key_up :: proc(e: js.Event) {
@@ -104,6 +108,12 @@ web_event_key_up :: proc(e: js.Event) {
 	append(&s.events, Event_Key_Went_Up {
 		key = key,
 	})
+}
+
+web_event_key_press :: proc(e: js.Event) {
+	if e.key.char != 0 {
+		append(&s.events, Event_Typed_Rune { typed = e.key.char })
+	}
 }
 
 web_event_focus :: proc(e: js.Event) {
