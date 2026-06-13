@@ -14,6 +14,7 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	get_screen_width = x11_get_screen_width,
 	get_screen_height = x11_get_screen_height,
 	set_position = x11_set_position,
+	get_position = x11_get_position,
 	set_screen_size = x11_set_screen_size,
 	get_window_scale = x11_get_window_scale,
 	set_window_mode = x11_set_window_mode,
@@ -251,6 +252,22 @@ x11_get_screen_height :: proc() -> int {
 
 x11_set_position :: proc(x: int, y: int) {
 	X.MoveWindow(s.display, s.window, i32(x), i32(y))
+}
+
+x11_get_position :: proc() -> Vec2 {
+	x, y: i32
+	child: X.Window
+	X.TranslateCoordinates(
+		s.display,
+		s.window,
+		X.DefaultRootWindow(s.display),
+		0,
+		0,
+		&x,
+		&y,
+		&child,
+	)
+	return {f32(x), f32(y)}
 }
 
 x11_set_screen_size :: proc(w, h: int) {

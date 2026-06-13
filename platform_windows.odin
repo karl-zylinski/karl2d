@@ -15,6 +15,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	get_screen_width = windows_get_screen_width,
 	get_screen_height = windows_get_screen_height,
 	set_window_position = windows_set_window_position,
+	get_window_position = windows_get_window_position,
 	set_screen_size = windows_set_screen_size,
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
@@ -279,6 +280,17 @@ windows_set_window_position :: proc(x: int, y: int) {
 		0,
 		win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOSIZE,
 	)
+}
+
+windows_get_window_position :: proc() -> Vec2 {
+	r: win32.RECT
+	win32.DwmGetWindowAttribute(
+		s.hwnd,
+		u32(win32.DWMWINDOWATTRIBUTE.DWMWA_EXTENDED_FRAME_BOUNDS),
+		&r,
+		size_of(win32.RECT),
+	)
+	return {f32(r.left), f32(r.top)}
 }
 
 windows_get_style :: proc(window_mode: Window_Mode) -> win32.DWORD {

@@ -147,6 +147,11 @@ set_window_title :: proc(title: string)
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int)
 
+// Gets the window position in the same coordinate system used by `set_window_position`.
+//
+// This returns {} for web and Wayland builds.
+get_window_position :: proc() -> Vec2
+
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
 // 1 means 100% scale, 1.5 means 150% etc.
 //
