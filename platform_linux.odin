@@ -33,6 +33,9 @@ PLATFORM_LINUX :: Platform_Interface {
 	is_cursor_hidden = linux_is_cursor_hidden,
 	set_cursor_locked = linux_set_cursor_locked,
 	is_cursor_locked = linux_is_cursor_locked,
+	create_cursor = linux_create_cursor,
+	set_cursor = linux_set_cursor,
+	destroy_cursor = linux_destroy_cursor,
 	is_gamepad_active = linux_is_gamepad_active,
 	get_gamepad_axis = linux_get_gamepad_axis,
 	set_gamepad_vibration = linux_set_gamepad_vibration,
@@ -622,6 +625,18 @@ linux_is_cursor_locked :: proc() -> bool {
 	return s.win.is_cursor_locked()
 }
 
+linux_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
+	return s.win.create_cursor(pixels, hotspot)
+}
+
+linux_set_cursor :: proc(cursor: Cursor_Data) {
+	s.win.set_cursor(cursor)
+}
+
+linux_destroy_cursor :: proc(cursor: Cursor_Data) {
+	s.win.destroy_cursor(cursor)
+}
+
 Linux_State :: struct {
 	win: Linux_Window_Interface,
 	win_state: rawptr,
@@ -659,6 +674,10 @@ Linux_Window_Interface :: struct #all_or_none {
 	is_cursor_hidden: proc() -> bool,
 	set_cursor_locked: proc(locked: bool),
 	is_cursor_locked: proc() -> bool,
+
+	create_cursor: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data,
+	set_cursor: proc(cursor: Cursor_Data),
+	destroy_cursor: proc(cursor: Cursor_Data),
 
 	set_internal_state: proc(state: rawptr),
 }

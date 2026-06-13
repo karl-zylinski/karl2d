@@ -142,6 +142,9 @@ init :: proc(
 	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
 	_set_font(FONT_DEFAULT)
 
+	// Dummy element so cursor with index 0 means 'no cursor'.
+	append_nothing(&s.cursors)
+
 	// Audio
 	{
 		s.audio_backend = AUDIO_BACKEND
@@ -224,6 +227,12 @@ shutdown :: proc() {
 	destroy_shader(s.default_shader)
 	rb.shutdown()
 	delete(s.vertex_buffer_cpu, s.allocator)
+
+	for _, idx in s.cursors {
+		destroy_cursor(Cursor(idx))
+	}
+	delete(s.cursors)
+	delete(s.cursors_freelist)
 
 	pf.shutdown()
 
@@ -3761,6 +3770,58 @@ get_default_font :: proc() -> Font {
 }
 
 //---------//
+// CURSORS //
+//--------//
+
+// We expect RGBA8 bytes in PNG format (not raw pixels).
+// Each platform will decode the PNG as necessary.
+create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor {
+	free_id, ok := pop_safe(&s.cursors_freelist)
+	id := ok ? free_id : Cursor(len(s.cursors))
+
+	cursor := pf.create_cursor(pixels, hotspot)
+	if cursor.os_handle == nil {
+		return 0
+	}
+	append(&s.cursors, cursor)
+
+	return id
+}
+
+set_cursor :: proc(id: Cursor) {
+	if id < 0 || int(id) >= len(s.cursors) {
+		log.errorf("You tried setting cursor id %v but it doesn't exist or its handle is invalid.", id)
+		return
+	}
+	cursor := s.cursors[id]
+	if id > 0 && (cursor.os_handle == nil || cursor.pixels == nil) {
+		log.errorf("You tried setting cursor id %v but its data is invalid (it probably was destroyed).", id)
+		return
+	}
+	pf.set_cursor(cursor)
+}
+
+destroy_cursor :: proc(id: Cursor) {
+	if id == 0 do return
+	if id < 0 || int(id) >= len(s.cursors) {
+		log.errorf("You tried destroying cursor id %v but it doesn't exist or its handle is invalid.", id)
+		return
+	}
+	cursor := &s.cursors[id]
+	if cursor.os_handle == nil || cursor.pixels == nil {
+		log.errorf("You tried destroying cursor id %v but it was already destroyed.", id)
+		return
+	}
+
+	pf.destroy_cursor(cursor^)
+
+	delete(cursor.pixels, s.allocator)
+	append(&s.cursors_freelist, id)
+	cursor.os_handle = nil
+	cursor.pixels = nil
+}
+
+//---------//
 // SHADERS //
 //---------//
 
@@ -4230,6 +4291,9 @@ Rect :: struct {
 	w, h: f32,
 }
 
+// Default cursor ID is 0, to represent the OS arrow.
+DEFAULT_CURSOR :: Cursor(0)
+
 // An RGBA (Red, Green, Blue, Alpha) color. Each channel can have a value between 0 and 255.
 Color :: [4]u8
 
@@ -4522,6 +4586,11 @@ Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
+Cursor :: distinct int
+Cursor_Data :: struct {
+	os_handle: rawptr,
+	pixels: []Color,
+}
 
 Font_Baked_Glyph_Range :: struct {
 	start_idx: int,
@@ -4740,6 +4809,8 @@ State :: struct {
 
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
+	cursors: [dynamic]Cursor_Data,
+	cursors_freelist: [dynamic]Cursor,
 	shape_drawing_texture: Texture_Handle,
 	batch_font: Font,
 	batch_camera: Maybe(Camera),
