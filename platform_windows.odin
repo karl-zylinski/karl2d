@@ -109,6 +109,7 @@ windows_init :: proc(
 	windows_set_window_mode(options.window_mode)
 	
 	win32.XInputEnable(true)
+	win32.DragAcceptFiles(s.hwnd, true)
 
 	when RENDER_BACKEND_NAME == "d3d11" {
 		s.window_render_glue = {
@@ -555,6 +556,30 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 				key = key,
 			})
 		}
+
+	case win32.WM_DROPFILES:
+		drop := (win32.HDROP)(wparam)
+		point: win32.POINT
+		win32.DragQueryPoint(drop, &point)
+		defer win32.DragFinish(drop)
+
+		count := win32.DragQueryFileW(drop, 0xFFFFFFFF, nil, 0)
+		if count == 0 do break
+
+		paths := make([]string, count, s.allocator)
+		for i in 0 ..< count {
+			len := win32.DragQueryFileW(drop, i, nil, 0) + 1
+			if len == 0 do continue
+
+			buf := make([]u16, len, context.temp_allocator)
+			win32.DragQueryFileW(drop, i, raw_data(buf), len)
+			path, _ := win32.utf16_to_utf8(buf, s.allocator)
+			paths[i] = path
+		}
+
+		append(&s.events, Event_Files_Drop {
+			filepaths = paths,
+		})
 
 	case win32.WM_MOUSEMOVE:
 		x := win32.GET_X_LPARAM(lparam)

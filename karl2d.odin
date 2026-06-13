@@ -307,6 +307,7 @@ process_events :: proc() {
 	s.gamepad_button_went_down = {}
 	s.mouse_delta = {}
 	s.mouse_wheel_delta = 0
+	s.files_dropped_paths = {}
 
 	runtime.clear(&s.events)
 	pf.get_events(&s.events)
@@ -323,6 +324,9 @@ process_events :: proc() {
 		case Event_Key_Went_Up:
 			s.key_went_up[e.key] = true
 			s.key_is_held[e.key] = false
+
+		case Event_Files_Drop:
+			s.files_dropped_paths = e.filepaths
 
 		case Event_Mouse_Button_Went_Down:
 			s.mouse_button_went_down[e.button] = true
@@ -605,6 +609,22 @@ get_held_modifiers :: proc() -> bit_set[Modifier] {
 	}
 
 	return res
+}
+
+is_file_dropped :: proc() -> bool {
+	return len(s.files_dropped_paths) > 0
+}
+
+get_dropped_files :: proc() -> []string {
+	return s.files_dropped_paths
+}
+
+destroy_dropped_files :: proc(paths: []string) {
+	for path in paths {
+		delete(path, s.allocator)
+	}
+	delete(s.files_dropped_paths, s.allocator)
+	s.files_dropped_paths = {}
 }
 
 // Returns true if a mouse button went down between the current and the previous frame. Specify
@@ -4730,6 +4750,8 @@ State :: struct {
 	key_went_up: #sparse [Keyboard_Key]bool,
 	key_is_held: #sparse [Keyboard_Key]bool,
 
+	files_dropped_paths: []string,
+
 	mouse_button_went_down: #sparse [Mouse_Button]bool,
 	mouse_button_went_up: #sparse [Mouse_Button]bool,
 	mouse_button_is_held: #sparse [Mouse_Button]bool,
@@ -4973,6 +4995,7 @@ Event :: union {
 	Event_Close_Window_Requested,
 	Event_Key_Went_Down,
 	Event_Key_Went_Up,
+	Event_Files_Drop,
 	Event_Mouse_Move,
 	Event_Mouse_Wheel,
 	Event_Mouse_Button_Went_Down,
@@ -4992,6 +5015,10 @@ Event_Key_Went_Down :: struct {
 
 Event_Key_Went_Up :: struct {
 	key: Keyboard_Key,
+}
+
+Event_Files_Drop :: struct {
+	filepaths: []string,
 }
 
 Event_Mouse_Button_Went_Down :: struct {
