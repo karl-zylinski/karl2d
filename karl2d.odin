@@ -751,6 +751,20 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
+	draw_rect_gradient(rect, color, color, color, color, origin, rotation)
+}
+
+// Draw a gradient rectangle. The rectangles have their (x, y) position in the top-left corner of
+// the rectangle.
+// The top_left, top_right, bottom_left, bottom_right Colors are applied to their respective
+// corners.
+//
+// Optional parameters:
+// - origin: The point to rotate around, also offsets the position of the rect. If the origin is
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
+// - rotation: The rotation to apply, in radians
+draw_rect_gradient :: proc(rect: Rect, top_left, top_right, bottom_left, bottom_right: Color, origin: Vec2 = {}, rotation: f32 = 0) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
@@ -799,12 +813,20 @@ draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0
 		}
 	}
 
-	batch_vertex(tl, {0, 0}, color)
-	batch_vertex(tr, {1, 0}, color)
-	batch_vertex(br, {1, 1}, color)
-	batch_vertex(tl, {0, 0}, color)
-	batch_vertex(br, {1, 1}, color)
-	batch_vertex(bl, {0, 1}, color)
+	batch_vertex(tl, {0, 0}, top_left)
+	batch_vertex(tr, {1, 0}, top_right)
+	batch_vertex(br, {1, 1}, bottom_right)
+	batch_vertex(tl, {0, 0}, top_left)
+	batch_vertex(br, {1, 1}, bottom_right)
+	batch_vertex(bl, {0, 1}, bottom_left)
+}
+
+draw_rect_gradient_vertical :: proc (rect: Rect, top, bottom: Color, origin: Vec2 = {}, rotation: f32 = 0) {
+    draw_rect_gradient(rect, top, top, bottom, bottom, origin, rotation)
+}
+
+draw_rect_gradient_horizontal :: proc (rect: Rect, left, right: Color, origin: Vec2 = {}, rotation: f32 = 0) {
+    draw_rect_gradient(rect, left, right, left, right, origin, rotation)
 }
 
 // Creates a rectangle from a position and a size and draws it using the specified color.
@@ -873,6 +895,12 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 // Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
 // perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
+	draw_circle_gradient(center, radius, color, color, segments)
+}
+
+// Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
+// perfect! It is drawn using a number of "cake segments".
+draw_circle_gradient :: proc(center: Vec2, radius: f32, inner, outer: Color, segments := 16) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 * segments > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
@@ -889,9 +917,9 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
 		rot := linalg.matrix2_rotate(sr)
 		p := center + rot * Vec2{radius, 0}
 
-		batch_vertex(prev, {0, 0}, color)
-		batch_vertex(p, {1, 0}, color)
-		batch_vertex(center, {1, 1}, color)
+		batch_vertex(prev, {0, 0}, outer)
+		batch_vertex(p, {1, 0}, outer)
+		batch_vertex(center, {1, 1}, inner)
 
 		prev = p
 	}
@@ -906,6 +934,64 @@ draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Co
 		p := center + rot * Vec2{radius, 0}
 		draw_line(prev, p, thickness, color)
 		prev = p
+	}
+}
+
+// Draw an arc (partial circle) with a certain center, radius, start, and end angle. Note the `segments` parameter: This arc is not
+// perfect! It is drawn using a number of "cake segments".
+draw_arc :: proc(center: Vec2, radius: f32, start_ang: f32, end_ang: f32, color: Color, segments := 16) {
+	draw_arc_gradient(center, radius, start_ang, end_ang, color, color, segments)
+}
+
+draw_arc_gradient :: proc(center: Vec2, radius: f32, start_ang: f32, end_ang: f32, inner, outer: Color, segments := 16) {
+	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 * segments > len(s.vertex_buffer_cpu) {
+		draw_current_batch()
+	}
+
+	if s.batch_texture != s.shape_drawing_texture {
+		draw_current_batch()
+	}
+
+	s.batch_texture = s.shape_drawing_texture
+
+	prev := center + linalg.matrix2_rotate(start_ang) * Vec2{radius, 0}
+	for s in 1..=segments {
+		sr := (f32(s)/f32(segments)) * math.abs(end_ang - start_ang)
+		rot := linalg.matrix2_rotate(start_ang + sr)
+		p := center + rot * Vec2{radius, 0}
+
+		batch_vertex(prev, {0, 0}, outer)
+		batch_vertex(p, {1, 0}, outer)
+		batch_vertex(center, {1, 1}, inner)
+
+		prev = p
+	}
+}
+
+// Like `draw_arc` but only draws the outer edge of the arc.
+draw_arc_outline :: proc(center: Vec2, radius: f32, start_ang: f32, end_ang: f32, thickness: f32, color: Color, segments := 16) {
+	// Stop arcs being so gappy by offsetting outline by half thickness
+	radius := radius
+	radius += thickness/2
+
+	start := center + linalg.matrix2_rotate(start_ang) * Vec2{radius, 0}
+	for s in 1..=segments {
+		sr := (f32(s)/f32(segments)) * (end_ang - start_ang)
+		rot_mat := linalg.matrix2_rotate(start_ang + sr)
+		end := center + rot_mat * Vec2{radius, 0}
+		// draw_line(prev, p, thickness, color)
+
+		p := Vec2{start.x, start.y}
+		s := Vec2{linalg.length(end - start), thickness}
+
+		origin := Vec2 {0, 0}
+		r := Rect {p.x, p.y, s.x, s.y}
+
+		rot := math.atan2(end.y - start.y, end.x - start.x)
+
+		draw_rect(r, color, origin, rot)
+
+		start = end
 	}
 }
 
@@ -925,6 +1011,13 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 // Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
+	draw_triangle_gradient(vertices, c, c, c)
+}
+
+// Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
+// counter-clockwise triangles will give the same result.
+// Specify a color for each vertex in order
+draw_triangle_gradient :: proc(vertices: [3]Vec2, c1, c2, c3: Color) {
 	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
@@ -935,9 +1028,9 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 
 	s.batch_texture = s.shape_drawing_texture
 
-	batch_vertex(vertices[0], {0, 0}, c)
-	batch_vertex(vertices[1], {1, 1}, c)
-	batch_vertex(vertices[2], {0, 1}, c)
+	batch_vertex(vertices[0], {0, 0}, c1)
+	batch_vertex(vertices[1], {1, 1}, c2)
+	batch_vertex(vertices[2], {0, 1}, c3)
 }
 
 // Draw a texture at a position. The top-left corner of the texture will end up at the position.
