@@ -321,11 +321,26 @@ draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0
 //   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
-draw_rect_gradient :: proc(rect: Rect, top_left, top_right, bottom_left, bottom_right: Color, origin: Vec2 = {}, rotation: f32 = 0)
+draw_rect_gradient :: proc(
+	rect: Rect,
+	top_left, top_right, bottom_left, bottom_right: Color,
+	origin: Vec2 = {},
+	rotation: f32 = 0
+)
 
-draw_rect_gradient_vertical :: proc (rect: Rect, top, bottom: Color, origin: Vec2 = {}, rotation: f32 = 0)
+draw_rect_gradient_vertical :: proc (
+	rect: Rect,
+	top, bottom: Color,
+	origin: Vec2 = {},
+	rotation: f32 = 0
+)
 
-draw_rect_gradient_horizontal :: proc (rect: Rect, left, right: Color, origin: Vec2 = {}, rotation: f32 = 0)
+draw_rect_gradient_horizontal :: proc (
+	rect: Rect,
+	left, right: Color,
+	origin: Vec2 = {},
+	rotation: f32 = 0
+)
 
 // Creates a rectangle from a position and a size and draws it using the specified color.
 //
@@ -355,16 +370,44 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16)
 draw_circle_gradient :: proc(center: Vec2, radius: f32, inner, outer: Color, segments := 16)
 
 // Like `draw_circle` but only draws the outer edge of the circle.
-draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16)
+draw_circle_outline :: proc(
+	center: Vec2,
+	radius: f32, 
+	thickness: f32,
+	color: Color,
+	segments := 16
+)
 
-// Draw an arc (partial circle) with a certain center, radius, start, and end angle. Note the `segments` parameter: This arc is not
-// perfect! It is drawn using a number of "cake segments".
-draw_arc :: proc(center: Vec2, radius: f32, start_ang: f32, end_ang: f32, color: Color, segments := 16)
+// Draw an arc (partial circle) with a certain center, radius, start, and end angle.
+// Note the `segments` parameter: This arc is not perfect! 
+// It is drawn using a number of "cake segments".
+draw_arc :: proc(
+	center: Vec2,
+	radius: f32,
+	start_ang: f32,
+	end_ang: f32,
+	color: Color,
+	segments := 16
+)
 
-draw_arc_gradient :: proc(center: Vec2, radius: f32, start_ang: f32, end_ang: f32, inner, outer: Color, segments := 16)
+draw_arc_gradient :: proc(
+	center: Vec2,
+	radius: f32,start_ang: f32,
+	end_ang: f32,
+	inner, outer: Color,
+	segments := 16
+)
 
 // Like `draw_arc` but only draws the outer edge of the arc.
-draw_arc_outline :: proc(center: Vec2, radius: f32, start_ang: f32, end_ang: f32, thickness: f32, color: Color, segments := 16)
+draw_arc_outline :: proc(
+	center: Vec2,
+	radius: f32,
+	start_ang: f32,
+	end_ang: f32,
+	thickness: f32,
+	color: Color,
+	segments := 16
+)
 
 // Draws a line from `start` to `end` of a certain thickness.
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
