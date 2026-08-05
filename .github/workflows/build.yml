@@ -33,7 +33,7 @@ jobs:
 
       - name: Compile STB libraries (ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        run: make -C "$HOME/odin/vendor/stb/src"
+        run: $HOME/odin/vendor/stb/src/build_stb.sh
 
       - name: Compile box2d libraries (ubuntu)
         if: matrix.os == 'ubuntu-latest'
