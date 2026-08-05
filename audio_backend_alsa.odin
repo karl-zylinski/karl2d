@@ -89,7 +89,7 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 }
 
 alsa_thread_proc :: proc(t: ^thread.Thread) {
-	for s.run_thread {
+	for sync.atomic_load(&s.run_thread) {
 		time.sleep(5 * time.Millisecond)
 		start, end := sync.atomic_load(&s.buf_start), sync.atomic_load(&s.buf_end)
 
@@ -107,7 +107,7 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 					// Can't recover!
 					if recover_ret < 0 {
 						log.errorf("Fatal sound error:pcm_writei failed and recovery also failed: %s", alsa.strerror(c.int(ret)))
-						s.run_thread = false
+						sync.atomic_store(&s.run_thread, false)
 						return
 					}
 
@@ -132,7 +132,7 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 alsa_shutdown :: proc() {
 	log.debug("Shutdown audio backend alsa")
 
-	s.run_thread = false
+	sync.atomic_store(&s.run_thread, false)
 	thread.join(s.feed_thread)
 	thread.destroy(s.feed_thread)
 
