@@ -656,6 +656,13 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 		}
 
 	case win32.WM_SIZE:
+		// When the window is minimized, Windows reports the client area as 0x0. Ignore that and
+		// keep reporting the last known screen size, so a 0x0 size never propagates into the
+		// swapchain, the projection matrix or `get_screen_size`.
+		if wparam == win32.SIZE_MINIMIZED {
+			return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
+		}
+
 		width := win32.LOWORD(lparam)
 		height := win32.HIWORD(lparam)
 
