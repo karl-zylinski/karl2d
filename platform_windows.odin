@@ -141,6 +141,15 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 		win32.DispatchMessageW(&msg)
 	}
 
+	// While minimized, the DWM stops compositing the window, so IDXGISwapChain::Present no longer
+	// waits for vblank. Without this, the game loop's only throttling (vsync inside Present) goes
+	// away and it spins as fast as the CPU/GPU allow, pegging a core at 100%. Sleeping here caps us
+	// to roughly 100 checks per second instead, while still waking up promptly when the window is
+	// restored.
+	if s.minimized {
+		win32.Sleep(10)
+	}
+
 	// 4 is the limit set by microsoft, not by us. So I'm not using MAX_GAMEPADS here.
 	for gamepad in 0..<4 {
 		gp_event: win32.XINPUT_KEYSTROKE
@@ -412,6 +421,8 @@ Windows_State :: struct {
 	screen_width_before_resize_move: int,
 	screen_height_before_resize_move: int,
 
+	minimized: bool,
+
 	// left and right values for the triggers of each gamepad. We use this to known if a trigger has
 	// been pressed/released like a button.
 	previous_gamepad_triggers: [MAX_GAMEPADS][2]win32.BYTE,
@@ -660,8 +671,11 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 		// keep reporting the last known screen size, so a 0x0 size never propagates into the
 		// swapchain, the projection matrix or `get_screen_size`.
 		if wparam == win32.SIZE_MINIMIZED {
+			s.minimized = true
 			return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
 		}
+
+		s.minimized = false
 
 		width := win32.LOWORD(lparam)
 		height := win32.HIWORD(lparam)
