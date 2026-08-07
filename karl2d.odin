@@ -338,7 +338,7 @@ process_events :: proc() {
 			s.mouse_position.x = e.position.x
 			s.mouse_position.y = e.position.y
 
-			s.mouse_delta = s.mouse_position - prev_pos
+			s.mouse_delta += s.mouse_position - prev_pos
 
 		case Event_Mouse_Teleported:
 			s.mouse_position.x = e.position.x
