@@ -63,6 +63,7 @@ Mac_State :: struct {
 	screen_height:    int,
 	windowed_rect:    NS.Rect,
 	events:           [dynamic]Event,
+	modifier_key_is_held: #sparse [Keyboard_Key]bool,
 
 	// for emitting mouse up events after a live resize
 	left_mouse_held:  bool,
@@ -221,6 +222,7 @@ mac_init :: proc(
 				// loss. Restore the OS cursor so it stays visible in other apps / the menu bar.
 				unhide_cursor_now()
 				append(&s.events, Event_Window_Unfocused{})
+				s.modifier_key_is_held = {}
 			},
 
 			windowDidEndLiveResize = proc(_: ^NS.Notification) {
@@ -309,6 +311,29 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			key := key_from_macos_keycode(event->keyCode())
 			if key != .None {
 				append(&s.events, Event_Key_Went_Up{key = key})
+			}
+
+		case .FlagsChanged:
+			key := key_from_macos_keycode(event->keyCode())
+			if key != .None {
+				flags := event->modifierFlags()
+				is_held := false
+				#partial switch key {
+				case .Left_Shift, .Right_Shift:     is_held = .Shift in flags
+				case .Left_Control, .Right_Control: is_held = .Control in flags
+				case .Left_Alt, .Right_Alt:         is_held = .Option in flags
+				case .Left_Super, .Right_Super:     is_held = .Command in flags
+				case .Caps_Lock:                    is_held = .CapsLock in flags
+				}
+				if is_held && s.modifier_key_is_held[key] {
+					is_held = false
+				}
+				s.modifier_key_is_held[key] = is_held
+				if is_held {
+					append(&s.events, Event_Key_Went_Down{key = key})
+				} else {
+					append(&s.events, Event_Key_Went_Up{key = key})
+				}
 			}
 
 		case .LeftMouseDown:
