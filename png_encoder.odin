@@ -34,8 +34,8 @@ encode_png :: proc(img: Image, allocator: runtime.Allocator) -> (data: []u8, ok:
 	// Lay out the raw scanline data (one filter byte per row, then that row's RGBA bytes) in a
 	// scratch buffer first. It has to exist contiguously before we can compute its Adler-32, and
 	// splitting it into stored-block chunks below is easier done as a second pass over it.
-	raw := make([]u8, raw_size, context.allocator)
-	defer delete(raw, context.allocator)
+	raw := make([]u8, raw_size, allocator)
+	defer delete(raw, allocator)
 
 	row_pos := 0
 	for y in 0 ..< img.height {

@@ -572,6 +572,22 @@ wl_shutdown :: proc() {
 		s.cursor_shape_manager = nil
 	}
 
+	// The theme is only loaded on compositors without the cursor shape protocol.
+	if s.cursor_theme != nil {
+		wl.cursor_theme_destroy(s.cursor_theme)
+		s.cursor_theme = nil
+	}
+
+	if s.cursor_viewport != nil {
+		wl.wp_viewport_destroy(s.cursor_viewport)
+		s.cursor_viewport = nil
+	}
+
+	if s.cursor_surface != nil {
+		wl.surface_destroy(s.cursor_surface)
+		s.cursor_surface = nil
+	}
+
 	delete(s.events)
 }
 
@@ -734,7 +750,10 @@ wl_load_cursor_theme :: proc() {
 // leaves and comes back - this makes that happen instantly rather than showing the OS's own
 // default cursor for a moment.
 wl_apply_cursor :: proc() {
-	if s.pointer == nil {
+	// The fractional scale listener can fire during wl_init, before the pointer and the cursor
+	// surface exist. Passing a nil surface to the compositor would mean "hide the cursor", and
+	// attaching a buffer to one would dereference a nil proxy inside libwayland.
+	if s.pointer == nil || s.cursor_surface == nil {
 		return
 	}
 
