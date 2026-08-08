@@ -365,10 +365,19 @@ x11_set_window_mode :: proc(window_mode: Window_Mode) {
 
 x11_set_cursor_hidden :: proc(hidden: bool) {
 	s.cursor_hidden = hidden
+	x11_apply_cursor()
+}
 
-	if hidden {
+// Applies s.cursor_hidden and s.current_cursor to the window. The two share the same underlying
+// X11 state (whatever DefineCursor/UndefineCursor last set), so both set_cursor_hidden and
+// set_cursor go through this instead of touching it independently and clobbering each other.
+x11_apply_cursor :: proc() {
+	switch {
+	case s.cursor_hidden:
 		X.DefineCursor(s.display, s.window, s.blank_cursor)
-	} else {
+	case s.current_cursor != 0:
+		X.DefineCursor(s.display, s.window, s.current_cursor)
+	case:
 		X.UndefineCursor(s.display, s.window)
 	}
 	X.Flush(s.display)
@@ -449,13 +458,8 @@ x11_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
 }
 
 x11_set_cursor :: proc(cursor: Cursor_Data) {
-	if cursor.os_handle == nil {
-		X.UndefineCursor(s.display, s.window)
-	} else {
-		cursor := X.Cursor(uintptr(cursor.os_handle))
-		X.DefineCursor(s.display, s.window, cursor)
-	}
-	X.Flush(s.display)
+	s.current_cursor = cursor.os_handle == nil ? 0 : X.Cursor(uintptr(cursor.os_handle))
+	x11_apply_cursor()
 }
 
 x11_destroy_cursor :: proc(cursor: Cursor_Data) {
@@ -463,9 +467,15 @@ x11_destroy_cursor :: proc(cursor: Cursor_Data) {
 		return
 	}
 
-	cursor := X.Cursor(uintptr(cursor.os_handle))
-	X.UndefineCursor(s.display, s.window)
-	X.FreeCursor(s.display, cursor)
+	handle := X.Cursor(uintptr(cursor.os_handle))
+
+	// Only fall back to the default cursor if the one being destroyed is the one on screen.
+	if s.current_cursor == handle {
+		s.current_cursor = 0
+		x11_apply_cursor()
+	}
+
+	X.FreeCursor(s.display, handle)
 	X.Flush(s.display)
 }
 
@@ -491,6 +501,11 @@ X11_State :: struct {
 	window_mode: Window_Mode,
 	window_render_glue: Window_Render_Glue,
 	blank_cursor: X.Cursor,
+
+	// The cursor most recently passed to x11_set_cursor, or 0 (X.None) if the default OS cursor is
+	// active. Also see x11_apply_cursor.
+	current_cursor: X.Cursor,
+
 	cursor_hidden: bool,
 	cursor_locked: bool,
 	events: [dynamic]Event,
