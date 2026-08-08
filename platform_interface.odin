@@ -19,6 +19,7 @@ Platform_Interface :: struct #all_or_none {
 	get_events: proc(events: ^[dynamic]Event),
 	set_window_title: proc(title: string),
 	set_window_position: proc(x: int, y: int),
+	get_window_position: proc() -> Vec2,
 	set_screen_size: proc(w, h: int),
 	get_screen_width: proc() -> int,
 	get_screen_height: proc() -> int,
