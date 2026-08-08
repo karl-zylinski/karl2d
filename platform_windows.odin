@@ -37,6 +37,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 }
 
 import win32 "core:sys/windows"
+import "core:slice"
 import "base:runtime"
 @require import "log"
 
@@ -528,19 +529,56 @@ _windows_teleport_cursor_to_center :: proc() {
 }
 
 windows_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
-	// CreateBitmap copies the pixels, so a temporary is enough. We receive RGBA but GDI uses BGRA,
-	// so this also swaps the channels rather than doing it in the caller's own pixels.
-	pixels := make([]Color, len(image.pixels), s.allocator)
-	defer delete(pixels, s.allocator)
-
-	for i in 0 ..< len(image.pixels) {
-		src := image.pixels[i]
-		pixels[i] = {src.b, src.g, src.r, src.a}
+	// CreateBitmap makes a device-dependent bitmap, which is not documented to support a real
+	// alpha channel. A 32-bit cursor with alpha needs a DIB section instead: CreateDIBSection with
+	// a BITMAPV5HEADER and explicit channel masks, which is also what GLFW and SDL do for this.
+	header := win32.BITMAPV5HEADER {
+		bV5Size        = size_of(win32.BITMAPV5HEADER),
+		bV5Width       = i32(image.width),
+		bV5Height      = -i32(image.height), // negative: top-down, matching Image's row order
+		bV5Planes      = 1,
+		bV5BitCount    = 32,
+		bV5Compression = win32.BI_BITFIELDS,
+		bV5RedMask     = 0x00ff0000,
+		bV5GreenMask   = 0x0000ff00,
+		bV5BlueMask    = 0x000000ff,
+		bV5AlphaMask   = 0xff000000,
 	}
 
-	h_color := win32.CreateBitmap(i32(image.width), i32(image.height), 1, 32, raw_data(pixels))
-	h_mask  := win32.CreateBitmap(i32(image.width), i32(image.height), 1, 1, nil)
+	hdc := win32.GetDC(s.hwnd)
+	defer win32.ReleaseDC(s.hwnd, hdc)
+
+	dib_pixels: win32.PVOID
+	h_color := win32.CreateDIBSection(
+		hdc,
+		(^win32.BITMAPINFO)(&header),
+		win32.DIB_RGB_COLORS,
+		&dib_pixels,
+		nil,
+		0,
+	)
+
+	if h_color == nil || dib_pixels == nil {
+		log.errorf("CreateDIBSection failed with %v", win32.GetLastError())
+		return {}
+	}
 	defer win32.DeleteObject(cast(win32.HGDIOBJ) h_color)
+
+	// We receive RGBA but the DIB, like GDI generally, wants BGRA.
+	dib_colors := slice.from_ptr((^Color)(dib_pixels), len(image.pixels))
+	for i in 0 ..< len(image.pixels) {
+		src := image.pixels[i]
+		dib_colors[i] = {src.b, src.g, src.r, src.a}
+	}
+
+	// The AND mask is expected even for a cursor with a real alpha channel, but every bit of it
+	// should be 0 so it doesn't mask out anything the alpha channel already made transparent.
+	// `make` zero-initializes, so there is nothing further to fill in.
+	mask_stride := ((image.width + 31)/32)*4
+	mask_bits := make([]u8, mask_stride*image.height, s.allocator)
+	defer delete(mask_bits, s.allocator)
+
+	h_mask := win32.CreateBitmap(i32(image.width), i32(image.height), 1, 1, raw_data(mask_bits))
 	defer win32.DeleteObject(cast(win32.HGDIOBJ) h_mask)
 
 	ii := win32.ICONINFO {
