@@ -3828,10 +3828,23 @@ get_default_font :: proc() -> Font {
 // CURSORS //
 //--------//
 
-// We expect RGBA8 bytes in PNG format (not raw pixels).
-// Each platform will decode the PNG as necessary.
-create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor {
-	cursor := pf.create_cursor(pixels, hotspot)
+// Create a hardware cursor from an image. The cursor covers as many physical pixels as the image
+// has pixels, so it matches art the game draws at the same size. `hotspot` is the pixel within the
+// image that points at things, also in physical pixels.
+//
+// The image is not retained: you may destroy it as soon as this returns.
+create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor {
+	if image.width == 0 || image.height == 0 {
+		log.error("Invalid cursor image: height or width is zero")
+		return {}
+	}
+
+	if len(image.pixels) != image.width*image.height {
+		log.error("Invalid cursor image: the pixels array is not of size image.width*image.height")
+		return {}
+	}
+
+	cursor := pf.create_cursor(image, hotspot)
 
 	// The platform layer logs why it failed.
 	if cursor.os_handle == nil {

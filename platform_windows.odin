@@ -37,9 +37,6 @@ PLATFORM_WINDOWS :: Platform_Interface {
 }
 
 import win32 "core:sys/windows"
-import "core:image"
-import "core:image/png"
-import "core:slice"
 import "base:runtime"
 @require import "log"
 
@@ -530,27 +527,19 @@ _windows_teleport_cursor_to_center :: proc() {
 	})
 }
 
-windows_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
-	img, err := png.load(pixels, allocator = s.allocator)
-	if err != nil {
-		log.errorf("Failed to decode cursor PNG: %v", err)
-		return {}
+windows_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
+	// CreateBitmap copies the pixels, so a temporary is enough. We receive RGBA but GDI uses BGRA,
+	// so this also swaps the channels rather than doing it in the caller's own pixels.
+	pixels := make([]Color, len(image.pixels), s.allocator)
+	defer delete(pixels, s.allocator)
+
+	for i in 0 ..< len(image.pixels) {
+		src := image.pixels[i]
+		pixels[i] = {src.b, src.g, src.r, src.a}
 	}
 
-	// CreateBitmap copies the pixels, so the decoded image is only needed until then.
-	defer image.destroy(img, s.allocator)
-
-	// We receive RGBA but GDI uses BGRA, so we'll swap the channels.
-	pixels := slice.reinterpret([]Color, img.pixels.buf[:])
-	for i in 0 ..< len(pixels) {
-		r := pixels[i].r
-		b := pixels[i].b
-		pixels[i].b = r
-		pixels[i].r = b
-	}
-
-	h_color := win32.CreateBitmap(i32(img.width), i32(img.height), 1, 32, raw_data(pixels))
-	h_mask  := win32.CreateBitmap(i32(img.width), i32(img.height), 1, 1, nil)
+	h_color := win32.CreateBitmap(i32(image.width), i32(image.height), 1, 32, raw_data(pixels))
+	h_mask  := win32.CreateBitmap(i32(image.width), i32(image.height), 1, 1, nil)
 	defer win32.DeleteObject(cast(win32.HGDIOBJ) h_color)
 	defer win32.DeleteObject(cast(win32.HGDIOBJ) h_mask)
 

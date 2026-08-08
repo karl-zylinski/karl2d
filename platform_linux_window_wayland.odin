@@ -31,9 +31,6 @@ import "core:strings"
 import "core:c"
 import "core:math"
 import "core:sys/linux"
-import "core:image"
-import "core:image/png"
-import "core:slice"
 
 import "log"
 import wl "platform_bindings/linux/wayland"
@@ -733,20 +730,9 @@ apply_cursor_visibility :: proc() {
 	}
 }
 
-wl_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
-	img, err := png.load(pixels, allocator = s.allocator)
-	if err != nil {
-		log.errorf("Failed to decode cursor PNG: %v", err)
-		return {}
-	}
-
-	// The pixels are copied into the shared memory below, so the decoded image is only needed here.
-	defer image.destroy(img, s.allocator)
-
-	decoded := slice.reinterpret([]Color, img.pixels.buf[:])
-
-	stride := img.width * 4
-	size := stride * img.height
+wl_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
+	stride := image.width * 4
+	size := stride * image.height
 
 	fd, err_fd := linux.memfd_create("cursor", {})
 	if err_fd != .NONE {
@@ -770,8 +756,8 @@ wl_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 
 	// Convert to ARGB and premultiply alpha
 	pixel_data := ([^]u32)(data)
-	for i in 0 ..< len(decoded) {
-		col := decoded[i]
+	for i in 0 ..< len(image.pixels) {
+		col := image.pixels[i]
 		a := u32(col.a)
 		r := u32(col.r) * a / 255
 		g := u32(col.g) * a / 255
@@ -786,7 +772,7 @@ wl_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 
 	buffer := wl.shm_pool_create_buffer(
 		pool, 0,
-		c.int32_t(img.width), c.int32_t(img.height), c.int32_t(stride),
+		c.int32_t(image.width), c.int32_t(image.height), c.int32_t(stride),
 		wl.SHM_FORMAT_ARGB8888,
 	)
 
@@ -796,8 +782,8 @@ wl_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 	cursor := new(WL_Cursor, s.allocator)
 	cursor.surface = surface
 	cursor.hotspot = hotspot
-	cursor.width = img.width
-	cursor.height = img.height
+	cursor.width = image.width
+	cursor.height = image.height
 	cursor.buffer = buffer
 	cursor.data = data
 	cursor.data_size = size

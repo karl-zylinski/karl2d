@@ -412,10 +412,33 @@ web_is_cursor_locked :: proc() -> bool {
 	return s.cursor_locked
 }
 
-web_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
-	// There is no hardware cursor API on the web, so we hand the browser the PNG as a data URI and
-	// let CSS do the work. The base64 is copied into the data URI, so it is not needed after that.
-	pixels_b64 := base64.encode(pixels, allocator = s.allocator)
+web_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
+	// There is no hardware cursor API on the web, so we hand the browser a PNG as a data URI and
+	// let CSS do the work. core:image/png can only decode, not encode, so we encode it ourselves;
+	// see encode_png's own comment for why that is fine here.
+	png_bytes, encode_ok := encode_png(image, s.allocator)
+	if !encode_ok {
+		log.error("Failed to encode cursor image as PNG")
+		return {}
+	}
+	defer delete(png_bytes, s.allocator)
+
+	// Browsers cap `cursor` images at 128 CSS pixels; anything bigger is either clamped or, in
+	// Firefox, ignored entirely and silently replaced with the default cursor.
+	scale := web_get_window_scale()
+	if f32(image.width)/scale > 128 || f32(image.height)/scale > 128 {
+		log.warnf(
+			"Cursor image is %vx%v physical pixels, which is %.0fx%.0f CSS pixels at the current " +
+			"%vx display scale. Browsers cap cursors at 128 CSS pixels and some ignore anything " +
+			"bigger entirely, so consider using a smaller image.",
+			image.width, image.height,
+			f32(image.width)/scale, f32(image.height)/scale,
+			scale,
+		)
+	}
+
+	// The base64 is copied into the data URI below, so it is not needed after that.
+	pixels_b64 := base64.encode(png_bytes, allocator = s.allocator)
 	defer delete(pixels_b64, s.allocator)
 
 	cursor := new(Web_Cursor, s.allocator)

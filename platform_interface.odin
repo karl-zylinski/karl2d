@@ -29,7 +29,7 @@ Platform_Interface :: struct #all_or_none {
 	is_cursor_hidden: proc() -> bool,
 	set_cursor_locked: proc(locked: bool),
 	is_cursor_locked: proc() -> bool,	
-	create_cursor: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data,
+	create_cursor: proc(image: Image, hotspot: [2]int) -> Cursor_Data,
 	set_cursor: proc(cursor: Cursor_Data),
 	destroy_cursor: proc(cursor: Cursor_Data),
 

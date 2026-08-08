@@ -31,8 +31,6 @@ import X "vendor:x11/xlib"
 import "base:runtime"
 import "log"
 import "core:fmt"
-import "core:image"
-import "core:image/png"
 import "core:slice"
 
 _ :: log
@@ -418,32 +416,28 @@ _x11_teleport_cursor_to_center :: proc() {
 	})
 }
 
-x11_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
-	img_decoded, err := png.load(pixels, allocator = s.allocator)
-	if err != nil {
-		log.errorf("Failed to decode cursor PNG: %v", err)
-		return {}
-	}
-
-	// The cursor is uploaded to the X server, so the decoded image is only needed in here.
-	defer image.destroy(img_decoded, s.allocator)
-
-	// Convert to ARGB and premultiply alpha
-	decoded := slice.reinterpret([]Color, img_decoded.pixels.buf[:])
-	for i in 0 ..< len(decoded) {
-		a := decoded[i].a
-		r := u8(f32(decoded[i].r) * (f32(a) / 255))
-		g := u8(f32(decoded[i].g) * (f32(a) / 255))
-		b := u8(f32(decoded[i].b) * (f32(a) / 255))
-		decoded[i] = {b, g, r, a}
-	}
-
-	img := X.cursorImageCreate(i32(img_decoded.width), i32(img_decoded.height))
+x11_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
+	img := X.cursorImageCreate(i32(image.width), i32(image.height))
 	defer X.cursorImageDestroy(img)
+
+	// Convert to ARGB and premultiply alpha into a temporary. The image is not ours to mutate, and
+	// Xcursor's buffer holds packed X.CursorPixel (u32) values rather than Color.
+	premultiplied := make([]Color, len(image.pixels), s.allocator)
+	defer delete(premultiplied, s.allocator)
+
+	for i in 0 ..< len(image.pixels) {
+		src := image.pixels[i]
+		a := src.a
+		r := u8(f32(src.r) * (f32(a) / 255))
+		g := u8(f32(src.g) * (f32(a) / 255))
+		b := u8(f32(src.b) * (f32(a) / 255))
+		premultiplied[i] = {b, g, r, a}
+	}
 
 	// Copy into the buffer Xcursor allocated for us. Overwriting `img.pixels` with our own pointer
 	// would leak that buffer and make cursorImageDestroy free memory it does not own.
-	copy(slice.from_ptr(img.pixels, len(decoded)), slice.reinterpret([]X.CursorPixel, decoded))
+	dst := slice.from_ptr(img.pixels, len(premultiplied))
+	copy(dst, slice.reinterpret([]X.CursorPixel, premultiplied))
 	img.xhot = X.CursorDim(hotspot.x)
 	img.yhot = X.CursorDim(hotspot.y)
 

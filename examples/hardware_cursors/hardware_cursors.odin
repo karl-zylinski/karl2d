@@ -22,8 +22,14 @@ main :: proc() {
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Hardware Cursor Example")
 
-	gauntlet = k2.create_cursor(#load("gauntlet.png"), {7, 11})
-	pointer  = k2.create_cursor(#load("pointer.png"), {8, 10})
+	// create_cursor doesn't retain the image, so it's fine to destroy it right after.
+	gauntlet_image := k2.load_image_from_bytes(#load("gauntlet.png"))
+	gauntlet = k2.create_cursor(gauntlet_image, {7, 11})
+	k2.destroy_image(gauntlet_image)
+
+	pointer_image := k2.load_image_from_bytes(#load("pointer.png"))
+	pointer = k2.create_cursor(pointer_image, {8, 10})
+	k2.destroy_image(pointer_image)
 
 	current_cursor = .GAUNTLET
 

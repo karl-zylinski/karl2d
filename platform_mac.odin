@@ -12,8 +12,6 @@ import "core:os"
 import "base:intrinsics"
 import "base:runtime"
 import "core:time"
-import "core:image"
-import "core:image/png"
 import "core:slice"
 import "log"
 
@@ -89,10 +87,14 @@ Mac_Cursor :: struct {
 	hotspot: [2]int,
 	built_for_scale: f32,
 
-	// NSBitmapImageRep does not copy the pixel planes it is handed, so the decoded image must stay
-	// alive for as long as the cursor does. It is also what the cursor is rebuilt from when the
-	// scale changes.
-	img: ^image.Image,
+	// Size in physical pixels.
+	width: int,
+	height: int,
+
+	// NSBitmapImageRep does not copy the pixel planes it is handed, so a copy of the pixels must
+	// stay alive for as long as the cursor does. It is also what the cursor is rebuilt from when
+	// the scale changes. The caller's Image is not ours to hold on to.
+	pixels: []Color,
 }
 
 Gamepad :: struct {
@@ -710,15 +712,11 @@ mac_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-mac_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
-	img, err := png.load(pixels, allocator = s.allocator)
-	if err != nil {
-		log.errorf("Failed to decode cursor PNG: %v", err)
-		return {}
-	}
-
+mac_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
 	mac_cursor := new(Mac_Cursor, s.allocator)
-	mac_cursor.img = img
+	mac_cursor.pixels = slice.clone(image.pixels, s.allocator)
+	mac_cursor.width = image.width
+	mac_cursor.height = image.height
 	mac_cursor.hotspot = hotspot
 	mac_build_cursor(mac_cursor)
 
@@ -741,24 +739,23 @@ mac_build_cursor :: proc(cursor: ^Mac_Cursor) {
 
 	scale := mac_get_window_scale()
 
-	decoded := slice.reinterpret([]Color, cursor.img.pixels.buf[:])
-	planes := [?]^u8 {(^u8)(raw_data(decoded))}
+	planes := [?]^u8 {(^u8)(raw_data(cursor.pixels))}
 
 	rep := NS.BitmapImageRep_alloc()->initWithBitmapDataPlanes(
 		&planes[0],
-		NS.Integer(cursor.img.width),
-		NS.Integer(cursor.img.height),
+		NS.Integer(cursor.width),
+		NS.Integer(cursor.height),
 		8, 4, true, false,
 		NS.DeviceRGBColorSpace,
 		NS.BitmapFormatFlags{.AlphaNonpremultiplied},
-		NS.Integer(cursor.img.width * 4),
+		NS.Integer(cursor.width * 4),
 		32,
 	)
 	defer rep->release()
 
 	ns_image := NS.Image_alloc()->initWithSize({
-		CF.CGFloat(f32(cursor.img.width) / scale),
-		CF.CGFloat(f32(cursor.img.height) / scale),
+		CF.CGFloat(f32(cursor.width) / scale),
+		CF.CGFloat(f32(cursor.height) / scale),
 	})
 	ns_image->addRepresentation((^NS.ImageRep)(rep))
 	defer ns_image->release()
@@ -801,7 +798,7 @@ mac_destroy_cursor :: proc(cursor: Cursor_Data) {
 
 	mac_cursor := (^Mac_Cursor)(cursor.os_handle)
 	mac_cursor.cursor->release()
-	image.destroy(mac_cursor.img, s.allocator)
+	delete(mac_cursor.pixels, s.allocator)
 	free(mac_cursor, s.allocator)
 }
 
