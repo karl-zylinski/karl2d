@@ -425,6 +425,11 @@ Windows_State :: struct {
 	cursor_locked: bool,
 	cursor_hidden: bool,
 
+	// The HCURSOR most recently passed to windows_set_cursor, or nil if the default OS cursor is
+	// active. Used so that destroying a cursor only resets to the default if it was the one on
+	// screen, instead of always resetting regardless of which cursor is actually active.
+	current_cursor: win32.HCURSOR,
+
 	// for when returning from fullscreen to window mode
 	restore_window_pos_x: int,
 	restore_window_pos_y: int,
@@ -600,23 +605,35 @@ windows_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
 	}
 }
 
-windows_set_cursor :: proc(cursor: Cursor_Data) {	
+windows_set_cursor :: proc(cursor: Cursor_Data) {
 	if cursor.os_handle == nil {
-		default_arrow := win32.LoadCursorA(nil, win32.IDC_ARROW)
-		win32.SetClassLongPtrW(s.hwnd, win32.GCLP_HCURSOR, (win32.LONG_PTR)(uintptr(default_arrow)))
-		win32.SetCursor(default_arrow)
+		windows_apply_cursor(nil)
 	} else {
-		win32.SetClassLongPtrW(s.hwnd, win32.GCLP_HCURSOR, (win32.LONG_PTR)(uintptr(cursor.os_handle)))
-		win32.SetCursor((win32.HCURSOR)(cursor.os_handle))
+		windows_apply_cursor((win32.HCURSOR)(cursor.os_handle))
 	}
 }
 
-windows_destroy_cursor :: proc(cursor: Cursor_Data) {
-	default_arrow := win32.LoadCursorA(nil, win32.IDC_ARROW)
-	win32.SetClassLongPtrW(s.hwnd, win32.GCLP_HCURSOR, (win32.LONG_PTR)(uintptr(default_arrow)))
-	win32.SetCursor(default_arrow)
+// Sets the OS cursor and records it as the current one. `cursor` is nil for the default OS arrow.
+windows_apply_cursor :: proc(cursor: win32.HCURSOR) {
+	handle := cursor
+	if handle == nil {
+		handle = win32.LoadCursorA(nil, win32.IDC_ARROW)
+	}
 
-	win32.DestroyCursor((win32.HCURSOR)(cursor.os_handle))
+	win32.SetClassLongPtrW(s.hwnd, win32.GCLP_HCURSOR, (win32.LONG_PTR)(uintptr(handle)))
+	win32.SetCursor(handle)
+	s.current_cursor = cursor
+}
+
+windows_destroy_cursor :: proc(cursor: Cursor_Data) {
+	handle := (win32.HCURSOR)(cursor.os_handle)
+
+	// Only fall back to the default cursor if the one being destroyed is the one on screen.
+	if s.current_cursor == handle {
+		windows_apply_cursor(nil)
+	}
+
+	win32.DestroyCursor(handle)
 }
 
 s: ^Windows_State
