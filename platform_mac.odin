@@ -62,6 +62,10 @@ Mac_State :: struct {
 	cursor_hidden_by_us: bool,
 	cursor_tracker:      NS.id,
 
+	// The cursor most recently passed to mac_set_cursor, or nil if the default OS arrow is active.
+	// Used so that destroying a cursor only resets to the default if it was the one on screen.
+	current_cursor: ^Mac_Cursor,
+
 	cursor_locked: bool,
 	mouse_ignore_next_move: bool,
 
@@ -774,19 +778,24 @@ mac_build_cursor :: proc(cursor: ^Mac_Cursor) {
 }
 
 mac_set_cursor :: proc(cursor: Cursor_Data) {
-	if cursor.os_handle == nil {
+	mac_apply_cursor((^Mac_Cursor)(cursor.os_handle))
+}
+
+// Sets the OS cursor and records it as the current one. `cursor` is nil for the default OS arrow.
+mac_apply_cursor :: proc(cursor: ^Mac_Cursor) {
+	if cursor == nil {
 		NS.Cursor_arrowCursor()->set()
 	} else {
-		mac_cursor := (^Mac_Cursor)(cursor.os_handle)
-
 		// The scale can change while the game runs, for instance when the window is moved to a
 		// monitor with different DPI settings.
-		if mac_cursor.built_for_scale != mac_get_window_scale() {
-			mac_build_cursor(mac_cursor)
+		if cursor.built_for_scale != mac_get_window_scale() {
+			mac_build_cursor(cursor)
 		}
 
-		mac_cursor.cursor->set()
+		cursor.cursor->set()
 	}
+
+	s.current_cursor = cursor
 }
 
 mac_destroy_cursor :: proc(cursor: Cursor_Data) {
@@ -794,9 +803,13 @@ mac_destroy_cursor :: proc(cursor: Cursor_Data) {
 		return
 	}
 
-	NS.Cursor_arrowCursor()->set()
-
 	mac_cursor := (^Mac_Cursor)(cursor.os_handle)
+
+	// Only fall back to the default cursor if the one being destroyed is the one on screen.
+	if s.current_cursor == mac_cursor {
+		mac_apply_cursor(nil)
+	}
+
 	mac_cursor.cursor->release()
 	delete(mac_cursor.pixels, s.allocator)
 	free(mac_cursor, s.allocator)
