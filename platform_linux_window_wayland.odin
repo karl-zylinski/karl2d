@@ -233,14 +233,6 @@ registry_listener := wl.Registry_Listener {
 				version,
 			)
 
-			s.cursor_shm = wl.registry_bind(
-				wl.SHM,
-				registry,
-				name,
-				&wl.shm_interface,
-				version,
-			)
-
 		case wl.wp_cursor_shape_manager_v1_interface.name:
 			s.cursor_shape_manager = wl.registry_bind(
 				wl.WP_Cursor_Shape_Manager_V1,
@@ -557,8 +549,17 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 }
 
 wl_shutdown :: proc() {
-	wl.cursor_shape_device_destroy(s.cursor_shape_device)
-	wl.cursor_shape_manager_destroy(s.cursor_shape_manager)
+	// The cursor shape protocol is optional, so these are nil on compositors that lack it.
+	if s.cursor_shape_device != nil {
+		wl.cursor_shape_device_destroy(s.cursor_shape_device)
+		s.cursor_shape_device = nil
+	}
+
+	if s.cursor_shape_manager != nil {
+		wl.cursor_shape_manager_destroy(s.cursor_shape_manager)
+		s.cursor_shape_manager = nil
+	}
+
 	delete(s.events)
 }
 
@@ -738,6 +739,7 @@ wl_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 		log.errorf("Failed to decode cursor PNG: %v", err)
 		return {}
 	}
+
 	// The pixels are copied into the shared memory below, so the decoded image is only needed here.
 	defer image.destroy(img, s.allocator)
 
@@ -751,15 +753,20 @@ wl_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 		log.errorf("Failed to create Wayland cursor: memfd failed with %v", err_fd)
 		return {}
 	}
+
+	// The compositor dups the fd in shm_create_pool, so we don't have to keep ours around.
 	defer linux.close(fd)
-	linux.ftruncate(fd, i64(size))
+
+	if err_trunc := linux.ftruncate(fd, i64(size)); err_trunc != .NONE {
+		log.errorf("Failed to create Wayland cursor: ftruncate failed with %v", err_trunc)
+		return {}
+	}
 
 	data, err_mmap := linux.mmap(0, uint(size), {.READ, .WRITE}, {.SHARED}, fd, 0)
 	if err_mmap != .NONE {
-		log.errorf("Failed to create Wayland cursor: mmap failed with %v", err_fd)
+		log.errorf("Failed to create Wayland cursor: mmap failed with %v", err_mmap)
 		return {}
 	}
-	defer linux.munmap(data, uint(size))
 
 	// Convert to ARGB and premultiply alpha
 	pixel_data := ([^]u32)(data)
@@ -772,11 +779,16 @@ wl_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 		pixel_data[i] = a << 24 | r << 16 | g << 8 | b
 	}
 
-	pool := wl.shm_create_pool(s.cursor_shm, c.int32_t(fd), c.int32_t(size))
+	// The pool can go away immediately: the mapping stays alive until every buffer made from it
+	// has been destroyed.
+	pool := wl.shm_create_pool(s.shm, c.int32_t(fd), c.int32_t(size))
 	defer wl.shm_pool_destroy(pool)
-	
-	buffer := wl.shm_pool_create_buffer(pool, 0, c.int32_t(img.width), c.int32_t(img.height), c.int32_t(stride), wl.SHM_FORMAT_ARGB8888)
-	defer wl.buffer_destroy(buffer)
+
+	buffer := wl.shm_pool_create_buffer(
+		pool, 0,
+		c.int32_t(img.width), c.int32_t(img.height), c.int32_t(stride),
+		wl.SHM_FORMAT_ARGB8888,
+	)
 
 	surface := wl.compositor_create_surface(s.compositor)
 	wl.surface_attach(surface, buffer, 0, 0)
@@ -785,6 +797,9 @@ wl_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 	cursor := new(WL_Cursor, s.allocator)
 	cursor.surface = surface
 	cursor.hotspot = hotspot
+	cursor.buffer = buffer
+	cursor.data = data
+	cursor.size = size
 
 	return {
 		os_handle = cursor,
@@ -793,10 +808,27 @@ wl_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 
 wl_set_cursor :: proc(cursor: Cursor_Data) {
 	if cursor.os_handle == nil {
-		wl.cursor_shape_device_set_shape(s.cursor_shape_device, u32(s.pointer_enter_serial), .Default)
+		// The cursor shape protocol is optional. Without it the default cursor is whatever
+		// `apply_cursor_visibility` puts up from the cursor theme.
+		if s.cursor_shape_device != nil {
+			wl.cursor_shape_device_set_shape(
+				s.cursor_shape_device,
+				u32(s.pointer_enter_serial),
+				.Default,
+			)
+		}
+
+		s.cursor = nil
 	} else {
 		cursor := (^WL_Cursor)(cursor.os_handle)
-		wl.pointer_set_cursor(s.pointer, u32(s.pointer_enter_serial), cursor.surface, c.int32_t(cursor.hotspot.x), c.int32_t(cursor.hotspot.y))
+
+		wl.pointer_set_cursor(
+			s.pointer,
+			u32(s.pointer_enter_serial),
+			cursor.surface,
+			c.int32_t(cursor.hotspot.x), c.int32_t(cursor.hotspot.y),
+		)
+
 		s.cursor = cursor
 	}
 }
@@ -807,10 +839,25 @@ wl_destroy_cursor :: proc(cursor: Cursor_Data) {
 	}
 
 	cursor := (^WL_Cursor)(cursor.os_handle)
-	wl.cursor_shape_device_set_shape(s.cursor_shape_device, u32(s.pointer_enter_serial), .Default)
+
+	// Only fall back to the default cursor if the one being destroyed is the one on screen.
+	if s.cursor == cursor {
+		if s.cursor_shape_device != nil {
+			wl.cursor_shape_device_set_shape(
+				s.cursor_shape_device,
+				u32(s.pointer_enter_serial),
+				.Default,
+			)
+		}
+
+		s.cursor = nil
+	}
+
+	// Detach from the surface before the buffer and its memory go away.
 	wl.surface_destroy(cursor.surface)
+	wl.buffer_destroy(cursor.buffer)
+	linux.munmap(cursor.data, uint(cursor.size))
 	free(cursor, s.allocator)
-	s.cursor = nil
 }
 
 wl_set_internal_state :: proc(state: rawptr) {
@@ -821,6 +868,12 @@ wl_set_internal_state :: proc(state: rawptr) {
 WL_Cursor :: struct {
 	surface:  ^wl.Surface,
 	hotspot:  [2]int,
+
+	// The compositor may read from the buffer at any point while it is attached to the surface, so
+	// the buffer and its mapping have to stay alive for as long as the cursor does.
+	buffer:   ^wl.Buffer,
+	data:     rawptr,
+	size:     int,
 }
 
 WL_State :: struct {
@@ -869,7 +922,6 @@ WL_State :: struct {
 	relative_pointer: ^wl.ZWP_Relative_Pointer_V1,
 
 	cursor: ^WL_Cursor,
-	cursor_shm: ^wl.SHM,
 	cursor_shape_manager: ^wl.WP_Cursor_Shape_Manager_V1,
 	cursor_shape_device:  ^wl.WP_Cursor_Shape_Device_V1,
 
