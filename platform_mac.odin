@@ -85,8 +85,13 @@ Mac_State :: struct {
 Mac_Cursor :: struct {
 	cursor: ^NS.Cursor,
 
+	// Hotspot in physical pixels, as Karl2D takes it. See `mac_build_cursor`.
+	hotspot: [2]int,
+	built_for_scale: f32,
+
 	// NSBitmapImageRep does not copy the pixel planes it is handed, so the decoded image must stay
-	// alive for as long as the cursor does.
+	// alive for as long as the cursor does. It is also what the cursor is rebuilt from when the
+	// scale changes.
 	img: ^image.Image,
 }
 
@@ -712,34 +717,62 @@ mac_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 		return {}
 	}
 
-	decoded := slice.reinterpret([]Color, img.pixels.buf[:])
+	mac_cursor := new(Mac_Cursor, s.allocator)
+	mac_cursor.img = img
+	mac_cursor.hotspot = hotspot
+	mac_build_cursor(mac_cursor)
+
+	return {
+		os_handle = mac_cursor,
+	}
+}
+
+// A cursor image is sized in physical pixels, like everything else in Karl2D, but an NSImage is
+// sized in points. Without dividing by the backing scale factor a 128x128 cursor would cover
+// 256x256 physical pixels on a Retina display, i.e. twice the size of a 128x128 sprite drawn by
+// the game, and it would be blurry from being upscaled on the way there.
+//
+// Neither the size of an NSImage nor the hotspot of an NSCursor can be changed after the fact, so
+// this builds the cursor from scratch whenever the scale changes.
+mac_build_cursor :: proc(cursor: ^Mac_Cursor) {
+	// Released at the end, so that the cursor being replaced stays alive until its replacement
+	// exists. It may still be the one on screen at this point.
+	old := cursor.cursor
+
+	scale := mac_get_window_scale()
+
+	decoded := slice.reinterpret([]Color, cursor.img.pixels.buf[:])
 	planes := [?]^u8 {(^u8)(raw_data(decoded))}
 
 	rep := NS.BitmapImageRep_alloc()->initWithBitmapDataPlanes(
 		&planes[0],
-		NS.Integer(img.width),
-		NS.Integer(img.height),
+		NS.Integer(cursor.img.width),
+		NS.Integer(cursor.img.height),
 		8, 4, true, false,
 		NS.DeviceRGBColorSpace,
 		NS.BitmapFormatFlags{.AlphaNonpremultiplied},
-		NS.Integer(img.width * 4),
+		NS.Integer(cursor.img.width * 4),
 		32,
 	)
 	defer rep->release()
 
-	ns_image := NS.Image_alloc()->initWithSize({CF.CGFloat(img.width), CF.CGFloat(img.height)})
+	ns_image := NS.Image_alloc()->initWithSize({
+		CF.CGFloat(f32(cursor.img.width) / scale),
+		CF.CGFloat(f32(cursor.img.height) / scale),
+	})
 	ns_image->addRepresentation((^NS.ImageRep)(rep))
 	defer ns_image->release()
 
-	mac_cursor := new(Mac_Cursor, s.allocator)
-	mac_cursor.cursor = NS.Cursor_alloc()->initWithImage(
-		ns_image,
-		{CF.CGFloat(hotspot.x), CF.CGFloat(hotspot.y)},
-	)
-	mac_cursor.img = img
+	// The hotspot is in the image's coordinate system, so it is in points too.
+	cursor.cursor = NS.Cursor_alloc()->initWithImage(ns_image, {
+		CF.CGFloat(f32(cursor.hotspot.x) / scale),
+		CF.CGFloat(f32(cursor.hotspot.y) / scale),
+	})
 
-	return {
-		os_handle = mac_cursor,
+	cursor.built_for_scale = scale
+
+	if old != nil {
+		old->release()
 	}
 }
 
@@ -748,6 +781,13 @@ mac_set_cursor :: proc(cursor: Cursor_Data) {
 		NS.Cursor_arrowCursor()->set()
 	} else {
 		mac_cursor := (^Mac_Cursor)(cursor.os_handle)
+
+		// The scale can change while the game runs, for instance when the window is moved to a
+		// monitor with different DPI settings.
+		if mac_cursor.built_for_scale != mac_get_window_scale() {
+			mac_build_cursor(mac_cursor)
+		}
+
 		mac_cursor.cursor->set()
 	}
 }
