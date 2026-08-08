@@ -21,6 +21,7 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	is_cursor_locked = wl_is_cursor_locked,
 	create_cursor = wl_create_cursor,
 	set_cursor = wl_set_cursor,
+	set_cursor_shape = wl_set_cursor_shape,
 	destroy_cursor = wl_destroy_cursor,
 	set_internal_state = wl_set_internal_state,
 }
@@ -767,11 +768,15 @@ wl_apply_cursor :: proc() {
 		return
 	}
 
-	// Default cursor. Prefer the shape protocol, which lets the compositor render it at the
+	// A shape cursor. Prefer the shape protocol, which lets the compositor render it at the
 	// correct size and DPI itself; the themed surface below is only a fallback for compositors
 	// that don't support it.
 	if s.cursor_shape_device != nil {
-		wl.cursor_shape_device_set_shape(s.cursor_shape_device, s.pointer_enter_serial, .Default)
+		wl.cursor_shape_device_set_shape(
+			s.cursor_shape_device,
+			s.pointer_enter_serial,
+			wl_cursor_shape(s.current_shape),
+		)
 		return
 	}
 
@@ -779,7 +784,15 @@ wl_apply_cursor :: proc() {
 		return
 	}
 
-	theme_cursor := wl.cursor_theme_get_cursor(s.cursor_theme, "left_ptr")
+	name, fallback := linux_cursor_shape_names(s.current_shape)
+	theme_cursor := wl.cursor_theme_get_cursor(s.cursor_theme, name)
+
+	if theme_cursor == nil {
+		theme_cursor = wl.cursor_theme_get_cursor(s.cursor_theme, fallback)
+	}
+
+	// The theme has no cursor under either name. Leaving whatever is already up is the best we can
+	// do: the pointer keeps the cursor it had rather than blinking out of existence.
 	if theme_cursor == nil || theme_cursor.image_count == 0 {
 		return
 	}
@@ -915,6 +928,31 @@ wl_set_cursor :: proc(cursor: Cursor_Data) {
 	wl_apply_cursor()
 }
 
+wl_set_cursor_shape :: proc(shape: Cursor_Shape) {
+	s.current_shape = shape
+	s.cursor = nil
+	wl_apply_cursor()
+}
+
+wl_cursor_shape :: proc(shape: Cursor_Shape) -> wl.WP_Cursor_Shape {
+	switch shape {
+	case .Default:     return .Default
+	case .Text:        return .Text
+	case .Hand:        return .Pointer
+	case .Crosshair:   return .Crosshair
+	case .Wait:        return .Wait
+	case .Progress:    return .Progress
+	case .Resize_EW:   return .Ew_Resize
+	case .Resize_NS:   return .Ns_Resize
+	case .Resize_NESW: return .Nesw_Resize
+	case .Resize_NWSE: return .Nwse_Resize
+	case .Move:        return .Move
+	case .Not_Allowed: return .Not_Allowed
+	}
+
+	return .Default
+}
+
 wl_destroy_cursor :: proc(cursor: Cursor_Data) {
 	if cursor.os_handle == nil {
 		return
@@ -922,7 +960,7 @@ wl_destroy_cursor :: proc(cursor: Cursor_Data) {
 
 	cursor := (^WL_Cursor)(cursor.os_handle)
 
-	// Only fall back to the default cursor if the one being destroyed is the one on screen.
+	// Only fall back to the current shape if the cursor being destroyed is the one on screen.
 	if s.cursor == cursor {
 		s.cursor = nil
 		wl_apply_cursor()
@@ -1009,7 +1047,10 @@ WL_State :: struct {
 	locked_pointer: ^wl.ZWP_Locked_Pointer_V1,
 	relative_pointer: ^wl.ZWP_Relative_Pointer_V1,
 
+	// The custom cursor most recently set, or nil when a shape is active instead.
 	cursor: ^WL_Cursor,
+	current_shape: Cursor_Shape,
+
 	cursor_shape_manager: ^wl.WP_Cursor_Shape_Manager_V1,
 	cursor_shape_device:  ^wl.WP_Cursor_Shape_Device_V1,
 

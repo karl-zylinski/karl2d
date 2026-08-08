@@ -26,6 +26,7 @@ PLATFORM_WEB :: Platform_Interface {
 	is_cursor_locked = web_is_cursor_locked,
 	create_cursor = web_create_cursor,
 	set_cursor = web_set_cursor,
+	set_cursor_shape = web_set_cursor_shape,
 	destroy_cursor = web_destroy_cursor,
 
 	is_gamepad_active = web_is_gamepad_active,
@@ -483,6 +484,31 @@ web_set_cursor :: proc(cursor: Cursor_Data) {
 	web_apply_cursor()
 }
 
+web_set_cursor_shape :: proc(shape: Cursor_Shape) {
+	s.current_shape = shape
+	s.current_cursor = nil
+	web_apply_cursor()
+}
+
+web_cursor_shape_keyword :: proc(shape: Cursor_Shape) -> string {
+	switch shape {
+	case .Default:     return "default"
+	case .Text:        return "text"
+	case .Hand:        return "pointer"
+	case .Crosshair:   return "crosshair"
+	case .Wait:        return "wait"
+	case .Progress:    return "progress"
+	case .Resize_EW:   return "ew-resize"
+	case .Resize_NS:   return "ns-resize"
+	case .Resize_NESW: return "nesw-resize"
+	case .Resize_NWSE: return "nwse-resize"
+	case .Move:        return "move"
+	case .Not_Allowed: return "not-allowed"
+	}
+
+	return "default"
+}
+
 // Applies s.cursor_hidden and s.current_cursor to the canvas. The two share the same underlying
 // CSS `cursor` property, so both set_cursor_hidden and set_cursor go through this instead of
 // touching it independently and clobbering each other.
@@ -494,7 +520,9 @@ web_apply_cursor :: proc() {
 	}
 
 	if s.current_cursor == nil {
-		js.set_element_style(s.canvas_id, "cursor", "default")
+		// No dedup here, unlike the custom cursor path below: a shape is a short keyword rather
+		// than a data URI, so there is nothing worth avoiding a rewrite of.
+		js.set_element_style(s.canvas_id, "cursor", web_cursor_shape_keyword(s.current_shape))
 		s.applied_cursor = nil
 		return
 	}
@@ -528,7 +556,7 @@ web_destroy_cursor :: proc(cursor: Cursor_Data) {
 
 	cursor := (^Web_Cursor)(cursor.os_handle)
 
-	// Only fall back to the default cursor if the one being destroyed is the one on screen.
+	// Only fall back to the current shape if the cursor being destroyed is the one on screen.
 	if s.current_cursor == cursor {
 		s.current_cursor = nil
 		web_apply_cursor()
@@ -605,9 +633,10 @@ Web_State :: struct {
 	cursor_locked: bool,
 	cursor_hidden: bool,
 
-	// The cursor most recently passed to web_set_cursor, or nil if the default OS cursor is
-	// active. Also see web_apply_cursor.
+	// The cursor most recently passed to web_set_cursor, or nil when a shape is active instead.
+	// Also see web_apply_cursor.
 	current_cursor: ^Web_Cursor,
+	current_shape: Cursor_Shape,
 
 	// What web_apply_cursor last wrote to the canvas, so it can skip redundant work.
 	applied_cursor: ^Web_Cursor,

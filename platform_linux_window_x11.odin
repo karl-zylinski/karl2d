@@ -23,6 +23,7 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	is_cursor_locked = x11_is_cursor_locked,
 	create_cursor = x11_create_cursor,
 	set_cursor = x11_set_cursor,
+	set_cursor_shape = x11_set_cursor_shape,
 	destroy_cursor = x11_destroy_cursor,
 	set_internal_state = x11_set_internal_state,
 }
@@ -117,6 +118,13 @@ x11_init :: proc(
 
 x11_shutdown :: proc() {
 	delete(s.events)
+
+	for cached in s.shape_cursors {
+		if cursor, ok := cached.?; ok && cursor != 0 {
+			X.FreeCursor(s.display, cursor)
+		}
+	}
+
 	X.FreeCursor(s.display, s.blank_cursor)
 	X.DestroyWindow(s.display, s.window)
 }
@@ -368,19 +376,49 @@ x11_set_cursor_hidden :: proc(hidden: bool) {
 	x11_apply_cursor()
 }
 
-// Applies s.cursor_hidden and s.current_cursor to the window. The two share the same underlying
-// X11 state (whatever DefineCursor/UndefineCursor last set), so both set_cursor_hidden and
-// set_cursor go through this instead of touching it independently and clobbering each other.
+// Applies s.cursor_hidden, s.current_cursor and s.current_shape to the window. They all share the
+// same underlying X11 state (whatever DefineCursor/UndefineCursor last set), so every entry point
+// goes through this instead of touching it independently and clobbering the others.
 x11_apply_cursor :: proc() {
 	switch {
 	case s.cursor_hidden:
 		X.DefineCursor(s.display, s.window, s.blank_cursor)
+
 	case s.current_cursor != 0:
 		X.DefineCursor(s.display, s.window, s.current_cursor)
+
 	case:
-		X.UndefineCursor(s.display, s.window)
+		if shape_cursor := x11_shape_cursor(s.current_shape); shape_cursor != 0 {
+			X.DefineCursor(s.display, s.window, shape_cursor)
+		} else {
+			// The theme has no cursor under either name, so let the window inherit whatever its
+			// parent uses, which is normally the default arrow.
+			X.UndefineCursor(s.display, s.window)
+		}
 	}
+
 	X.Flush(s.display)
+}
+
+// Loads a shape out of the user's cursor theme, or returns 0 if the theme has no cursor for it.
+//
+// The results are cached because each one is a server-side resource that we own and have to free,
+// and because set_cursor_shape is the kind of thing a game calls every frame.
+x11_shape_cursor :: proc(shape: Cursor_Shape) -> X.Cursor {
+	if cached, ok := s.shape_cursors[shape].?; ok {
+		return cached
+	}
+
+	name, fallback := linux_cursor_shape_names(shape)
+	cursor := X.cursorLibraryLoadCursor(s.display, name)
+
+	if cursor == 0 {
+		cursor = X.cursorLibraryLoadCursor(s.display, fallback)
+	}
+
+	// Cached even when it's 0, so a theme missing a shape doesn't mean two round trips per frame.
+	s.shape_cursors[shape] = cursor
+	return cursor
 }
 
 x11_is_cursor_hidden :: proc() -> bool {
@@ -462,6 +500,12 @@ x11_set_cursor :: proc(cursor: Cursor_Data) {
 	x11_apply_cursor()
 }
 
+x11_set_cursor_shape :: proc(shape: Cursor_Shape) {
+	s.current_shape = shape
+	s.current_cursor = 0
+	x11_apply_cursor()
+}
+
 x11_destroy_cursor :: proc(cursor: Cursor_Data) {
 	if cursor.os_handle == nil {
 		return
@@ -469,7 +513,7 @@ x11_destroy_cursor :: proc(cursor: Cursor_Data) {
 
 	handle := X.Cursor(uintptr(cursor.os_handle))
 
-	// Only fall back to the default cursor if the one being destroyed is the one on screen.
+	// Only fall back to the current shape if the cursor being destroyed is the one on screen.
 	if s.current_cursor == handle {
 		s.current_cursor = 0
 		x11_apply_cursor()
@@ -502,9 +546,13 @@ X11_State :: struct {
 	window_render_glue: Window_Render_Glue,
 	blank_cursor: X.Cursor,
 
-	// The cursor most recently passed to x11_set_cursor, or 0 (X.None) if the default OS cursor is
-	// active. Also see x11_apply_cursor.
+	// The cursor most recently passed to x11_set_cursor, or 0 (X.None) when a shape is active
+	// instead. Also see x11_apply_cursor.
 	current_cursor: X.Cursor,
+	current_shape: Cursor_Shape,
+
+	// Lazily loaded theme cursors, one per shape. See x11_shape_cursor.
+	shape_cursors: [Cursor_Shape]Maybe(X.Cursor),
 
 	cursor_hidden: bool,
 	cursor_locked: bool,

@@ -833,8 +833,15 @@ destroy_font :: proc(font: Font)
 // The image is not retained: you may destroy it as soon as this returns.
 create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor
 
-// Sets the active cursor. Pass `nil` to go back to the operating system's default cursor.
+// Sets the active cursor to one created using `create_cursor`. Pass `nil` to go back to the
+// operating system's default cursor, which is the same as `set_cursor_shape(.Default)`.
 set_cursor :: proc(cursor: Maybe(Cursor))
+
+// Sets the active cursor to one of the shapes the operating system provides, such as the text beam
+// or a resize arrow. This replaces any cursor previously set with `set_cursor`.
+//
+// See `Cursor_Shape` for what happens on platforms that don't have a particular shape.
+set_cursor_shape :: proc(shape: Cursor_Shape)
 
 // Destroy a cursor previously created using `create_cursor`.
 destroy_cursor :: proc(cursor: Cursor)
@@ -1299,6 +1306,28 @@ Cursor_Data :: struct {
 	// destroy the cursor lives behind this pointer, so only the platform layer may free it. It is
 	// nil if the cursor could not be created, or if it has been destroyed.
 	os_handle: rawptr,
+}
+
+// The cursor shapes an operating system provides out of the box. Use with `set_cursor_shape`.
+//
+// Not every platform has every shape. Where one is missing, the closest thing is used instead:
+// - macOS has no public busy cursor, so `Wait` and `Progress` show the default arrow, and no
+//   public diagonal resize cursors, so `Resize_NESW` and `Resize_NWSE` do too.
+// - On Linux the shapes come from the user's cursor theme. A theme missing one of them falls back
+//   to whatever the window would otherwise inherit, usually the default arrow.
+Cursor_Shape :: enum {
+	Default,
+	Text,
+	Hand,
+	Crosshair,
+	Wait,
+	Progress,
+	Resize_EW,
+	Resize_NS,
+	Resize_NESW,
+	Resize_NWSE,
+	Move,
+	Not_Allowed,
 }
 
 Font_Baked_Glyph_Range :: struct {

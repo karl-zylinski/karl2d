@@ -35,6 +35,7 @@ PLATFORM_LINUX :: Platform_Interface {
 	is_cursor_locked = linux_is_cursor_locked,
 	create_cursor = linux_create_cursor,
 	set_cursor = linux_set_cursor,
+	set_cursor_shape = linux_set_cursor_shape,
 	destroy_cursor = linux_destroy_cursor,
 	is_gamepad_active = linux_is_gamepad_active,
 	get_gamepad_axis = linux_get_gamepad_axis,
@@ -633,6 +634,36 @@ linux_set_cursor :: proc(cursor: Cursor_Data) {
 	s.win.set_cursor(cursor)
 }
 
+linux_set_cursor_shape :: proc(shape: Cursor_Shape) {
+	s.win.set_cursor_shape(shape)
+}
+
+// Cursor theme names for a shape. Both X11 and Wayland load cursors out of the user's XCursor
+// theme by name, so they use the same table.
+//
+// `name` is the freedesktop name, which is what current themes ship. `fallback` is the older X11
+// name for the same cursor: plenty of themes still only have those, and some have both. Neither is
+// guaranteed to exist, so callers have to handle a theme that has no cursor for a shape at all.
+@(private="package")
+linux_cursor_shape_names :: proc(shape: Cursor_Shape) -> (name: cstring, fallback: cstring) {
+	switch shape {
+	case .Default:     return "default", "left_ptr"
+	case .Text:        return "text", "xterm"
+	case .Hand:        return "pointer", "hand2"
+	case .Crosshair:   return "crosshair", "cross"
+	case .Wait:        return "wait", "watch"
+	case .Progress:    return "progress", "left_ptr_watch"
+	case .Resize_EW:   return "ew-resize", "sb_h_double_arrow"
+	case .Resize_NS:   return "ns-resize", "sb_v_double_arrow"
+	case .Resize_NESW: return "nesw-resize", "fd_double_arrow"
+	case .Resize_NWSE: return "nwse-resize", "bd_double_arrow"
+	case .Move:        return "move", "fleur"
+	case .Not_Allowed: return "not-allowed", "crossed_circle"
+	}
+
+	return "default", "left_ptr"
+}
+
 linux_destroy_cursor :: proc(cursor: Cursor_Data) {
 	s.win.destroy_cursor(cursor)
 }
@@ -677,6 +708,7 @@ Linux_Window_Interface :: struct #all_or_none {
 
 	create_cursor: proc(image: Image, hotspot: [2]int) -> Cursor_Data,
 	set_cursor: proc(cursor: Cursor_Data),
+	set_cursor_shape: proc(shape: Cursor_Shape),
 	destroy_cursor: proc(cursor: Cursor_Data),
 
 	set_internal_state: proc(state: rawptr),

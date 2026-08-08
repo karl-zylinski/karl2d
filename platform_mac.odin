@@ -36,6 +36,7 @@ PLATFORM_MAC :: Platform_Interface {
 	is_cursor_locked = mac_is_cursor_locked,
 	create_cursor = mac_create_cursor,
 	set_cursor = mac_set_cursor,
+	set_cursor_shape = mac_set_cursor_shape,
 	destroy_cursor = mac_destroy_cursor,
 
 	is_gamepad_active = mac_is_gamepad_active,
@@ -62,9 +63,10 @@ Mac_State :: struct {
 	cursor_hidden_by_us: bool,
 	cursor_tracker:      NS.id,
 
-	// The cursor most recently passed to mac_set_cursor, or nil if the default OS arrow is active.
-	// Used so that destroying a cursor only resets to the default if it was the one on screen.
+	// The cursor most recently passed to mac_set_cursor, or nil when a shape is active instead.
+	// Used so that destroying a cursor only resets to the shape if it was the one on screen.
 	current_cursor: ^Mac_Cursor,
+	current_shape: Cursor_Shape,
 
 	cursor_locked: bool,
 	mouse_ignore_next_move: bool,
@@ -778,24 +780,54 @@ mac_build_cursor :: proc(cursor: ^Mac_Cursor) {
 }
 
 mac_set_cursor :: proc(cursor: Cursor_Data) {
-	mac_apply_cursor((^Mac_Cursor)(cursor.os_handle))
+	s.current_cursor = (^Mac_Cursor)(cursor.os_handle)
+	mac_apply_cursor()
 }
 
-// Sets the OS cursor and records it as the current one. `cursor` is nil for the default OS arrow.
-mac_apply_cursor :: proc(cursor: ^Mac_Cursor) {
-	if cursor == nil {
-		NS.Cursor_arrowCursor()->set()
-	} else {
-		// The scale can change while the game runs, for instance when the window is moved to a
-		// monitor with different DPI settings.
-		if cursor.built_for_scale != mac_get_window_scale() {
-			mac_build_cursor(cursor)
-		}
+mac_set_cursor_shape :: proc(shape: Cursor_Shape) {
+	s.current_shape = shape
+	s.current_cursor = nil
+	mac_apply_cursor()
+}
 
-		cursor.cursor->set()
+// Sets the OS cursor from the custom cursor the game asked for, falling back to the current shape
+// when there is none.
+mac_apply_cursor :: proc() {
+	cursor := s.current_cursor
+
+	if cursor == nil {
+		mac_cursor_shape(s.current_shape)->set()
+		return
 	}
 
-	s.current_cursor = cursor
+	// The scale can change while the game runs, for instance when the window is moved to a
+	// monitor with different DPI settings.
+	if cursor.built_for_scale != mac_get_window_scale() {
+		mac_build_cursor(cursor)
+	}
+
+	cursor.cursor->set()
+}
+
+// The returned cursor is a shared one owned by AppKit, so it must not be released.
+mac_cursor_shape :: proc(shape: Cursor_Shape) -> ^NS.Cursor {
+	switch shape {
+	case .Default:     return NS.Cursor_arrowCursor()
+	case .Text:        return NS.Cursor_IBeamCursor()
+	case .Hand:        return NS.Cursor_pointingHandCursor()
+	case .Crosshair:   return ce.Cursor_crosshairCursor()
+	case .Move:        return ce.Cursor_closedHandCursor()
+	case .Resize_EW:   return ce.Cursor_resizeLeftRightCursor()
+	case .Resize_NS:   return ce.Cursor_resizeUpDownCursor()
+	case .Not_Allowed: return ce.Cursor_operationNotAllowedCursor()
+
+	// AppKit has no public busy cursor and no public diagonal resize cursors. The private
+	// selectors that do exist aren't worth shipping in a library, so these show the arrow.
+	case .Wait, .Progress, .Resize_NESW, .Resize_NWSE:
+		return NS.Cursor_arrowCursor()
+	}
+
+	return NS.Cursor_arrowCursor()
 }
 
 mac_destroy_cursor :: proc(cursor: Cursor_Data) {
@@ -805,9 +837,10 @@ mac_destroy_cursor :: proc(cursor: Cursor_Data) {
 
 	mac_cursor := (^Mac_Cursor)(cursor.os_handle)
 
-	// Only fall back to the default cursor if the one being destroyed is the one on screen.
+	// Only fall back to the current shape if the cursor being destroyed is the one on screen.
 	if s.current_cursor == mac_cursor {
-		mac_apply_cursor(nil)
+		s.current_cursor = nil
+		mac_apply_cursor()
 	}
 
 	mac_cursor.cursor->release()

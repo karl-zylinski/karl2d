@@ -25,6 +25,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	is_cursor_locked = windows_is_cursor_locked,
 	create_cursor = windows_create_cursor,
 	set_cursor = windows_set_cursor,
+	set_cursor_shape = windows_set_cursor_shape,
 	destroy_cursor = windows_destroy_cursor,
 
 	is_gamepad_active = windows_is_gamepad_active,
@@ -425,10 +426,11 @@ Windows_State :: struct {
 	cursor_locked: bool,
 	cursor_hidden: bool,
 
-	// The HCURSOR most recently passed to windows_set_cursor, or nil if the default OS cursor is
-	// active. Used so that destroying a cursor only resets to the default if it was the one on
+	// The HCURSOR most recently passed to windows_set_cursor, or nil when a shape is active
+	// instead. Used so that destroying a cursor only resets to the shape if it was the one on
 	// screen, instead of always resetting regardless of which cursor is actually active.
 	current_cursor: win32.HCURSOR,
+	current_shape: Cursor_Shape,
 
 	// for when returning from fullscreen to window mode
 	restore_window_pos_x: int,
@@ -606,31 +608,57 @@ windows_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
 }
 
 windows_set_cursor :: proc(cursor: Cursor_Data) {
-	if cursor.os_handle == nil {
-		windows_apply_cursor(nil)
-	} else {
-		windows_apply_cursor((win32.HCURSOR)(cursor.os_handle))
-	}
+	s.current_cursor = (win32.HCURSOR)(cursor.os_handle)
+	windows_apply_cursor()
 }
 
-// Sets the OS cursor and records it as the current one. `cursor` is nil for the default OS arrow.
-windows_apply_cursor :: proc(cursor: win32.HCURSOR) {
-	handle := cursor
+windows_set_cursor_shape :: proc(shape: Cursor_Shape) {
+	s.current_shape = shape
+	s.current_cursor = nil
+	windows_apply_cursor()
+}
+
+// Sets the OS cursor from the custom cursor the game asked for, falling back to the current shape
+// when there is none.
+windows_apply_cursor :: proc() {
+	handle := s.current_cursor
+
 	if handle == nil {
-		handle = win32.LoadCursorA(nil, win32.IDC_ARROW)
+		// LoadCursor on a built-in IDC_ hands back a shared cursor owned by the system, so this
+		// must not be destroyed and is cheap enough to look up each time.
+		handle = win32.LoadCursorA(nil, windows_cursor_shape_id(s.current_shape))
 	}
 
 	win32.SetClassLongPtrW(s.hwnd, win32.GCLP_HCURSOR, (win32.LONG_PTR)(uintptr(handle)))
 	win32.SetCursor(handle)
-	s.current_cursor = cursor
+}
+
+windows_cursor_shape_id :: proc(shape: Cursor_Shape) -> cstring {
+	switch shape {
+	case .Default:     return win32.IDC_ARROW
+	case .Text:        return win32.IDC_IBEAM
+	case .Hand:        return win32.IDC_HAND
+	case .Crosshair:   return win32.IDC_CROSS
+	case .Wait:        return win32.IDC_WAIT
+	case .Progress:    return win32.IDC_APPSTARTING
+	case .Resize_EW:   return win32.IDC_SIZEWE
+	case .Resize_NS:   return win32.IDC_SIZENS
+	case .Resize_NESW: return win32.IDC_SIZENESW
+	case .Resize_NWSE: return win32.IDC_SIZENWSE
+	case .Move:        return win32.IDC_SIZEALL
+	case .Not_Allowed: return win32.IDC_NO
+	}
+
+	return win32.IDC_ARROW
 }
 
 windows_destroy_cursor :: proc(cursor: Cursor_Data) {
 	handle := (win32.HCURSOR)(cursor.os_handle)
 
-	// Only fall back to the default cursor if the one being destroyed is the one on screen.
+	// Only fall back to the current shape if the cursor being destroyed is the one on screen.
 	if s.current_cursor == handle {
-		windows_apply_cursor(nil)
+		s.current_cursor = nil
+		windows_apply_cursor()
 	}
 
 	win32.DestroyCursor(handle)

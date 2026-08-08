@@ -1,6 +1,7 @@
 package karl2d_hardware_cursors_example
 
 import k2 "../.."
+import "core:fmt"
 
 pos: k2.Vec2
 gauntlet: k2.Cursor
@@ -10,8 +11,10 @@ Cursor :: enum {
 	OS_ARROW,
 	GAUNTLET,
 	POINTER,
+	SHAPE,
 }
 current_cursor: Cursor
+current_shape: k2.Cursor_Shape
 
 main :: proc() {
 	init()
@@ -65,6 +68,17 @@ step :: proc() -> bool {
 		current_cursor = .OS_ARROW
 	}
 
+	// Step through the cursor shapes the OS provides. Not every platform has every shape, so some
+	// of them show the closest match instead. See the `Cursor_Shape` docs.
+	if k2.key_went_down(.Space) {
+		if current_cursor == .SHAPE {
+			current_shape = k2.Cursor_Shape((int(current_shape) + 1) % len(k2.Cursor_Shape))
+		} else {
+			current_cursor = .SHAPE
+			current_shape = .Default
+		}
+	}
+
 	if k2.mouse_button_went_down(.Right) {
 		c: Maybe(k2.Cursor)
 		#partial switch current_cursor {
@@ -79,18 +93,26 @@ step :: proc() -> bool {
 		}
 	}
 
-	c: Maybe(k2.Cursor)
-	switch current_cursor {
-	case .OS_ARROW: c = nil
-	case .GAUNTLET: c = gauntlet
-	case .POINTER:  c = pointer
-	}
-
 	// Set cursor at some point before present(), otherwise it may flicker.
-	k2.set_cursor(c)
+	switch current_cursor {
+	case .OS_ARROW: k2.set_cursor(nil)
+	case .GAUNTLET: k2.set_cursor(gauntlet)
+	case .POINTER:  k2.set_cursor(pointer)
+	case .SHAPE:    k2.set_cursor_shape(current_shape)
+	}
 
 	k2.clear(k2.BLACK)
 	k2.draw_rect(rect, btn_color)
+
+	k2.draw_text("Space: step through the OS cursor shapes", {20, 20}, 30, k2.WHITE)
+	k2.draw_text("X: default OS cursor", {20, 55}, 30, k2.GRAY)
+	k2.draw_text("Right click: destroy the active cursor", {20, 90}, 30, k2.GRAY)
+
+	if current_cursor == .SHAPE {
+		label := fmt.tprintf("Cursor_Shape.%v", current_shape)
+		k2.draw_text(label, {20, 140}, 40, k2.YELLOW)
+	}
+
 	k2.present()
 
 	free_all(context.temp_allocator)

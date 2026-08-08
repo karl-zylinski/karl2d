@@ -31,6 +31,7 @@ Platform_Interface :: struct #all_or_none {
 	is_cursor_locked: proc() -> bool,
 	create_cursor: proc(image: Image, hotspot: [2]int) -> Cursor_Data,
 	set_cursor: proc(cursor: Cursor_Data),
+	set_cursor_shape: proc(shape: Cursor_Shape),
 	destroy_cursor: proc(cursor: Cursor_Data),
 
 	is_gamepad_active: proc(gamepad: int) -> bool,
