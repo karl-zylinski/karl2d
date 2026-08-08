@@ -807,6 +807,18 @@ load_dynamic_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> 
 destroy_font :: proc(font: Font)
 
 //---------//
+// CURSORS //
+//--------//
+
+// We expect RGBA8 bytes in PNG format (not raw pixels).
+// Each platform will decode the PNG as necessary.
+create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor
+
+set_cursor :: proc(id: Cursor)
+
+destroy_cursor :: proc(id: Cursor)
+
+//---------//
 // SHADERS //
 //---------//
 
@@ -967,6 +979,9 @@ Rect :: struct {
 	x, y: f32,
 	w, h: f32,
 }
+
+// Default cursor ID is 0, to represent the OS arrow.
+DEFAULT_CURSOR :: Cursor(0)
 
 // An RGBA (Red, Green, Blue, Alpha) color. Each channel can have a value between 0 and 255.
 Color :: [4]u8
@@ -1258,6 +1273,13 @@ Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
+Cursor :: distinct int
+Cursor_Data :: struct {
+	// Opaque handle owned by the platform layer. Whatever the platform needs in order to set and
+	// destroy the cursor lives behind this pointer, so only the platform layer may free it. It is
+	// nil if the cursor could not be created, or if it has been destroyed.
+	os_handle: rawptr,
+}
 
 Font_Baked_Glyph_Range :: struct {
 	start_idx: int,
@@ -1476,6 +1498,8 @@ State :: struct {
 
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
+	cursors: [dynamic]Cursor_Data,
+	cursors_freelist: [dynamic]Cursor,
 	shape_drawing_texture: Texture_Handle,
 	batch_font: Font,
 	batch_camera: Maybe(Camera),
