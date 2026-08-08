@@ -792,18 +792,43 @@ wl_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 
 	surface := wl.compositor_create_surface(s.compositor)
 	wl.surface_attach(surface, buffer, 0, 0)
-	wl.surface_commit(surface)
 
 	cursor := new(WL_Cursor, s.allocator)
 	cursor.surface = surface
 	cursor.hotspot = hotspot
+	cursor.width = img.width
+	cursor.height = img.height
 	cursor.buffer = buffer
 	cursor.data = data
-	cursor.size = size
+	cursor.data_size = size
+	cursor.viewport = wl.wp_viewporter_get_viewport(s.viewporter, surface)
+
+	// Sets the viewport destination and commits the surface.
+	wl_apply_cursor_scale(cursor)
 
 	return {
 		os_handle = cursor,
 	}
+}
+
+// A cursor image is sized in physical pixels, like everything else in Karl2D, but a Wayland surface
+// is sized in logical pixels. Without this a 128x128 cursor would cover 256x256 physical pixels on
+// a 2x display, i.e. twice the size of a 128x128 sprite drawn by the game.
+//
+// The viewport makes the compositor scale the buffer down to the logical size that the image's
+// physical size corresponds to. We use a viewport rather than `wl_surface.set_buffer_scale`
+// because the latter only takes integers, so it cannot express a fractional scale, and because it
+// raises a protocol error unless the buffer size divides evenly by the scale, which would kill the
+// game for something as arbitrary as an odd-sized cursor image.
+wl_apply_cursor_scale :: proc(cursor: ^WL_Cursor) {
+	// A destination of zero is a protocol error, so tiny cursors stay at one logical pixel.
+	dest_width := max(1, int(math.round(f32(cursor.width) / s.scale)))
+	dest_height := max(1, int(math.round(f32(cursor.height) / s.scale)))
+
+	wl.wp_viewport_set_destination(cursor.viewport, i32(dest_width), i32(dest_height))
+	wl.surface_commit(cursor.surface)
+
+	cursor.built_for_scale = s.scale
 }
 
 wl_set_cursor :: proc(cursor: Cursor_Data) {
@@ -822,11 +847,20 @@ wl_set_cursor :: proc(cursor: Cursor_Data) {
 	} else {
 		cursor := (^WL_Cursor)(cursor.os_handle)
 
+		// The scale can change while the game runs, for instance when the window is dragged to a
+		// monitor with different DPI settings.
+		if cursor.built_for_scale != s.scale {
+			wl_apply_cursor_scale(cursor)
+		}
+
+		// The hotspot is in surface-local (logical) coordinates, but Karl2D takes it in physical
+		// pixels, like the image it belongs to.
 		wl.pointer_set_cursor(
 			s.pointer,
 			u32(s.pointer_enter_serial),
 			cursor.surface,
-			c.int32_t(cursor.hotspot.x), c.int32_t(cursor.hotspot.y),
+			c.int32_t(math.round(f32(cursor.hotspot.x) / s.scale)),
+			c.int32_t(math.round(f32(cursor.hotspot.y) / s.scale)),
 		)
 
 		s.cursor = cursor
@@ -854,9 +888,10 @@ wl_destroy_cursor :: proc(cursor: Cursor_Data) {
 	}
 
 	// Detach from the surface before the buffer and its memory go away.
+	wl.wp_viewport_destroy(cursor.viewport)
 	wl.surface_destroy(cursor.surface)
 	wl.buffer_destroy(cursor.buffer)
-	linux.munmap(cursor.data, uint(cursor.size))
+	linux.munmap(cursor.data, uint(cursor.data_size))
 	free(cursor, s.allocator)
 }
 
@@ -869,11 +904,19 @@ WL_Cursor :: struct {
 	surface:  ^wl.Surface,
 	hotspot:  [2]int,
 
+	// Size of the image in physical pixels.
+	width:    int,
+	height:   int,
+
 	// The compositor may read from the buffer at any point while it is attached to the surface, so
 	// the buffer and its mapping have to stay alive for as long as the cursor does.
-	buffer:   ^wl.Buffer,
-	data:     rawptr,
-	size:     int,
+	buffer:    ^wl.Buffer,
+	data:      rawptr,
+	data_size: int,
+
+	// Scales the surface down from physical to logical pixels, see `wl_apply_cursor_scale`.
+	viewport:        ^wl.WP_Viewport,
+	built_for_scale: f32,
 }
 
 WL_State :: struct {
