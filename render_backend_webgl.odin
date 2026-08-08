@@ -336,6 +336,7 @@ webgl_draw :: proc(
 	}
 
 	gl.DrawArrays(gl.TRIANGLES, 0, int(len(vertex_buffer)/shd.vertex_size))
+	gl.Disable(gl.SCISSOR_TEST)
 }
 
 webgl_resize_swapchain :: proc(w, h: int) {
