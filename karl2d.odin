@@ -3826,7 +3826,7 @@ get_default_font :: proc() -> Font {
 
 //---------//
 // CURSORS //
-//--------//
+//---------//
 
 // Create a hardware cursor from an image. The cursor covers as many physical pixels as the image
 // has pixels, so it matches art the game draws at the same size. `hotspot` is the pixel within the

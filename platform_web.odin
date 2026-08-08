@@ -19,11 +19,11 @@ PLATFORM_WEB :: Platform_Interface {
 	set_window_position = web_set_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
-	
+
 	set_cursor_hidden = web_set_cursor_hidden,
 	is_cursor_hidden = web_is_cursor_hidden,
 	set_cursor_locked = web_set_cursor_locked,
-	is_cursor_locked = web_is_cursor_locked,	
+	is_cursor_locked = web_is_cursor_locked,
 	create_cursor = web_create_cursor,
 	set_cursor = web_set_cursor,
 	destroy_cursor = web_destroy_cursor,

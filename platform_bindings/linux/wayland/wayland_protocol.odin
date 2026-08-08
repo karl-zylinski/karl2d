@@ -732,7 +732,10 @@ shm_pool_interface := Interface {
 	1,
 	3,
 	raw_data([]Message{
-		{"create_buffer", "niiiiu", raw_data([]^Interface{&buffer_interface, nil, nil, nil, nil, nil})},
+		{
+			"create_buffer", "niiiiu",
+			raw_data([]^Interface{&buffer_interface, nil, nil, nil, nil, nil}),
+		},
 		{"destroy", "", raw_data([]^Interface{})},
 		{"resize", "i", raw_data([]^Interface{nil})},
 	}),
@@ -777,13 +780,19 @@ wp_cursor_shape_manager_v1_interface := Interface {
 	2,
 	raw_data([]Message{
 		{"destroy", "", raw_data([]^Interface{})},
-		{"get_pointer", "no", raw_data([]^Interface{&cursor_shape_device_interface, &pointer_interface})},
+		{
+			"get_pointer", "no",
+			raw_data([]^Interface{&cursor_shape_device_interface, &pointer_interface}),
+		},
 	}),
 	0,
 	nil,
 }
 
-cursor_shape_manager_get_pointer :: proc "c" (manager: ^WP_Cursor_Shape_Manager_V1, pointer: ^Pointer) -> ^WP_Cursor_Shape_Device_V1 {
+cursor_shape_manager_get_pointer :: proc "c" (
+	manager: ^WP_Cursor_Shape_Manager_V1,
+	pointer: ^Pointer,
+) -> ^WP_Cursor_Shape_Device_V1 {
 	return (^WP_Cursor_Shape_Device_V1)(proxy_marshal_flags(
 		manager,
 		1,
@@ -804,40 +813,40 @@ WP_Cursor_Shape_Device_V1 :: struct {
 }
 
 WP_Cursor_Shape :: enum u32 {
-	Default      = 1,
-	ContextMenu  = 2,
-	Help         = 3,
-	Pointer      = 4,
-	Progress     = 5,
-	Wait         = 6,
-	Cell         = 7,
-	Crosshair    = 8,
-	Text         = 9,
-	VerticalText = 10,
-	Alias        = 11,
-	Copy         = 12,
-	Move         = 13,
-	NoDrop       = 14,
-	NotAllowed   = 15,
-	Grab         = 16,
-	Grabbing     = 17,
-	EResize      = 18,
-	NResize      = 19,
-	NeResize     = 20,
-	NwResize     = 21,
-	SResize      = 22,
-	SeResize     = 23,
-	SwResize     = 24,
-	WResize      = 25,
-	EwResize     = 26,
-	NsResize     = 27,
-	NeswResize   = 28,
-	NwseResize   = 29,
-	ColResize    = 30,
-	RowResize    = 31,
-	AllScroll    = 32,
-	ZoomIn       = 33,
-	ZoomOut      = 34,
+	Default        = 1,
+	Context_Menu   = 2,
+	Help           = 3,
+	Pointer        = 4,
+	Progress       = 5,
+	Wait           = 6,
+	Cell           = 7,
+	Crosshair      = 8,
+	Text           = 9,
+	Vertical_Text  = 10,
+	Alias          = 11,
+	Copy           = 12,
+	Move           = 13,
+	No_Drop        = 14,
+	Not_Allowed    = 15,
+	Grab           = 16,
+	Grabbing       = 17,
+	E_Resize       = 18,
+	N_Resize       = 19,
+	Ne_Resize      = 20,
+	Nw_Resize      = 21,
+	S_Resize       = 22,
+	Se_Resize      = 23,
+	Sw_Resize      = 24,
+	W_Resize       = 25,
+	Ew_Resize      = 26,
+	Ns_Resize      = 27,
+	Nesw_Resize    = 28,
+	Nwse_Resize    = 29,
+	Col_Resize     = 30,
+	Row_Resize     = 31,
+	All_Scroll     = 32,
+	Zoom_In        = 33,
+	Zoom_Out       = 34,
 }
 
 cursor_shape_device_interface := Interface {
@@ -852,7 +861,11 @@ cursor_shape_device_interface := Interface {
 	nil,
 }
 
-cursor_shape_device_set_shape :: proc "c" (device: ^WP_Cursor_Shape_Device_V1, serial: u32, shape: WP_Cursor_Shape) {
+cursor_shape_device_set_shape :: proc "c" (
+	device: ^WP_Cursor_Shape_Device_V1,
+	serial: u32,
+	shape: WP_Cursor_Shape,
+) {
 	proxy_marshal_flags(device, 1, nil, proxy_get_version(device), 0, serial, u32(shape))
 }
 

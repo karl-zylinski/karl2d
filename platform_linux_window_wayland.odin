@@ -265,7 +265,10 @@ seat_listener := wl.Seat_Listener {
 			s.pointer = wl.seat_get_pointer(seat)
 			wl.add_listener(s.pointer, &pointer_listener, nil)
 			if s.cursor_shape_manager != nil {
-				s.cursor_shape_device = wl.cursor_shape_manager_get_pointer(s.cursor_shape_manager, s.pointer)
+				s.cursor_shape_device = wl.cursor_shape_manager_get_pointer(
+					s.cursor_shape_manager,
+					s.pointer,
+				)
 			}
 		} else if s.pointer != nil {
 			if s.cursor_shape_device != nil {
