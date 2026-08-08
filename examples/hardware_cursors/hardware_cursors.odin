@@ -22,13 +22,19 @@ main :: proc() {
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Hardware Cursor Example")
 
+	// A cursor covers as many physical pixels as its image has pixels: Karl2D does no automatic
+	// scaling, so a 64x64 cursor is the same size on screen as a 64x64 sprite you draw. That makes
+	// these look like a normal cursor at 200% display scaling and chunky at 100%. A game that
+	// wants the same apparent size everywhere should pick its cursor art based on
+	// `k2.get_window_scale()`, the same way the docs suggest handling resolution.
+	//
 	// create_cursor doesn't retain the image, so it's fine to destroy it right after.
 	gauntlet_image := k2.load_image_from_bytes(#load("gauntlet.png"))
-	gauntlet = k2.create_cursor(gauntlet_image, {2, 3})
+	gauntlet = k2.create_cursor(gauntlet_image, {4, 6})
 	k2.destroy_image(gauntlet_image)
 
 	pointer_image := k2.load_image_from_bytes(#load("pointer.png"))
-	pointer = k2.create_cursor(pointer_image, {2, 3})
+	pointer = k2.create_cursor(pointer_image, {4, 5})
 	k2.destroy_image(pointer_image)
 
 	current_cursor = .GAUNTLET
