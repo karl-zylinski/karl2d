@@ -246,7 +246,7 @@ registry_listener := wl.Registry_Listener {
 				registry,
 				name,
 				&wl.wp_cursor_shape_manager_v1_interface,
-				version
+				version,
 			)
 		}
 	},

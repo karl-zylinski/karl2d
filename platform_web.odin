@@ -40,7 +40,6 @@ PLATFORM_WEB :: Platform_Interface {
 import "core:sys/wasm/js"
 import "core:math"
 import "core:encoding/base64"
-import "core:fmt"
 import "core:slice"
 import "base:runtime"
 import "log"
@@ -419,7 +418,7 @@ web_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 		"url(data:image/png;base64,%v) %v %v, auto",
 		pixels_b64,
 		hotspot.x, hotspot.y,
-		allocator = s.allocator
+		allocator = s.allocator,
 	)
 
 	return {
