@@ -376,14 +376,7 @@ web_set_window_mode :: proc(new_mode: Window_Mode) {
 
 web_set_cursor_hidden :: proc(hidden: bool) {
 	s.cursor_hidden = hidden
-	if hidden {
-		js.set_element_style(s.canvas_id, "cursor", "none")
-	} else {
-		js.set_element_style(s.canvas_id, "cursor", "default")
-	}
-
-	// This wrote the canvas' cursor behind `web_set_cursor`'s back, so let it write again.
-	s.applied_cursor = nil
+	web_apply_cursor()
 }
 
 web_is_cursor_hidden :: proc() -> bool {
@@ -486,13 +479,27 @@ web_build_cursor_style :: proc(cursor: ^Web_Cursor) {
 }
 
 web_set_cursor :: proc(cursor: Cursor_Data) {
-	if cursor.os_handle == nil {
+	s.current_cursor = (^Web_Cursor)(cursor.os_handle)
+	web_apply_cursor()
+}
+
+// Applies s.cursor_hidden and s.current_cursor to the canvas. The two share the same underlying
+// CSS `cursor` property, so both set_cursor_hidden and set_cursor go through this instead of
+// touching it independently and clobbering each other.
+web_apply_cursor :: proc() {
+	if s.cursor_hidden {
+		js.set_element_style(s.canvas_id, "cursor", "none")
+		s.applied_cursor = nil
+		return
+	}
+
+	if s.current_cursor == nil {
 		js.set_element_style(s.canvas_id, "cursor", "default")
 		s.applied_cursor = nil
 		return
 	}
 
-	cursor := (^Web_Cursor)(cursor.os_handle)
+	cursor := s.current_cursor
 	scale := web_get_window_scale()
 
 	if cursor.built_for_scale != scale {
@@ -521,9 +528,10 @@ web_destroy_cursor :: proc(cursor: Cursor_Data) {
 
 	cursor := (^Web_Cursor)(cursor.os_handle)
 
-	if s.applied_cursor == cursor {
-		js.set_element_style(s.canvas_id, "cursor", "default")
-		s.applied_cursor = nil
+	// Only fall back to the default cursor if the one being destroyed is the one on screen.
+	if s.current_cursor == cursor {
+		s.current_cursor = nil
+		web_apply_cursor()
 	}
 
 	delete(cursor.data_uri, s.allocator)
@@ -597,7 +605,11 @@ Web_State :: struct {
 	cursor_locked: bool,
 	cursor_hidden: bool,
 
-	// What `web_set_cursor` last wrote to the canvas, so it can skip redundant work.
+	// The cursor most recently passed to web_set_cursor, or nil if the default OS cursor is
+	// active. Also see web_apply_cursor.
+	current_cursor: ^Web_Cursor,
+
+	// What web_apply_cursor last wrote to the canvas, so it can skip redundant work.
 	applied_cursor: ^Web_Cursor,
 	applied_scale: f32,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
