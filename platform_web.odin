@@ -40,7 +40,6 @@ PLATFORM_WEB :: Platform_Interface {
 import "core:sys/wasm/js"
 import "core:math"
 import "core:encoding/base64"
-import "core:slice"
 import "base:runtime"
 import "log"
 import "core:fmt"
@@ -411,7 +410,10 @@ web_is_cursor_locked :: proc() -> bool {
 }
 
 web_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
+	// There is no hardware cursor API on the web, so we hand the browser the PNG as a data URI and
+	// let CSS do the work. The base64 is copied into `style_value`, so it is not needed after that.
 	pixels_b64 := base64.encode(pixels, allocator = s.allocator)
+	defer delete(pixels_b64, s.allocator)
 
 	cursor := new(Web_Cursor, s.allocator)
 	cursor.style_value = fmt.aprintf(
@@ -423,7 +425,6 @@ web_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 
 	return {
 		os_handle = cursor,
-		pixels = slice.reinterpret([]Color, transmute([]u8)pixels_b64),
 	}
 }
 
@@ -437,8 +438,12 @@ web_set_cursor :: proc(cursor: Cursor_Data) {
 }
 
 web_destroy_cursor :: proc(cursor: Cursor_Data) {
+	if cursor.os_handle == nil {
+		return
+	}
+
 	js.set_element_style(s.canvas_id, "cursor", "default")
-	
+
 	cursor := (^Web_Cursor)(cursor.os_handle)
 	delete(cursor.style_value, s.allocator)
 	free(cursor, s.allocator)

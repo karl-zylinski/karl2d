@@ -37,6 +37,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 }
 
 import win32 "core:sys/windows"
+import "core:image"
 import "core:image/png"
 import "core:slice"
 import "base:runtime"
@@ -536,6 +537,9 @@ windows_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 		return {}
 	}
 
+	// CreateBitmap copies the pixels, so the decoded image is only needed until then.
+	defer image.destroy(img, s.allocator)
+
 	// We receive RGBA but GDI uses BGRA, so we'll swap the channels.
 	pixels := slice.reinterpret([]Color, img.pixels.buf[:])
 	for i in 0 ..< len(pixels) {
@@ -559,9 +563,13 @@ windows_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 	}
 	cursor := (win32.HCURSOR)(win32.CreateIconIndirect(&ii))
 
+	if cursor == nil {
+		log.errorf("CreateIconIndirect failed with %v", win32.GetLastError())
+		return {}
+	}
+
 	return {
 		os_handle = cursor,
-		pixels = pixels,
 	}
 }
 

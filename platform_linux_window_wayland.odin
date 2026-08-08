@@ -31,6 +31,7 @@ import "core:strings"
 import "core:c"
 import "core:math"
 import "core:sys/linux"
+import "core:image"
 import "core:image/png"
 import "core:slice"
 
@@ -737,7 +738,10 @@ wl_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 		log.errorf("Failed to decode cursor PNG: %v", err)
 		return {}
 	}
-	pixels := slice.reinterpret([]Color, img.pixels.buf[:])
+	// The pixels are copied into the shared memory below, so the decoded image is only needed here.
+	defer image.destroy(img, s.allocator)
+
+	decoded := slice.reinterpret([]Color, img.pixels.buf[:])
 
 	stride := img.width * 4
 	size := stride * img.height
@@ -759,8 +763,8 @@ wl_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 
 	// Convert to ARGB and premultiply alpha
 	pixel_data := ([^]u32)(data)
-	for i in 0 ..< len(pixels) {
-		col := pixels[i]
+	for i in 0 ..< len(decoded) {
+		col := decoded[i]
 		a := u32(col.a)
 		r := u32(col.r) * a / 255
 		g := u32(col.g) * a / 255
@@ -784,7 +788,6 @@ wl_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 
 	return {
 		os_handle = cursor,
-		pixels = pixels,
 	}
 }
 
@@ -799,6 +802,10 @@ wl_set_cursor :: proc(cursor: Cursor_Data) {
 }
 
 wl_destroy_cursor :: proc(cursor: Cursor_Data) {
+	if cursor.os_handle == nil {
+		return
+	}
+
 	cursor := (^WL_Cursor)(cursor.os_handle)
 	wl.cursor_shape_device_set_shape(s.cursor_shape_device, u32(s.pointer_enter_serial), .Default)
 	wl.surface_destroy(cursor.surface)

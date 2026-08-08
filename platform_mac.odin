@@ -12,6 +12,7 @@ import "core:os"
 import "base:intrinsics"
 import "base:runtime"
 import "core:time"
+import "core:image"
 import "core:image/png"
 import "core:slice"
 import "log"
@@ -79,6 +80,14 @@ Mac_State :: struct {
 	gamepads:           [MAX_GAMEPADS]Gamepad,
 	gc_connect_blk:     ^NS.Block,
 	gc_disconnect_blk:  ^NS.Block,
+}
+
+Mac_Cursor :: struct {
+	cursor: ^NS.Cursor,
+
+	// NSBitmapImageRep does not copy the pixel planes it is handed, so the decoded image must stay
+	// alive for as long as the cursor does.
+	img: ^image.Image,
 }
 
 Gamepad :: struct {
@@ -702,8 +711,9 @@ mac_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 		log.errorf("Failed to decode cursor PNG: %v", err)
 		return {}
 	}
-	pixels := slice.reinterpret([]Color, img.pixels.buf[:])
-	planes := [?]^u8 {(^u8)(raw_data(pixels))}
+
+	decoded := slice.reinterpret([]Color, img.pixels.buf[:])
+	planes := [?]^u8 {(^u8)(raw_data(decoded))}
 
 	rep := NS.BitmapImageRep_alloc()->initWithBitmapDataPlanes(
 		&planes[0],
@@ -717,15 +727,19 @@ mac_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 	)
 	defer rep->release()
 
-	image := NS.Image_alloc()->initWithSize({CF.CGFloat(img.width), CF.CGFloat(img.height)})
-	image->addRepresentation((^NS.ImageRep)(rep))
-	defer image->release()
+	ns_image := NS.Image_alloc()->initWithSize({CF.CGFloat(img.width), CF.CGFloat(img.height)})
+	ns_image->addRepresentation((^NS.ImageRep)(rep))
+	defer ns_image->release()
 
-	cursor := NS.Cursor_alloc()->initWithImage(image, {CF.CGFloat(hotspot.x), CF.CGFloat(hotspot.y)})
+	mac_cursor := new(Mac_Cursor, s.allocator)
+	mac_cursor.cursor = NS.Cursor_alloc()->initWithImage(
+		ns_image,
+		{CF.CGFloat(hotspot.x), CF.CGFloat(hotspot.y)},
+	)
+	mac_cursor.img = img
 
 	return {
-		os_handle = cursor,
-		pixels = pixels,
+		os_handle = mac_cursor,
 	}
 }
 
@@ -733,15 +747,22 @@ mac_set_cursor :: proc(cursor: Cursor_Data) {
 	if cursor.os_handle == nil {
 		NS.Cursor_arrowCursor()->set()
 	} else {
-		cursor := (^NS.Cursor)(cursor.os_handle)
-		cursor->set()
+		mac_cursor := (^Mac_Cursor)(cursor.os_handle)
+		mac_cursor.cursor->set()
 	}
 }
 
 mac_destroy_cursor :: proc(cursor: Cursor_Data) {
+	if cursor.os_handle == nil {
+		return
+	}
+
 	NS.Cursor_arrowCursor()->set()
-	cursor := (^NS.Cursor)(cursor.os_handle)
-	cursor->release()
+
+	mac_cursor := (^Mac_Cursor)(cursor.os_handle)
+	mac_cursor.cursor->release()
+	image.destroy(mac_cursor.img, s.allocator)
+	free(mac_cursor, s.allocator)
 }
 
 // Key code mapping from macOS virtual key codes to Keyboard_Key

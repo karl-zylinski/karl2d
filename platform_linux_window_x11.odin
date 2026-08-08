@@ -31,6 +31,7 @@ import X "vendor:x11/xlib"
 import "base:runtime"
 import "log"
 import "core:fmt"
+import "core:image"
 import "core:image/png"
 import "core:slice"
 
@@ -424,28 +425,32 @@ x11_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 		return {}
 	}
 
+	// The cursor is uploaded to the X server, so the decoded image is only needed in here.
+	defer image.destroy(img_decoded, s.allocator)
+
 	// Convert to ARGB and premultiply alpha
-	pixels := slice.reinterpret([]Color, img_decoded.pixels.buf[:])
-	for i in 0 ..< len(pixels) {
-		a := pixels[i].a
-		r := u8(f32(pixels[i].r) * (f32(a) / 255))
-		g := u8(f32(pixels[i].g) * (f32(a) / 255))
-		b := u8(f32(pixels[i].b) * (f32(a) / 255))
-		pixels[i] = {b, g, r, a}
+	decoded := slice.reinterpret([]Color, img_decoded.pixels.buf[:])
+	for i in 0 ..< len(decoded) {
+		a := decoded[i].a
+		r := u8(f32(decoded[i].r) * (f32(a) / 255))
+		g := u8(f32(decoded[i].g) * (f32(a) / 255))
+		b := u8(f32(decoded[i].b) * (f32(a) / 255))
+		decoded[i] = {b, g, r, a}
 	}
 
 	img := X.cursorImageCreate(i32(img_decoded.width), i32(img_decoded.height))
 	defer X.cursorImageDestroy(img)
 
-	img.pixels = (^X.CursorPixel)(raw_data(pixels))
-	img.xhot   = X.CursorDim(hotspot.x)
-	img.yhot   = X.CursorDim(hotspot.y)
+	// Copy into the buffer Xcursor allocated for us. Overwriting `img.pixels` with our own pointer
+	// would leak that buffer and make cursorImageDestroy free memory it does not own.
+	copy(slice.from_ptr(img.pixels, len(decoded)), slice.reinterpret([]X.CursorPixel, decoded))
+	img.xhot = X.CursorDim(hotspot.x)
+	img.yhot = X.CursorDim(hotspot.y)
 
 	cursor := X.cursorImageLoadCursor(s.display, img)
 
 	return {
 		os_handle = rawptr(uintptr(cursor)),
-		pixels = pixels,
 	}
 }
 
@@ -460,6 +465,10 @@ x11_set_cursor :: proc(cursor: Cursor_Data) {
 }
 
 x11_destroy_cursor :: proc(cursor: Cursor_Data) {
+	if cursor.os_handle == nil {
+		return
+	}
+
 	cursor := X.Cursor(uintptr(cursor.os_handle))
 	X.UndefineCursor(s.display, s.window)
 	X.FreeCursor(s.display, cursor)

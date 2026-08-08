@@ -3802,8 +3802,8 @@ set_cursor :: proc(id: Cursor) {
 		return
 	}
 	cursor := s.cursors[id]
-	if id > 0 && (cursor.os_handle == nil || cursor.pixels == nil) {
-		log.errorf("You tried setting cursor id %v but its data is invalid (it probably was destroyed).", id)
+	if id > 0 && cursor.os_handle == nil {
+		log.errorf("You tried setting cursor id %v but its data is invalid (it was destroyed).", id)
 		return
 	}
 	pf.set_cursor(cursor)
@@ -3816,17 +3816,16 @@ destroy_cursor :: proc(id: Cursor) {
 		return
 	}
 	cursor := &s.cursors[id]
-	if cursor.os_handle == nil || cursor.pixels == nil {
+	if cursor.os_handle == nil {
 		log.errorf("You tried destroying cursor id %v but it was already destroyed.", id)
 		return
 	}
 
+	// The platform layer owns everything behind `os_handle`, so it does all the freeing.
 	pf.destroy_cursor(cursor^)
 
-	delete(cursor.pixels, s.allocator)
 	append(&s.cursors_freelist, id)
 	cursor.os_handle = nil
-	cursor.pixels = nil
 }
 
 //---------//
@@ -4596,8 +4595,10 @@ Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 Cursor :: distinct int
 Cursor_Data :: struct {
+	// Opaque handle owned by the platform layer. Whatever the platform needs in order to set and
+	// destroy the cursor lives behind this pointer, so only the platform layer may free it. It is
+	// nil if the cursor could not be created, or if it has been destroyed.
 	os_handle: rawptr,
-	pixels: []Color,
 }
 
 Font_Baked_Glyph_Range :: struct {
