@@ -3776,13 +3776,21 @@ get_default_font :: proc() -> Font {
 // We expect RGBA8 bytes in PNG format (not raw pixels).
 // Each platform will decode the PNG as necessary.
 create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor {
-	free_id, ok := pop_safe(&s.cursors_freelist)
-	id := ok ? free_id : Cursor(len(s.cursors))
-
 	cursor := pf.create_cursor(pixels, hotspot)
+
+	// The platform layer logs why it failed. Fall back to the default cursor.
 	if cursor.os_handle == nil {
-		return 0
+		return DEFAULT_CURSOR
 	}
+
+	// Reuse the slot of a destroyed cursor, if there is one. Note that the freelist must not be
+	// touched before this point, or a failed creation would leak the id.
+	if reused_id, ok := pop_safe(&s.cursors_freelist); ok {
+		s.cursors[reused_id] = cursor
+		return reused_id
+	}
+
+	id := Cursor(len(s.cursors))
 	append(&s.cursors, cursor)
 
 	return id
