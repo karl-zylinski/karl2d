@@ -4,16 +4,21 @@ import k2 "../.."
 import "core:fmt"
 
 pos: k2.Vec2
-gauntlet: k2.Cursor
-pointer: k2.Cursor
 
-Cursor :: enum {
-	OS_ARROW,
-	GAUNTLET,
-	POINTER,
-	SHAPE,
+// Kept as Maybe so that destroying one can be recorded by clearing the handle. set_cursor takes a
+// Maybe(Cursor) already, and nil means the OS default, so a destroyed cursor needs no special case
+// at the point where it's used.
+gauntlet: Maybe(k2.Cursor)
+pointer: Maybe(k2.Cursor)
+
+// What to show when the mouse isn't over the button.
+Base_Cursor :: enum {
+	Gauntlet,
+	Os_Arrow,
+	Shape,
 }
-current_cursor: Cursor
+
+base: Base_Cursor
 current_shape: k2.Cursor_Shape
 
 main :: proc() {
@@ -40,8 +45,6 @@ init :: proc() {
 	pointer = k2.create_cursor(pointer_image, {4, 5})
 	k2.destroy_image(pointer_image)
 
-	current_cursor = .GAUNTLET
-
 	pos = {f32(k2.get_screen_width()) / 2, f32(k2.get_screen_height()) / 2}
 }
 
@@ -50,65 +53,67 @@ step :: proc() -> bool {
 		return false
 	}
 
-	btn_color := k2.RED
 	mouse_pos := k2.get_mouse_position()
 	rect := k2.Rect{pos.x, pos.y, 50, 50}
-	if mouse_pos.x >= rect.x &&
-		mouse_pos.x <= rect.x + rect.w &&
-		mouse_pos.y >= rect.y &&
-		mouse_pos.y <= rect.y + rect.h {
-		current_cursor = .POINTER
-		btn_color = k2.DARK_RED
-	} else if current_cursor == .POINTER {
-		current_cursor = .GAUNTLET
+
+	hovering := mouse_pos.x >= rect.x && mouse_pos.x <= rect.x + rect.w &&
+		mouse_pos.y >= rect.y && mouse_pos.y <= rect.y + rect.h
+
+	if k2.key_went_down(.G) {
+		base = .Gauntlet
 	}
 
 	if k2.key_went_down(.X) {
-		// Pass `nil` to k2.set_cursor to use the default OS arrow.
-		current_cursor = .OS_ARROW
+		base = .Os_Arrow
 	}
 
 	// Step through the cursor shapes the OS provides. Not every platform has every shape, so some
 	// of them show the closest match instead. See the `Cursor_Shape` docs.
 	if k2.key_went_down(.Space) {
-		if current_cursor == .SHAPE {
+		if base == .Shape {
 			current_shape = k2.Cursor_Shape((int(current_shape) + 1) % len(k2.Cursor_Shape))
 		} else {
-			current_cursor = .SHAPE
+			base = .Shape
 			current_shape = .Default
 		}
 	}
 
 	if k2.mouse_button_went_down(.Right) {
-		c: Maybe(k2.Cursor)
-		#partial switch current_cursor {
-		case .GAUNTLET: c = gauntlet
-		case .POINTER:  c = pointer
-		}
-		// This demo intentionally doesn't remove the local cursors from some list you may have.
-		// destroy_cursor and set_cursor detect a stale handle and log an error rather than
-		// misbehaving, but you should still stop using one once it's destroyed.
-		if to_destroy, ok := c.?; ok {
-			k2.destroy_cursor(to_destroy)
+		// Destroy whichever custom cursor is on screen, and clear the handle so nothing reaches
+		// for it again. Karl2D would notice a destroyed cursor and log rather than misbehave, but
+		// a game that keeps using one gets that error every frame it does - clearing the handle is
+		// what actually stops it. A nil Maybe(Cursor) is just the OS default, so pressing G after
+		// destroying the gauntlet leaves you on the default cursor rather than erroring.
+		destroy_target := hovering ? &pointer : &gauntlet
+
+		if c, ok := destroy_target.?; ok {
+			k2.destroy_cursor(c)
+			destroy_target^ = nil
 		}
 	}
 
 	// Set cursor at some point before present(), otherwise it may flicker.
-	switch current_cursor {
-	case .OS_ARROW: k2.set_cursor(nil)
-	case .GAUNTLET: k2.set_cursor(gauntlet)
-	case .POINTER:  k2.set_cursor(pointer)
-	case .SHAPE:    k2.set_cursor_shape(current_shape)
+	//
+	// Hovering the button shows the pointer cursor whatever else is set, the way a game swaps the
+	// cursor over a UI element without losing track of what it was showing before.
+	if hovering {
+		k2.set_cursor(pointer)
+	} else {
+		switch base {
+		case .Gauntlet: k2.set_cursor(gauntlet)
+		case .Os_Arrow: k2.set_cursor(nil)
+		case .Shape:    k2.set_cursor_shape(current_shape)
+		}
 	}
 
 	k2.clear(k2.BLACK)
-	k2.draw_rect(rect, btn_color)
+	k2.draw_rect(rect, hovering ? k2.DARK_RED : k2.RED)
 
 	k2.draw_text("Space: step through the OS cursor shapes", {20, 20}, 30, k2.WHITE)
-	k2.draw_text("X: default OS cursor", {20, 55}, 30, k2.GRAY)
-	k2.draw_text("Right click: destroy the active cursor", {20, 90}, 30, k2.GRAY)
+	k2.draw_text("G: gauntlet cursor    X: default OS cursor", {20, 55}, 30, k2.GRAY)
+	k2.draw_text("Right click: destroy the cursor on screen", {20, 90}, 30, k2.GRAY)
 
-	if current_cursor == .SHAPE {
+	if base == .Shape {
 		label := fmt.tprintf("Cursor_Shape.%v", current_shape)
 		k2.draw_text(label, {20, 140}, 40, k2.YELLOW)
 	}
