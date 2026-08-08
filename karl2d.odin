@@ -432,7 +432,10 @@ get_time :: proc() -> f64 {
 set_screen_size :: proc(width: int, height: int) {
 	assert_initialized()
 	pf.set_screen_size(width, height)
-	rb.resize_swapchain(width, height)
+	pixel_width  := pf.get_screen_width()
+	pixel_height := pf.get_screen_height()
+	rb.resize_swapchain(pixel_width, pixel_height)
+	s.proj_matrix = make_default_projection(pixel_width, pixel_height)
 }
 
 // Gets the width of the drawing area within the window.
