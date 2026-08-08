@@ -49,28 +49,30 @@ step :: proc() -> bool {
 	}
 
 	if k2.key_went_down(.X) {
-		// Use "Cursor(0)" to set the cursor to the default OS arrow.
+		// Pass `nil` to k2.set_cursor to use the default OS arrow.
 		current_cursor = .OS_ARROW
 	}
 
 	if k2.mouse_button_went_down(.Right) {
-		c: k2.Cursor
+		c: Maybe(k2.Cursor)
 		#partial switch current_cursor {
 		case .GAUNTLET: c = gauntlet
 		case .POINTER:  c = pointer
 		}
 		// This demo intentionally doesn't remove the local cursors from some list you may have.
 		// But that is something you should do, so that you don't send a destroyed cursor to k2d.
-		k2.destroy_cursor(c)
+		if to_destroy, ok := c.?; ok {
+			k2.destroy_cursor(to_destroy)
+		}
 	}
 
-	c: k2.Cursor
+	c: Maybe(k2.Cursor)
 	switch current_cursor {
-	case .OS_ARROW: c = k2.DEFAULT_CURSOR
+	case .OS_ARROW: c = nil
 	case .GAUNTLET: c = gauntlet
 	case .POINTER:  c = pointer
 	}
-	
+
 	// Set cursor at some point before present(), otherwise it may flicker.
 	k2.set_cursor(c)
 

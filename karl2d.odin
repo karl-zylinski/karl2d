@@ -142,8 +142,7 @@ init :: proc(
 	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
 	_set_font(FONT_DEFAULT)
 
-	// Dummy element so cursor with index 0 means 'no cursor'.
-	append_nothing(&s.cursors)
+	hm.dynamic_init(&s.cursors, s.allocator)
 
 	// Audio
 	{
@@ -228,11 +227,10 @@ shutdown :: proc() {
 	rb.shutdown()
 	delete(s.vertex_buffer_cpu, s.allocator)
 
-	for _, idx in s.cursors {
-		destroy_cursor(Cursor(idx))
+	for it := hm.dynamic_iterator_make(&s.cursors); cd, _ in hm.dynamic_iterate(&it) {
+		pf.destroy_cursor(cd^)
 	}
-	delete(s.cursors)
-	delete(s.cursors_freelist)
+	hm.dynamic_destroy(&s.cursors)
 
 	pf.shutdown()
 
@@ -3778,54 +3776,54 @@ get_default_font :: proc() -> Font {
 create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor {
 	cursor := pf.create_cursor(pixels, hotspot)
 
-	// The platform layer logs why it failed. Fall back to the default cursor.
+	// The platform layer logs why it failed.
 	if cursor.os_handle == nil {
-		return DEFAULT_CURSOR
+		return {}
 	}
 
-	// Reuse the slot of a destroyed cursor, if there is one. Note that the freelist must not be
-	// touched before this point, or a failed creation would leak the id.
-	if reused_id, ok := pop_safe(&s.cursors_freelist); ok {
-		s.cursors[reused_id] = cursor
-		return reused_id
+	handle, add_err := hm.add(&s.cursors, cursor)
+
+	if add_err != nil {
+		log.errorf("Failed to create cursor. Error: %v", add_err)
+		pf.destroy_cursor(cursor)
+		return {}
 	}
 
-	id := Cursor(len(s.cursors))
-	append(&s.cursors, cursor)
-
-	return id
+	return handle
 }
 
-set_cursor :: proc(id: Cursor) {
-	if id < 0 || int(id) >= len(s.cursors) {
-		log.errorf("You tried setting cursor id %v but it doesn't exist or its handle is invalid.", id)
+// Sets the active cursor. Pass `nil` to go back to the operating system's default cursor.
+set_cursor :: proc(cursor: Maybe(Cursor)) {
+	handle, ok := cursor.?
+
+	if !ok {
+		pf.set_cursor({})
 		return
 	}
-	cursor := s.cursors[id]
-	if id > 0 && cursor.os_handle == nil {
-		log.errorf("You tried setting cursor id %v but its data is invalid (it was destroyed).", id)
+
+	cd := hm.get(&s.cursors, handle)
+
+	if cd == nil {
+		log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", handle)
 		return
 	}
-	pf.set_cursor(cursor)
+
+	pf.set_cursor(cd^)
 }
 
-destroy_cursor :: proc(id: Cursor) {
-	if id == 0 do return
-	if id < 0 || int(id) >= len(s.cursors) {
-		log.errorf("You tried destroying cursor id %v but it doesn't exist or its handle is invalid.", id)
-		return
-	}
-	cursor := &s.cursors[id]
-	if cursor.os_handle == nil {
-		log.errorf("You tried destroying cursor id %v but it was already destroyed.", id)
+// Destroy a cursor previously created using `create_cursor`.
+destroy_cursor :: proc(cursor: Cursor) {
+	cd := hm.get(&s.cursors, cursor)
+
+	if cd == nil {
+		log.errorf("Trying to destroy invalid cursor %v. It may already be destroyed.", cursor)
 		return
 	}
 
 	// The platform layer owns everything behind `os_handle`, so it does all the freeing.
-	pf.destroy_cursor(cursor^)
+	pf.destroy_cursor(cd^)
 
-	append(&s.cursors_freelist, id)
-	cursor.os_handle = nil
+	hm.remove(&s.cursors, cursor)
 }
 
 //---------//
@@ -4298,9 +4296,6 @@ Rect :: struct {
 	w, h: f32,
 }
 
-// Default cursor ID is 0, to represent the OS arrow.
-DEFAULT_CURSOR :: Cursor(0)
-
 // An RGBA (Red, Green, Blue, Alpha) color. Each channel can have a value between 0 and 255.
 Color :: [4]u8
 
@@ -4593,8 +4588,10 @@ Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
-Cursor :: distinct int
+Cursor :: distinct Handle
 Cursor_Data :: struct {
+	handle: Cursor,
+
 	// Opaque handle owned by the platform layer. Whatever the platform needs in order to set and
 	// destroy the cursor lives behind this pointer, so only the platform layer may free it. It is
 	// nil if the cursor could not be created, or if it has been destroyed.
@@ -4818,8 +4815,7 @@ State :: struct {
 
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
-	cursors: [dynamic]Cursor_Data,
-	cursors_freelist: [dynamic]Cursor,
+	cursors: hm.Dynamic_Handle_Map(Cursor_Data, Cursor),
 	shape_drawing_texture: Texture_Handle,
 	batch_font: Font,
 	batch_camera: Maybe(Camera),
