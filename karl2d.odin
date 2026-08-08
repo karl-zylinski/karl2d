@@ -1643,6 +1643,63 @@ load_texture_from_image :: proc(image: Image) -> Texture {
 	}
 }
 
+// Load an image from disk into RAM. Supports the same formats as `load_texture_from_file`. The
+// image is always RGBA8 with straight (non-premultiplied) alpha.
+//
+// Use `destroy_image` when you are done with it.
+load_image :: proc(filename: string) -> Image {
+	data, data_ok := read_entire_file(filename, frame_allocator)
+
+	if !data_ok {
+		log.errorf("Failed loading image %s", filename)
+		return {}
+	}
+
+	return load_image_from_bytes(data)
+}
+
+// Load an image from a byte slice into RAM, for instance from `#load("my_image.png")`. Supports
+// the same formats as `load_texture_from_bytes`. The image is always RGBA8 with straight
+// (non-premultiplied) alpha.
+//
+// Use `destroy_image` when you are done with it.
+load_image_from_bytes :: proc(bytes: []u8) -> Image {
+	img, img_err := image.load_from_bytes(
+		bytes,
+		options = {.alpha_add_if_missing},
+		allocator = s.frame_allocator,
+	)
+
+	if img_err != nil {
+		log.errorf("Error loading image: %v", img_err)
+		return {}
+	}
+
+	defer image.destroy(img, s.frame_allocator)
+
+	if img.depth != 8 || img.channels != 4 {
+		log.errorf(
+			"Error loading image: expected 8-bit RGBA, got %v-bit with %v channels",
+			img.depth, img.channels,
+		)
+		return {}
+	}
+
+	pixels := make([]Color, img.width*img.height, s.allocator)
+	copy(pixels, slice.reinterpret([]Color, img.pixels.buf[:]))
+
+	return {
+		pixels = pixels,
+		width = img.width,
+		height = img.height,
+	}
+}
+
+// Destroy an image previously loaded using `load_image` or `load_image_from_bytes`.
+destroy_image :: proc(img: Image) {
+	delete(img.pixels, s.allocator)
+}
+
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
 // (w, h) = (texture_width, texture_height)
 get_texture_rect :: proc(t: Texture) -> Rect {

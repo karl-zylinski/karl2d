@@ -447,6 +447,22 @@ load_texture_from_bytes_raw :: proc(bytes: []u8, width: int, height: int, format
 // the image. However, you can create an `Image` struct manually and fill out the data as needed.
 load_texture_from_image :: proc(image: Image) -> Texture
 
+// Load an image from disk into RAM. Supports the same formats as `load_texture_from_file`. The
+// image is always RGBA8 with straight (non-premultiplied) alpha.
+//
+// Use `destroy_image` when you are done with it.
+load_image :: proc(filename: string) -> Image
+
+// Load an image from a byte slice into RAM, for instance from `#load("my_image.png")`. Supports
+// the same formats as `load_texture_from_bytes`. The image is always RGBA8 with straight
+// (non-premultiplied) alpha.
+//
+// Use `destroy_image` when you are done with it.
+load_image_from_bytes :: proc(bytes: []u8) -> Image
+
+// Destroy an image previously loaded using `load_image` or `load_image_from_bytes`.
+destroy_image :: proc(img: Image)
+
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
 // (w, h) = (texture_width, texture_height)
 get_texture_rect :: proc(t: Texture) -> Rect
