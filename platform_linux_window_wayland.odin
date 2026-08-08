@@ -102,7 +102,14 @@ wl_init :: proc(
 	wl.add_listener(s.relative_pointer, &relative_pointer_listener, nil)
 
 	s.cursor_surface = wl.compositor_create_surface(s.compositor)
-	s.cursor_theme = wl.cursor_theme_load(nil, 24, s.shm)
+	s.cursor_viewport = wl.wp_viewporter_get_viewport(s.viewporter, s.cursor_surface)
+	wl.wp_viewport_set_destination(s.cursor_viewport, 24, 24)
+
+	// The cursor shape protocol lets the compositor render its own default cursor at the correct
+	// size and DPI, so the theme is only needed as a fallback for compositors without it.
+	if s.cursor_shape_device == nil {
+		wl_load_cursor_theme()
+	}
 
 	unscaled_width := screen_width
 	unscaled_height := screen_height
@@ -414,13 +421,7 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 		s.pointer_enter_serial = u32(serial)
-		apply_cursor_visibility()
-		
-		if s.cursor != nil {
-			wl_point_at_cursor(s.cursor, u32(serial))
-		} else if s.cursor_shape_device != nil {
-			wl.cursor_shape_device_set_shape(s.cursor_shape_device, serial, .Default)
-		}
+		wl_apply_cursor()
 	},
 	leave = proc "c" (
 		data: rawptr,
@@ -537,6 +538,17 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		s.screen_height = int(f32(s.last_configure_height) * s.scale)
 		wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
 
+		// The cursor theme is loaded at a fixed physical size, so it needs reloading whenever
+		// the scale changes. Only relevant without the cursor shape protocol - the compositor
+		// handles its own DPI when we use that instead.
+		if s.cursor_shape_device == nil {
+			wl_load_cursor_theme()
+		}
+
+		// Makes any visible effect of the new scale (a rescaled custom cursor, or a reloaded
+		// theme cursor) happen instantly rather than waiting for the next pointer move.
+		wl_apply_cursor()
+
 		append(&s.events, Event_Window_Scale_Changed {
 			scale = scl,
 			screen_width = s.screen_width,
@@ -623,7 +635,7 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 
 wl_set_cursor_hidden :: proc(hidden: bool) {
 	s.cursor_hidden = hidden
-	apply_cursor_visibility()
+	wl_apply_cursor()
 }
 
 wl_is_cursor_hidden :: proc() -> bool {
@@ -700,34 +712,72 @@ wl_is_cursor_locked :: proc() -> bool {
 	return s.locked_pointer != nil
 }
 
-apply_cursor_visibility :: proc() {
+// Loads the cursor theme sized for the current DPI scale, destroying the previous one if this is
+// a reload. Only used as a fallback for compositors without wp_cursor_shape_manager_v1, since a
+// themed cursor image is a fixed physical size and has to be reloaded whenever the scale changes.
+wl_load_cursor_theme :: proc() {
+	if s.cursor_theme != nil {
+		wl.cursor_theme_destroy(s.cursor_theme)
+	}
+
+	theme_size := max(1, int(math.round(24 * s.scale)))
+	s.cursor_theme = wl.cursor_theme_load(nil, c.int(theme_size), s.shm)
+}
+
+// Sets the OS cursor from s.cursor_hidden and s.cursor (the current custom cursor, if any).
+// wl_set_cursor_hidden, wl_set_cursor and wl_destroy_cursor all go through this instead of
+// touching the pointer's cursor independently and clobbering each other. The pointer re-entering
+// the window also goes through it, since the compositor forgets the cursor whenever the pointer
+// leaves and comes back - this makes that happen instantly rather than showing the OS's own
+// default cursor for a moment.
+wl_apply_cursor :: proc() {
 	if s.pointer == nil {
 		return
 	}
 
 	if s.cursor_hidden {
 		wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
-	} else {
-		// Restore the default cursor. This would also happen if you leave and re-enter wind.
-		// This makes it happen instantly.
-		cursor := wl.cursor_theme_get_cursor(s.cursor_theme, "left_ptr")
-
-		if cursor != nil && cursor.image_count > 0 {
-			image := cursor.images[0]
-			buf := wl.cursor_image_get_buffer(image)
-			
-			wl.pointer_set_cursor(
-				s.pointer,
-				s.pointer_enter_serial,
-				s.cursor_surface,
-				i32(image.hotspot_x),
-				i32(image.hotspot_y),
-			)
-
-			wl.surface_attach(s.cursor_surface, buf, 0, 0)
-			wl.surface_commit(s.cursor_surface)
-		}
+		return
 	}
+
+	if s.cursor != nil {
+		wl_point_at_cursor(s.cursor, s.pointer_enter_serial)
+		return
+	}
+
+	// Default cursor. Prefer the shape protocol, which lets the compositor render it at the
+	// correct size and DPI itself; the themed surface below is only a fallback for compositors
+	// that don't support it.
+	if s.cursor_shape_device != nil {
+		wl.cursor_shape_device_set_shape(s.cursor_shape_device, s.pointer_enter_serial, .Default)
+		return
+	}
+
+	if s.cursor_theme == nil {
+		return
+	}
+
+	theme_cursor := wl.cursor_theme_get_cursor(s.cursor_theme, "left_ptr")
+	if theme_cursor == nil || theme_cursor.image_count == 0 {
+		return
+	}
+
+	image := theme_cursor.images[0]
+	buf := wl.cursor_image_get_buffer(image)
+
+	// The theme image is loaded at 24*scale physical pixels but the viewport set up in wl_init
+	// maps it down to a fixed 24x24 logical size, so the hotspot (in the image's own pixels) has
+	// to be scaled down to match.
+	wl.pointer_set_cursor(
+		s.pointer,
+		s.pointer_enter_serial,
+		s.cursor_surface,
+		c.int32_t(math.round(f32(image.hotspot_x) / s.scale)),
+		c.int32_t(math.round(f32(image.hotspot_y) / s.scale)),
+	)
+
+	wl.surface_attach(s.cursor_surface, buf, 0, 0)
+	wl.surface_commit(s.cursor_surface)
 }
 
 wl_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
@@ -839,23 +889,8 @@ wl_point_at_cursor :: proc(cursor: ^WL_Cursor, serial: u32) {
 }
 
 wl_set_cursor :: proc(cursor: Cursor_Data) {
-	if cursor.os_handle == nil {
-		// The cursor shape protocol is optional. Without it the default cursor is whatever
-		// `apply_cursor_visibility` puts up from the cursor theme.
-		if s.cursor_shape_device != nil {
-			wl.cursor_shape_device_set_shape(
-				s.cursor_shape_device,
-				u32(s.pointer_enter_serial),
-				.Default,
-			)
-		}
-
-		s.cursor = nil
-	} else {
-		cursor := (^WL_Cursor)(cursor.os_handle)
-		wl_point_at_cursor(cursor, u32(s.pointer_enter_serial))
-		s.cursor = cursor
-	}
+	s.cursor = cursor.os_handle == nil ? nil : (^WL_Cursor)(cursor.os_handle)
+	wl_apply_cursor()
 }
 
 wl_destroy_cursor :: proc(cursor: Cursor_Data) {
@@ -867,15 +902,8 @@ wl_destroy_cursor :: proc(cursor: Cursor_Data) {
 
 	// Only fall back to the default cursor if the one being destroyed is the one on screen.
 	if s.cursor == cursor {
-		if s.cursor_shape_device != nil {
-			wl.cursor_shape_device_set_shape(
-				s.cursor_shape_device,
-				u32(s.pointer_enter_serial),
-				.Default,
-			)
-		}
-
 		s.cursor = nil
+		wl_apply_cursor()
 	}
 
 	// Detach from the surface before the buffer and its memory go away.
@@ -949,6 +977,10 @@ WL_State :: struct {
 	shm: ^wl.SHM,
 	cursor_surface: ^wl.Surface,
 	cursor_theme: ^wl.Cursor_Theme,
+
+	// Scales the theme cursor surface down to a fixed 24x24 logical size. See wl_load_cursor_theme
+	// and wl_apply_cursor.
+	cursor_viewport: ^wl.WP_Viewport,
 
 	pointer_constraints: ^wl.ZWP_Pointer_Constraints_V1,
 	relative_pointer_manager: ^wl.ZWP_Relative_Pointer_Manager_V1,
