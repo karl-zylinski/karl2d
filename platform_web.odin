@@ -381,6 +381,9 @@ web_set_cursor_hidden :: proc(hidden: bool) {
 	} else {
 		js.set_element_style(s.canvas_id, "cursor", "default")
 	}
+
+	// This wrote the canvas' cursor behind `web_set_cursor`'s back, so let it write again.
+	s.applied_cursor = nil
 }
 
 web_is_cursor_hidden :: proc() -> bool {
@@ -411,30 +414,81 @@ web_is_cursor_locked :: proc() -> bool {
 
 web_create_cursor :: proc(pixels: []u8, hotspot: [2]int) -> Cursor_Data {
 	// There is no hardware cursor API on the web, so we hand the browser the PNG as a data URI and
-	// let CSS do the work. The base64 is copied into `style_value`, so it is not needed after that.
+	// let CSS do the work. The base64 is copied into the data URI, so it is not needed after that.
 	pixels_b64 := base64.encode(pixels, allocator = s.allocator)
 	defer delete(pixels_b64, s.allocator)
 
 	cursor := new(Web_Cursor, s.allocator)
-	cursor.style_value = fmt.aprintf(
-		"url(data:image/png;base64,%v) %v %v, auto",
+	cursor.data_uri = fmt.aprintf(
+		"data:image/png;base64,%v",
 		pixels_b64,
-		hotspot.x, hotspot.y,
 		allocator = s.allocator,
 	)
+	cursor.hotspot = hotspot
+	web_build_cursor_style(cursor)
 
 	return {
 		os_handle = cursor,
 	}
 }
 
+// The `cursor` property sizes its image in CSS pixels, but the rest of Karl2D works in device
+// pixels: the canvas is `scale` times bigger than its CSS box. A cursor made from a 128x128 image
+// would therefore be drawn twice as big as a 128x128 sprite drawn by the game on a 2x display.
+//
+// `image-set` fixes that by telling the browser the image has `scale` device pixels per CSS pixel,
+// which both scales it down and keeps it crisp. The hotspot is in CSS pixels too, so it is scaled
+// to match. We keep the plain `url` value around as a fallback, see `web_set_cursor`.
+web_build_cursor_style :: proc(cursor: ^Web_Cursor) {
+	delete(cursor.style_value, s.allocator)
+	delete(cursor.style_value_scaled, s.allocator)
+
+	scale := web_get_window_scale()
+
+	cursor.style_value = fmt.aprintf(
+		"url(%v) %v %v, auto",
+		cursor.data_uri,
+		cursor.hotspot.x, cursor.hotspot.y,
+		allocator = s.allocator,
+	)
+
+	cursor.style_value_scaled = fmt.aprintf(
+		"image-set(url(%v) %vx) %.2f %.2f, auto",
+		cursor.data_uri, scale,
+		f32(cursor.hotspot.x) / scale, f32(cursor.hotspot.y) / scale,
+		allocator = s.allocator,
+	)
+
+	cursor.built_for_scale = scale
+}
+
 web_set_cursor :: proc(cursor: Cursor_Data) {
 	if cursor.os_handle == nil {
-		js.set_element_style(s.canvas_id, "cursor", "default")	
-	} else {			
-		cursor := (^Web_Cursor)(cursor.os_handle)
-		js.set_element_style(s.canvas_id, "cursor", cursor.style_value)
+		js.set_element_style(s.canvas_id, "cursor", "default")
+		s.applied_cursor = nil
+		return
 	}
+
+	cursor := (^Web_Cursor)(cursor.os_handle)
+	scale := web_get_window_scale()
+
+	if cursor.built_for_scale != scale {
+		web_build_cursor_style(cursor)
+	}
+
+	// The data URI is tens of kilobytes and games tend to set the cursor every frame, so don't make
+	// the browser re-parse it when nothing has changed.
+	if s.applied_cursor == cursor && s.applied_scale == scale {
+		return
+	}
+
+	// Assign the plain value first. Browsers that can't parse `image-set` ignore the second
+	// assignment and keep this one, which is the right thing to fall back to.
+	js.set_element_style(s.canvas_id, "cursor", cursor.style_value)
+	js.set_element_style(s.canvas_id, "cursor", cursor.style_value_scaled)
+
+	s.applied_cursor = cursor
+	s.applied_scale = scale
 }
 
 web_destroy_cursor :: proc(cursor: Cursor_Data) {
@@ -442,10 +496,16 @@ web_destroy_cursor :: proc(cursor: Cursor_Data) {
 		return
 	}
 
-	js.set_element_style(s.canvas_id, "cursor", "default")
-
 	cursor := (^Web_Cursor)(cursor.os_handle)
+
+	if s.applied_cursor == cursor {
+		js.set_element_style(s.canvas_id, "cursor", "default")
+		s.applied_cursor = nil
+	}
+
+	delete(cursor.data_uri, s.allocator)
 	delete(cursor.style_value, s.allocator)
+	delete(cursor.style_value_scaled, s.allocator)
 	free(cursor, s.allocator)
 }
 
@@ -513,13 +573,24 @@ Web_State :: struct {
 	events: [dynamic]Event,
 	cursor_locked: bool,
 	cursor_hidden: bool,
+
+	// What `web_set_cursor` last wrote to the canvas, so it can skip redundant work.
+	applied_cursor: ^Web_Cursor,
+	applied_scale: f32,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 	window_mode: Window_Mode,
 	key_from_js_event_key_code: map[string]Keyboard_Key,
 }
 
 Web_Cursor :: struct {
+	data_uri: string,
+	hotspot: [2]int,
+
+	// Both CSS values for `data_uri`, rebuilt whenever the DPI scale changes. See
+	// `web_build_cursor_style`.
 	style_value: string,
+	style_value_scaled: string,
+	built_for_scale: f32,
 }
 
 s: ^Web_State
