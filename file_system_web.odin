@@ -30,7 +30,7 @@ file_read :: proc(f: ^File, p: []byte) -> (n: int, err: File_Error) {
 }
 
 file_seek :: proc(f: ^File, offset: i64, whence: io.Seek_From) -> (ret: i64, err: File_Error) {
-	log.error("file-seek not available on web")
+	log.error("file_seek not available on web")
 	return 0, .Unsupported_On_Web
 }
 
