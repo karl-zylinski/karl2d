@@ -420,7 +420,7 @@ pointer_listener := wl.Pointer_Listener {
 		apply_cursor_visibility()
 		
 		if s.cursor != nil {
-			wl.pointer_set_cursor(pointer, serial, s.cursor.surface, i32(s.cursor.hotspot.x), i32(s.cursor.hotspot.y))
+			wl_point_at_cursor(s.cursor, u32(serial))
 		} else if s.cursor_shape_device != nil {
 			wl.cursor_shape_device_set_shape(s.cursor_shape_device, serial, .Default)
 		}
@@ -831,6 +831,27 @@ wl_apply_cursor_scale :: proc(cursor: ^WL_Cursor) {
 	cursor.built_for_scale = s.scale
 }
 
+// Puts `cursor` on screen. `serial` must come from the most recent pointer enter event. Used both
+// when the game sets a cursor and when the pointer re-enters the window, which is its own path
+// through the compositor and needs the same scaling applied.
+wl_point_at_cursor :: proc(cursor: ^WL_Cursor, serial: u32) {
+	// The scale can change while the game runs, for instance when the window is dragged to a
+	// monitor with different DPI settings.
+	if cursor.built_for_scale != s.scale {
+		wl_apply_cursor_scale(cursor)
+	}
+
+	// The hotspot is in surface-local (logical) coordinates, but Karl2D takes it in physical
+	// pixels, like the image it belongs to.
+	wl.pointer_set_cursor(
+		s.pointer,
+		serial,
+		cursor.surface,
+		c.int32_t(math.round(f32(cursor.hotspot.x) / s.scale)),
+		c.int32_t(math.round(f32(cursor.hotspot.y) / s.scale)),
+	)
+}
+
 wl_set_cursor :: proc(cursor: Cursor_Data) {
 	if cursor.os_handle == nil {
 		// The cursor shape protocol is optional. Without it the default cursor is whatever
@@ -846,23 +867,7 @@ wl_set_cursor :: proc(cursor: Cursor_Data) {
 		s.cursor = nil
 	} else {
 		cursor := (^WL_Cursor)(cursor.os_handle)
-
-		// The scale can change while the game runs, for instance when the window is dragged to a
-		// monitor with different DPI settings.
-		if cursor.built_for_scale != s.scale {
-			wl_apply_cursor_scale(cursor)
-		}
-
-		// The hotspot is in surface-local (logical) coordinates, but Karl2D takes it in physical
-		// pixels, like the image it belongs to.
-		wl.pointer_set_cursor(
-			s.pointer,
-			u32(s.pointer_enter_serial),
-			cursor.surface,
-			c.int32_t(math.round(f32(cursor.hotspot.x) / s.scale)),
-			c.int32_t(math.round(f32(cursor.hotspot.y) / s.scale)),
-		)
-
+		wl_point_at_cursor(cursor, u32(s.pointer_enter_serial))
 		s.cursor = cursor
 	}
 }
