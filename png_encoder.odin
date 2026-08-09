@@ -26,27 +26,28 @@ encode_png :: proc(img: Image, allocator: runtime.Allocator) -> (data: []u8, ok:
 	}
 
 	stride := img.width*4
-	raw_size := img.height*(1 + stride)
+
+	// A PNG scanline is one filter-type byte followed by that row's pixel bytes.
+	row_size := 1 + stride
+	raw_size := img.height*row_size
 
 	STORED_BLOCK_MAX :: 65535
-	num_blocks := (raw_size + STORED_BLOCK_MAX - 1)/STORED_BLOCK_MAX
 
-	// Lay out the raw scanline data (one filter byte per row, then that row's RGBA bytes) in a
-	// scratch buffer first. It has to exist contiguously before we can compute its Adler-32, and
-	// splitting it into stored-block chunks below is easier done as a second pass over it.
-	raw := make([]u8, raw_size, frame_allocator)
+	// Each stored block holds whole scanlines. That keeps the block boundaries on row boundaries,
+	// so the rows can be written straight into the output instead of being staged in a scratch
+	// buffer and copied in afterwards.
+	rows_per_block := STORED_BLOCK_MAX/row_size
 
-	row_pos := 0
-	for y in 0 ..< img.height {
-		raw[row_pos] = 0 // filter type: none
-		row_pos += 1
-
-		row_pixels := img.pixels[y*img.width:(y + 1)*img.width]
-		copy(raw[row_pos:], slice.reinterpret([]u8, row_pixels))
-		row_pos += stride
+	if rows_per_block == 0 {
+		// A single scanline does not fit in a stored block, so it would have to be split across
+		// blocks. Only images wider than 16383 pixels hit this, which no cursor is.
+		return nil, false
 	}
 
-	// zlib stream = 2-byte header + stored deflate blocks + 4-byte big-endian Adler-32 of `raw`.
+	num_blocks := (img.height + rows_per_block - 1)/rows_per_block
+
+	// zlib stream = 2-byte header + stored deflate blocks + 4-byte big-endian Adler-32 of the
+	// scanline data.
 	idat_data_len := 2 + num_blocks*5 + raw_size + 4
 	idat_chunk_len := 4 + 4 + idat_data_len + 4
 
@@ -106,11 +107,16 @@ encode_png :: proc(img: Image, allocator: runtime.Allocator) -> (data: []u8, ok:
 		out[pos + 1] = 0x01
 		pos += 2
 
-		offset := 0
-		for offset < raw_size {
-			remaining := raw_size - offset
-			block_size := min(remaining, STORED_BLOCK_MAX)
-			is_final := offset + block_size >= raw_size
+		// Adler-32 is over the scanline data, which is not contiguous in `out` because a block
+		// header sits between each run of rows. It is chained a block at a time instead: the seed
+		// is the running state, so feeding the blocks in order matches hashing the whole thing.
+		adler := u32(1)
+		row := 0
+
+		for row < img.height {
+			block_rows := min(rows_per_block, img.height - row)
+			block_size := block_rows*row_size
+			is_final := row + block_rows >= img.height
 
 			out[pos] = is_final ? 1 : 0 // BFINAL in bit 0, BTYPE (00 = stored) in bits 1-2
 			pos += 1
@@ -121,13 +127,23 @@ encode_png :: proc(img: Image, allocator: runtime.Allocator) -> (data: []u8, ok:
 			endian.put_u16(out[pos:], .Little, ~len16)
 			pos += 2
 
-			copy(out[pos:], raw[offset:offset + block_size])
-			pos += block_size
+			block_start := pos
 
-			offset += block_size
+			for _ in 0 ..< block_rows {
+				out[pos] = 0 // filter type: none
+				pos += 1
+
+				row_pixels := img.pixels[row*img.width:(row + 1)*img.width]
+				copy(out[pos:], slice.reinterpret([]u8, row_pixels))
+				pos += stride
+
+				row += 1
+			}
+
+			adler = hash.adler32(out[block_start:pos], adler)
 		}
 
-		endian.put_u32(out[pos:], .Big, hash.adler32(raw))
+		endian.put_u32(out[pos:], .Big, adler)
 		pos += 4
 
 		endian.put_u32(out[pos:], .Big, hash.crc32(out[crc_start:pos]))
