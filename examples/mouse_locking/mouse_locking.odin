@@ -1,4 +1,4 @@
-// Shows how to lock/capture mouse cursor so that you can use it for non-cursor input.
+// Shows how to lock/capture the mouse so that you can use it for non-cursor input.
 package karl2d_mouse_locking_example
 
 import k2 "../.."
@@ -18,14 +18,14 @@ step :: proc() -> bool {
 	delta := k2.get_mouse_delta()
 
 	if k2.key_went_down(.Escape) {
-		k2.set_cursor_locked(false)
+		k2.set_mouse_locked(false)
 	}
 
 	if k2.mouse_button_went_down(.Left) {
-		k2.set_cursor_locked(true)
+		k2.set_mouse_locked(true)
 	}
 
-	if k2.is_cursor_locked() {
+	if k2.is_mouse_locked() {
 		if !k2.is_cursor_hidden() {
 			k2.set_cursor_hidden(true)
 		}

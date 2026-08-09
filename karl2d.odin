@@ -37,6 +37,10 @@ import hm "core:container/handle_map"
 // The window might be slightly larger due to borders and headers. The true width and height will be
 // scaled up by the scaling setting in the operating system.
 //
+// Call `init` before using Karl2D procedures that depend on runtime state, such as window,
+// drawing, input, audio, texture, font and shader procedures. Pure helper procedures, types and
+// constants can be used before `init`.
+//
 // The return value is a pointer to Karl2D's internal state. You can restore this state later using
 // `set_internal_state()`. This is useful for example when doing game code reload, as the state may
 // get reset when the library is reloaded. You can safely ignore the return value if you have no
@@ -185,6 +189,7 @@ init :: proc(
 ////     }
 //// }
 update :: proc() -> bool {
+	assert_initialized()
 	reset_frame_allocator()
 	calculate_frame_time()
 	update_audio_mixer()
@@ -198,6 +203,7 @@ update :: proc() -> bool {
 //
 // Called by `update`, but can be called manually if you need more control.
 close_window_requested :: proc() -> bool {
+	assert_initialized()
 	return s.close_window_requested
 }
 
@@ -240,6 +246,7 @@ shutdown :: proc() {
 // have set a Render Texture using the `set_render_texture` procedure, then that Render Texture will
 // be cleared instead.
 clear :: proc(color: Color) {
+	assert_initialized()
 	draw_current_batch()
 	rb.clear(s.batch_render_target, color)
 }
@@ -249,6 +256,7 @@ clear :: proc(color: Color) {
 //
 // Called as part of `update`, but can be called manually if you need more control.
 reset_frame_allocator :: proc() {
+	assert_initialized()
 	free_all(s.frame_allocator)
 }
 
@@ -257,6 +265,7 @@ reset_frame_allocator :: proc() {
 //
 // Called as part of `update`, but can be called manually if you need more control.
 calculate_frame_time :: proc() {
+	assert_initialized()
 	now := time.now()
 
 	if s.prev_frame_time != {} {
@@ -283,6 +292,7 @@ calculate_frame_time :: proc() {
 // WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
 // make sure that all rendering has been sent off to the GPU (as it calls `draw_current_batch()`).
 present :: proc() {
+	assert_initialized()
 	draw_current_batch()
 	rb.present()
 }
@@ -293,6 +303,7 @@ present :: proc() {
 //
 // Called by `update`, but can be called manually if you need more control.
 process_events :: proc() {
+	assert_initialized()
 	s.key_went_up = {}
 	s.key_went_down = {}
 	s.key_repeat = {}
@@ -340,7 +351,7 @@ process_events :: proc() {
 			s.mouse_position.x = e.position.x
 			s.mouse_position.y = e.position.y
 
-			s.mouse_delta = s.mouse_position - prev_pos
+			s.mouse_delta += s.mouse_position - prev_pos
 
 		case Event_Mouse_Teleported:
 			s.mouse_position.x = e.position.x
@@ -408,6 +419,7 @@ process_events :: proc() {
 // Warning: The returned slice is only valid during the current frame! You can make a clone of it
 // using the `slice.clone` procedure (import `core:slice`).
 get_events :: proc() -> []Event {
+	assert_initialized()
 	return s.events[:]
 }
 
@@ -415,6 +427,7 @@ get_events :: proc() -> []Event {
 //
 // This value is updated when `calculate_frame_time()` runs (which is also called by `update()`).
 get_frame_time :: proc() -> f32 {
+	assert_initialized()
 	return s.frame_time
 }
 
@@ -423,33 +436,39 @@ get_frame_time :: proc() -> f32 {
 //
 // This value is updated when `calculate_frame_time()` runs (which is also called by `update()`).
 get_time :: proc() -> f64 {
+	assert_initialized()
 	return s.time
 }
 
 // Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
 // windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
 set_screen_size :: proc(width: int, height: int) {
+	assert_initialized()
 	pf.set_screen_size(width, height)
 	rb.resize_swapchain(width, height)
 }
 
 // Gets the width of the drawing area within the window.
 get_screen_width :: proc() -> int {
+	assert_initialized()
 	return pf.get_screen_width()
 }
 
 // Gets the height of the drawing area within the window.
 get_screen_height :: proc() -> int  {
+	assert_initialized()
 	return pf.get_screen_height()
 }
 
 // Gets the screen width and height as a 2D vector.
 get_screen_size :: proc() -> Vec2 {
+	assert_initialized()
 	return { f32(pf.get_screen_width()), f32(pf.get_screen_height()) }
 }
 
 // Change the window title.
 set_window_title :: proc(title: string) {
+	assert_initialized()
 	pf.set_window_title(title)
 }
 
@@ -457,7 +476,16 @@ set_window_title :: proc(title: string) {
 //
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int) {
+	assert_initialized()
 	pf.set_window_position(x, y)
+}
+
+// Gets the window position in the same coordinate system used by `set_window_position`.
+//
+// This returns {} for web and Wayland builds.
+get_window_position :: proc() -> Vec2 {
+	assert_initialized()
+	return pf.get_window_position()
 }
 
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
@@ -467,11 +495,13 @@ set_window_position :: proc(x: int, y: int) {
 // wanted resolution by the scale and send it into `set_screen_size`. You can use a camera and set
 // the zoom to the window scale in order to make things the same percieved size.
 get_window_scale :: proc() -> f32 {
+	assert_initialized()
 	return pf.get_window_scale()
 }
 
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode) {
+	assert_initialized()
 	pf.set_window_mode(window_mode)
 }
 
@@ -660,48 +690,36 @@ get_mouse_delta :: proc() -> Vec2 {
 	return s.mouse_delta
 }
 
-// Hide or show the mouse cursor. The cursor may get shown again if the window loses focus.
-// Therefore, it's often best to use `is_cursor_hidden` to check the current status and use this
-// procedure to hide the cursor as needed.
-//
-// This call does not lock the cursor within the window, do that using a separate call to
-// `set_cursor_locked`.
-set_cursor_hidden :: proc(hidden: bool) {
-	pf.set_cursor_hidden(hidden)
-}
-
-// Returns true if the cursor is hidden. The cursor may get re-shown by the OS, for example when the
-// window loses focus. Therefore, this procedure may return false even though you've hidden the
-// cursor previously. It should always reflect the true hide-state of the cursor.
-is_cursor_hidden :: proc() -> bool {
-	return pf.is_cursor_hidden()
-}
-
-@(deprecated="Use set_cursor_hidden")
-set_cursor_visible :: proc(visible: bool) {
-	pf.set_cursor_hidden(!visible)
-}
-
-// Locks the mouse cursor within the window. While the cursor is locked, you should no longer use
+// Locks the mouse within the window. While the mouse is locked, you should no longer use
 // get_mouse_position, as it may have weird/static values. Instead, use get_mouse_delta to fetch how
 // much the mouse have been moved.
 //
-// On some platforms the cursor is just stuck at a specific point. On other platforms it may be
+// On some platforms the mouse is just stuck at a specific point. On other platforms it may be
 // teleported back to the center of the window on each frame.
 //
-// This call does not hide the cursor, do that separately using `set_cursor_visible`.
+// This call does not hide the cursor, do that separately using `set_cursor_hidden`.
 //
-// If the window loses focus, then the cursor may get unlocked. You can query the current lock
-// status using `is_cursor_locked`, which should take into account if the OS has unlocked it for you
-set_cursor_locked :: proc(locked: bool) {
-	pf.set_cursor_locked(locked)
+// If the window loses focus, then the mouse may get unlocked. You can query the current lock
+// status using `is_mouse_locked`, which should take into account if the OS has unlocked it for you
+set_mouse_locked :: proc(locked: bool) {
+	pf.set_mouse_locked(locked)
 }
 
-// Returns true if the mouse cursor is currently locked. Note that the mouse can get unlocked by the
-// OS, even though you previously called `set_cursor_locked(true)`. Therefore, it's best to check
-// the current status using this procedure and then lock the mouse if needed.
+// Returns true if the mouse is currently locked. Note that the mouse can get unlocked by the OS,
+// even though you previously called `set_mouse_locked(true)`. Therefore, it's best to check the
+// current status using this procedure and then lock the mouse if needed.
+is_mouse_locked :: proc() -> bool {
+	return pf.is_mouse_locked()
+}
+
+@(deprecated="Use set_mouse_locked instead")
+set_cursor_locked :: proc(locked: bool) {
+	set_mouse_locked(locked)
+}
+
+@(deprecated="Use is_mouse_locked instead")
 is_cursor_locked :: proc() -> bool {
-	return pf.is_cursor_locked()
+	return is_mouse_locked()
 }
 
 // Returns true if a gamepad with the supplied index is connected. The parameter should be a value
@@ -1650,6 +1668,65 @@ load_texture_from_image :: proc(image: Image) -> Texture {
 		width = image.width,
 		height = image.height,
 	}
+}
+
+// Load an image from disk into RAM. Supports the same formats as `load_texture_from_file`. The
+// image is always RGBA8 with straight (non-premultiplied) alpha.
+//
+// Use `destroy_image` when you are done with it.
+load_image :: proc(filename: string) -> Image {
+	data, data_ok := read_entire_file(filename, frame_allocator)
+
+	if !data_ok {
+		log.errorf("Failed loading image %s", filename)
+		return {}
+	}
+
+	return load_image_from_bytes(data)
+}
+
+// Load an image from a byte slice into RAM, for instance from `#load("my_image.png")`. Supports
+// the same formats as `load_texture_from_bytes`. The image is always RGBA8 with straight
+// (non-premultiplied) alpha.
+//
+// Use `destroy_image` when you are done with it.
+load_image_from_bytes :: proc(bytes: []u8) -> Image {
+	img, img_err := image.load_from_bytes(
+		bytes,
+		options = {.alpha_add_if_missing},
+		allocator = s.frame_allocator,
+	)
+
+	if img_err != nil {
+		log.errorf("Error loading image: %v", img_err)
+		return {}
+	}
+
+	if img.depth != 8 || img.channels != 4 {
+		log.errorf(
+			"Error loading image: expected 8-bit RGBA, got %v-bit with %v channels",
+			img.depth, img.channels,
+		)
+		image.destroy(img, s.frame_allocator)
+		return {}
+	}
+
+	pixels := make([]Color, img.width*img.height, s.allocator)
+	copy(pixels, slice.reinterpret([]Color, img.pixels.buf[:]))
+
+	res := Image {
+		pixels = pixels,
+		width = img.width,
+		height = img.height,
+	}
+
+	image.destroy(img, s.frame_allocator)
+	return res
+}
+
+// Destroy an image previously loaded using `load_image` or `load_image_from_bytes`.
+destroy_image :: proc(img: Image) {
+	delete(img.pixels, s.allocator)
 }
 
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
@@ -2795,6 +2872,18 @@ stop_audio_stream :: proc(stream: Audio_Stream) {
 	}
 }
 
+// Returns true if the audio stream is currently playing. Note that a looping audio stream will
+// always return true.
+is_audio_stream_playing :: proc(stream: Audio_Stream) -> bool {
+	sd := hm.get(&s.audio_streams, stream)
+
+	if sd == nil {
+		return false
+	}
+
+	return hm.is_valid(&s.playing_audio_buffers, sd.playing_buffer_handle)
+}
+
 // Set the volume of the audio stream. Range: 0 to 1.
 //
 // You can use this both with a playing and non-playing stream. If its already playing, then this
@@ -3765,6 +3854,59 @@ get_default_font :: proc() -> Font {
 }
 
 //---------//
+// CURSORS //
+//---------//
+
+// Sets the cursor, either to one the operating system provides or to one made with
+// `create_custom_cursor`. `set_cursor(.Default)` goes back to the normal OS cursor.
+set_cursor :: proc(cursor: Cursor) {
+	pf.set_cursor(cursor)
+}
+
+// Create a cursor from an image. `hotspot` is the position within the image that points at things,
+// in physical pixels.
+//
+// The cursor does not need `image` after it is created. You may destroy it.
+//
+// If the cursor can't be created, then an error is logged and `CUSTOM_CURSOR_NONE` is returned.
+create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+	if image.width == 0 || image.height == 0 {
+		log.error("Invalid cursor image: height or width is zero")
+		return {}
+	}
+
+	if len(image.pixels) != image.width*image.height {
+		log.error("Invalid cursor image: the pixels array is not of size image.width*image.height")
+		return {}
+	}
+
+	return pf.create_custom_cursor(image, hotspot)
+}
+
+// Destroy a cursor previously created using `create_custom_cursor`. If it is the cursor currently
+// on screen then Karl2D will restore the default OS cursor.
+destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+	pf.destroy_custom_cursor(custom_cursor)
+}
+
+// Hide or show the mouse cursor. The cursor may get shown again if the window loses focus.
+// Therefore, it's often best to use `is_cursor_hidden` to check the current status and use this
+// procedure to hide the cursor as needed.
+//
+// This call does not lock the mouse within the window, do that using a separate call to
+// `set_mouse_locked`.
+set_cursor_hidden :: proc(hidden: bool) {
+	pf.set_cursor_hidden(hidden)
+}
+
+// Returns true if the cursor is hidden. The cursor may get re-shown by the OS, for example when the
+// window loses focus. Therefore, this procedure may return false even though you've hidden the
+// cursor previously. It should always reflect the true hide-state of the cursor.
+is_cursor_hidden :: proc() -> bool {
+	return pf.is_cursor_hidden()
+}
+
+//---------//
 // SHADERS //
 //---------//
 
@@ -4034,7 +4176,10 @@ set_camera :: proc(camera: Maybe(Camera)) {
 
 	draw_current_batch()
 	s.batch_camera = camera
-	s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
+
+	if s.batch_render_target == RENDER_TARGET_NONE {
+		s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
+	}
 
 	if c, c_ok := camera.?; c_ok {
 		s.view_matrix = camera_view_matrix(c)
@@ -4523,6 +4668,40 @@ Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
+// The cursors an operating system provides out of the box. Use with `set_cursor`.
+//
+// Not every platform has every one of them. Where one is missing, the closest thing is used
+// instead:
+// - macOS has no public busy cursor, so `Wait` and `Progress` show the default arrow, and no
+//   public diagonal resize cursors, so `Resize_NESW` and `Resize_NWSE` do too.
+// - On Linux these come from the user's cursor theme. A theme missing one of them falls back to
+//   whatever the window would otherwise inherit, usually the default arrow.
+Standard_Cursor :: enum {
+	Default,
+	Text,
+	Hand,
+	Crosshair,
+	Wait,
+	Progress,
+	Resize_EW,
+	Resize_NS,
+	Resize_NESW,
+	Resize_NWSE,
+	Move,
+	Not_Allowed,
+}
+
+// A cursor made from your own image, created with `create_custom_cursor`.
+Custom_Cursor :: distinct Handle
+
+CUSTOM_CURSOR_NONE :: Custom_Cursor{}
+
+// The cursor to show: either one the OS provides or one you made. Never both, which is why this
+// is a union. The zero value is `Standard_Cursor.Default`.
+Cursor :: union #no_nil {
+	Standard_Cursor,
+	Custom_Cursor,
+}
 
 Font_Baked_Glyph_Range :: struct {
 	start_idx: int,
@@ -4790,8 +4969,8 @@ State :: struct {
 }
 
 
-// Support for up to 255 mouse buttons. Cast an int to type `Mouse_Button` to use things outside the
-// options presented here.
+// Karl2D currently reports left, right, and middle mouse buttons.
+// `Max` defines the upper bound of the `Mouse_Button` enum.
 Mouse_Button :: enum {
 	Left,
 	Right,
@@ -5072,6 +5251,10 @@ API_END :: true
 @(private="package")
 is_typable_rune :: proc(r: rune) -> bool {
 	return r >= 32 && r != 0x7f
+}
+
+assert_initialized :: proc(loc := #caller_location) {
+	assert(s != nil, "Call k2.init before using this Karl2D procedure", loc)
 }
 
 batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {

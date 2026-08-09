@@ -35,6 +35,11 @@ main :: proc() {
 8. If you want to make a web build of your game, continue to the [Making a web build](#making-a-web-build) section below.
 
 >[!NOTE]
+>Call `k2.init` before using Karl2D procedures that query or modify runtime state,
+>such as window size, input, drawing, audio, textures, fonts or shaders. Pure helper
+>procedures, types and constants can be used before `k2.init`.
+
+>[!NOTE]
 >On *Linux*, you may run into build errors due to missing depdencies. Exactly what you need to install may vary from distribution to distribution. On Ubuntu / Debian, something like this may help:
 >`sudo apt install libasound2-dev libgl1-mesa-dev libudev-dev libwayland-dev libegl1-mesa-dev`
 >Did you have to install something else on your distro? Let me know!

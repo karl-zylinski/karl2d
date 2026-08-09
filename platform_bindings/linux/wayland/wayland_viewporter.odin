@@ -48,6 +48,16 @@ wp_viewport_interface := Interface {
 	nil,
 }
 
+wp_viewport_destroy :: proc (wp_viewport: ^WP_Viewport) {
+	proxy_marshal_flags(
+		wp_viewport,
+		0,
+		nil,
+		proxy_get_version(wp_viewport),
+		MARSHAL_FLAG_DESTROY,
+	)
+}
+
 wp_viewport_set_source :: proc (
 	wp_viewport: ^WP_Viewport,
 	x, y, width, height: Fixed,
