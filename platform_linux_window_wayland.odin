@@ -39,6 +39,10 @@ import wl "platform_bindings/linux/wayland"
 _ :: log
 _ :: fmt
 
+// What size the theme cursor ends up on screen, in logical pixels. The theme is loaded at
+// THEME_CURSOR_SIZE*scale physical pixels and a viewport scales it back down to this.
+THEME_CURSOR_SIZE :: 24
+
 @(private="package")
 
 wl_state_size :: proc() -> int {
@@ -105,7 +109,7 @@ wl_init :: proc(
 
 	s.cursor_surface = wl.compositor_create_surface(s.compositor)
 	s.cursor_viewport = wl.wp_viewporter_get_viewport(s.viewporter, s.cursor_surface)
-	wl.wp_viewport_set_destination(s.cursor_viewport, 24, 24)
+	wl.wp_viewport_set_destination(s.cursor_viewport, THEME_CURSOR_SIZE, THEME_CURSOR_SIZE)
 
 	// The cursor shape protocol lets the compositor render its own default cursor at the correct
 	// size and DPI, so the theme is only needed as a fallback for compositors without it.
@@ -749,7 +753,7 @@ wl_load_cursor_theme :: proc() {
 		wl.cursor_theme_destroy(s.cursor_theme)
 	}
 
-	theme_size := max(1, int(math.round(24 * s.scale)))
+	theme_size := max(1, int(math.round(THEME_CURSOR_SIZE * s.scale)))
 	s.cursor_theme = wl.cursor_theme_load(nil, c.int(theme_size), s.shm)
 }
 
@@ -815,9 +819,9 @@ wl_apply_cursor :: proc() {
 	image := theme_cursor.images[0]
 	buf := wl.cursor_image_get_buffer(image)
 
-	// The theme image is loaded at 24*scale physical pixels but the viewport set up in wl_init
-	// maps it down to a fixed 24x24 logical size, so the hotspot (in the image's own pixels) has
-	// to be scaled down to match.
+	// The theme image is THEME_CURSOR_SIZE*scale physical pixels but the viewport set up in wl_init
+	// maps it down to THEME_CURSOR_SIZE logical pixels, so the hotspot (in the image's own pixels)
+	// has to be scaled down to match.
 	wl.pointer_set_cursor(
 		s.pointer,
 		s.pointer_enter_serial,
@@ -834,29 +838,29 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor 
 	stride := image.width * 4
 	size := stride * image.height
 
-	fd, err_fd := linux.memfd_create("cursor", {})
-	if err_fd != .NONE {
-		log.errorf("Failed to create Wayland cursor: memfd failed with %v", err_fd)
+	fd, fd_err := linux.memfd_create("cursor", {})
+	if fd_err != .NONE {
+		log.errorf("Failed to create Wayland cursor: memfd failed with %v", fd_err)
 		return {}
 	}
 
 	// The compositor dups the fd in shm_create_pool, so we don't have to keep ours around.
 	defer linux.close(fd)
 
-	if err_trunc := linux.ftruncate(fd, i64(size)); err_trunc != .NONE {
-		log.errorf("Failed to create Wayland cursor: ftruncate failed with %v", err_trunc)
+	if trunc_err := linux.ftruncate(fd, i64(size)); trunc_err != .NONE {
+		log.errorf("Failed to create Wayland cursor: ftruncate failed with %v", trunc_err)
 		return {}
 	}
 
-	data, err_mmap := linux.mmap(0, uint(size), {.READ, .WRITE}, {.SHARED}, fd, 0)
-	if err_mmap != .NONE {
-		log.errorf("Failed to create Wayland cursor: mmap failed with %v", err_mmap)
+	data, mmap_err := linux.mmap(0, uint(size), {.READ, .WRITE}, {.SHARED}, fd, 0)
+	if mmap_err != .NONE {
+		log.errorf("Failed to create Wayland cursor: mmap failed with %v", mmap_err)
 		return {}
 	}
 
 	// Convert to ARGB and premultiply alpha
 	pixel_data := ([^]u32)(data)
-	for i in 0 ..< len(image.pixels) {
+	for i in 0..<len(image.pixels) {
 		col := image.pixels[i]
 		a := u32(col.a)
 		r := u32(col.r) * a / 255
@@ -1008,22 +1012,22 @@ wl_set_internal_state :: proc(state: rawptr) {
 }
 
 WL_Cursor :: struct {
-	handle:   Custom_Cursor,
-	surface:  ^wl.Surface,
-	hotspot:  [2]int,
+	handle: Custom_Cursor,
+	surface: ^wl.Surface,
+	hotspot: [2]int,
 
 	// Size of the image in physical pixels.
-	width:    int,
-	height:   int,
+	width: int,
+	height: int,
 
 	// The compositor may read from the buffer at any point while it is attached to the surface, so
 	// the buffer and its mapping have to stay alive for as long as the cursor does.
-	buffer:    ^wl.Buffer,
-	data:      rawptr,
+	buffer: ^wl.Buffer,
+	data: rawptr,
 	data_size: int,
 
 	// Scales the surface down from physical to logical pixels, see `wl_apply_cursor_scale`.
-	viewport:        ^wl.WP_Viewport,
+	viewport: ^wl.WP_Viewport,
 	built_for_scale: f32,
 }
 
@@ -1067,8 +1071,8 @@ WL_State :: struct {
 	cursor_surface: ^wl.Surface,
 	cursor_theme: ^wl.Cursor_Theme,
 
-	// Scales the theme cursor surface down to a fixed 24x24 logical size. See wl_load_cursor_theme
-	// and wl_apply_cursor.
+	// Scales the theme cursor surface down to THEME_CURSOR_SIZE. See wl_load_cursor_theme and
+	// wl_apply_cursor.
 	cursor_viewport: ^wl.WP_Viewport,
 
 	pointer_constraints: ^wl.ZWP_Pointer_Constraints_V1,

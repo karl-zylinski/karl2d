@@ -524,9 +524,8 @@ web_standard_cursor_keyword :: proc(cursor: Standard_Cursor) -> string {
 	return "default"
 }
 
-// Applies s.cursor_hidden and s.current_cursor to the canvas. The two share the same underlying
-// CSS `cursor` property, so both set_cursor_hidden and set_cursor go through this instead of
-// touching it independently and clobbering each other.
+// Applies s.cursor_hidden and s.current_cursor to the canvas. The two share the same CSS `cursor`
+// property, so every entry point goes through this.
 web_apply_cursor :: proc() {
 	if s.cursor_hidden {
 		js.set_element_style(s.canvas_id, "cursor", "none")
@@ -536,8 +535,7 @@ web_apply_cursor :: proc() {
 
 	switch c in s.current_cursor {
 	case Standard_Cursor:
-		// No dedup here, unlike the custom cursor path below: a standard cursor is a short keyword
-		// rather than a data URI, so there is nothing worth avoiding a rewrite of.
+		// No dedup here: a keyword is tiny, unlike the data URI below.
 		js.set_element_style(s.canvas_id, "cursor", web_standard_cursor_keyword(c))
 		s.applied_cursor = nil
 

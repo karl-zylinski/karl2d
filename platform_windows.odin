@@ -585,7 +585,7 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 
 	// We receive RGBA but the DIB, like GDI generally, wants BGRA.
 	dib_colors := slice.from_ptr((^Color)(dib_pixels), len(image.pixels))
-	for i in 0 ..< len(image.pixels) {
+	for i in 0..<len(image.pixels) {
 		src := image.pixels[i]
 		dib_colors[i] = {src.b, src.g, src.r, src.a}
 	}

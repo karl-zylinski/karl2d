@@ -15,7 +15,7 @@ import "core:slice"
 //
 // The files produced are much larger than a real PNG encoder would make (there is no
 // compression), but every browser decodes them fine, which is the only thing this needs to do.
-@(private = "package")
+@(private="package")
 encode_png :: proc(img: Image, allocator: runtime.Allocator) -> (data: []u8, ok: bool) {
 	if img.width <= 0 || img.height <= 0 {
 		return nil, false
@@ -33,9 +33,8 @@ encode_png :: proc(img: Image, allocator: runtime.Allocator) -> (data: []u8, ok:
 
 	STORED_BLOCK_MAX :: 65535
 
-	// Each stored block holds whole scanlines. That keeps the block boundaries on row boundaries,
-	// so the rows can be written straight into the output instead of being staged in a scratch
-	// buffer and copied in afterwards.
+	// Each stored block holds whole scanlines. That puts the block boundaries on row boundaries, so
+	// we can write rows straight into the output with no scratch buffer.
 	rows_per_block := STORED_BLOCK_MAX/row_size
 
 	if rows_per_block == 0 {
@@ -129,7 +128,7 @@ encode_png :: proc(img: Image, allocator: runtime.Allocator) -> (data: []u8, ok:
 
 			block_start := pos
 
-			for _ in 0 ..< block_rows {
+			for _ in 0..<block_rows {
 				out[pos] = 0 // filter type: none
 				pos += 1
 

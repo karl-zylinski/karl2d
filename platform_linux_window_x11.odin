@@ -382,9 +382,8 @@ x11_set_cursor_hidden :: proc(hidden: bool) {
 	x11_apply_cursor()
 }
 
-// Applies s.cursor_hidden and s.current_cursor to the window. They all share the same underlying
-// X11 state (whatever DefineCursor/UndefineCursor last set), so every entry point goes through
-// this instead of touching it independently and clobbering the others.
+// Applies s.cursor_hidden and s.current_cursor to the window. They share the window's one cursor
+// (whatever DefineCursor last set), so every entry point goes through this.
 x11_apply_cursor :: proc() {
 	switch {
 	case s.cursor_hidden:
@@ -420,11 +419,8 @@ x11_apply_cursor :: proc() {
 	X.Flush(s.display)
 }
 
-// Loads a standard cursor out of the user's cursor theme, or returns 0 if the theme has no cursor
-// for it.
-//
-// The results are cached because each one is a server-side resource that we own and have to free,
-// and because setting a standard cursor is the kind of thing a game calls every frame.
+// Loads a standard cursor from the user's cursor theme, or 0 if the theme has none for it. Cached:
+// each one is a server-side resource we have to free, and games set cursors every frame.
 x11_standard_cursor :: proc(standard: Standard_Cursor) -> X.Cursor {
 	if cached, ok := s.standard_cursors[standard].?; ok {
 		return cached
@@ -497,7 +493,7 @@ x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 	// cursorImageDestroy free memory it does not own.
 	pixel_data := slice.from_ptr(img.pixels, len(image.pixels))
 
-	for i in 0 ..< len(image.pixels) {
+	for i in 0..<len(image.pixels) {
 		col := image.pixels[i]
 		a := u32(col.a)
 		r := u32(col.r) * a / 255
