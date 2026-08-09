@@ -4644,6 +4644,8 @@ Standard_Cursor :: enum {
 // A cursor made from your own image, created with `create_custom_cursor`.
 Custom_Cursor :: distinct Handle
 
+CUSTOM_CURSOR_NONE :: Custom_Cursor{}
+
 // The cursor to show: either one the OS provides or one you made. Never both, which is why this
 // is a union. The zero value is `Standard_Cursor.Default`.
 Cursor :: union #no_nil {

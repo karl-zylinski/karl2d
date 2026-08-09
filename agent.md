@@ -32,6 +32,21 @@ This document provides guidelines for LLM agents to read. It provides convention
 - **API Comments:**
   - Use clear, concise comments above procedures and types.
   - Document parameters and return values where appropriate.
+- **Handles use a zero value, not `Maybe`:** Every handle type has a `<TYPE>_NONE` constant that is
+  just its zero value (`TEXTURE_NONE`, `SOUND_NONE`, `CUSTOM_CURSOR_NONE`, ...). Declare one next to
+  the type. Do not wrap handles in `Maybe` to express "none", and do not add a separate `bool` for
+  whether a handle is set.
+  - A zero-value handle is already invalid, so `Maybe` adds a second way to say the same thing.
+  - It keeps handles assignable and comparable as-is. A `Custom_Cursor` goes straight into a
+    `Cursor` union, so `selected = gauntlet` and `selected == gauntlet` just work. Wrapped in a
+    `Maybe` both sides need unwrapping first, and the comparison needs an explicit `Cursor(...)`
+    conversion.
+  - There is nothing to unwrap, so no `x, ok := h.?` before every use, and no temporary to carry
+    the unwrapped value around.
+  - Passing a zero handle is safe: procedures that take handles log and carry on rather than
+    misbehaving. They log on every call though, so guard with `!= <TYPE>_NONE` in code that runs
+    each frame.
+  - See `examples/cursors/cursors.odin` for how this reads in practice.
 - **File organization:**
   - Group related procedures and types together.
   - Use clear section comments as in `karl2d.odin`. The format is three lines: a dash line, a centered text line, and another dash line. The dashes match the width of the text. Example:

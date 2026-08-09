@@ -1,3 +1,4 @@
+// This example lets you choose between the standard OS cursors as well as a loaded custom cursor.
 package karl2d_cursors_example
 
 import k2 "../.."
@@ -5,8 +6,8 @@ import "core:fmt"
 
 pos: k2.Vec2
 
-// A Maybe so that destroying the gauntlet can be recorded by clearing the handle.
-gauntlet: Maybe(k2.Custom_Cursor)
+// Set back to CUSTOM_CURSOR_NONE when destroyed, so the rest of the code can tell it is gone.
+gauntlet: k2.Custom_Cursor
 pointer: k2.Custom_Cursor
 
 // What to show when the mouse isn't over the button. A k2.Cursor holds either kind, so this needs
@@ -22,25 +23,24 @@ main :: proc() {
 // A cursor covers as many physical pixels as its image has, with no automatic scaling. These are
 // sized for 200% display scaling, so they look chunky at 100%. Pick the art based on
 // `k2.get_window_scale()` to get the same apparent size everywhere.
-make_custom_cursor :: proc(png: []u8, hotspot: [2]int) -> k2.Custom_Cursor {
-	image := k2.load_image_from_bytes(png)
-	defer k2.destroy_image(image)
-	return k2.create_custom_cursor(image, hotspot)
+create_custom_cursor :: proc(image_data: []u8, hotspot: [2]int) -> k2.Custom_Cursor {
+	image := k2.load_image_from_bytes(image_data)
+	custom_cursor := k2.create_custom_cursor(image, hotspot)
+	k2.destroy_image(image)
+	return custom_cursor
 }
 
-// Made in two places: at startup and again after a right click destroys it.
-make_gauntlet :: proc() -> k2.Custom_Cursor {
-	return make_custom_cursor(#load("gauntlet.png"), {4, 6})
+// Can be used in two places: at startup and again after a right click destroys it.
+create_gauntlet_cursor :: proc() -> k2.Custom_Cursor {
+	return create_custom_cursor(#load("gauntlet.png"), {4, 6})
 }
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Cursors Example")
 
-	c := make_gauntlet()
-	gauntlet = c
-	pointer = make_custom_cursor(#load("pointer.png"), {4, 5})
-
-	selected = c
+	gauntlet = create_gauntlet_cursor()
+	pointer = create_custom_cursor(#load("pointer.png"), {4, 5})
+	selected = gauntlet
 
 	pos = {f32(k2.get_screen_width()) / 2, f32(k2.get_screen_height()) / 2}
 }
@@ -53,18 +53,17 @@ step :: proc() -> bool {
 	mouse_pos := k2.get_mouse_position()
 	rect := k2.Rect{pos.x, pos.y, 50, 50}
 
-	hovering := mouse_pos.x >= rect.x && mouse_pos.x <= rect.x + rect.w &&
-		mouse_pos.y >= rect.y && mouse_pos.y <= rect.y + rect.h
+	hovering := mouse_pos.x >= rect.x &&
+	            mouse_pos.x <= rect.x + rect.w &&
+	            mouse_pos.y >= rect.y &&
+	            mouse_pos.y <= rect.y + rect.h
 
 	if k2.key_went_down(.G) {
-		// Make it again if a right click destroyed it.
-		c, ok := gauntlet.?
-		if !ok {
-			c = make_gauntlet()
-			gauntlet = c
+		if gauntlet == k2.CUSTOM_CURSOR_NONE {
+			gauntlet = create_gauntlet_cursor()
 		}
 
-		selected = c
+		selected = gauntlet
 	}
 
 	if k2.key_went_down(.X) {
@@ -83,18 +82,16 @@ step :: proc() -> bool {
 	if k2.mouse_button_went_down(.Right) {
 		// Using a destroyed cursor logs rather than misbehaves, but it logs every frame you do.
 		// Clearing the handle is what stops that.
-		if c, ok := gauntlet.?; ok {
-			k2.destroy_custom_cursor(c)
-			gauntlet = nil
-
-			if selected == k2.Cursor(c) {
-				selected = k2.Standard_Cursor.Default
+		if gauntlet != k2.CUSTOM_CURSOR_NONE {
+			if selected == gauntlet {
+				selected = .Default
 			}
+
+			k2.destroy_custom_cursor(gauntlet)
+			gauntlet = k2.CUSTOM_CURSOR_NONE
 		}
 	}
 
-	// Set the cursor before present(), otherwise it may flicker. Hovering shows the pointer without
-	// disturbing `selected`, the way a game swaps the cursor over a UI element.
 	if hovering {
 		k2.set_cursor(pointer)
 	} else {
@@ -108,7 +105,7 @@ step :: proc() -> bool {
 	k2.draw_text("X: default OS cursor", {20, 55}, 30, k2.GRAY)
 	k2.draw_text("Right click: destroy the gauntlet cursor", {20, 90}, 30, k2.GRAY)
 
-	if gauntlet == nil {
+	if gauntlet == k2.CUSTOM_CURSOR_NONE {
 		k2.draw_text("G: create the gauntlet cursor again", {20, 125}, 30, k2.YELLOW)
 	} else {
 		k2.draw_text("G: gauntlet cursor", {20, 125}, 30, k2.GRAY)
