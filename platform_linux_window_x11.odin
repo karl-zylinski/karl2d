@@ -488,23 +488,20 @@ x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 	img := X.cursorImageCreate(i32(image.width), i32(image.height))
 	defer X.cursorImageDestroy(img)
 
-	// Convert to ARGB and premultiply alpha into a temporary. The image is not ours to mutate, and
-	// Xcursor's buffer holds packed X.CursorPixel (u32) values rather than Color.
-	premultiplied := make([]Color, len(image.pixels), frame_allocator)
+	// Convert to ARGB and premultiply alpha, straight into the buffer Xcursor allocated for us.
+	// Overwriting `img.pixels` with our own pointer would leak that buffer and make
+	// cursorImageDestroy free memory it does not own.
+	pixel_data := slice.from_ptr(img.pixels, len(image.pixels))
 
 	for i in 0 ..< len(image.pixels) {
-		src := image.pixels[i]
-		a := src.a
-		r := u8(f32(src.r) * (f32(a) / 255))
-		g := u8(f32(src.g) * (f32(a) / 255))
-		b := u8(f32(src.b) * (f32(a) / 255))
-		premultiplied[i] = {b, g, r, a}
+		col := image.pixels[i]
+		a := u32(col.a)
+		r := u32(col.r) * a / 255
+		g := u32(col.g) * a / 255
+		b := u32(col.b) * a / 255
+		pixel_data[i] = a << 24 | r << 16 | g << 8 | b
 	}
 
-	// Copy into the buffer Xcursor allocated for us. Overwriting `img.pixels` with our own pointer
-	// would leak that buffer and make cursorImageDestroy free memory it does not own.
-	dst := slice.from_ptr(img.pixels, len(premultiplied))
-	copy(dst, slice.reinterpret([]X.CursorPixel, premultiplied))
 	img.xhot = X.CursorDim(hotspot.x)
 	img.yhot = X.CursorDim(hotspot.y)
 
