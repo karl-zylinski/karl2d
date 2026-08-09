@@ -489,8 +489,7 @@ x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 
 	// Convert to ARGB and premultiply alpha into a temporary. The image is not ours to mutate, and
 	// Xcursor's buffer holds packed X.CursorPixel (u32) values rather than Color.
-	premultiplied := make([]Color, len(image.pixels), s.allocator)
-	defer delete(premultiplied, s.allocator)
+	premultiplied := make([]Color, len(image.pixels), frame_allocator)
 
 	for i in 0 ..< len(image.pixels) {
 		src := image.pixels[i]

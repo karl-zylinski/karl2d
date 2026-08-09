@@ -593,8 +593,7 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 	// should be 0 so it doesn't mask out anything the alpha channel already made transparent.
 	// `make` zero-initializes, so there is nothing further to fill in.
 	mask_stride := ((image.width + 31)/32)*4
-	mask_bits := make([]u8, mask_stride*image.height, s.allocator)
-	defer delete(mask_bits, s.allocator)
+	mask_bits := make([]u8, mask_stride*image.height, frame_allocator)
 
 	h_mask := win32.CreateBitmap(i32(image.width), i32(image.height), 1, 1, raw_data(mask_bits))
 	defer win32.DeleteObject(cast(win32.HGDIOBJ) h_mask)

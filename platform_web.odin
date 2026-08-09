@@ -418,12 +418,11 @@ web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 	// There is no hardware cursor API on the web, so we hand the browser a PNG as a data URI and
 	// let CSS do the work. core:image/png can only decode, not encode, so we encode it ourselves;
 	// see encode_png's own comment for why that is fine here.
-	png_bytes, encode_ok := encode_png(image, s.allocator)
+	png_bytes, encode_ok := encode_png(image, frame_allocator)
 	if !encode_ok {
 		log.error("Failed to encode cursor image as PNG")
 		return {}
 	}
-	defer delete(png_bytes, s.allocator)
 
 	// Browsers cap `cursor` images at 128 CSS pixels; anything bigger is either clamped or, in
 	// Firefox, ignored entirely and silently replaced with the default cursor.
@@ -440,8 +439,7 @@ web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 	}
 
 	// The base64 is copied into the data URI below, so it is not needed after that.
-	pixels_b64 := base64.encode(png_bytes, allocator = s.allocator)
-	defer delete(pixels_b64, s.allocator)
+	pixels_b64 := base64.encode(png_bytes, allocator = frame_allocator)
 
 	cursor := Web_Cursor{hotspot = hotspot}
 	cursor.data_uri = fmt.aprintf(
