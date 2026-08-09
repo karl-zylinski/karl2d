@@ -24,7 +24,7 @@ This document provides guidelines for LLM agents to read. It provides convention
 
 ## Code Style
 - **Tabs, not spaces** for indentation.
-- **Max line length:** 100 characters. Use a ruler in your editor. Always split API comment lines that start with `//` at the 100 character ruler. Do not go beyond it!
+- **Max line length:** 100 characters. Use a ruler in your editor. Always split API comment lines that start with `//` at the 100 character ruler. Do not go beyond it! This is only for .odin files. Markdown files can and should use longer lines, since they will be viewed with line wrapping on.
 - **Procedure signatures** that are too long should be split across lines (see `init` in `karl2d.odin`).
 - **Spacing:**
   - Place `:` and `=` with consistent spacing as in `karl2d.odin`.
