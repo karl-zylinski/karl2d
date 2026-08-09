@@ -1535,9 +1535,13 @@ draw_text :: proc(
 			when Y_UP {
 				pos_y := q.y1
 			} else {
-				pos_y := q.y0
+				// This must stay `position.y`, matching draw_rect and every other drawing
+				// procedure. `q.y0` is an absolute, camera-scaled fontstash coordinate, not a
+				// world-space one: using it here breaks multiline spacing and text drawn under a
+				// zoomed camera.
+				pos_y := position.y
 			}
-			
+
 			dst := Rect {
 				position.x, pos_y,
 				qx1 - qx0, qy1 - qy0,
