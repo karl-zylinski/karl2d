@@ -24,14 +24,19 @@ main :: proc() {
 			append(&random_numbers, rand.int_max(int(math.pow(f32(10), f32(sz)))))
 		}
 
-		k2.draw_text(fmt.tprintf("Button has been clicked %v times", button_click_count), {300, 15}, 30)
+		k2.draw_text(
+			fmt.tprintf("Button has been clicked %v times", button_click_count),
+			{300, 15},
+			30,
+			k2.BLACK,
+		)
 
 		numbers_bg_rect := Rect { 10, 100, 500, f32(len(random_numbers) * 30 + 10)}
 		k2.draw_rect(numbers_bg_rect, k2.LIGHT_GREEN)
 		k2.draw_rect_outline(numbers_bg_rect, 1, k2.BLACK)
 
 		for n, idx in random_numbers {
-			k2.draw_text(fmt.tprint(n), {15, 105 + f32(idx) * 30}, 30)
+			k2.draw_text(fmt.tprint(n), {15, 105 + f32(idx) * 30}, 30, k2.BLACK)
 		}
 
 		k2.present()
@@ -59,7 +64,7 @@ button :: proc(r: Rect, text: string) -> bool {
 
 	textr := inset_rect(r, 5, 5)
 	text_width := k2.measure_text(text, textr.h).x
-	k2.draw_text(text, {textr.x + textr.w/2 - text_width/2, textr.y}, textr.h)
+	k2.draw_text(text, {textr.x + textr.w/2 - text_width/2, textr.y}, textr.h, k2.BLACK)
 
 	if in_rect && k2.mouse_button_went_down(.Left) {
 		return true

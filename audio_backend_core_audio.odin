@@ -24,7 +24,7 @@ import       "log"
 import CA    "platform_bindings/mac/CoreAudio"
 import Audio "platform_bindings/mac/AudioToolbox"
 
-BUFFER_SIZE :: AUDIO_MIX_CHUNK_SIZE * size_of(Audio_Sample)
+BUFFER_SIZE :: AUDIO_MIX_CHUNK_SIZE * size_of([2]Audio_Sample)
 
 Core_Audio_State :: struct {
 	queue:          Audio.QueueRef,
@@ -51,7 +51,7 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	descriptor.mFormatID         = .LinearPCM
 	descriptor.mFormatFlags      = {.IsFloat, .IsPacked}
 	descriptor.mFramesPerPacket  = 1
-	descriptor.mChannelsPerFrame = len(Audio_Sample)
+	descriptor.mChannelsPerFrame = 2
 	descriptor.mBitsPerChannel   = size_of(f32) * 8
 	descriptor.mBytesPerFrame    = descriptor.mChannelsPerFrame * (descriptor.mBitsPerChannel / 8)
 	descriptor.mBytesPerPacket   = descriptor.mBytesPerFrame * descriptor.mFramesPerPacket
@@ -92,15 +92,15 @@ core_audio_set_internal_state :: proc(state: rawptr) {
 	s = (^Core_Audio_State)(state)
 }
 
-core_audio_feed :: proc(samples: []Audio_Sample) {
+core_audio_feed :: proc(samples: [][2]Audio_Sample) {
 	remaining := samples
 	for len(remaining) > 0 {
 		sync.sema_wait(&s.semaphore)
 		buffer := s.buffers[s.buffer]
 		s.buffer = (s.buffer + 1) % len(s.buffers)
 
-		to_write_samples := min(int(buffer.mAudioDataBytesCapacity / size_of(Audio_Sample)), len(remaining))
-		to_write_bytes   := to_write_samples * size_of(Audio_Sample)
+		to_write_samples := min(int(buffer.mAudioDataBytesCapacity / size_of([2]Audio_Sample)), len(remaining))
+		to_write_bytes   := to_write_samples * size_of([2]Audio_Sample)
 		intrinsics.mem_copy_non_overlapping(buffer.mAudioData, raw_data(remaining), to_write_bytes)
 		buffer.mAudioDataByteSize = u32(to_write_bytes)
 		remaining = remaining[to_write_samples:]

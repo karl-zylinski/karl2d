@@ -35,7 +35,6 @@ import gl "vendor:OpenGL"
 import hm "core:container/handle_map"
 import "log"
 import "core:strings"
-import "core:slice"
 import la "core:math/linalg"
 
 _ :: la
@@ -117,14 +116,25 @@ gl_state_size :: proc() -> int {
 	return size_of(GL_State)
 }
 
-gl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapchain_height: int, allocator := context.allocator) {
+gl_init :: proc(
+	state: rawptr,
+	glue: Window_Render_Glue,
+	swapchain_width: int,
+	swapchain_height: int,
+	options: Init_Options,
+	allocator := context.allocator
+) {
 	s = (^GL_State)(state)
 	s.glue = glue
 	s.width = swapchain_width
 	s.height = swapchain_height
 	s.allocator = allocator
 
-	make_context_ok := s.glue->make_context()
+	hm.dynamic_init(&s.shaders, allocator)
+	hm.dynamic_init(&s.textures, allocator)
+	hm.dynamic_init(&s.render_targets, allocator)
+
+	make_context_ok := s.glue->make_context(options)
 
 	if !make_context_ok {
 		log.panic("Could not create a valid gl context")
@@ -133,8 +143,18 @@ gl_init :: proc(state: rawptr, glue: Window_Render_Glue, swapchain_width, swapch
 	gl.GenBuffers(1, &s.vertex_buffer_gpu)
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
 	gl.Enable(gl.BLEND)
+	gl.Disable(gl.CULL_FACE)
+
+	// Note that AA also requires setup when choosing format for backbuffer, see for example
+	// SAMPLE_BUFFER etc in the glue files.
+	if options.anti_alias {
+		gl.Enable(gl.MULTISAMPLE)
+	} else {
+		gl.Disable(gl.MULTISAMPLE)
+	}
 }
 
 gl_shutdown :: proc() {
@@ -299,14 +319,9 @@ gl_draw :: proc(
 	}
 	
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
-	vb_data := gl.MapBuffer(gl.ARRAY_BUFFER, gl.WRITE_ONLY)
-	{
-		gpu_map := slice.from_ptr((^u8)(vb_data), VERTEX_BUFFER_MAX)
-		copy(
-			gpu_map,
-			vertex_buffer,
-		)
-	}
+	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
+	gl.BufferSubData(gl.ARRAY_BUFFER, 0, len(vertex_buffer), raw_data(vertex_buffer))
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
 	if len(bound_textures) == len(gl_shd.texture_bindings) {
 		for t, t_idx in bound_textures {
@@ -323,8 +338,6 @@ gl_draw :: proc(
 			}
 		}
 	}
-
-	gl.UnmapBuffer(gl.ARRAY_BUFFER)
 
 	rt := hm.get(&s.render_targets, render_target)
 
@@ -377,8 +390,8 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawp
 	gl.GenTextures(1, &id)
 	gl.BindTexture(gl.TEXTURE_2D, id)
 
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 
@@ -651,6 +664,8 @@ gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := f
 		program = program,
 	}
 
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 	gl.GenVertexArrays(1, &gl_shd.vao)
 	gl.BindVertexArray(gl_shd.vao)
 
@@ -663,6 +678,8 @@ gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := f
 		gl.VertexAttribPointer(u32(input.register), num_components, format, norm ? gl.TRUE : gl.FALSE, i32(stride), uintptr(offset))
 		offset += format_size
 	}
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
 	constant_descs := make([dynamic]Shader_Constant_Desc, desc_allocator)
 	gl_constants := make([dynamic]GL_Shader_Constant, s.allocator)

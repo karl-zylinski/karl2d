@@ -7,13 +7,13 @@ gamepad_demo :: proc(gamepad: k2.Gamepad_Index, offset: k2.Vec2) {
 	if !k2.is_gamepad_active(gamepad) {
 		title := fmt.tprintf("Gamepad %v (not connected)", gamepad + 1)
 		ts := k2.measure_text(title, 30)
-		k2.draw_text(title, offset + {250, 60} - {ts.x/2, 0}, 30, k2.WHITE)
+		k2.draw_text(title, offset + {250, 60} - {ts.x/2, 0}, 30, color = k2.WHITE)
 		return
 	}
 
 	title := fmt.tprintf("Gamepad %v", gamepad + 1)
 	ts := k2.measure_text(title, 30)
-	k2.draw_text(title, offset + {250, 60} - {ts.x/2, 0}, 30, k2.WHITE)
+	k2.draw_text(title, offset + {250, 60} - {ts.x/2, 0}, 30, color = k2.WHITE)
 
 	button_color :: proc(
 		gamepad: k2.Gamepad_Index,
@@ -70,7 +70,7 @@ main :: proc() {
 }
 
 init :: proc() {
-	k2.init(1000, 600, "Karl2D Gamepad Demo")
+	k2.init(1000, 636, "Karl2D Gamepad Demo")
 }
 
 step :: proc() -> bool {
@@ -78,12 +78,28 @@ step :: proc() -> bool {
 		return false
 	}
 
-	k2.clear(k2.BLACK)
+	k2.clear(k2.DARK_BLUE)
 
 	gamepad_demo(0, {0, 0})
 	gamepad_demo(1, {500, 0})
 	gamepad_demo(2, {0, 300})
 	gamepad_demo(3, {500, 300})
+
+	//
+	// BOTTOM BAR
+	//
+
+	k2.set_camera(nil)
+	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size())
+	bottom_bar := k2.rect_cut_bottom(&screen_rect, 36, 0)
+	k2.draw_rect(bottom_bar, k2.DARK_GRAY)
+	bottom_bar = k2.rect_shrink(bottom_bar, 4, 4)
+	k2.draw_text("Connect and test up to 4 gamepads", k2.rect_top_left(bottom_bar), bottom_bar.h, k2.WHITE)
+	source_code_rect := k2.rect_cut_right(&bottom_bar, k2.ui_button_width("Source Code", bottom_bar.h) + 50, 0)
+
+	if k2.ui_button(source_code_rect, "Source Code") {
+		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/gamepad/gamepad.odin")
+	}
 
 	k2.present()
 	free_all(context.temp_allocator)

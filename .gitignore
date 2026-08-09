@@ -1,5 +1,3 @@
-*.sublime-project
-*.sublime-workspace
 raylib/
 bin/
 *.pdb
@@ -16,7 +14,8 @@ examples/scraps/*/build
 examples/scraps/*/bin
 karl2d.doc.compare.odin
 .nvim.lua
-.github/copilot-instructions.md
 .zed
 .vscode
+.sublime
 scrap/
+.DS_Store

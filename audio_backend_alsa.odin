@@ -29,7 +29,7 @@ Alsa_State :: struct {
 	// because the mixer tends to not never produce more than 2.5 * AUDIO_MIX_CHUNK_SIZE samples
 	// (it throws in another chunk if the remaining number of samples is less than
 	// 1.5 * AUDIO_MIX_CHUNK_SIZE).
-	buf: [AUDIO_MIX_CHUNK_SIZE*5]Audio_Sample,
+	buf: [AUDIO_MIX_CHUNK_SIZE*5][2]Audio_Sample,
 	buf_start: int,
 	buf_end: int,
 
@@ -89,11 +89,11 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 }
 
 alsa_thread_proc :: proc(t: ^thread.Thread) {
-	for s.run_thread {
+	for sync.atomic_load(&s.run_thread) {
 		time.sleep(5 * time.Millisecond)
 		start, end := sync.atomic_load(&s.buf_start), sync.atomic_load(&s.buf_end)
 
-		write :: proc(pcm: alsa.PCM, data: []Audio_Sample) {
+		write :: proc(pcm: alsa.PCM, data: [][2]Audio_Sample) {
 			remaining := data
 
 			for len(remaining) > 0 {
@@ -107,7 +107,7 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 					// Can't recover!
 					if recover_ret < 0 {
 						log.errorf("Fatal sound error:pcm_writei failed and recovery also failed: %s", alsa.strerror(c.int(ret)))
-						s.run_thread = false
+						sync.atomic_store(&s.run_thread, false)
 						return
 					}
 
@@ -132,7 +132,7 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 alsa_shutdown :: proc() {
 	log.debug("Shutdown audio backend alsa")
 
-	s.run_thread = false
+	sync.atomic_store(&s.run_thread, false)
 	thread.join(s.feed_thread)
 	thread.destroy(s.feed_thread)
 
@@ -147,7 +147,7 @@ alsa_set_internal_state :: proc(state: rawptr) {
 	s = (^Alsa_State)(state)
 }
 
-alsa_feed :: proc(samples: []Audio_Sample) {
+alsa_feed :: proc(samples: [][2]Audio_Sample) {
 	if s.pcm == nil || len(samples) == 0 {
 		return
 	}

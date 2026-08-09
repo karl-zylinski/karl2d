@@ -8,12 +8,17 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
 	get_events = wl_get_events,
-	get_width = wl_get_width,
-	get_height = wl_get_height,
+	set_title = wl_set_title,
+	get_screen_width = wl_get_screen_width,
+	get_screen_height = wl_get_screen_height,
 	set_position = wl_set_position,
-	set_size = wl_set_size,
+	set_screen_size = wl_set_screen_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
+	set_cursor_hidden = wl_set_cursor_hidden,
+	is_cursor_hidden = wl_is_cursor_hidden,
+	set_cursor_locked = wl_set_cursor_locked,
+	is_cursor_locked = wl_is_cursor_locked,
 	set_internal_state = wl_set_internal_state,
 }
 
@@ -21,6 +26,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:strings"
 import "core:c"
+import "core:math"
 
 import "log"
 import wl "platform_bindings/linux/wayland"
@@ -36,18 +42,15 @@ wl_state_size :: proc() -> int {
 
 wl_init :: proc(
 	window_state: rawptr,
-	window_width: int,
-	window_height: int,
+	screen_width: int,
+	screen_height: int,
 	window_title: string,
 	options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
 	s = (^WL_State)(window_state)
 	s.allocator = allocator
-	s.windowed_width = window_width
-	s.windowed_height = window_height
-	s.width = window_width
-	s.height = window_height
+	s.scale = 1
 	s.odin_ctx = context
 
 	s.display = wl.display_connect(nil)
@@ -73,21 +76,49 @@ wl_init :: proc(
 	wl.add_listener(xdg_surface, &window_listener, nil)
 	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(window_title, frame_allocator))
 
-	decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
+	if s.decoration_manager != nil {
+		decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
 
-	// This adds titlebar and buttons to the window.
-	wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
+		// This adds titlebar and buttons to the window.
+		wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
+	}
 
 	fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(s.fractional_scale_manager, s.surface)
 	wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
 
 	wl.surface_commit(s.surface)
 	wl.display_dispatch_pending(s.display)
+	wl.display_roundtrip(s.display)
+
+	s.relative_pointer = wl.zwp_relative_pointer_manager_v1_get_relative_pointer(
+		s.relative_pointer_manager,
+		s.pointer,
+	)
+
+	wl.add_listener(s.relative_pointer, &relative_pointer_listener, nil)
+
+	s.cursor_surface = wl.compositor_create_surface(s.compositor)
+	s.cursor_theme = wl.cursor_theme_load(nil, 24, s.shm)
+
+	unscaled_width := screen_width
+	unscaled_height := screen_height
+
+	scaled_width := int(f32(unscaled_width) * s.scale)
+	scaled_height := int(f32(unscaled_height) * s.scale)
 
 	callback := wl.surface_frame(s.surface)
 	wl.add_listener(callback, &frame_callback, nil)
 
-	s.window = wl.egl_window_create(s.surface, i32(s.windowed_width), i32(s.windowed_height))
+	s.viewport = wl.wp_viewporter_get_viewport(s.viewporter, s.surface)
+	wl.wp_viewport_set_destination(s.viewport, i32(unscaled_width), i32(unscaled_height))
+	s.window = wl.egl_window_create(s.surface, i32(scaled_width), i32(scaled_height))
+
+	s.screen_width = scaled_width
+	s.screen_height = scaled_height
+
+	wl.surface_commit(s.surface)
+	wl.display_dispatch_pending(s.display)
+	wl.display_roundtrip(s.display)
 
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
@@ -97,7 +128,11 @@ wl_init :: proc(
 		#panic("Unsupported combo of Linux + X11 and render backend '" + RENDER_BACKEND_NAME + "'")
 	}
 
-	set_window_mode(options.window_mode)
+	wl_set_window_mode(options.window_mode)
+
+	if options.disable_auto_scale_hint {
+		log.warn("disable_auto_scale_hint not supported on linux/wayland")
+	}
 }
 
 registry_listener := wl.Registry_Listener {
@@ -154,6 +189,42 @@ registry_listener := wl.Registry_Listener {
 				&wl.wp_fractional_scale_manager_v1_interface,
 				version,
 			)
+
+		case wl.wp_viewporter_interface.name:
+			s.viewporter = wl.registry_bind(
+				wl.WP_Viewporter,
+				registry,
+				name,
+				&wl.wp_viewporter_interface,
+				version,
+			)
+
+		case wl.zwp_relative_pointer_manager_v1_interface.name:
+			s.relative_pointer_manager = wl.registry_bind(
+				wl.ZWP_Relative_Pointer_Manager_V1,
+				registry,
+				name,
+				&wl.zwp_relative_pointer_manager_v1_interface,
+				version,
+			)
+
+		case wl.zwp_pointer_constraints_v1_interface.name:
+			s.pointer_constraints = wl.registry_bind(
+				wl.ZWP_Pointer_Constraints_V1,
+				registry,
+				name,
+				&wl.zwp_pointer_constraints_v1_interface,
+				version,
+			)
+
+		case wl.shm_interface.name:
+			s.shm = wl.registry_bind(
+				wl.SHM,
+				registry,
+				name,
+				&wl.shm_interface,
+				version,
+			)
 		}
 	},
 }
@@ -203,22 +274,28 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 		height: c.int32_t,
 		states: ^wl.Array,
 	) {
-		if s.configured && (s.width != int(width) || s.height != int(height)) {
-			wl.egl_window_resize(s.window, c.int(width), c.int(height), 0, 0)
+		w := int(width)
+		h := int(height)
 
+		context = s.odin_ctx
+
+		if s.last_configure_width != w || s.last_configure_height != h  {
 			if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-				s.windowed_width = int(width)
-				s.windowed_height = int(height)
+				s.last_configure_windowed_width = w
+				s.last_configure_windowed_height = h
 			}
 
-			s.width = int(width)
-			s.height = int(height)
+			s.screen_width = int(f32(w) * s.scale)
+			s.screen_height = int(f32(h) * s.scale)
+			s.last_configure_width = w
+			s.last_configure_height = h
 
-			context = s.odin_ctx
+			wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+			wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
 
 			append(&s.events, Event_Screen_Resize {
-				width = s.width,
-				height = s.height,
+				width = s.screen_width,
+				height = s.screen_height,
 			})
 		}
 		s.configured = true
@@ -227,9 +304,10 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 		context = s.odin_ctx
 		append(&s.events, Event_Close_Window_Requested{})
 	},
-	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, width: c.int32_t, height: c.int32_t,) { },
+	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, width: c.int32_t, height: c.int32_t,) {},
 	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, capabilities: ^wl.Array,) {},
 }
+
 
 window_listener := wl.XDG_Surface_Listener {
 	configure = proc "c" (data: rawptr, surface: ^wl.XDG_Surface, serial: c.uint32_t) {
@@ -310,7 +388,9 @@ pointer_listener := wl.Pointer_Listener {
 		surface_x: wl.Fixed,
 		surface_y: wl.Fixed,
 	) {
-
+		context = s.odin_ctx
+		s.pointer_enter_serial = u32(serial)
+		apply_cursor_visibility()
 	},
 	leave = proc "c" (
 		data: rawptr,
@@ -333,7 +413,7 @@ pointer_listener := wl.Pointer_Listener {
 		// Just bitshift them to remove the decimal part and obtain 
 		// a screen coordinate
 		append(&s.events, Event_Mouse_Move {
-			position = { f32(surface_x >> 8), f32(surface_y >> 8) }, 
+			position = { math.floor(f32(surface_x >> 8) * s.scale), math.floor(f32(surface_y >> 8) * s.scale) }, 
 		})
 	},
 	button = proc "c" (
@@ -375,7 +455,7 @@ pointer_listener := wl.Pointer_Listener {
 
 		// Vertical scroll
 		if axis == 0 {
-			event_direction: f32 = value > 0 ? 1 : -1
+			event_direction: f32 = value > 0 ? -1 : 1
 			
 			append(&s.events, Event_Mouse_Wheel {
 				delta = event_direction,
@@ -423,12 +503,15 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		context = s.odin_ctx
 		scl := f32(scale)/120
 		s.scale = scl
+		s.screen_width = int(f32(s.last_configure_width) * s.scale)
+		s.screen_height = int(f32(s.last_configure_height) * s.scale)
+		wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
 
-		// Disabled because we don't yet make the base scale of the
-		// window correct.
-		/*append(&s.events, Event_Window_Scale_Changed {
+		append(&s.events, Event_Window_Scale_Changed {
 			scale = scl,
-		})*/
+			screen_width = s.screen_width,
+			screen_height = s.screen_height,
+		})
 	},
 }
 
@@ -446,31 +529,34 @@ wl_get_events :: proc(events: ^[dynamic]Event) {
 	runtime.clear(&s.events)
 }
 
-wl_get_width :: proc() -> int {
-	return s.width
+wl_set_title :: proc(title: string) {
+	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(title, frame_allocator))
 }
 
-wl_get_height :: proc() -> int {
-	return s.height
+wl_get_screen_width :: proc() -> int {
+	return s.screen_width
+}
+
+wl_get_screen_height :: proc() -> int {
+	return s.screen_height
 }
 
 wl_set_position :: proc(x: int, y: int) {
 	log.error("set_position not implemented when using wayland")
 }
 
-wl_set_size :: proc(w, h: int) {
-	if s.window_mode == .Borderless_Fullscreen {
-		return
-	}
+wl_set_screen_size :: proc(w, h: int) {
+	s.screen_width = int(f32(w) * s.scale)
+	s.screen_height = int(f32(h) * s.scale)
+	s.last_configure_width = w
+	s.last_configure_height = h
 
-	s.windowed_width = w
-	s.windowed_height = h
-	wl.egl_window_resize(s.window, i32(w), i32(h), 0, 0)
+	wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
 }
 
 wl_get_window_scale :: proc() -> f32 {
-	// Disabled for now, as we don't make the base scale of the window correct yet.
-	return 1
+	return s.scale
 }
 
 wl_set_window_mode :: proc(window_mode: Window_Mode) {
@@ -479,8 +565,8 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	switch window_mode {
 	case .Windowed:
 		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
-		w := i32(s.windowed_width)
-		h := i32(s.windowed_height)
+		w := i32(s.last_configure_windowed_width)
+		h := i32(s.last_configure_windowed_height)
 		wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
 		wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
 
@@ -494,6 +580,115 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
+wl_set_cursor_hidden :: proc(hidden: bool) {
+	s.cursor_hidden = hidden
+	apply_cursor_visibility()
+}
+
+wl_is_cursor_hidden :: proc() -> bool {
+	return s.cursor_hidden
+}
+
+locked_pointer_listener := wl.ZWP_Locked_Pointer_V1_Listener {
+	locked = proc "c"(data: rawptr, lp: ^wl.ZWP_Locked_Pointer_V1) {
+		context = s.odin_ctx
+		s.locked_pointer = lp
+		cx := f32(s.screen_width / 2)
+		cy := f32(s.screen_height / 2)
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	},
+	unlocked = proc "c"(data: rawptr, lp: ^wl.ZWP_Locked_Pointer_V1) {
+		context = s.odin_ctx
+		s.locked_pointer = nil
+	},
+}
+
+
+relative_pointer_listener := wl.ZWP_Relative_Pointer_V1_Listener {
+	relative_motion = proc "c" (
+		data: rawptr,
+		rp: ^wl.ZWP_Relative_Pointer_V1,
+		t_hi, t_lo: c.uint32_t,
+		dx, dy, dx_unaccel, dy_unaccel: wl.Fixed,
+	) {
+		// Only used when pointer is locked
+		if s.locked_pointer == nil {
+			return
+		}
+		context = s.odin_ctx
+		cx := f32(s.screen_width / 2)
+		cy := f32(s.screen_height / 2)
+		fdx := f32(dx_unaccel >> 8)
+		fdy := f32(dy_unaccel >> 8)
+		// Move relative to center, matching the warp-based platforms
+		append(&s.events, Event_Mouse_Move {
+			position = {cx + fdx, cy + fdy},
+		})
+		// Teleport back so next delta is also relative to center
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	},
+}
+
+wl_set_cursor_locked :: proc(locked: bool) {
+	if locked {
+		if s.locked_pointer != nil {
+			return
+		}
+
+		s.locked_pointer = wl.zwp_pointer_constraints_v1_lock_pointer(
+			s.pointer_constraints, s.surface, s.pointer, nil,
+			wl.ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT,
+		)
+		wl.add_listener(s.locked_pointer, &locked_pointer_listener, nil)
+
+		// Synthetic teleport to center, so karl2d has the correct "previous position".
+		cx := f32(s.screen_width / 2)
+		cy := f32(s.screen_height / 2)
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	} else {
+		if s.locked_pointer == nil {
+			return
+		}
+
+		wl.zwp_locked_pointer_v1_destroy(s.locked_pointer)
+		s.locked_pointer = nil
+	}
+}
+
+wl_is_cursor_locked :: proc() -> bool {
+	return s.locked_pointer != nil
+}
+
+apply_cursor_visibility :: proc() {
+	if s.pointer == nil {
+		return
+	}
+
+	if s.cursor_hidden {
+		wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
+	} else {
+		// Restore the default cursor. This would also happen if you leave and re-enter wind.
+		// This makes it happen instantly.
+		cursor := wl.cursor_theme_get_cursor(s.cursor_theme, "left_ptr")
+
+		if cursor != nil && cursor.image_count > 0 {
+			image := cursor.images[0]
+			buf := wl.cursor_image_get_buffer(image)
+			
+			wl.pointer_set_cursor(
+				s.pointer,
+				s.pointer_enter_serial,
+				s.cursor_surface,
+				i32(image.hotspot_x),
+				i32(image.hotspot_y),
+			)
+
+			wl.surface_attach(s.cursor_surface, buf, 0, 0)
+			wl.surface_commit(s.cursor_surface)
+		}
+	}
+}
+
 wl_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^WL_State)(state)
@@ -501,10 +696,17 @@ wl_set_internal_state :: proc(state: rawptr) {
 
 WL_State :: struct {
 	allocator: runtime.Allocator,
-	width: int,
-	height: int,
-	windowed_width: int,
-	windowed_height: int,
+
+	screen_width: int,
+	screen_height: int,
+
+	// The last width/height we've gotten from wayland: Keeping this separate from screen_width and
+	// screen_height simplifies state management a bit.
+	last_configure_width: int,
+	last_configure_height: int,
+	last_configure_windowed_width: int,
+	last_configure_windowed_height: int,
+
 	events: [dynamic]Event,
 	window_mode: Window_Mode,
 
@@ -515,6 +717,8 @@ WL_State :: struct {
 	compositor: ^wl.Compositor,
 	window: ^wl.EGL_Window,
 	toplevel: ^wl.XDG_Toplevel,
+	viewporter: ^wl.WP_Viewporter,
+	viewport: ^wl.WP_Viewport,
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
@@ -524,6 +728,16 @@ WL_State :: struct {
 
 	keyboard: ^wl.Keyboard,
 	pointer: ^wl.Pointer,
+	pointer_enter_serial: u32,
+	cursor_hidden: bool,
+	shm: ^wl.SHM,
+	cursor_surface: ^wl.Surface,
+	cursor_theme: ^wl.Cursor_Theme,
+
+	pointer_constraints: ^wl.ZWP_Pointer_Constraints_V1,
+	relative_pointer_manager: ^wl.ZWP_Relative_Pointer_Manager_V1,
+	locked_pointer: ^wl.ZWP_Locked_Pointer_V1,
+	relative_pointer: ^wl.ZWP_Relative_Pointer_V1,
 
 	// True if toplevel_listener.configure has run
 	configured: bool,

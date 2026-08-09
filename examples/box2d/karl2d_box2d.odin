@@ -39,7 +39,7 @@ init :: proc() {
 
 	ground_box := b2.MakeBox(GROUND.w, GROUND.h)
 	ground_shape_def := b2.DefaultShapeDef()
-	_ = b2.CreatePolygonShape(ground_body_id, ground_shape_def, ground_box)
+	_ = b2.CreatePolygonShape(ground_body_id, ground_shape_def, &ground_box)
 
 	px: f32 = 400
 	py: f32 = 400
@@ -73,7 +73,7 @@ init :: proc() {
 
 	circle: b2.Circle
 	circle.radius = 40
-	_ = b2.CreateCircleShape(circle_body_id, shape_def, circle)
+	_ = b2.CreateCircleShape(circle_body_id, shape_def, &circle)
 }
 
 create_box :: proc(world_id: b2.WorldId, pos: b2.Vec2) -> b2.BodyId{
@@ -88,7 +88,7 @@ create_box :: proc(world_id: b2.WorldId, pos: b2.Vec2) -> b2.BodyId{
 
 	box := b2.MakeBox(20, 20)
 	box_def := b2.DefaultShapeDef()
-	_ = b2.CreatePolygonShape(body_id, box_def, box)
+	_ = b2.CreatePolygonShape(body_id, box_def, &box)
 
 	return body_id
 }
@@ -122,7 +122,7 @@ step :: proc() -> bool {
 		r := b2.Body_GetRotation(b)
 		rot := math.atan2(r.s, r.c)
 		// Y position is flipped because raylib has Y down and box2d has Y up.
-		k2.draw_rect_ex({position.x, position.y, 40, 40}, {20, 20}, rot, k2.BROWN)
+		k2.draw_rect({position.x, position.y, 40, 40}, k2.BROWN, {20, 20}, rot)
 	}
 
 	k2.draw_circle(pos, 40, k2.RED)

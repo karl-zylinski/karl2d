@@ -1,4 +1,5 @@
 #+build js
+#+vet explicit-allocators
 #+feature dynamic-literals
 #+private file
 
@@ -11,22 +12,31 @@ PLATFORM_WEB :: Platform_Interface {
 	shutdown = web_shutdown,
 	get_window_render_glue = web_get_window_render_glue,
 	get_events = web_get_events,
+	set_window_title = web_set_window_title,
 	set_screen_size = web_set_screen_size,
 	get_screen_width = web_get_screen_width,
 	get_screen_height = web_get_screen_height,
 	set_window_position = web_set_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
+	set_cursor_hidden = web_set_cursor_hidden,
+	is_cursor_hidden = web_is_cursor_hidden,
+	set_cursor_locked = web_set_cursor_locked,
+	is_cursor_locked = web_is_cursor_locked,
 	is_gamepad_active = web_is_gamepad_active,
 	get_gamepad_axis = web_get_gamepad_axis,
 	set_gamepad_vibration = web_set_gamepad_vibration,
+
+	open_url = web_open_url,
 
 	set_internal_state = web_set_internal_state,
 }
 
 import "core:sys/wasm/js"
+import "core:math"
 import "base:runtime"
 import "log"
+import "core:fmt"
 
 web_state_size :: proc() -> int {
 	return size_of(Web_State)
@@ -47,20 +57,20 @@ web_init :: proc(
 	s.canvas_id = "webgl-canvas"
 
 	js.set_document_title(window_title)
-
+	s.prev_scale = f32(js.device_pixel_ratio())
 	// The browser window probably has some other size than what was sent in.
 	switch init_options.window_mode {
 	case .Windowed:
 		web_set_screen_size(window_width, window_height)
 	case .Windowed_Resizable:
-		add_window_event_listener(.Resize, web_event_window_resize)
-		update_canvas_size(s.canvas_id)
+		web_set_screen_size_to_window_size(s.canvas_id)
 	case .Borderless_Fullscreen:
 		log.error("Borderless_Fullscreen not implemented on web, but you can make it happen by using Window_Mode.Windowed_Resizable and putting the game in a fullscreen iframe.")
 	}
 
 	s.window_mode = init_options.window_mode
 
+	add_window_event_listener(.Resize, web_event_window_resize)
 	add_canvas_event_listener(.Mouse_Move, web_event_mouse_move)
 	add_canvas_event_listener(.Mouse_Down, web_event_mouse_down)
 	add_window_event_listener(.Mouse_Up, web_event_mouse_up)
@@ -70,6 +80,12 @@ web_init :: proc(
 	add_window_event_listener(.Key_Up, web_event_key_up)
 	add_window_event_listener(.Focus, web_event_focus)
 	add_window_event_listener(.Blur, web_event_blur)
+
+	add_window_event_listener(.Pointer_Lock_Change, _web_event_pointer_lock_change)
+
+	if init_options.disable_auto_scale_hint {
+		log.warn("disable_auto_scale_hint not supported on web")
+	}
 }
 
 web_event_key_down :: proc(e: js.Event) {
@@ -91,23 +107,50 @@ web_event_key_up :: proc(e: js.Event) {
 }
 
 web_event_focus :: proc(e: js.Event) {
-	append(&s.events, Event_Window_Focused {
-	})
+	append(&s.events, Event_Window_Focused {})
 }
 
 web_event_blur :: proc(e: js.Event) {
-	append(&s.events, Event_Window_Unfocused {
-	})
+	s.cursor_locked = false
+	append(&s.events, Event_Window_Unfocused {})
 }
 
 web_event_window_resize :: proc(e: js.Event) {
-	update_canvas_size(s.canvas_id)
+	new_scale := f32(js.device_pixel_ratio())
+
+	// We get a window resize event on DPI scale change. Therefore we can piggyback on this to do
+	// send the event about the DPI changing.
+	if new_scale != s.prev_scale {
+		s.prev_scale = new_scale
+		web_set_screen_size(s.width, s.height)
+		append(&s.events, Event_Window_Scale_Changed {
+			scale = new_scale,
+			screen_width = s.width,
+			screen_height = s.height,
+		})
+	}
+
+	if s.window_mode == .Windowed_Resizable {
+		web_set_screen_size_to_window_size(s.canvas_id)
+	}
 }
 
 web_event_mouse_move :: proc(e: js.Event) {
-	append(&s.events, Event_Mouse_Move {
-		position = {f32(e.mouse.client.x), f32(e.mouse.client.y)},
-	})
+	if s.cursor_locked {
+		cx := f32(s.width / 2)
+		cy := f32(s.height / 2)
+		dx := f32(e.mouse.movement.x) * f32(js.device_pixel_ratio())
+		dy := f32(e.mouse.movement.y) * f32(js.device_pixel_ratio())
+		append(&s.events, Event_Mouse_Move { position = {cx + dx, cy + dy} })
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	} else {
+		append(&s.events, Event_Mouse_Move {
+			position = {
+				math.floor(f32(e.mouse.client.x) * f32(js.device_pixel_ratio())),
+				math.floor(f32(e.mouse.client.y) * f32(js.device_pixel_ratio())),
+			},
+		})
+	}
 }
 
 web_event_mouse_down :: proc(e: js.Event) {
@@ -168,25 +211,27 @@ remove_window_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Ev
 	js.remove_window_event_listener(evt, nil, callback, true)
 }
 
-update_canvas_size :: proc(canvas_id: HTML_Canvas_ID) {
+web_set_screen_size_to_window_size :: proc(canvas_id: HTML_Canvas_ID) {
 	rect := js.get_bounding_client_rect("body")
+	
+	scale := web_get_window_scale()
+	s.width = int(f32(rect.width) * scale)
+	s.height = int(f32(rect.height) * scale)
 
-	width := f64(rect.width)
-	height := f64(rect.height) 
+	js.set_element_key_f64(canvas_id, "width", f64(s.width))
+	js.set_element_key_f64(canvas_id, "height", f64(s.height))
 
-	js.set_element_key_f64(canvas_id, "width", width)
-	js.set_element_key_f64(canvas_id, "height", height)
-
-	s.width = int(rect.width)
-	s.height = int(rect.height)
+	js.set_element_style(canvas_id, "width", fmt.tprintf("%fpx", f64(rect.width)))
+	js.set_element_style(canvas_id, "height", fmt.tprintf("%fpx", f64(rect.height)))
 
 	append(&s.events, Event_Screen_Resize {
-		width = int(width),
-		height = int(height),
+		width = s.width,
+		height = s.height,
 	})
 }
 
 web_shutdown :: proc() {
+	delete(s.events)
 	delete(s.key_from_js_event_key_code)
 }
 
@@ -199,6 +244,8 @@ web_get_window_render_glue :: proc() -> Window_Render_Glue {
 }
 
 // This works for XBox controller -- does it work for PlayStation?
+//
+// The magic numbers are from https://gamepad-tester.net/
 KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
 	.None = 0,
 	
@@ -212,11 +259,11 @@ KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
 	.Right_Face_Left = 2, 
 	.Right_Face_Right = 1, 
 
-	.Left_Shoulder = 5,
-	.Left_Trigger = 7,
+	.Left_Shoulder = 4,
+	.Left_Trigger = 6,
 
-	.Right_Shoulder = 4,
-	.Right_Trigger = 6,
+	.Right_Shoulder = 5,
+	.Right_Trigger = 7,
 
 	.Left_Stick_Press = 10, 
 	.Right_Stick_Press = 11, 
@@ -281,31 +328,79 @@ web_clear_events :: proc() {
 	runtime.clear(&s.events)
 }
 
+web_set_window_title :: proc(title: string) {
+	js.set_document_title(title)
+}
+
 web_set_position :: proc(x: int, y: int) {
 	log.warn("set_window_position not implemented on web")
 }
 
 web_set_screen_size :: proc(w, h: int) {
-	s.width = w
-	s.height = h
-	js.set_element_key_f64(s.canvas_id, "width", f64(w))
-	js.set_element_key_f64(s.canvas_id, "height", f64(h))
+	scale := web_get_window_scale()
+	s.width = int(f32(w) * scale)
+	s.height = int(f32(h) * scale)
+
+	js.set_element_key_f64(s.canvas_id, "width", f64(s.width))
+	js.set_element_key_f64(s.canvas_id, "height", f64(s.height))
+
+	js.set_element_style(s.canvas_id, "width",  fmt.tprintf("%fpx", f64(w)))
+	js.set_element_style(s.canvas_id, "height", fmt.tprintf("%fpx", f64(h)))
 }
 
 web_get_window_scale :: proc() -> f32 {
 	return f32(js.device_pixel_ratio())
 }
 
-web_set_window_mode :: proc(window_mode: Window_Mode) {
-	if window_mode == .Windowed_Resizable && s.window_mode == .Windowed {
-		add_window_event_listener(.Resize, web_event_window_resize)
-		update_canvas_size(s.canvas_id)
-	} else if window_mode == .Windowed && s.window_mode == .Windowed_Resizable {
-		remove_window_event_listener(.Resize, web_event_window_resize)
-		web_set_screen_size(s.width, s.height)
+web_set_window_mode :: proc(new_mode: Window_Mode) {
+	if new_mode == .Borderless_Fullscreen {
+		log.error("Borderless_Fullscreen not implemented on web, but you can make it happen by using Window_Mode.Windowed_Resizable and putting the game in a fullscreen iframe.")
+		return
 	}
 
-	s.window_mode = window_mode
+	old_mode := s.window_mode
+	s.window_mode = new_mode
+
+	if new_mode == .Windowed_Resizable && old_mode == .Windowed {
+		web_set_screen_size_to_window_size(s.canvas_id)
+	} else if new_mode == .Windowed && old_mode == .Windowed_Resizable {
+		web_set_screen_size(s.width, s.height)
+	}
+}
+
+web_set_cursor_hidden :: proc(hidden: bool) {
+	s.cursor_hidden = hidden
+	if hidden {
+		js.set_element_style(s.canvas_id, "cursor", "none")
+	} else {
+		js.set_element_style(s.canvas_id, "cursor", "default")
+	}
+}
+
+web_is_cursor_hidden :: proc() -> bool {
+	return s.cursor_hidden
+}
+
+_web_event_pointer_lock_change :: proc(e: js.Event) {
+	js.evaluate("document.getElementById('webgl-canvas')._pointerLocked = document.pointerLockElement !== null ? 1 : 0")
+	s.cursor_locked = js.get_element_key_f64("webgl-canvas", "_pointerLocked") != 0
+}
+
+web_set_cursor_locked :: proc(locked: bool) {
+	if locked {
+		js.evaluate("document.getElementById('webgl-canvas').requestPointerLock()")
+		cx := f32(s.width / 2)
+		cy := f32(s.height / 2)
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	} else {
+		js.evaluate("document.exitPointerLock()")
+	}
+
+	// s.cursor_locked set by _web_event_pointer_lock_change
+}
+
+web_is_cursor_locked :: proc() -> bool {
+	return s.cursor_locked
 }
 
 web_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -329,13 +424,30 @@ web_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 		return f32(s.gamepad_state[gamepad].buttons[KARL2D_GAMEPAD_BUTTON_FROM_JS[.Right_Trigger]].value)
 	}
 
-	return f32(s.gamepad_state[gamepad].axes[int(axis)])
+	js_axis: int
+
+	switch axis {
+	case .None: return 0
+	case .Left_Stick_X: js_axis = 0
+	case .Left_Stick_Y: js_axis = 1
+	case .Right_Stick_X: js_axis = 2
+	case .Right_Stick_Y: js_axis = 3
+	case .Left_Trigger: return 0 // virtually unreachable
+	case .Right_Trigger: return 0 // virtually unreachable
+	}
+
+	return f32(s.gamepad_state[gamepad].axes[js_axis])
 }
 
 web_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return
 	}
+}
+
+web_open_url :: proc(url: string) -> bool {
+	js.open(url)
+	return true
 }
 
 web_set_internal_state :: proc(state: rawptr) {
@@ -351,7 +463,10 @@ Web_State :: struct {
 	canvas_id: HTML_Canvas_ID,
 	width: int,
 	height: int,
+	prev_scale: f32,
 	events: [dynamic]Event,
+	cursor_locked: bool,
+	cursor_hidden: bool,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 	window_mode: Window_Mode,
 	key_from_js_event_key_code: map[string]Keyboard_Key,

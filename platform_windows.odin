@@ -1,3 +1,4 @@
+#+vet explicit-allocators
 #+build windows
 #+private file
 
@@ -10,16 +11,23 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	shutdown = windows_shutdown,
 	get_window_render_glue = windows_get_window_render_glue,
 	get_events = windows_get_events,
+	set_window_title = windows_set_window_title,
 	get_screen_width = windows_get_screen_width,
 	get_screen_height = windows_get_screen_height,
 	set_window_position = windows_set_window_position,
 	set_screen_size = windows_set_screen_size,
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
+	set_cursor_hidden = windows_set_cursor_hidden,
+	is_cursor_hidden = windows_is_cursor_hidden,
+	set_cursor_locked = windows_set_cursor_locked,
+	is_cursor_locked = windows_is_cursor_locked,
 
 	is_gamepad_active = windows_is_gamepad_active,
 	get_gamepad_axis = windows_get_gamepad_axis,
 	set_gamepad_vibration = windows_set_gamepad_vibration,
+
+	open_url = windows_open_url,
 
 	set_internal_state = windows_set_internal_state,
 }
@@ -27,7 +35,6 @@ PLATFORM_WINDOWS :: Platform_Interface {
 import win32 "core:sys/windows"
 import "base:runtime"
 @require import "log"
-
 
 windows_state_size :: proc() -> int {
 	return size_of(Windows_State)
@@ -44,8 +51,6 @@ windows_init :: proc(
 	assert(platform_state != nil)
 	s = (^Windows_State)(platform_state)
 	s.allocator = allocator
-	s.screen_width = screen_width
-	s.screen_height = screen_height
 	s.events = make([dynamic]Event, allocator = allocator)
 	s.custom_context = context
 	
@@ -56,7 +61,7 @@ windows_init :: proc(
 
 	cls := win32.WNDCLASSW {
 		style = win32.CS_OWNDC,
-		lpfnWndProc = window_proc,
+		lpfnWndProc = _windows_window_proc,
 		lpszClassName = CLASS_NAME,
 		hInstance = instance,
 		hCursor = win32.LoadCursorA(nil, win32.IDC_ARROW),
@@ -64,30 +69,41 @@ windows_init :: proc(
 
 	win32.RegisterClassW(&cls)
 
+	dpix, dpiy: win32.UINT
+	win32.GetDpiForMonitor(win32.MonitorFromWindow(nil, .MONITOR_DEFAULTTOPRIMARY), {}, &dpix, &dpiy)
+	s.window_scale = f32(dpix)/96.0
+
+	if options.disable_auto_scale_hint {
+		s.screen_width = screen_width
+		s.screen_height = screen_height
+	} else {
+		s.screen_width = int(f32(screen_width) * s.window_scale)
+		s.screen_height = int(f32(screen_height) * s.window_scale)
+	}
+
 	// Since this is the size of the screen we adjust it to become the size of the window. This is
 	// done using `AdjustWindowRectExForDpi`. It adds the space needed for the window borders etc.
 	initial_rect := win32.RECT {
 		0,
 		0,
-		i32(screen_width),
-		i32(screen_height),
+		i32(s.screen_width),
+		i32(s.screen_height),
 	}
 
-	dpix, dpiy: win32.UINT
-	win32.GetDpiForMonitor(win32.MonitorFromWindow(nil, .MONITOR_DEFAULTTOPRIMARY), {}, &dpix, &dpiy)
 	win32.AdjustWindowRectExForDpi(&initial_rect, windows_get_style(options.window_mode), false, {}, dpix)
 
 	// We create a window with default position and size. We set the correct size in
 	// `windows_set_window_mode`.
 	s.hwnd = win32.CreateWindowW(
 		CLASS_NAME,
-		win32.utf8_to_wstring(window_title),
+		win32.utf8_to_wstring(window_title, frame_allocator),
 		win32.WS_VISIBLE,
 		win32.CW_USEDEFAULT, win32.CW_USEDEFAULT,
 		i32(initial_rect.right - initial_rect.left),
 		i32(initial_rect.bottom - initial_rect.top),
 		nil, nil, instance, nil,
 	)
+
 	assert(s.hwnd != nil, "Failed creating window")
 
 	windows_set_window_mode(options.window_mode)
@@ -119,10 +135,19 @@ windows_get_window_render_glue :: proc() -> Window_Render_Glue {
 windows_get_events :: proc(events: ^[dynamic]Event) {
 	msg: win32.MSG
 
-	// This loop will call `window_proc` which will add more things to `frame_events`.
+	// This loop will call `_windows_window_proc` which will add more things to `frame_events`.
 	for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
 		win32.TranslateMessage(&msg)
 		win32.DispatchMessageW(&msg)
+	}
+
+	// While minimized, the DWM stops compositing the window, so IDXGISwapChain::Present no longer
+	// waits for vblank. Without this, the game loop's only throttling (vsync inside Present) goes
+	// away and it spins as fast as the CPU/GPU allow, pegging a core at 100%. Sleeping here caps us
+	// to roughly 100 checks per second instead, while still waking up promptly when the window is
+	// restored.
+	if s.minimized {
+		win32.Sleep(10)
 	}
 
 	// 4 is the limit set by microsoft, not by us. So I'm not using MAX_GAMEPADS here.
@@ -131,6 +156,10 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 
 		for win32.XInputGetKeystroke(win32.XUSER(gamepad), 0, &gp_event) == .SUCCESS {
 			button: Maybe(Gamepad_Button)
+
+			if .REPEAT in gp_event.Flags {
+				continue
+			}
 
 			#partial switch gp_event.VirtualKey {
 			case .DPAD_UP:    button = .Left_Face_Up
@@ -144,14 +173,11 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 			case .B: button = .Right_Face_Right
 
 			case .LSHOULDER: button = .Left_Shoulder
-			case .LTRIGGER:  button = .Left_Trigger
-
 			case .RSHOULDER: button = .Right_Shoulder
-			case .RTRIGGER:  button = .Right_Trigger
 
 			case .BACK: button = .Middle_Face_Left
 			
-			// Not sure you can get the "middle button" with XInput (the one that goe to dashboard)
+			// Not sure you can get the "middle button" with XInput (the one that goes to dashboard)
 
 			case .START: button = .Middle_Face_Right
 
@@ -178,6 +204,47 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 				append(&s.events, evt)
 			}
 		}
+
+		// Triggers are handled separately because RTRIGGER and LTRIGGER don't get key down events
+		// while held at same time.
+		gp_state: win32.XINPUT_STATE
+		if win32.XInputGetState(win32.XUSER(gamepad), &gp_state) == .SUCCESS {
+			THRESHOLD :: win32.BYTE(win32.XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
+
+			cur_lt := gp_state.Gamepad.bLeftTrigger
+			cur_rt := gp_state.Gamepad.bRightTrigger
+
+			prev := &s.previous_gamepad_triggers[gamepad]
+			prev_lt := prev[0]
+			prev_rt := prev[1]
+
+			if cur_lt >= THRESHOLD && prev_lt < THRESHOLD {
+				append(&s.events, Event_Gamepad_Button_Went_Down {
+					gamepad = gamepad,
+					button = .Left_Trigger,
+				})
+			} else if cur_lt < THRESHOLD && prev_lt >= THRESHOLD {
+				append(&s.events, Event_Gamepad_Button_Went_Up {
+					gamepad = gamepad,
+					button = .Left_Trigger,
+				})
+			}
+
+			if cur_rt >= THRESHOLD && prev_rt < THRESHOLD {
+				append(&s.events, Event_Gamepad_Button_Went_Down {
+					gamepad = gamepad,
+					button = .Right_Trigger,
+				})
+			} else if cur_rt < THRESHOLD && prev_rt >= THRESHOLD {
+				append(&s.events, Event_Gamepad_Button_Went_Up {
+					gamepad = gamepad,
+					button = .Right_Trigger,
+				})
+			}
+
+			prev[0] = cur_lt
+			prev[1] = cur_rt
+		}
 	}
 
 	append(events, ..s.events[:])
@@ -190,6 +257,10 @@ windows_get_screen_width :: proc() -> int {
 
 windows_get_screen_height :: proc() -> int {
 	return s.screen_height
+}
+
+windows_set_window_title :: proc(title: string) {
+	win32.SetWindowTextW(s.hwnd, win32.utf8_to_wstring(title, frame_allocator))
 }
 
 // Because positions can be offset in Windows: There is an "inivisble border" on Windows. This makes
@@ -269,7 +340,7 @@ windows_set_screen_size :: proc(w, h: int) {
 }
 
 windows_get_window_scale :: proc() -> f32 {
-	return f32(win32.GetDpiForWindow(s.hwnd))/96.0
+	return s.window_scale
 }
 
 windows_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -308,6 +379,15 @@ windows_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	return 0
 }
 
+windows_open_url :: proc(url: string) -> bool {
+	cmd := win32.utf8_to_wstring(url, frame_allocator)
+	res := win32.ShellExecuteW(s.hwnd, "open", cmd, nil, nil, win32.SW_NORMAL)
+
+	// https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecutew#return-value:
+	// If the function succeeds, it returns a value greater than 32.
+	return uintptr(res) > 32
+}
+
 windows_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return
@@ -335,11 +415,21 @@ Windows_State :: struct {
 	screen_width: int,
 	screen_height: int,
 
+	window_scale: f32,
+
 	in_resize_move_state: bool,
 	screen_width_before_resize_move: int,
 	screen_height_before_resize_move: int,
 
+	minimized: bool,
+
+	// left and right values for the triggers of each gamepad. We use this to known if a trigger has
+	// been pressed/released like a button.
+	previous_gamepad_triggers: [MAX_GAMEPADS][2]win32.BYTE,
+
 	events: [dynamic]Event,
+	cursor_locked: bool,
+	cursor_hidden: bool,
 
 	// for when returning from fullscreen to window mode
 	restore_window_pos_x: int,
@@ -400,9 +490,53 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
+windows_set_cursor_hidden :: proc(hidden: bool) {
+	win32.ShowCursor(win32.BOOL(!hidden))
+	s.cursor_hidden = hidden
+}
+
+windows_is_cursor_hidden :: proc() -> bool {
+	return s.cursor_hidden
+}
+
+windows_set_cursor_locked :: proc(locked: bool) {
+	s.cursor_locked = locked
+
+	if locked {
+		r: win32.RECT
+		win32.GetClientRect(s.hwnd, &r)
+		tl := win32.POINT{r.left, r.top}
+		br := win32.POINT{r.right, r.bottom}
+		win32.ClientToScreen(s.hwnd, &tl)
+		win32.ClientToScreen(s.hwnd, &br)
+		clip := win32.RECT{tl.x, tl.y, br.x, br.y}
+		win32.ClipCursor(&clip)
+		
+		_windows_teleport_cursor_to_center()
+	} else {
+		win32.ClipCursor(nil)
+	}
+}
+
+windows_is_cursor_locked :: proc() -> bool {
+	return s.cursor_locked
+}
+
+_windows_teleport_cursor_to_center :: proc() {
+	cx := s.screen_width / 2
+	cy := s.screen_height / 2
+	pt := win32.POINT{i32(cx), i32(cy)}
+	win32.ClientToScreen(s.hwnd, &pt)
+	win32.SetCursorPos(pt.x, pt.y)
+
+	append(&s.events, Event_Mouse_Teleported {
+		position = {f32(cx), f32(cy)},
+	})
+}
+
 s: ^Windows_State
 
-window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
+_windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
 	context = s.custom_context
 
 	switch msg {
@@ -436,9 +570,23 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 	case win32.WM_MOUSEMOVE:
 		x := win32.GET_X_LPARAM(lparam)
 		y := win32.GET_Y_LPARAM(lparam)
-		append(&s.events, Event_Mouse_Move {
-			position = {f32(x), f32(y)},
-		})
+
+		if s.cursor_locked {
+			cx := i32(s.screen_width / 2)
+			cy := i32(s.screen_height / 2)
+
+			if x != cx || y != cy {
+				append(&s.events, Event_Mouse_Move {
+					position = {f32(x), f32(y)},
+				})
+
+				_windows_teleport_cursor_to_center()
+			}
+		} else {
+			append(&s.events, Event_Mouse_Move {
+				position = {f32(x), f32(y)},
+			})
+		}
 
 	case win32.WM_MOUSEWHEEL:
 		delta := f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
@@ -493,11 +641,13 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		}
 
 	case win32.WM_DPICHANGED:
-		// Set the window mode again so everything is correct size after DPI change.
-		windows_set_window_mode(s.window_mode)
+		new_dpi := win32.LOWORD(wparam)
+		s.window_scale = f32(new_dpi) / 96.0
 
 		append(&s.events, Event_Window_Scale_Changed {
-			scale = windows_get_window_scale(),
+			scale = s.window_scale,
+			screen_width = s.screen_width,
+			screen_height = s.screen_height,
 		})
 
 	case win32.WM_ENTERSIZEMOVE:
@@ -517,6 +667,16 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		}
 
 	case win32.WM_SIZE:
+		// When the window is minimized, Windows reports the client area as 0x0. Ignore that and
+		// keep reporting the last known screen size, so a 0x0 size never propagates into the
+		// swapchain, the projection matrix or `get_screen_size`.
+		if wparam == win32.SIZE_MINIMIZED {
+			s.minimized = true
+			return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
+		}
+
+		s.minimized = false
+
 		width := win32.LOWORD(lparam)
 		height := win32.HIWORD(lparam)
 
@@ -532,8 +692,8 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		// not get spammy.
 		if !s.in_resize_move_state {
 			append(&s.events, Event_Screen_Resize {
-				width = int(width),
-				height = int(height),
+				width = s.screen_width,
+				height = s.screen_height,
 			})
 		}
 
@@ -541,6 +701,11 @@ window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.
 		append(&s.events, Event_Window_Focused {})
 
 	case win32.WM_KILLFOCUS:
+		s.cursor_locked = false
+		if s.cursor_hidden {
+			win32.ShowCursor(true)
+			s.cursor_hidden = false
+		}
 		append(&s.events, Event_Window_Unfocused {})
 	}
 
@@ -566,6 +731,10 @@ key_from_event_params :: proc(wparam: win32.WPARAM, lparam: win32.LPARAM) -> Key
 		if win32.HIWORD(lparam) & win32.KF_EXTENDED != 0 {
 			return .NP_Enter
 		}
+	}
+
+	if wparam >= len(WIN32_VK_MAP) {
+		return .None
 	}
 
 	return WIN32_VK_MAP[wparam]

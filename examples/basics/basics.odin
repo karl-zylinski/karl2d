@@ -11,7 +11,7 @@ tex: k2.Texture
 pos: k2.Vec2
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Basics")
+	k2.init(1280, 720, "Karl2D Basics", options = {window_mode = .Windowed_Resizable})
 
 	// Note that we #load the texture: This bakes it into the program's data. WASM has no filesystem
 	// so in order to bundle textures with your game, you need to store them somewhere it can fetch
@@ -25,6 +25,12 @@ step :: proc() -> bool {
 	if !k2.update() {
 		return false
 	}
+
+	camera := k2.Camera {
+		zoom = k2.get_window_scale(),
+	}
+
+	k2.set_camera(camera)
 
 	movement: k2.Vec2
 
@@ -53,15 +59,20 @@ step :: proc() -> bool {
 	t := k2.get_time()
 	pos_x := f32(math.sin(t)*200)
 	rot := f32(t*1.5)
-	tex_rect := k2.get_texture_rect(tex)
-	tex_rect_dst := k2.Rect{pos_x + 600, 450, tex_rect.w*3, tex_rect.h*3}
 
-	k2.draw_texture_ex(
+	tex_src := k2.get_texture_rect(tex)
+
+	tex_dest := k2.Rect{
+		pos_x + 600, 450,
+		tex_src.w*3, tex_src.h*3,
+	}
+
+	k2.draw_texture_fit(
 		tex,
-		tex_rect,
-		tex_rect_dst,
-		{tex_rect_dst.w/2, tex_rect_dst.h/2},
-		rot,
+		tex_src,
+		tex_dest,
+		origin = {tex_dest.w/2, tex_dest.h/2},
+		rotation = rot,
 	)
 
 	k2.draw_rect({10, 10, 60, 60}, k2.GREEN)
@@ -83,7 +94,32 @@ step :: proc() -> bool {
 	k2.draw_text(msg1, {15, 153}, 48, k2.ORANGE)
 	k2.draw_text(msg2, {15, 201}, 48, k2.LIGHT_PURPLE)
 
-	k2.draw_text("Move the red dot using arrow keys!", {10, f32(k2.get_screen_height()) - 50}, 40)
+	//
+	// BOTTOM BAR
+	//
+
+	k2.set_camera(nil)
+	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size())
+	bottom_bar := k2.rect_cut_bottom(&screen_rect, 36, 0)
+	k2.draw_rect(bottom_bar, k2.DARK_GRAY)
+	bottom_bar = k2.rect_shrink(bottom_bar, 4, 4)
+	k2.draw_text("Move the red dot using arrow keys!", k2.rect_top_left(bottom_bar), bottom_bar.h, k2.WHITE)
+
+	button_rect :: proc(text: string, r: ^k2.Rect) -> k2.Rect {
+		return k2.rect_cut_right(r, k2.ui_button_width(text, r.h) + 25, 5)
+	}
+	
+	if k2.ui_button(button_rect("Source code", &bottom_bar), "Source Code") {
+		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/basics/basics.odin")
+	}
+
+	if k2.ui_button(button_rect("Fullscreen", &bottom_bar), "Fullscreen") {
+		k2.set_window_mode(.Borderless_Fullscreen)
+	}
+
+	if k2.ui_button(button_rect("Windowed", &bottom_bar), "Windowed") {
+		k2.set_window_mode(.Windowed_Resizable)
+	}
 
 	k2.present()
 

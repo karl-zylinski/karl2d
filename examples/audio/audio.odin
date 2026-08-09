@@ -1,4 +1,3 @@
-// AUDIO IS WORK IN PROGRESS -- I use this file to test things as I work on it. Do not use it yet.
 package karl2d_audio_example
 
 import k2 "../.."
@@ -9,13 +8,19 @@ import "core:slice"
 
 pos: k2.Vec2
 snd: k2.Sound
+snd2: k2.Sound
+snd3: k2.Sound
+wav: k2.Audio_Buffer
+wav_1: k2.Sound
+wav_2: k2.Sound
+
+music: k2.Audio_Stream
 snd_volume: f32
 snd_pan: f32
-snd_pitch: f32
-snd2: k2.Sound  
-snd3: k2.Sound
-wav: k2.Sound
-wav_inst: k2.Sound
+snd_pitch: f32 = 1
+
+MUSIC_FILE :: "brahms.ogg"
+HAS_MUSIC :: #exists(MUSIC_FILE)
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Audio")
@@ -25,9 +30,24 @@ init :: proc() {
 	snd_pitch = 1
 	snd2 = make_sine_wave(440, 1, 44100)
 	snd3 = make_sine_wave(700, 1, 22050)
-	wav = k2.load_sound_from_bytes(#load("chord.wav"))
-	wav_inst = k2.create_sound_instance(wav)
-	k2.play_sound(snd, loop = true)
+	wav = k2.load_audio_buffer_from_bytes(#load("chord.wav"))
+	wav_1 = k2.create_sound_from_audio_buffer(wav)
+	wav_2 = k2.create_sound_from_audio_buffer(wav)
+
+	when HAS_MUSIC {
+		when ODIN_OS == .JS {
+			// You could do this on non-JS (web) as well, I just try both so we get test coverage of
+			// these different modes of operation.
+			music = k2.load_audio_stream_from_bytes(#load(MUSIC_FILE))
+		} else {
+			music = k2.load_audio_stream_from_file(MUSIC_FILE)
+		}
+		k2.set_audio_stream_loop(music, true)
+		k2.play_audio_stream(music)
+	} else {
+		k2.set_sound_loop(snd, true)
+		k2.play_sound(snd)
+	}
 }
 
 // Makes a sine wave of min_length rounded up to so that it ends at the end of a period. This makes
@@ -40,11 +60,10 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Sound
 
 	for &samp, i in sine_data {
 		sf := math.sin(f32(i) * inc)*0.25
-		samp.x = sf
-		samp.y = sf
+		samp = sf
 	}
 
-	return k2.load_sound_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float, sample_rate)
+	return k2.load_sound_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float, sample_rate, .Mono)
 }
 
 step :: proc() -> bool {
@@ -84,42 +103,68 @@ step :: proc() -> bool {
 		snd_pitch -= k2.get_frame_time() * 0.5
 	}
 
+
 	if k2.key_went_down(.Space) {
-		k2.set_sound_pitch(wav, 1)
-		k2.set_sound_pan(wav, 0)
-		k2.play_sound(wav)
+		k2.set_sound_pitch(wav_1, 1)
+		k2.set_sound_pan(wav_1, 0)
+		k2.play_sound(wav_1)
 	}
 
 	if k2.key_went_down(.T)	{
-		k2.set_sound_pitch(wav, 2)
-		k2.set_sound_pan(wav, -1)
-		k2.play_sound(wav)
-		k2.set_sound_pitch(wav_inst, 0.5)
-		k2.set_sound_pan(wav_inst, 1)
-		k2.play_sound(wav_inst)
+		k2.set_sound_pitch(wav_1, 2)
+		k2.set_sound_pan(wav_1, -1)
+		k2.play_sound(wav_1)
+		k2.set_sound_pitch(wav_2, 0.5)
+		k2.set_sound_pan(wav_2, 1)
+		k2.play_sound(wav_2)
 	}
 	
 	snd_pan = clamp(snd_pan, -1, 1)
 	snd_volume = clamp(snd_volume, 0, 1)
 	snd_pitch = math.max(snd_pitch, 0.01)
 	
-	k2.set_sound_volume(snd, snd_volume)
-	k2.set_sound_pan(snd, snd_pan)
-	k2.set_sound_pitch(snd, snd_pitch)
+	when HAS_MUSIC {
+		k2.update_audio_stream(music)
+		
+		if k2.key_went_down(.Home) {
+			k2.play_audio_stream(music)
+		}
+
+		if k2.key_went_down(.End) {
+			k2.stop_audio_stream(music)
+		}
+
+		k2.set_audio_stream_pitch(music, snd_pitch)
+		k2.set_audio_stream_pan(music, snd_pan)
+		k2.set_audio_stream_volume(music, snd_volume)
+	} else {
+		k2.set_sound_volume(snd, snd_volume)
+		k2.set_sound_pan(snd, snd_pan)
+		k2.set_sound_pitch(snd, snd_pitch)
+	}
 	
 	k2.clear(k2.WHITE)
+
+	playing_label := "Playing a looping 200 hz sine wave."
+
+	when HAS_MUSIC {
+		playing_label = "Playing music from file: " + MUSIC_FILE
+	}
+
 	k2.draw_text(
 		fmt.tprintf(
-			"Playing a looping 200 hz sine wave.\nVolume: %.3f (change with up/down)\nPan: %.3f (change with left/right)\nPitch: %.3f (change with W/S)",
+			"%s\nVolume: %.3f (change with up/down)\nPan: %.3f (change with left/right)\nPitch: %.3f (change with W/S)",
+			playing_label,
 			snd_volume,
 			snd_pan,
 			snd_pitch,
 		),
 		{20, 20},
 		40,
+		k2.BLACK,
 	)
-	k2.draw_text("Press Space to play a familiar sound.", {20, 200}, 40)
-	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 240}, 40)
+	k2.draw_text("Press Space to play a familiar sound.", {20, 200}, 40, k2.BLACK)
+	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 240}, 40, k2.BLACK)
 	k2.present()
 	free_all(context.temp_allocator)
 
@@ -130,8 +175,14 @@ shutdown :: proc() {
 	k2.destroy_sound(snd)
 	k2.destroy_sound(snd2)
 	k2.destroy_sound(snd3)
-	k2.destroy_sound(wav)
-	k2.destroy_sound(wav_inst)
+	k2.destroy_sound(wav_1)
+	k2.destroy_sound(wav_2)
+	k2.destroy_audio_buffer(wav)
+
+	when HAS_MUSIC {
+		k2.destroy_audio_stream(music)
+	}
+	
 	k2.shutdown()
 }
 

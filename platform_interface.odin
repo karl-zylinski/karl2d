@@ -17,16 +17,23 @@ Platform_Interface :: struct #all_or_none {
 	shutdown: proc(),
 	get_window_render_glue: proc() -> Window_Render_Glue,
 	get_events: proc(events: ^[dynamic]Event),
+	set_window_title: proc(title: string),
 	set_window_position: proc(x: int, y: int),
 	set_screen_size: proc(w, h: int),
 	get_screen_width: proc() -> int,
 	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
+	set_cursor_hidden: proc(hidden: bool),
+	is_cursor_hidden: proc() -> bool,
+	set_cursor_locked: proc(locked: bool),
+	is_cursor_locked: proc() -> bool,
 
 	is_gamepad_active: proc(gamepad: int) -> bool,
 	get_gamepad_axis: proc(gamepad: int, axis: Gamepad_Axis) -> f32,
 	set_gamepad_vibration: proc(gamepad: int, left: f32, right: f32),
+
+	open_url: proc(url: string) -> bool,
 
 	set_internal_state: proc(state: rawptr),
 }
@@ -41,7 +48,10 @@ Window_Render_Glue_State :: struct {}
 // such an example. See Windows + GL or Linux + GL for an example of more complicated setups.
 Window_Render_Glue :: struct {
 	using state: ^Window_Render_Glue_State,
-	make_context: proc(state: ^Window_Render_Glue_State) -> bool,
+	make_context: proc(
+		state: ^Window_Render_Glue_State,
+		init_options: Init_Options,
+	) -> bool,
 	present: proc(state: ^Window_Render_Glue_State),
 	destroy: proc(state: ^Window_Render_Glue_State),
 	viewport_resized: proc(state: ^Window_Render_Glue_State),
