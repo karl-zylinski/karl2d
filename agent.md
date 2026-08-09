@@ -2,10 +2,10 @@
 
 Conventions for writing code, writing documentation, and collaborating on this project.
 
-> Human can read this file too, but it might not be optimized for human consumption. Also, note that no form of vibe coded changes are allowed. You must understand each line submitted in a pull request. You can use an LLM to do code reviews and generate initial implementations, but you _must_ understand the code generated.
+> Human can read this file too, but it might not be optimized for human consumption. Also, note that no form of vibe coded changes are allowed. You can use an LLM to do code reviews and generate code, but you _must_ understand the code generated.
 
 ## Project Overview
-- **Karl2D** is a 2D game development library written in the Odin programming language, licensed under MIT.
+- **Karl2D** is a 2D game development library written in the Odin programming language, licensed under Zlib license.
 - The focus is on being beginner-friendly, using a minimal set of dependencies and minimizing issues when you actually want to ship the game.
 - Karl2D usually requires the latest release of Odin.
 - The main entry point is `karl2d.odin`, which contains the platform-independent API and core logic. Platform, render and audio backends live in separate files.
@@ -24,7 +24,7 @@ Conventions for writing code, writing documentation, and collaborating on this p
   - Regenerate `karl2d.doc.odin`: `odin run tools/api_doc_builder`.
   - Verify the API: `odin build tools/api_verifier -debug -vet -strict-style -vet-tabs`.
 - Web builds use the script in `build_web/`. Forward game/compiler flags after `--`: `odin run build_web -- your_game_path -debug`. A web game must have `init` and `step` procedures; `examples/minimal_hello_world_web/` is the template.
-- `tools/make_vscode_project/` and `tools/make_zed_project/` generate editor project configurations.
+- `tools/make_sublime_projects`, `tools/make_vscode_project/` and `tools/make_zed_project/` generate editor project configurations.
 
 ## Code Style
 
