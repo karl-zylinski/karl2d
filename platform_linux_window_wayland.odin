@@ -753,12 +753,9 @@ wl_load_cursor_theme :: proc() {
 	s.cursor_theme = wl.cursor_theme_load(nil, c.int(theme_size), s.shm)
 }
 
-// Sets the OS cursor from s.cursor_hidden and s.current_cursor. wl_set_cursor_hidden,
-// wl_set_cursor and wl_destroy_custom_cursor all go through this instead of touching the
-// pointer's cursor independently and clobbering each other. The pointer re-entering the window
-// also goes through it, since the compositor forgets the cursor whenever the pointer leaves and
-// comes back - this makes that happen instantly rather than showing the OS's own default cursor
-// for a moment.
+// Sets the OS cursor from s.cursor_hidden and s.current_cursor. They share the same pointer
+// cursor, so every entry point goes through this instead of setting it independently. The pointer
+// re-entering the window does too, since the compositor forgets the cursor when it leaves.
 wl_apply_cursor :: proc() {
 	// The fractional scale listener can fire during wl_init, before the pointer and the cursor
 	// surface exist. Passing a nil surface to the compositor would mean "hide the cursor", and
@@ -893,7 +890,6 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor 
 		viewport  = wl.wp_viewporter_get_viewport(s.viewporter, surface),
 	}
 
-	// Sets the viewport destination and commits the surface.
 	wl_apply_cursor_scale(&cursor)
 
 	handle, add_err := hm.add(&s.custom_cursors, cursor)
@@ -952,8 +948,7 @@ wl_point_at_cursor :: proc(cursor: ^WL_Cursor, serial: u32) {
 }
 
 wl_set_cursor :: proc(cursor: Cursor) {
-	// Reject a stale handle before storing it, so the cursor on screen is left alone on a
-	// programming error rather than silently reverting to the default.
+	// Reject a stale handle, so a programming error leaves the cursor alone.
 	if handle, is_custom := cursor.(Custom_Cursor); is_custom {
 		if hm.get(&s.custom_cursors, handle) == nil {
 			log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", handle)
@@ -1002,8 +997,7 @@ wl_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 	linux.munmap(cd.data, uint(cd.data_size))
 	hm.remove(&s.custom_cursors, custom_cursor)
 
-	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the
-	// default. Cheap enough to do unconditionally.
+	// Falls back to the default if that was the cursor on screen.
 	wl_apply_cursor()
 }
 

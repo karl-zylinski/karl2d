@@ -3805,7 +3805,6 @@ get_default_font :: proc() -> Font {
 	return FONT_DEFAULT
 }
 
-
 //---------//
 // CURSORS //
 //---------//

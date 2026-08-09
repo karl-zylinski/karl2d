@@ -493,8 +493,7 @@ web_build_cursor_style :: proc(cursor: ^Web_Cursor) {
 }
 
 web_set_cursor :: proc(cursor: Cursor) {
-	// Reject a stale handle before storing it, so the cursor on screen is left alone on a
-	// programming error rather than silently reverting to the default.
+	// Reject a stale handle, so a programming error leaves the cursor alone.
 	if c, is_custom := cursor.(Custom_Cursor); is_custom {
 		if hm.get(&s.custom_cursors, c) == nil {
 			log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", c)
@@ -589,8 +588,7 @@ web_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 	delete(cd.style_value_scaled, s.allocator)
 	hm.remove(&s.custom_cursors, custom_cursor)
 
-	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the
-	// default. Cheap enough to do unconditionally.
+	// Falls back to the default if that was the cursor on screen.
 	web_apply_cursor()
 }
 
@@ -664,10 +662,9 @@ Web_State :: struct {
 	// The cursor most recently passed to web_set_cursor. The zero value is Standard_Cursor.Default.
 	current_cursor: Cursor,
 
-	// What web_apply_cursor last wrote to the canvas, so it can skip redundant work. A pointer
-	// into the handle map's storage is stable across hm.add (it allocates new chunks rather than
-	// moving existing ones), so it is fine to hold onto across frames as long as web_apply_cursor
-	// clears it whenever the cursor it refers to stops resolving.
+	// What web_apply_cursor last wrote to the canvas, so it can skip redundant work. Safe to hold
+	// across frames: the handle map allocates new chunks rather than moving existing ones, and
+	// web_apply_cursor clears this whenever the cursor it points at stops resolving.
 	applied_cursor: ^Web_Cursor,
 	applied_scale: f32,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,

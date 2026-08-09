@@ -432,7 +432,7 @@ Windows_State :: struct {
 	mouse_locked: bool,
 	cursor_hidden: bool,
 
-	custom_cursors: hm.Dynamic_Handle_Map(Windows_Cursor_Data, Custom_Cursor),
+	custom_cursors: hm.Dynamic_Handle_Map(Windows_Cursor, Custom_Cursor),
 
 	// The cursor most recently passed to windows_set_cursor. The zero value is
 	// Standard_Cursor.Default.
@@ -447,7 +447,7 @@ Windows_State :: struct {
 	window_render_glue: Window_Render_Glue,
 }
 
-Windows_Cursor_Data :: struct {
+Windows_Cursor :: struct {
 	handle: Custom_Cursor,
 	hcursor: win32.HCURSOR,
 }
@@ -612,7 +612,7 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 		return {}
 	}
 
-	handle, add_err := hm.add(&s.custom_cursors, Windows_Cursor_Data{hcursor = hcursor})
+	handle, add_err := hm.add(&s.custom_cursors, Windows_Cursor{hcursor = hcursor})
 
 	if add_err != nil {
 		log.errorf("Failed to create cursor. Error: %v", add_err)
@@ -624,8 +624,7 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 }
 
 windows_set_cursor :: proc(cursor: Cursor) {
-	// Reject a stale handle before storing it, so the cursor on screen is left alone on a
-	// programming error rather than silently reverting to the default.
+	// Reject a stale handle, so a programming error leaves the cursor alone.
 	if c, is_custom := cursor.(Custom_Cursor); is_custom {
 		if hm.get(&s.custom_cursors, c) == nil {
 			log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", c)
@@ -640,17 +639,21 @@ windows_set_cursor :: proc(cursor: Cursor) {
 // Sets the OS cursor from s.current_cursor, falling back to the default arrow when a custom
 // cursor no longer resolves (it was destroyed while on screen).
 windows_apply_cursor :: proc() {
-	// LoadCursor on a built-in IDC_ hands back a shared cursor owned by the system, so this must
-	// not be destroyed and is cheap enough to look up each time.
-	handle := win32.LoadCursorA(nil, win32.IDC_ARROW)
+	handle: win32.HCURSOR
 
 	switch c in s.current_cursor {
 	case Standard_Cursor:
+		// LoadCursor on a built-in IDC_ hands back a shared cursor owned by the system, so this
+		// must not be destroyed and is cheap enough to look up each time.
 		handle = win32.LoadCursorA(nil, windows_standard_cursor_id(c))
 	case Custom_Cursor:
 		if cd := hm.get(&s.custom_cursors, c); cd != nil {
 			handle = cd.hcursor
 		}
+	}
+
+	if handle == nil {
+		handle = win32.LoadCursorA(nil, win32.IDC_ARROW)
 	}
 
 	win32.SetClassLongPtrW(s.hwnd, win32.GCLP_HCURSOR, (win32.LONG_PTR)(uintptr(handle)))
@@ -690,8 +693,7 @@ windows_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 	win32.DestroyCursor(cd.hcursor)
 	hm.remove(&s.custom_cursors, custom_cursor)
 
-	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the
-	// default. Cheap enough to do unconditionally.
+	// Falls back to the default if that was the cursor on screen.
 	windows_apply_cursor()
 }
 

@@ -747,13 +747,12 @@ mac_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 	return handle
 }
 
-// A cursor image is sized in physical pixels, like everything else in Karl2D, but an NSImage is
-// sized in points. Without dividing by the backing scale factor a 128x128 cursor would cover
-// 256x256 physical pixels on a Retina display, i.e. twice the size of a 128x128 sprite drawn by
-// the game, and it would be blurry from being upscaled on the way there.
+// Cursor images are in physical pixels, like the rest of Karl2D, but an NSImage is sized in
+// points. Without dividing by the backing scale factor a 128x128 cursor would cover 256x256
+// physical pixels on a Retina display, and be blurry from the upscale.
 //
-// Neither the size of an NSImage nor the hotspot of an NSCursor can be changed after the fact, so
-// this builds the cursor from scratch whenever the scale changes.
+// Neither an NSImage's size nor an NSCursor's hotspot can be changed after the fact, so this
+// rebuilds from scratch whenever the scale changes.
 mac_build_cursor :: proc(cursor: ^Mac_Cursor) {
 	// Released at the end, so that the cursor being replaced stays alive until its replacement
 	// exists. It may still be the one on screen at this point.
@@ -796,8 +795,7 @@ mac_build_cursor :: proc(cursor: ^Mac_Cursor) {
 }
 
 mac_set_cursor :: proc(cursor: Cursor) {
-	// Reject a stale handle before storing it, so the cursor on screen is left alone on a
-	// programming error rather than silently reverting to the default.
+	// Reject a stale handle, so a programming error leaves the cursor alone.
 	if c, is_custom := cursor.(Custom_Cursor); is_custom {
 		if hm.get(&s.custom_cursors, c) == nil {
 			log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", c)
@@ -870,8 +868,7 @@ mac_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 	delete(cd.pixels, s.allocator)
 	hm.remove(&s.custom_cursors, custom_cursor)
 
-	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the
-	// default. Cheap enough to do unconditionally.
+	// Falls back to the default if that was the cursor on screen.
 	mac_apply_cursor()
 }
 

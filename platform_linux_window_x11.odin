@@ -515,7 +515,7 @@ x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 		return {}
 	}
 
-	handle, add_err := hm.add(&s.custom_cursors, X11_Cursor_Data{cursor = cursor})
+	handle, add_err := hm.add(&s.custom_cursors, X11_Cursor{cursor = cursor})
 
 	if add_err != nil {
 		log.errorf("Failed to create cursor. Error: %v", add_err)
@@ -527,8 +527,7 @@ x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 }
 
 x11_set_cursor :: proc(cursor: Cursor) {
-	// Reject a stale handle before storing it, so the cursor on screen is left alone on a
-	// programming error rather than silently reverting to the default.
+	// Reject a stale handle, so a programming error leaves the cursor alone.
 	if c, is_custom := cursor.(Custom_Cursor); is_custom {
 		if hm.get(&s.custom_cursors, c) == nil {
 			log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", c)
@@ -554,8 +553,7 @@ x11_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 	X.FreeCursor(s.display, cd.cursor)
 	hm.remove(&s.custom_cursors, custom_cursor)
 
-	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the
-	// default. Cheap enough to do unconditionally.
+	// Falls back to the default if that was the cursor on screen.
 	x11_apply_cursor()
 }
 
@@ -582,7 +580,7 @@ X11_State :: struct {
 	window_render_glue: Window_Render_Glue,
 	blank_cursor: X.Cursor,
 
-	custom_cursors: hm.Dynamic_Handle_Map(X11_Cursor_Data, Custom_Cursor),
+	custom_cursors: hm.Dynamic_Handle_Map(X11_Cursor, Custom_Cursor),
 
 	// The cursor most recently passed to x11_set_cursor. The zero value is Standard_Cursor.Default.
 	current_cursor: Cursor,
@@ -595,7 +593,7 @@ X11_State :: struct {
 	events: [dynamic]Event,
 }
 
-X11_Cursor_Data :: struct {
+X11_Cursor :: struct {
 	handle: Custom_Cursor,
 	cursor: X.Cursor,
 }
