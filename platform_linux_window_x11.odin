@@ -20,8 +20,11 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_window_mode = x11_set_window_mode,
 	set_cursor_hidden = x11_set_cursor_hidden,
 	is_cursor_hidden = x11_is_cursor_hidden,
-	set_cursor_locked = x11_set_cursor_locked,
-	is_cursor_locked = x11_is_cursor_locked,
+	set_mouse_locked = x11_set_mouse_locked,
+	is_mouse_locked = x11_is_mouse_locked,
+	create_custom_cursor = x11_create_custom_cursor,
+	set_cursor = x11_set_cursor,
+	destroy_custom_cursor = x11_destroy_custom_cursor,
 	set_internal_state = x11_set_internal_state,
 }
 
@@ -29,6 +32,8 @@ import X "vendor:x11/xlib"
 import "base:runtime"
 import "log"
 import "core:fmt"
+import "core:slice"
+import hm "core:container/handle_map"
 
 _ :: log
 _ :: fmt
@@ -51,6 +56,7 @@ x11_init :: proc(
 	s.screen_height = screen_height
 	s.display = X.OpenDisplay(nil)
 	s.events = make([dynamic]Event, allocator)
+	hm.dynamic_init(&s.custom_cursors, allocator)
 
 	s.window = X.CreateSimpleWindow(
 		s.display,
@@ -114,6 +120,18 @@ x11_init :: proc(
 
 x11_shutdown :: proc() {
 	delete(s.events)
+
+	for cached in s.standard_cursors {
+		if cursor, ok := cached.?; ok && cursor != 0 {
+			X.FreeCursor(s.display, cursor)
+		}
+	}
+
+	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
+		X.FreeCursor(s.display, cd.cursor)
+	}
+	hm.dynamic_destroy(&s.custom_cursors)
+
 	X.FreeCursor(s.display, s.blank_cursor)
 	X.DestroyWindow(s.display, s.window)
 }
@@ -187,7 +205,7 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 			}
 
 		case .MotionNotify:
-			if s.cursor_locked {
+			if s.mouse_locked {
 				cx := i32(s.screen_width / 2)
 				cy := i32(s.screen_height / 2)
 
@@ -228,8 +246,8 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 			append(events, Event_Window_Focused{})
 
 		case .FocusOut:
-			// X11 unlocks the cursor if program loses focus
-			s.cursor_locked = false
+			// X11 unlocks the mouse if program loses focus
+			s.mouse_locked = false
 			append(events, Event_Window_Unfocused{})
 		}
 	}
@@ -378,21 +396,71 @@ x11_set_window_mode :: proc(window_mode: Window_Mode) {
 
 x11_set_cursor_hidden :: proc(hidden: bool) {
 	s.cursor_hidden = hidden
+	x11_apply_cursor()
+}
 
-	if hidden {
+// Applies s.cursor_hidden and s.current_cursor to the window. They share the window's one cursor
+// (whatever DefineCursor last set), so every entry point goes through this.
+x11_apply_cursor :: proc() {
+	switch {
+	case s.cursor_hidden:
 		X.DefineCursor(s.display, s.window, s.blank_cursor)
-	} else {
-		X.UndefineCursor(s.display, s.window)
+
+	case:
+		defined := false
+
+		if c, is_custom := s.current_cursor.(Custom_Cursor); is_custom {
+			if cd := hm.get(&s.custom_cursors, c); cd != nil {
+				X.DefineCursor(s.display, s.window, cd.cursor)
+				defined = true
+			}
+			// Otherwise it was destroyed while on screen; fall through to the default cursor.
+		}
+
+		if !defined {
+			standard := Standard_Cursor.Default
+			if sc, ok := s.current_cursor.(Standard_Cursor); ok {
+				standard = sc
+			}
+
+			if theme_cursor := x11_standard_cursor(standard); theme_cursor != 0 {
+				X.DefineCursor(s.display, s.window, theme_cursor)
+			} else {
+				// The theme has no cursor under either name, so let the window inherit whatever
+				// its parent uses, which is normally the default arrow.
+				X.UndefineCursor(s.display, s.window)
+			}
+		}
 	}
+
 	X.Flush(s.display)
+}
+
+// Loads a standard cursor from the user's cursor theme, or 0 if the theme has none for it. Cached:
+// each one is a server-side resource we have to free, and games set cursors every frame.
+x11_standard_cursor :: proc(standard: Standard_Cursor) -> X.Cursor {
+	if cached, ok := s.standard_cursors[standard].?; ok {
+		return cached
+	}
+
+	name, fallback := linux_standard_cursor_names(standard)
+	cursor := X.cursorLibraryLoadCursor(s.display, name)
+
+	if cursor == 0 {
+		cursor = X.cursorLibraryLoadCursor(s.display, fallback)
+	}
+
+	// Cached even when it's 0, so a theme missing one doesn't mean two round trips per frame.
+	s.standard_cursors[standard] = cursor
+	return cursor
 }
 
 x11_is_cursor_hidden :: proc() -> bool {
 	return s.cursor_hidden	
 }
 
-x11_set_cursor_locked :: proc(locked: bool) {
-	s.cursor_locked = locked
+x11_set_mouse_locked :: proc(locked: bool) {
+	s.mouse_locked = locked
 
 	if locked {
 		// Confine pointer to window (equivalent of Windows' ClipCursor)
@@ -415,8 +483,8 @@ x11_set_cursor_locked :: proc(locked: bool) {
 	}
 }
 
-x11_is_cursor_locked :: proc() -> bool {
-	return s.cursor_locked
+x11_is_mouse_locked :: proc() -> bool {
+	return s.mouse_locked
 }
 
 _x11_teleport_cursor_to_center :: proc() {
@@ -427,6 +495,81 @@ _x11_teleport_cursor_to_center :: proc() {
 	append(&s.events, Event_Mouse_Teleported {
 		position = {f32(cx), f32(cy)},
 	})
+}
+
+x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+	img := X.cursorImageCreate(i32(image.width), i32(image.height))
+
+	if img == nil {
+		log.error("cursorImageCreate failed")
+		return {}
+	}
+
+	// Convert to ARGB and premultiply alpha, straight into the buffer Xcursor allocated for us.
+	// Overwriting `img.pixels` with our own pointer would leak that buffer and make
+	// cursorImageDestroy free memory it does not own.
+	pixel_data := slice.from_ptr(img.pixels, len(image.pixels))
+
+	for i in 0..<len(image.pixels) {
+		col := image.pixels[i]
+		a := u32(col.a)
+		r := u32(col.r) * a / 255
+		g := u32(col.g) * a / 255
+		b := u32(col.b) * a / 255
+		pixel_data[i] = a << 24 | r << 16 | g << 8 | b
+	}
+
+	img.xhot = X.CursorDim(hotspot.x)
+	img.yhot = X.CursorDim(hotspot.y)
+
+	cursor := X.cursorImageLoadCursor(s.display, img)
+	X.cursorImageDestroy(img)
+
+	if cursor == 0 {
+		log.error("cursorImageLoadCursor failed")
+		return {}
+	}
+
+	handle, add_err := hm.add(&s.custom_cursors, X11_Cursor{cursor = cursor})
+
+	if add_err != nil {
+		log.errorf("Failed to create cursor. Error: %v", add_err)
+		X.FreeCursor(s.display, cursor)
+		return {}
+	}
+
+	return handle
+}
+
+x11_set_cursor :: proc(cursor: Cursor) {
+	// Reject a stale handle, so a programming error leaves the cursor alone.
+	if c, is_custom := cursor.(Custom_Cursor); is_custom {
+		if hm.get(&s.custom_cursors, c) == nil {
+			log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", c)
+			return
+		}
+	}
+
+	s.current_cursor = cursor
+	x11_apply_cursor()
+}
+
+x11_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+	cd := hm.get(&s.custom_cursors, custom_cursor)
+
+	if cd == nil {
+		log.errorf(
+			"Trying to destroy invalid cursor %v. It may already be destroyed.",
+			custom_cursor,
+		)
+		return
+	}
+
+	X.FreeCursor(s.display, cd.cursor)
+	hm.remove(&s.custom_cursors, custom_cursor)
+
+	// Falls back to the default if that was the cursor on screen.
+	x11_apply_cursor()
 }
 
 x11_set_internal_state :: proc(state: rawptr) {
@@ -451,9 +594,23 @@ X11_State :: struct {
 	window_mode: Window_Mode,
 	window_render_glue: Window_Render_Glue,
 	blank_cursor: X.Cursor,
+
+	custom_cursors: hm.Dynamic_Handle_Map(X11_Cursor, Custom_Cursor),
+
+	// The cursor most recently passed to x11_set_cursor. The zero value is Standard_Cursor.Default.
+	current_cursor: Cursor,
+
+	// Lazily loaded theme cursors, one per standard cursor. See x11_standard_cursor.
+	standard_cursors: [Standard_Cursor]Maybe(X.Cursor),
+
 	cursor_hidden: bool,
-	cursor_locked: bool,
+	mouse_locked: bool,
 	events: [dynamic]Event,
+}
+
+X11_Cursor :: struct {
+	handle: Custom_Cursor,
+	cursor: X.Cursor,
 }
 
 s: ^X11_State

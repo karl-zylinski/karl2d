@@ -32,8 +32,11 @@ PLATFORM_LINUX :: Platform_Interface {
 	set_window_mode = linux_set_window_mode,
 	set_cursor_hidden = linux_set_cursor_hidden,
 	is_cursor_hidden = linux_is_cursor_hidden,
-	set_cursor_locked = linux_set_cursor_locked,
-	is_cursor_locked = linux_is_cursor_locked,
+	set_mouse_locked = linux_set_mouse_locked,
+	is_mouse_locked = linux_is_mouse_locked,
+	create_custom_cursor = linux_create_custom_cursor,
+	set_cursor = linux_set_cursor,
+	destroy_custom_cursor = linux_destroy_custom_cursor,
 	is_gamepad_active = linux_is_gamepad_active,
 	get_gamepad_axis = linux_get_gamepad_axis,
 	set_gamepad_vibration = linux_set_gamepad_vibration,
@@ -619,12 +622,50 @@ linux_is_cursor_hidden :: proc() -> bool {
 	return s.win.is_cursor_hidden()
 }
 
-linux_set_cursor_locked :: proc(locked: bool) {
-	s.win.set_cursor_locked(locked)
+linux_set_mouse_locked :: proc(locked: bool) {
+	s.win.set_mouse_locked(locked)
 }
 
-linux_is_cursor_locked :: proc() -> bool {
-	return s.win.is_cursor_locked()
+linux_is_mouse_locked :: proc() -> bool {
+	return s.win.is_mouse_locked()
+}
+
+linux_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+	return s.win.create_custom_cursor(image, hotspot)
+}
+
+linux_set_cursor :: proc(cursor: Cursor) {
+	s.win.set_cursor(cursor)
+}
+
+// Cursor theme names for a standard cursor. Both X11 and Wayland load cursors out of the user's
+// XCursor theme by name, so they use the same table.
+//
+// `name` is the freedesktop name, which is what current themes ship. `fallback` is the older X11
+// name for the same cursor: plenty of themes still only have those, and some have both. Neither is
+// guaranteed to exist, so callers have to handle a theme that has no cursor for it at all.
+@(private="package")
+linux_standard_cursor_names :: proc(cursor: Standard_Cursor) -> (name: cstring, fallback: cstring) {
+	switch cursor {
+	case .Default:     return "default", "left_ptr"
+	case .Text:        return "text", "xterm"
+	case .Hand:        return "pointer", "hand2"
+	case .Crosshair:   return "crosshair", "cross"
+	case .Wait:        return "wait", "watch"
+	case .Progress:    return "progress", "left_ptr_watch"
+	case .Resize_EW:   return "ew-resize", "sb_h_double_arrow"
+	case .Resize_NS:   return "ns-resize", "sb_v_double_arrow"
+	case .Resize_NESW: return "nesw-resize", "fd_double_arrow"
+	case .Resize_NWSE: return "nwse-resize", "bd_double_arrow"
+	case .Move:        return "move", "fleur"
+	case .Not_Allowed: return "not-allowed", "crossed_circle"
+	}
+
+	return "default", "left_ptr"
+}
+
+linux_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+	s.win.destroy_custom_cursor(custom_cursor)
 }
 
 Linux_State :: struct {
@@ -663,8 +704,12 @@ Linux_Window_Interface :: struct #all_or_none {
 	set_window_mode: proc(window_mode: Window_Mode),
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
-	set_cursor_locked: proc(locked: bool),
-	is_cursor_locked: proc() -> bool,
+	set_mouse_locked: proc(locked: bool),
+	is_mouse_locked: proc() -> bool,
+
+	create_custom_cursor: proc(image: Image, hotspot: [2]int) -> Custom_Cursor,
+	set_cursor: proc(cursor: Cursor),
+	destroy_custom_cursor: proc(custom_cursor: Custom_Cursor),
 
 	set_internal_state: proc(state: rawptr),
 }
