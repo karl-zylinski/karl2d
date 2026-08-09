@@ -451,6 +451,7 @@ set_window_position :: proc(x: int, y: int) {
 //
 // This returns {} for web and Wayland builds.
 get_window_position :: proc() -> Vec2 {
+	assert_initialized()
 	return pf.get_window_position()
 }
 
