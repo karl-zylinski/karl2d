@@ -856,11 +856,18 @@ mac_cursor_shape :: proc(shape: Cursor_Shape) -> ^NS.Cursor {
 }
 
 mac_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
-	if cd := hm.get(&s.custom_cursors, custom_cursor); cd != nil {
-		cd.cursor->release()
-		delete(cd.pixels, s.allocator)
+	cd := hm.get(&s.custom_cursors, custom_cursor)
+
+	if cd == nil {
+		log.errorf(
+			"Trying to destroy invalid cursor %v. It may already be destroyed.",
+			custom_cursor,
+		)
+		return
 	}
 
+	cd.cursor->release()
+	delete(cd.pixels, s.allocator)
 	hm.remove(&s.custom_cursors, custom_cursor)
 
 	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the

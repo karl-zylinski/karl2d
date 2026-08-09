@@ -576,12 +576,19 @@ web_apply_cursor :: proc() {
 }
 
 web_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
-	if cd := hm.get(&s.custom_cursors, custom_cursor); cd != nil {
-		delete(cd.data_uri, s.allocator)
-		delete(cd.style_value, s.allocator)
-		delete(cd.style_value_scaled, s.allocator)
+	cd := hm.get(&s.custom_cursors, custom_cursor)
+
+	if cd == nil {
+		log.errorf(
+			"Trying to destroy invalid cursor %v. It may already be destroyed.",
+			custom_cursor,
+		)
+		return
 	}
 
+	delete(cd.data_uri, s.allocator)
+	delete(cd.style_value, s.allocator)
+	delete(cd.style_value_scaled, s.allocator)
 	hm.remove(&s.custom_cursors, custom_cursor)
 
 	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the

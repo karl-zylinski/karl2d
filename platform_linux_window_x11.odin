@@ -541,10 +541,17 @@ x11_set_cursor :: proc(cursor: Cursor) {
 }
 
 x11_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
-	if cd := hm.get(&s.custom_cursors, custom_cursor); cd != nil {
-		X.FreeCursor(s.display, cd.cursor)
+	cd := hm.get(&s.custom_cursors, custom_cursor)
+
+	if cd == nil {
+		log.errorf(
+			"Trying to destroy invalid cursor %v. It may already be destroyed.",
+			custom_cursor,
+		)
+		return
 	}
 
+	X.FreeCursor(s.display, cd.cursor)
 	hm.remove(&s.custom_cursors, custom_cursor)
 
 	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the

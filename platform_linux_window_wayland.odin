@@ -985,14 +985,21 @@ wl_cursor_shape :: proc(shape: Cursor_Shape) -> wl.WP_Cursor_Shape {
 }
 
 wl_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
-	if cd := hm.get(&s.custom_cursors, custom_cursor); cd != nil {
-		// Detach from the surface before the buffer and its memory go away.
-		wl.wp_viewport_destroy(cd.viewport)
-		wl.surface_destroy(cd.surface)
-		wl.buffer_destroy(cd.buffer)
-		linux.munmap(cd.data, uint(cd.data_size))
+	cd := hm.get(&s.custom_cursors, custom_cursor)
+
+	if cd == nil {
+		log.errorf(
+			"Trying to destroy invalid cursor %v. It may already be destroyed.",
+			custom_cursor,
+		)
+		return
 	}
 
+	// Detach from the surface before the buffer and its memory go away.
+	wl.wp_viewport_destroy(cd.viewport)
+	wl.surface_destroy(cd.surface)
+	wl.buffer_destroy(cd.buffer)
+	linux.munmap(cd.data, uint(cd.data_size))
 	hm.remove(&s.custom_cursors, custom_cursor)
 
 	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the
