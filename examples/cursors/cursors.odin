@@ -1,4 +1,4 @@
-package karl2d_hardware_cursors_example
+package karl2d_cursors_example
 
 import k2 "../.."
 import "core:fmt"
@@ -34,7 +34,7 @@ make_gauntlet :: proc() -> k2.Custom_Cursor {
 }
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Hardware Cursor Example")
+	k2.init(1280, 720, "Karl2D Cursors Example")
 
 	c := make_gauntlet()
 	gauntlet = c
