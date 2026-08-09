@@ -487,6 +487,11 @@ _x11_teleport_cursor_to_center :: proc() {
 x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
 	img := X.cursorImageCreate(i32(image.width), i32(image.height))
 
+	if img == nil {
+		log.error("cursorImageCreate failed")
+		return {}
+	}
+
 	// Convert to ARGB and premultiply alpha, straight into the buffer Xcursor allocated for us.
 	// Overwriting `img.pixels` with our own pointer would leak that buffer and make
 	// cursorImageDestroy free memory it does not own.

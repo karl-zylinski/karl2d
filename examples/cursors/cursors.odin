@@ -9,7 +9,7 @@ pos: k2.Vec2
 gauntlet: k2.Custom_Cursor
 pointing_gauntlet: k2.Custom_Cursor
 
-// The currently used cursor. When the users hovers the box in the middle, then another cursor is
+// The currently used cursor. When the user hovers the box in the middle, then another cursor is
 // used (the one called pointing_gauntlet).
 selected: k2.Cursor
 
@@ -47,7 +47,6 @@ step :: proc() -> bool {
 		return false
 	}
 
-	
 	if k2.key_went_down(.G) {
 		if gauntlet == k2.CUSTOM_CURSOR_NONE {
 			gauntlet = create_gauntlet_cursor()

@@ -3821,6 +3821,8 @@ set_cursor :: proc(cursor: Cursor) {
 // in physical pixels.
 //
 // The cursor does not need `image` after it is created. You may destroy it.
+//
+// If the cursor can't be created, then an error is logged and `CUSTOM_CURSOR_NONE` is returned.
 create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
 	if image.width == 0 || image.height == 0 {
 		log.error("Invalid cursor image: height or width is zero")

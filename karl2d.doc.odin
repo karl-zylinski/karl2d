@@ -821,6 +821,8 @@ set_cursor :: proc(cursor: Cursor)
 // in physical pixels.
 //
 // The cursor does not need `image` after it is created. You may destroy it.
+//
+// If the cursor can't be created, then an error is logged and `CUSTOM_CURSOR_NONE` is returned.
 create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 
 // Destroy a cursor previously created using `create_custom_cursor`. If it is the cursor currently
