@@ -29,9 +29,31 @@ This document provides guidelines for LLM agents to read. It provides convention
 - **Spacing:**
   - Place `:` and `=` with consistent spacing as in `karl2d.odin`.
   - Opening braces `{` should be on the same line as the declaration.
+  - Ranges are written without spaces: `for i in 0..<len(pixels)`, not `0 ..< len(pixels)`.
+  - Attributes too: `@(private="package")`, not `@(private = "package")`.
+- **No single-line `if` bodies:** the body goes on its own line, even when it is one statement.
+  (One older example does this; don't copy it.)
 - **API Comments:**
   - Use clear, concise comments above procedures and types.
   - Document parameters and return values where appropriate.
+- **Comment voice:** Short and conversational; first person is fine ("We piggyback on the resize
+  event", "I fixed the binding locally"). State the fact rather than writing a justification. One
+  line is the norm; go longer only for an OS quirk or something genuinely non-obvious.
+- **Short notes can be trailing comments** on the line they describe: `camera: k2.Camera // world camera`.
+- **Result names use suffixes:** `img, img_err := ...` and `data, data_ok := ...`. Always
+  `thing_err`/`thing_ok`, never `err_thing`.
+- **Name repeated magic numbers:** a number that appears in more than one place gets a file-level
+  constant, with a unit comment when the unit isn't obvious:
+  `CAMERA_KEY_MOVE_SPEED :: 300 // in screen pixels/sec`.
+- **Struct field alignment follows the file:** some files column-align field values
+  (`platform_mac.odin`), most use a single space after `:`. Match the file you are in, and keep
+  structs you add consistent with each other.
+- **Platform proc naming:** procs that implement the platform interface carry the platform prefix
+  (`mac_set_cursor`). Internal helpers may skip the prefix when the file is `#+private file`
+  (`apply_cursor_state`).
+- **Log message shapes:** "Failed <doing> <thing>. Error: %v" and
+  "Cannot <verb>, <thing> does not exist." are the house patterns. In platform backends it is also
+  fine to name the failing OS call: "CreateIconIndirect failed with %v".
 - **Handles use a zero value, not `Maybe`:** Every handle type has a `<TYPE>_NONE` constant that is
   just its zero value (`TEXTURE_NONE`, `SOUND_NONE`, `CUSTOM_CURSOR_NONE`, ...). Declare one next to
   the type. Do not wrap handles in `Maybe` to express "none", and do not add a separate `bool` for
@@ -66,6 +88,8 @@ This document provides guidelines for LLM agents to read. It provides convention
     // INPUT //
     //-------//
     ```
+  - Long procedures can be split up with short ALL-CAPS section comments: `// CAMERA PANNING`,
+    `// DRAW WORLD` (see `examples/camera/camera.odin`).
 
 ## Architecture Notes
 - The core API is in `karl2d.odin`.
