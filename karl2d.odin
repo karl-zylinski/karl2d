@@ -666,6 +666,17 @@ is_mouse_locked :: proc() -> bool {
 	return pf.is_mouse_locked()
 }
 
+@(deprecated="Use set_mouse_locked instead")
+set_cursor_locked :: proc(locked: bool) {
+	set_mouse_locked(locked)
+}
+
+@(deprecated="Use is_mouse_locked instead")
+is_cursor_locked :: proc() -> bool {
+	return is_mouse_locked()
+}
+
+
 // Returns true if a gamepad with the supplied index is connected. The parameter should be a value
 // between 0 and MAX_GAMEPADS.
 is_gamepad_active :: proc(gamepad: Gamepad_Index) -> bool {
