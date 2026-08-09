@@ -33,8 +33,8 @@ PLATFORM_MAC :: Platform_Interface {
 
 	set_cursor_hidden = mac_set_cursor_hidden,
 	is_cursor_hidden = mac_is_cursor_hidden,
-	set_cursor_locked = mac_set_cursor_locked,
-	is_cursor_locked = mac_is_cursor_locked,
+	set_mouse_locked = mac_set_mouse_locked,
+	is_mouse_locked = mac_is_mouse_locked,
 	create_custom_cursor = mac_create_custom_cursor,
 	set_cursor = mac_set_cursor,
 	destroy_custom_cursor = mac_destroy_custom_cursor,
@@ -68,7 +68,7 @@ Mac_State :: struct {
 	// The cursor most recently passed to mac_set_cursor. The zero value is Cursor_Shape.Default.
 	current_cursor: Cursor,
 
-	cursor_locked: bool,
+	mouse_locked: bool,
 	mouse_ignore_next_move: bool,
 
 	screen_width:     int,
@@ -393,7 +393,7 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			px := loc.x * scale
 			py := NS.Float(s.screen_height) - loc.y * scale
 			
-			if s.cursor_locked {
+			if s.mouse_locked {
 				dx := f32(ce.Event_deltaX(event)) * f32(s.window->backingScaleFactor())
 				dy := f32(ce.Event_deltaY(event)) * f32(s.window->backingScaleFactor())
 				cx := f32(s.screen_width/2)
@@ -488,8 +488,8 @@ mac_is_cursor_hidden :: proc() -> bool {
 	return s.cursor_hidden
 }
 
-mac_set_cursor_locked :: proc(locked: bool) {
-	s.cursor_locked = locked
+mac_set_mouse_locked :: proc(locked: bool) {
+	s.mouse_locked = locked
 
 	if locked {
 		s.mouse_ignore_next_move = true
@@ -500,8 +500,8 @@ mac_set_cursor_locked :: proc(locked: bool) {
 	}
 }
 
-mac_is_cursor_locked :: proc() -> bool {
-	return s.cursor_locked
+mac_is_mouse_locked :: proc() -> bool {
+	return s.mouse_locked
 }
 
 _mac_teleport_cursor_to_center :: proc() {

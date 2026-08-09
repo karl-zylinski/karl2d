@@ -22,8 +22,8 @@ PLATFORM_WEB :: Platform_Interface {
 
 	set_cursor_hidden = web_set_cursor_hidden,
 	is_cursor_hidden = web_is_cursor_hidden,
-	set_cursor_locked = web_set_cursor_locked,
-	is_cursor_locked = web_is_cursor_locked,
+	set_mouse_locked = web_set_mouse_locked,
+	is_mouse_locked = web_is_mouse_locked,
 	create_custom_cursor = web_create_custom_cursor,
 	set_cursor = web_set_cursor,
 	destroy_custom_cursor = web_destroy_custom_cursor,
@@ -119,7 +119,7 @@ web_event_focus :: proc(e: js.Event) {
 }
 
 web_event_blur :: proc(e: js.Event) {
-	s.cursor_locked = false
+	s.mouse_locked = false
 	append(&s.events, Event_Window_Unfocused {})
 }
 
@@ -144,7 +144,7 @@ web_event_window_resize :: proc(e: js.Event) {
 }
 
 web_event_mouse_move :: proc(e: js.Event) {
-	if s.cursor_locked {
+	if s.mouse_locked {
 		cx := f32(s.width / 2)
 		cy := f32(s.height / 2)
 		dx := f32(e.mouse.movement.x) * f32(js.device_pixel_ratio())
@@ -394,10 +394,10 @@ web_is_cursor_hidden :: proc() -> bool {
 
 _web_event_pointer_lock_change :: proc(e: js.Event) {
 	js.evaluate("document.getElementById('webgl-canvas')._pointerLocked = document.pointerLockElement !== null ? 1 : 0")
-	s.cursor_locked = js.get_element_key_f64("webgl-canvas", "_pointerLocked") != 0
+	s.mouse_locked = js.get_element_key_f64("webgl-canvas", "_pointerLocked") != 0
 }
 
-web_set_cursor_locked :: proc(locked: bool) {
+web_set_mouse_locked :: proc(locked: bool) {
 	if locked {
 		js.evaluate("document.getElementById('webgl-canvas').requestPointerLock()")
 		cx := f32(s.width / 2)
@@ -407,11 +407,11 @@ web_set_cursor_locked :: proc(locked: bool) {
 		js.evaluate("document.exitPointerLock()")
 	}
 
-	// s.cursor_locked set by _web_event_pointer_lock_change
+	// s.mouse_locked set by _web_event_pointer_lock_change
 }
 
-web_is_cursor_locked :: proc() -> bool {
-	return s.cursor_locked
+web_is_mouse_locked :: proc() -> bool {
+	return s.mouse_locked
 }
 
 web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
@@ -658,7 +658,7 @@ Web_State :: struct {
 	height: int,
 	prev_scale: f32,
 	events: [dynamic]Event,
-	cursor_locked: bool,
+	mouse_locked: bool,
 	cursor_hidden: bool,
 
 	custom_cursors: hm.Dynamic_Handle_Map(Web_Cursor, Custom_Cursor),

@@ -31,8 +31,8 @@ PLATFORM_LINUX :: Platform_Interface {
 	set_window_mode = linux_set_window_mode,
 	set_cursor_hidden = linux_set_cursor_hidden,
 	is_cursor_hidden = linux_is_cursor_hidden,
-	set_cursor_locked = linux_set_cursor_locked,
-	is_cursor_locked = linux_is_cursor_locked,
+	set_mouse_locked = linux_set_mouse_locked,
+	is_mouse_locked = linux_is_mouse_locked,
 	create_custom_cursor = linux_create_custom_cursor,
 	set_cursor = linux_set_cursor,
 	destroy_custom_cursor = linux_destroy_custom_cursor,
@@ -617,12 +617,12 @@ linux_is_cursor_hidden :: proc() -> bool {
 	return s.win.is_cursor_hidden()
 }
 
-linux_set_cursor_locked :: proc(locked: bool) {
-	s.win.set_cursor_locked(locked)
+linux_set_mouse_locked :: proc(locked: bool) {
+	s.win.set_mouse_locked(locked)
 }
 
-linux_is_cursor_locked :: proc() -> bool {
-	return s.win.is_cursor_locked()
+linux_is_mouse_locked :: proc() -> bool {
+	return s.win.is_mouse_locked()
 }
 
 linux_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
@@ -698,8 +698,8 @@ Linux_Window_Interface :: struct #all_or_none {
 	set_window_mode: proc(window_mode: Window_Mode),
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
-	set_cursor_locked: proc(locked: bool),
-	is_cursor_locked: proc() -> bool,
+	set_mouse_locked: proc(locked: bool),
+	is_mouse_locked: proc() -> bool,
 
 	create_custom_cursor: proc(image: Image, hotspot: [2]int) -> Custom_Cursor,
 	set_cursor: proc(cursor: Cursor),

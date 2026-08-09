@@ -27,8 +27,8 @@ Platform_Interface :: struct #all_or_none {
 
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
-	set_cursor_locked: proc(locked: bool),
-	is_cursor_locked: proc() -> bool,
+	set_mouse_locked: proc(locked: bool),
+	is_mouse_locked: proc() -> bool,
 	create_custom_cursor: proc(image: Image, hotspot: [2]int) -> Custom_Cursor,
 	set_cursor: proc(cursor: Cursor),
 	destroy_custom_cursor: proc(custom_cursor: Custom_Cursor),

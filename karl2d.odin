@@ -644,48 +644,26 @@ get_mouse_delta :: proc() -> Vec2 {
 	return s.mouse_delta
 }
 
-// Hide or show the mouse cursor. The cursor may get shown again if the window loses focus.
-// Therefore, it's often best to use `is_cursor_hidden` to check the current status and use this
-// procedure to hide the cursor as needed.
-//
-// This call does not lock the cursor within the window, do that using a separate call to
-// `set_cursor_locked`.
-set_cursor_hidden :: proc(hidden: bool) {
-	pf.set_cursor_hidden(hidden)
-}
-
-// Returns true if the cursor is hidden. The cursor may get re-shown by the OS, for example when the
-// window loses focus. Therefore, this procedure may return false even though you've hidden the
-// cursor previously. It should always reflect the true hide-state of the cursor.
-is_cursor_hidden :: proc() -> bool {
-	return pf.is_cursor_hidden()
-}
-
-@(deprecated="Use set_cursor_hidden")
-set_cursor_visible :: proc(visible: bool) {
-	pf.set_cursor_hidden(!visible)
-}
-
-// Locks the mouse cursor within the window. While the cursor is locked, you should no longer use
+// Locks the mouse within the window. While the mouse is locked, you should no longer use
 // get_mouse_position, as it may have weird/static values. Instead, use get_mouse_delta to fetch how
 // much the mouse have been moved.
 //
-// On some platforms the cursor is just stuck at a specific point. On other platforms it may be
+// On some platforms the mouse is just stuck at a specific point. On other platforms it may be
 // teleported back to the center of the window on each frame.
 //
-// This call does not hide the cursor, do that separately using `set_cursor_visible`.
+// This call does not hide the cursor, do that separately using `set_cursor_hidden`.
 //
-// If the window loses focus, then the cursor may get unlocked. You can query the current lock
-// status using `is_cursor_locked`, which should take into account if the OS has unlocked it for you
-set_cursor_locked :: proc(locked: bool) {
-	pf.set_cursor_locked(locked)
+// If the window loses focus, then the mouse may get unlocked. You can query the current lock
+// status using `is_mouse_locked`, which should take into account if the OS has unlocked it for you
+set_mouse_locked :: proc(locked: bool) {
+	pf.set_mouse_locked(locked)
 }
 
-// Returns true if the mouse cursor is currently locked. Note that the mouse can get unlocked by the
-// OS, even though you previously called `set_cursor_locked(true)`. Therefore, it's best to check
-// the current status using this procedure and then lock the mouse if needed.
-is_cursor_locked :: proc() -> bool {
-	return pf.is_cursor_locked()
+// Returns true if the mouse is currently locked. Note that the mouse can get unlocked by the OS,
+// even though you previously called `set_mouse_locked(true)`. Therefore, it's best to check the
+// current status using this procedure and then lock the mouse if needed.
+is_mouse_locked :: proc() -> bool {
+	return pf.is_mouse_locked()
 }
 
 // Returns true if a gamepad with the supplied index is connected. The parameter should be a value
@@ -3850,6 +3828,23 @@ set_cursor :: proc(cursor: Cursor) {
 // on screen then the default cursor is shown instead.
 destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 	pf.destroy_custom_cursor(custom_cursor)
+}
+
+// Hide or show the mouse cursor. The cursor may get shown again if the window loses focus.
+// Therefore, it's often best to use `is_cursor_hidden` to check the current status and use this
+// procedure to hide the cursor as needed.
+//
+// This call does not lock the mouse within the window, do that using a separate call to
+// `set_mouse_locked`.
+set_cursor_hidden :: proc(hidden: bool) {
+	pf.set_cursor_hidden(hidden)
+}
+
+// Returns true if the cursor is hidden. The cursor may get re-shown by the OS, for example when the
+// window loses focus. Therefore, this procedure may return false even though you've hidden the
+// cursor previously. It should always reflect the true hide-state of the cursor.
+is_cursor_hidden :: proc() -> bool {
+	return pf.is_cursor_hidden()
 }
 
 //---------//

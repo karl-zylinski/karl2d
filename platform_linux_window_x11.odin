@@ -19,8 +19,8 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_window_mode = x11_set_window_mode,
 	set_cursor_hidden = x11_set_cursor_hidden,
 	is_cursor_hidden = x11_is_cursor_hidden,
-	set_cursor_locked = x11_set_cursor_locked,
-	is_cursor_locked = x11_is_cursor_locked,
+	set_mouse_locked = x11_set_mouse_locked,
+	is_mouse_locked = x11_is_mouse_locked,
 	create_custom_cursor = x11_create_custom_cursor,
 	set_cursor = x11_set_cursor,
 	destroy_custom_cursor = x11_destroy_custom_cursor,
@@ -204,7 +204,7 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 			}
 
 		case .MotionNotify:
-			if s.cursor_locked {
+			if s.mouse_locked {
 				cx := i32(s.screen_width / 2)
 				cy := i32(s.screen_height / 2)
 
@@ -245,8 +245,8 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 			append(events, Event_Window_Focused{})
 
 		case .FocusOut:
-			// X11 unlocks the cursor if program loses focus
-			s.cursor_locked = false
+			// X11 unlocks the mouse if program loses focus
+			s.mouse_locked = false
 			append(events, Event_Window_Unfocused{})
 		}
 	}
@@ -445,8 +445,8 @@ x11_is_cursor_hidden :: proc() -> bool {
 	return s.cursor_hidden	
 }
 
-x11_set_cursor_locked :: proc(locked: bool) {
-	s.cursor_locked = locked
+x11_set_mouse_locked :: proc(locked: bool) {
+	s.mouse_locked = locked
 
 	if locked {
 		// Confine pointer to window (equivalent of Windows' ClipCursor)
@@ -469,8 +469,8 @@ x11_set_cursor_locked :: proc(locked: bool) {
 	}
 }
 
-x11_is_cursor_locked :: proc() -> bool {
-	return s.cursor_locked
+x11_is_mouse_locked :: proc() -> bool {
+	return s.mouse_locked
 }
 
 _x11_teleport_cursor_to_center :: proc() {
@@ -591,7 +591,7 @@ X11_State :: struct {
 	shape_cursors: [Cursor_Shape]Maybe(X.Cursor),
 
 	cursor_hidden: bool,
-	cursor_locked: bool,
+	mouse_locked: bool,
 	events: [dynamic]Event,
 }
 

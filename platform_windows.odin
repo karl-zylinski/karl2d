@@ -21,8 +21,8 @@ PLATFORM_WINDOWS :: Platform_Interface {
 
 	set_cursor_hidden = windows_set_cursor_hidden,
 	is_cursor_hidden = windows_is_cursor_hidden,
-	set_cursor_locked = windows_set_cursor_locked,
-	is_cursor_locked = windows_is_cursor_locked,
+	set_mouse_locked = windows_set_mouse_locked,
+	is_mouse_locked = windows_is_mouse_locked,
 	create_custom_cursor = windows_create_custom_cursor,
 	set_cursor = windows_set_cursor,
 	destroy_custom_cursor = windows_destroy_custom_cursor,
@@ -429,7 +429,7 @@ Windows_State :: struct {
 	previous_gamepad_triggers: [MAX_GAMEPADS][2]win32.BYTE,
 
 	events: [dynamic]Event,
-	cursor_locked: bool,
+	mouse_locked: bool,
 	cursor_hidden: bool,
 
 	custom_cursors: hm.Dynamic_Handle_Map(Windows_Cursor_Data, Custom_Cursor),
@@ -511,8 +511,8 @@ windows_is_cursor_hidden :: proc() -> bool {
 	return s.cursor_hidden
 }
 
-windows_set_cursor_locked :: proc(locked: bool) {
-	s.cursor_locked = locked
+windows_set_mouse_locked :: proc(locked: bool) {
+	s.mouse_locked = locked
 
 	if locked {
 		r: win32.RECT
@@ -530,8 +530,8 @@ windows_set_cursor_locked :: proc(locked: bool) {
 	}
 }
 
-windows_is_cursor_locked :: proc() -> bool {
-	return s.cursor_locked
+windows_is_mouse_locked :: proc() -> bool {
+	return s.mouse_locked
 }
 
 _windows_teleport_cursor_to_center :: proc() {
@@ -733,7 +733,7 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 		x := win32.GET_X_LPARAM(lparam)
 		y := win32.GET_Y_LPARAM(lparam)
 
-		if s.cursor_locked {
+		if s.mouse_locked {
 			cx := i32(s.screen_width / 2)
 			cy := i32(s.screen_height / 2)
 
@@ -853,7 +853,7 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 		append(&s.events, Event_Window_Focused {})
 
 	case win32.WM_KILLFOCUS:
-		s.cursor_locked = false
+		s.mouse_locked = false
 		if s.cursor_hidden {
 			win32.ShowCursor(true)
 			s.cursor_hidden = false

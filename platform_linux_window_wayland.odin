@@ -17,8 +17,8 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	set_window_mode = wl_set_window_mode,
 	set_cursor_hidden = wl_set_cursor_hidden,
 	is_cursor_hidden = wl_is_cursor_hidden,
-	set_cursor_locked = wl_set_cursor_locked,
-	is_cursor_locked = wl_is_cursor_locked,
+	set_mouse_locked = wl_set_mouse_locked,
+	is_mouse_locked = wl_is_mouse_locked,
 	create_custom_cursor = wl_create_custom_cursor,
 	set_cursor = wl_set_cursor,
 	destroy_custom_cursor = wl_destroy_custom_cursor,
@@ -711,7 +711,7 @@ relative_pointer_listener := wl.ZWP_Relative_Pointer_V1_Listener {
 	},
 }
 
-wl_set_cursor_locked :: proc(locked: bool) {
+wl_set_mouse_locked :: proc(locked: bool) {
 	if locked {
 		if s.locked_pointer != nil {
 			return
@@ -737,7 +737,7 @@ wl_set_cursor_locked :: proc(locked: bool) {
 	}
 }
 
-wl_is_cursor_locked :: proc() -> bool {
+wl_is_mouse_locked :: proc() -> bool {
 	return s.locked_pointer != nil
 }
 
