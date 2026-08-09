@@ -1,9 +1,10 @@
 // Checks that the Y down and Y up coordinate systems draw the same picture.
 //
-// Everything this program draws is positioned in "screen space": X from the left edge and Y from the
-// TOP edge, regardless of the coordinate system in use. `screen_rect` and `screen_pos` translate
-// that into whatever the library currently expects. If the coordinate systems are implemented
-// correctly then the resulting geometry, in normalized device coordinates, is identical in both.
+// Everything this program draws is positioned in "screen space": X from the left edge and Y from
+// the TOP edge, regardless of the coordinate system in use. `screen_rect` and `screen_pos`
+// translate that into whatever the library currently expects. If the coordinate systems are
+// implemented correctly then the resulting geometry, in normalized device coordinates, is
+// identical in both.
 //
 // So the test is: build this two ways and diff the output. Both must agree.
 //
@@ -306,8 +307,8 @@ check_first_line_is_on_top :: proc(font: k2.Font, label: string) {
 	)
 }
 
-// How far the topmost of these vertices is from the top of the surface. Measuring from the top means
-// the number is comparable across coordinate systems.
+// How far the topmost of these vertices is from the top of the surface. Measuring from the top
+// means the number is comparable across coordinate systems.
 screen_top_of :: proc(vertices: []k2.Vec2) -> f32 {
 	extreme := max(f32)
 
@@ -324,8 +325,8 @@ screen_top_of :: proc(vertices: []k2.Vec2) -> f32 {
 	return extreme
 }
 
-// The rect_* helpers are named for the screen, so they must report the same screen positions in both
-// coordinate systems.
+// The rect_* helpers are named for the screen, so they must report the same screen positions in
+// both coordinate systems.
 check_rect_helpers :: proc() {
 	r := screen_rect(100, 100, 40, 20)
 

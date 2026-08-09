@@ -12,9 +12,9 @@ import "core:math"
 // counter-clockwise. This example keeps all of its own positions in that world, and converts at the
 // point where it hands them to Karl2D.
 //
-// Compile with `-define:KARL2D_Y_UP=true` and every conversion below becomes the identity, which is
-// the whole point of the Y up coordinate system. Without it the conversions do the flipping that any
-// Y down 2D library needs when it talks to a physics engine.
+// Compile with `-define:KARL2D_Y_UP=true` and every conversion below becomes the identity, which
+// is the whole point of the Y up coordinate system. Without it the conversions do the flipping
+// that any Y down 2D library needs when it talks to a physics engine.
 
 // Convert a point from the Box2D world into Karl2D's coordinate system.
 world_to_k2 :: proc(p: b2.Vec2) -> k2.Vec2 {

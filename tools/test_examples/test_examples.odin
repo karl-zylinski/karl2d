@@ -26,7 +26,7 @@ main :: proc() {
 	examples, examples_err := os.read_all_directory_by_path("examples", context.allocator)
 
 	fmt.assertf(examples_err == nil, "Failed opening examples directory. Error: %v", examples_err)
-
+	
 	// These examples don't have web build
 	no_web_list := [?]string{
 		"minimal_hello_world",

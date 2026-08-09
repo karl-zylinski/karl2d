@@ -37,24 +37,25 @@ import hm "core:container/handle_map"
 //   top-left corner. Positive rotations appear clockwise on screen.
 //
 // - Y up: Compile with `-define:KARL2D_Y_UP=true`. The origin is in the bottom-left corner of the
-//   screen and Y grows upwards. A `Rect` grows upwards and to the right from its (x, y) position, so
-//   (x, y) is the rect's bottom-left corner. Positive rotations appear counter-clockwise on screen,
-//   which is what `math.atan2` and physics engines such as Box2D produce, so their angles can be
-//   used without conversion. See `examples/box2d`.
+//   screen and Y grows upwards. A `Rect` grows upwards and to the right from its (x, y) position,
+//   so (x, y) is the rect's bottom-left corner. Positive rotations appear counter-clockwise on
+//   screen, which is what `math.atan2` and physics engines such as Box2D produce, so their angles
+//   can be used without conversion. See `examples/box2d`.
 //
 // Things that do NOT change between the two:
 //
-// - Texture space. A `source` rectangle passed to the `draw_texture_*` procedures is always measured
-//   from the top-left corner of the texture, downwards. Texture space is image space: sprite sheet
-//   coordinates come out of image editors that way, and the pixels themselves are stored that way.
-// - The naming of the `rect_*` helpers. `rect_top_left` is always the corner that appears in the top
-//   left on screen, and `rect_cut_top` always cuts the part that appears at the top on screen.
+// - Texture space. A `source` rectangle passed to the `draw_texture_*` procedures is always
+//   measured from the top-left corner of the texture, downwards. Texture space is image space:
+//   sprite sheet coordinates come out of image editors that way, and the pixels themselves are
+//   stored that way.
+// - The naming of the `rect_*` helpers. `rect_top_left` is always the corner that appears in the
+//   top left on screen, and `rect_cut_top` always cuts the part that appears at the top on screen.
 // - `measure_text`, which always returns a positive size.
 //
 // `draw_text(text, position, font_size)` covers exactly
-// `rect_from_pos_size(position, measure_text(text, font_size))` in both coordinate systems, with the
-// first line at the top on screen. So `position` is the top-left corner of the text in Y down and
-// the bottom-left corner in Y up, just like a `Rect`.
+// `rect_from_pos_size(position, measure_text(text, font_size))` in both coordinate systems, with
+// the first line at the top on screen. So `position` is the top-left corner of the text in Y down
+// and the bottom-left corner in Y up, just like a `Rect`.
 Y_UP :: #config(KARL2D_Y_UP, false)
 
 //-----------------------------------------------//
@@ -1389,14 +1390,14 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 //
 // The text fills exactly `rect_from_pos_size(position, measure_text(text, font_size, font))`, with
 // the first line at the top on screen. So `position` is the top-left corner of the text in the
-// default Y down coordinate system, and its bottom-left corner in a Y up one — the same way a `Rect`
-// is anchored.
+// default Y down coordinate system, and its bottom-left corner in a Y up one: the same way a
+// `Rect` is anchored.
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
 // - origin: The origin relative to `position`. Used when rotating the text.
-// - rotation: Rotation to apply to the text, measured in radians. Positive rotations appear clockwise
-//   on screen in Y down and counter-clockwise in Y up.
+// - rotation: Rotation to apply to the text, measured in radians. Positive rotations appear
+//   clockwise on screen in Y down and counter-clockwise in Y up.
 draw_text :: proc(
 	text: string,
 	position: Vec2,
@@ -1468,7 +1469,7 @@ draw_text :: proc(
 			}
 
 			if c == '\n' {
-				char_offset.x = 0
+				char_offset.x = 0 
 				char_offset.y += font_object.static_line_spacing * scl
 				continue
 			}
@@ -3457,8 +3458,8 @@ rect_expand :: proc(r: Rect, x: f32, y: f32) -> Rect {
 	}
 }
 
-// Cut off `h` pixels from the top of `r`, as it appears on screen. `r` is modified. The cut off part
-// is returned. `m` is the margin added above the cut part.
+// Cut off `h` pixels from the top of `r`, as it appears on screen. `r` is modified. The cut off
+// part is returned. `m` is the margin added above the cut part.
 rect_cut_top :: proc(r: ^Rect, h: f32, m: f32) -> Rect {
 	when Y_UP {
 		// The top edge is at the high end of Y, so this is the "cut the far end" case.
@@ -5178,8 +5179,8 @@ API_END :: true
 // The complete set of places where the two coordinate systems disagree. Everything else in this
 // file is written in terms of these.
 
-// Convert a Y coordinate between Karl2D's screen space and the native, top-down screen space used by
-// windowing systems and graphics APIs. `container_height` is the height of the surface the
+// Convert a Y coordinate between Karl2D's screen space and the native, top-down screen space used
+// by windowing systems and graphics APIs. `container_height` is the height of the surface the
 // coordinate lives on: the window for screen coordinates, the render texture when drawing into one.
 //
 // This is its own inverse, so the same procedure converts in both directions.
@@ -5208,8 +5209,8 @@ screen_rect_to_native :: proc "contextless" (r: Rect, container_height: f32) -> 
 //
 // Text is always laid out top-down, the way font rasterizers produce it: local (0, 0) is the
 // top-left corner of the whole text block, and Y grows downwards as lines are added. This maps such
-// a box to where it belongs in the world, given the `anchor` passed to `draw_text` and the height of
-// the finished text block.
+// a box to where it belongs in the world, given the `anchor` passed to `draw_text` and the height
+// of the finished text block.
 //
 // The result is that `draw_text(text, pos, size)` covers exactly
 // `rect_from_pos_size(pos, measure_text(text, size))` in both coordinate systems, with the first

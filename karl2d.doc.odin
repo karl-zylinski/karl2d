@@ -14,24 +14,25 @@ package karl2d
 //   top-left corner. Positive rotations appear clockwise on screen.
 //
 // - Y up: Compile with `-define:KARL2D_Y_UP=true`. The origin is in the bottom-left corner of the
-//   screen and Y grows upwards. A `Rect` grows upwards and to the right from its (x, y) position, so
-//   (x, y) is the rect's bottom-left corner. Positive rotations appear counter-clockwise on screen,
-//   which is what `math.atan2` and physics engines such as Box2D produce, so their angles can be
-//   used without conversion. See `examples/box2d`.
+//   screen and Y grows upwards. A `Rect` grows upwards and to the right from its (x, y) position,
+//   so (x, y) is the rect's bottom-left corner. Positive rotations appear counter-clockwise on
+//   screen, which is what `math.atan2` and physics engines such as Box2D produce, so their angles
+//   can be used without conversion. See `examples/box2d`.
 //
 // Things that do NOT change between the two:
 //
-// - Texture space. A `source` rectangle passed to the `draw_texture_*` procedures is always measured
-//   from the top-left corner of the texture, downwards. Texture space is image space: sprite sheet
-//   coordinates come out of image editors that way, and the pixels themselves are stored that way.
-// - The naming of the `rect_*` helpers. `rect_top_left` is always the corner that appears in the top
-//   left on screen, and `rect_cut_top` always cuts the part that appears at the top on screen.
+// - Texture space. A `source` rectangle passed to the `draw_texture_*` procedures is always
+//   measured from the top-left corner of the texture, downwards. Texture space is image space:
+//   sprite sheet coordinates come out of image editors that way, and the pixels themselves are
+//   stored that way.
+// - The naming of the `rect_*` helpers. `rect_top_left` is always the corner that appears in the
+//   top left on screen, and `rect_cut_top` always cuts the part that appears at the top on screen.
 // - `measure_text`, which always returns a positive size.
 //
 // `draw_text(text, position, font_size)` covers exactly
-// `rect_from_pos_size(position, measure_text(text, font_size))` in both coordinate systems, with the
-// first line at the top on screen. So `position` is the top-left corner of the text in Y down and
-// the bottom-left corner in Y up, just like a `Rect`.
+// `rect_from_pos_size(position, measure_text(text, font_size))` in both coordinate systems, with
+// the first line at the top on screen. So `position` is the top-left corner of the text in Y down
+// and the bottom-left corner in Y up, just like a `Rect`.
 Y_UP :: #config(KARL2D_Y_UP, false)
 
 //-----------------------------------------------//
@@ -444,14 +445,14 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 //
 // The text fills exactly `rect_from_pos_size(position, measure_text(text, font_size, font))`, with
 // the first line at the top on screen. So `position` is the top-left corner of the text in the
-// default Y down coordinate system, and its bottom-left corner in a Y up one — the same way a `Rect`
-// is anchored.
+// default Y down coordinate system, and its bottom-left corner in a Y up one: the same way a
+// `Rect` is anchored.
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
 // - origin: The origin relative to `position`. Used when rotating the text.
-// - rotation: Rotation to apply to the text, measured in radians. Positive rotations appear clockwise
-//   on screen in Y down and counter-clockwise in Y up.
+// - rotation: Rotation to apply to the text, measured in radians. Positive rotations appear
+//   clockwise on screen in Y down and counter-clockwise in Y up.
 draw_text :: proc(
 	text: string,
 	position: Vec2,
@@ -800,8 +801,8 @@ rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect
 // Make a rectangle bigger by `x` pixels in the horizontal direction and `y` pixels in the vertical.
 rect_expand :: proc(r: Rect, x: f32, y: f32) -> Rect
 
-// Cut off `h` pixels from the top of `r`, as it appears on screen. `r` is modified. The cut off part
-// is returned. `m` is the margin added above the cut part.
+// Cut off `h` pixels from the top of `r`, as it appears on screen. `r` is modified. The cut off
+// part is returned. `m` is the margin added above the cut part.
 rect_cut_top :: proc(r: ^Rect, h: f32, m: f32) -> Rect
 
 // Cut off `h` pixels from the bottom of `r`, as it appears on screen. `r` is modified. The cut off
