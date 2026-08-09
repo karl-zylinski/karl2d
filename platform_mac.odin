@@ -772,20 +772,22 @@ mac_build_cursor :: proc(cursor: ^Mac_Cursor) {
 		NS.Integer(cursor.width * 4),
 		32,
 	)
-	defer rep->release()
 
 	ns_image := NS.Image_alloc()->initWithSize({
 		CF.CGFloat(f32(cursor.width) / scale),
 		CF.CGFloat(f32(cursor.height) / scale),
 	})
 	ns_image->addRepresentation((^NS.ImageRep)(rep))
-	defer ns_image->release()
 
 	// The hotspot is in the image's coordinate system, so it is in points too.
 	cursor.cursor = NS.Cursor_alloc()->initWithImage(ns_image, {
 		CF.CGFloat(f32(cursor.hotspot.x) / scale),
 		CF.CGFloat(f32(cursor.hotspot.y) / scale),
 	})
+
+	// The NSCursor retains the image, which retains the representation, so both can go now.
+	ns_image->release()
+	rep->release()
 
 	cursor.built_for_scale = scale
 

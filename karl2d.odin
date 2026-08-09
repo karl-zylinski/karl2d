@@ -1656,24 +1656,26 @@ load_image_from_bytes :: proc(bytes: []u8) -> Image {
 		return {}
 	}
 
-	defer image.destroy(img, s.frame_allocator)
-
 	if img.depth != 8 || img.channels != 4 {
 		log.errorf(
 			"Error loading image: expected 8-bit RGBA, got %v-bit with %v channels",
 			img.depth, img.channels,
 		)
+		image.destroy(img, s.frame_allocator)
 		return {}
 	}
 
 	pixels := make([]Color, img.width*img.height, s.allocator)
 	copy(pixels, slice.reinterpret([]Color, img.pixels.buf[:]))
 
-	return {
+	res := Image {
 		pixels = pixels,
 		width = img.width,
 		height = img.height,
 	}
+
+	image.destroy(img, s.frame_allocator)
+	return res
 }
 
 // Destroy an image previously loaded using `load_image` or `load_image_from_bytes`.

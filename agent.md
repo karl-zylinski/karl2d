@@ -47,6 +47,17 @@ This document provides guidelines for LLM agents to read. It provides convention
     misbehaving. They log on every call though, so guard with `!= <TYPE>_NONE` in code that runs
     each frame.
   - See `examples/cursors/cursors.odin` for how this reads in practice.
+- **Avoid `defer`; write the cleanup where it happens.** `defer` moves work away from the point it
+  runs, so the reader has to reconstruct the order instead of reading top to bottom. Free, release
+  or destroy a thing on the line after it stops being needed.
+  - Usually the resource dies long before the procedure does, and releasing it right there is both
+    linear and a tighter lifetime. In `x11_create_custom_cursor` the Xcursor image is finished with
+    the moment `cursorImageLoadCursor` has copied it, well before any of the error returns.
+  - If a value is still needed by the `return` expression, put the result in a local, clean up, then
+    return the local.
+  - `defer` is fine when a scope really does exit many ways and each would otherwise repeat the same
+    cleanup. `wl_create_custom_cursor` keeps `defer linux.close(fd)` because three separate paths
+    would each have to close it.
 - **File organization:**
   - Group related procedures and types together.
   - Use clear section comments as in `karl2d.odin`. The format is three lines: a dash line, a centered text line, and another dash line. The dashes match the width of the text. Example:

@@ -564,7 +564,6 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 	}
 
 	hdc := win32.GetDC(s.hwnd)
-	defer win32.ReleaseDC(s.hwnd, hdc)
 
 	dib_pixels: win32.PVOID
 	h_color := win32.CreateDIBSection(
@@ -576,11 +575,13 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 		0,
 	)
 
+	// The DIB section owns its pixels, so the DC is only needed for the call above.
+	win32.ReleaseDC(s.hwnd, hdc)
+
 	if h_color == nil || dib_pixels == nil {
 		log.errorf("CreateDIBSection failed with %v", win32.GetLastError())
 		return {}
 	}
-	defer win32.DeleteObject(cast(win32.HGDIOBJ) h_color)
 
 	// We receive RGBA but the DIB, like GDI generally, wants BGRA.
 	dib_colors := slice.from_ptr((^Color)(dib_pixels), len(image.pixels))
@@ -596,7 +597,6 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 	mask_bits := make([]u8, mask_stride*image.height, frame_allocator)
 
 	h_mask := win32.CreateBitmap(i32(image.width), i32(image.height), 1, 1, raw_data(mask_bits))
-	defer win32.DeleteObject(cast(win32.HGDIOBJ) h_mask)
 
 	ii := win32.ICONINFO {
 		fIcon    = false,
@@ -606,6 +606,10 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 		hbmMask  = h_mask,
 	}
 	hcursor := (win32.HCURSOR)(win32.CreateIconIndirect(&ii))
+
+	// CreateIconIndirect copies both bitmaps, so we own them again whether or not it worked.
+	win32.DeleteObject(cast(win32.HGDIOBJ) h_color)
+	win32.DeleteObject(cast(win32.HGDIOBJ) h_mask)
 
 	if hcursor == nil {
 		log.errorf("CreateIconIndirect failed with %v", win32.GetLastError())

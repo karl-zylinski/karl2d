@@ -865,16 +865,17 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor 
 		pixel_data[i] = a << 24 | r << 16 | g << 8 | b
 	}
 
-	// The pool can go away immediately: the mapping stays alive until every buffer made from it
-	// has been destroyed.
 	pool := wl.shm_create_pool(s.shm, c.int32_t(fd), c.int32_t(size))
-	defer wl.shm_pool_destroy(pool)
 
 	buffer := wl.shm_pool_create_buffer(
 		pool, 0,
 		c.int32_t(image.width), c.int32_t(image.height), c.int32_t(stride),
 		wl.SHM_FORMAT_ARGB8888,
 	)
+
+	// The pool can go away immediately: the mapping stays alive until every buffer made from it
+	// has been destroyed.
+	wl.shm_pool_destroy(pool)
 
 	surface := wl.compositor_create_surface(s.compositor)
 	wl.surface_attach(surface, buffer, 0, 0)
