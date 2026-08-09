@@ -3805,15 +3805,21 @@ get_default_font :: proc() -> Font {
 	return FONT_DEFAULT
 }
 
+
 //---------//
 // CURSORS //
 //---------//
 
-// Create a cursor from an image. The cursor covers as many physical pixels as the image has
-// pixels, so it matches art the game draws at the same size. `hotspot` is the pixel within the
-// image that points at things, also in physical pixels.
+// Sets the cursor, either to one the operating system provides or to one made with
+// `create_custom_cursor`. `set_cursor(.Default)` goes back to the normal OS cursor.
+set_cursor :: proc(cursor: Cursor) {
+	pf.set_cursor(cursor)
+}
+
+// Create a cursor from an image. `hotspot` is the position within the image that points at things,
+// in physical pixels.
 //
-// The image is not retained: you may destroy it as soon as this returns.
+// The cursor does not need `image` after it is created. You may destroy it.
 create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
 	if image.width == 0 || image.height == 0 {
 		log.error("Invalid cursor image: height or width is zero")
@@ -3828,14 +3834,8 @@ create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
 	return pf.create_custom_cursor(image, hotspot)
 }
 
-// Sets the cursor, either to one the operating system provides or to one made with
-// `create_custom_cursor`. `set_cursor(.Default)` goes back to the normal OS cursor.
-set_cursor :: proc(cursor: Cursor) {
-	pf.set_cursor(cursor)
-}
-
 // Destroy a cursor previously created using `create_custom_cursor`. If it is the cursor currently
-// on screen then the default cursor is shown instead.
+// on screen then Karl2D will restore the default OS cursor.
 destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 	pf.destroy_custom_cursor(custom_cursor)
 }
