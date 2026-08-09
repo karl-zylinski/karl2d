@@ -352,7 +352,7 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			// that properly would require `interpretKeyEvents:` and `insertText:`.
 			if event->modifierFlags() & {.Command} == {} {
 				for r in event->characters()->odinString() {
-					if is_typable_rune(r) {
+					if is_typable_rune(r) && !mac_is_function_key_rune(r) {
 						append(&s.events, Event_Typed_Rune{typed = r})
 					}
 				}
@@ -894,6 +894,13 @@ mac_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 
 	// Falls back to the default if that was the cursor on screen.
 	mac_apply_cursor()
+}
+
+// macOS reports keys that aren't on a standard keyboard (arrows, F1-F35, Home, End, Page Up/Down,
+// forward Delete, etc) as characters in the Unicode Private Use Area range U+F700 to U+F8FF. Those
+// are not text, so they must not end up as typed runes.
+mac_is_function_key_rune :: proc(r: rune) -> bool {
+	return r >= 0xf700 && r <= 0xf8ff
 }
 
 // Key code mapping from macOS virtual key codes to Keyboard_Key

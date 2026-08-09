@@ -185,6 +185,16 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 		event: X.XEvent
 		X.NextEvent(s.display, &event)
 
+		// The input method gets first look at each event. It swallows the ones that are part of
+		// composing a character (dead keys, CJK input methods etc), and hands us the finished text
+		// later via `Xutf8LookupString`. Skipping this makes those keystrokes arrive twice.
+		//
+		// Passing window 0 (`None`) means "use the window the event was generated for", which also
+		// covers events on windows the input method made for itself.
+		if s.xic != nil && X.FilterEvent(&event, 0) {
+			continue
+		}
+
 		#partial switch event.type {
 		case .ClientMessage:
 			if X.Atom(event.xclient.data.l[0]) == s.delete_msg {
@@ -313,11 +323,25 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 				})
 			}
 		case .FocusIn:
+			if s.xic != nil {
+				X.SetICFocus(s.xic)
+			}
+
 			append(events, Event_Window_Focused{})
 
 		case .FocusOut:
+			if s.xic != nil {
+				X.UnsetICFocus(s.xic)
+			}
+
 			// X11 unlocks the mouse if program loses focus
 			s.mouse_locked = false
+
+			// We won't see the KeyRelease for anything held while we're unfocused. Without this a
+			// key held during focus loss stays marked as held, making the next press of it look
+			// like a repeat instead of a fresh press.
+			s.key_held = {}
+
 			append(events, Event_Window_Unfocused{})
 		}
 	}

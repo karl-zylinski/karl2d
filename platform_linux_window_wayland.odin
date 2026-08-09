@@ -411,7 +411,13 @@ keyboard_listener := wl.Keyboard_Listener {
 		s.xkb_state = xkb.state_new(keymap)
 	},
 	enter = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, serial: c.uint32_t, surface: ^wl.Surface, keys: ^wl.Array) {},
-	leave = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, serial: c.uint32_t, surface: ^wl.Surface) {},
+	leave = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, serial: c.uint32_t, surface: ^wl.Surface) {
+		context = s.odin_ctx
+
+		// We stop hearing about this key once we lose keyboard focus, so the synthesized repeat
+		// would otherwise keep firing forever while the window is in the background.
+		s.repeat_key = .None
+	},
 	key = key_handler,
 	modifiers = proc "c" (
 		data: rawptr,
@@ -719,18 +725,31 @@ wl_get_events :: proc(events: ^[dynamic]Event) {
 	wl.display_dispatch_pending(s.display)
 
 	// Wayland compositors don't send repeat events -- we have to synthesize them ourselves from
-	// the rate/delay reported by the keyboard's `repeat_info` event. Capped at a fixed number of
-	// iterations so a long-paused/stalled frame can't spin here forever.
+	// the rate/delay reported by the keyboard's `repeat_info` event.
 	if s.repeat_key != .None && s.repeat_rate > 0 {
 		now := time.tick_now()
 		interval := time.Second / time.Duration(s.repeat_rate)
 
-		for i := 0; i < 32 && time.tick_diff(s.repeat_next_tick, now) >= 0; i += 1 {
+		// Capped so that a long stall (a breakpoint, a slow loading frame) doesn't produce a huge
+		// burst of repeats.
+		REPEATS_PER_FRAME_MAX :: 32
+
+		for _ in 0..<REPEATS_PER_FRAME_MAX {
+			if time.tick_diff(s.repeat_next_tick, now) < 0 {
+				break
+			}
+
 			append(&s.events, Event_Key_Repeat {
 				key = s.repeat_key,
 			})
 			_wl_append_typed_runes(s.repeat_xkb_keycode)
 			s.repeat_next_tick = time.tick_add(s.repeat_next_tick, interval)
+		}
+
+		// If we hit the cap then we're still behind, so skip the backlog instead of spreading it
+		// out over the coming frames.
+		if time.tick_diff(s.repeat_next_tick, now) >= 0 {
+			s.repeat_next_tick = time.tick_add(now, interval)
 		}
 	}
 
