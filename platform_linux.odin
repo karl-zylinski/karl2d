@@ -633,15 +633,15 @@ linux_set_cursor :: proc(cursor: Cursor) {
 	s.win.set_cursor(cursor)
 }
 
-// Cursor theme names for a shape. Both X11 and Wayland load cursors out of the user's XCursor
-// theme by name, so they use the same table.
+// Cursor theme names for a standard cursor. Both X11 and Wayland load cursors out of the user's
+// XCursor theme by name, so they use the same table.
 //
 // `name` is the freedesktop name, which is what current themes ship. `fallback` is the older X11
 // name for the same cursor: plenty of themes still only have those, and some have both. Neither is
-// guaranteed to exist, so callers have to handle a theme that has no cursor for a shape at all.
+// guaranteed to exist, so callers have to handle a theme that has no cursor for it at all.
 @(private="package")
-linux_cursor_shape_names :: proc(shape: Cursor_Shape) -> (name: cstring, fallback: cstring) {
-	switch shape {
+linux_standard_cursor_names :: proc(cursor: Standard_Cursor) -> (name: cstring, fallback: cstring) {
+	switch cursor {
 	case .Default:     return "default", "left_ptr"
 	case .Text:        return "text", "xterm"
 	case .Hand:        return "pointer", "hand2"

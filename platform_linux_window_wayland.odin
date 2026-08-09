@@ -772,28 +772,28 @@ wl_apply_cursor :: proc() {
 		return
 	}
 
-	shape := Cursor_Shape.Default
+	standard := Standard_Cursor.Default
 
 	switch cur in s.current_cursor {
-	case Cursor_Shape:
-		shape = cur
+	case Standard_Cursor:
+		standard = cur
 
 	case Custom_Cursor:
 		if cd := hm.get(&s.custom_cursors, cur); cd != nil {
 			wl_point_at_cursor(cd, s.pointer_enter_serial)
 			return
 		}
-		// Otherwise it was destroyed while on screen; fall through to the default shape below.
+		// Otherwise it was destroyed while on screen; fall through to the default cursor below.
 	}
 
-	// A shape cursor. Prefer the shape protocol, which lets the compositor render it at the
-	// correct size and DPI itself; the themed surface below is only a fallback for compositors
+	// A standard cursor. Prefer the cursor shape protocol, which lets the compositor render it at
+	// the correct size and DPI itself; the themed surface below is only a fallback for compositors
 	// that don't support it.
 	if s.cursor_shape_device != nil {
 		wl.cursor_shape_device_set_shape(
 			s.cursor_shape_device,
 			s.pointer_enter_serial,
-			wl_cursor_shape(shape),
+			wl_standard_cursor_shape(standard),
 		)
 		return
 	}
@@ -802,7 +802,7 @@ wl_apply_cursor :: proc() {
 		return
 	}
 
-	name, fallback := linux_cursor_shape_names(shape)
+	name, fallback := linux_standard_cursor_names(standard)
 	theme_cursor := wl.cursor_theme_get_cursor(s.cursor_theme, name)
 
 	if theme_cursor == nil {
@@ -965,8 +965,8 @@ wl_set_cursor :: proc(cursor: Cursor) {
 	wl_apply_cursor()
 }
 
-wl_cursor_shape :: proc(shape: Cursor_Shape) -> wl.WP_Cursor_Shape {
-	switch shape {
+wl_standard_cursor_shape :: proc(standard: Standard_Cursor) -> wl.WP_Cursor_Shape {
+	switch standard {
 	case .Default:     return .Default
 	case .Text:        return .Text
 	case .Hand:        return .Pointer
@@ -1083,7 +1083,7 @@ WL_State :: struct {
 
 	custom_cursors: hm.Dynamic_Handle_Map(WL_Cursor, Custom_Cursor),
 
-	// The cursor most recently passed to wl_set_cursor. The zero value is Cursor_Shape.Default.
+	// The cursor most recently passed to wl_set_cursor. The zero value is Standard_Cursor.Default.
 	current_cursor: Cursor,
 
 	cursor_shape_manager: ^wl.WP_Cursor_Shape_Manager_V1,

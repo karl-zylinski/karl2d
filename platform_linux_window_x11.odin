@@ -120,7 +120,7 @@ x11_init :: proc(
 x11_shutdown :: proc() {
 	delete(s.events)
 
-	for cached in s.shape_cursors {
+	for cached in s.standard_cursors {
 		if cursor, ok := cached.?; ok && cursor != 0 {
 			X.FreeCursor(s.display, cursor)
 		}
@@ -398,17 +398,17 @@ x11_apply_cursor :: proc() {
 				X.DefineCursor(s.display, s.window, cd.cursor)
 				defined = true
 			}
-			// Otherwise it was destroyed while on screen; fall through to the default shape.
+			// Otherwise it was destroyed while on screen; fall through to the default cursor.
 		}
 
 		if !defined {
-			shape := Cursor_Shape.Default
-			if sh, ok := s.current_cursor.(Cursor_Shape); ok {
-				shape = sh
+			standard := Standard_Cursor.Default
+			if sc, ok := s.current_cursor.(Standard_Cursor); ok {
+				standard = sc
 			}
 
-			if shape_cursor := x11_shape_cursor(shape); shape_cursor != 0 {
-				X.DefineCursor(s.display, s.window, shape_cursor)
+			if theme_cursor := x11_standard_cursor(standard); theme_cursor != 0 {
+				X.DefineCursor(s.display, s.window, theme_cursor)
 			} else {
 				// The theme has no cursor under either name, so let the window inherit whatever
 				// its parent uses, which is normally the default arrow.
@@ -420,24 +420,25 @@ x11_apply_cursor :: proc() {
 	X.Flush(s.display)
 }
 
-// Loads a shape out of the user's cursor theme, or returns 0 if the theme has no cursor for it.
+// Loads a standard cursor out of the user's cursor theme, or returns 0 if the theme has no cursor
+// for it.
 //
 // The results are cached because each one is a server-side resource that we own and have to free,
-// and because setting a cursor shape is the kind of thing a game calls every frame.
-x11_shape_cursor :: proc(shape: Cursor_Shape) -> X.Cursor {
-	if cached, ok := s.shape_cursors[shape].?; ok {
+// and because setting a standard cursor is the kind of thing a game calls every frame.
+x11_standard_cursor :: proc(standard: Standard_Cursor) -> X.Cursor {
+	if cached, ok := s.standard_cursors[standard].?; ok {
 		return cached
 	}
 
-	name, fallback := linux_cursor_shape_names(shape)
+	name, fallback := linux_standard_cursor_names(standard)
 	cursor := X.cursorLibraryLoadCursor(s.display, name)
 
 	if cursor == 0 {
 		cursor = X.cursorLibraryLoadCursor(s.display, fallback)
 	}
 
-	// Cached even when it's 0, so a theme missing a shape doesn't mean two round trips per frame.
-	s.shape_cursors[shape] = cursor
+	// Cached even when it's 0, so a theme missing one doesn't mean two round trips per frame.
+	s.standard_cursors[standard] = cursor
 	return cursor
 }
 
@@ -583,11 +584,11 @@ X11_State :: struct {
 
 	custom_cursors: hm.Dynamic_Handle_Map(X11_Cursor_Data, Custom_Cursor),
 
-	// The cursor most recently passed to x11_set_cursor. The zero value is Cursor_Shape.Default.
+	// The cursor most recently passed to x11_set_cursor. The zero value is Standard_Cursor.Default.
 	current_cursor: Cursor,
 
-	// Lazily loaded theme cursors, one per shape. See x11_shape_cursor.
-	shape_cursors: [Cursor_Shape]Maybe(X.Cursor),
+	// Lazily loaded theme cursors, one per standard cursor. See x11_standard_cursor.
+	standard_cursors: [Standard_Cursor]Maybe(X.Cursor),
 
 	cursor_hidden: bool,
 	mouse_locked: bool,

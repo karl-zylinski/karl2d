@@ -506,8 +506,8 @@ web_set_cursor :: proc(cursor: Cursor) {
 	web_apply_cursor()
 }
 
-web_cursor_shape_keyword :: proc(shape: Cursor_Shape) -> string {
-	switch shape {
+web_standard_cursor_keyword :: proc(cursor: Standard_Cursor) -> string {
+	switch cursor {
 	case .Default:     return "default"
 	case .Text:        return "text"
 	case .Hand:        return "pointer"
@@ -536,17 +536,17 @@ web_apply_cursor :: proc() {
 	}
 
 	switch c in s.current_cursor {
-	case Cursor_Shape:
-		// No dedup here, unlike the custom cursor path below: a shape is a short keyword rather
-		// than a data URI, so there is nothing worth avoiding a rewrite of.
-		js.set_element_style(s.canvas_id, "cursor", web_cursor_shape_keyword(c))
+	case Standard_Cursor:
+		// No dedup here, unlike the custom cursor path below: a standard cursor is a short keyword
+		// rather than a data URI, so there is nothing worth avoiding a rewrite of.
+		js.set_element_style(s.canvas_id, "cursor", web_standard_cursor_keyword(c))
 		s.applied_cursor = nil
 
 	case Custom_Cursor:
 		cd := hm.get(&s.custom_cursors, c)
 
 		if cd == nil {
-			js.set_element_style(s.canvas_id, "cursor", web_cursor_shape_keyword(.Default))
+			js.set_element_style(s.canvas_id, "cursor", web_standard_cursor_keyword(.Default))
 			s.applied_cursor = nil
 			return
 		}
@@ -661,7 +661,7 @@ Web_State :: struct {
 
 	custom_cursors: hm.Dynamic_Handle_Map(Web_Cursor, Custom_Cursor),
 
-	// The cursor most recently passed to web_set_cursor. The zero value is Cursor_Shape.Default.
+	// The cursor most recently passed to web_set_cursor. The zero value is Standard_Cursor.Default.
 	current_cursor: Cursor,
 
 	// What web_apply_cursor last wrote to the canvas, so it can skip redundant work. A pointer

@@ -65,7 +65,7 @@ Mac_State :: struct {
 
 	custom_cursors: hm.Dynamic_Handle_Map(Mac_Cursor, Custom_Cursor),
 
-	// The cursor most recently passed to mac_set_cursor. The zero value is Cursor_Shape.Default.
+	// The cursor most recently passed to mac_set_cursor. The zero value is Standard_Cursor.Default.
 	current_cursor: Cursor,
 
 	mouse_locked: bool,
@@ -813,14 +813,14 @@ mac_set_cursor :: proc(cursor: Cursor) {
 // cursor no longer resolves (it was destroyed while on screen).
 mac_apply_cursor :: proc() {
 	switch c in s.current_cursor {
-	case Cursor_Shape:
-		mac_cursor_shape(c)->set()
+	case Standard_Cursor:
+		mac_standard_cursor(c)->set()
 
 	case Custom_Cursor:
 		cd := hm.get(&s.custom_cursors, c)
 
 		if cd == nil {
-			mac_cursor_shape(.Default)->set()
+			mac_standard_cursor(.Default)->set()
 			return
 		}
 
@@ -835,8 +835,8 @@ mac_apply_cursor :: proc() {
 }
 
 // The returned cursor is a shared one owned by AppKit, so it must not be released.
-mac_cursor_shape :: proc(shape: Cursor_Shape) -> ^NS.Cursor {
-	switch shape {
+mac_standard_cursor :: proc(cursor: Standard_Cursor) -> ^NS.Cursor {
+	switch cursor {
 	case .Default:     return NS.Cursor_arrowCursor()
 	case .Text:        return NS.Cursor_IBeamCursor()
 	case .Hand:        return NS.Cursor_pointingHandCursor()

@@ -435,7 +435,7 @@ Windows_State :: struct {
 	custom_cursors: hm.Dynamic_Handle_Map(Windows_Cursor_Data, Custom_Cursor),
 
 	// The cursor most recently passed to windows_set_cursor. The zero value is
-	// Cursor_Shape.Default.
+	// Standard_Cursor.Default.
 	current_cursor: Cursor,
 
 	// for when returning from fullscreen to window mode
@@ -645,8 +645,8 @@ windows_apply_cursor :: proc() {
 	handle := win32.LoadCursorA(nil, win32.IDC_ARROW)
 
 	switch c in s.current_cursor {
-	case Cursor_Shape:
-		handle = win32.LoadCursorA(nil, windows_cursor_shape_id(c))
+	case Standard_Cursor:
+		handle = win32.LoadCursorA(nil, windows_standard_cursor_id(c))
 	case Custom_Cursor:
 		if cd := hm.get(&s.custom_cursors, c); cd != nil {
 			handle = cd.hcursor
@@ -657,8 +657,8 @@ windows_apply_cursor :: proc() {
 	win32.SetCursor(handle)
 }
 
-windows_cursor_shape_id :: proc(shape: Cursor_Shape) -> cstring {
-	switch shape {
+windows_standard_cursor_id :: proc(cursor: Standard_Cursor) -> cstring {
+	switch cursor {
 	case .Default:     return win32.IDC_ARROW
 	case .Text:        return win32.IDC_IBEAM
 	case .Hand:        return win32.IDC_HAND

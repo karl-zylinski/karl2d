@@ -71,16 +71,16 @@ step :: proc() -> bool {
 	}
 
 	if k2.key_went_down(.X) {
-		selected = k2.Cursor_Shape.Default
+		selected = k2.Standard_Cursor.Default
 	}
 
-	// Step through the cursor shapes the OS provides. Not every platform has every shape, so some
-	// of them show the closest match instead. See the `Cursor_Shape` docs.
+	// Step through the cursors the OS provides. Not every platform has every one of them, so some
+	// show the closest match instead. See the `Standard_Cursor` docs.
 	if k2.key_went_down(.Space) {
-		if shape, is_shape := selected.(k2.Cursor_Shape); is_shape {
-			selected = k2.Cursor_Shape((int(shape) + 1) % len(k2.Cursor_Shape))
+		if standard, is_standard := selected.(k2.Standard_Cursor); is_standard {
+			selected = k2.Standard_Cursor((int(standard) + 1) % len(k2.Standard_Cursor))
 		} else {
-			selected = k2.Cursor_Shape.Default
+			selected = k2.Standard_Cursor.Default
 		}
 	}
 
@@ -93,7 +93,7 @@ step :: proc() -> bool {
 			gauntlet = nil
 
 			if selected == k2.Cursor(c) {
-				selected = k2.Cursor_Shape.Default
+				selected = k2.Standard_Cursor.Default
 			}
 		}
 	}
@@ -121,8 +121,8 @@ step :: proc() -> bool {
 		k2.draw_text("G: gauntlet cursor", {20, 125}, 30, k2.GRAY)
 	}
 
-	if shape, is_shape := selected.(k2.Cursor_Shape); is_shape {
-		label := fmt.tprintf("Cursor_Shape.%v", shape)
+	if standard, is_standard := selected.(k2.Standard_Cursor); is_standard {
+		label := fmt.tprintf("Standard_Cursor.%v", standard)
 		k2.draw_text(label, {20, 175}, 40, k2.YELLOW)
 	}
 

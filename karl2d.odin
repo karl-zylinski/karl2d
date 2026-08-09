@@ -4619,14 +4619,15 @@ Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
-// The cursor shapes an operating system provides out of the box. Use with `set_cursor`.
+// The cursors an operating system provides out of the box. Use with `set_cursor`.
 //
-// Not every platform has every shape. Where one is missing, the closest thing is used instead:
+// Not every platform has every one of them. Where one is missing, the closest thing is used
+// instead:
 // - macOS has no public busy cursor, so `Wait` and `Progress` show the default arrow, and no
 //   public diagonal resize cursors, so `Resize_NESW` and `Resize_NWSE` do too.
-// - On Linux the shapes come from the user's cursor theme. A theme missing one of them falls back
-//   to whatever the window would otherwise inherit, usually the default arrow.
-Cursor_Shape :: enum {
+// - On Linux these come from the user's cursor theme. A theme missing one of them falls back to
+//   whatever the window would otherwise inherit, usually the default arrow.
+Standard_Cursor :: enum {
 	Default,
 	Text,
 	Hand,
@@ -4645,9 +4646,9 @@ Cursor_Shape :: enum {
 Custom_Cursor :: distinct Handle
 
 // The cursor to show: either one the OS provides or one you made. Never both, which is why this
-// is a union. The zero value is `Cursor_Shape.Default`.
+// is a union. The zero value is `Standard_Cursor.Default`.
 Cursor :: union #no_nil {
-	Cursor_Shape,
+	Standard_Cursor,
 	Custom_Cursor,
 }
 
