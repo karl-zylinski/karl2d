@@ -92,6 +92,10 @@ web_init :: proc(
 web_event_key_down :: proc(e: js.Event) {
 	key := key_from_js_event(e)
 
+	if key == .None {
+		return
+	}
+
 	if e.key.repeat {
 		append(&s.events, Event_Key_Repeat {
 			key = key,
@@ -110,9 +114,14 @@ web_event_key_up :: proc(e: js.Event) {
 	})
 }
 
+// Note: `e.key.char` comes from the deprecated `keypress` DOM event's `charCode`, which is a
+// single UTF-16 code unit. This means characters outside the Basic Multilingual Plane (such as
+// emoji) can't be represented and won't come through here.
 web_event_key_press :: proc(e: js.Event) {
-	if e.key.char != 0 {
-		append(&s.events, Event_Typed_Rune { typed = e.key.char })
+	r := e.key.char
+
+	if is_typable_rune(r) {
+		append(&s.events, Event_Typed_Rune { typed = r })
 	}
 }
 

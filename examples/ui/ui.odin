@@ -1,4 +1,5 @@
-// Some simple UI things that show how to make a button and some advanced sizing tricks
+// Some simple UI things that show how to make a button, a text input field, and some advanced
+// sizing tricks.
 
 package karl2d_ui_example
 
@@ -54,11 +55,14 @@ step :: proc() -> bool {
 	return true
 }
 
-
 shutdown :: proc() {
+	strings.builder_destroy(&input_builder)
 	k2.shutdown()
 }
 
+// A minimal text input field: `get_typed_runes` gives us the characters typed this frame (already
+// translated by the current keyboard layout), and `key_went_down(.Backspace, allow_repeat = true)`
+// lets Backspace delete repeatedly while held, just like it would in a real text editor.
 text_input :: proc(pos: Vec2, builder: ^strings.Builder) {
 	typed := k2.get_typed_runes()
 
@@ -126,4 +130,10 @@ inset_rect :: proc(r: Rect, x: f32, y: f32) -> Rect {
 		r.w - x * 2,
 		r.h - y * 2,
 	}
+}
+
+main :: proc() {
+	init()
+	for step() {}
+	shutdown()
 }

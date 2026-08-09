@@ -189,7 +189,11 @@ draw_current_batch :: proc()
 
 // Returns true if a keyboard key went down between the current and the previous frame. Set when
 // 'process_events' runs.
-key_went_down :: proc(key: Keyboard_Key) -> bool
+//
+// If `allow_repeat` is true, then this also returns true for OS-generated key-repeat events (the
+// same behavior a text editor wants when you hold down Backspace). The repeat rate and initial
+// delay come from the operating system's keyboard settings.
+key_went_down :: proc(key: Keyboard_Key, allow_repeat := false) -> bool
 
 // Returns true if a keyboard key went up (was released) between the current and the previous frame.
 // Set when 'process_events' runs.
@@ -197,6 +201,17 @@ key_went_up :: proc(key: Keyboard_Key) -> bool
 
 // Returns true if a keyboard is currently being held down. Set when 'process_events' runs.
 key_is_held :: proc(key: Keyboard_Key) -> bool
+
+// Returns all the Unicode code points that were typed since the last frame, taking the current
+// keyboard layout into account. This is what you want for text input, as opposed to
+// `key_went_down`, which tells you about physical keys rather than the characters they produce.
+//
+// Control characters (Backspace, Enter, Tab, etc) and presses of modifier keys on their own are
+// never included.
+//
+// Warning: The returned slice is only valid during the current frame! You can make a clone of it
+// using the `slice.clone` procedure (import `core:slice`).
+get_typed_runes :: proc() -> []rune
 
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
 // You can check that an exact set of modifiers are held like so:
@@ -1450,6 +1465,8 @@ State :: struct {
 	// All events for this frame. Cleared when `process_events` run
 	events: [dynamic]Event,
 
+	typed_runes: [dynamic]rune,
+
 	mouse_position: Vec2,
 	mouse_delta: Vec2,
 	mouse_wheel_delta: f32,
@@ -1457,6 +1474,7 @@ State :: struct {
 	key_went_down: #sparse [Keyboard_Key]bool,
 	key_went_up: #sparse [Keyboard_Key]bool,
 	key_is_held: #sparse [Keyboard_Key]bool,
+	key_repeat: #sparse [Keyboard_Key]bool,
 
 	mouse_button_went_down: #sparse [Mouse_Button]bool,
 	mouse_button_went_up: #sparse [Mouse_Button]bool,
@@ -1700,6 +1718,8 @@ Event :: union {
 	Event_Close_Window_Requested,
 	Event_Key_Went_Down,
 	Event_Key_Went_Up,
+	Event_Key_Repeat,
+	Event_Typed_Rune,
 	Event_Mouse_Move,
 	Event_Mouse_Wheel,
 	Event_Mouse_Button_Went_Down,
@@ -1719,6 +1739,18 @@ Event_Key_Went_Down :: struct {
 
 Event_Key_Went_Up :: struct {
 	key: Keyboard_Key,
+}
+
+// A key is being held down and the OS is auto-repeating it. Sent in addition to (not instead of)
+// the initial `Event_Key_Went_Down`.
+Event_Key_Repeat :: struct {
+	key: Keyboard_Key,
+}
+
+// A Unicode code point was typed, taking the current keyboard layout into account. Use this for
+// text input. See `get_typed_runes`.
+Event_Typed_Rune :: struct {
+	typed: rune,
 }
 
 Event_Mouse_Button_Went_Down :: struct {

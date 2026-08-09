@@ -564,12 +564,15 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 			})
 		}
 
-	case win32.WM_CHAR, win32.WM_SYSCHAR:
+	case win32.WM_CHAR:
+		// Note: We deliberately don't also handle WM_SYSCHAR here, since that message is sent for
+		// character keys pressed while holding Alt (for example menu mnemonics), which shouldn't
+		// be treated as text input.
 		r := rune(wparam)
 
 		if wparam >= 0xD800 && wparam <= 0xDBFF {
 			// ^ High surrogate
-			
+
 			s.char_high_surrogate = r
 		} else {
 			codepoint: rune
@@ -579,11 +582,12 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 
 				if s.char_high_surrogate != 0 {
 					codepoint = utf16.decode_surrogate_pair(s.char_high_surrogate, r)
-					s.char_high_surrogate = 0
 				}
-			} else if r >= 32 {
+			} else if is_typable_rune(r) {
 				codepoint = r
 			}
+
+			s.char_high_surrogate = 0
 
 			if codepoint != 0 {
 				append(&s.events, Event_Typed_Rune { typed = codepoint })

@@ -298,10 +298,25 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 
 		#partial switch event_type {
 		case .KeyDown:
-			if !event->isARepeat() {
-				key := key_from_macos_keycode(event->keyCode())
-				if key != .None {
+			key := key_from_macos_keycode(event->keyCode())
+
+			if key != .None {
+				if event->isARepeat() {
+					append(&s.events, Event_Key_Repeat{key = key})
+				} else {
 					append(&s.events, Event_Key_Went_Down{key = key})
+				}
+			}
+
+			// Note: `characters()` gives us the text produced by the current keyboard layout, but
+			// it doesn't run the input method, so dead keys / accent composition (for example
+			// option-e then e to get "e" with an acute accent) won't compose correctly. Doing
+			// that properly would require `interpretKeyEvents:` and `insertText:`.
+			if event->modifierFlags() & {.Command} == {} {
+				for r in event->characters()->odinString() {
+					if is_typable_rune(r) {
+						append(&s.events, Event_Typed_Rune{typed = r})
+					}
 				}
 			}
 

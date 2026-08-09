@@ -32,6 +32,14 @@ import "core:fmt"
 _ :: log
 _ :: fmt
 
+// XDestroyIC and XCloseIM aren't bound by vendor:x11/xlib, so we bind them here ourselves.
+foreign import x11_extra "system:X11"
+
+foreign x11_extra {
+	XDestroyIC :: proc(ic: X.XIC) ---
+	XCloseIM :: proc(im: X.XIM) -> X.Status ---
+}
+
 x11_state_size :: proc() -> int {
 	return size_of(X11_State)
 }
@@ -78,6 +86,30 @@ x11_init :: proc(
 	s.delete_msg = X.InternAtom(s.display, "WM_DELETE_WINDOW", false)
 	X.SetWMProtocols(s.display, s.window, &s.delete_msg, 1)
 
+	// Detectable auto-repeat means a held-down key produces repeated KeyPress events without an
+	// interleaved KeyRelease between them, so we can tell an initial press from a repeat by
+	// tracking which keys are currently held (see `x11_get_events`). If unsupported, we fall back
+	// to peeking the event queue for the release/press pair X11 sends per repeat by default.
+	autorepeat_supported: b32
+	X.XkbSetDetectableAutoRepeat(s.display, true, &autorepeat_supported)
+	s.detectable_autorepeat = bool(autorepeat_supported)
+
+	// Set up an input method so we can translate key presses into typed text (taking the current
+	// keyboard layout into account) via `Xutf8LookupString`. If no input method is available, we
+	// fall back to `XLookupString` in `x11_get_events`, which only supports Latin-1.
+	X.SetLocaleModifiers("")
+	s.xim = X.OpenIM(s.display, nil, nil, nil)
+
+	if s.xim != nil {
+		s.xic = X.CreateIC(
+			s.xim,
+			X.XNInputStyle, X.XIMPreeditNothing | X.XIMStatusNothing,
+			X.XNClientWindow, s.window,
+			X.XNFocusWindow, s.window,
+			cstring(nil),
+		)
+	}
+
 	x11_set_window_mode(init_options.window_mode)
 
 	// blank cursor for hiding it
@@ -113,6 +145,15 @@ x11_init :: proc(
 
 x11_shutdown :: proc() {
 	delete(s.events)
+
+	if s.xic != nil {
+		XDestroyIC(s.xic)
+	}
+
+	if s.xim != nil {
+		XCloseIM(s.xim)
+	}
+
 	X.FreeCursor(s.display, s.blank_cursor)
 	X.DestroyWindow(s.display, s.window)
 }
@@ -133,15 +174,45 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 			}
 		case .KeyPress:
 			key := key_from_xkeycode(event.xkey.keycode)
+			kc := u8(min(event.xkey.keycode, 255))
 
 			if key != .None {
-				append(events, Event_Key_Went_Down {
-					key = key,
-				})
+				if s.key_held[kc] {
+					append(events, Event_Key_Repeat {
+						key = key,
+					})
+				} else {
+					s.key_held[kc] = true
+					append(events, Event_Key_Went_Down {
+						key = key,
+					})
+				}
 			}
+
+			_x11_append_typed_runes(events, &event.xkey)
 
 		case .KeyRelease:
 			key := key_from_xkeycode(event.xkey.keycode)
+			kc := u8(min(event.xkey.keycode, 255))
+
+			if !s.detectable_autorepeat && X.Pending(s.display) > 0 {
+				next: X.XEvent
+				X.PeekEvent(s.display, &next)
+
+				is_autorepeat := next.type == .KeyPress &&
+					next.xkey.keycode == event.xkey.keycode &&
+					next.xkey.time == event.xkey.time
+
+				if is_autorepeat {
+					// This release is immediately followed by a press of the same key at the same
+					// time, which is how X11 signals auto-repeat when detectable auto-repeat isn't
+					// supported. Swallow it -- `s.key_held[kc]` stays true, so the upcoming
+					// KeyPress will correctly be treated as a repeat.
+					continue
+				}
+			}
+
+			s.key_held[kc] = false
 
 			if key != .None {
 				append(events, Event_Key_Went_Up {
@@ -235,6 +306,49 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 
 	append(events, ..s.events[:])
 	runtime.clear(&s.events)
+}
+
+_x11_append_typed_runes :: proc(events: ^[dynamic]Event, key_event: ^X.XKeyPressedEvent) {
+	buf: [32]u8
+	keysym: X.KeySym
+
+	if s.xic != nil {
+		status: X.LookupStringStatus
+
+		n := X.Xutf8LookupString(
+			s.xic, key_event, cstring(raw_data(buf[:])), i32(len(buf)), &keysym, &status,
+		)
+
+		if status == .BufferOverflow || n <= 0 {
+			return
+		}
+
+		count := min(int(n), len(buf))
+
+		for r in string(buf[:count]) {
+			if is_typable_rune(r) {
+				append(events, Event_Typed_Rune { typed = r })
+			}
+		}
+	} else {
+		// No input method available. Fall back to XLookupString, which only supports Latin-1 (no
+		// keyboard layout / IME support).
+		n := X.LookupString(key_event, raw_data(buf[:]), i32(len(buf)), &keysym, nil)
+
+		if n <= 0 {
+			return
+		}
+
+		count := min(int(n), len(buf))
+
+		for b in buf[:count] {
+			r := rune(b)
+
+			if is_typable_rune(r) {
+				append(events, Event_Typed_Rune { typed = r })
+			}
+		}
+	}
 }
 
 x11_set_title :: proc(title: string) {
@@ -437,6 +551,14 @@ X11_State :: struct {
 	cursor_hidden: bool,
 	cursor_locked: bool,
 	events: [dynamic]Event,
+
+	xim: X.XIM,
+	xic: X.XIC,
+	detectable_autorepeat: bool,
+
+	// Tracks which keys are currently held, indexed by X11 keycode. Used to tell an initial
+	// KeyPress from an auto-repeated one.
+	key_held: [256]bool,
 }
 
 s: ^X11_State

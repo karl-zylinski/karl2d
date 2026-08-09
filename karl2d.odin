@@ -304,8 +304,8 @@ process_events :: proc() {
 	s.mouse_wheel_delta = 0
 
 	runtime.clear(&s.events)
-	pf.get_events(&s.events)
 	runtime.clear(&s.typed_runes)
+	pf.get_events(&s.events)
 
 	for &event in s.events {
 		switch &e in event {
@@ -550,6 +550,10 @@ draw_current_batch :: proc() {
 
 // Returns true if a keyboard key went down between the current and the previous frame. Set when
 // 'process_events' runs.
+//
+// If `allow_repeat` is true, then this also returns true for OS-generated key-repeat events (the
+// same behavior a text editor wants when you hold down Backspace). The repeat rate and initial
+// delay come from the operating system's keyboard settings.
 key_went_down :: proc(key: Keyboard_Key, allow_repeat := false) -> bool {
 	if s.key_went_down[key] {
 		return true
@@ -573,7 +577,15 @@ key_is_held :: proc(key: Keyboard_Key) -> bool {
 	return s.key_is_held[key]
 }
 
-// Returns all the runes (UTF-8 codepoints) that were typed since the last frame.
+// Returns all the Unicode code points that were typed since the last frame, taking the current
+// keyboard layout into account. This is what you want for text input, as opposed to
+// `key_went_down`, which tells you about physical keys rather than the characters they produce.
+//
+// Control characters (Backspace, Enter, Tab, etc) and presses of modifier keys on their own are
+// never included.
+//
+// Warning: The returned slice is only valid during the current frame! You can make a clone of it
+// using the `slice.clone` procedure (import `core:slice`).
 get_typed_runes :: proc() -> []rune {
 	return s.typed_runes[:]
 }
@@ -4966,6 +4978,7 @@ Event :: union {
 	Event_Key_Went_Down,
 	Event_Key_Went_Up,
 	Event_Key_Repeat,
+	Event_Typed_Rune,
 	Event_Mouse_Move,
 	Event_Mouse_Wheel,
 	Event_Mouse_Button_Went_Down,
@@ -4977,7 +4990,6 @@ Event :: union {
 	Event_Window_Focused,
 	Event_Window_Unfocused,
 	Event_Window_Scale_Changed,
-	Event_Typed_Rune,
 }
 
 Event_Key_Went_Down :: struct {
@@ -4988,8 +5000,16 @@ Event_Key_Went_Up :: struct {
 	key: Keyboard_Key,
 }
 
+// A key is being held down and the OS is auto-repeating it. Sent in addition to (not instead of)
+// the initial `Event_Key_Went_Down`.
 Event_Key_Repeat :: struct {
 	key: Keyboard_Key,
+}
+
+// A Unicode code point was typed, taking the current keyboard layout into account. Use this for
+// text input. See `get_typed_runes`.
+Event_Typed_Rune :: struct {
+	typed: rune,
 }
 
 Event_Mouse_Button_Went_Down :: struct {
@@ -5008,10 +5028,6 @@ Event_Gamepad_Button_Went_Down :: struct {
 Event_Gamepad_Button_Went_Up :: struct {
 	gamepad: Gamepad_Index,
 	button: Gamepad_Button,
-}
-
-Event_Typed_Rune :: struct {
-	typed: rune,
 }
 
 Event_Close_Window_Requested :: struct {}
@@ -5049,6 +5065,14 @@ Event_Window_Unfocused :: struct {}
 
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
+
+// Returns true if `r` should be treated as a typed character for text input purposes. Filters out
+// control characters such as Backspace, Enter, Tab, Escape and Delete. Used by the platform
+// backends when producing `Event_Typed_Rune` events.
+@(private="package")
+is_typable_rune :: proc(r: rune) -> bool {
+	return r >= 32 && r != 0x7f
+}
 
 batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
