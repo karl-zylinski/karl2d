@@ -96,29 +96,40 @@ wl_init :: proc(
 	}
 
 	if s.fractional_scale_manager != nil {
-		fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(s.fractional_scale_manager, s.surface)
+		fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(
+			s.fractional_scale_manager,
+			s.surface,
+		)
+
 		wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
 	}
 
-	log.ensure(s.relative_pointer_manager != nil)
-	s.relative_pointer = wl.zwp_relative_pointer_manager_v1_get_relative_pointer(
-		s.relative_pointer_manager,
-		s.pointer,
-	)
+	if s.relative_pointer_manager != nil && s.pointer != nil {
+		s.relative_pointer = wl.zwp_relative_pointer_manager_v1_get_relative_pointer(
+			s.relative_pointer_manager,
+			s.pointer,
+		)
 
-	wl.add_listener(s.relative_pointer, &relative_pointer_listener, nil)
+		wl.add_listener(s.relative_pointer, &relative_pointer_listener, nil)
+	} else {
+		log.warn("Relative pointer not available: mouse locking will not work")
+	}
 
 	s.cursor_surface = wl.compositor_create_surface(s.compositor)
 	s.cursor_theme = wl.cursor_theme_load(nil, 24, s.shm)
 
 	s.viewport = wl.wp_viewporter_get_viewport(s.viewporter, s.surface)
-	
+
 	wl.surface_commit(s.surface)
 
-	// Ensure first configure initializes egl window.
-	wl.display_roundtrip(s.display)
+	// Wait for the first configure: it's what creates the EGL window.
+	for !s.configured {
+		if wl.display_dispatch(s.display) < 0 {
+			break
+		}
+	}
 
-	wl_set_window_mode(options.window_mode)
+	log.ensure(s.window != nil, "Wayland compositor never sent an initial configure")
 
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
@@ -225,11 +236,7 @@ registry_listener := wl.Registry_Listener {
 			)
 		}
 	},
-	global_remove = proc "c" (
-		data: rawptr,
-		registry: ^wl.Registry,
-		name: u32,
-	) {},
+	global_remove = proc "c" (data: rawptr, registry: ^wl.Registry, name: u32) {},
 }
 
 seat_listener := wl.Seat_Listener {
@@ -263,12 +270,6 @@ seat_listener := wl.Seat_Listener {
 	name = proc "c" (data: rawptr, seat: ^wl.Seat, name: cstring) {},
 }
 
-frame_callback := wl.Callback_Listener {
-	done = proc "c" (data: rawptr, callback: ^wl.Callback, callback_data: c.uint32_t) {
-		wl.destroy(callback)
-	},
-}
-
 toplevel_listener := wl.XDG_Toplevel_Listener {
 	configure = proc "c" (
 		data: rawptr,
@@ -282,20 +283,20 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 
 		context = s.odin_ctx
 
-		new_width := s.last_configure_width
-		new_height := s.last_configure_height
-			
-		if w != 0 && h != 0 {
-			if s.window_mode != .Windowed {
-				new_width = w
-				new_height = h
-			}
-		} else {
+		new_width: int
+		new_height: int
+
+		if s.window_mode == .Windowed {
+			// Fixed-size window: we dictate the size, the compositor doesn't.
 			new_width = s.last_configure_windowed_width
 			new_height = s.last_configure_windowed_height
+		} else {
+			// A zero axis means the compositor lets us pick that dimension.
+			new_width = w != 0 ? w : s.last_configure_windowed_width
+			new_height = h != 0 ? h : s.last_configure_windowed_height
 		}
 
-		window_resized := new_width != s.last_configure_width || new_height != s.last_configure_height 
+		window_resized := new_width != s.last_configure_width || new_height != s.last_configure_height
 
 		if window_resized || !s.configured {
 			s.screen_width = int(f32(new_width) * s.scale)
@@ -576,7 +577,15 @@ wl_set_screen_size :: proc(w, h: int) {
 	s.last_configure_width = w
 	s.last_configure_height = h
 
-	wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+	if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
+		s.last_configure_windowed_width = w
+		s.last_configure_windowed_height = h
+	}
+
+	if s.configured {
+		wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+	}
+
 	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
 }
 
@@ -590,12 +599,10 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	switch window_mode {
 	case .Windowed:
 		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
-		if s.configured {
-			w := i32(s.last_configure_windowed_width)
-			h := i32(s.last_configure_windowed_height)
-			wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
-			wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
-		}
+		w := i32(s.last_configure_windowed_width)
+		h := i32(s.last_configure_windowed_height)
+		wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
+		wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
 
 	case .Windowed_Resizable:
 		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
