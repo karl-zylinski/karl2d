@@ -7,13 +7,58 @@ package karl2d_box2d_example
 import b2 "vendor:box2d"
 import k2 "../.."
 import "core:math"
-#assert(k2.Y_UP, "This example assumes Y up. Compile it with -define:KARL2D_Y_UP=true")
+
+// Box2D works in a Y up world: gravity pulls towards negative Y and positive angles turn
+// counter-clockwise. This example keeps all of its own positions in that world, and converts at the
+// point where it hands them to Karl2D.
+//
+// Compile with `-define:KARL2D_Y_UP=true` and every conversion below becomes the identity, which is
+// the whole point of the Y up coordinate system. Without it the conversions do the flipping that any
+// Y down 2D library needs when it talks to a physics engine.
+
+// Convert a point from the Box2D world into Karl2D's coordinate system.
+world_to_k2 :: proc(p: b2.Vec2) -> k2.Vec2 {
+	when k2.Y_UP {
+		return { p.x, p.y }
+	} else {
+		// Y down: flip, and put the Box2D origin at the bottom-left corner of the window.
+		return { p.x, f32(k2.get_screen_height()) - p.y }
+	}
+}
+
+// Convert a point from Karl2D's coordinate system back into the Box2D world.
+k2_to_world :: proc(p: k2.Vec2) -> b2.Vec2 {
+	when k2.Y_UP {
+		return { p.x, p.y }
+	} else {
+		return { p.x, f32(k2.get_screen_height()) - p.y }
+	}
+}
+
+// Convert a rectangle from the Box2D world, where `y` is its bottom edge, into a Karl2D rectangle.
+world_to_k2_rect :: proc(r: k2.Rect) -> k2.Rect {
+	when k2.Y_UP {
+		return r
+	} else {
+		return { r.x, f32(k2.get_screen_height()) - r.y - r.h, r.w, r.h }
+	}
+}
+
+// Convert an angle. Positive is counter-clockwise on screen in Y up, clockwise in Y down.
+world_to_k2_rotation :: proc(radians: f32) -> f32 {
+	when k2.Y_UP {
+		return radians
+	} else {
+		return -radians
+	}
+}
 
 world_id: b2.WorldId
 time_acc: f32
 circle_body_id: b2.BodyId
 bodies: [dynamic]b2.BodyId
 
+// In Box2D world coordinates: sitting on the ground plane, extending upwards.
 GROUND :: k2.Rect {
 	0, 0,
 	1280, 120,
@@ -103,11 +148,11 @@ step :: proc() -> bool {
 	k2.process_events()
 	k2.clear(k2.LIGHT_BLUE)
 
-	k2.draw_rect(GROUND, k2.GREEN)
+	k2.draw_rect(world_to_k2_rect(GROUND), k2.GREEN)
 
 	pos := k2.get_mouse_position()
 
-	b2.Body_SetTransform(circle_body_id, {pos.x, pos.y}, {})
+	b2.Body_SetTransform(circle_body_id, k2_to_world(pos), {})
 
 	SUB_STEPS :: 4
 	TIME_STEP :: 1.0 / 60
@@ -121,8 +166,11 @@ step :: proc() -> bool {
 		position := b2.Body_GetPosition(b)
 		r := b2.Body_GetRotation(b)
 		rot := math.atan2(r.s, r.c)
-		// Y position is flipped because raylib has Y down and box2d has Y up.
-		k2.draw_rect({position.x, position.y, 40, 40}, k2.BROWN, {20, 20}, rot)
+
+		// The origin of half the size makes the box sit centred on its Box2D position and spin
+		// around that same point.
+		c := world_to_k2(position)
+		k2.draw_rect({c.x, c.y, 40, 40}, k2.BROWN, {20, 20}, world_to_k2_rotation(rot))
 	}
 
 	k2.draw_circle(pos, 40, k2.RED)
