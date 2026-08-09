@@ -13,6 +13,7 @@ import "base:intrinsics"
 import "base:runtime"
 import "core:time"
 import "core:slice"
+import hm "core:container/handle_map"
 import "log"
 
 @(private="package")
@@ -34,10 +35,9 @@ PLATFORM_MAC :: Platform_Interface {
 	is_cursor_hidden = mac_is_cursor_hidden,
 	set_cursor_locked = mac_set_cursor_locked,
 	is_cursor_locked = mac_is_cursor_locked,
-	create_cursor = mac_create_cursor,
+	create_custom_cursor = mac_create_custom_cursor,
 	set_cursor = mac_set_cursor,
-	set_cursor_shape = mac_set_cursor_shape,
-	destroy_cursor = mac_destroy_cursor,
+	destroy_custom_cursor = mac_destroy_custom_cursor,
 
 	is_gamepad_active = mac_is_gamepad_active,
 	get_gamepad_axis = mac_get_gamepad_axis,
@@ -63,10 +63,10 @@ Mac_State :: struct {
 	cursor_hidden_by_us: bool,
 	cursor_tracker:      NS.id,
 
-	// The cursor most recently passed to mac_set_cursor, or nil when a shape is active instead.
-	// Used so that destroying a cursor only resets to the shape if it was the one on screen.
-	current_cursor: ^Mac_Cursor,
-	current_shape: Cursor_Shape,
+	custom_cursors: hm.Dynamic_Handle_Map(Mac_Cursor, Custom_Cursor),
+
+	// The cursor most recently passed to mac_set_cursor. The zero value is Cursor_Shape.Default.
+	current_cursor: Cursor,
 
 	cursor_locked: bool,
 	mouse_ignore_next_move: bool,
@@ -87,6 +87,7 @@ Mac_State :: struct {
 }
 
 Mac_Cursor :: struct {
+	handle: Custom_Cursor,
 	cursor: ^NS.Cursor,
 
 	// Hotspot in physical pixels, as Karl2D takes it. See `mac_build_cursor`.
@@ -132,6 +133,7 @@ mac_init :: proc(
 	s.odin_ctx = context
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
+	hm.dynamic_init(&s.custom_cursors, allocator)
 
 	// Initialize NSApplication
 	s.app = NS.Application_sharedApplication()
@@ -296,6 +298,12 @@ mac_init :: proc(
 }
 
 mac_shutdown :: proc() {
+	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
+		cd.cursor->release()
+		delete(cd.pixels, s.allocator)
+	}
+	hm.dynamic_destroy(&s.custom_cursors)
+
 	if s.window != nil {
 		s.window->close()
 	}
@@ -718,17 +726,25 @@ mac_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-mac_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
-	mac_cursor := new(Mac_Cursor, s.allocator)
-	mac_cursor.pixels = slice.clone(image.pixels, s.allocator)
-	mac_cursor.width = image.width
-	mac_cursor.height = image.height
-	mac_cursor.hotspot = hotspot
-	mac_build_cursor(mac_cursor)
-
-	return {
-		os_handle = mac_cursor,
+mac_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+	cursor := Mac_Cursor {
+		pixels  = slice.clone(image.pixels, s.allocator),
+		width   = image.width,
+		height  = image.height,
+		hotspot = hotspot,
 	}
+	mac_build_cursor(&cursor)
+
+	handle, add_err := hm.add(&s.custom_cursors, cursor)
+
+	if add_err != nil {
+		log.errorf("Failed to create cursor. Error: %v", add_err)
+		cursor.cursor->release()
+		delete(cursor.pixels, s.allocator)
+		return {}
+	}
+
+	return handle
 }
 
 // A cursor image is sized in physical pixels, like everything else in Karl2D, but an NSImage is
@@ -779,34 +795,43 @@ mac_build_cursor :: proc(cursor: ^Mac_Cursor) {
 	}
 }
 
-mac_set_cursor :: proc(cursor: Cursor_Data) {
-	s.current_cursor = (^Mac_Cursor)(cursor.os_handle)
+mac_set_cursor :: proc(cursor: Cursor) {
+	// Reject a stale handle before storing it, so the cursor on screen is left alone on a
+	// programming error rather than silently reverting to the default.
+	if c, is_custom := cursor.(Custom_Cursor); is_custom {
+		if hm.get(&s.custom_cursors, c) == nil {
+			log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", c)
+			return
+		}
+	}
+
+	s.current_cursor = cursor
 	mac_apply_cursor()
 }
 
-mac_set_cursor_shape :: proc(shape: Cursor_Shape) {
-	s.current_shape = shape
-	s.current_cursor = nil
-	mac_apply_cursor()
-}
-
-// Sets the OS cursor from the custom cursor the game asked for, falling back to the current shape
-// when there is none.
+// Sets the OS cursor from s.current_cursor, falling back to the default arrow when a custom
+// cursor no longer resolves (it was destroyed while on screen).
 mac_apply_cursor :: proc() {
-	cursor := s.current_cursor
+	switch c in s.current_cursor {
+	case Cursor_Shape:
+		mac_cursor_shape(c)->set()
 
-	if cursor == nil {
-		mac_cursor_shape(s.current_shape)->set()
-		return
+	case Custom_Cursor:
+		cd := hm.get(&s.custom_cursors, c)
+
+		if cd == nil {
+			mac_cursor_shape(.Default)->set()
+			return
+		}
+
+		// The scale can change while the game runs, for instance when the window is moved to a
+		// monitor with different DPI settings.
+		if cd.built_for_scale != mac_get_window_scale() {
+			mac_build_cursor(cd)
+		}
+
+		cd.cursor->set()
 	}
-
-	// The scale can change while the game runs, for instance when the window is moved to a
-	// monitor with different DPI settings.
-	if cursor.built_for_scale != mac_get_window_scale() {
-		mac_build_cursor(cursor)
-	}
-
-	cursor.cursor->set()
 }
 
 // The returned cursor is a shared one owned by AppKit, so it must not be released.
@@ -830,22 +855,17 @@ mac_cursor_shape :: proc(shape: Cursor_Shape) -> ^NS.Cursor {
 	return NS.Cursor_arrowCursor()
 }
 
-mac_destroy_cursor :: proc(cursor: Cursor_Data) {
-	if cursor.os_handle == nil {
-		return
+mac_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+	if cd := hm.get(&s.custom_cursors, custom_cursor); cd != nil {
+		cd.cursor->release()
+		delete(cd.pixels, s.allocator)
 	}
 
-	mac_cursor := (^Mac_Cursor)(cursor.os_handle)
+	hm.remove(&s.custom_cursors, custom_cursor)
 
-	// Only fall back to the current shape if the cursor being destroyed is the one on screen.
-	if s.current_cursor == mac_cursor {
-		s.current_cursor = nil
-		mac_apply_cursor()
-	}
-
-	mac_cursor.cursor->release()
-	delete(mac_cursor.pixels, s.allocator)
-	free(mac_cursor, s.allocator)
+	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the
+	// default. Cheap enough to do unconditionally.
+	mac_apply_cursor()
 }
 
 // Key code mapping from macOS virtual key codes to Keyboard_Key

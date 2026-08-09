@@ -24,10 +24,9 @@ PLATFORM_WEB :: Platform_Interface {
 	is_cursor_hidden = web_is_cursor_hidden,
 	set_cursor_locked = web_set_cursor_locked,
 	is_cursor_locked = web_is_cursor_locked,
-	create_cursor = web_create_cursor,
+	create_custom_cursor = web_create_custom_cursor,
 	set_cursor = web_set_cursor,
-	set_cursor_shape = web_set_cursor_shape,
-	destroy_cursor = web_destroy_cursor,
+	destroy_custom_cursor = web_destroy_custom_cursor,
 
 	is_gamepad_active = web_is_gamepad_active,
 	get_gamepad_axis = web_get_gamepad_axis,
@@ -42,6 +41,7 @@ import "core:sys/wasm/js"
 import "core:math"
 import "core:encoding/base64"
 import "base:runtime"
+import hm "core:container/handle_map"
 import "log"
 import "core:fmt"
 
@@ -62,6 +62,7 @@ web_init :: proc(
 	s.events = make([dynamic]Event, allocator)
 	s.key_from_js_event_key_code = make(map[string]Keyboard_Key, allocator)
 	s.canvas_id = "webgl-canvas"
+	hm.dynamic_init(&s.custom_cursors, allocator)
 
 	js.set_document_title(window_title)
 	s.prev_scale = f32(js.device_pixel_ratio())
@@ -238,6 +239,13 @@ web_set_screen_size_to_window_size :: proc(canvas_id: HTML_Canvas_ID) {
 }
 
 web_shutdown :: proc() {
+	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
+		delete(cd.data_uri, s.allocator)
+		delete(cd.style_value, s.allocator)
+		delete(cd.style_value_scaled, s.allocator)
+	}
+	hm.dynamic_destroy(&s.custom_cursors)
+
 	delete(s.events)
 	delete(s.key_from_js_event_key_code)
 }
@@ -406,7 +414,7 @@ web_is_cursor_locked :: proc() -> bool {
 	return s.cursor_locked
 }
 
-web_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
+web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
 	// There is no hardware cursor API on the web, so we hand the browser a PNG as a data URI and
 	// let CSS do the work. core:image/png can only decode, not encode, so we encode it ourselves;
 	// see encode_png's own comment for why that is fine here.
@@ -435,18 +443,25 @@ web_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
 	pixels_b64 := base64.encode(png_bytes, allocator = s.allocator)
 	defer delete(pixels_b64, s.allocator)
 
-	cursor := new(Web_Cursor, s.allocator)
+	cursor := Web_Cursor{hotspot = hotspot}
 	cursor.data_uri = fmt.aprintf(
 		"data:image/png;base64,%v",
 		pixels_b64,
 		allocator = s.allocator,
 	)
-	cursor.hotspot = hotspot
-	web_build_cursor_style(cursor)
+	web_build_cursor_style(&cursor)
 
-	return {
-		os_handle = cursor,
+	handle, add_err := hm.add(&s.custom_cursors, cursor)
+
+	if add_err != nil {
+		log.errorf("Failed to create cursor. Error: %v", add_err)
+		delete(cursor.data_uri, s.allocator)
+		delete(cursor.style_value, s.allocator)
+		delete(cursor.style_value_scaled, s.allocator)
+		return {}
 	}
+
+	return handle
 }
 
 // The `cursor` property sizes its image in CSS pixels, but the rest of Karl2D works in device
@@ -479,14 +494,17 @@ web_build_cursor_style :: proc(cursor: ^Web_Cursor) {
 	cursor.built_for_scale = scale
 }
 
-web_set_cursor :: proc(cursor: Cursor_Data) {
-	s.current_cursor = (^Web_Cursor)(cursor.os_handle)
-	web_apply_cursor()
-}
+web_set_cursor :: proc(cursor: Cursor) {
+	// Reject a stale handle before storing it, so the cursor on screen is left alone on a
+	// programming error rather than silently reverting to the default.
+	if c, is_custom := cursor.(Custom_Cursor); is_custom {
+		if hm.get(&s.custom_cursors, c) == nil {
+			log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", c)
+			return
+		}
+	}
 
-web_set_cursor_shape :: proc(shape: Cursor_Shape) {
-	s.current_shape = shape
-	s.current_cursor = nil
+	s.current_cursor = cursor
 	web_apply_cursor()
 }
 
@@ -519,53 +537,56 @@ web_apply_cursor :: proc() {
 		return
 	}
 
-	if s.current_cursor == nil {
+	switch c in s.current_cursor {
+	case Cursor_Shape:
 		// No dedup here, unlike the custom cursor path below: a shape is a short keyword rather
 		// than a data URI, so there is nothing worth avoiding a rewrite of.
-		js.set_element_style(s.canvas_id, "cursor", web_cursor_shape_keyword(s.current_shape))
+		js.set_element_style(s.canvas_id, "cursor", web_cursor_shape_keyword(c))
 		s.applied_cursor = nil
-		return
+
+	case Custom_Cursor:
+		cd := hm.get(&s.custom_cursors, c)
+
+		if cd == nil {
+			js.set_element_style(s.canvas_id, "cursor", web_cursor_shape_keyword(.Default))
+			s.applied_cursor = nil
+			return
+		}
+
+		scale := web_get_window_scale()
+
+		if cd.built_for_scale != scale {
+			web_build_cursor_style(cd)
+		}
+
+		// The data URI is tens of kilobytes and games tend to set the cursor every frame, so don't
+		// make the browser re-parse it when nothing has changed.
+		if s.applied_cursor == cd && s.applied_scale == scale {
+			return
+		}
+
+		// Assign the plain value first. Browsers that can't parse `image-set` ignore the second
+		// assignment and keep this one, which is the right thing to fall back to.
+		js.set_element_style(s.canvas_id, "cursor", cd.style_value)
+		js.set_element_style(s.canvas_id, "cursor", cd.style_value_scaled)
+
+		s.applied_cursor = cd
+		s.applied_scale = scale
 	}
-
-	cursor := s.current_cursor
-	scale := web_get_window_scale()
-
-	if cursor.built_for_scale != scale {
-		web_build_cursor_style(cursor)
-	}
-
-	// The data URI is tens of kilobytes and games tend to set the cursor every frame, so don't make
-	// the browser re-parse it when nothing has changed.
-	if s.applied_cursor == cursor && s.applied_scale == scale {
-		return
-	}
-
-	// Assign the plain value first. Browsers that can't parse `image-set` ignore the second
-	// assignment and keep this one, which is the right thing to fall back to.
-	js.set_element_style(s.canvas_id, "cursor", cursor.style_value)
-	js.set_element_style(s.canvas_id, "cursor", cursor.style_value_scaled)
-
-	s.applied_cursor = cursor
-	s.applied_scale = scale
 }
 
-web_destroy_cursor :: proc(cursor: Cursor_Data) {
-	if cursor.os_handle == nil {
-		return
+web_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+	if cd := hm.get(&s.custom_cursors, custom_cursor); cd != nil {
+		delete(cd.data_uri, s.allocator)
+		delete(cd.style_value, s.allocator)
+		delete(cd.style_value_scaled, s.allocator)
 	}
 
-	cursor := (^Web_Cursor)(cursor.os_handle)
+	hm.remove(&s.custom_cursors, custom_cursor)
 
-	// Only fall back to the current shape if the cursor being destroyed is the one on screen.
-	if s.current_cursor == cursor {
-		s.current_cursor = nil
-		web_apply_cursor()
-	}
-
-	delete(cursor.data_uri, s.allocator)
-	delete(cursor.style_value, s.allocator)
-	delete(cursor.style_value_scaled, s.allocator)
-	free(cursor, s.allocator)
+	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the
+	// default. Cheap enough to do unconditionally.
+	web_apply_cursor()
 }
 
 web_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -633,12 +654,15 @@ Web_State :: struct {
 	cursor_locked: bool,
 	cursor_hidden: bool,
 
-	// The cursor most recently passed to web_set_cursor, or nil when a shape is active instead.
-	// Also see web_apply_cursor.
-	current_cursor: ^Web_Cursor,
-	current_shape: Cursor_Shape,
+	custom_cursors: hm.Dynamic_Handle_Map(Web_Cursor, Custom_Cursor),
 
-	// What web_apply_cursor last wrote to the canvas, so it can skip redundant work.
+	// The cursor most recently passed to web_set_cursor. The zero value is Cursor_Shape.Default.
+	current_cursor: Cursor,
+
+	// What web_apply_cursor last wrote to the canvas, so it can skip redundant work. A pointer
+	// into the handle map's storage is stable across hm.add (it allocates new chunks rather than
+	// moving existing ones), so it is fine to hold onto across frames as long as web_apply_cursor
+	// clears it whenever the cursor it refers to stops resolving.
 	applied_cursor: ^Web_Cursor,
 	applied_scale: f32,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
@@ -647,6 +671,7 @@ Web_State :: struct {
 }
 
 Web_Cursor :: struct {
+	handle: Custom_Cursor,
 	data_uri: string,
 	hotspot: [2]int,
 

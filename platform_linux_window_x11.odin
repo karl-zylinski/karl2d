@@ -21,10 +21,9 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	is_cursor_hidden = x11_is_cursor_hidden,
 	set_cursor_locked = x11_set_cursor_locked,
 	is_cursor_locked = x11_is_cursor_locked,
-	create_cursor = x11_create_cursor,
+	create_custom_cursor = x11_create_custom_cursor,
 	set_cursor = x11_set_cursor,
-	set_cursor_shape = x11_set_cursor_shape,
-	destroy_cursor = x11_destroy_cursor,
+	destroy_custom_cursor = x11_destroy_custom_cursor,
 	set_internal_state = x11_set_internal_state,
 }
 
@@ -33,6 +32,7 @@ import "base:runtime"
 import "log"
 import "core:fmt"
 import "core:slice"
+import hm "core:container/handle_map"
 
 _ :: log
 _ :: fmt
@@ -55,6 +55,7 @@ x11_init :: proc(
 	s.screen_height = screen_height
 	s.display = X.OpenDisplay(nil)
 	s.events = make([dynamic]Event, allocator)
+	hm.dynamic_init(&s.custom_cursors, allocator)
 
 	s.window = X.CreateSimpleWindow(
 		s.display,
@@ -124,6 +125,11 @@ x11_shutdown :: proc() {
 			X.FreeCursor(s.display, cursor)
 		}
 	}
+
+	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
+		X.FreeCursor(s.display, cd.cursor)
+	}
+	hm.dynamic_destroy(&s.custom_cursors)
 
 	X.FreeCursor(s.display, s.blank_cursor)
 	X.DestroyWindow(s.display, s.window)
@@ -376,24 +382,38 @@ x11_set_cursor_hidden :: proc(hidden: bool) {
 	x11_apply_cursor()
 }
 
-// Applies s.cursor_hidden, s.current_cursor and s.current_shape to the window. They all share the
-// same underlying X11 state (whatever DefineCursor/UndefineCursor last set), so every entry point
-// goes through this instead of touching it independently and clobbering the others.
+// Applies s.cursor_hidden and s.current_cursor to the window. They all share the same underlying
+// X11 state (whatever DefineCursor/UndefineCursor last set), so every entry point goes through
+// this instead of touching it independently and clobbering the others.
 x11_apply_cursor :: proc() {
 	switch {
 	case s.cursor_hidden:
 		X.DefineCursor(s.display, s.window, s.blank_cursor)
 
-	case s.current_cursor != 0:
-		X.DefineCursor(s.display, s.window, s.current_cursor)
-
 	case:
-		if shape_cursor := x11_shape_cursor(s.current_shape); shape_cursor != 0 {
-			X.DefineCursor(s.display, s.window, shape_cursor)
-		} else {
-			// The theme has no cursor under either name, so let the window inherit whatever its
-			// parent uses, which is normally the default arrow.
-			X.UndefineCursor(s.display, s.window)
+		defined := false
+
+		if c, is_custom := s.current_cursor.(Custom_Cursor); is_custom {
+			if cd := hm.get(&s.custom_cursors, c); cd != nil {
+				X.DefineCursor(s.display, s.window, cd.cursor)
+				defined = true
+			}
+			// Otherwise it was destroyed while on screen; fall through to the default shape.
+		}
+
+		if !defined {
+			shape := Cursor_Shape.Default
+			if sh, ok := s.current_cursor.(Cursor_Shape); ok {
+				shape = sh
+			}
+
+			if shape_cursor := x11_shape_cursor(shape); shape_cursor != 0 {
+				X.DefineCursor(s.display, s.window, shape_cursor)
+			} else {
+				// The theme has no cursor under either name, so let the window inherit whatever
+				// its parent uses, which is normally the default arrow.
+				X.UndefineCursor(s.display, s.window)
+			}
 		}
 	}
 
@@ -403,7 +423,7 @@ x11_apply_cursor :: proc() {
 // Loads a shape out of the user's cursor theme, or returns 0 if the theme has no cursor for it.
 //
 // The results are cached because each one is a server-side resource that we own and have to free,
-// and because set_cursor_shape is the kind of thing a game calls every frame.
+// and because setting a cursor shape is the kind of thing a game calls every frame.
 x11_shape_cursor :: proc(shape: Cursor_Shape) -> X.Cursor {
 	if cached, ok := s.shape_cursors[shape].?; ok {
 		return cached
@@ -463,7 +483,7 @@ _x11_teleport_cursor_to_center :: proc() {
 	})
 }
 
-x11_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
+x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
 	img := X.cursorImageCreate(i32(image.width), i32(image.height))
 	defer X.cursorImageDestroy(img)
 
@@ -490,37 +510,46 @@ x11_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
 
 	cursor := X.cursorImageLoadCursor(s.display, img)
 
-	return {
-		os_handle = rawptr(uintptr(cursor)),
+	if cursor == 0 {
+		log.error("cursorImageLoadCursor failed")
+		return {}
 	}
+
+	handle, add_err := hm.add(&s.custom_cursors, X11_Cursor_Data{cursor = cursor})
+
+	if add_err != nil {
+		log.errorf("Failed to create cursor. Error: %v", add_err)
+		X.FreeCursor(s.display, cursor)
+		return {}
+	}
+
+	return handle
 }
 
-x11_set_cursor :: proc(cursor: Cursor_Data) {
-	s.current_cursor = cursor.os_handle == nil ? 0 : X.Cursor(uintptr(cursor.os_handle))
+x11_set_cursor :: proc(cursor: Cursor) {
+	// Reject a stale handle before storing it, so the cursor on screen is left alone on a
+	// programming error rather than silently reverting to the default.
+	if c, is_custom := cursor.(Custom_Cursor); is_custom {
+		if hm.get(&s.custom_cursors, c) == nil {
+			log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", c)
+			return
+		}
+	}
+
+	s.current_cursor = cursor
 	x11_apply_cursor()
 }
 
-x11_set_cursor_shape :: proc(shape: Cursor_Shape) {
-	s.current_shape = shape
-	s.current_cursor = 0
+x11_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+	if cd := hm.get(&s.custom_cursors, custom_cursor); cd != nil {
+		X.FreeCursor(s.display, cd.cursor)
+	}
+
+	hm.remove(&s.custom_cursors, custom_cursor)
+
+	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the
+	// default. Cheap enough to do unconditionally.
 	x11_apply_cursor()
-}
-
-x11_destroy_cursor :: proc(cursor: Cursor_Data) {
-	if cursor.os_handle == nil {
-		return
-	}
-
-	handle := X.Cursor(uintptr(cursor.os_handle))
-
-	// Only fall back to the current shape if the cursor being destroyed is the one on screen.
-	if s.current_cursor == handle {
-		s.current_cursor = 0
-		x11_apply_cursor()
-	}
-
-	X.FreeCursor(s.display, handle)
-	X.Flush(s.display)
 }
 
 x11_set_internal_state :: proc(state: rawptr) {
@@ -546,10 +575,10 @@ X11_State :: struct {
 	window_render_glue: Window_Render_Glue,
 	blank_cursor: X.Cursor,
 
-	// The cursor most recently passed to x11_set_cursor, or 0 (X.None) when a shape is active
-	// instead. Also see x11_apply_cursor.
-	current_cursor: X.Cursor,
-	current_shape: Cursor_Shape,
+	custom_cursors: hm.Dynamic_Handle_Map(X11_Cursor_Data, Custom_Cursor),
+
+	// The cursor most recently passed to x11_set_cursor. The zero value is Cursor_Shape.Default.
+	current_cursor: Cursor,
 
 	// Lazily loaded theme cursors, one per shape. See x11_shape_cursor.
 	shape_cursors: [Cursor_Shape]Maybe(X.Cursor),
@@ -557,6 +586,11 @@ X11_State :: struct {
 	cursor_hidden: bool,
 	cursor_locked: bool,
 	events: [dynamic]Event,
+}
+
+X11_Cursor_Data :: struct {
+	handle: Custom_Cursor,
+	cursor: X.Cursor,
 }
 
 s: ^X11_State

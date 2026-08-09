@@ -142,8 +142,6 @@ init :: proc(
 	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
 	_set_font(FONT_DEFAULT)
 
-	hm.dynamic_init(&s.cursors, s.allocator)
-
 	// Audio
 	{
 		s.audio_backend = AUDIO_BACKEND
@@ -226,11 +224,6 @@ shutdown :: proc() {
 	destroy_shader(s.default_shader)
 	rb.shutdown()
 	delete(s.vertex_buffer_cpu, s.allocator)
-
-	for it := hm.dynamic_iterator_make(&s.cursors); cd, _ in hm.dynamic_iterate(&it) {
-		pf.destroy_cursor(cd^)
-	}
-	hm.dynamic_destroy(&s.cursors)
 
 	pf.shutdown()
 
@@ -3828,12 +3821,12 @@ get_default_font :: proc() -> Font {
 // CURSORS //
 //---------//
 
-// Create a hardware cursor from an image. The cursor covers as many physical pixels as the image
-// has pixels, so it matches art the game draws at the same size. `hotspot` is the pixel within the
+// Create a cursor from an image. The cursor covers as many physical pixels as the image has
+// pixels, so it matches art the game draws at the same size. `hotspot` is the pixel within the
 // image that points at things, also in physical pixels.
 //
 // The image is not retained: you may destroy it as soon as this returns.
-create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor {
+create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
 	if image.width == 0 || image.height == 0 {
 		log.error("Invalid cursor image: height or width is zero")
 		return {}
@@ -3844,65 +3837,19 @@ create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor {
 		return {}
 	}
 
-	cursor := pf.create_cursor(image, hotspot)
-
-	// The platform layer logs why it failed.
-	if cursor.os_handle == nil {
-		return {}
-	}
-
-	handle, add_err := hm.add(&s.cursors, cursor)
-
-	if add_err != nil {
-		log.errorf("Failed to create cursor. Error: %v", add_err)
-		pf.destroy_cursor(cursor)
-		return {}
-	}
-
-	return handle
+	return pf.create_custom_cursor(image, hotspot)
 }
 
-// Sets the active cursor to one created using `create_cursor`. Pass `nil` to go back to the
-// operating system's default cursor, which is the same as `set_cursor_shape(.Default)`.
-set_cursor :: proc(cursor: Maybe(Cursor)) {
-	handle, ok := cursor.?
-
-	if !ok {
-		pf.set_cursor_shape(.Default)
-		return
-	}
-
-	cd := hm.get(&s.cursors, handle)
-
-	if cd == nil {
-		log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", handle)
-		return
-	}
-
-	pf.set_cursor(cd^)
+// Sets the cursor, either to one the operating system provides or to one made with
+// `create_custom_cursor`. `set_cursor(.Default)` goes back to the normal OS cursor.
+set_cursor :: proc(cursor: Cursor) {
+	pf.set_cursor(cursor)
 }
 
-// Sets the active cursor to one of the shapes the operating system provides, such as the text beam
-// or a resize arrow. This replaces any cursor previously set with `set_cursor`.
-//
-// See `Cursor_Shape` for what happens on platforms that don't have a particular shape.
-set_cursor_shape :: proc(shape: Cursor_Shape) {
-	pf.set_cursor_shape(shape)
-}
-
-// Destroy a cursor previously created using `create_cursor`.
-destroy_cursor :: proc(cursor: Cursor) {
-	cd := hm.get(&s.cursors, cursor)
-
-	if cd == nil {
-		log.errorf("Trying to destroy invalid cursor %v. It may already be destroyed.", cursor)
-		return
-	}
-
-	// The platform layer owns everything behind `os_handle`, so it does all the freeing.
-	pf.destroy_cursor(cd^)
-
-	hm.remove(&s.cursors, cursor)
+// Destroy a cursor previously created using `create_custom_cursor`. If it is the cursor currently
+// on screen then the default cursor is shown instead.
+destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+	pf.destroy_custom_cursor(custom_cursor)
 }
 
 //---------//
@@ -4667,17 +4614,7 @@ Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
-Cursor :: distinct Handle
-Cursor_Data :: struct {
-	handle: Cursor,
-
-	// Opaque handle owned by the platform layer. Whatever the platform needs in order to set and
-	// destroy the cursor lives behind this pointer, so only the platform layer may free it. It is
-	// nil if the cursor could not be created, or if it has been destroyed.
-	os_handle: rawptr,
-}
-
-// The cursor shapes an operating system provides out of the box. Use with `set_cursor_shape`.
+// The cursor shapes an operating system provides out of the box. Use with `set_cursor`.
 //
 // Not every platform has every shape. Where one is missing, the closest thing is used instead:
 // - macOS has no public busy cursor, so `Wait` and `Progress` show the default arrow, and no
@@ -4697,6 +4634,16 @@ Cursor_Shape :: enum {
 	Resize_NWSE,
 	Move,
 	Not_Allowed,
+}
+
+// A cursor made from your own image, created with `create_custom_cursor`.
+Custom_Cursor :: distinct Handle
+
+// The cursor to show: either one the OS provides or one you made. Never both, which is why this
+// is a union. The zero value is `Cursor_Shape.Default`.
+Cursor :: union #no_nil {
+	Cursor_Shape,
+	Custom_Cursor,
 }
 
 Font_Baked_Glyph_Range :: struct {
@@ -4916,7 +4863,6 @@ State :: struct {
 
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
-	cursors: hm.Dynamic_Handle_Map(Cursor_Data, Cursor),
 	shape_drawing_texture: Texture_Handle,
 	batch_font: Font,
 	batch_camera: Maybe(Camera),

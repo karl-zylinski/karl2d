@@ -19,10 +19,9 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	is_cursor_hidden = wl_is_cursor_hidden,
 	set_cursor_locked = wl_set_cursor_locked,
 	is_cursor_locked = wl_is_cursor_locked,
-	create_cursor = wl_create_cursor,
+	create_custom_cursor = wl_create_custom_cursor,
 	set_cursor = wl_set_cursor,
-	set_cursor_shape = wl_set_cursor_shape,
-	destroy_cursor = wl_destroy_cursor,
+	destroy_custom_cursor = wl_destroy_custom_cursor,
 	set_internal_state = wl_set_internal_state,
 }
 
@@ -32,6 +31,7 @@ import "core:strings"
 import "core:c"
 import "core:math"
 import "core:sys/linux"
+import hm "core:container/handle_map"
 
 import "log"
 import wl "platform_bindings/linux/wayland"
@@ -57,6 +57,7 @@ wl_init :: proc(
 	s.allocator = allocator
 	s.scale = 1
 	s.odin_ctx = context
+	hm.dynamic_init(&s.custom_cursors, allocator)
 
 	s.display = wl.display_connect(nil)
 
@@ -562,6 +563,14 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 }
 
 wl_shutdown :: proc() {
+	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
+		wl.wp_viewport_destroy(cd.viewport)
+		wl.surface_destroy(cd.surface)
+		wl.buffer_destroy(cd.buffer)
+		linux.munmap(cd.data, uint(cd.data_size))
+	}
+	hm.dynamic_destroy(&s.custom_cursors)
+
 	// The cursor shape protocol is optional, so these are nil on compositors that lack it.
 	if s.cursor_shape_device != nil {
 		wl.cursor_shape_device_destroy(s.cursor_shape_device)
@@ -744,12 +753,12 @@ wl_load_cursor_theme :: proc() {
 	s.cursor_theme = wl.cursor_theme_load(nil, c.int(theme_size), s.shm)
 }
 
-// Sets the OS cursor from s.cursor_hidden and s.cursor (the current custom cursor, if any).
-// wl_set_cursor_hidden, wl_set_cursor and wl_destroy_cursor all go through this instead of
-// touching the pointer's cursor independently and clobbering each other. The pointer re-entering
-// the window also goes through it, since the compositor forgets the cursor whenever the pointer
-// leaves and comes back - this makes that happen instantly rather than showing the OS's own
-// default cursor for a moment.
+// Sets the OS cursor from s.cursor_hidden and s.current_cursor. wl_set_cursor_hidden,
+// wl_set_cursor and wl_destroy_custom_cursor all go through this instead of touching the
+// pointer's cursor independently and clobbering each other. The pointer re-entering the window
+// also goes through it, since the compositor forgets the cursor whenever the pointer leaves and
+// comes back - this makes that happen instantly rather than showing the OS's own default cursor
+// for a moment.
 wl_apply_cursor :: proc() {
 	// The fractional scale listener can fire during wl_init, before the pointer and the cursor
 	// surface exist. Passing a nil surface to the compositor would mean "hide the cursor", and
@@ -763,9 +772,18 @@ wl_apply_cursor :: proc() {
 		return
 	}
 
-	if s.cursor != nil {
-		wl_point_at_cursor(s.cursor, s.pointer_enter_serial)
-		return
+	shape := Cursor_Shape.Default
+
+	switch cur in s.current_cursor {
+	case Cursor_Shape:
+		shape = cur
+
+	case Custom_Cursor:
+		if cd := hm.get(&s.custom_cursors, cur); cd != nil {
+			wl_point_at_cursor(cd, s.pointer_enter_serial)
+			return
+		}
+		// Otherwise it was destroyed while on screen; fall through to the default shape below.
 	}
 
 	// A shape cursor. Prefer the shape protocol, which lets the compositor render it at the
@@ -775,7 +793,7 @@ wl_apply_cursor :: proc() {
 		wl.cursor_shape_device_set_shape(
 			s.cursor_shape_device,
 			s.pointer_enter_serial,
-			wl_cursor_shape(s.current_shape),
+			wl_cursor_shape(shape),
 		)
 		return
 	}
@@ -784,7 +802,7 @@ wl_apply_cursor :: proc() {
 		return
 	}
 
-	name, fallback := linux_cursor_shape_names(s.current_shape)
+	name, fallback := linux_cursor_shape_names(shape)
 	theme_cursor := wl.cursor_theme_get_cursor(s.cursor_theme, name)
 
 	if theme_cursor == nil {
@@ -815,7 +833,7 @@ wl_apply_cursor :: proc() {
 	wl.surface_commit(s.cursor_surface)
 }
 
-wl_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
+wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
 	stride := image.width * 4
 	size := stride * image.height
 
@@ -864,22 +882,32 @@ wl_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
 	surface := wl.compositor_create_surface(s.compositor)
 	wl.surface_attach(surface, buffer, 0, 0)
 
-	cursor := new(WL_Cursor, s.allocator)
-	cursor.surface = surface
-	cursor.hotspot = hotspot
-	cursor.width = image.width
-	cursor.height = image.height
-	cursor.buffer = buffer
-	cursor.data = data
-	cursor.data_size = size
-	cursor.viewport = wl.wp_viewporter_get_viewport(s.viewporter, surface)
+	cursor := WL_Cursor {
+		surface   = surface,
+		hotspot   = hotspot,
+		width     = image.width,
+		height    = image.height,
+		buffer    = buffer,
+		data      = data,
+		data_size = size,
+		viewport  = wl.wp_viewporter_get_viewport(s.viewporter, surface),
+	}
 
 	// Sets the viewport destination and commits the surface.
-	wl_apply_cursor_scale(cursor)
+	wl_apply_cursor_scale(&cursor)
 
-	return {
-		os_handle = cursor,
+	handle, add_err := hm.add(&s.custom_cursors, cursor)
+
+	if add_err != nil {
+		log.errorf("Failed to create cursor. Error: %v", add_err)
+		wl.wp_viewport_destroy(cursor.viewport)
+		wl.surface_destroy(cursor.surface)
+		wl.buffer_destroy(cursor.buffer)
+		linux.munmap(cursor.data, uint(cursor.data_size))
+		return {}
 	}
+
+	return handle
 }
 
 // A cursor image is sized in physical pixels, like everything else in Karl2D, but a Wayland surface
@@ -923,14 +951,17 @@ wl_point_at_cursor :: proc(cursor: ^WL_Cursor, serial: u32) {
 	)
 }
 
-wl_set_cursor :: proc(cursor: Cursor_Data) {
-	s.cursor = cursor.os_handle == nil ? nil : (^WL_Cursor)(cursor.os_handle)
-	wl_apply_cursor()
-}
+wl_set_cursor :: proc(cursor: Cursor) {
+	// Reject a stale handle before storing it, so the cursor on screen is left alone on a
+	// programming error rather than silently reverting to the default.
+	if handle, is_custom := cursor.(Custom_Cursor); is_custom {
+		if hm.get(&s.custom_cursors, handle) == nil {
+			log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", handle)
+			return
+		}
+	}
 
-wl_set_cursor_shape :: proc(shape: Cursor_Shape) {
-	s.current_shape = shape
-	s.cursor = nil
+	s.current_cursor = cursor
 	wl_apply_cursor()
 }
 
@@ -953,25 +984,20 @@ wl_cursor_shape :: proc(shape: Cursor_Shape) -> wl.WP_Cursor_Shape {
 	return .Default
 }
 
-wl_destroy_cursor :: proc(cursor: Cursor_Data) {
-	if cursor.os_handle == nil {
-		return
+wl_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+	if cd := hm.get(&s.custom_cursors, custom_cursor); cd != nil {
+		// Detach from the surface before the buffer and its memory go away.
+		wl.wp_viewport_destroy(cd.viewport)
+		wl.surface_destroy(cd.surface)
+		wl.buffer_destroy(cd.buffer)
+		linux.munmap(cd.data, uint(cd.data_size))
 	}
 
-	cursor := (^WL_Cursor)(cursor.os_handle)
+	hm.remove(&s.custom_cursors, custom_cursor)
 
-	// Only fall back to the current shape if the cursor being destroyed is the one on screen.
-	if s.cursor == cursor {
-		s.cursor = nil
-		wl_apply_cursor()
-	}
-
-	// Detach from the surface before the buffer and its memory go away.
-	wl.wp_viewport_destroy(cursor.viewport)
-	wl.surface_destroy(cursor.surface)
-	wl.buffer_destroy(cursor.buffer)
-	linux.munmap(cursor.data, uint(cursor.data_size))
-	free(cursor, s.allocator)
+	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the
+	// default. Cheap enough to do unconditionally.
+	wl_apply_cursor()
 }
 
 wl_set_internal_state :: proc(state: rawptr) {
@@ -980,6 +1006,7 @@ wl_set_internal_state :: proc(state: rawptr) {
 }
 
 WL_Cursor :: struct {
+	handle:   Custom_Cursor,
 	surface:  ^wl.Surface,
 	hotspot:  [2]int,
 
@@ -1047,9 +1074,10 @@ WL_State :: struct {
 	locked_pointer: ^wl.ZWP_Locked_Pointer_V1,
 	relative_pointer: ^wl.ZWP_Relative_Pointer_V1,
 
-	// The custom cursor most recently set, or nil when a shape is active instead.
-	cursor: ^WL_Cursor,
-	current_shape: Cursor_Shape,
+	custom_cursors: hm.Dynamic_Handle_Map(WL_Cursor, Custom_Cursor),
+
+	// The cursor most recently passed to wl_set_cursor. The zero value is Cursor_Shape.Default.
+	current_cursor: Cursor,
 
 	cursor_shape_manager: ^wl.WP_Cursor_Shape_Manager_V1,
 	cursor_shape_device:  ^wl.WP_Cursor_Shape_Device_V1,

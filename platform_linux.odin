@@ -33,10 +33,9 @@ PLATFORM_LINUX :: Platform_Interface {
 	is_cursor_hidden = linux_is_cursor_hidden,
 	set_cursor_locked = linux_set_cursor_locked,
 	is_cursor_locked = linux_is_cursor_locked,
-	create_cursor = linux_create_cursor,
+	create_custom_cursor = linux_create_custom_cursor,
 	set_cursor = linux_set_cursor,
-	set_cursor_shape = linux_set_cursor_shape,
-	destroy_cursor = linux_destroy_cursor,
+	destroy_custom_cursor = linux_destroy_custom_cursor,
 	is_gamepad_active = linux_is_gamepad_active,
 	get_gamepad_axis = linux_get_gamepad_axis,
 	set_gamepad_vibration = linux_set_gamepad_vibration,
@@ -626,16 +625,12 @@ linux_is_cursor_locked :: proc() -> bool {
 	return s.win.is_cursor_locked()
 }
 
-linux_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
-	return s.win.create_cursor(image, hotspot)
+linux_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+	return s.win.create_custom_cursor(image, hotspot)
 }
 
-linux_set_cursor :: proc(cursor: Cursor_Data) {
+linux_set_cursor :: proc(cursor: Cursor) {
 	s.win.set_cursor(cursor)
-}
-
-linux_set_cursor_shape :: proc(shape: Cursor_Shape) {
-	s.win.set_cursor_shape(shape)
 }
 
 // Cursor theme names for a shape. Both X11 and Wayland load cursors out of the user's XCursor
@@ -664,8 +659,8 @@ linux_cursor_shape_names :: proc(shape: Cursor_Shape) -> (name: cstring, fallbac
 	return "default", "left_ptr"
 }
 
-linux_destroy_cursor :: proc(cursor: Cursor_Data) {
-	s.win.destroy_cursor(cursor)
+linux_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+	s.win.destroy_custom_cursor(custom_cursor)
 }
 
 Linux_State :: struct {
@@ -706,10 +701,9 @@ Linux_Window_Interface :: struct #all_or_none {
 	set_cursor_locked: proc(locked: bool),
 	is_cursor_locked: proc() -> bool,
 
-	create_cursor: proc(image: Image, hotspot: [2]int) -> Cursor_Data,
-	set_cursor: proc(cursor: Cursor_Data),
-	set_cursor_shape: proc(shape: Cursor_Shape),
-	destroy_cursor: proc(cursor: Cursor_Data),
+	create_custom_cursor: proc(image: Image, hotspot: [2]int) -> Custom_Cursor,
+	set_cursor: proc(cursor: Cursor),
+	destroy_custom_cursor: proc(custom_cursor: Custom_Cursor),
 
 	set_internal_state: proc(state: rawptr),
 }

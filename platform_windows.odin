@@ -23,10 +23,9 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	is_cursor_hidden = windows_is_cursor_hidden,
 	set_cursor_locked = windows_set_cursor_locked,
 	is_cursor_locked = windows_is_cursor_locked,
-	create_cursor = windows_create_cursor,
+	create_custom_cursor = windows_create_custom_cursor,
 	set_cursor = windows_set_cursor,
-	set_cursor_shape = windows_set_cursor_shape,
-	destroy_cursor = windows_destroy_cursor,
+	destroy_custom_cursor = windows_destroy_custom_cursor,
 
 	is_gamepad_active = windows_is_gamepad_active,
 	get_gamepad_axis = windows_get_gamepad_axis,
@@ -40,6 +39,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 import win32 "core:sys/windows"
 import "core:slice"
 import "base:runtime"
+import hm "core:container/handle_map"
 @require import "log"
 
 windows_state_size :: proc() -> int {
@@ -59,7 +59,8 @@ windows_init :: proc(
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator = allocator)
 	s.custom_context = context
-	
+	hm.dynamic_init(&s.custom_cursors, allocator)
+
 	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 	win32.SetProcessDPIAware()
 	CLASS_NAME :: "karl2d"
@@ -130,6 +131,11 @@ windows_init :: proc(
 }
 
 windows_shutdown :: proc() {
+	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
+		win32.DestroyCursor(cd.hcursor)
+	}
+	hm.dynamic_destroy(&s.custom_cursors)
+
 	win32.DestroyWindow(s.hwnd)
 	delete(s.events)
 }
@@ -426,11 +432,11 @@ Windows_State :: struct {
 	cursor_locked: bool,
 	cursor_hidden: bool,
 
-	// The HCURSOR most recently passed to windows_set_cursor, or nil when a shape is active
-	// instead. Used so that destroying a cursor only resets to the shape if it was the one on
-	// screen, instead of always resetting regardless of which cursor is actually active.
-	current_cursor: win32.HCURSOR,
-	current_shape: Cursor_Shape,
+	custom_cursors: hm.Dynamic_Handle_Map(Windows_Cursor_Data, Custom_Cursor),
+
+	// The cursor most recently passed to windows_set_cursor. The zero value is
+	// Cursor_Shape.Default.
+	current_cursor: Cursor,
 
 	// for when returning from fullscreen to window mode
 	restore_window_pos_x: int,
@@ -439,6 +445,11 @@ Windows_State :: struct {
 	restore_screen_height: int,
 
 	window_render_glue: Window_Render_Glue,
+}
+
+Windows_Cursor_Data :: struct {
+	handle: Custom_Cursor,
+	hcursor: win32.HCURSOR,
 }
 
 windows_set_window_mode :: proc(window_mode: Window_Mode) {
@@ -535,7 +546,7 @@ _windows_teleport_cursor_to_center :: proc() {
 	})
 }
 
-windows_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
+windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
 	// CreateBitmap makes a device-dependent bitmap, which is not documented to support a real
 	// alpha channel. A 32-bit cursor with alpha needs a DIB section instead: CreateDIBSection with
 	// a BITMAPV5HEADER and explicit channel masks, which is also what GLFW and SDL do for this.
@@ -595,38 +606,52 @@ windows_create_cursor :: proc(image: Image, hotspot: [2]int) -> Cursor_Data {
 		hbmColor = h_color,
 		hbmMask  = h_mask,
 	}
-	cursor := (win32.HCURSOR)(win32.CreateIconIndirect(&ii))
+	hcursor := (win32.HCURSOR)(win32.CreateIconIndirect(&ii))
 
-	if cursor == nil {
+	if hcursor == nil {
 		log.errorf("CreateIconIndirect failed with %v", win32.GetLastError())
 		return {}
 	}
 
-	return {
-		os_handle = cursor,
+	handle, add_err := hm.add(&s.custom_cursors, Windows_Cursor_Data{hcursor = hcursor})
+
+	if add_err != nil {
+		log.errorf("Failed to create cursor. Error: %v", add_err)
+		win32.DestroyCursor(hcursor)
+		return {}
 	}
+
+	return handle
 }
 
-windows_set_cursor :: proc(cursor: Cursor_Data) {
-	s.current_cursor = (win32.HCURSOR)(cursor.os_handle)
+windows_set_cursor :: proc(cursor: Cursor) {
+	// Reject a stale handle before storing it, so the cursor on screen is left alone on a
+	// programming error rather than silently reverting to the default.
+	if c, is_custom := cursor.(Custom_Cursor); is_custom {
+		if hm.get(&s.custom_cursors, c) == nil {
+			log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", c)
+			return
+		}
+	}
+
+	s.current_cursor = cursor
 	windows_apply_cursor()
 }
 
-windows_set_cursor_shape :: proc(shape: Cursor_Shape) {
-	s.current_shape = shape
-	s.current_cursor = nil
-	windows_apply_cursor()
-}
-
-// Sets the OS cursor from the custom cursor the game asked for, falling back to the current shape
-// when there is none.
+// Sets the OS cursor from s.current_cursor, falling back to the default arrow when a custom
+// cursor no longer resolves (it was destroyed while on screen).
 windows_apply_cursor :: proc() {
-	handle := s.current_cursor
+	// LoadCursor on a built-in IDC_ hands back a shared cursor owned by the system, so this must
+	// not be destroyed and is cheap enough to look up each time.
+	handle := win32.LoadCursorA(nil, win32.IDC_ARROW)
 
-	if handle == nil {
-		// LoadCursor on a built-in IDC_ hands back a shared cursor owned by the system, so this
-		// must not be destroyed and is cheap enough to look up each time.
-		handle = win32.LoadCursorA(nil, windows_cursor_shape_id(s.current_shape))
+	switch c in s.current_cursor {
+	case Cursor_Shape:
+		handle = win32.LoadCursorA(nil, windows_cursor_shape_id(c))
+	case Custom_Cursor:
+		if cd := hm.get(&s.custom_cursors, c); cd != nil {
+			handle = cd.hcursor
+		}
 	}
 
 	win32.SetClassLongPtrW(s.hwnd, win32.GCLP_HCURSOR, (win32.LONG_PTR)(uintptr(handle)))
@@ -652,16 +677,16 @@ windows_cursor_shape_id :: proc(shape: Cursor_Shape) -> cstring {
 	return win32.IDC_ARROW
 }
 
-windows_destroy_cursor :: proc(cursor: Cursor_Data) {
-	handle := (win32.HCURSOR)(cursor.os_handle)
-
-	// Only fall back to the current shape if the cursor being destroyed is the one on screen.
-	if s.current_cursor == handle {
-		s.current_cursor = nil
-		windows_apply_cursor()
+windows_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+	if cd := hm.get(&s.custom_cursors, custom_cursor); cd != nil {
+		win32.DestroyCursor(cd.hcursor)
 	}
 
-	win32.DestroyCursor(handle)
+	hm.remove(&s.custom_cursors, custom_cursor)
+
+	// If that was the cursor on screen it no longer resolves, so re-applying falls back to the
+	// default. Cheap enough to do unconditionally.
+	windows_apply_cursor()
 }
 
 s: ^Windows_State

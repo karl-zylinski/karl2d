@@ -29,10 +29,9 @@ Platform_Interface :: struct #all_or_none {
 	is_cursor_hidden: proc() -> bool,
 	set_cursor_locked: proc(locked: bool),
 	is_cursor_locked: proc() -> bool,
-	create_cursor: proc(image: Image, hotspot: [2]int) -> Cursor_Data,
-	set_cursor: proc(cursor: Cursor_Data),
-	set_cursor_shape: proc(shape: Cursor_Shape),
-	destroy_cursor: proc(cursor: Cursor_Data),
+	create_custom_cursor: proc(image: Image, hotspot: [2]int) -> Custom_Cursor,
+	set_cursor: proc(cursor: Cursor),
+	destroy_custom_cursor: proc(custom_cursor: Custom_Cursor),
 
 	is_gamepad_active: proc(gamepad: int) -> bool,
 	get_gamepad_axis: proc(gamepad: int, axis: Gamepad_Axis) -> f32,
