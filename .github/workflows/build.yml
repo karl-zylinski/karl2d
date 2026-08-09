@@ -44,6 +44,16 @@ jobs:
       - name: test_all_examples
         run: odin run tools/test_examples
 
+      - name: test_all_examples (y up)
+        run: odin run tools/test_examples -- -skip-web -define:KARL2D_Y_UP=true
+
+      # Builds tools/coord_test in both coordinate systems and checks that they draw the same
+      # picture. This one actually runs the library rather than just compiling it, so it needs a
+      # window: only the Windows runner is guaranteed to be able to open one.
+      - name: test_coord_systems
+        if: matrix.os == 'windows-latest'
+        run: odin run tools/test_coord_systems
+
       - name: raylib_ports/shaders_texture_waves
         run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style
 
