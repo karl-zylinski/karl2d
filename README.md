@@ -170,6 +170,42 @@ load_texture :: proc($name: string) -> k2.Texture {
 
 The `$` in front of the `name` parameter ensures that you're passing a compile-time constant, which makes it possible to use `#load` within the web version.
 
+## Coordinate system
+
+By default the origin is in the top-left corner of the screen and Y grows downwards. You can flip
+this so that the origin is in the bottom-left corner and Y grows upwards, which is what most physics
+engines and most maths code expect:
+
+```
+odin build your_game -define:KARL2D_Y_UP=true
+```
+
+What changes:
+
+- A `Rect` grows from its `(x, y)` position in the direction the axes point. So `(x, y)` is the
+  rect's top-left corner in Y down and its bottom-left corner in Y up.
+- Positive rotations appear clockwise on screen in Y down and counter-clockwise in Y up. The Y up
+  behaviour is what `math.atan2` and physics engines produce, so their angles can be passed straight
+  to the `draw_*` procedures.
+- `draw_text` anchors the text block the same way a `Rect` is anchored. Either way the text covers
+  exactly `rect_from_pos_size(position, measure_text(text, font_size))`, with the first line at the
+  top on screen.
+- `get_mouse_position` is measured from the origin, so from the bottom of the window in Y up.
+
+What does _not_ change:
+
+- Texture space. The `source` rectangle of the `draw_texture_*` procedures is always measured from
+  the top-left corner of the texture, downwards, because that is how image files and image editors
+  work.
+- The naming of the `rect_*` helpers. `rect_top_left` is always the corner that appears in the top
+  left on screen, and `rect_cut_top` always cuts the part at the top of the screen.
+- `measure_text`, which always returns a positive size.
+
+`examples/box2d` shows the difference: it keeps its positions in Box2D's Y up world and converts them
+at the point where it hands them to Karl2D. Build it with `-define:KARL2D_Y_UP=true` and every one of
+those conversions becomes the identity. `tools/test_coord_systems` builds `tools/coord_test` in both
+coordinate systems and checks that they draw the same picture.
+
 ## Hot reload
 Some kind of gameplay code hot reload is planned as part of the library. Currently, there is an experimental implementation of this in a separate repository: https://github.com/karl-zylinski/karl2d-hot-reload-template
 
