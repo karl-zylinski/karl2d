@@ -27,6 +27,7 @@ PLATFORM_LINUX :: Platform_Interface {
 	get_screen_width = linux_get_screen_width,
 	get_screen_height = linux_get_screen_height,
 	set_window_position = linux_set_window_position,
+	get_window_position = linux_get_window_position,
 	get_window_scale = linux_get_window_scale,
 	set_window_mode = linux_set_window_mode,
 	set_cursor_hidden = linux_set_cursor_hidden,
@@ -172,6 +173,10 @@ linux_set_window_title :: proc(title: string) {
 
 linux_set_window_position :: proc(x: int, y: int) {
 	s.win.set_position(x, y)
+}
+
+linux_get_window_position :: proc() -> Vec2 {
+	return s.win.get_position()
 }
 
 set_screen_size :: proc(w, h: int) {
@@ -650,6 +655,7 @@ Linux_Window_Interface :: struct #all_or_none {
 	get_events: proc(events: ^[dynamic]Event),
 	set_title: proc(title: string),
 	set_position: proc(x: int, y: int),
+	get_position: proc() -> Vec2,
 	set_screen_size: proc(w, h: int),
 	get_screen_width: proc() -> int,
 	get_screen_height: proc() -> int,
