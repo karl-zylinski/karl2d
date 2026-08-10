@@ -303,6 +303,37 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32)
 // - rotation: The rotation to apply, in radians
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0)
 
+// Draw a gradient rectangle. The rectangles have their (x, y) position in the top-left corner of
+// the rectangle.
+// The top_left, top_right, bottom_left, bottom_right Colors are applied to their respective
+// corners.
+//
+// Optional parameters:
+// - origin: The point to rotate around, also offsets the position of the rect. If the origin is
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
+// - rotation: The rotation to apply, in radians
+draw_rect_gradient :: proc(
+	rect: Rect,
+	top_left, top_right, bottom_left, bottom_right: Color,
+	origin: Vec2 = {},
+	rotation: f32 = 0
+)
+
+draw_rect_gradient_vertical :: proc (
+	rect: Rect,
+	top, bottom: Color,
+	origin: Vec2 = {},
+	rotation: f32 = 0
+)
+
+draw_rect_gradient_horizontal :: proc (
+	rect: Rect,
+	left, right: Color,
+	origin: Vec2 = {},
+	rotation: f32 = 0
+)
+
 // Creates a rectangle from a position and a size and draws it using the specified color.
 //
 // Optional parameters:
@@ -326,8 +357,49 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color)
 // perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16)
 
+// Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
+// perfect! It is drawn using a number of "cake segments".
+draw_circle_gradient :: proc(center: Vec2, radius: f32, inner, outer: Color, segments := 16)
+
 // Like `draw_circle` but only draws the outer edge of the circle.
-draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16)
+draw_circle_outline :: proc(
+	center: Vec2,
+	radius: f32, 
+	thickness: f32,
+	color: Color,
+	segments := 16
+)
+
+// Draw an arc (partial circle) with a certain center, radius, start, and end angle.
+// Note the `segments` parameter: This arc is not perfect! 
+// It is drawn using a number of "cake segments".
+draw_arc :: proc(
+	center: Vec2,
+	radius: f32,
+	start_ang: f32,
+	end_ang: f32,
+	color: Color,
+	segments := 16
+)
+
+draw_arc_gradient :: proc(
+	center: Vec2,
+	radius: f32,start_ang: f32,
+	end_ang: f32,
+	inner, outer: Color,
+	segments := 16
+)
+
+// Like `draw_arc` but only draws the outer edge of the arc.
+draw_arc_outline :: proc(
+	center: Vec2,
+	radius: f32,
+	start_ang: f32,
+	end_ang: f32,
+	thickness: f32,
+	color: Color,
+	segments := 16
+)
 
 // Draws a line from `start` to `end` of a certain thickness.
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
@@ -335,6 +407,11 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
 // Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color)
+
+// Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
+// counter-clockwise triangles will give the same result.
+// Specify a color for each vertex in order
+draw_triangle_gradient :: proc(vertices: [3]Vec2, c1, c2, c3: Color)
 
 // Draw a texture at a position. The top-left corner of the texture will end up at the position.
 //
