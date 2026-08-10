@@ -183,33 +183,97 @@ gl_present :: proc() {
 	s.glue->present()
 }
 
-gl_draw :: proc(
-	shd: Shader,
-	render_target: Render_Target_Handle,
-	bound_textures: []Texture_Handle,
-	scissor: Maybe(Rect),
-	blend_mode: Blend_Mode,
-	vertex_buffer: []u8,
-) {
-	gl_shd := hm.get(&s.shaders, shd.handle)
-
-	if gl_shd == nil {
+gl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
+	if len(vertex_buffer) == 0 || len(draw_calls) == 0 {
 		return
 	}
 
-	switch blend_mode {
-	case .Alpha: gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-	case .Premultiplied_Alpha: gl.BlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+	// All the draw calls read from this one buffer, so it only needs uploading once. Orphaning it
+	// first lets the driver hand us fresh memory instead of waiting for the previous frame.
+	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
+	gl.BufferData(gl.ARRAY_BUFFER, len(vertex_buffer), nil, gl.DYNAMIC_DRAW)
+	gl.BufferSubData(gl.ARRAY_BUFFER, 0, len(vertex_buffer), raw_data(vertex_buffer))
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+
+	// The draw call we set GL up for last. We only set up what differs from it, which is often
+	// just the texture. It starts out nil because we have no idea what has happened to the GL
+	// state since the last time we drew.
+	prev: ^Draw_Call
+
+	for &call in draw_calls {
+		gl_shd := hm.get(&s.shaders, call.shader)
+
+		if gl_shd == nil {
+			continue
+		}
+
+		new_shader := prev == nil || prev.shader != call.shader
+
+		if new_shader {
+			gl.BindVertexArray(gl_shd.vao)
+			gl.UseProgram(gl_shd.program)
+		}
+
+		// Draw calls that didn't change the constants share the snapshot, so identical pointers
+		// mean the uniforms already hold the right values.
+		if new_shader || raw_data(prev.constants_data) != raw_data(call.constants_data) {
+			gl_set_constants(call.constants, call.constants_data, gl_shd)
+		}
+
+		if new_shader || raw_data(prev.textures) != raw_data(call.textures) {
+			gl_bind_textures(call.textures, gl_shd)
+		}
+
+		rt := hm.get(&s.render_targets, call.render_target)
+
+		if prev == nil || prev.render_target != call.render_target {
+			if rt != nil {
+				gl.BindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer)
+				gl.Viewport(0, 0, i32(rt.width), i32(rt.height))
+			} else {
+				gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+				gl.Viewport(0, 0, i32(s.width), i32(s.height))
+			}
+		}
+
+		if prev == nil || prev.blend_mode != call.blend_mode {
+			switch call.blend_mode {
+			case .Alpha: gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+			case .Premultiplied_Alpha: gl.BlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+			}
+		}
+
+		// The scissor rect is measured from the top in Karl2D but from the bottom in GL, so it
+		// depends on the height of the render target as well.
+		if prev == nil || prev.scissor != call.scissor || prev.render_target != call.render_target {
+			if scissor, has_scissor := call.scissor.(Rect); has_scissor {
+				height := rt != nil ? rt.height : s.height
+				flipped_y := f32(height) - scissor.h - scissor.y
+
+				gl.Enable(gl.SCISSOR_TEST)
+				gl.Scissor(i32(scissor.x), i32(flipped_y), i32(scissor.w), i32(scissor.h))
+			} else {
+				gl.Disable(gl.SCISSOR_TEST)
+			}
+		}
+
+		gl.DrawArrays(gl.TRIANGLES, i32(call.vertex_offset/call.vertex_size), i32(call.vertex_count))
+		prev = &call
 	}
 
-	gl.BindVertexArray(gl_shd.vao)
+	gl.Disable(gl.SCISSOR_TEST)
+}
 
-	gl.UseProgram(gl_shd.program)
-	assert(len(shd.constants) == len(gl_shd.constants))
+gl_set_constants :: proc(
+	constants: []Shader_Constant_Location,
+	constants_data: []u8,
+	gl_shd: ^GL_Shader,
+) {
+	assert(len(constants) == len(gl_shd.constants))
 
-	cpu_data := shd.constants_data
+	cpu_data := constants_data
 	for cidx in 0..<len(gl_shd.constants) {
-		cpu_loc := shd.constants[cidx]
+		cpu_loc := constants[cidx]
 
 		if cpu_loc.size == 0 {
 			continue
@@ -314,56 +378,28 @@ gl_draw :: proc(
 
 			case: log.errorf("Unknown type: %x", gpu_loc.uniform_type)
 			}
-			
+
 		}
 	}
-	
-	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
-	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
-	gl.BufferSubData(gl.ARRAY_BUFFER, 0, len(vertex_buffer), raw_data(vertex_buffer))
-	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+}
 
-	if len(bound_textures) == len(gl_shd.texture_bindings) {
-		for t, t_idx in bound_textures {
-			gl_t := gl_shd.texture_bindings[t_idx]
-
-			if t := hm.get(&s.textures, t); t != nil {
-				gl.ActiveTexture(gl.TEXTURE0 + u32(t_idx))
-				gl.BindTexture(gl.TEXTURE_2D, t.id)
-				gl.Uniform1i(gl_t.loc, i32(t_idx))
-			} else {
-				gl.ActiveTexture(gl.TEXTURE0 + u32(t_idx))
-				gl.BindTexture(gl.TEXTURE_2D, 0)
-				gl.Uniform1i(gl_t.loc, i32(t_idx))
-			}
-		}
+gl_bind_textures :: proc(textures: []Texture_Handle, gl_shd: ^GL_Shader) {
+	if len(textures) != len(gl_shd.texture_bindings) {
+		return
 	}
 
-	rt := hm.get(&s.render_targets, render_target)
+	for t, t_idx in textures {
+		gl_t := gl_shd.texture_bindings[t_idx]
+		gl.ActiveTexture(gl.TEXTURE0 + u32(t_idx))
 
-	if rt != nil {
-		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer)
-		gl.Viewport(0, 0, i32(rt.width), i32(rt.height))
-	} else {
-		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-		gl.Viewport(0, 0, i32(s.width), i32(s.height))
-	}
-
-	if scissor, has_scissor := scissor.(Rect); has_scissor {
-		height: int
-		if rt != nil {
-			height = rt.height
+		if t := hm.get(&s.textures, t); t != nil {
+			gl.BindTexture(gl.TEXTURE_2D, t.id)
 		} else {
-			height = s.height
+			gl.BindTexture(gl.TEXTURE_2D, 0)
 		}
-		flipped_y := f32(height) - scissor.h - scissor.y
 
-		gl.Enable(gl.SCISSOR_TEST)
-		gl.Scissor(i32(scissor.x), i32(flipped_y), i32(scissor.w), i32(scissor.h))
+		gl.Uniform1i(gl_t.loc, i32(t_idx))
 	}
-
-	gl.DrawArrays(gl.TRIANGLES, 0, i32(len(vertex_buffer)/shd.vertex_size))
-	gl.Disable(gl.SCISSOR_TEST)
 }
 
 gl_resize_swapchain :: proc(w, h: int) {

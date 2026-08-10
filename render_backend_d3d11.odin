@@ -279,58 +279,160 @@ d3d11_present :: proc() {
 	ch(s.swapchain->Present(1, {}))
 }
 
-d3d11_draw :: proc(
-	shd: Shader,
-	render_target: Render_Target_Handle,
-	bound_textures: []Texture_Handle,
-	scissor: Maybe(Rect), 
-	blend_mode: Blend_Mode,
-	vertex_buffer: []u8,
-) {
-	if len(vertex_buffer) == 0 {
-		return
-	}
-
-	d3d_shd := hm.get(&s.shaders, shd.handle)
-
-	if d3d_shd == nil {
-		log.error("Trying to draw with invalid shader %v", shd.handle)
+d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
+	if len(vertex_buffer) == 0 || len(draw_calls) == 0 {
 		return
 	}
 
 	dc := s.device_context
 
+	// All the draw calls read from this one buffer, so it only needs uploading once.
 	vb_data: d3d11.MAPPED_SUBRESOURCE
 	ch(dc->Map(s.vertex_buffer_gpu, 0, .WRITE_DISCARD, {}, &vb_data))
 	{
 		gpu_map := slice.from_ptr((^u8)(vb_data.pData), VERTEX_BUFFER_MAX)
-		copy(
-			gpu_map,
-			vertex_buffer,
-		)
+		copy(gpu_map, vertex_buffer)
 	}
 	dc->Unmap(s.vertex_buffer_gpu, 0)
 
 	dc->IASetPrimitiveTopology(.TRIANGLELIST)
+	dc->RSSetState(s.rasterizer_state)
 
-	dc->IASetInputLayout(d3d_shd.input_layout)
-	vertex_buffer_offset: u32
-	vertex_buffer_stride := u32(shd.vertex_size)
-	dc->IASetVertexBuffers(0, 1, &s.vertex_buffer_gpu, &vertex_buffer_stride, &vertex_buffer_offset)
+	// The draw call we set the device context up for last. We only set up what differs from it,
+	// which is often just the texture. It starts out nil because we have no idea what the device
+	// context has been up to since the last time we drew.
+	prev: ^Draw_Call
 
-	dc->VSSetShader(d3d_shd.vertex_shader, nil, 0)
+	for &call in draw_calls {
+		d3d_shd := hm.get(&s.shaders, call.shader)
 
-	assert(len(shd.constants) == len(d3d_shd.constants))
+		if d3d_shd == nil {
+			log.errorf("Trying to draw with invalid shader %v", call.shader)
+			continue
+		}
+
+		new_shader := prev == nil || prev.shader != call.shader
+
+		if new_shader {
+			dc->IASetInputLayout(d3d_shd.input_layout)
+			vertex_buffer_offset: u32
+			vertex_buffer_stride := u32(call.vertex_size)
+
+			dc->IASetVertexBuffers(
+				0, 1,
+				&s.vertex_buffer_gpu,
+				&vertex_buffer_stride,
+				&vertex_buffer_offset,
+			)
+
+			dc->VSSetShader(d3d_shd.vertex_shader, nil, 0)
+			dc->PSSetShader(d3d_shd.pixel_shader, nil, 0)
+		}
+
+		// Draw calls that didn't change the constants share the snapshot, so identical pointers
+		// mean the constant buffers already hold the right values.
+		if new_shader || raw_data(prev.constants_data) != raw_data(call.constants_data) {
+			d3d11_set_constants(call.constants, call.constants_data, d3d_shd)
+		}
+
+		if new_shader || raw_data(prev.textures) != raw_data(call.textures) {
+			if len(call.textures) == len(d3d_shd.texture_bindings) {
+				for t, t_idx in call.textures {
+					d3d_t := d3d_shd.texture_bindings[t_idx]
+
+					if t := hm.get(&s.textures, t); t != nil {
+						dc->PSSetShaderResources(d3d_t.bind_point, 1, &t.view)
+						dc->PSSetSamplers(d3d_t.sampler_bind_point, 1, &t.sampler)
+					}
+				}
+			}
+		}
+
+		render_target_changed := prev == nil || prev.render_target != call.render_target
+
+		if render_target_changed {
+			if rt := hm.get(&s.render_targets, call.render_target); rt != nil {
+				dc->OMSetRenderTargets(1, &rt.render_target_view, nil)
+
+				viewport := d3d11.VIEWPORT {
+					0, 0,
+					f32(rt.width), f32(rt.height),
+					0, 1,
+				}
+
+				dc->RSSetViewports(1, &viewport)
+			} else {
+				dc->OMSetRenderTargets(1, &s.framebuffer_view, nil)
+
+				viewport := d3d11.VIEWPORT {
+					0, 0,
+					f32(s.width), f32(s.height),
+					0, 1,
+				}
+
+				dc->RSSetViewports(1, &viewport)
+			}
+		}
+
+		// A draw call without a scissor rect gets one that covers the whole render target, so the
+		// render target changing means this has to be redone too.
+		if render_target_changed || prev.scissor != call.scissor {
+			scissor_rect := d3d11.RECT {
+				right = i32(s.width),
+				bottom = i32(s.height),
+			}
+
+			if rt := hm.get(&s.render_targets, call.render_target); rt != nil {
+				scissor_rect.right = i32(rt.width)
+				scissor_rect.bottom = i32(rt.height)
+			}
+
+			if sciss, sciss_ok := call.scissor.?; sciss_ok {
+				scissor_rect = d3d11.RECT {
+					left = i32(sciss.x),
+					top = i32(sciss.y),
+					right = i32(sciss.x + sciss.w),
+					bottom = i32(sciss.y + sciss.h),
+				}
+			}
+
+			dc->RSSetScissorRects(1, &scissor_rect)
+		}
+
+		if prev == nil || prev.blend_mode != call.blend_mode {
+			switch call.blend_mode {
+			case .Alpha:
+				dc->OMSetBlendState(s.blend_state_alpha, nil, ~u32(0))
+			case .Premultiplied_Alpha:
+				dc->OMSetBlendState(s.blend_state_premultiplied_alpha, nil, ~u32(0))
+			}
+		}
+
+		dc->Draw(u32(call.vertex_count), u32(call.vertex_offset/call.vertex_size))
+		prev = &call
+	}
+
+	dc->OMSetRenderTargets(0, nil, nil)
+	log_messages()
+}
+
+d3d11_set_constants :: proc(
+	constants: []Shader_Constant_Location,
+	constants_data: []u8,
+	d3d_shd: ^D3D11_Shader,
+) {
+	dc := s.device_context
+	assert(len(constants) == len(d3d_shd.constants))
 
 	maps := make([]rawptr, len(d3d_shd.constant_buffers), frame_allocator)
 
-	cpu_data := shd.constants_data
-	for cidx in 0..<len(shd.constants) {
-		cpu_loc := shd.constants[cidx]
+	cpu_data := constants_data
+	for cidx in 0..<len(constants) {
+		cpu_loc := constants[cidx]
 		gpu_loc := d3d_shd.constants[cidx]//cpu_loc.gpu_constant_idx]
 		gpu_buffer_info := d3d_shd.constant_buffers[gpu_loc.buffer_idx]
 		gpu_data := gpu_buffer_info.gpu_data
-		
+
 		if gpu_data == nil {
 			continue
 		}
@@ -364,74 +466,6 @@ d3d11_draw :: proc(
 			maps[cb_idx] = nil
 		}
 	}
-
-	dc->RSSetState(s.rasterizer_state)
-
-	scissor_rect := d3d11.RECT {
-		right = i32(s.width),
-		bottom = i32(s.height),
-	}
-
-	if rt := hm.get(&s.render_targets, render_target); rt != nil {
-		scissor_rect.right = i32(rt.width)
-		scissor_rect.bottom = i32(rt.height)
-	}
-
-	if sciss, sciss_ok := scissor.?; sciss_ok {
-		scissor_rect = d3d11.RECT {
-			left = i32(sciss.x),
-			top = i32(sciss.y),
-			right = i32(sciss.x + sciss.w),
-			bottom = i32(sciss.y + sciss.h),
-		}
-	}
-	
-	dc->RSSetScissorRects(1, &scissor_rect)
-
-	dc->PSSetShader(d3d_shd.pixel_shader, nil, 0)
-
-	if len(bound_textures) == len(d3d_shd.texture_bindings) {
-		for t, t_idx in bound_textures {
-			d3d_t := d3d_shd.texture_bindings[t_idx]
-
-			if t := hm.get(&s.textures, t); t != nil {
-				dc->PSSetShaderResources(d3d_t.bind_point, 1, &t.view)	
-				dc->PSSetSamplers(d3d_t.sampler_bind_point, 1, &t.sampler)
-			}
-		}
-	}
-
-	if rt := hm.get(&s.render_targets, render_target); rt != nil {
-		dc->OMSetRenderTargets(1, &rt.render_target_view, nil)
-
-		viewport := d3d11.VIEWPORT{
-			0, 0,
-			f32(rt.width), f32(rt.height),
-			0, 1,
-		}
-
-		dc->RSSetViewports(1, &viewport)
-	} else {
-		dc->OMSetRenderTargets(1, &s.framebuffer_view, nil)
-
-		viewport := d3d11.VIEWPORT{
-			0, 0,
-			f32(s.width), f32(s.height),
-			0, 1,
-		}
-
-		dc->RSSetViewports(1, &viewport)
-	}
-
-	switch blend_mode {
-	case .Alpha:
-		dc->OMSetBlendState(s.blend_state_alpha, nil, ~u32(0))
-	case .Premultiplied_Alpha:
-		dc->OMSetBlendState(s.blend_state_premultiplied_alpha, nil, ~u32(0))
-	}
-	dc->Draw(u32(len(vertex_buffer)/shd.vertex_size), 0)
-	dc->OMSetRenderTargets(0, nil, nil)
-	log_messages()
 }
 
 d3d11_resize_swapchain :: proc(w, h: int) {

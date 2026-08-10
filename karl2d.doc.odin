@@ -166,30 +166,42 @@ set_window_mode :: proc(window_mode: Window_Mode)
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
 // current batch. Normally, you do not need to do this manually. It is done automatically when these
 // procedures run:
-// 
+//
 // - present
+// - clear
+// - update_texture, destroy_texture, set_texture_filter, set_texture_filter_ex
+// - destroy_shader
+// - destroy_render_texture
+//
+// Drawing does not fill up a single batch of identical state: as you draw, the library records a
+// list of draw calls. A new draw call starts when the state changes in a way that the GPU has to
+// know about, which happens when these procedures run:
+//
 // - set_camera
 // - set_shader
 // - set_shader_constant
 // - set_scissor_rect
 // - set_blend_mode
 // - set_render_texture
-// - clear
 // - draw_texture_* IF previous draw did not use the same texture (1)
 // - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing texture (2)
-// 
+//
+// Starting a new draw call is cheap: it records the state and keeps filling the same vertex buffer.
+// The whole list is sent to the render backend in one go when the batch is flushed, so the backend
+// only sets up the things that differ between two draw calls.
+//
 // (1) When drawing textures, the current texture is fed into the active shader. Everything within
-//     the same batch must use the same texture. So drawing with a new texture forces the current to
-//     be drawn. You can combine several textures into an atlas to get bigger batches.
+//     the same draw call must use the same texture. So drawing with a new texture starts a new draw
+//     call. You can combine several textures into an atlas to get fewer draw calls.
 //
 // (2) In order to use the same shader for shapes drawing and textured drawing, the shapes drawing
 //     uses a blank, white texture. For the same reasons as (1), drawing something else than shapes
-//     before drawing a shape will break up the batches. In a future update I'll add so that you can
+//     before drawing a shape will start a new draw call. In a future update I'll add so that you can
 //     set your own shapes drawing texture, making it possible to combine it with a bigger atlas.
 //
-// The batch has maximum size of VERTEX_BUFFER_MAX bytes. The shader dictates how big a vertex is
-// so the maximum number of vertices that can be drawn in each batch is
-// VERTEX_BUFFER_MAX / shader.vertex_size
+// All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
+// dictates how big a vertex is, so the maximum number of vertices in a batch is
+// VERTEX_BUFFER_MAX / shader.vertex_size. Running out of room flushes the batch automatically.
 draw_current_batch :: proc()
 
 //-------//
@@ -1561,8 +1573,33 @@ State :: struct {
 	batch_render_target: Render_Target_Handle,
 	batch_blend_mode: Blend_Mode,
 
+	// The draw calls recorded since the last `draw_current_batch`. They all point into
+	// `vertex_buffer_cpu`. The last one is the "open" draw call that new vertices go into.
+	batch_draw_calls: [dynamic]Draw_Call,
+
+	// The dynamic fonts drawn with since the last `draw_current_batch`. Their atlases are uploaded
+	// right before the draw calls are handed to the render backend.
+	batch_fonts: [dynamic]Font,
+
+	// Holds the shader constant and texture bindpoint snapshots that the draw calls point into.
+	// Emptied by `draw_current_batch`.
+	batch_arena: runtime.Arena,
+	batch_allocator: runtime.Allocator,
+
+	// Set when something the open draw call has already captured changed, so the next drawing
+	// operation has to open a new draw call.
+	batch_params_dirty: bool,
+
+	// Set when the shader constants changed, so the next draw call takes a fresh snapshot of them
+	// instead of sharing the previous draw call's.
+	batch_constants_dirty: bool,
+
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
+
+	// `proj_matrix * view_matrix`. Kept around because every draw call needs it, and the two
+	// matrices behind it change far more rarely. Update it with `_update_view_projection`.
+	view_projection: Mat4,
 
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,

@@ -1,17 +1,23 @@
-// Measures the CPU cost of issuing draws and flushing them to the render backend. It runs a set of
-// scenarios that break the batch in different ways, which is what this benchmark is about: a batch
-// break used to mean a complete pipeline setup in the render backend.
+// Measures what it costs to draw when the batch gets broken up. It runs a set of scenarios that
+// break the batch in different ways, which is what this benchmark is about: a batch break means a
+// new draw call, and it used to mean a complete pipeline setup in the render backend.
 //
-// Only the draw-issuing region is timed, `present` is left out. That keeps vsync out of the
-// numbers, since the D3D11 backend presents with a sync interval of 1.
+// Two numbers are reported per scenario:
+//
+// - `cpu`: time spent issuing the draws and flushing them, without `present`. This is what the
+//   game's own thread pays.
+// - `frame`: the whole frame, `present` included.
+//
+// Read them together. `cpu` alone is misleading on GL, where the driver takes the commands and
+// does the work on its own thread: a cheap-looking `cpu` can hide a pile of queued-up work that
+// only shows up in `frame`. And `frame` alone is misleading whenever the frame fits inside the
+// vsync interval, since both backends present with vsync on: everything under ~16 ms reads as
+// ~16 ms. A scenario is only slow if `frame` is well above the vsync interval.
 //
 // Run it on each backend you care about:
 //
 //     odin run tools/batch_benchmark -o:speed
 //     odin run tools/batch_benchmark -o:speed -define:KARL2D_RENDER_BACKEND=gl
-//
-// Note that GL numbers under-report the real cost: GL drivers hand most of the work to a driver
-// thread, so the time shows up outside the timed region.
 package karl2d_batch_benchmark
 
 import k2 "../.."
@@ -70,12 +76,15 @@ main :: proc() {
 	tex_green := k2.load_texture_from_bytes_raw(pixels_green[:], TEXTURE_SIZE, TEXTURE_SIZE, .RGBA_8_Norm)
 
 	scenarios := SCENARIOS
-	results: [Scenario_Kind]f64
+	cpu_results: [Scenario_Kind]f64
+	frame_results: [Scenario_Kind]f64
 
 	kind := Scenario_Kind.Single_Texture
 	done := false
 	frame := 0
-	total: f64
+	cpu_total: f64
+	frame_total: f64
+	frame_start := time.tick_now()
 
 	for k2.update() && !done {
 		k2.clear(k2.BLACK)
@@ -85,19 +94,28 @@ main :: proc() {
 
 		// Everything recorded above has to reach the backend before we stop the clock.
 		k2.draw_current_batch()
-		elapsed := time.duration_milliseconds(time.tick_since(start))
+		cpu := time.duration_milliseconds(time.tick_since(start))
 
 		k2.present()
+
+		// Measured frame start to frame start, so it covers present and whatever the driver was
+		// still busy with.
+		now := time.tick_now()
+		frame_time := time.duration_milliseconds(time.tick_diff(frame_start, now))
+		frame_start = now
 		frame += 1
 
 		if frame > WARMUP_FRAMES {
-			total += elapsed
+			cpu_total += cpu
+			frame_total += frame_time
 		}
 
 		if frame == WARMUP_FRAMES + MEASURE_FRAMES {
-			results[kind] = total / MEASURE_FRAMES
+			cpu_results[kind] = cpu_total / MEASURE_FRAMES
+			frame_results[kind] = frame_total / MEASURE_FRAMES
 			frame = 0
-			total = 0
+			cpu_total = 0
+			frame_total = 0
 
 			if kind == max(Scenario_Kind) {
 				done = true
@@ -111,11 +129,13 @@ main :: proc() {
 
 	fmt.printfln("Karl2D batch benchmark: %v backend, %v quads, average of %v frames",
 		k2.RENDER_BACKEND_NAME, QUADS, MEASURE_FRAMES)
-	fmt.println("Timings cover draw issuing plus the flush, but not present.")
+	fmt.println("'cpu' is draw issuing plus the flush. 'frame' is everything, present included.")
+	fmt.println("Both backends present with vsync on, so anything under ~16 ms of frame is idle.")
 	fmt.println()
 
 	for s in scenarios {
-		fmt.printfln("%-44s %.3f ms", s.name, results[s.kind])
+		fmt.printfln("%-44s cpu %7.3f ms   frame %8.3f ms",
+			s.name, cpu_results[s.kind], frame_results[s.kind])
 	}
 }
 

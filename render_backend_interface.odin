@@ -17,6 +17,37 @@ Shader_Desc :: struct {
 	inputs: []Shader_Input,
 }
 
+// One chunk of drawing work: a range of the vertex buffer plus the state to draw it with. The core
+// records these as you draw and hands the whole array to the render backend in one go, so the
+// backend can skip setting up state that doesn't change between two draw calls.
+Draw_Call :: struct {
+	// Where this draw call's vertices are in the vertex buffer passed to `draw`. The offset is in
+	// bytes, since each shader has its own vertex size. It is always a multiple of `vertex_size`,
+	// so `vertex_offset/vertex_size` is the index of the first vertex.
+	vertex_offset: int,
+	vertex_count: int,
+
+	// The shader to draw with, and the parts of it the backend needs. A draw call carries these
+	// instead of the whole `Shader` because it is recorded for every state change, so it is worth
+	// keeping small.
+	shader: Shader_Handle,
+	vertex_size: int,
+	constants: []Shader_Constant_Location,
+
+	// Snapshots of the shader's constant values and bound textures from when the draw call was
+	// recorded, not the shader's current ones: draw calls run later than they are recorded, and
+	// the program can change both in between.
+	//
+	// Draw calls that didn't change them share a snapshot, so comparing `raw_data` of these
+	// slices to the previous draw call's tells you whether they need to be re-uploaded.
+	constants_data: []u8,
+	textures: []Texture_Handle,
+
+	render_target: Render_Target_Handle,
+	scissor: Maybe(Rect),
+	blend_mode: Blend_Mode,
+}
+
 Render_Backend_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 	
@@ -33,14 +64,8 @@ Render_Backend_Interface :: struct #all_or_none {
 	clear: proc(render_target: Render_Target_Handle, color: Color),
 	present: proc(),
 	
-	draw: proc(
-		shader: Shader,
-		render_target: Render_Target_Handle,
-		bound_textures: []Texture_Handle,
-		scissor: Maybe(Rect),
-		blend: Blend_Mode,
-		vertex_buffer: []u8,
-	),
+	// Runs `draw_calls` in order. They all point into `vertex_buffer`, which is uploaded once.
+	draw: proc(vertex_buffer: []u8, draw_calls: []Draw_Call),
 
 	set_internal_state: proc(state: rawptr),
 
