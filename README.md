@@ -201,10 +201,18 @@ What does _not_ change:
   left on screen, and `rect_cut_top` always cuts the part at the top of the screen.
 - `measure_text`, which always returns a positive size.
 
-`examples/box2d` shows the difference: it keeps its positions in Box2D's Y up world and converts them
-at the point where it hands them to Karl2D. Build it with `-define:KARL2D_Y_UP=true` and every one of
-those conversions becomes the identity. `tools/test_coord_systems` builds `tools/coord_test` in both
-coordinate systems and checks that they draw the same picture.
+`examples/box2d` is built this way: Box2D works in a Y up world, so the example uses Karl2D's Y up
+coordinate system too and passes positions and angles between the two without any conversion. It
+requires the define, and says so with a `#assert`.
+
+`tests/coordinate_system` checks that both coordinate systems draw the same picture. Everything in it
+is positioned and measured in screen space, which is the same either way, so running it in both
+configurations is the test:
+
+```
+odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:ODIN_TEST_THREADS=1
+odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:ODIN_TEST_THREADS=1 -define:KARL2D_Y_UP=true
+```
 
 ## Hot reload
 Some kind of gameplay code hot reload is planned as part of the library. Currently, there is an experimental implementation of this in a separate repository: https://github.com/karl-zylinski/karl2d-hot-reload-template

@@ -51,12 +51,19 @@ jobs:
         shell: bash
         run: odin run tools/test_examples -- -skip-web -define:KARL2D_Y_UP=true
 
-      # Builds tools/coord_test in both coordinate systems and checks that they draw the same
-      # picture. This one actually runs the library rather than just compiling it, so it needs a
-      # window: only the Windows runner is guaranteed to be able to open one.
-      - name: test_coord_systems
+      # The same tests twice, once per coordinate system. They assert screen-space positions, which
+      # are the same either way, so agreement between the two runs is what proves Y up and Y down
+      # draw the same picture.
+      #
+      # These actually run the library rather than just compiling it, so they need a window: only
+      # the Windows runner is guaranteed to be able to open one. Single-threaded because Karl2D
+      # keeps its state in globals.
+      - name: tests/coordinate_system
         if: matrix.os == 'windows-latest'
-        run: odin run tools/test_coord_systems
+        shell: bash
+        run: |
+          odin test tests/coordinate_system -no-threaded-checker -vet -strict-style -vet-tabs -define:KARL2D_RENDER_BACKEND=nil -define:ODIN_TEST_THREADS=1
+          odin test tests/coordinate_system -no-threaded-checker -vet -strict-style -vet-tabs -define:KARL2D_RENDER_BACKEND=nil -define:ODIN_TEST_THREADS=1 -define:KARL2D_Y_UP=true
 
       - name: raylib_ports/shaders_texture_waves
         run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style

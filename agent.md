@@ -68,7 +68,8 @@ This document provides guidelines for LLM agents to read. It provides convention
 - For API-affecting changes, also run `api_verifier` (`odin build tools/api_verifier -debug -vet -strict-style -vet-tabs`).
 - `karl2d.doc.odin` is generated output and should not be edited by hand.
 - Update `karl2d.doc.odin` for any API changes by running `odin run tools/api_doc_builder`.
-- The `test_examples` tool (`tools/test_examples/`) is a CI script that builds all examples. Some examples are excluded from web builds (e.g., `minimal_hello_world`, `custom_frame_update`). Run this after large changes.
+- The `test_examples` tool (`tools/test_examples/`) is a CI script that builds all examples. Some examples are excluded from web builds (e.g., `minimal_hello_world`, `custom_frame_update`), and some need a define to build at all (e.g. `box2d` requires `-define:KARL2D_Y_UP=true`, which the tool applies for you). Run this after large changes.
+- Automated tests live in `tests/<name>/` and are ordinary Odin tests: `odin test tests/<name>`. They need `-define:ODIN_TEST_THREADS=1`, because Karl2D keeps its state in globals, and `-define:KARL2D_RENDER_BACKEND=nil` to run without a GPU. `tests/coordinate_system` is run twice by CI, once per coordinate system.
 - Other tools: `tools/make_vscode_project/` and `tools/make_zed_project/` generate editor project configurations.
 
 ## Web Builds
