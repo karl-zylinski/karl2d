@@ -80,6 +80,10 @@ Mac_State :: struct {
 	// for emitting mouse up events after a live resize
 	left_mouse_held:  bool,
 
+	// macOS reports modifier keys as flag changes, not key up/down. Tracks which ones we've
+	// already reported as held so we can tell a press from a release. See `.FlagsChanged`.
+	modifier_key_is_held: #sparse [Keyboard_Key]bool,
+
 	window_render_glue: Window_Render_Glue,
 
 	gamepads:           [MAX_GAMEPADS]Gamepad,
@@ -253,6 +257,7 @@ mac_init :: proc(
 				// loss. Restore the OS cursor so it stays visible in other apps / the menu bar.
 				unhide_cursor_now()
 				append(&s.events, Event_Window_Unfocused{})
+				s.modifier_key_is_held = {}
 			},
 
 			windowDidEndLiveResize = proc(_: ^NS.Notification) {
@@ -362,6 +367,38 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			key := key_from_macos_keycode(event->keyCode())
 			if key != .None {
 				append(&s.events, Event_Key_Went_Up{key = key})
+			}
+
+		case .FlagsChanged:
+			key := key_from_macos_keycode(event->keyCode())
+			flags := event->modifierFlags()
+			is_held := false
+			is_modifier := true
+			#partial switch key {
+			case .Left_Shift, .Right_Shift:     is_held = .Shift in flags
+			case .Left_Control, .Right_Control: is_held = .Control in flags
+			case .Left_Alt, .Right_Alt:         is_held = .Option in flags
+			case .Left_Super, .Right_Super:     is_held = .Command in flags
+			case .Caps_Lock:                    is_held = .CapsLock in flags
+			case:
+				// Not one of the modifier keys above (includes .None); FlagsChanged has nothing
+				// useful to say about it, so don't synthesize a key event for it.
+				is_modifier = false
+			}
+
+			if is_modifier {
+				// Left and right share a single modifier flag, so the flag being set doesn't
+				// mean _this_ key went down: the other side may still be held. The keycode says
+				// which key changed, so if we already had it down, this event must be its release.
+				if is_held && s.modifier_key_is_held[key] {
+					is_held = false
+				}
+				s.modifier_key_is_held[key] = is_held
+				if is_held {
+					append(&s.events, Event_Key_Went_Down{key = key})
+				} else {
+					append(&s.events, Event_Key_Went_Up{key = key})
+				}
 			}
 
 		case .LeftMouseDown:
