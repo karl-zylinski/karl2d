@@ -89,6 +89,7 @@ web_init :: proc(
 	add_window_event_listener(.Key_Up, web_event_key_up)
 	add_window_event_listener(.Focus, web_event_focus)
 	add_window_event_listener(.Blur, web_event_blur)
+	add_window_event_listener(.Key_Press, web_event_key_press)
 
 	add_window_event_listener(.Pointer_Lock_Change, _web_event_pointer_lock_change)
 
@@ -98,14 +99,21 @@ web_init :: proc(
 }
 
 web_event_key_down :: proc(e: js.Event) {
-	if e.key.repeat {
+	key := key_from_js_event(e)
+
+	if key == .None {
 		return
 	}
 
-	key := key_from_js_event(e)
-	append(&s.events, Event_Key_Went_Down {
-		key = key,
-	})
+	if e.key.repeat {
+		append(&s.events, Event_Key_Repeat {
+			key = key,
+		})
+	} else {
+		append(&s.events, Event_Key_Went_Down {
+			key = key,
+		})
+	}
 }
 
 web_event_key_up :: proc(e: js.Event) {
@@ -113,6 +121,17 @@ web_event_key_up :: proc(e: js.Event) {
 	append(&s.events, Event_Key_Went_Up {
 		key = key,
 	})
+}
+
+// Note: `e.key.char` comes from the deprecated `keypress` DOM event's `charCode`, which is a
+// single UTF-16 code unit. This means characters outside the Basic Multilingual Plane (such as
+// emoji) can't be represented and won't come through here.
+web_event_key_press :: proc(e: js.Event) {
+	r := e.key.char
+
+	if is_typable_rune(r) {
+		append(&s.events, Event_Typed_Rune { typed = r })
+	}
 }
 
 web_event_focus :: proc(e: js.Event) {

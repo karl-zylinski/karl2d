@@ -38,6 +38,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 }
 
 import win32 "core:sys/windows"
+import "core:unicode/utf16"
 import "core:slice"
 import "base:runtime"
 import hm "core:container/handle_map"
@@ -468,6 +469,10 @@ Windows_State :: struct {
 	restore_screen_height: int,
 
 	window_render_glue: Window_Render_Glue,
+
+	// Half of UTF-16 characters when it is a character when the character is outside the Basic
+	// Multilingual Plane (BMP). Emojis are examples of such characters.
+	char_high_surrogate: rune,
 }
 
 Windows_Cursor :: struct {
@@ -738,11 +743,14 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 
 	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:
 		repeat := bool(lparam & (1 << 30))
+		key := key_from_event_params(wparam, lparam)
 
-		if !repeat {
-			key := key_from_event_params(wparam, lparam)
-
-			if key != .None {
+		if key != .None {
+			if repeat {
+				append(&s.events, Event_Key_Repeat {
+					key = key,
+				})
+			} else {
 				append(&s.events, Event_Key_Went_Down {
 					key = key,
 				})
@@ -755,6 +763,36 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 			append(&s.events, Event_Key_Went_Up {
 				key = key,
 			})
+		}
+
+	case win32.WM_CHAR:
+		// Note: We deliberately don't also handle WM_SYSCHAR here, since that message is sent for
+		// character keys pressed while holding Alt (for example menu mnemonics), which shouldn't
+		// be treated as text input.
+		r := rune(wparam)
+
+		if wparam >= 0xD800 && wparam <= 0xDBFF {
+			// ^ High surrogate
+
+			s.char_high_surrogate = r
+		} else {
+			codepoint: rune
+
+			if wparam >= 0xDC00 && wparam <= 0xDFFF {
+				// ^ Low surrogate
+
+				if s.char_high_surrogate != 0 {
+					codepoint = utf16.decode_surrogate_pair(s.char_high_surrogate, r)
+				}
+			} else if is_typable_rune(r) {
+				codepoint = r
+			}
+
+			s.char_high_surrogate = 0
+
+			if codepoint != 0 {
+				append(&s.events, Event_Typed_Rune { typed = codepoint })
+			}
 		}
 
 	case win32.WM_MOUSEMOVE:

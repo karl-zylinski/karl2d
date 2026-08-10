@@ -32,10 +32,12 @@ import "core:strings"
 import "core:c"
 import "core:math"
 import "core:sys/linux"
+import "core:time"
 import hm "core:container/handle_map"
 
 import "log"
 import wl "platform_bindings/linux/wayland"
+import xkb "platform_bindings/linux/xkbcommon"
 
 _ :: log
 _ :: fmt
@@ -63,6 +65,8 @@ wl_init :: proc(
 	s.scale = 1
 	s.odin_ctx = context
 	hm.dynamic_init(&s.custom_cursors, allocator)
+
+	s.xkb_context = xkb.context_new(.No_Flags)
 
 	s.display = wl.display_connect(nil)
 
@@ -363,9 +367,57 @@ wm_base_listener := wl.XDG_WM_Base_Listener {
 }
 
 keyboard_listener := wl.Keyboard_Listener {
-	keymap = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, format: c.uint32_t, fd: c.int32_t, size: c.uint32_t,) {},
+	keymap = proc "c" (
+		data: rawptr,
+		keyboard: ^wl.Keyboard,
+		format: u32,
+		fd: c.int32_t,
+		size: u32,
+	) {
+		context = s.odin_ctx
+		defer linux.close(linux.Fd(fd))
+
+		if format != wl.KEYBOARD_KEYMAP_FORMAT_XKB_V1 {
+			log.error("Unsupported Wayland keymap format, typed text input won't work")
+			return
+		}
+
+		mapped, mmap_err := linux.mmap(0, uint(size), {.READ}, {.PRIVATE}, linux.Fd(fd))
+
+		if mmap_err != .NONE {
+			log.error("Failed mapping Wayland keymap into memory, typed text input won't work")
+			return
+		}
+
+		defer linux.munmap(mapped, uint(size))
+
+		// The mapped memory holds a NUL-terminated string, so it's safe to treat as a cstring.
+		keymap := xkb.keymap_new_from_string(s.xkb_context, cstring(mapped), .Text_V1, .No_Flags)
+
+		if keymap == nil {
+			log.error("Failed parsing Wayland keymap, typed text input won't work")
+			return
+		}
+
+		if s.xkb_state != nil {
+			xkb.state_unref(s.xkb_state)
+		}
+
+		if s.xkb_keymap != nil {
+			xkb.keymap_unref(s.xkb_keymap)
+		}
+
+		s.xkb_keymap = keymap
+		s.xkb_state = xkb.state_new(keymap)
+	},
 	enter = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, serial: c.uint32_t, surface: ^wl.Surface, keys: ^wl.Array) {},
-	leave = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, serial: c.uint32_t, surface: ^wl.Surface) {},
+	leave = proc "c" (data: rawptr, keyboard: ^wl.Keyboard, serial: c.uint32_t, surface: ^wl.Surface) {
+		context = s.odin_ctx
+
+		// We stop hearing about this key once we lose keyboard focus, so the synthesized repeat
+		// would otherwise keep firing forever while the window is in the background.
+		s.repeat_key = .None
+	},
 	key = key_handler,
 	modifiers = proc "c" (
 		data: rawptr,
@@ -376,13 +428,26 @@ keyboard_listener := wl.Keyboard_Listener {
 		mods_locked: c.uint32_t,
 		group: c.uint32_t,
 	) {
+		context = s.odin_ctx
+
+		if s.xkb_state == nil {
+			return
+		}
+
+		// The last three arguments here are for depressed/latched/locked *layout* -- we only care
+		// about the active layout group, so we leave depressed/latched layout at 0.
+		xkb.state_update_mask(s.xkb_state, mods_depressed, mods_latched, mods_locked, 0, 0, group)
 	},
 	repeat_info = proc "c" (
 		data: rawptr,
 		keyboard: ^wl.Keyboard,
 		rate: c.int32_t,
 		delay: c.int32_t,
-	) {},
+	) {
+		context = s.odin_ctx
+		s.repeat_rate = rate
+		s.repeat_delay = delay
+	},
 }
 
 key_handler :: proc "c" (
@@ -395,7 +460,7 @@ key_handler :: proc "c" (
 ) {
 	context = runtime.default_context()
 
-	// Wayland emits evdev events, and the keycodes are shifted 
+	// Wayland emits evdev events, and the keycodes are shifted
 	// from the expected xkb events... Just add 8 to it.
 	keycode := key + 8
 
@@ -403,12 +468,16 @@ key_handler :: proc "c" (
 	case wl.KEYBOARD_KEY_STATE_RELEASED:
 		key := key_from_xkeycode(keycode)
 
+		if s.repeat_xkb_keycode == keycode {
+			s.repeat_key = .None
+		}
+
 		if key != .None {
 			append(&s.events, Event_Key_Went_Up {
 				key = key,
 			})
 		}
-		
+
 	case wl.KEYBOARD_KEY_STATE_PRESSED:
 		key := key_from_xkeycode(keycode)
 
@@ -416,6 +485,36 @@ key_handler :: proc "c" (
 			append(&s.events, Event_Key_Went_Down {
 				key = key,
 			})
+		}
+
+		_wl_append_typed_runes(keycode)
+
+		if key != .None && s.repeat_rate > 0 {
+			s.repeat_key = key
+			s.repeat_xkb_keycode = keycode
+			delay := time.Millisecond * time.Duration(s.repeat_delay)
+			s.repeat_next_tick = time.tick_add(time.tick_now(), delay)
+		}
+	}
+}
+
+_wl_append_typed_runes :: proc(keycode: c.uint32_t) {
+	if s.xkb_state == nil {
+		return
+	}
+
+	buf: [32]u8
+	n := xkb.state_key_get_utf8(
+		s.xkb_state, xkb.Keycode(keycode), raw_data(buf[:]), c.size_t(len(buf)),
+	)
+
+	if n <= 0 {
+		return
+	}
+
+	for r in string(buf[:min(int(n), len(buf))]) {
+		if is_typable_rune(r) {
+			append(&s.events, Event_Typed_Rune { typed = r })
 		}
 	}
 }
@@ -604,6 +703,18 @@ wl_shutdown :: proc() {
 	}
 
 	delete(s.events)
+
+	if s.xkb_state != nil {
+		xkb.state_unref(s.xkb_state)
+	}
+
+	if s.xkb_keymap != nil {
+		xkb.keymap_unref(s.xkb_keymap)
+	}
+
+	if s.xkb_context != nil {
+		xkb.context_unref(s.xkb_context)
+	}
 }
 
 wl_get_window_render_glue :: proc() -> Window_Render_Glue {
@@ -612,6 +723,36 @@ wl_get_window_render_glue :: proc() -> Window_Render_Glue {
 
 wl_get_events :: proc(events: ^[dynamic]Event) {
 	wl.display_dispatch_pending(s.display)
+
+	// Wayland compositors don't send repeat events -- we have to synthesize them ourselves from
+	// the rate/delay reported by the keyboard's `repeat_info` event.
+	if s.repeat_key != .None && s.repeat_rate > 0 {
+		now := time.tick_now()
+		interval := time.Second / time.Duration(s.repeat_rate)
+
+		// Capped so that a long stall (a breakpoint, a slow loading frame) doesn't produce a huge
+		// burst of repeats.
+		REPEATS_PER_FRAME_MAX :: 32
+
+		for _ in 0..<REPEATS_PER_FRAME_MAX {
+			if time.tick_diff(s.repeat_next_tick, now) < 0 {
+				break
+			}
+
+			append(&s.events, Event_Key_Repeat {
+				key = s.repeat_key,
+			})
+			_wl_append_typed_runes(s.repeat_xkb_keycode)
+			s.repeat_next_tick = time.tick_add(s.repeat_next_tick, interval)
+		}
+
+		// If we hit the cap then we're still behind, so skip the backlog instead of spreading it
+		// out over the coming frames.
+		if time.tick_diff(s.repeat_next_tick, now) >= 0 {
+			s.repeat_next_tick = time.tick_add(now, interval)
+		}
+	}
+
 	append(events, ..s.events[:])
 	runtime.clear(&s.events)
 }
@@ -1098,6 +1239,21 @@ WL_State :: struct {
 	configured: bool,
 
 	window_render_glue: Window_Render_Glue,
+
+	// Used to translate key presses into typed text, taking the current keyboard layout into
+	// account. `xkb_keymap`/`xkb_state` are (re)created whenever the compositor sends us a new
+	// keymap.
+	xkb_context: ^xkb.Context,
+	xkb_keymap: ^xkb.Keymap,
+	xkb_state: ^xkb.State,
+
+	// Key repeat is synthesized by us -- see `wl_get_events` -- since Wayland compositors don't
+	// send repeat events themselves.
+	repeat_rate: c.int32_t,
+	repeat_delay: c.int32_t,
+	repeat_key: Keyboard_Key,
+	repeat_xkb_keycode: c.uint32_t,
+	repeat_next_tick: time.Tick,
 }
 
 s: ^WL_State
