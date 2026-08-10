@@ -82,6 +82,7 @@ This document provides guidelines for LLM agents to read. It provides convention
 - Prefer clarity and simplicity over cleverness.
 
 ## Agent Checklist
+- If the work is on an existing pull request, start with `gh pr checkout <number>` rather than a branch or worktree that merely looks like the right one. It checks out the PR head (including from forks) and sets up tracking, so `git push` updates the PR instead of creating a disconnected branch.
 - Keep changes focused; avoid touching unrelated code. Don't use auto-formatters. Don't modify whitespace unless you change those lines.
 - Run the most relevant existing VS Code build task(s) after edits. If you do a big edit, run the `test_examples` task.
 - Use `-vet -strict-style -vet-tabs` for direct Odin command checks.
