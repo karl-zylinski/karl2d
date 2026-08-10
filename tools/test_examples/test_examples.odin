@@ -5,6 +5,7 @@ package karl2d_test_examples
 
 import os "core:os"
 import "core:fmt"
+import "core:slice"
 
 main :: proc() {
 	// Any arguments are passed straight through to the compiler, so the CI can run the whole sweep
@@ -46,6 +47,12 @@ main :: proc() {
 		"scraps",
 	}
 
+	// Some examples only make sense in one coordinate system and say so with a `#assert`, so they
+	// need the matching define no matter which sweep is running.
+	required_defines := map[string]string {
+		"box2d" = "-define:KARL2D_Y_UP=true",
+	}
+
 	no_web: map[string]struct{}
 
 	for n in no_web_list {
@@ -63,17 +70,27 @@ main :: proc() {
 			continue
 		}
 
+		params := make([dynamic]string, context.temp_allocator)
+		append(&params, ..extra[:])
+
+		// Don't pass the same define twice: the sweep may already be setting it.
+		if required, has_required := required_defines[e.name]; has_required {
+			if !slice.contains(params[:], required) {
+				append(&params, required)
+			}
+		}
+
 		debug_params := make([dynamic]string, context.temp_allocator)
 		append(&debug_params, "-debug")
-		append(&debug_params, ..extra[:])
+		append(&debug_params, ..params[:])
 
 		if e.name not_in no_check {
-			check(e.name, e.fullpath, extra[:])
+			check(e.name, e.fullpath, params[:])
 			check(e.name, e.fullpath, debug_params[:])
 		}
 
 		if !skip_web && e.name not_in no_web {
-			build_web(e.name, e.fullpath, extra[:])
+			build_web(e.name, e.fullpath, params[:])
 			build_web(e.name, e.fullpath, debug_params[:])
 		}
 	}
