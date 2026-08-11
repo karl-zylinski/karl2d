@@ -443,7 +443,9 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 			i32(new_width + left + right), i32(new_height + top + bottom),
 		)
 
-		wl_frame_layout(new_width, new_height)
+		// flush = false: the game's next render commits the parent surface with a content buffer at
+		// the new size, so the frame and the content resize together in one compositor frame.
+		wl_frame_layout(new_width, new_height, flush = false)
 
 		s.configured = true
 	},
@@ -885,6 +887,11 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		// theme cursor) happen instantly rather than waiting for the next pointer move.
 		wl_apply_cursor()
 
+		// The titlebar buffer is sized in physical pixels, so a scale change on its own -- with no
+		// resize to follow -- would otherwise leave the old buffer stretched by its viewport until
+		// something else happened to repaint it.
+		wl_frame_layout(s.last_configure_width, s.last_configure_height)
+
 		append(&s.events, Event_Window_Scale_Changed {
 			scale = scl,
 			screen_width = s.screen_width,
@@ -1033,6 +1040,21 @@ wl_set_screen_size :: proc(w, h: int) {
 	}
 
 	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
+
+	// The frame has to follow the content, and the compositor needs the outer size that goes with
+	// it. Insets are zero without a frame, so this is the same arithmetic either way.
+	left, top, right, bottom := wl_frame_insets()
+
+	wl.xdg_surface_set_window_geometry(
+		s.xdg_surface,
+		i32(-left), i32(-top),
+		i32(w + left + right), i32(h + top + bottom),
+	)
+
+	// flush = false for the same reason as in toplevel_listener.configure: the viewport change
+	// above is already waiting on the game's next render to commit the parent, and the frame
+	// should land in that same commit rather than a frame ahead of it.
+	wl_frame_layout(w, h, flush = false)
 }
 
 wl_get_window_scale :: proc() -> f32 {

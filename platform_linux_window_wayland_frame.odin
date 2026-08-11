@@ -121,6 +121,7 @@ WL_Frame :: struct {
 	painted_width:          int,
 	painted_scale:          f32,
 	painted_activated:      bool,
+	painted_maximized:      bool,
 	painted_title_version:  int,
 	painted_hovered_button: WL_Frame_Button,
 
@@ -145,7 +146,7 @@ wl_frame_insets :: proc() -> (left, top, right, bottom: int) {
 		return
 	}
 
-	top = FRAME_TITLEBAR_HEIGHT + FRAME_BORDER
+	top = FRAME_TITLEBAR_HEIGHT + wl_frame_top_border()
 
 	if !s.maximized {
 		// A maximized window has no resize edges, so GNOME (and we) drop the borders. The
@@ -156,6 +157,13 @@ wl_frame_insets :: proc() -> (left, top, right, bottom: int) {
 	}
 
 	return
+}
+
+// Thickness of the border strip drawn above the titlebar, in logical pixels. Zero when maximized,
+// for the same reason the side borders go away: there is no resize edge up there to grab, and a
+// dark line pinned to the top of the screen just looks like a mistake.
+wl_frame_top_border :: proc() -> int {
+	return s.maximized ? 0 : FRAME_BORDER
 }
 
 //--------------------//
@@ -208,6 +216,13 @@ wl_frame_create_strip :: proc(strip: ^WL_Frame_Strip, parent: ^wl.Surface) {
 }
 
 wl_frame_destroy :: proc() {
+	// Freed before the guard below: wl_frame_set_title keeps the title whether or not a frame was
+	// ever created, so on a server-side-decorated compositor this is the only thing to clean up.
+	if s.frame.title != "" {
+		delete(s.frame.title, s.allocator)
+		s.frame.title = ""
+	}
+
 	if s.frame.titlebar_surface == nil {
 		return
 	}
@@ -228,10 +243,6 @@ wl_frame_destroy :: proc() {
 	wl_frame_destroy_strip(&s.frame.left)
 	wl_frame_destroy_strip(&s.frame.right)
 	wl_frame_destroy_strip(&s.frame.bottom)
-
-	if s.frame.title != "" {
-		delete(s.frame.title, s.allocator)
-	}
 
 	s.frame = {}
 }
@@ -264,10 +275,15 @@ wl_frame_set_title :: proc(title: string) {
 
 // Repositions and resizes the frame's subsurfaces for a `content_width` x `content_height`
 // content area, hides the border strips when maximized, hides everything when fullscreen, and
-// repaints the titlebar if anything that would change its look has changed. Called from
-// toplevel_listener.configure on every configure, and from wl_set_title so a title change doesn't
-// have to wait for one.
-wl_frame_layout :: proc(content_width: int, content_height: int) {
+// repaints the titlebar if anything that would change its look has changed.
+//
+// Subsurfaces are synchronized, so none of this is visible until the *parent* surface commits.
+// `flush` decides who does that. Pass false from the configure handler: the game's next render
+// commits the parent along with a content buffer at the new size, so the frame and the content
+// resize in the same compositor frame. Committing here instead would move the frame immediately
+// while the content buffer is still the old size, which tears visibly during a resize drag.
+// Everything else (title, hover, focus, scale) has no render to piggyback on and needs flush.
+wl_frame_layout :: proc(content_width: int, content_height: int, flush := true) {
 	if s.frame.titlebar_surface == nil {
 		return
 	}
@@ -278,7 +294,10 @@ wl_frame_layout :: proc(content_width: int, content_height: int) {
 		wl_frame_set_strip_visible(&s.frame.left, false)
 		wl_frame_set_strip_visible(&s.frame.right, false)
 		wl_frame_set_strip_visible(&s.frame.bottom, false)
-		wl.surface_commit(s.surface)
+
+		if flush {
+			wl.surface_commit(s.surface)
+		}
 		return
 	}
 
@@ -305,10 +324,9 @@ wl_frame_layout :: proc(content_width: int, content_height: int) {
 		wl.wp_viewport_set_destination(s.frame.bottom.viewport, i32(window_width), i32(bottom))
 	}
 
-	// Subsurfaces are synchronized: none of the position/size/visibility/buffer changes above are
-	// visible until the parent surface commits. The game's own render loop does that every frame,
-	// but a change made outside of rendering (focus, maximize, title) needs its own flush.
-	wl.surface_commit(s.surface)
+	if flush {
+		wl.surface_commit(s.surface)
+	}
 }
 
 wl_frame_set_strip_visible :: proc(strip: ^WL_Frame_Strip, visible: bool) {
@@ -333,6 +351,7 @@ wl_frame_repaint_titlebar :: proc(window_width: int) {
 		window_width != s.frame.painted_width ||
 		s.scale != s.frame.painted_scale ||
 		s.activated != s.frame.painted_activated ||
+		s.maximized != s.frame.painted_maximized ||
 		s.frame.title_version != s.frame.painted_title_version ||
 		s.frame.hovered_button != s.frame.painted_hovered_button
 
@@ -340,22 +359,29 @@ wl_frame_repaint_titlebar :: proc(window_width: int) {
 		return
 	}
 
-	wl_frame_paint_titlebar(window_width)
+	// Only record what we painted if we actually painted it, so a failed buffer allocation gets
+	// retried on the next layout instead of being remembered as done.
+	if !wl_frame_paint_titlebar(window_width) {
+		return
+	}
 
 	s.frame.painted_width = window_width
 	s.frame.painted_scale = s.scale
 	s.frame.painted_activated = s.activated
+	s.frame.painted_maximized = s.maximized
 	s.frame.painted_title_version = s.frame.title_version
 	s.frame.painted_hovered_button = s.frame.hovered_button
 }
 
-wl_frame_paint_titlebar :: proc(window_width: int) {
+wl_frame_paint_titlebar :: proc(window_width: int) -> bool {
+	top_border := wl_frame_top_border()
+
 	physical_w := max(1, int(math.round(f32(window_width) * s.scale)))
-	physical_h := max(1, int(math.round(f32(FRAME_TITLEBAR_HEIGHT + FRAME_BORDER) * s.scale)))
+	physical_h := max(1, int(math.round(f32(FRAME_TITLEBAR_HEIGHT + top_border) * s.scale)))
 
 	shm_buf, shm_buf_ok := wl_create_shm_buffer(physical_w, physical_h)
 	if !shm_buf_ok {
-		return
+		return false
 	}
 
 	colors := make([]Color, physical_w * physical_h, frame_allocator)
@@ -365,7 +391,7 @@ wl_frame_paint_titlebar :: proc(window_width: int) {
 		col = bg
 	}
 
-	border_px := min(int(math.round(f32(FRAME_BORDER) * s.scale)), physical_h)
+	border_px := min(int(math.round(f32(top_border) * s.scale)), physical_h)
 	for y in 0..<border_px {
 		for x in 0..<physical_w {
 			colors[y * physical_w + x] = FRAME_COLOR_BORDER
@@ -414,7 +440,7 @@ wl_frame_paint_titlebar :: proc(window_width: int) {
 	pixel_data := ([^]u32)(shm_buf.data)
 	for y in 0..<physical_h {
 		for x in 0..<physical_w {
-			coverage := wl_frame_corner_coverage(x, y, physical_w, physical_h, corner_radius_px)
+			coverage := wl_frame_corner_coverage(x, y, physical_w, corner_radius_px)
 			pixel_data[y * physical_w + x] = wl_frame_pack_color(colors[y * physical_w + x], coverage)
 		}
 	}
@@ -433,6 +459,7 @@ wl_frame_paint_titlebar :: proc(window_width: int) {
 	wl.add_listener(s.frame.titlebar_buffer.buffer, &titlebar_buffer_listener, nil)
 	wl.surface_attach(s.frame.titlebar_surface, s.frame.titlebar_buffer.buffer, 0, 0)
 	wl.surface_commit(s.frame.titlebar_surface)
+	return true
 }
 
 // The previous titlebar buffer stays alive until the compositor confirms it's done reading from
@@ -489,7 +516,7 @@ wl_frame_button_rect :: proc(button: WL_Frame_Button, window_width: int) -> (x, 
 	right_edge := window_width - FRAME_BUTTON_MARGIN - (from_right - 1) * step
 
 	x = right_edge - FRAME_BUTTON_HIT_SIZE
-	y = FRAME_BORDER + (FRAME_TITLEBAR_HEIGHT - FRAME_BUTTON_HIT_SIZE) / 2
+	y = wl_frame_top_border() + (FRAME_TITLEBAR_HEIGHT - FRAME_BUTTON_HIT_SIZE) / 2
 	w = FRAME_BUTTON_HIT_SIZE
 	h = FRAME_BUTTON_HIT_SIZE
 	return
@@ -539,7 +566,8 @@ wl_frame_hit_test :: proc(role: WL_Frame_Surface, local: Vec2, window_width: int
 			}
 		}
 
-		if local.y < FRAME_BORDER {
+		// Zero-height when maximized, so this whole block falls through to .Move there.
+		if local.y < f32(wl_frame_top_border()) {
 			if local.x < FRAME_BORDER {
 				return {kind = .Resize, resize_edge = .Top_Left}
 			}
@@ -677,6 +705,8 @@ wl_frame_paint_button_icon :: proc(
 	case .Minimize:
 		segments[0] = {-icon_half, icon_half, icon_half, icon_half}
 		seg_count = 1
+	case .None:
+		return
 	}
 
 	stroke := max(f32(1), s.scale)
@@ -849,10 +879,10 @@ wl_frame_line_coverage :: proc(px, py, x0, y0, x1, y1, thickness: f32) -> f32 {
 	return half + 0.5 - dist
 }
 
-// Anti-aliased coverage (0..1) for whether the pixel at (px,py) in a `w` x `h` buffer falls
-// inside a rounded top corner. 1 (fully opaque) everywhere except within `radius` physical
-// pixels of a top corner; only the top corners round, matching GNOME's own windows.
-wl_frame_corner_coverage :: proc(px, py, w, h, radius: int) -> f32 {
+// Anti-aliased coverage (0..1) for whether the pixel at (px,py) in a buffer `w` wide falls inside
+// a rounded top corner. 1 (fully opaque) everywhere except within `radius` physical pixels of a
+// top corner; only the top corners round, matching GNOME's own windows.
+wl_frame_corner_coverage :: proc(px, py, w, radius: int) -> f32 {
 	if radius <= 0 {
 		return 1
 	}
