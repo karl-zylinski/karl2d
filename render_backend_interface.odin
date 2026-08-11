@@ -17,6 +17,55 @@ Shader_Desc :: struct {
 	inputs: []Shader_Input,
 }
 
+// The things a draw call can need set up. Which ones it actually needs is worked out by karl2d.odin
+Draw_Call_Change :: enum {
+	Shader,
+	Constants,
+	Textures,
+	Render_Target,
+	Scissor,
+	Blend_Mode,
+}
+
+// Everything, which is what the first draw call of a `draw` needs: nothing is known about the
+// state the device was left in.
+DRAW_CALL_CHANGE_ALL :: ~bit_set[Draw_Call_Change]{}
+
+// One chunk of drawing work: a range of the vertex buffer plus the state to draw it with. These
+// are created in karl2d.odin as you draw. When it is time to actually draw, the whole array of draw
+// calls is handed to the rendering backend, so the backend can skip updating state that doesn't
+// change between two draw calls.
+Draw_Call :: struct {
+	// Where this draw call's vertices are in the vertex buffer passed to `draw`. The offset is in
+	// bytes, since each shader has its own vertex size. It is always a multiple of `vertex_size`,
+	// so `vertex_offset/vertex_size` is the index of the first vertex.
+	vertex_offset: int,
+	vertex_count: int,
+
+	// The shader to draw with, and the parts of it the backend needs.
+	shader: Shader_Handle,
+	vertex_size: int,
+	constants: []Shader_Constant_Location,
+
+	// The constant values and textures to draw with. These are the draw call's own copies, not the
+	// shader's: a draw call runs long after it was recorded, and the program can change the
+	// shader's in between. They also hold what Karl2D itself puts in, such as the view-projection
+	// matrix and the texture being drawn.
+	constants_data: []u8,
+	textures: []Texture_Handle,
+
+	render_target: Render_Target_Handle,
+	scissor: Maybe(Rect),
+	blend_mode: Blend_Mode,
+
+	// What fields in this draw call changed from the previous one? The backend will look at this
+	// and only change GPU state that actually needs changing.
+	//
+	// Note: If the backend "skips" a draw call for whatever reason, then add the `changed` bit_set
+	// to the one in the next draw call. That way nothing is missed.
+	changed: bit_set[Draw_Call_Change],
+}
+
 Render_Backend_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 	
@@ -33,14 +82,7 @@ Render_Backend_Interface :: struct #all_or_none {
 	clear: proc(render_target: Render_Target_Handle, color: Color),
 	present: proc(),
 	
-	draw: proc(
-		shader: Shader,
-		render_target: Render_Target_Handle,
-		bound_textures: []Texture_Handle,
-		scissor: Maybe(Rect),
-		blend: Blend_Mode,
-		vertex_buffer: []u8,
-	),
+	draw: proc(vertex_buffer: []u8, draw_calls: []Draw_Call),
 
 	set_internal_state: proc(state: rawptr),
 

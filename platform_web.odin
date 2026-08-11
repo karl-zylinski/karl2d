@@ -17,12 +17,18 @@ PLATFORM_WEB :: Platform_Interface {
 	get_screen_width = web_get_screen_width,
 	get_screen_height = web_get_screen_height,
 	set_window_position = web_set_position,
+	get_window_position = web_get_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
+
 	set_cursor_hidden = web_set_cursor_hidden,
 	is_cursor_hidden = web_is_cursor_hidden,
-	set_cursor_locked = web_set_cursor_locked,
-	is_cursor_locked = web_is_cursor_locked,
+	set_mouse_locked = web_set_mouse_locked,
+	is_mouse_locked = web_is_mouse_locked,
+	create_custom_cursor = web_create_custom_cursor,
+	set_cursor = web_set_cursor,
+	destroy_custom_cursor = web_destroy_custom_cursor,
+
 	is_gamepad_active = web_is_gamepad_active,
 	get_gamepad_axis = web_get_gamepad_axis,
 	set_gamepad_vibration = web_set_gamepad_vibration,
@@ -34,7 +40,9 @@ PLATFORM_WEB :: Platform_Interface {
 
 import "core:sys/wasm/js"
 import "core:math"
+import "core:encoding/base64"
 import "base:runtime"
+import hm "core:container/handle_map"
 import "log"
 import "core:fmt"
 
@@ -55,6 +63,7 @@ web_init :: proc(
 	s.events = make([dynamic]Event, allocator)
 	s.key_from_js_event_key_code = make(map[string]Keyboard_Key, allocator)
 	s.canvas_id = "webgl-canvas"
+	hm.dynamic_init(&s.custom_cursors, allocator)
 
 	js.set_document_title(window_title)
 	s.prev_scale = f32(js.device_pixel_ratio())
@@ -80,6 +89,7 @@ web_init :: proc(
 	add_window_event_listener(.Key_Up, web_event_key_up)
 	add_window_event_listener(.Focus, web_event_focus)
 	add_window_event_listener(.Blur, web_event_blur)
+	add_window_event_listener(.Key_Press, web_event_key_press)
 
 	add_window_event_listener(.Pointer_Lock_Change, _web_event_pointer_lock_change)
 
@@ -89,14 +99,21 @@ web_init :: proc(
 }
 
 web_event_key_down :: proc(e: js.Event) {
-	if e.key.repeat {
+	key := key_from_js_event(e)
+
+	if key == .None {
 		return
 	}
 
-	key := key_from_js_event(e)
-	append(&s.events, Event_Key_Went_Down {
-		key = key,
-	})
+	if e.key.repeat {
+		append(&s.events, Event_Key_Repeat {
+			key = key,
+		})
+	} else {
+		append(&s.events, Event_Key_Went_Down {
+			key = key,
+		})
+	}
 }
 
 web_event_key_up :: proc(e: js.Event) {
@@ -106,12 +123,23 @@ web_event_key_up :: proc(e: js.Event) {
 	})
 }
 
+// Note: `e.key.char` comes from the deprecated `keypress` DOM event's `charCode`, which is a
+// single UTF-16 code unit. This means characters outside the Basic Multilingual Plane (such as
+// emoji) can't be represented and won't come through here.
+web_event_key_press :: proc(e: js.Event) {
+	r := e.key.char
+
+	if is_typable_rune(r) {
+		append(&s.events, Event_Typed_Rune { typed = r })
+	}
+}
+
 web_event_focus :: proc(e: js.Event) {
 	append(&s.events, Event_Window_Focused {})
 }
 
 web_event_blur :: proc(e: js.Event) {
-	s.cursor_locked = false
+	s.mouse_locked = false
 	append(&s.events, Event_Window_Unfocused {})
 }
 
@@ -136,7 +164,7 @@ web_event_window_resize :: proc(e: js.Event) {
 }
 
 web_event_mouse_move :: proc(e: js.Event) {
-	if s.cursor_locked {
+	if s.mouse_locked {
 		cx := f32(s.width / 2)
 		cy := f32(s.height / 2)
 		dx := f32(e.mouse.movement.x) * f32(js.device_pixel_ratio())
@@ -231,6 +259,13 @@ web_set_screen_size_to_window_size :: proc(canvas_id: HTML_Canvas_ID) {
 }
 
 web_shutdown :: proc() {
+	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
+		delete(cd.data_uri, s.allocator)
+		delete(cd.style_value, s.allocator)
+		delete(cd.style_value_scaled, s.allocator)
+	}
+	hm.dynamic_destroy(&s.custom_cursors)
+
 	delete(s.events)
 	delete(s.key_from_js_event_key_code)
 }
@@ -336,6 +371,11 @@ web_set_position :: proc(x: int, y: int) {
 	log.warn("set_window_position not implemented on web")
 }
 
+web_get_position :: proc() -> Vec2 {
+	log.warn("get_window_position not implemented on web")
+	return {}
+}
+
 web_set_screen_size :: proc(w, h: int) {
 	scale := web_get_window_scale()
 	s.width = int(f32(w) * scale)
@@ -370,11 +410,7 @@ web_set_window_mode :: proc(new_mode: Window_Mode) {
 
 web_set_cursor_hidden :: proc(hidden: bool) {
 	s.cursor_hidden = hidden
-	if hidden {
-		js.set_element_style(s.canvas_id, "cursor", "none")
-	} else {
-		js.set_element_style(s.canvas_id, "cursor", "default")
-	}
+	web_apply_cursor()
 }
 
 web_is_cursor_hidden :: proc() -> bool {
@@ -383,10 +419,10 @@ web_is_cursor_hidden :: proc() -> bool {
 
 _web_event_pointer_lock_change :: proc(e: js.Event) {
 	js.evaluate("document.getElementById('webgl-canvas')._pointerLocked = document.pointerLockElement !== null ? 1 : 0")
-	s.cursor_locked = js.get_element_key_f64("webgl-canvas", "_pointerLocked") != 0
+	s.mouse_locked = js.get_element_key_f64("webgl-canvas", "_pointerLocked") != 0
 }
 
-web_set_cursor_locked :: proc(locked: bool) {
+web_set_mouse_locked :: proc(locked: bool) {
 	if locked {
 		js.evaluate("document.getElementById('webgl-canvas').requestPointerLock()")
 		cx := f32(s.width / 2)
@@ -396,11 +432,187 @@ web_set_cursor_locked :: proc(locked: bool) {
 		js.evaluate("document.exitPointerLock()")
 	}
 
-	// s.cursor_locked set by _web_event_pointer_lock_change
+	// s.mouse_locked set by _web_event_pointer_lock_change
 }
 
-web_is_cursor_locked :: proc() -> bool {
-	return s.cursor_locked
+web_is_mouse_locked :: proc() -> bool {
+	return s.mouse_locked
+}
+
+web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+	// There is no hardware cursor API on the web, so we hand the browser a PNG as a data URI and
+	// let CSS do the work. core:image/png can only decode, not encode, so we encode it ourselves;
+	// see encode_png's own comment for why that is fine here.
+	png_bytes, encode_ok := encode_png(image, frame_allocator)
+	if !encode_ok {
+		log.error("Failed to encode cursor image as PNG")
+		return {}
+	}
+
+	// Browsers cap `cursor` images at 128 CSS pixels; anything bigger is either clamped or, in
+	// Firefox, ignored entirely and silently replaced with the default cursor.
+	scale := web_get_window_scale()
+	if f32(image.width)/scale > 128 || f32(image.height)/scale > 128 {
+		log.warnf(
+			"Cursor image is %vx%v physical pixels, which is %.0fx%.0f CSS pixels at the current " +
+			"%vx display scale. Browsers cap cursors at 128 CSS pixels and some ignore anything " +
+			"bigger entirely, so consider using a smaller image.",
+			image.width, image.height,
+			f32(image.width)/scale, f32(image.height)/scale,
+			scale,
+		)
+	}
+
+	// The base64 is copied into the data URI below, so it is not needed after that.
+	pixels_b64 := base64.encode(png_bytes, allocator = frame_allocator)
+
+	cursor := Web_Cursor{hotspot = hotspot}
+	cursor.data_uri = fmt.aprintf(
+		"data:image/png;base64,%v",
+		pixels_b64,
+		allocator = s.allocator,
+	)
+	web_build_cursor_style(&cursor)
+
+	handle, add_err := hm.add(&s.custom_cursors, cursor)
+
+	if add_err != nil {
+		log.errorf("Failed to create cursor. Error: %v", add_err)
+		delete(cursor.data_uri, s.allocator)
+		delete(cursor.style_value, s.allocator)
+		delete(cursor.style_value_scaled, s.allocator)
+		return {}
+	}
+
+	return handle
+}
+
+// The `cursor` property sizes its image in CSS pixels, but the rest of Karl2D works in device
+// pixels: the canvas is `scale` times bigger than its CSS box. A cursor made from a 128x128 image
+// would therefore be drawn twice as big as a 128x128 sprite drawn by the game on a 2x display.
+//
+// `image-set` fixes that by telling the browser the image has `scale` device pixels per CSS pixel,
+// which both scales it down and keeps it crisp. The hotspot is in CSS pixels too, so it is scaled
+// to match. We keep the plain `url` value around as a fallback, see `web_set_cursor`.
+web_build_cursor_style :: proc(cursor: ^Web_Cursor) {
+	delete(cursor.style_value, s.allocator)
+	delete(cursor.style_value_scaled, s.allocator)
+
+	scale := web_get_window_scale()
+
+	cursor.style_value = fmt.aprintf(
+		"url(%v) %v %v, auto",
+		cursor.data_uri,
+		cursor.hotspot.x, cursor.hotspot.y,
+		allocator = s.allocator,
+	)
+
+	cursor.style_value_scaled = fmt.aprintf(
+		"image-set(url(%v) %vx) %.2f %.2f, auto",
+		cursor.data_uri, scale,
+		f32(cursor.hotspot.x) / scale, f32(cursor.hotspot.y) / scale,
+		allocator = s.allocator,
+	)
+
+	cursor.built_for_scale = scale
+}
+
+web_set_cursor :: proc(cursor: Cursor) {
+	// Reject a stale handle, so a programming error leaves the cursor alone.
+	if c, is_custom := cursor.(Custom_Cursor); is_custom {
+		if hm.get(&s.custom_cursors, c) == nil {
+			log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", c)
+			return
+		}
+	}
+
+	s.current_cursor = cursor
+	web_apply_cursor()
+}
+
+web_standard_cursor_keyword :: proc(cursor: Standard_Cursor) -> string {
+	switch cursor {
+	case .Default:     return "default"
+	case .Text:        return "text"
+	case .Hand:        return "pointer"
+	case .Crosshair:   return "crosshair"
+	case .Wait:        return "wait"
+	case .Progress:    return "progress"
+	case .Resize_EW:   return "ew-resize"
+	case .Resize_NS:   return "ns-resize"
+	case .Resize_NESW: return "nesw-resize"
+	case .Resize_NWSE: return "nwse-resize"
+	case .Move:        return "move"
+	case .Not_Allowed: return "not-allowed"
+	}
+
+	return "default"
+}
+
+// Applies s.cursor_hidden and s.current_cursor to the canvas. The two share the same CSS `cursor`
+// property, so every entry point goes through this.
+web_apply_cursor :: proc() {
+	if s.cursor_hidden {
+		js.set_element_style(s.canvas_id, "cursor", "none")
+		s.applied_cursor = nil
+		return
+	}
+
+	switch c in s.current_cursor {
+	case Standard_Cursor:
+		// No dedup here: a keyword is tiny, unlike the data URI below.
+		js.set_element_style(s.canvas_id, "cursor", web_standard_cursor_keyword(c))
+		s.applied_cursor = nil
+
+	case Custom_Cursor:
+		cd := hm.get(&s.custom_cursors, c)
+
+		if cd == nil {
+			js.set_element_style(s.canvas_id, "cursor", web_standard_cursor_keyword(.Default))
+			s.applied_cursor = nil
+			return
+		}
+
+		scale := web_get_window_scale()
+
+		if cd.built_for_scale != scale {
+			web_build_cursor_style(cd)
+		}
+
+		// The data URI is tens of kilobytes and games tend to set the cursor every frame, so don't
+		// make the browser re-parse it when nothing has changed.
+		if s.applied_cursor == cd && s.applied_scale == scale {
+			return
+		}
+
+		// Assign the plain value first. Browsers that can't parse `image-set` ignore the second
+		// assignment and keep this one, which is the right thing to fall back to.
+		js.set_element_style(s.canvas_id, "cursor", cd.style_value)
+		js.set_element_style(s.canvas_id, "cursor", cd.style_value_scaled)
+
+		s.applied_cursor = cd
+		s.applied_scale = scale
+	}
+}
+
+web_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+	cd := hm.get(&s.custom_cursors, custom_cursor)
+
+	if cd == nil {
+		log.errorf(
+			"Trying to destroy invalid cursor %v. It may already be destroyed.",
+			custom_cursor,
+		)
+		return
+	}
+
+	delete(cd.data_uri, s.allocator)
+	delete(cd.style_value, s.allocator)
+	delete(cd.style_value_scaled, s.allocator)
+	hm.remove(&s.custom_cursors, custom_cursor)
+
+	// Falls back to the default if that was the cursor on screen.
+	web_apply_cursor()
 }
 
 web_is_gamepad_active :: proc(gamepad: int) -> bool {
@@ -465,11 +677,34 @@ Web_State :: struct {
 	height: int,
 	prev_scale: f32,
 	events: [dynamic]Event,
-	cursor_locked: bool,
+	mouse_locked: bool,
 	cursor_hidden: bool,
+
+	custom_cursors: hm.Dynamic_Handle_Map(Web_Cursor, Custom_Cursor),
+
+	// The cursor most recently passed to web_set_cursor. The zero value is Standard_Cursor.Default.
+	current_cursor: Cursor,
+
+	// What web_apply_cursor last wrote to the canvas, so it can skip redundant work. Safe to hold
+	// across frames: the handle map allocates new chunks rather than moving existing ones, and
+	// web_apply_cursor clears this whenever the cursor it points at stops resolving.
+	applied_cursor: ^Web_Cursor,
+	applied_scale: f32,
 	gamepad_state: [MAX_GAMEPADS]js.Gamepad_State,
 	window_mode: Window_Mode,
 	key_from_js_event_key_code: map[string]Keyboard_Key,
+}
+
+Web_Cursor :: struct {
+	handle: Custom_Cursor,
+	data_uri: string,
+	hotspot: [2]int,
+
+	// Both CSS values for `data_uri`, rebuilt whenever the DPI scale changes. See
+	// `web_build_cursor_style`.
+	style_value: string,
+	style_value_scaled: string,
+	built_for_scale: f32,
 }
 
 s: ^Web_State

@@ -179,6 +179,11 @@ set_window_title :: proc(title: string)
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int)
 
+// Gets the window position in the same coordinate system used by `set_window_position`.
+//
+// This returns {} for web and Wayland builds.
+get_window_position :: proc() -> Vec2
+
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
 // 1 means 100% scale, 1.5 means 150% etc.
 //
@@ -190,33 +195,15 @@ get_window_scale :: proc() -> f32
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode)
 
-// Flushes the current batch. This sends off everything to the GPU that has been queued in the
-// current batch. Normally, you do not need to do this manually. It is done automatically when these
-// procedures run:
-// 
-// - present
-// - set_camera
-// - set_shader
-// - set_shader_constant
-// - set_scissor_rect
-// - set_blend_mode
-// - set_render_texture
-// - clear
-// - draw_texture_* IF previous draw did not use the same texture (1)
-// - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing texture (2)
-// 
-// (1) When drawing textures, the current texture is fed into the active shader. Everything within
-//     the same batch must use the same texture. So drawing with a new texture forces the current to
-//     be drawn. You can combine several textures into an atlas to get bigger batches.
+// Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
+// procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
+// call this procedure manually. It is done automatically when `present` or `clear` run. It can also
+// happen when you destroy a resource such as a texture or shader that is used in the current
+// batch.
 //
-// (2) In order to use the same shader for shapes drawing and textured drawing, the shapes drawing
-//     uses a blank, white texture. For the same reasons as (1), drawing something else than shapes
-//     before drawing a shape will break up the batches. In a future update I'll add so that you can
-//     set your own shapes drawing texture, making it possible to combine it with a bigger atlas.
-//
-// The batch has maximum size of VERTEX_BUFFER_MAX bytes. The shader dictates how big a vertex is
-// so the maximum number of vertices that can be drawn in each batch is
-// VERTEX_BUFFER_MAX / shader.vertex_size
+// All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
+// dictates how big a vertex is. The maximum number of vertices in a batch is therefore
+// `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
 draw_current_batch :: proc()
 
 //-------//
@@ -225,7 +212,11 @@ draw_current_batch :: proc()
 
 // Returns true if a keyboard key went down between the current and the previous frame. Set when
 // 'process_events' runs.
-key_went_down :: proc(key: Keyboard_Key) -> bool
+//
+// If `allow_repeat` is true, then this also returns true for OS-generated key-repeat events (the
+// same behavior a text editor wants when you hold down Backspace). The repeat rate and initial
+// delay come from the operating system's keyboard settings.
+key_went_down :: proc(key: Keyboard_Key, allow_repeat := false) -> bool
 
 // Returns true if a keyboard key went up (was released) between the current and the previous frame.
 // Set when 'process_events' runs.
@@ -233,6 +224,17 @@ key_went_up :: proc(key: Keyboard_Key) -> bool
 
 // Returns true if a keyboard is currently being held down. Set when 'process_events' runs.
 key_is_held :: proc(key: Keyboard_Key) -> bool
+
+// Returns all the Unicode code points that were typed since the last frame, taking the current
+// keyboard layout into account. This is what you want for text input, as opposed to
+// `key_went_down`, which tells you about physical keys rather than the characters they produce.
+//
+// Control characters (Backspace, Enter, Tab, etc) and presses of modifier keys on their own are
+// never included.
+//
+// Warning: The returned slice is only valid during the current frame! You can make a clone of it
+// using the `slice.clone` procedure (import `core:slice`).
+get_typed_runes :: proc() -> []rune
 
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
 // You can check that an exact set of modifiers are held like so:
@@ -273,36 +275,23 @@ get_mouse_position :: proc() -> Vec2
 // Returns how many pixels the mouse moved between the previous and the current frame.
 get_mouse_delta :: proc() -> Vec2
 
-// Hide or show the mouse cursor. The cursor may get shown again if the window loses focus.
-// Therefore, it's often best to use `is_cursor_hidden` to check the current status and use this
-// procedure to hide the cursor as needed.
-//
-// This call does not lock the cursor within the window, do that using a separate call to
-// `set_cursor_locked`.
-set_cursor_hidden :: proc(hidden: bool)
-
-// Returns true if the cursor is hidden. The cursor may get re-shown by the OS, for example when the
-// window loses focus. Therefore, this procedure may return false even though you've hidden the
-// cursor previously. It should always reflect the true hide-state of the cursor.
-is_cursor_hidden :: proc() -> bool
-
-// Locks the mouse cursor within the window. While the cursor is locked, you should no longer use
+// Locks the mouse within the window. While the mouse is locked, you should no longer use
 // get_mouse_position, as it may have weird/static values. Instead, use get_mouse_delta to fetch how
 // much the mouse have been moved.
 //
-// On some platforms the cursor is just stuck at a specific point. On other platforms it may be
+// On some platforms the mouse is just stuck at a specific point. On other platforms it may be
 // teleported back to the center of the window on each frame.
 //
-// This call does not hide the cursor, do that separately using `set_cursor_visible`.
+// This call does not hide the cursor, do that separately using `set_cursor_hidden`.
 //
-// If the window loses focus, then the cursor may get unlocked. You can query the current lock
-// status using `is_cursor_locked`, which should take into account if the OS has unlocked it for you
-set_cursor_locked :: proc(locked: bool)
+// If the window loses focus, then the mouse may get unlocked. You can query the current lock
+// status using `is_mouse_locked`, which should take into account if the OS has unlocked it for you
+set_mouse_locked :: proc(locked: bool)
 
-// Returns true if the mouse cursor is currently locked. Note that the mouse can get unlocked by the
-// OS, even though you previously called `set_cursor_locked(true)`. Therefore, it's best to check
-// the current status using this procedure and then lock the mouse if needed.
-is_cursor_locked :: proc() -> bool
+// Returns true if the mouse is currently locked. Note that the mouse can get unlocked by the OS,
+// even though you previously called `set_mouse_locked(true)`. Therefore, it's best to check the
+// current status using this procedure and then lock the mouse if needed.
+is_mouse_locked :: proc() -> bool
 
 // Returns true if a gamepad with the supplied index is connected. The parameter should be a value
 // between 0 and MAX_GAMEPADS.
@@ -391,9 +380,13 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color)
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 //
 // If you want to rotate around the middle of the texture, then try this:
-// 
+//
 //// middle := k2.rect_middle(k2.get_texture_rect(tex))
 //// draw_texture(tex, pos + middle, middle, rot)
+//
+// The texture is fed into the active shader. Everything drawn in a single draw call must therefore
+// use the same texture. Drawing with a new texture starts a new draw call. Put several images into
+// one big texture, an atlas, to get fewer draw calls.
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
@@ -490,6 +483,22 @@ load_texture_from_bytes_raw :: proc(bytes: []u8, width: int, height: int, format
 // Create a GPU texture from an image stored in RAM. There are currently no procedures to manipulate
 // the image. However, you can create an `Image` struct manually and fill out the data as needed.
 load_texture_from_image :: proc(image: Image) -> Texture
+
+// Load an image from disk into RAM. Supports the same formats as `load_texture_from_file`. The
+// image is always RGBA8 with straight (non-premultiplied) alpha.
+//
+// Use `destroy_image` when you are done with it.
+load_image :: proc(filename: string) -> Image
+
+// Load an image from a byte slice into RAM, for instance from `#load("my_image.png")`. Supports
+// the same formats as `load_texture_from_bytes`. The image is always RGBA8 with straight
+// (non-premultiplied) alpha.
+//
+// Use `destroy_image` when you are done with it.
+load_image_from_bytes :: proc(bytes: []u8) -> Image
+
+// Destroy an image previously loaded using `load_image` or `load_image_from_bytes`.
+destroy_image :: proc(img: Image)
 
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
 // (w, h) = (texture_width, texture_height)
@@ -849,6 +858,39 @@ load_dynamic_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> 
 
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
 destroy_font :: proc(font: Font)
+
+//---------//
+// CURSORS //
+//---------//
+
+// Sets the cursor, either to one the operating system provides or to one made with
+// `create_custom_cursor`. `set_cursor(.Default)` goes back to the normal OS cursor.
+set_cursor :: proc(cursor: Cursor)
+
+// Create a cursor from an image. `hotspot` is the position within the image that points at things,
+// in physical pixels.
+//
+// The cursor does not need `image` after it is created. You may destroy it.
+//
+// If the cursor can't be created, then an error is logged and `CUSTOM_CURSOR_NONE` is returned.
+create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
+
+// Destroy a cursor previously created using `create_custom_cursor`. If it is the cursor currently
+// on screen then Karl2D will restore the default OS cursor.
+destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor)
+
+// Hide or show the mouse cursor. The cursor may get shown again if the window loses focus.
+// Therefore, it's often best to use `is_cursor_hidden` to check the current status and use this
+// procedure to hide the cursor as needed.
+//
+// This call does not lock the mouse within the window, do that using a separate call to
+// `set_mouse_locked`.
+set_cursor_hidden :: proc(hidden: bool)
+
+// Returns true if the cursor is hidden. The cursor may get re-shown by the OS, for example when the
+// window loses focus. Therefore, this procedure may return false even though you've hidden the
+// cursor previously. It should always reflect the true hide-state of the cursor.
+is_cursor_hidden :: proc() -> bool
 
 //---------//
 // SHADERS //
@@ -1303,6 +1345,41 @@ Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
+// The cursors an operating system provides out of the box. Use with `set_cursor`.
+//
+// Not every platform has every one of them. Where one is missing, the closest thing is used
+// instead:
+// - macOS has no public busy cursor, so `Wait` and `Progress` show the default arrow, and no
+//   public diagonal resize cursors, so `Resize_NESW` and `Resize_NWSE` do too.
+// - On Linux these come from the user's cursor theme. A theme missing one of them falls back to
+//   whatever the window would otherwise inherit, usually the default arrow.
+Standard_Cursor :: enum {
+	Default,
+	Text,
+	Hand,
+	Crosshair,
+	Wait,
+	Progress,
+	Resize_EW,
+	Resize_NS,
+	Resize_NESW,
+	Resize_NWSE,
+	Move,
+	Not_Allowed,
+}
+
+// A cursor made from your own image, created with `create_custom_cursor`.
+Custom_Cursor :: distinct Handle
+
+CUSTOM_CURSOR_NONE :: Custom_Cursor{}
+
+// The cursor to show: either one the OS provides or one you made. Never both, which is why this
+// is a union. The zero value is `Standard_Cursor.Default`.
+Cursor :: union #no_nil {
+	Standard_Cursor,
+	Custom_Cursor,
+}
+
 Font_Baked_Glyph_Range :: struct {
 	start_idx: int,
 	start: rune,
@@ -1502,6 +1579,8 @@ State :: struct {
 	// All events for this frame. Cleared when `process_events` run
 	events: [dynamic]Event,
 
+	typed_runes: [dynamic]rune,
+
 	mouse_position: Vec2,
 	mouse_delta: Vec2,
 	mouse_wheel_delta: f32,
@@ -1509,6 +1588,7 @@ State :: struct {
 	key_went_down: #sparse [Keyboard_Key]bool,
 	key_went_up: #sparse [Keyboard_Key]bool,
 	key_is_held: #sparse [Keyboard_Key]bool,
+	key_repeat: #sparse [Keyboard_Key]bool,
 
 	mouse_button_went_down: #sparse [Mouse_Button]bool,
 	mouse_button_went_up: #sparse [Mouse_Button]bool,
@@ -1521,20 +1601,40 @@ State :: struct {
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
 	shape_drawing_texture: Texture_Handle,
-	batch_font: Font,
-	batch_camera: Maybe(Camera),
-	batch_shader: Shader,
-	batch_scissor: Maybe(Rect),
-	batch_texture: Texture_Handle,
-	batch_render_target: Render_Target_Handle,
+	// The settings the next draw call will be recorded with. Changing one of these does not affect
+	// draw calls that are already recorded.
+	current_font: Font,
+	current_camera: Maybe(Camera),
+	current_shader: Shader,
+	current_scissor: Maybe(Rect),
+	current_texture: Texture_Handle,
+	current_render_target: Render_Target_Handle,
 
-	// Height of `batch_render_target`, or 0 when drawing to the window. Needed to convert scissor
-	// rectangles to native top-down coordinates without looking the render target up in the backend.
-	batch_render_target_height: int,
-	batch_blend_mode: Blend_Mode,
+	// Height of `current_render_target`, or 0 when drawing to the window. Needed to
+	// convert scissor rectangles to native top-down coordinates without asking the
+	// backend for it.
+	current_render_target_height: int,
+	current_blend_mode: Blend_Mode,
+
+	// Recorded but not drawn yet. They all point into `vertex_buffer_cpu`.
+	batch_draw_calls: [dynamic]Draw_Call,
+
+	// The one vertices go into right now. A zeroed one means there is none.
+	current_draw_call: Draw_Call,
+
+	// Holds the constant values and textures that the draw calls point at.
+	batch_arena: runtime.Arena,
+	batch_allocator: runtime.Allocator,
+
+	// Says that the shader constants may differ from what the open draw call captured.
+	current_constants_dirty: bool,
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
+
+	// `proj_matrix * view_matrix`. Kept around because every draw call needs it. Update it with
+	// `_update_view_projection`.
+	view_projection: Mat4,
 
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
@@ -1756,6 +1856,8 @@ Event :: union {
 	Event_Close_Window_Requested,
 	Event_Key_Went_Down,
 	Event_Key_Went_Up,
+	Event_Key_Repeat,
+	Event_Typed_Rune,
 	Event_Mouse_Move,
 	Event_Mouse_Wheel,
 	Event_Mouse_Button_Went_Down,
@@ -1775,6 +1877,18 @@ Event_Key_Went_Down :: struct {
 
 Event_Key_Went_Up :: struct {
 	key: Keyboard_Key,
+}
+
+// A key is being held down and the OS is auto-repeating it. Sent in addition to (not instead of)
+// the initial `Event_Key_Went_Down`.
+Event_Key_Repeat :: struct {
+	key: Keyboard_Key,
+}
+
+// A Unicode code point was typed, taking the current keyboard layout into account. Use this for
+// text input. See `get_typed_runes`.
+Event_Typed_Rune :: struct {
+	typed: rune,
 }
 
 Event_Mouse_Button_Went_Down :: struct {

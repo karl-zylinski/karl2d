@@ -101,27 +101,28 @@ captured_scissor: Maybe(k2.Rect)
 the_texture: k2.Texture
 the_static_font: k2.Font
 
+// Where the position sits inside a vertex. Every draw call these tests produce uses the default
+// shader, so this is looked up once rather than per draw call.
+position_offset: int
+
 // Stand-in for the render backend's `draw`, so the tests see exactly the geometry and scissor
-// rectangle a real backend would have received rather than poking at internals.
-capture_draw :: proc(
-	shd: k2.Shader,
-	render_target: k2.Render_Target_Handle,
-	bound_textures: []k2.Texture_Handle,
-	scissor: Maybe(k2.Rect),
-	blend_mode: k2.Blend_Mode,
-	vertex_buffer: []u8,
-) {
-	captured_scissor = scissor
+// rectangles a real backend would have received rather than poking at internals.
+capture_draw :: proc(vertex_buffer: []u8, draw_calls: []k2.Draw_Call) {
+	for dc in draw_calls {
+		if dc.vertex_count == 0 || dc.vertex_size == 0 {
+			continue
+		}
 
-	pos_offset := shd.default_input_offsets[.Position]
+		// Each test draws one thing, so the first draw call that carries vertices is the one under
+		// test and its scissor rectangle is the interesting one.
+		if len(captured_vertices) == 0 {
+			captured_scissor = dc.scissor
+		}
 
-	if pos_offset < 0 || shd.vertex_size == 0 {
-		return
-	}
-
-	for i in 0..<len(vertex_buffer)/shd.vertex_size {
-		v := (^k2.Vec2)(&vertex_buffer[i*shd.vertex_size + pos_offset])^
-		append(&captured_vertices, v)
+		for i in 0..<dc.vertex_count {
+			at := dc.vertex_offset + i*dc.vertex_size + position_offset
+			append(&captured_vertices, (^k2.Vec2)(&vertex_buffer[at])^)
+		}
 	}
 }
 
@@ -145,6 +146,8 @@ setup :: proc() {
 		// `set_internal_state` makes the library pick up the swapped-in `draw`.
 		state.render_backend.draw = capture_draw
 		k2.set_internal_state(state)
+
+		position_offset = k2.get_default_shader().default_input_offsets[.Position]
 
 		rt := k2.create_render_texture(SURFACE_W, SURFACE_H)
 		k2.set_render_texture(rt)

@@ -74,14 +74,7 @@ rbnil_clear :: proc(render_texture: Render_Target_Handle, color: Color) {
 rbnil_present :: proc() {
 }
 
-rbnil_draw :: proc(
-	shd: Shader,
-	render_texture: Render_Target_Handle,
-	bound_textures: []Texture_Handle,
-	scissor: Maybe(Rect),
-	blend_mode: Blend_Mode,
-	vertex_buffer: []u8,
-) {
+rbnil_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 }
 
 rbnil_resize_swapchain :: proc(w, h: int) {

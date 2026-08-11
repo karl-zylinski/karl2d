@@ -36,7 +36,6 @@ main :: proc() {
 		"premultiplied_alpha",
 		"raylib_ports",
 		"scaling_auto_window_resize",
-		"ui",
 		"scraps",
 	}
 

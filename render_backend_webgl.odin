@@ -187,33 +187,100 @@ webgl_present :: proc() {
 	// The browser flips the backbuffer for you when 'step' ends
 }
 
-webgl_draw :: proc(
-	shd: Shader,
-	render_target: Render_Target_Handle,
-	bound_textures: []Texture_Handle,
-	scissor: Maybe(Rect),
-	blend_mode: Blend_Mode,
-	vertex_buffer: []u8,
-) {
-	gl_shd := hm.get(&s.shaders, shd.handle)
-
-	if gl_shd == nil {
+webgl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
+	if len(vertex_buffer) == 0 || len(draw_calls) == 0 {
 		return
 	}
 
-	switch blend_mode {
-	case .Alpha: gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-	case .Premultiplied_Alpha: gl.BlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+	// All the draw calls read from this one buffer. It only needs uploading once. That matters more
+	// here than in the other backends. Every GL call crosses into JavaScript.
+	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
+	gl.BufferDataSlice(gl.ARRAY_BUFFER, vertex_buffer, gl.STREAM_DRAW)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+
+	// Changes that belong to draw calls we could not draw. They never reached GL. The next draw
+	// call we do run has to make them.
+	missed: bit_set[Draw_Call_Change]
+
+	for &call in draw_calls {
+		changed := call.changed + missed
+		gl_shd := hm.get(&s.shaders, call.shader)
+
+		if gl_shd == nil {
+			log.errorf("Trying to draw with invalid shader %v", call.shader)
+			missed = changed
+			continue
+		}
+
+		missed = {}
+
+		if .Shader in changed {
+			gl.BindVertexArray(gl_shd.vao)
+			gl.UseProgram(gl_shd.program)
+		}
+
+		if .Constants in changed {
+			webgl_set_constants(call.constants, call.constants_data, gl_shd^)
+		}
+
+		if .Textures in changed {
+			webgl_bind_textures(call.textures, gl_shd^)
+		}
+
+		// Only the render target and scissor setup need the render target. Skipping the lookup
+		// otherwise keeps it out of the common case, where only the texture changed.
+		rt: ^WebGL_Render_Target
+
+		if .Render_Target in changed || .Scissor in changed {
+			rt = hm.get(&s.render_targets, call.render_target)
+		}
+
+		if .Render_Target in changed {
+			if rt != nil {
+				gl.BindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer)
+				gl.Viewport(0, 0, i32(rt.width), i32(rt.height))
+			} else {
+				gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+				gl.Viewport(0, 0, i32(s.width), i32(s.height))
+			}
+		}
+
+		if .Blend_Mode in changed {
+			switch call.blend_mode {
+			case .Alpha: gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+			case .Premultiplied_Alpha: gl.BlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+			}
+		}
+
+		// Karl2D measures the scissor rect from the top. GL measures it from the bottom. It
+		// therefore depends on the height of the render target as well.
+		if .Scissor in changed {
+			if scissor, has_scissor := call.scissor.(Rect); has_scissor {
+				height := rt != nil ? rt.height : s.height
+				flipped_y := f32(height) - scissor.h - scissor.y
+
+				gl.Enable(gl.SCISSOR_TEST)
+				gl.Scissor(i32(scissor.x), i32(flipped_y), i32(scissor.w), i32(scissor.h))
+			} else {
+				gl.Disable(gl.SCISSOR_TEST)
+			}
+		}
+
+		gl.DrawArrays(gl.TRIANGLES, call.vertex_offset/call.vertex_size, call.vertex_count)
 	}
 
-	gl.BindVertexArray(gl_shd.vao)
+	gl.Disable(gl.SCISSOR_TEST)
+}
 
-	gl.UseProgram(gl_shd.program)
-	assert(len(shd.constants) == len(gl_shd.constants))
+webgl_set_constants :: proc(
+	constants: []Shader_Constant_Location,
+	constants_data: []u8,
+	gl_shd: WebGL_Shader,
+) {
+	assert(len(constants) == len(gl_shd.constants))
 
-	cpu_data := shd.constants_data
 	for cidx in 0..<len(gl_shd.constants) {
-		cpu_loc := shd.constants[cidx]
+		cpu_loc := constants[cidx]
 
 		if cpu_loc.size == 0 {
 			continue
@@ -226,13 +293,13 @@ webgl_draw :: proc(
 			gpu_buffer_info := gl_shd.constant_buffers[gpu_loc.loc]
 			gpu_data := gpu_buffer_info.buffer
 			gl.BindBuffer(gl.UNIFORM_BUFFER, gpu_data)
-			src := cpu_data[cpu_loc.offset:cpu_loc.offset+cpu_loc.size]
+			src := constants_data[cpu_loc.offset:cpu_loc.offset+cpu_loc.size]
 			gl.BufferData(gl.UNIFORM_BUFFER, len(src), raw_data(src), gl.DYNAMIC_DRAW)
 			gl.BindBufferBase(gl.UNIFORM_BUFFER, gpu_loc.loc, gpu_data)	
 
 		case .Uniform:
 			loc := i32(gpu_loc.loc)
-			ptr := (rawptr)(&cpu_data[cpu_loc.offset])
+			ptr := (rawptr)(&constants_data[cpu_loc.offset])
 			uptr: [^]u32 = (^u32)(ptr)
 			iptr: [^]i32 = (^i32)(ptr)
 			fptr: [^]f32 = (^f32)(ptr)
@@ -288,54 +355,28 @@ webgl_draw :: proc(
 
 			case: log.errorf("Unknown type: %x", gpu_loc.uniform_type)
 			}
-			
+
 		}
 	}
+}
 
-	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
-	gl.BufferDataSlice(gl.ARRAY_BUFFER, vertex_buffer, gl.STREAM_DRAW)
-	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
-
-	if len(bound_textures) == len(gl_shd.texture_bindings) {
-		for t, t_idx in bound_textures {
-			gl_t := gl_shd.texture_bindings[t_idx]
-
-			if t := hm.get(&s.textures, t); t != nil {
-				gl.ActiveTexture(gl.TEXTURE0 + gl.Enum(t_idx))
-				gl.BindTexture(gl.TEXTURE_2D, t.id)
-				gl.Uniform1i(gl_t.loc, i32(t_idx))
-			} else {
-				gl.ActiveTexture(gl.TEXTURE0 + gl.Enum(t_idx))
-				gl.BindTexture(gl.TEXTURE_2D, 0)
-				gl.Uniform1i(gl_t.loc, i32(t_idx))
-			}
-		}
+webgl_bind_textures :: proc(textures: []Texture_Handle, gl_shd: WebGL_Shader) {
+	if len(textures) != len(gl_shd.texture_bindings) {
+		return
 	}
 
-	rt := hm.get(&s.render_targets, render_target)
-	
-	if rt != nil {
-		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer)
-		gl.Viewport(0, 0, i32(rt.width), i32(rt.height))
-	} else {
-		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-		gl.Viewport(0, 0, i32(s.width), i32(s.height))
-	}
+	for t, t_idx in textures {
+		gl_t := gl_shd.texture_bindings[t_idx]
+		gl.ActiveTexture(gl.TEXTURE0 + gl.Enum(t_idx))
 
-	if scissor, has_scissor := scissor.(Rect); has_scissor {
-		height: int
-		if rt != nil {
-			height = rt.height
+		if t := hm.get(&s.textures, t); t != nil {
+			gl.BindTexture(gl.TEXTURE_2D, t.id)
 		} else {
-			height = s.height
+			gl.BindTexture(gl.TEXTURE_2D, 0)
 		}
-		flipped_y := f32(height) - scissor.h - scissor.y
 
-		gl.Enable(gl.SCISSOR_TEST)
-		gl.Scissor(i32(scissor.x), i32(flipped_y), i32(scissor.w), i32(scissor.h))
+		gl.Uniform1i(gl_t.loc, i32(t_idx))
 	}
-
-	gl.DrawArrays(gl.TRIANGLES, 0, int(len(vertex_buffer)/shd.vertex_size))
 }
 
 webgl_resize_swapchain :: proc(w, h: int) {

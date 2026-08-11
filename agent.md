@@ -1,93 +1,111 @@
 # LLM agent instructions for Karl2D
 
-This document provides guidelines for LLM agents to read. It provides conventions for writing code, writing documentation, and collaborating on this project. Please follow these instructions to ensure consistency and maintainability.
+Conventions for writing code, writing documentation, and collaborating on this project.
 
-> Human can read this file too, but it might not be optimized for human consumption. Also, note that no form of vibe coded changes are allowed. You must understand each line submitted in a pull request. You can use an LLM to do code reviews and generate initial implementations, but you _must_ understand the code generated.
+> Human can read this file too, but it might not be optimized for human consumption. Also, note that no form of vibe coded changes are allowed. You can use an LLM to do code reviews and generate code, but you _must_ understand the code generated.
 
 ## Project Overview
-- **Karl2D** is a 2D game development library written in the Odin programming language, licensed under MIT.
+- **Karl2D** is a 2D game development library written in the Odin programming language, licensed under Zlib license.
 - The focus is on being beginner-friendly, using a minimal set of dependencies and minimizing issues when you actually want to ship the game.
 - Karl2D usually requires the latest release of Odin.
-- The main entry point is `karl2d.odin`, which contains the platform-independent API and core logic.
-- Platform and rendering backends are implemented in separate files (e.g., `platform_windows.odin`, `render_backend_gl.odin`).
-- See `karl2d.doc.odin` for a full API overview.
+- The main entry point is `karl2d.odin`, which contains the platform-independent API and core logic. Platform, render and audio backends live in separate files.
+- See `karl2d.doc.odin` for a full API overview. It is generated output: never edit it by hand.
 
-## Contribution Guidelines
-- **Draft Pull Requests** are always welcome and do not need to follow strict rules.
-- When submitting a _ready for review_ Pull Request, you must:
-  1. Ensure your code is working and tested.
-  2. Submit only complete, non-rudimentary code.
-  3. Avoid modifying unrelated code or using auto-formatters (e.g., odinfmt).
-  4. If you make unintended changes, revert them in additional commits (squash merges are used).
-  5. Regenerate `karl2d.doc.odin` after API changes: `odin run tools/api_doc_builder`.
-  6. Follow the code style described below.
+## Workflow
+- If the work is on an existing pull request, start with `gh pr checkout <number>` rather than a branch or worktree that merely looks like the right one. It checks out the PR head (including from forks) and sets up tracking, so `git push` updates the PR instead of creating a disconnected branch.
+- Keep changes focused. Don't touch unrelated code, don't use auto-formatters (e.g. odinfmt), and don't modify whitespace on lines you aren't otherwise changing.
+- If you make unintended changes, revert them in additional commits (squash merges are used).
+- If you break backwards compatbility, introduce @(deprecated) procedures or somehow try to do it gracefully. If you cannot help it, then so be, but flag about it in the review.
+- Keep dependencies minimal. Prefer clarity and simplicity over cleverness.
+- Draft Pull Requests are always welcome and do not need to follow strict rules. A _ready for review_ PR must contain working, tested, complete code that follows the style below.
+
+## Verifying Your Work
+- Build and test through the examples in `examples/`. Prefer the existing VS Code build tasks; they already include `-vet -strict-style -vet-tabs` and come in three variants: default (D3D11 on Windows), `(GL)`, and `(web)`. Use the same `-vet -strict-style -vet-tabs` flags when running `odin` directly.
+- After edits, run the most relevant build task(s) for what you touched. After a large change, run `odin run tools/test_examples`, the CI script that builds every example (some are excluded from web builds, e.g. `minimal_hello_world`, `custom_frame_update`; some need a define to build at all, e.g. `box2d` requires `-define:KARL2D_Y_UP=true`, which the tool applies for you).
+- Automated tests live in `tests/<name>/` and are ordinary Odin tests: `odin test tests/<name>`. They need `-define:ODIN_TEST_THREADS=1`, because Karl2D keeps its state in globals, and `-define:KARL2D_RENDER_BACKEND=nil` to run without a GPU. `tests/coordinate_system` is run twice by CI, once per coordinate system.
+- Regenerate `karl2d.doc.odin`: `odin run tools/api_doc_builder`. Any change in `karl2d.doc.odin` is a user-facing API change. Make sure you want that change to actually happen. Think about what happens if you break backwards compatibility.
+- Web builds use the script in `build_web/`. Forward game/compiler flags after `--`: `odin run build_web -- your_game_path -debug`. A web game must have `init` and `step` procedures; `examples/minimal_hello_world_web/` is the template.
+- `tools/make_sublime_projects`, `tools/make_vscode_project/` and `tools/make_zed_project/` generate editor project configurations.
 
 ## Code Style
-- **Tabs, not spaces** for indentation.
-- **Max line length:** 100 characters. Use a ruler in your editor. Always split API comment lines that start with `//` at the 100 character ruler. Do not go beyond it!
-- **Procedure signatures** that are too long should be split across lines (see `init` in `karl2d.odin`).
-- **Spacing:**
-  - Place `:` and `=` with consistent spacing as in `karl2d.odin`.
-  - Opening braces `{` should be on the same line as the declaration.
-- **API Comments:**
-  - Use clear, concise comments above procedures and types.
-  - Document parameters and return values where appropriate.
-- **File organization:**
-  - Group related procedures and types together.
-  - Use clear section comments as in `karl2d.odin`. The format is three lines: a dash line, a centered text line, and another dash line. The dashes match the width of the text. Example:
-    ```
-    //-------//
-    // INPUT //
-    //-------//
-    ```
+
+### Formatting
+- Tabs, not spaces, for indentation.
+- Max line length in `.odin` files: 100 characters. Use a ruler in your editor, split `//` comment lines at the ruler, and never go beyond it. Markdown files can and should use longer lines, since they will be viewed with line wrapping on.
+- Procedure signatures that are too long are split across lines (see `init` in `karl2d.odin`).
+- Place `:` and `=` with consistent spacing as in `karl2d.odin`. Opening braces `{` go on the same line as the declaration.
+- Ranges are written without spaces: `for i in 0..<len(pixels)`, not `0 ..< len(pixels)`. Attributes too: `@(private="package")`, not `@(private = "package")`.
+- No single-line `if` bodies: the body goes on its own line, even when it is one statement. (One older example does this; don't copy it.)
+- Struct field alignment follows the file: some files column-align field values (`platform_mac.odin`), most use a single space after `:`. Match the file you are in, and keep structs you add consistent with each other.
+
+### Naming
+- Multi-return result names use suffixes: `img, img_err := ...` and `data, data_ok := ...`. Always `thing_err`/`thing_ok`, never `err_thing`.
+- A number that appears in more than one place gets a file-level constant, with a unit comment when the unit isn't obvious: `CAMERA_KEY_MOVE_SPEED :: 300 // in screen pixels/sec`.
+- Procs that implement the platform interface carry the platform prefix (`mac_set_cursor`). Internal helpers may skip the prefix when the file is `#+private file` (`apply_cursor_state`).
+- Log messages follow "Failed <doing> <thing>. Error: %v" or "Cannot <verb>, <thing> does not exist.". In platform backends it is also fine to name the failing OS call: "CreateIconIndirect failed with %v".
+
+### Comments
+- Public API procedures and types get a clear, concise comment above them. Document parameters and return values where appropriate.
+- Voice: short and conversational; first person is fine ("We piggyback on the resize event", "I fixed the binding locally"). State the fact rather than writing a justification. One line is the norm; go longer only for an OS quirk or something genuinely non-obvious.
+- Use short sentences. Prefer a period over all other forms of punctuation.
+- A doc comment tells the reader two things. What does this do? And why does it do it that way, if that would otherwise surprise them. Leave out everything else.
+- Never write about how something used to work, or about what a change improved. The reader has only ever seen the current version. That story belongs in the commit message.
+- If you are unsure whether something belongs on a procedure or on a struct, put it on the procedure. That is what people look up.
+- Short notes can be trailing comments on the line they describe: `camera: k2.Camera // world camera`.
+
+### File organization
+- Group related procedures and types together.
+- Separate the groups with section comments as in `karl2d.odin`: a dash line, a centered text line, and another dash line, with the dashes matching the width of the text:
+  ```
+  //-------//
+  // INPUT //
+  //-------//
+  ```
+- Long procedures can be split up with short ALL-CAPS section comments: `// CAMERA PANNING`, `// DRAW WORLD` (see `examples/camera/camera.odin`).
+
+### Handles use a zero value, not `Maybe`
+- Every handle type has a `<TYPE>_NONE` constant that is just its zero value (`TEXTURE_NONE`, `SOUND_NONE`, `CUSTOM_CURSOR_NONE`, ...). Declare one next to the type. Do not wrap handles in `Maybe` to express "none", and do not add a separate `bool` for whether a handle is set.
+- A zero-value handle is already invalid, so `Maybe` adds a second way to say the same thing.
+- It keeps handles assignable and comparable as-is. A `Custom_Cursor` goes straight into a `Cursor` union, so `selected = gauntlet` and `selected == gauntlet` just work. Wrapped in a `Maybe` both sides need unwrapping first, and the comparison needs an explicit `Cursor(...)` conversion. There is nothing to unwrap, so no `x, ok := h.?` before every use, and no temporary to carry the unwrapped value around.
+- Passing a zero handle is safe: procedures that take handles log and carry on rather than misbehaving. They log on every call though, so guard with `!= <TYPE>_NONE` in code that runs each frame.
+- See `examples/cursors/cursors.odin` for how this reads in practice.
+
+### Avoid `defer`; write the cleanup where it happens
+- `defer` moves work away from the point it runs, so the reader has to reconstruct the order instead of reading top to bottom. Free, release or destroy a thing on the line after it stops being needed.
+- Usually the resource dies long before the procedure does, and releasing it right there is both linear and a tighter lifetime. In `x11_create_custom_cursor` the Xcursor image is finished with the moment `cursorImageLoadCursor` has copied it, well before any of the error returns.
+- If a value is still needed by the `return` expression, put the result in a local, clean up, then return the local.
+- `defer` is fine when a scope really does exit many ways and each would otherwise repeat the same cleanup. `wl_create_custom_cursor` keeps `defer linux.close(fd)` because three separate paths would each have to close it.
+
+### Take a parameter by pointer only to mutate it
+- Odin already passes anything bigger than 16 bytes by implicit reference, so `^T` does not save you a copy. Passing a big struct by value is free.
+- What `^T` does is tell the reader that the procedure may write to what they handed it. Spend that on read-only parameters and a pointer stops meaning anything, so nobody can tell the mutating procedures from the rest at a glance.
+- `_draw_call_changes` compares two draw calls and returns what differs between them, so it takes `Draw_Call`, not `^Draw_Call`, even though they are 128 bytes each. The platform interface's `get_events` fills the array you hand it, so that one takes a pointer.
+- Pointers are also right when the value is optional, or when you need the thing itself rather than its value, which is why `hm.get` hands one back.
+- Don't reach for a pointer because you think it will be faster. If you believe a signature costs something, measure it. The compiler is already doing the thing you are about to do by hand.
 
 ## Architecture Notes
+
+### Layout
 - The core API is in `karl2d.odin`.
 - Platform-specific code is in files like `platform_windows.odin`, `platform_linux.odin`, `platform_mac.odin`, `platform_web.odin`.
 - Rendering backends are in files like `render_backend_gl.odin`, `render_backend_d3d11.odin`, `render_backend_webgl.odin`.
-- The project uses an **interface/chooser pattern** for extensible subsystems:
-  - `*_interface.odin` defines a struct of function pointers (the contract).
-  - `*_chooser.odin` selects the implementation at compile time based on platform/config.
-  - This pattern is used for platforms (`platform_interface.odin`), render backends (`render_backend_interface.odin`, `render_backend_chooser.odin`), and audio backends (`audio_backend_interface.odin`, `audio_backend_chooser.odin`).
-- **Render backend selection:** On Windows, the default backend is **D3D11**. On Linux/macOS, it's **GL**. On web, it's **WebGL**. Override with `-define:KARL2D_RENDER_BACKEND=gl` (or `d3d11`, `webgl`, `nil`). The `(GL)` VS Code build tasks use this flag.
-- **GL glue files** (e.g., `platform_windows_glue_gl.odin`, `platform_linux_glue_gl_x11.odin`) handle platform-specific OpenGL context setup. These exist alongside the platform files.
-- Audio backends follow the same pattern: `audio_backend_waveout.odin` (Windows), `audio_backend_core_audio.odin` (macOS), `audio_backend_alsa.odin` (Linux), `audio_backend_web_audio.odin` (web), `audio_backend_nil.odin` (fallback).
+- Audio backends: `audio_backend_waveout.odin` (Windows), `audio_backend_core_audio.odin` (macOS), `audio_backend_alsa.odin` (Linux), `audio_backend_web_audio.odin` (web), `audio_backend_nil.odin` (fallback).
 - Audio streaming has platform-split files: `audio_stream_default.odin` (non-web) and `audio_stream_web.odin`.
 - File system access is split: `file_system_default.odin` (non-web, uses `core:os`) and `file_system_web.odin` (stub — file reading not yet supported on web).
 - `log/log.odin` provides the internal logging utility (`karl2d_logger` package) with `debugf`, `infof`, `warnf`, `errorf`, `fatalf`.
 - `default_fonts/` contains `roboto.ttf` (the default embedded font). `default_shaders/` contains HLSL, GLSL, and WebGL GLSL shaders used by render backends. Avoid modifying these unless you are changing rendering behavior.
 - `platform_bindings/` contains supplementary platform-specific bindings (subdirs: `linux/`, `mac/`).
+
+### Patterns
+- The project uses an **interface/chooser pattern** for extensible subsystems: `*_interface.odin` defines a struct of function pointers (the contract), and `*_chooser.odin` selects the implementation at compile time based on platform/config. Used for platforms (`platform_interface.odin`), render backends (`render_backend_interface.odin`, `render_backend_chooser.odin`), and audio backends (`audio_backend_interface.odin`, `audio_backend_chooser.odin`).
+- **Render backend selection:** On Windows the default backend is **D3D11**. On Linux/macOS it's **GL**. On web it's **WebGL**. Override with `-define:KARL2D_RENDER_BACKEND=gl` (or `d3d11`, `webgl`, `nil`). The `(GL)` VS Code build tasks use this flag.
+- **GL glue files** (e.g. `platform_windows_glue_gl.odin`, `platform_linux_glue_gl_x11.odin`) handle platform-specific OpenGL context setup. These exist alongside the platform files.
 - No external windowing libraries (like GLFW) are used; all window/event handling is custom.
 - Rendering is batch-based for performance.
 - Web builds use Odin's JS runtime and a custom WebGL backend (no emscripten required).
 
-## Testing & Documentation
-- Run and test your changes with the provided examples in the `examples/` folder.
-- Prefer the existing VS Code build tasks (they already include `-vet -strict-style -vet-tabs`). Tasks come in three variants: default (D3D11 on Windows), `(GL)`, and `(web)`.
-- For code changes, run at least the most relevant build task(s) for what you touched.
-- For API-affecting changes, also run `api_verifier` (`odin build tools/api_verifier -debug -vet -strict-style -vet-tabs`).
-- `karl2d.doc.odin` is generated output and should not be edited by hand.
-- Update `karl2d.doc.odin` for any API changes by running `odin run tools/api_doc_builder`.
-- The `test_examples` tool (`tools/test_examples/`) is a CI script that builds all examples. Some examples are excluded from web builds (e.g., `minimal_hello_world`, `custom_frame_update`), and some need a define to build at all (e.g. `box2d` requires `-define:KARL2D_Y_UP=true`, which the tool applies for you). Run this after large changes.
-- Automated tests live in `tests/<name>/` and are ordinary Odin tests: `odin test tests/<name>`. They need `-define:ODIN_TEST_THREADS=1`, because Karl2D keeps its state in globals, and `-define:KARL2D_RENDER_BACKEND=nil` to run without a GPU. `tests/coordinate_system` is run twice by CI, once per coordinate system.
-- Other tools: `tools/make_vscode_project/` and `tools/make_zed_project/` generate editor project configurations.
-
-## Web Builds
-- Use the script in `build_web/` to build web versions of your game.
-- When forwarding game/compiler flags, put them after `--` (example: `odin run build_web -- your_game_path -debug`).
-- Your game must have `init` and `step` procedures.
-- See `examples/minimal_hello_world_web/minimal_hello_world_web.odin` for a template.
-
-## General Advice
-- Keep dependencies minimal.
-- Prefer clarity and simplicity over cleverness.
-
-## Agent Checklist
-- If the work is on an existing pull request, start with `gh pr checkout <number>` rather than a branch or worktree that merely looks like the right one. It checks out the PR head (including from forks) and sets up tracking, so `git push` updates the PR instead of creating a disconnected branch.
-- Keep changes focused; avoid touching unrelated code. Don't use auto-formatters. Don't modify whitespace unless you change those lines.
-- Run the most relevant existing VS Code build task(s) after edits. If you do a big edit, run the `test_examples` task.
-- Use `-vet -strict-style -vet-tabs` for direct Odin command checks.
-- If API surface changed, regenerate docs with `odin run tools/api_doc_builder`.
-- For API changes, also verify with `odin build tools/api_verifier -debug -vet -strict-style -vet-tabs`.
-- Never hand-edit `karl2d.doc.odin`.
-- For web builds, forward game/compiler flags after `--`.
+## Checklist Before You Are Done
+- Ran the relevant build task(s), and `odin run tools/test_examples` if the change was large.
+- If the API surface changed: regenerated `karl2d.doc.odin` and ran `api_verifier` (see Verifying Your Work).
+- No unrelated code touched, no auto-formatter output, no whitespace changes on untouched lines.
+- New code follows the Code Style section, including the comment voice and the handle/defer patterns.
