@@ -72,10 +72,20 @@ wl_init :: proc(
 
 	display_registry := wl.display_get_registry(s.display)
 	wl.add_listener(display_registry, &registry_listener, nil)
+
+	// Collects all the globals.
 	wl.display_roundtrip(s.display)
 
 	wl.add_listener(s.seat, &seat_listener, nil)
+
+	// Initializes pointer and keyboard based on seat capabilities.
 	wl.display_roundtrip(s.display)
+
+	// Sets default size that gets used if the compositor doesn't suggest a size.
+	s.last_configure_width = screen_width
+	s.last_configure_height = screen_height
+	s.last_configure_windowed_width = screen_width
+	s.last_configure_windowed_height = screen_height
 
 	s.surface = wl.compositor_create_surface(s.compositor)
 	log.ensure(s.surface != nil, "Error creating Wayland surface")
@@ -91,6 +101,8 @@ wl_init :: proc(
 	wl.add_listener(xdg_surface, &window_listener, nil)
 	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(window_title, frame_allocator))
 
+	wl_set_window_mode(options.window_mode)
+
 	if s.decoration_manager != nil {
 		decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
 
@@ -98,19 +110,25 @@ wl_init :: proc(
 		wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
 	}
 
-	fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(s.fractional_scale_manager, s.surface)
-	wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
+	if s.fractional_scale_manager != nil {
+		fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(
+			s.fractional_scale_manager,
+			s.surface,
+		)
 
-	wl.surface_commit(s.surface)
-	wl.display_dispatch_pending(s.display)
-	wl.display_roundtrip(s.display)
+		wl.add_listener(fractional_scale, &fractional_scale_listener, nil)
+	}
 
-	s.relative_pointer = wl.zwp_relative_pointer_manager_v1_get_relative_pointer(
-		s.relative_pointer_manager,
-		s.pointer,
-	)
+	if s.relative_pointer_manager != nil && s.pointer != nil {
+		s.relative_pointer = wl.zwp_relative_pointer_manager_v1_get_relative_pointer(
+			s.relative_pointer_manager,
+			s.pointer,
+		)
 
-	wl.add_listener(s.relative_pointer, &relative_pointer_listener, nil)
+		wl.add_listener(s.relative_pointer, &relative_pointer_listener, nil)
+	} else {
+		log.warn("Relative pointer not available: mouse locking will not work")
+	}
 
 	s.cursor_surface = wl.compositor_create_surface(s.compositor)
 	s.cursor_viewport = wl.wp_viewporter_get_viewport(s.viewporter, s.cursor_surface)
@@ -122,25 +140,18 @@ wl_init :: proc(
 		wl_load_cursor_theme()
 	}
 
-	unscaled_width := screen_width
-	unscaled_height := screen_height
-
-	scaled_width := int(f32(unscaled_width) * s.scale)
-	scaled_height := int(f32(unscaled_height) * s.scale)
-
-	callback := wl.surface_frame(s.surface)
-	wl.add_listener(callback, &frame_callback, nil)
-
 	s.viewport = wl.wp_viewporter_get_viewport(s.viewporter, s.surface)
-	wl.wp_viewport_set_destination(s.viewport, i32(unscaled_width), i32(unscaled_height))
-	s.window = wl.egl_window_create(s.surface, i32(scaled_width), i32(scaled_height))
-
-	s.screen_width = scaled_width
-	s.screen_height = scaled_height
 
 	wl.surface_commit(s.surface)
-	wl.display_dispatch_pending(s.display)
-	wl.display_roundtrip(s.display)
+
+	// Wait for the first configure: it's what creates the EGL window.
+	for !s.configured {
+		if wl.display_dispatch(s.display) < 0 {
+			break
+		}
+	}
+
+	log.ensure(s.window != nil, "Wayland compositor never sent an initial configure")
 
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
@@ -149,8 +160,6 @@ wl_init :: proc(
 	} else {
 		#panic("Unsupported combo of Linux + X11 and render backend '" + RENDER_BACKEND_NAME + "'")
 	}
-
-	wl_set_window_mode(options.window_mode)
 
 	if options.disable_auto_scale_hint {
 		log.warn("disable_auto_scale_hint not supported on linux/wayland")
@@ -258,6 +267,7 @@ registry_listener := wl.Registry_Listener {
 			)
 		}
 	},
+	global_remove = proc "c" (data: rawptr, registry: ^wl.Registry, name: u32) {},
 }
 
 seat_listener := wl.Seat_Listener {
@@ -305,12 +315,6 @@ seat_listener := wl.Seat_Listener {
 	name = proc "c" (data: rawptr, seat: ^wl.Seat, name: cstring) {},
 }
 
-frame_callback := wl.Callback_Listener {
-	done = proc "c" (data: rawptr, callback: ^wl.Callback, callback_data: c.uint32_t) {
-		wl.destroy(callback)
-	},
-}
-
 toplevel_listener := wl.XDG_Toplevel_Listener {
 	configure = proc "c" (
 		data: rawptr,
@@ -324,19 +328,38 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 
 		context = s.odin_ctx
 
-		if s.last_configure_width != w || s.last_configure_height != h  {
-			if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-				s.last_configure_windowed_width = w
-				s.last_configure_windowed_height = h
+		new_width: int
+		new_height: int
+
+		if s.window_mode == .Windowed {
+			// Fixed-size window: we dictate the size, the compositor doesn't.
+			new_width = s.last_configure_windowed_width
+			new_height = s.last_configure_windowed_height
+		} else {
+			// A zero axis means the compositor lets us pick that dimension.
+			new_width = w != 0 ? w : s.last_configure_windowed_width
+			new_height = h != 0 ? h : s.last_configure_windowed_height
+		}
+
+		window_resized := new_width != s.last_configure_width || new_height != s.last_configure_height
+
+		if window_resized || !s.configured {
+			s.screen_width = int(f32(new_width) * s.scale)
+			s.screen_height = int(f32(new_height) * s.scale)
+
+			if !s.configured {
+				s.window = wl.egl_window_create(s.surface, i32(s.screen_width), i32(s.screen_height))
+			} else {
+				wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
 			}
+			wl.wp_viewport_set_destination(s.viewport, i32(new_width), i32(new_height))
 
-			s.screen_width = int(f32(w) * s.scale)
-			s.screen_height = int(f32(h) * s.scale)
-			s.last_configure_width = w
-			s.last_configure_height = h
-
-			wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
-			wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
+			s.last_configure_width = new_width
+			s.last_configure_height = new_height
+			if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
+				s.last_configure_windowed_width = new_width
+				s.last_configure_windowed_height = new_height
+			}
 
 			append(&s.events, Event_Screen_Resize {
 				width = s.screen_width,
@@ -645,7 +668,10 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		s.scale = scl
 		s.screen_width = int(f32(s.last_configure_width) * s.scale)
 		s.screen_height = int(f32(s.last_configure_height) * s.scale)
-		wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+
+		if s.configured {
+			wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+		}
 
 		// The cursor theme is loaded at a fixed physical size, so it needs reloading whenever
 		// the scale changes. Only relevant without the cursor shape protocol - the compositor
@@ -784,7 +810,15 @@ wl_set_screen_size :: proc(w, h: int) {
 	s.last_configure_width = w
 	s.last_configure_height = h
 
-	wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+	if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
+		s.last_configure_windowed_width = w
+		s.last_configure_windowed_height = h
+	}
+
+	if s.configured {
+		wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+	}
+
 	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
 }
 
