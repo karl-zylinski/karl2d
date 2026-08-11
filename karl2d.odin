@@ -50,12 +50,8 @@ import hm "core:container/handle_map"
 //   stored that way.
 // - The naming of the `rect_*` helpers. `rect_top_left` is always the corner that appears in the
 //   top left on screen, and `rect_cut_top` always cuts the part that appears at the top on screen.
-// - `measure_text`, which always returns a positive size.
-//
-// `draw_text(text, position, font_size)` covers exactly
-// `rect_from_pos_size(position, measure_text(text, font_size))` in both coordinate systems, with
-// the first line at the top on screen. So `position` is the top-left corner of the text in Y down
-// and the bottom-left corner in Y up, just like a `Rect`.
+// - `measure_text`, which always returns a positive size. Text always fills the rectangle it
+//   reports, with the first line at the top on screen.
 Y_UP :: #config(KARL2D_Y_UP, false)
 
 //-----------------------------------------------//
@@ -700,8 +696,9 @@ get_mouse_wheel_delta :: proc() -> f32 {
 	return s.mouse_wheel_delta
 }
 
-// Returns the mouse position, measured from the origin of the screen: the top-left corner of the
-// window in the default Y down coordinate system, the bottom-left corner in a Y up one.
+// Returns the mouse position, measured from the top-left corner of the window.
+//
+// With Y_UP it is measured from the bottom-left corner of the window instead.
 get_mouse_position :: proc() -> Vec2 {
 	return s.mouse_position
 }
@@ -797,16 +794,16 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 // DRAWING //
 //---------//
 
-// Draw a colored rectangle. The rectangle grows from its (x, y) position in the direction the axes
-// point, so (x, y) is its top-left corner in the default Y down coordinate system and its
-// bottom-left corner in a Y up one.
+// Draw a colored rectangle. The rectangles have their (x, y) position in the top-left corner of the
+// rectangle.
 //
 // Optional parameters:
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
-//   `(0, 0)`, then the rectangle rotates around its (x, y) position. If it is
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
-// - rotation: The rotation to apply, in radians. Positive rotations appear clockwise on screen in
-//   Y down and counter-clockwise in Y up.
+// - rotation: The rotation to apply, in radians
+//
+// With Y_UP the (x, y) is the rect's bottom-left corner and rotations look counter-clockwise.
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
 	_begin_vertices(s.shape_drawing_texture, 6)
 	tl, tr, bl, br: Vec2
@@ -860,10 +857,11 @@ draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0
 //
 // Optional parameters:
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
-//   `(0, 0)`, then the rectangle rotates around its (x, y) position. If it is
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
-// - rotation: The rotation to apply, in radians. Positive rotations appear clockwise on screen in
-//   Y down and counter-clockwise in Y up.
+// - rotation: The rotation to apply, in radians
+//
+// With Y_UP the position is the bottom-left corner and rotations look counter-clockwise.
 draw_rect_vec :: proc(
 	position: Vec2,
 	size: Vec2,
@@ -974,14 +972,11 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 	batch_vertex(vertices[2], {0, 1}, c)
 }
 
-// Draw a texture at a position. The texture grows from that position the way a `Rect` does, so the
-// position ends up at the texture's top-left corner in the default Y down coordinate system and its
-// bottom-left corner in a Y up one.
+// Draw a texture at a position. The top-left corner of the texture will end up at the position.
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around `position`, plus any `origin` shift. Positive
-//   rotations appear clockwise on screen in Y down and counter-clockwise in Y up.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 //
 // If you want to rotate around the middle of the texture, then try this:
@@ -992,6 +987,8 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 // The texture is fed into the active shader. Everything drawn in a single draw call must therefore
 // use the same texture. Drawing with a new texture starts a new draw call. Put several images into
 // one big texture, an atlas, to get fewer draw calls.
+//
+// With Y_UP the position is the bottom-left corner and rotations look counter-clockwise.
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
@@ -1358,19 +1355,16 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 	return measure_text(text, font_size, font_handle)
 }
 
-// Draw text at a position, with a size and color. If you've set a camera using `set_camera`, then
-// the font size will be internally scaled so that the text appear sharp.
-//
-// The text fills exactly `rect_from_pos_size(position, measure_text(text, font_size, font))`, with
-// the first line at the top on screen. So `position` is the top-left corner of the text in the
-// default Y down coordinate system, and its bottom-left corner in a Y up one: the same way a
-// `Rect` is anchored.
+// Draw text at a position, with a size and color. The position is the top-left position of the
+// text. If you've set a camera using `set_camera`, then the font size will be internally scaled
+// so that the text appear sharp.
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
-// - origin: The origin relative to `position`. Used when rotating the text.
-// - rotation: Rotation to apply to the text, measured in radians. Positive rotations appear
-//   clockwise on screen in Y down and counter-clockwise in Y up.
+// - origin: The origin relative top the top-left position of the text. Used when rotating the text.
+// - rotation: Rotating to apply to the text, measured in radians.
+//
+// With Y_UP the position is the bottom-left of the text and rotations look counter-clockwise.
 draw_text :: proc(
 	text: string,
 	position: Vec2,
@@ -3468,8 +3462,7 @@ rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect {
 	}
 }
 
-// Get the top left corner of a rectangle, as it appears on screen. A rectangle grows upwards from
-// its y in a Y up coordinate system, so the top edge is at the far end of it there.
+// Get the top left corner of a rectangle.
 rect_top_left :: proc(r: Rect) -> Vec2 {
 	when Y_UP {
 		return {r.x, r.y + r.h}
@@ -3478,8 +3471,8 @@ rect_top_left :: proc(r: Rect) -> Vec2 {
 	}
 }
 
-// Get the top middle point of a rectangle, as it appears on screen. That is, the mid-point between
-// the top left and top right corners.
+// Get the top middle point of a rectangle. That is, the mid-point between the top left and top
+// right corners.
 rect_top_middle :: proc(r: Rect) -> Vec2 {
 	when Y_UP {
 		return {r.x + r.w / 2, r.y + r.h}
@@ -3488,7 +3481,7 @@ rect_top_middle :: proc(r: Rect) -> Vec2 {
 	}
 }
 
-// Get the top right corner of a rectangle, as it appears on screen.
+// Get the top right corner of a rectangle.
 rect_top_right :: proc(r: Rect) -> Vec2 {
 	when Y_UP {
 		return {r.x + r.w, r.y + r.h}
@@ -3497,7 +3490,7 @@ rect_top_right :: proc(r: Rect) -> Vec2 {
 	}
 }
 
-// Get the bottom left corner of a rectangle, as it appears on screen.
+// Get the bottom left corner of a rectangle.
 rect_bottom_left :: proc(r: Rect) -> Vec2 {
 	when Y_UP {
 		return {r.x, r.y}
@@ -3506,8 +3499,8 @@ rect_bottom_left :: proc(r: Rect) -> Vec2 {
 	}
 }
 
-// Get the bottom middle point of a rectangle, as it appears on screen. That is, the mid-point
-// between the bottom left and bottom right corners.
+// Get the bottom middle point of a rectangle. That is, the mid-point between the bottom left and
+// bottom right corners.
 rect_bottom_middle :: proc(r: Rect) -> Vec2 {
 	when Y_UP {
 		return {r.x + r.w / 2, r.y}
@@ -3516,7 +3509,7 @@ rect_bottom_middle :: proc(r: Rect) -> Vec2 {
 	}
 }
 
-// Get the bottom right corner of a rectangle, as it appears on screen.
+// Get the bottom right corner of a rectangle.
 rect_bottom_right :: proc(r: Rect) -> Vec2 {
 	when Y_UP {
 		return {r.x + r.w, r.y}
@@ -3545,8 +3538,8 @@ rect_expand :: proc(r: Rect, x: f32, y: f32) -> Rect {
 	}
 }
 
-// Cut off `h` pixels from the top of `r`, as it appears on screen. `r` is modified. The cut off
-// part is returned. `m` is the margin added above the cut part.
+// Cut off `h` pixels from the top of `r`. `r` is modified. The cut off part is returned.
+// `m` is the margin added above the cut part.
 rect_cut_top :: proc(r: ^Rect, h: f32, m: f32) -> Rect {
 	when Y_UP {
 		// The top edge is at the high end of Y, so this is the "cut the far end" case.
@@ -3565,8 +3558,8 @@ rect_cut_top :: proc(r: ^Rect, h: f32, m: f32) -> Rect {
 	}
 }
 
-// Cut off `h` pixels from the bottom of `r`, as it appears on screen. `r` is modified. The cut off
-// part is returned. `m` is the margin added below the cut part.
+// Cut off `h` pixels from the bottom of `r`. `r` is modified. The cut off part is returned.
+// `m` is the margin added below the cut part.
 rect_cut_bottom :: proc(r: ^Rect, h: f32, m: f32) -> Rect {
 	when Y_UP {
 		// The bottom edge is at the low end of Y, so this is the "cut the near end" case.
