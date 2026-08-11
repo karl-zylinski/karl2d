@@ -163,44 +163,15 @@ get_window_scale :: proc() -> f32
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode)
 
-// Flushes the current batch. This sends off everything to the GPU that has been queued in the
-// current batch. Normally, you do not need to do this manually. It is done automatically when
-// `present` or `clear` run, when the vertex buffer is full, and when something the batch still
-// needs is about to change or go away: updating, destroying or changing the filter of a texture
-// that has been drawn with, or destroying a shader, render texture or font that has been drawn
-// with.
-//
-// Drawing does not fill up a single batch of identical state: as you draw, the library records a
-// list of draw calls. A new draw call starts when the state changes in a way that the GPU has to
-// know about, which happens when these procedures run:
-//
-// - set_camera
-// - set_shader
-// - set_shader_constant
-// - set_scissor_rect
-// - set_blend_mode
-// - set_render_texture
-// - draw_texture_* IF previous draw did not use the same texture (1)
-// - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing
-//   texture (2)
-//
-// Starting a new draw call is cheap: it records the state and keeps filling the same vertex buffer.
-// The whole list is sent to the render backend in one go when the batch is flushed, so the backend
-// only sets up the things that differ between two draw calls.
-//
-// (1) When drawing textures, the current texture is fed into the active shader. Everything within
-//     the same draw call must use the same texture. So drawing with a new texture starts a new draw
-//     call. You can combine several textures into an atlas to get fewer draw calls.
-//
-// (2) In order to use the same shader for shapes drawing and textured drawing, the shapes drawing
-//     uses a blank, white texture. For the same reasons as (1), drawing something else than shapes
-//     before drawing a shape will start a new draw call. In a future update I'll add so that you
-//     can set your own shapes drawing texture, making it possible to combine it with a bigger
-//     atlas.
+// Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
+// procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
+// call this procedure manually. It is done automatically when `present` or `clear` run. It can also
+// happen when you destroy a resource such as a texture or shader that is used in the current
+// batch.
 //
 // All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
-// dictates how big a vertex is, so the maximum number of vertices in a batch is
-// VERTEX_BUFFER_MAX / shader.vertex_size. Running out of room flushes the batch automatically.
+// dictates how big a vertex is. The maximum number of vertices in a batch is therefore
+// `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
 draw_current_batch :: proc()
 
 //-------//
@@ -1572,32 +1543,24 @@ State :: struct {
 	batch_render_target: Render_Target_Handle,
 	batch_blend_mode: Blend_Mode,
 
-	// Draw calls that have been recorded but not drawn yet. They all point into
-	// `vertex_buffer_cpu`.
+	// Recorded but not drawn yet. They all point into `vertex_buffer_cpu`.
 	batch_draw_calls: [dynamic]Draw_Call,
 
-	// The draw call that vertices go into right now. It joins `batch_draw_calls` once something
-	// has to be drawn differently, or when the batch is flushed. One that never got any vertices
-	// is simply overwritten by the next. A zeroed one means there is none: a draw call always has
-	// a shader.
+	// The one vertices go into right now. A zeroed one means there is none.
 	batch_draw_call: Draw_Call,
 
-	// Where the constant and texture snapshots that the draw calls point into live. Both are
-	// variable-size and have to stay put until the draw calls have run, and there is no use for
-	// them individually, so they all go in an arena that is emptied with the draw calls.
+	// Holds the constant values and textures that the draw calls point at.
 	batch_arena: runtime.Arena,
 	batch_allocator: runtime.Allocator,
 
-	// Set when the shader constants may no longer be what the open draw call snapshotted.
-	// Everything else a draw call captures is a value we can just compare against, but the
-	// constants are a buffer that gets written into, so whoever writes says so instead.
+	// Says that the shader constants may differ from what the open draw call captured.
 	batch_constants_dirty: bool,
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
 
-	// `proj_matrix * view_matrix`. Kept around because every draw call needs it, and the two
-	// matrices behind it change far more rarely. Update it with `_update_view_projection`.
+	// `proj_matrix * view_matrix`. Kept around because every draw call needs it. Update it with
+	// `_update_view_projection`.
 	view_projection: Mat4,
 
 	vertex_buffer_cpu: []u8,

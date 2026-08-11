@@ -188,14 +188,14 @@ gl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 		return
 	}
 
-	// All the draw calls read from this one buffer, so it only needs uploading once. Orphaning it
+	// All the draw calls read from this one buffer. It only needs uploading once. Orphaning it
 	// first lets the driver hand us fresh memory instead of waiting for the previous frame.
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 	gl.BufferData(gl.ARRAY_BUFFER, len(vertex_buffer), nil, gl.DYNAMIC_DRAW)
 	gl.BufferSubData(gl.ARRAY_BUFFER, 0, len(vertex_buffer), raw_data(vertex_buffer))
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
-	// Changes that belong to draw calls we could not draw. They never reached GL, so the next draw
+	// Changes that belong to draw calls we could not draw. They never reached GL. The next draw
 	// call we do run has to make them.
 	missed: bit_set[Draw_Call_Change]
 
@@ -243,8 +243,8 @@ gl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 			}
 		}
 
-		// The scissor rect is measured from the top in Karl2D but from the bottom in GL, so it
-		// depends on the height of the render target as well.
+		// Karl2D measures the scissor rect from the top. GL measures it from the bottom. It
+		// therefore depends on the height of the render target as well.
 		if .Scissor in changed {
 			if scissor, has_scissor := call.scissor.(Rect); has_scissor {
 				height := rt != nil ? rt.height : s.height

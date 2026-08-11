@@ -192,13 +192,13 @@ webgl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 		return
 	}
 
-	// All the draw calls read from this one buffer, so it only needs uploading once. This matters
-	// more here than in the other backends: every GL call crosses into JavaScript.
+	// All the draw calls read from this one buffer. It only needs uploading once. That matters more
+	// here than in the other backends. Every GL call crosses into JavaScript.
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 	gl.BufferDataSlice(gl.ARRAY_BUFFER, vertex_buffer, gl.STREAM_DRAW)
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
-	// Changes that belong to draw calls we could not draw. They never reached GL, so the next draw
+	// Changes that belong to draw calls we could not draw. They never reached GL. The next draw
 	// call we do run has to make them.
 	missed: bit_set[Draw_Call_Change]
 
@@ -246,8 +246,8 @@ webgl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 			}
 		}
 
-		// The scissor rect is measured from the top in Karl2D but from the bottom in GL, so it
-		// depends on the height of the render target as well.
+		// Karl2D measures the scissor rect from the top. GL measures it from the bottom. It
+		// therefore depends on the height of the render target as well.
 		if .Scissor in changed {
 			if scissor, has_scissor := call.scissor.(Rect); has_scissor {
 				height := rt != nil ? rt.height : s.height

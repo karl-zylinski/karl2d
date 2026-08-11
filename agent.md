@@ -46,6 +46,9 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - Public API procedures and types get a clear, concise comment above them. Document parameters and return values where appropriate.
 - Voice: short and conversational; first person is fine ("We piggyback on the resize event", "I fixed the binding locally"). State the fact rather than writing a justification. One line is the norm; go longer only for an OS quirk or something genuinely non-obvious.
 - Use short sentences. Prefer a period over all other forms of punctuation.
+- A doc comment tells the reader two things. What does this do? And why does it do it that way, if that would otherwise surprise them. Leave out everything else.
+- Never write about how something used to work, or about what a change improved. The reader has only ever seen the current version. That story belongs in the commit message.
+- If you are unsure whether something belongs on a procedure or on a struct, put it on the procedure. That is what people look up.
 - Short notes can be trailing comments on the line they describe: `camera: k2.Camera // world camera`.
 
 ### File organization
@@ -76,7 +79,7 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - What `^T` does is tell the reader that the procedure may write to what they handed it. Spend that on read-only parameters and a pointer stops meaning anything, so nobody can tell the mutating procedures from the rest at a glance.
 - `_draw_call_changes` compares two draw calls and returns what differs between them, so it takes `Draw_Call`, not `^Draw_Call`, even though they are 128 bytes each. `_finish_draw_call` fills in the open draw call, so that one does take a pointer.
 - Pointers are also right when the value is optional, or when you need the thing itself rather than its value, which is why `hm.get` hands one back.
-- Don't reach for a pointer because you think it will be faster. If you believe a signature costs something, measure it: the compiler is already doing the thing you are about to do by hand.
+- Don't reach for a pointer because you think it will be faster. If you believe a signature costs something, measure it. The compiler is already doing the thing you are about to do by hand.
 
 ## Architecture Notes
 

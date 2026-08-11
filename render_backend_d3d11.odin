@@ -286,7 +286,7 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 
 	dc := s.device_context
 
-	// All the draw calls read from this one buffer, so it only needs uploading once.
+	// All the draw calls read from this one buffer. It only needs uploading once.
 	vb_data: d3d11.MAPPED_SUBRESOURCE
 	ch(dc->Map(s.vertex_buffer_gpu, 0, .WRITE_DISCARD, {}, &vb_data))
 	{
@@ -298,8 +298,8 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 	dc->IASetPrimitiveTopology(.TRIANGLELIST)
 	dc->RSSetState(s.rasterizer_state)
 
-	// Changes that belong to draw calls we could not draw. They never reached the device context,
-	// so the next draw call we do run has to make them.
+	// Changes that belong to draw calls we could not draw. They never reached the device context.
+	// The next draw call we do run has to make them.
 	missed: bit_set[Draw_Call_Change]
 
 	for &call in draw_calls {

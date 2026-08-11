@@ -121,8 +121,8 @@ init :: proc(
 	// render backend each frame as part of `draw_current_batch()`.
 	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, s.allocator, loc)
 
-	// Draw calls are recorded here as you draw and executed by `draw_current_batch`. The arena
-	// holds the state snapshots they point into, and is emptied at the same time.
+	// Draw calls are recorded here as you draw. `draw_current_batch` runs them. The arena holds the
+	// values they point at. It is emptied at the same time.
 	s.batch_draw_calls = make([dynamic]Draw_Call, s.allocator, loc)
 	batch_arena_err := runtime.arena_init(&s.batch_arena, BATCH_ARENA_BLOCK_SIZE, s.allocator, loc)
 	log.assertf(batch_arena_err == nil, "Failed allocating batch arena: %v", batch_arena_err)
@@ -512,10 +512,11 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
 // procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
 // call this procedure manually. It is done automatically when `present` or `clear` run. It can also
-// happen when you destroy a resources such as a texture or shader that is used in the current batch.
+// happen when you destroy a resource such as a texture or shader that is used in the current
+// batch.
 //
 // All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
-// dictates how big a vertex is, so the maximum number of vertices in a batch is
+// dictates how big a vertex is. The maximum number of vertices in a batch is therefore
 // `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
 draw_current_batch :: proc() {
 	_finish_draw_call()
@@ -533,7 +534,7 @@ draw_current_batch :: proc() {
 
 	runtime.clear(&s.batch_draw_calls)
 
-	// The draw calls pointed into the arena, and they are gone now.
+	// The draw calls pointed into the arena. They are gone now.
 	free_all(s.batch_allocator)
 }
 
@@ -4038,8 +4039,7 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 
 	mem.copy(&shd.constants_data[loc.offset], val.data, sz)
 
-	// Draw calls recorded before this point kept the old value, so they are unaffected. The next
-	// one has to take a fresh snapshot though.
+	// Draw calls recorded before this point keep the old value. The next one takes a fresh copy.
 	s.batch_constants_dirty = true
 }
 
@@ -4856,32 +4856,24 @@ State :: struct {
 	batch_render_target: Render_Target_Handle,
 	batch_blend_mode: Blend_Mode,
 
-	// Draw calls that have been recorded but not drawn yet. They all point into
-	// `vertex_buffer_cpu`.
+	// Recorded but not drawn yet. They all point into `vertex_buffer_cpu`.
 	batch_draw_calls: [dynamic]Draw_Call,
 
-	// The draw call that vertices go into right now. It joins `batch_draw_calls` once something
-	// has to be drawn differently, or when the batch is flushed. One that never got any vertices
-	// is simply overwritten by the next. A zeroed one means there is none: a draw call always has
-	// a shader.
+	// The one vertices go into right now. A zeroed one means there is none.
 	batch_draw_call: Draw_Call,
 
-	// Where the constant and texture snapshots that the draw calls point into live. Both are
-	// variable-size and have to stay put until the draw calls have run, and there is no use for
-	// them individually, so they all go in an arena that is emptied with the draw calls.
+	// Holds the constant values and textures that the draw calls point at.
 	batch_arena: runtime.Arena,
 	batch_allocator: runtime.Allocator,
 
-	// Set when the shader constants may no longer be what the open draw call snapshotted.
-	// Everything else a draw call captures is a value we can just compare against, but the
-	// constants are a buffer that gets written into, so whoever writes says so instead.
+	// Says that the shader constants may differ from what the open draw call captured.
 	batch_constants_dirty: bool,
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
 
-	// `proj_matrix * view_matrix`. Kept around because every draw call needs it, and the two
-	// matrices behind it change far more rarely. Update it with `_update_view_projection`.
+	// `proj_matrix * view_matrix`. Kept around because every draw call needs it. Update it with
+	// `_update_view_projection`.
 	view_projection: Mat4,
 
 	vertex_buffer_cpu: []u8,
@@ -5184,9 +5176,8 @@ assert_initialized :: proc(loc := #caller_location) {
 	assert(s != nil, "Call k2.init before using this Karl2D procedure", loc)
 }
 
-// Run by the drawing procedures before they add any vertices. It makes sure there is room for
-// `vertices_needed` more vertices and that the open draw call draws with `texture` and the current
-// settings.
+// Run by the drawing procedures before they add any vertices. Makes room for `vertices_needed`
+// more vertices. Also makes sure the open draw call uses `texture` and the current settings.
 _prepare_batch :: proc(texture: Texture_Handle, vertices_needed: int) {
 	s.batch_texture = texture
 
@@ -5194,7 +5185,7 @@ _prepare_batch :: proc(texture: Texture_Handle, vertices_needed: int) {
 		_start_draw_call()
 	}
 
-	// Starting a draw call can move the write position forward a little, so check for room after.
+	// Starting a draw call can move the write position forward a little. Check for room after.
 	bytes_needed := s.batch_shader.vertex_size*vertices_needed
 
 	if s.vertex_buffer_cpu_used + bytes_needed > len(s.vertex_buffer_cpu) {
@@ -5204,7 +5195,7 @@ _prepare_batch :: proc(texture: Texture_Handle, vertices_needed: int) {
 }
 
 // Whether the open draw call already draws things the way the current settings say. A zeroed draw
-// call has no shader, so it never matches: that is the state right after a flush.
+// call has no shader. It therefore never matches. That is the state right after a flush.
 _draw_call_matches_settings :: proc() -> bool {
 	dc := s.batch_draw_call
 
@@ -5223,9 +5214,9 @@ _draw_call_matches_settings :: proc() -> bool {
 	return _textures_match(dc.textures)
 }
 
-// Compares the textures the current settings would bind against the ones a draw call captured. The
-// shader's bindpoints are used as they are, except the one Karl2D fills in with the texture being
-// drawn.
+// Compares the textures the current settings would bind against the ones a draw call captured.
+// The shader's bindpoints are used as they are. The exception is the one Karl2D fills in with the
+// texture being drawn.
 _textures_match :: proc(recorded: []Texture_Handle) -> bool {
 	shader := s.batch_shader
 
@@ -5246,24 +5237,24 @@ _textures_match :: proc(recorded: []Texture_Handle) -> bool {
 	return true
 }
 
-// Starts the draw call that the following vertices go into. Everything it needs is captured here,
-// because the drawing itself happens later, when the batch is flushed.
+// Starts the draw call that the following vertices go into. Everything it needs is captured here.
+// The drawing itself happens later, when the batch is flushed.
 _start_draw_call :: proc() {
 	_finish_draw_call()
 
 	shader := s.batch_shader
 
-	// Vertices for different shaders can share the buffer, so each draw call starts at a multiple
-	// of its own vertex size. That lets the backends address it as a plain vertex index.
+	// Vertices for different shaders can share the buffer. Each draw call therefore starts at a
+	// multiple of its own vertex size. That lets the backends address it as a plain vertex index.
 	if remainder := s.vertex_buffer_cpu_used % shader.vertex_size; remainder != 0 {
 		s.vertex_buffer_cpu_used += shader.vertex_size - remainder
 	}
 
-	// The shader keeps one copy of its constants and bindpoints, but a draw call runs long after
-	// it was recorded and has to use the values it saw back then: a later `set_shader_constant`
-	// or write to `texture_bindpoints` must not reach back and change it. So it gets its own copy.
+	// The shader keeps one copy of its constants and bindpoints. A draw call runs long after it was
+	// recorded, so it needs the values it saw back then. A later `set_shader_constant` or write to
+	// `texture_bindpoints` must not reach back and change it. It therefore gets its own copy.
 	//
-	// Draw calls that would copy the same values share one instead. That saves the copying, and it
+	// Draw calls that would copy the same values share one instead. That saves the copying. It also
 	// lets the backend compare the two pointers to see there is nothing to re-upload.
 	prev := s.batch_draw_call
 	same_shader := prev.shader == shader.handle
@@ -5273,7 +5264,7 @@ _start_draw_call :: proc() {
 	if !same_shader || s.batch_constants_dirty {
 		constants_data = slice.clone(shader.constants_data, s.batch_allocator)
 
-		// The view-projection matrix is ours rather than the program's, so it goes into our copy
+		// The view-projection matrix is ours rather than the program's. It goes into our copy
 		// instead of into the shader.
 		for mloc, builtin in shader.constant_builtin_locations {
 			constant, constant_ok := mloc.?
@@ -5296,7 +5287,7 @@ _start_draw_call :: proc() {
 	if !same_shader || !_textures_match(prev.textures) {
 		textures = slice.clone(shader.texture_bindpoints, s.batch_allocator)
 
-		// Same for the texture being drawn: it belongs in the copy, not in the shader.
+		// Same for the texture being drawn. It belongs in the copy, not in the shader.
 		if def_tex_idx, has_def_tex_idx := shader.default_texture_index.?; has_def_tex_idx {
 			textures[def_tex_idx] = s.batch_texture
 		}
@@ -5317,9 +5308,9 @@ _start_draw_call :: proc() {
 	s.batch_constants_dirty = false
 }
 
-// Draw calls that have been recorded but not drawn yet may still sample `texture`, and they have
-// to be drawn before it changes or goes away. If nothing has been drawn with it there is nothing
-// to wait for, which is the common case when a game loads or updates a texture mid-frame.
+// Draws the batch if any recorded draw call still samples `texture`. Those draw calls have to
+// happen before the texture changes or goes away. Nothing has usually been drawn with it yet, in
+// which case there is nothing to wait for.
 _flush_if_batch_uses_texture :: proc(texture: Texture_Handle) {
 	if texture == TEXTURE_NONE {
 		return
@@ -5348,7 +5339,7 @@ _flush_if_batch_uses_texture :: proc(texture: Texture_Handle) {
 	}
 }
 
-// Same as `_flush_if_batch_uses_texture`, but for a shader that is about to go away.
+// Same as `_flush_if_batch_uses_texture`. This one is for a shader that is about to go away.
 _flush_if_batch_uses_shader :: proc(shader: Shader_Handle) {
 	if shader == SHADER_NONE {
 		return
@@ -5367,7 +5358,7 @@ _flush_if_batch_uses_shader :: proc(shader: Shader_Handle) {
 	}
 }
 
-// Same as `_flush_if_batch_uses_texture`, but for a render target that is about to go away.
+// Same as `_flush_if_batch_uses_texture`. This one is for a render target about to go away.
 _flush_if_batch_uses_render_target :: proc(render_target: Render_Target_Handle) {
 	if render_target == RENDER_TARGET_NONE {
 		return
@@ -5386,27 +5377,27 @@ _flush_if_batch_uses_render_target :: proc(render_target: Render_Target_Handle) 
 	}
 }
 
-// Run after changing `proj_matrix` or `view_matrix`, so draw calls pick up the new combination.
+// Run after changing `proj_matrix` or `view_matrix`. Draw calls then pick up the new combination.
 _update_view_projection :: proc() {
 	s.view_projection = s.proj_matrix * s.view_matrix
 	s.batch_constants_dirty = true
 }
 
-// Works out what `next` needs the backend to set up that `prev` didn't. Doing it here means the
-// backends don't have to, and that the things which go together, such as a new render target
-// needing a new scissor rect, are decided once instead of once per backend.
+// Works out what `next` needs the backend to set up that `prev` did not. It is done here so that
+// each backend does not have to. Things that go together are also decided in one place. A new
+// render target needs a new scissor rect, for example.
 _draw_call_changes :: proc(
 	prev: Draw_Call,
 	next: Draw_Call,
 ) -> (changed: bit_set[Draw_Call_Change]) {
 	if prev.shader != next.shader {
-		// A different shader has its own constant buffers and texture bindpoints, so those have to
-		// be set up again even when the values in them are the same.
+		// A different shader has its own constant buffers and texture bindpoints. Those have to be
+		// set up again even when the values in them are the same.
 		changed += { .Shader, .Constants, .Textures }
 	}
 
-	// Draw calls that hold the same values share one copy of them, so the same memory means there
-	// is nothing to re-upload.
+	// Draw calls that hold the same values share one copy of them. The same memory therefore means
+	// there is nothing to re-upload.
 	if raw_data(prev.constants_data) != raw_data(next.constants_data) {
 		changed += { .Constants }
 	}
@@ -5431,8 +5422,8 @@ _draw_call_changes :: proc(
 	return
 }
 
-// Moves the open draw call into the list of recorded ones, unless nothing was ever drawn with it.
-// A run of settings changes leaves such empty draw calls behind, and they are just overwritten.
+// Moves the open draw call into the list of recorded ones. Empty ones are left out. A run of
+// settings changes leaves those behind and the next draw call overwrites them.
 _finish_draw_call :: proc() {
 	dc := &s.batch_draw_call
 
@@ -5457,8 +5448,8 @@ _finish_draw_call :: proc() {
 	append(&s.batch_draw_calls, dc^)
 }
 
-// Callers must run `_prepare_batch` first, so there is room in the buffer and a draw call to put
-// the vertex in.
+// Callers must run `_prepare_batch` first. That makes room in the buffer and opens a draw call to
+// put the vertex in.
 batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
 	shd := s.batch_shader
@@ -5499,9 +5490,9 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 
 VERTEX_BUFFER_MAX :: 1000000
 
-// How much room the batch arena starts with. A draw call needs a handful of bytes for its texture
-// snapshot and only takes a new constants snapshot when the constants actually changed, so this
-// covers a frame with thousands of draw calls in it. The arena grows if a frame needs more.
+// How much room the batch arena starts with. A draw call needs a handful of bytes for its
+// textures. It only copies the constants when they actually changed. This therefore covers a frame
+// with thousands of draw calls in it. The arena grows if a frame needs more.
 BATCH_ARENA_BLOCK_SIZE :: 64*1024
 
 @(private="file")
@@ -5603,12 +5594,12 @@ make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 FONT_DEFAULT_ATLAS_SIZE :: 2048
 
 // Gets glyphs that were baked since the last flush onto the GPU. Drawing text with a dynamic font
-// bakes the glyphs it needs into fontstash's atlas as it goes, so this has to run before the draw
-// calls that use them. Fontstash only ever puts glyphs in parts of the atlas that were not in use,
-// so the texture coordinates already recorded in the vertex buffer stay valid.
+// bakes the glyphs it needs into fontstash's atlas as it goes. This has to run before the draw
+// calls that use them. Fontstash only ever puts glyphs in unused parts of the atlas. Texture
+// coordinates already recorded in the vertex buffer therefore stay valid.
 //
-// There is one fontstash atlas shared by every dynamic font, but each font has its own GPU texture
-// mirroring it, so they all get the same update.
+// Every dynamic font shares one fontstash atlas. Each has its own GPU texture mirroring it. They
+// all get the same update.
 _update_font_atlases :: proc() {
 	font_dirty_rect: [4]f32
 
