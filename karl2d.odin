@@ -122,8 +122,7 @@ init :: proc(
 	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, s.allocator, loc)
 
 	// Draw calls are recorded here as you draw and executed by `draw_current_batch`. The arena
-	// holds the state snapshots they point into, and is emptied at the same time. It grows if it
-	// has to, so the block size is just what we expect a frame to need.
+	// holds the state snapshots they point into, and is emptied at the same time.
 	s.batch_draw_calls = make([dynamic]Draw_Call, s.allocator, loc)
 	batch_arena_err := runtime.arena_init(&s.batch_arena, BATCH_ARENA_BLOCK_SIZE, s.allocator, loc)
 	log.assertf(batch_arena_err == nil, "Failed allocating batch arena: %v", batch_arena_err)
@@ -511,14 +510,11 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 }
 
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
-// current batch. Normally, you do not need to do this manually. It is done automatically when these
-// procedures run:
-//
-// - present
-// - clear
-// - update_texture, destroy_texture, set_texture_filter, set_texture_filter_ex
-// - destroy_shader
-// - destroy_render_texture
+// current batch. Normally, you do not need to do this manually. It is done automatically when
+// `present` or `clear` run, when the vertex buffer is full, and when something the batch still
+// needs is about to change or go away: updating, destroying or changing the filter of a texture
+// that has been drawn with, or destroying a shader, render texture or font that has been drawn
+// with.
 //
 // Drawing does not fill up a single batch of identical state: as you draw, the library records a
 // list of draw calls. A new draw call starts when the state changes in a way that the GPU has to
@@ -531,7 +527,8 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 // - set_blend_mode
 // - set_render_texture
 // - draw_texture_* IF previous draw did not use the same texture (1)
-// - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing texture (2)
+// - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing
+//   texture (2)
 //
 // Starting a new draw call is cheap: it records the state and keeps filling the same vertex buffer.
 // The whole list is sent to the render backend in one go when the batch is flushed, so the backend
@@ -543,8 +540,9 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 //
 // (2) In order to use the same shader for shapes drawing and textured drawing, the shapes drawing
 //     uses a blank, white texture. For the same reasons as (1), drawing something else than shapes
-//     before drawing a shape will start a new draw call. In a future update I'll add so that you can
-//     set your own shapes drawing texture, making it possible to combine it with a bigger atlas.
+//     before drawing a shape will start a new draw call. In a future update I'll add so that you
+//     can set your own shapes drawing texture, making it possible to combine it with a bigger
+//     atlas.
 //
 // All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
 // dictates how big a vertex is, so the maximum number of vertices in a batch is
@@ -4026,6 +4024,11 @@ get_default_shader :: proc() -> Shader {
 // `set_shader(nil)`.
 set_shader :: proc(shader: Maybe(Shader)) {
 	if shd, shd_ok := shader.?; shd_ok {
+		if shd.handle == SHADER_NONE {
+			log.error("Cannot set shader, shader does not exist.")
+			return
+		}
+
 		if shd.handle == s.batch_shader.handle {
 			return
 		}
@@ -4888,9 +4891,9 @@ State :: struct {
 	batch_draw_calls: [dynamic]Draw_Call,
 
 	// The draw call that vertices go into right now. It joins `batch_draw_calls` once something
-	// has to be drawn differently, or when the batch is flushed. Keeping it out of the array means
-	// that one which never got any vertices is simply overwritten by the next. A zeroed one means
-	// there is none: a draw call always has a shader.
+	// has to be drawn differently, or when the batch is flushed. One that never got any vertices
+	// is simply overwritten by the next. A zeroed one means there is none: a draw call always has
+	// a shader.
 	batch_draw_call: Draw_Call,
 
 	// Where the constant and texture snapshots that the draw calls point into live. Both are
@@ -5222,7 +5225,9 @@ _prepare_batch :: proc(texture: Texture_Handle, vertices_needed: int) {
 	}
 
 	// Starting a draw call can move the write position forward a little, so check for room after.
-	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size*vertices_needed > len(s.vertex_buffer_cpu) {
+	bytes_needed := s.batch_shader.vertex_size*vertices_needed
+
+	if s.vertex_buffer_cpu_used + bytes_needed > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 		_start_draw_call()
 	}
@@ -5582,9 +5587,7 @@ FONT_DEFAULT_ATLAS_SIZE :: 2048
 // so the texture coordinates already recorded in the vertex buffer stay valid.
 //
 // There is one fontstash atlas shared by every dynamic font, but each font has its own GPU texture
-// mirroring it, so they all get the same update. That is a handful of textures at most, and this
-// does nothing at all unless glyphs were baked, which stops happening once a game has drawn its
-// text for the first time.
+// mirroring it, so they all get the same update.
 _update_font_atlases :: proc() {
 	font_dirty_rect: [4]f32
 

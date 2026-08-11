@@ -164,14 +164,11 @@ get_window_scale :: proc() -> f32
 set_window_mode :: proc(window_mode: Window_Mode)
 
 // Flushes the current batch. This sends off everything to the GPU that has been queued in the
-// current batch. Normally, you do not need to do this manually. It is done automatically when these
-// procedures run:
-//
-// - present
-// - clear
-// - update_texture, destroy_texture, set_texture_filter, set_texture_filter_ex
-// - destroy_shader
-// - destroy_render_texture
+// current batch. Normally, you do not need to do this manually. It is done automatically when
+// `present` or `clear` run, when the vertex buffer is full, and when something the batch still
+// needs is about to change or go away: updating, destroying or changing the filter of a texture
+// that has been drawn with, or destroying a shader, render texture or font that has been drawn
+// with.
 //
 // Drawing does not fill up a single batch of identical state: as you draw, the library records a
 // list of draw calls. A new draw call starts when the state changes in a way that the GPU has to
@@ -184,7 +181,8 @@ set_window_mode :: proc(window_mode: Window_Mode)
 // - set_blend_mode
 // - set_render_texture
 // - draw_texture_* IF previous draw did not use the same texture (1)
-// - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing texture (2)
+// - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing
+//   texture (2)
 //
 // Starting a new draw call is cheap: it records the state and keeps filling the same vertex buffer.
 // The whole list is sent to the render backend in one go when the batch is flushed, so the backend
@@ -196,8 +194,9 @@ set_window_mode :: proc(window_mode: Window_Mode)
 //
 // (2) In order to use the same shader for shapes drawing and textured drawing, the shapes drawing
 //     uses a blank, white texture. For the same reasons as (1), drawing something else than shapes
-//     before drawing a shape will start a new draw call. In a future update I'll add so that you can
-//     set your own shapes drawing texture, making it possible to combine it with a bigger atlas.
+//     before drawing a shape will start a new draw call. In a future update I'll add so that you
+//     can set your own shapes drawing texture, making it possible to combine it with a bigger
+//     atlas.
 //
 // All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
 // dictates how big a vertex is, so the maximum number of vertices in a batch is
@@ -1578,9 +1577,9 @@ State :: struct {
 	batch_draw_calls: [dynamic]Draw_Call,
 
 	// The draw call that vertices go into right now. It joins `batch_draw_calls` once something
-	// has to be drawn differently, or when the batch is flushed. Keeping it out of the array means
-	// that one which never got any vertices is simply overwritten by the next. A zeroed one means
-	// there is none: a draw call always has a shader.
+	// has to be drawn differently, or when the batch is flushed. One that never got any vertices
+	// is simply overwritten by the next. A zeroed one means there is none: a draw call always has
+	// a shader.
 	batch_draw_call: Draw_Call,
 
 	// Where the constant and texture snapshots that the draw calls point into live. Both are

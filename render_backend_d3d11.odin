@@ -426,7 +426,6 @@ d3d11_set_constants :: proc(
 
 	maps := make([]rawptr, len(d3d_shd.constant_buffers), frame_allocator)
 
-	cpu_data := constants_data
 	for cidx in 0..<len(constants) {
 		cpu_loc := constants[cidx]
 		gpu_loc := d3d_shd.constants[cidx]//cpu_loc.gpu_constant_idx]
@@ -448,7 +447,7 @@ d3d11_set_constants :: proc(
 
 		data_slice := slice.bytes_from_ptr(maps[gpu_loc.buffer_idx], gpu_buffer_info.size)
 		dst := data_slice[gpu_loc.offset:gpu_loc.offset+u32(cpu_loc.size)]
-		src := cpu_data[cpu_loc.offset:cpu_loc.offset+cpu_loc.size]
+		src := constants_data[cpu_loc.offset:cpu_loc.offset+cpu_loc.size]
 		copy(dst, src)
 	}
 

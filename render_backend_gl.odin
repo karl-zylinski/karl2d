@@ -271,7 +271,6 @@ gl_set_constants :: proc(
 ) {
 	assert(len(constants) == len(gl_shd.constants))
 
-	cpu_data := constants_data
 	for cidx in 0..<len(gl_shd.constants) {
 		cpu_loc := constants[cidx]
 
@@ -286,13 +285,13 @@ gl_set_constants :: proc(
 			gpu_buffer_info := gl_shd.constant_buffers[gpu_loc.loc]
 			gpu_data := gpu_buffer_info.buffer
 			gl.BindBuffer(gl.UNIFORM_BUFFER, gpu_data)
-			src := cpu_data[cpu_loc.offset:cpu_loc.offset+cpu_loc.size]
+			src := constants_data[cpu_loc.offset:cpu_loc.offset+cpu_loc.size]
 			gl.BufferData(gl.UNIFORM_BUFFER, len(src), raw_data(src), gl.DYNAMIC_DRAW)
 			gl.BindBufferBase(gl.UNIFORM_BUFFER, gpu_loc.loc, gpu_data)	
 
 		case .Uniform:
 			loc := i32(gpu_loc.loc)
-			ptr := (rawptr)(&cpu_data[cpu_loc.offset])
+			ptr := (rawptr)(&constants_data[cpu_loc.offset])
 			uptr := (^u32)(ptr)
 			iptr := (^i32)(ptr)
 			fptr := (^f32)(ptr)

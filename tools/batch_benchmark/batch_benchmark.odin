@@ -44,17 +44,12 @@ Scenario_Kind :: enum {
 	Camera_Switch_Every_10,
 }
 
-Scenario :: struct {
-	kind: Scenario_Kind,
-	name: string,
-}
-
-SCENARIOS :: [Scenario_Kind]Scenario {
-	.Single_Texture            = { .Single_Texture,            "single texture (1 batch break)" },
-	.Switch_Texture_Every_10   = { .Switch_Texture_Every_10,   "texture switch every 10 quads (200 breaks)" },
-	.Switch_Texture_Every_Quad = { .Switch_Texture_Every_Quad, "texture switch every quad (2000 breaks)" },
-	.Interleaved_Text          = { .Interleaved_Text,          "texture + text interleaved (400 breaks)" },
-	.Camera_Switch_Every_10    = { .Camera_Switch_Every_10,    "camera switch every 10 quads (200 breaks)" },
+SCENARIO_NAMES :: [Scenario_Kind]string {
+	.Single_Texture            = "single texture (1 batch break)",
+	.Switch_Texture_Every_10   = "texture switch every 10 quads (200 breaks)",
+	.Switch_Texture_Every_Quad = "texture switch every quad (2000 breaks)",
+	.Interleaved_Text          = "texture + text interleaved (400 breaks)",
+	.Camera_Switch_Every_10    = "camera switch every 10 quads (200 breaks)",
 }
 
 main :: proc() {
@@ -72,10 +67,10 @@ main :: proc() {
 		pixels_green[i*4 + 3] = 255
 	}
 
-	tex_red := k2.load_texture_from_bytes_raw(pixels_red[:], TEXTURE_SIZE, TEXTURE_SIZE, .RGBA_8_Norm)
-	tex_green := k2.load_texture_from_bytes_raw(pixels_green[:], TEXTURE_SIZE, TEXTURE_SIZE, .RGBA_8_Norm)
+	ts := TEXTURE_SIZE
+	tex_red := k2.load_texture_from_bytes_raw(pixels_red[:], ts, ts, .RGBA_8_Norm)
+	tex_green := k2.load_texture_from_bytes_raw(pixels_green[:], ts, ts, .RGBA_8_Norm)
 
-	scenarios := SCENARIOS
 	cpu_results: [Scenario_Kind]f64
 	frame_results: [Scenario_Kind]f64
 
@@ -133,9 +128,10 @@ main :: proc() {
 	fmt.println("Both backends present with vsync on, so anything under ~16 ms of frame is idle.")
 	fmt.println()
 
-	for s in scenarios {
-		fmt.printfln("%-44s cpu %7.3f ms   frame %8.3f ms",
-			s.name, cpu_results[s.kind], frame_results[s.kind])
+	names := SCENARIO_NAMES
+
+	for name, k in names {
+		fmt.printfln("%-44s cpu %7.3f ms   frame %8.3f ms", name, cpu_results[k], frame_results[k])
 	}
 }
 
