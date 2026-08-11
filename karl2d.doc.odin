@@ -1573,25 +1573,25 @@ State :: struct {
 	batch_render_target: Render_Target_Handle,
 	batch_blend_mode: Blend_Mode,
 
-	// The draw calls recorded since the last `draw_current_batch`. They all point into
-	// `vertex_buffer_cpu`. The last one is the "open" draw call that new vertices go into.
+	// Draw calls that have been recorded but not drawn yet. They all point into
+	// `vertex_buffer_cpu`.
 	batch_draw_calls: [dynamic]Draw_Call,
 
-	// The dynamic fonts drawn with since the last `draw_current_batch`. Their atlases are uploaded
-	// right before the draw calls are handed to the render backend.
-	batch_fonts: [dynamic]Font,
+	// The draw call that vertices go into right now. It joins `batch_draw_calls` once something
+	// has to be drawn differently, or when the batch is flushed. Keeping it out of the array means
+	// that one which never got any vertices is simply overwritten by the next. A zeroed one means
+	// there is none: a draw call always has a shader.
+	batch_draw_call: Draw_Call,
 
-	// Holds the shader constant and texture bindpoint snapshots that the draw calls point into.
-	// Emptied by `draw_current_batch`.
+	// Where the constant and texture snapshots that the draw calls point into live. Both are
+	// variable-size and have to stay put until the draw calls have run, and there is no use for
+	// them individually, so they all go in an arena that is emptied with the draw calls.
 	batch_arena: runtime.Arena,
 	batch_allocator: runtime.Allocator,
 
-	// Set when something the open draw call has already captured changed, so the next drawing
-	// operation has to open a new draw call.
-	batch_params_dirty: bool,
-
-	// Set when the shader constants changed, so the next draw call takes a fresh snapshot of them
-	// instead of sharing the previous draw call's.
+	// Set when the shader constants may no longer be what the open draw call snapshotted.
+	// Everything else a draw call captures is a value we can just compare against, but the
+	// constants are a buffer that gets written into, so whoever writes says so instead.
 	batch_constants_dirty: bool,
 
 	view_matrix: Mat4,
