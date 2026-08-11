@@ -124,6 +124,96 @@ compositor_interface := Interface {
 }
 
 
+Subcompositor :: struct {
+	using proxy: Proxy,
+}
+
+Subcompositor_Listener :: struct {}
+
+subcompositor_get_subsurface :: proc "c" (
+	subcompositor: ^Subcompositor,
+	surface: ^Surface,
+	parent: ^Surface,
+) -> ^Subsurface {
+	return (^Subsurface)(proxy_marshal_flags(
+		subcompositor,
+		1,
+		&subsurface_interface,
+		proxy_get_version(subcompositor),
+		0,
+		nil,
+		surface,
+		parent,
+	))
+}
+
+subcompositor_destroy :: proc "c" (subcompositor: ^Subcompositor) {
+	proxy_marshal_flags(subcompositor, 0, nil, proxy_get_version(subcompositor), MARSHAL_FLAG_DESTROY)
+}
+
+subcompositor_interface := Interface {
+	"wl_subcompositor",
+	1,
+	2,
+	raw_data([]Message {
+		{"destroy", "", raw_data([]^Interface{})},
+		{
+			"get_subsurface", "noo",
+			raw_data([]^Interface{&subsurface_interface, &surface_interface, &surface_interface}),
+		},
+	}),
+	0,
+	nil,
+}
+
+
+Subsurface :: struct {
+	using proxy: Proxy,
+}
+
+Subsurface_Listener :: struct {}
+
+subsurface_set_position :: proc "c" (subsurface: ^Subsurface, x: c.int32_t, y: c.int32_t) {
+	proxy_marshal_flags(subsurface, 1, nil, proxy_get_version(subsurface), 0, x, y)
+}
+
+subsurface_place_above :: proc "c" (subsurface: ^Subsurface, sibling: ^Surface) {
+	proxy_marshal_flags(subsurface, 2, nil, proxy_get_version(subsurface), 0, sibling)
+}
+
+subsurface_place_below :: proc "c" (subsurface: ^Subsurface, sibling: ^Surface) {
+	proxy_marshal_flags(subsurface, 3, nil, proxy_get_version(subsurface), 0, sibling)
+}
+
+subsurface_set_sync :: proc "c" (subsurface: ^Subsurface) {
+	proxy_marshal_flags(subsurface, 4, nil, proxy_get_version(subsurface), 0)
+}
+
+subsurface_set_desync :: proc "c" (subsurface: ^Subsurface) {
+	proxy_marshal_flags(subsurface, 5, nil, proxy_get_version(subsurface), 0)
+}
+
+subsurface_destroy :: proc "c" (subsurface: ^Subsurface) {
+	proxy_marshal_flags(subsurface, 0, nil, proxy_get_version(subsurface), MARSHAL_FLAG_DESTROY)
+}
+
+subsurface_interface := Interface {
+	"wl_subsurface",
+	1,
+	6,
+	raw_data([]Message {
+		{"destroy", "", raw_data([]^Interface{})},
+		{"set_position", "ii", raw_data([]^Interface{nil, nil})},
+		{"place_above", "o", raw_data([]^Interface{&surface_interface})},
+		{"place_below", "o", raw_data([]^Interface{&surface_interface})},
+		{"set_sync", "", raw_data([]^Interface{})},
+		{"set_desync", "", raw_data([]^Interface{})},
+	}),
+	0,
+	nil,
+}
+
+
 Buffer :: struct {
 	using proxy: Proxy,
 }
