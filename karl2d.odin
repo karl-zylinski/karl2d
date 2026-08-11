@@ -521,20 +521,16 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 draw_current_batch :: proc() {
 	_finish_draw_call()
 
-	vertex_bytes := s.vertex_buffer_cpu_used
-	s.current_draw_call = {}
-	s.vertex_buffer_cpu_used = 0
-
-	if len(s.batch_draw_calls) == 0 {
-		return
+	if len(s.batch_draw_calls) > 0 {
+		_update_font_atlases()
+		rb.draw(s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used], s.batch_draw_calls[:])
+		runtime.clear(&s.batch_draw_calls)
 	}
 
-	_update_font_atlases()
-	rb.draw(s.vertex_buffer_cpu[:vertex_bytes], s.batch_draw_calls[:])
-
-	runtime.clear(&s.batch_draw_calls)
-
-	// The draw calls pointed into the arena. They are gone now.
+	// Both the recorded draw calls and the open one point into the arena, so neither may outlive
+	// it. Emptying the arena is also what makes the next draw call take fresh copies.
+	s.current_draw_call = {}
+	s.vertex_buffer_cpu_used = 0
 	free_all(s.batch_allocator)
 }
 
@@ -5182,21 +5178,21 @@ assert_initialized :: proc(loc := #caller_location) {
 	assert(s != nil, "Call k2.init before using this Karl2D procedure", loc)
 }
 
-// Run by the drawing procedures before they add any vertices. Starts a new draw call if the
-// settings changed. Draws the batch if `vertices_needed` more vertices will not fit in the vertex
-// buffer, which leaves an empty one to put them in.
+// Run by the drawing procedures before they add any vertices. Draws the batch if `vertices_needed`
+// more vertices will not fit in the vertex buffer, which leaves an empty one to put them in. Then
+// starts a new draw call if the settings changed.
 _begin_vertices :: proc(texture: Texture_Handle, vertices_needed: int) {
 	s.current_texture = texture
 
-	if !_draw_call_matches_settings() {
-		_start_draw_call()
-	}
-
-	// Starting a draw call can move the write position forward a little. Check for room after.
-	bytes_needed := s.current_shader.vertex_size*vertices_needed
+	// Starting a draw call can pad the write position by up to one vertex, so ask for one extra.
+	bytes_needed := s.current_shader.vertex_size*(vertices_needed + 1)
 
 	if s.vertex_buffer_cpu_used + bytes_needed > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
+	}
+
+	if !_draw_call_matches_settings() {
+		_finish_draw_call()
 		_start_draw_call()
 	}
 }
@@ -5245,10 +5241,9 @@ _textures_match :: proc(recorded: []Texture_Handle) -> bool {
 }
 
 // Starts the draw call that the following vertices go into. Everything it needs is captured here.
-// The drawing itself happens later, when the batch is flushed.
+// The drawing itself happens later, when the batch is flushed. Run `_finish_draw_call` first, or
+// the vertices of the one that is already open are lost.
 _start_draw_call :: proc() {
-	_finish_draw_call()
-
 	shader := s.current_shader
 
 	// Vertices for different shaders can share the buffer. Each draw call therefore starts at a
@@ -5429,8 +5424,9 @@ _draw_call_changes :: proc(
 	return
 }
 
-// Moves the open draw call into the list of recorded ones. Empty ones are left out. A run of
-// settings changes leaves those behind and the next draw call overwrites them.
+// Puts the open draw call into the list of recorded ones. Empty ones are left out, which is what a
+// run of settings changes leaves behind. What stays open is an empty draw call with the same
+// settings, so running this twice cannot record the same vertices twice.
 _finish_draw_call :: proc() {
 	dc := &s.current_draw_call
 
@@ -5440,19 +5436,20 @@ _finish_draw_call :: proc() {
 
 	dc.vertex_count = (s.vertex_buffer_cpu_used - dc.vertex_offset) / dc.vertex_size
 
-	if dc.vertex_count == 0 {
-		return
+	if dc.vertex_count > 0 {
+		// Compared against the last draw call that made it into the list, because that is the one
+		// the backend will have set up before this one. Dropped draw calls never happened.
+		if len(s.batch_draw_calls) == 0 {
+			dc.changed = DRAW_CALL_CHANGE_ALL
+		} else {
+			dc.changed = _draw_call_changes(s.batch_draw_calls[len(s.batch_draw_calls) - 1], dc^)
+		}
+
+		append(&s.batch_draw_calls, dc^)
 	}
 
-	// Compared against the last draw call that made it into the list, because that is the one the
-	// backend will have set up before this one. Dropped draw calls never happened.
-	if len(s.batch_draw_calls) == 0 {
-		dc.changed = DRAW_CALL_CHANGE_ALL
-	} else {
-		dc.changed = _draw_call_changes(s.batch_draw_calls[len(s.batch_draw_calls) - 1], dc^)
-	}
-
-	append(&s.batch_draw_calls, dc^)
+	dc.vertex_offset = s.vertex_buffer_cpu_used
+	dc.vertex_count = 0
 }
 
 // Callers must run `_begin_vertices` first. That leaves room in the buffer and a draw call to put
