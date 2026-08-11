@@ -897,9 +897,13 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 //
 // If you want to rotate around the middle of the texture, then try this:
-// 
+//
 //// middle := k2.rect_middle(k2.get_texture_rect(tex))
 //// draw_texture(tex, pos + middle, middle, rot)
+//
+// The texture is fed into the active shader. Everything drawn in a single draw call must therefore
+// use the same texture. Drawing with a new texture starts a new draw call. Put several images into
+// one big texture, an atlas, to get fewer draw calls.
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
