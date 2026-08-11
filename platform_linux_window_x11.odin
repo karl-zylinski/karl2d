@@ -109,12 +109,6 @@ x11_init :: proc(
 	s.delete_msg = X.InternAtom(s.display, "WM_DELETE_WINDOW", false)
 	X.SetWMProtocols(s.display, s.window, &s.delete_msg, 1)
 
-	// The X resource database lives in a property on the root window, so a DPI change shows up as
-	// a PropertyNotify on it. This is also how GTK and Qt notice. It means we see every other root
-	// property the window manager touches too, which is why x11_get_events checks the atom.
-	s.resource_manager = X.InternAtom(s.display, "RESOURCE_MANAGER", false)
-	X.SelectInput(s.display, X.DefaultRootWindow(s.display), {.PropertyChange})
-
 	// Detectable auto-repeat means a held-down key produces repeated KeyPress events without an
 	// interleaved KeyRelease between them, so we can tell an initial press from a repeat by
 	// tracking which keys are currently held (see `x11_get_events`). If unsupported, we fall back
@@ -138,6 +132,19 @@ x11_init :: proc(
 			cstring(nil),
 		)
 	}
+
+	// The X resource database lives in a property on the root window, so a DPI change shows up as
+	// a PropertyNotify on it. This is also how GTK and Qt notice. It means we see every other root
+	// property the window manager touches too, which is why x11_get_events checks the atom.
+	//
+	// SelectInput replaces our mask for a window rather than adding to it, and the input method
+	// above shares this display connection and may select on the root window too. So we run after
+	// it and keep whatever it asked for.
+	root := X.DefaultRootWindow(s.display)
+	root_attribs: X.XWindowAttributes
+	X.GetWindowAttributes(s.display, root, &root_attribs)
+	s.resource_manager = X.InternAtom(s.display, "RESOURCE_MANAGER", false)
+	X.SelectInput(s.display, root, root_attribs.your_event_mask | {.PropertyChange})
 
 	x11_set_window_mode(init_options.window_mode)
 
