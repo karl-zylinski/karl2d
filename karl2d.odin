@@ -5289,45 +5289,47 @@ _start_draw_call :: proc() {
 		s.vertex_buffer_cpu_used += shader.vertex_size - remainder
 	}
 
-	// The view-projection matrix and the texture being drawn live in the shader, so they go in
-	// before we snapshot it.
-	for mloc, builtin in shader.constant_builtin_locations {
-		constant, constant_ok := mloc.?
-
-		if !constant_ok {
-			continue
-		}
-
-		switch builtin {
-		case .View_Projection_Matrix:
-			if constant.size == size_of(Mat4) {
-				(^Mat4)(&shader.constants_data[constant.offset])^ = s.view_projection
-			}
-		}
-	}
-
-	if def_tex_idx, has_def_tex_idx := shader.default_texture_index.?; has_def_tex_idx {
-		shader.texture_bindpoints[def_tex_idx] = s.batch_texture
-	}
-
-	// The shader owns a single copy of its constants and bindpoints, but a draw call has to keep
-	// the values it was recorded with: `set_shader_constant` and writes to `texture_bindpoints`
-	// must not reach back and change draw calls we already recorded. So snapshot them.
+	// The shader keeps one copy of its constants and bindpoints, but a draw call runs long after
+	// it was recorded and has to use the values it saw back then: a later `set_shader_constant`
+	// or write to `texture_bindpoints` must not reach back and change it. So it gets its own copy.
+	//
+	// Draw calls that would copy the same values share one instead. That saves the copying, and it
+	// lets the backend compare the two pointers to see there is nothing to re-upload.
 	prev := s.batch_draw_call
 	same_shader := prev.shader == shader.handle
 
-	// Share the previous snapshot when nothing changed. Saves the copy, and lets the backend
-	// compare the two pointers to see that there is nothing to re-upload.
 	constants_data := prev.constants_data
 
 	if !same_shader || s.batch_constants_dirty {
 		constants_data = slice.clone(shader.constants_data, s.batch_allocator)
+
+		// The view-projection matrix is ours rather than the program's, so it goes into our copy
+		// instead of into the shader.
+		for mloc, builtin in shader.constant_builtin_locations {
+			constant, constant_ok := mloc.?
+
+			if !constant_ok {
+				continue
+			}
+
+			switch builtin {
+			case .View_Projection_Matrix:
+				if constant.size == size_of(Mat4) {
+					(^Mat4)(&constants_data[constant.offset])^ = s.view_projection
+				}
+			}
+		}
 	}
 
 	textures := prev.textures
 
-	if !same_shader || !slice.equal(prev.textures, shader.texture_bindpoints) {
+	if !same_shader || !_textures_match(prev.textures) {
 		textures = slice.clone(shader.texture_bindpoints, s.batch_allocator)
+
+		// Same for the texture being drawn: it belongs in the copy, not in the shader.
+		if def_tex_idx, has_def_tex_idx := shader.default_texture_index.?; has_def_tex_idx {
+			textures[def_tex_idx] = s.batch_texture
+		}
 	}
 
 	s.batch_draw_call = {

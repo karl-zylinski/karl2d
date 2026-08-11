@@ -34,11 +34,12 @@ Draw_Call :: struct {
 	vertex_size: int,
 	constants: []Shader_Constant_Location,
 
-	// Snapshots of the shader's constant values and bound textures from when the draw call was
-	// recorded, not the shader's current ones: draw calls run later than they are recorded, and
-	// the program can change both in between.
+	// The constant values and textures to draw with. These are the draw call's own copies, not the
+	// shader's: a draw call runs long after it was recorded, and the program can change the
+	// shader's in between. They also hold what Karl2D itself puts in, such as the view-projection
+	// matrix and the texture being drawn.
 	//
-	// Draw calls that didn't change them share a snapshot, so comparing `raw_data` of these
+	// Draw calls that would hold the same values share a copy, so comparing `raw_data` of these
 	// slices to the previous draw call's tells you whether they need to be re-uploaded.
 	constants_data: []u8,
 	textures: []Texture_Handle,
