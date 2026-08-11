@@ -75,11 +75,11 @@ shutdown :: proc() {
 }
 
 step :: proc() -> bool {
+	// `update` processes this frame's events, so the "went down" checks below see them. Calling
+	// `process_events` again here would clear them before anything got to look.
 	if !k2.update() {
 		return false
 	}
-
-	k2.process_events()
 
 	// The mouse position is already in the same coordinate system as the physics world, so it can
 	// be used to aim without converting anything.
