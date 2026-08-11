@@ -82,10 +82,11 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 		return
 	}
 
+	// Set the PCM before starting the thread: the thread uses it right away.
+	s.pcm = pcm
 	s.run_thread = true
 	s.feed_thread = thread.create(alsa_thread_proc)
 	thread.start(s.feed_thread)
-	s.pcm = pcm
 }
 
 alsa_thread_proc :: proc(t: ^thread.Thread) {
@@ -133,8 +134,14 @@ alsa_shutdown :: proc() {
 	log.debug("Shutdown audio backend alsa")
 
 	sync.atomic_store(&s.run_thread, false)
-	thread.join(s.feed_thread)
-	thread.destroy(s.feed_thread)
+
+	// The thread is only created if the whole of `alsa_init` succeeded. It may be nil if for
+	// example no ALSA device was available.
+	if s.feed_thread != nil {
+		thread.join(s.feed_thread)
+		thread.destroy(s.feed_thread)
+		s.feed_thread = nil
+	}
 
 	if s.pcm != nil {
 		alsa.pcm_close(s.pcm)
