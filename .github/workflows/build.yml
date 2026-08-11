@@ -56,14 +56,15 @@ jobs:
       # draw the same picture.
       #
       # These actually run the library rather than just compiling it, so they need a window: only
-      # the Windows runner is guaranteed to be able to open one. Single-threaded because Karl2D
-      # keeps its state in globals.
+      # the Windows runner is guaranteed to be able to open one. The nil render and audio backends
+      # keep them off the GPU and off the sound card, neither of which a runner has. Single-threaded
+      # because Karl2D keeps its state in globals.
       - name: tests/coordinate_system
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
-          odin test tests/coordinate_system -no-threaded-checker -vet -strict-style -vet-tabs -define:KARL2D_RENDER_BACKEND=nil -define:ODIN_TEST_THREADS=1
-          odin test tests/coordinate_system -no-threaded-checker -vet -strict-style -vet-tabs -define:KARL2D_RENDER_BACKEND=nil -define:ODIN_TEST_THREADS=1 -define:KARL2D_Y_UP=true
+          odin test tests/coordinate_system -no-threaded-checker -vet -strict-style -vet-tabs -define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1
+          odin test tests/coordinate_system -no-threaded-checker -vet -strict-style -vet-tabs -define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1 -define:KARL2D_Y_UP=true
 
       - name: raylib_ports/shaders_texture_waves
         run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style

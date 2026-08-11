@@ -210,8 +210,8 @@ is positioned and measured in screen space, which is the same either way, so run
 configurations is the test:
 
 ```
-odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:ODIN_TEST_THREADS=1
-odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:ODIN_TEST_THREADS=1 -define:KARL2D_Y_UP=true
+odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1
+odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1 -define:KARL2D_Y_UP=true
 ```
 
 ## Hot reload
