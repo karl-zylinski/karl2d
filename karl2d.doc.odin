@@ -6,8 +6,8 @@ package karl2d
 //-------------------//
 // COORDINATE SYSTEM //
 //-------------------//
-//
-// Karl2D uses one of two coordinate systems, chosen at compile time:
+
+// Karl2D supports two coordinate systems. You choose which at compile time.
 //
 // - Y down (the default): The origin is in the top-left corner of the screen and Y grows downwards.
 //   A `Rect` grows downwards and to the right from its (x, y) position, so (x, y) is the rect's

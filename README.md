@@ -173,46 +173,15 @@ The `$` in front of the `name` parameter ensures that you're passing a compile-t
 ## Coordinate system
 
 By default the origin is in the top-left corner of the screen and Y grows downwards. You can flip
-this so that the origin is in the bottom-left corner and Y grows upwards, which is what most physics
-engines and most maths code expect:
+this so that the origin is in the bottom-left corner and Y grows upwards. Add `-define:KARL2D_Y_UP=true` when building to use Y up coordinates:
 
 ```
 odin build your_game -define:KARL2D_Y_UP=true
 ```
 
-What changes:
+Some physics engines, such as Box2D uses Y up. This is used in `examples/box2d`. Without the Y up corodinates the code would be a lot messier, with lots of coordinate system conversions.
 
-- A `Rect` grows from its `(x, y)` position in the direction the axes point. So `(x, y)` is the
-  rect's top-left corner in Y down and its bottom-left corner in Y up.
-- Positive rotations appear clockwise on screen in Y down and counter-clockwise in Y up. The Y up
-  behaviour is what `math.atan2` and physics engines produce, so their angles can be passed straight
-  to the `draw_*` procedures.
-- `draw_text` anchors the text block the same way a `Rect` is anchored. Either way the text covers
-  exactly `rect_from_pos_size(position, measure_text(text, font_size))`, with the first line at the
-  top on screen.
-- `get_mouse_position` is measured from the origin, so from the bottom of the window in Y up.
-
-What does _not_ change:
-
-- Texture space. The `source` rectangle of the `draw_texture_*` procedures is always measured from
-  the top-left corner of the texture, downwards, because that is how image files and image editors
-  work.
-- The naming of the `rect_*` helpers. `rect_top_left` is always the corner that appears in the top
-  left on screen, and `rect_cut_top` always cuts the part at the top of the screen.
-- `measure_text`, which always returns a positive size.
-
-`examples/box2d` is built this way: Box2D works in a Y up world, so the example uses Karl2D's Y up
-coordinate system too and passes positions and angles between the two without any conversion. It
-requires the define, and says so with a `#assert`.
-
-`tests/coordinate_system` checks that both coordinate systems draw the same picture. Everything in it
-is positioned and measured in screen space, which is the same either way, so running it in both
-configurations is the test:
-
-```
-odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1
-odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1 -define:KARL2D_Y_UP=true
-```
+There is a comment above the `Y_UP` constant in `karl2d.odin` that further elaborates in the differences between Y up / Y down.
 
 ## Hot reload
 Some kind of gameplay code hot reload is planned as part of the library. Currently, there is an experimental implementation of this in a separate repository: https://github.com/karl-zylinski/karl2d-hot-reload-template
