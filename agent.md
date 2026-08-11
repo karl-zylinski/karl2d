@@ -14,15 +14,14 @@ Conventions for writing code, writing documentation, and collaborating on this p
 ## Workflow
 - Keep changes focused. Don't touch unrelated code, don't use auto-formatters (e.g. odinfmt), and don't modify whitespace on lines you aren't otherwise changing.
 - If you make unintended changes, revert them in additional commits (squash merges are used).
+- If you break backwards compatbility, introduce @(deprecated) procedures or somehow try to do it gracefully. If you cannot help it, then so be, but flag about it in the review.
 - Keep dependencies minimal. Prefer clarity and simplicity over cleverness.
 - Draft Pull Requests are always welcome and do not need to follow strict rules. A _ready for review_ PR must contain working, tested, complete code that follows the style below.
 
 ## Verifying Your Work
 - Build and test through the examples in `examples/`. Prefer the existing VS Code build tasks; they already include `-vet -strict-style -vet-tabs` and come in three variants: default (D3D11 on Windows), `(GL)`, and `(web)`. Use the same `-vet -strict-style -vet-tabs` flags when running `odin` directly.
 - After edits, run the most relevant build task(s) for what you touched. After a large change, run `odin run tools/test_examples`, the CI script that builds every example (some are excluded from web builds, e.g. `minimal_hello_world`, `custom_frame_update`).
-- After API changes:
-  - Regenerate `karl2d.doc.odin`: `odin run tools/api_doc_builder`.
-  - Verify the API: `odin build tools/api_verifier -debug -vet -strict-style -vet-tabs`.
+- Regenerate `karl2d.doc.odin`: `odin run tools/api_doc_builder`. Any change in `karl2d.doc.odin` is a user-facing API change. Make sure you want that change to actually happen. Think about what happens if you break backwards compatibility.
 - Web builds use the script in `build_web/`. Forward game/compiler flags after `--`: `odin run build_web -- your_game_path -debug`. A web game must have `init` and `step` procedures; `examples/minimal_hello_world_web/` is the template.
 - `tools/make_sublime_projects`, `tools/make_vscode_project/` and `tools/make_zed_project/` generate editor project configurations.
 
