@@ -72,6 +72,10 @@ x11_init :: proc(
 	// Xlib wants this before anything touches the resource database.
 	X.XrmInitialize()
 	s.display = X.OpenDisplay(nil)
+
+	// The resource database, holding the DPI setting among other things, lives in this property on
+	// the root window. See x11_fetch_window_scale.
+	s.resource_manager = X.InternAtom(s.display, "RESOURCE_MANAGER", false)
 	s.window_scale = x11_fetch_window_scale()
 
 	if init_options.disable_auto_scale_hint {
@@ -133,9 +137,9 @@ x11_init :: proc(
 		)
 	}
 
-	// The X resource database lives in a property on the root window, so a DPI change shows up as
-	// a PropertyNotify on it. This is also how GTK and Qt notice. It means we see every other root
-	// property the window manager touches too, which is why x11_get_events checks the atom.
+	// A DPI change shows up as a PropertyNotify for the resource database on the root window. This
+	// is also how GTK and Qt notice. It means we see every other root property the window manager
+	// touches too, which is why x11_get_events checks the atom.
 	//
 	// SelectInput replaces our mask for a window rather than adding to it, and the input method
 	// above shares this display connection and may select on the root window too. So we run after
@@ -143,7 +147,6 @@ x11_init :: proc(
 	root := X.DefaultRootWindow(s.display)
 	root_attribs: X.XWindowAttributes
 	X.GetWindowAttributes(s.display, root, &root_attribs)
-	s.resource_manager = X.InternAtom(s.display, "RESOURCE_MANAGER", false)
 	X.SelectInput(s.display, root, root_attribs.your_event_mask | {.PropertyChange})
 
 	x11_set_window_mode(init_options.window_mode)
@@ -486,14 +489,44 @@ x11_get_window_scale :: proc() -> f32 {
 // matches the rest of the desktop. There is no per-monitor DPI in X11: one number covers
 // everything. Desktops that would set it to 96 tend to remove the entry instead, so a missing
 // entry means 100%.
+//
+// We fetch the root window property ourselves instead of calling XResourceManagerString. That one
+// returns the copy Xlib took when the display connection was opened, so it never reflects a change
+// made while the game is running.
 x11_fetch_window_scale :: proc() -> f32 {
-	rms := X.ResourceManagerString(s.display)
+	// A length in 32-bit units. The server sends only what is actually there, so this just has to
+	// be bigger than any real resource database.
+	MAX_RESOURCE_WORDS :: 1024 * 1024
 
-	if rms == nil {
+	actual_type: X.Atom
+	actual_format: i32
+	num_items: uint
+	bytes_after: uint
+	prop: rawptr
+
+	get_status := X.GetWindowProperty(
+		s.display,
+		X.DefaultRootWindow(s.display),
+		s.resource_manager,
+		0,
+		MAX_RESOURCE_WORDS,
+		false,
+		X.AnyPropertyType,
+		&actual_type,
+		&actual_format,
+		&num_items,
+		&bytes_after,
+		&prop,
+	)
+
+	if get_status != i32(X.Status.Success) || prop == nil {
 		return 1
 	}
 
-	db := X.XrmGetStringDatabase(rms)
+	// Xlib puts a zero byte after the data it hands back, so this is a valid cstring even though
+	// the property itself is not terminated.
+	db := X.XrmGetStringDatabase(cstring(prop))
+	X.Free(prop)
 
 	if db == nil {
 		return 1
