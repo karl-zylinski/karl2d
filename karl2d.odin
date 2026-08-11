@@ -509,44 +509,14 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 	pf.set_window_mode(window_mode)
 }
 
-// Flushes the current batch. This sends off everything to the GPU that has been queued in the
-// current batch. Normally, you do not need to do this manually. It is done automatically when
-// `present` or `clear` run, when the vertex buffer is full, and when something the batch still
-// needs is about to change or go away: updating, destroying or changing the filter of a texture
-// that has been drawn with, or destroying a shader, render texture or font that has been drawn
-// with.
-//
-// Drawing does not fill up a single batch of identical state: as you draw, the library records a
-// list of draw calls. A new draw call starts when the state changes in a way that the GPU has to
-// know about, which happens when these procedures run:
-//
-// - set_camera
-// - set_shader
-// - set_shader_constant
-// - set_scissor_rect
-// - set_blend_mode
-// - set_render_texture
-// - draw_texture_* IF previous draw did not use the same texture (1)
-// - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing
-//   texture (2)
-//
-// Starting a new draw call is cheap: it records the state and keeps filling the same vertex buffer.
-// The whole list is sent to the render backend in one go when the batch is flushed, so the backend
-// only sets up the things that differ between two draw calls.
-//
-// (1) When drawing textures, the current texture is fed into the active shader. Everything within
-//     the same draw call must use the same texture. So drawing with a new texture starts a new draw
-//     call. You can combine several textures into an atlas to get fewer draw calls.
-//
-// (2) In order to use the same shader for shapes drawing and textured drawing, the shapes drawing
-//     uses a blank, white texture. For the same reasons as (1), drawing something else than shapes
-//     before drawing a shape will start a new draw call. In a future update I'll add so that you
-//     can set your own shapes drawing texture, making it possible to combine it with a bigger
-//     atlas.
+// Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
+// procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
+// call this procedure manually. It is done automatically when `present` or `clear` run. It can also
+// happen when you destroy a resources such as a texture or shader that is used in the current batch.
 //
 // All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
 // dictates how big a vertex is, so the maximum number of vertices in a batch is
-// VERTEX_BUFFER_MAX / shader.vertex_size. Running out of room flushes the batch automatically.
+// `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
 draw_current_batch :: proc() {
 	_finish_draw_call()
 

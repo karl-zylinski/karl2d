@@ -45,6 +45,7 @@ Conventions for writing code, writing documentation, and collaborating on this p
 ### Comments
 - Public API procedures and types get a clear, concise comment above them. Document parameters and return values where appropriate.
 - Voice: short and conversational; first person is fine ("We piggyback on the resize event", "I fixed the binding locally"). State the fact rather than writing a justification. One line is the norm; go longer only for an OS quirk or something genuinely non-obvious.
+- Use short sentences. Prefer a period over all other forms of punctuation.
 - Short notes can be trailing comments on the line they describe: `camera: k2.Camera // world camera`.
 
 ### File organization

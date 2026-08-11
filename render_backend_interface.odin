@@ -17,8 +17,7 @@ Shader_Desc :: struct {
 	inputs: []Shader_Input,
 }
 
-// The things a draw call can need set up. Which ones it actually needs is worked out by the core,
-// see `Draw_Call.changed`.
+// The things a draw call can need set up. Which ones it actually needs is worked out by karl2d.odin
 Draw_Call_Change :: enum {
 	Shader,
 	Constants,
@@ -32,9 +31,10 @@ Draw_Call_Change :: enum {
 // state the device was left in.
 DRAW_CALL_CHANGE_ALL :: ~bit_set[Draw_Call_Change]{}
 
-// One chunk of drawing work: a range of the vertex buffer plus the state to draw it with. The core
-// records these as you draw and hands the whole array to the render backend in one go, so the
-// backend can skip setting up state that doesn't change between two draw calls.
+// One chunk of drawing work: a range of the vertex buffer plus the state to draw it with. These
+// are created in karl2d.odin as you draw. When it is time to actually draw, the whole array of draw
+// calls is handed to the rendering backend, so the backend can skip updating state that doesn't
+// change between two draw calls.
 Draw_Call :: struct {
 	// Where this draw call's vertices are in the vertex buffer passed to `draw`. The offset is in
 	// bytes, since each shader has its own vertex size. It is always a multiple of `vertex_size`,
@@ -42,9 +42,7 @@ Draw_Call :: struct {
 	vertex_offset: int,
 	vertex_count: int,
 
-	// The shader to draw with, and the parts of it the backend needs. A draw call carries these
-	// instead of the whole `Shader` because it is recorded for every state change, so it is worth
-	// keeping small.
+	// The shader to draw with, and the parts of it the backend needs.
 	shader: Shader_Handle,
 	vertex_size: int,
 	constants: []Shader_Constant_Location,
@@ -60,11 +58,11 @@ Draw_Call :: struct {
 	scissor: Maybe(Rect),
 	blend_mode: Blend_Mode,
 
-	// What this draw call needs set up that the one before it in the array did not. Set up the
-	// things that are in here and nothing else, there is no need to compare anything yourself.
+	// What fields in this draw call changed from the previous one? The backend will look at this
+	// and only change GPU state that actually needs changing.
 	//
-	// The one exception: if you skip a draw call, add its `changed` to the next one you do draw.
-	// The changes it was going to make never reached the device.
+	// Note: If the backend "skips" a draw call for whatever reason, then add the `changed` bit_set
+	// to the one in the next draw call. That way nothing is missed.
 	changed: bit_set[Draw_Call_Change],
 }
 
@@ -84,7 +82,6 @@ Render_Backend_Interface :: struct #all_or_none {
 	clear: proc(render_target: Render_Target_Handle, color: Color),
 	present: proc(),
 	
-	// Runs `draw_calls` in order. They all point into `vertex_buffer`, which is uploaded once.
 	draw: proc(vertex_buffer: []u8, draw_calls: []Draw_Call),
 
 	set_internal_state: proc(state: rawptr),
