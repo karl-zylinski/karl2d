@@ -720,11 +720,13 @@ pointer_listener := wl.Pointer_Listener {
 		wl_frame_update_hover(role)
 		wl_apply_cursor()
 	},
+	// `t` rather than `time`, which would shadow the core:time package the double-click check
+	// below needs. Same reason key_handler names it that.
 	button = proc "c" (
 		data: rawptr,
 		pointer: ^wl.Pointer,
 		serial: c.uint32_t,
-		time: c.uint32_t,
+		t: c.uint32_t,
 		button: c.uint32_t,
 		state: c.uint32_t,
 	) {
