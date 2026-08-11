@@ -5422,6 +5422,45 @@ _update_view_projection :: proc() {
 	s.batch_constants_dirty = true
 }
 
+// Works out what `next` needs the backend to set up that `prev` didn't. Doing it here means the
+// backends don't have to, and that the things which go together, such as a new render target
+// needing a new scissor rect, are decided once instead of once per backend.
+_draw_call_changes :: proc(
+	prev: ^Draw_Call,
+	next: ^Draw_Call,
+) -> (changed: bit_set[Draw_Call_Change]) {
+	if prev.shader != next.shader {
+		// A different shader has its own constant buffers and texture bindpoints, so those have to
+		// be set up again even when the values in them are the same.
+		changed += { .Shader, .Constants, .Textures }
+	}
+
+	// Draw calls that hold the same values share one copy of them, so the same memory means there
+	// is nothing to re-upload.
+	if raw_data(prev.constants_data) != raw_data(next.constants_data) {
+		changed += { .Constants }
+	}
+
+	if raw_data(prev.textures) != raw_data(next.textures) {
+		changed += { .Textures }
+	}
+
+	if prev.render_target != next.render_target {
+		// A draw call without a scissor rect gets one that covers the whole render target.
+		changed += { .Render_Target, .Scissor }
+	}
+
+	if prev.scissor != next.scissor {
+		changed += { .Scissor }
+	}
+
+	if prev.blend_mode != next.blend_mode {
+		changed += { .Blend_Mode }
+	}
+
+	return
+}
+
 // Moves the open draw call into the list of recorded ones, unless nothing was ever drawn with it.
 // A run of settings changes leaves such empty draw calls behind, and they are just overwritten.
 _finish_draw_call :: proc() {
@@ -5433,9 +5472,19 @@ _finish_draw_call :: proc() {
 
 	dc.vertex_count = (s.vertex_buffer_cpu_used - dc.vertex_offset) / dc.vertex_size
 
-	if dc.vertex_count > 0 {
-		append(&s.batch_draw_calls, dc^)
+	if dc.vertex_count == 0 {
+		return
 	}
+
+	// Compared against the last draw call that made it into the list, because that is the one the
+	// backend will have set up before this one. Dropped draw calls never happened.
+	if len(s.batch_draw_calls) == 0 {
+		dc.changed = DRAW_CALL_CHANGE_ALL
+	} else {
+		dc.changed = _draw_call_changes(&s.batch_draw_calls[len(s.batch_draw_calls) - 1], dc)
+	}
+
+	append(&s.batch_draw_calls, dc^)
 }
 
 // Callers must run `_prepare_batch` first, so there is room in the buffer and a draw call to put

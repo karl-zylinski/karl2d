@@ -17,6 +17,21 @@ Shader_Desc :: struct {
 	inputs: []Shader_Input,
 }
 
+// The things a draw call can need set up. Which ones it actually needs is worked out by the core,
+// see `Draw_Call.changed`.
+Draw_Call_Change :: enum {
+	Shader,
+	Constants,
+	Textures,
+	Render_Target,
+	Scissor,
+	Blend_Mode,
+}
+
+// Everything, which is what the first draw call of a `draw` needs: nothing is known about the
+// state the device was left in.
+DRAW_CALL_CHANGE_ALL :: ~bit_set[Draw_Call_Change]{}
+
 // One chunk of drawing work: a range of the vertex buffer plus the state to draw it with. The core
 // records these as you draw and hands the whole array to the render backend in one go, so the
 // backend can skip setting up state that doesn't change between two draw calls.
@@ -38,15 +53,19 @@ Draw_Call :: struct {
 	// shader's: a draw call runs long after it was recorded, and the program can change the
 	// shader's in between. They also hold what Karl2D itself puts in, such as the view-projection
 	// matrix and the texture being drawn.
-	//
-	// Draw calls that would hold the same values share a copy, so comparing `raw_data` of these
-	// slices to the previous draw call's tells you whether they need to be re-uploaded.
 	constants_data: []u8,
 	textures: []Texture_Handle,
 
 	render_target: Render_Target_Handle,
 	scissor: Maybe(Rect),
 	blend_mode: Blend_Mode,
+
+	// What this draw call needs set up that the one before it in the array did not. Set up the
+	// things that are in here and nothing else, there is no need to compare anything yourself.
+	//
+	// The one exception: if you skip a draw call, add its `changed` to the next one you do draw.
+	// The changes it was going to make never reached the device.
+	changed: bit_set[Draw_Call_Change],
 }
 
 Render_Backend_Interface :: struct #all_or_none {

@@ -298,22 +298,23 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 	dc->IASetPrimitiveTopology(.TRIANGLELIST)
 	dc->RSSetState(s.rasterizer_state)
 
-	// The draw call we set the device context up for last. We only set up what differs from it,
-	// which is often just the texture. It starts out nil because we have no idea what the device
-	// context has been up to since the last time we drew.
-	prev: ^Draw_Call
+	// Changes that belong to draw calls we could not draw. They never reached the device context,
+	// so the next draw call we do run has to make them.
+	missed: bit_set[Draw_Call_Change]
 
 	for &call in draw_calls {
+		changed := call.changed + missed
 		d3d_shd := hm.get(&s.shaders, call.shader)
 
 		if d3d_shd == nil {
 			log.errorf("Trying to draw with invalid shader %v", call.shader)
+			missed = changed
 			continue
 		}
 
-		new_shader := prev == nil || prev.shader != call.shader
+		missed = {}
 
-		if new_shader {
+		if .Shader in changed {
 			dc->IASetInputLayout(d3d_shd.input_layout)
 			vertex_buffer_offset: u32
 			vertex_buffer_stride := u32(call.vertex_size)
@@ -329,13 +330,11 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 			dc->PSSetShader(d3d_shd.pixel_shader, nil, 0)
 		}
 
-		// Draw calls that didn't change the constants share the snapshot, so identical pointers
-		// mean the constant buffers already hold the right values.
-		if new_shader || raw_data(prev.constants_data) != raw_data(call.constants_data) {
+		if .Constants in changed {
 			d3d11_set_constants(call.constants, call.constants_data, d3d_shd)
 		}
 
-		if new_shader || raw_data(prev.textures) != raw_data(call.textures) {
+		if .Textures in changed {
 			if len(call.textures) == len(d3d_shd.texture_bindings) {
 				for t, t_idx in call.textures {
 					d3d_t := d3d_shd.texture_bindings[t_idx]
@@ -348,9 +347,7 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 			}
 		}
 
-		render_target_changed := prev == nil || prev.render_target != call.render_target
-
-		if render_target_changed {
+		if .Render_Target in changed {
 			if rt := hm.get(&s.render_targets, call.render_target); rt != nil {
 				dc->OMSetRenderTargets(1, &rt.render_target_view, nil)
 
@@ -374,9 +371,7 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 			}
 		}
 
-		// A draw call without a scissor rect gets one that covers the whole render target, so the
-		// render target changing means this has to be redone too.
-		if render_target_changed || prev.scissor != call.scissor {
+		if .Scissor in changed {
 			scissor_rect := d3d11.RECT {
 				right = i32(s.width),
 				bottom = i32(s.height),
@@ -399,7 +394,7 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 			dc->RSSetScissorRects(1, &scissor_rect)
 		}
 
-		if prev == nil || prev.blend_mode != call.blend_mode {
+		if .Blend_Mode in changed {
 			switch call.blend_mode {
 			case .Alpha:
 				dc->OMSetBlendState(s.blend_state_alpha, nil, ~u32(0))
@@ -409,7 +404,6 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 		}
 
 		dc->Draw(u32(call.vertex_count), u32(call.vertex_offset/call.vertex_size))
-		prev = &call
 	}
 
 	dc->OMSetRenderTargets(0, nil, nil)

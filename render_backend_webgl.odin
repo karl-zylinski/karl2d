@@ -198,38 +198,38 @@ webgl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 	gl.BufferDataSlice(gl.ARRAY_BUFFER, vertex_buffer, gl.STREAM_DRAW)
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
-	// The draw call we set GL up for last. We only set up what differs from it, which is often
-	// just the texture. It starts out nil because we have no idea what has happened to the GL
-	// state since the last time we drew.
-	prev: ^Draw_Call
+	// Changes that belong to draw calls we could not draw. They never reached GL, so the next draw
+	// call we do run has to make them.
+	missed: bit_set[Draw_Call_Change]
 
 	for &call in draw_calls {
+		changed := call.changed + missed
 		gl_shd := hm.get(&s.shaders, call.shader)
 
 		if gl_shd == nil {
+			log.errorf("Trying to draw with invalid shader %v", call.shader)
+			missed = changed
 			continue
 		}
 
-		new_shader := prev == nil || prev.shader != call.shader
+		missed = {}
 
-		if new_shader {
+		if .Shader in changed {
 			gl.BindVertexArray(gl_shd.vao)
 			gl.UseProgram(gl_shd.program)
 		}
 
-		// Draw calls that didn't change the constants share the snapshot, so identical pointers
-		// mean the uniforms already hold the right values.
-		if new_shader || raw_data(prev.constants_data) != raw_data(call.constants_data) {
+		if .Constants in changed {
 			webgl_set_constants(call.constants, call.constants_data, gl_shd)
 		}
 
-		if new_shader || raw_data(prev.textures) != raw_data(call.textures) {
+		if .Textures in changed {
 			webgl_bind_textures(call.textures, gl_shd)
 		}
 
 		rt := hm.get(&s.render_targets, call.render_target)
 
-		if prev == nil || prev.render_target != call.render_target {
+		if .Render_Target in changed {
 			if rt != nil {
 				gl.BindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer)
 				gl.Viewport(0, 0, i32(rt.width), i32(rt.height))
@@ -239,7 +239,7 @@ webgl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 			}
 		}
 
-		if prev == nil || prev.blend_mode != call.blend_mode {
+		if .Blend_Mode in changed {
 			switch call.blend_mode {
 			case .Alpha: gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 			case .Premultiplied_Alpha: gl.BlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
@@ -248,7 +248,7 @@ webgl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 
 		// The scissor rect is measured from the top in Karl2D but from the bottom in GL, so it
 		// depends on the height of the render target as well.
-		if prev == nil || prev.scissor != call.scissor || prev.render_target != call.render_target {
+		if .Scissor in changed {
 			if scissor, has_scissor := call.scissor.(Rect); has_scissor {
 				height := rt != nil ? rt.height : s.height
 				flipped_y := f32(height) - scissor.h - scissor.y
@@ -261,7 +261,6 @@ webgl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 		}
 
 		gl.DrawArrays(gl.TRIANGLES, call.vertex_offset/call.vertex_size, call.vertex_count)
-		prev = &call
 	}
 
 	gl.Disable(gl.SCISSOR_TEST)
