@@ -331,7 +331,7 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 		}
 
 		if .Constants in changed {
-			d3d11_set_constants(call.constants, call.constants_data, d3d_shd)
+			d3d11_set_constants(call.constants, call.constants_data, d3d_shd^)
 		}
 
 		if .Textures in changed {
@@ -413,7 +413,7 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 d3d11_set_constants :: proc(
 	constants: []Shader_Constant_Location,
 	constants_data: []u8,
-	d3d_shd: ^D3D11_Shader,
+	d3d_shd: D3D11_Shader,
 ) {
 	dc := s.device_context
 	assert(len(constants) == len(d3d_shd.constants))

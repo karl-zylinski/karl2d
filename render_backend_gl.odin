@@ -217,11 +217,11 @@ gl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 		}
 
 		if .Constants in changed {
-			gl_set_constants(call.constants, call.constants_data, gl_shd)
+			gl_set_constants(call.constants, call.constants_data, gl_shd^)
 		}
 
 		if .Textures in changed {
-			gl_bind_textures(call.textures, gl_shd)
+			gl_bind_textures(call.textures, gl_shd^)
 		}
 
 		rt := hm.get(&s.render_targets, call.render_target)
@@ -266,7 +266,7 @@ gl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 gl_set_constants :: proc(
 	constants: []Shader_Constant_Location,
 	constants_data: []u8,
-	gl_shd: ^GL_Shader,
+	gl_shd: GL_Shader,
 ) {
 	assert(len(constants) == len(gl_shd.constants))
 
@@ -381,7 +381,7 @@ gl_set_constants :: proc(
 	}
 }
 
-gl_bind_textures :: proc(textures: []Texture_Handle, gl_shd: ^GL_Shader) {
+gl_bind_textures :: proc(textures: []Texture_Handle, gl_shd: GL_Shader) {
 	if len(textures) != len(gl_shd.texture_bindings) {
 		return
 	}

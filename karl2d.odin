@@ -5426,8 +5426,8 @@ _update_view_projection :: proc() {
 // backends don't have to, and that the things which go together, such as a new render target
 // needing a new scissor rect, are decided once instead of once per backend.
 _draw_call_changes :: proc(
-	prev: ^Draw_Call,
-	next: ^Draw_Call,
+	prev: Draw_Call,
+	next: Draw_Call,
 ) -> (changed: bit_set[Draw_Call_Change]) {
 	if prev.shader != next.shader {
 		// A different shader has its own constant buffers and texture bindpoints, so those have to
@@ -5481,7 +5481,7 @@ _finish_draw_call :: proc() {
 	if len(s.batch_draw_calls) == 0 {
 		dc.changed = DRAW_CALL_CHANGE_ALL
 	} else {
-		dc.changed = _draw_call_changes(&s.batch_draw_calls[len(s.batch_draw_calls) - 1], dc)
+		dc.changed = _draw_call_changes(s.batch_draw_calls[len(s.batch_draw_calls) - 1], dc^)
 	}
 
 	append(&s.batch_draw_calls, dc^)
@@ -5646,16 +5646,16 @@ _update_font_atlases :: proc() {
 		return
 	}
 
-	for &font in s.fonts {
+	for font in s.fonts {
 		// A static font has a finished atlas of its own, it is not part of fontstash's. A
 		// destroyed font has no atlas left at all.
 		if font.type == .Dynamic && font.atlas.handle != TEXTURE_NONE {
-			_update_font_atlas(&font, font_dirty_rect)
+			_update_font_atlas(font, font_dirty_rect)
 		}
 	}
 }
 
-_update_font_atlas :: proc(font: ^Font_Data, font_dirty_rect: [4]f32) {
+_update_font_atlas :: proc(font: Font_Data, font_dirty_rect: [4]f32) {
 	tw := FONT_DEFAULT_ATLAS_SIZE
 	fdr := font_dirty_rect
 

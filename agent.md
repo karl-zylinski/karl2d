@@ -70,6 +70,13 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - If a value is still needed by the `return` expression, put the result in a local, clean up, then return the local.
 - `defer` is fine when a scope really does exit many ways and each would otherwise repeat the same cleanup. `wl_create_custom_cursor` keeps `defer linux.close(fd)` because three separate paths would each have to close it.
 
+### Take a parameter by pointer only to mutate it
+- Odin already passes anything bigger than 16 bytes by implicit reference, so `^T` does not save you a copy. Passing a big struct by value is free.
+- What `^T` does is tell the reader that the procedure may write to what they handed it. Spend that on read-only parameters and a pointer stops meaning anything, so nobody can tell the mutating procedures from the rest at a glance.
+- `_draw_call_changes` compares two draw calls and returns what differs between them, so it takes `Draw_Call`, not `^Draw_Call`, even though they are 128 bytes each. `_finish_draw_call` fills in the open draw call, so that one does take a pointer.
+- Pointers are also right when the value is optional, or when you need the thing itself rather than its value, which is why `hm.get` hands one back.
+- Don't reach for a pointer because you think it will be faster. If you believe a signature costs something, measure it: the compiler is already doing the thing you are about to do by hand.
+
 ## Architecture Notes
 
 ### Layout
