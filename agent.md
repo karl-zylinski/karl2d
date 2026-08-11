@@ -14,15 +14,14 @@ Conventions for writing code, writing documentation, and collaborating on this p
 ## Workflow
 - Keep changes focused. Don't touch unrelated code, don't use auto-formatters (e.g. odinfmt), and don't modify whitespace on lines you aren't otherwise changing.
 - If you make unintended changes, revert them in additional commits (squash merges are used).
+- If you break backwards compatbility, introduce @(deprecated) procedures or somehow try to do it gracefully. If you cannot help it, then so be, but flag about it in the review.
 - Keep dependencies minimal. Prefer clarity and simplicity over cleverness.
 - Draft Pull Requests are always welcome and do not need to follow strict rules. A _ready for review_ PR must contain working, tested, complete code that follows the style below.
 
 ## Verifying Your Work
 - Build and test through the examples in `examples/`. Prefer the existing VS Code build tasks; they already include `-vet -strict-style -vet-tabs` and come in three variants: default (D3D11 on Windows), `(GL)`, and `(web)`. Use the same `-vet -strict-style -vet-tabs` flags when running `odin` directly.
 - After edits, run the most relevant build task(s) for what you touched. After a large change, run `odin run tools/test_examples`, the CI script that builds every example (some are excluded from web builds, e.g. `minimal_hello_world`, `custom_frame_update`).
-- After API changes:
-  - Regenerate `karl2d.doc.odin`: `odin run tools/api_doc_builder`.
-  - Verify the API: `odin build tools/api_verifier -debug -vet -strict-style -vet-tabs`.
+- Regenerate `karl2d.doc.odin`: `odin run tools/api_doc_builder`. Any change in `karl2d.doc.odin` is a user-facing API change. Make sure you want that change to actually happen. Think about what happens if you break backwards compatibility.
 - Web builds use the script in `build_web/`. Forward game/compiler flags after `--`: `odin run build_web -- your_game_path -debug`. A web game must have `init` and `step` procedures; `examples/minimal_hello_world_web/` is the template.
 - `tools/make_sublime_projects`, `tools/make_vscode_project/` and `tools/make_zed_project/` generate editor project configurations.
 
@@ -46,6 +45,10 @@ Conventions for writing code, writing documentation, and collaborating on this p
 ### Comments
 - Public API procedures and types get a clear, concise comment above them. Document parameters and return values where appropriate.
 - Voice: short and conversational; first person is fine ("We piggyback on the resize event", "I fixed the binding locally"). State the fact rather than writing a justification. One line is the norm; go longer only for an OS quirk or something genuinely non-obvious.
+- Use short sentences. Prefer a period over all other forms of punctuation.
+- A doc comment tells the reader two things. What does this do? And why does it do it that way, if that would otherwise surprise them. Leave out everything else.
+- Never write about how something used to work, or about what a change improved. The reader has only ever seen the current version. That story belongs in the commit message.
+- If you are unsure whether something belongs on a procedure or on a struct, put it on the procedure. That is what people look up.
 - Short notes can be trailing comments on the line they describe: `camera: k2.Camera // world camera`.
 
 ### File organization
@@ -70,6 +73,13 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - Usually the resource dies long before the procedure does, and releasing it right there is both linear and a tighter lifetime. In `x11_create_custom_cursor` the Xcursor image is finished with the moment `cursorImageLoadCursor` has copied it, well before any of the error returns.
 - If a value is still needed by the `return` expression, put the result in a local, clean up, then return the local.
 - `defer` is fine when a scope really does exit many ways and each would otherwise repeat the same cleanup. `wl_create_custom_cursor` keeps `defer linux.close(fd)` because three separate paths would each have to close it.
+
+### Take a parameter by pointer only to mutate it
+- Odin already passes anything bigger than 16 bytes by implicit reference, so `^T` does not save you a copy. Passing a big struct by value is free.
+- What `^T` does is tell the reader that the procedure may write to what they handed it. Spend that on read-only parameters and a pointer stops meaning anything, so nobody can tell the mutating procedures from the rest at a glance.
+- `_draw_call_changes` compares two draw calls and returns what differs between them, so it takes `Draw_Call`, not `^Draw_Call`, even though they are 128 bytes each. The platform interface's `get_events` fills the array you hand it, so that one takes a pointer.
+- Pointers are also right when the value is optional, or when you need the thing itself rather than its value, which is why `hm.get` hands one back.
+- Don't reach for a pointer because you think it will be faster. If you believe a signature costs something, measure it. The compiler is already doing the thing you are about to do by hand.
 
 ## Architecture Notes
 

@@ -105,6 +105,7 @@ init :: proc(
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
 	s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 	s.view_matrix = 1
+	_update_view_projection()
 
 	// Boot up the render backend. It will render into our previously created window.
 	rb.init(
@@ -120,6 +121,13 @@ init :: proc(
 	// render backend each frame as part of `draw_current_batch()`.
 	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, s.allocator, loc)
 
+	// Draw calls are recorded here as you draw. `draw_current_batch` runs them. The arena holds the
+	// values they point at. It is emptied at the same time.
+	s.batch_draw_calls = make([dynamic]Draw_Call, s.allocator, loc)
+	batch_arena_err := runtime.arena_init(&s.batch_arena, BATCH_ARENA_BLOCK_SIZE, s.allocator, loc)
+	log.assertf(batch_arena_err == nil, "Failed allocating batch arena: %v", batch_arena_err)
+	s.batch_allocator = runtime.arena_allocator(&s.batch_arena)
+
 	// The shapes drawing texture is sampled when any shape is drawn. This way we can use the same
 	// shader for textured drawing and shape drawing. It's just a white box.
 	white_rect: [16*16*4]u8
@@ -129,7 +137,7 @@ init :: proc(
 	// The default shader will arrive in a different format depending on backend. GLSL for GL,
 	// HLSL for d3d etc.
 	s.default_shader = load_shader_from_bytes(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
-	s.batch_shader = s.default_shader
+	s.current_shader = s.default_shader
 
 	// FontStash enables us to bake fonts from TTF files on-the-fly.
 	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
@@ -227,6 +235,8 @@ shutdown :: proc() {
 	destroy_shader(s.default_shader)
 	rb.shutdown()
 	delete(s.vertex_buffer_cpu, s.allocator)
+	delete(s.batch_draw_calls)
+	runtime.arena_destroy(&s.batch_arena)
 
 	pf.shutdown()
 
@@ -248,7 +258,7 @@ shutdown :: proc() {
 clear :: proc(color: Color) {
 	assert_initialized()
 	draw_current_batch()
-	rb.clear(s.batch_render_target, color)
+	rb.clear(s.current_render_target, color)
 }
 
 // The library may do some internal allocations that have the lifetime of a single frame. This
@@ -373,8 +383,11 @@ process_events :: proc() {
 			}
 
 		case Event_Screen_Resize:
+			// Recorded draw calls were meant for the old swapchain size.
+			draw_current_batch()
 			rb.resize_swapchain(e.width, e.height)
 			s.proj_matrix = make_default_projection(e.width, e.height)
+			_update_view_projection()
 
 		case Event_Window_Focused:			
 
@@ -403,6 +416,7 @@ process_events :: proc() {
 			}
 
 		case Event_Window_Scale_Changed:
+			draw_current_batch()
 			rb.resize_swapchain(e.screen_width, e.screen_height)
 		}
 	}
@@ -444,6 +458,9 @@ get_time :: proc() -> f64 {
 // windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
 set_screen_size :: proc(width: int, height: int) {
 	assert_initialized()
+
+	// Recorded draw calls were meant for the old screen size.
+	draw_current_batch()
 	pf.set_screen_size(width, height)
 	rb.resize_swapchain(pf.get_screen_width(), pf.get_screen_height())
 }
@@ -505,73 +522,29 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 	pf.set_window_mode(window_mode)
 }
 
-// Flushes the current batch. This sends off everything to the GPU that has been queued in the
-// current batch. Normally, you do not need to do this manually. It is done automatically when these
-// procedures run:
-// 
-// - present
-// - set_camera
-// - set_shader
-// - set_shader_constant
-// - set_scissor_rect
-// - set_blend_mode
-// - set_render_texture
-// - clear
-// - draw_texture_* IF previous draw did not use the same texture (1)
-// - draw_rect_*, draw_circle_*, draw_line IF previous draw did not use the shapes drawing texture (2)
-// 
-// (1) When drawing textures, the current texture is fed into the active shader. Everything within
-//     the same batch must use the same texture. So drawing with a new texture forces the current to
-//     be drawn. You can combine several textures into an atlas to get bigger batches.
+// Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
+// procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
+// call this procedure manually. It is done automatically when `present` or `clear` run. It can also
+// happen when you destroy a resource such as a texture or shader that is used in the current
+// batch.
 //
-// (2) In order to use the same shader for shapes drawing and textured drawing, the shapes drawing
-//     uses a blank, white texture. For the same reasons as (1), drawing something else than shapes
-//     before drawing a shape will break up the batches. In a future update I'll add so that you can
-//     set your own shapes drawing texture, making it possible to combine it with a bigger atlas.
-//
-// The batch has maximum size of VERTEX_BUFFER_MAX bytes. The shader dictates how big a vertex is
-// so the maximum number of vertices that can be drawn in each batch is
-// VERTEX_BUFFER_MAX / shader.vertex_size
+// All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
+// dictates how big a vertex is. The maximum number of vertices in a batch is therefore
+// `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
 draw_current_batch :: proc() {
-	if s.vertex_buffer_cpu_used == 0 {
-		return
+	_finish_draw_call()
+
+	if len(s.batch_draw_calls) > 0 {
+		_update_font_atlases()
+		rb.draw(s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used], s.batch_draw_calls[:])
+		runtime.clear(&s.batch_draw_calls)
 	}
 
-	_update_font(s.batch_font)
-
-	shader := s.batch_shader
-
-	view_projection := s.proj_matrix * s.view_matrix
-	for mloc, builtin in shader.constant_builtin_locations {
-		constant, constant_ok := mloc.?
-
-		if !constant_ok {
-			continue
-		}
-
-		switch builtin {
-		case .View_Projection_Matrix:
-			if constant.size == size_of(view_projection) {
-				dst := (^matrix[4,4]f32)(&shader.constants_data[constant.offset])
-				dst^ = view_projection
-			} 
-		}
-	}
-
-	if def_tex_idx, has_def_tex_idx := shader.default_texture_index.?; has_def_tex_idx {
-		shader.texture_bindpoints[def_tex_idx] = s.batch_texture
-	}
-
-	rb.draw(
-		shader,
-		s.batch_render_target,
-		shader.texture_bindpoints,
-		s.batch_scissor,
-		s.batch_blend_mode,
-		s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used],
-	)
-	
+	// Both the recorded draw calls and the open one point into the arena, so neither may outlive
+	// it. Emptying the arena is also what makes the next draw call take fresh copies.
+	s.current_draw_call = {}
 	s.vertex_buffer_cpu_used = 0
+	free_all(s.batch_allocator)
 }
 
 //-------//
@@ -785,15 +758,7 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
-	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
-		draw_current_batch()
-	}
-
-	if s.batch_texture != s.shape_drawing_texture {
-		draw_current_batch()
-	}
-
-	s.batch_texture = s.shape_drawing_texture
+	_begin_vertices(s.shape_drawing_texture, 6)
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
@@ -907,15 +872,7 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 // Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
 // perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
-	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 * segments > len(s.vertex_buffer_cpu) {
-		draw_current_batch()
-	}
-
-	if s.batch_texture != s.shape_drawing_texture {
-		draw_current_batch()
-	}
-
-	s.batch_texture = s.shape_drawing_texture
+	_begin_vertices(s.shape_drawing_texture, 3*segments)
 
 	prev := center + {radius, 0}
 	for s in 1..=segments {
@@ -959,15 +916,7 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 // Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
-	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 3 > len(s.vertex_buffer_cpu) {
-		draw_current_batch()
-	}
-
-	if s.batch_texture != s.shape_drawing_texture {
-		draw_current_batch()
-	}
-
-	s.batch_texture = s.shape_drawing_texture
+	_begin_vertices(s.shape_drawing_texture, 3)
 
 	batch_vertex(vertices[0], {0, 0}, c)
 	batch_vertex(vertices[1], {1, 1}, c)
@@ -982,9 +931,13 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 //
 // If you want to rotate around the middle of the texture, then try this:
-// 
+//
 //// middle := k2.rect_middle(k2.get_texture_rect(tex))
 //// draw_texture(tex, pos + middle, middle, rot)
+//
+// The texture is fed into the active shader. Everything drawn in a single draw call must therefore
+// use the same texture. Drawing with a new texture starts a new draw call. Put several images into
+// one big texture, an atlas, to get fewer draw calls.
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
@@ -1064,15 +1017,7 @@ draw_texture_fit :: proc(
 		return
 	}
 
-	if s.vertex_buffer_cpu_used + s.batch_shader.vertex_size * 6 > len(s.vertex_buffer_cpu) {
-		draw_current_batch()
-	}
-
-	if s.batch_texture != texture.handle {
-		draw_current_batch()
-	}
-	
-	s.batch_texture = texture.handle
+	_begin_vertices(texture.handle, 6)
 
 	flip_x, flip_y: bool
 	source := source
@@ -1499,7 +1444,7 @@ draw_text :: proc(
 
 		camera_zoom: f32 = 1
 
-		if cam, cam_ok := s.batch_camera.?; cam_ok && cam.zoom > 0.001 {
+		if cam, cam_ok := s.current_camera.?; cam_ok && cam.zoom > 0.001 {
 			camera_zoom = cam.zoom
 		}
 
@@ -1741,11 +1686,14 @@ get_texture_rect :: proc(t: Texture) -> Rect {
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
 // `tex` where the new pixels should end up.
 update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect) -> bool {
+	// Recorded draw calls may still be waiting to use the old pixels.
+	_flush_if_batch_uses_texture(tex.handle)
 	return rb.update_texture(tex.handle, bytes, rect)
 }
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(tex: Texture) {
+	_flush_if_batch_uses_texture(tex.handle)
 	rb.destroy_texture(tex.handle)
 }
 
@@ -1767,6 +1715,8 @@ set_texture_filter_ex :: proc(
 	scale_up_filter: Texture_Filter,
 	mip_filter: Texture_Filter,
 ) {
+	// Recorded draw calls may still be waiting to sample this texture with the old filter.
+	_flush_if_batch_uses_texture(t.handle)
 	rb.set_texture_filter(t.handle, scale_down_filter, scale_up_filter, mip_filter)
 }
 
@@ -3306,6 +3256,9 @@ create_render_texture :: proc(width: int, height: int) -> Render_Texture {
 
 // Destroy a Render_Texture previously created using `create_render_texture`.
 destroy_render_texture :: proc(render_texture: Render_Texture) {
+	// Recorded draw calls may still be waiting to draw into this render target, or sample it.
+	_flush_if_batch_uses_render_target(render_texture.render_target)
+	_flush_if_batch_uses_texture(render_texture.texture.handle)
 	rb.destroy_texture(render_texture.texture.handle)
 	rb.destroy_render_target(render_texture.render_target)
 }
@@ -3319,21 +3272,21 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 			return
 		}
 
-		if s.batch_render_target == rt.render_target {
+		if s.current_render_target == rt.render_target {
 			return
 		}
 
-		draw_current_batch()
-		s.batch_render_target = rt.render_target
+		s.current_render_target = rt.render_target
 		s.proj_matrix = make_default_projection(rt.texture.width, rt.texture.height)
+		_update_view_projection()
 	} else {
-		if s.batch_render_target == RENDER_TARGET_NONE {
+		if s.current_render_target == RENDER_TARGET_NONE {
 			return
 		}
 
-		draw_current_batch()
-		s.batch_render_target = RENDER_TARGET_NONE
+		s.current_render_target = RENDER_TARGET_NONE
 		s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
+		_update_view_projection()
 	}
 }
 
@@ -3833,7 +3786,13 @@ destroy_font :: proc(font: Font) {
 	}
 
 	f := &s.fonts[font]
+
+	// Recorded draw calls may still be waiting to sample this font's atlas.
+	_flush_if_batch_uses_texture(f.atlas.handle)
 	rb.destroy_texture(f.atlas.handle)
+
+	// So `_update_font_atlases` stops uploading glyphs to a texture that is gone.
+	f.atlas = {}
 
 	switch f.type {
 	case .Static:
@@ -4037,6 +3996,8 @@ load_shader_from_bytes :: proc(
 
 // Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
 destroy_shader :: proc(shader: Shader) {
+	// Recorded draw calls may still be waiting to draw with this shader.
+	_flush_if_batch_uses_shader(shader.handle)
 	rb.destroy_shader(shader.handle)
 
 	a := s.allocator
@@ -4072,17 +4033,21 @@ get_default_shader :: proc() -> Shader {
 // `set_shader(nil)`.
 set_shader :: proc(shader: Maybe(Shader)) {
 	if shd, shd_ok := shader.?; shd_ok {
-		if shd.handle == s.batch_shader.handle {
+		if shd.handle == SHADER_NONE {
+			log.error("Cannot set shader, shader does not exist.")
+			return
+		}
+
+		if shd.handle == s.current_shader.handle {
 			return
 		}
 	} else {
-		if s.batch_shader.handle == s.default_shader.handle {
+		if s.current_shader.handle == s.default_shader.handle {
 			return
 		}
 	}
 
-	draw_current_batch()
-	s.batch_shader = shader.? or_else s.default_shader
+	s.current_shader = shader.? or_else s.default_shader
 }
 
 // Set the value of a constant (also known as uniform in OpenGL). Look up shader constant locations
@@ -4098,8 +4063,6 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 		return
 	}
 
-	draw_current_batch()
-
 	if loc.offset + loc.size > len(shd.constants_data) {
 		log.errorf("Constant with offset %v and size %v is out of bounds. Buffer ends at %v", loc.offset, loc.size, len(shd.constants_data))
 		return
@@ -4113,6 +4076,9 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 	}
 
 	mem.copy(&shd.constants_data[loc.offset], val.data, sz)
+
+	// Draw calls recorded before this point keep the old value. The next one takes a fresh copy.
+	s.current_constants_dirty = true
 }
 
 // Sets the value of a shader input (also known as a shader attribute). There are three default
@@ -4170,14 +4136,13 @@ pixel_format_size :: proc(f: Pixel_Format) -> int {
 // Make Karl2D use a camera. Return to the "default camera" by passing `nil`. All drawing operations
 // will use this camera until you again change it.
 set_camera :: proc(camera: Maybe(Camera)) {
-	if camera == s.batch_camera {
+	if camera == s.current_camera {
 		return
 	}
 
-	draw_current_batch()
-	s.batch_camera = camera
+	s.current_camera = camera
 
-	if s.batch_render_target == RENDER_TARGET_NONE {
+	if s.current_render_target == RENDER_TARGET_NONE {
 		s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 	}
 
@@ -4186,6 +4151,8 @@ set_camera :: proc(camera: Maybe(Camera)) {
 	} else {
 		s.view_matrix = 1
 	}
+
+	_update_view_projection()
 }
 
 // Transform a point `pos` that lives on the screen to a point in the world. This can be useful for
@@ -4245,19 +4212,17 @@ camera_world_matrix :: proc(c: Camera) -> Mat4 {
 // Choose how the alpha channel is used when mixing half-transparent color with what is already
 // drawn. The default is the .Alpha mode, but you also have the option of using .Premultiply_Alpha.
 set_blend_mode :: proc(mode: Blend_Mode) {
-	if s.batch_blend_mode == mode {
+	if s.current_blend_mode == mode {
 		return
 	}
 
-	draw_current_batch()
-	s.batch_blend_mode = mode
+	s.current_blend_mode = mode
 }
 
 // Make everything outside of the screen-space rectangle `scissor_rect` not render. Disable the
 // scissor rectangle by running `set_scissor_rect(nil)`.
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
-	draw_current_batch()
-	s.batch_scissor = scissor_rect
+	s.current_scissor = scissor_rect
 }
 
 // Restore the internal state using the pointer returned by `init`. Useful after reloading the
@@ -4924,16 +4889,35 @@ State :: struct {
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
 	shape_drawing_texture: Texture_Handle,
-	batch_font: Font,
-	batch_camera: Maybe(Camera),
-	batch_shader: Shader,
-	batch_scissor: Maybe(Rect),
-	batch_texture: Texture_Handle,
-	batch_render_target: Render_Target_Handle,
-	batch_blend_mode: Blend_Mode,
+	// The settings the next draw call will be recorded with. Changing one of these does not affect
+	// draw calls that are already recorded.
+	current_font: Font,
+	current_camera: Maybe(Camera),
+	current_shader: Shader,
+	current_scissor: Maybe(Rect),
+	current_texture: Texture_Handle,
+	current_render_target: Render_Target_Handle,
+	current_blend_mode: Blend_Mode,
+
+	// Recorded but not drawn yet. They all point into `vertex_buffer_cpu`.
+	batch_draw_calls: [dynamic]Draw_Call,
+
+	// The one vertices go into right now. A zeroed one means there is none.
+	current_draw_call: Draw_Call,
+
+	// Holds the constant values and textures that the draw calls point at.
+	batch_arena: runtime.Arena,
+	batch_allocator: runtime.Allocator,
+
+	// Says that the shader constants may differ from what the open draw call captured.
+	current_constants_dirty: bool,
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
+
+	// `proj_matrix * view_matrix`. Kept around because every draw call needs it. Update it with
+	// `_update_view_projection`.
+	view_projection: Mat4,
 
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
@@ -5257,14 +5241,214 @@ assert_initialized :: proc(loc := #caller_location) {
 	assert(s != nil, "Call k2.init before using this Karl2D procedure", loc)
 }
 
-batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
-	v := v
+// Run by the drawing procedures before they add any vertices. Draws the batch if `vertices_needed`
+// more vertices will not fit in the vertex buffer, which leaves an empty one to put them in. Then
+// starts a new draw call if the settings changed.
+_begin_vertices :: proc(texture: Texture_Handle, vertices_needed: int) {
+	s.current_texture = texture
 
-	if s.vertex_buffer_cpu_used == len(s.vertex_buffer_cpu) {
+	// Starting a draw call can pad the write position by up to one vertex, so ask for one extra.
+	bytes_needed := s.current_shader.vertex_size*(vertices_needed + 1)
+
+	if s.vertex_buffer_cpu_used + bytes_needed > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
 
-	shd := s.batch_shader
+	if !_draw_call_matches_settings() {
+		_finish_draw_call()
+		_start_draw_call()
+	}
+}
+
+// Whether the open draw call already draws things the way the current settings say. A zeroed draw
+// call has no shader. It therefore never matches. That is the state right after a flush.
+_draw_call_matches_settings :: proc() -> bool {
+	dc := s.current_draw_call
+
+	// The constants are the one thing we can't compare, see `current_constants_dirty`.
+	if s.current_constants_dirty {
+		return false
+	}
+
+	if dc.shader != s.current_shader.handle ||
+	   dc.render_target != s.current_render_target ||
+	   dc.scissor != s.current_scissor ||
+	   dc.blend_mode != s.current_blend_mode {
+		return false
+	}
+
+	return _textures_match(dc.textures)
+}
+
+// Compares the textures the current settings would bind against the ones a draw call captured.
+// The shader's bindpoints are used as they are. The exception is the one Karl2D fills in with the
+// texture being drawn.
+_textures_match :: proc(recorded: []Texture_Handle) -> bool {
+	shader := s.current_shader
+
+	if len(recorded) != len(shader.texture_bindpoints) {
+		return false
+	}
+
+	def_tex_idx, has_def_tex_idx := shader.default_texture_index.?
+
+	for bindpoint, i in shader.texture_bindpoints {
+		wanted := has_def_tex_idx && i == def_tex_idx ? s.current_texture : bindpoint
+
+		if recorded[i] != wanted {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Starts the draw call that the following vertices go into. Everything it needs is captured here.
+// The drawing itself happens later, when the batch is flushed. Run `_finish_draw_call` first, or
+// the vertices of the one that is already open are lost.
+_start_draw_call :: proc() {
+	shader := s.current_shader
+
+	// Vertices for different shaders can share the buffer. Each draw call therefore starts at a
+	// multiple of its own vertex size. That lets the backends address it as a plain vertex index.
+	if remainder := s.vertex_buffer_cpu_used % shader.vertex_size; remainder != 0 {
+		s.vertex_buffer_cpu_used += shader.vertex_size - remainder
+	}
+
+	// The shader keeps one copy of its constants and bindpoints. A draw call runs long after it was
+	// recorded, so it needs the values it saw back then. A later `set_shader_constant` or write to
+	// `texture_bindpoints` must not reach back and change it. It therefore gets its own copy.
+	//
+	// Draw calls that would copy the same values share one instead. That saves the copying. It also
+	// lets the backend compare the two pointers to see there is nothing to re-upload.
+	prev := s.current_draw_call
+	same_shader := prev.shader == shader.handle
+
+	constants_data := prev.constants_data
+
+	if !same_shader || s.current_constants_dirty {
+		constants_data = slice.clone(shader.constants_data, s.batch_allocator)
+		_write_builtin_constants(shader, constants_data)
+	}
+
+	textures := prev.textures
+
+	if !same_shader || !_textures_match(prev.textures) {
+		textures = slice.clone(shader.texture_bindpoints, s.batch_allocator)
+
+		// The texture being drawn is ours rather than the shader's. It goes into the copy.
+		if def_tex_idx, has_def_tex_idx := shader.default_texture_index.?; has_def_tex_idx {
+			textures[def_tex_idx] = s.current_texture
+		}
+	}
+
+	s.current_draw_call = {
+		vertex_offset = s.vertex_buffer_cpu_used,
+		shader = shader.handle,
+		vertex_size = shader.vertex_size,
+		constants = shader.constants,
+		constants_data = constants_data,
+		textures = textures,
+		render_target = s.current_render_target,
+		scissor = s.current_scissor,
+		blend_mode = s.current_blend_mode,
+	}
+
+	s.current_constants_dirty = false
+}
+
+// Writes the constants that Karl2D itself supplies into a draw call's copy of them. They are ours
+// rather than the shader program's, which is why they go into the copy and not into the shader.
+// The view-projection matrix is the only one right now.
+_write_builtin_constants :: proc(shader: Shader, constants_data: []u8) {
+	for mloc, builtin in shader.constant_builtin_locations {
+		constant, constant_ok := mloc.?
+
+		if !constant_ok {
+			continue
+		}
+
+		switch builtin {
+		case .View_Projection_Matrix:
+			if constant.size == size_of(Mat4) {
+				(^Mat4)(&constants_data[constant.offset])^ = s.view_projection
+			}
+		}
+	}
+}
+
+// Puts the open draw call into the list of recorded ones. Empty ones are left out, which is what a
+// run of settings changes leaves behind. What stays open is an empty draw call with the same
+// settings, so running this twice cannot record the same vertices twice.
+_finish_draw_call :: proc() {
+	dc := &s.current_draw_call
+
+	if dc.shader == SHADER_NONE {
+		return
+	}
+
+	dc.vertex_count = (s.vertex_buffer_cpu_used - dc.vertex_offset) / dc.vertex_size
+
+	if dc.vertex_count > 0 {
+		// Compared against the last draw call that made it into the list, because that is the one
+		// the backend will have set up before this one. Dropped draw calls never happened.
+		if len(s.batch_draw_calls) == 0 {
+			dc.changed = DRAW_CALL_CHANGE_ALL
+		} else {
+			dc.changed = _draw_call_changes(s.batch_draw_calls[len(s.batch_draw_calls) - 1], dc^)
+		}
+
+		append(&s.batch_draw_calls, dc^)
+	}
+
+	dc.vertex_offset = s.vertex_buffer_cpu_used
+	dc.vertex_count = 0
+}
+
+// Works out what `next` needs the backend to set up that `prev` did not. It is done here so that
+// each backend does not have to. Things that go together are also decided in one place. A new
+// render target needs a new scissor rect, for example.
+_draw_call_changes :: proc(
+	prev: Draw_Call,
+	next: Draw_Call,
+) -> (changed: bit_set[Draw_Call_Change]) {
+	if prev.shader != next.shader {
+		// A different shader has its own constant buffers and texture bindpoints. Those have to be
+		// set up again even when the values in them are the same.
+		changed += { .Shader, .Constants, .Textures }
+	}
+
+	// Draw calls that hold the same values share one copy of them. The same memory therefore means
+	// there is nothing to re-upload.
+	if raw_data(prev.constants_data) != raw_data(next.constants_data) {
+		changed += { .Constants }
+	}
+
+	if raw_data(prev.textures) != raw_data(next.textures) {
+		changed += { .Textures }
+	}
+
+	if prev.render_target != next.render_target {
+		// A draw call without a scissor rect gets one that covers the whole render target.
+		changed += { .Render_Target, .Scissor }
+	}
+
+	if prev.scissor != next.scissor {
+		changed += { .Scissor }
+	}
+
+	if prev.blend_mode != next.blend_mode {
+		changed += { .Blend_Mode }
+	}
+
+	return
+}
+
+// Callers must run `_begin_vertices` first. That leaves room in the buffer and a draw call to put
+// the vertex in.
+batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
+	v := v
+	shd := s.current_shader
 
 	base_offset := s.vertex_buffer_cpu_used
 	pos_offset := shd.default_input_offsets[.Position]
@@ -5300,7 +5484,87 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	s.vertex_buffer_cpu_used += shd.vertex_size
 }
 
+// Draws the batch if any recorded draw call still samples `texture`. Those draw calls have to
+// happen before the texture changes or goes away. Nothing has usually been drawn with it yet, in
+// which case there is nothing to wait for.
+_flush_if_batch_uses_texture :: proc(texture: Texture_Handle) {
+	if texture == TEXTURE_NONE {
+		return
+	}
+
+	uses_texture :: proc(dc: Draw_Call, texture: Texture_Handle) -> bool {
+		for t in dc.textures {
+			if t == texture {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	if uses_texture(s.current_draw_call, texture) {
+		draw_current_batch()
+		return
+	}
+
+	for dc in s.batch_draw_calls {
+		if uses_texture(dc, texture) {
+			draw_current_batch()
+			return
+		}
+	}
+}
+
+// Same as `_flush_if_batch_uses_texture`. This one is for a shader that is about to go away.
+_flush_if_batch_uses_shader :: proc(shader: Shader_Handle) {
+	if shader == SHADER_NONE {
+		return
+	}
+
+	if s.current_draw_call.shader == shader {
+		draw_current_batch()
+		return
+	}
+
+	for dc in s.batch_draw_calls {
+		if dc.shader == shader {
+			draw_current_batch()
+			return
+		}
+	}
+}
+
+// Same as `_flush_if_batch_uses_texture`. This one is for a render target about to go away.
+_flush_if_batch_uses_render_target :: proc(render_target: Render_Target_Handle) {
+	if render_target == RENDER_TARGET_NONE {
+		return
+	}
+
+	if s.current_draw_call.render_target == render_target {
+		draw_current_batch()
+		return
+	}
+
+	for dc in s.batch_draw_calls {
+		if dc.render_target == render_target {
+			draw_current_batch()
+			return
+		}
+	}
+}
+
+// Run after changing `proj_matrix` or `view_matrix`. Draw calls then pick up the new combination.
+_update_view_projection :: proc() {
+	s.view_projection = s.proj_matrix * s.view_matrix
+	s.current_constants_dirty = true
+}
+
 VERTEX_BUFFER_MAX :: 1000000
+
+// How much room the batch arena starts with. A draw call needs a handful of bytes for its
+// textures. It only copies the constants when they actually changed. This therefore covers a frame
+// with thousands of draw calls in it. The arena grows if a frame needs more.
+BATCH_ARENA_BLOCK_SIZE :: 64*1024
 
 @(private="file")
 s: ^State
@@ -5400,71 +5664,82 @@ make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
 
 FONT_DEFAULT_ATLAS_SIZE :: 2048
 
-_update_font :: proc(fh: Font) {
-	font := &s.fonts[fh]
+// Gets glyphs that were baked since the last flush onto the GPU. Drawing text with a dynamic font
+// bakes the glyphs it needs into fontstash's atlas as it goes. This has to run before the draw
+// calls that use them. Fontstash only ever puts glyphs in unused parts of the atlas. Texture
+// coordinates already recorded in the vertex buffer therefore stay valid.
+//
+// Every dynamic font shares one fontstash atlas. Each has its own GPU texture mirroring it. They
+// all get the same update.
+_update_font_atlases :: proc() {
 	font_dirty_rect: [4]f32
 
-	tw := FONT_DEFAULT_ATLAS_SIZE
-
-	if fs.ValidateTexture(&s.fs, &font_dirty_rect) {
-		fdr := font_dirty_rect
-
-		r := Rect {
-			fdr[0],
-			fdr[1],
-			fdr[2] - fdr[0],
-			fdr[3] - fdr[1],
-		}
-
-		x := int(r.x)
-		y := int(r.y)
-		w := int(fdr[2]) - int(fdr[0])
-		h := int(fdr[3]) - int(fdr[1])
-
-		expanded_pixels := make([]Color, w * h, frame_allocator)
-		start := x + tw * y
-
-		for i in 0..<w*h {
-			px := i%w
-			py := i/w
-
-			dst_pixel_idx := (px) + (py * w)
-			src_pixel_idx := start + (px) + (py * tw)
-
-			src := s.fs.textureData[src_pixel_idx]
-
-			if font.options.premultiply_alpha {
-				a := f32(src) / 255
-				expanded_pixels[dst_pixel_idx] = {
-					u8(f32(src) * a),
-					u8(f32(src) * a),
-					u8(f32(src) * a),
-					src,
-				}
-			} else {
-				expanded_pixels[dst_pixel_idx] = {255,255,255, src}
-			}
-		}
-
-		rb.update_texture(font.atlas.handle, slice.reinterpret([]u8, expanded_pixels), r)
+	if !fs.ValidateTexture(&s.fs, &font_dirty_rect) {
+		return
 	}
+
+	for font in s.fonts {
+		// A static font has a finished atlas of its own, it is not part of fontstash's. A
+		// destroyed font has no atlas left at all.
+		if font.type == .Dynamic && font.atlas.handle != TEXTURE_NONE {
+			_update_font_atlas(font, font_dirty_rect)
+		}
+	}
+}
+
+_update_font_atlas :: proc(font: Font_Data, font_dirty_rect: [4]f32) {
+	tw := FONT_DEFAULT_ATLAS_SIZE
+	fdr := font_dirty_rect
+
+	r := Rect {
+		fdr[0],
+		fdr[1],
+		fdr[2] - fdr[0],
+		fdr[3] - fdr[1],
+	}
+
+	x := int(r.x)
+	y := int(r.y)
+	w := int(fdr[2]) - int(fdr[0])
+	h := int(fdr[3]) - int(fdr[1])
+
+	expanded_pixels := make([]Color, w * h, frame_allocator)
+	start := x + tw * y
+
+	for i in 0..<w*h {
+		px := i%w
+		py := i/w
+
+		dst_pixel_idx := (px) + (py * w)
+		src_pixel_idx := start + (px) + (py * tw)
+
+		src := s.fs.textureData[src_pixel_idx]
+
+		if font.options.premultiply_alpha {
+			a := f32(src) / 255
+			expanded_pixels[dst_pixel_idx] = {
+				u8(f32(src) * a),
+				u8(f32(src) * a),
+				u8(f32(src) * a),
+				src,
+			}
+		} else {
+			expanded_pixels[dst_pixel_idx] = {255,255,255, src}
+		}
+	}
+
+	rb.update_texture(font.atlas.handle, slice.reinterpret([]u8, expanded_pixels), r)
 }
 
 // Not for direct use. Specify font to `draw_text_ex`
 _set_font :: proc(fh: Font) {
 	fh := fh
 
-	if s.batch_font == fh {
+	if s.current_font == fh {
 		return
 	}
 
-	draw_current_batch()
-
-	s.batch_font = fh
-
-	if s.batch_font != FONT_NONE {
-		_update_font(s.batch_font)
-	}
+	s.current_font = fh
 
 	if fh == 0 {
 		fh = FONT_DEFAULT
