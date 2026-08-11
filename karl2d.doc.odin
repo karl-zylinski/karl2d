@@ -1539,26 +1539,28 @@ State :: struct {
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
 	shape_drawing_texture: Texture_Handle,
-	batch_font: Font,
-	batch_camera: Maybe(Camera),
-	batch_shader: Shader,
-	batch_scissor: Maybe(Rect),
-	batch_texture: Texture_Handle,
-	batch_render_target: Render_Target_Handle,
-	batch_blend_mode: Blend_Mode,
+	// The settings the next draw call will be recorded with. Changing one of these does not affect
+	// draw calls that are already recorded.
+	current_font: Font,
+	current_camera: Maybe(Camera),
+	current_shader: Shader,
+	current_scissor: Maybe(Rect),
+	current_texture: Texture_Handle,
+	current_render_target: Render_Target_Handle,
+	current_blend_mode: Blend_Mode,
 
 	// Recorded but not drawn yet. They all point into `vertex_buffer_cpu`.
 	batch_draw_calls: [dynamic]Draw_Call,
 
 	// The one vertices go into right now. A zeroed one means there is none.
-	batch_draw_call: Draw_Call,
+	current_draw_call: Draw_Call,
 
 	// Holds the constant values and textures that the draw calls point at.
 	batch_arena: runtime.Arena,
 	batch_allocator: runtime.Allocator,
 
 	// Says that the shader constants may differ from what the open draw call captured.
-	batch_constants_dirty: bool,
+	current_constants_dirty: bool,
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
