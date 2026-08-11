@@ -50,6 +50,7 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - Use short sentences. Prefer a period over all other forms of punctuation.
 - A doc comment tells the reader two things. What does this do? And why does it do it that way, if that would otherwise surprise them. Leave out everything else.
 - Never write about how something used to work, or about what a change improved. The reader has only ever seen the current version. That story belongs in the commit message.
+- Never warn the reader away from a mistake you made while writing the change. A comment explaining why some other code is *not* there is a note to yourself, not an insight about the code that is. Read it as a diff: if it only makes sense to someone who watched you get it wrong, delete it. The commit message is where that goes, if anywhere.
 - If you are unsure whether something belongs on a procedure or on a struct, put it on the procedure. That is what people look up.
 - Short notes can be trailing comments on the line they describe: `camera: k2.Camera // world camera`.
 

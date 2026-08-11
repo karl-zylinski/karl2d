@@ -406,8 +406,8 @@ process_events :: proc() {
 
 		case Event_Mouse_Teleported:
 			when Y_UP {
-				// Flipped like Event_Mouse_Move. This sets the position that the next move event
-				// computes its delta against, so leaving it unflipped makes that delta jump.
+				// The position the next move event measures its delta against, so it is in the
+				// same space as the one Event_Mouse_Move stores.
 				e.position.y = f32(pf.get_screen_height()) - e.position.y
 			}
 
