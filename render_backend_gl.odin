@@ -224,7 +224,13 @@ gl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 			gl_bind_textures(call.textures, gl_shd^)
 		}
 
-		rt := hm.get(&s.render_targets, call.render_target)
+		// Only the render target and scissor setup need the render target. Skipping the lookup
+		// otherwise keeps it out of the common case, where only the texture changed.
+		rt: ^GL_Render_Target
+
+		if .Render_Target in changed || .Scissor in changed {
+			rt = hm.get(&s.render_targets, call.render_target)
+		}
 
 		if .Render_Target in changed {
 			if rt != nil {

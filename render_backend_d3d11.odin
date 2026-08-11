@@ -347,8 +347,16 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 			}
 		}
 
+		// Only the render target and scissor setup need the render target. Skipping the lookup
+		// otherwise keeps it out of the common case, where only the texture changed.
+		rt: ^D3D11_Render_Target
+
+		if .Render_Target in changed || .Scissor in changed {
+			rt = hm.get(&s.render_targets, call.render_target)
+		}
+
 		if .Render_Target in changed {
-			if rt := hm.get(&s.render_targets, call.render_target); rt != nil {
+			if rt != nil {
 				dc->OMSetRenderTargets(1, &rt.render_target_view, nil)
 
 				viewport := d3d11.VIEWPORT {
@@ -377,7 +385,7 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 				bottom = i32(s.height),
 			}
 
-			if rt := hm.get(&s.render_targets, call.render_target); rt != nil {
+			if rt != nil {
 				scissor_rect.right = i32(rt.width)
 				scissor_rect.bottom = i32(rt.height)
 			}

@@ -5265,23 +5265,7 @@ _start_draw_call :: proc() {
 
 	if !same_shader || s.current_constants_dirty {
 		constants_data = slice.clone(shader.constants_data, s.batch_allocator)
-
-		// The view-projection matrix is ours rather than the program's. It goes into our copy
-		// instead of into the shader.
-		for mloc, builtin in shader.constant_builtin_locations {
-			constant, constant_ok := mloc.?
-
-			if !constant_ok {
-				continue
-			}
-
-			switch builtin {
-			case .View_Projection_Matrix:
-				if constant.size == size_of(Mat4) {
-					(^Mat4)(&constants_data[constant.offset])^ = s.view_projection
-				}
-			}
-		}
+		_write_builtin_constants(shader, constants_data)
 	}
 
 	textures := prev.textures
@@ -5289,7 +5273,7 @@ _start_draw_call :: proc() {
 	if !same_shader || !_textures_match(prev.textures) {
 		textures = slice.clone(shader.texture_bindpoints, s.batch_allocator)
 
-		// Same for the texture being drawn. It belongs in the copy, not in the shader.
+		// The texture being drawn is ours rather than the shader's. It goes into the copy.
 		if def_tex_idx, has_def_tex_idx := shader.default_texture_index.?; has_def_tex_idx {
 			textures[def_tex_idx] = s.current_texture
 		}
@@ -5308,6 +5292,133 @@ _start_draw_call :: proc() {
 	}
 
 	s.current_constants_dirty = false
+}
+
+// Writes the constants that Karl2D itself supplies into a draw call's copy of them. They are ours
+// rather than the shader program's, which is why they go into the copy and not into the shader.
+// The view-projection matrix is the only one right now.
+_write_builtin_constants :: proc(shader: Shader, constants_data: []u8) {
+	for mloc, builtin in shader.constant_builtin_locations {
+		constant, constant_ok := mloc.?
+
+		if !constant_ok {
+			continue
+		}
+
+		switch builtin {
+		case .View_Projection_Matrix:
+			if constant.size == size_of(Mat4) {
+				(^Mat4)(&constants_data[constant.offset])^ = s.view_projection
+			}
+		}
+	}
+}
+
+// Puts the open draw call into the list of recorded ones. Empty ones are left out, which is what a
+// run of settings changes leaves behind. What stays open is an empty draw call with the same
+// settings, so running this twice cannot record the same vertices twice.
+_finish_draw_call :: proc() {
+	dc := &s.current_draw_call
+
+	if dc.shader == SHADER_NONE {
+		return
+	}
+
+	dc.vertex_count = (s.vertex_buffer_cpu_used - dc.vertex_offset) / dc.vertex_size
+
+	if dc.vertex_count > 0 {
+		// Compared against the last draw call that made it into the list, because that is the one
+		// the backend will have set up before this one. Dropped draw calls never happened.
+		if len(s.batch_draw_calls) == 0 {
+			dc.changed = DRAW_CALL_CHANGE_ALL
+		} else {
+			dc.changed = _draw_call_changes(s.batch_draw_calls[len(s.batch_draw_calls) - 1], dc^)
+		}
+
+		append(&s.batch_draw_calls, dc^)
+	}
+
+	dc.vertex_offset = s.vertex_buffer_cpu_used
+	dc.vertex_count = 0
+}
+
+// Works out what `next` needs the backend to set up that `prev` did not. It is done here so that
+// each backend does not have to. Things that go together are also decided in one place. A new
+// render target needs a new scissor rect, for example.
+_draw_call_changes :: proc(
+	prev: Draw_Call,
+	next: Draw_Call,
+) -> (changed: bit_set[Draw_Call_Change]) {
+	if prev.shader != next.shader {
+		// A different shader has its own constant buffers and texture bindpoints. Those have to be
+		// set up again even when the values in them are the same.
+		changed += { .Shader, .Constants, .Textures }
+	}
+
+	// Draw calls that hold the same values share one copy of them. The same memory therefore means
+	// there is nothing to re-upload.
+	if raw_data(prev.constants_data) != raw_data(next.constants_data) {
+		changed += { .Constants }
+	}
+
+	if raw_data(prev.textures) != raw_data(next.textures) {
+		changed += { .Textures }
+	}
+
+	if prev.render_target != next.render_target {
+		// A draw call without a scissor rect gets one that covers the whole render target.
+		changed += { .Render_Target, .Scissor }
+	}
+
+	if prev.scissor != next.scissor {
+		changed += { .Scissor }
+	}
+
+	if prev.blend_mode != next.blend_mode {
+		changed += { .Blend_Mode }
+	}
+
+	return
+}
+
+// Callers must run `_begin_vertices` first. That leaves room in the buffer and a draw call to put
+// the vertex in.
+batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
+	v := v
+	shd := s.current_shader
+
+	base_offset := s.vertex_buffer_cpu_used
+	pos_offset := shd.default_input_offsets[.Position]
+	uv_offset := shd.default_input_offsets[.UV]
+	color_offset := shd.default_input_offsets[.Color]
+	
+	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
+
+	if pos_offset != -1 {
+		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
+	}
+
+	if uv_offset != -1 {
+		(^Vec2)(&s.vertex_buffer_cpu[base_offset + uv_offset])^ = uv
+	}
+
+	if color_offset != -1 {
+		(^Color)(&s.vertex_buffer_cpu[base_offset + color_offset])^ = color
+	}
+
+	override_offset: int
+	for &input in shd.inputs {
+		o := &shd.input_overrides[input.register]
+		sz := pixel_format_size(input.format)
+
+		if o.used != 0 {
+			mem.copy(&s.vertex_buffer_cpu[base_offset + override_offset], raw_data(&o.val), o.used)
+		}
+
+		override_offset += sz
+	}
+	
+	s.vertex_buffer_cpu_used += shd.vertex_size
 }
 
 // Draws the batch if any recorded draw call still samples `texture`. Those draw calls have to
@@ -5383,113 +5494,6 @@ _flush_if_batch_uses_render_target :: proc(render_target: Render_Target_Handle) 
 _update_view_projection :: proc() {
 	s.view_projection = s.proj_matrix * s.view_matrix
 	s.current_constants_dirty = true
-}
-
-// Works out what `next` needs the backend to set up that `prev` did not. It is done here so that
-// each backend does not have to. Things that go together are also decided in one place. A new
-// render target needs a new scissor rect, for example.
-_draw_call_changes :: proc(
-	prev: Draw_Call,
-	next: Draw_Call,
-) -> (changed: bit_set[Draw_Call_Change]) {
-	if prev.shader != next.shader {
-		// A different shader has its own constant buffers and texture bindpoints. Those have to be
-		// set up again even when the values in them are the same.
-		changed += { .Shader, .Constants, .Textures }
-	}
-
-	// Draw calls that hold the same values share one copy of them. The same memory therefore means
-	// there is nothing to re-upload.
-	if raw_data(prev.constants_data) != raw_data(next.constants_data) {
-		changed += { .Constants }
-	}
-
-	if raw_data(prev.textures) != raw_data(next.textures) {
-		changed += { .Textures }
-	}
-
-	if prev.render_target != next.render_target {
-		// A draw call without a scissor rect gets one that covers the whole render target.
-		changed += { .Render_Target, .Scissor }
-	}
-
-	if prev.scissor != next.scissor {
-		changed += { .Scissor }
-	}
-
-	if prev.blend_mode != next.blend_mode {
-		changed += { .Blend_Mode }
-	}
-
-	return
-}
-
-// Puts the open draw call into the list of recorded ones. Empty ones are left out, which is what a
-// run of settings changes leaves behind. What stays open is an empty draw call with the same
-// settings, so running this twice cannot record the same vertices twice.
-_finish_draw_call :: proc() {
-	dc := &s.current_draw_call
-
-	if dc.shader == SHADER_NONE {
-		return
-	}
-
-	dc.vertex_count = (s.vertex_buffer_cpu_used - dc.vertex_offset) / dc.vertex_size
-
-	if dc.vertex_count > 0 {
-		// Compared against the last draw call that made it into the list, because that is the one
-		// the backend will have set up before this one. Dropped draw calls never happened.
-		if len(s.batch_draw_calls) == 0 {
-			dc.changed = DRAW_CALL_CHANGE_ALL
-		} else {
-			dc.changed = _draw_call_changes(s.batch_draw_calls[len(s.batch_draw_calls) - 1], dc^)
-		}
-
-		append(&s.batch_draw_calls, dc^)
-	}
-
-	dc.vertex_offset = s.vertex_buffer_cpu_used
-	dc.vertex_count = 0
-}
-
-// Callers must run `_begin_vertices` first. That leaves room in the buffer and a draw call to put
-// the vertex in.
-batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
-	v := v
-	shd := s.current_shader
-
-	base_offset := s.vertex_buffer_cpu_used
-	pos_offset := shd.default_input_offsets[.Position]
-	uv_offset := shd.default_input_offsets[.UV]
-	color_offset := shd.default_input_offsets[.Color]
-	
-	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
-
-	if pos_offset != -1 {
-		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
-	}
-
-	if uv_offset != -1 {
-		(^Vec2)(&s.vertex_buffer_cpu[base_offset + uv_offset])^ = uv
-	}
-
-	if color_offset != -1 {
-		(^Color)(&s.vertex_buffer_cpu[base_offset + color_offset])^ = color
-	}
-
-	override_offset: int
-	for &input in shd.inputs {
-		o := &shd.input_overrides[input.register]
-		sz := pixel_format_size(input.format)
-
-		if o.used != 0 {
-			mem.copy(&s.vertex_buffer_cpu[base_offset + override_offset], raw_data(&o.val), o.used)
-		}
-
-		override_offset += sz
-	}
-	
-	s.vertex_buffer_cpu_used += shd.vertex_size
 }
 
 VERTEX_BUFFER_MAX :: 1000000
