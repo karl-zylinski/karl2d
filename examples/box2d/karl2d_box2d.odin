@@ -2,14 +2,11 @@
 //
 // Aim with the mouse and left click to fire. The dotted arc shows where the shot will go: it is the
 // same projectile equation Box2D integrates, so it lines up with what actually happens.
-//
-// Originally made during a 1h stream: https://www.youtube.com/watch?v=LYW7jdwEnaI
 package karl2d_box2d_example
 
 import b2 "vendor:box2d"
 import k2 "../.."
 import "core:math"
-import "core:math/linalg"
 
 // Box2D works in a Y up world, so this example uses Karl2D's Y up coordinate system too. That way
 // positions and angles pass between the two without any conversion. Everything below is in Box2D
@@ -79,8 +76,12 @@ step :: proc() -> bool {
 
 	// The mouse position is already in the same coordinate system as the physics world, so it can
 	// be used to aim without converting anything.
-	aim_dir := linalg.normalize0(k2.get_mouse_position() - CANNON)
-	shoot_from := CANNON + aim_dir*BARREL_LENGTH
+	//
+	// Shots start at the middle of the cannon and come out from behind the barrel, which is drawn
+	// over them. Starting them at the end of the barrel instead would move the launch point every
+	// time the barrel turned, and the angle is what turns it.
+	target := k2.get_mouse_position()
+	aim_dir := launch_direction(CANNON, target)
 
 	if k2.mouse_button_went_down(.Left) {
 		// Whatever is in the slot we are about to write has had its turn.
@@ -90,7 +91,7 @@ step :: proc() -> bool {
 
 		body_def := b2.DefaultBodyDef()
 		body_def.type = .dynamicBody
-		body_def.position = { shoot_from.x, shoot_from.y }
+		body_def.position = { CANNON.x, CANNON.y }
 
 		// Shots are fast and small, so ask Box2D not to let them pass through thin things.
 		body_def.isBullet = true
@@ -161,7 +162,7 @@ step :: proc() -> bool {
 
 	for i in 1..=AIM_DOTS {
 		t := f32(i)*AIM_INTERVAL
-		p := shoot_from + aim_dir*BALL_SPEED*t + 0.5*k2.Vec2{0, GRAVITY}*t*t
+		p := CANNON + aim_dir*BALL_SPEED*t + 0.5*k2.Vec2{0, GRAVITY}*t*t
 
 		if p.y < GROUND.y + GROUND.h {
 			break
@@ -203,6 +204,45 @@ step :: proc() -> bool {
 	k2.present()
 
 	return true
+}
+
+// The direction to fire in so that a ball launched at BALL_SPEED lands on `target`. The speed and
+// the gravity are fixed, which leaves the angle as the only unknown.
+//
+// Two angles reach any target within range, a flat one and a lobbed one. This picks the flat one.
+// Targets out of range get the 45 degree shot, which is the furthest the cannon can throw.
+launch_direction :: proc(from: k2.Vec2, target: k2.Vec2) -> k2.Vec2 {
+	g := f32(-GRAVITY)
+	v := f32(BALL_SPEED)
+	d := target - from
+
+	// Solved as if the target is to the right, then mirrored, so one formula covers both ways.
+	to_the_left := d.x < 0
+	dx := abs(d.x)
+	angle: f32
+
+	if dx < 1 {
+		// Straight above or below, where the formula below would divide by zero.
+		angle = math.PI/2 if d.y >= 0 else -math.PI/2
+		to_the_left = false
+	} else {
+		v2 := v*v
+
+		// Negative when no angle gets there.
+		discriminant := v2*v2 - g*(g*dx*dx + 2*d.y*v2)
+
+		if discriminant < 0 {
+			angle = math.PI/4
+		} else {
+			angle = math.atan((v2 - math.sqrt(discriminant))/(g*dx))
+		}
+	}
+
+	if to_the_left {
+		angle = math.PI - angle
+	}
+
+	return { math.cos(angle), math.sin(angle) }
 }
 
 // Puts the pyramid of boxes on top of the platform.
