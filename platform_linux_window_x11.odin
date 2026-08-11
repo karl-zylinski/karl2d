@@ -33,18 +33,24 @@ import "base:runtime"
 import "log"
 import "core:fmt"
 import "core:slice"
+import "core:strconv"
 import hm "core:container/handle_map"
 
 _ :: log
 _ :: fmt
 
-// XDestroyIC and XCloseIM aren't bound by vendor:x11/xlib, so we bind them here ourselves.
+// XDestroyIC, XCloseIM and XrmDestroyDatabase aren't bound by vendor:x11/xlib, so we bind them
+// here ourselves.
 foreign import x11_extra "system:X11"
 
 foreign x11_extra {
 	XDestroyIC :: proc(ic: X.XIC) ---
 	XCloseIM :: proc(im: X.XIM) -> X.Status ---
+	XrmDestroyDatabase :: proc(db: X.XrmDatabase) ---
 }
+
+// The DPI that X11 and every toolkit on it treat as 100% scale.
+DEFAULT_DPI :: 96
 
 x11_state_size :: proc() -> int {
 	return size_of(X11_State)
@@ -60,17 +66,27 @@ x11_init :: proc(
 ) {
 	s = (^X11_State)(window_state)
 	s.allocator = allocator
-	s.screen_width = screen_width
-	s.screen_height = screen_height
-	s.display = X.OpenDisplay(nil)
 	s.events = make([dynamic]Event, allocator)
 	hm.dynamic_init(&s.custom_cursors, allocator)
+
+	// Xlib wants this before anything touches the resource database.
+	X.XrmInitialize()
+	s.display = X.OpenDisplay(nil)
+	s.window_scale = x11_fetch_window_scale()
+
+	if init_options.disable_auto_scale_hint {
+		s.screen_width = screen_width
+		s.screen_height = screen_height
+	} else {
+		s.screen_width = int(f32(screen_width) * s.window_scale)
+		s.screen_height = int(f32(screen_height) * s.window_scale)
+	}
 
 	s.window = X.CreateSimpleWindow(
 		s.display,
 		X.DefaultRootWindow(s.display),
 		0, 0,
-		u32(screen_width), u32(screen_height),
+		u32(s.screen_width), u32(s.screen_height),
 		0,
 		0,
 		0,
@@ -92,6 +108,12 @@ x11_init :: proc(
 
 	s.delete_msg = X.InternAtom(s.display, "WM_DELETE_WINDOW", false)
 	X.SetWMProtocols(s.display, s.window, &s.delete_msg, 1)
+
+	// The X resource database lives in a property on the root window, so a DPI change shows up as
+	// a PropertyNotify on it. This is also how GTK and Qt notice. It means we see every other root
+	// property the window manager touches too, which is why x11_get_events checks the atom.
+	s.resource_manager = X.InternAtom(s.display, "RESOURCE_MANAGER", false)
+	X.SelectInput(s.display, X.DefaultRootWindow(s.display), {.PropertyChange})
 
 	// Detectable auto-repeat means a held-down key produces repeated KeyPress events without an
 	// interleaved KeyRelease between them, so we can tell an initial press from a repeat by
@@ -322,6 +344,26 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 					height = h,
 				})
 			}
+
+		case .PropertyNotify:
+			is_resource_manager := event.xproperty.state == .PropertyNewValue &&
+				event.xproperty.window == X.DefaultRootWindow(s.display) &&
+				event.xproperty.atom == s.resource_manager
+
+			if is_resource_manager {
+				new_scale := x11_fetch_window_scale()
+
+				if new_scale != s.window_scale {
+					s.window_scale = new_scale
+
+					append(events, Event_Window_Scale_Changed {
+						scale = new_scale,
+						screen_width = s.screen_width,
+						screen_height = s.screen_height,
+					})
+				}
+			}
+
 		case .FocusIn:
 			if s.xic != nil {
 				X.SetICFocus(s.xic)
@@ -430,7 +472,42 @@ x11_set_screen_size :: proc(w, h: int) {
 }
 
 x11_get_window_scale :: proc() -> f32 {
-	return 1
+	return s.window_scale
+}
+
+// Reads the DPI scale from the X resource database. `Xft.dpi` is what GTK and Qt use, so this
+// matches the rest of the desktop. There is no per-monitor DPI in X11: one number covers
+// everything. Desktops that would set it to 96 tend to remove the entry instead, so a missing
+// entry means 100%.
+x11_fetch_window_scale :: proc() -> f32 {
+	rms := X.ResourceManagerString(s.display)
+
+	if rms == nil {
+		return 1
+	}
+
+	db := X.XrmGetStringDatabase(rms)
+
+	if db == nil {
+		return 1
+	}
+
+	scale: f32 = 1
+	res_type: cstring
+	res_value: X.XrmValue
+
+	found := bool(X.XrmGetResource(db, "Xft.dpi", "Xft.Dpi", &res_type, &res_value))
+
+	if found && res_type == "String" && res_value.addr != nil {
+		dpi, dpi_ok := strconv.parse_f32(string(cstring(res_value.addr)))
+
+		if dpi_ok && dpi > 0 {
+			scale = dpi/DEFAULT_DPI
+		}
+	}
+
+	XrmDestroyDatabase(db)
+	return scale
 }
 
 enter_borderless_fullscreen :: proc() {
@@ -725,6 +802,12 @@ X11_State :: struct {
 	last_configure_windowed_width: int,
 	last_configure_windowed_height: int,
 	
+	// The scale from the OS. 1 means 100%. See x11_fetch_window_scale.
+	window_scale: f32,
+
+	// The root window property holding the X resource database. We watch it to notice DPI changes.
+	resource_manager: X.Atom,
+
 	display: ^X.Display,
 	window: X.Window,
 	delete_msg: X.Atom,
