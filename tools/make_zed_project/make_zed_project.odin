@@ -66,6 +66,17 @@ main :: proc() {
 		return fmt.tprintf("%s.%s", name, ODIN_OS == .Windows ? "exe" : "bin")
 	}
 
+	// Some examples only build with a define. `box2d` uses the Y up coordinate system and says so
+	// with a #assert.
+	example_define :: proc(name: string) -> string {
+		switch name {
+		case "box2d":
+			return "-define:KARL2D_Y_UP=true"
+		}
+
+		return ""
+	}
+
 	write_debug_tasks_entry :: proc(
 		tasks_file: ^os.File,
 		debug_file: ^os.File,
@@ -76,7 +87,7 @@ main :: proc() {
 		TASKS_ENTRY_TEMPLATE ::
 `	{{
 		"label": "build %s",
-		"command": "odin build %s -debug -vet -strict-style -vet-tabs -out:bin/%s",
+		"command": "odin build %s -debug -vet -strict-style -vet-tabs -out:bin/%s%s",
 	}},
 `
 	
@@ -85,6 +96,7 @@ main :: proc() {
 			name,
 			src,
 			name_with_ext(name),
+			example_define(name) == "" ? "" : fmt.tprintf(" %s", example_define(name)),
 		)
 		
 		fmt.fprint(tasks_file, tasks_entry)
