@@ -173,10 +173,9 @@ init :: proc(
 
 	// FontStash enables us to bake fonts from TTF files on-the-fly.
 	//
-	// Note that FontStash is always set up top-down, regardless of the coordinate system. Text is
-	// laid out in a top-down local space and mapped into world space afterwards, by
-	// `text_local_to_world`. Doing it that way keeps the layout itself identical in both coordinate
-	// systems, so there is only one place where the two can disagree.
+	// Note that FontStash is always set up top-down, regardless of the coordinate system. The text
+	// drawing procedures lay glyphs out top-down and place the finished block themselves. That way
+	// the layout is identical in both coordinate systems.
 	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
 	fs.SetAlignVertical(&s.fs, .TOP)
 
@@ -393,9 +392,11 @@ process_events :: proc() {
 			append(&s.typed_runes, e.typed)
 
 		case Event_Mouse_Move:
-			// The platform layer reports mouse positions in native, top-down window coordinates. We
-			// modify the event itself so that `get_events()` returns the correct position too.
-			e.position.y = screen_y_to_native(e.position.y, f32(pf.get_screen_height()))
+			when Y_UP {
+				// The platform reports the position from the top of the window. We modify the event
+				// itself so that `get_events()` returns the correct position too.
+				e.position.y = f32(pf.get_screen_height()) - e.position.y
+			}
 
 			prev_pos := s.mouse_position
 			s.mouse_position.x = e.position.x
@@ -404,9 +405,11 @@ process_events :: proc() {
 			s.mouse_delta += s.mouse_position - prev_pos
 
 		case Event_Mouse_Teleported:
-			// Must be converted just like Event_Mouse_Move: this sets the position that the next
-			// move event computes its delta against.
-			e.position.y = screen_y_to_native(e.position.y, f32(pf.get_screen_height()))
+			when Y_UP {
+				// Flipped like Event_Mouse_Move. This sets the position that the next move event
+				// computes its delta against, so leaving it unflipped makes that delta jump.
+				e.position.y = f32(pf.get_screen_height()) - e.position.y
+			}
 
 			s.mouse_position.x = e.position.x
 			s.mouse_position.y = e.position.y
@@ -1427,11 +1430,18 @@ draw_text :: proc(
 		font_object := &s.fonts[font]
 
 		// Laid out top-down: `char_offset` walks right along a line and down between lines, matching
-		// the offsets stbtt baked into the glyphs. `text_local_to_world` maps the result into the
-		// active coordinate system. Must agree with `measure_text_static`.
+		// the offsets stbtt baked into the glyphs.
 		char_offset: Vec2
 		scl := font_size / font_object.static_font_size
-		block_height := f32(count_text_lines(text)) * font_object.static_line_spacing * scl
+
+		// Where the top of the text block is. The glyph offsets are measured down from it. In Y up
+		// `position` is the bottom-left corner of the block, so the top is a whole block higher.
+		// The height must agree with what `measure_text_static` reports.
+		when Y_UP {
+			block_top := position.y + f32(count_text_lines(text))*font_object.static_line_spacing*scl
+		} else {
+			block_top := position.y
+		}
 
 		for c in text {
 			if c == '\r' {
@@ -1460,24 +1470,27 @@ draw_text :: proc(
 
 			if g != nil {
 				src := g.rect
+				w := src.w * scl
+				h := src.h * scl
 
 				// `g.offset` is stbtt's top-down offset from the top of the line to the top of the
-				// glyph bitmap. It is what makes descenders hang below the baseline, so it has to be
-				// applied in text-local space, before mapping into the world.
-				local := Rect {
-					char_offset.x + g.offset.x*scl,
-					char_offset.y + g.offset.y*scl,
-					src.w * scl,
-					src.h * scl,
+				// glyph bitmap. It is what makes descenders hang below the baseline, so it counts
+				// down from the top of the block whichever way the Y axis points.
+				offset_from_top := char_offset.y + g.offset.y*scl
+
+				when Y_UP {
+					glyph_y := block_top - offset_from_top - h
+				} else {
+					glyph_y := block_top + offset_from_top
 				}
 
-				glyph := text_local_to_world(position, local, block_height)
+				glyph_x := position.x + char_offset.x + g.offset.x*scl
 
 				// The destination stays at `position` for every glyph and the per-glyph offset is
 				// folded into the origin instead. That way `rotation` pivots the whole text block
 				// around `position` rather than each glyph around itself.
-				dst := Rect { position.x, position.y, glyph.w, glyph.h }
-				char_origin := origin + position - { glyph.x, glyph.y }
+				dst := Rect { position.x, position.y, w, h }
+				char_origin := origin + position - { glyph_x, glyph_y }
 
 				draw_texture_fit(
 					font_object.atlas,
@@ -1491,16 +1504,19 @@ draw_text :: proc(
 				char_offset.x += g.advance*scl
 			} else {
 				invalid_rect_size := Vec2 {font_size*0.5, font_size*0.5}
+				offset_from_top := char_offset.y + invalid_rect_size.y/2
 
-				invalid_local := Rect {
-					char_offset.x,
-					char_offset.y + invalid_rect_size.y/2,
-					invalid_rect_size.x,
-					invalid_rect_size.y,
+				when Y_UP {
+					invalid_y := block_top - offset_from_top - invalid_rect_size.y
+				} else {
+					invalid_y := block_top + offset_from_top
 				}
 
 				draw_rect(
-					text_local_to_world(position, invalid_local, block_height),
+					{
+						position.x + char_offset.x, invalid_y,
+						invalid_rect_size.x, invalid_rect_size.y,
+					},
 					RED,
 				)
 
@@ -1536,9 +1552,14 @@ draw_text :: proc(
 		render_size := font_size * camera_zoom
 
 		// FontStash lays the text out top-down starting at (0, 0), so its quads come out as offsets
-		// from the top-left of the text block. `text_local_to_world` then puts them where they
-		// belong. Must agree with `measure_text_dynamic`, which reports `lines * font_size`.
-		block_height := f32(count_text_lines(text)) * font_size
+		// from the top-left of the text block. This is where that corner goes. In Y up `position`
+		// is the bottom-left corner of the block, so the top is a whole block higher. The height
+		// must agree with what `measure_text_dynamic` reports, which is `lines * font_size`.
+		when Y_UP {
+			block_top := position.y + f32(count_text_lines(text))*font_size
+		} else {
+			block_top := position.y
+		}
 
 		fs.SetSize(&s.fs, render_size)
 		iter := fs.TextIterInit(&s.fs, 0, 0, text)
@@ -1569,19 +1590,23 @@ draw_text :: proc(
 			src.h *= h
 
 			// Unscale quad positions from render-size space back to text-local world units.
-			local := Rect {
-				q.x0 / camera_zoom,
-				q.y0 / camera_zoom,
-				(q.x1 - q.x0) / camera_zoom,
-				(q.y1 - q.y0) / camera_zoom,
+			offset_from_left := q.x0 / camera_zoom
+			offset_from_top := q.y0 / camera_zoom
+			glyph_w := (q.x1 - q.x0) / camera_zoom
+			glyph_h := (q.y1 - q.y0) / camera_zoom
+
+			when Y_UP {
+				glyph_y := block_top - offset_from_top - glyph_h
+			} else {
+				glyph_y := block_top + offset_from_top
 			}
 
-			glyph := text_local_to_world(position, local, block_height)
+			glyph_x := position.x + offset_from_left
 
 			// As in `draw_text_static`: keep the destination at `position` and fold the per-glyph
 			// offset into the origin, so that `rotation` pivots the block and not each glyph.
-			dst := Rect { position.x, position.y, glyph.w, glyph.h }
-			char_origin := origin + position - { glyph.x, glyph.y }
+			dst := Rect { position.x, position.y, glyph_w, glyph_h }
+			char_origin := origin + position - { glyph_x, glyph_y }
 
 			draw_texture_fit(font_object.atlas, src, dst, char_origin, rotation, color)
 		}
@@ -3443,36 +3468,61 @@ rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect {
 	}
 }
 
-// Get the top left corner of a rectangle, as it appears on screen.
+// Get the top left corner of a rectangle, as it appears on screen. A rectangle grows upwards from
+// its y in a Y up coordinate system, so the top edge is at the far end of it there.
 rect_top_left :: proc(r: Rect) -> Vec2 {
-	return {r.x, rect_top_y(r)}
+	when Y_UP {
+		return {r.x, r.y + r.h}
+	} else {
+		return {r.x, r.y}
+	}
 }
 
 // Get the top middle point of a rectangle, as it appears on screen. That is, the mid-point between
 // the top left and top right corners.
 rect_top_middle :: proc(r: Rect) -> Vec2 {
-	return {r.x + r.w / 2, rect_top_y(r)}
+	when Y_UP {
+		return {r.x + r.w / 2, r.y + r.h}
+	} else {
+		return {r.x + r.w / 2, r.y}
+	}
 }
 
 // Get the top right corner of a rectangle, as it appears on screen.
 rect_top_right :: proc(r: Rect) -> Vec2 {
-	return {r.x + r.w, rect_top_y(r)}
+	when Y_UP {
+		return {r.x + r.w, r.y + r.h}
+	} else {
+		return {r.x + r.w, r.y}
+	}
 }
 
 // Get the bottom left corner of a rectangle, as it appears on screen.
 rect_bottom_left :: proc(r: Rect) -> Vec2 {
-	return {r.x, rect_bottom_y(r)}
+	when Y_UP {
+		return {r.x, r.y}
+	} else {
+		return {r.x, r.y + r.h}
+	}
 }
 
 // Get the bottom middle point of a rectangle, as it appears on screen. That is, the mid-point
 // between the bottom left and bottom right corners.
 rect_bottom_middle :: proc(r: Rect) -> Vec2 {
-	return {r.x + r.w / 2, rect_bottom_y(r)}
+	when Y_UP {
+		return {r.x + r.w / 2, r.y}
+	} else {
+		return {r.x + r.w / 2, r.y + r.h}
+	}
 }
 
 // Get the bottom right corner of a rectangle, as it appears on screen.
 rect_bottom_right :: proc(r: Rect) -> Vec2 {
-	return {r.x + r.w, rect_bottom_y(r)}
+	when Y_UP {
+		return {r.x + r.w, r.y}
+	} else {
+		return {r.x + r.w, r.y + r.h}
+	}
 }
 
 // Make a rectangle smaller by `x` pixels in the horizontal direction and `y` pixels in the vertical
@@ -5353,58 +5403,6 @@ is_typable_rune :: proc(r: rune) -> bool {
 	return r >= 32 && r != 0x7f
 }
 
-//------------------------------------------//
-// COORDINATE SYSTEM CONVERSIONS (INTERNAL) //
-//------------------------------------------//
-//
-// The complete set of places where the two coordinate systems disagree. Everything else in this
-// file is written in terms of these.
-
-// Convert a Y coordinate between Karl2D's screen space and the native, top-down screen space used
-// by windowing systems and graphics APIs. `container_height` is the height of the surface the
-// coordinate lives on: the window for screen coordinates, the render texture when drawing into one.
-//
-// This is its own inverse, so the same procedure converts in both directions.
-@(private="file", require_results)
-screen_y_to_native :: proc "contextless" (y: f32, container_height: f32) -> f32 {
-	when Y_UP {
-		return container_height - y
-	} else {
-		return y
-	}
-}
-
-// Convert a rectangle from Karl2D's screen space to the native, top-down screen space. Note that
-// this also moves the anchor: in Y up, `r.y` is the rect's bottom edge, but the returned rect's `y`
-// is its top edge, because that is what the graphics APIs expect.
-@(private="file", require_results)
-screen_rect_to_native :: proc "contextless" (r: Rect, container_height: f32) -> Rect {
-	when Y_UP {
-		return { r.x, container_height - r.y - r.h, r.w, r.h }
-	} else {
-		return r
-	}
-}
-
-// Map a rectangle laid out in text-local space into world space.
-//
-// Text is always laid out top-down, the way font rasterizers produce it: local (0, 0) is the
-// top-left corner of the whole text block, and Y grows downwards as lines are added. This maps such
-// a box to where it belongs in the world, given the `anchor` passed to `draw_text` and the height
-// of the finished text block.
-//
-// The result is that `draw_text(text, pos, size)` covers exactly
-// `rect_from_pos_size(pos, measure_text(text, size))` in both coordinate systems, with the first
-// line at the top on screen.
-@(private="file", require_results)
-text_local_to_world :: proc "contextless" (anchor: Vec2, local: Rect, block_height: f32) -> Rect {
-	when Y_UP {
-		return { anchor.x + local.x, anchor.y + block_height - local.y - local.h, local.w, local.h }
-	} else {
-		return { anchor.x + local.x, anchor.y + local.y, local.w, local.h }
-	}
-}
-
 // The number of lines `text` occupies. Used to size the text block without having to measure the
 // whole thing: only the height matters for placing the block.
 @(private="file", require_results)
@@ -5418,38 +5416,6 @@ count_text_lines :: proc "contextless" (text: string) -> int {
 	}
 
 	return lines
-}
-
-// "Top" and "bottom" always mean what they look like on screen. A `Rect` grows downwards from its
-// (x, y) in the default Y down coordinate system and upwards in a Y up one, so which edge is which
-// depends on the coordinate system.
-@(private="file", require_results)
-rect_top_y :: proc "contextless" (r: Rect) -> f32 {
-	when Y_UP {
-		return r.y + r.h
-	} else {
-		return r.y
-	}
-}
-
-@(private="file", require_results)
-rect_bottom_y :: proc "contextless" (r: Rect) -> f32 {
-	when Y_UP {
-		return r.y
-	} else {
-		return r.y + r.h
-	}
-}
-
-// The height of the surface currently being drawn into: the render texture if one is set, otherwise
-// the window. Needed to convert screen-space coordinates to the native top-down ones.
-@(private="file")
-current_surface_height :: proc() -> int {
-	if s.current_render_target != RENDER_TARGET_NONE {
-		return s.current_render_target_height
-	}
-
-	return pf.get_screen_height()
 }
 
 assert_initialized :: proc(loc := #caller_location) {
@@ -5557,14 +5523,26 @@ _start_draw_call :: proc() {
 		}
 	}
 
-	// The render backends want the scissor rectangle in native, top-down surface coordinates, which
-	// is what both D3D11 and OpenGL take. Converting it here means the backends never have to know
-	// which coordinate system the library is using. It also happens against the render target this
-	// draw call is being recorded with, which is the surface the rectangle is measured against.
 	scissor := s.current_scissor
 
-	if sciss, sciss_ok := scissor.?; sciss_ok {
-		scissor = screen_rect_to_native(sciss, f32(current_surface_height()))
+	when Y_UP {
+		// The backends want the scissor rectangle top-down, which is what both D3D11 and OpenGL
+		// take. Here `sciss.y` is its bottom edge measured up from the bottom of the surface, so
+		// the top edge measured down from the top is what is left when both are taken off the
+		// height. It is done here so that it uses the render target this draw call is recorded
+		// with, which is the surface the rectangle was measured against.
+		if sciss, sciss_ok := scissor.?; sciss_ok {
+			surface_height := s.current_render_target_height
+
+			if s.current_render_target == RENDER_TARGET_NONE {
+				surface_height = pf.get_screen_height()
+			}
+
+			scissor = Rect {
+				sciss.x, f32(surface_height) - sciss.y - sciss.h,
+				sciss.w, sciss.h,
+			}
+		}
 	}
 
 	s.current_draw_call = {

@@ -784,7 +784,8 @@ rect_centre :: rect_middle
 // Combine a position and a size into a rectangle.
 rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect
 
-// Get the top left corner of a rectangle, as it appears on screen.
+// Get the top left corner of a rectangle, as it appears on screen. A rectangle grows upwards from
+// its y in a Y up coordinate system, so the top edge is at the far end of it there.
 rect_top_left :: proc(r: Rect) -> Vec2
 
 // Get the top middle point of a rectangle, as it appears on screen. That is, the mid-point between
