@@ -558,7 +558,8 @@ set_sound_loop :: proc(sound: Sound, loop: bool)
 // Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
 // will also destroy the audio buffer. 
 //
-// Currently only supports 16 bit WAV files.
+// Supports mono and stereo WAV files with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
+// float samples.
 load_sound_from_file :: proc(filename: string) -> Sound
 
 // Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Returns a `Sound`
@@ -569,9 +570,10 @@ load_sound_from_file :: proc(filename: string) -> Sound
 // Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
 // will also destroy the audio buffer.
 //
-// Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
-// including the header. If your data does not include the header, then please use
-// `load_audio_buffer_from_bytes_raw` combined with `create_sound_from_audio_buffer`.
+// Supports mono and stereo WAV data with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
+// float samples. Note that the data should be the entire WAV file, including the header. If your
+// data does not include the header, then please use `load_audio_buffer_from_bytes_raw` combined
+// with `create_sound_from_audio_buffer`.
 load_sound_from_bytes :: proc(bytes: []byte) -> Sound
 
 // Load a sound from some raw audio data. You need to specify the data, format and sample rate of
@@ -590,16 +592,17 @@ load_sound_from_bytes_raw :: proc(
 // Load a WAV file from disk. Returns an `Audio_Buffer` which can be used with
 // `create_sound_from_audio_buffer` in order to play the audio buffer multiple times simultaneously.
 //
-// Currently only supports 16 bit WAV data.
+// Supports mono and stereo WAV files with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
+// float samples.
 load_audio_buffer_from_file :: proc(filename: string) -> Audio_Buffer
 
 // Load a WAV file from some pre-loaded memory (can be loaded using `#load("sound.wav")`). Returns
 // an `Audio_Buffer` which can be used with `create_sound_from_audio_buffer` in order to play the
 // audio buffer multiple times simultaneously.
 //
-// Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
-// including the header. If your data does not include the header, then please use
-// `load_audio_buffer_from_bytes_raw`.
+// Supports mono and stereo WAV data with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
+// float samples. Note that the data should be the entire WAV file, including the header. If your
+// data does not include the header, then please use `load_audio_buffer_from_bytes_raw`.
 load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer
 
 // Load an audio buffer from some raw audio data. You need to specify the data, format and sample
@@ -1491,10 +1494,12 @@ Audio_Stream_Data :: struct {
 
 // The format used to describe that data passed to `load_sound_from_bytes_raw`.
 Raw_Sound_Format :: enum {
-	Integer8,
+	Integer8, // unsigned, like in 8 bit WAV files. The other integer formats are signed.
 	Integer16,
+	Integer24, // three bytes per sample, little endian
 	Integer32,
-	Float,
+	Float32,
+	Float64,
 }
 
 Audio_Buffer :: distinct Handle

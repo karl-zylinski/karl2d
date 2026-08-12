@@ -1968,7 +1968,8 @@ set_sound_loop :: proc(sound: Sound, loop: bool) {
 // Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
 // will also destroy the audio buffer. 
 //
-// Currently only supports 16 bit WAV files.
+// Supports mono and stereo WAV files with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
+// float samples.
 load_sound_from_file :: proc(filename: string) -> Sound {
 	data, data_ok := read_entire_file(filename, frame_allocator)
 
@@ -1988,9 +1989,10 @@ load_sound_from_file :: proc(filename: string) -> Sound {
 // Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
 // will also destroy the audio buffer.
 //
-// Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
-// including the header. If your data does not include the header, then please use
-// `load_audio_buffer_from_bytes_raw` combined with `create_sound_from_audio_buffer`.
+// Supports mono and stereo WAV data with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
+// float samples. Note that the data should be the entire WAV file, including the header. If your
+// data does not include the header, then please use `load_audio_buffer_from_bytes_raw` combined
+// with `create_sound_from_audio_buffer`.
 load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 	audio_buffer := load_audio_buffer_from_bytes(bytes)
 
@@ -2051,7 +2053,8 @@ load_sound_from_bytes_raw :: proc(
 // Load a WAV file from disk. Returns an `Audio_Buffer` which can be used with
 // `create_sound_from_audio_buffer` in order to play the audio buffer multiple times simultaneously.
 //
-// Currently only supports 16 bit WAV data.
+// Supports mono and stereo WAV files with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
+// float samples.
 load_audio_buffer_from_file :: proc(filename: string) -> Audio_Buffer {
 	data, data_ok := read_entire_file(filename, frame_allocator)
 
@@ -2067,192 +2070,181 @@ load_audio_buffer_from_file :: proc(filename: string) -> Audio_Buffer {
 // an `Audio_Buffer` which can be used with `create_sound_from_audio_buffer` in order to play the
 // audio buffer multiple times simultaneously.
 //
-// Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
-// including the header. If your data does not include the header, then please use
-// `load_audio_buffer_from_bytes_raw`.
+// Supports mono and stereo WAV data with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
+// float samples. Note that the data should be the entire WAV file, including the header. If your
+// data does not include the header, then please use `load_audio_buffer_from_bytes_raw`.
 load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
-	d := bytes
-
-	if len(d) < 8 {
-		log.error("Invalid WAV")
+	// A WAV file is a RIFF file: A 12 byte header followed by any number of chunks.
+	if len(bytes) < 12 {
+		log.error("Invalid wav file: Too small to contain a RIFF header")
 		return AUDIO_BUFFER_NONE
 	}
 
-	if string(d[:4]) != "RIFF" {
+	if string(bytes[:4]) != "RIFF" {
 		log.error("Invalid wav file: No RIFF identifier")
 		return AUDIO_BUFFER_NONE
 	}
 
-	d = d[4:]
+	// This size can only fail to read if there are less than four bytes left, which the check above
+	// rules out. Same thing for the reads of the chunk headers further down.
+	riff_size, _ := endian.get_u32(bytes[4:8], .Little)
 
-	file_size, file_size_ok := endian.get_u32(d, .Little)
-
-	if !file_size_ok {
-		log.error("Invalid wav file: No size")
-		return AUDIO_BUFFER_NONE
-	}
-
-	if int(file_size) != len(bytes) - 8 {
-		log.error("File size mismiatch")
-		return AUDIO_BUFFER_NONE
-	}
-
-	d = d[4:]
-
-	if string(d[:4]) != "WAVE" {
+	if string(bytes[8:12]) != "WAVE" {
 		log.error("Invalid wav file: Not WAVE format")
 		return AUDIO_BUFFER_NONE
 	}
 
-	d = d[4:]
+	// `riff_size` counts everything after itself. Some programs write a size that doesn't match the
+	// file, so use it to cut away trailing junk but never trust it over the size of the buffer.
+	chunks_end := len(bytes)
 
-	sample_rate: u32
+	if riff_end := int(riff_size) + 8; riff_end >= 12 && riff_end < chunks_end {
+		chunks_end = riff_end
+	}
+
+	chunks := bytes[12:chunks_end]
+
+	sample_rate: int
 	samples: []u8
 	channels: Audio_Channels
-
 	format: Raw_Sound_Format
+	has_fmt: bool
+	has_data: bool
 
-	for len(d) > 3 {
-		blk_id := string(d[:4])
+	// Each chunk is a four character id, the size of its content as a u32, and then the content
+	// itself. We only look at "fmt " and "data". The others carry things such as metadata and loop
+	// points, which we don't use.
+	for len(chunks) >= 8 {
+		chunk_id := string(chunks[:4])
+		chunk_size, _ := endian.get_u32(chunks[4:8], .Little)
+		content := chunks[8:]
 
-		d = d[4:]	
+		// Truncated file, or a program that wrote a too big size: Use what is actually there.
+		if u64(chunk_size) < u64(len(content)) {
+			content = content[:chunk_size]
+		}
 
-		if blk_id == "fmt " {
-			blk_size, blk_size_ok := endian.get_u32(d, .Little)
+		switch chunk_id {
+		case "fmt ":
+			// The values the `audio_format` field below can have. Extensible means that the real
+			// format is in a GUID at the end of the chunk. Recording programs tend to use it for
+			// anything with more than 16 bits per sample.
+			WAV_FORMAT_PCM :: 1
+			WAV_FORMAT_FLOAT :: 3
+			WAV_FORMAT_EXTENSIBLE :: 0xfffe
 
-			if !blk_size_ok {
-				log.error("Invalid wav fmt block size")
-				continue
+			// The fmt chunk is at least 16 bytes:
+			//
+			//	audio_format:    u16
+			//	num_channels:    u16
+			//	sample_rate:     u32
+			//	byte_per_sec:    u32 // sample_rate * byte_per_bloc
+			//	byte_per_bloc:   u16 // (num_channels * bits_per_sample) / 8
+			//	bits_per_sample: u16
+			if len(content) < 16 {
+				log.errorf("Invalid wav fmt chunk: Size is %v, expected at least 16", len(content))
+				return AUDIO_BUFFER_NONE
 			}
 
-			d = d[4:]
+			audio_format, _ := endian.get_u16(content[0:2], .Little)
+			num_channels, _ := endian.get_u16(content[2:4], .Little)
+			fmt_sample_rate, _ := endian.get_u32(content[4:8], .Little)
+			bits_per_sample, _ := endian.get_u16(content[14:16], .Little)
 
-			if int(blk_size) != 16 || len(d) < 16 {
-				log.error("Invalid wav fmt block size")
-				continue
-			}
-
-			sample_rate_ok: bool
-			sample_rate, sample_rate_ok = endian.get_u32(d[4:8], .Little)
-
-			if !sample_rate_ok {
-				log.error("Failed reading sample rate from wav fmt block")
-				sample_rate = 0
-				continue
-			}
-
-			num_channels, num_channels_ok := endian.get_u16(d[2:4], .Little)
-
-			if num_channels_ok {
-				if num_channels == 1 {
-					channels = .Mono
-				} else if num_channels == 2 {
-					channels = .Stereo
-				} else {
-					log.errorf("Unsupported number of channels in wav fmt block: %v", num_channels)
-					continue
-				}
-			} else {
-				log.error("Failed reading number of channels from wav fmt block")
-				continue
-			}
-
-			audio_format, audio_format_ok := endian.get_u16(d[0:2], .Little)
-
-			if !audio_format_ok {
-				log.error("Failed reading format from wav fmt block")
-				continue
-			}
-
-			if audio_format == 1 {
-				bits_per_sample, bits_per_sample_ok := endian.get_u16(d[14:16], .Little)
-
-				if !bits_per_sample_ok {
-					log.error("Failed reading bits per sample from wav fmt block")
-					continue
+			// Those 16 bytes can be followed by an extension: A u16 with the size of the
+			// extension, and for the extensible format also 6 bytes of extra channel information
+			// and a 16 byte sub format GUID. The first two bytes of that GUID are the real
+			// `audio_format`. We skip the rest: The channel mask in it only matters for more
+			// channels than we support.
+			if audio_format == WAV_FORMAT_EXTENSIBLE {
+				if len(content) < 26 {
+					log.errorf("Invalid wav fmt chunk: Size is %v, too small for an extensible " +
+						"sub format", len(content))
+					return AUDIO_BUFFER_NONE
 				}
 
+				audio_format, _ = endian.get_u16(content[24:26], .Little)
+			}
+
+			if fmt_sample_rate == 0 {
+				log.error("Invalid wav fmt chunk: Sample rate is zero")
+				return AUDIO_BUFFER_NONE
+			}
+
+			switch num_channels {
+			case 1:
+				channels = .Mono
+			case 2:
+				channels = .Stereo
+			case:
+				log.errorf("Unsupported number of channels in wav fmt chunk: %v", num_channels)
+				return AUDIO_BUFFER_NONE
+			}
+
+			switch audio_format {
+			case WAV_FORMAT_PCM:
 				switch bits_per_sample {
 				case 8:
 					format = .Integer8
 				case 16:
 					format = .Integer16
+				case 24:
+					format = .Integer24
 				case 32:
 					format = .Integer32
 				case:
-					log.errorf("Unsupported bits per sample in wav fmt block: %v", bits_per_sample)
-					continue
+					log.errorf("Unsupported bits per sample in wav fmt chunk: %v", bits_per_sample)
+					return AUDIO_BUFFER_NONE
 				}
-			} else if audio_format == 3 {
-				format = .Float
-			} else {
-				log.error("Invalid format in wav fmt block")
-				continue
+
+			case WAV_FORMAT_FLOAT:
+				switch bits_per_sample {
+				case 32:
+					format = .Float32
+				case 64:
+					format = .Float64
+				case:
+					log.errorf(
+						"Unsupported bits per sample in float wav fmt chunk: %v",
+						bits_per_sample,
+					)
+					return AUDIO_BUFFER_NONE
+				}
+
+			case:
+				log.errorf("Unsupported format in wav fmt chunk: %v", audio_format)
+				return AUDIO_BUFFER_NONE
 			}
 
+			sample_rate = int(fmt_sample_rate)
+			has_fmt = true
 
-			// Just need sample rate for now, so I disabled the rest...
-
-			/*
-			Wav_Fmt :: struct {
-				audio_format:    u16,
-				num_channels:    u16,
-				sample_rate:     u32,
-				byte_per_sec:    u32, // sample_rate * byte_per_bloc
-				byte_per_bloc:   u16, // (num_channels * bits_per_sample) / 8
-				bits_per_sample: u16,
-			}
-
-			audio_format, audio_format_ok := endian.get_u16(d[0:2], .Little)
-			num_channels, num_channels_ok := endian.get_u16(d[2:4], .Little)
-			sample_rate, sample_rate_ok := endian.get_u32(d[4:8], .Little)
-			byte_per_sec, byte_per_sec_ok := endian.get_u32(d[8:12], .Little)
-			byte_per_bloc, byte_per_bloc_ok := endian.get_u16(d[12:14], .Little)
-			bits_per_sample, bits_per_sample_ok := endian.get_u16(d[14:16], .Little)
-
-			if (
-				!audio_format_ok ||
-				!num_channels_ok ||
-				!sample_rate_ok ||
-				!byte_per_sec_ok ||
-				!byte_per_bloc_ok ||
-				!bits_per_sample_ok
-			) {
-				log.error("Failed reading wav fmt block")
-				continue
-			}
-
-			fmt := Wav_Fmt {
-				audio_format = audio_format,
-				num_channels = num_channels,
-				sample_rate = sample_rate,
-				byte_per_sec = byte_per_sec,
-				byte_per_bloc = byte_per_bloc,
-				bits_per_sample = bits_per_sample,
-			}
-
-			sample_rate = int(fmt.sample_rate)
-			*/
-		} else if blk_id == "data" {
-			data_size, data_size_ok := endian.get_u32(d, .Little)
-
-			if !data_size_ok {
-				log.error("Failed getting wav data size")
-				continue
-			}
-
-			d = d[4:]
-
-			if len(d) < int(data_size) {
-				log.error("Data size larger than remaining wave buffer")
-				continue
-			}
-
-			samples = d[:data_size]
+		case "data":
+			samples = content
+			has_data = true
 		}
+
+		// Content is padded to an even number of bytes. The pad byte isn't part of the size.
+		next := 8 + len(content) + (len(content) & 1)
+
+		if next >= len(chunks) {
+			break
+		}
+
+		chunks = chunks[next:]
 	}
-	
-	return load_audio_buffer_from_bytes_raw(samples, format, int(sample_rate), channels)
+
+	if !has_fmt {
+		log.error("Invalid wav file: No fmt chunk")
+		return AUDIO_BUFFER_NONE
+	}
+
+	if !has_data {
+		log.error("Invalid wav file: No data chunk")
+		return AUDIO_BUFFER_NONE
+	}
+
+	return load_audio_buffer_from_bytes_raw(samples, format, sample_rate, channels)
 }
 
 // Load an audio buffer from some raw audio data. You need to specify the data, format and sample
@@ -2284,6 +2276,18 @@ load_audio_buffer_from_bytes_raw :: proc(
 			samples[idx] = f32(samples_i16[idx]) / f32(max(i16))
 		}
 
+	case .Integer24:
+		// There is no 24 bit integer type, so shift each sample up into the top of an i32. That
+		// makes the same division as for 32 bit samples work.
+		num_samples := len(bytes)/3
+		samples = make([]Audio_Sample, num_samples, s.allocator)
+
+		for idx in 0..<num_samples {
+			b := bytes[idx*3:]
+			sample := i32(u32(b[0]) << 8 | u32(b[1]) << 16 | u32(b[2]) << 24)
+			samples[idx] = f32(sample) / f32(max(i32))
+		}
+
 	case .Integer32:
 		samples_i32 := slice.reinterpret([]i32, bytes)
 		samples = make([]Audio_Sample, len(samples_i32), s.allocator)
@@ -2292,8 +2296,16 @@ load_audio_buffer_from_bytes_raw :: proc(
 			samples[idx] = f32(samples_i32[idx]) / f32(max(i32))
 		}
 
-	case .Float:
+	case .Float32:
 		samples = slice.clone(slice.reinterpret([]Audio_Sample, bytes), s.allocator)
+
+	case .Float64:
+		samples_f64 := slice.reinterpret([]f64, bytes)
+		samples = make([]Audio_Sample, len(samples_f64), s.allocator)
+
+		for idx in 0..<len(samples) {
+			samples[idx] = Audio_Sample(samples_f64[idx])
+		}
 	}
 
 	buffer_object := Audio_Buffer_Object {
@@ -4938,10 +4950,12 @@ Audio_Stream_Data :: struct {
 
 // The format used to describe that data passed to `load_sound_from_bytes_raw`.
 Raw_Sound_Format :: enum {
-	Integer8,
+	Integer8, // unsigned, like in 8 bit WAV files. The other integer formats are signed.
 	Integer16,
+	Integer24, // three bytes per sample, little endian
 	Integer32,
-	Float,
+	Float32,
+	Float64,
 }
 
 Audio_Buffer :: distinct Handle

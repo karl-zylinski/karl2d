@@ -182,7 +182,7 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio
 		samp = sf
 	}
 
-	return k2.load_audio_buffer_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float, sample_rate, .Mono)
+	return k2.load_audio_buffer_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float32, sample_rate, .Mono)
 }
 
 // This is not run by the web version, but it makes this program also work on non-web!
