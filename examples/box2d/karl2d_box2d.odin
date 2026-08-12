@@ -168,7 +168,7 @@ step :: proc() -> bool {
 			break
 		}
 
-		k2.draw_circle(p, 3, k2.color_alpha(k2.WHITE, 150), 8)
+		k2.draw_circle(p, 3, k2.color_alpha(k2.GRAY, 150), 8)
 	}
 
 	for b in boxes {
@@ -200,7 +200,10 @@ step :: proc() -> bool {
 	k2.draw_rect(barrel, k2.DARK_GRAY, { 0, BARREL_THICKNESS/2 }, math.atan2(aim_dir.y, aim_dir.x))
 	k2.draw_circle(CANNON, 20, k2.GRAY)
 
-	k2.draw_text("Left click to shoot, R to reset", {20, SCREEN_HEIGHT - 44}, 24, k2.DARK_BLUE)
+	text := "Shoot: Left click\nReset: R"
+	text_size := k2.measure_text(text, 24)
+
+	k2.draw_text(text, {20, SCREEN_HEIGHT - 20 - text_size.y}, 24, k2.DARK_BLUE)
 	k2.present()
 
 	return true
