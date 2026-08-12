@@ -1501,18 +1501,17 @@ draw_text :: proc(
 				offset_from_top := char_offset.y + invalid_rect_size.y/2
 
 				when Y_UP {
-					invalid_y := block_top - offset_from_top - invalid_rect_size.y
+					invalid_rect_y := block_top - offset_from_top - invalid_rect_size.y
 				} else {
-					invalid_y := block_top + offset_from_top
+					invalid_rect_y := block_top + offset_from_top
 				}
 
-				draw_rect(
-					{
-						position.x + char_offset.x, invalid_y,
-						invalid_rect_size.x, invalid_rect_size.y,
-					},
-					RED,
-				)
+				invalid_rect := Rect {
+					position.x + char_offset.x, invalid_rect_y,
+					invalid_rect_size.x, invalid_rect_size.y,
+				}
+
+				draw_rect(invalid_rect, RED)
 
 				char_offset.x += invalid_rect_size.x
 			}
