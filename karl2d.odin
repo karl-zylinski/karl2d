@@ -324,6 +324,22 @@ process_events :: proc() {
 	s.mouse_delta = {}
 	s.mouse_wheel_delta = 0
 
+	// Drop touches that ended last frame (they were kept around for one frame so `went_up` could be
+	// observed), then clear the remaining touches' per-frame flags.
+	touches_write := 0
+	for touches_read in 0..<s.touches_count {
+		t := s.touches[touches_read]
+		if t.went_up {
+			continue
+		}
+
+		t.went_down = false
+		t.delta = {}
+		s.touches[touches_write] = t
+		touches_write += 1
+	}
+	s.touches_count = touches_write
+
 	runtime.clear(&s.events)
 	runtime.clear(&s.typed_runes)
 	pf.get_events(&s.events)
@@ -370,6 +386,39 @@ process_events :: proc() {
 		case Event_Mouse_Wheel:
 			s.mouse_wheel_delta = e.delta
 
+		case Event_Touch_Went_Down:
+			if s.touches_count < MAX_TOUCHES {
+				s.touches[s.touches_count] = Touch {
+					id = e.id,
+					position = e.position,
+					went_down = true,
+				}
+				s.touches_count += 1
+			} else {
+				log.warnf("Dropped a touch, already tracking the maximum of %v touches", MAX_TOUCHES)
+			}
+
+		case Event_Touch_Moved:
+			if t := _find_touch(e.id); t != nil {
+				t.delta += e.position - t.position
+				t.position = e.position
+			}
+
+		case Event_Touch_Went_Up:
+			if t := _find_touch(e.id); t != nil {
+				t.delta += e.position - t.position
+				t.position = e.position
+				t.went_up = true
+			}
+
+		case Event_Touch_Cancelled:
+			if t := _find_touch(e.id); t != nil {
+				t.delta += e.position - t.position
+				t.position = e.position
+				t.went_up = true
+				t.cancelled = true
+			}
+
 		case Event_Gamepad_Button_Went_Down:
 			if e.gamepad < MAX_GAMEPADS {
 				s.gamepad_button_went_down[e.gamepad][e.button] = true
@@ -412,6 +461,13 @@ process_events :: proc() {
 						s.gamepad_button_is_held[gp][b] = false
 						s.gamepad_button_went_up[gp][b] = true
 					}
+				}
+			}
+
+			for &t in s.touches[:s.touches_count] {
+				if !t.went_up {
+					t.went_up = true
+					t.cancelled = true
 				}
 			}
 
@@ -591,6 +647,15 @@ key_is_held :: proc(key: Keyboard_Key) -> bool {
 // using the `slice.clone` procedure (import `core:slice`).
 get_typed_runes :: proc() -> []rune {
 	return s.typed_runes[:]
+}
+
+// Returns all touches that were active at any point during this frame, including those that ended
+// this frame (those have `went_up` set).
+//
+// Warning: The returned slice is only valid during the current frame!
+get_touches :: proc() -> []Touch {
+	assert_initialized()
+	return s.touches[:s.touches_count]
 }
 
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
@@ -4882,6 +4947,9 @@ State :: struct {
 	mouse_button_went_up: #sparse [Mouse_Button]bool,
 	mouse_button_is_held: #sparse [Mouse_Button]bool,
 
+	touches: [MAX_TOUCHES]Touch,
+	touches_count: int,
+
 	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
@@ -4960,6 +5028,33 @@ Mouse_Button :: enum {
 	Right,
 	Middle,
 	Max = 255,
+}
+
+// The maximum number of touches Karl2D tracks at once.
+MAX_TOUCHES :: 10
+
+// Identifies one finger for as long as it stays on the screen. Stable from the moment the touch
+// goes down until it goes up. Ids may be reused after that.
+Touch_Id :: distinct u64
+
+Touch :: struct {
+	id: Touch_Id,
+
+	// Measured from the top-left corner of the window, like `get_mouse_position`.
+	position: Vec2,
+
+	// How many pixels the touch moved between the previous and the current frame.
+	delta: Vec2,
+
+	// The touch started this frame.
+	went_down: bool,
+
+	// The touch ended this frame. It stays in the list for this one frame, so you can react to it.
+	went_up: bool,
+
+	// The OS threw the touch away, for example due to palm rejection or the window losing focus.
+	// `went_up` is set as well, so code that doesn't care about the difference still works.
+	cancelled: bool,
 }
 
 // Based on Raylib / GLFW
@@ -5153,6 +5248,10 @@ Event :: union {
 	Event_Window_Focused,
 	Event_Window_Unfocused,
 	Event_Window_Scale_Changed,
+	Event_Touch_Went_Down,
+	Event_Touch_Moved,
+	Event_Touch_Went_Up,
+	Event_Touch_Cancelled,
 }
 
 Event_Key_Went_Down :: struct {
@@ -5225,6 +5324,11 @@ Event_Window_Focused :: struct {}
 
 Event_Window_Unfocused :: struct {}
 
+Event_Touch_Went_Down :: struct { id: Touch_Id, position: Vec2 }
+Event_Touch_Moved     :: struct { id: Touch_Id, position: Vec2 }
+Event_Touch_Went_Up   :: struct { id: Touch_Id, position: Vec2 }
+Event_Touch_Cancelled :: struct { id: Touch_Id, position: Vec2 }
+
 
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
@@ -5239,6 +5343,18 @@ is_typable_rune :: proc(r: rune) -> bool {
 
 assert_initialized :: proc(loc := #caller_location) {
 	assert(s != nil, "Call k2.init before using this Karl2D procedure", loc)
+}
+
+// Finds a currently tracked touch by id. Returns nil if the touch isn't tracked, which happens for
+// example if an up/move event arrives for a touch that started before the window got focus.
+@(private="package")
+_find_touch :: proc(id: Touch_Id) -> ^Touch {
+	for &t in s.touches[:s.touches_count] {
+		if t.id == id {
+			return &t
+		}
+	}
+	return nil
 }
 
 // Run by the drawing procedures before they add any vertices. Draws the batch if `vertices_needed`
