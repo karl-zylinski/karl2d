@@ -2022,15 +2022,97 @@ load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
 
 		switch chunk_id {
 		case "fmt ":
-			fmt_format, fmt_sample_rate, fmt_channels, fmt_ok := wav_parse_fmt_chunk(content)
+			// The values the `audio_format` field below can have. Extensible means that the real
+			// format is in a GUID at the end of the chunk. Recording programs tend to use it for
+			// anything with more than 16 bits per sample.
+			WAV_FORMAT_PCM :: 1
+			WAV_FORMAT_FLOAT :: 3
+			WAV_FORMAT_EXTENSIBLE :: 0xfffe
 
-			if !fmt_ok {
+			// The fmt chunk is at least 16 bytes:
+			//
+			//	audio_format:    u16
+			//	num_channels:    u16
+			//	sample_rate:     u32
+			//	byte_per_sec:    u32 // sample_rate * byte_per_bloc
+			//	byte_per_bloc:   u16 // (num_channels * bits_per_sample) / 8
+			//	bits_per_sample: u16
+			if len(content) < 16 {
+				log.errorf("Invalid wav fmt chunk: Size is %v, expected at least 16", len(content))
 				return AUDIO_BUFFER_NONE
 			}
 
-			format = fmt_format
-			sample_rate = fmt_sample_rate
-			channels = fmt_channels
+			audio_format, _ := endian.get_u16(content[0:2], .Little)
+			num_channels, _ := endian.get_u16(content[2:4], .Little)
+			fmt_sample_rate, _ := endian.get_u32(content[4:8], .Little)
+			bits_per_sample, _ := endian.get_u16(content[14:16], .Little)
+
+			// Those 16 bytes can be followed by an extension: A u16 with the size of the
+			// extension, and for the extensible format also 6 bytes of extra channel information
+			// and a 16 byte sub format GUID. The first two bytes of that GUID are the real
+			// `audio_format`. We skip the rest: The channel mask in it only matters for more
+			// channels than we support.
+			if audio_format == WAV_FORMAT_EXTENSIBLE {
+				if len(content) < 26 {
+					log.errorf("Invalid wav fmt chunk: Size is %v, too small for an extensible " +
+						"sub format", len(content))
+					return AUDIO_BUFFER_NONE
+				}
+
+				audio_format, _ = endian.get_u16(content[24:26], .Little)
+			}
+
+			if fmt_sample_rate == 0 {
+				log.error("Invalid wav fmt chunk: Sample rate is zero")
+				return AUDIO_BUFFER_NONE
+			}
+
+			switch num_channels {
+			case 1:
+				channels = .Mono
+			case 2:
+				channels = .Stereo
+			case:
+				log.errorf("Unsupported number of channels in wav fmt chunk: %v", num_channels)
+				return AUDIO_BUFFER_NONE
+			}
+
+			switch audio_format {
+			case WAV_FORMAT_PCM:
+				switch bits_per_sample {
+				case 8:
+					format = .Integer8
+				case 16:
+					format = .Integer16
+				case 24:
+					format = .Integer24
+				case 32:
+					format = .Integer32
+				case:
+					log.errorf("Unsupported bits per sample in wav fmt chunk: %v", bits_per_sample)
+					return AUDIO_BUFFER_NONE
+				}
+
+			case WAV_FORMAT_FLOAT:
+				switch bits_per_sample {
+				case 32:
+					format = .Float32
+				case 64:
+					format = .Float64
+				case:
+					log.errorf(
+						"Unsupported bits per sample in float wav fmt chunk: %v",
+						bits_per_sample,
+					)
+					return AUDIO_BUFFER_NONE
+				}
+
+			case:
+				log.errorf("Unsupported format in wav fmt chunk: %v", audio_format)
+				return AUDIO_BUFFER_NONE
+			}
+
+			sample_rate = int(fmt_sample_rate)
 			has_fmt = true
 
 		case "data":
@@ -2110,7 +2192,7 @@ load_audio_buffer_from_bytes_raw :: proc(
 			samples[idx] = f32(samples_i32[idx]) / f32(max(i32))
 		}
 
-	case .Float:
+	case .Float32:
 		samples = slice.clone(slice.reinterpret([]Audio_Sample, bytes), s.allocator)
 
 	case .Float64:
@@ -4723,7 +4805,7 @@ Raw_Sound_Format :: enum {
 	Integer16,
 	Integer24, // three bytes per sample, little endian
 	Integer32,
-	Float, // 32 bit
+	Float32,
 	Float64,
 }
 
@@ -5167,105 +5249,6 @@ API_END :: true
 @(private="package")
 is_typable_rune :: proc(r: rune) -> bool {
 	return r >= 32 && r != 0x7f
-}
-
-// The values the `audio_format` field of a wav fmt chunk can have. Extensible means that the real
-// format is in a GUID at the end of the chunk. Recording programs tend to use it for anything with
-// more than 16 bits per sample.
-WAV_FORMAT_PCM :: 1
-WAV_FORMAT_FLOAT :: 3
-WAV_FORMAT_EXTENSIBLE :: 0xfffe
-
-// Reads the contents of the fmt chunk of a WAV file. It is at least 16 bytes:
-//
-//	audio_format:    u16
-//	num_channels:    u16
-//	sample_rate:     u32
-//	byte_per_sec:    u32 // sample_rate * byte_per_bloc
-//	byte_per_bloc:   u16 // (num_channels * bits_per_sample) / 8
-//	bits_per_sample: u16
-//
-// Those 16 bytes can be followed by an extension: A u16 with the size of the extension, and for the
-// extensible format also 6 bytes of extra channel information and a 16 byte sub format GUID. The
-// first two bytes of that GUID are the real `audio_format`. We skip the rest of the extension: The
-// channel mask in it only matters for more channels than we support.
-wav_parse_fmt_chunk :: proc(chunk: []u8) -> (
-	format: Raw_Sound_Format,
-	sample_rate: int,
-	channels: Audio_Channels,
-	ok: bool,
-) {
-	if len(chunk) < 16 {
-		log.errorf("Invalid wav fmt chunk: Size is %v, expected at least 16", len(chunk))
-		return
-	}
-
-	// These reads can only fail on a too short slice, which the check above rules out.
-	audio_format, _ := endian.get_u16(chunk[0:2], .Little)
-	num_channels, _ := endian.get_u16(chunk[2:4], .Little)
-	sample_rate_u32, _ := endian.get_u32(chunk[4:8], .Little)
-	bits_per_sample, _ := endian.get_u16(chunk[14:16], .Little)
-
-	if audio_format == WAV_FORMAT_EXTENSIBLE {
-		if len(chunk) < 26 {
-			log.errorf("Invalid wav fmt chunk: Size is %v, too small for an extensible sub " +
-				"format", len(chunk))
-			return
-		}
-
-		audio_format, _ = endian.get_u16(chunk[24:26], .Little)
-	}
-
-	switch num_channels {
-	case 1:
-		channels = .Mono
-	case 2:
-		channels = .Stereo
-	case:
-		log.errorf("Unsupported number of channels in wav fmt chunk: %v", num_channels)
-		return
-	}
-
-	switch audio_format {
-	case WAV_FORMAT_PCM:
-		switch bits_per_sample {
-		case 8:
-			format = .Integer8
-		case 16:
-			format = .Integer16
-		case 24:
-			format = .Integer24
-		case 32:
-			format = .Integer32
-		case:
-			log.errorf("Unsupported bits per sample in wav fmt chunk: %v", bits_per_sample)
-			return
-		}
-
-	case WAV_FORMAT_FLOAT:
-		switch bits_per_sample {
-		case 32:
-			format = .Float
-		case 64:
-			format = .Float64
-		case:
-			log.errorf("Unsupported bits per sample in float wav fmt chunk: %v", bits_per_sample)
-			return
-		}
-
-	case:
-		log.errorf("Unsupported format in wav fmt chunk: %v", audio_format)
-		return
-	}
-
-	if sample_rate_u32 == 0 {
-		log.error("Invalid wav fmt chunk: Sample rate is zero")
-		return
-	}
-
-	sample_rate = int(sample_rate_u32)
-	ok = true
-	return
 }
 
 assert_initialized :: proc(loc := #caller_location) {

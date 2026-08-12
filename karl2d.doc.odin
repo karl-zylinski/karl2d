@@ -1464,7 +1464,7 @@ Raw_Sound_Format :: enum {
 	Integer16,
 	Integer24, // three bytes per sample, little endian
 	Integer32,
-	Float, // 32 bit
+	Float32,
 	Float64,
 }
 

@@ -63,7 +63,7 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Sound
 		samp = sf
 	}
 
-	return k2.load_sound_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float, sample_rate, .Mono)
+	return k2.load_sound_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float32, sample_rate, .Mono)
 }
 
 step :: proc() -> bool {
