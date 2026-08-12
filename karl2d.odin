@@ -841,12 +841,7 @@ draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0
 		}
 	}
 
-	batch_vertex(tl, {0, 0}, color)
-	batch_vertex(tr, {1, 0}, color)
-	batch_vertex(br, {1, 1}, color)
-	batch_vertex(tl, {0, 0}, color)
-	batch_vertex(br, {1, 1}, color)
-	batch_vertex(bl, {0, 1}, color)
+	_batch_quad(tl, tr, bl, br, {0, 0}, {1, 0}, {0, 1}, {1, 1}, color)
 }
 
 // Creates a rectangle from a position and a size and draws it using the specified color.
@@ -1152,37 +1147,26 @@ draw_texture_fit :: proc(
 	
 	c := tint
 
-	uv0 := up
-	uv1 := up + {us.x, 0}
-	uv2 := up + us
-	uv3 := up
-	uv4 := up + us
-	uv5 := up + {0, us.y}
+	uv_tl := up
+	uv_tr := up + {us.x, 0}
+	uv_bl := up + {0, us.y}
+	uv_br := up + us
 
 	if flip_x {
-		uv0.x += us.x
-		uv1.x -= us.x
-		uv2.x -= us.x
-		uv3.x += us.x
-		uv4.x -= us.x
-		uv5.x += us.x
+		uv_tl.x += us.x
+		uv_tr.x -= us.x
+		uv_bl.x += us.x
+		uv_br.x -= us.x
 	}
 
 	if flip_y {
-		uv0.y += us.y
-		uv1.y += us.y
-		uv2.y -= us.y
-		uv3.y += us.y
-		uv4.y -= us.y
-		uv5.y -= us.y		
+		uv_tl.y += us.y
+		uv_tr.y += us.y
+		uv_bl.y -= us.y
+		uv_br.y -= us.y
 	}
 
-	batch_vertex(tl, uv0, c)
-	batch_vertex(tr, uv1, c)
-	batch_vertex(br, uv2, c)
-	batch_vertex(tl, uv3, c)
-	batch_vertex(br, uv4, c)
-	batch_vertex(bl, uv5, c)
+	_batch_quad(tl, tr, bl, br, uv_tl, uv_tr, uv_bl, uv_br, c)
 }
 
 @(deprecated="Use draw_texture_rect instead")
@@ -5649,17 +5633,80 @@ _draw_call_changes :: proc(
 	return
 }
 
+// The vertex the default shader takes. Laying one out is otherwise a run of offset lookups and
+// conditional writes, which is what the general path in `batch_vertex` does.
+Default_Vertex :: struct {
+	pos: Vec2,
+	uv: Vec2,
+	color: Color,
+}
+
+// Whether a vertex for this shader is exactly a `Default_Vertex`. Then it can be written with a
+// single store instead of field by field. An input override rules it out: those are written on top
+// of position, uv and color, so they need the general path.
+_uses_default_vertex :: #force_inline proc(shd: ^Shader) -> bool {
+	if shd.vertex_size != size_of(Default_Vertex) ||
+	   shd.default_input_offsets[.Position] != int(offset_of(Default_Vertex, pos)) ||
+	   shd.default_input_offsets[.UV] != int(offset_of(Default_Vertex, uv)) ||
+	   shd.default_input_offsets[.Color] != int(offset_of(Default_Vertex, color)) {
+		return false
+	}
+
+	for &o in shd.input_overrides {
+		if o.used != 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Adds the two triangles that make up a quad. Doing the four corners in one go is what makes the
+// shape and texture drawing procedures cheap: the layout is worked out once rather than six times.
+_batch_quad :: proc(tl, tr, bl, br: Vec2, uv_tl, uv_tr, uv_bl, uv_br: Vec2, color: Color) {
+	shd := &s.current_shader
+
+	if _uses_default_vertex(shd) {
+		base_offset := s.vertex_buffer_cpu_used
+
+		(^[6]Default_Vertex)(&s.vertex_buffer_cpu[base_offset])^ = {
+			{ tl, uv_tl, color },
+			{ tr, uv_tr, color },
+			{ br, uv_br, color },
+			{ tl, uv_tl, color },
+			{ br, uv_br, color },
+			{ bl, uv_bl, color },
+		}
+
+		s.vertex_buffer_cpu_used = base_offset + 6*size_of(Default_Vertex)
+		return
+	}
+
+	batch_vertex(tl, uv_tl, color)
+	batch_vertex(tr, uv_tr, color)
+	batch_vertex(br, uv_br, color)
+	batch_vertex(tl, uv_tl, color)
+	batch_vertex(br, uv_br, color)
+	batch_vertex(bl, uv_bl, color)
+}
+
 // Callers must run `_begin_vertices` first. That leaves room in the buffer and a draw call to put
 // the vertex in.
 batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
-	shd := s.current_shader
+	shd := &s.current_shader
 
 	base_offset := s.vertex_buffer_cpu_used
 	pos_offset := shd.default_input_offsets[.Position]
 	uv_offset := shd.default_input_offsets[.UV]
 	color_offset := shd.default_input_offsets[.Color]
-	
+
+	if _uses_default_vertex(shd) {
+		(^Default_Vertex)(&s.vertex_buffer_cpu[base_offset])^ = { v, uv, color }
+		s.vertex_buffer_cpu_used = base_offset + size_of(Default_Vertex)
+		return
+	}
+
 	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
 
 	if pos_offset != -1 {
