@@ -50,12 +50,9 @@ step :: proc() -> bool {
 	// what makes the tap check below work.
 
 	for t in touches {
-		if t.went_down {
-			if fingers_count < len(fingers) {
-				fingers[fingers_count] = { id = t.id }
-				fingers_count += 1
-			}
-			continue
+		if t.went_down && fingers_count < len(fingers) {
+			fingers[fingers_count] = { id = t.id }
+			fingers_count += 1
 		}
 
 		for i in 0..<fingers_count {
@@ -66,6 +63,8 @@ step :: proc() -> bool {
 
 			f.travelled += linalg.length(t.delta)
 
+			// A quick tap can go down and up within the same frame, so this has to run even for a
+			// finger that was added just above. Otherwise its slot is never freed.
 			if t.went_up {
 				if !t.cancelled && f.travelled < TAP_SLOP {
 					append(&markers, k2.screen_to_world(t.position, camera))
