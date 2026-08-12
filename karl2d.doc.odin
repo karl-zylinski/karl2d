@@ -7,6 +7,30 @@ package karl2d
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
+// Karl2D supports two coordinate systems. You choose which at compile time.
+//
+// - Y down (the default): The origin is in the top-left corner of the screen and Y grows downwards.
+//   A `Rect` grows downwards and to the right from its (x, y) position, so (x, y) is the rect's
+//   top-left corner. Positive rotations appear clockwise on screen.
+//
+// - Y up: Compile with `-define:KARL2D_Y_UP=true`. The origin is in the bottom-left corner of the
+//   screen and Y grows upwards. A `Rect` grows upwards and to the right from its (x, y) position,
+//   so (x, y) is the rect's bottom-left corner. Positive rotations appear counter-clockwise on
+//   screen, which is what `math.atan2` and physics engines such as Box2D produce, so their angles
+//   can be used without conversion. See `examples/box2d`.
+//
+// Things that do NOT change between the two:
+//
+// - Texture space. A `source` rectangle passed to the `draw_texture_*` procedures is always
+//   measured from the top-left corner of the texture, downwards. Texture space is image space:
+//   sprite sheet coordinates come out of image editors that way, and the pixels themselves are
+//   stored that way.
+// - The naming of the `rect_*` helpers. `rect_top_left` is always the corner that appears in the
+//   top left on screen, and `rect_cut_top` always cuts the part that appears at the top on screen.
+// - `measure_text`, which always returns a positive size. Text always fills the rectangle it
+//   reports, with the first line at the top on screen.
+Y_UP :: #config(KARL2D_Y_UP, false)
+
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory.
 //
@@ -237,6 +261,8 @@ mouse_button_is_held :: proc(button: Mouse_Button) -> bool
 get_mouse_wheel_delta :: proc() -> f32
 
 // Returns the mouse position, measured from the top-left corner of the window.
+//
+// With Y_UP it is measured from the bottom-left corner of the window instead.
 get_mouse_position :: proc() -> Vec2
 
 // Returns how many pixels the mouse moved between the previous and the current frame.
@@ -298,6 +324,8 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32)
 //   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
+//
+// With Y_UP the (x, y) is the rect's bottom-left corner and rotations look counter-clockwise.
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0)
 
 // Creates a rectangle from a position and a size and draws it using the specified color.
@@ -307,6 +335,8 @@ draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0
 //   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
+//
+// With Y_UP the position is the bottom-left corner and rotations look counter-clockwise.
 draw_rect_vec :: proc(
 	position: Vec2,
 	size: Vec2,
@@ -348,6 +378,8 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color)
 // The texture is fed into the active shader. Everything drawn in a single draw call must therefore
 // use the same texture. Drawing with a new texture starts a new draw call. Put several images into
 // one big texture, an atlas, to get fewer draw calls.
+//
+// With Y_UP the position is the bottom-left corner and rotations look counter-clockwise.
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
@@ -402,6 +434,8 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 // - font: The font to use, uses a default font if none is specified.
 // - origin: The origin relative top the top-left position of the text. Used when rotating the text.
 // - rotation: Rotating to apply to the text, measured in radians.
+//
+// With Y_UP the position is the bottom-left of the text and rotations look counter-clockwise.
 draw_text :: proc(
 	text: string,
 	position: Vec2,
@@ -1565,6 +1599,11 @@ State :: struct {
 	current_scissor: Maybe(Rect),
 	current_texture: Texture_Handle,
 	current_render_target: Render_Target_Handle,
+
+	// Height of `current_render_target`, or 0 when drawing to the window. Needed to
+	// convert scissor rectangles to native top-down coordinates without asking the
+	// backend for it.
+	current_render_target_height: int,
 	current_blend_mode: Blend_Mode,
 
 	// Recorded but not drawn yet. They all point into `vertex_buffer_cpu`.

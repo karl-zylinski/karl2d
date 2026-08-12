@@ -59,19 +59,35 @@ main :: proc() {
 		return fmt.tprintf("%s.%s", name, ODIN_OS == .Windows ? "exe" : "bin")
 	}
 
+	// Some examples only build with a define. `box2d` uses the Y up coordinate system and says so
+	// with a #assert.
+	example_define :: proc(name: string) -> string {
+		switch name {
+		case "box2d":
+			return "-define:KARL2D_Y_UP=true"
+		}
+
+		return ""
+	}
+
 	write_debug_tasks_entry :: proc(
 		tasks_file: ^os.File,
 		launch_file: ^os.File,
 		name: string,
 		src: string,
 		launch_from_root := false
-	) {		
+	) {
+		// The build tasks take an argument array, the web task a command line.
+		define := example_define(name)
+		args_define := define == "" ? "" : fmt.tprintf(`, "%s"`, define)
+		cmd_define := define == "" ? "" : fmt.tprintf(" %s", define)
+
 		TASKS_ENTRY_TEMPLATE ::
 `		{{
 			"label": "build %s",
 			"type": "shell",
 			"command": "odin",
-			"args": ["build", "%s", "-debug", "-vet", "-strict-style", "-vet-tabs", "-out:bin/%s"],
+			"args": ["build", "%s", "-debug", "-vet", "-strict-style", "-vet-tabs", "-out:bin/%s"%s],
 			"group": {{
 				"kind": "build",
 			}}
@@ -83,6 +99,7 @@ main :: proc() {
 			name,
 			src,
 			name_with_ext(name),
+			args_define,
 		)
 		
 		fmt.fprint(tasks_file, tasks_entry)
@@ -95,7 +112,7 @@ main :: proc() {
 				"$odin"
 			],
 			"command": "odin",
-			"args": ["build", "%s", "-debug", "-vet", "-strict-style", "-vet-tabs", "-out:bin/%s", "-define:KARL2D_RENDER_BACKEND=gl"],
+			"args": ["build", "%s", "-debug", "-vet", "-strict-style", "-vet-tabs", "-out:bin/%s", "-define:KARL2D_RENDER_BACKEND=gl"%s],
 			"group": {{
 				"kind": "build",
 			}}
@@ -106,6 +123,7 @@ main :: proc() {
 			name,
 			src,
 			name_with_ext(name),
+			args_define,
 		)
 		
 		fmt.fprint(tasks_file, gl_tasks_entry)
@@ -119,7 +137,7 @@ main :: proc() {
 			"problemMatcher": [
 				"$odin"
 			],
-			"command": "odin run build_web -vet -strict-style -vet-tabs -- %s -vet -strict-style -vet-tabs",
+			"command": "odin run build_web -vet -strict-style -vet-tabs -- %s -vet -strict-style -vet-tabs%s",
 			"group": {{
 				"kind": "build",
 			}}
@@ -130,6 +148,7 @@ main :: proc() {
 				WEB_TASKS_ENTRY_TEMPLATE,
 				name,
 				src,
+				cmd_define,
 			)
 			
 			fmt.fprint(tasks_file, web_tasks_entry)

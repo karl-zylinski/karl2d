@@ -30,6 +30,30 @@ import hm "core:container/handle_map"
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
+// Karl2D supports two coordinate systems. You choose which at compile time.
+//
+// - Y down (the default): The origin is in the top-left corner of the screen and Y grows downwards.
+//   A `Rect` grows downwards and to the right from its (x, y) position, so (x, y) is the rect's
+//   top-left corner. Positive rotations appear clockwise on screen.
+//
+// - Y up: Compile with `-define:KARL2D_Y_UP=true`. The origin is in the bottom-left corner of the
+//   screen and Y grows upwards. A `Rect` grows upwards and to the right from its (x, y) position,
+//   so (x, y) is the rect's bottom-left corner. Positive rotations appear counter-clockwise on
+//   screen, which is what `math.atan2` and physics engines such as Box2D produce, so their angles
+//   can be used without conversion. See `examples/box2d`.
+//
+// Things that do NOT change between the two:
+//
+// - Texture space. A `source` rectangle passed to the `draw_texture_*` procedures is always
+//   measured from the top-left corner of the texture, downwards. Texture space is image space:
+//   sprite sheet coordinates come out of image editors that way, and the pixels themselves are
+//   stored that way.
+// - The naming of the `rect_*` helpers. `rect_top_left` is always the corner that appears in the
+//   top left on screen, and `rect_cut_top` always cuts the part that appears at the top on screen.
+// - `measure_text`, which always returns a positive size. Text always fills the rectangle it
+//   reports, with the first line at the top on screen.
+Y_UP :: #config(KARL2D_Y_UP, false)
+
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory.
 //
@@ -140,6 +164,10 @@ init :: proc(
 	s.current_shader = s.default_shader
 
 	// FontStash enables us to bake fonts from TTF files on-the-fly.
+	//
+	// Note that FontStash is always set up top-down, regardless of the coordinate system. The text
+	// drawing procedures lay glyphs out top-down and place the finished block themselves. That way
+	// the layout is identical in both coordinate systems.
 	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
 	fs.SetAlignVertical(&s.fs, .TOP)
 
@@ -356,14 +384,25 @@ process_events :: proc() {
 			append(&s.typed_runes, e.typed)
 
 		case Event_Mouse_Move:
-			prev_pos := s.mouse_position
+			when Y_UP {
+				// The platform reports the position from the top of the window. We modify the event
+				// itself so that `get_events()` returns the correct position too.
+				e.position.y = f32(pf.get_screen_height()) - e.position.y
+			}
 
+			prev_pos := s.mouse_position
 			s.mouse_position.x = e.position.x
 			s.mouse_position.y = e.position.y
 
 			s.mouse_delta += s.mouse_position - prev_pos
 
 		case Event_Mouse_Teleported:
+			when Y_UP {
+				// The position the next move event measures its delta against, so it is in the
+				// same space as the one Event_Mouse_Move stores.
+				e.position.y = f32(pf.get_screen_height()) - e.position.y
+			}
+
 			s.mouse_position.x = e.position.x
 			s.mouse_position.y = e.position.y
 
@@ -654,6 +693,8 @@ get_mouse_wheel_delta :: proc() -> f32 {
 }
 
 // Returns the mouse position, measured from the top-left corner of the window.
+//
+// With Y_UP it is measured from the bottom-left corner of the window instead.
 get_mouse_position :: proc() -> Vec2 {
 	return s.mouse_position
 }
@@ -757,6 +798,8 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 //   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
+//
+// With Y_UP the (x, y) is the rect's bottom-left corner and rotations look counter-clockwise.
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
 	_begin_vertices(s.shape_drawing_texture, 6)
 	tl, tr, bl, br: Vec2
@@ -813,6 +856,8 @@ draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0
 //   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
+//
+// With Y_UP the position is the bottom-left corner and rotations look counter-clockwise.
 draw_rect_vec :: proc(
 	position: Vec2,
 	size: Vec2,
@@ -938,6 +983,8 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 // The texture is fed into the active shader. Everything drawn in a single draw call must therefore
 // use the same texture. Drawing with a new texture starts a new draw call. Put several images into
 // one big texture, an atlas, to get fewer draw calls.
+//
+// With Y_UP the position is the bottom-left corner and rotations look counter-clockwise.
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
@@ -1019,7 +1066,12 @@ draw_texture_fit :: proc(
 
 	_begin_vertices(texture.handle, 6)
 
-	flip_x, flip_y: bool
+	flip_x: bool
+
+	// Texture pixels are stored top-down, but in a Y up coordinate system `dest` grows upwards, so
+	// the texture has to be sampled bottom-up to come out the right way round.
+	flip_y := Y_UP
+
 	source := source
 	dest := dest
 
@@ -1029,7 +1081,7 @@ draw_texture_fit :: proc(
 	}
 
 	if source.h < 0 {
-		flip_y = true
+		flip_y = !flip_y
 		source.h = -source.h
 	}
 
@@ -1307,6 +1359,8 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 // - font: The font to use, uses a default font if none is specified.
 // - origin: The origin relative top the top-left position of the text. Used when rotating the text.
 // - rotation: Rotating to apply to the text, measured in radians.
+//
+// With Y_UP the position is the bottom-left of the text and rotations look counter-clockwise.
 draw_text :: proc(
 	text: string,
 	position: Vec2,
@@ -1364,8 +1418,20 @@ draw_text :: proc(
 		}
 
 		font_object := &s.fonts[font]
+
+		// Laid out top-down: `char_offset` walks right along a line and down between lines, matching
+		// the offsets stbtt baked into the glyphs.
 		char_offset: Vec2
 		scl := font_size / font_object.static_font_size
+
+		// Where the top of the text block is. The glyph offsets are measured down from it. In Y up
+		// `position` is the bottom-left corner of the block, so the top is a whole block higher.
+		// The height must agree with what `measure_text_static` reports.
+		when Y_UP {
+			block_top := position.y + f32(count_text_lines(text))*font_object.static_line_spacing*scl
+		} else {
+			block_top := position.y
+		}
 
 		for c in text {
 			if c == '\r' {
@@ -1394,13 +1460,27 @@ draw_text :: proc(
 
 			if g != nil {
 				src := g.rect
+				w := src.w * scl
+				h := src.h * scl
 
-				dst := Rect {
-					position.x, position.y,
-					src.w * scl, src.h * scl,
+				// `g.offset` is stbtt's top-down offset from the top of the line to the top of the
+				// glyph bitmap. It is what makes descenders hang below the baseline, so it counts
+				// down from the top of the block whichever way the Y axis points.
+				offset_from_top := char_offset.y + g.offset.y*scl
+
+				when Y_UP {
+					glyph_y := block_top - offset_from_top - h
+				} else {
+					glyph_y := block_top + offset_from_top
 				}
 
-				char_origin := origin - (char_offset + g.offset*scl)
+				glyph_x := position.x + char_offset.x + g.offset.x*scl
+
+				// The destination stays at `position` for every glyph and the per-glyph offset is
+				// folded into the origin instead. That way `rotation` pivots the whole text block
+				// around `position` rather than each glyph around itself.
+				dst := Rect { position.x, position.y, w, h }
+				char_origin := origin + position - { glyph_x, glyph_y }
 
 				draw_texture_fit(
 					font_object.atlas,
@@ -1414,12 +1494,20 @@ draw_text :: proc(
 				char_offset.x += g.advance*scl
 			} else {
 				invalid_rect_size := Vec2 {font_size*0.5, font_size*0.5}
-				invalid_rect := rect_from_pos_size(position + char_offset + {0, invalid_rect_size.y/2}, invalid_rect_size)
-				
-				draw_rect(
-					invalid_rect,
-					RED,
-				)
+				offset_from_top := char_offset.y + invalid_rect_size.y/2
+
+				when Y_UP {
+					invalid_rect_y := block_top - offset_from_top - invalid_rect_size.y
+				} else {
+					invalid_rect_y := block_top + offset_from_top
+				}
+
+				invalid_rect := Rect {
+					position.x + char_offset.x, invalid_rect_y,
+					invalid_rect_size.x, invalid_rect_size.y,
+				}
+
+				draw_rect(invalid_rect, RED)
 
 				char_offset.x += invalid_rect_size.x
 			}
@@ -1451,16 +1539,25 @@ draw_text :: proc(
 		// Bake the glyph at font_size*camera_zoom pixels so it is sharp at the current zoom level.
 		// We then divide quad positions back by camera_zoom to recover world-space coordinates.
 		render_size := font_size * camera_zoom
-		scaled_pos  := position * camera_zoom
+
+		// FontStash lays the text out top-down starting at (0, 0), so its quads come out as offsets
+		// from the top-left of the text block. This is where that corner goes. In Y up `position`
+		// is the bottom-left corner of the block, so the top is a whole block higher. The height
+		// must agree with what `measure_text_dynamic` reports, which is `lines * font_size`.
+		when Y_UP {
+			block_top := position.y + f32(count_text_lines(text))*font_size
+		} else {
+			block_top := position.y
+		}
 
 		fs.SetSize(&s.fs, render_size)
-		iter := fs.TextIterInit(&s.fs, scaled_pos.x, scaled_pos.y, text)
+		iter := fs.TextIterInit(&s.fs, 0, 0, text)
 
 		q: fs.Quad
 		for fs.TextIterNext(&s.fs, &iter, &q) {
 			if iter.codepoint == '\n' {
 				iter.nexty += render_size
-				iter.nextx = scaled_pos.x
+				iter.nextx = 0
 				continue
 			}
 
@@ -1481,18 +1578,25 @@ draw_text :: proc(
 			src.w *= w
 			src.h *= h
 
-			// Unscale quad positions from atlas-space back to world-space.
-			qx0 := q.x0 / camera_zoom
-			qy0 := q.y0 / camera_zoom
-			qx1 := q.x1 / camera_zoom
-			qy1 := q.y1 / camera_zoom
-			
-			dst := Rect {
-				position.x, position.y,
-				qx1 - qx0, qy1 - qy0,
+			// Unscale quad positions from render-size space back to text-local world units.
+			offset_from_left := q.x0 / camera_zoom
+			offset_from_top := q.y0 / camera_zoom
+			glyph_w := (q.x1 - q.x0) / camera_zoom
+			glyph_h := (q.y1 - q.y0) / camera_zoom
+
+			when Y_UP {
+				glyph_y := block_top - offset_from_top - glyph_h
+			} else {
+				glyph_y := block_top + offset_from_top
 			}
 
-			char_origin := origin + {position.x - qx0, position.y - qy0}
+			glyph_x := position.x + offset_from_left
+
+			// As in `draw_text_static`: keep the destination at `position` and fold the per-glyph
+			// offset into the origin, so that `rotation` pivots the block and not each glyph.
+			dst := Rect { position.x, position.y, glyph_w, glyph_h }
+			char_origin := origin + position - { glyph_x, glyph_y }
+
 			draw_texture_fit(font_object.atlas, src, dst, char_origin, rotation, color)
 		}
 	}
@@ -3277,6 +3381,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		}
 
 		s.current_render_target = rt.render_target
+		s.current_render_target_height = rt.texture.height
 		s.proj_matrix = make_default_projection(rt.texture.width, rt.texture.height)
 		_update_view_projection()
 	} else {
@@ -3285,6 +3390,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		}
 
 		s.current_render_target = RENDER_TARGET_NONE
+		s.current_render_target_height = 0
 		s.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 		_update_view_projection()
 	}
@@ -3353,34 +3459,58 @@ rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect {
 
 // Get the top left corner of a rectangle.
 rect_top_left :: proc(r: Rect) -> Vec2 {
-	return {r.x, r.y}
+	when Y_UP {
+		return {r.x, r.y + r.h}
+	} else {
+		return {r.x, r.y}
+	}
 }
 
 // Get the top middle point of a rectangle. That is, the mid-point between the top left and top
 // right corners.
 rect_top_middle :: proc(r: Rect) -> Vec2 {
-	return {r.x + r.w / 2, r.y}
+	when Y_UP {
+		return {r.x + r.w / 2, r.y + r.h}
+	} else {
+		return {r.x + r.w / 2, r.y}
+	}
 }
 
 // Get the top right corner of a rectangle.
 rect_top_right :: proc(r: Rect) -> Vec2 {
-	return {r.x + r.w, r.y}
+	when Y_UP {
+		return {r.x + r.w, r.y + r.h}
+	} else {
+		return {r.x + r.w, r.y}
+	}
 }
 
 // Get the bottom left corner of a rectangle.
 rect_bottom_left :: proc(r: Rect) -> Vec2 {
-	return {r.x, r.y + r.h}
+	when Y_UP {
+		return {r.x, r.y}
+	} else {
+		return {r.x, r.y + r.h}
+	}
 }
 
 // Get the bottom middle point of a rectangle. That is, the mid-point between the bottom left and
 // bottom right corners.
 rect_bottom_middle :: proc(r: Rect) -> Vec2 {
-	return {r.x + r.w / 2, r.y + r.h}
+	when Y_UP {
+		return {r.x + r.w / 2, r.y}
+	} else {
+		return {r.x + r.w / 2, r.y + r.h}
+	}
 }
 
 // Get the bottom right corner of a rectangle.
 rect_bottom_right :: proc(r: Rect) -> Vec2 {
-	return {r.x + r.w, r.y + r.h}
+	when Y_UP {
+		return {r.x + r.w, r.y}
+	} else {
+		return {r.x + r.w, r.y + r.h}
+	}
 }
 
 // Make a rectangle smaller by `x` pixels in the horizontal direction and `y` pixels in the vertical
@@ -3406,22 +3536,41 @@ rect_expand :: proc(r: Rect, x: f32, y: f32) -> Rect {
 // Cut off `h` pixels from the top of `r`. `r` is modified. The cut off part is returned.
 // `m` is the margin added above the cut part.
 rect_cut_top :: proc(r: ^Rect, h: f32, m: f32) -> Rect {
-	res := r^
-	res.y += m
-	res.h = h
-	r.y += h + m
-	r.h -= h + m
-	return res
+	when Y_UP {
+		// The top edge is at the high end of Y, so this is the "cut the far end" case.
+		res := r^
+		res.h = h
+		res.y = r.y + r.h - h - m
+		r.h -= h + m
+		return res
+	} else {
+		res := r^
+		res.y += m
+		res.h = h
+		r.y += h + m
+		r.h -= h + m
+		return res
+	}
 }
 
 // Cut off `h` pixels from the bottom of `r`. `r` is modified. The cut off part is returned.
 // `m` is the margin added below the cut part.
 rect_cut_bottom :: proc(r: ^Rect, h: f32, m: f32) -> Rect {
-	res := r^
-	res.h = h
-	res.y = r.y + r.h - h - m
-	r.h -= h + m
-	return res
+	when Y_UP {
+		// The bottom edge is at the low end of Y, so this is the "cut the near end" case.
+		res := r^
+		res.y += m
+		res.h = h
+		r.y += h + m
+		r.h -= h + m
+		return res
+	} else {
+		res := r^
+		res.h = h
+		res.y = r.y + r.h - h - m
+		r.h -= h + m
+		return res
+	}
 }
 
 // Cut off `w` pixels from the left of `r`. `r` is modified. The cut off part is returned.
@@ -4897,6 +5046,11 @@ State :: struct {
 	current_scissor: Maybe(Rect),
 	current_texture: Texture_Handle,
 	current_render_target: Render_Target_Handle,
+
+	// Height of `current_render_target`, or 0 when drawing to the window. Needed to
+	// convert scissor rectangles to native top-down coordinates without asking the
+	// backend for it.
+	current_render_target_height: int,
 	current_blend_mode: Blend_Mode,
 
 	// Recorded but not drawn yet. They all point into `vertex_buffer_cpu`.
@@ -5237,6 +5391,21 @@ is_typable_rune :: proc(r: rune) -> bool {
 	return r >= 32 && r != 0x7f
 }
 
+// The number of lines `text` occupies. Used to size the text block without having to measure the
+// whole thing: only the height matters for placing the block.
+@(private="file", require_results)
+count_text_lines :: proc "contextless" (text: string) -> int {
+	lines := 1
+
+	for c in text {
+		if c == '\n' {
+			lines += 1
+		}
+	}
+
+	return lines
+}
+
 assert_initialized :: proc(loc := #caller_location) {
 	assert(s != nil, "Call k2.init before using this Karl2D procedure", loc)
 }
@@ -5342,6 +5511,28 @@ _start_draw_call :: proc() {
 		}
 	}
 
+	scissor := s.current_scissor
+
+	when Y_UP {
+		// The backends want the scissor rectangle top-down, which is what both D3D11 and OpenGL
+		// take. Here `sciss.y` is its bottom edge measured up from the bottom of the surface, so
+		// the top edge measured down from the top is what is left when both are taken off the
+		// height. It is done here so that it uses the render target this draw call is recorded
+		// with, which is the surface the rectangle was measured against.
+		if sciss, sciss_ok := scissor.?; sciss_ok {
+			surface_height := s.current_render_target_height
+
+			if s.current_render_target == RENDER_TARGET_NONE {
+				surface_height = pf.get_screen_height()
+			}
+
+			scissor = Rect {
+				sciss.x, f32(surface_height) - sciss.y - sciss.h,
+				sciss.w, sciss.h,
+			}
+		}
+	}
+
 	s.current_draw_call = {
 		vertex_offset = s.vertex_buffer_cpu_used,
 		shader = shader.handle,
@@ -5350,7 +5541,7 @@ _start_draw_call :: proc() {
 		constants_data = constants_data,
 		textures = textures,
 		render_target = s.current_render_target,
-		scissor = s.current_scissor,
+		scissor = scissor,
 		blend_mode = s.current_blend_mode,
 	}
 
@@ -5659,7 +5850,14 @@ matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f
 }
 
 make_default_projection :: proc(w, h: int) -> matrix[4,4]f32 {
-	return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+	// The whole coordinate system flip comes down to which edge of the surface Y = 0 maps to.
+	// Everything else in this file exists because some things (textures, fonts, scissor rects, the
+	// mouse) are natively top-down and have to be brought into line with this.
+	when Y_UP {
+		return matrix_ortho3d_f32(0, f32(w), 0, f32(h), 0.001, 2)
+	} else {
+		return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+	}
 }
 
 FONT_DEFAULT_ATLAS_SIZE :: 2048

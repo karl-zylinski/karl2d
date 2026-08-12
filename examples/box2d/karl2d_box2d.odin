@@ -1,22 +1,54 @@
-// This example shows a stack of boxes and the player has a circle that can push the boxes.
+// Knock over a stack of boxes by shooting balls at it.
 //
-// This example needs some cleaning up: It leaks lots of box2D things and can perhaps be done more
-// compactly. Originally made during a 1h stream: https://www.youtube.com/watch?v=LYW7jdwEnaI
+// Aim with the mouse and left click to fire. The dotted arc shows where the shot will go: it is the
+// same projectile equation Box2D integrates, so it lines up with what actually happens.
 package karl2d_box2d_example
 
 import b2 "vendor:box2d"
 import k2 "../.."
 import "core:math"
 
+// Box2D works in a Y up world, so this example uses Karl2D's Y up coordinate system too. That way
+// positions and angles pass between the two without any conversion. Everything below is in Box2D
+// world coordinates, which here are also screen coordinates: one unit is one pixel.
+#assert(k2.Y_UP, "This example assumes Y up. Compile it with -define:KARL2D_Y_UP=true")
+
+SCREEN_WIDTH :: 1280
+SCREEN_HEIGHT :: 720
+
+// Box2D scales some of its tolerances by this, so it wants to know how big a metre is. Everything
+// here is in pixels, and 40 pixels to the metre makes a 40x40 box a metre across.
+PIXELS_PER_METER :: 40
+GRAVITY :: -900
+
+GROUND :: k2.Rect { 0, 0, SCREEN_WIDTH, 40 }
+PLATFORM :: k2.Rect { 760, 220, 420, 40 }
+
+// Where shots come from, over on the left.
+CANNON :: k2.Vec2 { 140, 300 }
+BARREL_LENGTH :: 70
+BARREL_THICKNESS :: 22
+
+BALL_RADIUS :: 14
+BALL_SPEED :: 1250
+
+// Heavy enough to knock a good part of the stack over, light enough that one shot doesn't level the
+// whole thing. Past about this the ball punches through instead of toppling more of it.
+BALL_DENSITY :: 7
+
+BOX_SIZE :: 40
+STACK_ROWS :: 8
+
 world_id: b2.WorldId
 time_acc: f32
-circle_body_id: b2.BodyId
-bodies: [dynamic]b2.BodyId
+boxes: [dynamic]b2.BodyId
 
-GROUND :: k2.Rect {
-	0, 600,
-	1280, 120,
-}
+// Balls live in a fixed ring. Firing into a full one recycles the oldest ball, so the world never
+// ends up with more bodies than this no matter how long you play. An empty slot is a null id, which
+// is what a ball that flew off the screen leaves behind.
+MAX_BALLS :: 16
+balls: [MAX_BALLS]b2.BodyId
+next_ball: int
 
 main :: proc() {
 	init()
@@ -25,71 +57,16 @@ main :: proc() {
 }
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D + Box2D example")
+	k2.init(SCREEN_WIDTH, SCREEN_HEIGHT, "Karl2D + Box2D example")
 
-	b2.SetLengthUnitsPerMeter(40)
+	b2.SetLengthUnitsPerMeter(PIXELS_PER_METER)
 	world_def := b2.DefaultWorldDef()
-	world_def.gravity = b2.Vec2{0, -900}
+	world_def.gravity = b2.Vec2 { 0, GRAVITY }
 	world_id = b2.CreateWorld(world_def)
-	
-	ground_body_def := b2.DefaultBodyDef()
-	ground_body_def.position = b2.Vec2{GROUND.x, -GROUND.y-GROUND.h}
-	ground_body_id := b2.CreateBody(world_id, ground_body_def)
 
-	ground_box := b2.MakeBox(GROUND.w, GROUND.h)
-	ground_shape_def := b2.DefaultShapeDef()
-	_ = b2.CreatePolygonShape(ground_body_id, ground_shape_def, &ground_box)
-
-	px: f32 = 400
-	py: f32 = -400
-
-	num_per_row := 10
-	num_in_row := 0
-
-	for _ in 0..<50 {
-		b := create_box(world_id, {px, py})
-		append(&bodies, b)
-		num_in_row += 1
-
-		if num_in_row == num_per_row {
-			py += 30
-			px = 200
-			num_per_row -= 1
-			num_in_row = 0
-		}
-
-		px += 30
-	}
-
-	body_def := b2.DefaultBodyDef()
-	body_def.type = .dynamicBody
-	body_def.position = b2.Vec2{0, 4}
-	circle_body_id = b2.CreateBody(world_id, body_def)
-
-	shape_def := b2.DefaultShapeDef()
-	shape_def.density = 1000
-	shape_def.material.friction = 0.3
-
-	circle: b2.Circle
-	circle.radius = 40
-	_ = b2.CreateCircleShape(circle_body_id, shape_def, &circle)
-}
-
-create_box :: proc(world_id: b2.WorldId, pos: b2.Vec2) -> b2.BodyId{
-	body_def := b2.DefaultBodyDef()
-	body_def.type = .dynamicBody
-	body_def.position = pos
-	body_id := b2.CreateBody(world_id, body_def)
-
-	shape_def := b2.DefaultShapeDef()
-	shape_def.density = 1
-	shape_def.material.friction = 0.3
-
-	box := b2.MakeBox(20, 20)
-	box_def := b2.DefaultShapeDef()
-	_ = b2.CreatePolygonShape(body_id, box_def, &box)
-
-	return body_id
+	create_static_box(GROUND)
+	create_static_box(PLATFORM)
+	build_stack()
 }
 
 step :: proc() -> bool {
@@ -97,40 +74,231 @@ step :: proc() -> bool {
 		return false
 	}
 
-	dt := k2.get_frame_time()
-	time_acc += dt
-	k2.process_events()
-	k2.clear(k2.LIGHT_BLUE)
+	// The mouse position is already in the same coordinate system as the physics world, so it can
+	// be used to aim without converting anything.
+	//
+	// Shots start at the middle of the cannon and come out from behind the barrel, which is drawn
+	// over them. Starting them at the end of the barrel instead would move the launch point every
+	// time the barrel turned, and the angle is what turns it.
+	target := k2.get_mouse_position()
+	aim_dir := launch_direction(CANNON, target)
 
-	k2.draw_rect(GROUND, k2.GREEN)
+	if k2.mouse_button_went_down(.Left) {
+		// Whatever is in the slot we are about to write has had its turn.
+		if b2.IS_NON_NULL(balls[next_ball]) {
+			b2.DestroyBody(balls[next_ball])
+		}
 
-	pos := k2.get_mouse_position()
+		body_def := b2.DefaultBodyDef()
+		body_def.type = .dynamicBody
+		body_def.position = { CANNON.x, CANNON.y }
 
-	b2.Body_SetTransform(circle_body_id, {pos.x, -pos.y}, {})
+		// Shots are fast and small, so ask Box2D not to let them pass through thin things.
+		body_def.isBullet = true
+		body_id := b2.CreateBody(world_id, body_def)
+
+		shape_def := b2.DefaultShapeDef()
+		shape_def.density = BALL_DENSITY
+		shape_def.material.friction = 0.3
+		shape_def.material.restitution = 0.35
+
+		circle := b2.Circle { radius = BALL_RADIUS }
+		_ = b2.CreateCircleShape(body_id, shape_def, &circle)
+		b2.Body_SetLinearVelocity(body_id, { aim_dir.x*BALL_SPEED, aim_dir.y*BALL_SPEED })
+
+		balls[next_ball] = body_id
+		next_ball = (next_ball + 1) % MAX_BALLS
+	}
+
+	if k2.key_went_down(.R) {
+		for b in boxes {
+			b2.DestroyBody(b)
+		}
+
+		for ball in balls {
+			if b2.IS_NON_NULL(ball) {
+				b2.DestroyBody(ball)
+			}
+		}
+
+		clear(&boxes)
+		balls = {}
+		next_ball = 0
+		build_stack()
+	}
 
 	SUB_STEPS :: 4
 	TIME_STEP :: 1.0 / 60
+
+	time_acc += k2.get_frame_time()
 
 	for time_acc >= TIME_STEP {
 		b2.World_Step(world_id, TIME_STEP, SUB_STEPS)
 		time_acc -= TIME_STEP
 	}
 
-	for b in bodies {
-		position := b2.Body_GetPosition(b)
-		r := b2.Body_GetRotation(b)
-		rot := math.atan2(r.s, r.c)
-		// Y position is flipped because raylib has Y down and box2d has Y up.
-		k2.draw_rect({position.x, -position.y, 40, 40}, k2.BROWN, {20, 20}, rot)
+	// Balls that left the world would otherwise keep falling forever.
+	for &ball in balls {
+		if b2.IS_NULL(ball) {
+			continue
+		}
+
+		position := b2.Body_GetPosition(ball)
+
+		if position.y < -200 || position.x < -200 || position.x > SCREEN_WIDTH + 200 {
+			b2.DestroyBody(ball)
+			ball = b2.nullBodyId
+		}
 	}
 
-	k2.draw_circle(pos, 40, k2.RED)
+	k2.clear(k2.LIGHT_BLUE)
+	k2.draw_rect(PLATFORM, k2.DARK_GRAY)
+	k2.draw_rect(GROUND, k2.GREEN)
+
+	// Where the shot will go. Same constant-acceleration path Box2D integrates, so it matches the
+	// real flight until the ball hits something.
+	AIM_DOTS :: 30
+	AIM_INTERVAL :: 1.0 / 30.0
+
+	for i in 1..=AIM_DOTS {
+		t := f32(i)*AIM_INTERVAL
+		p := CANNON + aim_dir*BALL_SPEED*t + 0.5*k2.Vec2{0, GRAVITY}*t*t
+
+		if p.y < GROUND.y + GROUND.h {
+			break
+		}
+
+		k2.draw_circle(p, 3, k2.color_alpha(k2.GRAY, 150), 8)
+	}
+
+	for b in boxes {
+		position := b2.Body_GetPosition(b)
+		r := b2.Body_GetRotation(b)
+
+		// Positions and angles go straight from Box2D into Karl2D without any conversion, because
+		// both are Y up here. In a Y down coordinate system both would have to be flipped.
+		//
+		// Box2D positions a body by its centre, and the origin makes the rect rotate around that
+		// same point rather than around its corner.
+		rot := math.atan2(r.s, r.c)
+		box := k2.Rect { position.x, position.y, BOX_SIZE, BOX_SIZE }
+		k2.draw_rect(box, k2.BROWN, { BOX_SIZE/2, BOX_SIZE/2 }, rot)
+	}
+
+	for ball in balls {
+		if b2.IS_NULL(ball) {
+			continue
+		}
+
+		position := b2.Body_GetPosition(ball)
+		k2.draw_circle({position.x, position.y}, BALL_RADIUS, k2.RED)
+	}
+
+	// The barrel pivots on the middle of its near end, so it swings around the cannon rather than
+	// around its own corner.
+	barrel := k2.Rect { CANNON.x, CANNON.y, BARREL_LENGTH, BARREL_THICKNESS }
+	k2.draw_rect(barrel, k2.DARK_GRAY, { 0, BARREL_THICKNESS/2 }, math.atan2(aim_dir.y, aim_dir.x))
+	k2.draw_circle(CANNON, 20, k2.GRAY)
+
+	text := "Shoot: Left click\nReset: R"
+	text_size := k2.measure_text(text, 24)
+
+	k2.draw_text(text, {20, SCREEN_HEIGHT - 20 - text_size.y}, 24, k2.DARK_BLUE)
 	k2.present()
 
 	return true
 }
 
+// The direction to fire in so that a ball launched at BALL_SPEED lands on `target`. The speed and
+// the gravity are fixed, which leaves the angle as the only unknown.
+//
+// Two angles reach any target within range, a flat one and a lobbed one. This picks the flat one.
+// Targets out of range get the 45 degree shot, which is the furthest the cannon can throw.
+launch_direction :: proc(from: k2.Vec2, target: k2.Vec2) -> k2.Vec2 {
+	g := f32(-GRAVITY)
+	v := f32(BALL_SPEED)
+	d := target - from
+
+	// Solved as if the target is to the right, then mirrored, so one formula covers both ways.
+	to_the_left := d.x < 0
+	dx := abs(d.x)
+	angle: f32
+
+	if dx < 1 {
+		// Straight above or below, where the formula below would divide by zero.
+		angle = math.PI/2 if d.y >= 0 else -math.PI/2
+		to_the_left = false
+	} else {
+		v2 := v*v
+
+		// Negative when no angle gets there.
+		discriminant := v2*v2 - g*(g*dx*dx + 2*d.y*v2)
+
+		if discriminant < 0 {
+			angle = math.PI/4
+		} else {
+			angle = math.atan((v2 - math.sqrt(discriminant))/(g*dx))
+		}
+	}
+
+	if to_the_left {
+		angle = math.PI - angle
+	}
+
+	return { math.cos(angle), math.sin(angle) }
+}
+
+// Puts the pyramid of boxes on top of the platform.
+build_stack :: proc() {
+	middle := PLATFORM.x + PLATFORM.w/2
+	bottom := PLATFORM.y + PLATFORM.h
+
+	for row in 0..<STACK_ROWS {
+		count := STACK_ROWS - row
+		left := middle - f32(count)*BOX_SIZE/2
+
+		for i in 0..<count {
+			body_def := b2.DefaultBodyDef()
+			body_def.type = .dynamicBody
+
+			// Box2D places a body by its centre, so aim at the middle of where the box goes.
+			body_def.position = {
+				left + (f32(i) + 0.5)*BOX_SIZE,
+				bottom + (f32(row) + 0.5)*BOX_SIZE,
+			}
+
+			body_id := b2.CreateBody(world_id, body_def)
+
+			shape_def := b2.DefaultShapeDef()
+			shape_def.density = 1
+			shape_def.material.friction = 0.5
+
+			// `MakeBox` takes half extents, measured from the centre of the body.
+			box := b2.MakeBox(BOX_SIZE/2, BOX_SIZE/2)
+			_ = b2.CreatePolygonShape(body_id, shape_def, &box)
+
+			append(&boxes, body_id)
+		}
+	}
+}
+
+create_static_box :: proc(r: k2.Rect) {
+	body_def := b2.DefaultBodyDef()
+	body_def.position = { r.x + r.w/2, r.y + r.h/2 }
+	body_id := b2.CreateBody(world_id, body_def)
+
+	shape_def := b2.DefaultShapeDef()
+	shape_def.material.friction = 0.6
+
+	box := b2.MakeBox(r.w/2, r.h/2)
+	_ = b2.CreatePolygonShape(body_id, shape_def, &box)
+}
+
 shutdown :: proc() {
+	// The world owns every body in it, and a body owns its shapes, so this is all the physics
+	// cleanup there is. The shape ids from `CreatePolygonShape` are only worth keeping if you want
+	// to change a shape later.
 	b2.DestroyWorld(world_id)
+	delete(boxes)
 	k2.shutdown()
 }

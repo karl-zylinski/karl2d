@@ -170,6 +170,19 @@ load_texture :: proc($name: string) -> k2.Texture {
 
 The `$` in front of the `name` parameter ensures that you're passing a compile-time constant, which makes it possible to use `#load` within the web version.
 
+## Coordinate system
+
+By default the origin is in the top-left corner of the screen and Y grows downwards. You can flip
+this so that the origin is in the bottom-left corner and Y grows upwards. Add `-define:KARL2D_Y_UP=true` when building to use Y up coordinates:
+
+```
+odin build your_game -define:KARL2D_Y_UP=true
+```
+
+Some physics engines, such as Box2D uses Y up. This is used in `examples/box2d`. Without the Y up corodinates the code would be a lot messier, with lots of coordinate system conversions.
+
+There is a comment above the `Y_UP` constant in `karl2d.odin` that further elaborates in the differences between Y up / Y down.
+
 ## Hot reload
 Some kind of gameplay code hot reload is planned as part of the library. Currently, there is an experimental implementation of this in a separate repository: https://github.com/karl-zylinski/karl2d-hot-reload-template
 

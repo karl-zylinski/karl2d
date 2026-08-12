@@ -44,6 +44,13 @@ jobs:
       - name: test_all_examples
         run: odin run tools/test_examples
 
+      # Runs in bash on every OS. The Windows runner defaults to PowerShell, which splits
+      # `-define:KARL2D_Y_UP=true` into `-define:` and `KARL2D_Y_UP=true` once it has seen the `--`
+      # separator, because it reads `-name:value` as its own parameter syntax.
+      - name: test_all_examples (y up)
+        shell: bash
+        run: odin run tools/test_examples -- -skip-web -define:KARL2D_Y_UP=true
+
       - name: raylib_ports/shaders_texture_waves
         run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style
 

@@ -12,6 +12,7 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - See `karl2d.doc.odin` for a full API overview. It is generated output: never edit it by hand.
 
 ## Workflow
+- If the work is on an existing pull request, start with `gh pr checkout <number>` rather than a branch or worktree that merely looks like the right one. It checks out the PR head (including from forks) and sets up tracking, so `git push` updates the PR instead of creating a disconnected branch.
 - Keep changes focused. Don't touch unrelated code, don't use auto-formatters (e.g. odinfmt), and don't modify whitespace on lines you aren't otherwise changing.
 - If you make unintended changes, revert them in additional commits (squash merges are used).
 - If you break backwards compatbility, introduce @(deprecated) procedures or somehow try to do it gracefully. If you cannot help it, then so be, but flag about it in the review.
@@ -20,7 +21,7 @@ Conventions for writing code, writing documentation, and collaborating on this p
 
 ## Verifying Your Work
 - Build and test through the examples in `examples/`. Prefer the existing VS Code build tasks; they already include `-vet -strict-style -vet-tabs` and come in three variants: default (D3D11 on Windows), `(GL)`, and `(web)`. Use the same `-vet -strict-style -vet-tabs` flags when running `odin` directly.
-- After edits, run the most relevant build task(s) for what you touched. After a large change, run `odin run tools/test_examples`, the CI script that builds every example (some are excluded from web builds, e.g. `minimal_hello_world`, `custom_frame_update`).
+- After edits, run the most relevant build task(s) for what you touched. After a large change, run `odin run tools/test_examples`, the CI script that builds every example (some are excluded from web builds, e.g. `minimal_hello_world`, `custom_frame_update`; some need a define to build at all, e.g. `box2d` requires `-define:KARL2D_Y_UP=true`, which the tool applies for you).
 - Regenerate `karl2d.doc.odin`: `odin run tools/api_doc_builder`. Any change in `karl2d.doc.odin` is a user-facing API change. Make sure you want that change to actually happen. Think about what happens if you break backwards compatibility.
 - Web builds use the script in `build_web/`. Forward game/compiler flags after `--`: `odin run build_web -- your_game_path -debug`. A web game must have `init` and `step` procedures; `examples/minimal_hello_world_web/` is the template.
 - `tools/make_sublime_projects`, `tools/make_vscode_project/` and `tools/make_zed_project/` generate editor project configurations.
@@ -48,6 +49,7 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - Use short sentences. Prefer a period over all other forms of punctuation.
 - A doc comment tells the reader two things. What does this do? And why does it do it that way, if that would otherwise surprise them. Leave out everything else.
 - Never write about how something used to work, or about what a change improved. The reader has only ever seen the current version. That story belongs in the commit message.
+- Never warn the reader away from a mistake you made while writing the change. A comment explaining why some other code is *not* there is a note to yourself, not an insight about the code that is. Read it as a diff: if it only makes sense to someone who watched you get it wrong, delete it. The commit message is where that goes, if anywhere.
 - If you are unsure whether something belongs on a procedure or on a struct, put it on the procedure. That is what people look up.
 - Short notes can be trailing comments on the line they describe: `camera: k2.Camera // world camera`.
 

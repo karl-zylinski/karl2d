@@ -67,20 +67,32 @@ main :: proc() {
 		return fmt.tprintf("%s.%s", name, ODIN_OS == .Windows ? "exe" : "bin")
 	}
 
+	// Some examples only build with a define. `box2d` uses the Y up coordinate system and says so
+	// with a #assert, so it needs the define in every variant.
+	example_defines :: proc(name: string) -> string {
+		switch name {
+		case "box2d":
+			return " -define:KARL2D_Y_UP=true"
+		}
+
+		return ""
+	}
+
 	write_build_variant :: proc(
 		builder: ^strings.Builder,
 		name: string,
 		src_path: string,
 		only_default_variant: bool,
+		defines := "",
 	) {
 		DEFAULT_VARIANT_TEMPLATE ::
 `				{{
 					"name": "%s",
 					"working_dir": "$project_path/../%s",
-					"shell_cmd": "odin run . -debug -vet -strict-style -vet-tabs",
+					"shell_cmd": "odin run . -debug -vet -strict-style -vet-tabs%s",
 				}},
 `
-		variant := fmt.tprintf(DEFAULT_VARIANT_TEMPLATE, name, src_path)
+		variant := fmt.tprintf(DEFAULT_VARIANT_TEMPLATE, name, src_path, defines)
 		strings.write_string(builder, variant)
 
 		if only_default_variant {
@@ -91,19 +103,19 @@ main :: proc() {
 `				{{
 					"name": "%s (gl)",
 					"working_dir": "$project_path/../%s",
-					"shell_cmd": "odin run . -debug -vet -strict-style -vet-tabs -define:KARL2D_RENDER_BACKEND=gl",
+					"shell_cmd": "odin run . -debug -vet -strict-style -vet-tabs -define:KARL2D_RENDER_BACKEND=gl%s",
 				}},
 `
-		gl_variant := fmt.tprintf(GL_VARIANT_TEMPLATE, name, src_path)
+		gl_variant := fmt.tprintf(GL_VARIANT_TEMPLATE, name, src_path, defines)
 		strings.write_string(builder, gl_variant)
 
 		WEB_VARIANT_TEMPLATE ::
 `				{{
 					"name": "%s (web)",
-					"shell_cmd": "odin run build_web -debug -vet -strict-style -vet-tabs -- %s -vet -strict-style -vet-tabs",
+					"shell_cmd": "odin run build_web -debug -vet -strict-style -vet-tabs -- %s -vet -strict-style -vet-tabs%s",
 				}},
 `
-		web_variant := fmt.tprintf(WEB_VARIANT_TEMPLATE, name, src_path)
+		web_variant := fmt.tprintf(WEB_VARIANT_TEMPLATE, name, src_path, defines)
 		strings.write_string(builder, web_variant)
 	}
 
@@ -115,7 +127,7 @@ main :: proc() {
 		name := e.name
 		src_path := fmt.tprintf("examples/%v", e.name)
 
-		write_build_variant(&variants_builder, name, src_path, false)
+		write_build_variant(&variants_builder, name, src_path, false, example_defines(name))
 	}
 
 	write_build_variant(
