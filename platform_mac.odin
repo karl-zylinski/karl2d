@@ -458,13 +458,18 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			}
 
 		case .ScrollWheel:
-			delta := event->scrollingDeltaY()
+			// AppKit measures the horizontal wheel to the left, so that one gets flipped.
+			delta := Vec2 {
+				f32(-event->scrollingDeltaX()),
+				f32(event->scrollingDeltaY()),
+			}
+
 			// Normalize: trackpad gives precise deltas, mouse wheel gives line deltas
 			if event->hasPreciseScrollingDeltas() {
-				append(&s.events, Event_Mouse_Wheel{delta = f32(delta) / 10.0})
-			} else {
-				append(&s.events, Event_Mouse_Wheel{delta = f32(delta)})
+				delta /= 10.0
 			}
+
+			append(&s.events, Event_Mouse_Wheel{delta = delta})
 		}
 
 		// Forward events to application for default handling

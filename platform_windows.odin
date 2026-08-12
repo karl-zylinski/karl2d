@@ -820,7 +820,15 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 		delta := f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
 
 		append(&s.events, Event_Mouse_Wheel {
-			delta = delta,
+			delta = {0, delta},
+		})
+
+	case win32.WM_MOUSEHWHEEL:
+		// Windows measures the horizontal wheel to the right, which is the direction we want.
+		delta := f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
+
+		append(&s.events, Event_Mouse_Wheel {
+			delta = {delta, 0},
 		})
 
 	case win32.WM_LBUTTONDOWN:

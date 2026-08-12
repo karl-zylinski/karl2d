@@ -214,11 +214,26 @@ web_event_mouse_up :: proc(e: js.Event) {
 }
 
 web_event_mouse_wheel :: proc(e: js.Event) {
+	// The browser measures down and right as positive, so the vertical axis needs flipping.
 	append(&s.events, Event_Mouse_Wheel {
-		// Not the best way, but how would we know what the wheel deltaMode really represents? If it
-		// is in pixels, how much "scroll" does that equal to?
-		delta = f32(e.wheel.delta.y > 0 ? -1 : 1),
+		delta = {
+			web_wheel_direction(e.wheel.delta.x),
+			-web_wheel_direction(e.wheel.delta.y),
+		},
 	})
+}
+
+// Not the best way, but how would we know what the wheel deltaMode really represents? If it is in
+// pixels, how much "scroll" does that equal to? So we keep the direction and call it one click.
+web_wheel_direction :: proc(delta: f64) -> f32 {
+	switch {
+	case delta > 0:
+		return 1
+	case delta < 0:
+		return -1
+	}
+
+	return 0
 }
 
 add_canvas_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {

@@ -46,6 +46,10 @@ foreign x11_extra {
 	XCloseIM :: proc(im: X.XIM) -> X.Status ---
 }
 
+// The horizontal wheel is button 6 and 7. vendor:x11/xlib stops naming buttons at 5.
+BUTTON_WHEEL_LEFT :: X.MouseButton(6)
+BUTTON_WHEEL_RIGHT :: X.MouseButton(7)
+
 x11_state_size :: proc() -> int {
 	return size_of(X11_State)
 }
@@ -265,7 +269,11 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 				// LOL X11!!! Mouse wheel is button 4 and 5 being pressed.
 
 				append(events, Event_Mouse_Wheel {
-					event.xbutton.button == .Button4 ? -1 : 1,
+					{0, event.xbutton.button == .Button4 ? 1 : -1},
+				})
+			} else if event.xbutton.button <= BUTTON_WHEEL_RIGHT {
+				append(events, Event_Mouse_Wheel {
+					{event.xbutton.button == BUTTON_WHEEL_LEFT ? -1 : 1, 0},
 				})
 			}
 

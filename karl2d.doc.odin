@@ -258,7 +258,11 @@ mouse_button_went_up :: proc(button: Mouse_Button) -> bool
 mouse_button_is_held :: proc(button: Mouse_Button) -> bool
 
 // Returns how many clicks the mouse wheel has scrolled between the previous and current frame.
-get_mouse_wheel_delta :: proc() -> f32
+//
+// `y` is the vertical wheel: positive means scrolling up. `x` is the horizontal wheel, which a
+// tilt wheel or a two-finger trackpad swipe drives: positive means scrolling right. Both are
+// unaffected by Y_UP, since neither is a position on the screen.
+get_mouse_wheel_delta :: proc() -> Vec2
 
 // Returns the mouse position, measured from the top-left corner of the window.
 //
@@ -1578,7 +1582,7 @@ State :: struct {
 
 	mouse_position: Vec2,
 	mouse_delta: Vec2,
-	mouse_wheel_delta: f32,
+	mouse_wheel_delta: Vec2,
 
 	key_went_down: #sparse [Keyboard_Key]bool,
 	key_went_up: #sparse [Keyboard_Key]bool,
@@ -1916,8 +1920,11 @@ Event_Mouse_Move :: struct {
 	position: Vec2,
 }
 
+// `delta.y` is the vertical wheel, positive when scrolling up. `delta.x` is the horizontal wheel,
+// positive when scrolling right. A platform that reports the two axes separately sends one event
+// per axis, so an event commonly has one of the components set to zero.
 Event_Mouse_Wheel :: struct {
-	delta: f32,
+	delta: Vec2,
 }
 
 // Reports the new size of the drawable game area

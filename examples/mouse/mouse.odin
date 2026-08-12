@@ -8,7 +8,7 @@ init :: proc() {
 	k2.set_cursor_hidden(true)
 }
 
-wheel: f32
+wheel: k2.Vec2
 
 step :: proc() -> bool {
 	if !k2.update() {
@@ -58,7 +58,7 @@ step :: proc() -> bool {
 
 	wheel += k2.get_mouse_wheel_delta()
 
-	wheel_msg := fmt.tprintf("Wheel: %.1f", wheel)
+	wheel_msg := fmt.tprintf("Wheel: %.1f up, %.1f right", wheel.y, wheel.x)
 	wheel_msg_width := k2.measure_text(wheel_msg, 20).x
 	k2.draw_text(wheel_msg, pos + {-wheel_msg_width/2, 70}, 20, k2.WHITE)
 
