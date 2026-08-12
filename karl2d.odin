@@ -26,9 +26,9 @@ import "core:image/tga"
 
 import hm "core:container/handle_map"
 
-//-------------------//
-// COORDINATE SYSTEM //
-//-------------------//
+//-----------------------------------------------//
+// SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
+//-----------------------------------------------//
 
 // Karl2D supports two coordinate systems. You choose which at compile time.
 //
@@ -53,10 +53,6 @@ import hm "core:container/handle_map"
 // - `measure_text`, which always returns a positive size. Text always fills the rectangle it
 //   reports, with the first line at the top on screen.
 Y_UP :: #config(KARL2D_Y_UP, false)
-
-//-----------------------------------------------//
-// SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
-//-----------------------------------------------//
 
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory.
