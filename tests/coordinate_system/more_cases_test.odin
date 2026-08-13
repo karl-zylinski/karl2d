@@ -75,3 +75,27 @@ screen_to_camera_round_trips :: proc(t: ^testing.T) {
 		round_tripped.x, round_tripped.y, p.x, p.y,
 	)
 }
+
+// A zoom of 0 is what a zero-initialized camera has, and it is treated as zoom 1. So a camera
+// with only an axis set draws exactly like TEST_CAMERA, and converting through it stays finite.
+@(test)
+zero_zoom_camera_draws_like_zoom_one :: proc(t: ^testing.T) {
+	got := draw_and_measure(proc() {
+		k2.set_camera(k2.Camera { y_axis = TEST_Y_AXIS })
+		k2.draw_rect(screen_rect(100, 100, 40, 20), k2.WHITE)
+	})
+
+	k2.set_camera(nil)
+
+	expect_bounds(t, got, 6, 100, 100, 140, 120)
+
+	cam := k2.Camera { y_axis = TEST_Y_AXIS }
+	p := screen_pos(123, 45)
+	round_tripped := k2.camera_to_screen(k2.screen_to_camera(p, cam), cam)
+
+	testing.expectf(t,
+		abs(round_tripped.x - p.x) <= EPSILON && abs(round_tripped.y - p.y) <= EPSILON,
+		"round trip gave (%.3f, %.3f), expected (%.3f, %.3f)",
+		round_tripped.x, round_tripped.y, p.x, p.y,
+	)
+}

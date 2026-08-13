@@ -4330,9 +4330,13 @@ world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 // The view matrix is a Mat4 because its easier to upload a Mat4 to the GPU. But only the upper-left
 // 3x3 matrix is actually used.
 camera_view_matrix :: proc(c: Camera) -> Mat4 {
+	// A zoom of 0 is what a zero-initialized camera has. Treat it as 1 so such a camera draws at
+	// normal scale instead of collapsing everything to nothing.
+	zoom := c.zoom == 0 ? 1 : c.zoom
+
 	inv_target_translate := linalg.matrix4_translate(vec3_from_vec2(-c.target))
 	inv_rot := linalg.matrix4_rotate_f32(c.rotation, {0, 0, 1})
-	inv_scale := linalg.matrix4_scale(Vec3{c.zoom, c.zoom, 1})
+	inv_scale := linalg.matrix4_scale(Vec3{zoom, zoom, 1})
 	inv_offset_translate := linalg.matrix4_translate(vec3_from_vec2(c.offset))
 
 	return inv_offset_translate * inv_scale * inv_rot * inv_target_translate
@@ -4341,9 +4345,12 @@ camera_view_matrix :: proc(c: Camera) -> Mat4 {
 // The inverse of `camera_view_matrix`. It undoes the camera instead of applying it, which is what
 // `screen_to_camera` needs.
 camera_inverse_view_matrix :: proc(c: Camera) -> Mat4 {
+	// As in `camera_view_matrix`: a zoom of 0 is treated as 1. It also makes the division safe.
+	zoom := c.zoom == 0 ? 1 : c.zoom
+
 	offset_translate := linalg.matrix4_translate(vec3_from_vec2(-c.offset))
 	rot := linalg.matrix4_rotate_f32(-c.rotation, {0, 0, 1})
-	scale := linalg.matrix4_scale(Vec3{1/c.zoom, 1/c.zoom, 1})
+	scale := linalg.matrix4_scale(Vec3{1/zoom, 1/zoom, 1})
 	target_translate := linalg.matrix4_translate(vec3_from_vec2(c.target))
 
 	return target_translate * rot * scale * offset_translate
@@ -4631,8 +4638,8 @@ Camera :: struct {
 	// Rotate the camera (unit: radians)
 	rotation: f32,
 
-	// Zoom the camera. A bigger value means "more zoom". Make sure to set this to a non-zero value,
-	// otherwise your camera will render nothing.
+	// Zoom the camera. A bigger value means "more zoom". A zoom of 0 is treated as 1, so a camera
+	// without a zoom set draws at normal scale.
 	//
 	// To make a certain amount of pixels always occupy the height of the camera, set the zoom to:
 	//

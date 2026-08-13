@@ -746,10 +746,10 @@ rect_centre :: rect_middle
 // Combine a position and a size into a rectangle.
 rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect
 
+// NOTE: The rect_top_* and rect_bottom_* procs assume that the top-left corner is the origin, so
+// they may not make sense when used with `Y_Axis.Up` cameras.
+
 // Get the top left corner of a rectangle.
-//
-// The `rect_*` corner and cut helpers are screen space. "Top" is the low end of Y, so with a
-// Y_Axis.Up camera they report the vertically mirrored corner.
 rect_top_left :: proc(r: Rect) -> Vec2
 
 // Get the top middle point of a rectangle. That is, the mid-point between the top left and top
@@ -774,6 +774,9 @@ rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect
 
 // Make a rectangle bigger by `x` pixels in the horizontal direction and `y` pixels in the vertical.
 rect_expand :: proc(r: Rect, x: f32, y: f32) -> Rect
+
+// NOTE: The rect_cut_* procs assume that the top-left corner is the origin, so they may not make
+// sense when used with `Y_Axis.Up` cameras.
 
 // Cut off `h` pixels from the top of `r`. `r` is modified. The cut off part is returned.
 // `m` is the margin added above the cut part.
@@ -920,7 +923,7 @@ set_camera :: proc(camera: Maybe(Camera))
 //
 // Example: Bringing the mouse position into the coordinate space of a camera:
 //
-////  world_mouse_pos := k2.screen_to_camera(k2.get_mouse_position(), world_camera)
+//// world_mouse_pos := k2.screen_to_camera(k2.get_mouse_position(), world_camera)
 screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2
 
 // Transform a point `pos` that lives in the camera's coordinates to a point on the screen. This can
@@ -1162,8 +1165,8 @@ Camera :: struct {
 	// Rotate the camera (unit: radians)
 	rotation: f32,
 
-	// Zoom the camera. A bigger value means "more zoom". Make sure to set this to a non-zero value,
-	// otherwise your camera will render nothing.
+	// Zoom the camera. A bigger value means "more zoom". A zoom of 0 is treated as 1, so a camera
+	// without a zoom set draws at normal scale.
 	//
 	// To make a certain amount of pixels always occupy the height of the camera, set the zoom to:
 	//
