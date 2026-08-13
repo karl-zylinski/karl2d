@@ -290,16 +290,13 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32)
 // DRAWING //
 //---------//
 
-// Draw a colored rectangle. The rectangles have their (x, y) position in the top-left corner of the
-// rectangle.
+// Draw a colored rectangle.
 //
 // Optional parameters:
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
 //   `(0, 0)`, then the rectangle rotates around its (x, y) corner. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
-// - rotation: The rotation to apply, in radians
-//
-// With a Y up camera (x, y) is the rect's bottom-left corner and rotations run counter-clockwise.
+// - rotation: The rotation to apply, in radians.
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0)
 
 // Creates a rectangle from a position and a size and draws it using the specified color.
@@ -308,10 +305,7 @@ draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
 //   `(0, 0)`, then the rectangle rotates around its (x, y) corner. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
-// - rotation: The rotation to apply, in radians
-//
-// With a Y up camera the position is the rect's bottom-left corner and rotations run counter-
-// clockwise.
+// - rotation: The rotation to apply, in radians.
 draw_rect_vec :: proc(
 	position: Vec2,
 	size: Vec2,
@@ -338,11 +332,12 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color)
 
-// Draw a texture at a position. The top-left corner of the texture will end up at the position.
+// Draw a texture at a position. The top-left corner of the texture will end up at the position, or
+// bottom-left if the current camera uses Y_Axis.Up coordinates.
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the (x, y) position, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the position, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 //
 // If you want to rotate around the middle of the texture, then try this:
@@ -353,8 +348,6 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color)
 // The texture is fed into the active shader. Everything drawn in a single draw call must therefore
 // use the same texture. Drawing with a new texture starts a new draw call. Put several images into
 // one big texture, an atlas, to get fewer draw calls.
-//
-// With a Y up camera the position is the bottom-left corner and rotations run counter-clockwise.
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
@@ -364,8 +357,9 @@ draw_texture :: proc(
 )
 
 // Draw a texture at a position, but only draw the region specified by the `source` rectangle. The
-// `source` rectangle is specified in pixel coordinates. You can flip the texture by using negative
-// width/height in `source`.
+// `source` rectangle is specified in pixel coordinates, measured from the top-left of the texture
+// whichever way the camera points Y. You can flip the texture by using negative width/height in
+// `source`.
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
@@ -381,8 +375,10 @@ draw_texture_rect :: proc(
 )
 
 // Draw a texture by selecting a `source` rectangle and fitting it into a `dest` (destination)
-// rectangle. `source` is measured in texture-space pixels and `dest` is measured in world-space
-// pixels. You can flip the texture by using negative width/height for the `source` rectangle.
+// rectangle. `source` is measured in texture-space pixels and `dest` is measured in camera-space
+// pixels. Texture space is always measured from the top-left of the texture, whichever way the
+// camera points Y. You can flip the texture by using negative width/height for the `source`
+// rectangle.
 //
 // Optional parameters:
 // - origin: An offset for the dest rectangle, and also the point to rotate around.
@@ -402,16 +398,13 @@ draw_texture_fit :: proc(
 measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) -> Vec2
 
 // Draw text at a position, with a size and color. The position is the top-left position of the
-// text. If you've set a camera using `set_camera`, then the font size will be internally scaled
-// so that the text appear sharp.
+// text, or bottom-left if the current camera uses Y_Axis.Up coordinates. If you've set a camera
+// using `set_camera`, then the font size will be internally scaled so that the text appear sharp.
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
 // - origin: The origin relative to `position`. Used when rotating the text.
 // - rotation: Rotating to apply to the text, measured in radians.
-//
-// With a Y up camera the position is the bottom-left of the text and rotations look counter-
-// clockwise.
 draw_text :: proc(
 	text: string,
 	position: Vec2,
@@ -755,8 +748,8 @@ rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect
 
 // Get the top left corner of a rectangle.
 //
-// The `rect_*` corner and cut helpers are screen space. "Top" is the low end of Y, so with a Y up
-// camera they report the vertically mirrored corner.
+// The `rect_*` corner and cut helpers are screen space. "Top" is the low end of Y, so with a
+// Y_Axis.Up camera they report the vertically mirrored corner.
 rect_top_left :: proc(r: Rect) -> Vec2
 
 // Get the top middle point of a rectangle. That is, the mid-point between the top left and top
@@ -1022,6 +1015,9 @@ Vec4 :: [4]f32
 Mat4 :: matrix[4,4]f32
 
 // A rectangle that sits at position (x, y) and has size (w, h).
+//
+// If drawn using a Y_Axis.Down camera, then (x, y) is the top-left. With Y_Axis.Up the (x, y)
+// will be the bottom-left.
 Rect :: struct {
 	x, y: f32,
 	w, h: f32,
@@ -1163,14 +1159,15 @@ Camera :: struct {
 	// Rotate the camera (unit: radians)
 	rotation: f32,
 
-	// Zoom the camera. A bigger value means "more zoom".
+	// Zoom the camera. A bigger value means "more zoom". Make sure to set this to a non-zero value,
+	// otherwise your camera will render nothing.
 	//
 	// To make a certain amount of pixels always occupy the height of the camera, set the zoom to:
 	//
 	//     k2.get_screen_height()/wanted_pixel_height
 	zoom: f32,
 
-	// Which way Y points while this camera is active. Defaults to `.Down`.
+	// Which way Y points while this camera is active.
 	y_axis: Y_Axis,
 }
 

@@ -758,16 +758,13 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 // DRAWING //
 //---------//
 
-// Draw a colored rectangle. The rectangles have their (x, y) position in the top-left corner of the
-// rectangle.
+// Draw a colored rectangle.
 //
 // Optional parameters:
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
 //   `(0, 0)`, then the rectangle rotates around its (x, y) corner. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
-// - rotation: The rotation to apply, in radians
-//
-// With a Y up camera (x, y) is the rect's bottom-left corner and rotations run counter-clockwise.
+// - rotation: The rotation to apply, in radians.
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
 	_begin_vertices(s.shape_drawing_texture, 6)
 	tl, tr, bl, br: Vec2
@@ -823,10 +820,7 @@ draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
 //   `(0, 0)`, then the rectangle rotates around its (x, y) corner. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
-// - rotation: The rotation to apply, in radians
-//
-// With a Y up camera the position is the rect's bottom-left corner and rotations run counter-
-// clockwise.
+// - rotation: The rotation to apply, in radians.
 draw_rect_vec :: proc(
 	position: Vec2,
 	size: Vec2,
@@ -937,11 +931,12 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 	batch_vertex(vertices[2], {0, 1}, c)
 }
 
-// Draw a texture at a position. The top-left corner of the texture will end up at the position.
+// Draw a texture at a position. The top-left corner of the texture will end up at the position, or
+// bottom-left if the current camera uses Y_Axis.Up coordinates.
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the (x, y) position, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the position, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 //
 // If you want to rotate around the middle of the texture, then try this:
@@ -952,8 +947,6 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 // The texture is fed into the active shader. Everything drawn in a single draw call must therefore
 // use the same texture. Drawing with a new texture starts a new draw call. Put several images into
 // one big texture, an atlas, to get fewer draw calls.
-//
-// With a Y up camera the position is the bottom-left corner and rotations run counter-clockwise.
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
@@ -983,8 +976,9 @@ draw_texture :: proc(
 }
 
 // Draw a texture at a position, but only draw the region specified by the `source` rectangle. The
-// `source` rectangle is specified in pixel coordinates. You can flip the texture by using negative
-// width/height in `source`.
+// `source` rectangle is specified in pixel coordinates, measured from the top-left of the texture
+// whichever way the camera points Y. You can flip the texture by using negative width/height in
+// `source`.
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
@@ -1014,8 +1008,10 @@ draw_texture_rect :: proc(
 }
 
 // Draw a texture by selecting a `source` rectangle and fitting it into a `dest` (destination)
-// rectangle. `source` is measured in texture-space pixels and `dest` is measured in world-space
-// pixels. You can flip the texture by using negative width/height for the `source` rectangle.
+// rectangle. `source` is measured in texture-space pixels and `dest` is measured in camera-space
+// pixels. Texture space is always measured from the top-left of the texture, whichever way the
+// camera points Y. You can flip the texture by using negative width/height for the `source`
+// rectangle.
 //
 // Optional parameters:
 // - origin: An offset for the dest rectangle, and also the point to rotate around.
@@ -1037,8 +1033,8 @@ draw_texture_fit :: proc(
 
 	flip_x: bool
 
-	// Texture pixels are stored top-down, but in a Y up coordinate system `dest` grows upwards, so
-	// the texture has to be sampled bottom-up to come out the right way round.
+	// Texture pixels are stored top-down, but with Y_Axis.Up `dest` grows upwards, so the texture
+	// has to be sampled bottom-up to come out the right way round.
 	flip_y := _camera_y_axis() == .Up
 
 	source := source
@@ -1321,16 +1317,13 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 }
 
 // Draw text at a position, with a size and color. The position is the top-left position of the
-// text. If you've set a camera using `set_camera`, then the font size will be internally scaled
-// so that the text appear sharp.
+// text, or bottom-left if the current camera uses Y_Axis.Up coordinates. If you've set a camera
+// using `set_camera`, then the font size will be internally scaled so that the text appear sharp.
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
 // - origin: The origin relative to `position`. Used when rotating the text.
 // - rotation: Rotating to apply to the text, measured in radians.
-//
-// With a Y up camera the position is the bottom-left of the text and rotations look counter-
-// clockwise.
 draw_text :: proc(
 	text: string,
 	position: Vec2,
@@ -1394,9 +1387,9 @@ draw_text :: proc(
 		char_offset: Vec2
 		scl := font_size / font_object.static_font_size
 
-		// Where the top of the text block is. The glyph offsets are measured down from it. In Y up
-		// `position` is the bottom-left corner of the block, so the top is a whole block higher.
-		// The height must agree with what `measure_text_static` reports.
+		// Where the top of the text block is. The glyph offsets are measured down from it. With
+		// Y_Axis.Up `position` is the bottom-left corner of the block, so the top is a whole block
+		// higher. The height must agree with what `measure_text_static` reports.
 		y_up := _camera_y_axis() == .Up
 		block_top := position.y
 
@@ -1505,9 +1498,9 @@ draw_text :: proc(
 		render_size := font_size * camera_zoom
 
 		// FontStash lays the text out top-down starting at (0, 0), so its quads come out as offsets
-		// from the top-left of the text block. This is where that corner goes. In Y up `position`
-		// is the bottom-left corner of the block, so the top is a whole block higher. The height
-		// must agree with what `measure_text_dynamic` reports, which is `lines * font_size`.
+		// from the top-left of the text block. This is where that corner goes. With Y_Axis.Up
+		// `position` is the bottom-left corner of the block, so the top is a whole block higher. The
+		// height must agree with what `measure_text_dynamic` reports, which is `lines * font_size`.
 		y_up := _camera_y_axis() == .Up
 		block_top := position.y
 
@@ -3446,8 +3439,8 @@ rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect {
 
 // Get the top left corner of a rectangle.
 //
-// The `rect_*` corner and cut helpers are screen space. "Top" is the low end of Y, so with a Y up
-// camera they report the vertically mirrored corner.
+// The `rect_*` corner and cut helpers are screen space. "Top" is the low end of Y, so with a
+// Y_Axis.Up camera they report the vertically mirrored corner.
 rect_top_left :: proc(r: Rect) -> Vec2 {
 	return {r.x, r.y}
 }
@@ -4269,7 +4262,8 @@ set_camera :: proc(camera: Maybe(Camera)) {
 screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	pos := pos
 
-	// Screen Y counts down from the top. A Y up camera counts it from the bottom of the surface.
+	// Screen Y counts down from the top. A Y_Axis.Up camera counts it from the bottom of the
+	// surface.
 	if camera.y_axis == .Up {
 		surface_height := s.current_render_target_height
 
@@ -4486,6 +4480,9 @@ Vec4 :: [4]f32
 Mat4 :: matrix[4,4]f32
 
 // A rectangle that sits at position (x, y) and has size (w, h).
+//
+// If drawn using a Y_Axis.Down camera, then (x, y) is the top-left. With Y_Axis.Up the (x, y)
+// will be the bottom-left.
 Rect :: struct {
 	x, y: f32,
 	w, h: f32,
@@ -4629,14 +4626,15 @@ Camera :: struct {
 	// Rotate the camera (unit: radians)
 	rotation: f32,
 
-	// Zoom the camera. A bigger value means "more zoom".
+	// Zoom the camera. A bigger value means "more zoom". Make sure to set this to a non-zero value,
+	// otherwise your camera will render nothing.
 	//
 	// To make a certain amount of pixels always occupy the height of the camera, set the zoom to:
 	//
 	//     k2.get_screen_height()/wanted_pixel_height
 	zoom: f32,
 
-	// Which way Y points while this camera is active. Defaults to `.Down`.
+	// Which way Y points while this camera is active.
 	y_axis: Y_Axis,
 }
 
@@ -5850,18 +5848,14 @@ matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f
 }
 
 make_default_projection :: proc(w, h: int, y_axis: Y_Axis) -> matrix[4,4]f32 {
-	// The whole coordinate system flip comes down to which edge of the surface Y = 0 maps to.
-	// Everything else in this file exists because some things (textures and fonts) are natively
-	// top-down and have to be brought into line with this.
-	switch y_axis {
-	case .Up:   return matrix_ortho3d_f32(0, f32(w), 0, f32(h), 0.001, 2)
-	case .Down: return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+	if y_axis == .Up {
+		return matrix_ortho3d_f32(0, f32(w), 0, f32(h), 0.001, 2)
 	}
 
 	return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
 }
 
-// The active camera's Y axis. Down when there is no camera.
+// The active camera's Y axis. Down when there is no camera because Y points down in screen-space.
 _camera_y_axis :: proc() -> Y_Axis {
 	if c, c_ok := s.current_camera.?; c_ok {
 		return c.y_axis
