@@ -107,7 +107,7 @@ init :: proc(
 	s.proj_matrix = make_default_projection(
 		pf.get_screen_width(),
 		pf.get_screen_height(),
-		_camera_y_axis(),
+		_camera_flip_y(),
 	)
 	
 	s.view_matrix = 1
@@ -395,7 +395,7 @@ process_events :: proc() {
 			// Recorded draw calls were meant for the old swapchain size.
 			draw_current_batch()
 			rb.resize_swapchain(e.width, e.height)
-			s.proj_matrix = make_default_projection(e.width, e.height, _camera_y_axis())
+			s.proj_matrix = make_default_projection(e.width, e.height, _camera_flip_y())
 			_update_view_projection()
 
 		case Event_Window_Focused:			
@@ -932,8 +932,7 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 	batch_vertex(vertices[2], {0, 1}, c)
 }
 
-// Draw a texture at a position. The top-left corner of the texture will end up at the position, or
-// bottom-left if the current camera uses Y_Axis.Up coordinates.
+// Draw a texture at a position. The top-left corner of the texture will end up at the position.
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
@@ -1033,9 +1032,9 @@ draw_texture_fit :: proc(
 
 	flip_x: bool
 
-	// Texture pixels are stored top-down, but with Y_Axis.Up `dest` grows upwards, so the texture
-	// has to be sampled bottom-up to come out the right way round.
-	flip_y := _camera_y_axis() == .Up
+	// Texture pixels are stored top-down, but a flipped `dest` grows upwards, so the texture has to
+	// be sampled bottom-up to come out the right way round.
+	flip_y := _camera_flip_y()
 
 	source := source
 	dest := dest
@@ -1317,8 +1316,8 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 }
 
 // Draw text at a position, with a size and color. The position is the top-left position of the
-// text, or bottom-left if the current camera uses Y_Axis.Up coordinates. If you've set a camera
-// using `set_camera`, then the font size will be internally scaled so that the text appear sharp.
+// text. If you've set a camera using `set_camera`, then the font size will be internally scaled so
+// that the text appear sharp.
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
@@ -1388,9 +1387,9 @@ draw_text :: proc(
 		scl := font_size / font_object.static_font_size
 
 		// Where the top of the text block is. The glyph offsets are measured down from it. With
-		// Y_Axis.Up `position` is the bottom-left corner of the block, so the top is a whole block
+		// flipped Y `position` is the bottom-left corner of the block, so the top is a whole block
 		// higher. The height must agree with what `measure_text_static` reports.
-		y_up := _camera_y_axis() == .Up
+		y_up := _camera_flip_y()
 		block_top := position.y
 
 		if y_up {
@@ -1498,10 +1497,10 @@ draw_text :: proc(
 		render_size := font_size * camera_zoom
 
 		// FontStash lays the text out top-down starting at (0, 0), so its quads come out as offsets
-		// from the top-left of the text block. This is where that corner goes. With Y_Axis.Up
+		// from the top-left of the text block. This is where that corner goes. With flipped Y
 		// `position` is the bottom-left corner of the block, so the top is a whole block higher. The
 		// height must agree with what `measure_text_dynamic` reports, which is `lines * font_size`.
-		y_up := _camera_y_axis() == .Up
+		y_up := _camera_flip_y()
 		block_top := position.y
 
 		if y_up {
@@ -3353,7 +3352,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		s.proj_matrix = make_default_projection(
 			rt.texture.width,
 			rt.texture.height,
-			_camera_y_axis(),
+			_camera_flip_y(),
 		)
 
 		_update_view_projection()
@@ -3369,7 +3368,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		s.proj_matrix = make_default_projection(
 			pf.get_screen_width(),
 			pf.get_screen_height(),
-			_camera_y_axis(),
+			_camera_flip_y(),
 		)
 
 		_update_view_projection()
@@ -3437,9 +3436,6 @@ rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect {
 	}
 }
 
-// NOTE: The rect_top_* and rect_bottom_* procs assume that the top-left corner is the origin, so
-// they may not make sense when used with `Y_Axis.Up` cameras.
-
 // Get the top left corner of a rectangle.
 rect_top_left :: proc(r: Rect) -> Vec2 {
 	return {r.x, r.y}
@@ -3491,9 +3487,6 @@ rect_expand :: proc(r: Rect, x: f32, y: f32) -> Rect {
 		r.h + y * 2,
 	}
 }
-
-// NOTE: The rect_cut_* procs assume that the top-left corner is the origin, so they may not make
-// sense when used with `Y_Axis.Up` cameras.
 
 // Cut off `h` pixels from the top of `r`. `r` is modified. The cut off part is returned.
 // `m` is the margin added above the cut part.
@@ -4246,13 +4239,13 @@ set_camera :: proc(camera: Maybe(Camera)) {
 		s.proj_matrix = make_default_projection(
 			pf.get_screen_width(),
 			pf.get_screen_height(),
-			_camera_y_axis(),
+			_camera_flip_y(),
 		)
 	} else {
 		s.proj_matrix = make_default_projection(
 			s.current_render_target_width,
 			s.current_render_target_height,
-			_camera_y_axis(),
+			_camera_flip_y(),
 		)
 	}
 
@@ -4267,9 +4260,8 @@ set_camera :: proc(camera: Maybe(Camera)) {
 screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	pos := pos
 
-	// Screen Y counts down from the top. A Y_Axis.Up camera counts it from the bottom of the
-	// surface.
-	if camera.y_axis == .Up {
+	// Screen Y counts down from the top. A flipped camera counts it from the bottom of the surface.
+	if camera.flip_y {
 		surface_height := s.current_render_target_height
 
 		if s.current_render_target == RENDER_TARGET_NONE {
@@ -4287,7 +4279,7 @@ screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	res := (camera_view_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
 
-	if camera.y_axis == .Up {
+	if camera.flip_y {
 		surface_height := s.current_render_target_height
 
 		if s.current_render_target == RENDER_TARGET_NONE {
@@ -4491,10 +4483,7 @@ Vec4 :: [4]f32
 
 Mat4 :: matrix[4,4]f32
 
-// A rectangle that sits at position (x, y) and has size (w, h).
-//
-// If drawn using a Y_Axis.Down camera, then (x, y) is the top-left. With Y_Axis.Up the (x, y)
-// will be the bottom-left.
+// A rectangle that sits at position (x, y) and has size (w, h). (x, y) is the top-left corner.
 Rect :: struct {
 	x, y: f32,
 	w, h: f32,
@@ -4613,19 +4602,6 @@ Image :: struct {
 	height: int,
 }
 
-// Karl2D supports two directions of the Y coordinate axis:
-// 
-// - Y down: The origin is in the top-left corner and Y grows downwards. Rotations are clockwise.
-//
-// - Y up: The origin is in the bottom-left corner and Y grows upwards. Rotations are counter-
-//   clockwise.
-//
-// `screen_to_camera` and `camera_to_screen` takes this into account.
-Y_Axis :: enum {
-	Down,
-	Up,
-}
-
 Camera :: struct {
 	// Where the camera looks.
 	target: Vec2,
@@ -4646,8 +4622,26 @@ Camera :: struct {
 	//     k2.get_screen_height()/wanted_pixel_height
 	zoom: f32,
 
-	// Which way Y points while this camera is active.
-	y_axis: Y_Axis,
+	// Flip the Y axis. The origin moves to the bottom-left corner of the screen, Y grows upwards
+	// and rotations turn counter-clockwise. That matches `math.atan2` and physics engines such as
+	// Box2D, so their positions and angles can be used without conversion. See `examples/box2d`.
+	//
+	// A `Rect` grows upwards from its (x, y), which therefore becomes its bottom-left corner. The
+	// same goes for anything else drawn from a position: `draw_texture` and `draw_text` put their
+	// top-left corner at the position normally, and their bottom-left corner when Y is flipped.
+	//
+	// Textures and text still draw the right way up. `source` rectangles are unaffected: texture
+	// space is always measured from the top-left of the texture.
+	//
+	// These do not follow the flip, because they are measured on the screen rather than in the
+	// camera's coordinates:
+	//
+	// - `get_mouse_position`. Use `screen_to_camera` to bring it into a flipped camera.
+	// - `set_scissor_rect`.
+	// - The `rect_*` corner and cut helpers. They take the top-left corner as the origin, so
+	//   `rect_top_left` and `rect_cut_top` do not mean what their names say on a rectangle you
+	//   drew with a flipped camera.
+	flip_y: bool,
 }
 
 Window_Mode :: enum {
@@ -5859,8 +5853,8 @@ matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f
 	return m
 }
 
-make_default_projection :: proc(w, h: int, y_axis: Y_Axis) -> matrix[4,4]f32 {
-	if y_axis == .Up {
+make_default_projection :: proc(w, h: int, flip_y: bool) -> matrix[4,4]f32 {
+	if flip_y {
 		return matrix_ortho3d_f32(0, f32(w), 0, f32(h), 0.001, 2)
 	}
 
@@ -5868,12 +5862,12 @@ make_default_projection :: proc(w, h: int, y_axis: Y_Axis) -> matrix[4,4]f32 {
 }
 
 // The active camera's Y axis. Down when there is no camera because Y points down in screen-space.
-_camera_y_axis :: proc() -> Y_Axis {
+_camera_flip_y :: proc() -> bool {
 	if c, c_ok := s.current_camera.?; c_ok {
-		return c.y_axis
+		return c.flip_y
 	}
 
-	return .Down
+	return false
 }
 
 FONT_DEFAULT_ATLAS_SIZE :: 2048

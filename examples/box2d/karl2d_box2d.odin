@@ -10,7 +10,7 @@ import "core:math"
 
 // Box2D works in a Y up world, so this example uses a Y up camera. Therefore positions, angles
 // and rectangles do not need to be converted.
-WORLD_CAMERA :: k2.Camera { zoom = 1, y_axis = .Up }
+WORLD_CAMERA :: k2.Camera { zoom = 1, flip_y = true }
 
 SCREEN_WIDTH :: 1280
 SCREEN_HEIGHT :: 720

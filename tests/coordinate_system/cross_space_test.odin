@@ -1,7 +1,7 @@
 // Checks that use both Y axes in one program.
 //
 // A Y down camera and a Y up camera in the same frame, plus the things that do not follow the
-// camera at all. Unlike the rest of the package these do not depend on TEST_Y_AXIS. They name the
+// camera at all. Unlike the rest of the package these do not depend on TEST_FLIP_Y. They name the
 // axis they want.
 package karl2d_coordinate_system_test
 
@@ -9,8 +9,8 @@ import k2 "../.."
 import "core:sync"
 import "core:testing"
 
-SCREEN_CAMERA :: k2.Camera { zoom = 1, y_axis = .Down }
-WORLD_CAMERA :: k2.Camera { zoom = 1, y_axis = .Up }
+SCREEN_CAMERA :: k2.Camera { zoom = 1, flip_y = false }
+WORLD_CAMERA :: k2.Camera { zoom = 1, flip_y = true }
 
 // Draw with an explicit camera and report where it landed, in pixels from the top of the surface.
 draw_with_camera :: proc(camera: Maybe(k2.Camera), draw: proc()) -> Bounds {

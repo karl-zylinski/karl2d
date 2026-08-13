@@ -333,8 +333,7 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color)
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color)
 
-// Draw a texture at a position. The top-left corner of the texture will end up at the position, or
-// bottom-left if the current camera uses Y_Axis.Up coordinates.
+// Draw a texture at a position. The top-left corner of the texture will end up at the position.
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
@@ -398,8 +397,8 @@ draw_texture_fit :: proc(
 measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) -> Vec2
 
 // Draw text at a position, with a size and color. The position is the top-left position of the
-// text, or bottom-left if the current camera uses Y_Axis.Up coordinates. If you've set a camera
-// using `set_camera`, then the font size will be internally scaled so that the text appear sharp.
+// text. If you've set a camera using `set_camera`, then the font size will be internally scaled so
+// that the text appear sharp.
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
@@ -746,9 +745,6 @@ rect_centre :: rect_middle
 // Combine a position and a size into a rectangle.
 rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect
 
-// NOTE: The rect_top_* and rect_bottom_* procs assume that the top-left corner is the origin, so
-// they may not make sense when used with `Y_Axis.Up` cameras.
-
 // Get the top left corner of a rectangle.
 rect_top_left :: proc(r: Rect) -> Vec2
 
@@ -774,9 +770,6 @@ rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect
 
 // Make a rectangle bigger by `x` pixels in the horizontal direction and `y` pixels in the vertical.
 rect_expand :: proc(r: Rect, x: f32, y: f32) -> Rect
-
-// NOTE: The rect_cut_* procs assume that the top-left corner is the origin, so they may not make
-// sense when used with `Y_Axis.Up` cameras.
 
 // Cut off `h` pixels from the top of `r`. `r` is modified. The cut off part is returned.
 // `m` is the margin added above the cut part.
@@ -1020,10 +1013,7 @@ Vec4 :: [4]f32
 
 Mat4 :: matrix[4,4]f32
 
-// A rectangle that sits at position (x, y) and has size (w, h).
-//
-// If drawn using a Y_Axis.Down camera, then (x, y) is the top-left. With Y_Axis.Up the (x, y)
-// will be the bottom-left.
+// A rectangle that sits at position (x, y) and has size (w, h). (x, y) is the top-left corner.
 Rect :: struct {
 	x, y: f32,
 	w, h: f32,
@@ -1140,19 +1130,6 @@ Image :: struct {
 	height: int,
 }
 
-// Karl2D supports two directions of the Y coordinate axis:
-// 
-// - Y down: The origin is in the top-left corner and Y grows downwards. Rotations are clockwise.
-//
-// - Y up: The origin is in the bottom-left corner and Y grows upwards. Rotations are counter-
-//   clockwise.
-//
-// `screen_to_camera` and `camera_to_screen` takes this into account.
-Y_Axis :: enum {
-	Down,
-	Up,
-}
-
 Camera :: struct {
 	// Where the camera looks.
 	target: Vec2,
@@ -1173,8 +1150,26 @@ Camera :: struct {
 	//     k2.get_screen_height()/wanted_pixel_height
 	zoom: f32,
 
-	// Which way Y points while this camera is active.
-	y_axis: Y_Axis,
+	// Flip the Y axis. The origin moves to the bottom-left corner of the screen, Y grows upwards
+	// and rotations turn counter-clockwise. That matches `math.atan2` and physics engines such as
+	// Box2D, so their positions and angles can be used without conversion. See `examples/box2d`.
+	//
+	// A `Rect` grows upwards from its (x, y), which therefore becomes its bottom-left corner. The
+	// same goes for anything else drawn from a position: `draw_texture` and `draw_text` put their
+	// top-left corner at the position normally, and their bottom-left corner when Y is flipped.
+	//
+	// Textures and text still draw the right way up. `source` rectangles are unaffected: texture
+	// space is always measured from the top-left of the texture.
+	//
+	// These do not follow the flip, because they are measured on the screen rather than in the
+	// camera's coordinates:
+	//
+	// - `get_mouse_position`. Use `screen_to_camera` to bring it into a flipped camera.
+	// - `set_scissor_rect`.
+	// - The `rect_*` corner and cut helpers. They take the top-left corner as the origin, so
+	//   `rect_top_left` and `rect_cut_top` do not mean what their names say on a rectangle you
+	//   drew with a flipped camera.
+	flip_y: bool,
 }
 
 Window_Mode :: enum {

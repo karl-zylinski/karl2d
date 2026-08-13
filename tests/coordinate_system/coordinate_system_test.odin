@@ -25,14 +25,14 @@ import "core:testing"
 TEST_Y_UP :: #config(KARL2D_TEST_Y_UP, false)
 
 when TEST_Y_UP {
-	TEST_Y_AXIS :: k2.Y_Axis.Up
+	TEST_FLIP_Y :: true
 } else {
-	TEST_Y_AXIS :: k2.Y_Axis.Down
+	TEST_FLIP_Y :: false
 }
 
 // The camera that points Y the way this run checks. Zoom 1 and no target, so it only changes which
-// way Y points. Tests that need their own camera must set `y_axis` on it too.
-TEST_CAMERA :: k2.Camera { zoom = 1, y_axis = TEST_Y_AXIS }
+// way Y points. Tests that need their own camera must set `flip_y` on it too.
+TEST_CAMERA :: k2.Camera { zoom = 1, flip_y = TEST_FLIP_Y }
 
 // The render texture everything is drawn into. Fixed so results are reproducible.
 SURFACE_W :: 800
@@ -186,7 +186,7 @@ draw_and_measure :: proc(draw: proc()) -> Bounds {
 	captured_scissor = nil
 
 	// The Y axis is a camera property, so it has to be active before anything is drawn. A test that
-	// sets its own camera overwrites this, and must carry `y_axis` on that camera itself.
+	// sets its own camera overwrites this, and must carry `flip_y` on that camera itself.
 	k2.set_camera(TEST_CAMERA)
 
 	draw()
@@ -362,7 +362,7 @@ draw_text_is_placed_the_same_under_a_zoomed_camera :: proc(t: ^testing.T) {
 	// the projection back to screen space before `draw_and_measure` reads it, and the world-space
 	// vertices would then be measured through the wrong one.
 	got := draw_and_measure(proc() {
-		k2.set_camera(k2.Camera { zoom = 2, y_axis = TEST_Y_AXIS })
+		k2.set_camera(k2.Camera { zoom = 2, flip_y = TEST_FLIP_Y })
 		draw_text_at_screen_top("Ag", 20, k2.FONT_DEFAULT)
 	})
 

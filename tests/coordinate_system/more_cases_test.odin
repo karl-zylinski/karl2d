@@ -41,7 +41,7 @@ camera_offset_shifts_the_same_way_on_screen :: proc(t: ^testing.T) {
 			target = screen_pos(100, 100),
 			offset = screen_pos(300, 200),
 			zoom = 1,
-			y_axis = TEST_Y_AXIS,
+			flip_y = TEST_FLIP_Y,
 		})
 
 		k2.draw_rect(screen_rect(100, 100, 40, 20), k2.WHITE)
@@ -63,7 +63,7 @@ screen_to_camera_round_trips :: proc(t: ^testing.T) {
 		offset = screen_pos(300, 200),
 		zoom = 2,
 		rotation = screen_rotation(0.4),
-		y_axis = TEST_Y_AXIS,
+		flip_y = TEST_FLIP_Y,
 	}
 
 	p := screen_pos(123, 45)
@@ -81,7 +81,7 @@ screen_to_camera_round_trips :: proc(t: ^testing.T) {
 @(test)
 zero_zoom_camera_draws_like_zoom_one :: proc(t: ^testing.T) {
 	got := draw_and_measure(proc() {
-		k2.set_camera(k2.Camera { y_axis = TEST_Y_AXIS })
+		k2.set_camera(k2.Camera { flip_y = TEST_FLIP_Y })
 		k2.draw_rect(screen_rect(100, 100, 40, 20), k2.WHITE)
 	})
 
@@ -89,7 +89,7 @@ zero_zoom_camera_draws_like_zoom_one :: proc(t: ^testing.T) {
 
 	expect_bounds(t, got, 6, 100, 100, 140, 120)
 
-	cam := k2.Camera { y_axis = TEST_Y_AXIS }
+	cam := k2.Camera { flip_y = TEST_FLIP_Y }
 	p := screen_pos(123, 45)
 	round_tripped := k2.camera_to_screen(k2.screen_to_camera(p, cam), cam)
 

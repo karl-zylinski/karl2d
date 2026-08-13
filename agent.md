@@ -44,7 +44,7 @@ Conventions for writing code, writing documentation, and collaborating on this p
   s.proj_matrix = make_default_projection(
   	pf.get_screen_width(),
   	pf.get_screen_height(),
-  	_camera_y_axis(),
+  	_camera_flip_y(),
   )
   ```
 - Place `:` and `=` with consistent spacing as in `karl2d.odin`. Opening braces `{` go on the same line as the declaration.
