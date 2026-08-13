@@ -274,7 +274,7 @@ step :: proc() -> bool {
 	text_pos.y -= font_size
 
 	// Same y as the first line of stats text above, so the two line up along the top.
-	BUTTON_HEIGHT :: 36
+	BUTTON_HEIGHT :: 24
 
 	button_bar := k2.Rect { 20, 20, ui_size.x - 40, BUTTON_HEIGHT }
 	button_rect := k2.rect_cut_right(&button_bar, k2.ui_button_width("Source Code", BUTTON_HEIGHT) + 25, 0)
