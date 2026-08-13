@@ -28,7 +28,25 @@ Finger :: struct {
 fingers: [k2.MAX_TOUCHES]Finger
 fingers_count: int
 
+// Which two touches are driving the pinch, so the pair keeps a consistent order between frames.
+// Position in the touch list is not enough: if the two swapped places, the angle between them would
+// flip by pi and spin the camera half a turn, while the distance between them (and so the zoom)
+// would look perfectly fine.
+pinch_ids: [2]k2.Touch_Id
+pinch_active: bool
+
 markers: [dynamic]Vec2
+
+// Brings an angle into (-pi, pi].
+wrap_angle :: proc(a: f32) -> f32 {
+	wrapped := math.mod(a + math.PI, 2*math.PI)
+
+	if wrapped < 0 {
+		wrapped += 2*math.PI
+	}
+
+	return wrapped - math.PI
+}
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Touch Demo", { window_mode = .Windowed_Resizable })
@@ -109,7 +127,11 @@ step :: proc() -> bool {
 			drag += t.delta
 		}
 
-		camera.target -= (drag/f32(gesture_count)) / camera.zoom
+		// The drag is in screen pixels but `target` lives in world space, so it has to be un-rotated
+		// as well as un-zoomed. Without the rotation part, panning heads off at an angle as soon as
+		// the map has been rotated.
+		rotation_matrix := linalg.matrix2_rotate(-camera.rotation)
+		camera.target -= rotation_matrix * ((drag/f32(gesture_count)) / camera.zoom)
 	}
 
 	// PINCH ZOOM AND ROTATE
@@ -120,6 +142,14 @@ step :: proc() -> bool {
 
 	if gesture_count == 2 {
 		a, b := gesture[0], gesture[1]
+
+		// Keep whichever finger was `a` last frame as `a` this frame. See `pinch_ids`.
+		if pinch_active && a.id == pinch_ids[1] && b.id == pinch_ids[0] {
+			a, b = b, a
+		}
+
+		pinch_ids = { a.id, b.id }
+		pinch_active = true
 
 		now_a, now_b := a.position, b.position
 		prev_a, prev_b := a.position - a.delta, b.position - b.delta
@@ -139,10 +169,15 @@ step :: proc() -> bool {
 
 			now_angle := math.atan2(now_b.y - now_a.y, now_b.x - now_a.x)
 			prev_angle := math.atan2(prev_b.y - prev_a.y, prev_b.x - prev_a.x)
-			camera.rotation += now_angle - prev_angle
+
+			// atan2 jumps between +pi and -pi, so a gesture crossing that line would otherwise
+			// report a whole extra turn in a single frame.
+			camera.rotation += wrap_angle(now_angle - prev_angle)
 
 			camera.target += anchor - k2.screen_to_world(pinch_center, camera)
 		}
+	} else {
+		pinch_active = false
 	}
 
 	// DRAW MAP
