@@ -38,7 +38,8 @@ label_at_a_rects_anchor_lands_inside_the_rect :: proc(t: ^testing.T) {
 	// The label's ink stays within the button's screen span, whichever way Y points.
 	testing.expectf(t, label.top >= whole.top - 1 && label.bottom <= whole.bottom + 1,
 		"label ink [%.2f, %.2f] escapes the button [%.2f, %.2f]",
-		label.top, label.bottom, whole.top, whole.bottom)
+		label.top, label.bottom, whole.top, whole.bottom,
+	)
 }
 
 // BREAKS: stacking by adding to y. This is `examples/ui`'s list of random numbers, verbatim in
@@ -57,11 +58,13 @@ stacking_by_adding_to_y_inverts_the_order :: proc(t: ^testing.T) {
 	when TEST_Y_UP {
 		testing.expectf(t, first.top > second.top,
 			"entry 0 (top %.2f) should be BELOW entry 1 (top %.2f) in Y up",
-			first.top, second.top)
+			first.top, second.top,
+		)
 	} else {
 		testing.expectf(t, first.top < second.top,
 			"entry 0 (top %.2f) should be above entry 1 (top %.2f) in Y down",
-			first.top, second.top)
+			first.top, second.top,
+		)
 	}
 }
 
@@ -91,7 +94,8 @@ stacking_with_rect_cut_top_keeps_the_order :: proc(t: ^testing.T) {
 	})
 
 	testing.expectf(t, first.top < second.top,
-		"row 0 (top %.2f) must be above row 1 (top %.2f)", first.top, second.top)
+		"row 0 (top %.2f) must be above row 1 (top %.2f)", first.top, second.top,
+	)
 }
 
 pending_row_0: k2.Vec2

@@ -19,7 +19,8 @@ rotated_texture_covers_the_same_screen_area :: proc(t: ^testing.T) {
 			{ 0, 0, 64, 32 },
 			{ pivot.x, pivot.y, 64, 32 },
 			{ 32, 16 },
-			screen_rotation(0.5))
+			screen_rotation(0.5),
+		)
 	})
 
 	// Half extents 32x16 rotated by 0.5 rad: 32*|cos|+16*|sin| wide, 32*|sin|+16*|cos| tall.
@@ -44,7 +45,8 @@ rotated_text_sweeps_the_same_screen_area :: proc(t: ^testing.T) {
 			20,
 			k2.WHITE,
 			k2.FONT_DEFAULT,
-			rotation = screen_rotation(0.3))
+			rotation = screen_rotation(0.3),
+		)
 	})
 
 	if !testing.expect(t, rotated.vertex_count == flat.vertex_count, "glyph count changed") {
@@ -55,7 +57,8 @@ rotated_text_sweeps_the_same_screen_area :: proc(t: ^testing.T) {
 	// the same neighbourhood. The exact numbers are pinned by both builds having to agree.
 	testing.expectf(t, rotated.bottom - rotated.top > flat.bottom - flat.top,
 		"rotated text is not taller than flat text: %.2f vs %.2f",
-		rotated.bottom - rotated.top, flat.bottom - flat.top)
+		rotated.bottom - rotated.top, flat.bottom - flat.top,
+	)
 
 	// NOT the same bounds in both systems, and deliberately recorded as such. With origin = {} the
 	// pivot is `position`, which is the block's top-left corner on screen in Y down and its
@@ -105,7 +108,8 @@ camera_offset_shifts_the_same_way_on_screen :: proc(t: ^testing.T) {
 			offset = screen_pos(300, 200),
 			zoom = 1,
 			y_axis = TEST_Y_AXIS,
-		})
+		},
+	)
 
 		k2.draw_rect(screen_rect(100, 100, 40, 20), k2.WHITE)
 	})
@@ -135,7 +139,8 @@ screen_to_camera_round_trips :: proc(t: ^testing.T) {
 	testing.expectf(t,
 		abs(round_tripped.x - p.x) <= EPSILON && abs(round_tripped.y - p.y) <= EPSILON,
 		"round trip gave (%.3f, %.3f), expected (%.3f, %.3f)",
-		round_tripped.x, round_tripped.y, p.x, p.y)
+		round_tripped.x, round_tripped.y, p.x, p.y,
+	)
 }
 
 // A scissor rectangle reaches the backend untouched: it is screen-space in both coordinate spaces,
@@ -158,5 +163,6 @@ scissor_uses_the_render_target_height :: proc(t: ^testing.T) {
 		abs(scissor.x - 10) <= EPSILON && abs(scissor.y - 20) <= EPSILON &&
 		abs(scissor.w - 100) <= EPSILON && abs(scissor.h - 50) <= EPSILON,
 		"expected native scissor (10, 20, 100, 50), got (%.2f, %.2f, %.2f, %.2f)",
-		scissor.x, scissor.y, scissor.w, scissor.h)
+		scissor.x, scissor.y, scissor.w, scissor.h,
+	)
 }

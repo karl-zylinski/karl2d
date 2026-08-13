@@ -46,7 +46,8 @@ capture_uv_draw :: proc(vertex_buffer: []u8, draw_calls: []k2.Draw_Call) {
 			append(&captured_uvs, UV_Vertex {
 				y_from_top = (1 - ndc.y) * 0.5 * SURFACE_H,
 				v = uv.y,
-			})
+			},
+		)
 		}
 	}
 }
@@ -99,7 +100,8 @@ top_and_bottom_v_with_camera :: proc(
 
 expect_v :: proc(t: ^testing.T, got, expected: f32, what: string, loc := #caller_location) {
 	testing.expectf(t, abs(got - expected) <= 0.0001,
-		"%v: expected v = %.4f, got %.4f", what, expected, got, loc = loc)
+		"%v: expected v = %.4f, got %.4f", what, expected, got, loc = loc,
+	)
 }
 
 // A whole texture must come out the right way up: the first row of the image at the top of screen.
@@ -141,7 +143,8 @@ atlas_frame_selects_the_same_rows_in_both_systems :: proc(t: ^testing.T) {
 		k2.draw_texture_fit(
 			uv_texture,
 			{ 0, 2*f32(TEX_H)/3, TEX_W, f32(TEX_H)/3 },
-			screen_rect(50, 60, 64, 32))
+			screen_rect(50, 60, 64, 32),
+		)
 	})
 
 	if !testing.expect(t, ok, "nothing was drawn") {
@@ -159,7 +162,8 @@ negative_source_height_flips_the_texture :: proc(t: ^testing.T) {
 		k2.draw_texture_fit(
 			uv_texture,
 			{ 0, f32(TEX_H)/3, TEX_W, -f32(TEX_H)/3 },
-			screen_rect(50, 60, 64, 32))
+			screen_rect(50, 60, 64, 32),
+		)
 	})
 
 	if !testing.expect(t, ok, "nothing was drawn") {

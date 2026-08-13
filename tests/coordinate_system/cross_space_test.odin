@@ -126,7 +126,8 @@ switching_back_to_screen_space_mid_frame :: proc(t: ^testing.T) {
 
 	for v, i in alone {
 		testing.expectf(t, v == hud[i],
-			"HUD vertex %v moved after a world camera: %v became %v", i, v, hud[i])
+			"HUD vertex %v moved after a world camera: %v became %v", i, v, hud[i],
+		)
 	}
 }
 
@@ -176,7 +177,8 @@ scissor_is_screen_space_under_both_cameras :: proc(t: ^testing.T) {
 			abs(scissor.x - 100) <= EPSILON && abs(scissor.y - 50) <= EPSILON &&
 			abs(scissor.w - 200) <= EPSILON && abs(scissor.h - 120) <= EPSILON,
 			"%v: expected (100, 50, 200, 120), got (%.2f, %.2f, %.2f, %.2f)",
-			label, scissor.x, scissor.y, scissor.w, scissor.h)
+			label, scissor.x, scissor.y, scissor.w, scissor.h,
+		)
 	}
 
 	check(t, SCREEN_CAMERA, "screen")
@@ -196,20 +198,23 @@ mouse_position_converts_per_camera :: proc(t: ^testing.T) {
 	testing.expectf(t,
 		abs(screen_world.x - 300) <= EPSILON && abs(screen_world.y - 200) <= EPSILON,
 		"screen camera should not move the mouse, got (%.2f, %.2f)",
-		screen_world.x, screen_world.y)
+		screen_world.x, screen_world.y,
+	)
 
 	// Under a world camera it is measured up from the bottom of the surface instead.
 	world := k2.screen_to_camera(mouse, WORLD_CAMERA)
 	testing.expectf(t,
 		abs(world.x - 300) <= EPSILON && abs(world.y - (SURFACE_H - 200)) <= EPSILON,
 		"world camera should flip the mouse to (300, %.2f), got (%.2f, %.2f)",
-		f32(SURFACE_H) - 200, world.x, world.y)
+		f32(SURFACE_H) - 200, world.x, world.y,
+	)
 
 	// And back again.
 	back := k2.camera_to_screen(world, WORLD_CAMERA)
 	testing.expectf(t,
 		abs(back.x - mouse.x) <= EPSILON && abs(back.y - mouse.y) <= EPSILON,
-		"round trip gave (%.2f, %.2f)", back.x, back.y)
+		"round trip gave (%.2f, %.2f)", back.x, back.y,
+	)
 }
 
 // A screen rectangle under a Y down camera with no target or zoom is itself.
@@ -257,7 +262,8 @@ screen_to_camera_rect_bounds_a_rotated_camera :: proc(t: ^testing.T) {
 	got := k2.screen_to_camera_rect(r, camera)
 
 	testing.expectf(t, got.w > r.w && got.h > r.h,
-		"rotated bounds should be bigger than the rectangle, got %.2f x %.2f", got.w, got.h)
+		"rotated bounds should be bigger than the rectangle, got %.2f x %.2f", got.w, got.h,
+	)
 
 	// Every corner the point conversion produces is inside the reported bounds.
 	corners := [4]k2.Vec2 {
@@ -311,5 +317,6 @@ expect_rect :: proc(t: ^testing.T, got, expected: k2.Rect, what: string, loc := 
 
 	testing.expectf(t, ok, "%v: expected (%.2f, %.2f, %.2f, %.2f), got (%.2f, %.2f, %.2f, %.2f)",
 		what, expected.x, expected.y, expected.w, expected.h,
-		got.x, got.y, got.w, got.h, loc = loc)
+		got.x, got.y, got.w, got.h, loc = loc,
+	)
 }

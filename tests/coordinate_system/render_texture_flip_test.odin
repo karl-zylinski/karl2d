@@ -81,7 +81,8 @@ render_texture_source_rect_is_still_top_down :: proc(t: ^testing.T) {
 		k2.draw_texture_fit(
 			flipped_texture,
 			{ 0, 2*f32(RT_H)/3, RT_W, f32(RT_H)/3 },
-			screen_rect(50, 60, 64, 32))
+			screen_rect(50, 60, 64, 32),
+		)
 	})
 
 	if !testing.expect(t, ok, "nothing was drawn") {

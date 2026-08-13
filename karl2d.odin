@@ -30,33 +30,6 @@ import hm "core:container/handle_map"
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
-// Karl2D supports two coordinate systems. You choose which at compile time.
-//
-// - Y down (the default): The origin is in the top-left corner of the screen and Y grows downwards.
-//   A `Rect` grows downwards and to the right from its (x, y) position, so (x, y) is the rect's
-//   top-left corner. Positive rotations appear clockwise on screen.
-//
-// - Y up: Compile with `-define:KARL2D_Y_UP=true`. The origin is in the bottom-left corner of the
-//   screen and Y grows upwards. A `Rect` grows upwards and to the right from its (x, y) position,
-//   so (x, y) is the rect's bottom-left corner. Positive rotations appear counter-clockwise on
-//   screen, which is what `math.atan2` and physics engines such as Box2D produce, so their angles
-//   can be used without conversion. See `examples/box2d`.
-//
-// Things that do NOT change between the two:
-//
-// - Texture space. A `source` rectangle passed to the `draw_texture_*` procedures is always
-//   measured from the top-left corner of the texture, downwards. Texture space is image space:
-//   sprite sheet coordinates come out of image editors that way, and the pixels themselves are
-//   stored that way.
-// - The naming of the `rect_*` helpers. `rect_top_left` is always the corner that appears in the
-//   top left on screen, and `rect_cut_top` always cuts the part that appears at the top on screen.
-// - `measure_text`, which always returns a positive size. Text always fills the rectangle it
-//   reports, with the first line at the top on screen.
-Y_Axis :: enum {
-	Down,
-	Up,
-}
-
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory.
 //
@@ -130,8 +103,13 @@ init :: proc(
 	rb_alloc_error: runtime.Allocator_Error
 	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = s.allocator)
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
+	
 	s.proj_matrix = make_default_projection(
-		pf.get_screen_width(), pf.get_screen_height(), current_y_axis())
+		pf.get_screen_width(),
+		pf.get_screen_height(),
+		current_y_axis(),
+	)
+	
 	s.view_matrix = 1
 	_update_view_projection()
 
@@ -3380,7 +3358,10 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		s.current_render_target_height = rt.texture.height
 
 		s.proj_matrix = make_default_projection(
-			rt.texture.width, rt.texture.height, current_y_axis())
+			rt.texture.width,
+			rt.texture.height,
+			current_y_axis(),
+		)
 
 		_update_view_projection()
 	} else {
@@ -3393,7 +3374,10 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		s.current_render_target_height = 0
 
 		s.proj_matrix = make_default_projection(
-			pf.get_screen_width(), pf.get_screen_height(), current_y_axis())
+			pf.get_screen_width(),
+			pf.get_screen_height(),
+			current_y_axis(),
+		)
 
 		_update_view_projection()
 	}
@@ -3632,7 +3616,8 @@ load_static_font_from_bytes :: proc(
 				value = c,
 				index = int(idx),
 				advance = f32(advance) * scale_factor,
-			})
+			},
+		)
 		}
 	}
 
@@ -4261,10 +4246,16 @@ set_camera :: proc(camera: Maybe(Camera)) {
 	// camera, not just on the surface size.
 	if s.current_render_target == RENDER_TARGET_NONE {
 		s.proj_matrix = make_default_projection(
-			pf.get_screen_width(), pf.get_screen_height(), current_y_axis())
+			pf.get_screen_width(),
+			pf.get_screen_height(),
+			current_y_axis(),
+		)
 	} else {
 		s.proj_matrix = make_default_projection(
-			s.current_render_target_width, s.current_render_target_height, current_y_axis())
+			s.current_render_target_width,
+			s.current_render_target_height,
+			current_y_axis(),
+		)
 	}
 
 	_update_view_projection()
@@ -4639,6 +4630,19 @@ Image :: struct {
 	pixels: []Color,
 	width: int,
 	height: int,
+}
+
+// Karl2D supports two directions of the Y coordinate axis:
+// 
+// - Y down: The origin is in the top-left corner and Y grows downwards. Rotations are clockwise.
+//
+// - Y up: The origin is in the bottom-left corner and Y grows upwards. Rotations are counter-
+//   clockwise.
+//
+// `screen_to_camera` and `camera_to_screen` takes this into account.
+Y_Axis :: enum {
+	Down,
+	Up,
 }
 
 Camera :: struct {

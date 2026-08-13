@@ -230,7 +230,8 @@ expect_bounds :: proc(
 	loc := #caller_location,
 ) {
 	testing.expectf(t, got.vertex_count == vertex_count,
-		"expected %v vertices, got %v", vertex_count, got.vertex_count, loc = loc)
+		"expected %v vertices, got %v", vertex_count, got.vertex_count, loc = loc,
+	)
 
 	if got.vertex_count == 0 {
 		return
@@ -244,7 +245,8 @@ expect_bounds :: proc(
 
 	testing.expectf(t, ok,
 		"expected screen bounds l=%.2f t=%.2f r=%.2f b=%.2f, got l=%.2f t=%.2f r=%.2f b=%.2f",
-		left, top, right, bottom, got.left, got.top, got.right, got.bottom, loc = loc)
+		left, top, right, bottom, got.left, got.top, got.right, got.bottom, loc = loc,
+	)
 }
 
 //-------//
@@ -406,7 +408,8 @@ scissor_rect_reaches_the_backend_in_native_coordinates :: proc(t: ^testing.T) {
 		abs(scissor.w - 200) <= EPSILON &&
 		abs(scissor.h - 120) <= EPSILON,
 		"expected native scissor (100, 50, 200, 120), got (%.2f, %.2f, %.2f, %.2f)",
-		scissor.x, scissor.y, scissor.w, scissor.h)
+		scissor.x, scissor.y, scissor.w, scissor.h,
+	)
 }
 
 //----------------------------------------//
@@ -434,7 +437,8 @@ text_stays_within_its_measured_rectangle :: proc(t: ^testing.T) {
 		// pixel. What matters is that the number is the same in both coordinate systems.
 		testing.expectf(t, got.top >= box_top - 1.5 && got.bottom <= box_bottom + 1.5,
 			"%v: ink [%.2f, %.2f] escapes measured box [%.2f, %.2f]",
-			label, got.top, got.bottom, box_top, box_bottom)
+			label, got.top, got.bottom, box_top, box_bottom,
+		)
 	}
 
 	check(t, "Ag", k2.FONT_DEFAULT, "dynamic")
@@ -466,7 +470,8 @@ first_line_of_text_is_above_the_second :: proc(t: ^testing.T) {
 		second := screen_top_of(captured_vertices[6:])
 
 		testing.expectf(t, first < second,
-			"%v: first line at %.2f is not above second line at %.2f", label, first, second)
+			"%v: first line at %.2f is not above second line at %.2f", label, first, second,
+		)
 	}
 
 	check(t, k2.FONT_DEFAULT, "dynamic")

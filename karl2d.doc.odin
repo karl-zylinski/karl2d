@@ -7,33 +7,6 @@ package karl2d
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
-// Karl2D supports two coordinate systems. You choose which at compile time.
-//
-// - Y down (the default): The origin is in the top-left corner of the screen and Y grows downwards.
-//   A `Rect` grows downwards and to the right from its (x, y) position, so (x, y) is the rect's
-//   top-left corner. Positive rotations appear clockwise on screen.
-//
-// - Y up: Compile with `-define:KARL2D_Y_UP=true`. The origin is in the bottom-left corner of the
-//   screen and Y grows upwards. A `Rect` grows upwards and to the right from its (x, y) position,
-//   so (x, y) is the rect's bottom-left corner. Positive rotations appear counter-clockwise on
-//   screen, which is what `math.atan2` and physics engines such as Box2D produce, so their angles
-//   can be used without conversion. See `examples/box2d`.
-//
-// Things that do NOT change between the two:
-//
-// - Texture space. A `source` rectangle passed to the `draw_texture_*` procedures is always
-//   measured from the top-left corner of the texture, downwards. Texture space is image space:
-//   sprite sheet coordinates come out of image editors that way, and the pixels themselves are
-//   stored that way.
-// - The naming of the `rect_*` helpers. `rect_top_left` is always the corner that appears in the
-//   top left on screen, and `rect_cut_top` always cuts the part that appears at the top on screen.
-// - `measure_text`, which always returns a positive size. Text always fills the rectangle it
-//   reports, with the first line at the top on screen.
-Y_Axis :: enum {
-	Down,
-	Up,
-}
-
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory.
 //
@@ -1163,6 +1136,19 @@ Image :: struct {
 	pixels: []Color,
 	width: int,
 	height: int,
+}
+
+// Karl2D supports two directions of the Y coordinate axis:
+// 
+// - Y down: The origin is in the top-left corner and Y grows downwards. Rotations are clockwise.
+//
+// - Y up: The origin is in the bottom-left corner and Y grows upwards. Rotations are counter-
+//   clockwise.
+//
+// `screen_to_camera` and `camera_to_screen` takes this into account.
+Y_Axis :: enum {
+	Down,
+	Up,
 }
 
 Camera :: struct {

@@ -524,7 +524,8 @@ update :: proc() {
 		append(&plasma_balls, Plasma_Ball {
 			pos = player.pos + offset,
 			dir = vec2_from_direction[player.dir],
-		})
+		},
+	)
 
 		// The shoot sound has pitch randomization and spatial panning.
 		shoot_snd := k2.create_sound_from_audio_buffer(ab_shoot)
@@ -801,7 +802,8 @@ draw :: proc() {
 			tex = tex,
 			pos = fgo.pos,
 			origin = k2.rect_bottom_middle(k2.get_texture_rect(tex)),
-		})
+		},
+	)
 	}
 
 	for inter in world.rooms[current_room_idx].interactables {
@@ -836,7 +838,8 @@ draw :: proc() {
 			tex = tex,
 			pos = inter.pos,
 			origin = k2.rect_bottom_middle(k2.get_texture_rect(tex)),
-		})
+		},
+	)
 	}
 
 	player_tex: k2.Texture
@@ -859,7 +862,8 @@ draw :: proc() {
 		pos = player.pos,
 		origin = {f32(player_tex.width/2), f32(player_tex.height)},
 		flip_x = flip_x,
-	})
+	},
+)
 
 	slice.sort_by(sorted_draws[:], proc(i, j: Sorted_Draw) -> bool {
 		return i.pos.y < j.pos.y
