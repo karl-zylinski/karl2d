@@ -219,10 +219,8 @@ get_touches :: proc() -> []Touch
 set_touch_mouse_emulation :: proc(enabled: bool)
 
 // Disabled by default. While enabled, holding the left mouse button produces a touch (with id
-// `MOUSE_TOUCH_ID`), so touch handling can be tried and tested on a machine with no touchscreen.
-// Has no effect on an actual touch device: this only ever synthesizes a touch from a real mouse
-// event, never from a touch that `set_touch_mouse_emulation` synthesized a mouse event from, so the
-// two cannot feed each other into a loop even if both are left enabled at once.
+// `MOUSE_TOUCH_ID`), so touch handling can be tested on a machine with no touchscreen. Emulation
+// only ever reacts to real events, so this is safe to combine with `set_touch_mouse_emulation`.
 set_mouse_touch_emulation :: proc(enabled: bool)
 
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
@@ -1554,6 +1552,10 @@ State :: struct {
 	// All events for this frame. Cleared when `process_events` run
 	events: [dynamic]Event,
 
+	// The events exactly as the platform reported them. `events` is rebuilt from this each frame,
+	// with emulated events woven in.
+	platform_events: [dynamic]Event,
+
 	typed_runes: [dynamic]rune,
 
 	mouse_position: Vec2,
@@ -1667,8 +1669,7 @@ MAX_TOUCHES :: 10
 // goes down until it goes up. Ids may be reused after that.
 Touch_Id :: distinct u64
 
-// The id of the touch synthesized by `set_mouse_touch_emulation`. Reserved so it can never collide
-// with an id a real touch device reports.
+// The id of the touch synthesized by `set_mouse_touch_emulation`. Never collides with a real id.
 MOUSE_TOUCH_ID :: Touch_Id(max(u64))
 
 Touch :: struct {
@@ -1962,8 +1963,6 @@ Event_Touch_Went_Down :: struct { id: Touch_Id, position: Vec2 }
 Event_Touch_Moved     :: struct { id: Touch_Id, position: Vec2 }
 Event_Touch_Went_Up   :: struct { id: Touch_Id, position: Vec2 }
 
-// No position: a cancelled touch is one the OS took away rather than one the user lifted, and not
-// every platform can say where it was when that happened (Windows' WM_POINTERCAPTURECHANGED carries
-// a window handle where the other pointer messages carry coordinates). The touch keeps the last
-// position it was seen at, which is what `get_touches` reports for its final frame.
+// No position: not every platform knows where a cancelled touch was (Windows doesn't). The touch
+// keeps the last position it was seen at.
 Event_Touch_Cancelled :: struct { id: Touch_Id }

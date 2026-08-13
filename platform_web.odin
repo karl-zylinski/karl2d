@@ -85,10 +85,8 @@ web_init :: proc(
 	add_window_event_listener(.Mouse_Up, web_event_mouse_up)
 	add_canvas_event_listener(.Wheel, web_event_mouse_wheel)
 
-	// Touch pointers get implicit pointer capture in browsers: once a finger goes down on the
-	// canvas, its later pointermove/pointerup/pointercancel keep targeting the canvas even if the
-	// finger drags outside its bounds. That is why, unlike Mouse_Up above, Pointer_Up doesn't need
-	// to be a window listener.
+	// Touch pointers get implicit capture: their events keep targeting the canvas even when a
+	// finger drags outside it, so Pointer_Up needs no window-level listener like Mouse_Up does.
 	add_canvas_event_listener(.Pointer_Down, web_event_pointer_down)
 	add_canvas_event_listener(.Pointer_Move, web_event_pointer_move)
 	add_canvas_event_listener(.Pointer_Up, web_event_pointer_up)
@@ -230,8 +228,7 @@ web_event_mouse_wheel :: proc(e: js.Event) {
 	})
 }
 
-// Mouse and pen pointers already flow through the Mouse_* and Wheel listeners above, so these
-// only care about pointer_type == .Touch. Mouse and pen behaviour is unchanged by any of this.
+// Mouse and pen already flow through the Mouse_* listeners above, so these only handle touch.
 web_event_pointer_down :: proc(e: js.Event) {
 	if e.mouse.pointer.pointer_type != .Touch {
 		return

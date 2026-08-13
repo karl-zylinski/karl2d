@@ -748,9 +748,8 @@ windows_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 
 s: ^Windows_State
 
-// Returns the position of a WM_POINTER* message in client coordinates, and whether the message
-// came from a touch pointer (as opposed to a mouse or pen pointer). Unlike WM_MOUSEMOVE, the
-// position in a WM_POINTER* message's lparam is in screen coordinates, so it needs converting.
+// Returns a WM_POINTER* message's position in client coordinates, and whether it came from a touch
+// pointer. Unlike WM_MOUSEMOVE, the lparam position is in screen coordinates.
 _windows_touch_event_info :: proc(
 	hwnd: win32.HWND,
 	wparam: win32.WPARAM,
@@ -900,13 +899,9 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 		})
 		win32.ReleaseCapture()
 
-	// For a touch pointer we return 0 without calling DefWindowProcW, which stops Windows from also
-	// promoting the same input into WM_LBUTTONDOWN/UP messages (karl2d.odin synthesizes those itself
-	// now, see set_touch_mouse_emulation). Any other pointer type (mouse, pen) falls out of this
-	// switch untouched and reaches DefWindowProcW at the bottom like every other message, so it
-	// keeps working exactly as before. Handling some pointer messages and forwarding others of the
-	// same kind is explicitly undefined per Microsoft's docs, so the split has to be by pointer type,
-	// consistently across all four of these.
+	// Touch pointers are consumed (return 0) so DefWindowProcW doesn't also promote them into mouse
+	// messages; karl2d.odin synthesizes those itself. Mouse and pen fall through untouched. Per
+	// Microsoft's docs the split must be consistent across all four pointer messages.
 	case win32.WM_POINTERDOWN:
 		if id, position, ok := _windows_touch_event_info(hwnd, wparam, lparam); ok {
 			append(&s.events, Event_Touch_Went_Down {

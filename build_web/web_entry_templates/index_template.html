@@ -6,24 +6,13 @@
 		<title>Karl2D Web Build</title>
 	</head>
 	<body id="body" style="height: 100%; padding: 0; margin: 0; overflow: hidden; background-color: black;">
-		<!-- touch-action: none stops the browser from treating touches on the canvas as page
-		     gestures. Without it a pinch zooms the whole page, canvas and all, and a drag scrolls
-		     it, so the game sees a half-finished gesture at coordinates that no longer line up
-		     with what is on screen. -->
+		<!-- touch-action: none keeps the browser from turning touches into page scroll/zoom. -->
 		<canvas id="webgl-canvas" style="touch-action: none;" oncontextmenu="return false;" onmousedown="event.target.focus()" onkeydown="event.preventDefault()"></canvas>
 
 		<script type="text/javascript">
-			// Browsers follow a tap with synthetic mousedown/mouseup/click events, so that a page
-			// written only for mouse input still works with touch. Karl2D now produces those itself
-			// (see set_touch_mouse_emulation in karl2d.odin), so the browser's copy has to be
-			// stopped or every tap would fire twice. preventDefault() on touchstart is what tells
-			// the browser to skip the synthetic events for that touch; { passive: false } is
-			// required for the call to have any effect, since browsers otherwise assume a
-			// touchstart listener never calls it and ignore it for scroll performance.
-			//
-			// preventDefault() here also means the canvas no longer receives the onmousedown above
-			// for a touch (that handler only ever ran because of the synthetic mousedown), so focus
-			// is requested explicitly instead.
+			// Browsers follow a tap with synthetic mouse events, which would double up with Karl2D's
+			// own touch-to-mouse emulation. preventDefault() stops them, and needs passive: false to
+			// have any effect. It also kills the onmousedown focus above, so focus explicitly.
 			(() => {
 				const canvas = document.getElementById('webgl-canvas');
 

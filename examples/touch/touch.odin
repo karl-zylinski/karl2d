@@ -13,8 +13,7 @@ MIN_ZOOM :: 0.25
 MAX_ZOOM :: 8
 TAP_SLOP :: 20 // pixels of finger wobble we still count as a tap
 
-// Taps need to know how far a finger has travelled since it went down, which isn't in `k2.Touch`.
-// We keep our own small table for that, keyed on the touch id.
+// Tracks how far a finger has travelled since it went down, for the tap check below.
 Finger :: struct {
 	id: k2.Touch_Id,
 	travelled: f32,
@@ -23,17 +22,14 @@ Finger :: struct {
 fingers: [k2.MAX_TOUCHES]Finger
 fingers_count: int
 
-// Which two touches are driving the pinch, so the pair keeps a consistent order between frames.
-// Position in the touch list is not enough: if the two swapped places, the angle between them would
-// flip by pi and spin the camera half a turn, while the distance between them (and so the zoom)
-// would look perfectly fine.
+// Keeps the pinch pair in a consistent order between frames. If the two touches swapped places in
+// the list, the angle between them would flip by pi while the zoom would look perfectly fine.
 pinch_ids: [2]k2.Touch_Id
 pinch_active: bool
 
 markers: [dynamic]Vec2
 
-// Whether the M key has put the mouse into touch-emulation mode, for trying the touch code below
-// without a touchscreen. Mirrors what `set_mouse_touch_emulation` is currently set to.
+// Whether the M key has turned on mouse-to-touch emulation.
 mouse_emulates_touch: bool
 
 // Brings an angle into (-pi, pi].
@@ -51,10 +47,8 @@ init :: proc() {
 	k2.init(1280, 720, "Karl2D Touch Demo", { window_mode = .Windowed_Resizable })
 	camera = { zoom = 1 }
 
-	// This example handles touches itself, so it also has to handle the mouse itself: with
-	// emulation left on, a one-finger drag would pan the map twice (once as a touch, once as the
-	// emulated click) and jump. See the MOUSE FALLBACK section below for what emulation was doing
-	// for free.
+	// We handle touches ourselves, so the mouse is handled ourselves too (see MOUSE FALLBACK).
+	// Otherwise a one-finger drag would pan twice: once as a touch, once as the emulated click.
 	k2.set_touch_mouse_emulation(false)
 }
 
@@ -74,9 +68,6 @@ step :: proc() -> bool {
 	touches := k2.get_touches()
 
 	// TRACK FINGERS
-	//
-	// A touch that ended stays in `touches` for exactly this one frame (`went_up` is set), which is
-	// what makes the tap check below work.
 
 	for t in touches {
 		if t.went_down && fingers_count < len(fingers) {
@@ -92,8 +83,7 @@ step :: proc() -> bool {
 
 			f.travelled += linalg.length(t.delta)
 
-			// A quick tap can go down and up within the same frame, so this has to run even for a
-			// finger that was added just above. Otherwise its slot is never freed.
+			// Runs even for a finger added just above: a quick tap can go down and up in one frame.
 			if t.went_up {
 				if !t.cancelled && f.travelled < TAP_SLOP {
 					append(&markers, k2.screen_to_world(t.position, camera))
@@ -109,8 +99,7 @@ step :: proc() -> bool {
 
 	// COLLECT THE FINGERS THAT CAN DRIVE A GESTURE
 	//
-	// A finger that just landed or just left doesn't have a meaningful delta yet (or anymore), so
-	// it is left out of panning and pinching.
+	// A finger that just landed or just left has no meaningful delta, so it sits this frame out.
 
 	gesture: [k2.MAX_TOUCHES]k2.Touch
 	gesture_count: int
@@ -126,9 +115,8 @@ step :: proc() -> bool {
 
 	// PAN
 	//
-	// Average the individual finger deltas, rather than tracking the midpoint between the fingers.
-	// That way putting down or lifting a finger mid-gesture doesn't make the map jump, since each
-	// remaining finger still reports how far it personally moved.
+	// Average the finger deltas rather than tracking the midpoint, so putting down or lifting a
+	// finger mid-gesture doesn't make the map jump.
 
 	if gesture_count > 0 {
 		drag: Vec2
@@ -137,18 +125,15 @@ step :: proc() -> bool {
 			drag += t.delta
 		}
 
-		// The drag is in screen pixels but `target` lives in world space, so it has to be un-rotated
-		// as well as un-zoomed. Without the rotation part, panning heads off at an angle as soon as
-		// the map has been rotated.
+		// The drag is in screen pixels but `target` is in world space: un-rotate and un-zoom it.
 		rotation_matrix := linalg.matrix2_rotate(-camera.rotation)
 		camera.target -= rotation_matrix * ((drag/f32(gesture_count)) / camera.zoom)
 	}
 
 	// PINCH ZOOM AND ROTATE
 	//
-	// Two fingers: compare their positions now to where they were last frame (`position - delta` is
-	// where a finger was last frame, so no extra state is needed) to get both a zoom ratio and a
-	// rotation angle out of the same pair of points.
+	// `position - delta` is where a finger was last frame, so comparing the pair now and then gives
+	// both a zoom ratio and a rotation angle without any extra state.
 
 	if gesture_count == 2 {
 		a, b := gesture[0], gesture[1]
@@ -168,10 +153,8 @@ step :: proc() -> bool {
 		prev_dist := linalg.distance(prev_a, prev_b)
 
 		if dist > 1 && prev_dist > 1 {
-			// Apply zoom and rotation around the point between the fingers, so whatever bit of the
-			// map is under the pinch stays under the pinch. This works the same way as the camera
-			// zoom below: read the world point under the pinch center before changing anything,
-			// then nudge `target` so that same world point is back under the pinch center after.
+			// Anchor on the world point under the pinch center, so whatever bit of the map is
+			// under the pinch stays under the pinch.
 			pinch_center := (now_a + now_b) / 2
 			anchor := k2.screen_to_world(pinch_center, camera)
 
@@ -180,8 +163,7 @@ step :: proc() -> bool {
 			now_angle := math.atan2(now_b.y - now_a.y, now_b.x - now_a.x)
 			prev_angle := math.atan2(prev_b.y - prev_a.y, prev_b.x - prev_a.x)
 
-			// atan2 jumps between +pi and -pi, so a gesture crossing that line would otherwise
-			// report a whole extra turn in a single frame.
+			// Wrapped, or crossing atan2's +/-pi line would report a whole extra turn.
 			camera.rotation += wrap_angle(now_angle - prev_angle)
 
 			camera.target += anchor - k2.screen_to_world(pinch_center, camera)
@@ -192,13 +174,8 @@ step :: proc() -> bool {
 
 	// MOUSE FALLBACK
 	//
-	// Touch emulation is off (see `init`), so unlike a touch-unaware program this example gets
-	// nothing from the mouse for free and has to drive the camera from it directly, the same way it
-	// already does from touches.
-	//
-	// Skipped while M has turned mouse-touch emulation on: the held mouse button is now producing a
-	// touch, which the pan/gesture code above already reads from `k2.get_touches()`. Handling the
-	// same drag here too would pan twice.
+	// Touch emulation is off (see `init`), so the mouse drives the camera directly here. Skipped
+	// while M has the mouse producing touches, or the same drag would pan twice.
 
 	if !mouse_emulates_touch {
 		if k2.mouse_button_is_held(.Left) {
@@ -239,22 +216,16 @@ step :: proc() -> bool {
 
 	// DRAW UI
 	//
-	// Everything from here on is drawn through `ui_camera` rather than the world camera, so none of
-	// it pans, zooms or rotates with the map. A finger stays under its own circle no matter how far
-	// the map underneath has been pinched or spun.
-	//
-	// The UI camera's zoom is the display scale, which is not something the player controls. The
-	// screen is measured in physical pixels, so on a phone with a 3x display anything drawn at a
-	// fixed pixel size would come out a third of the size it does on a desktop monitor. Keeping that
-	// scale in a camera means every size and position below is a plain number again, in
-	// display-independent pixels, rather than each one being multiplied by hand.
+	// Drawn through `ui_camera`, so nothing here pans, zooms or rotates with the map. Its zoom is
+	// the display scale: the screen is in physical pixels, so fixed sizes would come out tiny on a
+	// 3x phone display. Everything below is in display-independent pixels.
 
 	ui_scale := k2.get_window_scale()
 	ui_camera := k2.Camera { zoom = ui_scale }
 
 	k2.set_camera(ui_camera)
 
-	// The size of the UI camera's view, which is what the layout below is positioned against.
+	// The size of the UI camera's view, which the layout below is positioned against.
 	ui_size := screen_size/ui_scale
 
 	for t in touches {
@@ -268,8 +239,7 @@ step :: proc() -> bool {
 			color = k2.BLUE
 		}
 
-		// Touches are reported in physical screen pixels, so they need bringing into the UI camera's
-		// space like any other screen-space point.
+		// Touches are in physical screen pixels, so bring them into the UI camera's space.
 		position := k2.screen_to_world(t.position, ui_camera)
 
 		k2.draw_circle_outline(position, 30, 4, color)

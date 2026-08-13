@@ -320,8 +320,7 @@ seat_listener := wl.Seat_Listener {
 			s.touch = wl.seat_get_touch(seat)
 			wl.add_listener(s.touch, &touch_listener, nil)
 		} else if s.touch != nil {
-			// The seat is dropping touch while fingers may still be down, and no more wl_touch
-			// events are coming for them. Cancel them here, or they would be stuck down forever.
+			// No more wl_touch events are coming, so cancel any fingers still down.
 			for t in s.active_touches[:s.active_touches_count] {
 				append(&s.events, Event_Touch_Cancelled { id = Touch_Id(t.id) })
 			}
@@ -771,8 +770,7 @@ touch_listener := wl.Touch_Listener {
 	cancel = proc "c" (data: rawptr, touch: ^wl.Touch) {
 		context = s.odin_ctx
 
-		// wl_touch's cancel applies to every touch currently active on this client, not just the
-		// one this listener happens to be attached to, so it is replayed as a cancellation for each.
+		// wl_touch's cancel applies to every active touch at once, so each gets a cancellation.
 		for t in s.active_touches[:s.active_touches_count] {
 			append(&s.events, Event_Touch_Cancelled { id = Touch_Id(t.id) })
 		}
