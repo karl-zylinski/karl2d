@@ -934,12 +934,11 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 			return 0
 		}
 
+	// Unlike the pointer messages above, this one's lparam is the handle of the window taking
+	// capture, not a position, so only the pointer id in wparam is usable here.
 	case win32.WM_POINTERCAPTURECHANGED:
-		if id, position, ok := _windows_touch_event_info(hwnd, wparam, lparam); ok {
-			append(&s.events, Event_Touch_Cancelled {
-				id = id,
-				position = position,
-			})
+		if id, _, ok := _windows_touch_event_info(hwnd, wparam, lparam); ok {
+			append(&s.events, Event_Touch_Cancelled { id = id })
 			return 0
 		}
 

@@ -1946,4 +1946,9 @@ Event_Window_Unfocused :: struct {}
 Event_Touch_Went_Down :: struct { id: Touch_Id, position: Vec2 }
 Event_Touch_Moved     :: struct { id: Touch_Id, position: Vec2 }
 Event_Touch_Went_Up   :: struct { id: Touch_Id, position: Vec2 }
-Event_Touch_Cancelled :: struct { id: Touch_Id, position: Vec2 }
+
+// No position: a cancelled touch is one the OS took away rather than one the user lifted, and not
+// every platform can say where it was when that happened (Windows' WM_POINTERCAPTURECHANGED carries
+// a window handle where the other pointer messages carry coordinates). The touch keeps the last
+// position it was seen at, which is what `get_touches` reports for its final frame.
+Event_Touch_Cancelled :: struct { id: Touch_Id }

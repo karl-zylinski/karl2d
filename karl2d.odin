@@ -346,41 +346,53 @@ process_events :: proc() {
 	pf.get_events(&s.events)
 
 	// Synthesize mouse events from the first touch, so a program that never calls `get_touches`
-	// still works on a touch device. This has to run before the loop below, and append onto
-	// `s.events` rather than update state directly, so both that loop and a `get_events` caller see
-	// the same synthesized events a real mouse would have produced.
+	// still works on a touch device. This runs before the loop below, and puts events into
+	// `s.events` rather than updating state directly, so both that loop and a `get_events` caller
+	// see the same events a real mouse would have produced.
 	//
-	// `received_count` is the platform's events only: appending inside the loop must not make it
-	// scan its own output.
+	// The synthesized events are injected right behind the touch they came from, not appended at
+	// the end. Order within the frame matters: a window losing focus in the same frame as a touch
+	// going down has to be seen after the button press it is meant to release, or the emulated
+	// button would stay held with nothing left to release it.
 	if s.touch_mouse_emulation {
-		received_count := len(s.events)
+		i := 0
 
-		for i in 0..<received_count {
+		for i < len(s.events) {
+			injected := 0
+
 			#partial switch e in s.events[i] {
 			case Event_Touch_Went_Down:
 				if !s.emulated_touch_active {
 					s.emulated_touch = e.id
 					s.emulated_touch_active = true
 
-					// Move first, so the click lands where the finger is.
-					append(&s.events, Event_Mouse_Move { position = e.position })
-					append(&s.events, Event_Mouse_Button_Went_Down { button = .Left })
+					// A teleport rather than a move: the cursor is jumping to wherever the finger
+					// landed, which is not motion the program should see as mouse delta. Without
+					// this, a program that drags using `get_mouse_delta` lurches on every tap.
+					inject_at(&s.events, i + 1,
+						Event_Mouse_Teleported { position = e.position },
+						Event_Mouse_Button_Went_Down { button = .Left },
+					)
+					injected = 2
 				}
 
 			case Event_Touch_Moved:
 				if s.emulated_touch_active && e.id == s.emulated_touch {
-					append(&s.events, Event_Mouse_Move { position = e.position })
+					inject_at(&s.events, i + 1, Event_Mouse_Move { position = e.position })
+					injected = 1
 				}
 
 			case Event_Touch_Went_Up:
 				if s.emulated_touch_active && e.id == s.emulated_touch {
-					append(&s.events, Event_Mouse_Button_Went_Up { button = .Left })
+					inject_at(&s.events, i + 1, Event_Mouse_Button_Went_Up { button = .Left })
+					injected = 1
 					s.emulated_touch_active = false
 				}
 
 			case Event_Touch_Cancelled:
 				if s.emulated_touch_active && e.id == s.emulated_touch {
-					append(&s.events, Event_Mouse_Button_Went_Up { button = .Left })
+					inject_at(&s.events, i + 1, Event_Mouse_Button_Went_Up { button = .Left })
+					injected = 1
 					s.emulated_touch_active = false
 				}
 
@@ -389,6 +401,10 @@ process_events :: proc() {
 				// or not. All that's left here is to let a new touch drive the emulation again.
 				s.emulated_touch_active = false
 			}
+
+			// Step over the event we just looked at and anything injected after it, so injected
+			// events are never themselves scanned.
+			i += 1 + injected
 		}
 	}
 
@@ -461,8 +477,7 @@ process_events :: proc() {
 
 		case Event_Touch_Cancelled:
 			if t := _find_touch(e.id); t != nil {
-				t.delta += e.position - t.position
-				t.position = e.position
+				// Position and delta are left as they are, see `Event_Touch_Cancelled`.
 				t.went_up = true
 				t.cancelled = true
 			}
@@ -714,6 +729,19 @@ get_touches :: proc() -> []Touch {
 // a left click.
 set_touch_mouse_emulation :: proc(enabled: bool) {
 	assert_initialized()
+
+	// Turning emulation off while a finger is mid-press would otherwise leave the emulated button
+	// held for good: the pass that synthesizes the matching release stops running. Release it here
+	// instead, so the button state the program sees is the same as if the finger had lifted.
+	if !enabled && s.emulated_touch_active {
+		s.emulated_touch_active = false
+
+		if s.mouse_button_is_held[.Left] {
+			s.mouse_button_is_held[.Left] = false
+			s.mouse_button_went_up[.Left] = true
+		}
+	}
+
 	s.touch_mouse_emulation = enabled
 }
 
@@ -5395,7 +5423,12 @@ Event_Window_Unfocused :: struct {}
 Event_Touch_Went_Down :: struct { id: Touch_Id, position: Vec2 }
 Event_Touch_Moved     :: struct { id: Touch_Id, position: Vec2 }
 Event_Touch_Went_Up   :: struct { id: Touch_Id, position: Vec2 }
-Event_Touch_Cancelled :: struct { id: Touch_Id, position: Vec2 }
+
+// No position: a cancelled touch is one the OS took away rather than one the user lifted, and not
+// every platform can say where it was when that happened (Windows' WM_POINTERCAPTURECHANGED carries
+// a window handle where the other pointer messages carry coordinates). The touch keeps the last
+// position it was seen at, which is what `get_touches` reports for its final frame.
+Event_Touch_Cancelled :: struct { id: Touch_Id }
 
 
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin

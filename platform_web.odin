@@ -270,10 +270,7 @@ web_event_pointer_cancel :: proc(e: js.Event) {
 		return
 	}
 
-	append(&s.events, Event_Touch_Cancelled {
-		id = Touch_Id(e.mouse.pointer.pointer_id),
-		position = web_touch_position(e),
-	})
+	append(&s.events, Event_Touch_Cancelled { id = Touch_Id(e.mouse.pointer.pointer_id) })
 }
 
 web_touch_position :: proc(e: js.Event) -> Vec2 {
