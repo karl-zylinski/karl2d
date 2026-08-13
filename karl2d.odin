@@ -417,11 +417,8 @@ process_events :: proc() {
 			// Recorded draw calls were meant for the old swapchain size.
 			draw_current_batch()
 			rb.resize_swapchain(e.width, e.height)
-
-			if s.current_render_target == RENDER_TARGET_NONE {
-				s.proj_matrix = make_default_projection(e.width, e.height, current_y_axis())
-				_update_view_projection()
-			}
+			s.proj_matrix = make_default_projection(e.width, e.height, current_y_axis())
+			_update_view_projection()
 
 		case Event_Window_Focused:			
 
@@ -4260,6 +4257,8 @@ set_camera :: proc(camera: Maybe(Camera)) {
 		s.view_matrix = 1
 	}
 
+	// The Y axis picks which edge of the surface Y = 0 sits on. So the projection depends on the
+	// camera, not just on the surface size.
 	if s.current_render_target == RENDER_TARGET_NONE {
 		s.proj_matrix = make_default_projection(
 			pf.get_screen_width(), pf.get_screen_height(), current_y_axis())
@@ -4276,6 +4275,7 @@ set_camera :: proc(camera: Maybe(Camera)) {
 screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	pos := pos
 
+	// Screen Y counts down from the top. A Y up camera counts it from the bottom of the surface.
 	if camera.y_axis == .Up {
 		surface_height := s.current_render_target_height
 
@@ -4290,6 +4290,7 @@ screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 }
 
 screen_to_camera_rect :: proc(r: Rect, camera: Camera) -> Rect {
+	// All four corners. A rotated camera turns the rectangle, so two opposite ones would miss it.
 	a := screen_to_camera({r.x,       r.y      }, camera)
 	b := screen_to_camera({r.x + r.w, r.y      }, camera)
 	c := screen_to_camera({r.x,       r.y + r.h}, camera)
@@ -4300,6 +4301,7 @@ screen_to_camera_rect :: proc(r: Rect, camera: Camera) -> Rect {
 	min_y := min(a.y, b.y, c.y, d.y)
 	max_y := max(a.y, b.y, c.y, d.y)
 
+	// The minimum corner is the anchor whichever way Y points. So this needs no branch on it.
 	return { min_x, min_y, max_x - min_x, max_y - min_y }
 }
 
@@ -4322,6 +4324,7 @@ camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 }
 
 camera_to_screen_rect :: proc(r: Rect, camera: Camera) -> Rect {
+	// All four corners. A rotated camera turns the rectangle, so two opposite ones would miss it.
 	a := camera_to_screen({r.x,       r.y      }, camera)
 	b := camera_to_screen({r.x + r.w, r.y      }, camera)
 	c := camera_to_screen({r.x,       r.y + r.h}, camera)
@@ -4332,6 +4335,7 @@ camera_to_screen_rect :: proc(r: Rect, camera: Camera) -> Rect {
 	min_y := min(a.y, b.y, c.y, d.y)
 	max_y := max(a.y, b.y, c.y, d.y)
 
+	// The minimum corner is the anchor whichever way Y points. So this needs no branch on it.
 	return { min_x, min_y, max_x - min_x, max_y - min_y }
 }
 
@@ -5550,6 +5554,7 @@ _start_draw_call :: proc() {
 		}
 	}
 
+	// Scissor rectangles are screen space, which is what D3D11 and OpenGL take.
 	scissor := s.current_scissor
 
 	s.current_draw_call = {
@@ -5880,6 +5885,7 @@ make_default_projection :: proc(w, h: int, y_axis: Y_Axis) -> matrix[4,4]f32 {
 	return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
 }
 
+// The active camera's Y axis. Down when there is no camera.
 current_y_axis :: proc() -> Y_Axis {
 	if c, c_ok := s.current_camera.?; c_ok {
 		return c.y_axis

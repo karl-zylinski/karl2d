@@ -8,9 +8,9 @@ import b2 "vendor:box2d"
 import k2 "../.."
 import "core:math"
 
-// Box2D works in a Y up world, so this example uses Karl2D's Y up coordinate system too. That way
-// positions and angles pass between the two without any conversion. Everything below is in Box2D
-// world coordinates, which here are also screen coordinates: one unit is one pixel.
+// Box2D works in a Y up world, so this example draws through a Y up camera. That way positions and
+// angles pass between the two without any conversion. Everything below is in Box2D world
+// coordinates, which here are also screen coordinates: one unit is one pixel.
 WORLD_CAMERA :: k2.Camera { zoom = 1, y_axis = .Up }
 
 SCREEN_WIDTH :: 1280
@@ -74,8 +74,7 @@ step :: proc() -> bool {
 		return false
 	}
 
-	// The mouse position is already in the same coordinate system as the physics world, so it can
-	// be used to aim without converting anything.
+	// The mouse is measured on the screen. This is the only place the example converts anything.
 	//
 	// Shots start at the middle of the cannon and come out from behind the barrel, which is drawn
 	// over them. Starting them at the end of the barrel instead would move the launch point every

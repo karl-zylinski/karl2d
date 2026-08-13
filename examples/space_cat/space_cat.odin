@@ -316,6 +316,7 @@ step :: proc() -> bool {
 		zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
 	}
 
+	// Clip to the virtual screen. The scissor rectangle is measured on the real one.
 	k2.set_scissor_rect(k2.camera_to_screen_rect({0, 0, SCREEN_WIDTH, SCREEN_HEIGHT}, ui_camera))
 
 	if editing {
@@ -556,6 +557,7 @@ update :: proc() {
 		}
 	}
 
+	// What part of the world is on screen.
 	world_rect := k2.screen_to_camera_rect(
 		k2.rect_from_pos_size({0, 0}, k2.get_screen_size()),
 		game_camera,
