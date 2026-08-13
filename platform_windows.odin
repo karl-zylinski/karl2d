@@ -900,17 +900,20 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 		})
 		win32.ReleaseCapture()
 
-	// We don't call DefWindowProcW ourselves for these: falling through to it at the bottom of this
-	// proc is what makes Windows keep promoting unhandled touch input into mouse messages, which is
-	// what makes touch-unaware programs work for now. A later change takes that job away from
-	// Windows and does it ourselves instead, at which point these will return early for touch
-	// pointers.
+	// For a touch pointer we return 0 without calling DefWindowProcW, which stops Windows from also
+	// promoting the same input into WM_LBUTTONDOWN/UP messages (karl2d.odin synthesizes those itself
+	// now, see set_touch_mouse_emulation). Any other pointer type (mouse, pen) falls out of this
+	// switch untouched and reaches DefWindowProcW at the bottom like every other message, so it
+	// keeps working exactly as before. Handling some pointer messages and forwarding others of the
+	// same kind is explicitly undefined per Microsoft's docs, so the split has to be by pointer type,
+	// consistently across all four of these.
 	case win32.WM_POINTERDOWN:
 		if id, position, ok := _windows_touch_event_info(hwnd, wparam, lparam); ok {
 			append(&s.events, Event_Touch_Went_Down {
 				id = id,
 				position = position,
 			})
+			return 0
 		}
 
 	case win32.WM_POINTERUPDATE:
@@ -919,6 +922,7 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 				id = id,
 				position = position,
 			})
+			return 0
 		}
 
 	case win32.WM_POINTERUP:
@@ -927,6 +931,7 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 				id = id,
 				position = position,
 			})
+			return 0
 		}
 
 	case win32.WM_POINTERCAPTURECHANGED:
@@ -935,6 +940,7 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 				id = id,
 				position = position,
 			})
+			return 0
 		}
 
 	case win32.WM_MOVE:
