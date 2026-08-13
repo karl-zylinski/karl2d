@@ -662,7 +662,8 @@ get_mouse_wheel_delta :: proc() -> f32 {
 	return s.mouse_wheel_delta
 }
 
-// Returns the mouse position, measured from the top-left corner of the window.
+// Returns the mouse position, measured from the top-left corner of the window. Use
+// `screen_to_camera` to bring the position into the space of a camera.
 get_mouse_position :: proc() -> Vec2 {
 	return s.mouse_position
 }

@@ -236,7 +236,8 @@ mouse_button_is_held :: proc(button: Mouse_Button) -> bool
 // Returns how many clicks the mouse wheel has scrolled between the previous and current frame.
 get_mouse_wheel_delta :: proc() -> f32
 
-// Returns the mouse position, measured from the top-left corner of the window.
+// Returns the mouse position, measured from the top-left corner of the window. Use
+// `screen_to_camera` to bring the position into the space of a camera.
 get_mouse_position :: proc() -> Vec2
 
 // Returns how many pixels the mouse moved between the previous and the current frame.
