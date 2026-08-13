@@ -218,6 +218,13 @@ get_touches :: proc() -> []Touch
 // a left click.
 set_touch_mouse_emulation :: proc(enabled: bool)
 
+// Disabled by default. While enabled, holding the left mouse button produces a touch (with id
+// `MOUSE_TOUCH_ID`), so touch handling can be tried and tested on a machine with no touchscreen.
+// Has no effect on an actual touch device: this only ever synthesizes a touch from a real mouse
+// event, never from a touch that `set_touch_mouse_emulation` synthesized a mouse event from, so the
+// two cannot feed each other into a loop even if both are left enabled at once.
+set_mouse_touch_emulation :: proc(enabled: bool)
+
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
 // You can check that an exact set of modifiers are held like so:
 //
@@ -1570,6 +1577,10 @@ State :: struct {
 	emulated_touch: Touch_Id,
 	emulated_touch_active: bool,
 
+	// See `set_mouse_touch_emulation`.
+	mouse_touch_emulation: bool,
+	emulated_mouse_touch_active: bool,
+
 	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
@@ -1655,6 +1666,10 @@ MAX_TOUCHES :: 10
 // Identifies one finger for as long as it stays on the screen. Stable from the moment the touch
 // goes down until it goes up. Ids may be reused after that.
 Touch_Id :: distinct u64
+
+// The id of the touch synthesized by `set_mouse_touch_emulation`. Reserved so it can never collide
+// with an id a real touch device reports.
+MOUSE_TOUCH_ID :: Touch_Id(max(u64))
 
 Touch :: struct {
 	id: Touch_Id,

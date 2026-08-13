@@ -32,6 +32,10 @@ pinch_active: bool
 
 markers: [dynamic]Vec2
 
+// Whether the M key has put the mouse into touch-emulation mode, for trying the touch code below
+// without a touchscreen. Mirrors what `set_mouse_touch_emulation` is currently set to.
+mouse_emulates_touch: bool
+
 // Brings an angle into (-pi, pi].
 wrap_angle :: proc(a: f32) -> f32 {
 	wrapped := math.mod(a + math.PI, 2*math.PI)
@@ -61,6 +65,11 @@ step :: proc() -> bool {
 
 	screen_size := k2.get_screen_size()
 	camera.offset = screen_size/2
+
+	if k2.key_went_down(.M) {
+		mouse_emulates_touch = !mouse_emulates_touch
+		k2.set_mouse_touch_emulation(mouse_emulates_touch)
+	}
 
 	touches := k2.get_touches()
 
@@ -186,20 +195,26 @@ step :: proc() -> bool {
 	// Touch emulation is off (see `init`), so unlike a touch-unaware program this example gets
 	// nothing from the mouse for free and has to drive the camera from it directly, the same way it
 	// already does from touches.
+	//
+	// Skipped while M has turned mouse-touch emulation on: the held mouse button is now producing a
+	// touch, which the pan/gesture code above already reads from `k2.get_touches()`. Handling the
+	// same drag here too would pan twice.
 
-	if k2.mouse_button_is_held(.Left) {
-		rotation_matrix := linalg.matrix2_rotate(-camera.rotation)
-		camera.target -= rotation_matrix * (k2.get_mouse_delta() / camera.zoom)
-	}
+	if !mouse_emulates_touch {
+		if k2.mouse_button_is_held(.Left) {
+			rotation_matrix := linalg.matrix2_rotate(-camera.rotation)
+			camera.target -= rotation_matrix * (k2.get_mouse_delta() / camera.zoom)
+		}
 
-	if wheel := k2.get_mouse_wheel_delta(); wheel != 0 {
-		// Same anchor trick as the pinch above, just with one point instead of two.
-		mouse_pos := k2.get_mouse_position()
-		anchor := k2.screen_to_world(mouse_pos, camera)
+		if wheel := k2.get_mouse_wheel_delta(); wheel != 0 {
+			// Same anchor trick as the pinch above, just with one point instead of two.
+			mouse_pos := k2.get_mouse_position()
+			anchor := k2.screen_to_world(mouse_pos, camera)
 
-		camera.zoom = clamp(camera.zoom * (wheel > 0 ? 1.1 : 0.9), MIN_ZOOM, MAX_ZOOM)
+			camera.zoom = clamp(camera.zoom * (wheel > 0 ? 1.1 : 0.9), MIN_ZOOM, MAX_ZOOM)
 
-		camera.target += anchor - k2.screen_to_world(mouse_pos, camera)
+			camera.target += anchor - k2.screen_to_world(mouse_pos, camera)
+		}
 	}
 
 	// DRAW MAP
@@ -283,6 +298,11 @@ step :: proc() -> bool {
 	rotation_stat := fmt.tprintf("rotation: %.0f deg", math.to_degrees(camera.rotation))
 	draw_stat(rotation_stat, &text_pos, font_size)
 	draw_stat(fmt.tprintf("markers: %v", len(markers)), &text_pos, font_size)
+
+	mouse_emu_color := mouse_emulates_touch ? k2.GREEN : k2.WHITE
+	mouse_emu_text := fmt.tprintf("mouse emulates touch: %v (M to toggle)", mouse_emulates_touch)
+	k2.draw_text(mouse_emu_text, text_pos, font_size, mouse_emu_color)
+	text_pos.y += font_size
 
 	text_color := k2.YELLOW
 	text_pos = { 20, ui_size.y - 20 - font_size }
