@@ -204,10 +204,17 @@ step :: proc() -> bool {
 	//
 	// Everything from here on is screen-space: one `k2.set_camera(nil)` for the touch markers, the
 	// stats, the hints and the buttons, so none of it pans, zooms or rotates with the world camera
-	// above. A touch circle stays a constant 60 pixels on screen and a finger stays under its own
-	// circle, no matter how far the map underneath has been pinched or spun.
+	// above. A finger stays under its own circle no matter how far the map underneath has been
+	// pinched or spun.
+	//
+	// Sizes here are all multiplied by `ui_scale`. The screen is measured in physical pixels, so on
+	// a phone with a 3x display anything drawn at a fixed pixel size comes out a third of the size
+	// it does on a desktop monitor. Scaling by the window scale keeps the UI the same apparent size
+	// on both, and is separate from the world camera's zoom.
 
 	k2.set_camera(nil)
+
+	ui_scale := k2.get_window_scale()
 
 	for t in touches {
 		color := k2.WHITE
@@ -220,16 +227,21 @@ step :: proc() -> bool {
 			color = k2.BLUE
 		}
 
-		k2.draw_circle_outline(t.position, 60, 4, color)
-		k2.draw_text(fmt.tprintf("%v", t.id), t.position + { 70, -12 }, 24, color)
+		k2.draw_circle_outline(t.position, 60*ui_scale, 4*ui_scale, color)
+		k2.draw_text(
+			fmt.tprintf("%v", t.id),
+			t.position + Vec2 { 70, -12 }*ui_scale,
+			24*ui_scale,
+			color,
+		)
 	}
 
 	if gesture_count == 2 {
-		k2.draw_line(gesture[0].position, gesture[1].position, 2, k2.YELLOW)
+		k2.draw_line(gesture[0].position, gesture[1].position, 2*ui_scale, k2.YELLOW)
 	}
 
-	font_size := f32(28)
-	text_pos := Vec2 { 20, 20 }
+	font_size := 28*ui_scale
+	text_pos := Vec2 { 20, 20 }*ui_scale
 
 	draw_stat :: proc(text: string, pos: ^Vec2, font_size: f32) {
 		k2.draw_text(text, pos^, font_size, k2.WHITE)
@@ -241,9 +253,9 @@ step :: proc() -> bool {
 	draw_stat(fmt.tprintf("rotation: %.0f deg", math.to_degrees(camera.rotation)), &text_pos, font_size)
 	draw_stat(fmt.tprintf("markers: %v", len(markers)), &text_pos, font_size)
 
-	font_size = 24
+	font_size = 24*ui_scale
 	text_color := k2.YELLOW
-	text_pos = { 20, screen_size.y - 20 - font_size }
+	text_pos = { 20*ui_scale, screen_size.y - 20*ui_scale - font_size }
 
 	k2.draw_text("tap to drop a marker", text_pos, font_size, text_color)
 	text_pos.y -= font_size
@@ -255,22 +267,22 @@ step :: proc() -> bool {
 	text_pos.y -= font_size
 
 	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size())
-	bottom_bar := k2.rect_cut_bottom(&screen_rect, 36, 0)
-	bottom_bar = k2.rect_shrink(bottom_bar, 4, 4)
+	bottom_bar := k2.rect_cut_bottom(&screen_rect, 36*ui_scale, 0)
+	bottom_bar = k2.rect_shrink(bottom_bar, 4*ui_scale, 4*ui_scale)
 
-	button_rect :: proc(text: string, r: ^k2.Rect) -> k2.Rect {
-		return k2.rect_cut_right(r, k2.ui_button_width(text, r.h) + 25, 5)
+	button_rect :: proc(text: string, r: ^k2.Rect, ui_scale: f32) -> k2.Rect {
+		return k2.rect_cut_right(r, k2.ui_button_width(text, r.h) + 25*ui_scale, 5*ui_scale)
 	}
 
-	if k2.ui_button(button_rect("Source code", &bottom_bar), "Source Code") {
+	if k2.ui_button(button_rect("Source code", &bottom_bar, ui_scale), "Source Code") {
 		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/touch/touch.odin")
 	}
 
-	if k2.ui_button(button_rect("Fullscreen", &bottom_bar), "Fullscreen") {
+	if k2.ui_button(button_rect("Fullscreen", &bottom_bar, ui_scale), "Fullscreen") {
 		k2.set_window_mode(.Borderless_Fullscreen)
 	}
 
-	if k2.ui_button(button_rect("Windowed", &bottom_bar), "Windowed") {
+	if k2.ui_button(button_rect("Windowed", &bottom_bar, ui_scale), "Windowed") {
 		k2.set_window_mode(.Windowed_Resizable)
 	}
 
