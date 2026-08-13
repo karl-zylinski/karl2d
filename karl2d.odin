@@ -4627,6 +4627,8 @@ Camera :: struct {
 	// When `flip_y` is true:
 	// - A `Rect` will have its `(x, y)` in the bottom-left corner, rather than top-left.
 	// - Textures will be drawn with their bottom-left corner as position, rather than top-left.
+	// - Blocks of text will have their origin in the bottom-left corner of the block, rather than
+	//   top-left.
 	//
 	// Caveats:
 	// - The `rect_top_*`, `rect_bottom*` and `cut_rect_*` procs still assume that (x, y) is the
