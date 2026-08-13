@@ -140,29 +140,36 @@ step :: proc() -> bool {
 	sfx_pan = clamp(sfx_pan, -1, 1)
 	master_volume = clamp(master_volume, 0, 1)
 
-	k2.set_audio_bus_volume(sfx_bus, sfx_volume)
-	k2.set_audio_bus_pan(sfx_bus, sfx_pan)
+	// After the sfx bus is destroyed, `sfx_bus` points at the master bus, so these setters would
+	// start controlling the master bus. Not what the sfx keys are for, hence the guard.
+	if !sfx_bus_destroyed {
+		k2.set_audio_bus_volume(sfx_bus, sfx_volume)
+		k2.set_audio_bus_pan(sfx_bus, sfx_pan)
+
+		if k2.key_went_down(.F) {
+			filter_enabled = !filter_enabled
+
+			if filter_enabled {
+				k2.set_audio_bus_effect(sfx_bus, low_pass_effect, &low_pass)
+			} else {
+				k2.set_audio_bus_effect(sfx_bus, nil)
+			}
+		}
+	}
 
 	// The master bus is just a bus like the others. This is how you make a master volume slider.
 	k2.set_audio_bus_volume(k2.AUDIO_BUS_MASTER, master_volume)
 
-	if k2.key_went_down(.F) {
-		filter_enabled = !filter_enabled
-
-		if filter_enabled {
-			k2.set_audio_bus_effect(sfx_bus, low_pass_effect, &low_pass)
-		} else {
-			k2.set_audio_bus_effect(sfx_bus, nil)
-		}
-	}
-
 	// Destroying a bus moves everything on it back to the master bus. The drone keeps playing, it
-	// just stops listening to the sfx volume. Note that we point our own handle at the master bus
-	// afterwards, since the old one is dead.
+	// just stops listening to the sfx volume. We point our own handle at the master bus afterwards,
+	// since the old one is dead. That keeps the blips playable.
 	if k2.key_went_down(.D) && !sfx_bus_destroyed {
 		k2.destroy_audio_bus(sfx_bus)
 		sfx_bus = k2.AUDIO_BUS_MASTER
 		sfx_bus_destroyed = true
+
+		// The effect died with the bus.
+		filter_enabled = false
 	}
 
 	// DRAW
