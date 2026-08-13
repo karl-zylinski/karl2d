@@ -7,6 +7,7 @@ package karl2d_touch_example
 
 import k2 "../.."
 import "core:fmt"
+import "core:math"
 import "core:math/linalg"
 
 Vec2 :: k2.Vec2
@@ -111,24 +112,34 @@ step :: proc() -> bool {
 		camera.target -= (drag/f32(gesture_count)) / camera.zoom
 	}
 
-	// PINCH ZOOM
+	// PINCH ZOOM AND ROTATE
 	//
-	// Two fingers: compare how far apart they are now with how far apart they were last frame.
-	// `position - delta` is where a finger was last frame, so no extra state is needed for this.
+	// Two fingers: compare their positions now to where they were last frame (`position - delta` is
+	// where a finger was last frame, so no extra state is needed) to get both a zoom ratio and a
+	// rotation angle out of the same pair of points.
 
 	if gesture_count == 2 {
 		a, b := gesture[0], gesture[1]
 
-		dist := linalg.distance(a.position, b.position)
-		prev_dist := linalg.distance(a.position - a.delta, b.position - b.delta)
+		now_a, now_b := a.position, b.position
+		prev_a, prev_b := a.position - a.delta, b.position - b.delta
+
+		dist := linalg.distance(now_a, now_b)
+		prev_dist := linalg.distance(prev_a, prev_b)
 
 		if dist > 1 && prev_dist > 1 {
-			// Zoom around the point between the fingers, so whatever bit of the map is under the
-			// pinch stays under the pinch.
-			pinch_center := (a.position + b.position) / 2
+			// Apply zoom and rotation around the point between the fingers, so whatever bit of the
+			// map is under the pinch stays under the pinch. This works the same way as the camera
+			// zoom below: read the world point under the pinch center before changing anything,
+			// then nudge `target` so that same world point is back under the pinch center after.
+			pinch_center := (now_a + now_b) / 2
 			anchor := k2.screen_to_world(pinch_center, camera)
 
 			camera.zoom = clamp(camera.zoom * (dist/prev_dist), MIN_ZOOM, MAX_ZOOM)
+
+			now_angle := math.atan2(now_b.y - now_a.y, now_b.x - now_a.x)
+			prev_angle := math.atan2(prev_b.y - prev_a.y, prev_b.x - prev_a.x)
+			camera.rotation += now_angle - prev_angle
 
 			camera.target += anchor - k2.screen_to_world(pinch_center, camera)
 		}
@@ -154,7 +165,12 @@ step :: proc() -> bool {
 		k2.draw_circle_outline(m, 22, 3, k2.color_alpha(k2.YELLOW, 120))
 	}
 
-	// DRAW TOUCHES
+	// DRAW UI
+	//
+	// Everything from here on is screen-space: one `k2.set_camera(nil)` for the touch markers, the
+	// stats, the hints and the buttons, so none of it pans, zooms or rotates with the world camera
+	// above. A touch circle stays a constant 60 pixels on screen and a finger stays under its own
+	// circle, no matter how far the map underneath has been pinched or spun.
 
 	k2.set_camera(nil)
 
@@ -177,8 +193,6 @@ step :: proc() -> bool {
 		k2.draw_line(gesture[0].position, gesture[1].position, 2, k2.YELLOW)
 	}
 
-	// DRAW STATS
-
 	font_size := f32(28)
 	text_pos := Vec2 { 20, 20 }
 
@@ -189,9 +203,8 @@ step :: proc() -> bool {
 
 	draw_stat(fmt.tprintf("touches: %v", len(touches)), &text_pos, font_size)
 	draw_stat(fmt.tprintf("zoom: x%.2f", camera.zoom), &text_pos, font_size)
+	draw_stat(fmt.tprintf("rotation: %.0f deg", math.to_degrees(camera.rotation)), &text_pos, font_size)
 	draw_stat(fmt.tprintf("markers: %v", len(markers)), &text_pos, font_size)
-
-	// DRAW HINTS
 
 	font_size = 24
 	text_color := k2.YELLOW
@@ -200,7 +213,7 @@ step :: proc() -> bool {
 	k2.draw_text("tap to drop a marker", text_pos, font_size, text_color)
 	text_pos.y -= font_size
 
-	k2.draw_text("pinch with two fingers to zoom", text_pos, font_size, text_color)
+	k2.draw_text("pinch with two fingers to zoom and rotate", text_pos, font_size, text_color)
 	text_pos.y -= font_size
 
 	k2.draw_text("drag with one or more fingers to pan", text_pos, font_size, text_color)
