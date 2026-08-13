@@ -11,7 +11,33 @@
 		     it, so the game sees a half-finished gesture at coordinates that no longer line up
 		     with what is on screen. -->
 		<canvas id="webgl-canvas" style="touch-action: none;" oncontextmenu="return false;" onmousedown="event.target.focus()" onkeydown="event.preventDefault()"></canvas>
-	
+
+		<script type="text/javascript">
+			// Browsers follow a tap with synthetic mousedown/mouseup/click events, so that a page
+			// written only for mouse input still works with touch. Karl2D now produces those itself
+			// (see set_touch_mouse_emulation in karl2d.odin), so the browser's copy has to be
+			// stopped or every tap would fire twice. preventDefault() on touchstart is what tells
+			// the browser to skip the synthetic events for that touch; { passive: false } is
+			// required for the call to have any effect, since browsers otherwise assume a
+			// touchstart listener never calls it and ignore it for scroll performance.
+			//
+			// preventDefault() here also means the canvas no longer receives the onmousedown above
+			// for a touch (that handler only ever ran because of the synthetic mousedown), so focus
+			// is requested explicitly instead.
+			(() => {
+				const canvas = document.getElementById('webgl-canvas');
+
+				canvas.addEventListener('touchstart', (ev) => {
+					ev.preventDefault();
+					canvas.focus();
+				}, { passive: false });
+
+				canvas.addEventListener('touchend', (ev) => {
+					ev.preventDefault();
+				}, { passive: false });
+			})();
+		</script>
+
 		<script type="text/javascript" src="audio_backend_web_audio.js"></script>
 		<script type="text/javascript" src="odin.js"></script>
 		<script type="text/javascript">
