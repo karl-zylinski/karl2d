@@ -66,6 +66,13 @@ wl_init :: proc(
 	s.odin_ctx = context
 	hm.dynamic_init(&s.custom_cursors, allocator)
 
+	// wm_capabilities may never arrive on a compositor that doesn't send it, so default to
+	// everything being supported rather than nothing.
+	s.wm_can_window_menu = true
+	s.wm_can_maximize = true
+	s.wm_can_fullscreen = true
+	s.wm_can_minimize = true
+
 	s.xkb_context = xkb.context_new(.No_Flags)
 
 	s.display = wl.display_connect(nil)
@@ -92,23 +99,44 @@ wl_init :: proc(
 	
 	// Makes sure the window does "pings" that keeps it alive.
 	wl.add_listener(s.xdg_base, &wm_base_listener, nil)
-	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, s.surface)
+	s.xdg_surface = wl.xdg_wm_base_get_xdg_surface(s.xdg_base, s.surface)
 
 	// Top-level means an application at the top of the window hierarchy. The callback in the
 	// toplevel listener effecively creates a window handle.
-	s.toplevel = wl.xdg_surface_get_toplevel(xdg_surface)
+	s.toplevel = wl.xdg_surface_get_toplevel(s.xdg_surface)
 	wl.add_listener(s.toplevel, &toplevel_listener, nil)
-	wl.add_listener(xdg_surface, &window_listener, nil)
+	wl.add_listener(s.xdg_surface, &window_listener, nil)
 	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(window_title, frame_allocator))
-
-	wl_set_window_mode(options.window_mode)
+	wl_frame_set_title(window_title)
 
 	if s.decoration_manager != nil {
-		decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
+		s.decoration = wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
+			s.decoration_manager,
+			s.toplevel,
+		)
+		wl.add_listener(s.decoration, &decoration_listener, nil)
 
-		// This adds titlebar and buttons to the window.
-		wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
+		// Asks for a titlebar and buttons. The compositor may refuse -- see decoration_listener,
+		// which records what it actually agreed to.
+		wl.zxdg_toplevel_decoration_v1_set_mode(
+			s.decoration,
+			wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE,
+		)
+		// NOTE: decoration_listener may still flip decorations_are_client_side to true later,
+		// once the post-configure roundtrip below runs. wl_frame_create() below won't see that --
+		// it only fires for the common case of no manager at all (e.g. GNOME/Mutter). A compositor
+		// that advertises the manager and then refuses server-side decorations stays undecorated,
+		// same as before this feature existed.
+	} else {
+		// No manager means the compositor never intends to decorate us itself (e.g. GNOME/Mutter).
+		s.decorations_are_client_side = true
 	}
+
+	// Insets depend on whether we have a frame, so this has to run before the first
+	// wl_set_window_mode call below sizes the toplevel using them.
+	wl_frame_create()
+
+	wl_set_window_mode(options.window_mode)
 
 	if s.fractional_scale_manager != nil {
 		fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(
@@ -152,6 +180,18 @@ wl_init :: proc(
 	}
 
 	log.ensure(s.window != nil, "Wayland compositor never sent an initial configure")
+
+	if s.decoration_manager != nil {
+		// The decoration's own configure event isn't guaranteed to land in the same dispatch batch
+		// as the toplevel's, so flush anything still queued before trusting the mode it settled on.
+		wl.display_roundtrip(s.display)
+	}
+
+	if s.decorations_are_client_side {
+		log.debug("Wayland compositor does not provide server-side decorations")
+	} else {
+		log.debug("Using server-side window decorations")
+	}
 
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
@@ -265,6 +305,15 @@ registry_listener := wl.Registry_Listener {
 				&wl.wp_cursor_shape_manager_v1_interface,
 				version,
 			)
+
+		case wl.subcompositor_interface.name:
+			s.subcompositor = wl.registry_bind(
+				wl.Subcompositor,
+				registry,
+				name,
+				&wl.subcompositor_interface,
+				version,
+			)
 		}
 	},
 	global_remove = proc "c" (data: rawptr, registry: ^wl.Registry, name: u32) {},
@@ -315,6 +364,12 @@ seat_listener := wl.Seat_Listener {
 	name = proc "c" (data: rawptr, seat: ^wl.Seat, name: cstring) {},
 }
 
+// Views a wl.Array of packed u32 values. Used for xdg_toplevel's `states` and `wm_capabilities`
+// events, both of which are just an array with one enum value per u32.
+wl_array_as_u32s :: proc(arr: ^wl.Array) -> []u32 {
+	return ([^]u32)(arr.data)[:arr.size / size_of(u32)]
+}
+
 toplevel_listener := wl.XDG_Toplevel_Listener {
 	configure = proc "c" (
 		data: rawptr,
@@ -323,10 +378,25 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 		height: c.int32_t,
 		states: ^wl.Array,
 	) {
-		w := int(width)
-		h := int(height)
-
 		context = s.odin_ctx
+
+		s.maximized = false
+		s.fullscreen = false
+		s.activated = false
+
+		for state in wl_array_as_u32s(states) {
+			switch state {
+			case wl.XDG_TOPLEVEL_STATE_MAXIMIZED: s.maximized = true
+			case wl.XDG_TOPLEVEL_STATE_FULLSCREEN: s.fullscreen = true
+			case wl.XDG_TOPLEVEL_STATE_ACTIVATED: s.activated = true
+			}
+		}
+
+		// The compositor's width/height here is window geometry (content plus frame) once we've
+		// decorated ourselves, not just content -- see wl_frame_insets. Zero without a frame.
+		left, top, right, bottom := wl_frame_insets()
+		w := int(width) - left - right
+		h := int(height) - top - bottom
 
 		new_width: int
 		new_height: int
@@ -366,6 +436,17 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 				height = s.screen_height,
 			})
 		}
+
+		wl.xdg_surface_set_window_geometry(
+			s.xdg_surface,
+			i32(-left), i32(-top),
+			i32(new_width + left + right), i32(new_height + top + bottom),
+		)
+
+		// flush = false: the game's next render commits the parent surface with a content buffer at
+		// the new size, so the frame and the content resize together in one compositor frame.
+		wl_frame_layout(new_width, new_height, flush = false)
+
 		s.configured = true
 	},
 	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel) {
@@ -373,7 +454,31 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 		append(&s.events, Event_Close_Window_Requested{})
 	},
 	configure_bounds = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, width: c.int32_t, height: c.int32_t,) {},
-	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, capabilities: ^wl.Array,) {},
+	wm_capabilities = proc "c" (
+		data: rawptr,
+		xdg_toplevel: ^wl.XDG_Toplevel,
+		capabilities: ^wl.Array,
+	) {
+		context = s.odin_ctx
+
+		s.wm_can_window_menu = false
+		s.wm_can_maximize = false
+		s.wm_can_fullscreen = false
+		s.wm_can_minimize = false
+
+		for cap in wl_array_as_u32s(capabilities) {
+			switch cap {
+			case wl.XDG_TOPLEVEL_WM_CAPABILITIES_WINDOW_MENU: s.wm_can_window_menu = true
+			case wl.XDG_TOPLEVEL_WM_CAPABILITIES_MAXIMIZE:    s.wm_can_maximize = true
+			case wl.XDG_TOPLEVEL_WM_CAPABILITIES_FULLSCREEN:  s.wm_can_fullscreen = true
+			case wl.XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE:    s.wm_can_minimize = true
+			}
+		}
+
+		// Which buttons the titlebar draws depends on these, and this event is rare enough
+		// (usually once, if ever) that it isn't worth waiting for the next unrelated repaint.
+		wl_frame_layout(s.last_configure_width, s.last_configure_height)
+	},
 }
 
 
@@ -386,6 +491,17 @@ window_listener := wl.XDG_Surface_Listener {
 wm_base_listener := wl.XDG_WM_Base_Listener {
 	ping = proc "c" (data: rawptr, xdg_wm_base: ^wl.XDG_WM_Base, serial: c.uint32_t) {
 		wl.xdg_wm_base_pong(xdg_wm_base, serial)
+	},
+}
+
+decoration_listener := wl.ZXDG_Toplevel_Decoration_V1_Listener {
+	configure = proc "c" (
+		data: rawptr,
+		zxdg_toplevel_decoration_v1: ^wl.ZXDG_Toplevel_Decoration_V1,
+		mode: c.uint32_t,
+	) {
+		context = s.odin_ctx
+		s.decorations_are_client_side = mode == wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE
 	},
 }
 
@@ -553,6 +669,13 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 		s.pointer_enter_serial = u32(serial)
+		s.pointer_focus = surface
+		s.pointer_local = {f32(surface_x >> 8), f32(surface_y >> 8)}
+
+		if role := wl_frame_surface_role(surface); role != .None {
+			wl_frame_update_hover(role)
+		}
+
 		wl_apply_cursor()
 	},
 	leave = proc "c" (
@@ -561,7 +684,14 @@ pointer_listener := wl.Pointer_Listener {
 		serial: c.uint32_t,
 		surface: ^wl.Surface,
 	) {
+		context = s.odin_ctx
+		s.pointer_focus = nil
+		s.frame.pressed_button = .None
 
+		if s.frame.hovered_button != .None {
+			s.frame.hovered_button = .None
+			wl_frame_layout(s.last_configure_width, s.last_configure_height)
+		}
 	},
 	motion = proc "c" (
 		data: rawptr,
@@ -572,39 +702,110 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		// surface_x and surface_y are fixed point 24.8 variables. 
-		// Just bitshift them to remove the decimal part and obtain 
-		// a screen coordinate
-		append(&s.events, Event_Mouse_Move {
-			position = { math.floor(f32(surface_x >> 8) * s.scale), math.floor(f32(surface_y >> 8) * s.scale) }, 
-		})
+		// surface_x and surface_y are fixed point 24.8 variables. Bitshift them to remove the
+		// decimal part and obtain a logical-pixel coordinate.
+		local_x := f32(surface_x >> 8)
+		local_y := f32(surface_y >> 8)
+
+		role := wl_frame_surface_role(s.pointer_focus)
+
+		if role == .None {
+			append(&s.events, Event_Mouse_Move {
+				position = { math.floor(local_x * s.scale), math.floor(local_y * s.scale) },
+			})
+			return
+		}
+
+		s.pointer_local = {local_x, local_y}
+		wl_frame_update_hover(role)
+		wl_apply_cursor()
 	},
+	// `t` rather than `time`, which would shadow the core:time package the double-click check
+	// below needs. Same reason key_handler names it that.
 	button = proc "c" (
 		data: rawptr,
 		pointer: ^wl.Pointer,
 		serial: c.uint32_t,
-		time: c.uint32_t,
+		t: c.uint32_t,
 		button: c.uint32_t,
 		state: c.uint32_t,
 	) {
 		context = s.odin_ctx
 
-		btn: Mouse_Button
-		switch button {
-		case wl.POINTER_BTN_LEFT: btn = .Left
-		case wl.POINTER_BTN_MIDDLE: btn = .Middle
-		case wl.POINTER_BTN_RIGHT: btn = .Right
+		role := wl_frame_surface_role(s.pointer_focus)
+
+		if role == .None {
+			btn: Mouse_Button
+			switch button {
+			case wl.POINTER_BTN_LEFT: btn = .Left
+			case wl.POINTER_BTN_MIDDLE: btn = .Middle
+			case wl.POINTER_BTN_RIGHT: btn = .Right
+			}
+
+			switch state {
+			case wl.POINTER_BUTTON_STATE_RELEASED:
+				append(&s.events, Event_Mouse_Button_Went_Up {
+					button = btn,
+				})
+			case wl.POINTER_BUTTON_STATE_PRESSED:
+				append(&s.events, Event_Mouse_Button_Went_Down {
+					button = btn,
+				})
+			}
+			return
 		}
-	
-		switch state {
-		case wl.POINTER_BUTTON_STATE_RELEASED:
-			append(&s.events, Event_Mouse_Button_Went_Up {
-				button = btn,
-			})
-		case wl.POINTER_BUTTON_STATE_PRESSED: 
-			append(&s.events, Event_Mouse_Button_Went_Down {
-				button = btn,
-			})
+
+		// A frame surface: this input is ours, never the game's.
+		hit := wl_frame_hit_test(role, s.pointer_local, wl_frame_window_width())
+
+		if state == wl.POINTER_BUTTON_STATE_RELEASED {
+			if hit.kind == .Button && hit.button == s.frame.pressed_button {
+				wl_frame_click_button(hit.button)
+			}
+			s.frame.pressed_button = .None
+			return
+		}
+
+		// state == PRESSED from here on.
+		if button == wl.POINTER_BTN_RIGHT {
+			if hit.kind == .Move {
+				wl.xdg_toplevel_show_window_menu(
+					s.toplevel, s.seat, serial, i32(s.pointer_local.x), i32(s.pointer_local.y),
+				)
+			}
+			return
+		}
+
+		if button != wl.POINTER_BTN_LEFT {
+			return
+		}
+
+		switch hit.kind {
+		case .Button:
+			s.frame.pressed_button = hit.button
+
+		case .Resize:
+			wl.xdg_toplevel_resize(s.toplevel, s.seat, serial, wl_frame_resize_edge_wire(hit.resize_edge))
+
+		case .Move:
+			now := time.tick_now()
+			is_double_click :=
+				s.frame.has_last_click &&
+				time.tick_diff(s.frame.last_click_tick, now) < FRAME_DOUBLE_CLICK_INTERVAL
+			s.frame.last_click_tick = now
+			s.frame.has_last_click = true
+
+			if is_double_click {
+				if s.maximized {
+					wl.xdg_toplevel_unset_maximized(s.toplevel)
+				} else if s.wm_can_maximize {
+					wl.xdg_toplevel_set_maximized(s.toplevel)
+				}
+			} else {
+				wl.xdg_toplevel_move(s.toplevel, s.seat, serial)
+			}
+
+		case .None:
 		}
 	},
 	axis = proc "c" (
@@ -616,10 +817,14 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
+		if wl_frame_surface_role(s.pointer_focus) != .None {
+			return
+		}
+
 		// Vertical scroll
 		if axis == 0 {
 			event_direction: f32 = value > 0 ? -1 : 1
-			
+
 			append(&s.events, Event_Mouse_Wheel {
 				delta = event_direction,
 			})
@@ -684,6 +889,11 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		// theme cursor) happen instantly rather than waiting for the next pointer move.
 		wl_apply_cursor()
 
+		// The titlebar buffer is sized in physical pixels, so a scale change on its own -- with no
+		// resize to follow -- would otherwise leave the old buffer stretched by its viewport until
+		// something else happened to repaint it.
+		wl_frame_layout(s.last_configure_width, s.last_configure_height)
+
 		append(&s.events, Event_Window_Scale_Changed {
 			scale = scl,
 			screen_width = s.screen_width,
@@ -693,6 +903,13 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 }
 
 wl_shutdown :: proc() {
+	wl_frame_destroy()
+
+	if s.decoration != nil {
+		wl.zxdg_toplevel_decoration_v1_destroy(s.decoration)
+		s.decoration = nil
+	}
+
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		wl.wp_viewport_destroy(cd.viewport)
 		wl.surface_destroy(cd.surface)
@@ -785,6 +1002,11 @@ wl_get_events :: proc(events: ^[dynamic]Event) {
 
 wl_set_title :: proc(title: string) {
 	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(title, frame_allocator))
+	wl_frame_set_title(title)
+
+	// Nothing else drives a repaint here -- the next configure could be arbitrarily far off, or
+	// never come at all if nothing else about the window changes.
+	wl_frame_layout(s.last_configure_width, s.last_configure_height)
 }
 
 wl_get_screen_width :: proc() -> int {
@@ -820,6 +1042,21 @@ wl_set_screen_size :: proc(w, h: int) {
 	}
 
 	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
+
+	// The frame has to follow the content, and the compositor needs the outer size that goes with
+	// it. Insets are zero without a frame, so this is the same arithmetic either way.
+	left, top, right, bottom := wl_frame_insets()
+
+	wl.xdg_surface_set_window_geometry(
+		s.xdg_surface,
+		i32(-left), i32(-top),
+		i32(w + left + right), i32(h + top + bottom),
+	)
+
+	// flush = false for the same reason as in toplevel_listener.configure: the viewport change
+	// above is already waiting on the game's next render to commit the parent, and the frame
+	// should land in that same commit rather than a frame ahead of it.
+	wl_frame_layout(w, h, flush = false)
 }
 
 wl_get_window_scale :: proc() -> f32 {
@@ -832,8 +1069,12 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	switch window_mode {
 	case .Windowed:
 		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
-		w := i32(s.last_configure_windowed_width)
-		h := i32(s.last_configure_windowed_height)
+
+		// set_max_size/set_min_size are window geometry sizes, i.e. content plus frame, not just
+		// content -- see wl_frame_insets. Zero without a frame, so this is safe unconditionally.
+		left, top, right, bottom := wl_frame_insets()
+		w := i32(s.last_configure_windowed_width + left + right)
+		h := i32(s.last_configure_windowed_height + top + bottom)
 		wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
 		wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
 
@@ -949,28 +1190,36 @@ wl_apply_cursor :: proc() {
 		return
 	}
 
+	// Over our own frame, the resize/move cursor takes over entirely -- the game's cursor_hidden
+	// and current_cursor don't apply there, same as the compositor's own decorations would.
+	if role := wl_frame_surface_role(s.pointer_focus); role != .None {
+		wl_apply_standard_cursor(wl_frame_cursor(role))
+		return
+	}
+
 	if s.cursor_hidden {
 		wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
 		return
 	}
 
-	standard := Standard_Cursor.Default
-
 	switch cur in s.current_cursor {
 	case Standard_Cursor:
-		standard = cur
+		wl_apply_standard_cursor(cur)
 
 	case Custom_Cursor:
 		if cd := hm.get(&s.custom_cursors, cur); cd != nil {
 			wl_point_at_cursor(cd, s.pointer_enter_serial)
-			return
+		} else {
+			// Destroyed while on screen; fall back to the default cursor.
+			wl_apply_standard_cursor(.Default)
 		}
-		// Otherwise it was destroyed while on screen; fall through to the default cursor below.
 	}
+}
 
-	// A standard cursor. Prefer the cursor shape protocol, which lets the compositor render it at
-	// the correct size and DPI itself; the themed surface below is only a fallback for compositors
-	// that don't support it.
+// Displays `standard` as the OS cursor. Prefer the cursor shape protocol, which lets the
+// compositor render it at the correct size and DPI itself; the themed surface below is only a
+// fallback for compositors that don't support it.
+wl_apply_standard_cursor :: proc(standard: Standard_Cursor) {
 	if s.cursor_shape_device != nil {
 		wl.cursor_shape_device_set_shape(
 			s.cursor_shape_device,
@@ -1015,32 +1264,67 @@ wl_apply_cursor :: proc() {
 	wl.surface_commit(s.cursor_surface)
 }
 
-wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
-	stride := image.width * 4
-	size := stride * image.height
+// A writable shm-backed Wayland buffer of premultiplied ARGB8888 pixels, sized `width` x `height`
+// physical pixels. `data` points at `width * height` u32 pixels the caller fills in. The pool is
+// destroyed immediately after creating the buffer -- that's safe, the mapping stays alive until
+// every buffer made from the pool is destroyed, so nothing here needs to keep the pool around.
+WL_SHM_Buffer :: struct {
+	buffer:    ^wl.Buffer,
+	data:      rawptr,
+	data_size: int,
+}
 
-	fd, fd_err := linux.memfd_create("cursor", {})
+wl_create_shm_buffer :: proc(width: int, height: int) -> (buf: WL_SHM_Buffer, ok: bool) {
+	stride := width * 4
+	size := stride * height
+
+	fd, fd_err := linux.memfd_create("karl2d", {})
 	if fd_err != .NONE {
-		log.errorf("Failed to create Wayland cursor: memfd failed with %v", fd_err)
-		return {}
+		log.errorf("Failed to create Wayland shm buffer: memfd failed with %v", fd_err)
+		return {}, false
 	}
 
 	// The compositor dups the fd in shm_create_pool, so we don't have to keep ours around.
 	defer linux.close(fd)
 
 	if trunc_err := linux.ftruncate(fd, i64(size)); trunc_err != .NONE {
-		log.errorf("Failed to create Wayland cursor: ftruncate failed with %v", trunc_err)
-		return {}
+		log.errorf("Failed to create Wayland shm buffer: ftruncate failed with %v", trunc_err)
+		return {}, false
 	}
 
 	data, mmap_err := linux.mmap(0, uint(size), {.READ, .WRITE}, {.SHARED}, fd, 0)
 	if mmap_err != .NONE {
-		log.errorf("Failed to create Wayland cursor: mmap failed with %v", mmap_err)
+		log.errorf("Failed to create Wayland shm buffer: mmap failed with %v", mmap_err)
+		return {}, false
+	}
+
+	pool := wl.shm_create_pool(s.shm, c.int32_t(fd), c.int32_t(size))
+
+	buffer := wl.shm_pool_create_buffer(
+		pool, 0,
+		c.int32_t(width), c.int32_t(height), c.int32_t(stride),
+		wl.SHM_FORMAT_ARGB8888,
+	)
+
+	wl.shm_pool_destroy(pool)
+
+	return WL_SHM_Buffer{buffer = buffer, data = data, data_size = size}, true
+}
+
+// Frees the buffer's backing memory. The caller still owns `buf.buffer` itself and must
+// `wl.buffer_destroy` it separately once the compositor is done with it.
+wl_destroy_shm_buffer :: proc(buf: WL_SHM_Buffer) {
+	linux.munmap(buf.data, uint(buf.data_size))
+}
+
+wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+	shm_buf, shm_buf_ok := wl_create_shm_buffer(image.width, image.height)
+	if !shm_buf_ok {
 		return {}
 	}
 
 	// Convert to ARGB and premultiply alpha
-	pixel_data := ([^]u32)(data)
+	pixel_data := ([^]u32)(shm_buf.data)
 	for i in 0..<len(image.pixels) {
 		col := image.pixels[i]
 		a := u32(col.a)
@@ -1050,29 +1334,17 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor 
 		pixel_data[i] = a << 24 | r << 16 | g << 8 | b
 	}
 
-	pool := wl.shm_create_pool(s.shm, c.int32_t(fd), c.int32_t(size))
-
-	buffer := wl.shm_pool_create_buffer(
-		pool, 0,
-		c.int32_t(image.width), c.int32_t(image.height), c.int32_t(stride),
-		wl.SHM_FORMAT_ARGB8888,
-	)
-
-	// The pool can go away immediately: the mapping stays alive until every buffer made from it
-	// has been destroyed.
-	wl.shm_pool_destroy(pool)
-
 	surface := wl.compositor_create_surface(s.compositor)
-	wl.surface_attach(surface, buffer, 0, 0)
+	wl.surface_attach(surface, shm_buf.buffer, 0, 0)
 
 	cursor := WL_Cursor {
 		surface   = surface,
 		hotspot   = hotspot,
 		width     = image.width,
 		height    = image.height,
-		buffer    = buffer,
-		data      = data,
-		data_size = size,
+		buffer    = shm_buf.buffer,
+		data      = shm_buf.data,
+		data_size = shm_buf.data_size,
 		viewport  = wl.wp_viewporter_get_viewport(s.viewporter, surface),
 	}
 
@@ -1085,7 +1357,7 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor 
 		wl.wp_viewport_destroy(cursor.viewport)
 		wl.surface_destroy(cursor.surface)
 		wl.buffer_destroy(cursor.buffer)
-		linux.munmap(cursor.data, uint(cursor.data_size))
+		wl_destroy_shm_buffer(shm_buf)
 		return {}
 	}
 
@@ -1233,11 +1505,38 @@ WL_State :: struct {
 	display: ^wl.Display,
 	surface: ^wl.Surface,
 	compositor: ^wl.Compositor,
+	subcompositor: ^wl.Subcompositor,
 	window: ^wl.EGL_Window,
+	xdg_surface: ^wl.XDG_Surface,
 	toplevel: ^wl.XDG_Toplevel,
 	viewporter: ^wl.WP_Viewporter,
 	viewport: ^wl.WP_Viewport,
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
+	decoration: ^wl.ZXDG_Toplevel_Decoration_V1,
+
+	// True once we know the compositor won't draw our decorations for us: either it never offered
+	// zxdg_decoration_manager_v1 at all, or it offered one but answered CLIENT_SIDE. See
+	// decoration_listener. This is what tells us to draw our own frame.
+	decorations_are_client_side: bool,
+
+	// Toplevel state as reported by the compositor via toplevel_listener.configure's `states`.
+	maximized: bool,
+	fullscreen: bool,
+	activated: bool,
+
+	// What the compositor says it supports, from toplevel_listener.wm_capabilities. Default to
+	// true (see wl_init) since not every compositor sends this event.
+	wm_can_window_menu: bool,
+	wm_can_maximize: bool,
+	wm_can_fullscreen: bool,
+	wm_can_minimize: bool,
+
+	// Our own drawn window frame -- titlebar and border subsurfaces -- used when
+	// decorations_are_client_side. See platform_linux_window_wayland_frame.odin. Its own fields
+	// are the source of truth for whether it exists: frame.titlebar_surface == nil means it
+	// doesn't, and every wl_frame_* procedure checks that instead of decorations_are_client_side.
+	frame: WL_Frame,
+
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
 	xdg_base: ^wl.XDG_WM_Base,
@@ -1247,6 +1546,16 @@ WL_State :: struct {
 	keyboard: ^wl.Keyboard,
 	pointer: ^wl.Pointer,
 	pointer_enter_serial: u32,
+
+	// The surface currently under the pointer -- s.surface (the game's content), one of the
+	// frame's own surfaces, or nil. Routes pointer events: content surfaces produce game events,
+	// frame surfaces are handled entirely by us and never reach the game.
+	pointer_focus: ^wl.Surface,
+
+	// Logical pixels, local to pointer_focus. Only meaningful (and only updated) while
+	// pointer_focus is a frame surface -- see wl_frame_hit_test.
+	pointer_local: Vec2,
+
 	cursor_hidden: bool,
 	shm: ^wl.SHM,
 	cursor_surface: ^wl.Surface,
