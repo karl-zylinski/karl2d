@@ -4258,7 +4258,7 @@ set_camera :: proc(camera: Maybe(Camera)) {
 
 // Transform a point `pos` that lives on the screen into the camera's coordinates.
 //
-// Example: Bringing the mouse position into the the coordinate space of a camera:
+// Example: Bringing the mouse position into the coordinate space of a camera:
 //
 ////  world_mouse_pos := k2.screen_to_camera(k2.get_mouse_position(), world_camera)
 screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {

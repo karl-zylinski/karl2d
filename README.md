@@ -193,8 +193,8 @@ between the two with no conversion. This is what `examples/box2d` does.
 
 There is no build flag: because the axis belongs to the camera, one program can use both, and code
 you paste from elsewhere brings its own camera with it. A few things are measured from the top-left
-of the surface under every camera — the mouse (use `screen_to_camera`), `set_scissor_rect`, and the
-`rect_*` helpers. There is a comment above `Y_Axis` in `karl2d.odin` that lists them.
+of the surface under every camera: the mouse (use `screen_to_camera` to bring it into a camera's
+coordinates), `set_scissor_rect`, and the `rect_*` helpers.
 
 ## Hot reload
 Some kind of gameplay code hot reload is planned as part of the library. Currently, there is an experimental implementation of this in a separate repository: https://github.com/karl-zylinski/karl2d-hot-reload-template

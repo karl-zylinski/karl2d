@@ -377,9 +377,8 @@ draw_texture_rect :: proc(
 
 // Draw a texture by selecting a `source` rectangle and fitting it into a `dest` (destination)
 // rectangle. `source` is measured in texture-space pixels and `dest` is measured in camera-space
-// pixels. Texture space is always measured from the top-left of the texture, whichever way the
-// camera points Y. You can flip the texture by using negative width/height for the `source`
-// rectangle.
+// pixels. Texture space is always measured from the top-left of the texture. You can flip the
+// texture by using negative width/height for the `source` rectangle.
 //
 // Optional parameters:
 // - origin: An offset for the dest rectangle, and also the point to rotate around.
@@ -917,8 +916,11 @@ pixel_format_size :: proc(f: Pixel_Format) -> int
 // will use this camera until you again change it.
 set_camera :: proc(camera: Maybe(Camera))
 
-// Transform a point `pos` that lives on the screen into the camera's coordinates. This can be
-// useful for bringing (for example) mouse positions (k2.get_mouse_position()) into them.
+// Transform a point `pos` that lives on the screen into the camera's coordinates.
+//
+// Example: Bringing the mouse position into the coordinate space of a camera:
+//
+////  world_mouse_pos := k2.screen_to_camera(k2.get_mouse_position(), world_camera)
 screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2
 
 // Transform a point `pos` that lives in the camera's coordinates to a point on the screen. This can
