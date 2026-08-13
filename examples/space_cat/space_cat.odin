@@ -316,11 +316,8 @@ step :: proc() -> bool {
 		zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
 	}
 
-	k2.set_scissor_rect(k2.Rect{
-		0, 0,
-		SCREEN_WIDTH*game_camera.zoom,
-		SCREEN_HEIGHT*game_camera.zoom,
-	})
+	// Clip to the virtual screen. The scissor rectangle is measured on the real one.
+	k2.set_scissor_rect(k2.camera_to_screen_rect({0, 0, SCREEN_WIDTH, SCREEN_HEIGHT}, ui_camera))
 
 	if editing {
 		editor_update()
@@ -560,9 +557,10 @@ update :: proc() {
 		}
 	}
 
-	world_rect := k2.rect_from_pos_size(
-		{0, 0},
-		k2.get_screen_size()/game_camera.zoom,
+	// What part of the world is on screen, in the game camera's coordinates.
+	world_rect := k2.screen_to_camera_rect(
+		k2.rect_from_pos_size({0, 0}, k2.get_screen_size()),
+		game_camera,
 	)
 
 	// Despawn plasma balls that have left screen.

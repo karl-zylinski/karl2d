@@ -799,11 +799,8 @@ rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect
 
 // Get the top left corner of a rectangle.
 //
-// The `rect_*` corner and cut helpers are laid out for `.Down`, where a Rect's (x, y) is its
-// top-left corner: "top" is the low end of Y. They are pure functions of a Rect with no camera in
-// sight, so they cannot follow the active space, and following it would make the answer depend on
-// when you called them. In `.Up` a Rect grows the other way, so these report the vertically
-// mirrored corner. Use them for UI and layout, which is what they are for.
+// The `rect_*` corner and cut helpers are screen space: "top" is the low end of Y. Use
+// `screen_to_camera_rect` on a rect that came from a `.Up` camera before cutting it up.
 rect_top_left :: proc(r: Rect) -> Vec2
 
 // Get the top middle point of a rectangle. That is, the mid-point between the top left and top
@@ -977,21 +974,21 @@ set_camera :: proc(camera: Maybe(Camera))
 //     mouse := k2.screen_to_camera(k2.get_mouse_position(), camera)
 screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2
 
-// Bring a screen-space rectangle into the coordinates `camera` draws in. Use it to work out what
-// part of the world is on screen, for example to skip things that are outside it:
+// Bring a screen-space rectangle into the coordinates `camera` draws in.
 //
-//     visible := k2.screen_to_camera_rect({0, 0, k2.get_screen_size().x, ...}, camera)
-//
-// Converting the corners one at a time is not enough: a Rect's `y` is its top edge in `.Down` and
-// its bottom edge in `.Up`, so the anchor moves as well as the position. This does that for you.
-//
-// The result is the axis-aligned bounds of `r`. That is `r` itself when the camera has no rotation,
-// and the rectangle that contains it when it does, which is the most an axis-aligned Rect can say.
+// The `rect_*` corner and cut helpers are screen space, so bring a rect here first if you want to
+// lay something out in a camera's coordinates. With a rotated camera you get the bounds.
 screen_to_camera_rect :: proc(r: Rect, camera: Camera) -> Rect
 
 // Take a point `pos` in the coordinates `camera` draws in back out to the screen. Useful when you
 // need to compare something you drew against a screen-space position.
 camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
+
+// Take a rectangle in the coordinates `camera` draws in back out to the screen.
+//
+// `set_scissor_rect` and the `rect_*` helpers are screen space, so this is what feeds them from
+// something you positioned with a camera. With a rotated camera you get the bounds.
+camera_to_screen_rect :: proc(r: Rect, camera: Camera) -> Rect
 
 // Calculate the matrix that `screen_to_camera` and `camera_to_screen` use to do transformations.
 //

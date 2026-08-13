@@ -3485,11 +3485,8 @@ rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect {
 
 // Get the top left corner of a rectangle.
 //
-// The `rect_*` corner and cut helpers are laid out for `.Down`, where a Rect's (x, y) is its
-// top-left corner: "top" is the low end of Y. They are pure functions of a Rect with no camera in
-// sight, so they cannot follow the active space, and following it would make the answer depend on
-// when you called them. In `.Up` a Rect grows the other way, so these report the vertically
-// mirrored corner. Use them for UI and layout, which is what they are for.
+// The `rect_*` corner and cut helpers are screen space: "top" is the low end of Y. Use
+// `screen_to_camera_rect` on a rect that came from a `.Up` camera before cutting it up.
 rect_top_left :: proc(r: Rect) -> Vec2 {
 	return {r.x, r.y}
 }
@@ -4324,19 +4321,12 @@ screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return (camera_inverse_view_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
 }
 
-// Bring a screen-space rectangle into the coordinates `camera` draws in. Use it to work out what
-// part of the world is on screen, for example to skip things that are outside it:
+// Bring a screen-space rectangle into the coordinates `camera` draws in.
 //
-//     visible := k2.screen_to_camera_rect({0, 0, k2.get_screen_size().x, ...}, camera)
-//
-// Converting the corners one at a time is not enough: a Rect's `y` is its top edge in `.Down` and
-// its bottom edge in `.Up`, so the anchor moves as well as the position. This does that for you.
-//
-// The result is the axis-aligned bounds of `r`. That is `r` itself when the camera has no rotation,
-// and the rectangle that contains it when it does, which is the most an axis-aligned Rect can say.
+// The `rect_*` corner and cut helpers are screen space, so bring a rect here first if you want to
+// lay something out in a camera's coordinates. With a rotated camera you get the bounds.
 screen_to_camera_rect :: proc(r: Rect, camera: Camera) -> Rect {
-	// All four corners, since a rotated camera turns the rectangle and then any two opposite
-	// corners would miss the other two.
+	// All four corners: a rotated camera turns the rectangle, so two opposite ones would miss it.
 	a := screen_to_camera({r.x,       r.y      }, camera)
 	b := screen_to_camera({r.x + r.w, r.y      }, camera)
 	c := screen_to_camera({r.x,       r.y + r.h}, camera)
@@ -4347,9 +4337,7 @@ screen_to_camera_rect :: proc(r: Rect, camera: Camera) -> Rect {
 	min_y := min(a.y, b.y, c.y, d.y)
 	max_y := max(a.y, b.y, c.y, d.y)
 
-	// A Rect is its minimum corner plus positive extents whichever way Y points: `y` is the top
-	// edge in `.Down` and the bottom edge in `.Up`, and both are the smaller number. So taking the
-	// minimum anchors the result correctly in either without asking which one is in use.
+	// The minimum corner is the anchor whichever way Y points, so this needs no branch on the axis.
 	return { min_x, min_y, max_x - min_x, max_y - min_y }
 }
 
@@ -4369,6 +4357,24 @@ camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	}
 
 	return res
+}
+
+// Take a rectangle in the coordinates `camera` draws in back out to the screen.
+//
+// `set_scissor_rect` and the `rect_*` helpers are screen space, so this is what feeds them from
+// something you positioned with a camera. With a rotated camera you get the bounds.
+camera_to_screen_rect :: proc(r: Rect, camera: Camera) -> Rect {
+	a := camera_to_screen({r.x,       r.y      }, camera)
+	b := camera_to_screen({r.x + r.w, r.y      }, camera)
+	c := camera_to_screen({r.x,       r.y + r.h}, camera)
+	d := camera_to_screen({r.x + r.w, r.y + r.h}, camera)
+
+	min_x := min(a.x, b.x, c.x, d.x)
+	max_x := max(a.x, b.x, c.x, d.x)
+	min_y := min(a.y, b.y, c.y, d.y)
+	max_y := max(a.y, b.y, c.y, d.y)
+
+	return { min_x, min_y, max_x - min_x, max_y - min_y }
 }
 
 @(deprecated="Use screen_to_camera instead")

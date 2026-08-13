@@ -276,6 +276,34 @@ screen_to_camera_rect_bounds_a_rotated_camera :: proc(t: ^testing.T) {
 	}
 }
 
+// The inverse under a Y up camera: a camera rect whose `y` is its bottom edge comes back as a
+// screen rect whose `y` is its top edge, mirrored about the surface.
+@(test)
+camera_to_screen_rect_mirrors_and_re_anchors :: proc(t: ^testing.T) {
+	setup()
+
+	got := k2.camera_to_screen_rect({ 100, SURFACE_H - 120, 40, 20 }, WORLD_CAMERA)
+	expect_rect(t, got, { 100, 100, 40, 20 }, "world camera")
+}
+
+// The two undo each other, under a camera doing everything at once. Only exact because there is no
+// rotation: with one, both directions report bounds and the round trip grows.
+@(test)
+the_rect_conversions_round_trip :: proc(t: ^testing.T) {
+	setup()
+
+	for camera in ([?]k2.Camera {
+		{ zoom = 1, y_axis = .Down },
+		{ zoom = 1, y_axis = .Up },
+		{ zoom = 2, target = { 10, 20 }, offset = { 30, 40 }, y_axis = .Down },
+		{ zoom = 0.5, target = { -5, 15 }, offset = { 7, 3 }, y_axis = .Up },
+	}) {
+		r := k2.Rect { 100, 100, 40, 20 }
+		round_tripped := k2.camera_to_screen_rect(k2.screen_to_camera_rect(r, camera), camera)
+		expect_rect(t, round_tripped, r, "round trip")
+	}
+}
+
 expect_rect :: proc(t: ^testing.T, got, expected: k2.Rect, what: string, loc := #caller_location) {
 	ok :=
 		abs(got.x - expected.x) <= EPSILON && abs(got.y - expected.y) <= EPSILON &&
