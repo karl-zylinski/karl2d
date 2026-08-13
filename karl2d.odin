@@ -30,41 +30,30 @@ import hm "core:container/handle_map"
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
-// Which way the Y axis points while drawing. It is a property of the `Camera` you draw with, so a
-// single program can use both: see `Camera.y_axis` and `set_camera`.
+// Karl2D supports two coordinate systems. You choose which at compile time.
 //
-// Some things are measured from the top-left of the surface whichever way Y points:
+// - Y down (the default): The origin is in the top-left corner of the screen and Y grows downwards.
+//   A `Rect` grows downwards and to the right from its (x, y) position, so (x, y) is the rect's
+//   top-left corner. Positive rotations appear clockwise on screen.
 //
-// - The mouse. `get_mouse_position` is measured from the top-left corner of the window. Bring it
-//   into a camera's coordinates with `screen_to_camera`.
-// - `set_scissor_rect`, which clips against the surface rather than against anything you drew.
-// - The `rect_*` helpers. `rect_top_left` is the corner that appears in the top left on screen, and
-//   `rect_cut_top` cuts the part that appears at the top. They are layout helpers, so they are
-//   defined against the screen.
+// - Y up: Compile with `-define:KARL2D_Y_UP=true`. The origin is in the bottom-left corner of the
+//   screen and Y grows upwards. A `Rect` grows upwards and to the right from its (x, y) position,
+//   so (x, y) is the rect's bottom-left corner. Positive rotations appear counter-clockwise on
+//   screen, which is what `math.atan2` and physics engines such as Box2D produce, so their angles
+//   can be used without conversion. See `examples/box2d`.
 //
-// And some things never change:
+// Things that do NOT change between the two:
 //
 // - Texture space. A `source` rectangle passed to the `draw_texture_*` procedures is always
 //   measured from the top-left corner of the texture, downwards. Texture space is image space:
 //   sprite sheet coordinates come out of image editors that way, and the pixels themselves are
 //   stored that way.
+// - The naming of the `rect_*` helpers. `rect_top_left` is always the corner that appears in the
+//   top left on screen, and `rect_cut_top` always cuts the part that appears at the top on screen.
 // - `measure_text`, which always returns a positive size. Text always fills the rectangle it
 //   reports, with the first line at the top on screen.
 Y_Axis :: enum {
-	// Y grows downwards, so the origin of an untransformed camera is the top-left corner of the
-	// surface. A `Rect` grows downwards and to the right from its (x, y) position, so (x, y) is the
-	// rect's top-left corner. Positive rotations appear clockwise on screen.
-	//
-	// This is what you get without a camera, and what a camera uses unless it says otherwise.
 	Down,
-
-	// Y grows upwards, so the origin of an untransformed camera is the bottom-left corner of the
-	// surface. A `Rect` grows upwards and to the right from its (x, y) position, so (x, y) is the
-	// rect's bottom-left corner. Positive rotations appear counter-clockwise on screen, which is
-	// what `math.atan2` and physics engines such as Box2D produce, so their angles can be used
-	// without conversion.
-	//
-	// Only reachable through a camera. See `examples/box2d`.
 	Up,
 }
 
@@ -429,8 +418,6 @@ process_events :: proc() {
 			draw_current_batch()
 			rb.resize_swapchain(e.width, e.height)
 
-			// Only affects the window, so a render texture that is currently set keeps its own
-			// projection.
 			if s.current_render_target == RENDER_TARGET_NONE {
 				s.proj_matrix = make_default_projection(e.width, e.height, current_y_axis())
 				_update_view_projection()
@@ -702,8 +689,7 @@ get_mouse_wheel_delta :: proc() -> f32 {
 
 // Returns the mouse position, measured from the top-left corner of the window.
 //
-// It is measured that way whichever way the active camera points Y. Use `screen_to_camera` to bring
-// it into the coordinates a particular camera draws in.
+// With Y_UP it is measured from the bottom-left corner of the window instead.
 get_mouse_position :: proc() -> Vec2 {
 	return s.mouse_position
 }
@@ -804,12 +790,11 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 //
 // Optional parameters:
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
-//   `(0, 0)`, then the rectangle rotates around its (x, y) anchor. If it is `(rect.w/2, rect.h/2)`
-//   then the rectangle rotates around its center, which is the same point in both spaces.
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
 //
-// Under a `.Up` camera the (x, y) is the rect's bottom-left corner, `origin` is measured from
-// that corner, and rotations look counter-clockwise.
+// With Y_UP the (x, y) is the rect's bottom-left corner and rotations look counter-clockwise.
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
 	_begin_vertices(s.shape_drawing_texture, 6)
 	tl, tr, bl, br: Vec2
@@ -863,12 +848,11 @@ draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0
 //
 // Optional parameters:
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
-//   `(0, 0)`, then the rectangle rotates around its (x, y) anchor. If it is `(rect.w/2, rect.h/2)`
-//   then the rectangle rotates around its center, which is the same point in both spaces.
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
 //
-// Under a `.Up` camera the position is the bottom-left corner, `origin` is measured from that
-// corner, and rotations look counter-clockwise.
+// With Y_UP the position is the bottom-left corner and rotations look counter-clockwise.
 draw_rect_vec :: proc(
 	position: Vec2,
 	size: Vec2,
@@ -983,7 +967,7 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the (x, y) anchor, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 //
 // If you want to rotate around the middle of the texture, then try this:
@@ -995,9 +979,7 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 // use the same texture. Drawing with a new texture starts a new draw call. Put several images into
 // one big texture, an atlas, to get fewer draw calls.
 //
-// Under a `.Up` camera the position is the bottom-left corner, `origin` is measured from that
-// corner, and rotations look counter-clockwise. The `source` rectangle is unaffected: texture
-// space is always measured top-down from the texture's top-left corner.
+// With Y_UP the position is the bottom-left corner and rotations look counter-clockwise.
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
@@ -1032,7 +1014,7 @@ draw_texture :: proc(
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the (x, y) anchor, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 draw_texture_rect :: proc(
 	texture: Texture,
@@ -1063,7 +1045,7 @@ draw_texture_rect :: proc(
 //
 // Optional parameters:
 // - origin: An offset for the dest rectangle, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the (x, y) anchor, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 draw_texture_fit :: proc(
 	texture: Texture,
@@ -1081,8 +1063,8 @@ draw_texture_fit :: proc(
 
 	flip_x: bool
 
-	// Texture pixels are stored top-down, but in `.Up` `dest` grows upwards, so the texture has
-	// to be sampled bottom-up to come out the right way round.
+	// Texture pixels are stored top-down, but in a Y up coordinate system `dest` grows upwards, so
+	// the texture has to be sampled bottom-up to come out the right way round.
 	flip_y := current_y_axis() == .Up
 
 	source := source
@@ -1370,11 +1352,10 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
-// - origin: The origin relative to the anchor `position`. Used when rotating the text.
+// - origin: The origin relative top the top-left position of the text. Used when rotating the text.
 // - rotation: Rotating to apply to the text, measured in radians.
 //
-// Under a `.Up` camera the position is the bottom-left of the text and rotations look
-// counter-clockwise. The first line is at the top on screen either way.
+// With Y_UP the position is the bottom-left of the text and rotations look counter-clockwise.
 draw_text :: proc(
 	text: string,
 	position: Vec2,
@@ -1438,9 +1419,9 @@ draw_text :: proc(
 		char_offset: Vec2
 		scl := font_size / font_object.static_font_size
 
-		// Where the top of the text block is. The glyph offsets are measured down from it. In
-		// `.Up` `position` is the bottom-left corner of the block, so the top is a whole block
-		// higher. The height must agree with what `measure_text_static` reports.
+		// Where the top of the text block is. The glyph offsets are measured down from it. In Y up
+		// `position` is the bottom-left corner of the block, so the top is a whole block higher.
+		// The height must agree with what `measure_text_static` reports.
 		world := current_y_axis() == .Up
 		block_top := position.y
 
@@ -1549,10 +1530,9 @@ draw_text :: proc(
 		render_size := font_size * camera_zoom
 
 		// FontStash lays the text out top-down starting at (0, 0), so its quads come out as offsets
-		// from the top-left of the text block. This is where that corner goes. In `.Up`
-		// `position` is the bottom-left corner of the block, so the top is a whole block higher.
-		// The height must agree with what `measure_text_dynamic` reports, which is
-		// `lines * font_size`.
+		// from the top-left of the text block. This is where that corner goes. In Y up `position`
+		// is the bottom-left corner of the block, so the top is a whole block higher. The height
+		// must agree with what `measure_text_dynamic` reports, which is `lines * font_size`.
 		world := current_y_axis() == .Up
 		block_top := position.y
 
@@ -3484,9 +3464,6 @@ rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect {
 }
 
 // Get the top left corner of a rectangle.
-//
-// The `rect_*` corner and cut helpers are screen space: "top" is the low end of Y. Use
-// `screen_to_camera_rect` on a rect that came from a `.Up` camera before cutting it up.
 rect_top_left :: proc(r: Rect) -> Vec2 {
 	return {r.x, r.y}
 }
@@ -4283,9 +4260,6 @@ set_camera :: proc(camera: Maybe(Camera)) {
 		s.view_matrix = 1
 	}
 
-	// The Y axis decides which edge of the surface Y = 0 sits on, so the projection is rebuilt here
-	// rather than only when the surface changes size. The surface is the render texture if one is
-	// set, the window otherwise.
 	if s.current_render_target == RENDER_TARGET_NONE {
 		s.proj_matrix = make_default_projection(
 			pf.get_screen_width(), pf.get_screen_height(), current_y_axis())
@@ -4297,17 +4271,11 @@ set_camera :: proc(camera: Maybe(Camera)) {
 	_update_view_projection()
 }
 
-// Bring a point `pos` measured on the screen into the coordinates `camera` draws in. This is what
-// mouse positions need: `get_mouse_position` is measured from the top-left corner of the window,
-// whichever way the camera points Y.
-//
-//     mouse := k2.screen_to_camera(k2.get_mouse_position(), camera)
+// Transform a point `pos` that lives on the screen to a point in the world. This can be useful for
+// bringing (for example) mouse positions (k2.get_mouse_position()) into world-space.
 screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	pos := pos
 
-	// Screen positions are measured down from the top of the surface. A `.Up` camera measures Y
-	// from the bottom, so the flip happens here, where it can be told which camera is being asked
-	// about. The surface is the render texture if one is set, the window otherwise.
 	if camera.y_axis == .Up {
 		surface_height := s.current_render_target_height
 
@@ -4321,12 +4289,7 @@ screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return (camera_inverse_view_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
 }
 
-// Bring a screen-space rectangle into the coordinates `camera` draws in.
-//
-// The `rect_*` corner and cut helpers are screen space, so bring a rect here first if you want to
-// lay something out in a camera's coordinates. With a rotated camera you get the bounds.
 screen_to_camera_rect :: proc(r: Rect, camera: Camera) -> Rect {
-	// All four corners: a rotated camera turns the rectangle, so two opposite ones would miss it.
 	a := screen_to_camera({r.x,       r.y      }, camera)
 	b := screen_to_camera({r.x + r.w, r.y      }, camera)
 	c := screen_to_camera({r.x,       r.y + r.h}, camera)
@@ -4337,12 +4300,11 @@ screen_to_camera_rect :: proc(r: Rect, camera: Camera) -> Rect {
 	min_y := min(a.y, b.y, c.y, d.y)
 	max_y := max(a.y, b.y, c.y, d.y)
 
-	// The minimum corner is the anchor whichever way Y points, so this needs no branch on the axis.
 	return { min_x, min_y, max_x - min_x, max_y - min_y }
 }
 
-// Take a point `pos` in the coordinates `camera` draws in back out to the screen. Useful when you
-// need to compare something you drew against a screen-space position.
+// Transform a point `pos` that lives in the world to a point on the screen. This can be useful when
+// you need to take a position in the world and compare it to a screen-space point.
 camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	res := (camera_view_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
 
@@ -4359,10 +4321,6 @@ camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return res
 }
 
-// Take a rectangle in the coordinates `camera` draws in back out to the screen.
-//
-// `set_scissor_rect` and the `rect_*` helpers are screen space, so this is what feeds them from
-// something you positioned with a camera. With a rotated camera you get the bounds.
 camera_to_screen_rect :: proc(r: Rect, camera: Camera) -> Rect {
 	a := camera_to_screen({r.x,       r.y      }, camera)
 	b := camera_to_screen({r.x + r.w, r.y      }, camera)
@@ -4387,10 +4345,11 @@ world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return camera_to_screen(pos, camera)
 }
 
-// Calculate the matrix that `screen_to_camera` and `camera_to_screen` use to do transformations.
+// Calculate the matrix that `screen_to_world` and `world_to_screen` uses to do transformations.
 //
-// A view matrix is essentially the transform matrix of the camera, but inverted. In other words,
-// instead of bringing the camera in front of things, we bring everything "in front of the camera".
+// A view matrix is essentially the world transform matrix of the camera, but inverted. In other
+// words, instead of bringing the camera in front of things in the world, we bring everything in the
+// world "in front of the camera".
 //
 // Instead of constructing the camera matrix and doing a matrix inverse, here we just do the
 // maths in "backwards order". I.e. a camera transform matrix would be:
@@ -4414,9 +4373,7 @@ camera_view_matrix :: proc(c: Camera) -> Mat4 {
 	return inv_offset_translate * inv_scale * inv_rot * inv_target_translate
 }
 
-// The inverse of `camera_view_matrix`: it undoes the camera instead of applying it, taking a point
-// on the screen back into the coordinates the camera draws in. Built directly rather than by
-// inverting, for the same reason.
+// Calculate the matrix that brings something in front of the camera.
 camera_inverse_view_matrix :: proc(c: Camera) -> Mat4 {
 	offset_translate := linalg.matrix4_translate(vec3_from_vec2(-c.offset))
 	rot := linalg.matrix4_rotate_f32(-c.rotation, {0, 0, 1})
@@ -4699,8 +4656,6 @@ Camera :: struct {
 	//     k2.get_screen_height()/wanted_pixel_height
 	zoom: f32,
 
-	// Which way Y points while this camera is active. Defaults to `.Down`, so a camera you did not
-	// think about behaves exactly like no camera at all.
 	y_axis: Y_Axis,
 }
 
@@ -5130,9 +5085,9 @@ State :: struct {
 	current_texture: Texture_Handle,
 	current_render_target: Render_Target_Handle,
 
-	// Size of `current_render_target`, or 0 when drawing to the window. Needed to rebuild the
-	// projection when the coordinate space changes, and to measure `.Up` Y from the bottom
-	// of the surface, without asking the backend for it.
+	// Height of `current_render_target`, or 0 when drawing to the window. Needed to
+	// convert scissor rectangles to native top-down coordinates without asking the
+	// backend for it.
 	current_render_target_width: int,
 	current_render_target_height: int,
 	current_blend_mode: Blend_Mode,
@@ -5595,8 +5550,6 @@ _start_draw_call :: proc() {
 		}
 	}
 
-	// Scissor rectangles are screen-space in every coordinate space, which is also what D3D11 and
-	// OpenGL take, so they go to the backend as they were given.
 	scissor := s.current_scissor
 
 	s.current_draw_call = {
@@ -5917,8 +5870,8 @@ matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f
 
 make_default_projection :: proc(w, h: int, y_axis: Y_Axis) -> matrix[4,4]f32 {
 	// The whole coordinate system flip comes down to which edge of the surface Y = 0 maps to.
-	// Everything else in this file exists because some things (textures and fonts) are natively
-	// top-down and have to be brought into line with this.
+	// Everything else in this file exists because some things (textures, fonts, scissor rects, the
+	// mouse) are natively top-down and have to be brought into line with this.
 	switch y_axis {
 	case .Up:   return matrix_ortho3d_f32(0, f32(w), 0, f32(h), 0.001, 2)
 	case .Down: return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
@@ -5927,7 +5880,6 @@ make_default_projection :: proc(w, h: int, y_axis: Y_Axis) -> matrix[4,4]f32 {
 	return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
 }
 
-// Which way Y points right now: the active camera's axis, or `.Down` when there is no camera.
 current_y_axis :: proc() -> Y_Axis {
 	if c, c_ok := s.current_camera.?; c_ok {
 		return c.y_axis
