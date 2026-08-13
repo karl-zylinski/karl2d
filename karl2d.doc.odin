@@ -236,8 +236,7 @@ mouse_button_is_held :: proc(button: Mouse_Button) -> bool
 // Returns how many clicks the mouse wheel has scrolled between the previous and current frame.
 get_mouse_wheel_delta :: proc() -> f32
 
-// Returns the mouse position, measured from the top-left corner of the window. Use
-// `screen_to_camera` to bring the position into the space of a camera.
+// Returns the mouse position, measured from the top-left corner of the window.
 get_mouse_position :: proc() -> Vec2
 
 // Returns how many pixels the mouse moved between the previous and the current frame.
@@ -291,22 +290,23 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32)
 // DRAWING //
 //---------//
 
-// Draw a colored rectangle.
+// Draw a colored rectangle. The rectangles have their (x, y) position in the top-left corner of the
+// rectangle.
 //
 // Optional parameters:
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
-//   `(0, 0)`, then the rectangle rotates around its (x, y) corner. If it is
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
-// - rotation: The rotation to apply, in radians.
+// - rotation: The rotation to apply, in radians
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0)
 
 // Creates a rectangle from a position and a size and draws it using the specified color.
 //
 // Optional parameters:
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
-//   `(0, 0)`, then the rectangle rotates around its (x, y) corner. If it is
+//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
-// - rotation: The rotation to apply, in radians.
+// - rotation: The rotation to apply, in radians
 draw_rect_vec :: proc(
 	position: Vec2,
 	size: Vec2,
@@ -337,7 +337,7 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color)
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the position, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 //
 // If you want to rotate around the middle of the texture, then try this:
@@ -357,13 +357,12 @@ draw_texture :: proc(
 )
 
 // Draw a texture at a position, but only draw the region specified by the `source` rectangle. The
-// `source` rectangle is specified in pixel coordinates, measured from the top-left of the texture
-// whichever way the camera points Y. You can flip the texture by using negative width/height in
-// `source`.
+// `source` rectangle is specified in pixel coordinates. You can flip the texture by using negative
+// width/height in `source`.
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the (x, y) position, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 draw_texture_rect :: proc(
 	texture: Texture,
@@ -375,13 +374,12 @@ draw_texture_rect :: proc(
 )
 
 // Draw a texture by selecting a `source` rectangle and fitting it into a `dest` (destination)
-// rectangle. `source` is measured in texture-space pixels and `dest` is measured in camera-space
-// pixels. Texture space is always measured from the top-left of the texture. You can flip the
-// texture by using negative width/height for the `source` rectangle.
+// rectangle. `source` is measured in texture-space pixels and `dest` is measured in world-space
+// pixels. You can flip the texture by using negative width/height for the `source` rectangle.
 //
 // Optional parameters:
 // - origin: An offset for the dest rectangle, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the (x, y) position, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 draw_texture_fit :: proc(
 	texture: Texture,
@@ -397,12 +395,12 @@ draw_texture_fit :: proc(
 measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) -> Vec2
 
 // Draw text at a position, with a size and color. The position is the top-left position of the
-// text. If you've set a camera using `set_camera`, then the font size will be internally scaled so
-// that the text appear sharp.
+// text. If you've set a camera using `set_camera`, then the font size will be internally scaled
+// so that the text appear sharp.
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
-// - origin: The origin relative to `position`. Used when rotating the text.
+// - origin: The origin relative to the top-left position of the text. Used when rotating the text.
 // - rotation: Rotating to apply to the text, measured in radians.
 draw_text :: proc(
 	text: string,
@@ -923,7 +921,7 @@ screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2
 // be useful when you need to compare such a position to a screen-space point.
 camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
 
-// Calculate the matrix that `camera_to_screen` uses to do transformations.
+// Calculate the matrix that `screen_to_camera` and `camera_to_screen` uses to do transformations.
 //
 // A view matrix is essentially the world transform matrix of the camera, but inverted. In other
 // words, instead of bringing the camera in front of things in the world, we bring everything in the
@@ -944,8 +942,7 @@ camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
 // 3x3 matrix is actually used.
 camera_view_matrix :: proc(c: Camera) -> Mat4
 
-// The inverse of `camera_view_matrix`. It undoes the camera instead of applying it, which is what
-// `screen_to_camera` needs.
+// Calculate the matrix that brings something in front of the camera.
 camera_inverse_view_matrix :: proc(c: Camera) -> Mat4
 
 //------//
@@ -1013,7 +1010,7 @@ Vec4 :: [4]f32
 
 Mat4 :: matrix[4,4]f32
 
-// A rectangle that sits at position (x, y) and has size (w, h). (x, y) is the top-left corner.
+// A rectangle that sits at position (x, y) and has size (w, h).
 Rect :: struct {
 	x, y: f32,
 	w, h: f32,
