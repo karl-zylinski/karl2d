@@ -942,7 +942,7 @@ camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
 // 3x3 matrix is actually used.
 camera_view_matrix :: proc(c: Camera) -> Mat4
 
-// Calculate the matrix that brings something in front of the camera.
+// The inverse of `camera_view_matrix`. It undoes the camera instead of applying it.
 camera_inverse_view_matrix :: proc(c: Camera) -> Mat4
 
 //------//

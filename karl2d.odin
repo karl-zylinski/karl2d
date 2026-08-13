@@ -4332,7 +4332,7 @@ camera_view_matrix :: proc(c: Camera) -> Mat4 {
 	return inv_offset_translate * inv_scale * inv_rot * inv_target_translate
 }
 
-// Calculate the matrix that brings something in front of the camera.
+// The inverse of `camera_view_matrix`. It undoes the camera instead of applying it.
 camera_inverse_view_matrix :: proc(c: Camera) -> Mat4 {
 	// As in `camera_view_matrix`: a zoom of 0 is treated as 1. It also makes the division safe.
 	zoom := c.zoom == 0 ? 1 : c.zoom
