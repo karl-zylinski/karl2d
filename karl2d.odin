@@ -5858,12 +5858,12 @@ make_default_projection :: proc(w, h: int, flip_y: bool) -> matrix[4,4]f32 {
 	return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
 }
 
-// The active camera's Y axis. Down when there is no camera because Y points down in screen-space.
+// Returns true if the currently used camera wants the Y axis to be flipped.
 _camera_flip_y :: proc() -> bool {
-	if c, c_ok := s.current_camera.?; c_ok {
-		return c.flip_y
+	if cam, cam_ok := s.current_camera.?; cam_ok {
+		return cam.flip_y
 	}
-
+	
 	return false
 }
 
