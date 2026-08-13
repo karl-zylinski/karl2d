@@ -5991,19 +5991,9 @@ _ :: tga
 Color_F32 :: [4]f32
 
 f32_color_from_color :: proc(color: Color) -> Color_F32 {
-	return {
-		f32(color.r) / 255,
-		f32(color.g) / 255,
-		f32(color.b) / 255,
-		f32(color.a) / 255,
-	}
+	return (Color_F32)(color)/255
 }
 
 color_from_f32_color :: proc(color: Color_F32) -> Color {
-	return {
-		u8(color.r * 255),
-		u8(color.g * 255),
-		u8(color.b * 255),
-		u8(color.a * 255),
-	}
+	return (Color)(color*255)
 }
