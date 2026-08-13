@@ -170,32 +170,6 @@ load_texture :: proc($name: string) -> k2.Texture {
 
 The `$` in front of the `name` parameter ensures that you're passing a compile-time constant, which makes it possible to use `#load` within the web version.
 
-## Coordinate system
-
-By default the origin is in the top-left corner of the screen and Y grows downwards, like most other
-2D libraries. That's `Y_Axis.Down`, and it's what you get when you draw without a camera.
-
-A camera can point Y the other way. Set `y_axis = .Up` on it and, while it is active, the origin is
-in the bottom-left corner and Y grows upwards:
-
-```odin
-WORLD_CAMERA :: k2.Camera { zoom = 1, y_axis = .Up }
-
-k2.set_camera(WORLD_CAMERA)
-// ... draw the game world, Y up ...
-
-k2.set_camera(nil)
-k2.draw_text("Score: 10", {20, 20}, 24, k2.WHITE) // ... and the HUD, Y down
-```
-
-Some physics engines, such as Box2D, use Y up. Matching them means positions and angles pass straight
-between the two with no conversion. This is what `examples/box2d` does.
-
-There is no build flag: because the axis belongs to the camera, one program can use both, and code
-you paste from elsewhere brings its own camera with it. A few things are measured from the top-left
-of the surface under every camera: the mouse (use `screen_to_camera` to bring it into a camera's
-coordinates), `set_scissor_rect`, and the `rect_*` helpers.
-
 ## Hot reload
 Some kind of gameplay code hot reload is planned as part of the library. Currently, there is an experimental implementation of this in a separate repository: https://github.com/karl-zylinski/karl2d-hot-reload-template
 
