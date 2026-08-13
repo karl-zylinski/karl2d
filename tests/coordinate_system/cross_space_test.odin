@@ -211,3 +211,77 @@ mouse_position_converts_per_camera :: proc(t: ^testing.T) {
 		abs(back.x - mouse.x) <= EPSILON && abs(back.y - mouse.y) <= EPSILON,
 		"round trip gave (%.2f, %.2f)", back.x, back.y)
 }
+
+// A screen rectangle under a Y down camera with no target or zoom is itself.
+@(test)
+screen_to_camera_rect_is_identity_under_a_plain_screen_camera :: proc(t: ^testing.T) {
+	setup()
+
+	got := k2.screen_to_camera_rect({ 100, 100, 40, 20 }, SCREEN_CAMERA)
+	expect_rect(t, got, { 100, 100, 40, 20 }, "plain screen camera")
+}
+
+// Under a Y up camera the rectangle mirrors about the surface, and `y` changes which edge it names:
+// the screen rect's bottom edge (120 from the top) becomes the camera rect's `y`, measured up from
+// the bottom. That is the `- h` term that makes converting the corners one at a time go wrong.
+@(test)
+screen_to_camera_rect_mirrors_and_re_anchors :: proc(t: ^testing.T) {
+	setup()
+
+	got := k2.screen_to_camera_rect({ 100, 100, 40, 20 }, WORLD_CAMERA)
+	expect_rect(t, got, { 100, SURFACE_H - 120, 40, 20 }, "world camera")
+}
+
+// Zoom and target have to be accounted for, which is what hand-rolled conversions tend to miss:
+// dividing the size by the zoom is right, but ignoring the target shifts the whole rectangle.
+@(test)
+screen_to_camera_rect_accounts_for_zoom_and_target :: proc(t: ^testing.T) {
+	setup()
+
+	camera := k2.Camera { zoom = 2, target = { 10, 20 }, y_axis = .Down }
+
+	// The camera halves everything and then puts screen (0, 0) at world (10, 20).
+	got := k2.screen_to_camera_rect({ 100, 100, 40, 20 }, camera)
+	expect_rect(t, got, { 60, 70, 20, 10 }, "zoom and target")
+}
+
+// A rotated camera cannot be described by an axis-aligned Rect, so the result is the bounds. It
+// contains the rectangle and is bigger than it, and each corner still lands where the point
+// conversion puts it.
+@(test)
+screen_to_camera_rect_bounds_a_rotated_camera :: proc(t: ^testing.T) {
+	setup()
+
+	camera := k2.Camera { zoom = 1, rotation = 0.3, y_axis = .Down }
+	r := k2.Rect { 100, 100, 40, 20 }
+	got := k2.screen_to_camera_rect(r, camera)
+
+	testing.expectf(t, got.w > r.w && got.h > r.h,
+		"rotated bounds should be bigger than the rectangle, got %.2f x %.2f", got.w, got.h)
+
+	// Every corner the point conversion produces is inside the reported bounds.
+	corners := [4]k2.Vec2 {
+		k2.screen_to_camera({ r.x,       r.y       }, camera),
+		k2.screen_to_camera({ r.x + r.w, r.y       }, camera),
+		k2.screen_to_camera({ r.x,       r.y + r.h }, camera),
+		k2.screen_to_camera({ r.x + r.w, r.y + r.h }, camera),
+	}
+
+	for c, i in corners {
+		inside :=
+			c.x >= got.x - EPSILON && c.x <= got.x + got.w + EPSILON &&
+			c.y >= got.y - EPSILON && c.y <= got.y + got.h + EPSILON
+
+		testing.expectf(t, inside, "corner %v at (%.2f, %.2f) is outside the bounds", i, c.x, c.y)
+	}
+}
+
+expect_rect :: proc(t: ^testing.T, got, expected: k2.Rect, what: string, loc := #caller_location) {
+	ok :=
+		abs(got.x - expected.x) <= EPSILON && abs(got.y - expected.y) <= EPSILON &&
+		abs(got.w - expected.w) <= EPSILON && abs(got.h - expected.h) <= EPSILON
+
+	testing.expectf(t, ok, "%v: expected (%.2f, %.2f, %.2f, %.2f), got (%.2f, %.2f, %.2f, %.2f)",
+		what, expected.x, expected.y, expected.w, expected.h,
+		got.x, got.y, got.w, got.h, loc = loc)
+}

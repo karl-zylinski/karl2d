@@ -977,6 +977,18 @@ set_camera :: proc(camera: Maybe(Camera))
 //     mouse := k2.screen_to_camera(k2.get_mouse_position(), camera)
 screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2
 
+// Bring a screen-space rectangle into the coordinates `camera` draws in. Use it to work out what
+// part of the world is on screen, for example to skip things that are outside it:
+//
+//     visible := k2.screen_to_camera_rect({0, 0, k2.get_screen_size().x, ...}, camera)
+//
+// Converting the corners one at a time is not enough: a Rect's `y` is its top edge in `.Down` and
+// its bottom edge in `.Up`, so the anchor moves as well as the position. This does that for you.
+//
+// The result is the axis-aligned bounds of `r`. That is `r` itself when the camera has no rotation,
+// and the rectangle that contains it when it does, which is the most an axis-aligned Rect can say.
+screen_to_camera_rect :: proc(r: Rect, camera: Camera) -> Rect
+
 // Take a point `pos` in the coordinates `camera` draws in back out to the screen. Useful when you
 // need to compare something you drew against a screen-space position.
 camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2

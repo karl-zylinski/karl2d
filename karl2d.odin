@@ -4324,6 +4324,35 @@ screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return (camera_inverse_view_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
 }
 
+// Bring a screen-space rectangle into the coordinates `camera` draws in. Use it to work out what
+// part of the world is on screen, for example to skip things that are outside it:
+//
+//     visible := k2.screen_to_camera_rect({0, 0, k2.get_screen_size().x, ...}, camera)
+//
+// Converting the corners one at a time is not enough: a Rect's `y` is its top edge in `.Down` and
+// its bottom edge in `.Up`, so the anchor moves as well as the position. This does that for you.
+//
+// The result is the axis-aligned bounds of `r`. That is `r` itself when the camera has no rotation,
+// and the rectangle that contains it when it does, which is the most an axis-aligned Rect can say.
+screen_to_camera_rect :: proc(r: Rect, camera: Camera) -> Rect {
+	// All four corners, since a rotated camera turns the rectangle and then any two opposite
+	// corners would miss the other two.
+	a := screen_to_camera({r.x,       r.y      }, camera)
+	b := screen_to_camera({r.x + r.w, r.y      }, camera)
+	c := screen_to_camera({r.x,       r.y + r.h}, camera)
+	d := screen_to_camera({r.x + r.w, r.y + r.h}, camera)
+
+	min_x := min(a.x, b.x, c.x, d.x)
+	max_x := max(a.x, b.x, c.x, d.x)
+	min_y := min(a.y, b.y, c.y, d.y)
+	max_y := max(a.y, b.y, c.y, d.y)
+
+	// A Rect is its minimum corner plus positive extents whichever way Y points: `y` is the top
+	// edge in `.Down` and the bottom edge in `.Up`, and both are the smaller number. So taking the
+	// minimum anchors the result correctly in either without asking which one is in use.
+	return { min_x, min_y, max_x - min_x, max_y - min_y }
+}
+
 // Take a point `pos` in the coordinates `camera` draws in back out to the screen. Useful when you
 // need to compare something you drew against a screen-space position.
 camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
