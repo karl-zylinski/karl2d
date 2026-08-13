@@ -180,6 +180,7 @@ init :: proc(
 
 	s.events = make([dynamic]Event, s.allocator)
 	s.typed_runes = make([dynamic]rune, s.allocator)
+	s.touch_mouse_emulation = true
 
 	// Audio
 	{
@@ -352,9 +353,88 @@ process_events :: proc() {
 	s.mouse_delta = {}
 	s.mouse_wheel_delta = 0
 
+	// Drop touches that ended last frame (they were kept around for one frame so `went_up` could be
+	// observed), then clear the remaining touches' per-frame flags.
+	touches_write := 0
+	for touches_read in 0..<s.touches_count {
+		t := s.touches[touches_read]
+		if t.went_up {
+			continue
+		}
+
+		t.went_down = false
+		t.delta = {}
+		s.touches[touches_write] = t
+		touches_write += 1
+	}
+	s.touches_count = touches_write
+
 	runtime.clear(&s.events)
 	runtime.clear(&s.typed_runes)
 	pf.get_events(&s.events)
+
+	// Synthesize mouse events from the first touch, so a program that never calls `get_touches`
+	// still works on a touch device. This runs before the loop below, and puts events into
+	// `s.events` rather than updating state directly, so both that loop and a `get_events` caller
+	// see the same events a real mouse would have produced.
+	//
+	// The synthesized events are injected right behind the touch they came from, not appended at
+	// the end. Order within the frame matters: a window losing focus in the same frame as a touch
+	// going down has to be seen after the button press it is meant to release, or the emulated
+	// button would stay held with nothing left to release it.
+	if s.touch_mouse_emulation {
+		i := 0
+
+		for i < len(s.events) {
+			injected := 0
+
+			#partial switch e in s.events[i] {
+			case Event_Touch_Went_Down:
+				if !s.emulated_touch_active {
+					s.emulated_touch = e.id
+					s.emulated_touch_active = true
+
+					// A teleport rather than a move: the cursor is jumping to wherever the finger
+					// landed, which is not motion the program should see as mouse delta. Without
+					// this, a program that drags using `get_mouse_delta` lurches on every tap.
+					inject_at(&s.events, i + 1,
+						Event_Mouse_Teleported { position = e.position },
+						Event_Mouse_Button_Went_Down { button = .Left },
+					)
+					injected = 2
+				}
+
+			case Event_Touch_Moved:
+				if s.emulated_touch_active && e.id == s.emulated_touch {
+					inject_at(&s.events, i + 1, Event_Mouse_Move { position = e.position })
+					injected = 1
+				}
+
+			case Event_Touch_Went_Up:
+				if s.emulated_touch_active && e.id == s.emulated_touch {
+					inject_at(&s.events, i + 1, Event_Mouse_Button_Went_Up { button = .Left })
+					injected = 1
+					s.emulated_touch_active = false
+				}
+
+			case Event_Touch_Cancelled:
+				if s.emulated_touch_active && e.id == s.emulated_touch {
+					inject_at(&s.events, i + 1, Event_Mouse_Button_Went_Up { button = .Left })
+					injected = 1
+					s.emulated_touch_active = false
+				}
+
+			case Event_Window_Unfocused:
+				// The loop below already releases every held mouse button on focus loss, emulated
+				// or not. All that's left here is to let a new touch drive the emulation again.
+				s.emulated_touch_active = false
+			}
+
+			// Step over the event we just looked at and anything injected after it, so injected
+			// events are never themselves scanned.
+			i += 1 + injected
+		}
+	}
 
 	for &event in s.events {
 		switch &e in event {
@@ -409,6 +489,38 @@ process_events :: proc() {
 		case Event_Mouse_Wheel:
 			s.mouse_wheel_delta = e.delta
 
+		case Event_Touch_Went_Down:
+			if s.touches_count < MAX_TOUCHES {
+				s.touches[s.touches_count] = Touch {
+					id = e.id,
+					position = e.position,
+					went_down = true,
+				}
+				s.touches_count += 1
+			} else {
+				log.warnf("Dropped a touch, already tracking the maximum of %v touches", MAX_TOUCHES)
+			}
+
+		case Event_Touch_Moved:
+			if t := _find_touch(e.id); t != nil {
+				t.delta += e.position - t.position
+				t.position = e.position
+			}
+
+		case Event_Touch_Went_Up:
+			if t := _find_touch(e.id); t != nil {
+				t.delta += e.position - t.position
+				t.position = e.position
+				t.went_up = true
+			}
+
+		case Event_Touch_Cancelled:
+			if t := _find_touch(e.id); t != nil {
+				// Position and delta are left as they are, see `Event_Touch_Cancelled`.
+				t.went_up = true
+				t.cancelled = true
+			}
+
 		case Event_Gamepad_Button_Went_Down:
 			if e.gamepad < MAX_GAMEPADS {
 				s.gamepad_button_went_down[e.gamepad][e.button] = true
@@ -451,6 +563,13 @@ process_events :: proc() {
 						s.gamepad_button_is_held[gp][b] = false
 						s.gamepad_button_went_up[gp][b] = true
 					}
+				}
+			}
+
+			for &t in s.touches[:s.touches_count] {
+				if !t.went_up {
+					t.went_up = true
+					t.cancelled = true
 				}
 			}
 
@@ -630,6 +749,39 @@ key_is_held :: proc(key: Keyboard_Key) -> bool {
 // using the `slice.clone` procedure (import `core:slice`).
 get_typed_runes :: proc() -> []rune {
 	return s.typed_runes[:]
+}
+
+// Returns all touches that were active at any point during this frame, including those that ended
+// this frame (those have `went_up` set).
+//
+// Warning: The returned slice is only valid during the current frame!
+get_touches :: proc() -> []Touch {
+	assert_initialized()
+	return s.touches[:s.touches_count]
+}
+
+// Enabled by default. While enabled, the first touch drives the mouse: it moves the mouse position
+// and presses the left mouse button. That makes programs that only know about the mouse work on a
+// touch device.
+//
+// Turn this off when you handle touches yourself, otherwise one tap arrives both as a touch and as
+// a left click.
+set_touch_mouse_emulation :: proc(enabled: bool) {
+	assert_initialized()
+
+	// Turning emulation off while a finger is mid-press would otherwise leave the emulated button
+	// held for good: the pass that synthesizes the matching release stops running. Release it here
+	// instead, so the button state the program sees is the same as if the finger had lifted.
+	if !enabled && s.emulated_touch_active {
+		s.emulated_touch_active = false
+
+		if s.mouse_button_is_held[.Left] {
+			s.mouse_button_is_held[.Left] = false
+			s.mouse_button_went_up[.Left] = true
+		}
+	}
+
+	s.touch_mouse_emulation = enabled
 }
 
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
@@ -4450,16 +4602,20 @@ ui_button_width :: proc(text: string, button_height: f32) -> f32 {
 	return measure_text(text, button_height).x
 }
 
-// Experimental UI button. Returns true if the button was pressed. Currently only works properly
-// when no camera is set.
+// Experimental UI button. Returns true if the button was pressed. `r` is in the space of whatever
+// camera is currently set (see `set_camera`), same as any other drawing call.
 //
-// Mainly used by the samples in order to create the "Source" button.
-//
-// Note that this does not support zoomed cameras right now, since it uses unscaled mouse positions.
-// As this is experimental, you are probably better off copying this procedure to your own code and
-// modifying it, rather than using it as-is.
+// Mainly used by the samples in order to create the "Source" button. As this is experimental, you
+// are probably better off copying this procedure to your own code and modifying it, rather than
+// using it as-is.
 ui_button :: proc(r: Rect, text: string) -> bool {
-	in_rect := point_in_rect(get_mouse_position(), r)
+	mouse_pos := get_mouse_position()
+
+	if cam, cam_ok := s.current_camera.?; cam_ok && cam.zoom > 0.001 {
+		mouse_pos = screen_to_world(mouse_pos, cam)
+	}
+
+	in_rect := point_in_rect(mouse_pos, r)
 	bg_color := DARK_GRAY
 	border_color := WHITE
 	text_color := WHITE
@@ -5045,6 +5201,14 @@ State :: struct {
 	mouse_button_went_up: #sparse [Mouse_Button]bool,
 	mouse_button_is_held: #sparse [Mouse_Button]bool,
 
+	touches: [MAX_TOUCHES]Touch,
+	touches_count: int,
+
+	// See `set_touch_mouse_emulation`.
+	touch_mouse_emulation: bool,
+	emulated_touch: Touch_Id,
+	emulated_touch_active: bool,
+
 	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
@@ -5128,6 +5292,33 @@ Mouse_Button :: enum {
 	Right,
 	Middle,
 	Max = 255,
+}
+
+// The maximum number of touches Karl2D tracks at once.
+MAX_TOUCHES :: 10
+
+// Identifies one finger for as long as it stays on the screen. Stable from the moment the touch
+// goes down until it goes up. Ids may be reused after that.
+Touch_Id :: distinct u64
+
+Touch :: struct {
+	id: Touch_Id,
+
+	// Measured from the top-left corner of the window, like `get_mouse_position`.
+	position: Vec2,
+
+	// How many pixels the touch moved between the previous and the current frame.
+	delta: Vec2,
+
+	// The touch started this frame.
+	went_down: bool,
+
+	// The touch ended this frame. It stays in the list for this one frame, so you can react to it.
+	went_up: bool,
+
+	// The OS threw the touch away, for example due to palm rejection or the window losing focus.
+	// `went_up` is set as well, so code that doesn't care about the difference still works.
+	cancelled: bool,
 }
 
 // Based on Raylib / GLFW
@@ -5321,6 +5512,10 @@ Event :: union {
 	Event_Window_Focused,
 	Event_Window_Unfocused,
 	Event_Window_Scale_Changed,
+	Event_Touch_Went_Down,
+	Event_Touch_Moved,
+	Event_Touch_Went_Up,
+	Event_Touch_Cancelled,
 }
 
 Event_Key_Went_Down :: struct {
@@ -5393,6 +5588,16 @@ Event_Window_Focused :: struct {}
 
 Event_Window_Unfocused :: struct {}
 
+Event_Touch_Went_Down :: struct { id: Touch_Id, position: Vec2 }
+Event_Touch_Moved     :: struct { id: Touch_Id, position: Vec2 }
+Event_Touch_Went_Up   :: struct { id: Touch_Id, position: Vec2 }
+
+// No position: a cancelled touch is one the OS took away rather than one the user lifted, and not
+// every platform can say where it was when that happened (Windows' WM_POINTERCAPTURECHANGED carries
+// a window handle where the other pointer messages carry coordinates). The touch keeps the last
+// position it was seen at, which is what `get_touches` reports for its final frame.
+Event_Touch_Cancelled :: struct { id: Touch_Id }
+
 
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
@@ -5422,6 +5627,18 @@ count_text_lines :: proc "contextless" (text: string) -> int {
 
 assert_initialized :: proc(loc := #caller_location) {
 	assert(s != nil, "Call k2.init before using this Karl2D procedure", loc)
+}
+
+// Finds a currently tracked touch by id. Returns nil if the touch isn't tracked, which happens for
+// example if an up/move event arrives for a touch that started before the window got focus.
+@(private="package")
+_find_touch :: proc(id: Touch_Id) -> ^Touch {
+	for &t in s.touches[:s.touches_count] {
+		if t.id == id {
+			return &t
+		}
+	}
+	return nil
 }
 
 // Run by the drawing procedures before they add any vertices. Draws the batch if `vertices_needed`

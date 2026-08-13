@@ -85,6 +85,15 @@ web_init :: proc(
 	add_window_event_listener(.Mouse_Up, web_event_mouse_up)
 	add_canvas_event_listener(.Wheel, web_event_mouse_wheel)
 
+	// Touch pointers get implicit pointer capture in browsers: once a finger goes down on the
+	// canvas, its later pointermove/pointerup/pointercancel keep targeting the canvas even if the
+	// finger drags outside its bounds. That is why, unlike Mouse_Up above, Pointer_Up doesn't need
+	// to be a window listener.
+	add_canvas_event_listener(.Pointer_Down, web_event_pointer_down)
+	add_canvas_event_listener(.Pointer_Move, web_event_pointer_move)
+	add_canvas_event_listener(.Pointer_Up, web_event_pointer_up)
+	add_canvas_event_listener(.Pointer_Cancel, web_event_pointer_cancel)
+
 	add_window_event_listener(.Key_Down, web_event_key_down)
 	add_window_event_listener(.Key_Up, web_event_key_up)
 	add_window_event_listener(.Focus, web_event_focus)
@@ -219,6 +228,56 @@ web_event_mouse_wheel :: proc(e: js.Event) {
 		// is in pixels, how much "scroll" does that equal to?
 		delta = f32(e.wheel.delta.y > 0 ? -1 : 1),
 	})
+}
+
+// Mouse and pen pointers already flow through the Mouse_* and Wheel listeners above, so these
+// only care about pointer_type == .Touch. Mouse and pen behaviour is unchanged by any of this.
+web_event_pointer_down :: proc(e: js.Event) {
+	if e.mouse.pointer.pointer_type != .Touch {
+		return
+	}
+
+	append(&s.events, Event_Touch_Went_Down {
+		id = Touch_Id(e.mouse.pointer.pointer_id),
+		position = web_touch_position(e),
+	})
+}
+
+web_event_pointer_move :: proc(e: js.Event) {
+	if e.mouse.pointer.pointer_type != .Touch {
+		return
+	}
+
+	append(&s.events, Event_Touch_Moved {
+		id = Touch_Id(e.mouse.pointer.pointer_id),
+		position = web_touch_position(e),
+	})
+}
+
+web_event_pointer_up :: proc(e: js.Event) {
+	if e.mouse.pointer.pointer_type != .Touch {
+		return
+	}
+
+	append(&s.events, Event_Touch_Went_Up {
+		id = Touch_Id(e.mouse.pointer.pointer_id),
+		position = web_touch_position(e),
+	})
+}
+
+web_event_pointer_cancel :: proc(e: js.Event) {
+	if e.mouse.pointer.pointer_type != .Touch {
+		return
+	}
+
+	append(&s.events, Event_Touch_Cancelled { id = Touch_Id(e.mouse.pointer.pointer_id) })
+}
+
+web_touch_position :: proc(e: js.Event) -> Vec2 {
+	return {
+		math.floor(f32(e.mouse.client.x) * f32(js.device_pixel_ratio())),
+		math.floor(f32(e.mouse.client.y) * f32(js.device_pixel_ratio())),
+	}
 }
 
 add_canvas_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {

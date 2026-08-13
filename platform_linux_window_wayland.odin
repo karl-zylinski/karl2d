@@ -311,6 +311,25 @@ seat_listener := wl.Seat_Listener {
 			wl.keyboard_release(s.keyboard)
 			s.keyboard = nil
 		}
+
+		if .Touch in capabilities {
+			if s.touch != nil {
+				wl.touch_release(s.touch)
+			}
+
+			s.touch = wl.seat_get_touch(seat)
+			wl.add_listener(s.touch, &touch_listener, nil)
+		} else if s.touch != nil {
+			// The seat is dropping touch while fingers may still be down, and no more wl_touch
+			// events are coming for them. Cancel them here, or they would be stuck down forever.
+			for t in s.active_touches[:s.active_touches_count] {
+				append(&s.events, Event_Touch_Cancelled { id = Touch_Id(t.id) })
+			}
+
+			s.active_touches_count = 0
+			wl.touch_release(s.touch)
+			s.touch = nil
+		}
 	},
 	name = proc "c" (data: rawptr, seat: ^wl.Seat, name: cstring) {},
 }
@@ -654,6 +673,124 @@ pointer_listener := wl.Pointer_Listener {
 		pointer: ^wl.Pointer,
 		axis: c.uint32_t,
 		direction: c.uint32_t,
+	) {},
+}
+
+WL_Active_Touch :: struct {
+	id: c.int32_t,
+	position: Vec2,
+}
+
+wl_find_active_touch :: proc(id: c.int32_t) -> ^WL_Active_Touch {
+	for &t in s.active_touches[:s.active_touches_count] {
+		if t.id == id {
+			return &t
+		}
+	}
+	return nil
+}
+
+wl_remove_active_touch :: proc(id: c.int32_t) {
+	for i in 0..<s.active_touches_count {
+		if s.active_touches[i].id == id {
+			s.active_touches[i] = s.active_touches[s.active_touches_count - 1]
+			s.active_touches_count -= 1
+			return
+		}
+	}
+}
+
+touch_listener := wl.Touch_Listener {
+	down = proc "c" (
+		data: rawptr,
+		touch: ^wl.Touch,
+		serial: c.uint32_t,
+		time: c.uint32_t,
+		surface: ^wl.Surface,
+		id: c.int32_t,
+		x: wl.Fixed,
+		y: wl.Fixed,
+	) {
+		context = s.odin_ctx
+
+		position := Vec2 { math.floor(f32(x >> 8) * s.scale), math.floor(f32(y >> 8) * s.scale) }
+
+		if s.active_touches_count < len(s.active_touches) {
+			s.active_touches[s.active_touches_count] = { id = id, position = position }
+			s.active_touches_count += 1
+		}
+
+		append(&s.events, Event_Touch_Went_Down {
+			id = Touch_Id(id),
+			position = position,
+		})
+	},
+	up = proc "c" (
+		data: rawptr,
+		touch: ^wl.Touch,
+		serial: c.uint32_t,
+		time: c.uint32_t,
+		id: c.int32_t,
+	) {
+		context = s.odin_ctx
+
+		// wl_touch's up event carries no position, so we report the last one motion/down gave us.
+		position: Vec2
+		if t := wl_find_active_touch(id); t != nil {
+			position = t.position
+		}
+		wl_remove_active_touch(id)
+
+		append(&s.events, Event_Touch_Went_Up {
+			id = Touch_Id(id),
+			position = position,
+		})
+	},
+	motion = proc "c" (
+		data: rawptr,
+		touch: ^wl.Touch,
+		time: c.uint32_t,
+		id: c.int32_t,
+		x: wl.Fixed,
+		y: wl.Fixed,
+	) {
+		context = s.odin_ctx
+
+		position := Vec2 { math.floor(f32(x >> 8) * s.scale), math.floor(f32(y >> 8) * s.scale) }
+
+		if t := wl_find_active_touch(id); t != nil {
+			t.position = position
+		}
+
+		append(&s.events, Event_Touch_Moved {
+			id = Touch_Id(id),
+			position = position,
+		})
+	},
+	frame = proc "c" (data: rawptr, touch: ^wl.Touch) {},
+	cancel = proc "c" (data: rawptr, touch: ^wl.Touch) {
+		context = s.odin_ctx
+
+		// wl_touch's cancel applies to every touch currently active on this client, not just the
+		// one this listener happens to be attached to, so it is replayed as a cancellation for each.
+		for t in s.active_touches[:s.active_touches_count] {
+			append(&s.events, Event_Touch_Cancelled { id = Touch_Id(t.id) })
+		}
+
+		s.active_touches_count = 0
+	},
+	shape = proc "c" (
+		data: rawptr,
+		touch: ^wl.Touch,
+		id: c.int32_t,
+		major: wl.Fixed,
+		minor: wl.Fixed,
+	) {},
+	orientation = proc "c" (
+		data: rawptr,
+		touch: ^wl.Touch,
+		id: c.int32_t,
+		orientation: wl.Fixed,
 	) {},
 }
 
@@ -1248,6 +1385,13 @@ WL_State :: struct {
 	pointer: ^wl.Pointer,
 	pointer_enter_serial: u32,
 	cursor_hidden: bool,
+
+	touch: ^wl.Touch,
+
+	// wl_touch's up/cancel events don't carry a position, so we keep the last one motion/down gave
+	// us for each currently active touch.
+	active_touches: [MAX_TOUCHES]WL_Active_Touch,
+	active_touches_count: int,
 	shm: ^wl.SHM,
 	cursor_surface: ^wl.Surface,
 	cursor_theme: ^wl.Cursor_Theme,
