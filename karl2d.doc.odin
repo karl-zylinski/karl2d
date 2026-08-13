@@ -526,6 +526,16 @@ set_texture_filter_ex :: proc(
 // The sound will be mixed when `update_audio_mixer` runs, which happens as part of `update`.
 play_sound :: proc(sound: Sound)
 
+// Play an audio buffer once, using the playback settings you pass in. This is a shortcut for
+// one-shot sounds such as gunshots and footsteps: You don't need to create a `Sound` for the
+// buffer, and each call starts a separate playback, so repeated calls overlap instead of
+// restarting each other.
+//
+// You get nothing back, so there is no way to stop or modify the playback once it has started.
+// Create a `Sound` using `create_sound_from_audio_buffer` when you need that control. That is also
+// why there is no looping here: A looping playback that nothing can stop would play forever.
+play_audio_buffer :: proc(ab: Audio_Buffer, volume: f32 = 1, pan: f32 = 0, pitch: f32 = 1)
+
 // Stop a sound. Rewinds it to the start.
 stop_sound :: proc(sound: Sound)
 

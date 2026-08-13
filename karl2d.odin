@@ -1857,6 +1857,41 @@ play_sound :: proc(sound: Sound) {
 	}
 }
 
+// Play an audio buffer once, using the playback settings you pass in. This is a shortcut for
+// one-shot sounds such as gunshots and footsteps: You don't need to create a `Sound` for the
+// buffer, and each call starts a separate playback, so repeated calls overlap instead of
+// restarting each other.
+//
+// You get nothing back, so there is no way to stop or modify the playback once it has started.
+// Create a `Sound` using `create_sound_from_audio_buffer` when you need that control. That is also
+// why there is no looping here: A looping playback that nothing can stop would play forever.
+play_audio_buffer :: proc(ab: Audio_Buffer, volume: f32 = 1, pan: f32 = 0, pitch: f32 = 1) {
+	audio_buffer_object := hm.get(&s.audio_buffers, ab)
+
+	if audio_buffer_object == nil {
+		log.error("Cannot play audio buffer, audio buffer does not exist.")
+		return
+	}
+
+	playback_settings := Audio_Buffer_Playback_Settings {
+		volume = clamp(volume, 0, 1),
+		pan = clamp(pan, -1, 1),
+		pitch = max(pitch, 0.01),
+	}
+
+	playing_audio_buffer := Playing_Audio_Buffer {
+		audio_buffer = ab,
+		target_settings = playback_settings,
+		current_settings = playback_settings,
+	}
+
+	_, add_err := hm.add(&s.playing_audio_buffers, playing_audio_buffer)
+
+	if add_err != nil {
+		log.errorf("Failed playing audio buffer. Error: %v", add_err)
+	}
+}
+
 // Stop a sound. Rewinds it to the start.
 stop_sound :: proc(sound: Sound) {
 	sound_object := hm.get(&s.sounds, sound)
