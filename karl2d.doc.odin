@@ -210,6 +210,14 @@ get_typed_runes :: proc() -> []rune
 // Warning: The returned slice is only valid during the current frame!
 get_touches :: proc() -> []Touch
 
+// Enabled by default. While enabled, the first touch drives the mouse: it moves the mouse position
+// and presses the left mouse button. That makes programs that only know about the mouse work on a
+// touch device.
+//
+// Turn this off when you handle touches yourself, otherwise one tap arrives both as a touch and as
+// a left click.
+set_touch_mouse_emulation :: proc(enabled: bool)
+
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
 // You can check that an exact set of modifiers are held like so:
 //
@@ -1556,6 +1564,11 @@ State :: struct {
 
 	touches: [MAX_TOUCHES]Touch,
 	touches_count: int,
+
+	// See `set_touch_mouse_emulation`.
+	touch_mouse_emulation: bool,
+	emulated_touch: Touch_Id,
+	emulated_touch_active: bool,
 
 	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,

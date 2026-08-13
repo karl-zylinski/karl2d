@@ -152,6 +152,7 @@ init :: proc(
 
 	s.events = make([dynamic]Event, s.allocator)
 	s.typed_runes = make([dynamic]rune, s.allocator)
+	s.touch_mouse_emulation = true
 
 	// Audio
 	{
@@ -343,6 +344,53 @@ process_events :: proc() {
 	runtime.clear(&s.events)
 	runtime.clear(&s.typed_runes)
 	pf.get_events(&s.events)
+
+	// Synthesize mouse events from the first touch, so a program that never calls `get_touches`
+	// still works on a touch device. This has to run before the loop below, and append onto
+	// `s.events` rather than update state directly, so both that loop and a `get_events` caller see
+	// the same synthesized events a real mouse would have produced.
+	//
+	// `received_count` is the platform's events only: appending inside the loop must not make it
+	// scan its own output.
+	if s.touch_mouse_emulation {
+		received_count := len(s.events)
+
+		for i in 0..<received_count {
+			#partial switch e in s.events[i] {
+			case Event_Touch_Went_Down:
+				if !s.emulated_touch_active {
+					s.emulated_touch = e.id
+					s.emulated_touch_active = true
+
+					// Move first, so the click lands where the finger is.
+					append(&s.events, Event_Mouse_Move { position = e.position })
+					append(&s.events, Event_Mouse_Button_Went_Down { button = .Left })
+				}
+
+			case Event_Touch_Moved:
+				if s.emulated_touch_active && e.id == s.emulated_touch {
+					append(&s.events, Event_Mouse_Move { position = e.position })
+				}
+
+			case Event_Touch_Went_Up:
+				if s.emulated_touch_active && e.id == s.emulated_touch {
+					append(&s.events, Event_Mouse_Button_Went_Up { button = .Left })
+					s.emulated_touch_active = false
+				}
+
+			case Event_Touch_Cancelled:
+				if s.emulated_touch_active && e.id == s.emulated_touch {
+					append(&s.events, Event_Mouse_Button_Went_Up { button = .Left })
+					s.emulated_touch_active = false
+				}
+
+			case Event_Window_Unfocused:
+				// The loop below already releases every held mouse button on focus loss, emulated
+				// or not. All that's left here is to let a new touch drive the emulation again.
+				s.emulated_touch_active = false
+			}
+		}
+	}
 
 	for &event in s.events {
 		switch &e in event {
@@ -656,6 +704,17 @@ get_typed_runes :: proc() -> []rune {
 get_touches :: proc() -> []Touch {
 	assert_initialized()
 	return s.touches[:s.touches_count]
+}
+
+// Enabled by default. While enabled, the first touch drives the mouse: it moves the mouse position
+// and presses the left mouse button. That makes programs that only know about the mouse work on a
+// touch device.
+//
+// Turn this off when you handle touches yourself, otherwise one tap arrives both as a touch and as
+// a left click.
+set_touch_mouse_emulation :: proc(enabled: bool) {
+	assert_initialized()
+	s.touch_mouse_emulation = enabled
 }
 
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
@@ -4953,6 +5012,11 @@ State :: struct {
 
 	touches: [MAX_TOUCHES]Touch,
 	touches_count: int,
+
+	// See `set_touch_mouse_emulation`.
+	touch_mouse_emulation: bool,
+	emulated_touch: Touch_Id,
+	emulated_touch_active: bool,
 
 	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
