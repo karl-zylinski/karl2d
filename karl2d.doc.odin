@@ -258,7 +258,14 @@ mouse_button_went_up :: proc(button: Mouse_Button) -> bool
 mouse_button_is_held :: proc(button: Mouse_Button) -> bool
 
 // Returns how many clicks the mouse wheel has scrolled between the previous and current frame.
+// Positive means scrolling up.
 get_mouse_wheel_delta :: proc() -> f32
+
+// Returns how many clicks the horizontal mouse wheel has scrolled between the previous and current
+// frame. Positive means scrolling right.
+//
+// A tilt wheel or a two-finger sideways swipe on a trackpad drives this one.
+get_mouse_wheel_delta_horizontal :: proc() -> f32
 
 // Returns the mouse position, measured from the top-left corner of the window.
 //
@@ -1579,6 +1586,7 @@ State :: struct {
 	mouse_position: Vec2,
 	mouse_delta: Vec2,
 	mouse_wheel_delta: f32,
+	mouse_wheel_delta_horizontal: f32,
 
 	key_went_down: #sparse [Keyboard_Key]bool,
 	key_went_up: #sparse [Keyboard_Key]bool,
@@ -1855,6 +1863,7 @@ Event :: union {
 	Event_Typed_Rune,
 	Event_Mouse_Move,
 	Event_Mouse_Wheel,
+	Event_Mouse_Wheel_Horizontal,
 	Event_Mouse_Button_Went_Down,
 	Event_Mouse_Button_Went_Up,
 	Event_Mouse_Teleported,
@@ -1916,7 +1925,14 @@ Event_Mouse_Move :: struct {
 	position: Vec2,
 }
 
+// The vertical mouse wheel scrolled. `delta` is positive when scrolling up.
 Event_Mouse_Wheel :: struct {
+	delta: f32,
+}
+
+// The horizontal mouse wheel scrolled. `delta` is positive when scrolling right. A tilt wheel or a
+// two-finger sideways swipe on a trackpad drives this one.
+Event_Mouse_Wheel_Horizontal :: struct {
 	delta: f32,
 }
 

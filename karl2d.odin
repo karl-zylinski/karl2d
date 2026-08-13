@@ -351,6 +351,7 @@ process_events :: proc() {
 	s.gamepad_button_went_down = {}
 	s.mouse_delta = {}
 	s.mouse_wheel_delta = 0
+	s.mouse_wheel_delta_horizontal = 0
 
 	runtime.clear(&s.events)
 	runtime.clear(&s.typed_runes)
@@ -408,6 +409,9 @@ process_events :: proc() {
 
 		case Event_Mouse_Wheel:
 			s.mouse_wheel_delta = e.delta
+
+		case Event_Mouse_Wheel_Horizontal:
+			s.mouse_wheel_delta_horizontal = e.delta
 
 		case Event_Gamepad_Button_Went_Down:
 			if e.gamepad < MAX_GAMEPADS {
@@ -688,8 +692,17 @@ mouse_button_is_held :: proc(button: Mouse_Button) -> bool {
 }
 
 // Returns how many clicks the mouse wheel has scrolled between the previous and current frame.
+// Positive means scrolling up.
 get_mouse_wheel_delta :: proc() -> f32 {
 	return s.mouse_wheel_delta
+}
+
+// Returns how many clicks the horizontal mouse wheel has scrolled between the previous and current
+// frame. Positive means scrolling right.
+//
+// A tilt wheel or a two-finger sideways swipe on a trackpad drives this one.
+get_mouse_wheel_delta_horizontal :: proc() -> f32 {
+	return s.mouse_wheel_delta_horizontal
 }
 
 // Returns the mouse position, measured from the top-left corner of the window.
@@ -5035,6 +5048,7 @@ State :: struct {
 	mouse_position: Vec2,
 	mouse_delta: Vec2,
 	mouse_wheel_delta: f32,
+	mouse_wheel_delta_horizontal: f32,
 
 	key_went_down: #sparse [Keyboard_Key]bool,
 	key_went_up: #sparse [Keyboard_Key]bool,
@@ -5312,6 +5326,7 @@ Event :: union {
 	Event_Typed_Rune,
 	Event_Mouse_Move,
 	Event_Mouse_Wheel,
+	Event_Mouse_Wheel_Horizontal,
 	Event_Mouse_Button_Went_Down,
 	Event_Mouse_Button_Went_Up,
 	Event_Mouse_Teleported,
@@ -5373,7 +5388,14 @@ Event_Mouse_Move :: struct {
 	position: Vec2,
 }
 
+// The vertical mouse wheel scrolled. `delta` is positive when scrolling up.
 Event_Mouse_Wheel :: struct {
+	delta: f32,
+}
+
+// The horizontal mouse wheel scrolled. `delta` is positive when scrolling right. A tilt wheel or a
+// two-finger sideways swipe on a trackpad drives this one.
+Event_Mouse_Wheel_Horizontal :: struct {
 	delta: f32,
 }
 
