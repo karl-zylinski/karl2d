@@ -46,8 +46,7 @@ capture_uv_draw :: proc(vertex_buffer: []u8, draw_calls: []k2.Draw_Call) {
 			append(&captured_uvs, UV_Vertex {
 				y_from_top = (1 - ndc.y) * 0.5 * SURFACE_H,
 				v = uv.y,
-			},
-		)
+			})
 		}
 	}
 }

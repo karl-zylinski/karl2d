@@ -3613,8 +3613,7 @@ load_static_font_from_bytes :: proc(
 				value = c,
 				index = int(idx),
 				advance = f32(advance) * scale_factor,
-			},
-		)
+			})
 		}
 	}
 
