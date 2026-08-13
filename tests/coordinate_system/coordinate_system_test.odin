@@ -1,21 +1,18 @@
-// Checks that the Y down and Y up coordinate systems draw the same picture.
+// Checks that Y down and Y up draw the same picture.
 //
-// Everything these tests draw is positioned in "screen space": X from the left edge and Y from the
-// TOP edge, regardless of the coordinate system in use. The `screen_*` helpers translate that into
-// whatever the library currently expects, and the results are measured back in the same screen
-// space. So the expected values below are the same in both coordinate systems, and running this
-// package twice is what proves the two agree:
+// Everything these tests draw is positioned in screen space: X from the left edge and Y from the
+// top edge. The `screen_*` helpers translate that into whatever the camera expects, and the results
+// are measured back in the same screen space. So the expected values below hold either way, and
+// running this package twice is what proves the two agree. Once as is, and once with
+// -define:KARL2D_TEST_Y_UP=true. Both runs also need -define:KARL2D_RENDER_BACKEND=nil,
+// -define:KARL2D_AUDIO_BACKEND=nil and -define:ODIN_TEST_THREADS=1.
 //
-//     odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil
-//     odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_TEST_Y_UP=true
+// The define belongs to this package. It picks which axis these checks are written against. See
+// `cross_space_test.odin` for the ones that use both axes at once, which need only one run.
 //
-// The define is this package's, not the library's: the coordinate space is a property of a camera
-// now, so it picks which space these checks run in rather than how Karl2D was built. See
-// `cross_space_test.odin` for the checks that use both spaces at once, which needs only one run.
-//
-// Drawing goes into a fixed-size render texture so the numbers don't depend on the size the window
-// manager hands out, and the nil render backend means no GPU is involved. A window is still opened,
-// because there is no nil platform backend yet, so this only runs where one can be created.
+// Drawing goes into a fixed-size render texture so the numbers do not depend on the size the window
+// manager hands out. The nil render backend means no GPU is involved. A window is still opened, so
+// this only runs where one can be created.
 package karl2d_coordinate_system_test
 
 import k2 "../.."

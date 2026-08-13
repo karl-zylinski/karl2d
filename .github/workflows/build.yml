@@ -44,15 +44,12 @@ jobs:
       - name: test_all_examples
         run: odin run tools/test_examples
 
-      # The coordinate space checks. They open a window, so they run on the Windows runner only,
-      # which is the one guaranteed to have one. Run twice: the package's own KARL2D_TEST_Y_UP
-      # define picks which space the screen-space checks are written against, and both runs also
-      # carry the cross-space checks that use a screen and a world camera in the same frame.
-      - name: coordinate_system tests (screen)
+      # These open a window, so they only run where one can be created.
+      - name: coordinate_system tests (Y down)
         if: matrix.os == 'windows-latest'
         run: odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1
 
-      - name: coordinate_system tests (world)
+      - name: coordinate_system tests (Y up)
         if: matrix.os == 'windows-latest'
         run: odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1 -define:KARL2D_TEST_Y_UP=true
 

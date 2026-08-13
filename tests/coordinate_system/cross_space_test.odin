@@ -1,9 +1,8 @@
-// Checks that use both coordinate spaces in one program.
+// Checks that use both Y axes in one program.
 //
-// None of these were possible while the coordinate system was a build flag: there was only ever one
-// of them in a binary. They are the cases the camera-based design exists to make work, so they are
-// also the ones most worth pinning down. Unlike the rest of the package these do not depend on
-// TEST_Y_AXIS -- they name the spaces they want.
+// A Y down camera and a Y up camera in the same frame, plus the things that do not follow the
+// camera at all. Unlike the rest of the package these do not depend on TEST_Y_AXIS. They name the
+// axis they want.
 package karl2d_coordinate_system_test
 
 import k2 "../.."
