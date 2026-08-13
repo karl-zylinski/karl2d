@@ -4619,25 +4619,20 @@ Camera :: struct {
 	//     k2.get_screen_height()/wanted_pixel_height
 	zoom: f32,
 
-	// Flip the Y axis. The origin moves to the bottom-left corner of the screen, Y grows upwards
-	// and rotations turn counter-clockwise. That matches `math.atan2` and physics engines such as
-	// Box2D, so their positions and angles can be used without conversion. See `examples/box2d`.
+	// Flips the Y axis. The origin becomes the bottom-left of the screen, Y grows upwards and the
+	// direction of rotation is reversed. This is useful as a "world camera" when using libraries
+	// such as Box2D. That way, you don't have to make any extra conversions between you gameplay /
+	// physics code and Karl2D.
 	//
-	// A `Rect` grows upwards from its (x, y), which therefore becomes its bottom-left corner. The
-	// same goes for anything else drawn from a position: `draw_texture` and `draw_text` put their
-	// top-left corner at the position normally, and their bottom-left corner when Y is flipped.
+	// When `flip_y` is true:
+	// - A `Rect` will have its `(x, y)` in the bottom-left corner, rather than top-left.
+	// - Textures will be drawn with their bottom-left corner as position, rather than top-left.
 	//
-	// Textures and text still draw the right way up. `source` rectangles are unaffected: texture
-	// space is always measured from the top-left of the texture.
-	//
-	// These do not follow the flip, because they are measured on the screen rather than in the
-	// camera's coordinates:
-	//
-	// - `get_mouse_position`. Use `screen_to_camera` to bring it into a flipped camera.
-	// - `set_scissor_rect`.
-	// - The `rect_*` corner and cut helpers. They take the top-left corner as the origin, so
-	//   `rect_top_left` and `rect_cut_top` do not mean what their names say on a rectangle you
-	//   drew with a flipped camera.
+	// Caveats:
+	// - The `rect_top_*`, `rect_bottom*` and `cut_rect_*` procs still assume that (x, y) is the
+	//   top-left corner. But those procs are often use for UIs and screen-space things. An idea is
+	//   to only use `flip_y` for the world camera. Let the UI use either no camera or a non-flipped
+	//   camera.
 	flip_y: bool,
 }
 
@@ -5863,7 +5858,7 @@ _camera_flip_y :: proc() -> bool {
 	if cam, cam_ok := s.current_camera.?; cam_ok {
 		return cam.flip_y
 	}
-	
+
 	return false
 }
 
