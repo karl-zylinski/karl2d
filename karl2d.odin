@@ -107,7 +107,7 @@ init :: proc(
 	s.proj_matrix = make_default_projection(
 		pf.get_screen_width(),
 		pf.get_screen_height(),
-		current_y_axis(),
+		_camera_y_axis(),
 	)
 	
 	s.view_matrix = 1
@@ -395,7 +395,7 @@ process_events :: proc() {
 			// Recorded draw calls were meant for the old swapchain size.
 			draw_current_batch()
 			rb.resize_swapchain(e.width, e.height)
-			s.proj_matrix = make_default_projection(e.width, e.height, current_y_axis())
+			s.proj_matrix = make_default_projection(e.width, e.height, _camera_y_axis())
 			_update_view_projection()
 
 		case Event_Window_Focused:			
@@ -663,8 +663,6 @@ get_mouse_wheel_delta :: proc() -> f32 {
 }
 
 // Returns the mouse position, measured from the top-left corner of the window.
-//
-// With Y_UP it is measured from the bottom-left corner of the window instead.
 get_mouse_position :: proc() -> Vec2 {
 	return s.mouse_position
 }
@@ -765,11 +763,11 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 //
 // Optional parameters:
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
-//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(0, 0)`, then the rectangle rotates around its (x, y) corner. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
 //
-// With Y_UP the (x, y) is the rect's bottom-left corner and rotations look counter-clockwise.
+// With a Y up camera (x, y) is the rect's bottom-left corner and rotations run counter-clockwise.
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
 	_begin_vertices(s.shape_drawing_texture, 6)
 	tl, tr, bl, br: Vec2
@@ -823,11 +821,12 @@ draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0
 //
 // Optional parameters:
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
-//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(0, 0)`, then the rectangle rotates around its (x, y) corner. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
 //
-// With Y_UP the position is the bottom-left corner and rotations look counter-clockwise.
+// With a Y up camera the position is the rect's bottom-left corner and rotations run counter-
+// clockwise.
 draw_rect_vec :: proc(
 	position: Vec2,
 	size: Vec2,
@@ -942,7 +941,7 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the (x, y) position, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 //
 // If you want to rotate around the middle of the texture, then try this:
@@ -954,7 +953,7 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
 // use the same texture. Drawing with a new texture starts a new draw call. Put several images into
 // one big texture, an atlas, to get fewer draw calls.
 //
-// With Y_UP the position is the bottom-left corner and rotations look counter-clockwise.
+// With a Y up camera the position is the bottom-left corner and rotations run counter-clockwise.
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
@@ -989,7 +988,7 @@ draw_texture :: proc(
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the (x, y) position, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 draw_texture_rect :: proc(
 	texture: Texture,
@@ -1020,7 +1019,7 @@ draw_texture_rect :: proc(
 //
 // Optional parameters:
 // - origin: An offset for the dest rectangle, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the (x, y) position, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 draw_texture_fit :: proc(
 	texture: Texture,
@@ -1040,7 +1039,7 @@ draw_texture_fit :: proc(
 
 	// Texture pixels are stored top-down, but in a Y up coordinate system `dest` grows upwards, so
 	// the texture has to be sampled bottom-up to come out the right way round.
-	flip_y := current_y_axis() == .Up
+	flip_y := _camera_y_axis() == .Up
 
 	source := source
 	dest := dest
@@ -1327,10 +1326,11 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
-// - origin: The origin relative top the top-left position of the text. Used when rotating the text.
+// - origin: The origin relative to `position`. Used when rotating the text.
 // - rotation: Rotating to apply to the text, measured in radians.
 //
-// With Y_UP the position is the bottom-left of the text and rotations look counter-clockwise.
+// With a Y up camera the position is the bottom-left of the text and rotations look counter-
+// clockwise.
 draw_text :: proc(
 	text: string,
 	position: Vec2,
@@ -1397,10 +1397,10 @@ draw_text :: proc(
 		// Where the top of the text block is. The glyph offsets are measured down from it. In Y up
 		// `position` is the bottom-left corner of the block, so the top is a whole block higher.
 		// The height must agree with what `measure_text_static` reports.
-		world := current_y_axis() == .Up
+		y_up := _camera_y_axis() == .Up
 		block_top := position.y
 
-		if world {
+		if y_up {
 			block_top += f32(count_text_lines(text))*font_object.static_line_spacing*scl
 		}
 
@@ -1438,7 +1438,7 @@ draw_text :: proc(
 				// glyph bitmap. It is what makes descenders hang below the baseline, so it counts
 				// down from the top of the block whichever way the Y axis points.
 				offset_from_top := char_offset.y + g.offset.y*scl
-				glyph_y := world ? block_top - offset_from_top - h : block_top + offset_from_top
+				glyph_y := y_up ? block_top - offset_from_top - h : block_top + offset_from_top
 
 				glyph_x := position.x + char_offset.x + g.offset.x*scl
 
@@ -1462,7 +1462,7 @@ draw_text :: proc(
 				invalid_rect_size := Vec2 {font_size*0.5, font_size*0.5}
 				offset_from_top := char_offset.y + invalid_rect_size.y/2
 
-				invalid_rect_y := world \
+				invalid_rect_y := y_up \
 					? block_top - offset_from_top - invalid_rect_size.y \
 					: block_top + offset_from_top
 
@@ -1508,10 +1508,10 @@ draw_text :: proc(
 		// from the top-left of the text block. This is where that corner goes. In Y up `position`
 		// is the bottom-left corner of the block, so the top is a whole block higher. The height
 		// must agree with what `measure_text_dynamic` reports, which is `lines * font_size`.
-		world := current_y_axis() == .Up
+		y_up := _camera_y_axis() == .Up
 		block_top := position.y
 
-		if world {
+		if y_up {
 			block_top += f32(count_text_lines(text))*font_size
 		}
 
@@ -1549,7 +1549,7 @@ draw_text :: proc(
 			glyph_w := (q.x1 - q.x0) / camera_zoom
 			glyph_h := (q.y1 - q.y0) / camera_zoom
 
-			glyph_y := world ? block_top - offset_from_top - glyph_h : block_top + offset_from_top
+			glyph_y := y_up ? block_top - offset_from_top - glyph_h : block_top + offset_from_top
 
 			glyph_x := position.x + offset_from_left
 
@@ -3360,7 +3360,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		s.proj_matrix = make_default_projection(
 			rt.texture.width,
 			rt.texture.height,
-			current_y_axis(),
+			_camera_y_axis(),
 		)
 
 		_update_view_projection()
@@ -3376,7 +3376,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		s.proj_matrix = make_default_projection(
 			pf.get_screen_width(),
 			pf.get_screen_height(),
-			current_y_axis(),
+			_camera_y_axis(),
 		)
 
 		_update_view_projection()
@@ -3445,6 +3445,9 @@ rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect {
 }
 
 // Get the top left corner of a rectangle.
+//
+// The `rect_*` corner and cut helpers are screen space. "Top" is the low end of Y, so with a Y up
+// camera they report the vertically mirrored corner.
 rect_top_left :: proc(r: Rect) -> Vec2 {
 	return {r.x, r.y}
 }
@@ -4248,21 +4251,21 @@ set_camera :: proc(camera: Maybe(Camera)) {
 		s.proj_matrix = make_default_projection(
 			pf.get_screen_width(),
 			pf.get_screen_height(),
-			current_y_axis(),
+			_camera_y_axis(),
 		)
 	} else {
 		s.proj_matrix = make_default_projection(
 			s.current_render_target_width,
 			s.current_render_target_height,
-			current_y_axis(),
+			_camera_y_axis(),
 		)
 	}
 
 	_update_view_projection()
 }
 
-// Transform a point `pos` that lives on the screen to a point in the world. This can be useful for
-// bringing (for example) mouse positions (k2.get_mouse_position()) into world-space.
+// Transform a point `pos` that lives on the screen into the camera's coordinates. This can be
+// useful for bringing (for example) mouse positions (k2.get_mouse_position()) into them.
 screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	pos := pos
 
@@ -4280,24 +4283,8 @@ screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return (camera_inverse_view_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
 }
 
-screen_to_camera_rect :: proc(r: Rect, camera: Camera) -> Rect {
-	// All four corners. A rotated camera turns the rectangle, so two opposite ones would miss it.
-	a := screen_to_camera({r.x,       r.y      }, camera)
-	b := screen_to_camera({r.x + r.w, r.y      }, camera)
-	c := screen_to_camera({r.x,       r.y + r.h}, camera)
-	d := screen_to_camera({r.x + r.w, r.y + r.h}, camera)
-
-	min_x := min(a.x, b.x, c.x, d.x)
-	max_x := max(a.x, b.x, c.x, d.x)
-	min_y := min(a.y, b.y, c.y, d.y)
-	max_y := max(a.y, b.y, c.y, d.y)
-
-	// The minimum corner is the anchor whichever way Y points. So this needs no branch on it.
-	return { min_x, min_y, max_x - min_x, max_y - min_y }
-}
-
-// Transform a point `pos` that lives in the world to a point on the screen. This can be useful when
-// you need to take a position in the world and compare it to a screen-space point.
+// Transform a point `pos` that lives in the camera's coordinates to a point on the screen. This can
+// be useful when you need to compare such a position to a screen-space point.
 camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	res := (camera_view_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
 
@@ -4314,22 +4301,6 @@ camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return res
 }
 
-camera_to_screen_rect :: proc(r: Rect, camera: Camera) -> Rect {
-	// All four corners. A rotated camera turns the rectangle, so two opposite ones would miss it.
-	a := camera_to_screen({r.x,       r.y      }, camera)
-	b := camera_to_screen({r.x + r.w, r.y      }, camera)
-	c := camera_to_screen({r.x,       r.y + r.h}, camera)
-	d := camera_to_screen({r.x + r.w, r.y + r.h}, camera)
-
-	min_x := min(a.x, b.x, c.x, d.x)
-	max_x := max(a.x, b.x, c.x, d.x)
-	min_y := min(a.y, b.y, c.y, d.y)
-	max_y := max(a.y, b.y, c.y, d.y)
-
-	// The minimum corner is the anchor whichever way Y points. So this needs no branch on it.
-	return { min_x, min_y, max_x - min_x, max_y - min_y }
-}
-
 @(deprecated="Use screen_to_camera instead")
 screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return screen_to_camera(pos, camera)
@@ -4340,7 +4311,7 @@ world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 	return camera_to_screen(pos, camera)
 }
 
-// Calculate the matrix that `screen_to_world` and `world_to_screen` uses to do transformations.
+// Calculate the matrix that `camera_to_screen` uses to do transformations.
 //
 // A view matrix is essentially the world transform matrix of the camera, but inverted. In other
 // words, instead of bringing the camera in front of things in the world, we bring everything in the
@@ -4368,7 +4339,8 @@ camera_view_matrix :: proc(c: Camera) -> Mat4 {
 	return inv_offset_translate * inv_scale * inv_rot * inv_target_translate
 }
 
-// Calculate the matrix that brings something in front of the camera.
+// The inverse of `camera_view_matrix`. It undoes the camera instead of applying it, which is what
+// `screen_to_camera` needs.
 camera_inverse_view_matrix :: proc(c: Camera) -> Mat4 {
 	offset_translate := linalg.matrix4_translate(vec3_from_vec2(-c.offset))
 	rot := linalg.matrix4_rotate_f32(-c.rotation, {0, 0, 1})
@@ -4664,6 +4636,7 @@ Camera :: struct {
 	//     k2.get_screen_height()/wanted_pixel_height
 	zoom: f32,
 
+	// Which way Y points while this camera is active. Defaults to `.Down`.
 	y_axis: Y_Axis,
 }
 
@@ -5093,9 +5066,8 @@ State :: struct {
 	current_texture: Texture_Handle,
 	current_render_target: Render_Target_Handle,
 
-	// Height of `current_render_target`, or 0 when drawing to the window. Needed to
-	// convert scissor rectangles to native top-down coordinates without asking the
-	// backend for it.
+	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the
+	// projection, and to measure Y up from the bottom of it, without asking the backend.
 	current_render_target_width: int,
 	current_render_target_height: int,
 	current_blend_mode: Blend_Mode,
@@ -5879,8 +5851,8 @@ matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f
 
 make_default_projection :: proc(w, h: int, y_axis: Y_Axis) -> matrix[4,4]f32 {
 	// The whole coordinate system flip comes down to which edge of the surface Y = 0 maps to.
-	// Everything else in this file exists because some things (textures, fonts, scissor rects, the
-	// mouse) are natively top-down and have to be brought into line with this.
+	// Everything else in this file exists because some things (textures and fonts) are natively
+	// top-down and have to be brought into line with this.
 	switch y_axis {
 	case .Up:   return matrix_ortho3d_f32(0, f32(w), 0, f32(h), 0.001, 2)
 	case .Down: return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
@@ -5890,7 +5862,7 @@ make_default_projection :: proc(w, h: int, y_axis: Y_Axis) -> matrix[4,4]f32 {
 }
 
 // The active camera's Y axis. Down when there is no camera.
-current_y_axis :: proc() -> Y_Axis {
+_camera_y_axis :: proc() -> Y_Axis {
 	if c, c_ok := s.current_camera.?; c_ok {
 		return c.y_axis
 	}

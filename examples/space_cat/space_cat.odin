@@ -316,8 +316,11 @@ step :: proc() -> bool {
 		zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
 	}
 
-	// Clip to the virtual screen. The scissor rectangle is measured on the real one.
-	k2.set_scissor_rect(k2.camera_to_screen_rect({0, 0, SCREEN_WIDTH, SCREEN_HEIGHT}, ui_camera))
+	k2.set_scissor_rect(k2.Rect{
+		0, 0,
+		SCREEN_WIDTH*game_camera.zoom,
+		SCREEN_HEIGHT*game_camera.zoom,
+	})
 
 	if editing {
 		editor_update()
@@ -524,8 +527,7 @@ update :: proc() {
 		append(&plasma_balls, Plasma_Ball {
 			pos = player.pos + offset,
 			dir = vec2_from_direction[player.dir],
-		},
-	)
+		})
 
 		// The shoot sound has pitch randomization and spatial panning.
 		shoot_snd := k2.create_sound_from_audio_buffer(ab_shoot)
@@ -558,10 +560,9 @@ update :: proc() {
 		}
 	}
 
-	// What part of the world is on screen.
-	world_rect := k2.screen_to_camera_rect(
-		k2.rect_from_pos_size({0, 0}, k2.get_screen_size()),
-		game_camera,
+	world_rect := k2.rect_from_pos_size(
+		{0, 0},
+		k2.get_screen_size()/game_camera.zoom,
 	)
 
 	// Despawn plasma balls that have left screen.
@@ -802,8 +803,7 @@ draw :: proc() {
 			tex = tex,
 			pos = fgo.pos,
 			origin = k2.rect_bottom_middle(k2.get_texture_rect(tex)),
-		},
-	)
+		})
 	}
 
 	for inter in world.rooms[current_room_idx].interactables {
@@ -838,8 +838,7 @@ draw :: proc() {
 			tex = tex,
 			pos = inter.pos,
 			origin = k2.rect_bottom_middle(k2.get_texture_rect(tex)),
-		},
-	)
+		})
 	}
 
 	player_tex: k2.Texture
@@ -862,8 +861,7 @@ draw :: proc() {
 		pos = player.pos,
 		origin = {f32(player_tex.width/2), f32(player_tex.height)},
 		flip_x = flip_x,
-	},
-)
+	})
 
 	slice.sort_by(sorted_draws[:], proc(i, j: Sorted_Draw) -> bool {
 		return i.pos.y < j.pos.y

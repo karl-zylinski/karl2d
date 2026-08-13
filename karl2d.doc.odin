@@ -237,8 +237,6 @@ mouse_button_is_held :: proc(button: Mouse_Button) -> bool
 get_mouse_wheel_delta :: proc() -> f32
 
 // Returns the mouse position, measured from the top-left corner of the window.
-//
-// With Y_UP it is measured from the bottom-left corner of the window instead.
 get_mouse_position :: proc() -> Vec2
 
 // Returns how many pixels the mouse moved between the previous and the current frame.
@@ -297,22 +295,23 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32)
 //
 // Optional parameters:
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
-//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(0, 0)`, then the rectangle rotates around its (x, y) corner. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
 //
-// With Y_UP the (x, y) is the rect's bottom-left corner and rotations look counter-clockwise.
+// With a Y up camera (x, y) is the rect's bottom-left corner and rotations run counter-clockwise.
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0)
 
 // Creates a rectangle from a position and a size and draws it using the specified color.
 //
 // Optional parameters:
 // - origin: The point to rotate around, also offsets the position of the rect. If the origin is
-//   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
+//   `(0, 0)`, then the rectangle rotates around its (x, y) corner. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
 //
-// With Y_UP the position is the bottom-left corner and rotations look counter-clockwise.
+// With a Y up camera the position is the rect's bottom-left corner and rotations run counter-
+// clockwise.
 draw_rect_vec :: proc(
 	position: Vec2,
 	size: Vec2,
@@ -343,7 +342,7 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color)
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the (x, y) position, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 //
 // If you want to rotate around the middle of the texture, then try this:
@@ -355,7 +354,7 @@ draw_triangle :: proc(vertices: [3]Vec2, c: Color)
 // use the same texture. Drawing with a new texture starts a new draw call. Put several images into
 // one big texture, an atlas, to get fewer draw calls.
 //
-// With Y_UP the position is the bottom-left corner and rotations look counter-clockwise.
+// With a Y up camera the position is the bottom-left corner and rotations run counter-clockwise.
 draw_texture :: proc(
 	texture: Texture,
 	position: Vec2,
@@ -370,7 +369,7 @@ draw_texture :: proc(
 //
 // Optional parameters:
 // - origin: An offset for the position, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the (x, y) position, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 draw_texture_rect :: proc(
 	texture: Texture,
@@ -387,7 +386,7 @@ draw_texture_rect :: proc(
 //
 // Optional parameters:
 // - origin: An offset for the dest rectangle, and also the point to rotate around.
-// - rotation: Measured in radians. Rotates around the top-left corner, plus any `origin` shift.
+// - rotation: Measured in radians. Rotates around the (x, y) position, plus any `origin` shift.
 // - tint: A color to apply to the texture, in a multiplicative way. WHITE means no tinting.
 draw_texture_fit :: proc(
 	texture: Texture,
@@ -408,10 +407,11 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
-// - origin: The origin relative top the top-left position of the text. Used when rotating the text.
+// - origin: The origin relative to `position`. Used when rotating the text.
 // - rotation: Rotating to apply to the text, measured in radians.
 //
-// With Y_UP the position is the bottom-left of the text and rotations look counter-clockwise.
+// With a Y up camera the position is the bottom-left of the text and rotations look counter-
+// clockwise.
 draw_text :: proc(
 	text: string,
 	position: Vec2,
@@ -754,6 +754,9 @@ rect_centre :: rect_middle
 rect_from_pos_size :: proc(pos: Vec2, size: Vec2) -> Rect
 
 // Get the top left corner of a rectangle.
+//
+// The `rect_*` corner and cut helpers are screen space. "Top" is the low end of Y, so with a Y up
+// camera they report the vertically mirrored corner.
 rect_top_left :: proc(r: Rect) -> Vec2
 
 // Get the top middle point of a rectangle. That is, the mid-point between the top left and top
@@ -920,19 +923,15 @@ pixel_format_size :: proc(f: Pixel_Format) -> int
 // will use this camera until you again change it.
 set_camera :: proc(camera: Maybe(Camera))
 
-// Transform a point `pos` that lives on the screen to a point in the world. This can be useful for
-// bringing (for example) mouse positions (k2.get_mouse_position()) into world-space.
+// Transform a point `pos` that lives on the screen into the camera's coordinates. This can be
+// useful for bringing (for example) mouse positions (k2.get_mouse_position()) into them.
 screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2
 
-screen_to_camera_rect :: proc(r: Rect, camera: Camera) -> Rect
-
-// Transform a point `pos` that lives in the world to a point on the screen. This can be useful when
-// you need to take a position in the world and compare it to a screen-space point.
+// Transform a point `pos` that lives in the camera's coordinates to a point on the screen. This can
+// be useful when you need to compare such a position to a screen-space point.
 camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
 
-camera_to_screen_rect :: proc(r: Rect, camera: Camera) -> Rect
-
-// Calculate the matrix that `screen_to_world` and `world_to_screen` uses to do transformations.
+// Calculate the matrix that `camera_to_screen` uses to do transformations.
 //
 // A view matrix is essentially the world transform matrix of the camera, but inverted. In other
 // words, instead of bringing the camera in front of things in the world, we bring everything in the
@@ -953,7 +952,8 @@ camera_to_screen_rect :: proc(r: Rect, camera: Camera) -> Rect
 // 3x3 matrix is actually used.
 camera_view_matrix :: proc(c: Camera) -> Mat4
 
-// Calculate the matrix that brings something in front of the camera.
+// The inverse of `camera_view_matrix`. It undoes the camera instead of applying it, which is what
+// `screen_to_camera` needs.
 camera_inverse_view_matrix :: proc(c: Camera) -> Mat4
 
 //------//
@@ -1170,6 +1170,7 @@ Camera :: struct {
 	//     k2.get_screen_height()/wanted_pixel_height
 	zoom: f32,
 
+	// Which way Y points while this camera is active. Defaults to `.Down`.
 	y_axis: Y_Axis,
 }
 
@@ -1600,9 +1601,8 @@ State :: struct {
 	current_texture: Texture_Handle,
 	current_render_target: Render_Target_Handle,
 
-	// Height of `current_render_target`, or 0 when drawing to the window. Needed to
-	// convert scissor rectangles to native top-down coordinates without asking the
-	// backend for it.
+	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the
+	// projection, and to measure Y up from the bottom of it, without asking the backend.
 	current_render_target_width: int,
 	current_render_target_height: int,
 	current_blend_mode: Blend_Mode,
