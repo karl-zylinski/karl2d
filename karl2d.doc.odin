@@ -989,14 +989,12 @@ open_url :: proc(url: string) -> Open_URL_Error
 // The witdth a button drawn using `ui_button` will have
 ui_button_width :: proc(text: string, button_height: f32) -> f32
 
-// Experimental UI button. Returns true if the button was pressed. Currently only works properly
-// when no camera is set.
+// Experimental UI button. Returns true if the button was pressed. `r` is in the space of whatever
+// camera is currently set (see `set_camera`), same as any other drawing call.
 //
-// Mainly used by the samples in order to create the "Source" button.
-//
-// Note that this does not support zoomed cameras right now, since it uses unscaled mouse positions.
-// As this is experimental, you are probably better off copying this procedure to your own code and
-// modifying it, rather than using it as-is.
+// Mainly used by the samples in order to create the "Source" button. As this is experimental, you
+// are probably better off copying this procedure to your own code and modifying it, rather than
+// using it as-is.
 ui_button :: proc(r: Rect, text: string) -> bool
 
 //---------------------//
