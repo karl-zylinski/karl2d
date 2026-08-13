@@ -209,12 +209,18 @@ step :: proc() -> bool {
 	//
 	// Sizes here are all multiplied by `ui_scale`. The screen is measured in physical pixels, so on
 	// a phone with a 3x display anything drawn at a fixed pixel size comes out a third of the size
-	// it does on a desktop monitor. Scaling by the window scale keeps the UI the same apparent size
-	// on both, and is separate from the world camera's zoom.
+	// it does on a desktop monitor. Scaling by the window scale corrects that, and is separate from
+	// the world camera's zoom.
+	//
+	// The scale is capped, since following it all the way up overshoots: a phone's screen is
+	// physically much smaller than a monitor, so UI that measures the same in display-independent
+	// pixels eats a far bigger share of it.
 
 	k2.set_camera(nil)
 
-	ui_scale := k2.get_window_scale()
+	MAX_UI_SCALE :: 2
+
+	ui_scale := min(k2.get_window_scale(), MAX_UI_SCALE)
 
 	for t in touches {
 		color := k2.WHITE
