@@ -620,12 +620,12 @@ pointer_listener := wl.Pointer_Listener {
 		switch axis {
 		case wl.POINTER_AXIS_VERTICAL_SCROLL:
 			append(&s.events, Event_Mouse_Wheel {
-				delta = {0, value > 0 ? -1 : 1},
+				delta = value > 0 ? -1 : 1,
 			})
 
 		case wl.POINTER_AXIS_HORIZONTAL_SCROLL:
-			append(&s.events, Event_Mouse_Wheel {
-				delta = {value > 0 ? 1 : -1, 0},
+			append(&s.events, Event_Mouse_Wheel_Horizontal {
+				delta = value > 0 ? 1 : -1,
 			})
 		}
 	},

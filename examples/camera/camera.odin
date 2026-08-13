@@ -52,7 +52,7 @@ step :: proc() -> bool {
 
 	// CAMERA ZOOM
 
-	mouse_wheel_delta := k2.get_mouse_wheel_delta().y
+	mouse_wheel_delta := k2.get_mouse_wheel_delta()
 	if mouse_wheel_delta > 0 || k2.key_went_down(.NP_Add) { camera.zoom += .3 }
 	if mouse_wheel_delta < 0 || k2.key_went_down(.NP_Subtract) { camera.zoom -= .3 }
 

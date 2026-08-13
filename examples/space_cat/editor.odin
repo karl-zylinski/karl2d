@@ -61,7 +61,7 @@ editor_update :: proc() {
 			}
 		}
 	} else if edit_mode == .Background_Objects {
-		mwm := k2.get_mouse_wheel_delta().y
+		mwm := k2.get_mouse_wheel_delta()
 
 		if mwm > 0 {
 			editor_bg_current_idx += 1
@@ -141,7 +141,7 @@ editor_update :: proc() {
 	}
 
 	if edit_mode == .Foreground_Objects {
-		mwm := k2.get_mouse_wheel_delta().y
+		mwm := k2.get_mouse_wheel_delta()
 
 		if mwm > 0 {
 			editor_fg_current_idx += 1
@@ -186,7 +186,7 @@ editor_update :: proc() {
 	}
 
 	if edit_mode == .Interactables {
-		mwm := k2.get_mouse_wheel_delta().y
+		mwm := k2.get_mouse_wheel_delta()
 
 		type := int(editor_interactable_current_type)
 

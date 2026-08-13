@@ -269,11 +269,11 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 				// LOL X11!!! Mouse wheel is button 4 and 5 being pressed.
 
 				append(events, Event_Mouse_Wheel {
-					{0, event.xbutton.button == .Button4 ? 1 : -1},
+					event.xbutton.button == .Button4 ? 1 : -1,
 				})
 			} else if event.xbutton.button <= BUTTON_WHEEL_RIGHT {
-				append(events, Event_Mouse_Wheel {
-					{event.xbutton.button == BUTTON_WHEEL_LEFT ? -1 : 1, 0},
+				append(events, Event_Mouse_Wheel_Horizontal {
+					event.xbutton.button == BUTTON_WHEEL_LEFT ? -1 : 1,
 				})
 			}
 

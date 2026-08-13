@@ -215,12 +215,21 @@ web_event_mouse_up :: proc(e: js.Event) {
 
 web_event_mouse_wheel :: proc(e: js.Event) {
 	// The browser measures down and right as positive, so the vertical axis needs flipping.
-	append(&s.events, Event_Mouse_Wheel {
-		delta = {
-			web_wheel_direction(e.wheel.delta.x),
-			-web_wheel_direction(e.wheel.delta.y),
-		},
-	})
+	delta := -web_wheel_direction(e.wheel.delta.y)
+	delta_horizontal := web_wheel_direction(e.wheel.delta.x)
+
+	// A sideways swipe reports zero on the other axis, which is not worth an event.
+	if delta != 0 {
+		append(&s.events, Event_Mouse_Wheel {
+			delta = delta,
+		})
+	}
+
+	if delta_horizontal != 0 {
+		append(&s.events, Event_Mouse_Wheel_Horizontal {
+			delta = delta_horizontal,
+		})
+	}
 }
 
 // Not the best way, but how would we know what the wheel deltaMode really represents? If it is in
