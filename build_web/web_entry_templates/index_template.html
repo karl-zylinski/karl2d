@@ -6,7 +6,11 @@
 		<title>Karl2D Web Build</title>
 	</head>
 	<body id="body" style="height: 100%; padding: 0; margin: 0; overflow: hidden; background-color: black;">
-		<canvas id="webgl-canvas" oncontextmenu="return false;" onmousedown="event.target.focus()" onkeydown="event.preventDefault()"></canvas>
+		<!-- touch-action: none stops the browser from treating touches on the canvas as page
+		     gestures. Without it a pinch zooms the whole page, canvas and all, and a drag scrolls
+		     it, so the game sees a half-finished gesture at coordinates that no longer line up
+		     with what is on screen. -->
+		<canvas id="webgl-canvas" style="touch-action: none;" oncontextmenu="return false;" onmousedown="event.target.focus()" onkeydown="event.preventDefault()"></canvas>
 	
 		<script type="text/javascript" src="audio_backend_web_audio.js"></script>
 		<script type="text/javascript" src="odin.js"></script>
