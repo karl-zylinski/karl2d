@@ -1,10 +1,5 @@
 package karl2d_touch_example
 
-// Touch-only for now: this example never reads the mouse. Windows and web currently still turn a
-// touch into an emulated mouse click behind the scenes, so if this example also handled the mouse
-// the same way `examples/camera` does, a one-finger drag would pan the map twice and jump. A later
-// change takes that emulation over from the OS and brings the mouse fallback back here.
-
 import k2 "../.."
 import "core:fmt"
 import "core:math"
@@ -51,6 +46,12 @@ wrap_angle :: proc(a: f32) -> f32 {
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Touch Demo", { window_mode = .Windowed_Resizable })
 	camera = { zoom = 1 }
+
+	// This example handles touches itself, so it also has to handle the mouse itself: with
+	// emulation left on, a one-finger drag would pan the map twice (once as a touch, once as the
+	// emulated click) and jump. See the MOUSE FALLBACK section below for what emulation was doing
+	// for free.
+	k2.set_touch_mouse_emulation(false)
 }
 
 step :: proc() -> bool {
@@ -180,6 +181,27 @@ step :: proc() -> bool {
 		pinch_active = false
 	}
 
+	// MOUSE FALLBACK
+	//
+	// Touch emulation is off (see `init`), so unlike a touch-unaware program this example gets
+	// nothing from the mouse for free and has to drive the camera from it directly, the same way it
+	// already does from touches.
+
+	if k2.mouse_button_is_held(.Left) {
+		rotation_matrix := linalg.matrix2_rotate(-camera.rotation)
+		camera.target -= rotation_matrix * (k2.get_mouse_delta() / camera.zoom)
+	}
+
+	if wheel := k2.get_mouse_wheel_delta(); wheel != 0 {
+		// Same anchor trick as the pinch above, just with one point instead of two.
+		mouse_pos := k2.get_mouse_position()
+		anchor := k2.screen_to_world(mouse_pos, camera)
+
+		camera.zoom = clamp(camera.zoom * (wheel > 0 ? 1.1 : 0.9), MIN_ZOOM, MAX_ZOOM)
+
+		camera.target += anchor - k2.screen_to_world(mouse_pos, camera)
+	}
+
 	// DRAW MAP
 
 	k2.set_camera(camera)
@@ -258,7 +280,8 @@ step :: proc() -> bool {
 
 	draw_stat(fmt.tprintf("touches: %v", len(touches)), &text_pos, font_size)
 	draw_stat(fmt.tprintf("zoom: x%.2f", camera.zoom), &text_pos, font_size)
-	draw_stat(fmt.tprintf("rotation: %.0f deg", math.to_degrees(camera.rotation)), &text_pos, font_size)
+	rotation_stat := fmt.tprintf("rotation: %.0f deg", math.to_degrees(camera.rotation))
+	draw_stat(rotation_stat, &text_pos, font_size)
 	draw_stat(fmt.tprintf("markers: %v", len(markers)), &text_pos, font_size)
 
 	text_color := k2.YELLOW
@@ -267,17 +290,24 @@ step :: proc() -> bool {
 	k2.draw_text("tap to drop a marker", text_pos, font_size, text_color)
 	text_pos.y -= font_size
 
-	k2.draw_text("pinch with two fingers to zoom and rotate", text_pos, font_size, text_color)
+	k2.draw_text(
+		"pinch with two fingers to zoom and rotate (or use the mouse wheel)",
+		text_pos, font_size, text_color,
+	)
 	text_pos.y -= font_size
 
-	k2.draw_text("drag with one or more fingers to pan", text_pos, font_size, text_color)
+	k2.draw_text(
+		"drag with one or more fingers to pan (or hold the left mouse button)",
+		text_pos, font_size, text_color,
+	)
 	text_pos.y -= font_size
 
 	// Same y as the first line of stats text above, so the two line up along the top.
 	BUTTON_HEIGHT :: 24
 
 	button_bar := k2.Rect { 20, 20, ui_size.x - 40, BUTTON_HEIGHT }
-	button_rect := k2.rect_cut_right(&button_bar, k2.ui_button_width("Source Code", BUTTON_HEIGHT) + 25, 0)
+	button_width := k2.ui_button_width("Source Code", BUTTON_HEIGHT) + 25
+	button_rect := k2.rect_cut_right(&button_bar, button_width, 0)
 
 	if k2.ui_button(button_rect, "Source Code") {
 		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/touch/touch.odin")
