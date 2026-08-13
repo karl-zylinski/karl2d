@@ -1018,7 +1018,7 @@ DUAL_GRID_MASK_TO_TXTY := [16][2]int {
 }
 
 ui_button :: proc(r: k2.Rect, text: string, camera: k2.Camera) -> bool {
-	in_rect := k2.point_in_rect(k2.screen_to_world(k2.get_mouse_position(), camera), r)
+	in_rect := k2.point_in_rect(k2.screen_to_camera(k2.get_mouse_position(), camera), r)
 	bg_color := k2.DARK_GRAY
 	border_color := k2.WHITE
 	text_color := k2.WHITE

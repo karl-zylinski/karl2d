@@ -172,16 +172,29 @@ The `$` in front of the `name` parameter ensures that you're passing a compile-t
 
 ## Coordinate system
 
-By default the origin is in the top-left corner of the screen and Y grows downwards. You can flip
-this so that the origin is in the bottom-left corner and Y grows upwards. Add `-define:KARL2D_Y_UP=true` when building to use Y up coordinates:
+By default the origin is in the top-left corner of the screen and Y grows downwards, like most other
+2D libraries. That's `Y_Axis.Down`, and it's what you get when you draw without a camera.
 
+A camera can point Y the other way. Set `y_axis = .Up` on it and, while it is active, the origin is
+in the bottom-left corner and Y grows upwards:
+
+```odin
+WORLD_CAMERA :: k2.Camera { zoom = 1, y_axis = .Up }
+
+k2.set_camera(WORLD_CAMERA)
+// ... draw the game world, Y up ...
+
+k2.set_camera(nil)
+k2.draw_text("Score: 10", {20, 20}, 24, k2.WHITE) // ... and the HUD, Y down
 ```
-odin build your_game -define:KARL2D_Y_UP=true
-```
 
-Some physics engines, such as Box2D uses Y up. This is used in `examples/box2d`. Without the Y up corodinates the code would be a lot messier, with lots of coordinate system conversions.
+Some physics engines, such as Box2D, use Y up. Matching them means positions and angles pass straight
+between the two with no conversion. This is what `examples/box2d` does.
 
-There is a comment above the `Y_UP` constant in `karl2d.odin` that further elaborates in the differences between Y up / Y down.
+There is no build flag: because the axis belongs to the camera, one program can use both, and code
+you paste from elsewhere brings its own camera with it. A few things are measured from the top-left
+of the surface under every camera — the mouse (use `screen_to_camera`), `set_scissor_rect`, and the
+`rect_*` helpers. There is a comment above `Y_Axis` in `karl2d.odin` that lists them.
 
 ## Hot reload
 Some kind of gameplay code hot reload is planned as part of the library. Currently, there is an experimental implementation of this in a separate repository: https://github.com/karl-zylinski/karl2d-hot-reload-template

@@ -8,10 +8,13 @@ import b2 "vendor:box2d"
 import k2 "../.."
 import "core:math"
 
-// Box2D works in a Y up world, so this example uses Karl2D's Y up coordinate system too. That way
-// positions and angles pass between the two without any conversion. Everything below is in Box2D
-// world coordinates, which here are also screen coordinates: one unit is one pixel.
-#assert(k2.Y_UP, "This example assumes Y up. Compile it with -define:KARL2D_Y_UP=true")
+// Box2D works in a Y up world, so this example draws through a camera whose Y axis points up.
+// That way positions and angles pass between the two without any conversion.
+// Everything below is in Box2D world coordinates: one unit is one pixel.
+//
+// No build flag is needed. The axis is a property of this camera, so the HUD at the bottom of
+// `step` can drop back to screen space just by clearing it.
+WORLD_CAMERA :: k2.Camera { zoom = 1, y_axis = .Up }
 
 SCREEN_WIDTH :: 1280
 SCREEN_HEIGHT :: 720
@@ -74,13 +77,13 @@ step :: proc() -> bool {
 		return false
 	}
 
-	// The mouse position is already in the same coordinate system as the physics world, so it can
-	// be used to aim without converting anything.
+	// The mouse is reported in screen space whichever space you draw in, so it is brought into the
+	// physics world once, here. This is the only conversion in the example.
 	//
 	// Shots start at the middle of the cannon and come out from behind the barrel, which is drawn
 	// over them. Starting them at the end of the barrel instead would move the launch point every
 	// time the barrel turned, and the angle is what turns it.
-	target := k2.get_mouse_position()
+	target := k2.screen_to_camera(k2.get_mouse_position(), WORLD_CAMERA)
 	aim_dir := launch_direction(CANNON, target)
 
 	if k2.mouse_button_went_down(.Left) {
@@ -152,6 +155,9 @@ step :: proc() -> bool {
 	}
 
 	k2.clear(k2.LIGHT_BLUE)
+
+	// Everything from here to `set_camera(nil)` is drawn in the physics world's coordinates.
+	k2.set_camera(WORLD_CAMERA)
 	k2.draw_rect(PLATFORM, k2.DARK_GRAY)
 	k2.draw_rect(GROUND, k2.GREEN)
 
@@ -176,7 +182,8 @@ step :: proc() -> bool {
 		r := b2.Body_GetRotation(b)
 
 		// Positions and angles go straight from Box2D into Karl2D without any conversion, because
-		// both are Y up here. In a Y down coordinate system both would have to be flipped.
+		// the camera points Y up like the physics world. Drawing this with a Y down camera would need
+		// both flipped.
 		//
 		// Box2D positions a body by its centre, and the origin makes the rect rotate around that
 		// same point rather than around its corner.
@@ -200,10 +207,10 @@ step :: proc() -> bool {
 	k2.draw_rect(barrel, k2.DARK_GRAY, { 0, BARREL_THICKNESS/2 }, math.atan2(aim_dir.y, aim_dir.x))
 	k2.draw_circle(CANNON, 20, k2.GRAY)
 
-	text := "Shoot: Left click\nReset: R"
-	text_size := k2.measure_text(text, 24)
-
-	k2.draw_text(text, {20, SCREEN_HEIGHT - 20 - text_size.y}, 24, k2.DARK_BLUE)
+	// Back to screen space for the HUD, where measuring down from the top of the window is the
+	// natural thing to do.
+	k2.set_camera(nil)
+	k2.draw_text("Shoot: Left click\nReset: R", {20, 20}, 24, k2.DARK_BLUE)
 	k2.present()
 
 	return true
