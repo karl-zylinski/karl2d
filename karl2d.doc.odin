@@ -499,6 +499,22 @@ set_texture_filter_ex :: proc(
 // The sound will be mixed when `update_audio_mixer` runs, which happens as part of `update`.
 play_sound :: proc(sound: Sound)
 
+// Play an audio buffer, using the playback settings you pass in. The playback does not loop. Good
+// for playing one-off sound effects such as footsteps. You can play the same Audio_Buffer multiple
+// times simultaneously, without one stopping the another.
+//
+// The difference between using this and a `Sound` is that the `Sound` remembers its playback
+// settings, can be stopped and looped.
+//
+// Pass `bus` to play the sound on an audio bus. It plays on the master bus by default.
+play_audio_buffer :: proc(
+	ab: Audio_Buffer,
+	volume: f32 = 1,
+	pan: f32 = 0,
+	pitch: f32 = 1,
+	bus: Audio_Bus = AUDIO_BUS_MASTER,
+)
+
 // Stop a sound. Rewinds it to the start.
 stop_sound :: proc(sound: Sound)
 
@@ -523,6 +539,13 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32)
 // Makes a sound loop when it reaches the end. You can set this before playing but also while
 // playing the sound.
 set_sound_loop :: proc(sound: Sound, loop: bool)
+
+// Route a sound into an audio bus. The sound is then mixed into that bus instead of straight into
+// the master bus. You can set the volume and pan of the whole bus, making it possible to control
+// whole categories of sounds.
+//
+// Pass `AUDIO_BUS_MASTER` to route the sound to the master bus.
+set_sound_bus :: proc(sound: Sound, bus: Audio_Bus)
 
 // Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. If you need to
 // play a sound multiple times simultaneously, then use `load_audio_buffer_from_file` followed by
@@ -698,6 +721,49 @@ set_audio_stream_pitch :: proc(stream: Audio_Stream, pitch: f32)
 // Set the audio stream to loop when it reaches the end of the stream. You can set this before
 // playing the stream. You can also modify the loop state of an already playing stream.
 set_audio_stream_loop :: proc(stream: Audio_Stream, loop: bool)
+
+// Route an audio stream into an audio bus. The stream is then mixed into that bus instead of
+// straight into the master bus. Handy for putting your music on its own bus, so the player can
+// turn the music down without turning the sound effects down.
+//
+// You can use this both with a playing and non-playing stream. If it's already playing, then this
+// will affect the playing stream. Pass `AUDIO_BUS_MASTER` to put it back on the master bus.
+set_audio_stream_bus :: proc(stream: Audio_Stream, bus: Audio_Bus)
+
+// Create an audio bus: A group of sounds that are mixed together before they reach the master bus.
+// Route sounds into it using `set_sound_bus`, `set_audio_stream_bus`, or the `bus` parameter of
+// `play_audio_buffer`.
+//
+// A new bus has volume 1, pan 0 and no effect. That makes it a passthrough: Playing a sound on a
+// fresh bus sounds exactly like playing it on the master bus, until you change something.
+create_audio_bus :: proc() -> Audio_Bus
+
+// Destroy an audio bus. Everything routed to it goes back to the master bus, including sounds that
+// are playing right now.
+destroy_audio_bus :: proc(bus: Audio_Bus)
+
+// Set the volume of an audio bus. Range: 0 to 1. Everything mixed into the bus is scaled by this.
+//
+// This works on `AUDIO_BUS_MASTER` as well, which is how you set the master volume of your game.
+set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32)
+
+// Set the pan of an audio bus. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full
+// right.
+//
+// This is a balance control: It turns the opposite side down. That's different from the pan of a
+// sound, which uses a constant-power curve to place a source in the stereo field. A bus is already
+// a finished stereo mix, and a bus at pan 0 has to leave it exactly as it is.
+set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32)
+
+// Set an effect to run on everything that is mixed into the bus. This is how you apply your own
+// audio processing, such as a filter, to a whole group of sounds at once.
+//
+// `user_data` is handed to the effect when it runs. Put whatever state your effect needs there:
+// The effect is called once per mixed chunk, so anything it wants to remember between the chunks
+// has to live in `user_data`. Pass `nil` as `effect` to remove the effect.
+//
+// See `Audio_Effect_Proc` for what the effect is given and what it is allowed to do.
+set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_data: rawptr = nil)
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
@@ -1434,6 +1500,10 @@ Sound_Object :: struct {
 	// If true, then the playing sound will be set up as "looping" when `play_sound` is called. Set
 	// using `set_sound_loop`.
 	loop: bool,
+
+	// The bus the sound is mixed into when it plays. The zero value is the master bus. Set using
+	// `set_sound_bus`.
+	bus: Audio_Bus,
 }
 
 Audio_Stream :: distinct Handle
@@ -1469,6 +1539,10 @@ Audio_Stream_Data :: struct {
 	buffer_write_pos: int,
 
 	playback_settings: Audio_Buffer_Playback_Settings,
+
+	// The bus the stream is mixed into when it plays. The zero value is the master bus. Set using
+	// `set_audio_stream_bus`.
+	bus: Audio_Bus,
 
 	// Different from `loop` in `Playing_Audio_Buffer`. This says if the whole stream should loop
 	// when it reaches end-of-file. The `loop` in `Playing_Audio_Buffer` just says to loop the
@@ -1548,6 +1622,60 @@ Playing_Audio_Buffer :: struct {
 	offset_fraction: f32,
 
 	loop: bool,
+
+	// The bus this is mixed into. The zero value is the master bus.
+	bus: Audio_Bus,
+}
+
+// A bus is a group of sounds that are mixed together before they reach the master bus. You can set
+// the volume and the pan of the whole group, and you can run an effect on it. Create one using
+// `create_audio_bus` and route sounds into it using `set_sound_bus`, `set_audio_stream_bus` or the
+// `bus` parameter of `play_audio_buffer`.
+Audio_Bus :: distinct Handle
+
+// All other buses are mixed into the master bus, as well as sounds that play directly on the master
+// bus. This is the default bus of all sounds, audio streams and playing audio buffers.
+//
+// You can use this with `set_audio_bus_volume`, `set_audio_bus_pan` and `set_audio_bus_effect`.
+// That's how you set the master volume of your game.
+AUDIO_BUS_MASTER :: Audio_Bus {}
+
+// Runs on the mixed samples of a whole bus, before the bus is mixed into the master bus. Modify
+// `samples` in place. This is how you write your own audio effects, such as a filter or an echo.
+//
+// `samples` is `AUDIO_MIX_CHUNK_SIZE` stereo samples at `AUDIO_MIX_SAMPLE_RATE`. Keep any state
+// your effect needs in `user_data`: You get called once per mixed chunk, so anything you want to
+// carry between the chunks needs to live there.
+//
+// This runs on the main thread today, but keep in mind that it may move to a separate thread in the
+// future.
+Audio_Effect_Proc :: proc(samples: [][2]Audio_Sample, user_data: rawptr)
+
+Audio_Bus_Settings :: struct {
+	volume: f32,
+	pan: f32,
+}
+
+Audio_Bus_Object :: struct {
+	handle: Audio_Bus,
+
+	// Same idea as in `Playing_Audio_Buffer`: The current settings move towards the target
+	// settings a bit at a time, so that changing the volume of a bus doesn't click.
+	target_settings: Audio_Bus_Settings,
+	current_settings: Audio_Bus_Settings,
+
+	effect: Audio_Effect_Proc,
+	effect_user_data: rawptr,
+
+	// The sounds routed to this bus are mixed in here. The bus effect runs on this. Then this is
+	// mixed into the master bus. Unused for the master bus itself: That one is mixed straight into
+	// `mix_buffer`.
+	chunk: [AUDIO_MIX_CHUNK_SIZE][2]Audio_Sample,
+}
+
+DEFAULT_AUDIO_BUS_SETTINGS :: Audio_Bus_Settings {
+	volume = 1,
+	pan = 0,
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
@@ -1651,6 +1779,12 @@ State :: struct {
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
+
+	audio_buses: hm.Dynamic_Handle_Map(Audio_Bus_Object, Audio_Bus),
+
+	// The master bus is not in `audio_buses`. It is identified by the zero handle, which the handle
+	// map can't store, and it needs to exist without anyone creating it.
+	master_bus: Audio_Bus_Object,
 
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
 	// ample.

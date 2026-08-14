@@ -176,6 +176,9 @@ init :: proc(
 		hm.dynamic_init(&s.audio_buffers, s.allocator)
 		hm.dynamic_init(&s.sounds, s.allocator)
 		hm.dynamic_init(&s.audio_streams, s.allocator)
+		hm.dynamic_init(&s.audio_buses, s.allocator)
+		s.master_bus.target_settings = DEFAULT_AUDIO_BUS_SETTINGS
+		s.master_bus.current_settings = DEFAULT_AUDIO_BUS_SETTINGS
 	}
 
 	return s
@@ -236,6 +239,7 @@ shutdown :: proc() {
 		hm.dynamic_destroy(&s.playing_audio_buffers)
 		hm.dynamic_destroy(&s.sounds)
 		hm.dynamic_destroy(&s.audio_buffers)
+		hm.dynamic_destroy(&s.audio_buses)
 		free(s.audio_backend_state, s.allocator)
 	}
 
@@ -1811,6 +1815,7 @@ play_sound :: proc(sound: Sound) {
 		target_settings = sound_object.playback_settings,
 		current_settings = sound_object.playback_settings,
 		loop = sound_object.loop,
+		bus = sound_object.bus,
 	}
 
 	add_err: runtime.Allocator_Error
@@ -1818,6 +1823,54 @@ play_sound :: proc(sound: Sound) {
 
 	if add_err != nil {
 		log.errorf("Failed to play sound. Error: %v", add_err)
+	}
+}
+
+// Play an audio buffer, using the playback settings you pass in. The playback does not loop. Good
+// for playing one-off sound effects such as footsteps. You can play the same Audio_Buffer multiple
+// times simultaneously, without one stopping the another.
+//
+// The difference between using this and a `Sound` is that the `Sound` remembers its playback
+// settings, can be stopped and looped.
+//
+// Pass `bus` to play the sound on an audio bus. It plays on the master bus by default.
+play_audio_buffer :: proc(
+	ab: Audio_Buffer,
+	volume: f32 = 1,
+	pan: f32 = 0,
+	pitch: f32 = 1,
+	bus: Audio_Bus = AUDIO_BUS_MASTER,
+) {
+	audio_buffer_object := hm.get(&s.audio_buffers, ab)
+
+	if audio_buffer_object == nil {
+		log.error("Cannot play audio buffer, audio buffer does not exist.")
+		return
+	}
+
+	if bus != AUDIO_BUS_MASTER && hm.get(&s.audio_buses, bus) == nil {
+		log.error("Cannot play audio buffer, audio bus does not exist.")
+		return
+	}
+
+	playback_settings := Audio_Buffer_Playback_Settings {
+		volume = clamp(volume, 0, 1),
+		pan = clamp(pan, -1, 1),
+		pitch = max(pitch, 0.01),
+	}
+
+	playing_audio_buffer := Playing_Audio_Buffer {
+		audio_buffer = ab,
+		target_settings = playback_settings,
+		current_settings = playback_settings,
+		bus = bus,
+	}
+
+	// The playing audio buffer will be removed when mixer is finished playing it.
+	_, add_err := hm.add(&s.playing_audio_buffers, playing_audio_buffer)
+
+	if add_err != nil {
+		log.errorf("Failed playing audio buffer. Error: %v", add_err)
 	}
 }
 
@@ -1923,6 +1976,31 @@ set_sound_loop :: proc(sound: Sound, loop: bool) {
 	}
 	
 	sound_object.loop = loop
+}
+
+// Route a sound into an audio bus. The sound is then mixed into that bus instead of straight into
+// the master bus. You can set the volume and pan of the whole bus, making it possible to control
+// whole categories of sounds.
+//
+// Pass `AUDIO_BUS_MASTER` to route the sound to the master bus.
+set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		log.error("Cannot set bus, sound does not exist.")
+		return
+	}
+
+	if bus != AUDIO_BUS_MASTER && hm.get(&s.audio_buses, bus) == nil {
+		log.error("Cannot set bus, audio bus does not exist.")
+		return
+	}
+
+	if playing := hm.get(&s.playing_audio_buffers, sound_object.playing_buffer_handle); playing != nil {
+		playing.bus = bus
+	}
+
+	sound_object.bus = bus
 }
 
 // Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. If you need to
@@ -2842,6 +2920,7 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 		audio_buffer = sd.buffer,
 		target_settings = sd.playback_settings,
 		current_settings = sd.playback_settings,
+		bus = sd.bus,
 
 		// This means that we are looping the buffer itself. We will use this buffer as a circular
 		// buffer, filling it with samples as we stream in more. Thus it needs to be looped to not
@@ -2997,6 +3076,145 @@ set_audio_stream_loop :: proc(stream: Audio_Stream, loop: bool) {
 	sd.loop = loop
 }
 
+// Route an audio stream into an audio bus. The stream is then mixed into that bus instead of
+// straight into the master bus. Handy for putting your music on its own bus, so the player can
+// turn the music down without turning the sound effects down.
+//
+// You can use this both with a playing and non-playing stream. If it's already playing, then this
+// will affect the playing stream. Pass `AUDIO_BUS_MASTER` to put it back on the master bus.
+set_audio_stream_bus :: proc(stream: Audio_Stream, bus: Audio_Bus) {
+	sd := hm.get(&s.audio_streams, stream)
+
+	if sd == nil {
+		log.error("Cannot set audio stream bus, stream does not exist.")
+		return
+	}
+
+	if bus != AUDIO_BUS_MASTER && hm.get(&s.audio_buses, bus) == nil {
+		log.error("Cannot set audio stream bus, audio bus does not exist.")
+		return
+	}
+
+	if playing := hm.get(&s.playing_audio_buffers, sd.playing_buffer_handle); playing != nil {
+		playing.bus = bus
+	}
+
+	sd.bus = bus
+}
+
+// Create an audio bus: A group of sounds that are mixed together before they reach the master bus.
+// Route sounds into it using `set_sound_bus`, `set_audio_stream_bus`, or the `bus` parameter of
+// `play_audio_buffer`.
+//
+// A new bus has volume 1, pan 0 and no effect. That makes it a passthrough: Playing a sound on a
+// fresh bus sounds exactly like playing it on the master bus, until you change something.
+create_audio_bus :: proc() -> Audio_Bus {
+	bus_object := Audio_Bus_Object {
+		target_settings = DEFAULT_AUDIO_BUS_SETTINGS,
+		current_settings = DEFAULT_AUDIO_BUS_SETTINGS,
+	}
+
+	bus, add_err := hm.add(&s.audio_buses, bus_object)
+
+	if add_err != nil {
+		log.errorf("Failed creating audio bus. Error: %v", add_err)
+
+		// The master bus always exists, so anything routed to this handle still plays.
+		return AUDIO_BUS_MASTER
+	}
+
+	return bus
+}
+
+// Destroy an audio bus. Everything routed to it goes back to the master bus, including sounds that
+// are playing right now.
+destroy_audio_bus :: proc(bus: Audio_Bus) {
+	if bus == AUDIO_BUS_MASTER {
+		log.error("Cannot destroy audio bus, the master bus cannot be destroyed.")
+		return
+	}
+
+	if hm.get(&s.audio_buses, bus) == nil {
+		log.error("Cannot destroy audio bus, audio bus does not exist.")
+		return
+	}
+
+	// Move everything that points at this bus over to the master bus. We do it here, and not by
+	// letting the mixer notice that the bus is gone, so that the mixer never has to deal with a bus
+	// handle that doesn't resolve.
+
+	for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
+		if sound_object.bus == bus {
+			sound_object.bus = AUDIO_BUS_MASTER
+		}
+	}
+
+	for it := hm.dynamic_iterator_make(&s.audio_streams); sd, _ in hm.dynamic_iterate(&it) {
+		if sd.bus == bus {
+			sd.bus = AUDIO_BUS_MASTER
+		}
+	}
+
+	for it := hm.dynamic_iterator_make(&s.playing_audio_buffers); ps, _ in hm.dynamic_iterate(&it) {
+		if ps.bus == bus {
+			ps.bus = AUDIO_BUS_MASTER
+		}
+	}
+
+	hm.remove(&s.audio_buses, bus)
+}
+
+// Set the volume of an audio bus. Range: 0 to 1. Everything mixed into the bus is scaled by this.
+//
+// This works on `AUDIO_BUS_MASTER` as well, which is how you set the master volume of your game.
+set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32) {
+	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
+
+	if bus_object == nil {
+		log.error("Cannot set audio bus volume, audio bus does not exist.")
+		return
+	}
+
+	bus_object.target_settings.volume = clamp(volume, 0, 1)
+}
+
+// Set the pan of an audio bus. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full
+// right.
+//
+// This is a balance control: It turns the opposite side down. That's different from the pan of a
+// sound, which uses a constant-power curve to place a source in the stereo field. A bus is already
+// a finished stereo mix, and a bus at pan 0 has to leave it exactly as it is.
+set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32) {
+	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
+
+	if bus_object == nil {
+		log.error("Cannot set audio bus pan, audio bus does not exist.")
+		return
+	}
+
+	bus_object.target_settings.pan = clamp(pan, -1, 1)
+}
+
+// Set an effect to run on everything that is mixed into the bus. This is how you apply your own
+// audio processing, such as a filter, to a whole group of sounds at once.
+//
+// `user_data` is handed to the effect when it runs. Put whatever state your effect needs there:
+// The effect is called once per mixed chunk, so anything it wants to remember between the chunks
+// has to live in `user_data`. Pass `nil` as `effect` to remove the effect.
+//
+// See `Audio_Effect_Proc` for what the effect is given and what it is allowed to do.
+set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_data: rawptr = nil) {
+	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
+
+	if bus_object == nil {
+		log.error("Cannot set audio bus effect, audio bus does not exist.")
+		return
+	}
+
+	bus_object.effect = effect
+	bus_object.effect_user_data = user_data
+}
+
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
 //
@@ -3027,6 +3245,12 @@ update_audio_mixer :: proc() {
 	// Zero out old mixed data from buffer (the buffer is "circular", there may be old stuff in
 	// the `out` slice).
 	slice.zero(out)
+
+	// The buses have a chunk each, which the sounds routed to that bus are mixed into. Those hold
+	// the previous chunk's mix, so they need zeroing too.
+	for it := hm.dynamic_iterator_make(&s.audio_buses); bus, _ in hm.dynamic_iterate(&it) {
+		slice.zero(bus.chunk[:])
+	}
 
 	audio_mix :: proc(
 		dest: [][2]Audio_Sample,
@@ -3157,6 +3381,23 @@ update_audio_mixer :: proc() {
 		return 0
 	}
 
+	// Used for the smooth adjustment of volume, pan and pitch, both for the playing sounds below
+	// and for the buses further down.
+
+	calc_adjust_parameter_delta :: proc(sample_rate: int, pitch: f32) -> f32 {
+		RAMP_TIME :: 0.03
+		ramp_samples := RAMP_TIME * f32(sample_rate) * pitch
+		return AUDIO_MIX_CHUNK_SIZE / ramp_samples
+	}
+
+	move_towards :: proc(current: f32, target: f32, delta: f32) -> f32 {
+		if abs(target - current) < delta {
+			return target
+		}
+
+		dir := math.sign(target - current)
+		return current + dir * delta
+	}
 
 	for ps_iter := hm.dynamic_iterator_make(&s.playing_audio_buffers); ps, ps_handle in hm.dynamic_iterate(&ps_iter) {
 		data := hm.get(&s.audio_buffers, ps.audio_buffer)
@@ -3167,26 +3408,23 @@ update_audio_mixer :: proc() {
 			continue
 		}
 
+		// Where this sound is mixed into: The chunk of the bus it is routed to, or the output
+		// itself, which is the master bus. `destroy_audio_bus` moves everything back to the master
+		// bus, so a bus that doesn't resolve shouldn't happen. Fall back to the master bus if it
+		// does anyway, without logging: We'd log it 31 times a second.
+		dest := out
+
+		if ps.bus != AUDIO_BUS_MASTER {
+			if bus := hm.get(&s.audio_buses, ps.bus); bus != nil {
+				dest = bus.chunk[:]
+			}
+		}
+
 		// Before we get to the mixing we smoothly adjust pitch, volume and pan. We do this to avoid
 		// clicks in the audio. The clicks happen because abrupt changes cause discontinuities in
 		// the audio waveform. Understand: Sound does not happen because the waveform has a high
 		// value, it happens because there is a sudden change in the waveform. Bigger change, bigger
 		// sound.
-
-		calc_adjust_parameter_delta :: proc(sample_rate: int, pitch: f32) -> f32 {
-			RAMP_TIME :: 0.03
-			ramp_samples := RAMP_TIME * f32(sample_rate) * pitch
-			return AUDIO_MIX_CHUNK_SIZE / ramp_samples
-		}
-
-		move_towards :: proc(current: f32, target: f32, delta: f32) -> f32 {
-			if abs(target - current) < delta {
-				return target
-			}
-
-			dir := math.sign(target - current)
-			return current + dir * delta
-		}
 
 		settings := &ps.current_settings
 		target_settings := &ps.target_settings
@@ -3240,7 +3478,7 @@ update_audio_mixer :: proc() {
 		}
 
 		num_mixed := audio_mix(
-			s.mix_buffer[s.mix_buffer_offset:],
+			dest,
 			data.samples[ps.offset:],
 			data.channels,
 			interpolate,
@@ -3278,7 +3516,7 @@ update_audio_mixer :: proc() {
 				overflow := AUDIO_MIX_CHUNK_SIZE - num_mixed
 
 				num_mixed = audio_mix(
-					s.mix_buffer[s.mix_buffer_offset + num_mixed:],
+					dest[num_mixed:],
 					data.samples[ps.offset:],
 					data.channels,
 					interpolate,
@@ -3308,6 +3546,90 @@ update_audio_mixer :: proc() {
 				hm.remove(&s.playing_audio_buffers, ps_handle)
 				continue
 			}
+		}
+	}
+
+	// BUSES
+	//
+	// The sounds routed to a bus have been mixed into that bus's chunk. Now run the effect of each
+	// bus on its chunk and mix the chunk into the master bus, which is the `out` slice.
+
+	// The buses run at the mixer's sample rate and are never pitched, so the ramp is the same for
+	// all of them.
+	bus_adjust_delta := calc_adjust_parameter_delta(AUDIO_MIX_SAMPLE_RATE, 1)
+
+	for it := hm.dynamic_iterator_make(&s.audio_buses); bus, _ in hm.dynamic_iterate(&it) {
+		// The effect runs even when the bus is silent. Effects tend to keep state, such as a filter
+		// or an echo. Skipping them while silent would leave that state behind, and it would jump
+		// once the bus is turned back up.
+		if bus.effect != nil {
+			bus.effect(bus.chunk[:], bus.effect_user_data)
+		}
+
+		volume_start := bus.current_settings.volume
+		volume_end := move_towards(volume_start, bus.target_settings.volume, bus_adjust_delta)
+		bus.current_settings.volume = volume_end
+
+		pan_start := bus.current_settings.pan
+		pan_end := move_towards(pan_start, bus.target_settings.pan, bus_adjust_delta)
+		bus.current_settings.pan = pan_end
+
+		if volume_start == 0 && volume_end == 0 {
+			continue
+		}
+
+		// The pan of a bus is a balance: It turns the opposite side down. The playing sounds use a
+		// constant-power curve instead, but that curve scales both channels by 0.707 in the middle.
+		// A bus that has not been touched has to leave the mix exactly as it is.
+		gain_start := [2]f32 {
+			volume_start * min(1, 1 - pan_start),
+			volume_start * min(1, 1 + pan_start),
+		}
+
+		gain_end := [2]f32 {
+			volume_end * min(1, 1 - pan_end),
+			volume_end * min(1, 1 + pan_end),
+		}
+
+		for samp_idx in 0..<AUDIO_MIX_CHUNK_SIZE {
+			t := f32(samp_idx) / f32(AUDIO_MIX_CHUNK_SIZE)
+			out[samp_idx] += bus.chunk[samp_idx] * linalg.lerp(gain_start, gain_end, t)
+		}
+	}
+
+	// MASTER BUS
+	//
+	// Everything is in `out` now. The master effect, volume and pan apply to the whole mix.
+
+	master := &s.master_bus
+
+	if master.effect != nil {
+		master.effect(out, master.effect_user_data)
+	}
+
+	volume_start := master.current_settings.volume
+	volume_end := move_towards(volume_start, master.target_settings.volume, bus_adjust_delta)
+	master.current_settings.volume = volume_end
+
+	pan_start := master.current_settings.pan
+	pan_end := move_towards(pan_start, master.target_settings.pan, bus_adjust_delta)
+	master.current_settings.pan = pan_end
+
+	// A game that never touches the master bus shouldn't pay for it.
+	if volume_start != 1 || volume_end != 1 || pan_start != 0 || pan_end != 0 {
+		gain_start := [2]f32 {
+			volume_start * min(1, 1 - pan_start),
+			volume_start * min(1, 1 + pan_start),
+		}
+
+		gain_end := [2]f32 {
+			volume_end * min(1, 1 - pan_end),
+			volume_end * min(1, 1 + pan_end),
+		}
+
+		for samp_idx in 0..<AUDIO_MIX_CHUNK_SIZE {
+			t := f32(samp_idx) / f32(AUDIO_MIX_CHUNK_SIZE)
+			out[samp_idx] *= linalg.lerp(gain_start, gain_end, t)
 		}
 	}
 
@@ -4911,6 +5233,10 @@ Sound_Object :: struct {
 	// If true, then the playing sound will be set up as "looping" when `play_sound` is called. Set
 	// using `set_sound_loop`.
 	loop: bool,
+
+	// The bus the sound is mixed into when it plays. The zero value is the master bus. Set using
+	// `set_sound_bus`.
+	bus: Audio_Bus,
 }
 
 Audio_Stream :: distinct Handle
@@ -4946,6 +5272,10 @@ Audio_Stream_Data :: struct {
 	buffer_write_pos: int,
 
 	playback_settings: Audio_Buffer_Playback_Settings,
+
+	// The bus the stream is mixed into when it plays. The zero value is the master bus. Set using
+	// `set_audio_stream_bus`.
+	bus: Audio_Bus,
 
 	// Different from `loop` in `Playing_Audio_Buffer`. This says if the whole stream should loop
 	// when it reaches end-of-file. The `loop` in `Playing_Audio_Buffer` just says to loop the
@@ -5025,6 +5355,60 @@ Playing_Audio_Buffer :: struct {
 	offset_fraction: f32,
 
 	loop: bool,
+
+	// The bus this is mixed into. The zero value is the master bus.
+	bus: Audio_Bus,
+}
+
+// A bus is a group of sounds that are mixed together before they reach the master bus. You can set
+// the volume and the pan of the whole group, and you can run an effect on it. Create one using
+// `create_audio_bus` and route sounds into it using `set_sound_bus`, `set_audio_stream_bus` or the
+// `bus` parameter of `play_audio_buffer`.
+Audio_Bus :: distinct Handle
+
+// All other buses are mixed into the master bus, as well as sounds that play directly on the master
+// bus. This is the default bus of all sounds, audio streams and playing audio buffers.
+//
+// You can use this with `set_audio_bus_volume`, `set_audio_bus_pan` and `set_audio_bus_effect`.
+// That's how you set the master volume of your game.
+AUDIO_BUS_MASTER :: Audio_Bus {}
+
+// Runs on the mixed samples of a whole bus, before the bus is mixed into the master bus. Modify
+// `samples` in place. This is how you write your own audio effects, such as a filter or an echo.
+//
+// `samples` is `AUDIO_MIX_CHUNK_SIZE` stereo samples at `AUDIO_MIX_SAMPLE_RATE`. Keep any state
+// your effect needs in `user_data`: You get called once per mixed chunk, so anything you want to
+// carry between the chunks needs to live there.
+//
+// This runs on the main thread today, but keep in mind that it may move to a separate thread in the
+// future.
+Audio_Effect_Proc :: proc(samples: [][2]Audio_Sample, user_data: rawptr)
+
+Audio_Bus_Settings :: struct {
+	volume: f32,
+	pan: f32,
+}
+
+Audio_Bus_Object :: struct {
+	handle: Audio_Bus,
+
+	// Same idea as in `Playing_Audio_Buffer`: The current settings move towards the target
+	// settings a bit at a time, so that changing the volume of a bus doesn't click.
+	target_settings: Audio_Bus_Settings,
+	current_settings: Audio_Bus_Settings,
+
+	effect: Audio_Effect_Proc,
+	effect_user_data: rawptr,
+
+	// The sounds routed to this bus are mixed in here. The bus effect runs on this. Then this is
+	// mixed into the master bus. Unused for the master bus itself: That one is mixed straight into
+	// `mix_buffer`.
+	chunk: [AUDIO_MIX_CHUNK_SIZE][2]Audio_Sample,
+}
+
+DEFAULT_AUDIO_BUS_SETTINGS :: Audio_Bus_Settings {
+	volume = 1,
+	pan = 0,
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
@@ -5128,6 +5512,12 @@ State :: struct {
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
+
+	audio_buses: hm.Dynamic_Handle_Map(Audio_Bus_Object, Audio_Bus),
+
+	// The master bus is not in `audio_buses`. It is identified by the zero handle, which the handle
+	// map can't store, and it needs to exist without anyone creating it.
+	master_bus: Audio_Bus_Object,
 
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
 	// ample.
