@@ -1862,14 +1862,13 @@ play_sound :: proc(sound: Sound) {
 	}
 }
 
-// Play an audio buffer once, using the playback settings you pass in. This is a shortcut for
-// one-shot sounds such as gunshots and footsteps: You don't need to create a `Sound` for the
-// buffer, and each call starts a separate playback, so repeated calls overlap instead of
-// restarting each other.
+// Play an audio buffer once, using the playback settings you pass in. This is good for doing playing
+// sounds once. Multiple instances of the same audio buffer can play at the same time, so it is use-
+// ful for stuff like footsteps etc.
 //
-// You get nothing back, so there is no way to stop or modify the playback once it has started.
-// Create a `Sound` using `create_sound_from_audio_buffer` when you need that control. That is also
-// why there is no looping here: A looping playback that nothing can stop would play forever.
+// This procedure returns nothing, so you cannot stop the playback. If you need stoppable playback,
+// then create a `Sound` using `create_sound_from_audio_buffer`. You also cannot loop these sounds,
+// for that, also use `Sound`.
 //
 // Pass `bus` to play the sound on an audio bus. It plays on the master bus by default.
 play_audio_buffer :: proc(
@@ -1904,6 +1903,7 @@ play_audio_buffer :: proc(
 		bus = bus,
 	}
 
+	// The playing audio buffer will be removed when mixer is finished playing it.
 	_, add_err := hm.add(&s.playing_audio_buffers, playing_audio_buffer)
 
 	if add_err != nil {
@@ -2016,10 +2016,10 @@ set_sound_loop :: proc(sound: Sound, loop: bool) {
 }
 
 // Route a sound into an audio bus. The sound is then mixed into that bus instead of straight into
-// the master bus, letting you control it together with everything else on the bus.
+// the master bus. You can set the volume and pan of the whole bus, making it possible to control
+// whole categories of sounds.
 //
-// You can set this before playing but also while playing the sound. Pass `AUDIO_BUS_MASTER` to put
-// the sound back on the master bus.
+// Pass `AUDIO_BUS_MASTER` to route the sound to the master bus.
 set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 	sound_object := hm.get(&s.sounds, sound)
 
@@ -3164,7 +3164,7 @@ create_audio_bus :: proc() -> Audio_Bus {
 }
 
 // Destroy an audio bus. Everything routed to it goes back to the master bus, including sounds that
-// are playing right now. Those keep playing, they just play on the master bus from here on.
+// are playing right now.
 destroy_audio_bus :: proc(bus: Audio_Bus) {
 	if bus == AUDIO_BUS_MASTER {
 		log.error("Cannot destroy audio bus, the master bus cannot be destroyed.")
@@ -5351,11 +5351,8 @@ Playing_Audio_Buffer :: struct {
 // `bus` parameter of `play_audio_buffer`.
 Audio_Bus :: distinct Handle
 
-// The master bus. Everything ends up here and this is what the audio backend is fed.
-//
-// Note that this is the zero value, not an `AUDIO_BUS_NONE`: Anything that has not been routed
-// anywhere plays on the master bus, so code that doesn't care about buses gets the master bus
-// without doing anything. A sound always plays somewhere, so "no bus" is not a thing.
+// All other buses are mixed into the master bus, as well as sounds that play directly on the master
+// bus. This is the default bus of all sounds, audio streams and playing audio buffers.
 //
 // You can use this with `set_audio_bus_volume`, `set_audio_bus_pan` and `set_audio_bus_effect`.
 // That's how you set the master volume of your game.
@@ -5368,8 +5365,8 @@ AUDIO_BUS_MASTER :: Audio_Bus {}
 // your effect needs in `user_data`: You get called once per mixed chunk, so anything you want to
 // carry between the chunks needs to live there.
 //
-// This runs on the main thread today, from within `update_audio_mixer`. Don't allocate and don't
-// log in here. The mixer may move to a separate thread later.
+// This runs on the main thread today, but keep in mind that it may move to a separate thread in the
+// future.
 Audio_Effect_Proc :: proc(samples: [][2]Audio_Sample, user_data: rawptr)
 
 Audio_Bus_Settings :: struct {

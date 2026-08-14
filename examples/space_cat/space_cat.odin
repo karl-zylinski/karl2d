@@ -115,8 +115,8 @@ bg_object_textures: [6]k2.Texture
 fg_object_textures: [7]k2.Texture
 plasma_ball_textures: [3]k2.Texture
 
-// We play these audio buffers directly using `play_audio_buffer`. This way multiple sounds can be
-// played at once.
+// We play these audio buffers directly using `play_audio_buffer`. That's good for these kind of
+// "one-shot" sounds that just need some initial playback settings.
 ab_shoot: k2.Audio_Buffer
 ab_pickup: k2.Audio_Buffer
 ab_hit: k2.Audio_Buffer
