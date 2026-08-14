@@ -1862,13 +1862,12 @@ play_sound :: proc(sound: Sound) {
 	}
 }
 
-// Play an audio buffer once, using the playback settings you pass in. This is good for doing playing
-// sounds once. Multiple instances of the same audio buffer can play at the same time, so it is use-
-// ful for stuff like footsteps etc.
+// Play an audio buffer, using the playback settings you pass in. The playback does not loop. Good
+// for playing one-off sound effects such as footsteps. You can play the same Audio_Buffer multiple
+// times simultaneously, without one stopping the another.
 //
-// This procedure returns nothing, so you cannot stop the playback. If you need stoppable playback,
-// then create a `Sound` using `create_sound_from_audio_buffer`. You also cannot loop these sounds,
-// for that, also use `Sound`.
+// The difference between using this and a `Sound` is that the `Sound` remembers its playback
+// settings, can be stopped and looped.
 //
 // Pass `bus` to play the sound on an audio bus. It plays on the master bus by default.
 play_audio_buffer :: proc(
