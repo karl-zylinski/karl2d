@@ -80,7 +80,7 @@ step :: proc() -> bool {
 		offset = k2.Vec2{f32(k2.get_screen_width()), 0} * 0.5,
 	}
 
-	mouse_pos_world := k2.screen_to_world(k2.get_mouse_position(), camera)
+	mouse_pos_world := k2.screen_to_camera(k2.get_mouse_position(), camera)
 	grid_x := int(math.floor(mouse_pos_world.x / TILE_SIZE))
 	grid_y := int(math.floor(mouse_pos_world.y / TILE_SIZE))
 	hovered_grid_rect: k2.Rect

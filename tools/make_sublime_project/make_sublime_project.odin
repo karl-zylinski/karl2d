@@ -67,17 +67,6 @@ main :: proc() {
 		return fmt.tprintf("%s.%s", name, ODIN_OS == .Windows ? "exe" : "bin")
 	}
 
-	// Some examples only build with a define. `box2d` uses the Y up coordinate system and says so
-	// with a #assert, so it needs the define in every variant.
-	example_defines :: proc(name: string) -> string {
-		switch name {
-		case "box2d":
-			return " -define:KARL2D_Y_UP=true"
-		}
-
-		return ""
-	}
-
 	write_build_variant :: proc(
 		builder: ^strings.Builder,
 		name: string,
@@ -127,7 +116,7 @@ main :: proc() {
 		name := e.name
 		src_path := fmt.tprintf("examples/%v", e.name)
 
-		write_build_variant(&variants_builder, name, src_path, false, example_defines(name))
+		write_build_variant(&variants_builder, name, src_path, false)
 	}
 
 	write_build_variant(

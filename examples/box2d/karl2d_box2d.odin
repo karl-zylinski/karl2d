@@ -8,10 +8,9 @@ import b2 "vendor:box2d"
 import k2 "../.."
 import "core:math"
 
-// Box2D works in a Y up world, so this example uses Karl2D's Y up coordinate system too. That way
-// positions and angles pass between the two without any conversion. Everything below is in Box2D
-// world coordinates, which here are also screen coordinates: one unit is one pixel.
-#assert(k2.Y_UP, "This example assumes Y up. Compile it with -define:KARL2D_Y_UP=true")
+// Box2D works in a Y up world, so this example uses a Y up camera. Therefore positions, angles
+// and rectangles do not need to be converted.
+WORLD_CAMERA :: k2.Camera { zoom = 1, flip_y = true }
 
 SCREEN_WIDTH :: 1280
 SCREEN_HEIGHT :: 720
@@ -32,8 +31,6 @@ BARREL_THICKNESS :: 22
 BALL_RADIUS :: 14
 BALL_SPEED :: 1250
 
-// Heavy enough to knock a good part of the stack over, light enough that one shot doesn't level the
-// whole thing. Past about this the ball punches through instead of toppling more of it.
 BALL_DENSITY :: 7
 
 BOX_SIZE :: 40
@@ -43,9 +40,7 @@ world_id: b2.WorldId
 time_acc: f32
 boxes: [dynamic]b2.BodyId
 
-// Balls live in a fixed ring. Firing into a full one recycles the oldest ball, so the world never
-// ends up with more bodies than this no matter how long you play. An empty slot is a null id, which
-// is what a ball that flew off the screen leaves behind.
+// Balls live in a fixed ring. If full, then the oldest ball is replaced.
 MAX_BALLS :: 16
 balls: [MAX_BALLS]b2.BodyId
 next_ball: int
@@ -74,17 +69,16 @@ step :: proc() -> bool {
 		return false
 	}
 
-	// The mouse position is already in the same coordinate system as the physics world, so it can
-	// be used to aim without converting anything.
-	//
+	// Convert the screen-space mouse position to the Y Up world space.
+	target := k2.screen_to_camera(k2.get_mouse_position(), WORLD_CAMERA)
+
 	// Shots start at the middle of the cannon and come out from behind the barrel, which is drawn
 	// over them. Starting them at the end of the barrel instead would move the launch point every
 	// time the barrel turned, and the angle is what turns it.
-	target := k2.get_mouse_position()
 	aim_dir := launch_direction(CANNON, target)
 
 	if k2.mouse_button_went_down(.Left) {
-		// Whatever is in the slot we are about to write has had its turn.
+		// True if the current slot has been reused because `balls` got full.
 		if b2.IS_NON_NULL(balls[next_ball]) {
 			b2.DestroyBody(balls[next_ball])
 		}
@@ -93,14 +87,15 @@ step :: proc() -> bool {
 		body_def.type = .dynamicBody
 		body_def.position = { CANNON.x, CANNON.y }
 
-		// Shots are fast and small, so ask Box2D not to let them pass through thin things.
-		body_def.isBullet = true
 		body_id := b2.CreateBody(world_id, body_def)
 
 		shape_def := b2.DefaultShapeDef()
 		shape_def.density = BALL_DENSITY
-		shape_def.material.friction = 0.3
-		shape_def.material.restitution = 0.35
+		shape_def.material = {
+			friction = 0.3,
+			restitution = 0.35,
+			rollingResistance = 0.3,
+		}
 
 		circle := b2.Circle { radius = BALL_RADIUS }
 		_ = b2.CreateCircleShape(body_id, shape_def, &circle)
@@ -152,6 +147,8 @@ step :: proc() -> bool {
 	}
 
 	k2.clear(k2.LIGHT_BLUE)
+
+	k2.set_camera(WORLD_CAMERA)
 	k2.draw_rect(PLATFORM, k2.DARK_GRAY)
 	k2.draw_rect(GROUND, k2.GREEN)
 
@@ -200,10 +197,8 @@ step :: proc() -> bool {
 	k2.draw_rect(barrel, k2.DARK_GRAY, { 0, BARREL_THICKNESS/2 }, math.atan2(aim_dir.y, aim_dir.x))
 	k2.draw_circle(CANNON, 20, k2.GRAY)
 
-	text := "Shoot: Left click\nReset: R"
-	text_size := k2.measure_text(text, 24)
-
-	k2.draw_text(text, {20, SCREEN_HEIGHT - 20 - text_size.y}, 24, k2.DARK_BLUE)
+	k2.set_camera(nil)
+	k2.draw_text("Shoot: Left click\nReset: R", {20, 20}, 24, k2.DARK_BLUE)
 	k2.present()
 
 	return true
@@ -295,9 +290,6 @@ create_static_box :: proc(r: k2.Rect) {
 }
 
 shutdown :: proc() {
-	// The world owns every body in it, and a body owns its shapes, so this is all the physics
-	// cleanup there is. The shape ids from `CreatePolygonShape` are only worth keeping if you want
-	// to change a shape later.
 	b2.DestroyWorld(world_id)
 	delete(boxes)
 	k2.shutdown()

@@ -19,19 +19,34 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - Keep dependencies minimal. Prefer clarity and simplicity over cleverness.
 - Draft Pull Requests are always welcome and do not need to follow strict rules. A _ready for review_ PR must contain working, tested, complete code that follows the style below.
 
+## Commit messages
+- Keep commit messages very factual. As short as possible, so people can actually read them. Use as short sentences as possible. Prefer the period over any other form of punctuation. Only put in a short overview of what changed. If people want to see the details, then they study the code. The short overview will lead people to the code, not replace them looking at it.
+
 ## Verifying Your Work
 - Build and test through the examples in `examples/`. Prefer the existing VS Code build tasks; they already include `-vet -strict-style -vet-tabs` and come in three variants: default (D3D11 on Windows), `(GL)`, and `(web)`. Use the same `-vet -strict-style -vet-tabs` flags when running `odin` directly.
-- After edits, run the most relevant build task(s) for what you touched. After a large change, run `odin run tools/test_examples`, the CI script that builds every example (some are excluded from web builds, e.g. `minimal_hello_world`, `custom_frame_update`; some need a define to build at all, e.g. `box2d` requires `-define:KARL2D_Y_UP=true`, which the tool applies for you).
+- After edits, run the most relevant build task(s) for what you touched. After a large change, run `odin run tools/test_examples`, the CI script that builds every example (some are excluded from web builds, e.g. `minimal_hello_world`, `custom_frame_update`).
+- `tests/coordinate_system` holds the coordinate system checks. Run it both ways: once plain and once with `-define:KARL2D_TEST_Y_UP=true`, both with `-define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1`. They open a window, so they only run where one can be created.
 - Regenerate `karl2d.doc.odin`: `odin run tools/api_doc_builder`. Any change in `karl2d.doc.odin` is a user-facing API change. Make sure you want that change to actually happen. Think about what happens if you break backwards compatibility.
 - Web builds use the script in `build_web/`. Forward game/compiler flags after `--`: `odin run build_web -- your_game_path -debug`. A web game must have `init` and `step` procedures; `examples/minimal_hello_world_web/` is the template.
 - `tools/make_sublime_projects`, `tools/make_vscode_project/` and `tools/make_zed_project/` generate editor project configurations.
 
 ## Code Style
 
+### Paradigm
+- Write procedural imperative code. This is the most important code idea. None of that functional or OOP stuff. Prefer long procedures over compositing everything to tiny procedures. Just seeing the code that does something is easier than hopping into some othe procedure.
+
 ### Formatting
 - Tabs, not spaces, for indentation.
 - Max line length in `.odin` files: 100 characters. Use a ruler in your editor, split `//` comment lines at the ruler, and never go beyond it. Markdown files can and should use longer lines, since they will be viewed with line wrapping on.
-- Procedure signatures that are too long are split across lines (see `init` in `karl2d.odin`).
+- Anything that does not fit on one line is split with one item per line. That goes for procedure calls, procedure signatures, struct definitions and struct literals. The item list is indented one tab, each item ends with a comma including the last one, and the closing bracket sits on its own line at the indentation of the line that opened it. Do not pack several items onto a continuation line to save space. See `init` in `karl2d.odin` for a signature and `draw_text_static`'s call to `draw_texture_fit` for a call.
+
+  ```
+  s.proj_matrix = make_default_projection(
+  	pf.get_screen_width(),
+  	pf.get_screen_height(),
+  	_camera_flip_y(),
+  )
+  ```
 - Place `:` and `=` with consistent spacing as in `karl2d.odin`. Opening braces `{` go on the same line as the declaration.
 - Ranges are written without spaces: `for i in 0..<len(pixels)`, not `0 ..< len(pixels)`. Attributes too: `@(private="package")`, not `@(private = "package")`.
 - No single-line `if` bodies: the body goes on its own line, even when it is one statement. (One older example does this; don't copy it.)
@@ -43,15 +58,15 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - Procs that implement the platform interface carry the platform prefix (`mac_set_cursor`). Internal helpers may skip the prefix when the file is `#+private file` (`apply_cursor_state`).
 - Log messages follow "Failed <doing> <thing>. Error: %v" or "Cannot <verb>, <thing> does not exist.". In platform backends it is also fine to name the failing OS call: "CreateIconIndirect failed with %v".
 
-### Comments
-- Public API procedures and types get a clear, concise comment above them. Document parameters and return values where appropriate.
-- Voice: short and conversational; first person is fine ("We piggyback on the resize event", "I fixed the binding locally"). State the fact rather than writing a justification. One line is the norm; go longer only for an OS quirk or something genuinely non-obvious.
-- Use short sentences. Prefer a period over all other forms of punctuation.
-- A doc comment tells the reader two things. What does this do? And why does it do it that way, if that would otherwise surprise them. Leave out everything else.
+### Comment on public APIs (karl2d.doc.odin)
+- Do not write or change any public API comments (stuff that ends up in karl2d.doc.odin). They are written manually. Check their factualness and make changes to them during the final audit of a PR.
+
+### Comments inside implementations
+- Writing comments inside implementations is allowed.
+- Use short sentences. Prefer a period over all other forms of punctuation
 - Never write about how something used to work, or about what a change improved. The reader has only ever seen the current version. That story belongs in the commit message.
 - Never warn the reader away from a mistake you made while writing the change. A comment explaining why some other code is *not* there is a note to yourself, not an insight about the code that is. Read it as a diff: if it only makes sense to someone who watched you get it wrong, delete it. The commit message is where that goes, if anywhere.
-- If you are unsure whether something belongs on a procedure or on a struct, put it on the procedure. That is what people look up.
-- Short notes can be trailing comments on the line they describe: `camera: k2.Camera // world camera`.
+- Don't duplicate information on a procedure and on a struct that the procedure uses. Put it on the procedure if unsure where to put it.
 
 ### File organization
 - Group related procedures and types together.

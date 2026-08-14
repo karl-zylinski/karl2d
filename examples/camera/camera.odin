@@ -19,7 +19,7 @@ step :: proc() -> bool {
 	
 	screen_size := Vec2 { f32(k2.get_screen_width()), f32(k2.get_screen_height()) }
 	mouse_screen_pos := k2.get_mouse_position()
-	mouse_world_pos := k2.screen_to_world(k2.get_mouse_position(), camera)
+	mouse_world_pos := k2.screen_to_camera(k2.get_mouse_position(), camera)
 	frame_time := k2.get_frame_time()
 
 	// CAMERA PANNING
