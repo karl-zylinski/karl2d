@@ -26,8 +26,6 @@ import "core:image/tga"
 
 import hm "core:container/handle_map"
 
-import "core:fmt"
-
 //-----------------------------------------------//
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
