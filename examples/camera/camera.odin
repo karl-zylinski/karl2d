@@ -10,18 +10,18 @@ camera: k2.Camera // world camera
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Camera Demo", {window_mode = .Windowed_Resizable})
+
 }
 
 step :: proc() -> bool {
 	if !k2.update() {
 		return false
 	}
-	
+
 	screen_size := Vec2 { f32(k2.get_screen_width()), f32(k2.get_screen_height()) }
 	mouse_screen_pos := k2.get_mouse_position()
 	mouse_world_pos := k2.screen_to_world(k2.get_mouse_position(), camera)
 	frame_time := k2.get_frame_time()
-
 	// CAMERA PANNING
 
 	camera_target_movement: Vec2 
@@ -35,7 +35,6 @@ step :: proc() -> bool {
 	if k2.key_is_held(.Left)  { camera_target_movement.x -= camera_key_move_delta }
 	if k2.key_is_held(.Down)  { camera_target_movement.y += camera_key_move_delta }
 	if k2.key_is_held(.Up) 	  { camera_target_movement.y -= camera_key_move_delta }
-
 	// Multiplying camera movement with rotation matrix makes it move like the player expects,
 	// relative to the axes of the window, not the axes of the camera.
 	rotation_matrix := linalg.matrix2_rotate(-camera.rotation)
@@ -47,7 +46,6 @@ step :: proc() -> bool {
 	}
 
 	// CAMERA RESET
-
 	if k2.key_went_down(.R) { camera = { zoom = 1 } }
 
 	// CAMERA ZOOM
@@ -60,7 +58,6 @@ step :: proc() -> bool {
 	camera.offset = screen_size / 2
 
 	// CAMERA ROTATION
-
 	CAMERA_KEY_ROTATION_SPEED :: 1 // in rads/sec
 	camera_key_rotation_delta := CAMERA_KEY_ROTATION_SPEED*frame_time
 	if k2.key_is_held(.Z) { camera.rotation += camera_key_rotation_delta }
@@ -70,7 +67,6 @@ step :: proc() -> bool {
 
 	k2.set_camera(camera)
 	k2.clear(k2.DARK_GRAY)
-
 	for i in -10..=+10 {
 		thick := camera.zoom * (i==0 ? 4 : 1)
 		color := i==0 ? k2.LIGHT_GREEN : k2.GREEN
@@ -82,7 +78,6 @@ step :: proc() -> bool {
 			k2.draw_line({-1000,0}, {1000,0}, 1, k2.RED)
 		}
 	}
-
 	k2.draw_circle({}, 200, k2.color_alpha(k2.RED, 80))
 	k2.draw_circle_outline({}, 200, 20, k2.color_alpha(k2.WHITE, 80))
 

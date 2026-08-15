@@ -25,7 +25,7 @@ import "core:image/png"
 import "core:image/tga"
 
 import hm "core:container/handle_map"
-
+import "core:fmt"
 //-----------------------------------------------//
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
@@ -79,8 +79,10 @@ init :: proc(
 ) -> ^State {
 	assert(s == nil, "Don't call 'init' twice.")
 	s = new(State, allocator, loc)
-	s.defalt_batch=&s.raw_defalt_batch// TODO remove this this is temp so it no crash
 	s.allocator = allocator
+	temp_batch:Batch_Draw_Calls
+	s.defalt_batch = &temp_batch
+	s.current_batch = &temp_batch// TODO remove this this is temp so it no crash
 
 	// This is the same type of arena as the default temp allocator. This arena is for allocations
 	// that have a lifetime of "one frame". They are valid until you call `present()`, at which
@@ -120,9 +122,8 @@ init :: proc(
 	rb_alloc_error: runtime.Allocator_Error
 	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = s.allocator)
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
-	// s.defalt_batch.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
-	// s.defalt_batch.view_matrix = 1
-	// _update_view_projection(s.defalt_batch)
+
+
 	// Boot up the render backend. It will render into our previously created window.
 	rb.init(
 		s.render_backend_state,
@@ -132,16 +133,8 @@ init :: proc(
 		options,
 		s.allocator,
 	)
-	// // The vertex buffer is created in a render backend-independent way. It is passed to the
-	// // render backend each frame as part of `draw_current_batch()`.
-	// s.defalt_batch.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, s.allocator, loc)
 
-	// // Draw calls are recorded here as you draw. `draw_current_batch` runs them. The arena holds the
-	// // values they point at. It is emptied at the same time.
-	// s.defalt_batch.calls = make([dynamic]Draw_Call, s.allocator, loc)
-	// batch_arena_err := runtime.arena_init(&s.defalt_batch.batch_arena, BATCH_ARENA_BLOCK_SIZE, s.allocator, loc)
-	// log.assertf(batch_arena_err == nil, "Failed allocating batch arena: %v", batch_arena_err)
-	// s.defalt_batch.batch_allocator = runtime.arena_allocator(&s.defalt_batch.batch_arena)
+
 
 	// The shapes drawing texture is sampled when any shape is drawn. This way we can use the same
 	// shader for textured drawing and shape drawing. It's just a white box.
@@ -151,7 +144,7 @@ init :: proc(
 	// The default shader will arrive in a different format depending on backend. GLSL for GL,
 	// HLSL for d3d etc.
 	s.default_shader = load_shader_from_bytes(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
-	// s.defalt_batch.current_shader = s.default_shader
+
  
 
 	// FontStash enables us to bake fonts from TTF files on-the-fly.
@@ -166,8 +159,10 @@ init :: proc(
 	append_nothing(&s.fonts)
 	default_font := load_dynamic_font_from_bytes(DEFAULT_FONT_DATA)
 	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
-	// _set_font(FONT_DEFAULT, s.defalt_batch)
+
+	// set up the defalt batch data
 	s.defalt_batch = create_batch(s.allocator)
+	s.current_batch = s.defalt_batch
 
 	s.events = make([dynamic]Event, s.allocator)
 	s.typed_runes = make([dynamic]rune, s.allocator)
@@ -186,25 +181,27 @@ init :: proc(
 		hm.dynamic_init(&s.sounds, s.allocator)
 		hm.dynamic_init(&s.audio_streams, s.allocator)
 	}
-
+	
 	return s
 }
 
 create_batch::proc(allocator:runtime.Allocator, loc := #caller_location)->(batch:^Batch_Draw_Calls){
-	batch,_ = new(Batch_Draw_Calls,allocator)
+	assert_initialized()
+	batch=new(Batch_Draw_Calls,allocator)
 
+	batch.batch_allocator = allocator
 	batch.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
 	batch.view_matrix = 1
 	_update_view_projection(batch)
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`.
-	batch.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, allocator, loc)
+	batch.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, batch.batch_allocator, loc)
 
 	// Draw calls are recorded here as you draw. `draw_current_batch` runs them. The arena holds the
 	// values they point at. It is emptied at the same time.
-	batch.calls = make([dynamic]Draw_Call, allocator, loc)
-	batch_arena_err := runtime.arena_init(&batch.batch_arena, BATCH_ARENA_BLOCK_SIZE, allocator, loc)
+	batch.calls = make([dynamic]Draw_Call, batch.batch_allocator, loc)
+	batch_arena_err := runtime.arena_init(&batch.batch_arena, BATCH_ARENA_BLOCK_SIZE, batch.batch_allocator, loc)
 	log.assertf(batch_arena_err == nil, "Failed allocating batch arena: %v", batch_arena_err)
 	batch.batch_allocator = runtime.arena_allocator(&batch.batch_arena)
 	batch.current_shader = s.default_shader
@@ -214,9 +211,11 @@ create_batch::proc(allocator:runtime.Allocator, loc := #caller_location)->(batch
 }
 
 delete_batch::proc(batch:^Batch_Draw_Calls){
+	assert_initialized()
 	delete(batch.vertex_buffer_cpu, s.allocator)
 	delete(batch.calls)
 	runtime.arena_destroy(&batch.batch_arena)
+	free(batch,batch.batch_allocator)
 }
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
@@ -282,7 +281,7 @@ shutdown :: proc() {
 	rb.destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
 	rb.shutdown()
-	delete_batch(s.defalt_batch)
+	delete_batch(s.current_batch)
 
 	pf.shutdown()
 
@@ -303,9 +302,9 @@ shutdown :: proc() {
 // be cleared instead.
 clear :: proc(color: Color, batch: ^Batch_Draw_Calls = nil) {
 	batch:= batch
-	if batch == nil{batch = s.defalt_batch}
+	if batch == nil{batch = s.current_batch}
 	assert_initialized()
-	draw_batch(batch)
+	draw_batch_clear(batch)
 	rb.clear(batch.current_render_target, color)
 }
 
@@ -351,9 +350,13 @@ calculate_frame_time :: proc() {
 // make sure that all rendering has been sent off to the GPU (as it calls `draw_current_batch()`).
 present :: proc(batch: ^Batch_Draw_Calls = nil) {
 	batch:= batch
-	if batch == nil{batch = s.defalt_batch}
+	if batch == nil{batch = s.current_batch}
 	assert_initialized()
-	draw_batch(batch)
+	draw_batch_clear(batch)
+	rb.present()
+}
+
+rb_present::proc(){
 	rb.present()
 }
 
@@ -378,7 +381,6 @@ process_events :: proc() {
 	runtime.clear(&s.events)
 	runtime.clear(&s.typed_runes)
 	pf.get_events(&s.events)
-
 	for &event in s.events {
 		switch &e in event {
 		case Event_Close_Window_Requested:
@@ -449,10 +451,10 @@ process_events :: proc() {
 
 		case Event_Screen_Resize:
 			// Recorded draw calls were meant for the old swapchain size.
-			draw_batch(s.defalt_batch)//TODO This shoud problobly be changed
+			draw_batch_clear(s.current_batch)//TODO This shoud problobly be changed
 			rb.resize_swapchain(e.width, e.height)
-			s.defalt_batch.proj_matrix = make_default_projection(e.width, e.height)//TODO This shoud problobly be changed
-			_update_view_projection(s.defalt_batch)//TODO This shoud problobly be changed
+			s.current_batch.proj_matrix = make_default_projection(e.width, e.height)//TODO This shoud problobly be changed
+			_update_view_projection(s.current_batch)//TODO This shoud problobly be changed
 
 		case Event_Window_Focused:			
 
@@ -481,7 +483,7 @@ process_events :: proc() {
 			}
 
 		case Event_Window_Scale_Changed:
-			draw_batch(s.defalt_batch)//TODO This shoud problobly be changed
+			draw_batch_clear(s.current_batch)//TODO This shoud problobly be changed
 			rb.resize_swapchain(e.screen_width, e.screen_height)
 		}
 	}
@@ -525,7 +527,7 @@ set_screen_size :: proc(width: int, height: int) {
 	assert_initialized()
 
 	// Recorded draw calls were meant for the old screen size.
-	draw_batch(s.defalt_batch)//TODO This shoud problobly be changed
+	draw_batch_clear(s.current_batch)//TODO This shoud problobly be changed
 	pf.set_screen_size(width, height)
 	rb.resize_swapchain(pf.get_screen_width(), pf.get_screen_height())
 }
@@ -601,7 +603,10 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 // 	draw_batch(&s.batch_draw_calls)
 // }
 
-draw_batch :: proc(batch:^Batch_Draw_Calls) {
+draw_batch_clear :: proc(batch:^Batch_Draw_Calls = nil) {
+	batch:=batch
+	if batch == nil{batch = s.current_batch}
+
 	_finish_draw_call(batch)
 
 	if len(batch.calls) > 0 {
@@ -615,6 +620,16 @@ draw_batch :: proc(batch:^Batch_Draw_Calls) {
 	batch.current_draw_call = {}
 	batch.vertex_buffer_cpu_used = 0
 	free_all(batch.batch_allocator)
+}
+draw_batch :: proc(batch:^Batch_Draw_Calls = nil) {
+	batch:=batch
+	if batch == nil{batch = s.current_batch}
+	_finish_draw_call(batch)
+
+	if len(batch.calls) > 0 {
+		_update_font_atlases()
+		rb.draw(batch.vertex_buffer_cpu[:batch.vertex_buffer_cpu_used], batch.calls[:])
+	}
 }
 
 //-------//
@@ -842,7 +857,7 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 // With Y_UP the (x, y) is the rect's bottom-left corner and rotations look counter-clockwise.
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0, batch: ^Batch_Draw_Calls = nil,) {
 	batch:=batch
-	if batch == nil{batch = s.defalt_batch}
+	if batch == nil{batch = s.current_batch}
 	_begin_vertices(s.shape_drawing_texture, 6, batch)
 	tl, tr, bl, br: Vec2
 
@@ -909,14 +924,14 @@ draw_rect_vec :: proc(
 	batch: ^Batch_Draw_Calls = nil
 ) {
 	batch:=batch
-	if batch == nil{batch = s.defalt_batch}
+	if batch == nil{batch = s.current_batch}
 	draw_rect(rect_from_pos_size(position, size), color, origin, rotation, batch = batch)
 }
 
 @(deprecated="Use draw_rect instead")
 draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color, batch: ^Batch_Draw_Calls = nil) {
 	batch:=batch
-	if batch == nil{batch = s.defalt_batch}
+	if batch == nil{batch = s.current_batch}
 
 	draw_rect(r, c, origin, rot, batch = batch)
 }
@@ -925,7 +940,7 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color, batch: ^Batch_Dr
 // rectangles.
 draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color, batch: ^Batch_Draw_Calls = nil) {
 	batch:=batch
-	if batch == nil{batch = s.defalt_batch}
+	if batch == nil{batch = s.current_batch}
 
 	t := thickness
 	
@@ -969,7 +984,7 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color, batch: ^Batch_D
 // perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16, batch: ^Batch_Draw_Calls = nil) {
 	batch:=batch
-	if batch == nil{batch = s.defalt_batch}
+	if batch == nil{batch = s.current_batch}
 	_begin_vertices(s.shape_drawing_texture, 3*segments, batch)
 
 	prev := center + {radius, 0}
@@ -989,7 +1004,7 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16, bat
 // Like `draw_circle` but only draws the outer edge of the circle.
 draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16, batch: ^Batch_Draw_Calls = nil) {
 	batch:=batch
-	if batch == nil{batch = s.defalt_batch}
+	if batch == nil{batch = s.current_batch}
 	prev := center + {radius, 0}
 	for s in 1..=segments {
 		sr := (f32(s)/f32(segments)) * 2*math.PI
@@ -1003,8 +1018,7 @@ draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Co
 // Draws a line from `start` to `end` of a certain thickness.
 draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color, batch: ^Batch_Draw_Calls = nil) {
 	batch:=batch
-	if batch == nil{batch = s.defalt_batch}
-
+	if batch == nil{batch = s.current_batch}
 	p := Vec2{start.x, start.y}
 	s := Vec2{linalg.length(end - start), thickness}
 
@@ -1020,7 +1034,7 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color, batch: ^
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color, batch: ^Batch_Draw_Calls = nil) {
 	batch:=batch
-	if batch == nil{batch = s.defalt_batch}
+	if batch == nil{batch = s.current_batch}
 	_begin_vertices(s.shape_drawing_texture, 3, batch)
 
 	batch_vertex(vertices[0], {0, 0}, c, batch)
@@ -1122,7 +1136,7 @@ draw_texture_fit :: proc(
 	batch:^Batch_Draw_Calls = nil,
 ) {
 	batch:=batch
-	if batch == nil{batch = s.defalt_batch}
+	if batch == nil{batch = s.current_batch}
 
 	if texture.handle == TEXTURE_NONE || texture.width == 0 || texture.height == 0 {
 		return
@@ -1350,7 +1364,7 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 
 	measure_text_dynamic :: proc(text: string, font_size: f32, font: Font, batch: ^Batch_Draw_Calls = nil,) -> Vec2 {
 		batch:=batch
-		if batch == nil{batch = s.defalt_batch}
+		if batch == nil{batch = s.current_batch}
 
 		if font < 0 || int(font) >= len(s.fonts) {
 			return {}
@@ -1439,7 +1453,7 @@ draw_text :: proc(
 	batch: ^Batch_Draw_Calls = nil,
 ) {
 	batch:=batch
-	if batch == nil{batch = s.defalt_batch}
+	if batch == nil{batch = s.current_batch}
 
 	if int(font) >= len(s.fonts) {
 		return
@@ -1488,7 +1502,7 @@ draw_text :: proc(
 		// TODO: Add kerning.
 
 		batch:=batch
-		if batch == nil{batch = s.defalt_batch}
+		if batch == nil{batch = s.current_batch}
 
 		if int(font) >= len(s.fonts) {
 			return
@@ -1603,7 +1617,7 @@ draw_text :: proc(
 		batch: ^Batch_Draw_Calls = nil,
 	) {
 		batch:=batch
-		if batch == nil{batch = s.defalt_batch}
+		if batch == nil{batch = s.current_batch}
 		if int(font) >= len(s.fonts) {
 			return
 		}
@@ -1872,13 +1886,13 @@ get_texture_rect :: proc(t: Texture) -> Rect {
 // `tex` where the new pixels should end up.
 update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect) -> bool {
 	// Recorded draw calls may still be waiting to use the old pixels.
-	_flush_if_batch_uses_texture(tex.handle, s.defalt_batch)
+	_flush_if_batch_uses_texture(tex.handle, s.current_batch)
 	return rb.update_texture(tex.handle, bytes, rect)
 }
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(tex: Texture) {
-	_flush_if_batch_uses_texture(tex.handle, s.defalt_batch)
+	_flush_if_batch_uses_texture(tex.handle, s.current_batch)
 	rb.destroy_texture(tex.handle)
 }
 
@@ -1901,7 +1915,7 @@ set_texture_filter_ex :: proc(
 	mip_filter: Texture_Filter,
 ) {
 	// Recorded draw calls may still be waiting to sample this texture with the old filter.
-	_flush_if_batch_uses_texture(t.handle, s.defalt_batch)
+	_flush_if_batch_uses_texture(t.handle, s.current_batch)
 	rb.set_texture_filter(t.handle, scale_down_filter, scale_up_filter, mip_filter)
 }
 
@@ -3454,8 +3468,8 @@ create_render_texture :: proc(width: int, height: int) -> Render_Texture {
 // Destroy a Render_Texture previously created using `create_render_texture`.
 destroy_render_texture :: proc(render_texture: Render_Texture) {
 	// Recorded draw calls may still be waiting to draw into this render target, or sample it.
-	_flush_if_batch_uses_render_target(render_texture.render_target, s.defalt_batch)//TODO THIS IS WRONG
-	_flush_if_batch_uses_texture(render_texture.texture.handle, s.defalt_batch)// TODO THIS IS WRONG
+	_flush_if_batch_uses_render_target(render_texture.render_target, s.current_batch)//TODO THIS IS WRONG
+	_flush_if_batch_uses_texture(render_texture.texture.handle, s.current_batch)// TODO THIS IS WRONG
 	rb.destroy_texture(render_texture.texture.handle)
 	rb.destroy_render_target(render_texture.render_target)
 }
@@ -4028,7 +4042,7 @@ destroy_font :: proc(font: Font) {
 	f := &s.fonts[font]
 
 	// Recorded draw calls may still be waiting to sample this font's atlas.
-	_flush_if_batch_uses_texture(f.atlas.handle, s.defalt_batch)
+	_flush_if_batch_uses_texture(f.atlas.handle, s.current_batch)
 	rb.destroy_texture(f.atlas.handle)
 
 	// So `_update_font_atlases` stops uploading glyphs to a texture that is gone.
@@ -4237,7 +4251,7 @@ load_shader_from_bytes :: proc(
 // Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
 destroy_shader :: proc(shader: Shader) {
 	// Recorded draw calls may still be waiting to draw with this shader.
-	_flush_if_batch_uses_shader(shader.handle, s.defalt_batch)
+	_flush_if_batch_uses_shader(shader.handle, s.current_batch)
 	rb.destroy_shader(shader.handle)
 
 	a := s.allocator
@@ -4294,7 +4308,7 @@ set_shader :: proc(shader: Maybe(Shader),batch: ^Batch_Draw_Calls,) {
 // (the kind of value needed for `loc`) by running `loc := shader.constant_lookup["constant_name"]`.
 set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any, batch: ^Batch_Draw_Calls = nil) {
 	batch:= batch
-	if batch == nil {batch = s.defalt_batch}
+	if batch == nil {batch = s.current_batch}
 	if shd.handle == SHADER_NONE {
 		log.error("Invalid shader")
 		return
@@ -4379,7 +4393,7 @@ pixel_format_size :: proc(f: Pixel_Format) -> int {
 // will use this camera until you again change it.
 set_camera :: proc(camera: Maybe(Camera), batch: ^Batch_Draw_Calls = nil) {
 	batch:= batch
-	if batch == nil {batch = s.defalt_batch}
+	if batch == nil {batch = s.current_batch}
 	if camera == batch.current_camera {
 		return
 	}
@@ -4457,7 +4471,7 @@ camera_world_matrix :: proc(c: Camera) -> Mat4 {
 // drawn. The default is the .Alpha mode, but you also have the option of using .Premultiply_Alpha.
 set_blend_mode :: proc(mode: Blend_Mode, batch: ^Batch_Draw_Calls = nil) {
 	batch:= batch
-	if batch == nil{batch = s.defalt_batch}
+	if batch == nil{batch = s.current_batch}
 	if batch.current_blend_mode == mode {
 		return
 	}
@@ -5140,7 +5154,7 @@ State :: struct {
 	shape_drawing_texture: Texture_Handle,
 
 	// Recorded but not drawn yet. They all point into `vertex_buffer_cpu`.
-	raw_defalt_batch: Batch_Draw_Calls,
+	current_batch: ^Batch_Draw_Calls,
 	defalt_batch: ^Batch_Draw_Calls,
 
 	default_shader: Shader,
@@ -5531,14 +5545,11 @@ assert_initialized :: proc(loc := #caller_location) {
 // starts a new draw call if the settings changed.
 _begin_vertices :: proc(texture: Texture_Handle, vertices_needed: int, batch:^Batch_Draw_Calls) {
 	batch.current_texture = texture
-
 	// Starting a draw call can pad the write position by up to one vertex, so ask for one extra.
 	bytes_needed := batch.current_shader.vertex_size*(vertices_needed + 1)
-
 	if batch.vertex_buffer_cpu_used + bytes_needed > len(batch.vertex_buffer_cpu) {
-		draw_batch(batch)
+		draw_batch_clear(batch)
 	}
-
 	if !_draw_call_matches_settings(batch) {
 		_finish_draw_call(batch)
 		_start_draw_call(batch)
@@ -5599,7 +5610,6 @@ _start_draw_call :: proc(batch:^Batch_Draw_Calls) {
 	if remainder := batch.vertex_buffer_cpu_used % shader.vertex_size; remainder != 0 {
 		batch.vertex_buffer_cpu_used += shader.vertex_size - remainder
 	}
-
 	// The shader keeps one copy of its constants and bindpoints. A draw call runs long after it was
 	// recorded, so it needs the values it saw back then. A later `set_shader_constant` or write to
 	// `texture_bindpoints` must not reach back and change it. It therefore gets its own copy.
@@ -5610,17 +5620,13 @@ _start_draw_call :: proc(batch:^Batch_Draw_Calls) {
 	same_shader := prev.shader == shader.handle
 
 	constants_data := prev.constants_data
-
 	if !same_shader || batch.current_constants_dirty {
 		constants_data = slice.clone(shader.constants_data, batch.batch_allocator)
 		_write_builtin_constants(shader^, constants_data, batch)
 	}
-
 	textures := prev.textures
-
 	if !same_shader || !_textures_match(prev.textures, batch) {
 		textures = slice.clone(shader.texture_bindpoints, batch.batch_allocator)
-
 		// The texture being drawn is ours rather than the shader's. It goes into the copy.
 		if def_tex_idx, has_def_tex_idx := shader.default_texture_index.?; has_def_tex_idx {
 			textures[def_tex_idx] = batch.current_texture
@@ -5628,7 +5634,6 @@ _start_draw_call :: proc(batch:^Batch_Draw_Calls) {
 	}
 
 	scissor := batch.current_scissor
-
 	when Y_UP {
 		// The backends want the scissor rectangle top-down, which is what both D3D11 and OpenGL
 		// take. Here `sciss.y` is its bottom edge measured up from the bottom of the surface, so
@@ -5648,7 +5653,6 @@ _start_draw_call :: proc(batch:^Batch_Draw_Calls) {
 			}
 		}
 	}
-
 	batch.current_draw_call = {
 		vertex_offset = batch.vertex_buffer_cpu_used,
 		shader = shader.handle,
@@ -5813,13 +5817,13 @@ _flush_if_batch_uses_texture :: proc(texture: Texture_Handle,batch:^Batch_Draw_C
 	}
 
 	if uses_texture(batch.current_draw_call, texture) {
-		draw_batch(batch)
+		draw_batch_clear(batch)
 		return
 	}
 
 	for dc in batch.calls {
 		if uses_texture(dc, texture) {
-			draw_batch(batch)
+			draw_batch_clear(batch)
 			return
 		}
 	}
@@ -5832,13 +5836,13 @@ _flush_if_batch_uses_shader :: proc(shader: Shader_Handle,batch:^Batch_Draw_Call
 	}
 
 	if batch.current_draw_call.shader == shader {
-		draw_batch(batch)
+		draw_batch_clear(batch)
 		return
 	}
 
-	for dc in s.defalt_batch.calls {
+	for dc in batch.calls {
 		if dc.shader == shader {
-			draw_batch(batch)
+			draw_batch_clear(batch)
 			return
 		}
 	}
@@ -5851,13 +5855,13 @@ _flush_if_batch_uses_render_target :: proc(render_target: Render_Target_Handle, 
 	}
 
 	if batch.current_draw_call.render_target == render_target {
-		draw_batch(batch)
+		draw_batch_clear(batch)
 		return
 	}
 
-	for dc in s.defalt_batch.calls {
+	for dc in s.current_batch.calls {
 		if dc.render_target == render_target {
-			draw_batch(batch)
+			draw_batch_clear(batch)
 			return
 		}
 	}

@@ -32,9 +32,11 @@ main :: proc() {
 		k2.draw_text("Hellope!", {50, 250}, 100, k2.DARK_BLUE,batch = batch_3)
 
 		// Nothing you drew this frame is shown until you call this.
+		k2.draw_batch()
 		k2.draw_batch(batch_2)
 		k2.draw_batch(batch_3)
-		k2.present()
+		k2.rb_present()
+		// k2.present()
 	}
 
 	// Close the window and clean up the library's internal state.

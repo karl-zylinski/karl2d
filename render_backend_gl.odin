@@ -194,7 +194,7 @@ gl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 	gl.BufferData(gl.ARRAY_BUFFER, len(vertex_buffer), nil, gl.DYNAMIC_DRAW)
 	gl.BufferSubData(gl.ARRAY_BUFFER, 0, len(vertex_buffer), raw_data(vertex_buffer))
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
-
+	
 	// Changes that belong to draw calls we could not draw. They never reached GL. The next draw
 	// call we do run has to make them.
 	missed: bit_set[Draw_Call_Change]
@@ -981,4 +981,3 @@ gl_default_shader_fragment_source :: proc() -> []byte {
 	fragment_source := #load("default_shaders/default_shader_gl_fragment.glsl")
 	return fragment_source
 }
-
