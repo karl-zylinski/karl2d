@@ -1842,14 +1842,44 @@ play_audio_clip :: proc(
 	return sound
 }
 
-// Stops and destroys the sound. For a stream-fed sound this is a pause: the stream cursor stays
-// put.
+// Stops and destroys the sound. For a stream-fed sound this also rewinds the stream to the start.
+// Use `set_sound_paused` to pause without destroying.
 stop_sound :: proc(sound: Sound) {
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return
+	}
+
+	stream := sound_object.stream
 	hm.remove(&s.sounds, sound)
+
+	if stream != AUDIO_STREAM_NONE {
+		reset_audio_stream(stream)
+	}
 }
 
-// Returns true if the sound is currently playing.
+// Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
+// or stopped.
+set_sound_paused :: proc(sound: Sound, paused: bool) {
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return
+	}
+
+	sound_object.paused = paused
+}
+
+// Returns true if the sound exists and is not paused.
 sound_is_playing :: proc(sound: Sound) -> bool {
+	sound_object := hm.get(&s.sounds, sound)
+	return sound_object != nil && !sound_object.paused
+}
+
+// Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
+// stopped sound is not.
+sound_is_valid :: proc(sound: Sound) -> bool {
 	return hm.is_valid(&s.sounds, sound)
 }
 
@@ -2729,6 +2759,9 @@ play_audio_stream :: proc(
 		bus = bus,
 		stream = stream,
 
+		// Start reading at the write head, so that playback continues from the decode cursor.
+		offset = sd.buffer_write_pos,
+
 		// This means that we are looping the buffer itself. We will use this buffer as a circular
 		// buffer, filling it with samples as we stream in more. Thus it needs to be looped to not
 		// stop when the end of the circular buffer is reached.
@@ -3072,6 +3105,11 @@ update_audio_mixer :: proc() {
 		if data == nil {
 			log.error("Trying to play sound with destroyed data")
 			hm.remove(&s.sounds, ps_handle)
+			continue
+		}
+
+		// A paused sound stays in the list but is not mixed.
+		if ps.paused {
 			continue
 		}
 
@@ -4973,6 +5011,9 @@ Sound_Object :: struct {
 	offset_fraction: f32,
 
 	loop: bool,
+
+	// Set using `set_sound_paused`. The mixer skips paused sounds.
+	paused: bool,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,

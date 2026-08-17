@@ -116,14 +116,24 @@ step :: proc() -> bool {
 	when HAS_MUSIC {
 		k2.update_audio_stream(music)
 
-		// Home resumes from wherever the stream cursor is. End pauses (stop_sound doesn't rewind
-		// the stream). R moves the cursor back to the start, without silencing anything.
+		// Home starts the music. End stops it, which also rewinds the stream. P pauses and
+		// resumes. R jumps back to the start of the stream without stopping anything.
 		if k2.key_went_down(.Home) {
-			music_sound = k2.play_audio_stream(music, volume = snd_volume, pan = snd_pan, pitch = snd_pitch, loop = true)
+			music_sound = k2.play_audio_stream(
+				music,
+				volume = snd_volume,
+				pan = snd_pan,
+				pitch = snd_pitch,
+				loop = true,
+			)
 		}
 
 		if k2.key_went_down(.End) {
 			k2.stop_sound(music_sound)
+		}
+
+		if k2.key_went_down(.P) {
+			k2.set_sound_paused(music_sound, k2.sound_is_playing(music_sound))
 		}
 
 		if k2.key_went_down(.R) {
@@ -163,7 +173,7 @@ step :: proc() -> bool {
 	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 240}, 40, k2.BLACK)
 
 	when HAS_MUSIC {
-		k2.draw_text("Home resumes the music, End pauses it, R resets it to the start.", {20, 280}, 40, k2.BLACK)
+		k2.draw_text("Home plays the music, End stops it, P pauses, R rewinds.", {20, 280}, 40, k2.BLACK)
 	}
 
 	k2.present()

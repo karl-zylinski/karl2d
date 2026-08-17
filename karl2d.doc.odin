@@ -508,12 +508,20 @@ play_audio_clip :: proc(
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound
 
-// Stops and destroys the sound. For a stream-fed sound this is a pause: the stream cursor stays
-// put.
+// Stops and destroys the sound. For a stream-fed sound this also rewinds the stream to the start.
+// Use `set_sound_paused` to pause without destroying.
 stop_sound :: proc(sound: Sound)
 
-// Returns true if the sound is currently playing.
+// Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
+// or stopped.
+set_sound_paused :: proc(sound: Sound, paused: bool)
+
+// Returns true if the sound exists and is not paused.
 sound_is_playing :: proc(sound: Sound) -> bool
+
+// Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
+// stopped sound is not.
+sound_is_valid :: proc(sound: Sound) -> bool
 
 // Set the volume of a sound. Range: 0 to 1.
 set_sound_volume :: proc(sound: Sound, volume: f32)
@@ -1471,6 +1479,9 @@ Sound_Object :: struct {
 	offset_fraction: f32,
 
 	loop: bool,
+
+	// Set using `set_sound_paused`. The mixer skips paused sounds.
+	paused: bool,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
