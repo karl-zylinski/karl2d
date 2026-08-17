@@ -59,11 +59,7 @@ Write them like a tweet, max 180 characters. Only simple sentences. Only allowed
 - Procs that implement the platform interface carry the platform prefix (`mac_set_cursor`). Internal helpers may skip the prefix when the file is `#+private file` (`apply_cursor_state`).
 - Log messages follow "Failed <doing> <thing>. Error: %v" or "Cannot <verb>, <thing> does not exist.". In platform backends it is also fine to name the failing OS call: "CreateIconIndirect failed with %v".
 
-### Comment on public APIs (karl2d.doc.odin)
-- Do not write or change any public API comments (stuff that ends up in karl2d.doc.odin). They are written manually. Check their factualness and make changes to them during the final audit of a PR.
-
-### Comments inside implementations
-- Writing comments inside implementations is allowed. That means anything that does not end up in `karl2d.doc.odin`.
+### Comments
 - Use short sentences. Prefer a period over all other forms of punctuation
 - Never write about how something used to work, or about what a change improved. The reader has only ever seen the current version.
 - Don't duplicate information on a procedure and on a struct that the procedure uses. Put it on the procedure if unsure where to put it.
