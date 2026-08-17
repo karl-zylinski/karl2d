@@ -1927,10 +1927,9 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 
 // Make a sound loop when it reaches the end.
 //
-// Technical note: This works for sounds started using `play_audio_stream`. But it actually reaches
-// into the streaming decoder and tells that one to loop. The `Sound` that is used by the audio
-// stream is just a short buffer that is filled by the decoding stream, so that one always loops
-// when playing from a stream.
+// Technical note: This also works for sounds started using `play_audio_stream`, but then it
+// reaches into the streaming decoder and tells that one to loop. A stream-fed `Sound` plays a
+// short buffer that the decoder keeps filling, so that sound always loops.
 set_sound_loop :: proc(sound: Sound, loop: bool) {
 	sound_object := hm.get(&s.sounds, sound)
 
