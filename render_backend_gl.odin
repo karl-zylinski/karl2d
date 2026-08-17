@@ -25,6 +25,9 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	set_texture_filter = gl_set_texture_filter,
 	load_shader = gl_load_shader,
 	destroy_shader = gl_destroy_shader,
+	create_vertex_buffer_gpu = gl_create_vertex_buffer_gpu,
+	destroy_vertex_buffer_gpu = gl_destroy_vertex_buffer_gpu,
+	update_vertex_buffer_gpu = gl_update_vertex_buffer_gpu,
 
 	default_shader_vertex_source = gl_default_shader_vertex_source,
 	default_shader_fragment_source = gl_default_shader_fragment_source,
@@ -45,7 +48,8 @@ GL_State :: struct {
 	allocator: runtime.Allocator,
 	shaders: hm.Dynamic_Handle_Map(GL_Shader, Shader_Handle),
 	glue: Window_Render_Glue,
-	vertex_buffer_gpu: u32,
+	// vertex_buffer_gpu: u32,
+	vertex_buffer_gpu:hm.Dynamic_Handle_Map(GL_Vertex_Buffer_GPU, Vertex_Buffer_GPU_Handle),
 	textures: hm.Dynamic_Handle_Map(GL_Texture, Texture_Handle),
 	render_targets: hm.Dynamic_Handle_Map(GL_Render_Target, Render_Target_Handle),
 }
@@ -110,6 +114,12 @@ GL_Shader :: struct {
 	texture_bindings: []GL_Texture_Binding, 
 }
 
+GL_Vertex_Buffer_GPU :: struct{
+	handle: Vertex_Buffer_GPU_Handle,
+	vertex_buffer_gpu: u32,
+	buffer_size:int,
+}
+
 s: ^GL_State
 
 gl_state_size :: proc() -> int {
@@ -140,10 +150,10 @@ gl_init :: proc(
 		log.panic("Could not create a valid gl context")
 	}
 
-	gl.GenBuffers(1, &s.vertex_buffer_gpu)
-	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
-	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
-	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	// gl.GenBuffers(1, &s.vertex_buffer_gpu)
+	// gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
+	// gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
+	// gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
 	gl.Enable(gl.BLEND)
 	gl.Disable(gl.CULL_FACE)
@@ -158,10 +168,11 @@ gl_init :: proc(
 }
 
 gl_shutdown :: proc() {
-	gl.DeleteBuffers(1, &s.vertex_buffer_gpu)
+	// gl.DeleteBuffers(1, &s.vertex_buffer_gpu)
 	hm.dynamic_destroy(&s.shaders)
 	hm.dynamic_destroy(&s.textures)
 	hm.dynamic_destroy(&s.render_targets)
+
 	s.glue->destroy()
 }
 
@@ -183,18 +194,24 @@ gl_present :: proc() {
 	s.glue->present()
 }
 
-gl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
-	if len(vertex_buffer) == 0 || len(draw_calls) == 0 {
+gl_update_vertex_buffer_gpu::proc(h: Vertex_Buffer_GPU_Handle, vertex_buffer: []u8){
+	buffer:=gl_get_vertex_buffer_gpu(h)
+	if buffer == nil {
+		log.errorf("gl_push_to_vertex_buff() Invalid vertex buffer: %v", h)
 		return
 	}
-
 	// All the draw calls read from this one buffer. It only needs uploading once. Orphaning it
 	// first lets the driver hand us fresh memory instead of waiting for the previous frame.
-	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
+	gl.BindBuffer(gl.ARRAY_BUFFER, buffer.vertex_buffer_gpu)
 	gl.BufferData(gl.ARRAY_BUFFER, len(vertex_buffer), nil, gl.DYNAMIC_DRAW)
 	gl.BufferSubData(gl.ARRAY_BUFFER, 0, len(vertex_buffer), raw_data(vertex_buffer))
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
-	
+}
+
+gl_draw :: proc(draw_calls: []Draw_Call) {
+	if len(draw_calls) == 0 {
+		return
+	}	
 	// Changes that belong to draw calls we could not draw. They never reached GL. The next draw
 	// call we do run has to make them.
 	missed: bit_set[Draw_Call_Change]
@@ -455,6 +472,8 @@ gl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Text
 	return tex
 }
 
+
+
 gl_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
 	tex, tex_add_err := hm.add(&s.textures, create_texture(width, height, format, raw_data(data)))
 
@@ -619,7 +638,14 @@ link_shader :: proc(vs_shader: u32, fs_shader: u32, err_buf: []u8, err_msg: ^str
 	return program_id, true
 }
 
-gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := frame_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
+gl_load_shader :: proc(
+	vs_source: []byte, 
+	fs_source: []byte, 
+	desc_allocator := frame_allocator, 
+	layout_formats: []Pixel_Format = {}, 
+	targrt_vertex_buffer:Vertex_Buffer_GPU_Handle
+	)-> (handle: Shader_Handle, desc: Shader_Desc) 
+{
 	@static err: [1024]u8
 	err_msg: string
 	vs_shader, vs_shader_ok := compile_shader_from_source(vs_source, gl.Shader_Type.VERTEX_SHADER, err[:], &err_msg)
@@ -634,6 +660,12 @@ gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := f
 	if !fs_shader_ok {
 		log.error(err_msg)
 		return {}, {}
+	}
+
+	vertex_buffer:=gl_get_vertex_buffer_gpu(targrt_vertex_buffer)
+	if vertex_buffer == nil {
+		log.errorf("gl_load_shader() Invalid vertex buffer: %v", targrt_vertex_buffer)
+		return
 	}
 
 	program, program_ok := link_shader(vs_shader, fs_shader, err[:], &err_msg)
@@ -704,8 +736,7 @@ gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := f
 		program = program,
 	}
 
-
-	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vertex_buffer.vertex_buffer_gpu)
 	gl.GenVertexArrays(1, &gl_shd.vao)
 	gl.BindVertexArray(gl_shd.vao)
 
@@ -980,4 +1011,46 @@ gl_default_shader_vertex_source :: proc() -> []byte {
 gl_default_shader_fragment_source :: proc() -> []byte {
 	fragment_source := #load("default_shaders/default_shader_gl_fragment.glsl")
 	return fragment_source
+}
+
+
+gl_create_vertex_buffer_gpu::proc(buff_size:=VERTEX_BUFFER_MAX) -> Vertex_Buffer_GPU_Handle{
+	vertex_buffer_gpu:u32
+	gl.GenBuffers(1, &vertex_buffer_gpu)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vertex_buffer_gpu)
+	gl.BufferData(gl.ARRAY_BUFFER, VERTEX_BUFFER_MAX, nil, gl.DYNAMIC_DRAW)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	
+	vertex_buffer, buffer_add_err := hm.add(
+		&s.vertex_buffer_gpu, 
+		GL_Vertex_Buffer_GPU{
+			vertex_buffer_gpu = vertex_buffer_gpu,
+			buffer_size = buff_size
+		}
+	)
+	
+	return vertex_buffer
+}
+
+gl_destroy_vertex_buffer_gpu :: proc(h: Vertex_Buffer_GPU_Handle) {
+	buff := hm.get(&s.vertex_buffer_gpu, h)
+
+	if buff == nil {
+		log.errorf("gl_destroy_vertex_buffer_gpu() Invalid vertex buffer: %v", h)
+		return
+	}
+	
+	gl.DeleteBuffers(1, &buff.vertex_buffer_gpu)
+
+	hm.dynamic_remove(&s.vertex_buffer_gpu,h)
+}
+
+gl_get_vertex_buffer_gpu :: proc(h: Vertex_Buffer_GPU_Handle) -> ^GL_Vertex_Buffer_GPU {
+	buff := hm.dynamic_get(&s.vertex_buffer_gpu, h)
+
+	if buff == nil {
+		log.errorf("gl_get_vertex_buffer_gpu() Invalid vertex buffer: %v", h)
+		return nil
+	}
+	return buff
 }

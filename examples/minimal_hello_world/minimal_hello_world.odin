@@ -7,36 +7,20 @@ import k2 "../.."
 
 main :: proc() {
 	// Init Karl2D and open a window with drawing area of 1280x720 pixels and the supplied title.
-	k2.init(1280, 720, "Greetings from Karl2D!",{window_mode = .Windowed_Resizable})
+	k2.init(1280, 720, "Greetings from Karl2D!")
 
 	// Main game loop. Runs until `update` returns false, which it does when the player tries to
 	// close the window.
 	//
 	// Update will make sure all the input state and frame timers are up-to-date.
 
-	//______________________________________
-	batch_2:=k2.create_batch(context.allocator)
-	batch_3:=k2.create_batch(context.allocator)
-	//______________________________________
-
 	for k2.update() {
 		// Clear the screen with a color
-		k2.clear(k2.LIGHT_BLUE,batch = batch_3)
-		k2.clear(k2.LIGHT_BLUE,batch = batch_2)
 		k2.clear(k2.LIGHT_BLUE)
 		// Write a message at coordinates (x, y) = (50, 50) with font height 100.
 		k2.draw_text("Hellope!", {50, 50}, 100, k2.DARK_BLUE)
-
-		k2.draw_text("Hellope!", {50, 150}, 100, k2.DARK_BLUE,batch = batch_2)
-		
-		k2.draw_text("Hellope!", {50, 250}, 100, k2.DARK_BLUE,batch = batch_3)
-
 		// Nothing you drew this frame is shown until you call this.
-		k2.draw_batch()
-		k2.draw_batch(batch_2)
-		k2.draw_batch(batch_3)
-		k2.rb_present()
-		// k2.present()
+		k2.present()
 	}
 
 	// Close the window and clean up the library's internal state.

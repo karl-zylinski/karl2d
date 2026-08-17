@@ -82,7 +82,7 @@ Render_Backend_Interface :: struct #all_or_none {
 	clear: proc(render_target: Render_Target_Handle, color: Color),
 	present: proc(),
 	
-	draw: proc(vertex_buffer: []u8, draw_calls: []Draw_Call),
+	draw: proc(draw_calls: []Draw_Call),
 
 	set_internal_state: proc(state: rawptr),
 
@@ -94,6 +94,7 @@ Render_Backend_Interface :: struct #all_or_none {
 
 	create_render_texture: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle),
 	destroy_render_target: proc(render_texture: Render_Target_Handle),
+	update_vertex_buffer_gpu: proc(handle: Vertex_Buffer_GPU_Handle, vertex_buffer: []u8),
 	
 	set_texture_filter: proc(
 		handle: Texture_Handle,
@@ -107,10 +108,14 @@ Render_Backend_Interface :: struct #all_or_none {
 		pixel_shader_data: []byte,
 		desc_allocator: runtime.Allocator,
 		layout_formats: []Pixel_Format = {},
+		targrt_vertex_buffer:Vertex_Buffer_GPU_Handle,
 	) -> (
 		handle: Shader_Handle,
 		desc: Shader_Desc,
 	),
+
+	create_vertex_buffer_gpu: proc(buffer_size:int = VERTEX_BUFFER_MAX ) -> Vertex_Buffer_GPU_Handle,
+	destroy_vertex_buffer_gpu: proc(vertex_buffer_gpu_handle: Vertex_Buffer_GPU_Handle),
 
 	destroy_shader: proc(shader: Shader_Handle),
 

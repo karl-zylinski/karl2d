@@ -141,9 +141,9 @@ init :: proc(
 	white_rect: [16*16*4]u8
 	slice.fill(white_rect[:], 255)
 	s.shape_drawing_texture = rb.load_texture(white_rect[:], 16, 16, .RGBA_8_Norm)
-	// The default shader will arrive in a different format depending on backend. GLSL for GL,
-	// HLSL for d3d etc.
-	s.default_shader = load_shader_from_bytes(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
+	// // The default shader will arrive in a different format depending on backend. GLSL for GL,
+	// // HLSL for d3d etc.
+	// s.default_shader = load_shader_from_bytes(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
 
  
 
@@ -185,7 +185,7 @@ init :: proc(
 	return s
 }
 
-create_batch::proc(allocator:runtime.Allocator, loc := #caller_location)->(batch:^Batch_Draw_Calls){
+create_batch::proc(allocator:runtime.Allocator, vertex_buffer_size:=VERTEX_BUFFER_MAX, loc := #caller_location)->(batch:^Batch_Draw_Calls){
 	assert_initialized()
 	batch=new(Batch_Draw_Calls,allocator)
 
@@ -204,7 +204,13 @@ create_batch::proc(allocator:runtime.Allocator, loc := #caller_location)->(batch
 	batch_arena_err := runtime.arena_init(&batch.batch_arena, BATCH_ARENA_BLOCK_SIZE, batch.batch_allocator, loc)
 	log.assertf(batch_arena_err == nil, "Failed allocating batch arena: %v", batch_arena_err)
 	batch.batch_allocator = runtime.arena_allocator(&batch.batch_arena)
-	batch.current_shader = s.default_shader
+
+	batch.vertex_buffer_gpu = rb.create_vertex_buffer_gpu(vertex_buffer_size)
+	
+	// The default shader will arrive in a different format depending on backend. GLSL for GL,
+	// HLSL for d3d etc.
+	batch.default_shader = load_shader_from_bytes(rb.default_shader_vertex_source(), rb.default_shader_fragment_source(),batch = batch)
+	batch.current_shader = batch.default_shader
 
 	_set_font(FONT_DEFAULT, batch)
 	return
@@ -214,9 +220,13 @@ delete_batch::proc(batch:^Batch_Draw_Calls){
 	assert_initialized()
 	delete(batch.vertex_buffer_cpu, s.allocator)
 	delete(batch.calls)
+	destroy_shader(batch.default_shader)
+	rb.destroy_vertex_buffer_gpu(batch.vertex_buffer_gpu)
 	runtime.arena_destroy(&batch.batch_arena)
 	free(batch,batch.batch_allocator)
 }
+
+
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
 // frame times are up-to-date.
@@ -279,7 +289,7 @@ shutdown :: proc() {
 	delete(s.events)
 	destroy_font(FONT_DEFAULT)
 	rb.destroy_texture(s.shape_drawing_texture)
-	destroy_shader(s.default_shader)
+	// destroy_shader(s.default_shader)
 	rb.shutdown()
 	delete_batch(s.current_batch)
 
@@ -304,7 +314,7 @@ clear :: proc(color: Color, batch: ^Batch_Draw_Calls = nil) {
 	batch:= batch
 	if batch == nil{batch = s.current_batch}
 	assert_initialized()
-	draw_batch_clear(batch)
+	// draw_batch_clear(batch)
 	rb.clear(batch.current_render_target, color)
 }
 
@@ -349,16 +359,14 @@ calculate_frame_time :: proc() {
 // WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
 // make sure that all rendering has been sent off to the GPU (as it calls `draw_current_batch()`).
 present :: proc(batch: ^Batch_Draw_Calls = nil) {
-	batch:= batch
-	if batch == nil{batch = s.current_batch}
 	assert_initialized()
-	draw_batch_clear(batch)
-	rb.present()
+	update_batch(batch)
+	render_batch(batch)
+	clear_batch(batch)
+	end_frame()
 }
 
-rb_present::proc(){
-	rb.present()
-}
+
 
 // Process all events that have arrived from the platform APIs. This includes keyboard, mouse,
 // gamepad and window events. This procedure processes and stores the information that procs like
@@ -451,10 +459,10 @@ process_events :: proc() {
 
 		case Event_Screen_Resize:
 			// Recorded draw calls were meant for the old swapchain size.
-			draw_batch_clear(s.current_batch)//TODO This shoud problobly be changed
+			// draw_batch_clear(s.current_batch)//TODO This shoud problobly be changed
 			rb.resize_swapchain(e.width, e.height)
-			s.current_batch.proj_matrix = make_default_projection(e.width, e.height)//TODO This shoud problobly be changed
-			_update_view_projection(s.current_batch)//TODO This shoud problobly be changed
+			// s.current_batch.proj_matrix = make_default_projection(e.width, e.height)//TODO This shoud problobly be changed
+			// _update_view_projection(s.current_batch)//TODO This shoud problobly be changed
 
 		case Event_Window_Focused:			
 
@@ -483,7 +491,7 @@ process_events :: proc() {
 			}
 
 		case Event_Window_Scale_Changed:
-			draw_batch_clear(s.current_batch)//TODO This shoud problobly be changed
+			// draw_batch_clear(s.current_batch)//TODO This shoud problobly be changed
 			rb.resize_swapchain(e.screen_width, e.screen_height)
 		}
 	}
@@ -527,7 +535,10 @@ set_screen_size :: proc(width: int, height: int) {
 	assert_initialized()
 
 	// Recorded draw calls were meant for the old screen size.
-	draw_batch_clear(s.current_batch)//TODO This shoud problobly be changed
+	// draw_batch_clear(s.current_batch)
+	// removing the draw batch proc to simplify the logic. 
+	// one bad frame while resizing the window is completely fine 
+	// and drawing the batch wouldn't even fully fix the problem it is trying to solve
 	pf.set_screen_size(width, height)
 	rb.resize_swapchain(pf.get_screen_width(), pf.get_screen_height())
 }
@@ -603,33 +614,100 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 // 	draw_batch(&s.batch_draw_calls)
 // }
 
-draw_batch_clear :: proc(batch:^Batch_Draw_Calls = nil) {
+// draw_batch_clear :: proc(batch:^Batch_Draw_Calls = nil) {
+// 	batch:=batch
+// 	if batch == nil{batch = s.current_batch}
+
+// 	_finish_draw_call(batch)
+
+// 	if len(batch.calls) > 0 {
+// 		_update_view_projection(s.current_batch)
+// 		_update_font_atlases()
+// 		rb.draw( batch.calls[:])
+// 		runtime.clear(&batch.calls)
+// 	}
+
+// 	// Both the recorded draw calls and the open one point into the arena, so neither may outlive
+// 	// it. Emptying the arena is also what makes the next draw call take fresh copies.
+// 	batch.current_draw_call = {}
+// 	batch.vertex_buffer_cpu_used = 0
+// 	free_all(batch.batch_allocator)
+// }
+// draw_batch :: proc(batch:^Batch_Draw_Calls = nil) {
+// 	batch:=batch
+// 	if batch == nil{batch = s.current_batch}
+// 	rb.update_vertex_buffer_gpu(batch.vertex_buffer_gpu,batch.vertex_buffer_cpu[:batch.vertex_buffer_cpu_used])
+// 	_finish_draw_call(batch)
+
+// 	if len(batch.calls) > 0 {
+// 		// _update_view_projection(s.current_batch)
+// 		_update_font_atlases()
+// 		rb.draw(batch.calls[:])
+// 	}
+// }
+
+// This proc is mostly used when using multi batches
+// if you are only using the defalt batch it is recommended to use present() insted
+// This proc will reset all of the draw_calls and clear the cpu vertex data
+// it will not change the gpu vertex buffer 
+// so some Artifacts may appear if you do not update_batch() before calling render_batch() 
+clear_batch :: proc(batch:^Batch_Draw_Calls = nil) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 
-	_finish_draw_call(batch)
-
 	if len(batch.calls) > 0 {
-		_update_font_atlases()
-		rb.draw(batch.vertex_buffer_cpu[:batch.vertex_buffer_cpu_used], batch.calls[:])
 		runtime.clear(&batch.calls)
 	}
-
 	// Both the recorded draw calls and the open one point into the arena, so neither may outlive
 	// it. Emptying the arena is also what makes the next draw call take fresh copies.
 	batch.current_draw_call = {}
 	batch.vertex_buffer_cpu_used = 0
 	free_all(batch.batch_allocator)
 }
-draw_batch :: proc(batch:^Batch_Draw_Calls = nil) {
+
+// This proc is used mostly for multi batching 
+// if you are just using the default batch it is recommended to just use present()
+// Updates the batches gpu vertex buffer with the cpu vertex buffer
+// the cpu buffer was filled in by procs like draw_rect() draw_text() etcetera 
+// this should be called after these procs but before render_batch() witch should be called before end_frame()
+update_batch :: proc(batch:^Batch_Draw_Calls = nil) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 	_finish_draw_call(batch)
+	_update_view_projection(batch)
+	_update_font_atlases()
+	update_gpu_vertex_buffer(batch.vertex_buffer_gpu,batch.vertex_buffer_cpu[:batch.vertex_buffer_cpu_used])
+}
 
-	if len(batch.calls) > 0 {
-		_update_font_atlases()
-		rb.draw(batch.vertex_buffer_cpu[:batch.vertex_buffer_cpu_used], batch.calls[:])
-	}
+// Manually update a gpu vertex buffer with a cpu vertex buffer
+// this is usually handled by update_batch()
+// but this is here to support the creation and use of custom vertex buffers
+// unless you know what you are doing recommended approach is to use
+// update_batch() for multi batching and present() for simpler rendering pipelines
+update_gpu_vertex_buffer::proc(gpu_buff:Vertex_Buffer_GPU_Handle,cpu_buff:[]u8){
+	rb.update_vertex_buffer_gpu(gpu_buff,cpu_buff)
+}
+
+render_batch :: proc(batch:^Batch_Draw_Calls = nil) {
+	batch:=batch
+	if batch == nil{batch = s.current_batch}
+
+	_update_font_atlases()
+	rb.draw( batch.calls[:])
+}
+
+update_render_clear_batch :: proc(batch:^Batch_Draw_Calls = nil) {
+	update_batch(batch)
+	render_batch(batch)
+	clear_batch(batch)
+}
+
+// this tells the render back end to swap the swapchange
+// this is usually automatically called by present() 
+// but is also used when you have multiple batches or when trying to be more explicit
+// This should be called after render_batch() which should be called after update_batch()
+end_frame::proc(){
+	rb.present()
 }
 
 //-------//
@@ -4131,8 +4209,12 @@ is_cursor_hidden :: proc() -> bool {
 load_shader_from_file :: proc(
 	vertex_filename: string,
 	fragment_filename: string,
-	layout_formats: []Pixel_Format = {}
+	layout_formats: []Pixel_Format = {},
+	batch:^Batch_Draw_Calls = nil,
 ) -> Shader {
+	batch := batch 
+	if batch == nil {batch = s.defalt_batch}
+
 	vertex_source, vertex_source_ok := read_entire_file(vertex_filename, frame_allocator)
 
 	if !vertex_source_ok {
@@ -4163,12 +4245,17 @@ load_shader_from_bytes :: proc(
 	vertex_shader_bytes: []byte,
 	fragment_shader_bytes: []byte,
 	layout_formats: []Pixel_Format = {},
+	batch:^Batch_Draw_Calls = nil,
 ) -> Shader {
+	batch := batch 
+	if batch == nil {batch = s.defalt_batch}
+
 	handle, desc := rb.load_shader(
 		vertex_shader_bytes,
 		fragment_shader_bytes,
 		s.frame_allocator,
 		layout_formats,
+		batch.vertex_buffer_gpu
 	)
 
 	if handle == SHADER_NONE {
@@ -4279,13 +4366,17 @@ destroy_shader :: proc(shader: Shader) {
 }
 
 // Fetches the shader that Karl2D uses by default.
-get_default_shader :: proc() -> Shader {
-	return s.default_shader
+get_default_shader :: proc(batch: ^Batch_Draw_Calls,) -> Shader {
+	batch:= batch
+	if batch == nil {batch = s.current_batch}
+	return batch.default_shader
 }
 
 // The supplied shader will be used for subsequent drawing. Return to the default shader by calling
 // `set_shader(nil)`.
 set_shader :: proc(shader: Maybe(Shader),batch: ^Batch_Draw_Calls,) {
+	batch:= batch
+	if batch == nil {batch = s.current_batch}
 	if shd, shd_ok := shader.?; shd_ok {
 		if shd.handle == SHADER_NONE {
 			log.error("Cannot set shader, shader does not exist.")
@@ -4296,12 +4387,12 @@ set_shader :: proc(shader: Maybe(Shader),batch: ^Batch_Draw_Calls,) {
 			return
 		}
 	} else {
-		if batch.current_shader.handle == s.default_shader.handle {
+		if batch.current_shader.handle == batch.default_shader.handle {
 			return
 		}
 	}
 
-	batch.current_shader = shader.? or_else s.default_shader
+	batch.current_shader = shader.? or_else batch.default_shader
 }
 
 // Set the value of a constant (also known as uniform in OpenGL). Look up shader constant locations
@@ -4891,6 +4982,7 @@ Font_Data :: struct {
 Handle :: hm.Handle64
 Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
+Vertex_Buffer_GPU_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 // The cursors an operating system provides out of the box. Use with `set_cursor`.
@@ -5157,7 +5249,7 @@ State :: struct {
 	current_batch: ^Batch_Draw_Calls,
 	defalt_batch: ^Batch_Draw_Calls,
 
-	default_shader: Shader,
+	// default_shader: Shader,
 
 	// Time when the first call to `new_frame` happened
 	start_time: time.Time,
@@ -5193,6 +5285,9 @@ Batch_Draw_Calls::struct{
 	// The one vertices go into right now. A zeroed one means there is none.
 	current_draw_call: Draw_Call,
 
+	default_shader: Shader,
+
+	vertex_buffer_gpu: Vertex_Buffer_GPU_Handle,
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
 
@@ -5548,7 +5643,7 @@ _begin_vertices :: proc(texture: Texture_Handle, vertices_needed: int, batch:^Ba
 	// Starting a draw call can pad the write position by up to one vertex, so ask for one extra.
 	bytes_needed := batch.current_shader.vertex_size*(vertices_needed + 1)
 	if batch.vertex_buffer_cpu_used + bytes_needed > len(batch.vertex_buffer_cpu) {
-		draw_batch_clear(batch)
+		update_render_clear_batch(batch)
 	}
 	if !_draw_call_matches_settings(batch) {
 		_finish_draw_call(batch)
@@ -5817,13 +5912,21 @@ _flush_if_batch_uses_texture :: proc(texture: Texture_Handle,batch:^Batch_Draw_C
 	}
 
 	if uses_texture(batch.current_draw_call, texture) {
-		draw_batch_clear(batch)
+		// draw_batch_clear(batch)
+		//if the texture is going to be destroyed soon no need to render to it just clears batch to stop crashes
+		//TODO i may be wrong so leaving a meseg about it may need to switch back to draw_batch_clear(batch)
+		batch.current_draw_call = {}
+		log.error("Tried to destroy a shader that is still in current use")
 		return
 	}
 
-	for dc in batch.calls {
+	for dc,i in batch.calls {
 		if uses_texture(dc, texture) {
-			draw_batch_clear(batch)
+			// draw_batch_clear(batch)
+			//if the texture is going to be destroyed soon no need to render to it just clears batch to stop crashes
+			//TODO i may be wrong so leaving a meseg about it may need to switch back to draw_batch_clear(batch)
+			ordered_remove(&batch.calls,i)
+			log.error("Tried to destroy a shader that is still in current use")
 			return
 		}
 	}
@@ -5836,13 +5939,21 @@ _flush_if_batch_uses_shader :: proc(shader: Shader_Handle,batch:^Batch_Draw_Call
 	}
 
 	if batch.current_draw_call.shader == shader {
-		draw_batch_clear(batch)
+		// draw_batch_clear(batch)
+		//if the shader is going to be destroyed soon no need to render to it just clears batch to stop crashes
+		//TODO i may be wrong so leaving a meseg about it may need to switch back to draw_batch_clear(batch)
+		batch.current_draw_call = {}
+		log.error("Tried to destroy a shader that is still in current use")
 		return
 	}
 
-	for dc in batch.calls {
+	for dc ,i in batch.calls {
 		if dc.shader == shader {
-			draw_batch_clear(batch)
+			// draw_batch_clear(batch)
+			//if the shader is going to be destroyed soon no need to render to it just clears batch to stop crashes
+			//TODO i may be wrong so leaving a meseg about it may need to switch back to draw_batch_clear(batch)
+			ordered_remove(&batch.calls,i)
+			log.error("Tried to destroy a shader that is still in use")
 			return
 		}
 	}
@@ -5855,13 +5966,21 @@ _flush_if_batch_uses_render_target :: proc(render_target: Render_Target_Handle, 
 	}
 
 	if batch.current_draw_call.render_target == render_target {
-		draw_batch_clear(batch)
+		// draw_batch_clear(batch)
+		//if the render target is going to be destroyed soon no need to render to it just clears batch to stop crashes
+		//TODO i may be wrong so leaving a meseg about it may need to switch back to draw_batch_clear(batch)
+		batch.current_draw_call = {}
+		log.error("Tried to destroy a render_target that is still in current use")
 		return
 	}
 
-	for dc in s.current_batch.calls {
+	for dc ,i in batch.calls {
 		if dc.render_target == render_target {
-			draw_batch_clear(batch)
+			// draw_batch_clear(batch)
+			//if the render target is going to be destroyed soon no need to render to it just clears batch to stop crashes
+			//TODO i may be wrong so leaving a meseg about it may need to switch back to draw_batch_clear(batch)
+			ordered_remove(&batch.calls,i)
+			log.error("Tried to destroy a render_target that is still in use")
 			return
 		}
 	}
