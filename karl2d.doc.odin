@@ -549,7 +549,7 @@ load_audio_clip_from_file :: proc(filename: string) -> Audio_Clip
 // data does not include the header, then please use `load_audio_clip_from_bytes_raw`.
 load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip
 
-// Load an audio buffer from some raw audio data. You need to specify the data, format and sample
+// Load an audio clip from some raw audio data. You need to specify the data, format and sample
 // rate of the sound yourself. This assumes that there is no header in the data. If your data has a
 // header (you read the data from a file on disk), then please use `load_audio_clip_from_bytes`
 // instead.
@@ -1487,7 +1487,7 @@ Sound_Object :: struct {
 Audio_Bus :: distinct Handle
 
 // All other buses are mixed into the master bus, as well as sounds that play directly on the master
-// bus. This is the default bus of all sounds, audio streams and playing audio buffers.
+// bus. This is the default bus of all sounds.
 //
 // You can use this with `set_audio_bus_volume`, `set_audio_bus_pan` and `set_audio_bus_effect`.
 // That's how you set the master volume of your game.

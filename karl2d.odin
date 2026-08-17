@@ -1945,7 +1945,7 @@ load_audio_clip_from_file :: proc(filename: string) -> Audio_Clip {
 	data, data_ok := read_entire_file(filename, frame_allocator)
 
 	if !data_ok {
-		log.errorf("Failed to load audio buffer from file '%v'", filename)
+		log.errorf("Failed to load audio clip from file '%v'", filename)
 		return AUDIO_CLIP_NONE
 	}
 
@@ -2133,7 +2133,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip {
 	return load_audio_clip_from_bytes_raw(samples, format, sample_rate, channels)
 }
 
-// Load an audio buffer from some raw audio data. You need to specify the data, format and sample
+// Load an audio clip from some raw audio data. You need to specify the data, format and sample
 // rate of the sound yourself. This assumes that there is no header in the data. If your data has a
 // header (you read the data from a file on disk), then please use `load_audio_clip_from_bytes`
 // instead.
@@ -2203,7 +2203,7 @@ load_audio_clip_from_bytes_raw :: proc(
 	audio_clip, audio_clip_add_error := hm.add(&s.audio_clips, audio_clip_object)
 
 	if audio_clip_add_error != nil {
-		log.errorf("Failed to load sound. Error: %v", audio_clip_add_error)
+		log.errorf("Failed to load audio clip. Error: %v", audio_clip_add_error)
 		return AUDIO_CLIP_NONE
 	}
 
@@ -2216,7 +2216,7 @@ destroy_audio_clip :: proc(clip: Audio_Clip)  {
 	audio_clip_object := hm.get(&s.audio_clips, clip)
 
 	if audio_clip_object == nil {
-		log.debug("Tried to destroy non-existing audio buffer")
+		log.debug("Tried to destroy non-existing audio clip")
 		return
 	}
 
@@ -2536,7 +2536,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 	if ab == nil {
 		hm.remove(&s.sounds, sd.sound)
-		log.error("Trying to update audio stream with destroyed buffer")
+		log.error("Trying to update audio stream with destroyed clip")
 		return
 	}
 
@@ -2652,7 +2652,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 					continue
 				} else {
 					// TODO: Stopping here is bad as the samples haven't been mixed in yet. Remove the
-					// stream but push the final samples into the audio buffer and destroy that one
+					// stream but push the final samples into the clip and destroy that one
 					// when it finishes playing (in the mixer).
 					hm.remove(&s.sounds, sd.sound)
 					reset_audio_stream(stream)
@@ -2739,7 +2739,7 @@ play_audio_stream :: proc(
 	sd.sound, add_err = hm.add(&s.sounds, sound_object)
 
 	if add_err != nil {
-		log.errorf("Failed playing the audio stream because the audio buffer could not be set up for playing. Error: %v", add_err)
+		log.errorf("Failed playing audio stream. Error: %v", add_err)
 		return SOUND_NONE
 	}
 
@@ -4989,7 +4989,7 @@ Sound_Object :: struct {
 Audio_Bus :: distinct Handle
 
 // All other buses are mixed into the master bus, as well as sounds that play directly on the master
-// bus. This is the default bus of all sounds, audio streams and playing audio buffers.
+// bus. This is the default bus of all sounds.
 //
 // You can use this with `set_audio_bus_volume`, `set_audio_bus_pan` and `set_audio_bus_effect`.
 // That's how you set the master volume of your game.
