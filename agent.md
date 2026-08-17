@@ -20,7 +20,8 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - Draft Pull Requests are always welcome and do not need to follow strict rules. A _ready for review_ PR must contain working, tested, complete code that follows the style below.
 
 ## Commit messages
-- Keep commit messages very factual. As short as possible, so people can actually read them. Use as short sentences as possible. Prefer the period over any other form of punctuation. Only put in a short overview of what changed. If people want to see the details, then they study the code. The short overview will lead people to the code, not replace them looking at it.
+
+Write them like a tweet, max 180 characters. Only simple sentences. Only allowed punctuation is the period. If possible, keep them to 3-4 words. Use more words if really needed.
 
 ## Verifying Your Work
 - Build and test through the examples in `examples/`. Prefer the existing VS Code build tasks; they already include `-vet -strict-style -vet-tabs` and come in three variants: default (D3D11 on Windows), `(GL)`, and `(web)`. Use the same `-vet -strict-style -vet-tabs` flags when running `odin` directly.
@@ -62,10 +63,9 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - Do not write or change any public API comments (stuff that ends up in karl2d.doc.odin). They are written manually. Check their factualness and make changes to them during the final audit of a PR.
 
 ### Comments inside implementations
-- Writing comments inside implementations is allowed.
+- Writing comments inside implementations is allowed. That means anything that does not end up in `karl2d.doc.odin`.
 - Use short sentences. Prefer a period over all other forms of punctuation
-- Never write about how something used to work, or about what a change improved. The reader has only ever seen the current version. That story belongs in the commit message.
-- Never warn the reader away from a mistake you made while writing the change. A comment explaining why some other code is *not* there is a note to yourself, not an insight about the code that is. Read it as a diff: if it only makes sense to someone who watched you get it wrong, delete it. The commit message is where that goes, if anywhere.
+- Never write about how something used to work, or about what a change improved. The reader has only ever seen the current version.
 - Don't duplicate information on a procedure and on a struct that the procedure uses. Put it on the procedure if unsure where to put it.
 
 ### File organization
