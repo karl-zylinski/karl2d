@@ -1794,10 +1794,18 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
-// Play an audio clip. Always starts a new sound, never restarts. Discard the returned handle for
-// fire-and-forget playback. Parameters are the starting settings.
+// Play an audio clip with the supplied initial settings. The return value is a `Sound`, which means
+// something that is currently playing in the audio mixer. Ignore the return value for
+// fire-and-forget playback. You can use the returned `Sound` with `set_sound_volume`, `stop_sound`
+// etc in order to control the playback.
+//
+// Audio clips are loaded using `load_audio_clip_from_file`, `load_audio_clip_from_bytes` and
+// `load_audio_clip_from_bytes_raw`.
 //
 // Pass `bus` to play the sound on an audio bus. It plays on the master bus by default.
+//
+// Warning: If you pass `loop = true` and don't save the return value anywhere, then you've started
+// a sound you cannot stop.
 play_audio_clip :: proc(
 	clip: Audio_Clip,
 	volume: f32 = 1,
@@ -1842,8 +1850,9 @@ play_audio_clip :: proc(
 	return sound
 }
 
-// Stops and destroys the sound. For a stream-fed sound this also rewinds the stream to the start.
-// Use `set_sound_paused` to pause without destroying.
+// Stops the sound, which destroys its playback state in the mixer. For a `Sound` started using
+// `play_audio_stream`, this also rewinds the stream to the start. Use `set_sound_paused` to pause
+// the Sound instead, which won't lose the current playback position and settings.
 stop_sound :: proc(sound: Sound) {
 	sound_object := hm.get(&s.sounds, sound)
 
@@ -1916,7 +1925,12 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 	sound_object.target_settings.pitch = max(pitch, 0.01)
 }
 
-// Loops the sound. For a stream-fed sound this sets the stream's loop instead.
+// Make a sound loop when it reaches the end.
+//
+// Technical note: This works for sounds started using `play_audio_stream`. But it actually reaches
+// into the streaming decoder and tells that one to loop. The `Sound` that is used by the audio
+// stream is just a short buffer that is filled by the decoding stream, so that one always loops
+// when playing from a stream.
 set_sound_loop :: proc(sound: Sound, loop: bool) {
 	sound_object := hm.get(&s.sounds, sound)
 
@@ -1967,7 +1981,7 @@ get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
 	return count
 }
 
-// Load a WAV file from disk. Returns an `Audio_Clip`.
+// Load a WAV file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`.
 //
 // Supports mono and stereo WAV files with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
 // float samples.
@@ -1983,8 +1997,7 @@ load_audio_clip_from_file :: proc(filename: string) -> Audio_Clip {
 }
 
 // Load a WAV file from some pre-loaded memory (can be loaded using `#load("sound.wav")`). Returns
-// an `Audio_Clip` which can be played, including multiple times simultaneously, using
-// `play_audio_clip`.
+// an `Audio_Clip` which can be played using `play_audio_clip`.
 //
 // Supports mono and stereo WAV data with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
 // float samples. Note that the data should be the entire WAV file, including the header. If your
@@ -2165,8 +2178,8 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip {
 
 // Load an audio clip from some raw audio data. You need to specify the data, format and sample
 // rate of the sound yourself. This assumes that there is no header in the data. If your data has a
-// header (you read the data from a file on disk), then please use `load_audio_clip_from_bytes`
-// instead.
+// header (for example, you read a whole WAV file from disk), then please use
+// `load_audio_clip_from_bytes` instead.
 load_audio_clip_from_bytes_raw :: proc(
 	bytes: []u8,
 	format: Raw_Audio_Format,
@@ -2262,7 +2275,7 @@ destroy_audio_clip :: proc(clip: Audio_Clip)  {
 
 // Load an audio stream from a file on disk. This is often used for playing music. An audio stream
 // only loads a small part of the file at a time. As the file is played, new parts are streamed into
-// memory.
+// memory. Start playing the stream using `play_audio_stream`.
 //
 // Supported file formats: ogg
 //
@@ -2715,9 +2728,9 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	}
 }
 
-// Returns a `Sound`, controllable like any other. Starts from wherever the decode cursor
-// currently is and never rewinds. A stream feeds at most one sound: playing again replaces the
-// previous one.
+// Start playing an audio stream. Returns a `Sound`, which you can control using
+// `set_sound_volume`, `stop_sound` etc. Starts from wherever the decode cursor currently is and
+// never rewinds. A stream feeds at most one sound: playing again replaces the previous one.
 //
 // Don't forget to call `update_audio_stream` every frame in order to stream in new data.
 play_audio_stream :: proc(
