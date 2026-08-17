@@ -1855,7 +1855,7 @@ stop_sound :: proc(sound: Sound) {
 	hm.remove(&s.sounds, sound)
 
 	if stream != AUDIO_STREAM_NONE {
-		reset_audio_stream(stream)
+		_reset_audio_stream(stream)
 	}
 }
 
@@ -2613,7 +2613,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 							if seek_err != nil {
 								log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
 								hm.remove(&s.sounds, sd.sound)
-								reset_audio_stream(stream)
+								_reset_audio_stream(stream)
 								break
 							}
 
@@ -2621,7 +2621,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 							continue
 						} else {
 							hm.remove(&s.sounds, sd.sound)
-							reset_audio_stream(stream)
+							_reset_audio_stream(stream)
 							break
 						}
 					} else {
@@ -2685,7 +2685,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 					// stream but push the final samples into the clip and destroy that one
 					// when it finishes playing (in the mixer).
 					hm.remove(&s.sounds, sd.sound)
-					reset_audio_stream(stream)
+					_reset_audio_stream(stream)
 					break
 				}
 			}
@@ -2777,41 +2777,6 @@ play_audio_stream :: proc(
 	}
 
 	return sd.sound
-}
-
-// Moves the decode cursor to the start. Does not silence anything: combine with `stop_sound` to
-// fully stop. If the stream is playing, the music jumps back to the top and keeps playing.
-reset_audio_stream :: proc(stream: Audio_Stream) {
-	sd := hm.get(&s.audio_streams, stream)
-
-	if sd == nil {
-		log.error("Cannot reset audio stream, stream does not exist.")
-		return
-	}
-
-	sd.buffer_write_pos = 0
-
-	switch sd.mode {
-	case .From_File:
-		file_seek(sd.file, 0, .Start)
-		runtime.clear(&sd.file_read_buf)
-		sd.file_read_buf_offset = 0
-		stbv.flush_pushdata(sd.vorbis)
-
-	case .From_Bytes:
-		stbv.seek_start(sd.vorbis)
-	}
-
-	// Zero the staging buffer so a replay doesn't briefly play stale samples before
-	// `update_audio_stream` refills it.
-	if ab := hm.get(&s.audio_clips, sd.clip); ab != nil {
-		slice.zero(ab.samples)
-	}
-
-	if snd := hm.get(&s.sounds, sd.sound); snd != nil {
-		snd.offset = 0
-		snd.offset_fraction = 0
-	}
 }
 
 // Create an audio bus: A group of sounds that are mixed together before they reach the master bus.
@@ -5498,6 +5463,42 @@ count_text_lines :: proc "contextless" (text: string) -> int {
 
 assert_initialized :: proc(loc := #caller_location) {
 	assert(s != nil, "Call k2.init before using this Karl2D procedure", loc)
+}
+
+// Moves the decode cursor of a stream back to the start. Run when a stream-fed sound is stopped
+// and when a non-looping stream reaches the end of the file, so that playing it again starts from
+// the beginning.
+_reset_audio_stream :: proc(stream: Audio_Stream) {
+	sd := hm.get(&s.audio_streams, stream)
+
+	if sd == nil {
+		log.error("Cannot reset audio stream, stream does not exist.")
+		return
+	}
+
+	sd.buffer_write_pos = 0
+
+	switch sd.mode {
+	case .From_File:
+		file_seek(sd.file, 0, .Start)
+		runtime.clear(&sd.file_read_buf)
+		sd.file_read_buf_offset = 0
+		stbv.flush_pushdata(sd.vorbis)
+
+	case .From_Bytes:
+		stbv.seek_start(sd.vorbis)
+	}
+
+	// Zero the staging buffer so a replay doesn't briefly play stale samples before
+	// `update_audio_stream` refills it.
+	if ab := hm.get(&s.audio_clips, sd.clip); ab != nil {
+		slice.zero(ab.samples)
+	}
+
+	if snd := hm.get(&s.sounds, sd.sound); snd != nil {
+		snd.offset = 0
+		snd.offset_fraction = 0
+	}
 }
 
 // Run by the drawing procedures before they add any vertices. Draws the batch if `vertices_needed`

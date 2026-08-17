@@ -632,10 +632,6 @@ play_audio_stream :: proc(
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound
 
-// Moves the decode cursor to the start. Does not silence anything: combine with `stop_sound` to
-// fully stop. If the stream is playing, the music jumps back to the top and keeps playing.
-reset_audio_stream :: proc(stream: Audio_Stream)
-
 // Create an audio bus: A group of sounds that are mixed together before they reach the master bus.
 // Route sounds into it using `set_sound_bus`, or the `bus` parameter of `play_audio_clip` or
 // `play_audio_stream`.
