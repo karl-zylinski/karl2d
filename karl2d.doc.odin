@@ -496,9 +496,9 @@ set_texture_filter_ex :: proc(
 //-------//
 
 // Play an audio clip with the supplied initial settings. The return value is a `Sound`, which means
-// something that is currently playing in the audio mixer. Ignore the return value for
-// fire-and-forget playback. You can use the returned `Sound` with `set_sound_volume`, `stop_sound`
-// etc in order to control the playback.
+// something that is currently playing in the audio mixer. You can use the returned `Sound` with
+// `set_sound_volume`, `stop_sound` etc in order to control the playback. Ignore the return value
+// if you just want to start the sound and never touch it again.
 //
 // Audio clips are loaded using `load_audio_clip_from_file`, `load_audio_clip_from_bytes` and
 // `load_audio_clip_from_bytes_raw`.
@@ -538,21 +538,22 @@ set_sound_volume :: proc(sound: Sound, volume: f32)
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
 set_sound_pan :: proc(sound: Sound, pan: f32)
 
-// Set the pitch of a sound. Range: 0.01 and up.
+// Set the pitch of a sound. Range: 0.01 and up, where 1 is the default. Pitch 2 makes the sound
+// play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
 // Make a sound loop when it reaches the end.
 //
 // Technical note: This also works for sounds started using `play_audio_stream`, but then it
-// reaches into the streaming decoder and tells that one to loop. A stream-fed `Sound` plays a
-// short buffer that the decoder keeps filling, so that sound always loops.
+// reaches into the streaming decoder and tells that one to loop. A `Sound` started from a stream
+// plays a short buffer that the decoder keeps filling, so that sound always loops.
 set_sound_loop :: proc(sound: Sound, loop: bool)
 
 // Route a sound into an audio bus. Pass `AUDIO_BUS_MASTER` for the master bus.
 set_sound_bus :: proc(sound: Sound, bus: Audio_Bus)
 
-// How many sounds currently play this clip. Useful for limiting how many copies of an effect pile
-// up.
+// How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
+// start from the same clip.
 get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int
 
 // Load a WAV file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`.
@@ -610,7 +611,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream
 // `.wasm` file.
 //
 // Another use case is if you're making a desktop game and you want to embed all the assets in the
-// executable (so the game is a single file). In that case you'd could also use `#load` to fetch the
+// executable (so the game is a single file). In that case you could also use `#load` to fetch the
 // file and then send it into this procedure.
 //
 // Note that this procedure wants the encoded file, for example an ogg file just like it was on
@@ -631,8 +632,10 @@ destroy_audio_stream :: proc(stream: Audio_Stream)
 update_audio_stream :: proc(stream: Audio_Stream)
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
-// `set_sound_volume`, `stop_sound` etc. Starts from wherever the decode cursor currently is and
-// never rewinds. A stream feeds at most one sound: playing again replaces the previous one.
+// `set_sound_volume`, `stop_sound` etc. The playback continues from wherever the stream last was:
+// It starts over from the beginning only if the stream was just loaded, was stopped using
+// `stop_sound` or has finished playing. A stream can only play one sound at a time: Playing again
+// replaces the previous one.
 //
 // Don't forget to call `update_audio_stream` every frame in order to stream in new data.
 play_audio_stream :: proc(
@@ -664,9 +667,10 @@ set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32)
 // Set the pan of an audio bus. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full
 // right.
 //
-// This is a balance control: It turns the opposite side down. That's different from the pan of a
-// sound, which uses a constant-power curve to place a source in the stereo field. A bus is already
-// a finished stereo mix, and a bus at pan 0 has to leave it exactly as it is.
+// This is a balance control: It turns the opposite side down. The pan of a sound works
+// differently: It moves the sound between the left and right speakers while keeping the overall
+// loudness the same. A bus is already a finished stereo mix, and a bus at pan 0 has to leave it
+// exactly as it is.
 set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32)
 
 // Set an effect to run on everything that is mixed into the bus. This is how you apply your own
@@ -1379,12 +1383,17 @@ AUDIO_MIX_CHUNK_SIZE :: 1400
 // sample in an array of samples will be interpreted as left and right respectively.
 Audio_Sample :: f32
 
-// One playing instance in the mixer. Spawned by `play_audio_clip` or `play_audio_stream`.
-// Auto-destroys when it finishes playing. Operations on a finished sound are silent no-ops.
+// Represents something that is currently playing in the audio mixer. Created using
+// `play_audio_clip` and `play_audio_stream`. A sound is automatically destroyed when it finishes
+// playing. It is safe to keep using the handle after that: The procedures that take a `Sound` will
+// then just do nothing.
 Sound :: distinct Handle
 
 SOUND_NONE :: Sound {}
 
+// Plays an ogg file by decoding it a little bit at a time, instead of loading all of the audio
+// data up front like an `Audio_Clip` does. Good for music, which would otherwise use a lot of
+// memory. Start it using `play_audio_stream`.
 Audio_Stream :: distinct Handle
 
 AUDIO_STREAM_NONE :: Audio_Stream {}
@@ -1412,9 +1421,8 @@ Audio_Stream_Data :: struct {
 	sound: Sound,
 	clip: Audio_Clip,
 
-	// Where in the audio clip referred to by `buffer_handle` that we have most recently written
-	// samples. Together with the `offset` of the Sound_Object, this forms a circular
-	// buffer.
+	// Where in the audio clip referred to by `clip` that we have most recently written samples.
+	// Together with the `offset` of the Sound_Object, this forms a circular buffer.
 	buffer_write_pos: int,
 
 	// Different from `loop` in `Sound_Object`. This says if the whole stream should loop
@@ -1444,6 +1452,8 @@ Raw_Audio_Format :: enum {
 	Float64,
 }
 
+// A piece of audio that has been completely loaded into memory. Play it using `play_audio_clip`.
+// Several sounds can play the same clip at the same time.
 Audio_Clip :: distinct Handle
 
 AUDIO_CLIP_NONE :: Audio_Clip{}
@@ -1470,8 +1480,8 @@ Sound_Settings :: struct {
 	pitch: f32,
 }
 
-// A sound instance is what `Sound` handles are mapped to. It is a voice currently playing in the
-// mixer, holding the clip (or stream) it plays and the settings it plays with.
+// What `Sound` handles are mapped to: something that is currently playing in the mixer. It holds
+// the clip it plays and the settings it plays with.
 Sound_Object :: struct {
 	handle: Sound,
 	clip: Audio_Clip,
@@ -1494,7 +1504,7 @@ Sound_Object :: struct {
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
 
-	// Set when a stream feeds this sound. Zero for sounds played from a clip. Used by
+	// Set when this sound plays an audio stream. Zero for sounds played from a clip. Used by
 	// `set_sound_loop` to redirect to the stream's own loop flag.
 	stream: Audio_Stream,
 }
