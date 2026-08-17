@@ -14,6 +14,7 @@ snd3: k2.Audio_Clip
 wav: k2.Audio_Clip
 
 music: k2.Audio_Stream
+music_sound: k2.Sound
 snd_volume: f32
 snd_pan: f32
 snd_pitch: f32 = 1
@@ -39,8 +40,7 @@ init :: proc() {
 		} else {
 			music = k2.load_audio_stream_from_file(MUSIC_FILE)
 		}
-		k2.set_audio_stream_loop(music, true)
-		k2.play_audio_stream(music)
+		music_sound = k2.play_audio_stream(music, loop = true)
 	} else {
 		snd_sound = k2.play_audio_clip(snd, loop = true)
 	}
@@ -115,18 +115,24 @@ step :: proc() -> bool {
 	
 	when HAS_MUSIC {
 		k2.update_audio_stream(music)
-		
+
+		// Home resumes from wherever the stream cursor is. End pauses (stop_sound doesn't rewind
+		// the stream). R moves the cursor back to the start, without silencing anything.
 		if k2.key_went_down(.Home) {
-			k2.play_audio_stream(music)
+			music_sound = k2.play_audio_stream(music, volume = snd_volume, pan = snd_pan, pitch = snd_pitch, loop = true)
 		}
 
 		if k2.key_went_down(.End) {
-			k2.stop_audio_stream(music)
+			k2.stop_sound(music_sound)
 		}
 
-		k2.set_audio_stream_pitch(music, snd_pitch)
-		k2.set_audio_stream_pan(music, snd_pan)
-		k2.set_audio_stream_volume(music, snd_volume)
+		if k2.key_went_down(.R) {
+			k2.reset_audio_stream(music)
+		}
+
+		k2.set_sound_pitch(music_sound, snd_pitch)
+		k2.set_sound_pan(music_sound, snd_pan)
+		k2.set_sound_volume(music_sound, snd_volume)
 	} else {
 		k2.set_sound_volume(snd_sound, snd_volume)
 		k2.set_sound_pan(snd_sound, snd_pan)
@@ -155,6 +161,11 @@ step :: proc() -> bool {
 	)
 	k2.draw_text("Press Space to play a familiar sound.", {20, 200}, 40, k2.BLACK)
 	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 240}, 40, k2.BLACK)
+
+	when HAS_MUSIC {
+		k2.draw_text("Home resumes the music, End pauses it, R resets it to the start.", {20, 280}, 40, k2.BLACK)
+	}
+
 	k2.present()
 	free_all(context.temp_allocator)
 
