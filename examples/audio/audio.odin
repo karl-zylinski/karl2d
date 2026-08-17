@@ -7,12 +7,11 @@ import "core:fmt"
 import "core:slice"
 
 pos: k2.Vec2
-snd: k2.Sound
-snd2: k2.Sound
-snd3: k2.Sound
+snd: k2.Audio_Clip
+snd_sound: k2.Sound
+snd2: k2.Audio_Clip
+snd3: k2.Audio_Clip
 wav: k2.Audio_Clip
-wav_1: k2.Sound
-wav_2: k2.Sound
 
 music: k2.Audio_Stream
 snd_volume: f32
@@ -31,8 +30,6 @@ init :: proc() {
 	snd2 = make_sine_wave(440, 1, 44100)
 	snd3 = make_sine_wave(700, 1, 22050)
 	wav = k2.load_audio_clip_from_bytes(#load("chord.wav"))
-	wav_1 = k2.create_sound_from_audio_buffer(wav)
-	wav_2 = k2.create_sound_from_audio_buffer(wav)
 
 	when HAS_MUSIC {
 		when ODIN_OS == .JS {
@@ -45,14 +42,13 @@ init :: proc() {
 		k2.set_audio_stream_loop(music, true)
 		k2.play_audio_stream(music)
 	} else {
-		k2.set_sound_loop(snd, true)
-		k2.play_sound(snd)
+		snd_sound = k2.play_audio_clip(snd, loop = true)
 	}
 }
 
 // Makes a sine wave of min_length rounded up to so that it ends at the end of a period. This makes
 // it possible to loop cleanly.
-make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Sound {
+make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio_Clip {
 	period_num_samples := f32(sample_rate) / f32(freq)
 	num_periods := math.ceil(f32(sample_rate) * min_length)
 	sine_data := make([]k2.Audio_Sample, int(num_periods), allocator = context.temp_allocator)
@@ -63,7 +59,7 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Sound
 		samp = sf
 	}
 
-	return k2.load_sound_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float32, sample_rate, .Mono)
+	return k2.load_audio_clip_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float32, sample_rate, .Mono)
 }
 
 step :: proc() -> bool {
@@ -72,11 +68,11 @@ step :: proc() -> bool {
 	}
 
 	if k2.key_went_down(.Enter) {
-		k2.play_sound(snd2)
+		k2.play_audio_clip(snd2)
 	}
 
 	if k2.key_went_down(.N3) {
-		k2.play_sound(snd3)
+		k2.play_audio_clip(snd3)
 	}
 	
 	if k2.key_is_held(.Up) {
@@ -105,18 +101,12 @@ step :: proc() -> bool {
 
 
 	if k2.key_went_down(.Space) {
-		k2.set_sound_pitch(wav_1, 1)
-		k2.set_sound_pan(wav_1, 0)
-		k2.play_sound(wav_1)
+		k2.play_audio_clip(wav)
 	}
 
 	if k2.key_went_down(.T)	{
-		k2.set_sound_pitch(wav_1, 2)
-		k2.set_sound_pan(wav_1, -1)
-		k2.play_sound(wav_1)
-		k2.set_sound_pitch(wav_2, 0.5)
-		k2.set_sound_pan(wav_2, 1)
-		k2.play_sound(wav_2)
+		k2.play_audio_clip(wav, pitch = 2, pan = -1)
+		k2.play_audio_clip(wav, pitch = 0.5, pan = 1)
 	}
 	
 	snd_pan = clamp(snd_pan, -1, 1)
@@ -138,9 +128,9 @@ step :: proc() -> bool {
 		k2.set_audio_stream_pan(music, snd_pan)
 		k2.set_audio_stream_volume(music, snd_volume)
 	} else {
-		k2.set_sound_volume(snd, snd_volume)
-		k2.set_sound_pan(snd, snd_pan)
-		k2.set_sound_pitch(snd, snd_pitch)
+		k2.set_sound_volume(snd_sound, snd_volume)
+		k2.set_sound_pan(snd_sound, snd_pan)
+		k2.set_sound_pitch(snd_sound, snd_pitch)
 	}
 	
 	k2.clear(k2.WHITE)
@@ -172,11 +162,9 @@ step :: proc() -> bool {
 }
 
 shutdown :: proc() {
-	k2.destroy_sound(snd)
-	k2.destroy_sound(snd2)
-	k2.destroy_sound(snd3)
-	k2.destroy_sound(wav_1)
-	k2.destroy_sound(wav_2)
+	k2.destroy_audio_clip(snd)
+	k2.destroy_audio_clip(snd2)
+	k2.destroy_audio_clip(snd3)
 	k2.destroy_audio_clip(wav)
 
 	when HAS_MUSIC {

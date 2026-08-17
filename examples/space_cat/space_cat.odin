@@ -115,7 +115,7 @@ bg_object_textures: [6]k2.Texture
 fg_object_textures: [7]k2.Texture
 plasma_ball_textures: [3]k2.Texture
 
-// We play these audio buffers directly using `play_audio_buffer`. That's good for these kind of
+// We play these audio buffers directly using `play_audio_clip`. That's good for these kind of
 // "one-shot" sounds that just need some initial playback settings.
 ab_shoot: k2.Audio_Clip
 ab_pickup: k2.Audio_Clip
@@ -516,7 +516,7 @@ update :: proc() {
 		})
 
 		// The shoot sound has pitch randomization and spatial panning.
-		k2.play_audio_buffer(
+		k2.play_audio_clip(
 			ab_shoot,
 			volume = rand.float32_range(0.7, 0.9),
 			pan = math.remap_clamped(player.pos.x, 0, SCREEN_WIDTH, -0.5, 0.5),
@@ -591,7 +591,7 @@ update :: proc() {
 					flash_texture_timer = 0.2
 					flash_texture_pos = p.pos
 					pidx -= 1
-					k2.play_audio_buffer(ab_hit)
+					k2.play_audio_clip(ab_hit)
 				}
 			}
 
@@ -600,7 +600,7 @@ update :: proc() {
 				unordered_remove(&current_room.interactables, inter_idx)
 				inter_idx -= 1
 				has_key = true
-				k2.play_audio_buffer(ab_pickup)
+				k2.play_audio_clip(ab_pickup)
 			}
 
 		case .Wall:
