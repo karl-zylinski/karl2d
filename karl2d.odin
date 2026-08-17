@@ -173,7 +173,7 @@ init :: proc(
 		log.assertf(audio_alloc_error == nil, "Failed allocating memory for audio backend: %v", audio_alloc_error)
 		ab.init(s.audio_backend_state, s.allocator)
 		hm.dynamic_init(&s.playing_audio_buffers, s.allocator)
-		hm.dynamic_init(&s.audio_buffers, s.allocator)
+		hm.dynamic_init(&s.audio_clips, s.allocator)
 		hm.dynamic_init(&s.sounds, s.allocator)
 		hm.dynamic_init(&s.audio_streams, s.allocator)
 		hm.dynamic_init(&s.audio_buses, s.allocator)
@@ -238,7 +238,7 @@ shutdown :: proc() {
 		ab.shutdown()
 		hm.dynamic_destroy(&s.playing_audio_buffers)
 		hm.dynamic_destroy(&s.sounds)
-		hm.dynamic_destroy(&s.audio_buffers)
+		hm.dynamic_destroy(&s.audio_clips)
 		hm.dynamic_destroy(&s.audio_buses)
 		free(s.audio_backend_state, s.allocator)
 	}
@@ -1811,7 +1811,7 @@ play_sound :: proc(sound: Sound) {
 	}
 
 	playing_audio_buffer := Playing_Audio_Buffer {
-		audio_buffer = sound_object.audio_buffer,
+		clip = sound_object.clip,
 		target_settings = sound_object.playback_settings,
 		current_settings = sound_object.playback_settings,
 		loop = sound_object.loop,
@@ -1827,7 +1827,7 @@ play_sound :: proc(sound: Sound) {
 }
 
 // Play an audio buffer, using the playback settings you pass in. The playback does not loop. Good
-// for playing one-off sound effects such as footsteps. You can play the same Audio_Buffer multiple
+// for playing one-off sound effects such as footsteps. You can play the same Audio_Clip multiple
 // times simultaneously, without one stopping the another.
 //
 // The difference between using this and a `Sound` is that the `Sound` remembers its playback
@@ -1835,15 +1835,15 @@ play_sound :: proc(sound: Sound) {
 //
 // Pass `bus` to play the sound on an audio bus. It plays on the master bus by default.
 play_audio_buffer :: proc(
-	ab: Audio_Buffer,
+	ab: Audio_Clip,
 	volume: f32 = 1,
 	pan: f32 = 0,
 	pitch: f32 = 1,
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) {
-	audio_buffer_object := hm.get(&s.audio_buffers, ab)
+	audio_clip_object := hm.get(&s.audio_clips, ab)
 
-	if audio_buffer_object == nil {
+	if audio_clip_object == nil {
 		log.error("Cannot play audio buffer, audio buffer does not exist.")
 		return
 	}
@@ -1860,7 +1860,7 @@ play_audio_buffer :: proc(
 	}
 
 	playing_audio_buffer := Playing_Audio_Buffer {
-		audio_buffer = ab,
+		clip = ab,
 		target_settings = playback_settings,
 		current_settings = playback_settings,
 		bus = bus,
@@ -2004,7 +2004,7 @@ set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 }
 
 // Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. If you need to
-// play a sound multiple times simultaneously, then use `load_audio_buffer_from_file` followed by
+// play a sound multiple times simultaneously, then use `load_audio_clip_from_file` followed by
 // one or more calls to `create_sound_from_audio_buffer`.
 //
 // Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
@@ -2025,7 +2025,7 @@ load_sound_from_file :: proc(filename: string) -> Sound {
 
 // Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Returns a `Sound`
 // which can be used with `play_sound`. If you need to play a sound multiple times simultaneously,
-// then use `load_audio_buffer_from_bytes` followed by one or more calls to
+// then use `load_audio_clip_from_bytes` followed by one or more calls to
 // `create_sound_from_audio_buffer`.
 //
 // Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
@@ -2033,18 +2033,18 @@ load_sound_from_file :: proc(filename: string) -> Sound {
 //
 // Supports mono and stereo WAV data with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
 // float samples. Note that the data should be the entire WAV file, including the header. If your
-// data does not include the header, then please use `load_audio_buffer_from_bytes_raw` combined
+// data does not include the header, then please use `load_audio_clip_from_bytes_raw` combined
 // with `create_sound_from_audio_buffer`.
 load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
-	audio_buffer := load_audio_buffer_from_bytes(bytes)
+	audio_clip := load_audio_clip_from_bytes(bytes)
 
-	if audio_buffer == AUDIO_BUFFER_NONE {
+	if audio_clip == AUDIO_CLIP_NONE {
 		return SOUND_NONE
 	}
 
 	sound_object := Sound_Object {
 		playback_settings = DEFAULT_AUDIO_BUFFER_PLAYBACK_SETTINGS,
-		audio_buffer = audio_buffer,
+		clip = audio_clip,
 		owns_audio_buffer = true,
 	}
 
@@ -2062,23 +2062,23 @@ load_sound_from_bytes :: proc(bytes: []byte) -> Sound {
 // the audio data yourself. This assumes that there is no header in the data. If your data has a
 // header (you read the data from a file on disk), then please use `load_sound_from_bytes` instead.
 //
-// The returned Sound owns its internal Audio_Buffer: Calling `destroy_sound` with it will destroy
+// The returned Sound owns its internal Audio_Clip: Calling `destroy_sound` with it will destroy
 // the audio buffer.
 load_sound_from_bytes_raw :: proc(
 	bytes: []u8,
-	format: Raw_Sound_Format,
+	format: Raw_Audio_Format,
 	sample_rate: int,
 	channels: Audio_Channels,
 ) -> Sound {
-	audio_buffer := load_audio_buffer_from_bytes_raw(bytes, format, sample_rate, channels)
+	audio_clip := load_audio_clip_from_bytes_raw(bytes, format, sample_rate, channels)
 
-	if audio_buffer == AUDIO_BUFFER_NONE {
+	if audio_clip == AUDIO_CLIP_NONE {
 		return SOUND_NONE
 	}
 
 	sound_object := Sound_Object {
 		playback_settings = DEFAULT_AUDIO_BUFFER_PLAYBACK_SETTINGS,
-		audio_buffer = audio_buffer,
+		clip = audio_clip,
 		owns_audio_buffer = true,
 	}
 
@@ -2092,39 +2092,39 @@ load_sound_from_bytes_raw :: proc(
 	return sound
 }
 
-// Load a WAV file from disk. Returns an `Audio_Buffer` which can be used with
+// Load a WAV file from disk. Returns an `Audio_Clip` which can be used with
 // `create_sound_from_audio_buffer` in order to play the audio buffer multiple times simultaneously.
 //
 // Supports mono and stereo WAV files with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
 // float samples.
-load_audio_buffer_from_file :: proc(filename: string) -> Audio_Buffer {
+load_audio_clip_from_file :: proc(filename: string) -> Audio_Clip {
 	data, data_ok := read_entire_file(filename, frame_allocator)
 
 	if !data_ok {
 		log.errorf("Failed to load audio buffer from file '%v'", filename)
-		return AUDIO_BUFFER_NONE
+		return AUDIO_CLIP_NONE
 	}
 
-	return load_audio_buffer_from_bytes(data)
+	return load_audio_clip_from_bytes(data)
 }
 
 // Load a WAV file from some pre-loaded memory (can be loaded using `#load("sound.wav")`). Returns
-// an `Audio_Buffer` which can be used with `create_sound_from_audio_buffer` in order to play the
+// an `Audio_Clip` which can be used with `create_sound_from_audio_buffer` in order to play the
 // audio buffer multiple times simultaneously.
 //
 // Supports mono and stereo WAV data with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
 // float samples. Note that the data should be the entire WAV file, including the header. If your
-// data does not include the header, then please use `load_audio_buffer_from_bytes_raw`.
-load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
+// data does not include the header, then please use `load_audio_clip_from_bytes_raw`.
+load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip {
 	// A WAV file is a RIFF file: A 12 byte header followed by any number of chunks.
 	if len(bytes) < 12 {
 		log.error("Invalid wav file: Too small to contain a RIFF header")
-		return AUDIO_BUFFER_NONE
+		return AUDIO_CLIP_NONE
 	}
 
 	if string(bytes[:4]) != "RIFF" {
 		log.error("Invalid wav file: No RIFF identifier")
-		return AUDIO_BUFFER_NONE
+		return AUDIO_CLIP_NONE
 	}
 
 	// This size can only fail to read if there are less than four bytes left, which the check above
@@ -2133,7 +2133,7 @@ load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
 
 	if string(bytes[8:12]) != "WAVE" {
 		log.error("Invalid wav file: Not WAVE format")
-		return AUDIO_BUFFER_NONE
+		return AUDIO_CLIP_NONE
 	}
 
 	// `riff_size` counts everything after itself. Some programs write a size that doesn't match the
@@ -2149,7 +2149,7 @@ load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
 	sample_rate: int
 	samples: []u8
 	channels: Audio_Channels
-	format: Raw_Sound_Format
+	format: Raw_Audio_Format
 	has_fmt: bool
 	has_data: bool
 
@@ -2185,7 +2185,7 @@ load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
 			//	bits_per_sample: u16
 			if len(content) < 16 {
 				log.errorf("Invalid wav fmt chunk: Size is %v, expected at least 16", len(content))
-				return AUDIO_BUFFER_NONE
+				return AUDIO_CLIP_NONE
 			}
 
 			audio_format, _ := endian.get_u16(content[0:2], .Little)
@@ -2202,7 +2202,7 @@ load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
 				if len(content) < 26 {
 					log.errorf("Invalid wav fmt chunk: Size is %v, too small for an extensible " +
 						"sub format", len(content))
-					return AUDIO_BUFFER_NONE
+					return AUDIO_CLIP_NONE
 				}
 
 				audio_format, _ = endian.get_u16(content[24:26], .Little)
@@ -2210,7 +2210,7 @@ load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
 
 			if fmt_sample_rate == 0 {
 				log.error("Invalid wav fmt chunk: Sample rate is zero")
-				return AUDIO_BUFFER_NONE
+				return AUDIO_CLIP_NONE
 			}
 
 			switch num_channels {
@@ -2220,7 +2220,7 @@ load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
 				channels = .Stereo
 			case:
 				log.errorf("Unsupported number of channels in wav fmt chunk: %v", num_channels)
-				return AUDIO_BUFFER_NONE
+				return AUDIO_CLIP_NONE
 			}
 
 			switch audio_format {
@@ -2236,7 +2236,7 @@ load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
 					format = .Integer32
 				case:
 					log.errorf("Unsupported bits per sample in wav fmt chunk: %v", bits_per_sample)
-					return AUDIO_BUFFER_NONE
+					return AUDIO_CLIP_NONE
 				}
 
 			case WAV_FORMAT_FLOAT:
@@ -2250,12 +2250,12 @@ load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
 						"Unsupported bits per sample in float wav fmt chunk: %v",
 						bits_per_sample,
 					)
-					return AUDIO_BUFFER_NONE
+					return AUDIO_CLIP_NONE
 				}
 
 			case:
 				log.errorf("Unsupported format in wav fmt chunk: %v", audio_format)
-				return AUDIO_BUFFER_NONE
+				return AUDIO_CLIP_NONE
 			}
 
 			sample_rate = int(fmt_sample_rate)
@@ -2278,27 +2278,27 @@ load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer {
 
 	if !has_fmt {
 		log.error("Invalid wav file: No fmt chunk")
-		return AUDIO_BUFFER_NONE
+		return AUDIO_CLIP_NONE
 	}
 
 	if !has_data {
 		log.error("Invalid wav file: No data chunk")
-		return AUDIO_BUFFER_NONE
+		return AUDIO_CLIP_NONE
 	}
 
-	return load_audio_buffer_from_bytes_raw(samples, format, sample_rate, channels)
+	return load_audio_clip_from_bytes_raw(samples, format, sample_rate, channels)
 }
 
 // Load an audio buffer from some raw audio data. You need to specify the data, format and sample
 // rate of the sound yourself. This assumes that there is no header in the data. If your data has a
-// header (you read the data from a file on disk), then please use `load_audio_buffer_from_bytes`
+// header (you read the data from a file on disk), then please use `load_audio_clip_from_bytes`
 // instead.
-load_audio_buffer_from_bytes_raw :: proc(
+load_audio_clip_from_bytes_raw :: proc(
 	bytes: []u8,
-	format: Raw_Sound_Format,
+	format: Raw_Audio_Format,
 	sample_rate: int,
 	channels: Audio_Channels,
-) -> Audio_Buffer {
+) -> Audio_Clip {
 	samples: []Audio_Sample
 
 	switch format{
@@ -2350,41 +2350,41 @@ load_audio_buffer_from_bytes_raw :: proc(
 		}
 	}
 
-	buffer_object := Audio_Buffer_Object {
+	audio_clip_object := Audio_Clip_Object {
 		sample_rate = sample_rate,
 		samples = samples,
 		channels = channels,
 	}
 
-	buffer, buffer_add_error := hm.add(&s.audio_buffers, buffer_object)
+	audio_clip, audio_clip_add_error := hm.add(&s.audio_clips, audio_clip_object)
 
-	if buffer_add_error != nil {
-		log.errorf("Failed to load sound. Error: %v", buffer_add_error)
-		return AUDIO_BUFFER_NONE
+	if audio_clip_add_error != nil {
+		log.errorf("Failed to load sound. Error: %v", audio_clip_add_error)
+		return AUDIO_CLIP_NONE
 	}
 
-	return buffer
+	return audio_clip
 }
 
-// Creates a sound that can be used to play the contents of an `Audio_Buffer`. This can be used to
+// Creates a sound that can be used to play the contents of an `Audio_Clip`. This can be used to
 // load an audio buffer once and have multiple sounds playing the contents of it, simultaneously.
 // This makes all those sounds share the same audio data.
 //
 // Sounds created using this procedure do not own the buffer. This means that calling
 // `destroy_sound` on the Sound will only remove the Sound from Karl2D's internal state, but it
-// won't destroy the Audio_Buffer. Such auto-destroying of the `Audio_Buffer` only happen with
+// won't destroy the Audio_Clip. Such auto-destroying of the `Audio_Clip` only happen with
 // sounds created using `load_sound_from_file` and `load_sound_from_bytes`.
-create_sound_from_audio_buffer :: proc(buffer: Audio_Buffer) -> Sound {
-	buffer_object := hm.get(&s.audio_buffers, buffer)
+create_sound_from_audio_buffer :: proc(buffer: Audio_Clip) -> Sound {
+	audio_clip_object := hm.get(&s.audio_clips, buffer)
 
-	if buffer_object == nil {
+	if audio_clip_object == nil {
 		log.error("Trying to create sound from invalid audio buffer")
 		return SOUND_NONE
 	}
 
 	sound_object := Sound_Object {
 		playback_settings = DEFAULT_AUDIO_BUFFER_PLAYBACK_SETTINGS,
-		audio_buffer = buffer,
+		clip = buffer,
 		owns_audio_buffer = false,
 	}
 
@@ -2416,25 +2416,25 @@ destroy_sound :: proc(sound: Sound) {
 	}
 	
 	if sound_object.owns_audio_buffer {
-		destroy_audio_buffer(sound_object.audio_buffer)
+		destroy_audio_clip(sound_object.clip)
 	}
 
 	hm.remove(&s.sounds, sound)
 }
 
-// Destroy an audio buffer previously loaded using `load_audio_buffer_from_xxx`. Before destroying
+// Destroy an audio buffer previously loaded using `load_audio_clip_from_xxx`. Before destroying
 // this audio buffer, make sure it is not in use by any playing sounds. Destroy the sounds that
 // reference it using `destroy_sound` first.
-destroy_audio_buffer :: proc(audio_buffer: Audio_Buffer)  {
-	audio_buffer_object := hm.get(&s.audio_buffers, audio_buffer)
+destroy_audio_clip :: proc(clip: Audio_Clip)  {
+	audio_clip_object := hm.get(&s.audio_clips, clip)
 
-	if audio_buffer_object == nil {
+	if audio_clip_object == nil {
 		log.debug("Tried to destroy non-existing audio buffer")
 		return
 	}
 
-	delete(audio_buffer_object.samples, s.allocator)
-	hm.remove(&s.audio_buffers, audio_buffer)
+	delete(audio_clip_object.samples, s.allocator)
+	hm.remove(&s.audio_clips, clip)
 }
 
 // Load an audio stream from a file on disk. This is often used for playing music. An audio stream
@@ -2548,22 +2548,22 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		return AUDIO_STREAM_NONE
 	}
 
-	buffer := Audio_Buffer_Object {
+	audio_clip := Audio_Clip_Object {
 		sample_rate = int(info.sample_rate),
 		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
 		channels = channels,
 	}
 
-	buffer_handle, buffer_handle_add_err := hm.add(&s.audio_buffers, buffer)
+	audio_clip_handle, audio_clip_handle_add_err := hm.add(&s.audio_clips, audio_clip)
 
-	if buffer_handle_add_err != nil {
-		log.errorf("Failed to load audio stream. Error: %v", buffer_handle_add_err)
+	if audio_clip_handle_add_err != nil {
+		log.errorf("Failed to load audio stream. Error: %v", audio_clip_handle_add_err)
 		
 		if close_err := file_close(f); close_err != nil {
 			log.errorf("Failed closing file. Error: %v", close_err)
 		}
 
-		delete(buffer.samples, s.allocator)
+		delete(audio_clip.samples, s.allocator)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
@@ -2573,7 +2573,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		file = f,
 		vorbis = vorbis_res,
 		vorbis_buffer = vorbis_buffer,
-		buffer = buffer_handle,
+		clip = audio_clip_handle,
 		playback_settings = {
 			pan = 0,
 			volume = 1,
@@ -2588,8 +2588,8 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		log.errorf("Failed to create audio stream from file. Error: %v", stream_add_err)
 		file_close(asd.file)
 		delete(asd.file_read_buf)
-		delete(buffer.samples, s.allocator)
-		hm.remove(&s.audio_buffers, buffer_handle)
+		delete(audio_clip.samples, s.allocator)
+		hm.remove(&s.audio_clips, audio_clip_handle)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
@@ -2656,17 +2656,17 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		return AUDIO_STREAM_NONE
 	}
 
-	buffer := Audio_Buffer_Object {
+	audio_clip := Audio_Clip_Object {
 		sample_rate = int(info.sample_rate),
 		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
 		channels = channels,
 	}
 
-	buffer_handle, buffer_handle_add_err := hm.add(&s.audio_buffers, buffer)
+	audio_clip_handle, audio_clip_handle_add_err := hm.add(&s.audio_clips, audio_clip)
 
-	if buffer_handle_add_err != nil {
-		log.errorf("Failed to load audio stream. Error: %v", buffer_handle_add_err)
-		delete(buffer.samples, s.allocator)
+	if audio_clip_handle_add_err != nil {
+		log.errorf("Failed to load audio stream. Error: %v", audio_clip_handle_add_err)
+		delete(audio_clip.samples, s.allocator)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
@@ -2675,7 +2675,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		mode = .From_Bytes,
 		bytes = bytes,
 		vorbis = vorbis_res,
-		buffer = buffer_handle,
+		clip = audio_clip_handle,
 		vorbis_buffer = vorbis_buffer,
 		playback_settings = {
 			pan = 0,
@@ -2688,8 +2688,8 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 
 	if stream_add_err != nil {
 		log.errorf("Failed to create audio stream from bytes. Error: %v", stream_add_err)
-		delete(buffer.samples, s.allocator)
-		hm.remove(&s.audio_buffers, buffer_handle)
+		delete(audio_clip.samples, s.allocator)
+		hm.remove(&s.audio_clips, audio_clip_handle)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return AUDIO_STREAM_NONE
 	}
@@ -2714,9 +2714,9 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 		hm.remove(&s.playing_audio_buffers, sd.playing_buffer_handle)
 	}
 
-	if ab := hm.get(&s.audio_buffers, sd.buffer); ab != nil {
+	if ab := hm.get(&s.audio_clips, sd.clip); ab != nil {
 		delete(ab.samples, s.allocator)
-		hm.remove(&s.audio_buffers, sd.buffer)
+		hm.remove(&s.audio_clips, sd.clip)
 	}
 
 	switch sd.mode {
@@ -2749,7 +2749,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	ab := hm.get(&s.audio_buffers, pab.audio_buffer)
+	ab := hm.get(&s.audio_clips, pab.clip)
 
 	if ab == nil {
 		hm.remove(&s.playing_audio_buffers, sd.playing_buffer_handle)
@@ -2757,7 +2757,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	audio_stream_remaining :: proc(as: ^Audio_Stream_Data, pab: ^Playing_Audio_Buffer, ab: ^Audio_Buffer_Object) -> int {
+	audio_stream_remaining :: proc(as: ^Audio_Stream_Data, pab: ^Playing_Audio_Buffer, ab: ^Audio_Clip_Object) -> int {
 		remaining := as.buffer_write_pos - pab.offset 
 
 		if remaining < 0 {
@@ -2917,7 +2917,7 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 	}
 
 	playing_audio_buffer := Playing_Audio_Buffer {
-		audio_buffer = sd.buffer,
+		clip = sd.clip,
 		target_settings = sd.playback_settings,
 		current_settings = sd.playback_settings,
 		bus = sd.bus,
@@ -3400,7 +3400,7 @@ update_audio_mixer :: proc() {
 	}
 
 	for ps_iter := hm.dynamic_iterator_make(&s.playing_audio_buffers); ps, ps_handle in hm.dynamic_iterate(&ps_iter) {
-		data := hm.get(&s.audio_buffers, ps.audio_buffer)
+		data := hm.get(&s.audio_clips, ps.clip)
 
 		if data == nil {
 			log.error("Trying to play sound with destroyed data")
@@ -5205,17 +5205,17 @@ Sound :: distinct Handle
 
 SOUND_NONE :: Sound {}
 
-// A sound instance is what `Sound` handles are mapped to. They contain a handle to a an audio
-// buffer, and the settings for use when playing that buffer. The audio buffer may be shared between
+// A sound instance is what `Sound` handles are mapped to. They contain a handle to an audio
+// clip, and the settings for use when playing that clip. The audio clip may be shared between
 // multiple sound instances, which allows you to play the same sound multiple times at the same time
 // without having to clone the data.
 Sound_Object :: struct {
 	handle: Sound,
 
-	// The audio buffer may be used by multiple sound instances. This is the key idea of sound
+	// The audio clip may be used by multiple sound instances. This is the key idea of sound
 	// instances: That you can use `create_sound_instance` to make it possible to play a sound
 	// multiple times at the same time, without having to clone the data.
-	audio_buffer: Audio_Buffer,
+	clip: Audio_Clip,
 
 	// If true, then the audio buffer will be destroyed when this sound is destroyed. This is true
 	// when the sound was loaded using the `load_sound_xxx` procedures. It's false when the sound
@@ -5264,9 +5264,9 @@ Audio_Stream_Data :: struct {
 	vorbis: ^stbv.vorbis,
 	vorbis_buffer: stbv.vorbis_alloc,
 	playing_buffer_handle: Playing_Audio_Buffer_Handle,
-	buffer: Audio_Buffer,
-	
-	// Where in the audio buffer referred to by `buffer_handle` that we have most recently written
+	clip: Audio_Clip,
+
+	// Where in the audio clip referred to by `buffer_handle` that we have most recently written
 	// samples. Together with the `offset` of the Playing_Audio_Buffer, this forms a circular
 	// buffer.
 	buffer_write_pos: int,
@@ -5295,7 +5295,7 @@ Audio_Stream_Data :: struct {
 }
 
 // The format used to describe that data passed to `load_sound_from_bytes_raw`.
-Raw_Sound_Format :: enum {
+Raw_Audio_Format :: enum {
 	Integer8, // unsigned, like in 8 bit WAV files. The other integer formats are signed.
 	Integer16,
 	Integer24, // three bytes per sample, little endian
@@ -5304,14 +5304,14 @@ Raw_Sound_Format :: enum {
 	Float64,
 }
 
-Audio_Buffer :: distinct Handle
+Audio_Clip :: distinct Handle
 
-AUDIO_BUFFER_NONE :: Audio_Buffer{}
+AUDIO_CLIP_NONE :: Audio_Clip{}
 
-Audio_Buffer_Object :: struct {
-	handle: Audio_Buffer,
+Audio_Clip_Object :: struct {
+	handle: Audio_Clip,
 
-	// All the samples of the audio buffer. In the case of stereo, the left and right samples are
+	// All the samples of the audio clip. In the case of stereo, the left and right samples are
 	// interleaved.
 	samples: []Audio_Sample,
 
@@ -5342,7 +5342,7 @@ Playing_Audio_Buffer_Handle :: distinct Handle
 
 Playing_Audio_Buffer :: struct {
 	handle: Playing_Audio_Buffer_Handle,
-	audio_buffer: Audio_Buffer,
+	clip: Audio_Clip,
 	target_settings: Audio_Buffer_Playback_Settings,
 	current_settings: Audio_Buffer_Playback_Settings,
 
@@ -5506,7 +5506,7 @@ State :: struct {
 	audio_backend: Audio_Backend_Interface,
 	audio_backend_state: rawptr,
 
-	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
+	audio_clips: hm.Dynamic_Handle_Map(Audio_Clip_Object, Audio_Clip),
 	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),
 
 	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),

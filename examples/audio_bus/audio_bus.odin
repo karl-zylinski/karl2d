@@ -20,15 +20,15 @@ sfx_bus: k2.Audio_Bus
 sfx_bus_destroyed: bool
 
 // Played as one-shots on the sfx bus. Several of these can overlap.
-blip: k2.Audio_Buffer
+blip: k2.Audio_Clip
 
 // A drone on the sfx bus, so you can hear the bus volume and pan without pressing anything.
 drone: k2.Sound
-drone_buffer: k2.Audio_Buffer
+drone_buffer: k2.Audio_Clip
 
 // This one stays on the master bus. It is what the sfx bus volume does NOT affect.
 tone: k2.Sound
-tone_buffer: k2.Audio_Buffer
+tone_buffer: k2.Audio_Clip
 
 sfx_volume: f32 = 1
 sfx_pan: f32
@@ -83,7 +83,7 @@ init :: proc() {
 }
 
 // Makes a sine wave that is a whole number of periods long, so that it loops cleanly.
-make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio_Buffer {
+make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio_Clip {
 	period_num_samples := f32(sample_rate) / f32(freq)
 	num_periods := math.ceil(f32(sample_rate) * min_length)
 	sine_data := make([]k2.Audio_Sample, int(num_periods), allocator = context.temp_allocator)
@@ -94,7 +94,7 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio
 	}
 
 	bytes := slice.reinterpret([]u8, sine_data)
-	return k2.load_audio_buffer_from_bytes_raw(bytes, .Float32, sample_rate, .Mono)
+	return k2.load_audio_clip_from_bytes_raw(bytes, .Float32, sample_rate, .Mono)
 }
 
 step :: proc() -> bool {
@@ -212,9 +212,9 @@ step :: proc() -> bool {
 shutdown :: proc() {
 	k2.destroy_sound(drone)
 	k2.destroy_sound(tone)
-	k2.destroy_audio_buffer(blip)
-	k2.destroy_audio_buffer(drone_buffer)
-	k2.destroy_audio_buffer(tone_buffer)
+	k2.destroy_audio_clip(blip)
+	k2.destroy_audio_clip(drone_buffer)
+	k2.destroy_audio_clip(tone_buffer)
 
 	if !sfx_bus_destroyed {
 		k2.destroy_audio_bus(sfx_bus)

@@ -8,7 +8,7 @@ import "core:mem"
 import "core:fmt"
 
 player_pos: k2.Vec2
-sine_wave: k2.Audio_Buffer
+sine_wave: k2.Audio_Clip
 spinning_audio_source: Audio_Source
 stationary_audio_sources: [dynamic]Audio_Source
 
@@ -167,11 +167,11 @@ shutdown :: proc() {
 	}
 
 	delete(stationary_audio_sources)
-	k2.destroy_audio_buffer(sine_wave)
+	k2.destroy_audio_clip(sine_wave)
 	k2.shutdown()
 }
 
-make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio_Buffer {
+make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio_Clip {
 	period_num_samples := f32(sample_rate) / f32(freq)
 	num_periods := math.ceil(f32(sample_rate) * min_length)
 	sine_data := make([]k2.Audio_Sample, int(num_periods), allocator = context.temp_allocator)
@@ -182,7 +182,7 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio
 		samp = sf
 	}
 
-	return k2.load_audio_buffer_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float32, sample_rate, .Mono)
+	return k2.load_audio_clip_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float32, sample_rate, .Mono)
 }
 
 // This is not run by the web version, but it makes this program also work on non-web!

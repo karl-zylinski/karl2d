@@ -10,7 +10,7 @@ pos: k2.Vec2
 snd: k2.Sound
 snd2: k2.Sound
 snd3: k2.Sound
-wav: k2.Audio_Buffer
+wav: k2.Audio_Clip
 wav_1: k2.Sound
 wav_2: k2.Sound
 
@@ -30,7 +30,7 @@ init :: proc() {
 	snd_pitch = 1
 	snd2 = make_sine_wave(440, 1, 44100)
 	snd3 = make_sine_wave(700, 1, 22050)
-	wav = k2.load_audio_buffer_from_bytes(#load("chord.wav"))
+	wav = k2.load_audio_clip_from_bytes(#load("chord.wav"))
 	wav_1 = k2.create_sound_from_audio_buffer(wav)
 	wav_2 = k2.create_sound_from_audio_buffer(wav)
 
@@ -177,7 +177,7 @@ shutdown :: proc() {
 	k2.destroy_sound(snd3)
 	k2.destroy_sound(wav_1)
 	k2.destroy_sound(wav_2)
-	k2.destroy_audio_buffer(wav)
+	k2.destroy_audio_clip(wav)
 
 	when HAS_MUSIC {
 		k2.destroy_audio_stream(music)

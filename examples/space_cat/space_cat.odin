@@ -117,9 +117,9 @@ plasma_ball_textures: [3]k2.Texture
 
 // We play these audio buffers directly using `play_audio_buffer`. That's good for these kind of
 // "one-shot" sounds that just need some initial playback settings.
-ab_shoot: k2.Audio_Buffer
-ab_pickup: k2.Audio_Buffer
-ab_hit: k2.Audio_Buffer
+ab_shoot: k2.Audio_Clip
+ab_pickup: k2.Audio_Clip
+ab_hit: k2.Audio_Clip
 
 // For making a texture appear on the screen for a short period.
 flash_texture: k2.Texture
@@ -251,9 +251,9 @@ init :: proc() {
 
 	enemy_hidden_tex = k2.load_texture_from_bytes(#load("enemy_hidden.png"))
 
-	ab_shoot = k2.load_audio_buffer_from_bytes(#load("laser_shoot.wav"))
-	ab_hit = k2.load_audio_buffer_from_bytes(#load("hit_hurt.wav"))
-	ab_pickup = k2.load_audio_buffer_from_bytes(#load("power_up.wav"))
+	ab_shoot = k2.load_audio_clip_from_bytes(#load("laser_shoot.wav"))
+	ab_hit = k2.load_audio_clip_from_bytes(#load("hit_hurt.wav"))
+	ab_pickup = k2.load_audio_clip_from_bytes(#load("power_up.wav"))
 
 	space_tileset_version = file_version("space_tileset.png")
 
@@ -351,9 +351,9 @@ shutdown :: proc() {
 		k2.destroy_texture(t)	
 	}
 
-	k2.destroy_audio_buffer(ab_hit)
-	k2.destroy_audio_buffer(ab_pickup)
-	k2.destroy_audio_buffer(ab_shoot)
+	k2.destroy_audio_clip(ab_hit)
+	k2.destroy_audio_clip(ab_pickup)
+	k2.destroy_audio_clip(ab_shoot)
 	k2.destroy_texture(space_tileset)
 	k2.destroy_texture(player.tex_east_west)
 	k2.destroy_texture(player.tex_up)
