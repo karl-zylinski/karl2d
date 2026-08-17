@@ -20,15 +20,13 @@ sfx_bus: k2.Audio_Bus
 sfx_bus_destroyed: bool
 
 // Played as one-shots on the sfx bus. Several of these can overlap.
-blip: k2.Audio_Clip
+blip_clip: k2.Audio_Clip
 
-// A drone on the sfx bus, so you can hear the bus volume and pan without pressing anything.
-drone: k2.Sound
-drone_buffer: k2.Audio_Clip
+// A looping drone on the sfx bus, so you can hear the bus volume and pan without pressing anything.
+drone_clip: k2.Audio_Clip
 
-// This one stays on the master bus. It is what the sfx bus volume does NOT affect.
-tone: k2.Sound
-tone_buffer: k2.Audio_Clip
+// A looping tone that stays on the master bus. It is what the sfx bus volume does NOT affect.
+tone_clip: k2.Audio_Clip
 
 sfx_volume: f32 = 1
 sfx_pan: f32
@@ -63,13 +61,15 @@ init :: proc() {
 
 	sfx_bus = k2.create_audio_bus()
 
-	blip = make_sine_wave(600, 0.12, 44100)
-	drone_buffer = make_sine_wave(80, 1, 44100)
-	tone_buffer = make_sine_wave(220, 1, 44100)
+	blip_clip = make_sine_wave(600, 0.12, 44100)
+	drone_clip = make_sine_wave(80, 1, 44100)
+	tone_clip = make_sine_wave(220, 1, 44100)
 
-	// The drone goes on the sfx bus. The tone is left alone, so it plays on the master bus.
-	drone = k2.play_audio_clip(drone_buffer, volume = 0.3, loop = true, bus = sfx_bus)
-	tone = k2.play_audio_clip(tone_buffer, volume = 0.15, loop = true)
+	// The drone goes on the sfx bus. The tone is left alone, so it plays on the master bus. We
+	// never stop them one by one, and destroying the clips in `shutdown` stops them, so the
+	// returned sound handles can be discarded.
+	k2.play_audio_clip(drone_clip, volume = 0.3, loop = true, bus = sfx_bus)
+	k2.play_audio_clip(tone_clip, volume = 0.15, loop = true)
 }
 
 // Makes a sine wave that is a whole number of periods long, so that it loops cleanly.
@@ -97,7 +97,7 @@ step :: proc() -> bool {
 	// Each press starts a separate playback, so pressing quickly overlaps them. The pitch is
 	// randomized to make that easier to hear.
 	if k2.key_went_down(.Space) {
-		k2.play_audio_clip(blip, pitch = rand.float32_range(0.8, 1.6), bus = sfx_bus)
+		k2.play_audio_clip(blip_clip, pitch = rand.float32_range(0.8, 1.6), bus = sfx_bus)
 	}
 
 	// BUS SETTINGS
@@ -200,9 +200,9 @@ step :: proc() -> bool {
 }
 
 shutdown :: proc() {
-	k2.destroy_audio_clip(blip)
-	k2.destroy_audio_clip(drone_buffer)
-	k2.destroy_audio_clip(tone_buffer)
+	k2.destroy_audio_clip(blip_clip)
+	k2.destroy_audio_clip(drone_clip)
+	k2.destroy_audio_clip(tone_clip)
 
 	if !sfx_bus_destroyed {
 		k2.destroy_audio_bus(sfx_bus)

@@ -7,11 +7,11 @@ import "core:fmt"
 import "core:slice"
 
 pos: k2.Vec2
-snd: k2.Audio_Clip
-snd_sound: k2.Sound
-snd2: k2.Audio_Clip
-snd3: k2.Audio_Clip
-wav: k2.Audio_Clip
+sine_clip_200: k2.Audio_Clip
+sine_sound: k2.Sound
+sine_clip_440: k2.Audio_Clip
+sine_clip_700: k2.Audio_Clip
+chord_clip: k2.Audio_Clip
 
 music: k2.Audio_Stream
 music_sound: k2.Sound
@@ -25,12 +25,12 @@ HAS_MUSIC :: #exists(MUSIC_FILE)
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Audio")
 
-	snd = make_sine_wave(200, 0.5, 44100)
+	sine_clip_200 = make_sine_wave(200, 0.5, 44100)
 	snd_volume = 1
 	snd_pitch = 1
-	snd2 = make_sine_wave(440, 1, 44100)
-	snd3 = make_sine_wave(700, 1, 22050)
-	wav = k2.load_audio_clip_from_bytes(#load("chord.wav"))
+	sine_clip_440 = make_sine_wave(440, 1, 44100)
+	sine_clip_700 = make_sine_wave(700, 1, 22050)
+	chord_clip = k2.load_audio_clip_from_bytes(#load("chord.wav"))
 
 	when HAS_MUSIC {
 		when ODIN_OS == .JS {
@@ -42,7 +42,7 @@ init :: proc() {
 		}
 		music_sound = k2.play_audio_stream(music, loop = true)
 	} else {
-		snd_sound = k2.play_audio_clip(snd, loop = true)
+		sine_sound = k2.play_audio_clip(sine_clip_200, loop = true)
 	}
 }
 
@@ -68,11 +68,11 @@ step :: proc() -> bool {
 	}
 
 	if k2.key_went_down(.Enter) {
-		k2.play_audio_clip(snd2)
+		k2.play_audio_clip(sine_clip_440)
 	}
 
 	if k2.key_went_down(.N3) {
-		k2.play_audio_clip(snd3)
+		k2.play_audio_clip(sine_clip_700)
 	}
 	
 	if k2.key_is_held(.Up) {
@@ -101,12 +101,12 @@ step :: proc() -> bool {
 
 
 	if k2.key_went_down(.Space) {
-		k2.play_audio_clip(wav)
+		k2.play_audio_clip(chord_clip)
 	}
 
 	if k2.key_went_down(.T)	{
-		k2.play_audio_clip(wav, pitch = 2, pan = -1)
-		k2.play_audio_clip(wav, pitch = 0.5, pan = 1)
+		k2.play_audio_clip(chord_clip, pitch = 2, pan = -1)
+		k2.play_audio_clip(chord_clip, pitch = 0.5, pan = 1)
 	}
 	
 	snd_pan = clamp(snd_pan, -1, 1)
@@ -134,9 +134,9 @@ step :: proc() -> bool {
 		k2.set_sound_pan(music_sound, snd_pan)
 		k2.set_sound_volume(music_sound, snd_volume)
 	} else {
-		k2.set_sound_volume(snd_sound, snd_volume)
-		k2.set_sound_pan(snd_sound, snd_pan)
-		k2.set_sound_pitch(snd_sound, snd_pitch)
+		k2.set_sound_volume(sine_sound, snd_volume)
+		k2.set_sound_pan(sine_sound, snd_pan)
+		k2.set_sound_pitch(sine_sound, snd_pitch)
 	}
 	
 	k2.clear(k2.WHITE)
@@ -173,10 +173,10 @@ step :: proc() -> bool {
 }
 
 shutdown :: proc() {
-	k2.destroy_audio_clip(snd)
-	k2.destroy_audio_clip(snd2)
-	k2.destroy_audio_clip(snd3)
-	k2.destroy_audio_clip(wav)
+	k2.destroy_audio_clip(sine_clip_200)
+	k2.destroy_audio_clip(sine_clip_440)
+	k2.destroy_audio_clip(sine_clip_700)
+	k2.destroy_audio_clip(chord_clip)
 
 	when HAS_MUSIC {
 		k2.destroy_audio_stream(music)
