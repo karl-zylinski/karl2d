@@ -59,6 +59,10 @@ linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State, options: Ini
 		append(&visual_attribs, glx.SAMPLES, 4)
 	}
 
+	if options.depth_test {
+		append(&visual_attribs, glx.DEPTH_SIZE, 24)
+	}
+
 	// null termination
 	append(&visual_attribs, 0)
 

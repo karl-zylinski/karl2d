@@ -27,6 +27,7 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 
 	default_shader_vertex_source = rbnil_default_shader_vertex_source,
 	default_shader_fragment_source = rbnil_default_shader_fragment_source,
+	get_depth_clip_range = rbnil_get_depth_clip_range,
 }
 
 import "log"
@@ -174,5 +175,9 @@ rbnil_default_shader_vertex_source :: proc() -> []byte {
 
 rbnil_default_shader_fragment_source :: proc() -> []byte {
 	return {}
+}
+
+rbnil_get_depth_clip_range :: proc() -> (min: f32, max: f32) {
+	return 0, 1
 }
 

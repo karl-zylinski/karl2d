@@ -103,13 +103,32 @@ init :: proc(
 	rb_alloc_error: runtime.Allocator_Error
 	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = s.allocator)
 	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
-	
+
+	s.depth_test = options.depth_test
+	s.depth_range_min = options.depth_range_min
+	s.depth_range_max = options.depth_range_max
+
+	if !s.depth_test || (s.depth_range_min == 0 && s.depth_range_max == 0) {
+		// The range only means something when depth testing is on. When it is off, every vertex
+		// gets a z of 0, so we force the default range: a range that does not contain 0 would
+		// make the GPU discard everything, showing nothing at all.
+		s.depth_range_min = DEPTH_RANGE_DEFAULT_MIN
+		s.depth_range_max = DEPTH_RANGE_DEFAULT_MAX
+	} else if s.depth_range_min == s.depth_range_max {
+		log.errorf(
+			"depth_range_min and depth_range_max must differ, both were %v. Using the default range.",
+			s.depth_range_min,
+		)
+		s.depth_range_min = DEPTH_RANGE_DEFAULT_MIN
+		s.depth_range_max = DEPTH_RANGE_DEFAULT_MAX
+	}
+
 	s.proj_matrix = make_default_projection(
 		pf.get_screen_width(),
 		pf.get_screen_height(),
 		_camera_flip_y(),
 	)
-	
+
 	s.view_matrix = 1
 	_update_view_projection()
 
@@ -542,6 +561,9 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 // call this procedure manually. It is done automatically when `present` or `clear` run. It can also
 // happen when you destroy a resource such as a texture or shader that is used in the current
 // batch.
+//
+// Note that `set_z` never starts a new draw call: the z value is stored in each vertex rather than
+// being part of a draw call's settings, so it's fine to call it before every draw.
 //
 // All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
 // dictates how big a vertex is. The maximum number of vertices in a batch is therefore
@@ -4090,7 +4112,7 @@ load_shader_from_bytes :: proc(
 		if default_format != .Unknown {
 			shd.default_input_offsets[default_format] = input_offset
 		}
-		
+
 		input_offset += pixel_format_size(input.format)
 	}
 
@@ -4391,6 +4413,19 @@ set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 	s.current_scissor = scissor_rect
 }
 
+// Set the z used by draws that happen after this call. Only has an effect when `depth_test` was
+// enabled in `Init_Options`. Higher z ends up in front. Unlike `set_blend_mode` and
+// `set_scissor_rect`, this never starts a new draw call: the z is stored in each vertex rather
+// than being part of a draw call's settings, so it's fine to call this before every draw.
+set_z :: proc(z: f32) {
+	s.z = z
+}
+
+// Get the z previously set with `set_z`. Defaults to 0.
+get_z :: proc() -> f32 {
+	return s.z
+}
+
 // Restore the internal state using the pointer returned by `init`. Useful after reloading the
 // library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State) {
@@ -4679,7 +4714,20 @@ Init_Options :: struct {
 	// platforms, such as Linux+Wayland, it does not work, because Wayland always auto scales all
 	// windows.
 	disable_auto_scale_hint: bool,
+
+	// Enable depth testing. Draws are then sorted by the z value set with `set_z`: higher z ends up
+	// in front. Things drawn at the same z use the drawing order, like when depth testing is off.
+	depth_test: bool,
+
+	// The range of z values you can use with `set_z`. Leave both at zero to get the default range
+	// of -1 to 1. Set them to something like 0 and 1000 if you'd rather feed `set_z` world
+	// coordinates. Only used when `depth_test` is on.
+	depth_range_min: f32,
+	depth_range_max: f32,
 }
+
+DEPTH_RANGE_DEFAULT_MIN :: -1
+DEPTH_RANGE_DEFAULT_MAX :: 1
 
 Shader_Handle :: distinct Handle
 
@@ -5137,6 +5185,11 @@ State :: struct {
 	// `proj_matrix * view_matrix`. Kept around because every draw call needs it. Update it with
 	// `_update_view_projection`.
 	view_projection: Mat4,
+
+	z: f32,
+	depth_test: bool,
+	depth_range_min: f32,
+	depth_range_max: f32,
 
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
@@ -5744,6 +5797,10 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 
 	if pos_offset != -1 {
 		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
+
+		if s.depth_test {
+			(^f32)(&s.vertex_buffer_cpu[base_offset + pos_offset + size_of(Vec2)])^ = s.z
+		}
 	}
 
 	if uv_offset != -1 {
@@ -5868,7 +5925,7 @@ ab: Audio_Backend_Interface
 frame_allocator: runtime.Allocator
 
 get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> Shader_Default_Inputs {
-	if name == "position" && type == .Vec2 {
+	if name == "position" && (type == .Vec2 || type == .Vec3) {
 		return .Position
 	} else if name == "texcoord" && type == .Vec2 {
 		return .UV
@@ -5900,7 +5957,9 @@ get_shader_input_format :: proc(name: string, type: Shader_Input_Type) -> Pixel_
 
 	if default_type != .Unknown {
 		switch default_type {
-		case .Position: return .RG_32_Float
+		// The shaders take a vec3 position, but with depth testing off we only feed it xy and let
+		// the shader default z to 0. That keeps the 2D vertex at 20 bytes.
+		case .Position: return s.depth_test ? .RGB_32_Float : .RG_32_Float
 		case .UV: return .RG_32_Float
 		case .Color: return .RGBA_8_Norm
 		case .Unknown: unreachable()
@@ -5929,26 +5988,45 @@ frame_cstring :: proc(str: string, loc := #caller_location) -> cstring {
 
 
 @(require_results)
-matrix_ortho3d_f32 :: proc "contextless" (left, right, bottom, top, near, far: f32) -> Mat4 #no_bounds_check {
+matrix_ortho3d_f32 :: proc "contextless" (
+	left, right, bottom, top: f32,
+	z_min, z_max: f32,
+	clip_z_min, clip_z_max: f32,
+) -> Mat4 #no_bounds_check {
 	m: Mat4
+
+	// Maps the user-facing z range onto the render backend's clip space z range. GL and D3D11
+	// disagree on that range (-w..w vs 0..w), which is why this can't just be a fixed +1 like a
+	// pure 2D ortho matrix would use.
+	z_scale := (clip_z_max - clip_z_min) / (z_max - z_min)
 
 	m[0, 0] = +2 / (right - left)
 	m[1, 1] = +2 / (top - bottom)
-	m[2, 2] = +1
+	m[2, 2] = z_scale
 	m[0, 3] = -(right + left)   / (right - left)
 	m[1, 3] = -(top   + bottom) / (top - bottom)
-	m[2, 3] = 0
+	m[2, 3] = clip_z_min - z_min * z_scale
 	m[3, 3] = 1
 
 	return m
 }
 
 make_default_projection :: proc(w, h: int, flip_y: bool) -> matrix[4,4]f32 {
+	clip_z_min, clip_z_max := rb.get_depth_clip_range()
+
 	if flip_y {
-		return matrix_ortho3d_f32(0, f32(w), 0, f32(h), 0.001, 2)
+		return matrix_ortho3d_f32(
+			0, f32(w), 0, f32(h),
+			s.depth_range_min, s.depth_range_max,
+			clip_z_min, clip_z_max,
+		)
 	}
 
-	return matrix_ortho3d_f32(0, f32(w), f32(h), 0, 0.001, 2)
+	return matrix_ortho3d_f32(
+		0, f32(w), f32(h), 0,
+		s.depth_range_min, s.depth_range_max,
+		clip_z_min, clip_z_max,
+	)
 }
 
 // Returns true if the currently used camera wants the Y axis to be flipped.

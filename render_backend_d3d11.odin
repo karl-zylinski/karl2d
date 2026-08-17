@@ -28,6 +28,7 @@ RENDER_BACKEND_D3D11 :: Render_Backend_Interface {
 	destroy_shader = d3d11_destroy_shader,
 	default_shader_vertex_source = d3d11_default_shader_vertex_source,
 	default_shader_fragment_source = d3d11_default_shader_fragment_source,
+	get_depth_clip_range = d3d11_get_depth_clip_range,
 }
 
 import d3d11 "vendor:directx/d3d11"
@@ -127,6 +128,7 @@ d3d11_init :: proc(
 	
 	ch(dxgi_device->GetAdapter(&s.dxgi_adapter))
 	s.anti_alias = options.anti_alias
+	s.depth_test = options.depth_test
 
 	create_swapchain(swapchain_width, swapchain_height)
 
@@ -138,6 +140,17 @@ d3d11_init :: proc(
 	}
 
 	ch(s.device->CreateRasterizerState(&rasterizer_desc, &s.rasterizer_state))
+
+	if s.depth_test {
+		// Higher z ends up in front. GREATER_EQUAL instead of GREATER so that things drawn at the
+		// same z fall back to drawing order, like when depth testing is off.
+		depth_stencil_desc := d3d11.DEPTH_STENCIL_DESC{
+			DepthEnable    = true,
+			DepthWriteMask = .ALL,
+			DepthFunc      = .GREATER_EQUAL,
+		}
+		ch(s.device->CreateDepthStencilState(&depth_stencil_desc, &s.depth_stencil_state))
+	}
 
 	vertex_buffer_desc := d3d11.BUFFER_DESC{
 		ByteWidth = VERTEX_BUFFER_MAX,
@@ -192,6 +205,12 @@ d3d11_shutdown :: proc() {
 	s.blend_state_alpha->Release()
 	s.blend_state_premultiplied_alpha->Release()
 	s.dxgi_adapter->Release()
+
+	if s.depth_test {
+		s.depth_buffer->Release()
+		s.depth_buffer_view->Release()
+		s.depth_stencil_state->Release()
+	}
 
 	when ODIN_DEBUG {
 		d3d11_debug_print_live_objects()
@@ -270,8 +289,16 @@ d3d11_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		s.device_context->ClearRenderTargetView(rt.render_target_view, &c)
+
+		if s.depth_test {
+			s.device_context->ClearDepthStencilView(rt.depth_buffer_view, {.DEPTH}, 0, 0)
+		}
 	} else {
 		s.device_context->ClearRenderTargetView(s.framebuffer_view, &c)
+
+		if s.depth_test {
+			s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 0, 0)
+		}
 	}
 }
 
@@ -297,6 +324,12 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 
 	dc->IASetPrimitiveTopology(.TRIANGLELIST)
 	dc->RSSetState(s.rasterizer_state)
+
+	// Never changes for the lifetime of the backend, so it only needs setting once here rather than
+	// per draw call.
+	if s.depth_test {
+		dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
+	}
 
 	// Changes that belong to draw calls we could not draw. They never reached the device context.
 	// The next draw call we do run has to make them.
@@ -357,7 +390,7 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 
 		if .Render_Target in changed {
 			if rt != nil {
-				dc->OMSetRenderTargets(1, &rt.render_target_view, nil)
+				dc->OMSetRenderTargets(1, &rt.render_target_view, s.depth_test ? rt.depth_buffer_view : nil)
 
 				viewport := d3d11.VIEWPORT {
 					0, 0,
@@ -367,7 +400,7 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 
 				dc->RSSetViewports(1, &viewport)
 			} else {
-				dc->OMSetRenderTargets(1, &s.framebuffer_view, nil)
+				dc->OMSetRenderTargets(1, &s.framebuffer_view, s.depth_test ? s.depth_buffer_view : nil)
 
 				viewport := d3d11.VIEWPORT {
 					0, 0,
@@ -473,6 +506,12 @@ d3d11_resize_swapchain :: proc(w, h: int) {
 	s.framebuffer->Release()
 	s.framebuffer_view->Release()
 	s.swapchain->Release()
+
+	if s.depth_test {
+		s.depth_buffer->Release()
+		s.depth_buffer_view->Release()
+	}
+
 	s.width = w
 	s.height = h
 
@@ -587,6 +626,27 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 		height = height,
 	}
 
+	if s.depth_test {
+		depth_buffer_desc := d3d11.TEXTURE2D_DESC{
+			Width      = u32(width),
+			Height     = u32(height),
+			MipLevels  = 1,
+			ArraySize  = 1,
+			Format     = .D24_UNORM_S8_UINT,
+			SampleDesc = {Count = 1},
+			Usage      = .DEFAULT,
+			BindFlags  = {.DEPTH_STENCIL},
+		}
+
+		ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &d3d11_render_target.depth_buffer))
+
+		ch(s.device->CreateDepthStencilView(
+			d3d11_render_target.depth_buffer,
+			nil,
+			&d3d11_render_target.depth_buffer_view,
+		))
+	}
+
 	tex_handle, tex_add_err := hm.add(&s.textures, d3d11_texture)
 
 	if tex_add_err != nil {
@@ -607,6 +667,11 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 d3d11_destroy_render_target :: proc(render_target: Render_Target_Handle) {
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		rt.render_target_view->Release()
+
+		if s.depth_test {
+			rt.depth_buffer->Release()
+			rt.depth_buffer_view->Release()
+		}
 	}
 
 	hm.remove(&s.render_targets, render_target)
@@ -1092,6 +1157,12 @@ D3D11_State :: struct {
 	vertex_buffer_gpu: ^d3d11.IBuffer,
 
 	all_samplers: map[^d3d11.ISamplerState]struct{},
+
+	// The depth things below are only created when `depth_test` is true.
+	depth_test: bool,
+	depth_buffer: ^d3d11.ITexture2D,
+	depth_buffer_view: ^d3d11.IDepthStencilView,
+	depth_stencil_state: ^d3d11.IDepthStencilState,
 }
 
 create_swapchain :: proc(w, h: int) {
@@ -1128,6 +1199,22 @@ create_swapchain :: proc(w, h: int) {
 	ch(s.swapchain->GetBuffer(0, d3d11.ITexture2D_UUID, (^rawptr)(&s.framebuffer)))
 	ch(s.device->CreateRenderTargetView(s.framebuffer, nil, &s.framebuffer_view))
 	dxgi_factory->MakeWindowAssociation(s.window_handle, { .NO_ALT_ENTER })
+
+	if s.depth_test {
+		depth_buffer_desc := d3d11.TEXTURE2D_DESC{
+			Width      = u32(w),
+			Height     = u32(h),
+			MipLevels  = 1,
+			ArraySize  = 1,
+			Format     = .D24_UNORM_S8_UINT,
+			SampleDesc = {Count = sample_count, Quality = swapchain_desc.SampleDesc.Quality},
+			Usage      = .DEFAULT,
+			BindFlags  = {.DEPTH_STENCIL},
+		}
+
+		ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &s.depth_buffer))
+		ch(s.device->CreateDepthStencilView(s.depth_buffer, nil, &s.depth_buffer_view))
+	}
 }
 
 D3D11_Texture :: struct {
@@ -1151,6 +1238,10 @@ D3D11_Render_Target :: struct {
 	render_target_view: ^d3d11.IRenderTargetView,
 	width: int,
 	height: int,
+
+	// Only set up when depth testing is enabled, see D3D11_State.depth_test.
+	depth_buffer: ^d3d11.ITexture2D,
+	depth_buffer_view: ^d3d11.IDepthStencilView,
 }
 
 dxgi_format_from_pixel_format :: proc(f: Pixel_Format) -> dxgi.FORMAT {
@@ -1229,4 +1320,8 @@ d3d11_default_shader_vertex_source :: proc() -> []byte {
 d3d11_default_shader_fragment_source :: proc() -> []byte {
 	s := DEFAULT_SHADER_SOURCE
 	return s
+}
+
+d3d11_get_depth_clip_range :: proc() -> (min: f32, max: f32) {
+	return 0, 1
 }
