@@ -169,6 +169,9 @@ set_window_mode :: proc(window_mode: Window_Mode)
 // happen when you destroy a resource such as a texture or shader that is used in the current
 // batch.
 //
+// Note that `set_z` never starts a new draw call: the z value is stored in each vertex rather than
+// being part of a draw call's settings, so it's fine to call it before every draw.
+//
 // All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
 // dictates how big a vertex is. The maximum number of vertices in a batch is therefore
 // `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
@@ -948,6 +951,15 @@ set_blend_mode :: proc(mode: Blend_Mode)
 // scissor rectangle by running `set_scissor_rect(nil)`.
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect))
 
+// Set the z used by draws that happen after this call. Only has an effect when `depth_test` was
+// enabled in `Init_Options`. Higher z ends up in front. Unlike `set_blend_mode` and
+// `set_scissor_rect`, this never starts a new draw call: the z is stored in each vertex rather
+// than being part of a draw call's settings, so it's fine to call this before every draw.
+set_z :: proc(z: f32)
+
+// Get the z previously set with `set_z`. Defaults to 0.
+get_z :: proc() -> f32
+
 // Restore the internal state using the pointer returned by `init`. Useful after reloading the
 // library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State)
@@ -1177,7 +1189,20 @@ Init_Options :: struct {
 	// platforms, such as Linux+Wayland, it does not work, because Wayland always auto scales all
 	// windows.
 	disable_auto_scale_hint: bool,
+
+	// Enable depth testing. Draws are then sorted by the z value set with `set_z`: higher z ends up
+	// in front. Things drawn at the same z use the drawing order, like when depth testing is off.
+	depth_test: bool,
+
+	// The range of z values you can use with `set_z`. Leave both at zero to get the default range
+	// of -1 to 1. Set them to something like 0 and 1000 if you'd rather feed `set_z` world
+	// coordinates. Only used when `depth_test` is on.
+	depth_range_min: f32,
+	depth_range_max: f32,
 }
+
+DEPTH_RANGE_DEFAULT_MIN :: -1
+DEPTH_RANGE_DEFAULT_MAX :: 1
 
 Shader_Handle :: distinct Handle
 
@@ -1636,6 +1661,11 @@ State :: struct {
 	// `proj_matrix * view_matrix`. Kept around because every draw call needs it. Update it with
 	// `_update_view_projection`.
 	view_projection: Mat4,
+
+	z: f32,
+	depth_test: bool,
+	depth_range_min: f32,
+	depth_range_max: f32,
 
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
