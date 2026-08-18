@@ -553,6 +553,11 @@ set_sound_position :: proc(sound: Sound, seconds: f32)
 // exists.
 get_sound_position :: proc(sound: Sound) -> f32
 
+// How long the whole audio of the sound is, in seconds. Use it together with
+// `get_sound_position` to show how far into a song you are. Returns 0 if the sound no longer
+// exists, or if the length could not be figured out.
+get_sound_length :: proc(sound: Sound) -> f32
+
 // Make a sound loop when it reaches the end.
 //
 // Technical note: This also works for sounds started using `play_audio_stream`, but then it
@@ -1444,6 +1449,10 @@ Audio_Stream_Data :: struct {
 	// When more than zero, `update_audio_stream` throws away this many decoded samples instead
 	// of writing them to the clip. Used to seek in From_File mode, where the decoder cannot jump.
 	seek_discard: int,
+
+	// How many samples the whole file holds, in the same units as `decode_cursor`. Worked out
+	// when the stream is loaded. Zero when the length could not be figured out.
+	total_samples: int,
 
 	// Different from `loop` in `Sound_Object`. This says if the whole stream should loop
 	// when it reaches end-of-file. The `loop` in `Sound_Object` just says to loop the

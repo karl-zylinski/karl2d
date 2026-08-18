@@ -1979,17 +1979,19 @@ set_sound_position :: proc(sound: Sound, seconds: f32) {
 
 	target_frame := int(clamped_seconds * f32(ab.sample_rate))
 
+	// Don't go past the end of the audio when we know where that is.
+	if sd.total_samples > 0 {
+		target_frame = min(target_frame, sd.total_samples / channels)
+	}
+
 	switch sd.mode {
 	case .From_Bytes:
-		total_frames := int(stbv.stream_length_in_samples(sd.vorbis))
-		clamped_frame := clamp(target_frame, 0, total_frames)
-
-		if stbv.seek(sd.vorbis, u32(clamped_frame)) == 0 {
+		if stbv.seek(sd.vorbis, u32(target_frame)) == 0 {
 			log.error("Cannot set sound position, seeking in the audio stream failed.")
 			return
 		}
 
-		sd.decode_cursor = clamped_frame * channels
+		sd.decode_cursor = target_frame * channels
 		sd.seek_discard = 0
 
 	case .From_File:
@@ -2054,6 +2056,12 @@ get_sound_position :: proc(sound: Sound) -> f32 {
 		channels = 2
 	}
 
+	// A seek that is still catching up has emptied the buffer, so there is nothing in there to
+	// measure. Report where the sound is about to be instead.
+	if sd.seek_discard > 0 {
+		return f32((sd.decode_cursor + sd.seek_discard) / channels) / f32(ab.sample_rate)
+	}
+
 	// How many decoded samples are still sitting unplayed in the circular staging buffer.
 	remaining := sd.buffer_write_pos - sound_object.offset
 
@@ -2061,8 +2069,53 @@ get_sound_position :: proc(sound: Sound) -> f32 {
 		remaining = len(ab.samples) - sound_object.offset + sd.buffer_write_pos
 	}
 
-	position := sd.decode_cursor - remaining
+	position := max(sd.decode_cursor - remaining, 0)
 	return f32(position / channels) / f32(ab.sample_rate)
+}
+
+// How long the whole audio of the sound is, in seconds. Use it together with
+// `get_sound_position` to show how far into a song you are. Returns 0 if the sound no longer
+// exists, or if the length could not be figured out.
+get_sound_length :: proc(sound: Sound) -> f32 {
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return 0
+	}
+
+	if sound_object.stream == AUDIO_STREAM_NONE {
+		clip := hm.get(&s.audio_clips, sound_object.clip)
+
+		if clip == nil {
+			return 0
+		}
+
+		channels := 1
+		if clip.channels == .Stereo {
+			channels = 2
+		}
+
+		return f32(len(clip.samples) / channels) / f32(clip.sample_rate)
+	}
+
+	sd := hm.get(&s.audio_streams, sound_object.stream)
+
+	if sd == nil {
+		return 0
+	}
+
+	ab := hm.get(&s.audio_clips, sd.clip)
+
+	if ab == nil {
+		return 0
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	return f32(sd.total_samples / channels) / f32(ab.sample_rate)
 }
 
 // Make a sound loop when it reaches the end.
@@ -2549,6 +2602,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		vorbis = vorbis_res,
 		vorbis_buffer = vorbis_buffer,
 		clip = audio_clip_handle,
+		total_samples = _ogg_file_total_frames(f) * int(info.channels),
 		file_read_buf = make([dynamic]u8, s.allocator),
 	}
 
@@ -2647,6 +2701,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		vorbis = vorbis_res,
 		clip = audio_clip_handle,
 		vorbis_buffer = vorbis_buffer,
+		total_samples = int(stbv.stream_length_in_samples(vorbis_res)) * int(info.channels),
 	}
 
 	stream, stream_add_err := hm.add(&s.audio_streams, asd)
@@ -5100,6 +5155,10 @@ Audio_Stream_Data :: struct {
 	// of writing them to the clip. Used to seek in From_File mode, where the decoder cannot jump.
 	seek_discard: int,
 
+	// How many samples the whole file holds, in the same units as `decode_cursor`. Worked out
+	// when the stream is loaded. Zero when the length could not be figured out.
+	total_samples: int,
+
 	// Different from `loop` in `Sound_Object`. This says if the whole stream should loop
 	// when it reaches end-of-file. The `loop` in `Sound_Object` just says to loop the
 	// buffer itself. That's something you always want for a stream: We are continously writing
@@ -5659,6 +5718,93 @@ count_text_lines :: proc "contextless" (text: string) -> int {
 
 assert_initialized :: proc(loc := #caller_location) {
 	assert(s != nil, "Call k2.init before using this Karl2D procedure", loc)
+}
+
+// Works out how many audio frames an ogg file holds by looking at the last page in it.
+//
+// An ogg file is a sequence of pages. Each page starts with "OggS" and stores a granule position:
+// The number of frames that have been decoded once that page has been played. The granule position
+// of the last page is therefore the length of the whole file. We do it this way because the
+// decoder cannot tell us the length of a file we feed to it a small piece at a time.
+//
+// The file position is restored before returning. Returns 0 if no length could be found.
+_ogg_file_total_frames :: proc(f: ^File) -> int {
+	// The biggest an ogg page can be. Reading this many bytes from the end of the file means we
+	// are certain to see the start of the last page.
+	MAX_OGG_PAGE_SIZE :: 65307
+
+	// The smallest an ogg page header can be. Reading fewer bytes than this means there is no
+	// page to find.
+	MIN_OGG_PAGE_SIZE :: 27
+
+	restore_pos, restore_pos_err := file_seek(f, 0, .Current)
+
+	if restore_pos_err != nil {
+		return 0
+	}
+
+	file_size, file_size_err := file_seek(f, 0, .End)
+
+	if file_size_err != nil {
+		return 0
+	}
+
+	read_size := min(int(file_size), MAX_OGG_PAGE_SIZE)
+
+	if read_size < MIN_OGG_PAGE_SIZE {
+		file_seek(f, restore_pos, .Start)
+		return 0
+	}
+
+	if _, seek_err := file_seek(f, file_size - i64(read_size), .Start); seek_err != nil {
+		file_seek(f, restore_pos, .Start)
+		return 0
+	}
+
+	buf := make([]u8, read_size, frame_allocator)
+	filled: int
+
+	// A single read may hand back less than we asked for, so keep going until the buffer is full.
+	for filled < read_size {
+		read, read_err := file_read(f, buf[filled:])
+
+		if read <= 0 || read_err != nil {
+			break
+		}
+
+		filled += read
+	}
+
+	file_seek(f, restore_pos, .Start)
+
+	if filled < MIN_OGG_PAGE_SIZE {
+		return 0
+	}
+
+	buf = buf[:filled]
+
+	// Walk backwards until we find a page that tells us where it ends.
+	for idx := len(buf) - MIN_OGG_PAGE_SIZE; idx >= 0; idx -= 1 {
+		if string(buf[idx:idx + 4]) != "OggS" {
+			continue
+		}
+
+		granule, granule_ok := endian.get_u64(buf[idx + 6:idx + 14], .Little)
+
+		if !granule_ok {
+			continue
+		}
+
+		// All ones means that no packet finishes on this page, so it says nothing about the
+		// length. Keep looking at earlier pages.
+		if granule == max(u64) {
+			continue
+		}
+
+		return int(granule)
+	}
+
+	return 0
 }
 
 // Moves the decode cursor of a stream back to the start. Run when a stream-fed sound is stopped
