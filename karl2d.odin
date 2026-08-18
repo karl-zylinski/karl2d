@@ -2631,6 +2631,11 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 							}
 
 							stbv.flush_pushdata(sd.vorbis)
+							sd.decode_cursor = 0
+
+							// A discard larger than the file would otherwise spin forever.
+							sd.seek_discard = 0
+
 							continue
 						} else {
 							hm.remove(&s.sounds, sd.sound)
@@ -2652,6 +2657,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 					for samp_idx in 0..<samples {
 						ab.samples[sd.buffer_write_pos] = mono[samp_idx]
 						sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
+						sd.decode_cursor += 1
 					}
 				} else if channels == 2 {
 					left: [^]f32 = output[0]
@@ -2661,6 +2667,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 						ab.samples[sd.buffer_write_pos] = left[samp_idx]
 						ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
 						sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
+						sd.decode_cursor += 2
 					}
 				} else {
 					hm.remove(&s.sounds, sd.sound)
@@ -2692,6 +2699,11 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 			if samples == 0 {
 				if sd.loop {
 					stbv.seek_start(sd.vorbis)
+					sd.decode_cursor = 0
+
+					// A discard larger than the file would otherwise spin forever.
+					sd.seek_discard = 0
+
 					continue
 				} else {
 					// TODO: Stopping here is bad as the samples haven't been mixed in yet. Remove the
@@ -2709,6 +2721,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 				for samp_idx in 0..<samples {
 					ab.samples[sd.buffer_write_pos] = mono[samp_idx]
 					sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
+					sd.decode_cursor += 1
 				}
 			} else if channels == 2 {
 				left: [^]f32 = output[0]
@@ -2718,6 +2731,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 					ab.samples[sd.buffer_write_pos] = left[samp_idx]
 					ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
 					sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
+					sd.decode_cursor += 2
 				}
 			} else {
 				hm.remove(&s.sounds, sd.sound)
@@ -4926,6 +4940,15 @@ Audio_Stream_Data :: struct {
 	// Together with the `offset` of the Sound_Object, this forms a circular buffer.
 	buffer_write_pos: int,
 
+	// Absolute position in the file of the samples most recently written into the clip, counted
+	// in individual samples (so stereo advances by 2 per frame). `decode_cursor` minus the
+	// unplayed samples in the clip is the position the listener hears.
+	decode_cursor: int,
+
+	// When more than zero, `update_audio_stream` throws away this many decoded samples instead
+	// of writing them to the clip. Used to seek in From_File mode, where the decoder cannot jump.
+	seek_discard: int,
+
 	// Different from `loop` in `Sound_Object`. This says if the whole stream should loop
 	// when it reaches end-of-file. The `loop` in `Sound_Object` just says to loop the
 	// buffer itself. That's something you always want for a stream: We are continously writing
@@ -5499,6 +5522,8 @@ _reset_audio_stream :: proc(stream: Audio_Stream) {
 	}
 
 	sd.buffer_write_pos = 0
+	sd.decode_cursor = 0
+	sd.seek_discard = 0
 
 	switch sd.mode {
 	case .From_File:
