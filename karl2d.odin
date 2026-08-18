@@ -2905,10 +2905,14 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 }
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
-// `set_sound_volume`, `stop_sound` etc. The playback continues from wherever the stream last was:
-// It starts over from the beginning only if the stream was just loaded, was stopped using
-// `stop_sound` or has finished playing. A stream can only play one sound at a time: Playing again
-// replaces the previous one.
+// `set_sound_volume`, `stop_sound` etc. The playback starts from wherever the stream last was,
+// which is the beginning if the stream was just loaded, was stopped using `stop_sound` or has
+// finished playing.
+//
+// A stream can only play one sound at a time. If it is already playing then this changes nothing
+// and hands back the sound that is already playing, so the settings you pass in are ignored. Use
+// the `set_sound_xxx` procedures to change how that sound plays, or `stop_sound` before this if
+// you want to start over from the beginning. A paused sound does start playing again.
 //
 // Don't forget to call `update_audio_stream` every frame in order to stream in new data.
 play_audio_stream :: proc(
@@ -2931,8 +2935,12 @@ play_audio_stream :: proc(
 		return SOUND_NONE
 	}
 
+	// A stream can only feed one sound, and that sound is already playing, so there is nothing to
+	// start. Hand back the sound that is already going. Unpause it though: This procedure is how
+	// you play a stream, so it should be playing when we are done.
 	if existing := hm.get(&s.sounds, sd.sound); existing != nil {
-		hm.remove(&s.sounds, sd.sound)
+		existing.paused = false
+		return sd.sound
 	}
 
 	sd.loop = loop
@@ -2951,9 +2959,6 @@ play_audio_stream :: proc(
 		stream = stream,
 		seek_gain = 1,
 		seek_gain_target = 1,
-
-		// Start reading at the write head, so that playback continues from the decode cursor.
-		offset = sd.buffer_write_pos,
 
 		// This means that we are looping the buffer itself. We will use this buffer as a circular
 		// buffer, filling it with samples as we stream in more. Thus it needs to be looped to not

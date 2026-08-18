@@ -648,10 +648,14 @@ destroy_audio_stream :: proc(stream: Audio_Stream)
 update_audio_stream :: proc(stream: Audio_Stream)
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
-// `set_sound_volume`, `stop_sound` etc. The playback continues from wherever the stream last was:
-// It starts over from the beginning only if the stream was just loaded, was stopped using
-// `stop_sound` or has finished playing. A stream can only play one sound at a time: Playing again
-// replaces the previous one.
+// `set_sound_volume`, `stop_sound` etc. The playback starts from wherever the stream last was,
+// which is the beginning if the stream was just loaded, was stopped using `stop_sound` or has
+// finished playing.
+//
+// A stream can only play one sound at a time. If it is already playing then this changes nothing
+// and hands back the sound that is already playing, so the settings you pass in are ignored. Use
+// the `set_sound_xxx` procedures to change how that sound plays, or `stop_sound` before this if
+// you want to start over from the beginning. A paused sound does start playing again.
 //
 // Don't forget to call `update_audio_stream` every frame in order to stream in new data.
 play_audio_stream :: proc(
