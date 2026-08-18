@@ -115,11 +115,11 @@ bg_object_textures: [6]k2.Texture
 fg_object_textures: [7]k2.Texture
 plasma_ball_textures: [3]k2.Texture
 
-// We play these audio buffers directly using `play_audio_buffer`. That's good for these kind of
+// We play these audio clips directly using `play_audio_clip`. That's good for these kind of
 // "one-shot" sounds that just need some initial playback settings.
-ab_shoot: k2.Audio_Buffer
-ab_pickup: k2.Audio_Buffer
-ab_hit: k2.Audio_Buffer
+clip_shoot: k2.Audio_Clip
+clip_pickup: k2.Audio_Clip
+clip_hit: k2.Audio_Clip
 
 // For making a texture appear on the screen for a short period.
 flash_texture: k2.Texture
@@ -251,9 +251,9 @@ init :: proc() {
 
 	enemy_hidden_tex = k2.load_texture_from_bytes(#load("enemy_hidden.png"))
 
-	ab_shoot = k2.load_audio_buffer_from_bytes(#load("laser_shoot.wav"))
-	ab_hit = k2.load_audio_buffer_from_bytes(#load("hit_hurt.wav"))
-	ab_pickup = k2.load_audio_buffer_from_bytes(#load("power_up.wav"))
+	clip_shoot = k2.load_audio_clip_from_bytes(#load("laser_shoot.wav"))
+	clip_hit = k2.load_audio_clip_from_bytes(#load("hit_hurt.wav"))
+	clip_pickup = k2.load_audio_clip_from_bytes(#load("power_up.wav"))
 
 	space_tileset_version = file_version("space_tileset.png")
 
@@ -351,9 +351,9 @@ shutdown :: proc() {
 		k2.destroy_texture(t)	
 	}
 
-	k2.destroy_audio_buffer(ab_hit)
-	k2.destroy_audio_buffer(ab_pickup)
-	k2.destroy_audio_buffer(ab_shoot)
+	k2.destroy_audio_clip(clip_hit)
+	k2.destroy_audio_clip(clip_pickup)
+	k2.destroy_audio_clip(clip_shoot)
 	k2.destroy_texture(space_tileset)
 	k2.destroy_texture(player.tex_east_west)
 	k2.destroy_texture(player.tex_up)
@@ -516,8 +516,8 @@ update :: proc() {
 		})
 
 		// The shoot sound has pitch randomization and spatial panning.
-		k2.play_audio_buffer(
-			ab_shoot,
+		k2.play_audio_clip(
+			clip_shoot,
 			volume = rand.float32_range(0.7, 0.9),
 			pan = math.remap_clamped(player.pos.x, 0, SCREEN_WIDTH, -0.5, 0.5),
 			pitch = rand.float32_range(0.8, 1.2),
@@ -591,7 +591,7 @@ update :: proc() {
 					flash_texture_timer = 0.2
 					flash_texture_pos = p.pos
 					pidx -= 1
-					k2.play_audio_buffer(ab_hit)
+					k2.play_audio_clip(clip_hit)
 				}
 			}
 
@@ -600,7 +600,7 @@ update :: proc() {
 				unordered_remove(&current_room.interactables, inter_idx)
 				inter_idx -= 1
 				has_key = true
-				k2.play_audio_buffer(ab_pickup)
+				k2.play_audio_clip(clip_pickup)
 			}
 
 		case .Wall:

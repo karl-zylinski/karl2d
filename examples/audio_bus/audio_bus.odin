@@ -20,15 +20,13 @@ sfx_bus: k2.Audio_Bus
 sfx_bus_destroyed: bool
 
 // Played as one-shots on the sfx bus. Several of these can overlap.
-blip: k2.Audio_Buffer
+blip_clip: k2.Audio_Clip
 
-// A drone on the sfx bus, so you can hear the bus volume and pan without pressing anything.
-drone: k2.Sound
-drone_buffer: k2.Audio_Buffer
+// A looping drone on the sfx bus, so you can hear the bus volume and pan without pressing anything.
+drone_clip: k2.Audio_Clip
 
-// This one stays on the master bus. It is what the sfx bus volume does NOT affect.
-tone: k2.Sound
-tone_buffer: k2.Audio_Buffer
+// A looping tone that stays on the master bus. It is what the sfx bus volume does NOT affect.
+tone_clip: k2.Audio_Clip
 
 sfx_volume: f32 = 1
 sfx_pan: f32
@@ -63,27 +61,19 @@ init :: proc() {
 
 	sfx_bus = k2.create_audio_bus()
 
-	// A sound doesn't own the audio buffer it was created from, so we hang on to the buffers and
-	// destroy them ourselves further down.
-	blip = make_sine_wave(600, 0.12, 44100)
-	drone_buffer = make_sine_wave(80, 1, 44100)
-	tone_buffer = make_sine_wave(220, 1, 44100)
-	drone = k2.create_sound_from_audio_buffer(drone_buffer)
-	tone = k2.create_sound_from_audio_buffer(tone_buffer)
+	blip_clip = make_sine_wave(600, 0.12, 44100)
+	drone_clip = make_sine_wave(80, 1, 44100)
+	tone_clip = make_sine_wave(220, 1, 44100)
 
-	// The drone goes on the sfx bus. The tone is left alone, so it plays on the master bus.
-	k2.set_sound_bus(drone, sfx_bus)
-	k2.set_sound_volume(drone, 0.3)
-	k2.set_sound_loop(drone, true)
-	k2.play_sound(drone)
-
-	k2.set_sound_volume(tone, 0.15)
-	k2.set_sound_loop(tone, true)
-	k2.play_sound(tone)
+	// The drone goes on the sfx bus. The tone is left alone, so it plays on the master bus. We
+	// never stop them one by one, and destroying the clips in `shutdown` stops them, so the
+	// returned sound handles can be discarded.
+	k2.play_audio_clip(drone_clip, volume = 0.3, loop = true, bus = sfx_bus)
+	k2.play_audio_clip(tone_clip, volume = 0.15, loop = true)
 }
 
 // Makes a sine wave that is a whole number of periods long, so that it loops cleanly.
-make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio_Buffer {
+make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio_Clip {
 	period_num_samples := f32(sample_rate) / f32(freq)
 	num_periods := math.ceil(f32(sample_rate) * min_length)
 	sine_data := make([]k2.Audio_Sample, int(num_periods), allocator = context.temp_allocator)
@@ -94,7 +84,7 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio
 	}
 
 	bytes := slice.reinterpret([]u8, sine_data)
-	return k2.load_audio_buffer_from_bytes_raw(bytes, .Float32, sample_rate, .Mono)
+	return k2.load_audio_clip_from_bytes_raw(bytes, .Float32, sample_rate, .Mono)
 }
 
 step :: proc() -> bool {
@@ -107,7 +97,7 @@ step :: proc() -> bool {
 	// Each press starts a separate playback, so pressing quickly overlaps them. The pitch is
 	// randomized to make that easier to hear.
 	if k2.key_went_down(.Space) {
-		k2.play_audio_buffer(blip, pitch = rand.float32_range(0.8, 1.6), bus = sfx_bus)
+		k2.play_audio_clip(blip_clip, pitch = rand.float32_range(0.8, 1.6), bus = sfx_bus)
 	}
 
 	// BUS SETTINGS
@@ -210,11 +200,9 @@ step :: proc() -> bool {
 }
 
 shutdown :: proc() {
-	k2.destroy_sound(drone)
-	k2.destroy_sound(tone)
-	k2.destroy_audio_buffer(blip)
-	k2.destroy_audio_buffer(drone_buffer)
-	k2.destroy_audio_buffer(tone_buffer)
+	k2.destroy_audio_clip(blip_clip)
+	k2.destroy_audio_clip(drone_clip)
+	k2.destroy_audio_clip(tone_clip)
 
 	if !sfx_bus_destroyed {
 		k2.destroy_audio_bus(sfx_bus)

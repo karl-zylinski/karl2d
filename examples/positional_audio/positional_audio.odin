@@ -8,7 +8,7 @@ import "core:mem"
 import "core:fmt"
 
 player_pos: k2.Vec2
-sine_wave: k2.Audio_Buffer
+sine_wave: k2.Audio_Clip
 spinning_audio_source: Audio_Source
 stationary_audio_sources: [dynamic]Audio_Source
 
@@ -44,50 +44,31 @@ init :: proc() {
 	player_pos = {200, 200}
 
 	spinning_audio_source = {
-		sound = k2.create_sound_from_audio_buffer(sine_wave),
+		sound = k2.play_audio_clip(sine_wave, loop = true),
 	}
-
-	k2.set_sound_loop(spinning_audio_source.sound, true)
-	k2.play_sound(spinning_audio_source.sound)
 
 	stationary_1 := Audio_Source {
-		sound = k2.create_sound_from_audio_buffer(sine_wave),
+		sound = k2.play_audio_clip(sine_wave, pitch = 0.5, loop = true),
 		pos = {50, 50},
 	}
-
-	k2.set_sound_loop(stationary_1.sound, true)
-	k2.play_sound(stationary_1.sound)
-	k2.set_sound_pitch(stationary_1.sound, 0.5)
 	append(&stationary_audio_sources, stationary_1)
 
 	stationary_2 := Audio_Source {
-		sound = k2.create_sound_from_audio_buffer(sine_wave),
+		sound = k2.play_audio_clip(sine_wave, pitch = 0.45, loop = true),
 		pos = {450, 50},
 	}
-
-	k2.set_sound_loop(stationary_2.sound, true)
-	k2.play_sound(stationary_2.sound)
-	k2.set_sound_pitch(stationary_2.sound, 0.45)
 	append(&stationary_audio_sources, stationary_2)
 
 	stationary_3 := Audio_Source {
-		sound = k2.create_sound_from_audio_buffer(sine_wave),
+		sound = k2.play_audio_clip(sine_wave, pitch = 0.55, loop = true),
 		pos = {450, 450},
 	}
-
-	k2.set_sound_loop(stationary_3.sound, true)
-	k2.play_sound(stationary_3.sound)
-	k2.set_sound_pitch(stationary_3.sound, 0.55)
 	append(&stationary_audio_sources, stationary_3)
 
 	stationary_4 := Audio_Source {
-		sound = k2.create_sound_from_audio_buffer(sine_wave),
+		sound = k2.play_audio_clip(sine_wave, pitch = 0.6, loop = true),
 		pos = {50, 450},
 	}
-	
-	k2.set_sound_loop(stationary_4.sound, true)
-	k2.play_sound(stationary_4.sound)
-	k2.set_sound_pitch(stationary_4.sound, 0.6)
 	append(&stationary_audio_sources, stationary_4)
 }
 
@@ -160,18 +141,12 @@ step :: proc() -> bool {
 }
 
 shutdown :: proc() {
-	k2.destroy_sound(spinning_audio_source.sound)
-
-	for s in stationary_audio_sources {
-		k2.destroy_sound(s.sound)
-	}
-
 	delete(stationary_audio_sources)
-	k2.destroy_audio_buffer(sine_wave)
+	k2.destroy_audio_clip(sine_wave)
 	k2.shutdown()
 }
 
-make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio_Buffer {
+make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio_Clip {
 	period_num_samples := f32(sample_rate) / f32(freq)
 	num_periods := math.ceil(f32(sample_rate) * min_length)
 	sine_data := make([]k2.Audio_Sample, int(num_periods), allocator = context.temp_allocator)
@@ -182,7 +157,7 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio
 		samp = sf
 	}
 
-	return k2.load_audio_buffer_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float32, sample_rate, .Mono)
+	return k2.load_audio_clip_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float32, sample_rate, .Mono)
 }
 
 // This is not run by the web version, but it makes this program also work on non-web!
