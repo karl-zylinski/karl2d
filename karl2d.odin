@@ -1940,6 +1940,12 @@ set_sound_position :: proc(sound: Sound, seconds: f32) {
 
 	clamped_seconds := max(seconds, 0)
 
+	// Jumping to another spot makes the waveform jump too, which is heard as a click. Setting the
+	// current volume to zero makes the mixer ramp the volume up from silence instead, the same
+	// way it does when you change the volume of a sound. The volume that was asked for lives in
+	// `target_settings`, so it is not lost.
+	sound_object.current_settings.volume = 0
+
 	if sound_object.stream == AUDIO_STREAM_NONE {
 		clip := hm.get(&s.audio_clips, sound_object.clip)
 
@@ -2013,6 +2019,14 @@ set_sound_position :: proc(sound: Sound, seconds: f32) {
 	sd.buffer_write_pos = 0
 	sound_object.offset = 0
 	sound_object.offset_fraction = 0
+
+	// Decode into the buffer right away. If we left this to the next `update_audio_stream` then
+	// the mixer would play the silence we just wrote. Worse, once the mixer has moved the read
+	// position past the write position, the buffer looks full rather than empty, so it would not
+	// be refilled until the read position had wrapped all the way around.
+	//
+	// This may remove the sound, so don't touch `sound_object` after it.
+	update_audio_stream(sound_object.stream)
 }
 
 // How far into its audio the sound currently is, in seconds. Returns 0 if the sound no longer
