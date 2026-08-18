@@ -44,12 +44,14 @@ jobs:
       - name: test_all_examples
         run: odin run tools/test_examples
 
-      # Runs in bash on every OS. The Windows runner defaults to PowerShell, which splits
-      # `-define:KARL2D_Y_UP=true` into `-define:` and `KARL2D_Y_UP=true` once it has seen the `--`
-      # separator, because it reads `-name:value` as its own parameter syntax.
-      - name: test_all_examples (y up)
-        shell: bash
-        run: odin run tools/test_examples -- -skip-web -define:KARL2D_Y_UP=true
+      # These open a window, so they only run where one can be created.
+      - name: coordinate_system tests (Y down)
+        if: matrix.os == 'windows-latest'
+        run: odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1
+
+      - name: coordinate_system tests (Y up)
+        if: matrix.os == 'windows-latest'
+        run: odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1 -define:KARL2D_TEST_Y_UP=true
 
       - name: raylib_ports/shaders_texture_waves
         run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style

@@ -34,7 +34,7 @@ editor_update :: proc() {
 	k2.set_camera(game_camera)
 	k2.draw_rect({0, 0, SCREEN_WIDTH, SCREEN_HEIGHT}, SPACE_COLOR)
 
-	mouse_pos_world := k2.screen_to_world(k2.get_mouse_position(), game_camera)
+	mouse_pos_world := k2.screen_to_camera(k2.get_mouse_position(), game_camera)
 	current_room := &editor_world.rooms[current_room_idx]
 	hovered_grid_rect: k2.Rect
 
@@ -235,7 +235,7 @@ editor_update :: proc() {
 
 	k2.set_camera(ui_camera)
 
-	ui_mp := k2.screen_to_world(k2.get_mouse_position(), ui_camera)
+	ui_mp := k2.screen_to_camera(k2.get_mouse_position(), ui_camera)
 	top_bar := k2.Rect {0, 0, SCREEN_WIDTH, STATUS_BAR_HEIGHT}
 	k2.draw_rect(top_bar, CLEAR_COLOR)
 	top_bar = k2.rect_shrink(top_bar, 1, 1)

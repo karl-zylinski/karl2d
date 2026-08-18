@@ -30,6 +30,7 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 
 	default_shader_vertex_source = rbnil_default_shader_vertex_source,
 	default_shader_fragment_source = rbnil_default_shader_fragment_source,
+	get_depth_clip_range = rbnil_get_depth_clip_range,
 }
 
 import "log"
@@ -191,3 +192,7 @@ rbnil_destroy_vertex_buffer_gpu :: proc(h: Vertex_Buffer_GPU_Handle) {
 rbnil_update_vertex_buffer_gpu :: proc(handle: Vertex_Buffer_GPU_Handle, vertex_buffer: []u8){
 
 }
+rbnil_get_depth_clip_range :: proc() -> (min: f32, max: f32) {
+	return 0, 1
+}
+

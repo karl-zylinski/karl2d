@@ -28,6 +28,7 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 
 	default_shader_vertex_source = webgl_default_shader_vertex_source,
 	default_shader_fragment_source = webgl_default_shader_fragment_source,
+	get_depth_clip_range = webgl_get_depth_clip_range,
 }
 
 import "base:runtime"
@@ -48,6 +49,7 @@ WebGL_State :: struct {
 	vertex_buffer_gpu: gl.Buffer,
 	textures: hm.Dynamic_Handle_Map(WebGL_Texture, Texture_Handle),
 	render_targets: hm.Dynamic_Handle_Map(WebGL_Render_Target, Render_Target_Handle),
+	depth_test: bool,
 }
 
 WebGL_Shader_Constant_Buffer :: struct {
@@ -93,6 +95,9 @@ WebGL_Render_Target :: struct {
 	framebuffer: gl.Framebuffer,
 	width: int,
 	height: int,
+
+	// Only set up when depth testing is enabled, see WebGL_State.depth_test.
+	depth_renderbuffer: gl.Renderbuffer,
 }
 
 WebGL_Shader :: struct {
@@ -131,6 +136,7 @@ webgl_init :: proc(
 	s.width = swapchain_width
 	s.height = swapchain_height
 	s.allocator = allocator
+	s.depth_test = options.depth_test
 
 	hm.dynamic_init(&s.shaders, allocator)
 	hm.dynamic_init(&s.textures, allocator)
@@ -142,6 +148,14 @@ webgl_init :: proc(
 		context_attribs -= { .disableAntialias }
 	} else {
 		context_attribs += { .disableAntialias }
+	}
+
+	// The canvas has a depth buffer by default, so only ask the browser to skip creating one when
+	// depth testing is off.
+	if s.depth_test {
+		context_attribs -= { .disableDepth }
+	} else {
+		context_attribs += { .disableDepth }
 	}
 
 	context_ok := gl.CreateCurrentContextById(s.canvas_id, context_attribs)
@@ -157,6 +171,15 @@ webgl_init :: proc(
 
 	gl.Disable(gl.CULL_FACE)
 	gl.Enable(gl.BLEND)
+
+	if s.depth_test {
+		gl.Enable(gl.DEPTH_TEST)
+
+		// Higher z ends up in front. GEQUAL instead of GREATER so that things drawn at the same z
+		// fall back to drawing order, like when depth testing is off.
+		gl.DepthFunc(gl.GEQUAL)
+		gl.ClearDepth(0)
+	}
 
 	gl.Viewport(0, 0, i32(s.width), i32(s.height))
 }
@@ -180,7 +203,17 @@ webgl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 
 	c := f32_color_from_color(color)
 	gl.ClearColor(c.r, c.g, c.b, c.a)
-	gl.Clear(u32(gl.COLOR_BUFFER_BIT))
+
+	clear_mask := u32(gl.COLOR_BUFFER_BIT)
+
+	if s.depth_test {
+		// glClear of the depth buffer is gated by the depth mask, so it must be on for this to
+		// have any effect. draw() doesn't touch the mask, so this only needs setting once here.
+		gl.DepthMask(true)
+		clear_mask |= u32(gl.DEPTH_BUFFER_BIT)
+	}
+
+	gl.Clear(clear_mask)
 }
 
 webgl_present :: proc() {
@@ -482,6 +515,18 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture.id, 0)
 	gl.DrawBuffers({gl.COLOR_ATTACHMENT0})
 
+	depth_renderbuffer: gl.Renderbuffer
+
+	if s.depth_test {
+		depth_renderbuffer = gl.CreateRenderbuffer()
+		gl.BindRenderbuffer(gl.RENDERBUFFER, depth_renderbuffer)
+		gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, i32(width), i32(height))
+
+		gl.FramebufferRenderbuffer(
+			gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth_renderbuffer,
+		)
+	}
+
 	if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
 		log.errorf("Failed creating frame buffer of size %v x %v", width, height)
 		return TEXTURE_NONE, RENDER_TARGET_NONE
@@ -494,6 +539,7 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 		framebuffer = framebuffer,
 		width = width,
 		height = height,
+		depth_renderbuffer = depth_renderbuffer,
 	}
 
 	texture_handle, texture_handle_err := hm.add(&s.textures, texture)
@@ -520,6 +566,10 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 webgl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		gl.DeleteFramebuffer(rt.framebuffer)
+
+		if rt.depth_renderbuffer != 0 {
+			gl.DeleteRenderbuffer(rt.depth_renderbuffer)
+		}
 	}
 }
 
@@ -900,5 +950,9 @@ webgl_default_shader_vertex_source :: proc() -> []byte {
 webgl_default_shader_fragment_source :: proc() -> []byte {
 	fragment_source := #load("default_shaders/default_shader_webgl_fragment.glsl")
 	return fragment_source
+}
+
+webgl_get_depth_clip_range :: proc() -> (min: f32, max: f32) {
+	return -1, 1
 }
 
