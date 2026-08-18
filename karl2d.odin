@@ -118,14 +118,14 @@ init :: proc(
 		s.depth_range_max = DEPTH_RANGE_DEFAULT_MAX
 	}
 
-	s.proj_matrix = make_default_projection(
-		pf.get_screen_width(),
-		pf.get_screen_height(),
-		_camera_flip_y(),
-	)
+	// s.proj_matrix = make_default_projection(
+		// pf.get_screen_width(),
+		// pf.get_screen_height(),
+		// _camera_flip_y(),
+	// )
 
-	s.view_matrix = 1
-	_update_view_projection()
+	// s.view_matrix = 1
+	// _update_view_projection()
 
 	// Boot up the render backend. It will render into our previously created window.
 	rb.init(
@@ -195,7 +195,7 @@ create_batch::proc(allocator:runtime.Allocator, vertex_buffer_size:=VERTEX_BUFFE
 	batch=new(Batch_Draw_Calls,allocator)
 
 	batch.batch_allocator = allocator
-	batch.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
+	batch.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height(),_camera_flip_y(batch))
 	batch.view_matrix = 1
 	_update_view_projection(batch)
 
@@ -455,10 +455,10 @@ process_events :: proc() {
 		case Event_Screen_Resize:
 			// Recorded draw calls were meant for the old swapchain size.
 			// draw_batch_clear(s.current_batch)//TODO This shoud problobly be changed
-			rb.resize_swapchain(e.width, e.height)
-			s.proj_matrix = make_default_projection(e.width, e.height, _camera_flip_y())
-			_update_view_projection()
-
+			// rb.resize_swapchain(e.width, e.height)
+			// batch.proj_matrix = make_default_projection(e.width, e.height, _camera_flip_y(batch))
+			// _update_view_projection(batch)
+			//TODO fix all of this
 		case Event_Window_Focused:			
 
 		case Event_Window_Unfocused:
@@ -901,8 +901,10 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 //   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
-draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
-	_begin_vertices(s.shape_drawing_texture, 6)
+draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0, batch: ^Batch_Draw_Calls = nil) {
+	batch:=batch
+	if batch == nil{batch = s.current_batch}
+	_begin_vertices(s.shape_drawing_texture, 6, batch = batch)
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
@@ -1188,7 +1190,7 @@ draw_texture_fit :: proc(
 
 	// Texture pixels are stored top-down, but a flipped `dest` grows upwards, so the texture has to
 	// be sampled bottom-up to come out the right way round.
-	flip_y := _camera_flip_y()
+	flip_y := _camera_flip_y(batch)
 
 	source := source
 	dest := dest
@@ -1556,7 +1558,7 @@ draw_text :: proc(
 		// Where the top of the text block is. The glyph offsets are measured down from it. With
 		// flipped Y `position` is the bottom-left corner of the block, so the top is a whole block
 		// higher. The height must agree with what `measure_text_static` reports.
-		y_up := _camera_flip_y()
+		y_up := _camera_flip_y(batch)
 		block_top := position.y
 
 		if y_up {
@@ -1671,7 +1673,7 @@ draw_text :: proc(
 		// from the top-left of the text block. This is where that corner goes. With flipped Y
 		// `position` is the bottom-left corner of the block, so the top is a whole block higher. The
 		// height must agree with what `measure_text_dynamic` reports, which is `lines * font_size`.
-		y_up := _camera_flip_y()
+		y_up := _camera_flip_y(batch)
 		block_top := position.y
 
 		if y_up {
@@ -3523,40 +3525,32 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture), batch: ^Batch_
 		}
 
 		batch.current_render_target = rt.render_target
+		batch.current_render_target_width = rt.texture.width
 		batch.current_render_target_height = rt.texture.height
-		batch.proj_matrix = make_default_projection(rt.texture.width, rt.texture.height)
-		_update_view_projection(batch)
-		s.current_render_target = rt.render_target
-		s.current_render_target_width = rt.texture.width
-		s.current_render_target_height = rt.texture.height
 
-		s.proj_matrix = make_default_projection(
+		batch.proj_matrix = make_default_projection(
 			rt.texture.width,
 			rt.texture.height,
-			_camera_flip_y(),
+			_camera_flip_y(batch),
 		)
 
-		_update_view_projection()
+		_update_view_projection(batch)
 	} else {
 		if batch.current_render_target == RENDER_TARGET_NONE {
 			return
 		}
 
 		batch.current_render_target = RENDER_TARGET_NONE
+		batch.current_render_target_width = 0
 		batch.current_render_target_height = 0
-		batch.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
-		_update_view_projection(batch)
-		s.current_render_target = RENDER_TARGET_NONE
-		s.current_render_target_width = 0
-		s.current_render_target_height = 0
 
-		s.proj_matrix = make_default_projection(
+		batch.proj_matrix = make_default_projection(
 			pf.get_screen_width(),
 			pf.get_screen_height(),
-			_camera_flip_y(),
+			_camera_flip_y(batch),
 		)
 
-		_update_view_projection()
+		_update_view_projection(batch)
 	}
 }
 
@@ -4430,10 +4424,6 @@ set_camera :: proc(camera: Maybe(Camera), batch: ^Batch_Draw_Calls = nil) {
 
 	batch.current_camera = camera
 
-	if batch.current_render_target == RENDER_TARGET_NONE {
-		batch.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height())
-	}
-
 	if c, c_ok := camera.?; c_ok {
 		batch.view_matrix = camera_view_matrix(c)
 	} else {
@@ -4442,21 +4432,21 @@ set_camera :: proc(camera: Maybe(Camera), batch: ^Batch_Draw_Calls = nil) {
 
 	// The Y axis picks which edge of the surface Y = 0 sits on. So the projection depends on the
 	// camera, not just on the surface size.
-	if s.current_render_target == RENDER_TARGET_NONE {
-		s.proj_matrix = make_default_projection(
+	if batch.current_render_target == RENDER_TARGET_NONE {
+		batch.proj_matrix = make_default_projection(
 			pf.get_screen_width(),
 			pf.get_screen_height(),
-			_camera_flip_y(),
+			_camera_flip_y(batch),
 		)
 	} else {
-		s.proj_matrix = make_default_projection(
-			s.current_render_target_width,
-			s.current_render_target_height,
-			_camera_flip_y(),
+		batch.proj_matrix = make_default_projection(
+			batch.current_render_target_width,
+			batch.current_render_target_height,
+			_camera_flip_y(batch),
 		)
 	}
 
-	_update_view_projection()
+	_update_view_projection(batch)
 }
 
 // Transform a point `pos` that lives on the screen into the camera's coordinates.
@@ -4464,14 +4454,16 @@ set_camera :: proc(camera: Maybe(Camera), batch: ^Batch_Draw_Calls = nil) {
 // Example: Bringing the mouse position into the coordinate space of a camera:
 //
 //// world_mouse_pos := k2.screen_to_camera(k2.get_mouse_position(), world_camera)
-screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
+screen_to_camera :: proc(pos: Vec2, camera: Camera, batch: ^Batch_Draw_Calls = nil) -> Vec2 {
+	batch:=batch
+	if batch == nil{batch = s.current_batch}
 	pos := pos
 
 	// Screen Y counts down from the top. A flipped camera counts it from the bottom of the surface.
 	if camera.flip_y {
-		surface_height := s.current_render_target_height
+		surface_height := batch.current_render_target_height
 
-		if s.current_render_target == RENDER_TARGET_NONE {
+		if batch.current_render_target == RENDER_TARGET_NONE {
 			surface_height = pf.get_screen_height()
 		}
 
@@ -4483,13 +4475,17 @@ screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 
 // Transform a point `pos` that lives in the camera's coordinates to a point on the screen. This can
 // be useful when you need to compare such a position to a screen-space point.
-camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
+camera_to_screen :: proc(pos: Vec2, camera: Camera, batch:^Batch_Draw_Calls = nil) -> Vec2 {
+	batch:=batch
+	if batch == nil {
+		batch = s.current_batch
+	}
 	res := (camera_view_matrix(camera) * Vec4 { pos.x, pos.y, 0, 1 }).xy
 
 	if camera.flip_y {
-		surface_height := s.current_render_target_height
+		surface_height := batch.current_render_target_height
 
-		if s.current_render_target == RENDER_TARGET_NONE {
+		if batch.current_render_target == RENDER_TARGET_NONE {
 			surface_height = pf.get_screen_height()
 		}
 
@@ -4585,13 +4581,21 @@ set_scissor_rect :: proc(scissor_rect: Maybe(Rect), batch:^Batch_Draw_Calls) {
 // enabled in `Init_Options`. Higher z ends up in front. Unlike `set_blend_mode` and
 // `set_scissor_rect`, this never starts a new draw call: the z is stored in each vertex rather
 // than being part of a draw call's settings, so it's fine to call this before every draw.
-set_z :: proc(z: f32) {
-	s.z = z
+set_z :: proc(z: f32, batch:^Batch_Draw_Calls = nil) {
+	batch:=batch
+	if batch == nil {
+		batch = s.current_batch
+	}
+	batch.z = z
 }
 
 // Get the z previously set with `set_z`. Defaults to 0.
-get_z :: proc() -> f32 {
-	return s.z
+get_z :: proc(batch:^Batch_Draw_Calls = nil) -> f32 {
+	batch:=batch
+	if batch == nil {
+		batch = s.current_batch
+	}
+	return batch.z
 }
 
 // Restore the internal state using the pointer returned by `init`. Useful after reloading the
@@ -5323,39 +5327,39 @@ State :: struct {
 	shape_drawing_texture: Texture_Handle,
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.
-	current_font: Font,
-	current_camera: Maybe(Camera),
-	current_shader: Shader,
-	current_scissor: Maybe(Rect),
-	current_texture: Texture_Handle,
-	current_render_target: Render_Target_Handle,
+	// current_font: Font,
+	// current_camera: Maybe(Camera),
+	// current_shader: Shader,
+	// current_scissor: Maybe(Rect),
+	// current_texture: Texture_Handle,
+	// current_render_target: Render_Target_Handle,
 
-	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the
-	// projection, and to measure Y up from the bottom of it, without asking the backend.
-	current_render_target_width: int,
-	current_render_target_height: int,
-	current_blend_mode: Blend_Mode,
+	// // Size of `current_render_target`, or 0 when drawing to the window. Needed to build the
+	// // projection, and to measure Y up from the bottom of it, without asking the backend.
+	// current_render_target_width: int,
+	// current_render_target_height: int,
+	// current_blend_mode: Blend_Mode,
 
 	// Recorded but not drawn yet. They all point into `vertex_buffer_cpu`.
 	current_batch: ^Batch_Draw_Calls,
 	defalt_batch: ^Batch_Draw_Calls,
 
 	// default_shader: Shader,
-	view_matrix: Mat4,
-	proj_matrix: Mat4,
+	// view_matrix: Mat4,
+	// proj_matrix: Mat4,
 
 	// `proj_matrix * view_matrix`. Kept around because every draw call needs it. Update it with
 	// `_update_view_projection`.
-	view_projection: Mat4,
+	// view_projection: Mat4,
 
-	z: f32,
+	// z: f32,
 	depth_test: bool,
 	depth_range_min: f32,
 	depth_range_max: f32,
 
-	vertex_buffer_cpu: []u8,
-	vertex_buffer_cpu_used: int,
-	default_shader: Shader,
+	// vertex_buffer_cpu: []u8,
+	// vertex_buffer_cpu_used: int,
+	// default_shader: Shader,
 
 	// Time when the first call to `new_frame` happened
 	start_time: time.Time,
@@ -5401,6 +5405,13 @@ Batch_Draw_Calls::struct{
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
 
+	z: f32,
+	// depth_test: bool,
+	// depth_range_min: f32,
+	// depth_range_max: f32,
+
+
+
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.
 	current_font: Font,
@@ -5413,6 +5424,9 @@ Batch_Draw_Calls::struct{
 	// Height of `current_render_target`, or 0 when drawing to the window. Needed to
 	// convert scissor rectangles to native top-down coordinates without asking the
 	// backend for it.
+	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the
+	// projection, and to measure Y up from the bottom of it, without asking the backend.
+	current_render_target_width: int,
 	current_render_target_height: int,
 	current_blend_mode: Blend_Mode,
 
@@ -5877,32 +5891,9 @@ _start_draw_call :: proc(batch:^Batch_Draw_Calls) {
 	}
 
 	scissor := batch.current_scissor
-	when Y_UP {
-		// The backends want the scissor rectangle top-down, which is what both D3D11 and OpenGL
-		// take. Here `sciss.y` is its bottom edge measured up from the bottom of the surface, so
-		// the top edge measured down from the top is what is left when both are taken off the
-		// height. It is done here so that it uses the render target this draw call is recorded
-		// with, which is the surface the rectangle was measured against.
-		if sciss, sciss_ok := scissor.?; sciss_ok {
-			surface_height := s.current_render_target_height
 
-			if s.current_render_target == RENDER_TARGET_NONE {
-				surface_height = pf.get_screen_height()
-			}
-
-			scissor = Rect {
-				sciss.x, f32(surface_height) - sciss.y - sciss.h,
-				sciss.w, sciss.h,
-			}
-		}
-	}
 	batch.current_draw_call = {
 		vertex_offset = batch.vertex_buffer_cpu_used,
-	// Scissor rectangles are screen space, which is what D3D11 and OpenGL take.
-	scissor := s.current_scissor
-
-	s.current_draw_call = {
-		vertex_offset = s.vertex_buffer_cpu_used,
 		shader = shader.handle,
 		vertex_size = shader.vertex_size,
 		constants = shader.constants,
@@ -6044,10 +6035,10 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color, batch:^Batch_Draw_Calls) {
 	mem.set(&batch.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
 
 	if pos_offset != -1 {
-		(^Vec2)(&s.vertex_buffer_cpu[base_offset + pos_offset])^ = v
+		(^Vec2)(&batch.vertex_buffer_cpu[base_offset + pos_offset])^ = v
 
 		if s.depth_test {
-			(^f32)(&s.vertex_buffer_cpu[base_offset + pos_offset + size_of(Vec2)])^ = s.z
+			(^f32)(&batch.vertex_buffer_cpu[base_offset + pos_offset + size_of(Vec2)])^ = batch.z
 		}
 	}
 
@@ -6286,7 +6277,7 @@ matrix_ortho3d_f32 :: proc "contextless" (
 	return m
 }
 
-make_default_projection :: proc(w, h: int, flip_y: bool) -> matrix[4,4]f32 {
+make_default_projection :: proc(w, h: int, flip_y: bool,) -> matrix[4,4]f32 {
 	clip_z_min, clip_z_max := rb.get_depth_clip_range()
 
 	if flip_y {
@@ -6305,8 +6296,8 @@ make_default_projection :: proc(w, h: int, flip_y: bool) -> matrix[4,4]f32 {
 }
 
 // Returns true if the currently used camera wants the Y axis to be flipped.
-_camera_flip_y :: proc() -> bool {
-	if cam, cam_ok := s.current_camera.?; cam_ok {
+_camera_flip_y :: proc(batch: ^Batch_Draw_Calls) -> bool {
+	if cam, cam_ok := batch.current_camera.?; cam_ok {
 		return cam.flip_y
 	}
 

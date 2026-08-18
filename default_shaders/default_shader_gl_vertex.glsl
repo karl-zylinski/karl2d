@@ -13,5 +13,5 @@ void main()
 {
     frag_texcoord = texcoord;
     frag_color = color;
-    gl_Position = view_projection * model_matrix * vec4(position, 0, 1.0);
+    gl_Position = view_projection * model_matrix * vec4(position, 1.0);
 }
