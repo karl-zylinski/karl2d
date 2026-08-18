@@ -4,6 +4,7 @@
 package general_multi_batching
 
 import k2 "../.."
+import lin"core:math/linalg"
 
 main :: proc() {
 	// Init Karl2D and open a window with drawing area of 1280x720 pixels and the supplied title.
@@ -38,11 +39,12 @@ main :: proc() {
 
 		// Nothing you drew this frame is shown until you call this.
 		// k2.update_batch(batch_2)
+		mat:=lin.matrix4_translate_f32({100,100,0})
 		k2.render_batch(batch_2)
 		// k2.clear_batch(batch_2)
 
 		k2.update_batch(batch_3)
-		k2.render_batch(batch_3)
+		k2.render_batch(batch_3,mat)
 		k2.clear_batch(batch_3)
 
 		k2.update_render_clear_batch()// 

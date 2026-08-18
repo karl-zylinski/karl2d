@@ -39,6 +39,7 @@ import hm "core:container/handle_map"
 import "log"
 import "core:strings"
 import la "core:math/linalg"
+import "core:fmt"
 
 _ :: la
 

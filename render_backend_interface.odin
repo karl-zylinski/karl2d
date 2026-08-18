@@ -46,6 +46,7 @@ Draw_Call :: struct {
 	shader: Shader_Handle,
 	vertex_size: int,
 	constants: []Shader_Constant_Location,
+	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
 
 	// The constant values and textures to draw with. These are the draw call's own copies, not the
 	// shader's: a draw call runs long after it was recorded, and the program can change the

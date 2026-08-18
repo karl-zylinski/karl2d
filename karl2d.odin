@@ -205,6 +205,8 @@ create_batch::proc(allocator:runtime.Allocator, vertex_buffer_size:=VERTEX_BUFFE
 	log.assertf(batch_arena_err == nil, "Failed allocating batch arena: %v", batch_arena_err)
 	batch.batch_allocator = runtime.arena_allocator(&batch.batch_arena)
 
+	batch.model_matrix = 1
+
 	batch.vertex_buffer_gpu = rb.create_vertex_buffer_gpu(vertex_buffer_size)
 	
 	// The default shader will arrive in a different format depending on backend. GLSL for GL,
@@ -610,60 +612,7 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 // dictates how big a vertex is. The maximum number of vertices in a batch is therefore
 // `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
 // 
-// draw_current_batch :: proc() {
-// 	draw_batch(&s.batch_draw_calls)
-// }
 
-// draw_batch_clear :: proc(batch:^Batch_Draw_Calls = nil) {
-// 	batch:=batch
-// 	if batch == nil{batch = s.current_batch}
-
-// 	_finish_draw_call(batch)
-
-// 	if len(batch.calls) > 0 {
-// 		_update_view_projection(s.current_batch)
-// 		_update_font_atlases()
-// 		rb.draw( batch.calls[:])
-// 		runtime.clear(&batch.calls)
-// 	}
-
-// 	// Both the recorded draw calls and the open one point into the arena, so neither may outlive
-// 	// it. Emptying the arena is also what makes the next draw call take fresh copies.
-// 	batch.current_draw_call = {}
-// 	batch.vertex_buffer_cpu_used = 0
-// 	free_all(batch.batch_allocator)
-// }
-// draw_batch :: proc(batch:^Batch_Draw_Calls = nil) {
-// 	batch:=batch
-// 	if batch == nil{batch = s.current_batch}
-// 	rb.update_vertex_buffer_gpu(batch.vertex_buffer_gpu,batch.vertex_buffer_cpu[:batch.vertex_buffer_cpu_used])
-// 	_finish_draw_call(batch)
-
-// 	if len(batch.calls) > 0 {
-// 		// _update_view_projection(s.current_batch)
-// 		_update_font_atlases()
-// 		rb.draw(batch.calls[:])
-// 	}
-// }
-
-// This proc is mostly used when using multi batches
-// if you are only using the defalt batch it is recommended to use present() insted
-// This proc will reset all of the draw_calls and clear the cpu vertex data
-// it will not change the gpu vertex buffer 
-// so some Artifacts may appear if you do not update_batch() before calling render_batch() 
-clear_batch :: proc(batch:^Batch_Draw_Calls = nil) {
-	batch:=batch
-	if batch == nil{batch = s.current_batch}
-
-	if len(batch.calls) > 0 {
-		runtime.clear(&batch.calls)
-	}
-	// Both the recorded draw calls and the open one point into the arena, so neither may outlive
-	// it. Emptying the arena is also what makes the next draw call take fresh copies.
-	batch.current_draw_call = {}
-	batch.vertex_buffer_cpu_used = 0
-	free_all(batch.batch_allocator)
-}
 
 // This proc is used mostly for multi batching 
 // if you are just using the default batch it is recommended to just use present()
@@ -688,12 +637,38 @@ update_gpu_vertex_buffer::proc(gpu_buff:Vertex_Buffer_GPU_Handle,cpu_buff:[]u8){
 	rb.update_vertex_buffer_gpu(gpu_buff,cpu_buff)
 }
 
-render_batch :: proc(batch:^Batch_Draw_Calls = nil) {
+render_batch :: proc(batch:^Batch_Draw_Calls = nil, matrix_overide:Maybe(Mat4) = nil) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 
+	mat, mat_ok := matrix_overide.?
+	if !mat_ok {
+		mat = batch.model_matrix
+	}
+	
+	_set_model_matrix_for_all_draw_calls(mat,batch)
 	_update_font_atlases()
 	rb.draw( batch.calls[:])
+}
+
+// can be called at the end of the frame if you are going to redraw things to the batch next frame
+// This proc is mostly used when using multi batches
+// if you are only using the defalt batch it is recommended to use present() insted
+// This proc will reset all of the draw_calls and clear the cpu vertex data
+// it will not change the gpu vertex buffer 
+// so some Artifacts may appear if you do not update_batch() before calling render_batch() 
+clear_batch :: proc(batch:^Batch_Draw_Calls = nil) {
+	batch:=batch
+	if batch == nil{batch = s.current_batch}
+
+	if len(batch.calls) > 0 {
+		runtime.clear(&batch.calls)
+	}
+	// Both the recorded draw calls and the open one point into the arena, so neither may outlive
+	// it. Emptying the arena is also what makes the next draw call take fresh copies.
+	batch.current_draw_call = {}
+	batch.vertex_buffer_cpu_used = 0
+	free_all(batch.batch_allocator)
 }
 
 update_render_clear_batch :: proc(batch:^Batch_Draw_Calls = nil) {
@@ -702,7 +677,8 @@ update_render_clear_batch :: proc(batch:^Batch_Draw_Calls = nil) {
 	clear_batch(batch)
 }
 
-// this tells the render back end to swap the swapchange
+// this tells the render back end to "flipping the backbuffer": Call at end of
+// frame to make everything you've drawn appear on the screen.
 // this is usually automatically called by present() 
 // but is also used when you have multiple batches or when trying to be more explicit
 // This should be called after render_batch() which should be called after update_batch()
@@ -4282,6 +4258,7 @@ load_shader_from_bytes :: proc(
 
 	for &input in shd.inputs {
 		input.name = strings.clone(input.name, s.allocator)
+		
 	}
 
 	constant_offset: int
@@ -4296,13 +4273,15 @@ load_shader_from_bytes :: proc(
 
 		shd.constants[cidx] = loc 
 		constant_offset += constant_desc.size
-
+	
 		if constant_desc.name != "" {
 			shd.constant_lookup[strings.clone(constant_desc.name, s.allocator)] = loc
 
 			switch constant_desc.name {
 			case "view_projection":
 				shd.constant_builtin_locations[.View_Projection_Matrix] = loc
+			case "model_matrix":
+				shd.constant_builtin_locations[.Model_Matrix] = loc
 			}
 		}
 	}
@@ -4909,6 +4888,7 @@ Shader_Input_Type :: enum {
 
 Shader_Builtin_Constant :: enum {
 	View_Projection_Matrix,
+	Model_Matrix,
 }
 
 Shader_Default_Inputs :: enum {
@@ -5311,6 +5291,7 @@ Batch_Draw_Calls::struct{
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
+	model_matrix: Mat4,
 
 	// `proj_matrix * view_matrix`. Kept around because every draw call needs it. Update it with
 	// `_update_view_projection`.
@@ -5643,7 +5624,7 @@ _begin_vertices :: proc(texture: Texture_Handle, vertices_needed: int, batch:^Ba
 	// Starting a draw call can pad the write position by up to one vertex, so ask for one extra.
 	bytes_needed := batch.current_shader.vertex_size*(vertices_needed + 1)
 	if batch.vertex_buffer_cpu_used + bytes_needed > len(batch.vertex_buffer_cpu) {
-		update_render_clear_batch(batch)
+		update_render_clear_batch(batch)//TODO make a setting for batches to update_render_clear_batch(batch) or log a warning or to do nothing
 	}
 	if !_draw_call_matches_settings(batch) {
 		_finish_draw_call(batch)
@@ -5715,6 +5696,7 @@ _start_draw_call :: proc(batch:^Batch_Draw_Calls) {
 	same_shader := prev.shader == shader.handle
 
 	constants_data := prev.constants_data
+	constant_builtin_locations := prev.constant_builtin_locations
 	if !same_shader || batch.current_constants_dirty {
 		constants_data = slice.clone(shader.constants_data, batch.batch_allocator)
 		_write_builtin_constants(shader^, constants_data, batch)
@@ -5754,6 +5736,7 @@ _start_draw_call :: proc(batch:^Batch_Draw_Calls) {
 		vertex_size = shader.vertex_size,
 		constants = shader.constants,
 		constants_data = constants_data,
+		constant_builtin_locations = shader.constant_builtin_locations,
 		textures = textures,
 		render_target = batch.current_render_target,
 		scissor = scissor,
@@ -5778,6 +5761,32 @@ _write_builtin_constants :: proc(shader: Shader, constants_data: []u8, batch:^Ba
 		case .View_Projection_Matrix:
 			if constant.size == size_of(Mat4) {
 				(^Mat4)(&constants_data[constant.offset])^ = batch.view_projection
+			}
+		case .Model_Matrix:
+			// if constant.size == size_of(Mat4) {
+			// 	(^Mat4)(&constants_data[constant.offset])^ = batch.model_matrix
+			// }
+		}
+	}
+}
+
+_set_model_matrix_for_all_draw_calls :: proc(mat: Mat4, batch:^Batch_Draw_Calls){
+	for &call in &batch.calls{
+		for mloc, builtin in &call.constant_builtin_locations {
+			constant, constant_ok := mloc.?
+			fmt.print(1,call.constant_builtin_locations,"\n")
+			if !constant_ok {
+				fmt.print(2,mat,"\n")
+				continue
+			}
+			fmt.print(3,"\n")
+			switch builtin {
+			case .View_Projection_Matrix:
+			case .Model_Matrix:
+				if constant.size == size_of(Mat4) {
+					(^Mat4)(&call.constants_data[constant.offset])^ = mat
+					fmt.print(mat,"\n")
+				}
 			}
 		}
 	}

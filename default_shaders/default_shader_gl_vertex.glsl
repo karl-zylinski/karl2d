@@ -8,10 +8,10 @@ out vec2 frag_texcoord;
 out vec4 frag_color;
 
 uniform mat4 view_projection;
-
+uniform mat4 model_matrix;
 void main()
 {
     frag_texcoord = texcoord;
     frag_color = color;
-    gl_Position = view_projection * vec4(position, 0, 1.0);
+    gl_Position = view_projection * model_matrix * vec4(position, 0, 1.0);
 }
