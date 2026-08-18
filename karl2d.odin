@@ -2969,7 +2969,16 @@ play_audio_stream :: proc(
 		return SOUND_NONE
 	}
 
-	return sd.sound
+	sound := sd.sound
+
+	// Decode into the buffer before returning, so that there is something to play right away. The
+	// mixer may well run before the game gets around to calling `update_audio_stream`. A sound
+	// that reads an empty buffer moves its read position past the write position, which makes the
+	// buffer look full rather than empty, so it would not be refilled until the read position had
+	// wrapped all the way around.
+	update_audio_stream(stream)
+
+	return sound
 }
 
 // Create an audio bus: A group of sounds that are mixed together before they reach the master bus.
