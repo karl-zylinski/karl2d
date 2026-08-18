@@ -1838,6 +1838,8 @@ play_audio_clip :: proc(
 		current_settings = playback_settings,
 		loop = loop,
 		bus = bus,
+		seek_gain = 1,
+		seek_gain_target = 1,
 	}
 
 	sound, add_err := hm.add(&s.sounds, sound_object)
@@ -1938,95 +1940,29 @@ set_sound_position :: proc(sound: Sound, seconds: f32) {
 		return
 	}
 
-	clamped_seconds := max(seconds, 0)
+	wanted_seconds := max(seconds, 0)
+	length := get_sound_length(sound)
 
-	// Jumping to another spot makes the waveform jump too, which is heard as a click. Setting the
-	// current volume to zero makes the mixer ramp the volume up from silence instead, the same
-	// way it does when you change the volume of a sound. The volume that was asked for lives in
-	// `target_settings`, so it is not lost.
-	sound_object.current_settings.volume = 0
+	if length > 0 {
+		wanted_seconds = min(wanted_seconds, length)
+	}
 
-	if sound_object.stream == AUDIO_STREAM_NONE {
-		clip := hm.get(&s.audio_clips, sound_object.clip)
-
-		if clip == nil {
-			return
-		}
-
-		channels := 1
-		if clip.channels == .Stereo {
-			channels = 2
-		}
-
-		total_frames := len(clip.samples) / channels
-		target_frame := clamp(int(clamped_seconds * f32(clip.sample_rate)), 0, total_frames)
-
-		sound_object.offset = target_frame * channels
-		sound_object.offset_fraction = 0
+	// Jumping to another spot in the audio makes the waveform jump, which is heard as a click. So
+	// we don't jump right away: The mixer fades the sound out first, then jumps, then fades it
+	// back in. A paused sound isn't being mixed, so there is nothing to fade and nothing that
+	// could click. Jump straight away in that case.
+	if sound_object.paused {
+		// Take the gain down so that the sound fades in when it is unpaused, instead of jumping
+		// straight into the middle of the waveform.
+		sound_object.seek_gain = 0
+		sound_object.seek_gain_target = 1
+		_apply_sound_position(sound, wanted_seconds)
 		return
 	}
 
-	sd := hm.get(&s.audio_streams, sound_object.stream)
-
-	if sd == nil {
-		return
-	}
-
-	ab := hm.get(&s.audio_clips, sd.clip)
-
-	if ab == nil {
-		return
-	}
-
-	channels := 1
-	if ab.channels == .Stereo {
-		channels = 2
-	}
-
-	target_frame := int(clamped_seconds * f32(ab.sample_rate))
-
-	// Don't go past the end of the audio when we know where that is.
-	if sd.total_samples > 0 {
-		target_frame = min(target_frame, sd.total_samples / channels)
-	}
-
-	switch sd.mode {
-	case .From_Bytes:
-		if stbv.seek(sd.vorbis, u32(target_frame)) == 0 {
-			log.error("Cannot set sound position, seeking in the audio stream failed.")
-			return
-		}
-
-		sd.decode_cursor = target_frame * channels
-		sd.seek_discard = 0
-
-	case .From_File:
-		target := target_frame * channels
-
-		if target >= sd.decode_cursor {
-			sd.seek_discard += target - sd.decode_cursor
-		} else {
-			file_seek(sd.file, 0, .Start)
-			runtime.clear(&sd.file_read_buf)
-			sd.file_read_buf_offset = 0
-			stbv.flush_pushdata(sd.vorbis)
-			sd.decode_cursor = 0
-			sd.seek_discard = target
-		}
-	}
-
-	slice.zero(ab.samples)
-	sd.buffer_write_pos = 0
-	sound_object.offset = 0
-	sound_object.offset_fraction = 0
-
-	// Decode into the buffer right away. If we left this to the next `update_audio_stream` then
-	// the mixer would play the silence we just wrote. Worse, once the mixer has moved the read
-	// position past the write position, the buffer looks full rather than empty, so it would not
-	// be refilled until the read position had wrapped all the way around.
-	//
-	// This may remove the sound, so don't touch `sound_object` after it.
-	update_audio_stream(sound_object.stream)
+	sound_object.pending_seek_seconds = wanted_seconds
+	sound_object.has_pending_seek = true
+	sound_object.seek_gain_target = 0
 }
 
 // How far into its audio the sound currently is, in seconds. Returns 0 if the sound no longer
@@ -2036,6 +1972,12 @@ get_sound_position :: proc(sound: Sound) -> f32 {
 
 	if sound_object == nil {
 		return 0
+	}
+
+	// A seek that is still fading out hasn't moved the sound yet, but it is on its way there.
+	// Report where it is going, so that things like a seek bar don't jump backwards for a moment.
+	if sound_object.has_pending_seek {
+		return sound_object.pending_seek_seconds
 	}
 
 	if sound_object.stream == AUDIO_STREAM_NONE {
@@ -3007,6 +2949,8 @@ play_audio_stream :: proc(
 		current_settings = playback_settings,
 		bus = bus,
 		stream = stream,
+		seek_gain = 1,
+		seek_gain_target = 1,
 
 		// Start reading at the write head, so that playback continues from the decode cursor.
 		offset = sd.buffer_write_pos,
@@ -3355,15 +3299,38 @@ update_audio_mixer :: proc() {
 		pitch := settings.pitch
 		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch)
 
+		// `set_sound_position` doesn't move the sound itself, it just says where the sound should
+		// go. We move it here, once the sound has faded out. Then we fade it back in. That way
+		// moving to a completely different part of the waveform doesn't click.
+
+		seek_gain_start := clamp(ps.seek_gain, 0, 1)
+		seek_gain_moved := move_towards(ps.seek_gain, ps.seek_gain_target, adjust_parameter_delta)
+		seek_gain_end := clamp(seek_gain_moved, 0, 1)
+		ps.seek_gain = seek_gain_end
+
+		// Wait for `seek_gain_start` rather than `seek_gain_end`: The chunk that takes the gain
+		// down to zero is the one that holds the fade out, so it still has to be mixed.
+		if ps.has_pending_seek && seek_gain_start == 0 {
+			seek_seconds := ps.pending_seek_seconds
+			ps.has_pending_seek = false
+			ps.seek_gain_target = 1
+
+			// This may remove the sound, so don't touch `ps` afterwards. There is nothing to mix
+			// anyway: The fade has taken the volume all the way down.
+			_apply_sound_position(ps_handle, seek_seconds)
+			continue
+		}
+
 		// We can't just use the `volume_end` value for the volume. We are going to mix in
 		// `AUDIO_MIX_CHUNK_SIZE` number of samples. We'd still get clicks in the sound if we hopped
 		// to the ending volume. Instead, we calculate what the first sample should use and what
 		// the last one should use. Then we feed those into the `add`/`add_interpolate` procedures.
 		// It will lerp across the range as it is mixing in the samples.
 
-		volume_start := clamp(settings.volume, 0, 1)
+		volume_start := clamp(settings.volume, 0, 1) * seek_gain_start
 		volume_end := clamp(move_towards(settings.volume, target_settings.volume, adjust_parameter_delta), 0, 1)
 		settings.volume = volume_end
+		volume_end *= seek_gain_end
 
 		if volume_start == volume_end && volume_end == 0 {
 			continue
@@ -5249,6 +5216,16 @@ Sound_Object :: struct {
 	// Set using `set_sound_paused`. The mixer skips paused sounds.
 	paused: bool,
 
+	// A seek waits for the sound to fade out before it moves, so that moving to another spot in
+	// the audio doesn't click. `pending_seek_seconds` is where it is going once the fade is done.
+	pending_seek_seconds: f32,
+	has_pending_seek: bool,
+
+	// The fade used by seeking. It is multiplied into the volume while mixing, so it has to start
+	// at 1 or the sound would be silent. Set by `play_audio_clip` and `play_audio_stream`.
+	seek_gain: f32,
+	seek_gain_target: f32,
+
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
 
@@ -5819,6 +5796,100 @@ _ogg_file_total_frames :: proc(f: ^File) -> int {
 	}
 
 	return 0
+}
+
+// Moves a sound to another spot in its audio. Run by the mixer once the sound has faded out, and
+// by `set_sound_position` directly for sounds that are paused.
+_apply_sound_position :: proc(sound: Sound, seconds: f32) {
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return
+	}
+
+	clamped_seconds := max(seconds, 0)
+
+	if sound_object.stream == AUDIO_STREAM_NONE {
+		clip := hm.get(&s.audio_clips, sound_object.clip)
+
+		if clip == nil {
+			return
+		}
+
+		channels := 1
+		if clip.channels == .Stereo {
+			channels = 2
+		}
+
+		total_frames := len(clip.samples) / channels
+		target_frame := clamp(int(clamped_seconds * f32(clip.sample_rate)), 0, total_frames)
+
+		sound_object.offset = target_frame * channels
+		sound_object.offset_fraction = 0
+		return
+	}
+
+	sd := hm.get(&s.audio_streams, sound_object.stream)
+
+	if sd == nil {
+		return
+	}
+
+	ab := hm.get(&s.audio_clips, sd.clip)
+
+	if ab == nil {
+		return
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	target_frame := int(clamped_seconds * f32(ab.sample_rate))
+
+	// Don't go past the end of the audio when we know where that is.
+	if sd.total_samples > 0 {
+		target_frame = min(target_frame, sd.total_samples / channels)
+	}
+
+	switch sd.mode {
+	case .From_Bytes:
+		if stbv.seek(sd.vorbis, u32(target_frame)) == 0 {
+			log.error("Cannot set sound position, seeking in the audio stream failed.")
+			return
+		}
+
+		sd.decode_cursor = target_frame * channels
+		sd.seek_discard = 0
+
+	case .From_File:
+		target := target_frame * channels
+
+		if target >= sd.decode_cursor {
+			sd.seek_discard += target - sd.decode_cursor
+		} else {
+			file_seek(sd.file, 0, .Start)
+			runtime.clear(&sd.file_read_buf)
+			sd.file_read_buf_offset = 0
+			stbv.flush_pushdata(sd.vorbis)
+			sd.decode_cursor = 0
+			sd.seek_discard = target
+		}
+	}
+
+	slice.zero(ab.samples)
+	sd.buffer_write_pos = 0
+	sound_object.offset = 0
+	sound_object.offset_fraction = 0
+
+	// Decode into the buffer right away. If we left this to the next `update_audio_stream` then
+	// the mixer would play the silence we just wrote. Worse, once the mixer has moved the read
+	// position past the write position, the buffer looks full rather than empty, so it would not
+	// be refilled until the read position had wrapped all the way around.
+	//
+	// This may remove the sound, so don't touch `sound_object` after it.
+	update_audio_stream(sound_object.stream)
 }
 
 // Moves the decode cursor of a stream back to the start. Run when a stream-fed sound is stopped

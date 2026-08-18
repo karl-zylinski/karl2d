@@ -1530,6 +1530,16 @@ Sound_Object :: struct {
 	// Set using `set_sound_paused`. The mixer skips paused sounds.
 	paused: bool,
 
+	// A seek waits for the sound to fade out before it moves, so that moving to another spot in
+	// the audio doesn't click. `pending_seek_seconds` is where it is going once the fade is done.
+	pending_seek_seconds: f32,
+	has_pending_seek: bool,
+
+	// The fade used by seeking. It is multiplied into the volume while mixing, so it has to start
+	// at 1 or the sound would be silent. Set by `play_audio_clip` and `play_audio_stream`.
+	seek_gain: f32,
+	seek_gain_target: f32,
+
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
 
