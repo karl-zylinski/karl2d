@@ -136,6 +136,14 @@ step :: proc() -> bool {
 			k2.set_sound_paused(music_sound, k2.sound_is_playing(music_sound))
 		}
 
+		if k2.key_went_down(.Comma) {
+			k2.set_sound_position(music_sound, k2.get_sound_position(music_sound) - 5)
+		}
+
+		if k2.key_went_down(.Period) {
+			k2.set_sound_position(music_sound, k2.get_sound_position(music_sound) + 5)
+		}
+
 		k2.set_sound_pitch(music_sound, snd_pitch)
 		k2.set_sound_pan(music_sound, snd_pan)
 		k2.set_sound_volume(music_sound, snd_volume)
@@ -169,7 +177,18 @@ step :: proc() -> bool {
 	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 240}, 40, k2.BLACK)
 
 	when HAS_MUSIC {
-		k2.draw_text("Home plays the music, End stops it, P pauses.", {20, 280}, 40, k2.BLACK)
+		k2.draw_text(
+			"Home plays the music, End stops it, P pauses. Seek with , and .",
+			{20, 280},
+			40,
+			k2.BLACK,
+		)
+		k2.draw_text(
+			fmt.tprintf("Music position: %.1f s", k2.get_sound_position(music_sound)),
+			{20, 320},
+			40,
+			k2.BLACK,
+		)
 	}
 
 	k2.present()
