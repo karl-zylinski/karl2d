@@ -1926,6 +1926,145 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 	sound_object.target_settings.pitch = max(pitch, 0.01)
 }
 
+// How far into its audio the sound is, in seconds. Works for sounds from clips and from streams.
+//
+// Warning: For a sound playing a stream that was loaded with `load_audio_stream_from_file`,
+// changing the position may cause a brief hiccup, because the file has to be decoded up to the
+// new position.
+set_sound_position :: proc(sound: Sound, seconds: f32) {
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return
+	}
+
+	clamped_seconds := max(seconds, 0)
+
+	if sound_object.stream == AUDIO_STREAM_NONE {
+		clip := hm.get(&s.audio_clips, sound_object.clip)
+
+		if clip == nil {
+			return
+		}
+
+		channels := 1
+		if clip.channels == .Stereo {
+			channels = 2
+		}
+
+		total_frames := len(clip.samples) / channels
+		target_frame := clamp(int(clamped_seconds * f32(clip.sample_rate)), 0, total_frames)
+
+		sound_object.offset = target_frame * channels
+		sound_object.offset_fraction = 0
+		return
+	}
+
+	sd := hm.get(&s.audio_streams, sound_object.stream)
+
+	if sd == nil {
+		return
+	}
+
+	ab := hm.get(&s.audio_clips, sd.clip)
+
+	if ab == nil {
+		return
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	target_frame := int(clamped_seconds * f32(ab.sample_rate))
+
+	switch sd.mode {
+	case .From_Bytes:
+		total_frames := int(stbv.stream_length_in_samples(sd.vorbis))
+		clamped_frame := clamp(target_frame, 0, total_frames)
+
+		if stbv.seek(sd.vorbis, u32(clamped_frame)) == 0 {
+			log.error("Cannot set sound position, seeking in the audio stream failed.")
+			return
+		}
+
+		sd.decode_cursor = clamped_frame * channels
+		sd.seek_discard = 0
+
+	case .From_File:
+		target := target_frame * channels
+
+		if target >= sd.decode_cursor {
+			sd.seek_discard += target - sd.decode_cursor
+		} else {
+			file_seek(sd.file, 0, .Start)
+			runtime.clear(&sd.file_read_buf)
+			sd.file_read_buf_offset = 0
+			stbv.flush_pushdata(sd.vorbis)
+			sd.decode_cursor = 0
+			sd.seek_discard = target
+		}
+	}
+
+	slice.zero(ab.samples)
+	sd.buffer_write_pos = 0
+	sound_object.offset = 0
+	sound_object.offset_fraction = 0
+}
+
+// How far into its audio the sound currently is, in seconds. Returns 0 if the sound no longer
+// exists.
+get_sound_position :: proc(sound: Sound) -> f32 {
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return 0
+	}
+
+	if sound_object.stream == AUDIO_STREAM_NONE {
+		clip := hm.get(&s.audio_clips, sound_object.clip)
+
+		if clip == nil {
+			return 0
+		}
+
+		channels := 1
+		if clip.channels == .Stereo {
+			channels = 2
+		}
+
+		return f32(sound_object.offset / channels) / f32(clip.sample_rate)
+	}
+
+	sd := hm.get(&s.audio_streams, sound_object.stream)
+
+	if sd == nil {
+		return 0
+	}
+
+	ab := hm.get(&s.audio_clips, sd.clip)
+
+	if ab == nil {
+		return 0
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	// How many decoded samples are still sitting unplayed in the circular staging buffer.
+	remaining := sd.buffer_write_pos - sound_object.offset
+
+	if remaining < 0 {
+		remaining = len(ab.samples) - sound_object.offset + sd.buffer_write_pos
+	}
+
+	position := sd.decode_cursor - remaining
+	return f32(position / channels) / f32(ab.sample_rate)
+}
+
 // Make a sound loop when it reaches the end.
 //
 // Technical note: This also works for sounds started using `play_audio_stream`, but then it
@@ -2655,8 +2794,15 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 					mono: [^]f32 = output[0]
 
 					for samp_idx in 0..<samples {
-						ab.samples[sd.buffer_write_pos] = mono[samp_idx]
-						sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
+						// A pending seek throws away decoded samples instead of writing them,
+						// until the decoder has caught up to the target position.
+						if sd.seek_discard > 0 {
+							sd.seek_discard -= 1
+						} else {
+							ab.samples[sd.buffer_write_pos] = mono[samp_idx]
+							sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
+						}
+
 						sd.decode_cursor += 1
 					}
 				} else if channels == 2 {
@@ -2664,9 +2810,14 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 					right: [^]f32 = output[1]
 
 					for samp_idx in 0..<samples {
-						ab.samples[sd.buffer_write_pos] = left[samp_idx]
-						ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
-						sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
+						if sd.seek_discard > 0 {
+							sd.seek_discard -= 2
+						} else {
+							ab.samples[sd.buffer_write_pos] = left[samp_idx]
+							ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
+							sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
+						}
+
 						sd.decode_cursor += 2
 					}
 				} else {

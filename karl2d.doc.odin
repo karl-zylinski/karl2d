@@ -542,6 +542,17 @@ set_sound_pan :: proc(sound: Sound, pan: f32)
 // play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
+// How far into its audio the sound is, in seconds. Works for sounds from clips and from streams.
+//
+// Warning: For a sound playing a stream that was loaded with `load_audio_stream_from_file`,
+// changing the position may cause a brief hiccup, because the file has to be decoded up to the
+// new position.
+set_sound_position :: proc(sound: Sound, seconds: f32)
+
+// How far into its audio the sound currently is, in seconds. Returns 0 if the sound no longer
+// exists.
+get_sound_position :: proc(sound: Sound) -> f32
+
 // Make a sound loop when it reaches the end.
 //
 // Technical note: This also works for sounds started using `play_audio_stream`, but then it
@@ -1424,6 +1435,15 @@ Audio_Stream_Data :: struct {
 	// Where in the audio clip referred to by `clip` that we have most recently written samples.
 	// Together with the `offset` of the Sound_Object, this forms a circular buffer.
 	buffer_write_pos: int,
+
+	// Absolute position in the file of the samples most recently written into the clip, counted
+	// in individual samples (so stereo advances by 2 per frame). `decode_cursor` minus the
+	// unplayed samples in the clip is the position the listener hears.
+	decode_cursor: int,
+
+	// When more than zero, `update_audio_stream` throws away this many decoded samples instead
+	// of writing them to the clip. Used to seek in From_File mode, where the decoder cannot jump.
+	seek_discard: int,
 
 	// Different from `loop` in `Sound_Object`. This says if the whole stream should loop
 	// when it reaches end-of-file. The `loop` in `Sound_Object` just says to loop the
