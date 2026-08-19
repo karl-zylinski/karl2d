@@ -25,7 +25,7 @@ import "core:image/png"
 import "core:image/tga"
 
 import hm "core:container/handle_map"
-import "core:fmt"
+
 //-----------------------------------------------//
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
@@ -65,6 +65,7 @@ init :: proc(
 	// point the frame allocator is cleared.
 	s.frame_allocator = runtime.arena_allocator(&s.frame_arena)
 	frame_allocator = s.frame_allocator
+
 	when ODIN_OS == .Windows {
 		s.platform = PLATFORM_WINDOWS
 	} else when ODIN_OS == .JS {
@@ -76,19 +77,24 @@ init :: proc(
 	} else {
 		#panic("Unsupported platform")
 	}
+
 	pf = s.platform
+
 	// We allocate memory for the windowing backend and pass the blob of memory to it.
 	platform_state_alloc_error: runtime.Allocator_Error
 	s.platform_state, platform_state_alloc_error = mem.alloc(
 		pf.state_size(),
 		allocator = s.allocator,
 	)
+
 	log.assertf(
 		platform_state_alloc_error == nil,
 		"Failed allocating memory for platform state: %v",
 		platform_state_alloc_error,
 	)
+
 	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
+
 	// This is an OS-independent handle that we can pass to any rendering backend.
 	window_render_glue := pf.get_window_render_glue()
 
@@ -118,15 +124,6 @@ init :: proc(
 		s.depth_range_max = DEPTH_RANGE_DEFAULT_MAX
 	}
 
-	// s.proj_matrix = make_default_projection(
-		// pf.get_screen_width(),
-		// pf.get_screen_height(),
-		// _camera_flip_y(),
-	// )
-
-	// s.view_matrix = 1
-	// _update_view_projection()
-
 	// Boot up the render backend. It will render into our previously created window.
 	rb.init(
 		s.render_backend_state,
@@ -137,8 +134,6 @@ init :: proc(
 		s.allocator,
 	)
 
-
-
 	// The shapes drawing texture is sampled when any shape is drawn. This way we can use the same
 	// shader for textured drawing and shape drawing. It's just a white box.
 	white_rect: [16*16*4]u8
@@ -147,8 +142,6 @@ init :: proc(
 	// // The default shader will arrive in a different format depending on backend. GLSL for GL,
 	// // HLSL for d3d etc.
 	// s.default_shader = load_shader_from_bytes(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
-
- 
 
 	// FontStash enables us to bake fonts from TTF files on-the-fly.
 	//

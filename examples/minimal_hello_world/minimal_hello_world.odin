@@ -11,7 +11,7 @@ main :: proc() {
 
 	// Main game loop. Runs until `update` returns false, which it does when the player tries to
 	// close the window.
-	// 
+	//
 	// Update will make sure all the input state and frame timers are up-to-date.
 	for k2.update() {
 		// Clear the screen with a color
