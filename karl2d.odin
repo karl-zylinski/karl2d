@@ -56,7 +56,7 @@ init :: proc(
 	assert(s == nil, "Don't call 'init' twice.")
 	s = new(State, allocator, loc)
 	s.allocator = allocator
-	temp_batch:Batch_Draw_Calls
+	temp_batch:Batch
 	s.defalt_batch = &temp_batch
 	s.current_batch = &temp_batch// TODO remove this this is temp so it no crash
 
@@ -163,6 +163,7 @@ init :: proc(
 	default_font := load_dynamic_font_from_bytes(DEFAULT_FONT_DATA)
 	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
 
+	s.screen_proj_matrix = make_default_projection(screen_width, screen_height, false)
 	// set up the defalt batch data
 	s.defalt_batch = create_batch(s.allocator)
 	s.current_batch = s.defalt_batch
@@ -190,14 +191,12 @@ init :: proc(
 	return s
 }
 
-create_batch::proc(allocator:runtime.Allocator, vertex_buffer_size:=VERTEX_BUFFER_MAX, loc := #caller_location)->(batch:^Batch_Draw_Calls){
+create_batch::proc(allocator:runtime.Allocator, vertex_buffer_size:=VERTEX_BUFFER_MAX, loc := #caller_location)->(batch:^Batch){
 	assert_initialized()
-	batch=new(Batch_Draw_Calls,allocator)
+	batch=new(Batch, allocator)
 
 	batch.batch_allocator = allocator
-	batch.proj_matrix = make_default_projection(pf.get_screen_width(), pf.get_screen_height(),_camera_flip_y(batch))
-	batch.view_matrix = 1
-	_update_view_projection(batch)
+
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`.
@@ -210,8 +209,6 @@ create_batch::proc(allocator:runtime.Allocator, vertex_buffer_size:=VERTEX_BUFFE
 	log.assertf(batch_arena_err == nil, "Failed allocating batch arena: %v", batch_arena_err)
 	batch.batch_allocator = runtime.arena_allocator(&batch.batch_arena)
 
-	batch.model_matrix = 1
-
 	batch.vertex_buffer_gpu = rb.create_vertex_buffer_gpu(vertex_buffer_size)
 	
 	// The default shader will arrive in a different format depending on backend. GLSL for GL,
@@ -219,11 +216,16 @@ create_batch::proc(allocator:runtime.Allocator, vertex_buffer_size:=VERTEX_BUFFE
 	batch.default_shader = load_shader_from_bytes(rb.default_shader_vertex_source(), rb.default_shader_fragment_source(),batch = batch)
 	batch.current_shader = batch.default_shader
 
+	set_batch_view_matrix(1, batch)
+	set_batch_model_matrix(1, batch)
+	// _start_draw_call(batch)
+	// _write_builtin_constants(batch.current_shader, batch.current_draw_call.constants_data, batch)
+
 	_set_font(FONT_DEFAULT, batch)
 	return
 }
 
-delete_batch::proc(batch:^Batch_Draw_Calls){
+delete_batch::proc(batch:^Batch){
 	assert_initialized()
 	delete(batch.vertex_buffer_cpu, s.allocator)
 	delete(batch.calls)
@@ -233,7 +235,38 @@ delete_batch::proc(batch:^Batch_Draw_Calls){
 	free(batch,batch.batch_allocator)
 }
 
+//sets current batch if left blanke will reset to the defalt one
+set_current_batch::proc(batch:^Batch = nil){
+	batch:=batch
+	if batch == nil {batch = s.defalt_batch}
+	s.current_batch = batch
+}
 
+// gets the current batch
+get_current_batch::proc()->^Batch{
+	return s.current_batch
+}
+
+// gets the defalt batch
+get_defalt_batch::proc()->^Batch{
+	return s.current_batch
+}
+
+// sets the model matrix letting you manipulate large groups of objects very easily nil/blanke will reset the matrix
+set_batch_model_matrix::proc(mat:Mat4 = 1, batch:^Batch = nil){
+	batch:=batch
+	if batch == nil {batch = s.defalt_batch}
+	batch.current_model_matrix = mat
+	batch.current_constants_dirty = true
+}
+
+// this is an alternitive to set_cam() 
+set_batch_view_matrix::proc(mat:Mat4 = 1, batch:^Batch = nil){
+	batch:=batch
+	if batch == nil {batch = s.defalt_batch}
+	batch.current_view_matrix = mat
+	batch.current_constants_dirty = true
+}
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
 // frame times are up-to-date.
@@ -317,7 +350,7 @@ shutdown :: proc() {
 // Clear the "screen" with the supplied color. By default this will clear your window. But if you
 // have set a Render Texture using the `set_render_texture` procedure, then that Render Texture will
 // be cleared instead.
-clear :: proc(color: Color, batch: ^Batch_Draw_Calls = nil) {
+clear :: proc(color: Color, batch: ^Batch = nil) {
 	batch:= batch
 	if batch == nil{batch = s.current_batch}
 	assert_initialized()
@@ -365,7 +398,7 @@ calculate_frame_time :: proc() {
 //
 // WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
 // make sure that all rendering has been sent off to the GPU (as it calls `draw_current_batch()`).
-present :: proc(batch: ^Batch_Draw_Calls = nil) {
+present :: proc(batch: ^Batch = nil) {
 	assert_initialized()
 	update_batch(batch)
 	render_batch(batch)
@@ -455,8 +488,11 @@ process_events :: proc() {
 		case Event_Screen_Resize:
 			// Recorded draw calls were meant for the old swapchain size.
 			// draw_batch_clear(s.current_batch)//TODO This shoud problobly be changed
-			// rb.resize_swapchain(e.width, e.height)
-			// batch.proj_matrix = make_default_projection(e.width, e.height, _camera_flip_y(batch))
+			// s.screen_proj_matrix = make_default_projection(e.width, e.height, _camera_flip_y(batch))
+// 
+			rb.resize_swapchain(e.width, e.height)
+			s.screen_proj_matrix = make_default_projection(e.width, e.height, false)
+// 
 			// _update_view_projection(batch)
 			//TODO fix all of this
 		case Event_Window_Focused:			
@@ -595,19 +631,7 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 	pf.set_window_mode(window_mode)
 }
 
-// Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
-// procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
-// call this procedure manually. It is done automatically when `present` or `clear` run. It can also
-// happen when you destroy a resource such as a texture or shader that is used in the current
-// batch.
-//
-// Note that `set_z` never starts a new draw call: the z value is stored in each vertex rather than
-// being part of a draw call's settings, so it's fine to call it before every draw.
-//
-// All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
-// dictates how big a vertex is. The maximum number of vertices in a batch is therefore
-// `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
-// 
+
 
 
 // This proc is used mostly for multi batching 
@@ -615,11 +639,11 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 // Updates the batches gpu vertex buffer with the cpu vertex buffer
 // the cpu buffer was filled in by procs like draw_rect() draw_text() etcetera 
 // this should be called after these procs but before render_batch() witch should be called before end_frame()
-update_batch :: proc(batch:^Batch_Draw_Calls = nil) {
+update_batch :: proc(batch:^Batch = nil) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 	_finish_draw_call(batch)
-	_update_view_projection(batch)
+	// _update_view_projection(batch)
 	_update_font_atlases()
 	update_gpu_vertex_buffer(batch.vertex_buffer_gpu,batch.vertex_buffer_cpu[:batch.vertex_buffer_cpu_used])
 }
@@ -633,16 +657,33 @@ update_gpu_vertex_buffer::proc(gpu_buff:Vertex_Buffer_GPU_Handle,cpu_buff:[]u8){
 	rb.update_vertex_buffer_gpu(gpu_buff,cpu_buff)
 }
 
-render_batch :: proc(batch:^Batch_Draw_Calls = nil, matrix_overide:Maybe(Mat4) = nil) {
+
+// Flushes the batch. A batch consists of a number of draw calls and a vertex buffer. This
+// procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
+// call this procedure manually. It is done automatically when `present` or `clear` run. It can also
+// happen when you destroy a resource such as a texture or shader that is used in the current
+// batch.
+//
+// Note that `set_z` never starts a new draw call: the z value is stored in each vertex rather than
+// being part of a draw call's settings, so it's fine to call it before every draw.
+//
+// All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
+// dictates how big a vertex is. The maximum number of vertices in a batch is therefore
+// `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
+// 
+render_batch :: proc(batch:^Batch = nil, model_matrix_overide:Maybe(Mat4) = nil, camera_overide:Maybe(Camera) = nil) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 
-	mat, mat_ok := matrix_overide.?
-	if !mat_ok {
-		mat = batch.model_matrix
+	mod_mat, mod_mat_ok := model_matrix_overide.?
+	if mod_mat_ok {
+		set_model_matrix_overide(mod_mat,batch)
 	}
-	
-	_set_model_matrix_for_all_draw_calls(mat,batch)
+	cam, cam_ok := camera_overide.?
+	if cam_ok {
+		set_view_matrix_overide(camera_view_matrix(cam),batch)
+	}
+	set_Projection_Matrix_overide(batch)
 	_update_font_atlases()
 	rb.draw( batch.calls[:])
 }
@@ -653,7 +694,7 @@ render_batch :: proc(batch:^Batch_Draw_Calls = nil, matrix_overide:Maybe(Mat4) =
 // This proc will reset all of the draw_calls and clear the cpu vertex data
 // it will not change the gpu vertex buffer 
 // so some Artifacts may appear if you do not update_batch() before calling render_batch() 
-clear_batch :: proc(batch:^Batch_Draw_Calls = nil) {
+clear_batch :: proc(batch:^Batch = nil) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 
@@ -667,7 +708,7 @@ clear_batch :: proc(batch:^Batch_Draw_Calls = nil) {
 	free_all(batch.batch_allocator)
 }
 
-update_render_clear_batch :: proc(batch:^Batch_Draw_Calls = nil) {
+update_render_clear_batch :: proc(batch:^Batch = nil) {
 	update_batch(batch)
 	render_batch(batch)
 	clear_batch(batch)
@@ -901,7 +942,7 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 //   `(0, 0)`, then the rectangle rotates around the top-left corner of the rectangle. If it is
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
-draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0, batch: ^Batch_Draw_Calls = nil) {
+draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0, batch: ^Batch = nil) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 	_begin_vertices(s.shape_drawing_texture, 6, batch = batch)
@@ -965,7 +1006,7 @@ draw_rect_vec :: proc(
 	color: Color,
 	origin: Vec2 = {},
 	rotation: f32 = 0,
-	batch: ^Batch_Draw_Calls = nil
+	batch: ^Batch = nil
 ) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
@@ -973,7 +1014,7 @@ draw_rect_vec :: proc(
 }
 
 @(deprecated="Use draw_rect instead")
-draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color, batch: ^Batch_Draw_Calls = nil) {
+draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color, batch: ^Batch = nil) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 
@@ -982,7 +1023,7 @@ draw_rect_ex :: proc(r: Rect, origin: Vec2, rot: f32, c: Color, batch: ^Batch_Dr
 
 // Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
 // rectangles.
-draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color, batch: ^Batch_Draw_Calls = nil) {
+draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color, batch: ^Batch = nil) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 
@@ -1026,7 +1067,7 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color, batch: ^Batch_D
 
 // Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
 // perfect! It is drawn using a number of "cake segments".
-draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16, batch: ^Batch_Draw_Calls = nil) {
+draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16, batch: ^Batch = nil) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 	_begin_vertices(s.shape_drawing_texture, 3*segments, batch)
@@ -1046,7 +1087,7 @@ draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16, bat
 }
 
 // Like `draw_circle` but only draws the outer edge of the circle.
-draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16, batch: ^Batch_Draw_Calls = nil) {
+draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Color, segments := 16, batch: ^Batch = nil) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 	prev := center + {radius, 0}
@@ -1060,7 +1101,7 @@ draw_circle_outline :: proc(center: Vec2, radius: f32, thickness: f32, color: Co
 }
 
 // Draws a line from `start` to `end` of a certain thickness.
-draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color, batch: ^Batch_Draw_Calls = nil) {
+draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color, batch: ^Batch = nil) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 	p := Vec2{start.x, start.y}
@@ -1076,7 +1117,7 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color, batch: ^
 
 // Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
 // counter-clockwise triangles will give the same result.
-draw_triangle :: proc(vertices: [3]Vec2, c: Color, batch: ^Batch_Draw_Calls = nil) {
+draw_triangle :: proc(vertices: [3]Vec2, c: Color, batch: ^Batch = nil) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 	_begin_vertices(s.shape_drawing_texture, 3, batch)
@@ -1175,7 +1216,7 @@ draw_texture_fit :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
-	batch:^Batch_Draw_Calls = nil,
+	batch:^Batch = nil,
 ) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
@@ -1404,7 +1445,7 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 		}
 	}
 
-	measure_text_dynamic :: proc(text: string, font_size: f32, font: Font, batch: ^Batch_Draw_Calls = nil,) -> Vec2 {
+	measure_text_dynamic :: proc(text: string, font_size: f32, font: Font, batch: ^Batch = nil,) -> Vec2 {
 		batch:=batch
 		if batch == nil{batch = s.current_batch}
 
@@ -1490,7 +1531,7 @@ draw_text :: proc(
 	font := FONT_DEFAULT,
 	origin: Vec2 = {},
 	rotation: f32 = 0,
-	batch: ^Batch_Draw_Calls = nil,
+	batch: ^Batch = nil,
 ) {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
@@ -1537,7 +1578,7 @@ draw_text :: proc(
 		font := FONT_DEFAULT,
 		origin: Vec2 = {},
 		rotation: f32 = 0,
-		batch: ^Batch_Draw_Calls = nil,
+		batch: ^Batch = nil,
 	) {
 		// TODO: Add kerning.
 
@@ -1648,7 +1689,7 @@ draw_text :: proc(
 		font := FONT_DEFAULT,
 		origin: Vec2 = {},
 		rotation: f32 = 0,
-		batch: ^Batch_Draw_Calls = nil,
+		batch: ^Batch = nil,
 	) {
 		batch:=batch
 		if batch == nil{batch = s.current_batch}
@@ -3513,7 +3554,9 @@ destroy_render_texture :: proc(render_texture: Render_Texture) {
 
 // Make all rendering go into a texture instead of onto the screen. Create the render texture using
 // `create_render_texture`. Pass `nil` to resume drawing onto the screen.
-set_render_texture :: proc(render_texture: Maybe(Render_Texture), batch: ^Batch_Draw_Calls) {
+set_render_texture :: proc(render_texture: Maybe(Render_Texture), batch: ^Batch = nil) {
+	batch:=batch
+	if batch == nil {batch = s.current_batch}
 	if rt, rt_ok := render_texture.?; rt_ok {
 		if rt.render_target == RENDER_TARGET_NONE {
 			log.errorf("Invalid render texture: %v", rt)
@@ -3528,29 +3571,27 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture), batch: ^Batch_
 		batch.current_render_target_width = rt.texture.width
 		batch.current_render_target_height = rt.texture.height
 
-		batch.proj_matrix = make_default_projection(
-			rt.texture.width,
-			rt.texture.height,
-			_camera_flip_y(batch),
-		)
-
-		_update_view_projection(batch)
+		// batch.proj_matrix = make_default_projection(
+		// 	rt.texture.width,
+		// 	rt.texture.height,
+		// 	_camera_flip_y(batch),
+		// )
+		// _update_view_projection(batch)
 	} else {
 		if batch.current_render_target == RENDER_TARGET_NONE {
 			return
 		}
-
 		batch.current_render_target = RENDER_TARGET_NONE
 		batch.current_render_target_width = 0
 		batch.current_render_target_height = 0
 
-		batch.proj_matrix = make_default_projection(
-			pf.get_screen_width(),
-			pf.get_screen_height(),
-			_camera_flip_y(batch),
-		)
+		// batch.proj_matrix = make_default_projection(
+		// 	pf.get_screen_width(),
+		// 	pf.get_screen_height(),
+		// 	_camera_flip_y(batch),
+		// )
 
-		_update_view_projection(batch)
+		// _update_view_projection(batch)
 	}
 }
 
@@ -4140,7 +4181,7 @@ load_shader_from_file :: proc(
 	vertex_filename: string,
 	fragment_filename: string,
 	layout_formats: []Pixel_Format = {},
-	batch:^Batch_Draw_Calls = nil,
+	batch:^Batch = nil,
 ) -> Shader {
 	batch := batch 
 	if batch == nil {batch = s.defalt_batch}
@@ -4175,7 +4216,7 @@ load_shader_from_bytes :: proc(
 	vertex_shader_bytes: []byte,
 	fragment_shader_bytes: []byte,
 	layout_formats: []Pixel_Format = {},
-	batch:^Batch_Draw_Calls = nil,
+	batch:^Batch = nil,
 ) -> Shader {
 	batch := batch 
 	if batch == nil {batch = s.defalt_batch}
@@ -4232,8 +4273,10 @@ load_shader_from_bytes :: proc(
 			shd.constant_lookup[strings.clone(constant_desc.name, s.allocator)] = loc
 
 			switch constant_desc.name {
-			case "view_projection":
-				shd.constant_builtin_locations[.View_Projection_Matrix] = loc
+			case "projection_matrix":
+				shd.constant_builtin_locations[.Projection_Matrix] = loc
+			case "view_matrix":
+				shd.constant_builtin_locations[.View_Matrix] = loc
 			case "model_matrix":
 				shd.constant_builtin_locations[.Model_Matrix] = loc
 			}
@@ -4299,7 +4342,7 @@ destroy_shader :: proc(shader: Shader) {
 }
 
 // Fetches the shader that Karl2D uses by default.
-get_default_shader :: proc(batch: ^Batch_Draw_Calls,) -> Shader {
+get_default_shader :: proc(batch: ^Batch,) -> Shader {
 	batch:= batch
 	if batch == nil {batch = s.current_batch}
 	return batch.default_shader
@@ -4307,7 +4350,7 @@ get_default_shader :: proc(batch: ^Batch_Draw_Calls,) -> Shader {
 
 // The supplied shader will be used for subsequent drawing. Return to the default shader by calling
 // `set_shader(nil)`.
-set_shader :: proc(shader: Maybe(Shader),batch: ^Batch_Draw_Calls,) {
+set_shader :: proc(shader: Maybe(Shader),batch: ^Batch = nil,) {
 	batch:= batch
 	if batch == nil {batch = s.current_batch}
 	if shd, shd_ok := shader.?; shd_ok {
@@ -4330,7 +4373,7 @@ set_shader :: proc(shader: Maybe(Shader),batch: ^Batch_Draw_Calls,) {
 
 // Set the value of a constant (also known as uniform in OpenGL). Look up shader constant locations
 // (the kind of value needed for `loc`) by running `loc := shader.constant_lookup["constant_name"]`.
-set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any, batch: ^Batch_Draw_Calls = nil) {
+set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any, batch: ^Batch = nil) {
 	batch:= batch
 	if batch == nil {batch = s.current_batch}
 	if shd.handle == SHADER_NONE {
@@ -4415,7 +4458,7 @@ pixel_format_size :: proc(f: Pixel_Format) -> int {
 
 // Make Karl2D use a camera. Return to the "default camera" by passing `nil`. All drawing operations
 // will use this camera until you again change it.
-set_camera :: proc(camera: Maybe(Camera), batch: ^Batch_Draw_Calls = nil) {
+set_camera :: proc(camera: Maybe(Camera), batch: ^Batch = nil) {
 	batch:= batch
 	if batch == nil {batch = s.current_batch}
 	if camera == batch.current_camera {
@@ -4423,30 +4466,11 @@ set_camera :: proc(camera: Maybe(Camera), batch: ^Batch_Draw_Calls = nil) {
 	}
 
 	batch.current_camera = camera
-
 	if c, c_ok := camera.?; c_ok {
-		batch.view_matrix = camera_view_matrix(c)
+		set_batch_view_matrix(camera_view_matrix(c), batch)
 	} else {
-		batch.view_matrix = 1
+		set_batch_view_matrix(1, batch)
 	}
-
-	// The Y axis picks which edge of the surface Y = 0 sits on. So the projection depends on the
-	// camera, not just on the surface size.
-	if batch.current_render_target == RENDER_TARGET_NONE {
-		batch.proj_matrix = make_default_projection(
-			pf.get_screen_width(),
-			pf.get_screen_height(),
-			_camera_flip_y(batch),
-		)
-	} else {
-		batch.proj_matrix = make_default_projection(
-			batch.current_render_target_width,
-			batch.current_render_target_height,
-			_camera_flip_y(batch),
-		)
-	}
-
-	_update_view_projection(batch)
 }
 
 // Transform a point `pos` that lives on the screen into the camera's coordinates.
@@ -4454,7 +4478,7 @@ set_camera :: proc(camera: Maybe(Camera), batch: ^Batch_Draw_Calls = nil) {
 // Example: Bringing the mouse position into the coordinate space of a camera:
 //
 //// world_mouse_pos := k2.screen_to_camera(k2.get_mouse_position(), world_camera)
-screen_to_camera :: proc(pos: Vec2, camera: Camera, batch: ^Batch_Draw_Calls = nil) -> Vec2 {
+screen_to_camera :: proc(pos: Vec2, camera: Camera, batch: ^Batch = nil) -> Vec2 {
 	batch:=batch
 	if batch == nil{batch = s.current_batch}
 	pos := pos
@@ -4475,7 +4499,7 @@ screen_to_camera :: proc(pos: Vec2, camera: Camera, batch: ^Batch_Draw_Calls = n
 
 // Transform a point `pos` that lives in the camera's coordinates to a point on the screen. This can
 // be useful when you need to compare such a position to a screen-space point.
-camera_to_screen :: proc(pos: Vec2, camera: Camera, batch:^Batch_Draw_Calls = nil) -> Vec2 {
+camera_to_screen :: proc(pos: Vec2, camera: Camera, batch:^Batch = nil) -> Vec2 {
 	batch:=batch
 	if batch == nil {
 		batch = s.current_batch
@@ -4527,6 +4551,21 @@ world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 camera_view_matrix :: proc(c: Camera) -> Mat4 {
 	// A zoom of 0 is what a zero-initialized camera has. Treat it as 1 so such a camera draws at
 	// normal scale instead of collapsing everything to nothing.
+
+	up : Vec3
+	if c.flip_y{
+		up = Vec3{0, -1, 0}   // +Y points toward the ground
+	}else{
+		up = Vec3{0, 1, 0}    // +Y points toward the sky
+	}
+
+	look_at_matrix:=linalg.matrix4_look_at_from_fru_f32(
+		eye = {0, 0, 0,},
+		f = {0, 0, -1},
+		r = {1, 0, 0},
+		u = up,
+	)
+
 	zoom := c.zoom == 0 ? 1 : c.zoom
 
 	inv_target_translate := linalg.matrix4_translate(vec3_from_vec2(-c.target))
@@ -4534,7 +4573,7 @@ camera_view_matrix :: proc(c: Camera) -> Mat4 {
 	inv_scale := linalg.matrix4_scale(Vec3{zoom, zoom, 1})
 	inv_offset_translate := linalg.matrix4_translate(vec3_from_vec2(c.offset))
 
-	return inv_offset_translate * inv_scale * inv_rot * inv_target_translate
+	return inv_offset_translate * inv_scale * inv_rot * inv_target_translate * look_at_matrix
 }
 
 // The inverse of `camera_view_matrix`. It undoes the camera instead of applying it.
@@ -4561,7 +4600,7 @@ camera_world_matrix :: proc(c: Camera) -> Mat4 {
 
 // Choose how the alpha channel is used when mixing half-transparent color with what is already
 // drawn. The default is the .Alpha mode, but you also have the option of using .Premultiply_Alpha.
-set_blend_mode :: proc(mode: Blend_Mode, batch: ^Batch_Draw_Calls = nil) {
+set_blend_mode :: proc(mode: Blend_Mode, batch: ^Batch = nil) {
 	batch:= batch
 	if batch == nil{batch = s.current_batch}
 	if batch.current_blend_mode == mode {
@@ -4573,7 +4612,11 @@ set_blend_mode :: proc(mode: Blend_Mode, batch: ^Batch_Draw_Calls = nil) {
 
 // Make everything outside of the screen-space rectangle `scissor_rect` not render. Disable the
 // scissor rectangle by running `set_scissor_rect(nil)`.
-set_scissor_rect :: proc(scissor_rect: Maybe(Rect), batch:^Batch_Draw_Calls) {
+set_scissor_rect :: proc(scissor_rect: Maybe(Rect), batch:^Batch = nil) {
+	batch:=batch
+	if batch == nil {
+		batch = s.current_batch
+	}
 	batch.current_scissor = scissor_rect
 }
 
@@ -4581,7 +4624,7 @@ set_scissor_rect :: proc(scissor_rect: Maybe(Rect), batch:^Batch_Draw_Calls) {
 // enabled in `Init_Options`. Higher z ends up in front. Unlike `set_blend_mode` and
 // `set_scissor_rect`, this never starts a new draw call: the z is stored in each vertex rather
 // than being part of a draw call's settings, so it's fine to call this before every draw.
-set_z :: proc(z: f32, batch:^Batch_Draw_Calls = nil) {
+set_z :: proc(z: f32, batch:^Batch = nil) {
 	batch:=batch
 	if batch == nil {
 		batch = s.current_batch
@@ -4590,7 +4633,7 @@ set_z :: proc(z: f32, batch:^Batch_Draw_Calls = nil) {
 }
 
 // Get the z previously set with `set_z`. Defaults to 0.
-get_z :: proc(batch:^Batch_Draw_Calls = nil) -> f32 {
+get_z :: proc(batch:^Batch = nil) -> f32 {
 	batch:=batch
 	if batch == nil {
 		batch = s.current_batch
@@ -4962,7 +5005,9 @@ Shader_Input_Type :: enum {
 }
 
 Shader_Builtin_Constant :: enum {
-	View_Projection_Matrix,
+	// View_Projection_Matrix,
+	Projection_Matrix,
+	View_Matrix,
 	Model_Matrix,
 }
 
@@ -5325,41 +5370,19 @@ State :: struct {
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
 	shape_drawing_texture: Texture_Handle,
-	// The settings the next draw call will be recorded with. Changing one of these does not affect
-	// draw calls that are already recorded.
-	// current_font: Font,
-	// current_camera: Maybe(Camera),
-	// current_shader: Shader,
-	// current_scissor: Maybe(Rect),
-	// current_texture: Texture_Handle,
-	// current_render_target: Render_Target_Handle,
-
-	// // Size of `current_render_target`, or 0 when drawing to the window. Needed to build the
-	// // projection, and to measure Y up from the bottom of it, without asking the backend.
-	// current_render_target_width: int,
-	// current_render_target_height: int,
-	// current_blend_mode: Blend_Mode,
 
 	// Recorded but not drawn yet. They all point into `vertex_buffer_cpu`.
-	current_batch: ^Batch_Draw_Calls,
-	defalt_batch: ^Batch_Draw_Calls,
+	current_batch: ^Batch,
+	defalt_batch: ^Batch,
 
-	// default_shader: Shader,
-	// view_matrix: Mat4,
-	// proj_matrix: Mat4,
-
-	// `proj_matrix * view_matrix`. Kept around because every draw call needs it. Update it with
-	// `_update_view_projection`.
-	// view_projection: Mat4,
 
 	// z: f32,
 	depth_test: bool,
 	depth_range_min: f32,
 	depth_range_max: f32,
 
-	// vertex_buffer_cpu: []u8,
-	// vertex_buffer_cpu_used: int,
-	// default_shader: Shader,
+	screen_proj_matrix: Mat4,
+
 
 	// Time when the first call to `new_frame` happened
 	start_time: time.Time,
@@ -5394,7 +5417,7 @@ State :: struct {
 	mix_buffer_offset: int,
 }
 
-Batch_Draw_Calls::struct{
+Batch::struct{
 	calls: [dynamic]Draw_Call,
 	// The one vertices go into right now. A zeroed one means there is none.
 	current_draw_call: Draw_Call,
@@ -5420,6 +5443,8 @@ Batch_Draw_Calls::struct{
 	current_scissor: Maybe(Rect),
 	current_texture: Texture_Handle,
 	current_render_target: Render_Target_Handle,
+	current_view_matrix: Mat4,
+	current_model_matrix: Mat4,
 
 	// Height of `current_render_target`, or 0 when drawing to the window. Needed to
 	// convert scissor rectangles to native top-down coordinates without asking the
@@ -5433,13 +5458,9 @@ Batch_Draw_Calls::struct{
 	// Says that the shader constants may differ from what the open draw call captured.
 	current_constants_dirty: bool,
 
-	view_matrix: Mat4,
-	proj_matrix: Mat4,
-	model_matrix: Mat4,
-
 	// `proj_matrix * view_matrix`. Kept around because every draw call needs it. Update it with
 	// `_update_view_projection`.
-	view_projection: Mat4,
+	// view_projection: Mat4,
 
 	// Holds the constant values and textures that the draw calls point at.
 	batch_arena: runtime.Arena,
@@ -5799,7 +5820,7 @@ _reset_audio_stream :: proc(stream: Audio_Stream) {
 // Run by the drawing procedures before they add any vertices. Draws the batch if `vertices_needed`
 // more vertices will not fit in the vertex buffer, which leaves an empty one to put them in. Then
 // starts a new draw call if the settings changed.
-_begin_vertices :: proc(texture: Texture_Handle, vertices_needed: int, batch:^Batch_Draw_Calls) {
+_begin_vertices :: proc(texture: Texture_Handle, vertices_needed: int, batch:^Batch) {
 	batch.current_texture = texture
 	// Starting a draw call can pad the write position by up to one vertex, so ask for one extra.
 	bytes_needed := batch.current_shader.vertex_size*(vertices_needed + 1)
@@ -5814,11 +5835,11 @@ _begin_vertices :: proc(texture: Texture_Handle, vertices_needed: int, batch:^Ba
 
 // Whether the open draw call already draws things the way the current settings say. A zeroed draw
 // call has no shader. It therefore never matches. That is the state right after a flush.
-_draw_call_matches_settings :: proc(batch:^Batch_Draw_Calls) -> bool {
+_draw_call_matches_settings :: proc(batch:^Batch) -> bool {
 	dc := &batch.current_draw_call
 
 	// The constants are the one thing we can't compare, see `current_constants_dirty`.
-	if batch.current_constants_dirty {
+	if batch.current_constants_dirty{
 		return false
 	}
 
@@ -5835,7 +5856,7 @@ _draw_call_matches_settings :: proc(batch:^Batch_Draw_Calls) -> bool {
 // Compares the textures the current settings would bind against the ones a draw call captured.
 // The shader's bindpoints are used as they are. The exception is the one Karl2D fills in with the
 // texture being drawn.
-_textures_match :: proc(recorded: []Texture_Handle, batch:^Batch_Draw_Calls) -> bool {
+_textures_match :: proc(recorded: []Texture_Handle, batch:^Batch) -> bool {
 	shader := batch.current_shader
 
 	if len(recorded) != len(shader.texture_bindpoints) {
@@ -5858,7 +5879,7 @@ _textures_match :: proc(recorded: []Texture_Handle, batch:^Batch_Draw_Calls) -> 
 // Starts the draw call that the following vertices go into. Everything it needs is captured here.
 // The drawing itself happens later, when the batch is flushed. Run `_finish_draw_call` first, or
 // the vertices of the one that is already open are lost.
-_start_draw_call :: proc(batch:^Batch_Draw_Calls) {
+_start_draw_call :: proc(batch:^Batch) {
 	shader := &batch.current_shader
 
 	// Vertices for different shaders can share the buffer. Each draw call therefore starts at a
@@ -5911,53 +5932,104 @@ _start_draw_call :: proc(batch:^Batch_Draw_Calls) {
 // Writes the constants that Karl2D itself supplies into a draw call's copy of them. They are ours
 // rather than the shader program's, which is why they go into the copy and not into the shader.
 // The view-projection matrix is the only one right now.
-_write_builtin_constants :: proc(shader: Shader, constants_data: []u8, batch:^Batch_Draw_Calls) {
+_write_builtin_constants :: proc(shader: Shader, constants_data: []u8, batch:^Batch) {
 	for mloc, builtin in shader.constant_builtin_locations {
 		constant, constant_ok := mloc.?
-
 		if !constant_ok {
 			continue
 		}
-
 		switch builtin {
-		case .View_Projection_Matrix:
+		case .Projection_Matrix:
 			if constant.size == size_of(Mat4) {
-				(^Mat4)(&constants_data[constant.offset])^ = batch.view_projection
+				if batch.current_render_target == RENDER_TARGET_NONE{
+					(^Mat4)(&constants_data[constant.offset])^ = s.screen_proj_matrix // this will get overriten later but we set this just in case
+				}else{
+					(^Mat4)(&constants_data[constant.offset])^ = make_default_projection(batch.current_render_target_width, batch.current_render_target_height, false)
+				}
+			}
+		case .View_Matrix:
+			if constant.size == size_of(Mat4) {
+				cam, cam_ok := batch.current_camera.?
+				if cam_ok{
+					(^Mat4)(&constants_data[constant.offset])^ = batch.current_view_matrix
+				}else{
+					(^Mat4)(&constants_data[constant.offset])^ = 1
+				}
 			}
 		case .Model_Matrix:
-			// if constant.size == size_of(Mat4) {
-			// 	(^Mat4)(&constants_data[constant.offset])^ = batch.model_matrix
-			// }
+			if constant.size == size_of(Mat4) {
+				(^Mat4)(&constants_data[constant.offset])^ = batch.current_model_matrix
+			}
 		}
 	}
 }
 
-_set_model_matrix_for_all_draw_calls :: proc(mat: Mat4, batch:^Batch_Draw_Calls){
+set_model_matrix_overide :: proc(mat: Mat4, batch:^Batch){
 	for &call in &batch.calls{
 		for mloc, builtin in &call.constant_builtin_locations {
 			constant, constant_ok := mloc.?
-			fmt.print(1,call.constant_builtin_locations,"\n")
 			if !constant_ok {
-				fmt.print(2,mat,"\n")
 				continue
 			}
-			fmt.print(3,"\n")
 			switch builtin {
-			case .View_Projection_Matrix:
+			case .Projection_Matrix:
+			case .View_Matrix:
 			case .Model_Matrix:
 				if constant.size == size_of(Mat4) {
 					(^Mat4)(&call.constants_data[constant.offset])^ = mat
-					fmt.print(mat,"\n")
 				}
 			}
 		}
 	}
 }
 
+set_view_matrix_overide :: proc(mat: Mat4, batch:^Batch){
+	for &call in &batch.calls{
+		for mloc, builtin in &call.constant_builtin_locations {
+			constant, constant_ok := mloc.?
+			if !constant_ok {
+				continue
+			}
+			switch builtin {
+			case .Projection_Matrix:
+			case .View_Matrix:
+				if constant.size == size_of(Mat4) {
+					(^Mat4)(&call.constants_data[constant.offset])^ = mat
+				}
+			case .Model_Matrix:
+			}
+		}
+	}
+}
+
+set_Projection_Matrix_overide :: proc(batch:^Batch){
+	for &call in &batch.calls{
+		for mloc, builtin in &call.constant_builtin_locations {
+			constant, constant_ok := mloc.?
+			if !constant_ok {
+				continue
+			}
+			switch builtin {
+			case .Projection_Matrix:
+				if call.render_target == RENDER_TARGET_NONE{
+					if constant.size == size_of(Mat4) {
+						(^Mat4)(&call.constants_data[constant.offset])^ = s.screen_proj_matrix
+					}
+				}else{
+					//no need to do eny thing for render textures everything should be set allredy
+				}
+			case .View_Matrix:
+			case .Model_Matrix:
+			}
+		}
+	}
+}
+
+
 // Puts the open draw call into the list of recorded ones. Empty ones are left out, which is what a
 // run of settings changes leaves behind. What stays open is an empty draw call with the same
 // settings, so running this twice cannot record the same vertices twice.
-_finish_draw_call :: proc(batch:^Batch_Draw_Calls) {
+_finish_draw_call :: proc(batch:^Batch) {
 	dc := &batch.current_draw_call
 
 	if dc.shader == SHADER_NONE {
@@ -6023,7 +6095,7 @@ _draw_call_changes :: proc(
 
 // Callers must run `_begin_vertices` first. That leaves room in the buffer and a draw call to put
 // the vertex in.
-batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color, batch:^Batch_Draw_Calls) {
+batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color, batch:^Batch) {
 	v := v
 	shd := &batch.current_shader
 
@@ -6068,7 +6140,7 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color, batch:^Batch_Draw_Calls) {
 // Draws the batch if any recorded draw call still samples `texture`. Those draw calls have to
 // happen before the texture changes or goes away. Nothing has usually been drawn with it yet, in
 // which case there is nothing to wait for.
-_flush_if_batch_uses_texture :: proc(texture: Texture_Handle,batch:^Batch_Draw_Calls) {
+_flush_if_batch_uses_texture :: proc(texture: Texture_Handle,batch:^Batch) {
 	if batch == nil {
 		return
 	}
@@ -6108,7 +6180,7 @@ _flush_if_batch_uses_texture :: proc(texture: Texture_Handle,batch:^Batch_Draw_C
 }
 
 // Same as `_flush_if_batch_uses_texture`. This one is for a shader that is about to go away.
-_flush_if_batch_uses_shader :: proc(shader: Shader_Handle,batch:^Batch_Draw_Calls) {
+_flush_if_batch_uses_shader :: proc(shader: Shader_Handle,batch:^Batch) {
 	if shader == SHADER_NONE {
 		return
 	}
@@ -6135,7 +6207,7 @@ _flush_if_batch_uses_shader :: proc(shader: Shader_Handle,batch:^Batch_Draw_Call
 }
 
 // Same as `_flush_if_batch_uses_texture`. This one is for a render target about to go away.
-_flush_if_batch_uses_render_target :: proc(render_target: Render_Target_Handle, batch: ^Batch_Draw_Calls) {
+_flush_if_batch_uses_render_target :: proc(render_target: Render_Target_Handle, batch: ^Batch) {
 	if render_target == RENDER_TARGET_NONE {
 		return
 	}
@@ -6159,12 +6231,6 @@ _flush_if_batch_uses_render_target :: proc(render_target: Render_Target_Handle, 
 			return
 		}
 	}
-}
-
-// Run after changing `proj_matrix` or `view_matrix`. Draw calls then pick up the new combination.
-_update_view_projection :: proc(batch: ^Batch_Draw_Calls) {
-	batch.view_projection = batch.proj_matrix * batch.view_matrix
-	batch.current_constants_dirty = true
 }
 
 VERTEX_BUFFER_MAX :: 1000000
@@ -6296,7 +6362,7 @@ make_default_projection :: proc(w, h: int, flip_y: bool,) -> matrix[4,4]f32 {
 }
 
 // Returns true if the currently used camera wants the Y axis to be flipped.
-_camera_flip_y :: proc(batch: ^Batch_Draw_Calls) -> bool {
+_camera_flip_y :: proc(batch: ^Batch) -> bool {
 	if cam, cam_ok := batch.current_camera.?; cam_ok {
 		return cam.flip_y
 	}
@@ -6374,7 +6440,7 @@ _update_font_atlas :: proc(font: Font_Data, font_dirty_rect: [4]f32) {
 }
 
 // Not for direct use. Specify font to `draw_text_ex`
-_set_font :: proc(fh: Font, batch:^Batch_Draw_Calls) {
+_set_font :: proc(fh: Font, batch:^Batch) {
 	fh := fh
 
 	if batch.current_font == fh {

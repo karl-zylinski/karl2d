@@ -5,6 +5,9 @@ package general_multi_batching
 
 import k2 "../.."
 import lin"core:math/linalg"
+import fmt"core:fmt"
+
+WORLD_CAMERA :: k2.Camera { zoom = 1, flip_y = true }
 
 main :: proc() {
 	// Init Karl2D and open a window with drawing area of 1280x720 pixels and the supplied title.
@@ -21,15 +24,21 @@ main :: proc() {
 	//______________________________________
 	
 	// batch 2 gets rendered one time 
-	k2.clear(k2.LIGHT_BLUE,batch = batch_2)
+	// fmt.print(batch_2.current_view_matrix,"\n")
+	// k2.set_camera(WORLD_CAMERA,batch_2)
 	k2.draw_text("Hellope! batch 2", {50, 150}, 100, k2.DARK_BLUE,batch = batch_2)
+	// fmt.print(batch_2.current_view_matrix,"\n")
 	k2.update_batch(batch_2)
+	// fmt.print(batch_2.current_view_matrix,"\n")
+	cam:k2.Camera
+	
 
 	for k2.update() {
 		// Clear the screen with a color
-		// k2.clear(k2.LIGHT_BLUE,batch = batch_3)
-		// k2.clear(k2.LIGHT_BLUE,batch = batch_2)
+		k2.set_camera(WORLD_CAMERA)
+		// k2.set_camera(WORLD_CAMERA,batch_2)
 		k2.clear(k2.LIGHT_BLUE)
+		
 		// Write a message at coordinates (x, y) = (50, 50) with font height 100.
 		k2.draw_text("Hellope! defalt batch", {50, 50}, 100, k2.DARK_BLUE)
 
@@ -40,7 +49,9 @@ main :: proc() {
 		// Nothing you drew this frame is shown until you call this.
 		// k2.update_batch(batch_2)
 		mat:=lin.matrix4_translate_f32({100,100,0})
-		k2.render_batch(batch_2)
+		// k2.update_batch(batch_2)
+		k2.render_batch(batch_2, camera_overide = WORLD_CAMERA)
+		// k2.clear_batch(batch_2)
 		// k2.clear_batch(batch_2)
 
 		k2.update_batch(batch_3)

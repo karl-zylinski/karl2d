@@ -50,7 +50,6 @@ GL_State :: struct {
 	allocator: runtime.Allocator,
 	shaders: hm.Dynamic_Handle_Map(GL_Shader, Shader_Handle),
 	glue: Window_Render_Glue,
-	// vertex_buffer_gpu: u32,
 	vertex_buffer_gpu:hm.Dynamic_Handle_Map(GL_Vertex_Buffer_GPU, Vertex_Buffer_GPU_Handle),
 	textures: hm.Dynamic_Handle_Map(GL_Texture, Texture_Handle),
 	render_targets: hm.Dynamic_Handle_Map(GL_Render_Target, Render_Target_Handle),
@@ -1100,4 +1099,3 @@ gl_get_vertex_buffer_gpu :: proc(h: Vertex_Buffer_GPU_Handle) -> ^GL_Vertex_Buff
 gl_get_depth_clip_range :: proc() -> (min: f32, max: f32) {
 	return -1, 1
 }
-
