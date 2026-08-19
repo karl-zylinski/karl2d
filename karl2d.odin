@@ -150,6 +150,7 @@ init :: proc(
 	// the layout is identical in both coordinate systems.
 	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
 	fs.SetAlignVertical(&s.fs, .TOP)
+
 	// Dummy element so font with index 0 means 'no font'.
 	s.fonts = make([dynamic]Font_Data, s.allocator)
 	append_nothing(&s.fonts)
@@ -180,7 +181,7 @@ init :: proc(
 		s.master_bus.target_settings = DEFAULT_AUDIO_BUS_SETTINGS
 		s.master_bus.current_settings = DEFAULT_AUDIO_BUS_SETTINGS
 	}
-	
+
 	return s
 }
 
@@ -399,8 +400,6 @@ present :: proc(batch: ^Batch = nil) {
 	end_frame()
 }
 
-
-
 // Process all events that have arrived from the platform APIs. This includes keyboard, mouse,
 // gamepad and window events. This procedure processes and stores the information that procs like
 // `key_went_down` need.
@@ -422,6 +421,7 @@ process_events :: proc() {
 	runtime.clear(&s.events)
 	runtime.clear(&s.typed_runes)
 	pf.get_events(&s.events)
+
 	for &event in s.events {
 		switch &e in event {
 		case Event_Close_Window_Requested:
@@ -4050,6 +4050,7 @@ load_dynamic_font_from_file :: proc(filename: string, options: Font_Options = {}
 load_dynamic_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
 	fontstash_handle := fs.AddFontMem(&s.fs, "", slice.clone(data, s.allocator), false)
 	h := Font(len(s.fonts))
+
 	data := Font_Data {
 		dynamic_fontstash_handle = fontstash_handle,
 		atlas = {
@@ -4060,6 +4061,7 @@ load_dynamic_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> 
 		type = .Dynamic,
 		options = options,
 	}
+
 	set_texture_filter(data.atlas, options.filter)
 	append(&s.fonts, data)
 	return h
@@ -4261,7 +4263,7 @@ load_shader_from_bytes :: proc(
 
 		shd.constants[cidx] = loc 
 		constant_offset += constant_desc.size
-	
+
 		if constant_desc.name != "" {
 			shd.constant_lookup[strings.clone(constant_desc.name, s.allocator)] = loc
 
