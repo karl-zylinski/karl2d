@@ -40,7 +40,6 @@ import hm "core:container/handle_map"
 import "log"
 import "core:strings"
 import la "core:math/linalg"
-import "core:fmt"
 
 _ :: la
 
@@ -183,7 +182,7 @@ gl_init :: proc(
 }
 
 gl_shutdown :: proc() {
-	// gl.DeleteBuffers(1, &s.vertex_buffer_gpu)
+	hm.dynamic_destroy(&s.vertex_buffer_gpu)
 	hm.dynamic_destroy(&s.shaders)
 	hm.dynamic_destroy(&s.textures)
 	hm.dynamic_destroy(&s.render_targets)
@@ -497,8 +496,6 @@ gl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Text
 	return tex
 }
 
-
-
 gl_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
 	tex, tex_add_err := hm.add(&s.textures, create_texture(width, height, format, raw_data(data)))
 
@@ -686,8 +683,7 @@ gl_load_shader :: proc(
 	desc_allocator := frame_allocator, 
 	layout_formats: []Pixel_Format = {}, 
 	targrt_vertex_buffer:Vertex_Buffer_GPU_Handle
-	)-> (handle: Shader_Handle, desc: Shader_Desc) 
-{
+)-> (handle: Shader_Handle, desc: Shader_Desc){
 	@static err: [1024]u8
 	err_msg: string
 	vs_shader, vs_shader_ok := compile_shader_from_source(vs_source, gl.Shader_Type.VERTEX_SHADER, err[:], &err_msg)
@@ -777,6 +773,7 @@ gl_load_shader :: proc(
 	gl_shd := GL_Shader {
 		program = program,
 	}
+
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, vertex_buffer.vertex_buffer_gpu)
 	gl.GenVertexArrays(1, &gl_shd.vao)

@@ -11,13 +11,15 @@ main :: proc() {
 
 	// Main game loop. Runs until `update` returns false, which it does when the player tries to
 	// close the window.
-
+	// 
 	// Update will make sure all the input state and frame timers are up-to-date.
 	for k2.update() {
 		// Clear the screen with a color
 		k2.clear(k2.LIGHT_BLUE)
+
 		// Write a message at coordinates (x, y) = (50, 50) with font height 100.
 		k2.draw_text("Hellope!", {50, 50}, 100, k2.DARK_BLUE)
+
 		// Nothing you drew this frame is shown until you call this.
 		k2.present()
 	}
