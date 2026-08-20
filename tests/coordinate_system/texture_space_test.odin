@@ -21,15 +21,15 @@ UV_Vertex :: struct {
 
 captured_uvs: [dynamic]UV_Vertex
 
-capture_uv_draw :: proc(vertex_buffer: []u8, draw_calls: []k2.Draw_Call) {
-	pos_offset := state.current_shader.default_input_offsets[.Position]
-	uv_offset := state.current_shader.default_input_offsets[.UV]
+capture_uv_draw :: proc( draw_calls: []k2.Draw_Call) {
+	pos_offset := state.current_batch.current_shader.default_input_offsets[.Position]
+	uv_offset := state.current_batch.current_shader.default_input_offsets[.UV]
 
 	if pos_offset < 0 || uv_offset < 0 {
 		return
 	}
 
-	view_projection := state.proj_matrix * state.view_matrix
+	view_projection := state.screen_proj_matrix * state.current_batch.current_view_matrix
 
 	for dc in draw_calls {
 		if dc.vertex_size == 0 {
@@ -38,8 +38,8 @@ capture_uv_draw :: proc(vertex_buffer: []u8, draw_calls: []k2.Draw_Call) {
 
 		for i in 0..<dc.vertex_count {
 			base := dc.vertex_offset + i*dc.vertex_size
-			p := (^k2.Vec2)(&vertex_buffer[base + pos_offset])^
-			uv := (^k2.Vec2)(&vertex_buffer[base + uv_offset])^
+			p := (^k2.Vec2)(&state.current_batch.vertex_buffer_cpu[base + pos_offset])^
+			uv := (^k2.Vec2)(&state.current_batch.vertex_buffer_cpu[base + uv_offset])^
 
 			ndc := view_projection * k2.Vec4 { p.x, p.y, 0, 1 }
 
@@ -80,7 +80,7 @@ top_and_bottom_v_with_camera :: proc(
 	clear(&captured_uvs)
 	k2.set_camera(camera)
 	draw()
-	k2.draw_current_batch()
+	k2.update_render_clear_batch()
 
 	if len(captured_uvs) == 0 {
 		return 0, 0, false

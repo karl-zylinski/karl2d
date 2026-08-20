@@ -24,6 +24,9 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	set_texture_filter = rbnil_set_texture_filter,
 	load_shader = rbnil_load_shader,
 	destroy_shader = rbnil_destroy_shader,
+	create_vertex_buffer_gpu = rbnil_create_vertex_buffer_gpu,
+	destroy_vertex_buffer_gpu = rbnil_destroy_vertex_buffer_gpu,
+	update_vertex_buffer_gpu = rbnil_update_vertex_buffer_gpu,
 
 	default_shader_vertex_source = rbnil_default_shader_vertex_source,
 	default_shader_fragment_source = rbnil_default_shader_fragment_source,
@@ -75,7 +78,7 @@ rbnil_clear :: proc(render_texture: Render_Target_Handle, color: Color) {
 rbnil_present :: proc() {
 }
 
-rbnil_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
+rbnil_draw :: proc( draw_calls: []Draw_Call) {
 }
 
 rbnil_resize_swapchain :: proc(w, h: int) {
@@ -138,6 +141,7 @@ rbnil_load_shader :: proc(
 	fs_source: []byte,
 	desc_allocator := frame_allocator,
 	layout_formats: []Pixel_Format = {},
+	targrt_vertex_buffer:Vertex_Buffer_GPU_Handle,
 ) -> (
 	handle: Shader_Handle,
 	desc: Shader_Desc,
@@ -177,6 +181,17 @@ rbnil_default_shader_fragment_source :: proc() -> []byte {
 	return {}
 }
 
+rbnil_create_vertex_buffer_gpu :: proc(buff_size:=VERTEX_BUFFER_MAX) -> Vertex_Buffer_GPU_Handle{
+	return {}
+}
+
+rbnil_destroy_vertex_buffer_gpu :: proc(h: Vertex_Buffer_GPU_Handle) {
+
+}
+
+rbnil_update_vertex_buffer_gpu :: proc(handle: Vertex_Buffer_GPU_Handle, vertex_buffer: []u8){
+
+}
 rbnil_get_depth_clip_range :: proc() -> (min: f32, max: f32) {
 	return 0, 1
 }
