@@ -542,20 +542,20 @@ set_sound_pan :: proc(sound: Sound, pan: f32)
 // play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
-// How far into its audio the sound is, in seconds. Works for sounds from clips and from streams.
+// Move the sound to another spot in its audio. `seconds` is how far into the audio it should
+// continue from, so 0 is the start. Works for sounds from clips and from streams.
 //
-// Warning: For a sound playing a stream that was loaded with `load_audio_stream_from_file`,
-// changing the position may cause a brief hiccup, because the file has to be decoded up to the
-// new position.
-set_sound_position :: proc(sound: Sound, seconds: f32)
+// Warning: For a sound playing a stream that was loaded with `load_audio_stream_from_file`, this
+// may cause a brief hiccup, because the file has to be decoded up to the new spot.
+set_sound_time :: proc(sound: Sound, seconds: f32)
 
-// How far into its audio the sound currently is, in seconds. Returns 0 if the sound no longer
-// exists.
-get_sound_position :: proc(sound: Sound) -> f32
+// How far into its audio the sound currently is, in seconds. This is playback time, so a looping
+// sound goes back to 0 each time it starts over. Returns 0 if the sound no longer exists.
+get_sound_time :: proc(sound: Sound) -> f32
 
-// How long the whole audio of the sound is, in seconds. Use it together with
-// `get_sound_position` to show how far into a song you are. Returns 0 if the sound no longer
-// exists, or if the length could not be figured out.
+// How long the whole audio of the sound is, in seconds. Use it together with `get_sound_time` to
+// show how far into a song you are. Returns 0 if the sound no longer exists, or if the length
+// could not be figured out.
 get_sound_length :: proc(sound: Sound) -> f32
 
 // Make a sound loop when it reaches the end.

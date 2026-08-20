@@ -127,7 +127,7 @@ step :: proc() -> bool {
 		k2.update_audio_stream(music)
 
 		// Home starts the music. End stops it, which also rewinds the stream. P pauses and
-		// resumes, keeping the position.
+		// resumes, keeping its place in the song.
 		if k2.key_went_down(.Home) {
 			music_sound = k2.play_audio_stream(
 				music,
@@ -151,7 +151,7 @@ step :: proc() -> bool {
 		// Press inside the bar to start dragging it, then release to jump to that spot. The drag
 		// continues even if the mouse leaves the bar, which is what you'd expect from a scrub bar.
 		//
-		// We only set the position when the button is released, not every frame of the drag.
+		// We only move the music when the button is released, not every frame of the drag.
 		// Seeking backwards in a stream that was loaded from file has to decode the file from the
 		// start, so doing it every frame would make the dragging stutter.
 		if k2.mouse_button_went_down(.Left) && k2.point_in_rect(k2.get_mouse_position(), SEEK_BAR) {
@@ -166,7 +166,7 @@ step :: proc() -> bool {
 				music_length := k2.get_sound_length(music_sound)
 
 				if music_length > 0 {
-					k2.set_sound_position(music_sound, seek_fraction * music_length)
+					k2.set_sound_time(music_sound, seek_fraction * music_length)
 				}
 			}
 		}
@@ -211,12 +211,12 @@ step :: proc() -> bool {
 			k2.BLACK,
 		)
 
-		position := k2.get_sound_position(music_sound)
+		time := k2.get_sound_time(music_sound)
 		length := k2.get_sound_length(music_sound)
 		fraction: f32
 
 		if length > 0 {
-			fraction = clamp(position/length, 0, 1)
+			fraction = clamp(time/length, 0, 1)
 		}
 
 		// While dragging, the bar follows the mouse instead of the music. The music catches up

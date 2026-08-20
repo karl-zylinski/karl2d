@@ -1928,12 +1928,12 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 	sound_object.target_settings.pitch = max(pitch, 0.01)
 }
 
-// How far into its audio the sound is, in seconds. Works for sounds from clips and from streams.
+// Move the sound to another spot in its audio. `seconds` is how far into the audio it should
+// continue from, so 0 is the start. Works for sounds from clips and from streams.
 //
-// Warning: For a sound playing a stream that was loaded with `load_audio_stream_from_file`,
-// changing the position may cause a brief hiccup, because the file has to be decoded up to the
-// new position.
-set_sound_position :: proc(sound: Sound, seconds: f32) {
+// Warning: For a sound playing a stream that was loaded with `load_audio_stream_from_file`, this
+// may cause a brief hiccup, because the file has to be decoded up to the new spot.
+set_sound_time :: proc(sound: Sound, seconds: f32) {
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -1956,7 +1956,7 @@ set_sound_position :: proc(sound: Sound, seconds: f32) {
 		// straight into the middle of the waveform.
 		sound_object.seek_gain = 0
 		sound_object.seek_gain_target = 1
-		_apply_sound_position(sound, wanted_seconds)
+		_apply_sound_time(sound, wanted_seconds)
 		return
 	}
 
@@ -1965,9 +1965,9 @@ set_sound_position :: proc(sound: Sound, seconds: f32) {
 	sound_object.seek_gain_target = 0
 }
 
-// How far into its audio the sound currently is, in seconds. Returns 0 if the sound no longer
-// exists.
-get_sound_position :: proc(sound: Sound) -> f32 {
+// How far into its audio the sound currently is, in seconds. This is playback time, so a looping
+// sound goes back to 0 each time it starts over. Returns 0 if the sound no longer exists.
+get_sound_time :: proc(sound: Sound) -> f32 {
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2029,9 +2029,9 @@ get_sound_position :: proc(sound: Sound) -> f32 {
 	return f32(position / channels) / f32(ab.sample_rate)
 }
 
-// How long the whole audio of the sound is, in seconds. Use it together with
-// `get_sound_position` to show how far into a song you are. Returns 0 if the sound no longer
-// exists, or if the length could not be figured out.
+// How long the whole audio of the sound is, in seconds. Use it together with `get_sound_time` to
+// show how far into a song you are. Returns 0 if the sound no longer exists, or if the length
+// could not be figured out.
 get_sound_length :: proc(sound: Sound) -> f32 {
 	sound_object := hm.get(&s.sounds, sound)
 
@@ -3313,9 +3313,9 @@ update_audio_mixer :: proc() {
 		pitch := settings.pitch
 		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch)
 
-		// `set_sound_position` doesn't move the sound itself, it just says where the sound should
-		// go. We move it here, once the sound has faded out. Then we fade it back in. That way
-		// moving to a completely different part of the waveform doesn't click.
+		// `set_sound_time` doesn't move the sound itself, it just says where the sound should go.
+		// We move it here, once the sound has faded out. Then we fade it back in. That way moving
+		// to a completely different part of the waveform doesn't click.
 
 		seek_gain_start := clamp(ps.seek_gain, 0, 1)
 		seek_gain_moved := move_towards(ps.seek_gain, ps.seek_gain_target, adjust_parameter_delta)
@@ -3331,7 +3331,7 @@ update_audio_mixer :: proc() {
 
 			// This may remove the sound, so don't touch `ps` afterwards. There is nothing to mix
 			// anyway: The fade has taken the volume all the way down.
-			_apply_sound_position(ps_handle, seek_seconds)
+			_apply_sound_time(ps_handle, seek_seconds)
 			continue
 		}
 
@@ -5813,8 +5813,8 @@ _ogg_file_total_frames :: proc(f: ^File) -> int {
 }
 
 // Moves a sound to another spot in its audio. Run by the mixer once the sound has faded out, and
-// by `set_sound_position` directly for sounds that are paused.
-_apply_sound_position :: proc(sound: Sound, seconds: f32) {
+// by `set_sound_time` directly for sounds that are paused.
+_apply_sound_time :: proc(sound: Sound, seconds: f32) {
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
