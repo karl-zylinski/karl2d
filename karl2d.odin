@@ -1931,12 +1931,9 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 // Move the sound to another spot in its audio. `seconds` is how far into the audio it should
 // continue from, so 0 is the start. Works for sounds from clips and from streams.
 //
-// Warning: Moving a sound that plays a stream loaded using `load_audio_stream_from_file`
-// backwards is slow. Such a file cannot be jumped around in, so it is decoded from the start up
-// to the new spot. That costs roughly two milliseconds for every second of audio it has to get
-// through, so going back to a late part of a long song can stall for a moment. Moving forwards
-// only decodes the part being skipped over. Streams loaded using `load_audio_stream_from_bytes`
-// are quick to move in both directions.
+// Moving a sound that plays an audio stream costs a few milliseconds, because a bit of audio has
+// to be decoded before there is anything to play at the new spot. It costs the same wherever in
+// the audio you move to. Sounds that play an audio clip move instantly.
 set_sound_time :: proc(sound: Sound, seconds: f32) {
 	sound_object := hm.get(&s.sounds, sound)
 
@@ -5729,6 +5726,148 @@ assert_initialized :: proc(loc := #caller_location) {
 	assert(s != nil, "Call k2.init before using this Karl2D procedure", loc)
 }
 
+// Moves the decoder of a stream that reads from a file to `target_frame`, or to a little before
+// it. Returns the frame it landed on, or -1 if it could not get there.
+//
+// We can't ask the decoder to jump, because it only ever sees the small pieces of the file we hand
+// it. But we can seek the file ourselves and tell the decoder to resynchronize: It then looks for
+// an ogg page it trusts, and once it has decoded a frame it can say how far into the audio that
+// page was. So we guess a spot in the file from how far into the audio we want to be, look at
+// where that guess landed, and guess again if we went too far.
+//
+// The guess is only approximate because an ogg file does not spend the same number of bytes on
+// every second of audio. That's why we aim a little before the wanted spot: The samples in between
+// are decoded and thrown away by `update_audio_stream`, which is much cheaper than guessing again.
+_seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
+	ab := hm.get(&s.audio_clips, sd.clip)
+
+	if ab == nil || sd.total_samples <= 0 {
+		return -1
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	total_frames := sd.total_samples / channels
+
+	if total_frames <= 0 {
+		return -1
+	}
+
+	file_size, file_size_err := file_seek(sd.file, 0, .End)
+
+	if file_size_err != nil || file_size <= 0 {
+		return -1
+	}
+
+	// How far before the wanted spot to aim.
+	back_off := 2 * ab.sample_rate
+
+	// Ogg pages are usually 4 to 8 kilobytes, so reading this much normally turns up a page right
+	// away.
+	READ_SIZE :: 8192
+
+	// A guess that overshoots costs us another guess. Give up after this many and let the caller
+	// fall back to decoding from the start.
+	MAX_GUESSES :: 8
+
+	// A page should turn up long before this many reads. This is here so that a file that is not
+	// what we think it is cannot spin forever.
+	MAX_READS :: 64
+
+	aim_frame := target_frame
+
+	for _ in 0..<MAX_GUESSES {
+		aim := max(aim_frame - back_off, 0)
+		guess := i64(f64(file_size) * (f64(aim) / f64(total_frames)))
+		guess = clamp(guess, 0, file_size)
+
+		if _, seek_err := file_seek(sd.file, guess, .Start); seek_err != nil {
+			return -1
+		}
+
+		runtime.clear(&sd.file_read_buf)
+		sd.file_read_buf_offset = 0
+		stbv.flush_pushdata(sd.vorbis)
+
+		landed := -1
+
+		for _ in 0..<MAX_READS {
+			decoded_channels: i32
+			samples: i32
+			output: [^]^f32
+
+			bytes_used := stbv.decode_frame_pushdata(
+				sd.vorbis,
+				raw_data(sd.file_read_buf[sd.file_read_buf_offset:]),
+				i32(len(sd.file_read_buf) - sd.file_read_buf_offset),
+				&decoded_channels,
+				&output,
+				&samples,
+			)
+
+			sd.file_read_buf_offset += int(bytes_used)
+
+			if samples > 0 {
+				// The decoder has found a page and decoded a frame from it, so it can now say
+				// where in the audio the next frame starts.
+				landed = int(stbv.get_sample_offset(sd.vorbis))
+				break
+			}
+
+			if bytes_used == 0 {
+				read_buf_size := len(sd.file_read_buf)
+				non_zero_resize(&sd.file_read_buf, read_buf_size + READ_SIZE)
+				read, read_err := file_read(
+					sd.file,
+					sd.file_read_buf[read_buf_size:read_buf_size + READ_SIZE],
+				)
+
+				if read > 0 {
+					shrink(&sd.file_read_buf, read_buf_size + read)
+				}
+
+				if read <= 0 || read_err != nil {
+					break
+				}
+			}
+		}
+
+		if landed < 0 {
+			// No page turned up here. Try closer to the start of the file.
+			if aim == 0 {
+				return -1
+			}
+
+			aim_frame = aim / 2
+			continue
+		}
+
+		if landed <= target_frame {
+			// Move the bytes the decoder hasn't used yet to the start of the read buffer, the same
+			// way `update_audio_stream` does, so that it carries on from here.
+			if len(sd.file_read_buf) > 0 {
+				copy(sd.file_read_buf[:], sd.file_read_buf[sd.file_read_buf_offset:])
+				shrink(&sd.file_read_buf, len(sd.file_read_buf) - sd.file_read_buf_offset)
+				sd.file_read_buf_offset = 0
+			}
+
+			return landed
+		}
+
+		// We went past the wanted spot. Aim earlier by however far we overshot.
+		aim_frame = aim - (landed - target_frame)
+
+		if aim_frame <= 0 {
+			return -1
+		}
+	}
+
+	return -1
+}
+
 // Works out how many audio frames an ogg file holds by looking at the last page in it.
 //
 // An ogg file is a sequence of pages. Each page starts with "OggS" and stores a granule position:
@@ -5884,16 +6023,27 @@ _apply_sound_time :: proc(sound: Sound, seconds: f32) {
 	case .From_File:
 		target := target_frame * channels
 
-		if target >= sd.decode_cursor {
+		// A short step forwards is cheapest to do by decoding the samples in between and throwing
+		// them away, which is what `seek_discard` makes `update_audio_stream` do.
+		if target >= sd.decode_cursor && target - sd.decode_cursor <= 2 * ab.sample_rate * channels {
 			sd.seek_discard += target - sd.decode_cursor
-		} else {
-			file_seek(sd.file, 0, .Start)
-			runtime.clear(&sd.file_read_buf)
-			sd.file_read_buf_offset = 0
-			stbv.flush_pushdata(sd.vorbis)
-			sd.decode_cursor = 0
-			sd.seek_discard = target
+			break
 		}
+
+		// Anything longer is done by seeking the file itself.
+		if landed := _seek_file_stream(sd, target_frame); landed >= 0 {
+			sd.decode_cursor = landed * channels
+			sd.seek_discard = target - sd.decode_cursor
+			break
+		}
+
+		// The file could not be searched, so go back to the start and decode from there.
+		file_seek(sd.file, 0, .Start)
+		runtime.clear(&sd.file_read_buf)
+		sd.file_read_buf_offset = 0
+		stbv.flush_pushdata(sd.vorbis)
+		sd.decode_cursor = 0
+		sd.seek_discard = target
 	}
 
 	slice.zero(ab.samples)
