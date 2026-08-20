@@ -885,11 +885,27 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 		new_dpi := win32.LOWORD(wparam)
 		s.window_scale = f32(new_dpi) / 96.0
 
+		// Windows supplies the outer window rectangle that preserves the window's logical size at
+		// the new DPI. Applying it here is important for apps like AltSnap, where unlike the native
+		// title-bar drag loop, they do not necessarily perform this adjustment on our behalf.
+		suggested_rect := (^win32.RECT)(uintptr(lparam))
+		win32.SetWindowPos(
+			hwnd,
+			{},
+			suggested_rect.left,
+			suggested_rect.top,
+			suggested_rect.right - suggested_rect.left,
+			suggested_rect.bottom - suggested_rect.top,
+			win32.SWP_NOACTIVATE | win32.SWP_NOZORDER,
+		)
+
 		append(&s.events, Event_Window_Scale_Changed {
 			scale = s.window_scale,
 			screen_width = s.screen_width,
 			screen_height = s.screen_height,
 		})
+
+		return 0
 
 	case win32.WM_ENTERSIZEMOVE:
 		s.in_resize_move_state = true
