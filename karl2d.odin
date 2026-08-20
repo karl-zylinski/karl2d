@@ -1931,8 +1931,12 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 // Move the sound to another spot in its audio. `seconds` is how far into the audio it should
 // continue from, so 0 is the start. Works for sounds from clips and from streams.
 //
-// Warning: For a sound playing a stream that was loaded with `load_audio_stream_from_file`, this
-// may cause a brief hiccup, because the file has to be decoded up to the new spot.
+// Warning: Moving a sound that plays a stream loaded using `load_audio_stream_from_file`
+// backwards is slow. Such a file cannot be jumped around in, so it is decoded from the start up
+// to the new spot. That costs roughly two milliseconds for every second of audio it has to get
+// through, so going back to a late part of a long song can stall for a moment. Moving forwards
+// only decodes the part being skipped over. Streams loaded using `load_audio_stream_from_bytes`
+// are quick to move in both directions.
 set_sound_time :: proc(sound: Sound, seconds: f32) {
 	sound_object := hm.get(&s.sounds, sound)
 
