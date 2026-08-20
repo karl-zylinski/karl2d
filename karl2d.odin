@@ -5748,12 +5748,16 @@ assert_initialized :: proc(loc := #caller_location) {
 // We can't ask the decoder to jump, because it only ever sees the small pieces of the file we hand
 // it. But we can seek the file ourselves and tell the decoder to resynchronize: It then looks for
 // an ogg page it trusts, and once it has decoded a frame it can say how far into the audio that
-// page was. So we guess a spot in the file from how far into the audio we want to be, look at
-// where that guess landed, and guess again if we went too far.
+// page was.
 //
-// The guess is only approximate because an ogg file does not spend the same number of bytes on
-// every second of audio. That's why we aim a little before the wanted spot: The samples in between
-// are decoded and thrown away by `update_audio_stream`, which is much cheaper than guessing again.
+// So we look for the right spot in the file. We keep two known points, one before the wanted spot
+// and one after it, and narrow the gap between them. The first couple of tries assume the bytes
+// are spread evenly over the audio, which lands close on most files. A file that spends very
+// different numbers of bytes on different parts of the audio ruins that assumption, so after that
+// we cut the remaining range in half instead, which always gets there.
+//
+// Landing a little before the wanted spot is fine: `update_audio_stream` decodes the bit in
+// between and throws it away, which is quick. Landing after it is no good at all.
 _seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
 	ab := hm.get(&s.audio_clips, sd.clip)
 
@@ -5778,37 +5782,24 @@ _seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
 		return -1
 	}
 
-	// How far before the wanted spot to aim.
-	back_off := 2 * ab.sample_rate
+	// Seeks the file to `offset` and lets the decoder find a page from there. Returns the frame the
+	// decoder ends up at, or -1 if no page turned up.
+	resync_at :: proc(sd: ^Audio_Stream_Data, offset: i64) -> int {
+		// Ogg pages are usually 4 to 8 kilobytes, so reading this much normally turns up a page
+		// right away.
+		READ_SIZE :: 8192
 
-	// Ogg pages are usually 4 to 8 kilobytes, so reading this much normally turns up a page right
-	// away.
-	READ_SIZE :: 8192
+		// A page should turn up long before this many reads. This is here so that a file that is
+		// not what we think it is cannot spin forever.
+		MAX_READS :: 64
 
-	// A guess that overshoots costs us another guess. Give up after this many and let the caller
-	// fall back to decoding from the start.
-	MAX_GUESSES :: 8
-
-	// A page should turn up long before this many reads. This is here so that a file that is not
-	// what we think it is cannot spin forever.
-	MAX_READS :: 64
-
-	aim_frame := target_frame
-
-	for _ in 0..<MAX_GUESSES {
-		aim := max(aim_frame - back_off, 0)
-		guess := i64(f64(file_size) * (f64(aim) / f64(total_frames)))
-		guess = clamp(guess, 0, file_size)
-
-		if _, seek_err := file_seek(sd.file, guess, .Start); seek_err != nil {
+		if _, seek_err := file_seek(sd.file, offset, .Start); seek_err != nil {
 			return -1
 		}
 
 		runtime.clear(&sd.file_read_buf)
 		sd.file_read_buf_offset = 0
 		stbv.flush_pushdata(sd.vorbis)
-
-		landed := -1
 
 		for _ in 0..<MAX_READS {
 			decoded_channels: i32
@@ -5829,8 +5820,7 @@ _seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
 			if samples > 0 {
 				// The decoder has found a page and decoded a frame from it, so it can now say
 				// where in the audio the next frame starts.
-				landed = int(stbv.get_sample_offset(sd.vorbis))
-				break
+				return int(stbv.get_sample_offset(sd.vorbis))
 			}
 
 			if bytes_used == 0 {
@@ -5846,42 +5836,101 @@ _seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
 				}
 
 				if read <= 0 || read_err != nil {
-					break
+					return -1
 				}
 			}
 		}
 
-		if landed < 0 {
-			// No page turned up here. Try closer to the start of the file.
-			if aim == 0 {
-				return -1
-			}
+		return -1
+	}
 
-			aim_frame = aim / 2
+	// Landing this far before the wanted spot is close enough to stop looking.
+	close_enough := 2 * ab.sample_rate
+
+	// Once the two known points are this close together there is nothing to gain by narrowing
+	// further: What is left decodes in well under a millisecond.
+	SMALL_RANGE :: 64 * 1024
+
+	// Cutting the range in half each time gets anywhere in a file of any size we might see well
+	// inside this many tries.
+	MAX_TRIES :: 40
+
+	// The two points we know: The audio at `lo_byte` starts at `lo_frame`, and the same for `hi`.
+	lo_byte, hi_byte := i64(0), file_size
+	lo_frame, hi_frame := 0, total_frames
+
+	// The best spot found so far, and where in the file it was.
+	best_frame := -1
+	best_byte := i64(0)
+
+	// Where in the file the decoder was left by the most recent try.
+	decoder_byte := i64(-1)
+
+	for try in 0..<MAX_TRIES {
+		if hi_byte - lo_byte <= SMALL_RANGE {
+			break
+		}
+
+		guess: i64
+
+		if try < 2 && hi_frame > lo_frame {
+			// Assume the bytes are spread evenly over the audio between the two known points.
+			aim := clamp(target_frame - close_enough/2, lo_frame, hi_frame)
+			span := f64(hi_byte - lo_byte)
+			part := f64(aim - lo_frame) / f64(hi_frame - lo_frame)
+			guess = lo_byte + i64(span * part)
+		} else {
+			guess = lo_byte + (hi_byte - lo_byte)/2
+		}
+
+		guess = clamp(guess, lo_byte, hi_byte)
+		landed := resync_at(sd, guess)
+		decoder_byte = guess
+
+		if landed < 0 {
+			// No page turned up here, so there is nothing usable this far in. Look earlier.
+			hi_byte = guess
 			continue
 		}
 
-		if landed <= target_frame {
-			// Move the bytes the decoder hasn't used yet to the start of the read buffer, the same
-			// way `update_audio_stream` does, so that it carries on from here.
-			if len(sd.file_read_buf) > 0 {
-				copy(sd.file_read_buf[:], sd.file_read_buf[sd.file_read_buf_offset:])
-				shrink(&sd.file_read_buf, len(sd.file_read_buf) - sd.file_read_buf_offset)
-				sd.file_read_buf_offset = 0
-			}
-
-			return landed
+		if landed > target_frame {
+			hi_byte = guess
+			hi_frame = landed
+			continue
 		}
 
-		// We went past the wanted spot. Aim earlier by however far we overshot.
-		aim_frame = aim - (landed - target_frame)
+		lo_byte = guess
+		lo_frame = landed
 
-		if aim_frame <= 0 {
-			return -1
+		if landed > best_frame {
+			best_frame = landed
+			best_byte = guess
+		}
+
+		if target_frame - landed <= close_enough {
+			break
 		}
 	}
 
-	return -1
+	if best_frame < 0 {
+		return -1
+	}
+
+	// The last try usually is the best spot, since that is when we stop looking. If it isn't then
+	// the decoder is somewhere else and has to be put back.
+	if decoder_byte != best_byte && best_frame != resync_at(sd, best_byte) {
+		return -1
+	}
+
+	// Move the bytes the decoder hasn't used yet to the start of the read buffer, the same way
+	// `update_audio_stream` does, so that it carries on from here.
+	if len(sd.file_read_buf) > 0 {
+		copy(sd.file_read_buf[:], sd.file_read_buf[sd.file_read_buf_offset:])
+		shrink(&sd.file_read_buf, len(sd.file_read_buf) - sd.file_read_buf_offset)
+		sd.file_read_buf_offset = 0
+	}
+
+	return best_frame
 }
 
 // Works out how many audio frames an ogg file holds by looking at the last page in it.
