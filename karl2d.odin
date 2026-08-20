@@ -646,7 +646,7 @@ update_batch :: proc(batch:^Batch = nil) {
 // but this is here to support the creation and use of custom vertex buffers
 // unless you know what you are doing recommended approach is to use
 // update_batch() for multi batching and present() for simpler rendering pipelines
-update_gpu_vertex_buffer::proc(gpu_buff:Vertex_Buffer_GPU_Handle,cpu_buff:[]u8){
+update_gpu_vertex_buffer::proc(gpu_buff:Vertex_Buffer_GPU_Handle, cpu_buff:[]u8){
 	rb.update_vertex_buffer_gpu(gpu_buff,cpu_buff)
 }
 
@@ -4337,7 +4337,7 @@ destroy_shader :: proc(shader: Shader) {
 }
 
 // Fetches the shader that Karl2D uses by default.
-get_default_shader :: proc(batch: ^Batch,) -> Shader {
+get_default_shader :: proc(batch: ^Batch = nil) -> Shader {
 	batch:= batch
 	if batch == nil {batch = s.current_batch}
 	return batch.default_shader
@@ -5412,7 +5412,7 @@ State :: struct {
 	mix_buffer_offset: int,
 }
 
-Batch::struct{
+Batch :: struct{
 	calls: [dynamic]Draw_Call,
 	// The one vertices go into right now. A zeroed one means there is none.
 	current_draw_call: Draw_Call,

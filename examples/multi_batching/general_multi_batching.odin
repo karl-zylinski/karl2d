@@ -6,64 +6,56 @@ package general_multi_batching
 import k2 "../.."
 import lin"core:math/linalg"
 import fmt"core:fmt"
-
-WORLD_CAMERA :: k2.Camera { zoom = 1, flip_y = true }
+	
 
 main :: proc() {
-	// Init Karl2D and open a window with drawing area of 1280x720 pixels and the supplied title.
 	k2.init(1280, 720, "Greetings from Karl2D!",{window_mode = .Windowed_Resizable})
 
-	// Main game loop. Runs until `update` returns false, which it does when the player tries to
-	// close the window.
-	//
-	// Update will make sure all the input state and frame timers are up-to-date.
-
-	//______________________________________
+	batch_1:=k2.create_batch(context.allocator)
 	batch_2:=k2.create_batch(context.allocator)
 	batch_3:=k2.create_batch(context.allocator)
-	//______________________________________
-	
-	// batch 2 gets rendered one time 
-	// fmt.print(batch_2.current_view_matrix,"\n")
-	// k2.set_camera(WORLD_CAMERA,batch_2)
-	k2.draw_text("Hellope! batch 2", {50, 150}, 100, k2.DARK_BLUE,batch = batch_2)
-	// fmt.print(batch_2.current_view_matrix,"\n")
-	k2.update_batch(batch_2)
-	// fmt.print(batch_2.current_view_matrix,"\n")
-	cam:k2.Camera
-	
+
+	// at the start of the program batch 2 is drawn 1 time then updated "uploaded to the gpu" 
+	// and then rendered to the screen every frame
+	k2.draw_text("Hellope! batch 3", {50, 350}, 100, k2.DARK_BLUE, batch = batch_3)
+	k2.update_batch(batch_3)
 
 	for k2.update() {
-		// Clear the screen with a color
-		k2.set_camera(WORLD_CAMERA)
-		// k2.set_camera(WORLD_CAMERA,batch_2)
 		k2.clear(k2.LIGHT_BLUE)
+
+		// no batch is specified so will use the current batch which is currently the default batch
+		k2.draw_text("Hellope! default batch", {50, 50}, 100, k2.DARK_BLUE)
+
+		// sets the current batch to batch 1
+		k2.set_current_batch(batch_1)
+		// no batch is specified so will use current batch 
+		k2.draw_text("Hellope! batch 1", {50, 150}, 100, k2.DARK_BLUE)
+		// set_current_batch() was left empty so it will set it to the default batch that is created on init
+		k2.set_current_batch()
+
+		// batch 2 is specified
+		k2.draw_text("Hellope! batch 2", {50, 250}, 100, k2.DARK_BLUE,batch = batch_2)
+
+		// instead of doing present we do________________________________________________
 		
-		// Write a message at coordinates (x, y) = (50, 50) with font height 100.
-		k2.draw_text("Hellope! defalt batch", {50, 50}, 100, k2.DARK_BLUE)
+		// this updates renders and clears the current batch which is currently the default batch
+		k2.update_render_clear_batch()
 
-		// k2.draw_text("Hellope! batch 2", {50, 150}, 100, k2.DARK_BLUE,batch = batch_2)
-		
-		k2.draw_text("Hellope! batch 3", {50, 250}, 100, k2.DARK_BLUE,batch = batch_3)
+		// this updates renders and clears batch_1
+		k2.update_render_clear_batch(batch_1)
 
-		// Nothing you drew this frame is shown until you call this.
-		// k2.update_batch(batch_2)
-		mat:=lin.matrix4_translate_f32({100,100,0})
-		// k2.update_batch(batch_2)
-		k2.render_batch(batch_2, camera_overide = WORLD_CAMERA)
-		// k2.clear_batch(batch_2)
-		// k2.clear_batch(batch_2)
+		// this updates renders and clears batch_2 but one at a time
+		//  it is the same as doing k2.update_render_clear_batch(batch_2)
+		k2.update_batch(batch_2)
+		k2.render_batch(batch_2)
+		k2.clear_batch(batch_2)
 
-		k2.update_batch(batch_3)
-		k2.render_batch(batch_3,mat)
-		k2.clear_batch(batch_3)
+		// we just render batch 3 it has already been updated and has not changed 
+		k2.render_batch(batch_3)
 
-		k2.update_render_clear_batch()// 
-
+		// ends the frame 
 		k2.end_frame()
-		// k2.present()
 	}
-
 	// Close the window and clean up the library's internal state.
 	k2.shutdown()
 }
