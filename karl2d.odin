@@ -3170,7 +3170,10 @@ update_audio_mixer :: proc() {
 			}
 
 			for samp_idx in 0..<n {
-				t := f32(samp_idx) / f32(n)
+				// Note that this uses `dest_to_write` and not `n`: The ramps run across the whole
+				// chunk. If we run out of samples early then only part of the ramp is used here,
+				// and the caller carries it on from there.
+				t := f32(samp_idx) / f32(dest_to_write)
 				volume := math.lerp(volume_start, volume_end, t)
 				pan := linalg.lerp(pan_start, pan_end, t)
 
@@ -3188,7 +3191,10 @@ update_audio_mixer :: proc() {
 			}
 
 			for samp_idx in 0..<n {
-				t := f32(samp_idx) / f32(n)
+				// Note that this uses `dest_to_write` and not `n`: The ramps run across the whole
+				// chunk. If we run out of samples early then only part of the ramp is used here,
+				// and the caller carries it on from there.
+				t := f32(samp_idx) / f32(dest_to_write)
 				volume := math.lerp(volume_start, volume_end, t)
 				pan := linalg.lerp(pan_start, pan_end, t)
 
@@ -3415,19 +3421,27 @@ update_audio_mixer :: proc() {
 
 				// The sound looped. Make sure to mix in the remaining samples from the start of the
 				// sound!
-				overflow := AUDIO_MIX_CHUNK_SIZE - num_mixed
+				mixed_before_loop := num_mixed
+				overflow := AUDIO_MIX_CHUNK_SIZE - mixed_before_loop
+
+				// Carry the volume and pan ramps on from where the first part of the chunk got to.
+				// Starting them over would jump the volume back up in the middle of the chunk,
+				// which is heard as a click.
+				split := f32(mixed_before_loop) / f32(AUDIO_MIX_CHUNK_SIZE)
+				volume_split := math.lerp(volume_start, volume_end, split)
+				pan_stereo_split := linalg.lerp(pan_stereo_start, pan_stereo_end, split)
 
 				num_mixed = audio_mix(
-					dest[num_mixed:],
+					dest[mixed_before_loop:],
 					data.samples[ps.offset:],
 					data.channels,
 					interpolate,
 					source_dest_ratio,
 					overflow,
 					ps.offset_fraction,
-					volume_start,
+					volume_split,
 					volume_end,
-					pan_stereo_start,
+					pan_stereo_split,
 					pan_stereo_end,
 				)
 				
