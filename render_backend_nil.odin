@@ -76,6 +76,21 @@ rbnil_present :: proc() {
 }
 
 rbnil_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
+	when #config(NIL_HASH_VERTICES, false) {
+		h: u64 = 14695981039346656037
+
+		for b in vertex_buffer {
+			h = (h ~ u64(b))*1099511628211
+		}
+
+		log.infof(
+			"vertex hash: %v bytes, %v draw calls, hash %016x, calls %v",
+			len(vertex_buffer),
+			len(draw_calls),
+			h,
+			draw_calls,
+		)
+	}
 }
 
 rbnil_resize_swapchain :: proc(w, h: int) {
