@@ -545,6 +545,22 @@ set_sound_pan :: proc(sound: Sound, pan: f32)
 // play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
+// Move the sound to another spot in its audio. `seconds` is measured from the start of the audio,
+// so 0 moves it back to the beginning. Use `get_sound_length` to find out how far you can go.
+//
+// Moving a sound that plays an audio stream is a bit slower than one that plays a clip, since some
+// audio has to be decoded before it can play. Don't do it every frame while dragging a scrub bar,
+// do it when the player lets go.
+set_sound_time :: proc(sound: Sound, seconds: f32)
+
+// Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
+// each time it starts over. Returns 0 if the sound doesn't exist.
+get_sound_time :: proc(sound: Sound) -> f32
+
+// Get the length of the sound's audio, in seconds. Use it together with `get_sound_time` to show
+// how far into a song you are. Returns 0 if the sound doesn't exist or if the length is unknown.
+get_sound_length :: proc(sound: Sound) -> f32
+
 // Make a sound loop when it reaches the end.
 //
 // Technical note: This also works for sounds started using `play_audio_stream`, but then it
@@ -635,10 +651,14 @@ destroy_audio_stream :: proc(stream: Audio_Stream)
 update_audio_stream :: proc(stream: Audio_Stream)
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
-// `set_sound_volume`, `stop_sound` etc. The playback continues from wherever the stream last was:
-// It starts over from the beginning only if the stream was just loaded, was stopped using
-// `stop_sound` or has finished playing. A stream can only play one sound at a time: Playing again
-// replaces the previous one.
+// `set_sound_volume`, `stop_sound` etc. The playback starts from wherever the stream last was,
+// which is the beginning if the stream was just loaded, was stopped using `stop_sound` or has
+// finished playing.
+//
+// A stream can only play one sound at a time. If it is already playing, then this hands back the
+// sound that is already playing and ignores the settings you pass in. Use the `set_sound_xxx`
+// procedures to change how it plays. Use `stop_sound` first if you want to start over from the
+// beginning. A paused sound starts playing again.
 //
 // Don't forget to call `update_audio_stream` every frame in order to stream in new data.
 play_audio_stream :: proc(
@@ -1450,6 +1470,21 @@ Audio_Stream_Data :: struct {
 	// Together with the `offset` of the Sound_Object, this forms a circular buffer.
 	buffer_write_pos: int,
 
+	// How far into the file the samples we most recently wrote into the clip were, counted the
+	// same way as the clip's samples: In the case of stereo, left and right count as one each.
+	// Take away the samples in the clip that haven't played yet and you get the spot the listener
+	// is hearing, which is what `get_sound_time` does.
+	decode_cursor: int,
+
+	// When above zero, `update_audio_stream` throws this many decoded samples away instead of
+	// writing them to the clip. Used when moving the stream, since the decoder can only move in
+	// steps of a whole ogg page.
+	seek_discard: int,
+
+	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
+	// when the stream is loaded. Zero if it could not be worked out.
+	total_samples: int,
+
 	// Different from `loop` in `Sound_Object`. This says if the whole stream should loop
 	// when it reaches end-of-file. The `loop` in `Sound_Object` just says to loop the
 	// buffer itself. That's something you always want for a stream: We are continously writing
@@ -1525,6 +1560,16 @@ Sound_Object :: struct {
 
 	// Set using `set_sound_paused`. The mixer skips paused sounds.
 	paused: bool,
+
+	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
+	// moves it, then fades it back in, so that landing in a completely different part of the
+	// waveform doesn't click. This is where it is going once the fade out is done.
+	pending_seek_seconds: f32,
+	has_pending_seek: bool,
+
+	// The fade used when moving a sound: 0 is no fade and 1 is completely faded out. The mixer
+	// raises it while a move is pending and lowers it again once the move is done.
+	seek_fade: f32,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,

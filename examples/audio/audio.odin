@@ -15,6 +15,16 @@ chord_clip: k2.Audio_Clip
 
 music: k2.Audio_Stream
 music_sound: k2.Sound
+
+// True while the left mouse button is dragging the seek bar.
+seeking: bool
+
+// How far along the seek bar the drag currently is, from 0 to 1.
+seek_fraction: f32
+
+// Where the seek bar is drawn. Clicking anywhere in it jumps to that spot in the song.
+SEEK_BAR :: k2.Rect { 20, 330, 800, 30 }
+
 snd_volume: f32
 snd_pan: f32
 snd_pitch: f32 = 1
@@ -117,7 +127,7 @@ step :: proc() -> bool {
 		k2.update_audio_stream(music)
 
 		// Home starts the music. End stops it, which also rewinds the stream. P pauses and
-		// resumes, keeping the position.
+		// resumes, keeping its place in the song.
 		if k2.key_went_down(.Home) {
 			music_sound = k2.play_audio_stream(
 				music,
@@ -134,6 +144,31 @@ step :: proc() -> bool {
 
 		if k2.key_went_down(.P) {
 			k2.set_sound_paused(music_sound, k2.sound_is_playing(music_sound))
+		}
+
+		// SEEK BAR
+		//
+		// Press inside the bar to start dragging it, then release to jump to that spot. The drag
+		// continues even if the mouse leaves the bar, which is what you'd expect from a scrub bar.
+		//
+		// We only move the music when the button is released, not every frame of the drag.
+		// Seeking backwards in a stream that was loaded from file has to decode the file from the
+		// start, so doing it every frame would make the dragging stutter.
+		if k2.mouse_button_went_down(.Left) && k2.point_in_rect(k2.get_mouse_position(), SEEK_BAR) {
+			seeking = true
+		}
+
+		if seeking {
+			seek_fraction = clamp((k2.get_mouse_position().x - SEEK_BAR.x) / SEEK_BAR.w, 0, 1)
+
+			if !k2.mouse_button_is_held(.Left) {
+				seeking = false
+				music_length := k2.get_sound_length(music_sound)
+
+				if music_length > 0 {
+					k2.set_sound_time(music_sound, seek_fraction * music_length)
+				}
+			}
 		}
 
 		k2.set_sound_pitch(music_sound, snd_pitch)
@@ -169,7 +204,40 @@ step :: proc() -> bool {
 	k2.draw_text("Press Enter to also play a 1 second 440 hz sine wave.", {20, 240}, 40, k2.BLACK)
 
 	when HAS_MUSIC {
-		k2.draw_text("Home plays the music, End stops it, P pauses.", {20, 280}, 40, k2.BLACK)
+		k2.draw_text(
+			"Home plays the music, End stops it, P pauses. Drag the bar to seek.",
+			{20, 280},
+			40,
+			k2.BLACK,
+		)
+
+		time := k2.get_sound_time(music_sound)
+		length := k2.get_sound_length(music_sound)
+		fraction: f32
+
+		if length > 0 {
+			fraction = clamp(time/length, 0, 1)
+		}
+
+		// While dragging, the bar follows the mouse instead of the music. The music catches up
+		// when the button is released.
+		if seeking {
+			fraction = seek_fraction
+		}
+
+		k2.draw_rect(SEEK_BAR, k2.LIGHT_GRAY)
+
+		played := SEEK_BAR
+		played.w = SEEK_BAR.w * fraction
+		k2.draw_rect(played, seeking ? k2.LIGHT_BLUE : k2.DARK_GRAY)
+		k2.draw_rect_outline(SEEK_BAR, 1, k2.BLACK)
+
+		k2.draw_text(
+			fmt.tprintf("%.1f / %.1f s", fraction*length, length),
+			{SEEK_BAR.x, SEEK_BAR.y + SEEK_BAR.h + 8},
+			30,
+			k2.BLACK,
+		)
 	}
 
 	k2.present()
