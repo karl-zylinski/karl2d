@@ -1838,8 +1838,6 @@ play_audio_clip :: proc(
 		current_settings = playback_settings,
 		loop = loop,
 		bus = bus,
-		seek_gain = 1,
-		seek_gain_target = 1,
 	}
 
 	sound, add_err := hm.add(&s.sounds, sound_object)
@@ -1953,17 +1951,15 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 	// back in. A paused sound isn't being mixed, so there is nothing to fade and nothing that
 	// could click. Jump straight away in that case.
 	if sound_object.paused {
-		// Take the gain down so that the sound fades in when it is unpaused, instead of jumping
-		// straight into the middle of the waveform.
-		sound_object.seek_gain = 0
-		sound_object.seek_gain_target = 1
+		// Fade the sound in when it is unpaused, instead of jumping straight into the middle of
+		// the waveform.
+		sound_object.seek_fade = 1
 		_apply_sound_time(sound, wanted_seconds)
 		return
 	}
 
 	sound_object.pending_seek_seconds = wanted_seconds
 	sound_object.has_pending_seek = true
-	sound_object.seek_gain_target = 0
 }
 
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
@@ -2957,8 +2953,6 @@ play_audio_stream :: proc(
 		current_settings = playback_settings,
 		bus = bus,
 		stream = stream,
-		seek_gain = 1,
-		seek_gain_target = 1,
 
 		// This means that we are looping the buffer itself. We will use this buffer as a circular
 		// buffer, filling it with samples as we stream in more. Thus it needs to be looped to not
@@ -3323,17 +3317,17 @@ update_audio_mixer :: proc() {
 		// We move it here, once the sound has faded out. Then we fade it back in. That way moving
 		// to a completely different part of the waveform doesn't click.
 
-		seek_gain_start := clamp(ps.seek_gain, 0, 1)
-		seek_gain_moved := move_towards(ps.seek_gain, ps.seek_gain_target, adjust_parameter_delta)
-		seek_gain_end := clamp(seek_gain_moved, 0, 1)
-		ps.seek_gain = seek_gain_end
+		seek_fade_target: f32 = ps.has_pending_seek ? 1 : 0
+		seek_fade_start := clamp(ps.seek_fade, 0, 1)
+		seek_fade_moved := move_towards(ps.seek_fade, seek_fade_target, adjust_parameter_delta)
+		seek_fade_end := clamp(seek_fade_moved, 0, 1)
+		ps.seek_fade = seek_fade_end
 
-		// Wait for `seek_gain_start` rather than `seek_gain_end`: The chunk that takes the gain
-		// down to zero is the one that holds the fade out, so it still has to be mixed.
-		if ps.has_pending_seek && seek_gain_start == 0 {
+		// Wait for `seek_fade_start` rather than `seek_fade_end`: The chunk that fades the sound
+		// all the way out is the one that holds the fade, so it still has to be mixed.
+		if ps.has_pending_seek && seek_fade_start == 1 {
 			seek_seconds := ps.pending_seek_seconds
 			ps.has_pending_seek = false
-			ps.seek_gain_target = 1
 
 			// This may remove the sound, so don't touch `ps` afterwards. There is nothing to mix
 			// anyway: The fade has taken the volume all the way down.
@@ -3347,10 +3341,10 @@ update_audio_mixer :: proc() {
 		// the last one should use. Then we feed those into the `add`/`add_interpolate` procedures.
 		// It will lerp across the range as it is mixing in the samples.
 
-		volume_start := clamp(settings.volume, 0, 1) * seek_gain_start
+		volume_start := clamp(settings.volume, 0, 1) * (1 - seek_fade_start)
 		volume_end := clamp(move_towards(settings.volume, target_settings.volume, adjust_parameter_delta), 0, 1)
 		settings.volume = volume_end
-		volume_end *= seek_gain_end
+		volume_end *= 1 - seek_fade_end
 
 		if volume_start == volume_end && volume_end == 0 {
 			continue
@@ -5252,10 +5246,9 @@ Sound_Object :: struct {
 	pending_seek_seconds: f32,
 	has_pending_seek: bool,
 
-	// The fade used when moving a sound. Multiplied into the volume while mixing. Starts at 1,
-	// which the procedures that create sounds take care of.
-	seek_gain: f32,
-	seek_gain_target: f32,
+	// The fade used when moving a sound: 0 is no fade and 1 is completely faded out. The mixer
+	// raises it while a move is pending and lowers it again once the move is done.
+	seek_fade: f32,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
@@ -6091,7 +6084,7 @@ _apply_sound_time :: proc(sound: Sound, seconds: f32) {
 		// A short step forwards is cheapest to do by decoding the samples in between and throwing
 		// them away, which is what `seek_discard` makes `update_audio_stream` do.
 		if target >= sd.decode_cursor && target - sd.decode_cursor <= 2 * ab.sample_rate * channels {
-			sd.seek_discard += target - sd.decode_cursor
+			sd.seek_discard = target - sd.decode_cursor
 			break
 		}
 

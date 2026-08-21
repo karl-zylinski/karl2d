@@ -1542,10 +1542,9 @@ Sound_Object :: struct {
 	pending_seek_seconds: f32,
 	has_pending_seek: bool,
 
-	// The fade used when moving a sound. Multiplied into the volume while mixing. Starts at 1,
-	// which the procedures that create sounds take care of.
-	seek_gain: f32,
-	seek_gain_target: f32,
+	// The fade used when moving a sound: 0 is no fade and 1 is completely faded out. The mixer
+	// raises it while a move is pending and lowers it again once the move is done.
+	seek_fade: f32,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
