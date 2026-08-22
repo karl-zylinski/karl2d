@@ -2022,8 +2022,17 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 		remaining = len(ab.samples) - sound_object.offset + sd.buffer_write_pos
 	}
 
-	position := max(sd.decode_cursor - remaining, 0)
-	return f32(position / channels) / f32(ab.sample_rate)
+	position := sd.decode_cursor - remaining
+
+	// A looping stream starts decoding the beginning of the file again before the listener has
+	// heard the end of it, since the end is still sitting in the buffer. Count back into the
+	// previous time round, so that the last bit of the audio is reported instead of jumping to
+	// the start early.
+	for position < 0 && sd.total_samples > 0 {
+		position += sd.total_samples
+	}
+
+	return f32(max(position, 0) / channels) / f32(ab.sample_rate)
 }
 
 // Get the length of the sound's audio, in seconds. Use it together with `get_sound_time` to show
