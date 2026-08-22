@@ -1948,6 +1948,159 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 	sound_object.target_settings.pitch = max(pitch, 0.01)
 }
 
+// Move the sound to another spot in its audio. `seconds` is measured from the start of the audio,
+// so 0 moves it back to the beginning. Use `get_sound_length` to find out how far you can go.
+//
+// Moving a sound that plays an audio stream is a bit slower than one that plays a clip, since some
+// audio has to be decoded before it can play. Don't do it every frame while dragging a scrub bar,
+// do it when the player lets go.
+set_sound_time :: proc(sound: Sound, seconds: f32) {
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return
+	}
+
+	wanted_seconds := max(seconds, 0)
+	length := get_sound_length(sound)
+
+	if length > 0 {
+		wanted_seconds = min(wanted_seconds, length)
+	}
+
+	// Jumping to another spot in the audio makes the waveform jump, which is heard as a click. So
+	// we don't jump right away: The mixer fades the sound out first, then jumps, then fades it
+	// back in. A paused sound isn't being mixed, so there is nothing to fade and nothing that
+	// could click. Jump straight away in that case.
+	if sound_object.paused {
+		// Fade the sound in when it is unpaused, instead of jumping straight into the middle of
+		// the waveform.
+		sound_object.seek_fade = 1
+		_apply_sound_time(sound, wanted_seconds)
+		return
+	}
+
+	sound_object.pending_seek_seconds = wanted_seconds
+	sound_object.has_pending_seek = true
+}
+
+// Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
+// each time it starts over. Returns 0 if the sound doesn't exist.
+get_sound_time :: proc(sound: Sound) -> f32 {
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return 0
+	}
+
+	// A seek that is still fading out hasn't moved the sound yet, but it is on its way there.
+	// Report where it is going, so that things like a seek bar don't jump backwards for a moment.
+	if sound_object.has_pending_seek {
+		return sound_object.pending_seek_seconds
+	}
+
+	if sound_object.stream == AUDIO_STREAM_NONE {
+		clip := hm.get(&s.audio_clips, sound_object.clip)
+
+		if clip == nil {
+			return 0
+		}
+
+		channels := 1
+		if clip.channels == .Stereo {
+			channels = 2
+		}
+
+		return f32(sound_object.offset / channels) / f32(clip.sample_rate)
+	}
+
+	sd := hm.get(&s.audio_streams, sound_object.stream)
+
+	if sd == nil {
+		return 0
+	}
+
+	ab := hm.get(&s.audio_clips, sd.clip)
+
+	if ab == nil {
+		return 0
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	// A seek that is still catching up has emptied the buffer, so there is nothing in there to
+	// measure. Report where the sound is about to be instead.
+	if sd.seek_discard > 0 {
+		return f32((sd.decode_cursor + sd.seek_discard) / channels) / f32(ab.sample_rate)
+	}
+
+	// How many decoded samples are still sitting unplayed in the circular staging buffer.
+	remaining := sd.buffer_write_pos - sound_object.offset
+
+	if remaining < 0 {
+		remaining = len(ab.samples) - sound_object.offset + sd.buffer_write_pos
+	}
+
+	position := sd.decode_cursor - remaining
+
+	// A looping stream starts decoding the beginning of the file again before the listener has
+	// heard the end of it, since the end is still sitting in the buffer. Count back into the
+	// previous time round, so that the last bit of the audio is reported instead of jumping to
+	// the start early.
+	for position < 0 && sd.total_samples > 0 {
+		position += sd.total_samples
+	}
+
+	return f32(max(position, 0) / channels) / f32(ab.sample_rate)
+}
+
+// Get the length of the sound's audio, in seconds. Use it together with `get_sound_time` to show
+// how far into a song you are. Returns 0 if the sound doesn't exist or if the length is unknown.
+get_sound_length :: proc(sound: Sound) -> f32 {
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return 0
+	}
+
+	if sound_object.stream == AUDIO_STREAM_NONE {
+		clip := hm.get(&s.audio_clips, sound_object.clip)
+
+		if clip == nil {
+			return 0
+		}
+
+		channels := 1
+		if clip.channels == .Stereo {
+			channels = 2
+		}
+
+		return f32(len(clip.samples) / channels) / f32(clip.sample_rate)
+	}
+
+	sd := hm.get(&s.audio_streams, sound_object.stream)
+
+	if sd == nil {
+		return 0
+	}
+
+	ab := hm.get(&s.audio_clips, sd.clip)
+
+	if ab == nil {
+		return 0
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	return f32(sd.total_samples / channels) / f32(ab.sample_rate)
+}
+
 // Make a sound loop when it reaches the end.
 //
 // Technical note: This also works for sounds started using `play_audio_stream`, but then it
@@ -2432,6 +2585,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		vorbis = vorbis_res,
 		vorbis_buffer = vorbis_buffer,
 		clip = audio_clip_handle,
+		total_samples = _ogg_file_total_frames(f) * int(info.channels),
 		file_read_buf = make([dynamic]u8, s.allocator),
 	}
 
@@ -2530,6 +2684,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		vorbis = vorbis_res,
 		clip = audio_clip_handle,
 		vorbis_buffer = vorbis_buffer,
+		total_samples = int(stbv.stream_length_in_samples(vorbis_res)) * int(info.channels),
 	}
 
 	stream, stream_add_err := hm.add(&s.audio_streams, asd)
@@ -2653,6 +2808,11 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 							}
 
 							stbv.flush_pushdata(sd.vorbis)
+							sd.decode_cursor = 0
+
+							// A discard larger than the file would otherwise spin forever.
+							sd.seek_discard = 0
+
 							continue
 						} else {
 							hm.remove(&s.sounds, sd.sound)
@@ -2672,17 +2832,31 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 					mono: [^]f32 = output[0]
 
 					for samp_idx in 0..<samples {
-						ab.samples[sd.buffer_write_pos] = mono[samp_idx]
-						sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
+						// A pending seek throws away decoded samples instead of writing them,
+						// until the decoder has caught up to the target position.
+						if sd.seek_discard > 0 {
+							sd.seek_discard -= 1
+						} else {
+							ab.samples[sd.buffer_write_pos] = mono[samp_idx]
+							sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
+						}
+
+						sd.decode_cursor += 1
 					}
 				} else if channels == 2 {
 					left: [^]f32 = output[0]
 					right: [^]f32 = output[1]
 
 					for samp_idx in 0..<samples {
-						ab.samples[sd.buffer_write_pos] = left[samp_idx]
-						ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
-						sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
+						if sd.seek_discard > 0 {
+							sd.seek_discard -= 2
+						} else {
+							ab.samples[sd.buffer_write_pos] = left[samp_idx]
+							ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
+							sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
+						}
+
+						sd.decode_cursor += 2
 					}
 				} else {
 					hm.remove(&s.sounds, sd.sound)
@@ -2714,6 +2888,11 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 			if samples == 0 {
 				if sd.loop {
 					stbv.seek_start(sd.vorbis)
+					sd.decode_cursor = 0
+
+					// A discard larger than the file would otherwise spin forever.
+					sd.seek_discard = 0
+
 					continue
 				} else {
 					// TODO: Stopping here is bad as the samples haven't been mixed in yet. Remove the
@@ -2731,6 +2910,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 				for samp_idx in 0..<samples {
 					ab.samples[sd.buffer_write_pos] = mono[samp_idx]
 					sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
+					sd.decode_cursor += 1
 				}
 			} else if channels == 2 {
 				left: [^]f32 = output[0]
@@ -2740,6 +2920,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 					ab.samples[sd.buffer_write_pos] = left[samp_idx]
 					ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
 					sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
+					sd.decode_cursor += 2
 				}
 			} else {
 				hm.remove(&s.sounds, sd.sound)
@@ -2751,10 +2932,14 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 }
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
-// `set_sound_volume`, `stop_sound` etc. The playback continues from wherever the stream last was:
-// It starts over from the beginning only if the stream was just loaded, was stopped using
-// `stop_sound` or has finished playing. A stream can only play one sound at a time: Playing again
-// replaces the previous one.
+// `set_sound_volume`, `stop_sound` etc. The playback starts from wherever the stream last was,
+// which is the beginning if the stream was just loaded, was stopped using `stop_sound` or has
+// finished playing.
+//
+// A stream can only play one sound at a time. If it is already playing, then this hands back the
+// sound that is already playing and ignores the settings you pass in. Use the `set_sound_xxx`
+// procedures to change how it plays. Use `stop_sound` first if you want to start over from the
+// beginning. A paused sound starts playing again.
 //
 // Don't forget to call `update_audio_stream` every frame in order to stream in new data.
 play_audio_stream :: proc(
@@ -2777,8 +2962,12 @@ play_audio_stream :: proc(
 		return SOUND_NONE
 	}
 
+	// A stream can only feed one sound, and that sound is already playing, so there is nothing to
+	// start. Hand back the sound that is already going. Unpause it though: This procedure is how
+	// you play a stream, so it should be playing when we are done.
 	if existing := hm.get(&s.sounds, sd.sound); existing != nil {
-		hm.remove(&s.sounds, sd.sound)
+		existing.paused = false
+		return sd.sound
 	}
 
 	sd.loop = loop
@@ -2796,9 +2985,6 @@ play_audio_stream :: proc(
 		bus = bus,
 		stream = stream,
 
-		// Start reading at the write head, so that playback continues from the decode cursor.
-		offset = sd.buffer_write_pos,
-
 		// This means that we are looping the buffer itself. We will use this buffer as a circular
 		// buffer, filling it with samples as we stream in more. Thus it needs to be looped to not
 		// stop when the end of the circular buffer is reached.
@@ -2813,7 +2999,16 @@ play_audio_stream :: proc(
 		return SOUND_NONE
 	}
 
-	return sd.sound
+	sound := sd.sound
+
+	// Decode into the buffer before returning, so that there is something to play right away. The
+	// mixer may well run before the game gets around to calling `update_audio_stream`. A sound
+	// that reads an empty buffer moves its read position past the write position, which makes the
+	// buffer look full rather than empty, so it would not be refilled until the read position had
+	// wrapped all the way around.
+	update_audio_stream(stream)
+
+	return sound
 }
 
 // Create an audio bus: A group of sounds that are mixed together before they reach the master bus.
@@ -2999,7 +3194,10 @@ update_audio_mixer :: proc() {
 			}
 
 			for samp_idx in 0..<n {
-				t := f32(samp_idx) / f32(n)
+				// Note that this uses `dest_to_write` and not `n`: The ramps run across the whole
+				// chunk. If we run out of samples early then only part of the ramp is used here,
+				// and the caller carries it on from there.
+				t := f32(samp_idx) / f32(dest_to_write)
 				volume := math.lerp(volume_start, volume_end, t)
 				pan := linalg.lerp(pan_start, pan_end, t)
 
@@ -3017,7 +3215,10 @@ update_audio_mixer :: proc() {
 			}
 
 			for samp_idx in 0..<n {
-				t := f32(samp_idx) / f32(n)
+				// Note that this uses `dest_to_write` and not `n`: The ramps run across the whole
+				// chunk. If we run out of samples early then only part of the ramp is used here,
+				// and the caller carries it on from there.
+				t := f32(samp_idx) / f32(dest_to_write)
 				volume := math.lerp(volume_start, volume_end, t)
 				pan := linalg.lerp(pan_start, pan_end, t)
 
@@ -3143,15 +3344,38 @@ update_audio_mixer :: proc() {
 		pitch := settings.pitch
 		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch)
 
+		// `set_sound_time` doesn't move the sound itself, it just says where the sound should go.
+		// We move it here, once the sound has faded out. Then we fade it back in. That way moving
+		// to a completely different part of the waveform doesn't click.
+
+		seek_fade_target: f32 = ps.has_pending_seek ? 1 : 0
+		seek_fade_start := clamp(ps.seek_fade, 0, 1)
+		seek_fade_moved := move_towards(ps.seek_fade, seek_fade_target, adjust_parameter_delta)
+		seek_fade_end := clamp(seek_fade_moved, 0, 1)
+		ps.seek_fade = seek_fade_end
+
+		// Wait for `seek_fade_start` rather than `seek_fade_end`: The chunk that fades the sound
+		// all the way out is the one that holds the fade, so it still has to be mixed.
+		if ps.has_pending_seek && seek_fade_start == 1 {
+			seek_seconds := ps.pending_seek_seconds
+			ps.has_pending_seek = false
+
+			// This may remove the sound, so `continue` makes us avoid using `ps` after this. There
+			// is nothing to mix anyway: The fade has taken the volume all the way down.
+			_apply_sound_time(ps_handle, seek_seconds)
+			continue
+		}
+
 		// We can't just use the `volume_end` value for the volume. We are going to mix in
 		// `AUDIO_MIX_CHUNK_SIZE` number of samples. We'd still get clicks in the sound if we hopped
 		// to the ending volume. Instead, we calculate what the first sample should use and what
 		// the last one should use. Then we feed those into the `add`/`add_interpolate` procedures.
 		// It will lerp across the range as it is mixing in the samples.
 
-		volume_start := clamp(settings.volume, 0, 1)
+		volume_start := clamp(settings.volume, 0, 1) * (1 - seek_fade_start)
 		volume_end := clamp(move_towards(settings.volume, target_settings.volume, adjust_parameter_delta), 0, 1)
 		settings.volume = volume_end
+		volume_end *= 1 - seek_fade_end
 
 		if volume_start == volume_end && volume_end == 0 {
 			continue
@@ -3221,19 +3445,27 @@ update_audio_mixer :: proc() {
 
 				// The sound looped. Make sure to mix in the remaining samples from the start of the
 				// sound!
-				overflow := AUDIO_MIX_CHUNK_SIZE - num_mixed
+				mixed_before_loop := num_mixed
+				overflow := AUDIO_MIX_CHUNK_SIZE - mixed_before_loop
+
+				// Carry the volume and pan ramps on from where the first part of the chunk got to.
+				// Starting them over would jump the volume back up in the middle of the chunk,
+				// which is heard as a click.
+				split := f32(mixed_before_loop) / f32(AUDIO_MIX_CHUNK_SIZE)
+				volume_split := math.lerp(volume_start, volume_end, split)
+				pan_stereo_split := linalg.lerp(pan_stereo_start, pan_stereo_end, split)
 
 				num_mixed = audio_mix(
-					dest[num_mixed:],
+					dest[mixed_before_loop:],
 					data.samples[ps.offset:],
 					data.channels,
 					interpolate,
 					source_dest_ratio,
 					overflow,
 					ps.offset_fraction,
-					volume_start,
+					volume_split,
 					volume_end,
-					pan_stereo_start,
+					pan_stereo_split,
 					pan_stereo_end,
 				)
 				
@@ -4974,6 +5206,21 @@ Audio_Stream_Data :: struct {
 	// Together with the `offset` of the Sound_Object, this forms a circular buffer.
 	buffer_write_pos: int,
 
+	// How far into the file the samples we most recently wrote into the clip were, counted the
+	// same way as the clip's samples: In the case of stereo, left and right count as one each.
+	// Take away the samples in the clip that haven't played yet and you get the spot the listener
+	// is hearing, which is what `get_sound_time` does.
+	decode_cursor: int,
+
+	// When above zero, `update_audio_stream` throws this many decoded samples away instead of
+	// writing them to the clip. Used when moving the stream, since the decoder can only move in
+	// steps of a whole ogg page.
+	seek_discard: int,
+
+	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
+	// when the stream is loaded. Zero if it could not be worked out.
+	total_samples: int,
+
 	// Different from `loop` in `Sound_Object`. This says if the whole stream should loop
 	// when it reaches end-of-file. The `loop` in `Sound_Object` just says to loop the
 	// buffer itself. That's something you always want for a stream: We are continously writing
@@ -5049,6 +5296,16 @@ Sound_Object :: struct {
 
 	// Set using `set_sound_paused`. The mixer skips paused sounds.
 	paused: bool,
+
+	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
+	// moves it, then fades it back in, so that landing in a completely different part of the
+	// waveform doesn't click. This is where it is going once the fade out is done.
+	pending_seek_seconds: f32,
+	has_pending_seek: bool,
+
+	// The fade used when moving a sound: 0 is no fade and 1 is completely faded out. The mixer
+	// raises it while a move is pending and lowers it again once the move is done.
+	seek_fade: f32,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
@@ -5540,6 +5797,389 @@ assert_initialized :: proc(loc := #caller_location) {
 	assert(s != nil, "Call k2.init before using this Karl2D procedure", loc)
 }
 
+// Moves the decoder of a stream that reads from a file to `target_frame`, or to a little before
+// it. Returns the frame it landed on, or -1 if it could not get there.
+//
+// We can't ask the decoder to jump, because it only ever sees the small pieces of the file we hand
+// it. But we can seek the file ourselves and tell the decoder to resynchronize: It then looks for
+// an ogg page it trusts, and once it has decoded a frame it can say how far into the audio that
+// page was.
+//
+// So we look for the right spot in the file. We keep two known points, one before the wanted spot
+// and one after it, and narrow the gap between them. The first couple of tries assume the bytes
+// are spread evenly over the audio, which lands close on most files. A file that spends very
+// different numbers of bytes on different parts of the audio ruins that assumption, so after that
+// we cut the remaining range in half instead, which always gets there.
+//
+// Landing a little before the wanted spot is fine: `update_audio_stream` decodes the bit in
+// between and throws it away, which is quick. Landing after it is no good at all.
+_seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
+	ab := hm.get(&s.audio_clips, sd.clip)
+
+	if ab == nil || sd.total_samples <= 0 {
+		return -1
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	total_frames := sd.total_samples / channels
+
+	if total_frames <= 0 {
+		return -1
+	}
+
+	file_size, file_size_err := file_seek(sd.file, 0, .End)
+
+	if file_size_err != nil || file_size <= 0 {
+		return -1
+	}
+
+	// Seeks the file to `offset` and lets the decoder find a page from there. Returns the frame the
+	// decoder ends up at, or -1 if no page turned up.
+	resync_at :: proc(sd: ^Audio_Stream_Data, offset: i64) -> int {
+		// Ogg pages are usually 4 to 8 kilobytes, so reading this much normally turns up a page
+		// right away.
+		READ_SIZE :: 8192
+
+		// A page should turn up long before this many reads. This is here so that a file that is
+		// not what we think it is cannot spin forever.
+		MAX_READS :: 64
+
+		if _, seek_err := file_seek(sd.file, offset, .Start); seek_err != nil {
+			return -1
+		}
+
+		runtime.clear(&sd.file_read_buf)
+		sd.file_read_buf_offset = 0
+		stbv.flush_pushdata(sd.vorbis)
+
+		for _ in 0..<MAX_READS {
+			decoded_channels: i32
+			samples: i32
+			output: [^]^f32
+
+			bytes_used := stbv.decode_frame_pushdata(
+				sd.vorbis,
+				raw_data(sd.file_read_buf[sd.file_read_buf_offset:]),
+				i32(len(sd.file_read_buf) - sd.file_read_buf_offset),
+				&decoded_channels,
+				&output,
+				&samples,
+			)
+
+			sd.file_read_buf_offset += int(bytes_used)
+
+			if samples > 0 {
+				// The decoder has found a page and decoded a frame from it, so it can now say
+				// where in the audio the next frame starts.
+				return int(stbv.get_sample_offset(sd.vorbis))
+			}
+
+			if bytes_used == 0 {
+				read_buf_size := len(sd.file_read_buf)
+				non_zero_resize(&sd.file_read_buf, read_buf_size + READ_SIZE)
+				read, read_err := file_read(
+					sd.file,
+					sd.file_read_buf[read_buf_size:read_buf_size + READ_SIZE],
+				)
+
+				if read > 0 {
+					shrink(&sd.file_read_buf, read_buf_size + read)
+				}
+
+				if read <= 0 || read_err != nil {
+					return -1
+				}
+			}
+		}
+
+		return -1
+	}
+
+	// Landing this far before the wanted spot is close enough to stop looking.
+	close_enough := 2 * ab.sample_rate
+
+	// Once the two known points are this close together there is nothing to gain by narrowing
+	// further: What is left decodes in well under a millisecond.
+	SMALL_RANGE :: 64 * 1024
+
+	// Cutting the range in half each time gets anywhere in a file of any size we might see well
+	// inside this many tries.
+	MAX_TRIES :: 40
+
+	// The two points we know: The audio at `lo_byte` starts at `lo_frame`, and the same for `hi`.
+	lo_byte, hi_byte := i64(0), file_size
+	lo_frame, hi_frame := 0, total_frames
+
+	// The best spot found so far, and where in the file it was.
+	best_frame := -1
+	best_byte := i64(0)
+
+	// Where in the file the decoder was left by the most recent try.
+	decoder_byte := i64(-1)
+
+	for try in 0..<MAX_TRIES {
+		if hi_byte - lo_byte <= SMALL_RANGE {
+			break
+		}
+
+		guess: i64
+
+		if try < 2 && hi_frame > lo_frame {
+			// Assume the bytes are spread evenly over the audio between the two known points.
+			aim := clamp(target_frame - close_enough/2, lo_frame, hi_frame)
+			span := f64(hi_byte - lo_byte)
+			part := f64(aim - lo_frame) / f64(hi_frame - lo_frame)
+			guess = lo_byte + i64(span * part)
+		} else {
+			guess = lo_byte + (hi_byte - lo_byte)/2
+		}
+
+		guess = clamp(guess, lo_byte, hi_byte)
+		landed := resync_at(sd, guess)
+		decoder_byte = guess
+
+		if landed < 0 {
+			// No page turned up here, so there is nothing usable this far in. Look earlier.
+			hi_byte = guess
+			continue
+		}
+
+		if landed > target_frame {
+			hi_byte = guess
+			hi_frame = landed
+			continue
+		}
+
+		lo_byte = guess
+		lo_frame = landed
+
+		if landed > best_frame {
+			best_frame = landed
+			best_byte = guess
+		}
+
+		if target_frame - landed <= close_enough {
+			break
+		}
+	}
+
+	if best_frame < 0 {
+		return -1
+	}
+
+	// The last try usually is the best spot, since that is when we stop looking. If it isn't then
+	// the decoder is somewhere else and has to be put back.
+	if decoder_byte != best_byte && best_frame != resync_at(sd, best_byte) {
+		return -1
+	}
+
+	// Move the bytes the decoder hasn't used yet to the start of the read buffer, the same way
+	// `update_audio_stream` does, so that it carries on from here.
+	if len(sd.file_read_buf) > 0 {
+		copy(sd.file_read_buf[:], sd.file_read_buf[sd.file_read_buf_offset:])
+		shrink(&sd.file_read_buf, len(sd.file_read_buf) - sd.file_read_buf_offset)
+		sd.file_read_buf_offset = 0
+	}
+
+	return best_frame
+}
+
+// Works out how many audio frames an ogg file holds by looking at the last page in it.
+//
+// An ogg file is a sequence of pages. Each page starts with "OggS" and stores a granule position:
+// The number of frames that have been decoded once that page has been played. The granule position
+// of the last page is therefore the length of the whole file. We do it this way because the
+// decoder cannot tell us the length of a file we feed to it a small piece at a time.
+//
+// The file position is restored before returning. Returns 0 if no length could be found.
+_ogg_file_total_frames :: proc(f: ^File) -> int {
+	// The biggest an ogg page can be. Reading this many bytes from the end of the file means we
+	// are certain to see the start of the last page.
+	MAX_OGG_PAGE_SIZE :: 65307
+
+	// The smallest an ogg page header can be. Reading fewer bytes than this means there is no
+	// page to find.
+	MIN_OGG_PAGE_SIZE :: 27
+
+	restore_pos, restore_pos_err := file_seek(f, 0, .Current)
+
+	if restore_pos_err != nil {
+		return 0
+	}
+
+	file_size, file_size_err := file_seek(f, 0, .End)
+
+	if file_size_err != nil {
+		return 0
+	}
+
+	read_size := min(int(file_size), MAX_OGG_PAGE_SIZE)
+
+	if read_size < MIN_OGG_PAGE_SIZE {
+		file_seek(f, restore_pos, .Start)
+		return 0
+	}
+
+	if _, seek_err := file_seek(f, file_size - i64(read_size), .Start); seek_err != nil {
+		file_seek(f, restore_pos, .Start)
+		return 0
+	}
+
+	buf := make([]u8, read_size, frame_allocator)
+	filled: int
+
+	// A single read may hand back less than we asked for, so keep going until the buffer is full.
+	for filled < read_size {
+		read, read_err := file_read(f, buf[filled:])
+
+		if read <= 0 || read_err != nil {
+			break
+		}
+
+		filled += read
+	}
+
+	file_seek(f, restore_pos, .Start)
+
+	if filled < MIN_OGG_PAGE_SIZE {
+		return 0
+	}
+
+	buf = buf[:filled]
+
+	// Walk backwards until we find a page that tells us where it ends.
+	for idx := len(buf) - MIN_OGG_PAGE_SIZE; idx >= 0; idx -= 1 {
+		if string(buf[idx:idx + 4]) != "OggS" {
+			continue
+		}
+
+		granule, granule_ok := endian.get_u64(buf[idx + 6:idx + 14], .Little)
+
+		if !granule_ok {
+			continue
+		}
+
+		// All ones means that no packet finishes on this page, so it says nothing about the
+		// length. Keep looking at earlier pages.
+		if granule == max(u64) {
+			continue
+		}
+
+		return int(granule)
+	}
+
+	return 0
+}
+
+// Moves a sound to another spot in its audio. Run by the mixer once the sound has faded out, and
+// by `set_sound_time` directly for sounds that are paused.
+_apply_sound_time :: proc(sound: Sound, seconds: f32) {
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return
+	}
+
+	clamped_seconds := max(seconds, 0)
+
+	if sound_object.stream == AUDIO_STREAM_NONE {
+		clip := hm.get(&s.audio_clips, sound_object.clip)
+
+		if clip == nil {
+			return
+		}
+
+		channels := 1
+		if clip.channels == .Stereo {
+			channels = 2
+		}
+
+		total_frames := len(clip.samples) / channels
+		target_frame := clamp(int(clamped_seconds * f32(clip.sample_rate)), 0, total_frames)
+
+		sound_object.offset = target_frame * channels
+		sound_object.offset_fraction = 0
+		return
+	}
+
+	sd := hm.get(&s.audio_streams, sound_object.stream)
+
+	if sd == nil {
+		return
+	}
+
+	ab := hm.get(&s.audio_clips, sd.clip)
+
+	if ab == nil {
+		return
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	target_frame := int(clamped_seconds * f32(ab.sample_rate))
+
+	// Don't go past the end of the audio when we know where that is.
+	if sd.total_samples > 0 {
+		target_frame = min(target_frame, sd.total_samples / channels)
+	}
+
+	switch sd.mode {
+	case .From_Bytes:
+		if stbv.seek(sd.vorbis, u32(target_frame)) == 0 {
+			log.error("Cannot set sound position, seeking in the audio stream failed.")
+			return
+		}
+
+		sd.decode_cursor = target_frame * channels
+		sd.seek_discard = 0
+
+	case .From_File:
+		target := target_frame * channels
+
+		// A short step forwards is cheapest to do by decoding the samples in between and throwing
+		// them away, which is what `seek_discard` makes `update_audio_stream` do.
+		if target >= sd.decode_cursor && target - sd.decode_cursor <= 2 * ab.sample_rate * channels {
+			sd.seek_discard = target - sd.decode_cursor
+			break
+		}
+
+		// Anything longer is done by seeking the file itself.
+		if landed := _seek_file_stream(sd, target_frame); landed >= 0 {
+			sd.decode_cursor = landed * channels
+			sd.seek_discard = target - sd.decode_cursor
+			break
+		}
+
+		// The file could not be searched, so go back to the start and decode from there.
+		file_seek(sd.file, 0, .Start)
+		runtime.clear(&sd.file_read_buf)
+		sd.file_read_buf_offset = 0
+		stbv.flush_pushdata(sd.vorbis)
+		sd.decode_cursor = 0
+		sd.seek_discard = target
+	}
+
+	slice.zero(ab.samples)
+	sd.buffer_write_pos = 0
+	sound_object.offset = 0
+	sound_object.offset_fraction = 0
+
+	// Decode into the buffer right away. If we left this to the next `update_audio_stream` then
+	// the mixer would play the silence we just wrote. Worse, once the mixer has moved the read
+	// position past the write position, the buffer looks full rather than empty, so it would not
+	// be refilled until the read position had wrapped all the way around.
+	//
+	// This may remove the sound, so don't touch `sound_object` after it.
+	update_audio_stream(sound_object.stream)
+}
+
 // Moves the decode cursor of a stream back to the start. Run when a stream-fed sound is stopped
 // and when a non-looping stream reaches the end of the file, so that playing it again starts from
 // the beginning.
@@ -5552,6 +6192,8 @@ _reset_audio_stream :: proc(stream: Audio_Stream) {
 	}
 
 	sd.buffer_write_pos = 0
+	sd.decode_cursor = 0
+	sd.seek_discard = 0
 
 	switch sd.mode {
 	case .From_File:
