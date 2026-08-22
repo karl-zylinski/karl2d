@@ -3329,8 +3329,8 @@ update_audio_mixer :: proc() {
 			seek_seconds := ps.pending_seek_seconds
 			ps.has_pending_seek = false
 
-			// This may remove the sound, so don't touch `ps` afterwards. There is nothing to mix
-			// anyway: The fade has taken the volume all the way down.
+			// This may remove the sound, so `continue` makes us avoid using `ps` after this. There
+			// is nothing to mix anyway: The fade has taken the volume all the way down.
 			_apply_sound_time(ps_handle, seek_seconds)
 			continue
 		}
