@@ -634,12 +634,16 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		// Vertical scroll
-		if axis == 0 {
-			event_direction: f32 = value > 0 ? -1 : 1
-			
+		// Wayland measures down and right as positive, so the vertical axis needs flipping.
+		switch axis {
+		case wl.POINTER_AXIS_VERTICAL_SCROLL:
 			append(&s.events, Event_Mouse_Wheel {
-				delta = event_direction,
+				delta = f32(math.sign(value)) * -1,
+			})
+
+		case wl.POINTER_AXIS_HORIZONTAL_SCROLL:
+			append(&s.events, Event_Mouse_Wheel_Horizontal {
+				delta = f32(math.sign(value)),
 			})
 		}
 	},

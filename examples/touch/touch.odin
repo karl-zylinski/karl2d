@@ -86,7 +86,7 @@ step :: proc() -> bool {
 			// Runs even for a finger added just above: a quick tap can go down and up in one frame.
 			if t.went_up {
 				if !t.cancelled && f.travelled < TAP_SLOP {
-					append(&markers, k2.screen_to_world(t.position, camera))
+					append(&markers, k2.screen_to_camera(t.position, camera))
 				}
 
 				fingers[i] = fingers[fingers_count - 1]
@@ -156,7 +156,7 @@ step :: proc() -> bool {
 			// Anchor on the world point under the pinch center, so whatever bit of the map is
 			// under the pinch stays under the pinch.
 			pinch_center := (now_a + now_b) / 2
-			anchor := k2.screen_to_world(pinch_center, camera)
+			anchor := k2.screen_to_camera(pinch_center, camera)
 
 			camera.zoom = clamp(camera.zoom * (dist/prev_dist), MIN_ZOOM, MAX_ZOOM)
 
@@ -166,7 +166,7 @@ step :: proc() -> bool {
 			// Wrapped, or crossing atan2's +/-pi line would report a whole extra turn.
 			camera.rotation += wrap_angle(now_angle - prev_angle)
 
-			camera.target += anchor - k2.screen_to_world(pinch_center, camera)
+			camera.target += anchor - k2.screen_to_camera(pinch_center, camera)
 		}
 	} else {
 		pinch_active = false
@@ -186,11 +186,11 @@ step :: proc() -> bool {
 		if wheel := k2.get_mouse_wheel_delta(); wheel != 0 {
 			// Same anchor trick as the pinch above, just with one point instead of two.
 			mouse_pos := k2.get_mouse_position()
-			anchor := k2.screen_to_world(mouse_pos, camera)
+			anchor := k2.screen_to_camera(mouse_pos, camera)
 
 			camera.zoom = clamp(camera.zoom * (wheel > 0 ? 1.1 : 0.9), MIN_ZOOM, MAX_ZOOM)
 
-			camera.target += anchor - k2.screen_to_world(mouse_pos, camera)
+			camera.target += anchor - k2.screen_to_camera(mouse_pos, camera)
 		}
 	}
 
@@ -240,7 +240,7 @@ step :: proc() -> bool {
 		}
 
 		// Touches are in physical screen pixels, so bring them into the UI camera's space.
-		position := k2.screen_to_world(t.position, ui_camera)
+		position := k2.screen_to_camera(t.position, ui_camera)
 
 		k2.draw_circle_outline(position, 30, 4, color)
 		k2.draw_text(fmt.tprintf("%v", t.id), position + { 60, -12 }, 24, color)
@@ -248,8 +248,8 @@ step :: proc() -> bool {
 
 	if gesture_count == 2 {
 		k2.draw_line(
-			k2.screen_to_world(gesture[0].position, ui_camera),
-			k2.screen_to_world(gesture[1].position, ui_camera),
+			k2.screen_to_camera(gesture[0].position, ui_camera),
+			k2.screen_to_camera(gesture[1].position, ui_camera),
 			2,
 			k2.YELLOW,
 		)

@@ -169,6 +169,9 @@ set_window_mode :: proc(window_mode: Window_Mode)
 // happen when you destroy a resource such as a texture or shader that is used in the current
 // batch.
 //
+// Note that `set_z` never starts a new draw call: the z value is stored in each vertex rather than
+// being part of a draw call's settings, so it's fine to call it before every draw.
+//
 // All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
 // dictates how big a vertex is. The maximum number of vertices in a batch is therefore
 // `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
@@ -253,7 +256,14 @@ mouse_button_went_up :: proc(button: Mouse_Button) -> bool
 mouse_button_is_held :: proc(button: Mouse_Button) -> bool
 
 // Returns how many clicks the mouse wheel has scrolled between the previous and current frame.
+// Positive means scrolling up.
 get_mouse_wheel_delta :: proc() -> f32
+
+// Returns how many clicks the horizontal mouse wheel has scrolled between the previous and current
+// frame. Positive means scrolling right.
+//
+// A tilt wheel or a two-finger sideways swipe on a trackpad drives this one.
+get_mouse_wheel_delta_horizontal :: proc() -> f32
 
 // Returns the mouse position, measured from the top-left corner of the window.
 get_mouse_position :: proc() -> Vec2
@@ -419,7 +429,7 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 //
 // Optional parameters:
 // - font: The font to use, uses a default font if none is specified.
-// - origin: The origin relative top the top-left position of the text. Used when rotating the text.
+// - origin: The origin relative to the top-left position of the text. Used when rotating the text.
 // - rotation: Rotating to apply to the text, measured in radians.
 draw_text :: proc(
 	text: string,
@@ -507,122 +517,115 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
-// Play a sound previous created using `load_sound_from_xxx` or `create_sound_from_audio_buffer`.
-// The sound will be mixed when `update_audio_mixer` runs, which happens as part of `update`.
-play_sound :: proc(sound: Sound)
+// Play an audio clip with the supplied initial settings. The return value is a `Sound`, which means
+// something that is currently playing in the audio mixer. You can use the returned `Sound` with
+// `set_sound_volume`, `stop_sound` etc in order to control the playback. Ignore the return value
+// if you just want to start the sound and never touch it again.
+//
+// Audio clips are loaded using `load_audio_clip_from_file`, `load_audio_clip_from_bytes` and
+// `load_audio_clip_from_bytes_raw`.
+//
+// Pass `bus` to play the sound on an audio bus. It plays on the master bus by default.
+//
+// Warning: If you pass `loop = true` and don't save the return value anywhere, then you've started
+// a sound you cannot stop.
+play_audio_clip :: proc(
+	clip: Audio_Clip,
+	volume: f32 = 1,
+	pan: f32 = 0,
+	pitch: f32 = 1,
+	loop := false,
+	bus: Audio_Bus = AUDIO_BUS_MASTER,
+) -> Sound
 
-// Stop a sound. Rewinds it to the start.
+// Stops the sound, which destroys its playback state in the mixer. For a `Sound` started using
+// `play_audio_stream`, this also rewinds the stream to the start. Use `set_sound_paused` to pause
+// the Sound instead, which won't lose the current playback position and settings.
 stop_sound :: proc(sound: Sound)
 
-// Returns true if the sound is currently playing.
+// Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
+// or stopped.
+set_sound_paused :: proc(sound: Sound, paused: bool)
+
+// Returns true if the sound exists and is not paused.
 sound_is_playing :: proc(sound: Sound) -> bool
 
-// Set the volume of a sound. Range: 0 to 1, where 0 is silence and 1 is the original volume of the
-// sound. The volume change will only affect this instance of the sound. Use `create_sound_instance`
-// to create more instances without duplicating data.
+// Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
+// stopped sound is not.
+sound_is_valid :: proc(sound: Sound) -> bool
+
+// Set the volume of a sound. Range: 0 to 1.
 set_sound_volume :: proc(sound: Sound, volume: f32)
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
-// The pan change will only affect this instance of the sound. Use `create_sound_instance` to create
-// more instances without duplicating data.
 set_sound_pan :: proc(sound: Sound, pan: f32)
 
-// Set the pitch of a sound. Range: 0.01 to infinity, where 0.01 is the lowest pitch and higher
-// values increase the pitch. The pitch change will only affect this instance of the sound. Use
-// `create_sound_instance` to create more instances without duplicating data.
+// Set the pitch of a sound. Range: 0.01 and up, where 1 is the default. Pitch 2 makes the sound
+// play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
-// Makes a sound loop when it reaches the end. You can set this before playing but also while
-// playing the sound.
+// Move the sound to another spot in its audio. `seconds` is measured from the start of the audio,
+// so 0 moves it back to the beginning. Use `get_sound_length` to find out how far you can go.
+//
+// Moving a sound that plays an audio stream is a bit slower than one that plays a clip, since some
+// audio has to be decoded before it can play. Don't do it every frame while dragging a scrub bar,
+// do it when the player lets go.
+set_sound_time :: proc(sound: Sound, seconds: f32)
+
+// Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
+// each time it starts over. Returns 0 if the sound doesn't exist.
+get_sound_time :: proc(sound: Sound) -> f32
+
+// Get the length of the sound's audio, in seconds. Use it together with `get_sound_time` to show
+// how far into a song you are. Returns 0 if the sound doesn't exist or if the length is unknown.
+get_sound_length :: proc(sound: Sound) -> f32
+
+// Make a sound loop when it reaches the end.
+//
+// Technical note: This also works for sounds started using `play_audio_stream`, but then it
+// reaches into the streaming decoder and tells that one to loop. A `Sound` started from a stream
+// plays a short buffer that the decoder keeps filling, so that sound always loops.
 set_sound_loop :: proc(sound: Sound, loop: bool)
 
-// Load a WAV file from disk. Returns a `Sound` which can be used with `play_sound`. If you need to
-// play a sound multiple times simultaneously, then use `load_audio_buffer_from_file` followed by
-// one or more calls to `create_sound_from_audio_buffer`.
-//
-// Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
-// will also destroy the audio buffer. 
-//
-// Currently only supports 16 bit WAV files.
-load_sound_from_file :: proc(filename: string) -> Sound
+// Route a sound into an audio bus. Pass `AUDIO_BUS_MASTER` for the master bus.
+set_sound_bus :: proc(sound: Sound, bus: Audio_Bus)
 
-// Load a sound some pre-loaded memory (for example using `#load("sound.wav")`). Returns a `Sound`
-// which can be used with `play_sound`. If you need to play a sound multiple times simultaneously,
-// then use `load_audio_buffer_from_bytes` followed by one or more calls to
-// `create_sound_from_audio_buffer`.
-//
-// Sounds created using this procedure owns their internal audio buffer: Calling `destroy_sound`
-// will also destroy the audio buffer.
-//
-// Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
-// including the header. If your data does not include the header, then please use
-// `load_audio_buffer_from_bytes_raw` combined with `create_sound_from_audio_buffer`.
-load_sound_from_bytes :: proc(bytes: []byte) -> Sound
+// How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
+// start from the same clip.
+get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int
 
-// Load a sound from some raw audio data. You need to specify the data, format and sample rate of
-// the audio data yourself. This assumes that there is no header in the data. If your data has a
-// header (you read the data from a file on disk), then please use `load_sound_from_bytes` instead.
+// Load a WAV file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`.
 //
-// The returned Sound owns its internal Audio_Buffer: Calling `destroy_sound` with it will destroy
-// the audio buffer.
-load_sound_from_bytes_raw :: proc(
-	bytes: []u8,
-	format: Raw_Sound_Format,
-	sample_rate: int,
-	channels: Audio_Channels,
-) -> Sound
-
-// Load a WAV file from disk. Returns an `Audio_Buffer` which can be used with
-// `create_sound_from_audio_buffer` in order to play the audio buffer multiple times simultaneously.
-//
-// Currently only supports 16 bit WAV data.
-load_audio_buffer_from_file :: proc(filename: string) -> Audio_Buffer
+// Supports mono and stereo WAV files with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
+// float samples.
+load_audio_clip_from_file :: proc(filename: string) -> Audio_Clip
 
 // Load a WAV file from some pre-loaded memory (can be loaded using `#load("sound.wav")`). Returns
-// an `Audio_Buffer` which can be used with `create_sound_from_audio_buffer` in order to play the
-// audio buffer multiple times simultaneously.
+// an `Audio_Clip` which can be played using `play_audio_clip`.
 //
-// Currently only supports 16 bit WAV data. Note that the data should be the entire WAV file,
-// including the header. If your data does not include the header, then please use
-// `load_audio_buffer_from_bytes_raw`.
-load_audio_buffer_from_bytes :: proc(bytes: []u8) -> Audio_Buffer
+// Supports mono and stereo WAV data with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
+// float samples. Note that the data should be the entire WAV file, including the header. If your
+// data does not include the header, then please use `load_audio_clip_from_bytes_raw`.
+load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip
 
-// Load an audio buffer from some raw audio data. You need to specify the data, format and sample
+// Load an audio clip from some raw audio data. You need to specify the data, format and sample
 // rate of the sound yourself. This assumes that there is no header in the data. If your data has a
-// header (you read the data from a file on disk), then please use `load_audio_buffer_from_bytes`
-// instead.
-load_audio_buffer_from_bytes_raw :: proc(
+// header (for example, you read a whole WAV file from disk), then please use
+// `load_audio_clip_from_bytes` instead.
+load_audio_clip_from_bytes_raw :: proc(
 	bytes: []u8,
-	format: Raw_Sound_Format,
+	format: Raw_Audio_Format,
 	sample_rate: int,
 	channels: Audio_Channels,
-) -> Audio_Buffer
+) -> Audio_Clip
 
-// Creates a sound that can be used to play the contents of an `Audio_Buffer`. This can be used to
-// load an audio buffer once and have multiple sounds playing the contents of it, simultaneously.
-// This makes all those sounds share the same audio data.
-//
-// Sounds created using this procedure do not own the buffer. This means that calling
-// `destroy_sound` on the Sound will only remove the Sound from Karl2D's internal state, but it
-// won't destroy the Audio_Buffer. Such auto-destroying of the `Audio_Buffer` only happen with
-// sounds created using `load_sound_from_file` and `load_sound_from_bytes`.
-create_sound_from_audio_buffer :: proc(buffer: Audio_Buffer) -> Sound
-
-// Destroy a sound, removing it from Karl2D's internal list of sounds.
-//
-// If the sound was created using `create_sound_from_audio_buffer`, then this procedure will not
-// destroy the audio buffer. If the sound was created using `load_sound_from_file` or
-// `load_sound_from_bytes`, then this procedure WILL destroy the audio buffer.
-destroy_sound :: proc(sound: Sound)
-
-// Destroy an audio buffer previously loaded using `load_audio_buffer_from_xxx`. Before destroying
-// this audio buffer, make sure it is not in use by any playing sounds. Destroy the sounds that
-// reference it using `destroy_sound` first.
-destroy_audio_buffer :: proc(audio_buffer: Audio_Buffer)
+// Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Also stops sounds
+// playing this clip.
+destroy_audio_clip :: proc(clip: Audio_Clip)
 
 // Load an audio stream from a file on disk. This is often used for playing music. An audio stream
 // only loads a small part of the file at a time. As the file is played, new parts are streamed into
-// memory.
+// memory. Start playing the stream using `play_audio_stream`.
 //
 // Supported file formats: ogg
 //
@@ -646,13 +649,13 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream
 // `.wasm` file.
 //
 // Another use case is if you're making a desktop game and you want to embed all the assets in the
-// executable (so the game is a single file). In that case you'd could also use `#load` to fetch the
+// executable (so the game is a single file). In that case you could also use `#load` to fetch the
 // file and then send it into this procedure.
 //
 // Note that this procedure wants the encoded file, for example an ogg file just like it was on
-// disk. For normal sounds there is a `load_sound_from_bytes_raw` procedure where you just send in
-// the samples. There is no such procedure for audio streams since the whole idea is to stream an
-// encoded file into memory without having to decode the whole thing first.  
+// disk. For normal sounds there is a `load_audio_clip_from_bytes_raw` procedure where you just send
+// in the samples. There is no such procedure for audio streams since the whole idea is to stream an
+// encoded file into memory without having to decode the whole thing first.
 load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream
 
 // Destroy an audio stream previously loaded using `load_audio_stream_from_file` or
@@ -666,47 +669,61 @@ destroy_audio_stream :: proc(stream: Audio_Stream)
 // for the streaming to actually happen. 
 update_audio_stream :: proc(stream: Audio_Stream)
 
-// Start playing an audio stream. Don't forget to call `update_audio_stream` every frame in order to
-// stream in new data.
+// Start playing an audio stream. Returns a `Sound`, which you can control using
+// `set_sound_volume`, `stop_sound` etc. The playback starts from wherever the stream last was,
+// which is the beginning if the stream was just loaded, was stopped using `stop_sound` or has
+// finished playing.
 //
-// Running this this while the stream is already playing will restart it from the beginning. Use
-// `pause_audio_stream` if you just want to pause it.
-play_audio_stream :: proc(stream: Audio_Stream)
-
-// Pause an audio stream. Run `play_audio_stream` to unpause it.
-pause_audio_stream :: proc(stream: Audio_Stream)
-
-// Stop an audio stream. If `play_audio_stream` is called again, the stream will start over from the
-// beginning.
-stop_audio_stream :: proc(stream: Audio_Stream)
-
-// Returns true if the audio stream is currently playing. Note that a looping audio stream will
-// always return true.
-is_audio_stream_playing :: proc(stream: Audio_Stream) -> bool
-
-// Set the volume of the audio stream. Range: 0 to 1.
+// A stream can only play one sound at a time. If it is already playing, then this hands back the
+// sound that is already playing and ignores the settings you pass in. Use the `set_sound_xxx`
+// procedures to change how it plays. Use `stop_sound` first if you want to start over from the
+// beginning. A paused sound starts playing again.
 //
-// You can use this both with a playing and non-playing stream. If its already playing, then this
-// will affect the playing stream.
-set_audio_stream_volume :: proc(stream: Audio_Stream, volume: f32)
+// Don't forget to call `update_audio_stream` every frame in order to stream in new data.
+play_audio_stream :: proc(
+	stream: Audio_Stream,
+	volume: f32 = 1,
+	pan: f32 = 0,
+	pitch: f32 = 1,
+	loop := false,
+	bus: Audio_Bus = AUDIO_BUS_MASTER,
+) -> Sound
 
-// Set the pan (balance between left and right) of the audio stream. Range: -1 to 1, where -1 is
-// full left, 0 is center and 1 is full right.
+// Create an audio bus: A group of sounds that are mixed together before they reach the master bus.
+// Route sounds into it using `set_sound_bus`, or the `bus` parameter of `play_audio_clip` or
+// `play_audio_stream`.
 //
-// You can use this both with a playing and non-playing stream. If its already playing, then this
-// will affect the playing stream.
-set_audio_stream_pan :: proc(stream: Audio_Stream, pan: f32)
+// A new bus has volume 1, pan 0 and no effect. That makes it a passthrough: Playing a sound on a
+// fresh bus sounds exactly like playing it on the master bus, until you change something.
+create_audio_bus :: proc() -> Audio_Bus
 
-// Set the pitch of the audio stream. Range: 0.01 to infinity. A higher value will make the audio
-// play faster.
+// Destroy an audio bus. Everything routed to it goes back to the master bus, including sounds that
+// are playing right now.
+destroy_audio_bus :: proc(bus: Audio_Bus)
+
+// Set the volume of an audio bus. Range: 0 to 1. Everything mixed into the bus is scaled by this.
 //
-// You can use this both with a playing and non-playing stream. If its already playing, then this
-// will affect the playing stream.
-set_audio_stream_pitch :: proc(stream: Audio_Stream, pitch: f32)
+// This works on `AUDIO_BUS_MASTER` as well, which is how you set the master volume of your game.
+set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32)
 
-// Set the audio stream to loop when it reaches the end of the stream. You can set this before
-// playing the stream. You can also modify the loop state of an already playing stream.
-set_audio_stream_loop :: proc(stream: Audio_Stream, loop: bool)
+// Set the pan of an audio bus. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full
+// right.
+//
+// This is a balance control: It turns the opposite side down. The pan of a sound works
+// differently: It moves the sound between the left and right speakers while keeping the overall
+// loudness the same. A bus is already a finished stereo mix, and a bus at pan 0 has to leave it
+// exactly as it is.
+set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32)
+
+// Set an effect to run on everything that is mixed into the bus. This is how you apply your own
+// audio processing, such as a filter, to a whole group of sounds at once.
+//
+// `user_data` is handed to the effect when it runs. Put whatever state your effect needs there:
+// The effect is called once per mixed chunk, so anything it wants to remember between the chunks
+// has to live in `user_data`. Pass `nil` as `effect` to remove the effect.
+//
+// See `Audio_Effect_Proc` for what the effect is given and what it is allowed to do.
+set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_data: rawptr = nil)
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
@@ -926,15 +943,18 @@ pixel_format_size :: proc(f: Pixel_Format) -> int
 // will use this camera until you again change it.
 set_camera :: proc(camera: Maybe(Camera))
 
-// Transform a point `pos` that lives on the screen to a point in the world. This can be useful for
-// bringing (for example) mouse positions (k2.get_mouse_position()) into world-space.
-screen_to_world :: proc(pos: Vec2, camera: Camera) -> Vec2
+// Transform a point `pos` that lives on the screen into the camera's coordinates.
+//
+// Example: Bringing the mouse position into the coordinate space of a camera:
+//
+//// world_mouse_pos := k2.screen_to_camera(k2.get_mouse_position(), world_camera)
+screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2
 
-// Transform a point `pos` that lives in the world to a point on the screen. This can be useful when
-// you need to take a position in the world and compare it to a screen-space point.
-world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
+// Transform a point `pos` that lives in the camera's coordinates to a point on the screen. This can
+// be useful when you need to compare such a position to a screen-space point.
+camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
 
-// Calculate the matrix that `screen_to_world` and `world_to_screen` uses to do transformations.
+// Calculate the matrix that `screen_to_camera` and `camera_to_screen` uses to do transformations.
 //
 // A view matrix is essentially the world transform matrix of the camera, but inverted. In other
 // words, instead of bringing the camera in front of things in the world, we bring everything in the
@@ -955,8 +975,8 @@ world_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2
 // 3x3 matrix is actually used.
 camera_view_matrix :: proc(c: Camera) -> Mat4
 
-// Calculate the matrix that brings something in front of the camera.
-camera_world_matrix :: proc(c: Camera) -> Mat4
+// The inverse of `camera_view_matrix`. It undoes the camera instead of applying it.
+camera_inverse_view_matrix :: proc(c: Camera) -> Mat4
 
 //------//
 // MISC //
@@ -969,6 +989,15 @@ set_blend_mode :: proc(mode: Blend_Mode)
 // Make everything outside of the screen-space rectangle `scissor_rect` not render. Disable the
 // scissor rectangle by running `set_scissor_rect(nil)`.
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect))
+
+// Set the z used by draws that happen after this call. Only has an effect when `depth_test` was
+// enabled in `Init_Options`. Higher z ends up in front. Unlike `set_blend_mode` and
+// `set_scissor_rect`, this never starts a new draw call: the z is stored in each vertex rather
+// than being part of a draw call's settings, so it's fine to call this before every draw.
+set_z :: proc(z: f32)
+
+// Get the z previously set with `set_z`. Defaults to 0.
+get_z :: proc() -> f32
 
 // Restore the internal state using the pointer returned by `init`. Useful after reloading the
 // library (for example, when doing code hot reload).
@@ -1150,12 +1179,31 @@ Camera :: struct {
 	// Rotate the camera (unit: radians)
 	rotation: f32,
 
-	// Zoom the camera. A bigger value means "more zoom".
+	// Zoom the camera. A bigger value means "more zoom". A zoom of 0 is treated as 1, so a camera
+	// without a zoom set draws at normal scale.
 	//
 	// To make a certain amount of pixels always occupy the height of the camera, set the zoom to:
 	//
 	//     k2.get_screen_height()/wanted_pixel_height
 	zoom: f32,
+
+	// Flips the Y axis. The origin becomes the bottom-left of the screen, Y grows upwards and the
+	// direction of rotation is reversed. This is useful as a "world camera" when using libraries
+	// such as Box2D. That way, you don't have to make any extra conversions between you gameplay /
+	// physics code and Karl2D.
+	//
+	// When `flip_y` is true:
+	// - A `Rect` will have its `(x, y)` in the bottom-left corner, rather than top-left.
+	// - Textures will be drawn with their bottom-left corner as position, rather than top-left.
+	// - Blocks of text will have their origin in the bottom-left corner of the block, rather than
+	//   top-left.
+	//
+	// Caveats:
+	// - The `rect_top_*`, `rect_bottom*` and `cut_rect_*` procs still assume that (x, y) is the
+	//   top-left corner. But those procs are often use for UIs and screen-space things. An idea is
+	//   to only use `flip_y` for the world camera. Let the UI use either no camera or a non-flipped
+	//   camera.
+	flip_y: bool,
 }
 
 Window_Mode :: enum {
@@ -1178,7 +1226,20 @@ Init_Options :: struct {
 	// platforms, such as Linux+Wayland, it does not work, because Wayland always auto scales all
 	// windows.
 	disable_auto_scale_hint: bool,
+
+	// Enable depth testing. Draws are then sorted by the z value set with `set_z`: higher z ends up
+	// in front. Things drawn at the same z use the drawing order, like when depth testing is off.
+	depth_test: bool,
+
+	// The range of z values you can use with `set_z`. Leave both at zero to get the default range
+	// of -1 to 1. Set them to something like 0 and 1000 if you'd rather feed `set_z` world
+	// coordinates. Only used when `depth_test` is on.
+	depth_range_min: f32,
+	depth_range_max: f32,
 }
+
+DEPTH_RANGE_DEFAULT_MIN :: -1
+DEPTH_RANGE_DEFAULT_MAX :: 1
 
 Shader_Handle :: distinct Handle
 
@@ -1384,43 +1445,17 @@ AUDIO_MIX_CHUNK_SIZE :: 1400
 // sample in an array of samples will be interpreted as left and right respectively.
 Audio_Sample :: f32
 
-// Represents a sound you can play using the `play_sound` procedure. Loaded using
-// `load_sound_from_file` or `load_sound_from_bytes`. Create instances of an already loaded sound
-// using `create_sound_instance`.
+// Represents something that is currently playing in the audio mixer. Created using
+// `play_audio_clip` and `play_audio_stream`. A sound is automatically destroyed when it finishes
+// playing. It is safe to keep using the handle after that: The procedures that take a `Sound` will
+// then just do nothing.
 Sound :: distinct Handle
 
 SOUND_NONE :: Sound {}
 
-// A sound instance is what `Sound` handles are mapped to. They contain a handle to a an audio
-// buffer, and the settings for use when playing that buffer. The audio buffer may be shared between
-// multiple sound instances, which allows you to play the same sound multiple times at the same time
-// without having to clone the data.
-Sound_Object :: struct {
-	handle: Sound,
-
-	// The audio buffer may be used by multiple sound instances. This is the key idea of sound
-	// instances: That you can use `create_sound_instance` to make it possible to play a sound
-	// multiple times at the same time, without having to clone the data.
-	audio_buffer: Audio_Buffer,
-
-	// If true, then the audio buffer will be destroyed when this sound is destroyed. This is true
-	// when the sound was loaded using the `load_sound_xxx` procedures. It's false when the sound
-	// is created from `create_sound_from_audio_buffer`.
-	owns_audio_buffer: bool,
-
-	// If this sound is currently playing, then this identifies the state of the playing sound. It
-	// is PLAYING_AUDIO_BUFFER_NONE (zero) when it is not playing.
-	playing_buffer_handle: Playing_Audio_Buffer_Handle,
-
-	// This exists both here and in the `Playing_Audio_Buffer`. That way we can store settings
-	// even when the sound isn't playing. Set using `set_sound_volume/pan/pitch`.
-	playback_settings: Audio_Buffer_Playback_Settings,
-
-	// If true, then the playing sound will be set up as "looping" when `play_sound` is called. Set
-	// using `set_sound_loop`.
-	loop: bool,
-}
-
+// Plays an ogg file by decoding it a little bit at a time, instead of loading all of the audio
+// data up front like an `Audio_Clip` does. Good for music, which would otherwise use a lot of
+// memory. Start it using `play_audio_stream`.
 Audio_Stream :: distinct Handle
 
 AUDIO_STREAM_NONE :: Audio_Stream {}
@@ -1445,18 +1480,30 @@ Audio_Stream_Data :: struct {
 	
 	vorbis: ^stbv.vorbis,
 	vorbis_buffer: stbv.vorbis_alloc,
-	playing_buffer_handle: Playing_Audio_Buffer_Handle,
-	buffer: Audio_Buffer,
-	
-	// Where in the audio buffer referred to by `buffer_handle` that we have most recently written
-	// samples. Together with the `offset` of the Playing_Audio_Buffer, this forms a circular
-	// buffer.
+	sound: Sound,
+	clip: Audio_Clip,
+
+	// Where in the audio clip referred to by `clip` that we have most recently written samples.
+	// Together with the `offset` of the Sound_Object, this forms a circular buffer.
 	buffer_write_pos: int,
 
-	playback_settings: Audio_Buffer_Playback_Settings,
+	// How far into the file the samples we most recently wrote into the clip were, counted the
+	// same way as the clip's samples: In the case of stereo, left and right count as one each.
+	// Take away the samples in the clip that haven't played yet and you get the spot the listener
+	// is hearing, which is what `get_sound_time` does.
+	decode_cursor: int,
 
-	// Different from `loop` in `Playing_Audio_Buffer`. This says if the whole stream should loop
-	// when it reaches end-of-file. The `loop` in `Playing_Audio_Buffer` just says to loop the
+	// When above zero, `update_audio_stream` throws this many decoded samples away instead of
+	// writing them to the clip. Used when moving the stream, since the decoder can only move in
+	// steps of a whole ogg page.
+	seek_discard: int,
+
+	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
+	// when the stream is loaded. Zero if it could not be worked out.
+	total_samples: int,
+
+	// Different from `loop` in `Sound_Object`. This says if the whole stream should loop
+	// when it reaches end-of-file. The `loop` in `Sound_Object` just says to loop the
 	// buffer itself. That's something you always want for a stream: We are continously writing
 	// data from a file into a small buffer that is a few seconds long.
 	loop: bool,
@@ -1472,22 +1519,26 @@ Audio_Stream_Data :: struct {
 	bytes: []u8,
 }
 
-// The format used to describe that data passed to `load_sound_from_bytes_raw`.
-Raw_Sound_Format :: enum {
-	Integer8,
+// The format used to describe that data passed to `load_audio_clip_from_bytes_raw`.
+Raw_Audio_Format :: enum {
+	Integer8, // unsigned, like in 8 bit WAV files. The other integer formats are signed.
 	Integer16,
+	Integer24, // three bytes per sample, little endian
 	Integer32,
-	Float,
+	Float32,
+	Float64,
 }
 
-Audio_Buffer :: distinct Handle
+// A piece of audio that has been completely loaded into memory. Play it using `play_audio_clip`.
+// Several sounds can play the same clip at the same time.
+Audio_Clip :: distinct Handle
 
-AUDIO_BUFFER_NONE :: Audio_Buffer{}
+AUDIO_CLIP_NONE :: Audio_Clip{}
 
-Audio_Buffer_Object :: struct {
-	handle: Audio_Buffer,
+Audio_Clip_Object :: struct {
+	handle: Audio_Clip,
 
-	// All the samples of the audio buffer. In the case of stereo, the left and right samples are
+	// All the samples of the audio clip. In the case of stereo, the left and right samples are
 	// interleaved.
 	samples: []Audio_Sample,
 
@@ -1500,27 +1551,19 @@ Audio_Buffer_Object :: struct {
 	channels: Audio_Channels,
 }
 
-Audio_Buffer_Playback_Settings :: struct {
+Sound_Settings :: struct {
 	volume: f32,
 	pan: f32,
 	pitch: f32,
 }
 
-DEFAULT_AUDIO_BUFFER_PLAYBACK_SETTINGS :: Audio_Buffer_Playback_Settings {
-	volume = 1,
-	pan = 0,
-	pitch = 1,
-}
-
-PLAYING_AUDIO_BUFFER_NONE :: Playing_Audio_Buffer_Handle {}
-
-Playing_Audio_Buffer_Handle :: distinct Handle
-
-Playing_Audio_Buffer :: struct {
-	handle: Playing_Audio_Buffer_Handle,
-	audio_buffer: Audio_Buffer,
-	target_settings: Audio_Buffer_Playback_Settings,
-	current_settings: Audio_Buffer_Playback_Settings,
+// What `Sound` handles are mapped to: something that is currently playing in the mixer. It holds
+// the clip it plays and the settings it plays with.
+Sound_Object :: struct {
+	handle: Sound,
+	clip: Audio_Clip,
+	target_settings: Sound_Settings,
+	current_settings: Sound_Settings,
 
 	// How many samples have played?
 	offset: int,
@@ -1531,6 +1574,77 @@ Playing_Audio_Buffer :: struct {
 	offset_fraction: f32,
 
 	loop: bool,
+
+	// Set using `set_sound_paused`. The mixer skips paused sounds.
+	paused: bool,
+
+	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
+	// moves it, then fades it back in, so that landing in a completely different part of the
+	// waveform doesn't click. This is where it is going once the fade out is done.
+	pending_seek_seconds: f32,
+	has_pending_seek: bool,
+
+	// The fade used when moving a sound: 0 is no fade and 1 is completely faded out. The mixer
+	// raises it while a move is pending and lowers it again once the move is done.
+	seek_fade: f32,
+
+	// The bus this is mixed into. The zero value is the master bus.
+	bus: Audio_Bus,
+
+	// Set when this sound plays an audio stream. Zero for sounds played from a clip. Used by
+	// `set_sound_loop` to redirect to the stream's own loop flag.
+	stream: Audio_Stream,
+}
+
+// A bus is a group of sounds that are mixed together before they reach the master bus. You can set
+// the volume and the pan of the whole group, and you can run an effect on it. Create one using
+// `create_audio_bus` and route sounds into it using `set_sound_bus`, or the `bus` parameter of
+// `play_audio_clip` or `play_audio_stream`.
+Audio_Bus :: distinct Handle
+
+// All other buses are mixed into the master bus, as well as sounds that play directly on the master
+// bus. This is the default bus of all sounds.
+//
+// You can use this with `set_audio_bus_volume`, `set_audio_bus_pan` and `set_audio_bus_effect`.
+// That's how you set the master volume of your game.
+AUDIO_BUS_MASTER :: Audio_Bus {}
+
+// Runs on the mixed samples of a whole bus, before the bus is mixed into the master bus. Modify
+// `samples` in place. This is how you write your own audio effects, such as a filter or an echo.
+//
+// `samples` is `AUDIO_MIX_CHUNK_SIZE` stereo samples at `AUDIO_MIX_SAMPLE_RATE`. Keep any state
+// your effect needs in `user_data`: You get called once per mixed chunk, so anything you want to
+// carry between the chunks needs to live there.
+//
+// This runs on the main thread today, but keep in mind that it may move to a separate thread in the
+// future.
+Audio_Effect_Proc :: proc(samples: [][2]Audio_Sample, user_data: rawptr)
+
+Audio_Bus_Settings :: struct {
+	volume: f32,
+	pan: f32,
+}
+
+Audio_Bus_Object :: struct {
+	handle: Audio_Bus,
+
+	// Same idea as in `Sound_Object`: The current settings move towards the target
+	// settings a bit at a time, so that changing the volume of a bus doesn't click.
+	target_settings: Audio_Bus_Settings,
+	current_settings: Audio_Bus_Settings,
+
+	effect: Audio_Effect_Proc,
+	effect_user_data: rawptr,
+
+	// The sounds routed to this bus are mixed in here. The bus effect runs on this. Then this is
+	// mixed into the master bus. Unused for the master bus itself: That one is mixed straight into
+	// `mix_buffer`.
+	chunk: [AUDIO_MIX_CHUNK_SIZE][2]Audio_Sample,
+}
+
+DEFAULT_AUDIO_BUS_SETTINGS :: Audio_Bus_Settings {
+	volume = 1,
+	pan = 0,
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
@@ -1561,6 +1675,7 @@ State :: struct {
 	mouse_position: Vec2,
 	mouse_delta: Vec2,
 	mouse_wheel_delta: f32,
+	mouse_wheel_delta_horizontal: f32,
 
 	key_went_down: #sparse [Keyboard_Key]bool,
 	key_went_up: #sparse [Keyboard_Key]bool,
@@ -1598,6 +1713,11 @@ State :: struct {
 	current_scissor: Maybe(Rect),
 	current_texture: Texture_Handle,
 	current_render_target: Render_Target_Handle,
+
+	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the
+	// projection, and to measure Y up from the bottom of it, without asking the backend.
+	current_render_target_width: int,
+	current_render_target_height: int,
 	current_blend_mode: Blend_Mode,
 
 	// Recorded but not drawn yet. They all point into `vertex_buffer_cpu`.
@@ -1620,6 +1740,11 @@ State :: struct {
 	// `_update_view_projection`.
 	view_projection: Mat4,
 
+	z: f32,
+	depth_test: bool,
+	depth_range_min: f32,
+	depth_range_max: f32,
+
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
 	default_shader: Shader,
@@ -1638,12 +1763,16 @@ State :: struct {
 	audio_backend: Audio_Backend_Interface,
 	audio_backend_state: rawptr,
 
-	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
+	audio_clips: hm.Dynamic_Handle_Map(Audio_Clip_Object, Audio_Clip),
 	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),
 
-	playing_audio_buffers: hm.Dynamic_Handle_Map(Playing_Audio_Buffer, Playing_Audio_Buffer_Handle),
-
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
+
+	audio_buses: hm.Dynamic_Handle_Map(Audio_Bus_Object, Audio_Bus),
+
+	// The master bus is not in `audio_buses`. It is identified by the zero handle, which the handle
+	// map can't store, and it needs to exist without anyone creating it.
+	master_bus: Audio_Bus_Object,
 
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
 	// ample.
@@ -1874,6 +2003,7 @@ Event :: union {
 	Event_Typed_Rune,
 	Event_Mouse_Move,
 	Event_Mouse_Wheel,
+	Event_Mouse_Wheel_Horizontal,
 	Event_Mouse_Button_Went_Down,
 	Event_Mouse_Button_Went_Up,
 	Event_Mouse_Teleported,
@@ -1939,7 +2069,14 @@ Event_Mouse_Move :: struct {
 	position: Vec2,
 }
 
+// The vertical mouse wheel scrolled. `delta` is positive when scrolling up.
 Event_Mouse_Wheel :: struct {
+	delta: f32,
+}
+
+// The horizontal mouse wheel scrolled. `delta` is positive when scrolling right. A tilt wheel or a
+// two-finger sideways swipe on a trackpad drives this one.
+Event_Mouse_Wheel_Horizontal :: struct {
 	delta: f32,
 }
 

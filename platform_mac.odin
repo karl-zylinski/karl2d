@@ -458,12 +458,21 @@ mac_get_events :: proc(events: ^[dynamic]Event) {
 			}
 
 		case .ScrollWheel:
-			delta := event->scrollingDeltaY()
+			delta := f32(event->scrollingDeltaY())
+			// AppKit measures the horizontal wheel to the left, so that one gets flipped.
+			delta_horizontal := f32(-event->scrollingDeltaX())
+
 			// Normalize: trackpad gives precise deltas, mouse wheel gives line deltas
 			if event->hasPreciseScrollingDeltas() {
-				append(&s.events, Event_Mouse_Wheel{delta = f32(delta) / 10.0})
-			} else {
-				append(&s.events, Event_Mouse_Wheel{delta = f32(delta)})
+				delta /= 10.0
+				delta_horizontal /= 10.0
+			}
+
+			append(&s.events, Event_Mouse_Wheel{delta = delta})
+
+			// A vertical-only scroll reports zero here, which is not worth an event.
+			if delta_horizontal != 0 {
+				append(&s.events, Event_Mouse_Wheel_Horizontal{delta = delta_horizontal})
 			}
 		}
 

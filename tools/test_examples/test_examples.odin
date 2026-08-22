@@ -5,8 +5,25 @@ package karl2d_test_examples
 
 import os "core:os"
 import "core:fmt"
+import "core:slice"
 
 main :: proc() {
+	// Any arguments are passed straight through to the compiler, so the CI can run the whole sweep
+	// again with, for example, -define:KARL2D_Y_UP=true. Pass `-skip-web` to leave out the web
+	// builds, which is worth doing for those extra sweeps: they are slow and the coordinate system
+	// is not web-specific.
+	skip_web := false
+	extra: [dynamic]string
+
+	for arg in os.args[1:] {
+		if arg == "-skip-web" {
+			skip_web = true
+			continue
+		}
+
+		append(&extra, arg)
+	}
+
 	examples, examples_err := os.read_all_directory_by_path("examples", context.allocator)
 
 	fmt.assertf(examples_err == nil, "Failed opening examples directory. Error: %v", examples_err)
@@ -46,14 +63,21 @@ main :: proc() {
 			continue
 		}
 
+		params := make([dynamic]string, context.temp_allocator)
+		append(&params, ..extra[:])
+
+		debug_params := make([dynamic]string, context.temp_allocator)
+		append(&debug_params, "-debug")
+		append(&debug_params, ..params[:])
+
 		if e.name not_in no_check {
-			check(e.name, e.fullpath, {})
-			check(e.name, e.fullpath, {"-debug"})
+			check(e.name, e.fullpath, params[:])
+			check(e.name, e.fullpath, debug_params[:])
 		}
 
-		if e.name not_in no_web {
-			build_web(e.name, e.fullpath, {})
-			build_web(e.name, e.fullpath, {"-debug"})
+		if !skip_web && e.name not_in no_web {
+			build_web(e.name, e.fullpath, params[:])
+			build_web(e.name, e.fullpath, debug_params[:])
 		}
 	}
 }

@@ -221,11 +221,21 @@ web_event_mouse_up :: proc(e: js.Event) {
 }
 
 web_event_mouse_wheel :: proc(e: js.Event) {
-	append(&s.events, Event_Mouse_Wheel {
-		// Not the best way, but how would we know what the wheel deltaMode really represents? If it
-		// is in pixels, how much "scroll" does that equal to?
-		delta = f32(e.wheel.delta.y > 0 ? -1 : 1),
-	})
+	// Not the best way, but how would we know what the wheel deltaMode really represents? If it is
+	// in pixels, how much "scroll" does that equal to? So we keep the direction and call it one
+	// click. The browser measures down and right as positive, so the vertical axis is flipped.
+	// A swipe along one axis reports zero on the other, which is not worth an event.
+	if e.wheel.delta.y != 0 {
+		append(&s.events, Event_Mouse_Wheel {
+			delta = e.wheel.delta.y > 0 ? -1 : 1,
+		})
+	}
+
+	if e.wheel.delta.x != 0 {
+		append(&s.events, Event_Mouse_Wheel_Horizontal {
+			delta = e.wheel.delta.x > 0 ? 1 : -1,
+		})
+	}
 }
 
 // Mouse and pen already flow through the Mouse_* listeners above, so these only handle touch.
