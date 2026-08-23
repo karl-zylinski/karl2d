@@ -49,8 +49,8 @@ init :: proc() {
 
 	// This example handles both touches and the mouse itself, so neither may be emulated from the
 	// other: one drag would move the camera twice. Press M to turn mouse-to-touch back on.
-	k2.set_touch_mouse_emulation(false)
-	k2.set_mouse_touch_emulation(false)
+	k2.set_mouse_events_from_touch(false)
+	k2.set_touch_events_from_mouse(false)
 }
 
 step :: proc() -> bool {
@@ -63,7 +63,7 @@ step :: proc() -> bool {
 
 	if k2.key_went_down(.M) {
 		mouse_emulates_touch = !mouse_emulates_touch
-		k2.set_mouse_touch_emulation(mouse_emulates_touch)
+		k2.set_touch_events_from_mouse(mouse_emulates_touch)
 	}
 
 	touches := k2.get_touches()

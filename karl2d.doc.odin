@@ -219,13 +219,13 @@ get_touches :: proc() -> []Touch
 //
 // Turn this off when you handle touches yourself, otherwise one tap arrives both as a touch and as
 // a left click.
-set_touch_mouse_emulation :: proc(enabled: bool)
+set_mouse_events_from_touch :: proc(enabled: bool)
 
-// Enabled by default. Holding the left mouse button produces a touch (with id `MOUSE_TOUCH_ID`),
+// Enabled by default. Holding the left mouse button produces a touch (with id `EMULATED_TOUCH_ID`),
 // so code written for touch also works with a mouse. Turn it off if you handle the mouse yourself,
 // otherwise one drag arrives as both. Only real input is ever emulated, so this and
-// `set_touch_mouse_emulation` cannot feed each other.
-set_mouse_touch_emulation :: proc(enabled: bool)
+// `set_mouse_events_from_touch` cannot feed each other.
+set_touch_events_from_mouse :: proc(enabled: bool)
 
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
 // You can check that an exact set of modifiers are held like so:
@@ -1690,14 +1690,14 @@ State :: struct {
 	touches: [MAX_TOUCHES]Touch,
 	touches_count: int,
 
-	// See `set_touch_mouse_emulation`.
-	touch_mouse_emulation: bool,
-	emulated_touch: Touch_Id,
-	emulated_touch_active: bool,
+	// See `set_mouse_events_from_touch`.
+	mouse_events_from_touch: bool,
+	mouse_source_touch: Touch_Id,
+	mouse_source_touch_active: bool,
 
-	// See `set_mouse_touch_emulation`.
-	mouse_touch_emulation: bool,
-	emulated_mouse_touch_active: bool,
+	// See `set_touch_events_from_mouse`.
+	touch_events_from_mouse: bool,
+	touch_from_mouse_held: bool,
 
 	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
@@ -1799,8 +1799,8 @@ MAX_TOUCHES :: 10
 // goes down until it goes up. Ids may be reused after that.
 Touch_Id :: distinct u64
 
-// The id of the touch synthesized by `set_mouse_touch_emulation`. Never collides with a real id.
-MOUSE_TOUCH_ID :: Touch_Id(max(u64))
+// The id of the touch synthesized by `set_touch_events_from_mouse`. Never collides with a real id.
+EMULATED_TOUCH_ID :: Touch_Id(max(u64))
 
 Touch :: struct {
 	id: Touch_Id,
