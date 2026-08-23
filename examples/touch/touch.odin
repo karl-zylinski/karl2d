@@ -115,19 +115,12 @@ step :: proc() -> bool {
 
 	// PAN
 	//
-	// Average the finger deltas rather than tracking the midpoint, so putting down or lifting a
-	// finger mid-gesture doesn't make the map jump.
+	// One finger only. Two fingers are a pinch, which does its own panning below.
 
-	if gesture_count > 0 {
-		drag: Vec2
-
-		for t in gesture[:gesture_count] {
-			drag += t.delta
-		}
-
+	if gesture_count == 1 {
 		// The drag is in screen pixels but `target` is in world space: un-rotate and un-zoom it.
 		rotation_matrix := linalg.matrix2_rotate(-camera.rotation)
-		camera.target -= rotation_matrix * ((drag/f32(gesture_count)) / camera.zoom)
+		camera.target -= rotation_matrix * (gesture[0].delta / camera.zoom)
 	}
 
 	// PINCH ZOOM AND ROTATE
@@ -153,10 +146,10 @@ step :: proc() -> bool {
 		prev_dist := linalg.distance(prev_a, prev_b)
 
 		if dist > 1 && prev_dist > 1 {
-			// Anchor on the world point under the pinch center, so whatever bit of the map is
-			// under the pinch stays under the pinch.
-			pinch_center := (now_a + now_b) / 2
-			anchor := k2.screen_to_camera(pinch_center, camera)
+			// Grab the world point that was between the fingers last frame, then put it back
+			// between them after zooming and rotating. Moving the fingers across the screen moves
+			// that point with them, so this one correction pans as well.
+			anchor := k2.screen_to_camera((prev_a + prev_b) / 2, camera)
 
 			camera.zoom = clamp(camera.zoom * (dist/prev_dist), MIN_ZOOM, MAX_ZOOM)
 
@@ -166,7 +159,7 @@ step :: proc() -> bool {
 			// Wrapped, or crossing atan2's +/-pi line would report a whole extra turn.
 			camera.rotation += wrap_angle(now_angle - prev_angle)
 
-			camera.target += anchor - k2.screen_to_camera(pinch_center, camera)
+			camera.target += anchor - k2.screen_to_camera((now_a + now_b) / 2, camera)
 		}
 	} else {
 		pinch_active = false
@@ -287,7 +280,7 @@ step :: proc() -> bool {
 	text_pos.y -= font_size
 
 	k2.draw_text(
-		"drag with one or more fingers to pan (or hold the left mouse button)",
+		"drag with one finger to pan (or hold the left mouse button)",
 		text_pos, font_size, text_color,
 	)
 	text_pos.y -= font_size
