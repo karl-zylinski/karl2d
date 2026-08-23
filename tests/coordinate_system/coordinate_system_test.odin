@@ -119,8 +119,8 @@ the_static_font: k2.Font
 
 // Stand-in for the render backend's `draw`, so the tests see exactly the geometry and scissor
 // rectangle a real backend would have received rather than poking at internals.
-capture_draw :: proc(vertex_buffer: []u8, draw_calls: []k2.Draw_Call) {
-	pos_offset := state.current_shader.default_input_offsets[.Position]
+capture_draw :: proc( draw_calls: []k2.Draw_Call) {
+	pos_offset := state.current_batch.current_shader.default_input_offsets[.Position]
 
 	if pos_offset < 0 {
 		return
@@ -134,7 +134,7 @@ capture_draw :: proc(vertex_buffer: []u8, draw_calls: []k2.Draw_Call) {
 		}
 
 		for i in 0..<dc.vertex_count {
-			v := (^k2.Vec2)(&vertex_buffer[dc.vertex_offset + i*dc.vertex_size + pos_offset])^
+			v := (^k2.Vec2)(&state.current_batch.vertex_buffer_cpu[dc.vertex_offset + i*dc.vertex_size + pos_offset])^
 			append(&captured_vertices, v)
 		}
 	}
@@ -190,9 +190,9 @@ draw_and_measure :: proc(draw: proc()) -> Bounds {
 	k2.set_camera(TEST_CAMERA)
 
 	draw()
-	k2.draw_current_batch()
+	k2.update_render_clear_batch()
 
-	view_projection := state.proj_matrix * state.view_matrix
+	view_projection := state.screen_proj_matrix * k2.camera_view_matrix(TEST_CAMERA)
 
 	res := Bounds {
 		vertex_count = len(captured_vertices),
@@ -456,7 +456,7 @@ first_line_of_text_is_above_the_second :: proc(t: ^testing.T) {
 
 		clear(&captured_vertices)
 		draw_text_at_screen_top("A\nB", 20, font)
-		k2.draw_current_batch()
+		k2.update_render_clear_batch()
 
 		if !testing.expectf(t, len(captured_vertices) == 12,
 			"%v: expected two glyph quads, got %v vertices", label, len(captured_vertices)) {

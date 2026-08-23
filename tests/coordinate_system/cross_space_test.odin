@@ -24,9 +24,9 @@ draw_with_camera :: proc(camera: Maybe(k2.Camera), draw: proc()) -> Bounds {
 
 	k2.set_camera(camera)
 	draw()
-	k2.draw_current_batch()
+	k2.update_render_clear_batch()
 
-	view_projection := state.proj_matrix * state.view_matrix
+	view_projection := state.screen_proj_matrix * state.current_batch.current_view_matrix
 
 	res := Bounds {
 		vertex_count = len(captured_vertices),
@@ -94,7 +94,7 @@ switching_back_to_screen_space_mid_frame :: proc(t: ^testing.T) {
 		clear(&captured_vertices)
 		k2.set_camera(nil)
 		draw()
-		k2.draw_current_batch()
+		k2.update_render_clear_batch()
 		k2.set_camera(nil)
 
 		out := make([dynamic]k2.Vec2, 0, len(captured_vertices), context.temp_allocator)
