@@ -221,9 +221,10 @@ get_touches :: proc() -> []Touch
 // a left click.
 set_touch_mouse_emulation :: proc(enabled: bool)
 
-// Disabled by default. While enabled, holding the left mouse button produces a touch (with id
-// `MOUSE_TOUCH_ID`), so touch handling can be tested on a machine with no touchscreen. Emulation
-// only ever reacts to real events, so this is safe to combine with `set_touch_mouse_emulation`.
+// Enabled by default. Holding the left mouse button produces a touch (with id `MOUSE_TOUCH_ID`),
+// so code written for touch also works with a mouse. Turn it off if you handle the mouse yourself,
+// otherwise one drag arrives as both. Only real input is ever emulated, so this and
+// `set_touch_mouse_emulation` cannot feed each other.
 set_mouse_touch_emulation :: proc(enabled: bool)
 
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.

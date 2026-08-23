@@ -47,9 +47,10 @@ init :: proc() {
 	k2.init(1280, 720, "Karl2D Touch Demo", { window_mode = .Windowed_Resizable })
 	camera = { zoom = 1 }
 
-	// We handle touches ourselves, so the mouse is handled ourselves too (see MOUSE FALLBACK).
-	// Otherwise a one-finger drag would pan twice: once as a touch, once as the emulated click.
+	// This example handles both touches and the mouse itself, so neither may be emulated from the
+	// other: one drag would move the camera twice. Press M to turn mouse-to-touch back on.
 	k2.set_touch_mouse_emulation(false)
+	k2.set_mouse_touch_emulation(false)
 }
 
 step :: proc() -> bool {
