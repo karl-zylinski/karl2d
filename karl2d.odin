@@ -4845,28 +4845,54 @@ ui_button_width :: proc(text: string, button_height: f32) -> f32 {
 // Experimental UI button. Returns true if the button was pressed. `r` is in the space of whatever
 // camera is currently set (see `set_camera`), same as any other drawing call.
 //
+// A left click presses it, and so does a tap, so it works on a touch screen with no mouse at all.
+//
 // Mainly used by the samples in order to create the "Source" button. As this is experimental, you
 // are probably better off copying this procedure to your own code and modifying it, rather than
 // using it as-is.
 ui_button :: proc(r: Rect, text: string) -> bool {
+	// Hit-testing runs in the space of the current camera, same as the drawing below.
+	cam, cam_ok := s.current_camera.?
+	use_cam := cam_ok && cam.zoom > 0.001
+
 	mouse_pos := get_mouse_position()
 
-	if cam, cam_ok := s.current_camera.?; cam_ok && cam.zoom > 0.001 {
+	if use_cam {
 		mouse_pos = screen_to_camera(mouse_pos, cam)
 	}
 
 	in_rect := point_in_rect(mouse_pos, r)
+	res := in_rect && mouse_button_went_down(.Left)
+
+	// A tap presses it too. `s.touches` already holds the touch the mouse makes, so a click that
+	// arrives both ways still only sets `res` once.
+	for t in s.touches {
+		touch_pos := t.position
+
+		if use_cam {
+			touch_pos = screen_to_camera(touch_pos, cam)
+		}
+
+		if !point_in_rect(touch_pos, r) {
+			continue
+		}
+
+		in_rect = true
+
+		if t.went_down {
+			res = true
+		}
+	}
+
 	bg_color := DARK_GRAY
 	border_color := WHITE
 	text_color := WHITE
-	res := false
 
 	if in_rect {
 		bg_color = GRAY
 		text_color = WHITE
 
-		if mouse_button_went_down(.Left) {
-			res = true
+		if res {
 			bg_color = BLACK
 		}
 	}

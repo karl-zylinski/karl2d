@@ -1038,6 +1038,8 @@ ui_button_width :: proc(text: string, button_height: f32) -> f32
 // Experimental UI button. Returns true if the button was pressed. `r` is in the space of whatever
 // camera is currently set (see `set_camera`), same as any other drawing call.
 //
+// A left click presses it, and so does a tap, so it works on a touch screen with no mouse at all.
+//
 // Mainly used by the samples in order to create the "Source" button. As this is experimental, you
 // are probably better off copying this procedure to your own code and modifying it, rather than
 // using it as-is.
