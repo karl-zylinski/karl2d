@@ -6,26 +6,10 @@
 		<title>Karl2D Web Build</title>
 	</head>
 	<body id="body" style="height: 100%; padding: 0; margin: 0; overflow: hidden; background-color: black;">
-		<!-- touch-action: none keeps the browser from turning touches into page scroll/zoom. -->
+		<!-- touch-action: none keeps the browser from turning touches into page scroll/zoom. The mouse
+		     events a browser fires after a tap are deliberately left alone: they are what makes code
+		     that only knows about the mouse work on a touch screen. -->
 		<canvas id="webgl-canvas" style="touch-action: none;" oncontextmenu="return false;" onmousedown="event.target.focus()" onkeydown="event.preventDefault()"></canvas>
-
-		<script type="text/javascript">
-			// Browsers follow a tap with synthetic mouse events, which would double up with Karl2D's
-			// own touch-to-mouse emulation. preventDefault() stops them, and needs passive: false to
-			// have any effect. It also kills the onmousedown focus above, so focus explicitly.
-			(() => {
-				const canvas = document.getElementById('webgl-canvas');
-
-				canvas.addEventListener('touchstart', (ev) => {
-					ev.preventDefault();
-					canvas.focus();
-				}, { passive: false });
-
-				canvas.addEventListener('touchend', (ev) => {
-					ev.preventDefault();
-				}, { passive: false });
-			})();
-		</script>
 
 		<script type="text/javascript" src="audio_backend_web_audio.js"></script>
 		<script type="text/javascript" src="odin.js"></script>

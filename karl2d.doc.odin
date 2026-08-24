@@ -111,6 +111,9 @@ process_events :: proc()
 // Note: Gamepad axis movement (analogue sticks and analogue triggers) are _not_ events. Those can
 // only be queried using `k2.get_gamepad_axis`.
 //
+// Note: These are the events the platform reported. The touch that `set_touch_events_from_mouse`
+// makes from the mouse is not one of them, it only shows up in `get_touches`.
+//
 // Warning: The returned slice is only valid during the current frame! You can make a clone of it
 // using the `slice.clone` procedure (import `core:slice`).
 get_events :: proc() -> []Event
@@ -216,18 +219,12 @@ get_typed_runes :: proc() -> []rune
 // Warning: The returned slice is only valid during the current frame!
 get_touches :: proc() -> []Touch
 
-// Enabled by default. While enabled, the first touch drives the mouse: it moves the mouse position
-// and presses the left mouse button. That makes programs that only know about the mouse work on a
-// touch device.
-//
-// Turn this off when you handle touches yourself, otherwise one tap arrives both as a touch and as
-// a left click.
-set_mouse_events_from_touch :: proc(enabled: bool)
-
 // Enabled by default. Holding the left mouse button produces a touch (with id `EMULATED_TOUCH_ID`),
 // so code written for touch also works with a mouse. Turn it off if you handle the mouse yourself,
-// otherwise one drag arrives as both. Only real input is ever emulated, so this and
-// `set_mouse_events_from_touch` cannot feed each other.
+// otherwise one drag arrives as both.
+//
+// The touch is built from the mouse state, so it never shows up in `get_events`, only in
+// `get_touches`.
 set_touch_events_from_mouse :: proc(enabled: bool)
 
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
@@ -1670,10 +1667,6 @@ State :: struct {
 	// All events for this frame. Cleared when `process_events` run
 	events: [dynamic]Event,
 
-	// The events exactly as the platform reported them. `events` is rebuilt from this each frame,
-	// with emulated events woven in.
-	platform_events: [dynamic]Event,
-
 	typed_runes: [dynamic]rune,
 
 	mouse_position: Vec2,
@@ -1693,14 +1686,8 @@ State :: struct {
 	touches: [MAX_TOUCHES]Touch,
 	touches_count: int,
 
-	// See `set_mouse_events_from_touch`.
-	mouse_events_from_touch: bool,
-	mouse_source_touch: Touch_Id,
-	mouse_source_touch_active: bool,
-
 	// See `set_touch_events_from_mouse`.
 	touch_events_from_mouse: bool,
-	touch_from_mouse_held: bool,
 
 	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,

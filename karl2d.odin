@@ -180,9 +180,7 @@ init :: proc(
 	_set_font(FONT_DEFAULT)
 
 	s.events = make([dynamic]Event, s.allocator)
-	s.platform_events = make([dynamic]Event, s.allocator)
 	s.typed_runes = make([dynamic]rune, s.allocator)
-	s.mouse_events_from_touch = true
 	s.touch_events_from_mouse = true
 
 	// Audio
@@ -264,7 +262,6 @@ shutdown :: proc() {
 	}
 
 	delete(s.events)
-	delete(s.platform_events)
 	destroy_font(FONT_DEFAULT)
 	rb.destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
@@ -376,88 +373,8 @@ process_events :: proc() {
 	s.touches_count = touches_write
 
 	runtime.clear(&s.events)
-	runtime.clear(&s.platform_events)
 	runtime.clear(&s.typed_runes)
-	pf.get_events(&s.platform_events)
-
-	// Rebuild `s.events` from what the platform reported, weaving emulated mouse events in right
-	// after the touch that caused them, and vice versa. Reading from one array while writing to the
-	// other is what keeps the two emulation directions from ever reacting to each other's output.
-	mouse_pos := s.mouse_position
-
-	for event in s.platform_events {
-		append(&s.events, event)
-
-		if !s.mouse_events_from_touch && !s.touch_events_from_mouse {
-			continue
-		}
-
-		#partial switch e in event {
-		case Event_Mouse_Move:
-			mouse_pos = e.position
-
-			if s.touch_events_from_mouse && s.touch_from_mouse_held {
-				append(&s.events, Event_Touch_Moved {
-					id = EMULATED_TOUCH_ID,
-					position = e.position,
-				})
-			}
-
-		case Event_Mouse_Teleported:
-			// Noted for the button cases below, but not motion an emulated touch should follow.
-			mouse_pos = e.position
-
-		case Event_Mouse_Button_Went_Down:
-			if s.touch_events_from_mouse && e.button == .Left && !s.touch_from_mouse_held {
-				s.touch_from_mouse_held = true
-				append(&s.events, Event_Touch_Went_Down {
-					id = EMULATED_TOUCH_ID,
-					position = mouse_pos,
-				})
-			}
-
-		case Event_Mouse_Button_Went_Up:
-			if s.touch_events_from_mouse && e.button == .Left && s.touch_from_mouse_held {
-				s.touch_from_mouse_held = false
-				append(&s.events, Event_Touch_Went_Up {
-					id = EMULATED_TOUCH_ID,
-					position = mouse_pos,
-				})
-			}
-
-		case Event_Touch_Went_Down:
-			if s.mouse_events_from_touch && !s.mouse_source_touch_active {
-				s.mouse_source_touch = e.id
-				s.mouse_source_touch_active = true
-
-				// Teleport rather than move, so a tap doesn't show up as mouse delta.
-				append(&s.events, Event_Mouse_Teleported { position = e.position })
-				append(&s.events, Event_Mouse_Button_Went_Down { button = .Left })
-			}
-
-		case Event_Touch_Moved:
-			if s.mouse_events_from_touch && s.mouse_source_touch_active && e.id == s.mouse_source_touch {
-				append(&s.events, Event_Mouse_Move { position = e.position })
-			}
-
-		case Event_Touch_Went_Up:
-			if s.mouse_events_from_touch && s.mouse_source_touch_active && e.id == s.mouse_source_touch {
-				append(&s.events, Event_Mouse_Button_Went_Up { button = .Left })
-				s.mouse_source_touch_active = false
-			}
-
-		case Event_Touch_Cancelled:
-			if s.mouse_events_from_touch && s.mouse_source_touch_active && e.id == s.mouse_source_touch {
-				append(&s.events, Event_Mouse_Button_Went_Up { button = .Left })
-				s.mouse_source_touch_active = false
-			}
-
-		case Event_Window_Unfocused:
-			// The loop below releases held buttons and cancels touches on its own.
-			s.mouse_source_touch_active = false
-			s.touch_from_mouse_held = false
-		}
-	}
+	pf.get_events(&s.events)
 
 	for &event in s.events {
 		switch &e in event {
@@ -592,6 +509,39 @@ process_events :: proc() {
 			rb.resize_swapchain(e.screen_width, e.screen_height)
 		}
 	}
+
+	// Holding the left mouse button produces a touch. Runs after the loop above, so it reads the
+	// mouse state real input just produced. See `set_touch_events_from_mouse`.
+	if s.touch_events_from_mouse {
+		t := _find_touch(EMULATED_TOUCH_ID)
+		created := false
+
+		// The press is what creates the touch, not the button being held at the end of the frame. A
+		// click that goes down and up inside a single frame still has to arrive as a tap.
+		if t == nil && s.mouse_button_went_down[.Left] && s.touches_count < MAX_TOUCHES {
+			s.touches[s.touches_count] = {
+				id = EMULATED_TOUCH_ID,
+				position = s.mouse_position,
+				went_down = true,
+			}
+
+			t = &s.touches[s.touches_count]
+			s.touches_count += 1
+			created = true
+		}
+
+		// The window losing focus this frame already cancelled it, and that wins over the button.
+		if t != nil && !t.went_up {
+			if !created {
+				t.position = s.mouse_position
+				t.delta = s.mouse_delta
+			}
+
+			if !s.mouse_button_is_held[.Left] {
+				t.went_up = true
+			}
+		}
+	}
 }
 
 // Fetch a list of all events that happened this frame. Most games can use the `key_is_held`, 
@@ -601,6 +551,9 @@ process_events :: proc() {
 //
 // Note: Gamepad axis movement (analogue sticks and analogue triggers) are _not_ events. Those can
 // only be queried using `k2.get_gamepad_axis`.
+//
+// Note: These are the events the platform reported. The touch that `set_touch_events_from_mouse`
+// makes from the mouse is not one of them, it only shows up in `get_touches`.
 //
 // Warning: The returned slice is only valid during the current frame! You can make a clone of it
 // using the `slice.clone` procedure (import `core:slice`).
@@ -780,39 +733,17 @@ get_touches :: proc() -> []Touch {
 	return s.touches[:s.touches_count]
 }
 
-// Enabled by default. While enabled, the first touch drives the mouse: it moves the mouse position
-// and presses the left mouse button. That makes programs that only know about the mouse work on a
-// touch device.
-//
-// Turn this off when you handle touches yourself, otherwise one tap arrives both as a touch and as
-// a left click.
-set_mouse_events_from_touch :: proc(enabled: bool) {
-	assert_initialized()
-
-	// Turning this off mid-press must not leave the emulated button stuck held.
-	if !enabled && s.mouse_source_touch_active {
-		s.mouse_source_touch_active = false
-
-		if s.mouse_button_is_held[.Left] {
-			s.mouse_button_is_held[.Left] = false
-			s.mouse_button_went_up[.Left] = true
-		}
-	}
-
-	s.mouse_events_from_touch = enabled
-}
-
 // Enabled by default. Holding the left mouse button produces a touch (with id `EMULATED_TOUCH_ID`),
 // so code written for touch also works with a mouse. Turn it off if you handle the mouse yourself,
-// otherwise one drag arrives as both. Only real input is ever emulated, so this and
-// `set_mouse_events_from_touch` cannot feed each other.
+// otherwise one drag arrives as both.
+//
+// The touch is built from the mouse state, so it never shows up in `get_events`, only in
+// `get_touches`.
 set_touch_events_from_mouse :: proc(enabled: bool) {
 	assert_initialized()
 
 	// Turning this off mid-press must not leave a phantom touch stuck in `get_touches`.
-	if !enabled && s.touch_from_mouse_held {
-		s.touch_from_mouse_held = false
-
+	if !enabled {
 		if t := _find_touch(EMULATED_TOUCH_ID); t != nil && !t.went_up {
 			t.went_up = true
 			t.cancelled = true
@@ -5581,10 +5512,6 @@ State :: struct {
 	// All events for this frame. Cleared when `process_events` run
 	events: [dynamic]Event,
 
-	// The events exactly as the platform reported them. `events` is rebuilt from this each frame,
-	// with emulated events woven in.
-	platform_events: [dynamic]Event,
-
 	typed_runes: [dynamic]rune,
 
 	mouse_position: Vec2,
@@ -5604,14 +5531,8 @@ State :: struct {
 	touches: [MAX_TOUCHES]Touch,
 	touches_count: int,
 
-	// See `set_mouse_events_from_touch`.
-	mouse_events_from_touch: bool,
-	mouse_source_touch: Touch_Id,
-	mouse_source_touch_active: bool,
-
 	// See `set_touch_events_from_mouse`.
 	touch_events_from_mouse: bool,
-	touch_from_mouse_held: bool,
 
 	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
