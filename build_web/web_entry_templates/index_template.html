@@ -6,9 +6,10 @@
 		<title>Karl2D Web Build</title>
 	</head>
 	<body id="body" style="height: 100%; padding: 0; margin: 0; overflow: hidden; background-color: black;">
-		<!-- touch-action: none keeps the browser from turning touches into page scroll/zoom. The mouse
-		     events a browser fires after a tap are deliberately left alone: they are what makes code
-		     that only knows about the mouse work on a touch screen. -->
+		<!-- touch-action: none keeps the browser from turning touches into page scroll/zoom, and stops
+		     it cancelling a gesture Karl2D is in the middle of. The mouse events a browser fires after
+		     a tap are ignored: Karl2D listens for pointer events, which those are not, so a tap cannot
+		     arrive as both a touch and a click. -->
 		<canvas id="webgl-canvas" style="touch-action: none;" oncontextmenu="return false;" onmousedown="event.target.focus()" onkeydown="event.preventDefault()"></canvas>
 
 		<script type="text/javascript" src="audio_backend_web_audio.js"></script>

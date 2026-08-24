@@ -80,17 +80,17 @@ web_init :: proc(
 	s.window_mode = init_options.window_mode
 
 	add_window_event_listener(.Resize, web_event_window_resize)
-	add_canvas_event_listener(.Mouse_Move, web_event_mouse_move)
-	add_canvas_event_listener(.Mouse_Down, web_event_mouse_down)
-	add_window_event_listener(.Mouse_Up, web_event_mouse_up)
-	add_canvas_event_listener(.Wheel, web_event_mouse_wheel)
 
-	// Touch pointers get implicit capture: their events keep targeting the canvas even when a
-	// finger drags outside it, so Pointer_Up needs no window-level listener like Mouse_Up does.
+	// One pointer model for mouse, pen and touch. Up sits on the window because a mouse pointer
+	// gets no implicit capture: a drag that ends outside the canvas still has to release. Touch
+	// pointers do get capture, and their events bubble to the window anyway.
 	add_canvas_event_listener(.Pointer_Down, web_event_pointer_down)
 	add_canvas_event_listener(.Pointer_Move, web_event_pointer_move)
-	add_canvas_event_listener(.Pointer_Up, web_event_pointer_up)
+	add_window_event_listener(.Pointer_Up, web_event_pointer_up)
 	add_canvas_event_listener(.Pointer_Cancel, web_event_pointer_cancel)
+
+	// Not a pointer event, so the wheel keeps its own listener.
+	add_canvas_event_listener(.Wheel, web_event_mouse_wheel)
 
 	add_window_event_listener(.Key_Down, web_event_key_down)
 	add_window_event_listener(.Key_Up, web_event_key_up)
@@ -170,55 +170,6 @@ web_event_window_resize :: proc(e: js.Event) {
 	}
 }
 
-web_event_mouse_move :: proc(e: js.Event) {
-	if s.mouse_locked {
-		cx := f32(s.width / 2)
-		cy := f32(s.height / 2)
-		dx := f32(e.mouse.movement.x) * f32(js.device_pixel_ratio())
-		dy := f32(e.mouse.movement.y) * f32(js.device_pixel_ratio())
-		append(&s.events, Event_Mouse_Move { position = {cx + dx, cy + dy} })
-		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
-	} else {
-		append(&s.events, Event_Mouse_Move {
-			position = {
-				math.floor(f32(e.mouse.client.x) * f32(js.device_pixel_ratio())),
-				math.floor(f32(e.mouse.client.y) * f32(js.device_pixel_ratio())),
-			},
-		})
-	}
-}
-
-web_event_mouse_down :: proc(e: js.Event) {
-	button := Mouse_Button.Left
-
-	if e.mouse.button == 2 {
-		button = .Right
-	}
-
-	if e.mouse.button == 1 {
-		button = .Middle 
-	}
-
-	append(&s.events, Event_Mouse_Button_Went_Down {
-		button = button,
-	})
-}
-
-web_event_mouse_up :: proc(e: js.Event) {
-	button := Mouse_Button.Left
-
-	if e.mouse.button == 2 {
-		button = .Right
-	}
-
-	if e.mouse.button == 1 {
-		button = .Middle 
-	}
-
-	append(&s.events, Event_Mouse_Button_Went_Up {
-		button = button,
-	})
-}
 
 web_event_mouse_wheel :: proc(e: js.Event) {
 	// Not the best way, but how would we know what the wheel deltaMode really represents? If it is
@@ -238,40 +189,84 @@ web_event_mouse_wheel :: proc(e: js.Event) {
 	}
 }
 
-// Mouse and pen already flow through the Mouse_* listeners above, so these only handle touch.
+// Mouse, pen and touch all arrive here. Touch becomes touch events, everything else drives the
+// mouse. The browser's own post-tap mouse events are not pointer events, so they never reach us
+// and a tap cannot arrive twice.
 web_event_pointer_down :: proc(e: js.Event) {
-	if e.mouse.pointer.pointer_type != .Touch {
+	if e.mouse.pointer.pointer_type == .Touch {
+		append(&s.events, Event_Touch_Went_Down {
+			id = Touch_Id(e.mouse.pointer.pointer_id),
+			position = web_touch_position(e),
+		})
 		return
 	}
 
-	append(&s.events, Event_Touch_Went_Down {
-		id = Touch_Id(e.mouse.pointer.pointer_id),
-		position = web_touch_position(e),
+	button := Mouse_Button.Left
+
+	if e.mouse.button == 2 {
+		button = .Right
+	}
+
+	if e.mouse.button == 1 {
+		button = .Middle
+	}
+
+	append(&s.events, Event_Mouse_Button_Went_Down {
+		button = button,
 	})
 }
 
 web_event_pointer_move :: proc(e: js.Event) {
-	if e.mouse.pointer.pointer_type != .Touch {
+	if e.mouse.pointer.pointer_type == .Touch {
+		append(&s.events, Event_Touch_Moved {
+			id = Touch_Id(e.mouse.pointer.pointer_id),
+			position = web_touch_position(e),
+		})
 		return
 	}
 
-	append(&s.events, Event_Touch_Moved {
-		id = Touch_Id(e.mouse.pointer.pointer_id),
-		position = web_touch_position(e),
-	})
+	if s.mouse_locked {
+		cx := f32(s.width / 2)
+		cy := f32(s.height / 2)
+		dx := f32(e.mouse.movement.x) * f32(js.device_pixel_ratio())
+		dy := f32(e.mouse.movement.y) * f32(js.device_pixel_ratio())
+		append(&s.events, Event_Mouse_Move { position = {cx + dx, cy + dy} })
+		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
+	} else {
+		append(&s.events, Event_Mouse_Move {
+			position = {
+				math.floor(f32(e.mouse.client.x) * f32(js.device_pixel_ratio())),
+				math.floor(f32(e.mouse.client.y) * f32(js.device_pixel_ratio())),
+			},
+		})
+	}
 }
 
 web_event_pointer_up :: proc(e: js.Event) {
-	if e.mouse.pointer.pointer_type != .Touch {
+	if e.mouse.pointer.pointer_type == .Touch {
+		append(&s.events, Event_Touch_Went_Up {
+			id = Touch_Id(e.mouse.pointer.pointer_id),
+			position = web_touch_position(e),
+		})
 		return
 	}
 
-	append(&s.events, Event_Touch_Went_Up {
-		id = Touch_Id(e.mouse.pointer.pointer_id),
-		position = web_touch_position(e),
+	button := Mouse_Button.Left
+
+	if e.mouse.button == 2 {
+		button = .Right
+	}
+
+	if e.mouse.button == 1 {
+		button = .Middle
+	}
+
+	append(&s.events, Event_Mouse_Button_Went_Up {
+		button = button,
 	})
 }
 
+// Only touch is cancelled in practice. A mouse that somehow gets here has no button to release.
 web_event_pointer_cancel :: proc(e: js.Event) {
 	if e.mouse.pointer.pointer_type != .Touch {
 		return
