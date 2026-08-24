@@ -358,18 +358,17 @@ process_events :: proc() {
 	s.mouse_wheel_delta_horizontal = 0
 
 	// Drop touches that ended last frame, clear the per-frame flags on the rest.
-	kept := 0
-	for &t in s.touches {
+	// Walking backwards means the touch that `unordered_remove` swaps in from the end is one this
+	// loop has already been past, so nothing needs revisiting.
+	#reverse for &t, i in s.touches {
 		if t.went_up {
+			unordered_remove(&s.touches, i)
 			continue
 		}
 
 		t.went_down = false
 		t.delta = {}
-		s.touches[kept] = t
-		kept += 1
 	}
-	resize(&s.touches, kept)
 
 	runtime.clear(&s.events)
 	runtime.clear(&s.typed_runes)
