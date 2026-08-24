@@ -360,20 +360,23 @@ process_events :: proc() {
 	s.mouse_wheel_delta = 0
 	s.mouse_wheel_delta_horizontal = 0
 
-	// Drop touches that ended last frame, clear the per-frame flags on the rest.
-	touches_write := 0
-	for touches_read in 0..<s.touches_count {
-		t := s.touches[touches_read]
-		if t.went_up {
-			continue
+	// A touch that ended stays in `get_touches` for the frame it ended in. That frame is over now.
+	kept := 0
+	for t in s.touches[:s.touches_count] {
+		if !t.went_up {
+			s.touches[kept] = t
+			kept += 1
 		}
+	}
+	s.touches_count = kept
 
+	// The ones still down carry their id and position into this frame. Only their per-frame state is
+	// cleared, same as the keys and buttons above. `went_up` and `cancelled` need no clearing: a
+	// touch that has them was just dropped.
+	for &t in s.touches[:s.touches_count] {
 		t.went_down = false
 		t.delta = {}
-		s.touches[touches_write] = t
-		touches_write += 1
 	}
-	s.touches_count = touches_write
 
 	runtime.clear(&s.events)
 	runtime.clear(&s.platform_events)
