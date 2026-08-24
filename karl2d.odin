@@ -358,8 +358,6 @@ process_events :: proc() {
 	s.mouse_wheel_delta_horizontal = 0
 
 	// Drop touches that ended last frame, clear the per-frame flags on the rest.
-	// Walking backwards means the touch that `unordered_remove` swaps in from the end is one this
-	// loop has already been past, so nothing needs revisiting.
 	#reverse for &t, i in s.touches {
 		if t.went_up {
 			unordered_remove(&s.touches, i)
@@ -426,7 +424,7 @@ process_events :: proc() {
 			})
 
 			if appended == 0 {
-				log.warnf("Dropped a touch, already tracking the maximum of %v touches", MAX_TOUCHES)
+				log.debugf("Dropped a touch, already tracking the maximum of %v touches", MAX_TOUCHES)
 			}
 
 		case Event_Touch_Moved:
@@ -511,7 +509,6 @@ process_events :: proc() {
 	// mouse state real input just produced. See `set_touch_events_from_mouse`.
 	if s.touch_events_from_mouse {
 		t := _find_touch(EMULATED_TOUCH_ID)
-		created := false
 
 		// The press is what creates the touch, not the button being held at the end of the frame. A
 		// click that goes down and up inside a single frame still has to arrive as a tap.
@@ -523,12 +520,13 @@ process_events :: proc() {
 			})
 
 			t = &s.touches[len(s.touches) - 1]
-			created = true
 		}
 
 		// The window losing focus this frame already cancelled it, and that wins over the button.
 		if t != nil && !t.went_up {
-			if !created {
+			// The reset above clears `went_down`, so it is still set only on the frame the touch was
+			// born. A finger that just landed has not moved yet.
+			if !t.went_down {
 				t.position = s.mouse_position
 				t.delta = s.mouse_delta
 			}
@@ -722,6 +720,9 @@ get_typed_runes :: proc() -> []rune {
 //
 // Note: Only web reports touches from a real touch screen. On desktop the only touches you get are
 // the ones `set_touch_events_from_mouse` makes from the mouse.
+//
+// Note: The order is not stable. When a touch ends, the last one in the list takes its place, so
+// match touches by `id` between frames rather than by where they sit in the slice.
 //
 // Warning: The returned slice is only valid during the current frame!
 get_touches :: proc() -> []Touch {
@@ -5623,15 +5624,16 @@ Mouse_Button :: enum {
 	Max = 255,
 }
 
-// The maximum number of touches Karl2D tracks at once.
-MAX_TOUCHES :: 10
+// The maximum number of touches Karl2D tracks at once. Ten fingers, plus the one
+// `set_touch_events_from_mouse` makes from the mouse.
+MAX_TOUCHES :: 11
 
 // Identifies one finger for as long as it stays on the screen. Stable from the moment the touch
 // goes down until it goes up. Ids may be reused after that.
 Touch_Id :: distinct u64
 
 // The id of the touch synthesized by `set_touch_events_from_mouse`. Never collides with a real id.
-EMULATED_TOUCH_ID :: Touch_Id(max(u64))
+EMULATED_TOUCH_ID :: max(Touch_Id)
 
 Touch :: struct {
 	id: Touch_Id,

@@ -216,6 +216,9 @@ get_typed_runes :: proc() -> []rune
 // Note: Only web reports touches from a real touch screen. On desktop the only touches you get are
 // the ones `set_touch_events_from_mouse` makes from the mouse.
 //
+// Note: The order is not stable. When a touch ends, the last one in the list takes its place, so
+// match touches by `id` between frames rather than by where they sit in the slice.
+//
 // Warning: The returned slice is only valid during the current frame!
 get_touches :: proc() -> []Touch
 
@@ -1781,15 +1784,16 @@ Mouse_Button :: enum {
 	Max = 255,
 }
 
-// The maximum number of touches Karl2D tracks at once.
-MAX_TOUCHES :: 10
+// The maximum number of touches Karl2D tracks at once. Ten fingers, plus the one
+// `set_touch_events_from_mouse` makes from the mouse.
+MAX_TOUCHES :: 11
 
 // Identifies one finger for as long as it stays on the screen. Stable from the moment the touch
 // goes down until it goes up. Ids may be reused after that.
 Touch_Id :: distinct u64
 
 // The id of the touch synthesized by `set_touch_events_from_mouse`. Never collides with a real id.
-EMULATED_TOUCH_ID :: Touch_Id(max(u64))
+EMULATED_TOUCH_ID :: max(Touch_Id)
 
 Touch :: struct {
 	id: Touch_Id,
