@@ -1683,8 +1683,7 @@ State :: struct {
 	mouse_button_went_up: #sparse [Mouse_Button]bool,
 	mouse_button_is_held: #sparse [Mouse_Button]bool,
 
-	touches: [MAX_TOUCHES]Touch,
-	touches_count: int,
+	touches: [dynamic; MAX_TOUCHES]Touch,
 
 	// See `set_touch_events_from_mouse`.
 	touch_events_from_mouse: bool,

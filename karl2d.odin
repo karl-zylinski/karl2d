@@ -358,19 +358,15 @@ process_events :: proc() {
 	s.mouse_wheel_delta_horizontal = 0
 
 	// Drop touches that ended last frame, clear the per-frame flags on the rest.
-	touches_write := 0
-	for touches_read in 0..<s.touches_count {
-		t := s.touches[touches_read]
+	#reverse for &t, i in s.touches {
 		if t.went_up {
+			ordered_remove(&s.touches, i)
 			continue
 		}
 
 		t.went_down = false
 		t.delta = {}
-		s.touches[touches_write] = t
-		touches_write += 1
 	}
-	s.touches_count = touches_write
 
 	runtime.clear(&s.events)
 	runtime.clear(&s.typed_runes)
@@ -421,14 +417,13 @@ process_events :: proc() {
 			s.mouse_wheel_delta_horizontal = e.delta
 
 		case Event_Touch_Went_Down:
-			if s.touches_count < MAX_TOUCHES {
-				s.touches[s.touches_count] = Touch {
-					id = e.id,
-					position = e.position,
-					went_down = true,
-				}
-				s.touches_count += 1
-			} else {
+			appended := append(&s.touches, Touch {
+				id = e.id,
+				position = e.position,
+				went_down = true,
+			})
+
+			if appended == 0 {
 				log.warnf("Dropped a touch, already tracking the maximum of %v touches", MAX_TOUCHES)
 			}
 
@@ -497,7 +492,7 @@ process_events :: proc() {
 				}
 			}
 
-			for &t in s.touches[:s.touches_count] {
+			for &t in s.touches {
 				if !t.went_up {
 					t.went_up = true
 					t.cancelled = true
@@ -518,15 +513,14 @@ process_events :: proc() {
 
 		// The press is what creates the touch, not the button being held at the end of the frame. A
 		// click that goes down and up inside a single frame still has to arrive as a tap.
-		if t == nil && s.mouse_button_went_down[.Left] && s.touches_count < MAX_TOUCHES {
-			s.touches[s.touches_count] = {
+		if t == nil && s.mouse_button_went_down[.Left] && len(s.touches) < cap(s.touches) {
+			append(&s.touches, Touch {
 				id = EMULATED_TOUCH_ID,
 				position = s.mouse_position,
 				went_down = true,
-			}
+			})
 
-			t = &s.touches[s.touches_count]
-			s.touches_count += 1
+			t = &s.touches[len(s.touches) - 1]
 			created = true
 		}
 
@@ -730,7 +724,7 @@ get_typed_runes :: proc() -> []rune {
 // Warning: The returned slice is only valid during the current frame!
 get_touches :: proc() -> []Touch {
 	assert_initialized()
-	return s.touches[:s.touches_count]
+	return s.touches[:]
 }
 
 // Enabled by default. Holding the left mouse button produces a touch (with id `EMULATED_TOUCH_ID`),
@@ -5528,8 +5522,7 @@ State :: struct {
 	mouse_button_went_up: #sparse [Mouse_Button]bool,
 	mouse_button_is_held: #sparse [Mouse_Button]bool,
 
-	touches: [MAX_TOUCHES]Touch,
-	touches_count: int,
+	touches: [dynamic; MAX_TOUCHES]Touch,
 
 	// See `set_touch_events_from_mouse`.
 	touch_events_from_mouse: bool,
@@ -5976,7 +5969,7 @@ assert_initialized :: proc(loc := #caller_location) {
 // example if an up/move event arrives for a touch that started before the window got focus.
 @(private="package")
 _find_touch :: proc(id: Touch_Id) -> ^Touch {
-	for &t in s.touches[:s.touches_count] {
+	for &t in s.touches {
 		if t.id == id {
 			return &t
 		}
