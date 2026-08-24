@@ -771,6 +771,9 @@ get_typed_runes :: proc() -> []rune {
 // Returns all touches that were active at any point during this frame, including those that ended
 // this frame (those have `went_up` set).
 //
+// Note: Only web reports touches from a real touch screen. On desktop the only touches you get are
+// the ones `set_touch_events_from_mouse` makes from the mouse.
+//
 // Warning: The returned slice is only valid during the current frame!
 get_touches :: proc() -> []Touch {
 	assert_initialized()
@@ -6013,8 +6016,8 @@ Event_Touch_Went_Down :: struct { id: Touch_Id, position: Vec2 }
 Event_Touch_Moved     :: struct { id: Touch_Id, position: Vec2 }
 Event_Touch_Went_Up   :: struct { id: Touch_Id, position: Vec2 }
 
-// No position: not every platform knows where a cancelled touch was (Windows doesn't). The touch
-// keeps the last position it was seen at.
+// No position: not every platform knows where a cancelled touch was. The touch keeps the last
+// position it was seen at.
 Event_Touch_Cancelled :: struct { id: Touch_Id }
 
 

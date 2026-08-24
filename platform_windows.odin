@@ -44,23 +44,6 @@ import "base:runtime"
 import hm "core:container/handle_map"
 @require import "log"
 
-// core:sys/windows doesn't bind the Pointer Input API, so we bind just enough of it here to tell a
-// touch pointer apart from a mouse or pen pointer.
-POINTER_INPUT_TYPE :: enum win32.DWORD {
-	Pointer  = 1,
-	Touch    = 2,
-	Pen      = 3,
-	Mouse    = 4,
-	Touchpad = 5,
-}
-
-foreign import user32 "system:User32.lib"
-
-@(default_calling_convention="system")
-foreign user32 {
-	GetPointerType :: proc(pointer_id: win32.UINT32, pointer_type: ^POINTER_INPUT_TYPE) -> win32.BOOL ---
-}
-
 windows_state_size :: proc() -> int {
 	return size_of(Windows_State)
 }
@@ -748,29 +731,6 @@ windows_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 
 s: ^Windows_State
 
-// Returns a WM_POINTER* message's position in client coordinates, and whether it came from a touch
-// pointer. Unlike WM_MOUSEMOVE, the lparam position is in screen coordinates.
-_windows_touch_event_info :: proc(
-	hwnd: win32.HWND,
-	wparam: win32.WPARAM,
-	lparam: win32.LPARAM,
-) -> (id: Touch_Id, position: Vec2, ok: bool) {
-	pointer_id := win32.UINT32(win32.LOWORD(wparam))
-
-	pointer_type: POINTER_INPUT_TYPE
-	if !bool(GetPointerType(pointer_id, &pointer_type)) || pointer_type != .Touch {
-		return {}, {}, false
-	}
-
-	pt := win32.POINT {
-		x = win32.LONG(win32.GET_X_LPARAM(lparam)),
-		y = win32.LONG(win32.GET_Y_LPARAM(lparam)),
-	}
-	win32.ScreenToClient(hwnd, &pt)
-
-	return Touch_Id(pointer_id), { f32(pt.x), f32(pt.y) }, true
-}
-
 _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
 	context = s.custom_context
 
@@ -906,44 +866,6 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 			button = .Right,
 		})
 		win32.ReleaseCapture()
-
-	// Touch pointers are consumed (return 0) so DefWindowProcW doesn't also promote them into mouse
-	// messages; karl2d.odin synthesizes those itself. Mouse and pen fall through untouched. Per
-	// Microsoft's docs the split must be consistent across all four pointer messages.
-	case win32.WM_POINTERDOWN:
-		if id, position, ok := _windows_touch_event_info(hwnd, wparam, lparam); ok {
-			append(&s.events, Event_Touch_Went_Down {
-				id = id,
-				position = position,
-			})
-			return 0
-		}
-
-	case win32.WM_POINTERUPDATE:
-		if id, position, ok := _windows_touch_event_info(hwnd, wparam, lparam); ok {
-			append(&s.events, Event_Touch_Moved {
-				id = id,
-				position = position,
-			})
-			return 0
-		}
-
-	case win32.WM_POINTERUP:
-		if id, position, ok := _windows_touch_event_info(hwnd, wparam, lparam); ok {
-			append(&s.events, Event_Touch_Went_Up {
-				id = id,
-				position = position,
-			})
-			return 0
-		}
-
-	// Unlike the pointer messages above, this one's lparam is the handle of the window taking
-	// capture, not a position, so only the pointer id in wparam is usable here.
-	case win32.WM_POINTERCAPTURECHANGED:
-		if id, _, ok := _windows_touch_event_info(hwnd, wparam, lparam); ok {
-			append(&s.events, Event_Touch_Cancelled { id = id })
-			return 0
-		}
 
 	case win32.WM_MOVE:
 		if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {

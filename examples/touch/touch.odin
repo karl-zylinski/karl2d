@@ -1,3 +1,6 @@
+// This example shows multi touch input: drag with one finger to pan, pinch with two to zoom and
+// rotate, tap to drop a marker. Touch screens are only supported on web, so run this as a web
+// build to use one. On desktop, press M to have the mouse produce touches instead.
 package karl2d_touch_example
 
 import k2 "../.."
