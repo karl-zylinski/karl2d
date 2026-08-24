@@ -358,15 +358,18 @@ process_events :: proc() {
 	s.mouse_wheel_delta_horizontal = 0
 
 	// Drop touches that ended last frame, clear the per-frame flags on the rest.
-	#reverse for &t, i in s.touches {
+	kept := 0
+	for &t in s.touches {
 		if t.went_up {
-			ordered_remove(&s.touches, i)
 			continue
 		}
 
 		t.went_down = false
 		t.delta = {}
+		s.touches[kept] = t
+		kept += 1
 	}
+	resize(&s.touches, kept)
 
 	runtime.clear(&s.events)
 	runtime.clear(&s.typed_runes)
