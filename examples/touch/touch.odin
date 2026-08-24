@@ -15,6 +15,7 @@ camera: k2.Camera
 MIN_ZOOM :: 0.25
 MAX_ZOOM :: 8
 TAP_SLOP :: 20 // pixels of finger wobble we still count as a tap
+TEXT_MARGIN :: 20 // in display-independent pixels
 
 // Tracks how far a finger has travelled since it went down, for the tap check below.
 Finger :: struct {
@@ -252,8 +253,47 @@ step :: proc() -> bool {
 		)
 	}
 
+	// The help text is the widest thing on screen, so it decides the text layout. The mouse hints
+	// don't fit on a phone, and don't apply there either, so they are dropped. If the text is still
+	// too wide, in a very narrow window, it shrinks the rest of the way.
+
+	help_full := [?]string {
+		"drag with one finger to pan (or hold the left mouse button)",
+		"pinch with two fingers to zoom and rotate (or use the mouse wheel)",
+		"tap to drop a marker",
+	}
+
+	help_short := [?]string {
+		"drag with one finger to pan",
+		"pinch with two fingers to zoom and rotate",
+		"tap to drop a marker",
+	}
+
+	widest_line :: proc(lines: []string, font_size: f32) -> f32 {
+		widest: f32
+
+		for l in lines {
+			widest = max(widest, k2.measure_text(l, font_size).x)
+		}
+
+		return widest
+	}
+
+	text_width := ui_size.x - TEXT_MARGIN*2
 	font_size := f32(20)
-	text_pos := Vec2 { 20, 20 }
+	help := help_full[:]
+	mouse_hints := true
+
+	if widest_line(help, font_size) > text_width {
+		help = help_short[:]
+		mouse_hints = false
+	}
+
+	if widest := widest_line(help, font_size); widest > text_width {
+		font_size *= text_width/widest
+	}
+
+	text_pos := Vec2 { TEXT_MARGIN, TEXT_MARGIN }
 
 	draw_stat :: proc(text: string, pos: ^Vec2, font_size: f32) {
 		k2.draw_text(text, pos^, font_size, k2.WHITE)
@@ -267,32 +307,30 @@ step :: proc() -> bool {
 	draw_stat(fmt.tprintf("markers: %v", len(markers)), &text_pos, font_size)
 
 	mouse_emu_color := mouse_emulates_touch ? k2.GREEN : k2.WHITE
-	mouse_emu_text := fmt.tprintf("mouse emulates touch: %v (M to toggle)", mouse_emulates_touch)
+	mouse_emu_text := fmt.tprintf("mouse emulates touch: %v", mouse_emulates_touch)
+
+	if mouse_hints {
+		mouse_emu_text = fmt.tprintf("mouse emulates touch: %v (M to toggle)", mouse_emulates_touch)
+	}
+
 	k2.draw_text(mouse_emu_text, text_pos, font_size, mouse_emu_color)
-	text_pos.y += font_size
 
-	text_color := k2.YELLOW
-	text_pos = { 20, ui_size.y - 20 - font_size }
+	text_pos = { TEXT_MARGIN, ui_size.y - TEXT_MARGIN - font_size }
 
-	k2.draw_text("tap to drop a marker", text_pos, font_size, text_color)
-	text_pos.y -= font_size
-
-	k2.draw_text(
-		"pinch with two fingers to zoom and rotate (or use the mouse wheel)",
-		text_pos, font_size, text_color,
-	)
-	text_pos.y -= font_size
-
-	k2.draw_text(
-		"drag with one finger to pan (or hold the left mouse button)",
-		text_pos, font_size, text_color,
-	)
-	text_pos.y -= font_size
+	#reverse for line in help {
+		k2.draw_text(line, text_pos, font_size, k2.YELLOW)
+		text_pos.y -= font_size
+	}
 
 	// Same y as the first line of stats text above, so the two line up along the top.
 	BUTTON_HEIGHT :: 24
 
-	button_bar := k2.Rect { 20, 20, ui_size.x - 40, BUTTON_HEIGHT }
+	button_bar := k2.Rect {
+		TEXT_MARGIN,
+		TEXT_MARGIN,
+		ui_size.x - TEXT_MARGIN*2,
+		BUTTON_HEIGHT,
+	}
 	button_width := k2.ui_button_width("Source Code", BUTTON_HEIGHT) + 25
 	button_rect := k2.rect_cut_right(&button_bar, button_width, 0)
 
