@@ -14,7 +14,7 @@ camera: k2.Camera
 
 MIN_ZOOM :: 0.25
 MAX_ZOOM :: 8
-TAP_SLOP :: 20 // pixels of finger wobble we still count as a tap
+TAP_SLOP :: 20 // display-independent pixels of finger wobble we still count as a tap
 TEXT_MARGIN :: 20 // in display-independent pixels
 
 // Tracks how far a finger has travelled since it went down, for the tap check below.
@@ -64,6 +64,10 @@ step :: proc() -> bool {
 	screen_size := k2.get_screen_size()
 	camera.offset = screen_size/2
 
+	// The screen is in physical pixels, so anything sized in display-independent ones scales by
+	// this. Also the UI camera's zoom further down.
+	ui_scale := k2.get_window_scale()
+
 	if k2.key_went_down(.M) {
 		mouse_emulates_touch = !mouse_emulates_touch
 		k2.set_touch_events_from_mouse(mouse_emulates_touch)
@@ -78,18 +82,24 @@ step :: proc() -> bool {
 			fingers[fingers_count] = { id = t.id }
 			fingers_count += 1
 		}
+	}
 
+	tap_slop := TAP_SLOP*ui_scale
+
+	// Fingers added just above are in here too, which is what makes a tap that goes down and up
+	// inside a single frame still count.
+	for t in touches {
 		for i in 0..<fingers_count {
 			f := &fingers[i]
+
 			if f.id != t.id {
 				continue
 			}
 
 			f.travelled += linalg.length(t.delta)
 
-			// Runs even for a finger added just above: a quick tap can go down and up in one frame.
 			if t.went_up {
-				if !t.cancelled && f.travelled < TAP_SLOP {
+				if !t.cancelled && f.travelled < tap_slop {
 					append(&markers, k2.screen_to_camera(t.position, camera))
 				}
 
@@ -217,7 +227,6 @@ step :: proc() -> bool {
 	// the display scale: the screen is in physical pixels, so fixed sizes would come out tiny on a
 	// 3x phone display. Everything below is in display-independent pixels.
 
-	ui_scale := k2.get_window_scale()
 	ui_camera := k2.Camera { zoom = ui_scale }
 
 	k2.set_camera(ui_camera)
@@ -239,8 +248,14 @@ step :: proc() -> bool {
 		// Touches are in physical screen pixels, so bring them into the UI camera's space.
 		position := k2.screen_to_camera(t.position, ui_camera)
 
+		id_text := fmt.tprintf("%v", t.id)
+
+		if t.id == k2.EMULATED_TOUCH_ID {
+			id_text = "mouse"
+		}
+
 		k2.draw_circle_outline(position, 30, 4, color)
-		k2.draw_text(fmt.tprintf("%v", t.id), position + { 60, -12 }, 24, color)
+		k2.draw_text(id_text, position + { 60, -12 }, 24, color)
 	}
 
 	if gesture_count == 2 {
@@ -294,16 +309,17 @@ step :: proc() -> bool {
 
 	text_pos := Vec2 { TEXT_MARGIN, TEXT_MARGIN }
 
-	draw_stat :: proc(text: string, pos: ^Vec2, font_size: f32) {
-		k2.draw_text(text, pos^, font_size, k2.WHITE)
-		pos.y += font_size
+	// Draws one line of stats and returns where the next one goes.
+	draw_stat :: proc(text: string, pos: Vec2, font_size: f32) -> Vec2 {
+		k2.draw_text(text, pos, font_size, k2.WHITE)
+		return pos + { 0, font_size }
 	}
 
-	draw_stat(fmt.tprintf("touches: %v", len(touches)), &text_pos, font_size)
-	draw_stat(fmt.tprintf("zoom: x%.2f", camera.zoom), &text_pos, font_size)
+	text_pos = draw_stat(fmt.tprintf("touches: %v", len(touches)), text_pos, font_size)
+	text_pos = draw_stat(fmt.tprintf("zoom: x%.2f", camera.zoom), text_pos, font_size)
 	rotation_stat := fmt.tprintf("rotation: %.0f deg", math.to_degrees(camera.rotation))
-	draw_stat(rotation_stat, &text_pos, font_size)
-	draw_stat(fmt.tprintf("markers: %v", len(markers)), &text_pos, font_size)
+	text_pos = draw_stat(rotation_stat, text_pos, font_size)
+	text_pos = draw_stat(fmt.tprintf("markers: %v", len(markers)), text_pos, font_size)
 
 	mouse_emu_color := mouse_emulates_touch ? k2.GREEN : k2.WHITE
 	mouse_emu_text := fmt.tprintf("mouse emulates touch: %v", mouse_emulates_touch)
@@ -323,6 +339,7 @@ step :: proc() -> bool {
 
 	// Same y as the first line of stats text above, so the two line up along the top.
 	BUTTON_HEIGHT :: 24
+	BUTTON_PADDING :: 25 // in display-independent pixels
 
 	button_bar := k2.Rect {
 		TEXT_MARGIN,
@@ -330,7 +347,7 @@ step :: proc() -> bool {
 		ui_size.x - TEXT_MARGIN*2,
 		BUTTON_HEIGHT,
 	}
-	button_width := k2.ui_button_width("Source Code", BUTTON_HEIGHT) + 25
+	button_width := k2.ui_button_width("Source Code", BUTTON_HEIGHT) + BUTTON_PADDING
 	button_rect := k2.rect_cut_right(&button_bar, button_width, 0)
 
 	if k2.ui_button(button_rect, "Source Code") {
