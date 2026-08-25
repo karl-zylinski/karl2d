@@ -20,7 +20,14 @@ main :: proc() {
 }
 
 create_custom_cursor :: proc(image_data: []u8, hotspot: [2]int) -> k2.Custom_Cursor {
-	image := k2.load_image_from_bytes(image_data)
+	// The second return value says if the image loaded. There is nothing to make a cursor from if
+	// it didn't, and the code below already knows what to do with CUSTOM_CURSOR_NONE.
+	image, image_ok := k2.load_image_from_bytes(image_data)
+
+	if !image_ok {
+		return k2.CUSTOM_CURSOR_NONE
+	}
+
 	custom_cursor := k2.create_custom_cursor(image, hotspot)
 	k2.destroy_image(image)
 	return custom_cursor
