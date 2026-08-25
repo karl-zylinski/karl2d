@@ -469,26 +469,35 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawp
 	}
 }
 
-gl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
+gl_create_texture :: proc(
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
 	tex, tex_add_err := hm.add(&s.textures, create_texture(width, height, format, nil))
 
 	if tex_add_err != nil {
 		log.errorf("Failed to create texture. Error: %v", tex_add_err)
-		return {}
+		return {}, false
 	}
 
-	return tex
+	return tex, true
 }
 
-gl_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
+gl_load_texture :: proc(
+	data: []u8,
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
 	tex, tex_add_err := hm.add(&s.textures, create_texture(width, height, format, raw_data(data)))
 
 	if tex_add_err != nil {
 		log.errorf("Failed to load texture. Error: %v", tex_add_err)
-		return {}
+		return {}, false
 	}
 
-	return tex
+	return tex, true
 }
 
 gl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
@@ -524,7 +533,10 @@ gl_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
 	return tex.needs_vertical_flip
 }
 
-gl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
+gl_create_render_texture :: proc(
+	width: int,
+	height: int,
+) -> (Texture_Handle, Render_Target_Handle, bool) {
 	texture := create_texture(width, height, .RGBA_32_Float, nil)
 	texture.needs_vertical_flip = true
 	
@@ -550,7 +562,7 @@ gl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Re
 
 	if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
 		log.errorf("Failed creating frame buffer of size %v x %v", width, height)
-		return {}, {}
+		return {}, {}, false
 	}
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
@@ -567,16 +579,16 @@ gl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Re
 
 	if tex_add_err != nil {
 		log.errorf("Failed to create texture. Error: %v", tex_add_err)
-		return {}, {}
+		return {}, {}, false
 	}
 
 	rt_handle, rt_add_err := hm.add(&s.render_targets, rt)
 	if rt_add_err != nil {
 		log.errorf("Failed to create render target. Error: %v", rt_add_err)
-		return {}, {}
+		return {}, {}, false
 	}
 
-	return tex_handle, rt_handle
+	return tex_handle, rt_handle, true
 }
 
 gl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
@@ -661,28 +673,33 @@ link_shader :: proc(vs_shader: u32, fs_shader: u32, err_buf: []u8, err_msg: ^str
 	return program_id, true
 }
 
-gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := frame_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
+gl_load_shader :: proc(
+	vs_source: []byte,
+	fs_source: []byte,
+	desc_allocator := frame_allocator,
+	layout_formats: []Pixel_Format = {},
+) -> (handle: Shader_Handle, desc: Shader_Desc, ok: bool) {
 	@static err: [1024]u8
 	err_msg: string
 	vs_shader, vs_shader_ok := compile_shader_from_source(vs_source, gl.Shader_Type.VERTEX_SHADER, err[:], &err_msg)
 
 	if !vs_shader_ok  {
 		log.error(err_msg)
-		return {}, {}
+		return {}, {}, false
 	}
 	
 	fs_shader, fs_shader_ok := compile_shader_from_source(fs_source, gl.Shader_Type.FRAGMENT_SHADER, err[:], &err_msg)
 
 	if !fs_shader_ok {
 		log.error(err_msg)
-		return {}, {}
+		return {}, {}, false
 	}
 
 	program, program_ok := link_shader(vs_shader, fs_shader, err[:], &err_msg)
 
 	if !program_ok {
 		log.error(err_msg)
-		return {}, {}
+		return {}, {}, false
 	}
 
 	stride: int
@@ -897,10 +914,10 @@ gl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := f
 	shader_handle, shader_add_err := hm.add(&s.shaders, gl_shd)
 	if shader_add_err != nil {
 		log.errorf("Failed to add shader. Error: %v", shader_add_err)
-		return SHADER_NONE, {}
+		return SHADER_NONE, {}, false
 	}
 
-	return shader_handle, desc
+	return shader_handle, desc, true
 }
 
 // I might have missed something. But it doesn't seem like GL gives you this information.

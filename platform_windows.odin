@@ -574,7 +574,7 @@ _windows_teleport_cursor_to_center :: proc() {
 	})
 }
 
-windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
 	// CreateBitmap makes a device-dependent bitmap, which is not documented to support a real
 	// alpha channel. A 32-bit cursor with alpha needs a DIB section instead: CreateDIBSection with
 	// a BITMAPV5HEADER and explicit channel masks, which is also what GLFW and SDL do for this.
@@ -608,7 +608,7 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 
 	if h_color == nil || dib_pixels == nil {
 		log.errorf("CreateDIBSection failed with %v", win32.GetLastError())
-		return {}
+		return {}, false
 	}
 
 	// We receive RGBA but the DIB, like GDI generally, wants BGRA.
@@ -641,7 +641,7 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 
 	if hcursor == nil {
 		log.errorf("CreateIconIndirect failed with %v", win32.GetLastError())
-		return {}
+		return {}, false
 	}
 
 	handle, add_err := hm.add(&s.custom_cursors, Windows_Cursor{hcursor = hcursor})
@@ -649,10 +649,10 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 	if add_err != nil {
 		log.errorf("Failed to create cursor. Error: %v", add_err)
 		win32.DestroyCursor(hcursor)
-		return {}
+		return {}, false
 	}
 
-	return handle
+	return handle, true
 }
 
 windows_set_cursor :: proc(cursor: Cursor) {

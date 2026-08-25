@@ -450,26 +450,35 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawp
 	}
 }
 
-webgl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
+webgl_create_texture :: proc(
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
 	texture_handle, texture_handle_err := hm.add(&s.textures, create_texture(width, height, format, nil))
 
 	if texture_handle_err != nil {
 		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
-		return TEXTURE_NONE
+		return TEXTURE_NONE, false
 	}
 
-	return texture_handle
+	return texture_handle, true
 }
 
-webgl_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
+webgl_load_texture :: proc(
+	data: []u8,
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
 	texture_handle, texture_handle_err := hm.add(&s.textures, create_texture(width, height, format, raw_data(data)))
 
 	if texture_handle_err != nil {
 		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
-		return TEXTURE_NONE
+		return TEXTURE_NONE, false
 	}
 
-	return texture_handle
+	return texture_handle, true
 }
 
 webgl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
@@ -505,7 +514,10 @@ webgl_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
 	return tex.needs_vertical_flip
 }
 
-webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
+webgl_create_render_texture :: proc(
+	width: int,
+	height: int,
+) -> (Texture_Handle, Render_Target_Handle, bool) {
 	texture := create_texture(width, height, .RGBA_32_Float, nil)
 	texture.needs_vertical_flip = true
 	
@@ -529,7 +541,7 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 
 	if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
 		log.errorf("Failed creating frame buffer of size %v x %v", width, height)
-		return TEXTURE_NONE, RENDER_TARGET_NONE
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
@@ -548,7 +560,7 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
 		gl.DeleteTexture(texture.id)
 		gl.DeleteFramebuffer(framebuffer)
-		return TEXTURE_NONE, RENDER_TARGET_NONE
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	render_target_handle, render_target_handle_err := hm.add(&s.render_targets, rt)
@@ -557,10 +569,10 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 		log.errorf("Failed adding render target to handle map: %v", render_target_handle_err)
 		gl.DeleteTexture(texture.id)
 		gl.DeleteFramebuffer(framebuffer)
-		return TEXTURE_NONE, RENDER_TARGET_NONE
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
-	return texture_handle, render_target_handle
+	return texture_handle, render_target_handle, true
 }
 
 webgl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
@@ -637,28 +649,33 @@ link_shader :: proc(vs_shader: gl.Shader, fs_shader: gl.Shader, err_buf: []u8, e
 	return program_id, true
 }
 
-webgl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := frame_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
+webgl_load_shader :: proc(
+	vs_source: []byte,
+	fs_source: []byte,
+	desc_allocator := frame_allocator,
+	layout_formats: []Pixel_Format = {},
+) -> (handle: Shader_Handle, desc: Shader_Desc, ok: bool) {
 	@static err: [1024]u8
 	err_msg: string
 	vs_shader, vs_shader_ok := compile_shader_from_source(vs_source, gl.VERTEX_SHADER, err[:], &err_msg)
 
 	if !vs_shader_ok  {
 		log.error(err_msg)
-		return {}, {}
+		return {}, {}, false
 	}
 	
 	fs_shader, fs_shader_ok := compile_shader_from_source(fs_source, gl.FRAGMENT_SHADER, err[:], &err_msg)
 
 	if !fs_shader_ok {
 		log.error(err_msg)
-		return {}, {}
+		return {}, {}, false
 	}
 
 	program, program_ok := link_shader(vs_shader, fs_shader, err[:], &err_msg)
 
 	if !program_ok {
 		log.error(err_msg)
-		return {}, {}
+		return {}, {}, false
 	}
 
 	stride: int
@@ -841,10 +858,10 @@ webgl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator :
 		gl.DeleteProgram(program)
 		gl.DeleteShader(vs_shader)
 		gl.DeleteShader(fs_shader)
-		return SHADER_NONE, {}
+		return SHADER_NONE, {}, false
 	}
 
-	return shader_handle, desc
+	return shader_handle, desc, true
 }
 
 // I might have missed something. But it doesn't seem like GL gives you this information.

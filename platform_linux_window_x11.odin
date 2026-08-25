@@ -642,12 +642,12 @@ _x11_teleport_cursor_to_center :: proc() {
 	})
 }
 
-x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
 	img := X.cursorImageCreate(i32(image.width), i32(image.height))
 
 	if img == nil {
 		log.error("cursorImageCreate failed")
-		return {}
+		return {}, false
 	}
 
 	// Convert to ARGB and premultiply alpha, straight into the buffer Xcursor allocated for us.
@@ -672,7 +672,7 @@ x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 
 	if cursor == 0 {
 		log.error("cursorImageLoadCursor failed")
-		return {}
+		return {}, false
 	}
 
 	handle, add_err := hm.add(&s.custom_cursors, X11_Cursor{cursor = cursor})
@@ -680,10 +680,10 @@ x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 	if add_err != nil {
 		log.errorf("Failed to create cursor. Error: %v", add_err)
 		X.FreeCursor(s.display, cursor)
-		return {}
+		return {}, false
 	}
 
-	return handle
+	return handle, true
 }
 
 x11_set_cursor :: proc(cursor: Cursor) {

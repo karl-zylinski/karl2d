@@ -56,6 +56,13 @@ main :: proc() {
 					case ^ast.Proc_Lit:
 						name := f.src[dd.names[vi].pos.offset:dd.names[vi].end.offset]
 						type := f.src[vd.type.pos.offset:vd.type.end.offset]
+
+						// The parser puts tags such as `#optional_ok` in a bit set, so they are
+						// not part of the source range of the procedure type. Write them back out.
+						if .Optional_Ok in vd.type.tags {
+							type = fmt.tprintf("%v #optional_ok", type)
+						}
+
 						val = fmt.tprintf("%v :: %v", name, type)
 					}
 				}

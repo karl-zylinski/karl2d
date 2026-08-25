@@ -794,7 +794,7 @@ mac_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-mac_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+mac_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
 	cursor := Mac_Cursor {
 		pixels  = slice.clone(image.pixels, s.allocator),
 		width   = image.width,
@@ -809,10 +809,10 @@ mac_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 		log.errorf("Failed to create cursor. Error: %v", add_err)
 		cursor.cursor->release()
 		delete(cursor.pixels, s.allocator)
-		return {}
+		return {}, false
 	}
 
-	return handle
+	return handle, true
 }
 
 // Cursor images are in physical pixels, like the rest of Karl2D, but an NSImage is sized in

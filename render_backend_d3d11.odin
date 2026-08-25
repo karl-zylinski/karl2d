@@ -537,6 +537,7 @@ create_texture :: proc(
 	data: rawptr,
 ) -> (
 	Texture_Handle,
+	bool,
 ) {
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
@@ -557,13 +558,21 @@ create_texture :: proc(
 			SysMemPitch = u32(width * pixel_format_size(format)),
 		}
 
-		s.device->CreateTexture2D(&texture_desc, &texture_data, &texture)
+		if ch(s.device->CreateTexture2D(&texture_desc, &texture_data, &texture)) < 0 {
+			return {}, false
+		}
 	} else {
-		s.device->CreateTexture2D(&texture_desc, nil, &texture)
+		if ch(s.device->CreateTexture2D(&texture_desc, nil, &texture)) < 0 {
+			return {}, false
+		}
 	}
-	
+
 	texture_view: ^d3d11.IShaderResourceView
-	s.device->CreateShaderResourceView(texture, nil, &texture_view)
+
+	if ch(s.device->CreateShaderResourceView(texture, nil, &texture_view)) < 0 {
+		texture->Release()
+		return {}, false
+	}
 
 	tex := D3D11_Texture {
 		tex = texture,
@@ -576,17 +585,26 @@ create_texture :: proc(
 
 	if tex_add_err != nil {
 		log.errorf("Failed to add texture. Error: %v", tex_add_err)
-		return TEXTURE_NONE
+		texture_view->Release()
+		texture->Release()
+		return TEXTURE_NONE, false
 	}
 
-	return tex_handle
+	return tex_handle, true
 }
 
-d3d11_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
+d3d11_create_texture :: proc(
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
 	return create_texture(width, height, format, nil)
 }
 
-d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
+d3d11_create_render_texture :: proc(
+	width: int,
+	height: int,
+) -> (Texture_Handle, Render_Target_Handle, bool) {
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
 		Height     = u32(height),
@@ -599,11 +617,18 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 	}
 
 	texture: ^d3d11.ITexture2D
-	ch(s.device->CreateTexture2D(&texture_desc, nil, &texture))
+
+	if ch(s.device->CreateTexture2D(&texture_desc, nil, &texture)) < 0 {
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+	}
 
 	texture_view: ^d3d11.IShaderResourceView
-	ch(s.device->CreateShaderResourceView(texture, nil, &texture_view))
-	
+
+	if ch(s.device->CreateShaderResourceView(texture, nil, &texture_view)) < 0 {
+		texture->Release()
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+	}
+
 	render_target_view_desc := d3d11.RENDER_TARGET_VIEW_DESC {
 		Format = texture_desc.Format,
 		ViewDimension = .TEXTURE2D,
@@ -611,7 +636,13 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 
 	render_target_view: ^d3d11.IRenderTargetView
 
-	ch(s.device->CreateRenderTargetView(texture, &render_target_view_desc, &render_target_view))
+	if ch(s.device->CreateRenderTargetView(
+		texture, &render_target_view_desc, &render_target_view,
+	)) < 0 {
+		texture_view->Release()
+		texture->Release()
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+	}
 
 	d3d11_texture := D3D11_Texture {
 		tex = texture,
@@ -638,30 +669,59 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 			BindFlags  = {.DEPTH_STENCIL},
 		}
 
-		ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &d3d11_render_target.depth_buffer))
+		if ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &d3d11_render_target.depth_buffer)) < 0 {
+			render_target_view->Release()
+			texture_view->Release()
+			texture->Release()
+			return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		}
 
-		ch(s.device->CreateDepthStencilView(
+		if ch(s.device->CreateDepthStencilView(
 			d3d11_render_target.depth_buffer,
 			nil,
 			&d3d11_render_target.depth_buffer_view,
-		))
+		)) < 0 {
+			d3d11_render_target.depth_buffer->Release()
+			render_target_view->Release()
+			texture_view->Release()
+			texture->Release()
+			return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		}
 	}
 
 	tex_handle, tex_add_err := hm.add(&s.textures, d3d11_texture)
 
 	if tex_add_err != nil {
 		log.errorf("Failed to add texture. Error: %v", tex_add_err)
-		return TEXTURE_NONE, RENDER_TARGET_NONE
+
+		if s.depth_test {
+			d3d11_render_target.depth_buffer_view->Release()
+			d3d11_render_target.depth_buffer->Release()
+		}
+
+		render_target_view->Release()
+		texture_view->Release()
+		texture->Release()
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	rt_handle, rt_add_err := hm.add(&s.render_targets, d3d11_render_target)
 
 	if rt_add_err != nil {
 		log.errorf("Failed to add render target. Error: %v", rt_add_err)
-		return TEXTURE_NONE, RENDER_TARGET_NONE
+
+		if s.depth_test {
+			d3d11_render_target.depth_buffer_view->Release()
+			d3d11_render_target.depth_buffer->Release()
+		}
+
+		render_target_view->Release()
+		texture_view->Release()
+		texture->Release()
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
-	return tex_handle, rt_handle
+	return tex_handle, rt_handle, true
 }
 
 d3d11_destroy_render_target :: proc(render_target: Render_Target_Handle) {
@@ -677,7 +737,12 @@ d3d11_destroy_render_target :: proc(render_target: Render_Target_Handle) {
 	hm.remove(&s.render_targets, render_target)
 }
 
-d3d11_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
+d3d11_load_texture :: proc(
+	data: []u8,
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
 	return create_texture(width, height, format, raw_data(data))
 }
 
@@ -787,6 +852,7 @@ d3d11_load_shader :: proc(
 ) -> (
 	handle: Shader_Handle,
 	desc: Shader_Desc,
+	ok: bool,
 ) {
 	vs_blob: ^d3d11.IBlob
 	vs_blob_errors: ^d3d11.IBlob
@@ -937,10 +1003,10 @@ d3d11_load_shader :: proc(
 
 	if h_add_err != nil {
 		log.errorf("Failed to add shader. Error: %v", h_add_err)
-		return SHADER_NONE, {}
+		return SHADER_NONE, {}, false
 	}
 
-	return h, desc
+	return h, desc, true
 }
 
 D3D11_Shader_Type :: enum {

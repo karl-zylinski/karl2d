@@ -94,12 +94,21 @@ rbnil_get_swapchain_height :: proc() -> int {
 rbnil_set_internal_state :: proc(state: rawptr) {
 }
 
-rbnil_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return Texture_Handle(rbnil_handle())
+rbnil_create_texture :: proc(
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
+	return Texture_Handle(rbnil_handle()), true
 }
 
-rbnil_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return Texture_Handle(rbnil_handle())
+rbnil_load_texture :: proc(
+	data: []u8,
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
+	return Texture_Handle(rbnil_handle()), true
 }
 
 rbnil_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
@@ -113,8 +122,11 @@ rbnil_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
 	return false
 }
 
-rbnil_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
-	return Texture_Handle(rbnil_handle()), Render_Target_Handle(rbnil_handle())
+rbnil_create_render_texture :: proc(
+	width: int,
+	height: int,
+) -> (Texture_Handle, Render_Target_Handle, bool) {
+	return Texture_Handle(rbnil_handle()), Render_Target_Handle(rbnil_handle()), true
 }
 
 rbnil_destroy_render_target :: proc(render_target: Render_Target_Handle) {
@@ -141,6 +153,7 @@ rbnil_load_shader :: proc(
 ) -> (
 	handle: Shader_Handle,
 	desc: Shader_Desc,
+	ok: bool,
 ) {
 	inputs := make([]Shader_Input, 3, desc_allocator)
 	inputs[0] = { name = "position", register = 0, type = .Vec2, format = .RG_32_Float }
@@ -163,7 +176,7 @@ rbnil_load_shader :: proc(
 		constants = constants,
 		texture_bindpoints = texture_bindpoints,
 		inputs = inputs,
-	}
+	}, true
 }
 
 rbnil_destroy_shader :: proc(h: Shader_Handle) {

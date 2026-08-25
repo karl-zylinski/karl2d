@@ -427,43 +427,72 @@ draw_text :: proc(
 //--------------------//
 
 // Create an empty texture.
-create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture
+//
+// If the texture cannot be created then `handle` is `TEXTURE_NONE` and the failure is logged.
+create_texture :: proc(
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> Texture
 
 // Load a texture from disk and upload it to the GPU so you can draw it to the screen.
 // Supports PNG, BMP, TGA and baseline PNG. Note that progressive PNG files are not supported!
 //
 // The `options` parameter can be used to specify things things such as premultiplication of alpha.
-load_texture_from_file :: proc(filename: string, options: Load_Texture_Options = {}) -> Texture
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
+load_texture_from_file :: proc(
+	filename: string,
+	options: Load_Texture_Options = {},
+) -> (Texture, bool) #optional_ok
 
 // Load a texture from a byte slice and upload it to the GPU so you can draw it to the screen.
 // Supports PNG, BMP, TGA and baseline PNG. Note that progressive PNG files are not supported!
 //
 // The `options` parameter can be used to specify things things such as premultiplication of alpha.
-load_texture_from_bytes :: proc(bytes: []u8, options: Load_Texture_Options = {}) -> Texture
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
+load_texture_from_bytes :: proc(
+	bytes: []u8,
+	options: Load_Texture_Options = {},
+) -> (Texture, bool) #optional_ok
 
 // Load raw texture data. You need to specify the data, size and format of the texture yourself.
 // This assumes that there is no header in the data. If your data has a header (you read the data
 // from a file on disk), then please use `load_texture_from_bytes` instead.
-load_texture_from_bytes_raw :: proc(bytes: []u8, width: int, height: int, format: Pixel_Format) -> Texture
+//
+// If the texture cannot be created then `handle` is `TEXTURE_NONE` and the failure is logged.
+load_texture_from_bytes_raw :: proc(
+	bytes: []u8,
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> Texture
 
 // Create a GPU texture from an image stored in RAM. There are currently no procedures to manipulate
 // the image. However, you can create an `Image` struct manually and fill out the data as needed.
+//
+// If the texture cannot be created then `handle` is `TEXTURE_NONE` and the failure is logged.
 load_texture_from_image :: proc(image: Image) -> Texture
 
 // Load an image from disk into RAM. Supports the same formats as `load_texture_from_file`. The
 // image is always RGBA8 with straight (non-premultiplied) alpha.
 //
 // Use `destroy_image` when you are done with it.
-load_image :: proc(filename: string) -> Image
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
+load_image_from_file :: proc(filename: string) -> (Image, bool) #optional_ok
 
 // Load an image from a byte slice into RAM, for instance from `#load("my_image.png")`. Supports
 // the same formats as `load_texture_from_bytes`. The image is always RGBA8 with straight
 // (non-premultiplied) alpha.
 //
 // Use `destroy_image` when you are done with it.
-load_image_from_bytes :: proc(bytes: []u8) -> Image
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
+load_image_from_bytes :: proc(bytes: []u8) -> (Image, bool) #optional_ok
 
-// Destroy an image previously loaded using `load_image` or `load_image_from_bytes`.
+// Destroy an image previously loaded using `load_image_from_file` or `load_image_from_bytes`.
 destroy_image :: proc(img: Image)
 
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
@@ -579,7 +608,9 @@ get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int
 //
 // Supports mono and stereo WAV files with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
 // float samples.
-load_audio_clip_from_file :: proc(filename: string) -> Audio_Clip
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
+load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optional_ok
 
 // Load a WAV file from some pre-loaded memory (can be loaded using `#load("sound.wav")`). Returns
 // an `Audio_Clip` which can be played using `play_audio_clip`.
@@ -587,12 +618,16 @@ load_audio_clip_from_file :: proc(filename: string) -> Audio_Clip
 // Supports mono and stereo WAV data with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
 // float samples. Note that the data should be the entire WAV file, including the header. If your
 // data does not include the header, then please use `load_audio_clip_from_bytes_raw`.
-load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
+load_audio_clip_from_bytes :: proc(bytes: []u8) -> (Audio_Clip, bool) #optional_ok
 
 // Load an audio clip from some raw audio data. You need to specify the data, format and sample
 // rate of the sound yourself. This assumes that there is no header in the data. If your data has a
 // header (for example, you read a whole WAV file from disk), then please use
 // `load_audio_clip_from_bytes` instead.
+//
+// If the clip cannot be created then `AUDIO_CLIP_NONE` is returned and the failure is logged.
 load_audio_clip_from_bytes_raw :: proc(
 	bytes: []u8,
 	format: Raw_Audio_Format,
@@ -612,7 +647,9 @@ destroy_audio_clip :: proc(clip: Audio_Clip)
 //
 // Audio streams do not stream in data automatically from the disk. You need to call
 // `update_audio_stream` every frame to stream in the new data.
-load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
+load_audio_stream_from_file :: proc(filename: string) -> (Audio_Stream, bool) #optional_ok
 
 // Load an audio stream from a byte slice that is completely in memory. This makes it possible to
 // have an encoded audio file in memory and decode it, a small bit a time.
@@ -637,7 +674,9 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream
 // disk. For normal sounds there is a `load_audio_clip_from_bytes_raw` procedure where you just send
 // in the samples. There is no such procedure for audio streams since the whole idea is to stream an
 // encoded file into memory without having to decode the whole thing first.
-load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
+load_audio_stream_from_bytes :: proc(bytes: []u8) -> (Audio_Stream, bool) #optional_ok
 
 // Destroy an audio stream previously loaded using `load_audio_stream_from_file` or
 // `load_audio_stream_from_bytes`. This cleans up some internal state and closes file handles.
@@ -722,6 +761,8 @@ update_audio_mixer :: proc()
 
 // Create a texture that you can render into. Meaning that you can draw into it instead of drawing
 // onto the screen. Use `set_render_texture` to enable this Render Texture for drawing.
+//
+// If it cannot be created then `texture.handle` is `TEXTURE_NONE` and the failure is logged.
 create_render_texture :: proc(width: int, height: int) -> Render_Texture
 
 // Destroy a Render_Texture previously created using `create_render_texture`.
@@ -810,24 +851,43 @@ rotate :: proc(v: Vec2, angle_radians: f32) -> Vec2
 //-------//
 
 // Like `load_static_font_from_bytes` but reads a file from disk using a specified name.
-load_static_font_from_file :: proc(filename: string, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
+load_static_font_from_file :: proc(
+	filename: string,
+	font_size: f32,
+	codepoints: []rune = {},
+	options: Font_Options = {},
+) -> (Font, bool) #optional_ok
 
 // Load the TTF font contained in `data` and bake it into a texture. The characters in the texture
 // will be of of the specified `font_size`. If you do not specify a list of `codepoints`, then this
 // procedure defaults to using all codepoints between 32 to 127 (ASCII).
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
 load_static_font_from_bytes :: proc(
 	data: []byte,
 	font_size: f32,
 	codepoints: []rune = {},
 	options: Font_Options = {},
-) -> Font
+) -> (Font, bool) #optional_ok
 
 // Like `load_dynamic_font_from_bytes`, but reads a file from disk using a filename.
-load_dynamic_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
+load_dynamic_font_from_file :: proc(
+	filename: string,
+	options: Font_Options = {},
+) -> (Font, bool) #optional_ok
 
 // Load a TTF font stored in `data` as a dynamic font. This means that an atlas will be dynamically
 // built as you draw characters using this font.
-load_dynamic_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
+load_dynamic_font_from_bytes :: proc(
+	data: []u8,
+	options: Font_Options = {},
+) -> (Font, bool) #optional_ok
 
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
 destroy_font :: proc(font: Font)
@@ -874,19 +934,23 @@ is_cursor_hidden :: proc() -> bool
 //
 // `layout_formats` can in many cases be left default initialized. It is used to specify the format
 // of the vertex shader inputs. By formats this means the format that you pass on the CPU side.
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
 load_shader_from_file :: proc(
 	vertex_filename: string,
 	fragment_filename: string,
 	layout_formats: []Pixel_Format = {}
-) -> Shader
+) -> (Shader, bool) #optional_ok
 
 // Load a vertex and fragment shader from a block of memory. See `load_shader_from_file` for what
 // `layout_formats` means.
+//
+// The second return value tells you if it worked. Ignoring it is fine, failures are also logged.
 load_shader_from_bytes :: proc(
 	vertex_shader_bytes: []byte,
 	fragment_shader_bytes: []byte,
 	layout_formats: []Pixel_Format = {},
-) -> Shader
+) -> (Shader, bool) #optional_ok
 
 // Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
 destroy_shader :: proc(shader: Shader)
