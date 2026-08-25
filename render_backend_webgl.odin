@@ -541,6 +541,15 @@ webgl_create_render_texture :: proc(
 
 	if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
 		log.errorf("Failed creating frame buffer of size %v x %v", width, height)
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		gl.BindRenderbuffer(gl.RENDERBUFFER, 0)
+		gl.DeleteTexture(texture.id)
+		gl.DeleteFramebuffer(framebuffer)
+
+		if s.depth_test {
+			gl.DeleteRenderbuffer(depth_renderbuffer)
+		}
+
 		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
@@ -560,6 +569,11 @@ webgl_create_render_texture :: proc(
 		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
 		gl.DeleteTexture(texture.id)
 		gl.DeleteFramebuffer(framebuffer)
+
+		if s.depth_test {
+			gl.DeleteRenderbuffer(depth_renderbuffer)
+		}
+
 		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
@@ -567,8 +581,14 @@ webgl_create_render_texture :: proc(
 
 	if render_target_handle_err != nil {
 		log.errorf("Failed adding render target to handle map: %v", render_target_handle_err)
+		hm.remove(&s.textures, texture_handle)
 		gl.DeleteTexture(texture.id)
 		gl.DeleteFramebuffer(framebuffer)
+
+		if s.depth_test {
+			gl.DeleteRenderbuffer(depth_renderbuffer)
+		}
+
 		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 

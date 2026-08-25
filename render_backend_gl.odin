@@ -562,6 +562,15 @@ gl_create_render_texture :: proc(
 
 	if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
 		log.errorf("Failed creating frame buffer of size %v x %v", width, height)
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		gl.BindRenderbuffer(gl.RENDERBUFFER, 0)
+		gl.DeleteTextures(1, &texture.id)
+		gl.DeleteFramebuffers(1, &framebuffer)
+
+		if s.depth_test {
+			gl.DeleteRenderbuffers(1, &depth_renderbuffer)
+		}
+
 		return {}, {}, false
 	}
 
@@ -579,12 +588,27 @@ gl_create_render_texture :: proc(
 
 	if tex_add_err != nil {
 		log.errorf("Failed to create texture. Error: %v", tex_add_err)
+		gl.DeleteTextures(1, &texture.id)
+		gl.DeleteFramebuffers(1, &framebuffer)
+
+		if s.depth_test {
+			gl.DeleteRenderbuffers(1, &depth_renderbuffer)
+		}
+
 		return {}, {}, false
 	}
 
 	rt_handle, rt_add_err := hm.add(&s.render_targets, rt)
 	if rt_add_err != nil {
 		log.errorf("Failed to create render target. Error: %v", rt_add_err)
+		hm.remove(&s.textures, tex_handle)
+		gl.DeleteTextures(1, &texture.id)
+		gl.DeleteFramebuffers(1, &framebuffer)
+
+		if s.depth_test {
+			gl.DeleteRenderbuffers(1, &depth_renderbuffer)
+		}
+
 		return {}, {}, false
 	}
 

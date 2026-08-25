@@ -856,7 +856,19 @@ d3d11_load_shader :: proc(
 ) {
 	vs_blob: ^d3d11.IBlob
 	vs_blob_errors: ^d3d11.IBlob
-	ch(d3d_compiler.Compile(raw_data(vs_source), len(vs_source), nil, nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
+	vs_compile_res := ch(d3d_compiler.Compile(
+		raw_data(vs_source),
+		len(vs_source),
+		nil,
+		nil,
+		nil,
+		"vs_main",
+		"vs_5_0",
+		0,
+		0,
+		&vs_blob,
+		&vs_blob_errors,
+	))
 
 	if vs_blob_errors != nil {
 		log.error("Failed compiling shader:")
@@ -864,14 +876,40 @@ d3d11_load_shader :: proc(
 		return
 	}
 
+	// The compiler can fail without producing an error blob, for example when it cannot even start
+	// on the source. There is no bytecode in that case, so there is nothing to make a shader from.
+	if vs_compile_res < 0 || vs_blob == nil {
+		log.error("Failed compiling vertex shader.")
+		return
+	}
+
 	// VERTEX SHADER
 
 	vertex_shader: ^d3d11.IVertexShader
-	ch(s.device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &vertex_shader))
+
+	if ch(s.device->CreateVertexShader(
+		vs_blob->GetBufferPointer(),
+		vs_blob->GetBufferSize(),
+		nil,
+		&vertex_shader,
+	)) < 0 {
+		vs_blob->Release()
+		return
+	}
 
 	vs_ref: ^d3d11.IShaderReflection
-	ch(d3d_compiler.Reflect(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), d3d11.ID3D11ShaderReflection_UUID, (^rawptr)(&vs_ref)))
-	
+
+	if ch(d3d_compiler.Reflect(
+		vs_blob->GetBufferPointer(),
+		vs_blob->GetBufferSize(),
+		d3d11.ID3D11ShaderReflection_UUID,
+		(^rawptr)(&vs_ref),
+	)) < 0 {
+		vertex_shader->Release()
+		vs_blob->Release()
+		return
+	}
+
 	vs_desc: d3d11.SHADER_DESC
 	ch(vs_ref->GetDesc(&vs_desc))
 
@@ -950,26 +988,86 @@ d3d11_load_shader :: proc(
 	}
 
 	input_layout: ^d3d11.IInputLayout
-	ch(s.device->CreateInputLayout(raw_data(input_layout_desc), u32(len(input_layout_desc)), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &input_layout))
+
+	if ch(s.device->CreateInputLayout(
+		raw_data(input_layout_desc),
+		u32(len(input_layout_desc)),
+		vs_blob->GetBufferPointer(),
+		vs_blob->GetBufferSize(),
+		&input_layout,
+	)) < 0 {
+		vertex_shader->Release()
+		vs_blob->Release()
+		return
+	}
+
+	// The blob only holds the compiled bytecode. Nothing needs it after the input layout is made.
+	vs_blob->Release()
 
 	// PIXEL SHADER
 
 	ps_blob: ^d3d11.IBlob
 	ps_blob_errors: ^d3d11.IBlob
-	ch(d3d_compiler.Compile(raw_data(ps_source), len(ps_source), nil, nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, &ps_blob_errors))
+	ps_compile_res := ch(d3d_compiler.Compile(
+		raw_data(ps_source),
+		len(ps_source),
+		nil,
+		nil,
+		nil,
+		"ps_main",
+		"ps_5_0",
+		0,
+		0,
+		&ps_blob,
+		&ps_blob_errors,
+	))
 
 	if ps_blob_errors != nil {
 		log.error("Failed compiling shader:")
 		log.error(strings.string_from_ptr((^u8)(ps_blob_errors->GetBufferPointer()), int(ps_blob_errors->GetBufferSize())))
+		input_layout->Release()
+		vertex_shader->Release()
+		return
+	}
+
+	if ps_compile_res < 0 || ps_blob == nil {
+		log.error("Failed compiling pixel shader.")
+		input_layout->Release()
+		vertex_shader->Release()
 		return
 	}
 
 	pixel_shader: ^d3d11.IPixelShader
-	ch(s.device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nil, &pixel_shader))
+
+	if ch(s.device->CreatePixelShader(
+		ps_blob->GetBufferPointer(),
+		ps_blob->GetBufferSize(),
+		nil,
+		&pixel_shader,
+	)) < 0 {
+		ps_blob->Release()
+		input_layout->Release()
+		vertex_shader->Release()
+		return
+	}
 
 	ps_ref: ^d3d11.IShaderReflection
-	ch(d3d_compiler.Reflect(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), d3d11.ID3D11ShaderReflection_UUID, (^rawptr)(&ps_ref)))
-	
+
+	if ch(d3d_compiler.Reflect(
+		ps_blob->GetBufferPointer(),
+		ps_blob->GetBufferSize(),
+		d3d11.ID3D11ShaderReflection_UUID,
+		(^rawptr)(&ps_ref),
+	)) < 0 {
+		pixel_shader->Release()
+		ps_blob->Release()
+		input_layout->Release()
+		vertex_shader->Release()
+		return
+	}
+
+	ps_blob->Release()
+
 	ps_desc: d3d11.SHADER_DESC
 	ch(ps_ref->GetDesc(&ps_desc))
 
@@ -1003,6 +1101,16 @@ d3d11_load_shader :: proc(
 
 	if h_add_err != nil {
 		log.errorf("Failed to add shader. Error: %v", h_add_err)
+
+		for c in d3d_constant_buffers {
+			if c.gpu_data != nil {
+				c.gpu_data->Release()
+			}
+		}
+
+		input_layout->Release()
+		vertex_shader->Release()
+		pixel_shader->Release()
 		return SHADER_NONE, {}, false
 	}
 
