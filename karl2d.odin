@@ -2046,6 +2046,11 @@ set_sound_volume :: proc(sound: Sound, volume: f32) {
 }
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
+//
+// What pan does depends on the audio clip. A mono clip is moved between the left and right
+// speakers while keeping its overall loudness the same. A stereo clip is already a finished stereo
+// mix, so instead of moving it, pan turns the opposite side down. Either way, a sound at pan 0
+// plays at the level it was authored at.
 set_sound_pan :: proc(sound: Sound, pan: f32) {
 	sound_object := hm.get(&s.sounds, sound)
 
@@ -3198,10 +3203,10 @@ set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32) {
 // Set the pan of an audio bus. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full
 // right.
 //
-// This is a balance control: It turns the opposite side down. The pan of a sound works
-// differently: It moves the sound between the left and right speakers while keeping the overall
-// loudness the same. A bus is already a finished stereo mix, and a bus at pan 0 has to leave it
-// exactly as it is.
+// This is a balance control: It turns the opposite side down. A bus is already a finished stereo
+// mix, and a bus at pan 0 has to leave it exactly as it is. A sound that plays a mono clip works
+// differently: It moves between the left and right speakers while keeping the overall loudness the
+// same. See `set_sound_pan`.
 set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32) {
 	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
 
@@ -3505,16 +3510,35 @@ update_audio_mixer :: proc() {
 		pan_end := clamp(move_towards(settings.pan, target_settings.pan, adjust_parameter_delta), -1, 1)
 		settings.pan = pan_end
 		
-		// Use cos/sine to get a constant-power audio curve. This means that the sound won't get
-		// quieter in the middle, but will instead just pan.
-		pan_stereo_start := [2]f32 {
-			math.cos((pan_start + 1) * math.PI / 4),
-			math.sin((pan_start + 1) * math.PI / 4),
-		}
+		// The pan law follows the signal, not the object. A mono clip is a single signal that
+		// gets placed somewhere between the speakers, so it uses a constant-power curve: The
+		// sound keeps its loudness as it moves, instead of dipping in the middle. A stereo clip
+		// is already a finished stereo mix, so it uses a balance instead: Pan turns the opposite
+		// side down, and a centered stereo clip comes out at the level it was authored at. The
+		// buses use the balance law too, for the same reason.
+		pan_stereo_start: [2]f32
+		pan_stereo_end: [2]f32
 
-		pan_stereo_end := [2]f32 {
-			math.cos((pan_end + 1) * math.PI / 4),
-			math.sin((pan_end + 1) * math.PI / 4),
+		if data.channels == .Stereo {
+			pan_stereo_start = {
+				min(1, 1 - pan_start),
+				min(1, 1 + pan_start),
+			}
+
+			pan_stereo_end = {
+				min(1, 1 - pan_end),
+				min(1, 1 + pan_end),
+			}
+		} else {
+			pan_stereo_start = {
+				math.cos((pan_start + 1) * math.PI / 4),
+				math.sin((pan_start + 1) * math.PI / 4),
+			}
+
+			pan_stereo_end = {
+				math.cos((pan_end + 1) * math.PI / 4),
+				math.sin((pan_end + 1) * math.PI / 4),
+			}
 		}
 
 		interpolate := data.sample_rate != AUDIO_MIX_SAMPLE_RATE || pitch != 1
@@ -3638,9 +3662,9 @@ update_audio_mixer :: proc() {
 			continue
 		}
 
-		// The pan of a bus is a balance: It turns the opposite side down. The playing sounds use a
-		// constant-power curve instead, but that curve scales both channels by 0.707 in the middle.
-		// A bus that has not been touched has to leave the mix exactly as it is.
+		// The pan of a bus is a balance: It turns the opposite side down. A bus that has not been
+		// touched has to leave the mix exactly as it is. Sounds that play a mono clip use a
+		// constant-power curve instead, since those are placed rather than balanced.
 		gain_start := [2]f32 {
 			volume_start * min(1, 1 - pan_start),
 			volume_start * min(1, 1 + pan_start),
