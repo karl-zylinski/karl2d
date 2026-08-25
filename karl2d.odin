@@ -3242,33 +3242,14 @@ set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_dat
 //
 // Will only run if the audio backend is running low on audio data.
 update_audio_mixer :: proc() {
-	// If the sample rate of the backend is 44100 samples/second and AUDIO_MIX_CHUNK_SIZE is 1400
-	// samples, then this procedure will only run roughly 44100/1400 = 31 times per second. This
-	// gives a latency of up to (1.5 * (44100/1400)) = 47 milliseconds. Is it too big, or too small?
-	// Perhaps we can use more low latency backends to push it down. Perhaps the backend should
-	// control AUDIO_MIX_CHUNK_SIZE based on how low latency it can give us without stalling?
-	if ab.remaining_samples() > (3 * AUDIO_MIX_CHUNK_SIZE)/2 {
-		return
-	}
-	
-	// We are going to go past the end of the mix_buffer, so just hop to the start instead. It's
-	// 1 megabyte big, so hopping over a few bytes at the end is OK.
-	if (s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE) > len(s.mix_buffer) {
-		s.mix_buffer_offset = 0
-	}
-
-	// A slice of the mixed samples we are going to output.
-	out := s.mix_buffer[s.mix_buffer_offset:s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE]
-	
-	// Zero out old mixed data from buffer (the buffer is "circular", there may be old stuff in
-	// the `out` slice).
-	slice.zero(out)
-
-	// The buses have a chunk each, which the sounds routed to that bus are mixed into. Those hold
-	// the previous chunk's mix, so they need zeroing too.
-	for it := hm.dynamic_iterator_make(&s.audio_buses); bus, _ in hm.dynamic_iterate(&it) {
-		slice.zero(bus.chunk[:])
-	}
+	// The mixer runs once per frame, but a frame is not a fixed amount of time and a chunk of
+	// AUDIO_MIX_CHUNK_SIZE samples is. One chunk per frame would mean the game has to run at
+	// 44100/1400 = 31.5 frames per second just to make audio as fast as it is played, and a single
+	// long frame, such as one that loads a level, would leave the backend with nothing to play. So
+	// keep mixing chunks until the backend has enough of them.
+	//
+	// The nil audio backend always says it has zero samples left, so the loop needs a limit.
+	MAX_CHUNKS_PER_UPDATE :: 8
 
 	audio_mix :: proc(
 		dest: [][2]Audio_Sample,
@@ -3423,278 +3404,310 @@ update_audio_mixer :: proc() {
 		return current + dir * delta
 	}
 
-	for ps_iter := hm.dynamic_iterator_make(&s.sounds); ps, ps_handle in hm.dynamic_iterate(&ps_iter) {
-		data := hm.get(&s.audio_clips, ps.clip)
-
-		if data == nil {
-			log.error("Trying to play sound with destroyed data")
-			hm.remove(&s.sounds, ps_handle)
-			continue
+	for _ in 0..<MAX_CHUNKS_PER_UPDATE {
+		// Keeping (3 * AUDIO_MIX_CHUNK_SIZE)/2 samples in the backend gives a latency of up to
+		// (1.5 * 1400)/44100 = 47 milliseconds. Is it too big, or too small? Perhaps we can use
+		// more low latency backends to push it down. Perhaps the backend should control
+		// AUDIO_MIX_CHUNK_SIZE based on how low latency it can give us without stalling?
+		if ab.remaining_samples() > (3 * AUDIO_MIX_CHUNK_SIZE)/2 {
+			break
 		}
 
-		// A paused sound stays in the list but is not mixed.
-		if ps.paused {
-			continue
+		// We are going to go past the end of the mix_buffer, so just hop to the start instead. It's
+		// 1 megabyte big, so hopping over a few bytes at the end is OK.
+		if (s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE) > len(s.mix_buffer) {
+			s.mix_buffer_offset = 0
 		}
 
-		// Where this sound is mixed into: The chunk of the bus it is routed to, or the output
-		// itself, which is the master bus. `destroy_audio_bus` moves everything back to the master
-		// bus, so a bus that doesn't resolve shouldn't happen. Fall back to the master bus if it
-		// does anyway, without logging: We'd log it 31 times a second.
-		dest := out
+		// A slice of the mixed samples we are going to output.
+		out := s.mix_buffer[s.mix_buffer_offset:s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE]
+	
+		// Zero out old mixed data from buffer (the buffer is "circular", there may be old stuff in
+		// the `out` slice).
+		slice.zero(out)
 
-		if ps.bus != AUDIO_BUS_MASTER {
-			if bus := hm.get(&s.audio_buses, ps.bus); bus != nil {
-				dest = bus.chunk[:]
-			}
+		// The buses have a chunk each, which the sounds routed to that bus are mixed into. Those hold
+		// the previous chunk's mix, so they need zeroing too.
+		for it := hm.dynamic_iterator_make(&s.audio_buses); bus, _ in hm.dynamic_iterate(&it) {
+			slice.zero(bus.chunk[:])
 		}
 
-		// Before we get to the mixing we smoothly adjust pitch, volume and pan. We do this to avoid
-		// clicks in the audio. The clicks happen because abrupt changes cause discontinuities in
-		// the audio waveform. Understand: Sound does not happen because the waveform has a high
-		// value, it happens because there is a sudden change in the waveform. Bigger change, bigger
-		// sound.
+		for it := hm.dynamic_iterator_make(&s.sounds); ps, ps_handle in hm.dynamic_iterate(&it) {
+			data := hm.get(&s.audio_clips, ps.clip)
 
-		settings := &ps.current_settings
-		target_settings := &ps.target_settings
-
-		// We get the delta twice because we first need to move the pitch towards its target.
-		adjust_parameter_delta := calc_adjust_parameter_delta(data.sample_rate, max(settings.pitch, 0.01))
-		settings.pitch = max(move_towards(settings.pitch, target_settings.pitch, adjust_parameter_delta), 0.01)
-		pitch := settings.pitch
-		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch)
-
-		// `set_sound_time` doesn't move the sound itself, it just says where the sound should go.
-		// We move it here, once the sound has faded out. Then we fade it back in. That way moving
-		// to a completely different part of the waveform doesn't click.
-
-		seek_fade_target: f32 = ps.has_pending_seek ? 1 : 0
-		seek_fade_start := clamp(ps.seek_fade, 0, 1)
-		seek_fade_moved := move_towards(ps.seek_fade, seek_fade_target, adjust_parameter_delta)
-		seek_fade_end := clamp(seek_fade_moved, 0, 1)
-		ps.seek_fade = seek_fade_end
-
-		// Wait for `seek_fade_start` rather than `seek_fade_end`: The chunk that fades the sound
-		// all the way out is the one that holds the fade, so it still has to be mixed.
-		if ps.has_pending_seek && seek_fade_start == 1 {
-			seek_seconds := ps.pending_seek_seconds
-			ps.has_pending_seek = false
-
-			// This may remove the sound, so `continue` makes us avoid using `ps` after this. There
-			// is nothing to mix anyway: The fade has taken the volume all the way down.
-			_apply_sound_time(ps_handle, seek_seconds)
-			continue
-		}
-
-		// We can't just use the `volume_end` value for the volume. We are going to mix in
-		// `AUDIO_MIX_CHUNK_SIZE` number of samples. We'd still get clicks in the sound if we hopped
-		// to the ending volume. Instead, we calculate what the first sample should use and what
-		// the last one should use. Then we feed those into the `add`/`add_interpolate` procedures.
-		// It will lerp across the range as it is mixing in the samples.
-
-		volume_start := clamp(settings.volume, 0, 1) * (1 - seek_fade_start)
-		volume_end := clamp(move_towards(settings.volume, target_settings.volume, adjust_parameter_delta), 0, 1)
-		settings.volume = volume_end
-		volume_end *= 1 - seek_fade_end
-
-		if volume_start == volume_end && volume_end == 0 {
-			continue
-		}
-		
-		pan_start := clamp(settings.pan, -1, 1)
-		pan_end := clamp(move_towards(settings.pan, target_settings.pan, adjust_parameter_delta), -1, 1)
-		settings.pan = pan_end
-		
-		// Use cos/sine to get a constant-power audio curve. This means that the sound won't get
-		// quieter in the middle, but will instead just pan.
-		pan_stereo_start := [2]f32 {
-			math.cos((pan_start + 1) * math.PI / 4),
-			math.sin((pan_start + 1) * math.PI / 4),
-		}
-
-		pan_stereo_end := [2]f32 {
-			math.cos((pan_end + 1) * math.PI / 4),
-			math.sin((pan_end + 1) * math.PI / 4),
-		}
-
-		interpolate := data.sample_rate != AUDIO_MIX_SAMPLE_RATE || pitch != 1
-		source_dest_ratio: f32 = 1
-		
-		if interpolate {
-			source_dest_ratio = (pitch * f32(data.sample_rate)) / f32(AUDIO_MIX_SAMPLE_RATE)
-		}
-
-		source_channels := 1
-		if data.channels == .Stereo {
-			source_channels = 2
-		}
-
-		num_mixed := audio_mix(
-			dest,
-			data.samples[ps.offset:],
-			data.channels,
-			interpolate,
-			source_dest_ratio,
-			AUDIO_MIX_CHUNK_SIZE,
-			ps.offset_fraction,
-			volume_start,
-			volume_end,
-			pan_stereo_start,
-			pan_stereo_end,
-		)
-		
-		if interpolate {
-			num_mixed_f32 := f32(num_mixed) * source_dest_ratio
-			fraction_advance := ps.offset_fraction + num_mixed_f32
-
-			// The fraction advance may become larger than 1, in which case the offset needs to eat
-			// the integer part.
-			ps.offset += int(fraction_advance) * source_channels
-			
-			ps.offset_fraction = linalg.fract(fraction_advance)
-		} else {
-			ps.offset += num_mixed * source_channels
-			ps.offset_fraction = 0
-		}
-
-		// We didn't mix all the samples! This means that we reached the end of the sound.
-		if num_mixed < AUDIO_MIX_CHUNK_SIZE {
-			if ps.loop {
-				ps.offset = 0
-				ps.offset_fraction = 0
-
-				// The sound looped. Make sure to mix in the remaining samples from the start of the
-				// sound!
-				mixed_before_loop := num_mixed
-				overflow := AUDIO_MIX_CHUNK_SIZE - mixed_before_loop
-
-				// Carry the volume and pan ramps on from where the first part of the chunk got to.
-				// Starting them over would jump the volume back up in the middle of the chunk,
-				// which is heard as a click.
-				split := f32(mixed_before_loop) / f32(AUDIO_MIX_CHUNK_SIZE)
-				volume_split := math.lerp(volume_start, volume_end, split)
-				pan_stereo_split := linalg.lerp(pan_stereo_start, pan_stereo_end, split)
-
-				num_mixed = audio_mix(
-					dest[mixed_before_loop:],
-					data.samples[ps.offset:],
-					data.channels,
-					interpolate,
-					source_dest_ratio,
-					overflow,
-					ps.offset_fraction,
-					volume_split,
-					volume_end,
-					pan_stereo_split,
-					pan_stereo_end,
-				)
-				
-				if interpolate {
-					num_mixed_f32 := f32(num_mixed) * source_dest_ratio
-					fraction_advance := ps.offset_fraction + num_mixed_f32
-
-					// The fraction advance may become larger than 1, in which case the offset needs to eat
-					// the integer part.
-					ps.offset += int(fraction_advance) * source_channels
-					
-					ps.offset_fraction = linalg.fract(fraction_advance)
-				} else {
-					ps.offset += num_mixed * source_channels
-					ps.offset_fraction = 0
-				}
-			} else {
+			if data == nil {
+				log.error("Trying to play sound with destroyed data")
 				hm.remove(&s.sounds, ps_handle)
 				continue
 			}
+
+			// A paused sound stays in the list but is not mixed.
+			if ps.paused {
+				continue
+			}
+
+			// Where this sound is mixed into: The chunk of the bus it is routed to, or the output
+			// itself, which is the master bus. `destroy_audio_bus` moves everything back to the master
+			// bus, so a bus that doesn't resolve shouldn't happen. Fall back to the master bus if it
+			// does anyway, without logging: We'd log it 31 times a second.
+			dest := out
+
+			if ps.bus != AUDIO_BUS_MASTER {
+				if bus := hm.get(&s.audio_buses, ps.bus); bus != nil {
+					dest = bus.chunk[:]
+				}
+			}
+
+			// Before we get to the mixing we smoothly adjust pitch, volume and pan. We do this to avoid
+			// clicks in the audio. The clicks happen because abrupt changes cause discontinuities in
+			// the audio waveform. Understand: Sound does not happen because the waveform has a high
+			// value, it happens because there is a sudden change in the waveform. Bigger change, bigger
+			// sound.
+
+			settings := &ps.current_settings
+			target_settings := &ps.target_settings
+
+			// We get the delta twice because we first need to move the pitch towards its target.
+			adjust_parameter_delta := calc_adjust_parameter_delta(
+				data.sample_rate,
+				max(settings.pitch, 0.01),
+			)
+			settings.pitch = max(move_towards(settings.pitch, target_settings.pitch, adjust_parameter_delta), 0.01)
+			pitch := settings.pitch
+			adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch)
+
+			// `set_sound_time` doesn't move the sound itself, it just says where the sound should go.
+			// We move it here, once the sound has faded out. Then we fade it back in. That way moving
+			// to a completely different part of the waveform doesn't click.
+
+			seek_fade_target: f32 = ps.has_pending_seek ? 1 : 0
+			seek_fade_start := clamp(ps.seek_fade, 0, 1)
+			seek_fade_moved := move_towards(ps.seek_fade, seek_fade_target, adjust_parameter_delta)
+			seek_fade_end := clamp(seek_fade_moved, 0, 1)
+			ps.seek_fade = seek_fade_end
+
+			// Wait for `seek_fade_start` rather than `seek_fade_end`: The chunk that fades the sound
+			// all the way out is the one that holds the fade, so it still has to be mixed.
+			if ps.has_pending_seek && seek_fade_start == 1 {
+				seek_seconds := ps.pending_seek_seconds
+				ps.has_pending_seek = false
+
+				// This may remove the sound, so `continue` makes us avoid using `ps` after this. There
+				// is nothing to mix anyway: The fade has taken the volume all the way down.
+				_apply_sound_time(ps_handle, seek_seconds)
+				continue
+			}
+
+			// We can't just use the `volume_end` value for the volume. We are going to mix in
+			// `AUDIO_MIX_CHUNK_SIZE` number of samples. We'd still get clicks in the sound if we hopped
+			// to the ending volume. Instead, we calculate what the first sample should use and what
+			// the last one should use. Then we feed those into the `add`/`add_interpolate` procedures.
+			// It will lerp across the range as it is mixing in the samples.
+
+			volume_start := clamp(settings.volume, 0, 1) * (1 - seek_fade_start)
+			volume_end := clamp(move_towards(settings.volume, target_settings.volume, adjust_parameter_delta), 0, 1)
+			settings.volume = volume_end
+			volume_end *= 1 - seek_fade_end
+
+			if volume_start == volume_end && volume_end == 0 {
+				continue
+			}
+		
+			pan_start := clamp(settings.pan, -1, 1)
+			pan_end := clamp(move_towards(settings.pan, target_settings.pan, adjust_parameter_delta), -1, 1)
+			settings.pan = pan_end
+		
+			// Use cos/sine to get a constant-power audio curve. This means that the sound won't get
+			// quieter in the middle, but will instead just pan.
+			pan_stereo_start := [2]f32 {
+				math.cos((pan_start + 1) * math.PI / 4),
+				math.sin((pan_start + 1) * math.PI / 4),
+			}
+
+			pan_stereo_end := [2]f32 {
+				math.cos((pan_end + 1) * math.PI / 4),
+				math.sin((pan_end + 1) * math.PI / 4),
+			}
+
+			interpolate := data.sample_rate != AUDIO_MIX_SAMPLE_RATE || pitch != 1
+			source_dest_ratio: f32 = 1
+		
+			if interpolate {
+				source_dest_ratio = (pitch * f32(data.sample_rate)) / f32(AUDIO_MIX_SAMPLE_RATE)
+			}
+
+			source_channels := 1
+			if data.channels == .Stereo {
+				source_channels = 2
+			}
+
+			num_mixed := audio_mix(
+				dest,
+				data.samples[ps.offset:],
+				data.channels,
+				interpolate,
+				source_dest_ratio,
+				AUDIO_MIX_CHUNK_SIZE,
+				ps.offset_fraction,
+				volume_start,
+				volume_end,
+				pan_stereo_start,
+				pan_stereo_end,
+			)
+		
+			if interpolate {
+				num_mixed_f32 := f32(num_mixed) * source_dest_ratio
+				fraction_advance := ps.offset_fraction + num_mixed_f32
+
+				// The fraction advance may become larger than 1, in which case the offset needs to eat
+				// the integer part.
+				ps.offset += int(fraction_advance) * source_channels
+			
+				ps.offset_fraction = linalg.fract(fraction_advance)
+			} else {
+				ps.offset += num_mixed * source_channels
+				ps.offset_fraction = 0
+			}
+
+			// We didn't mix all the samples! This means that we reached the end of the sound.
+			if num_mixed < AUDIO_MIX_CHUNK_SIZE {
+				if ps.loop {
+					ps.offset = 0
+					ps.offset_fraction = 0
+
+					// The sound looped. Make sure to mix in the remaining samples from the start of the
+					// sound!
+					mixed_before_loop := num_mixed
+					overflow := AUDIO_MIX_CHUNK_SIZE - mixed_before_loop
+
+					// Carry the volume and pan ramps on from where the first part of the chunk got to.
+					// Starting them over would jump the volume back up in the middle of the chunk,
+					// which is heard as a click.
+					split := f32(mixed_before_loop) / f32(AUDIO_MIX_CHUNK_SIZE)
+					volume_split := math.lerp(volume_start, volume_end, split)
+					pan_stereo_split := linalg.lerp(pan_stereo_start, pan_stereo_end, split)
+
+					num_mixed = audio_mix(
+						dest[mixed_before_loop:],
+						data.samples[ps.offset:],
+						data.channels,
+						interpolate,
+						source_dest_ratio,
+						overflow,
+						ps.offset_fraction,
+						volume_split,
+						volume_end,
+						pan_stereo_split,
+						pan_stereo_end,
+					)
+				
+					if interpolate {
+						num_mixed_f32 := f32(num_mixed) * source_dest_ratio
+						fraction_advance := ps.offset_fraction + num_mixed_f32
+
+						// The fraction advance may become larger than 1, in which case the offset needs to eat
+						// the integer part.
+						ps.offset += int(fraction_advance) * source_channels
+					
+						ps.offset_fraction = linalg.fract(fraction_advance)
+					} else {
+						ps.offset += num_mixed * source_channels
+						ps.offset_fraction = 0
+					}
+				} else {
+					hm.remove(&s.sounds, ps_handle)
+					continue
+				}
+			}
 		}
+
+		// BUSES
+		//
+		// The sounds routed to a bus have been mixed into that bus's chunk. Now run the effect of each
+		// bus on its chunk and mix the chunk into the master bus, which is the `out` slice.
+
+		// The buses run at the mixer's sample rate and are never pitched, so the ramp is the same for
+		// all of them.
+		bus_adjust_delta := calc_adjust_parameter_delta(AUDIO_MIX_SAMPLE_RATE, 1)
+
+		for it := hm.dynamic_iterator_make(&s.audio_buses); bus, _ in hm.dynamic_iterate(&it) {
+			// The effect runs even when the bus is silent. Effects tend to keep state, such as a filter
+			// or an echo. Skipping them while silent would leave that state behind, and it would jump
+			// once the bus is turned back up.
+			if bus.effect != nil {
+				bus.effect(bus.chunk[:], bus.effect_user_data)
+			}
+
+			volume_start := bus.current_settings.volume
+			volume_end := move_towards(volume_start, bus.target_settings.volume, bus_adjust_delta)
+			bus.current_settings.volume = volume_end
+
+			pan_start := bus.current_settings.pan
+			pan_end := move_towards(pan_start, bus.target_settings.pan, bus_adjust_delta)
+			bus.current_settings.pan = pan_end
+
+			if volume_start == 0 && volume_end == 0 {
+				continue
+			}
+
+			// The pan of a bus is a balance: It turns the opposite side down. The playing sounds use a
+			// constant-power curve instead, but that curve scales both channels by 0.707 in the middle.
+			// A bus that has not been touched has to leave the mix exactly as it is.
+			gain_start := [2]f32 {
+				volume_start * min(1, 1 - pan_start),
+				volume_start * min(1, 1 + pan_start),
+			}
+
+			gain_end := [2]f32 {
+				volume_end * min(1, 1 - pan_end),
+				volume_end * min(1, 1 + pan_end),
+			}
+
+			for samp_idx in 0..<AUDIO_MIX_CHUNK_SIZE {
+				t := f32(samp_idx) / f32(AUDIO_MIX_CHUNK_SIZE)
+				out[samp_idx] += bus.chunk[samp_idx] * linalg.lerp(gain_start, gain_end, t)
+			}
+		}
+
+		// MASTER BUS
+		//
+		// Everything is in `out` now. The master effect, volume and pan apply to the whole mix.
+
+		master := &s.master_bus
+
+		if master.effect != nil {
+			master.effect(out, master.effect_user_data)
+		}
+
+		volume_start := master.current_settings.volume
+		volume_end := move_towards(volume_start, master.target_settings.volume, bus_adjust_delta)
+		master.current_settings.volume = volume_end
+
+		pan_start := master.current_settings.pan
+		pan_end := move_towards(pan_start, master.target_settings.pan, bus_adjust_delta)
+		master.current_settings.pan = pan_end
+
+		// A game that never touches the master bus shouldn't pay for it.
+		if volume_start != 1 || volume_end != 1 || pan_start != 0 || pan_end != 0 {
+			gain_start := [2]f32 {
+				volume_start * min(1, 1 - pan_start),
+				volume_start * min(1, 1 + pan_start),
+			}
+
+			gain_end := [2]f32 {
+				volume_end * min(1, 1 - pan_end),
+				volume_end * min(1, 1 + pan_end),
+			}
+
+			for samp_idx in 0..<AUDIO_MIX_CHUNK_SIZE {
+				t := f32(samp_idx) / f32(AUDIO_MIX_CHUNK_SIZE)
+				out[samp_idx] *= linalg.lerp(gain_start, gain_end, t)
+			}
+		}
+
+		ab.feed(out)
+		s.mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
 	}
-
-	// BUSES
-	//
-	// The sounds routed to a bus have been mixed into that bus's chunk. Now run the effect of each
-	// bus on its chunk and mix the chunk into the master bus, which is the `out` slice.
-
-	// The buses run at the mixer's sample rate and are never pitched, so the ramp is the same for
-	// all of them.
-	bus_adjust_delta := calc_adjust_parameter_delta(AUDIO_MIX_SAMPLE_RATE, 1)
-
-	for it := hm.dynamic_iterator_make(&s.audio_buses); bus, _ in hm.dynamic_iterate(&it) {
-		// The effect runs even when the bus is silent. Effects tend to keep state, such as a filter
-		// or an echo. Skipping them while silent would leave that state behind, and it would jump
-		// once the bus is turned back up.
-		if bus.effect != nil {
-			bus.effect(bus.chunk[:], bus.effect_user_data)
-		}
-
-		volume_start := bus.current_settings.volume
-		volume_end := move_towards(volume_start, bus.target_settings.volume, bus_adjust_delta)
-		bus.current_settings.volume = volume_end
-
-		pan_start := bus.current_settings.pan
-		pan_end := move_towards(pan_start, bus.target_settings.pan, bus_adjust_delta)
-		bus.current_settings.pan = pan_end
-
-		if volume_start == 0 && volume_end == 0 {
-			continue
-		}
-
-		// The pan of a bus is a balance: It turns the opposite side down. The playing sounds use a
-		// constant-power curve instead, but that curve scales both channels by 0.707 in the middle.
-		// A bus that has not been touched has to leave the mix exactly as it is.
-		gain_start := [2]f32 {
-			volume_start * min(1, 1 - pan_start),
-			volume_start * min(1, 1 + pan_start),
-		}
-
-		gain_end := [2]f32 {
-			volume_end * min(1, 1 - pan_end),
-			volume_end * min(1, 1 + pan_end),
-		}
-
-		for samp_idx in 0..<AUDIO_MIX_CHUNK_SIZE {
-			t := f32(samp_idx) / f32(AUDIO_MIX_CHUNK_SIZE)
-			out[samp_idx] += bus.chunk[samp_idx] * linalg.lerp(gain_start, gain_end, t)
-		}
-	}
-
-	// MASTER BUS
-	//
-	// Everything is in `out` now. The master effect, volume and pan apply to the whole mix.
-
-	master := &s.master_bus
-
-	if master.effect != nil {
-		master.effect(out, master.effect_user_data)
-	}
-
-	volume_start := master.current_settings.volume
-	volume_end := move_towards(volume_start, master.target_settings.volume, bus_adjust_delta)
-	master.current_settings.volume = volume_end
-
-	pan_start := master.current_settings.pan
-	pan_end := move_towards(pan_start, master.target_settings.pan, bus_adjust_delta)
-	master.current_settings.pan = pan_end
-
-	// A game that never touches the master bus shouldn't pay for it.
-	if volume_start != 1 || volume_end != 1 || pan_start != 0 || pan_end != 0 {
-		gain_start := [2]f32 {
-			volume_start * min(1, 1 - pan_start),
-			volume_start * min(1, 1 + pan_start),
-		}
-
-		gain_end := [2]f32 {
-			volume_end * min(1, 1 - pan_end),
-			volume_end * min(1, 1 + pan_end),
-		}
-
-		for samp_idx in 0..<AUDIO_MIX_CHUNK_SIZE {
-			t := f32(samp_idx) / f32(AUDIO_MIX_CHUNK_SIZE)
-			out[samp_idx] *= linalg.lerp(gain_start, gain_end, t)
-		}
-	}
-
-	ab.feed(out)
-	s.mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
 }
 
 //-----------------//
