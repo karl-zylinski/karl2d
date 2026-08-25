@@ -963,7 +963,7 @@ d3d11_load_shader :: proc(
 	d3d_constant_buffers := make([dynamic]D3D11_Shader_Constant_Buffer, s.allocator)
 	d3d_texture_bindings := make([dynamic]D3D11_Texture_Binding, s.allocator)
 	texture_bindpoint_descs := make([dynamic]Shader_Texture_Bindpoint_Desc, desc_allocator)
-	reflect_shader_constants(
+	vs_constants_ok := reflect_shader_constants(
 		vs_desc,
 		vs_ref,
 		&constant_descs,
@@ -974,6 +974,16 @@ d3d11_load_shader :: proc(
 		desc_allocator,
 		.Vertex,
 	)
+
+	// Everything the reflection had to say has been copied out by now, names included.
+	vs_ref->Release()
+
+	if !vs_constants_ok {
+		release_constant_buffers(d3d_constant_buffers[:])
+		vertex_shader->Release()
+		vs_blob->Release()
+		return
+	}
 
 	input_layout_desc := make([]d3d11.INPUT_ELEMENT_DESC, len(desc.inputs), frame_allocator)
 
@@ -996,6 +1006,7 @@ d3d11_load_shader :: proc(
 		vs_blob->GetBufferSize(),
 		&input_layout,
 	)) < 0 {
+		release_constant_buffers(d3d_constant_buffers[:])
 		vertex_shader->Release()
 		vs_blob->Release()
 		return
@@ -1025,6 +1036,7 @@ d3d11_load_shader :: proc(
 	if ps_blob_errors != nil {
 		log.error("Failed compiling shader:")
 		log.error(strings.string_from_ptr((^u8)(ps_blob_errors->GetBufferPointer()), int(ps_blob_errors->GetBufferSize())))
+		release_constant_buffers(d3d_constant_buffers[:])
 		input_layout->Release()
 		vertex_shader->Release()
 		return
@@ -1032,6 +1044,7 @@ d3d11_load_shader :: proc(
 
 	if ps_compile_res < 0 || ps_blob == nil {
 		log.error("Failed compiling pixel shader.")
+		release_constant_buffers(d3d_constant_buffers[:])
 		input_layout->Release()
 		vertex_shader->Release()
 		return
@@ -1045,6 +1058,7 @@ d3d11_load_shader :: proc(
 		nil,
 		&pixel_shader,
 	)) < 0 {
+		release_constant_buffers(d3d_constant_buffers[:])
 		ps_blob->Release()
 		input_layout->Release()
 		vertex_shader->Release()
@@ -1059,6 +1073,7 @@ d3d11_load_shader :: proc(
 		d3d11.ID3D11ShaderReflection_UUID,
 		(^rawptr)(&ps_ref),
 	)) < 0 {
+		release_constant_buffers(d3d_constant_buffers[:])
 		pixel_shader->Release()
 		ps_blob->Release()
 		input_layout->Release()
@@ -1071,7 +1086,7 @@ d3d11_load_shader :: proc(
 	ps_desc: d3d11.SHADER_DESC
 	ch(ps_ref->GetDesc(&ps_desc))
 
-	reflect_shader_constants(
+	ps_constants_ok := reflect_shader_constants(
 		ps_desc,
 		ps_ref,
 		&constant_descs,
@@ -1082,6 +1097,16 @@ d3d11_load_shader :: proc(
 		desc_allocator,
 		.Pixel,
 	)
+
+	ps_ref->Release()
+
+	if !ps_constants_ok {
+		release_constant_buffers(d3d_constant_buffers[:])
+		pixel_shader->Release()
+		input_layout->Release()
+		vertex_shader->Release()
+		return
+	}
 
 	// Done with vertex and pixel shader. Just combine all the state.
 
@@ -1101,13 +1126,7 @@ d3d11_load_shader :: proc(
 
 	if h_add_err != nil {
 		log.errorf("Failed to add shader. Error: %v", h_add_err)
-
-		for c in d3d_constant_buffers {
-			if c.gpu_data != nil {
-				c.gpu_data->Release()
-			}
-		}
-
+		release_constant_buffers(d3d_constant_buffers[:])
 		input_layout->Release()
 		vertex_shader->Release()
 		pixel_shader->Release()
@@ -1122,6 +1141,16 @@ D3D11_Shader_Type :: enum {
 	Pixel,
 }
 
+// Shader loading creates constant buffers as it reflects over the vertex shader, so anything that
+// gives up after that point has to hand them back.
+release_constant_buffers :: proc(constant_buffers: []D3D11_Shader_Constant_Buffer) {
+	for c in constant_buffers {
+		if c.gpu_data != nil {
+			c.gpu_data->Release()
+		}
+	}
+}
+
 reflect_shader_constants :: proc(
 	d3d_desc: d3d11.SHADER_DESC,
 	ref: ^d3d11.IShaderReflection,
@@ -1132,7 +1161,7 @@ reflect_shader_constants :: proc(
 	texture_bindpoint_descs: ^[dynamic]Shader_Texture_Bindpoint_Desc,
 	desc_allocator: runtime.Allocator,
 	shader_type: D3D11_Shader_Type,
-) {
+) -> bool {
 	found_sampler_bindpoints := make([dynamic]u32, frame_allocator)
 
 	for br_idx in 0..<d3d_desc.BoundResources {
@@ -1189,7 +1218,13 @@ reflect_shader_constants :: proc(
 					bound_shaders = {shader_type},
 				}
 
-				ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &buf.gpu_data))
+				// Without this buffer the shader never receives its constants, not even the
+				// view-projection matrix, so it would draw in the wrong place rather than fail.
+				if ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &buf.gpu_data)) < 0 {
+					log.errorf("Failed creating constant buffer '%v'.", bind_desc.Name)
+					return false
+				}
+
 				buf.size = int(cb_desc.Size)
 				buf.bind_point = bind_desc.BindPoint
 				append(d3d_constant_buffers, buf)
@@ -1248,6 +1283,8 @@ reflect_shader_constants :: proc(
 			)
 		}
 	}
+
+	return true
 }
 
 d3d11_destroy_shader :: proc(h: Shader_Handle) {

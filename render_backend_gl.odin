@@ -450,7 +450,25 @@ gl_set_internal_state :: proc(state: rawptr) {
 	s = (^GL_State)(state)
 }
 
-create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawptr) -> GL_Texture {
+// GL hands out errors through a queue instead of return values, and nothing else in this backend
+// reads it, so it can hold something an earlier call left behind. Empty it, so that a check right
+// after a call only sees what that call did. The bound stops a lost context spinning here forever.
+GL_ERROR_QUEUE_DRAIN_LIMIT :: 32
+
+drain_gl_errors :: proc() {
+	for _ in 0..<GL_ERROR_QUEUE_DRAIN_LIMIT {
+		if gl.GetError() == gl.NO_ERROR {
+			return
+		}
+	}
+}
+
+create_texture :: proc(
+	width: int,
+	height: int,
+	format: Pixel_Format,
+	data: rawptr,
+) -> (GL_Texture, bool) {
 	id: u32
 	gl.GenTextures(1, &id)
 	gl.BindTexture(gl.TEXTURE_2D, id)
@@ -460,13 +478,23 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawp
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 
+	drain_gl_errors()
+
 	pf := gl_translate_pixel_format(format)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, data)
+
+	// This is where a texture that is too big for the GPU, or one the GPU has no memory left for,
+	// gets caught. Without the check it would become a texture that silently draws nothing.
+	if err := gl.GetError(); err != gl.NO_ERROR {
+		log.errorf("Failed creating %v x %v texture. GL error: 0x%x", width, height, err)
+		gl.DeleteTextures(1, &id)
+		return {}, false
+	}
 
 	return {
 		id = id,
 		format = format,
-	}
+	}, true
 }
 
 gl_create_texture :: proc(
@@ -474,10 +502,17 @@ gl_create_texture :: proc(
 	height: int,
 	format: Pixel_Format,
 ) -> (Texture_Handle, bool) {
-	tex, tex_add_err := hm.add(&s.textures, create_texture(width, height, format, nil))
+	gl_tex, gl_tex_ok := create_texture(width, height, format, nil)
+
+	if !gl_tex_ok {
+		return {}, false
+	}
+
+	tex, tex_add_err := hm.add(&s.textures, gl_tex)
 
 	if tex_add_err != nil {
 		log.errorf("Failed to create texture. Error: %v", tex_add_err)
+		gl.DeleteTextures(1, &gl_tex.id)
 		return {}, false
 	}
 
@@ -490,10 +525,17 @@ gl_load_texture :: proc(
 	height: int,
 	format: Pixel_Format,
 ) -> (Texture_Handle, bool) {
-	tex, tex_add_err := hm.add(&s.textures, create_texture(width, height, format, raw_data(data)))
+	gl_tex, gl_tex_ok := create_texture(width, height, format, raw_data(data))
+
+	if !gl_tex_ok {
+		return {}, false
+	}
+
+	tex, tex_add_err := hm.add(&s.textures, gl_tex)
 
 	if tex_add_err != nil {
 		log.errorf("Failed to load texture. Error: %v", tex_add_err)
+		gl.DeleteTextures(1, &gl_tex.id)
 		return {}, false
 	}
 
@@ -537,7 +579,12 @@ gl_create_render_texture :: proc(
 	width: int,
 	height: int,
 ) -> (Texture_Handle, Render_Target_Handle, bool) {
-	texture := create_texture(width, height, .RGBA_32_Float, nil)
+	texture, texture_ok := create_texture(width, height, .RGBA_32_Float, nil)
+
+	if !texture_ok {
+		return {}, {}, false
+	}
+
 	texture.needs_vertical_flip = true
 	
 	framebuffer: u32
