@@ -23,6 +23,17 @@ Conventions for writing code, writing documentation, and collaborating on this p
 
 Write them like a tweet, max 180 characters. Only simple sentences. Only allowed punctuation is the period. If possible, keep them to 3-4 words. Use more words if really needed.
 
+## Pull request descriptions
+
+Keep them short. They contain only these things, in this order:
+
+- A short description of what was done. A few sentences at most.
+- The things that changed in the API. Say so explicitly if nothing did.
+- Bullet points of the changes that are not in the API.
+- The line "Created with the help of Claude Code" at the bottom.
+
+Nothing else. No narrative of how the work was done, no verification logs, no rationale that belongs in the issue.
+
 ## Verifying Your Work
 - Build and test through the examples in `examples/`. Prefer the existing VS Code build tasks; they already include `-vet -strict-style -vet-tabs` and come in three variants: default (D3D11 on Windows), `(GL)`, and `(web)`. Use the same `-vet -strict-style -vet-tabs` flags when running `odin` directly.
 - After edits, run the most relevant build task(s) for what you touched. After a large change, run `odin run tools/test_examples`, the CI script that builds every example (some are excluded from web builds, e.g. `minimal_hello_world`, `custom_frame_update`).

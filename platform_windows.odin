@@ -741,6 +741,11 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 	case win32.WM_CLOSE:
 		append(&s.events, Event_Close_Window_Requested{})
 
+		// The default handler destroys the window. We don't want that: it's up to the application
+		// to decide what a close request means, it may want to show a confirmation dialogue. The
+		// window is destroyed in `windows_shutdown`.
+		return 0
+
 	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:
 		repeat := bool(lparam & (1 << 30))
 		key := key_from_event_params(wparam, lparam)

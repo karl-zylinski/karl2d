@@ -243,7 +243,11 @@ mac_init :: proc(
 
 			windowShouldClose = proc(_: ^NS.Window) -> bool {
 				append(&s.events, Event_Close_Window_Requested{})
-				return true
+
+				// Returning true closes the window, which also releases it. It's up to the
+				// application to decide what a close request means, it may want to show a
+				// confirmation dialogue. The window is closed in `mac_shutdown`.
+				return false
 			},
 
 			// Focus and unfocus events
