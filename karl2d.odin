@@ -3956,7 +3956,7 @@ load_static_font_from_bytes :: proc(
 	font_size: f32,
 	codepoints: []rune = {},
 	options: Font_Options = {},
-) -> (Font, bool) #optional_ok {
+) -> (_font: Font, _ok: bool) #optional_ok {
 	codepoints := codepoints
 	font_info: stbtt.fontinfo
 	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), 0)
@@ -3964,7 +3964,7 @@ load_static_font_from_bytes :: proc(
 
 	if !init_ok {
 		log.error("Failed loading TTF/TTC font")
-		return FONT_NONE, false
+		return
 	}
 
 	scale_factor := stbtt.ScaleForPixelHeight(&font_info, font_size)
@@ -4102,7 +4102,7 @@ load_static_font_from_bytes :: proc(
 
 	if !atlas_packed {
 		log.error("Failed packing font atlas")
-		return {}, false
+		return
 	}
 
 	atlas := make([]Color, atlas_size*atlas_size, s.frame_allocator)
@@ -4342,18 +4342,18 @@ set_cursor :: proc(cursor: Cursor) {
 create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) #optional_ok {
 	if image.width == 0 || image.height == 0 {
 		log.error("Invalid cursor image: height or width is zero")
-		return {}, false
+		return CUSTOM_CURSOR_NONE, false
 	}
 
 	if len(image.pixels) != image.width*image.height {
 		log.error("Invalid cursor image: the pixels array is not of size image.width*image.height")
-		return {}, false
+		return CUSTOM_CURSOR_NONE, false
 	}
 
 	cursor, cursor_ok := pf.create_custom_cursor(image, hotspot)
 
 	if !cursor_ok {
-		return {}, false
+		return CUSTOM_CURSOR_NONE, false
 	}
 
 	return cursor, true
