@@ -1620,6 +1620,13 @@ create_texture :: proc(
 	h, h_ok := rb.create_texture(width, height, format)
 
 	if !h_ok {
+		log.errorf(
+			"Failed creating texture with dimensions %v x %v and pixel format %v",
+			width,
+			height,
+			format,
+		)
+		
 		return {}, false
 	}
 
