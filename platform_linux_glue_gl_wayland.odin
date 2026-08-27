@@ -1,4 +1,4 @@
-// Glues together OpenGL with an X11 window. This is done by making a glX context and using it to
+// Glues together OpenGL with a Wayland window. This is done by making an EGL context and using it to
 // SwapBuffers etc.
 #+build linux
 
@@ -10,16 +10,19 @@ import egl "platform_bindings/linux/egl"
 import wl "platform_bindings/linux/wayland"
 import "base:runtime"
 import "core:slice"
+import "core:sys/posix"
 
 @(private="package")
 make_linux_gl_wayland_glue :: proc(
 	display: ^wl.Display,
+	surface: ^wl.Surface,
 	window: ^wl.EGL_Window,
 	allocator: runtime.Allocator,
 	loc := #caller_location
 ) -> Window_Render_Glue {
 	state := new(Linux_GL_Wayland_Glue_State, allocator, loc)
 	state.display = display
+	state.surface = surface
 	state.window = window
 	state.allocator = allocator
 	return {
@@ -35,6 +38,8 @@ make_linux_gl_wayland_glue :: proc(
 
 Linux_GL_Wayland_Glue_State :: struct {
 	display: ^wl.Display,
+	surface: ^wl.Surface,
+	frame_callback: ^wl.Callback,
 	window: ^wl.EGL_Window,
 	egl_context: egl.Context,
 	egl_display: egl.Display,
@@ -125,11 +130,13 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State, opti
 	}
 
 	if egl.MakeCurrent(s.egl_display, s.egl_surface, s.egl_surface, s.egl_context) {
-		egl.SwapInterval(s.egl_display, 1)
 		gl.load_up_to(3, 3, egl.gl_set_proc_address)
 
-		// vsync
-		egl.SwapInterval(s.egl_display, 1)
+		// Disable EGL vsync (swap interval = 0)
+		// Otherwise egl.SwapBuffers would block indefinitely for unfocused windows.
+		// Frame timing is managed in linux_gl_wayland_glue_present using frame callbacks,
+		// which ensures that the event loop stays responsive.
+		egl.SwapInterval(s.egl_display, interval=0)
 
 		return true
 	}
@@ -138,10 +145,46 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State, opti
 }
 
 linux_gl_wayland_glue_present :: proc(s: ^Linux_GL_Wayland_Glue_State) {
+
+	wl.display_dispatch_pending(s.display)
+	wl.display_flush(s.display)
+
+	if s.frame_callback != nil {
+		// Wait for the frame callback done event
+		fd := posix.FD(wl.display_get_fd(s.display))
+
+		for s.frame_callback != nil {
+			pfd := posix.pollfd{
+				fd     = fd,
+				events = {posix.Poll_Event_Bits.IN},
+			}
+			if posix.poll(&pfd, nfds=1, timeout=20) == 0 {
+				break // Timeout
+			}
+			// Drain events until frame_callback get's called
+			wl.display_dispatch(s.display)
+		}
+	}
+
+	if s.frame_callback == nil {
+		@static listener := wl.Callback_Listener {
+			proc "c" (data: rawptr, callback: ^wl.Callback, callback_data: u32) {
+				wl.destroy(callback)
+				(^^wl.Callback)(data)^ = nil // Clear callback to exit the loop
+			},
+		}
+		s.frame_callback = wl.surface_frame(s.surface)
+		wl.add_listener(s.frame_callback, &listener, &s.frame_callback)
+	}
+
+	// Non-blocking swap (egl.SwapInterval is 0)
 	egl.SwapBuffers(s.egl_display, s.egl_surface)
 }
 
 linux_gl_wayland_glue_destroy :: proc(s: ^Linux_GL_Wayland_Glue_State) {
+	if s.frame_callback != nil {
+		wl.destroy(s.frame_callback)
+	}
 	egl.DestroyContext(s.egl_display, s.egl_context)
 	a := s.allocator
 	free(s, a)
