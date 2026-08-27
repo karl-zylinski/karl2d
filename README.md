@@ -202,6 +202,8 @@ The platform-independent parts and the API lives in `karl2d.odin`. There is a [`
 
 The platform abstraction depends on the operating system. I do not use anything like GLFW in order to abstract away window creation and event handling. Less libraries between you and the OS, less trouble when shipping!
 
+On Linux there are two windowing systems to choose between, and both backends are in every build. Which one a game uses is decided when it starts: it tries Wayland and then X11, and uses the first one that both has its libraries installed and answers when connected to. The libraries are opened with `dlopen` rather than linked, so a machine that only has one of the two stacks installed can still run the game. Set the environment variable `KARL2D_LINUX_WINDOWING` to `x11` or `wayland` to change which one is tried first. It is only a preference: if that one does not answer, the other is still used.
+
 The rendering abstraction tells Karl2D how to talk to the GPU. I currently support three rendering APIs: D3D11, OpenGL and WebGL. On some platforms you have multiple choices, for example on Windows you can use both D3D11 and OpenGL (using the compile flag `-define:KARL2D_RENDER_BACKEND=gl/d3d11`). Using GL on windows may be beneficial if you want to share shader code between the desktop and web version (as they use almost the same verions of `glsl`). Some kind of shader-cross-API-compilation is _planned_, but not implemented.
 
 The platform independent code in `karl2d.odin` creates a list of vertices for each batch it needs to render. That's done independently of the rendering backend. The backend is just fed that list, along with information about what shader and such to use.

@@ -61,16 +61,37 @@ linux_init :: proc(
 	assert(platform_state != nil)
 	s = (^Linux_State)(platform_state)
 	s.allocator = allocator
-	// Wayland is tried first and X11 second, the way SDL and GLFW order them. Each probe both
-	// loads the libraries and checks that there is a server listening, so a Wayland session picks
-	// Wayland, an X11 session finds no compositor and falls through, and a machine that has only
-	// one of the two installed gets the one it has. Environment variables are not consulted here:
-	// `display_connect` and `OpenDisplay` already read the ones that matter, and they answer the
-	// question that is actually being asked.
-	s.win = LINUX_WINDOW_WAYLAND
+	// Each probe loads a windowing system's libraries and checks that there is a server listening,
+	// so a Wayland session picks Wayland, an X11 session finds no compositor and falls through,
+	// and a machine with only one of the two installed gets the one it has. Nothing here reads the
+	// session type: `display_connect` and `OpenDisplay` already look at the environment variables
+	// that matter, and answering the question by asking the server is more reliable than guessing
+	// from a variable that logind may not have set at all.
+	//
+	// Wayland goes first, the way SDL and GLFW order them. `KARL2D_LINUX_WINDOWING` swaps the
+	// order, for when both work but the preferred one behaves badly.
+	first := LINUX_WINDOW_WAYLAND
+	second := LINUX_WINDOW_X11
+	windowing_preference := os.get_env("KARL2D_LINUX_WINDOWING", frame_allocator)
+
+	switch windowing_preference {
+	case "", "wayland":
+
+	case "x11":
+		first = LINUX_WINDOW_X11
+		second = LINUX_WINDOW_WAYLAND
+
+	case:
+		log.warnf(
+			"Ignoring KARL2D_LINUX_WINDOWING=%v. It has to be \"wayland\" or \"x11\".",
+			windowing_preference,
+		)
+	}
+
+	s.win = first
 
 	if !s.win.probe() {
-		s.win = LINUX_WINDOW_X11
+		s.win = second
 
 		if !s.win.probe() {
 			log.panic(
