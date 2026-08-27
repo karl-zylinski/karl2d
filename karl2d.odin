@@ -2536,12 +2536,17 @@ destroy_audio_clip :: proc(clip: Audio_Clip)  {
 // The second return value is `true` if the audio stream was loaded correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Stream` will
 // still be possible to use, but it won't play anything.
-load_audio_stream_from_file :: proc(filename: string) -> (Audio_Stream, bool) #optional_ok {
+load_audio_stream_from_file :: proc(
+	filename: string,
+) -> (
+	stream: Audio_Stream,
+	ok: bool,
+) #optional_ok {
 	f, f_err := file_open(filename)
 
 	if f_err != nil {
 		log.errorf("Failed opening file %v. Error: %v", filename, f_err)
-		return AUDIO_STREAM_NONE, false
+		return
 	}
 
 	buf := make([dynamic]u8, frame_allocator)
@@ -2555,7 +2560,7 @@ load_audio_stream_from_file :: proc(filename: string) -> (Audio_Stream, bool) #o
 			log.errorf("Failed closing file. Error: %v", close_err)
 		}
 		
-		return AUDIO_STREAM_NONE, false
+		return
 	}
 
 	vorbis_buffer := stbv.vorbis_alloc {
@@ -2589,7 +2594,7 @@ load_audio_stream_from_file :: proc(filename: string) -> (Audio_Stream, bool) #o
 				log.errorf("Failed seeking in audio stream file %v. Error: %v", filename, seek_err)
 				file_close(f)
 				free(vorbis_buffer.alloc_buffer, s.allocator)
-				return AUDIO_STREAM_NONE, false
+				return
 			}
 
 			break
@@ -2602,14 +2607,14 @@ load_audio_stream_from_file :: proc(filename: string) -> (Audio_Stream, bool) #o
 				log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
 				file_close(f)
 				free(vorbis_buffer.alloc_buffer, s.allocator)
-				return AUDIO_STREAM_NONE, false
+				return
 			}
 
 			if nbytes_read == 0 {
 				log.errorf("Failed to load audio stream. Reached end of file before stream could be loaded.")
 				file_close(f)
 				free(vorbis_buffer.alloc_buffer, s.allocator)
-				return AUDIO_STREAM_NONE, false
+				return
 			}
 
 			append(&buf, ..read_buf[:nbytes_read])
@@ -2617,7 +2622,7 @@ load_audio_stream_from_file :: proc(filename: string) -> (Audio_Stream, bool) #o
 			log.errorf("Failed to load audio stream. Error: %v", vorbis_err)
 			file_close(f)
 			free(vorbis_buffer.alloc_buffer, s.allocator)
-			return AUDIO_STREAM_NONE, false
+			return
 		}
 	}
 
@@ -2636,7 +2641,7 @@ load_audio_stream_from_file :: proc(filename: string) -> (Audio_Stream, bool) #o
 		}
 				
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE, false
+		return
 	}
 
 	audio_clip := Audio_Clip_Object {
@@ -2656,7 +2661,7 @@ load_audio_stream_from_file :: proc(filename: string) -> (Audio_Stream, bool) #o
 
 		delete(audio_clip.samples, s.allocator)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE, false
+		return
 	}
 
 	asd := Audio_Stream_Data {
@@ -2669,7 +2674,7 @@ load_audio_stream_from_file :: proc(filename: string) -> (Audio_Stream, bool) #o
 		file_read_buf = make([dynamic]u8, s.allocator),
 	}
 
-	stream, stream_add_err := hm.add(&s.audio_streams, asd)
+	added_stream, stream_add_err := hm.add(&s.audio_streams, asd)
 
 	if stream_add_err != nil {
 		log.errorf("Failed to create audio stream from file. Error: %v", stream_add_err)
@@ -2678,10 +2683,10 @@ load_audio_stream_from_file :: proc(filename: string) -> (Audio_Stream, bool) #o
 		delete(audio_clip.samples, s.allocator)
 		hm.remove(&s.audio_clips, audio_clip_handle)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE, false
+		return
 	}
 
-	return stream, true
+	return added_stream, true
 }
 
 // Load an audio stream from a byte slice that is completely in memory. This makes it possible to
