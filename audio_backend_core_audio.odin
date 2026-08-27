@@ -31,7 +31,7 @@ Core_Audio_State :: struct {
 	semaphore:      sync.Sema,
 	buffers:        [3]Audio.QueueBufferRef,
 	buffer:         int,
-	posted_samples: int,
+	queued_samples: int,
 }
 
 core_audio_state_size :: proc() -> int {
@@ -77,8 +77,13 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	}
 	sync.sema_post(&s.semaphore, len(s.buffers))
 
+	// The queue hands a buffer back once it has been played. That is the moment its samples stop
+	// counting towards what is left to play.
 	_core_audio_callback :: proc "c" (inUserData: rawptr, inAQ: Audio.QueueRef, inBuffer: Audio.QueueBufferRef) {
-		sync.sema_post(&s.semaphore)
+		state := (^Core_Audio_State)(inUserData)
+		played := int(inBuffer.mAudioDataByteSize) / size_of([2]Audio_Sample)
+		intrinsics.atomic_sub(&state.queued_samples, played)
+		sync.sema_post(&state.semaphore)
 	}
 }
 
@@ -105,23 +110,26 @@ core_audio_feed :: proc(samples: [][2]Audio_Sample) {
 		buffer.mAudioDataByteSize = u32(to_write_bytes)
 		remaining = remaining[to_write_samples:]
 
+		// Count the samples before handing the buffer over. The queue may play it and call the
+		// callback right away, and the callback takes them off again.
+		intrinsics.atomic_add(&s.queued_samples, to_write_samples)
+
 		if !ch(Audio.QueueEnqueueBuffer(s.queue, buffer, 0, nil)) {
+			intrinsics.atomic_sub(&s.queued_samples, to_write_samples)
 			return
 		}
-
-		s.posted_samples += to_write_samples
 	}
 }
 
+// How many samples the queue still has left to play. This counts what is in the buffers that have
+// been enqueued and not handed back yet.
+//
+// It is deliberately not the queue's own playback position. The mixer uses this number to decide
+// when to feed, and `feed` blocks until the queue hands a buffer back, so the two have to agree.
+// The playback position says nothing about which buffers are free, so it can send the mixer into
+// `feed` while all of them are still in flight. The frame then stalls until one is played.
 core_audio_remaining_samples :: proc() -> int {
-	if s.posted_samples == 0 {
-		return 0
-	}
-
-	time: CA.TimeStamp
-	ch(Audio.QueueGetCurrentTime(s.queue, nil, &time, nil))
-
-	return s.posted_samples - int(time.mSampleTime)
+	return intrinsics.atomic_load(&s.queued_samples)
 }
 
 ch :: proc(status: Audio.CFOSStatus, loc := #caller_location) -> bool {
