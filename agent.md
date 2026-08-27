@@ -48,15 +48,18 @@ Write them like a tweet, max 180 characters. Only simple sentences. Only allowed
   	_camera_flip_y(),
   )
   ```
-- The return values get split over several lines too, not just the parameters. When a signature does not fit, `-> (` opens the list, each return value sits on its own line ending with a comma, and `)` closes it with any tag and the opening brace after it. Splitting both lists reads better than keeping the return values packed on the closing line. See `load_audio_stream_from_bytes` in `karl2d.odin`.
+- The return values get split over several lines too, not just the parameters. When a signature does not fit, `-> (` opens the list, each return value sits on its own line ending with a comma, and `)` closes it with any tag and the opening brace after it. Splitting both lists reads better than keeping the return values packed on the closing line. This is only about where the line breaks go: it says nothing about naming the return values, which is a separate decision covered further down. See `create_texture` in `render_backend_d3d11.odin`.
 
   ```
-  load_audio_stream_from_bytes :: proc(
-  	bytes: []u8,
+  create_texture :: proc(
+  	width: int,
+  	height: int,
+  	format: Pixel_Format,
+  	data: rawptr,
   ) -> (
-  	_stream: Audio_Stream,
-  	_ok: bool,
-  ) #optional_ok {
+  	Texture_Handle,
+  	bool,
+  ) {
   ```
 - Place `:` and `=` with consistent spacing as in `karl2d.odin`. Opening braces `{` go on the same line as the declaration.
 - Ranges are written without spaces: `for i in 0..<len(pixels)`, not `0 ..< len(pixels)`. Attributes too: `@(private="package")`, not `@(private = "package")`.
