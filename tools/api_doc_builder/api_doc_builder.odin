@@ -10,12 +10,19 @@ import "core:odin/parser"
 import "core:odin/ast"
 import "core:strings"
 
+// A return value with no name at all still reports one name, and that name is the type itself.
+// Comparing the positions is what tells a real name apart from that.
+result_is_named :: proc(f: ^ast.File, field: ^ast.Field) -> bool {
+	return len(field.names) > 0 && field.names[0].pos.offset != field.type.pos.offset
+}
+
 // Writes a procedure type the way the doc file should show it, which is not quite what the source
 // says.
 //
-// Return values lose their names. A name like `_ok` is there to stop the implementation assigning
-// to it, so it says nothing to somebody reading the API, and it would make two procedures that
-// return the same thing look like they differ.
+// Return values whose name starts with an underscore lose it. That name is there to stop the
+// implementation assigning to the return value, so it says nothing to somebody reading the API, and
+// it would make two procedures that return the same thing look like they differ. A return value
+// named anything else was named to describe itself, so that name is kept.
 //
 // Tags such as `#optional_ok` have to be written back out. The parser keeps them in a bit set
 // rather than in the source range of the procedure type.
@@ -30,15 +37,42 @@ proc_type_text :: proc(f: ^ast.File, type: ^ast.Proc_Type) -> string {
 		return fmt.tprintf("%v%v", f.src[type.pos.offset:type.end.offset], tag)
 	}
 
-	results := make([dynamic]string, context.temp_allocator)
+	// The underscore only counts when it is on every name. Odin does not let a procedure mix named
+	// and unnamed return values, so dropping some of the names and keeping the rest would write out
+	// a signature that does not parse.
+	strip_names := true
 
 	for field in type.results.list {
-		// A field is one type plus the names that share it, so `(a, b: int)` is a single field
-		// standing for two return values. Dropping the names has to leave two entries behind.
-		// A return value with no name at all reports one name that is the type itself, so the
-		// count is right either way and the type is what we want in both cases.
-		for _ in 0..<max(len(field.names), 1) {
-			append(&results, f.src[field.type.pos.offset:field.type.end.offset])
+		if !result_is_named(f, field) {
+			continue
+		}
+
+		for n in field.names {
+			if !strings.has_prefix(f.src[n.pos.offset:n.end.offset], "_") {
+				strip_names = false
+			}
+		}
+	}
+
+	results := make([dynamic]string, context.temp_allocator)
+	kept_a_name := false
+
+	for field in type.results.list {
+		type_src := f.src[field.type.pos.offset:field.type.end.offset]
+
+		if strip_names || !result_is_named(f, field) {
+			// A field is one type plus the names that share it, so `(a, b: int)` is a single field
+			// standing for two return values, and has to leave two entries behind.
+			for _ in 0..<max(len(field.names), 1) {
+				append(&results, type_src)
+			}
+
+			continue
+		}
+
+		for n in field.names {
+			append(&results, fmt.tprintf("%v: %v", f.src[n.pos.offset:n.end.offset], type_src))
+			kept_a_name = true
 		}
 	}
 
@@ -46,7 +80,9 @@ proc_type_text :: proc(f: ^ast.File, type: ^ast.Proc_Type) -> string {
 	// several lines keeps them that way. `params.end` sits on the closing parenthesis.
 	params := f.src[type.pos.offset:type.params.end.offset + 1]
 
-	if len(results) == 1 {
+	// A lone return value only needs the parentheses back if it kept a name, since `-> name: T` is
+	// not something you can write.
+	if len(results) == 1 && !kept_a_name {
 		return fmt.tprintf("%v -> %v%v", params, results[0], tag)
 	}
 

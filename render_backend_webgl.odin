@@ -721,28 +721,37 @@ webgl_load_shader :: proc(
 	fs_source: []byte,
 	desc_allocator := frame_allocator,
 	layout_formats: []Pixel_Format = {},
-) -> (handle: Shader_Handle, desc: Shader_Desc, ok: bool) {
+) -> (
+	_handle: Shader_Handle,
+	_desc: Shader_Desc,
+	_ok: bool,
+) {
+	// Built up as the shaders are reflected over, and only handed back once everything worked.
+	// Filling in a named return value instead would mean the naked returns below hand out a
+	// half-built description alongside their `false`.
+	desc: Shader_Desc
+
 	@static err: [1024]u8
 	err_msg: string
 	vs_shader, vs_shader_ok := compile_shader_from_source(vs_source, gl.VERTEX_SHADER, err[:], &err_msg)
 
 	if !vs_shader_ok  {
 		log.error(err_msg)
-		return {}, {}, false
+		return
 	}
 	
 	fs_shader, fs_shader_ok := compile_shader_from_source(fs_source, gl.FRAGMENT_SHADER, err[:], &err_msg)
 
 	if !fs_shader_ok {
 		log.error(err_msg)
-		return {}, {}, false
+		return
 	}
 
 	program, program_ok := link_shader(vs_shader, fs_shader, err[:], &err_msg)
 
 	if !program_ok {
 		log.error(err_msg)
-		return {}, {}, false
+		return
 	}
 
 	stride: int
@@ -925,7 +934,7 @@ webgl_load_shader :: proc(
 		gl.DeleteProgram(program)
 		gl.DeleteShader(vs_shader)
 		gl.DeleteShader(fs_shader)
-		return SHADER_NONE, {}, false
+		return
 	}
 
 	return shader_handle, desc, true
