@@ -2249,7 +2249,7 @@ load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optio
 // The second return value is `true` if the audio clip was loaded correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
 // still be possible to use, but it won't play anything.
-load_audio_clip_from_bytes :: proc(bytes: []u8) -> (clip: Audio_Clip, ok: bool) #optional_ok {
+load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool) #optional_ok {
 	// A WAV file is a RIFF file: A 12 byte header followed by any number of chunks.
 	if len(bytes) < 12 {
 		log.error("Invalid wav file: Too small to contain a RIFF header")
@@ -2539,8 +2539,8 @@ destroy_audio_clip :: proc(clip: Audio_Clip)  {
 load_audio_stream_from_file :: proc(
 	filename: string,
 ) -> (
-	stream: Audio_Stream,
-	ok: bool,
+	_stream: Audio_Stream,
+	_ok: bool,
 ) #optional_ok {
 	f, f_err := file_open(filename)
 
@@ -2674,7 +2674,7 @@ load_audio_stream_from_file :: proc(
 		file_read_buf = make([dynamic]u8, s.allocator),
 	}
 
-	added_stream, stream_add_err := hm.add(&s.audio_streams, asd)
+	stream, stream_add_err := hm.add(&s.audio_streams, asd)
 
 	if stream_add_err != nil {
 		log.errorf("Failed to create audio stream from file. Error: %v", stream_add_err)
@@ -2686,7 +2686,7 @@ load_audio_stream_from_file :: proc(
 		return
 	}
 
-	return added_stream, true
+	return stream, true
 }
 
 // Load an audio stream from a byte slice that is completely in memory. This makes it possible to
@@ -2716,7 +2716,12 @@ load_audio_stream_from_file :: proc(
 // The second return value is `true` if the audio stream was loaded correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Stream` will
 // still be possible to use, but it won't play anything.
-load_audio_stream_from_bytes :: proc(bytes: []u8) -> (Audio_Stream, bool) #optional_ok {
+load_audio_stream_from_bytes :: proc(
+	bytes: []u8,
+) -> (
+	_stream: Audio_Stream,
+	_ok: bool,
+) #optional_ok {
 	vorbis_err: stbv.Error
 
 	vorbis_buffer := stbv.vorbis_alloc {
@@ -2736,7 +2741,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> (Audio_Stream, bool) #optio
 	if vorbis_err != nil {
 		log.errorf("Failed opening audio stream from bytes. Error: %v", vorbis_err)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE, false
+		return
 	}
 
 	info := stbv.get_info(vorbis_res)
@@ -2749,7 +2754,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> (Audio_Stream, bool) #optio
 	} else{
 		log.errorf("Unsupported number of channels: %v", info.channels)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE, false
+		return
 	}
 
 	audio_clip := Audio_Clip_Object {
@@ -2764,7 +2769,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> (Audio_Stream, bool) #optio
 		log.errorf("Failed to load audio stream. Error: %v", audio_clip_handle_add_err)
 		delete(audio_clip.samples, s.allocator)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE, false
+		return
 	}
 
 	asd := Audio_Stream_Data {
@@ -2783,7 +2788,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> (Audio_Stream, bool) #optio
 		delete(audio_clip.samples, s.allocator)
 		hm.remove(&s.audio_clips, audio_clip_handle)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE, false
+		return
 	}
 
 	return stream, true
