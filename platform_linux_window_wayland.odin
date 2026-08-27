@@ -4,6 +4,7 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	state_size = wl_state_size,
+	load_libraries = wl_load_libraries,
 	init = wl_init,
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
@@ -50,6 +51,20 @@ THEME_CURSOR_SIZE :: 24
 
 wl_state_size :: proc() -> int {
 	return size_of(WL_State)
+}
+
+wl_load_libraries :: proc() -> bool {
+	if err, what := wl.load(); err != .None {
+		log.infof("Not using Wayland. Error: %v (%v)", err, what)
+		return false
+	}
+
+	if err, what := xkb.load(); err != .None {
+		log.infof("Not using Wayland. Error: %v (%v)", err, what)
+		return false
+	}
+
+	return true
 }
 
 wl_init :: proc(

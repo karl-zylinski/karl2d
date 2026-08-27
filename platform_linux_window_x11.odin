@@ -6,6 +6,7 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	state_size = x11_state_size,
+	load_libraries = x11_load_libraries,
 	init = x11_init,
 	shutdown = x11_shutdown,
 	get_window_render_glue = x11_get_window_render_glue,
@@ -28,7 +29,7 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_internal_state = x11_set_internal_state,
 }
 
-import X "vendor:x11/xlib"
+import X "platform_bindings/linux/x11"
 import "base:runtime"
 import "log"
 import "core:fmt"
@@ -38,20 +39,23 @@ import hm "core:container/handle_map"
 _ :: log
 _ :: fmt
 
-// XDestroyIC and XCloseIM aren't bound by vendor:x11/xlib, so we bind them here ourselves.
-foreign import x11_extra "system:X11"
-
-foreign x11_extra {
-	XDestroyIC :: proc(ic: X.XIC) ---
-	XCloseIM :: proc(im: X.XIM) -> X.Status ---
-}
-
 // The horizontal wheel is button 6 and 7. vendor:x11/xlib stops naming buttons at 5.
 BUTTON_WHEEL_LEFT :: X.MouseButton(6)
 BUTTON_WHEEL_RIGHT :: X.MouseButton(7)
 
 x11_state_size :: proc() -> int {
 	return size_of(X11_State)
+}
+
+x11_load_libraries :: proc() -> bool {
+	err, what := X.load()
+
+	if err != .None {
+		log.infof("Not using X11. Error: %v (%v)", err, what)
+		return false
+	}
+
+	return true
 }
 
 x11_init :: proc(
@@ -158,11 +162,11 @@ x11_shutdown :: proc() {
 	delete(s.events)
 
 	if s.xic != nil {
-		XDestroyIC(s.xic)
+		X.DestroyIC(s.xic)
 	}
 
 	if s.xim != nil {
-		XCloseIM(s.xim)
+		X.CloseIM(s.xim)
 	}
 
 	for cached in s.standard_cursors {

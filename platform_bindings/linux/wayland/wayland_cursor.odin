@@ -2,8 +2,6 @@ package wayland
 
 import "core:c"
 
-foreign import lib_cursor "system:wayland-cursor"
-
 // wl_shm — needed to load a cursor theme
 
 SHM :: struct {
@@ -37,10 +35,10 @@ Cursor :: struct {
 
 Cursor_Theme :: struct {}
 
-@(default_calling_convention = "c", link_prefix = "wl_")
-foreign lib_cursor {
-	cursor_theme_load    :: proc(name: cstring, size: c.int, shm: ^SHM) -> ^Cursor_Theme ---
-	cursor_theme_destroy :: proc(theme: ^Cursor_Theme) ---
-	cursor_theme_get_cursor :: proc(theme: ^Cursor_Theme, name: cstring) -> ^Cursor ---
-	cursor_image_get_buffer :: proc(image: ^Cursor_Image) -> ^Buffer ---
-}
+cursor_theme_load: proc "c" (name: cstring, size: c.int, shm: ^SHM) -> ^Cursor_Theme
+
+cursor_theme_destroy: proc "c" (theme: ^Cursor_Theme)
+
+cursor_theme_get_cursor: proc "c" (theme: ^Cursor_Theme, name: cstring) -> ^Cursor
+
+cursor_image_get_buffer: proc "c" (image: ^Cursor_Image) -> ^Buffer

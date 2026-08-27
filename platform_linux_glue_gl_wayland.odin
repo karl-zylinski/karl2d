@@ -6,7 +6,7 @@ package karl2d
 
 import gl "vendor:OpenGL"
 import "log"
-import "vendor:egl"
+import egl "platform_bindings/linux/egl"
 import wl "platform_bindings/linux/wayland"
 import "base:runtime"
 import "core:slice"
@@ -43,6 +43,11 @@ Linux_GL_Wayland_Glue_State :: struct {
 }
 
 linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State, options: Init_Options) -> bool {
+	if err, what := egl.load(); err != .None {
+		log.errorf("Failed loading EGL. Error: %v (%v)", err, what)
+		return false
+	}
+
 	// Get a valid EGL configuration based on some attribute guidelines
 	// Create a context based on a "chosen" configuration
 	EGL_CONTEXT_FLAGS_KHR :: 0x30FC

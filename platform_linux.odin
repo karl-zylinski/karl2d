@@ -62,11 +62,28 @@ linux_init :: proc(
 	s = (^Linux_State)(platform_state)
 	s.allocator = allocator
 	xdg_session_type := os.get_env("XDG_SESSION_TYPE", frame_allocator)
-	
-	if xdg_session_type == "wayland" {
+	prefer_wayland := xdg_session_type == "wayland"
+
+	if prefer_wayland {
 		s.win = LINUX_WINDOW_WAYLAND
 	} else {
 		s.win = LINUX_WINDOW_X11
+	}
+
+	if !s.win.load_libraries() {
+		// The session type says what the compositor is, not what is installed. Try the other one
+		// before giving up, so a machine with only one of them still runs.
+		if prefer_wayland {
+			s.win = LINUX_WINDOW_X11
+		} else {
+			s.win = LINUX_WINDOW_WAYLAND
+		}
+
+		if !s.win.load_libraries() {
+			log.panicf(
+				"Failed loading the libraries for X11 and for Wayland. Karl2D needs one of them.",
+			)
+		}
 	}
 
 	win_state_alloc_error: runtime.Allocator_Error
@@ -681,6 +698,10 @@ Linux_State :: struct {
 @(private="package")
 Linux_Window_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
+
+	// Loads the shared libraries this windowing system needs. Returns false when one of them is
+	// missing, which is how a machine that only has X11 or only has Wayland installed is detected.
+	load_libraries: proc() -> bool,
 
 	init: proc(
 		window_state: rawptr,
