@@ -6,6 +6,8 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	state_size = x11_state_size,
+	init_process = x11_init_process,
+	shutdown_process = x11_shutdown_process,
 	init = x11_init,
 	shutdown = x11_shutdown,
 	get_window_render_glue = x11_get_window_render_glue,
@@ -18,6 +20,10 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_screen_size = x11_set_screen_size,
 	get_window_scale = x11_get_window_scale,
 	set_window_mode = x11_set_window_mode,
+	get_monitor_count = x11_get_monitor_count,
+	get_monitor_size = x11_get_monitor_size,
+	get_monitor_position = x11_get_monitor_position,
+	get_monitor_scale = x11_get_monitor_scale,
 	set_cursor_hidden = x11_set_cursor_hidden,
 	is_cursor_hidden = x11_is_cursor_hidden,
 	set_mouse_locked = x11_set_mouse_locked,
@@ -54,21 +60,34 @@ x11_state_size :: proc() -> int {
 	return size_of(X11_State)
 }
 
-x11_init :: proc(
-	window_state: rawptr,
-	screen_width: int,
-	screen_height: int,
-	window_title: string,
-	init_options: Init_Options,
-	allocator: runtime.Allocator,
-) {
+// Opens the connection to the X server. Runs before any window exists so the monitor queries have
+// a display to ask.
+x11_init_process :: proc(window_state: rawptr, allocator: runtime.Allocator) {
 	s = (^X11_State)(window_state)
 	s.allocator = allocator
-	s.screen_width = screen_width
-	s.screen_height = screen_height
 	s.display = X.OpenDisplay(nil)
 	s.events = make([dynamic]Event, allocator)
 	hm.dynamic_init(&s.custom_cursors, allocator)
+}
+
+x11_shutdown_process :: proc() {
+	delete(s.events)
+	hm.dynamic_destroy(&s.custom_cursors)
+
+	if s.display != nil {
+		X.CloseDisplay(s.display)
+		s.display = nil
+	}
+}
+
+x11_init :: proc(
+	screen_width: int,
+	screen_height: int,
+	window_title: string,
+	init_options: Window_Options,
+) {
+	s.screen_width = screen_width
+	s.screen_height = screen_height
 
 	s.window = X.CreateSimpleWindow(
 		s.display,
@@ -155,8 +174,6 @@ x11_init :: proc(
 }
 
 x11_shutdown :: proc() {
-	delete(s.events)
-
 	if s.xic != nil {
 		XDestroyIC(s.xic)
 	}
@@ -174,10 +191,10 @@ x11_shutdown :: proc() {
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		X.FreeCursor(s.display, cd.cursor)
 	}
-	hm.dynamic_destroy(&s.custom_cursors)
 
 	X.FreeCursor(s.display, s.blank_cursor)
 	X.DestroyWindow(s.display, s.window)
+	s.window = 0
 }
 
 x11_get_window_render_glue :: proc() -> Window_Render_Glue {
@@ -439,6 +456,33 @@ x11_set_screen_size :: proc(w, h: int) {
 
 x11_get_window_scale :: proc() -> f32 {
 	return 1
+}
+
+// There are no XRandR or Xinerama bindings in `platform_bindings/linux/` yet, so this reports the
+// whole X screen as a single monitor rather than the actual physical monitors. On a multi-monitor
+// setup that means one oversized monitor spanning them all. Proper per-monitor enumeration needs
+// XRandR bindings, which aren't written.
+//
+// `s.display` is opened by `x11_init_process`, so these work before `open_window` is called.
+x11_get_monitor_count :: proc() -> int {
+	return 1
+}
+
+x11_get_monitor_size :: proc(monitor: int) -> [2]int {
+	if s.display == nil {
+		return {}
+	}
+
+	screen := X.DefaultScreen(s.display)
+	return { int(X.DisplayWidth(s.display, screen)), int(X.DisplayHeight(s.display, screen)) }
+}
+
+x11_get_monitor_position :: proc(monitor: int) -> [2]int {
+	return {}
+}
+
+x11_get_monitor_scale :: proc(monitor: int) -> f32 {
+	return x11_get_window_scale()
 }
 
 enter_borderless_fullscreen :: proc() {

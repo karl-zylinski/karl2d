@@ -50,7 +50,7 @@ d3d11_init :: proc(
 	glue: Window_Render_Glue,
 	swapchain_width: int,
 	swapchain_height: int,
-	options: Init_Options,
+	options: Rendering_Options,
 	allocator := context.allocator,
 ) {
 	s = (^D3D11_State)(state)

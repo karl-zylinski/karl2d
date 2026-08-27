@@ -7,6 +7,8 @@ package karl2d
 @(private="package")
 PLATFORM_WINDOWS :: Platform_Interface {
 	state_size = windows_state_size,
+	init_process = windows_init_process,
+	shutdown_process = windows_shutdown_process,
 	init = windows_init,
 	shutdown = windows_shutdown,
 	get_window_render_glue = windows_get_window_render_glue,
@@ -19,6 +21,11 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	set_screen_size = windows_set_screen_size,
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
+
+	get_monitor_count = windows_get_monitor_count,
+	get_monitor_size = windows_get_monitor_size,
+	get_monitor_position = windows_get_monitor_position,
+	get_monitor_scale = windows_get_monitor_scale,
 
 	set_cursor_hidden = windows_set_cursor_hidden,
 	is_cursor_hidden = windows_is_cursor_hidden,
@@ -48,14 +55,9 @@ windows_state_size :: proc() -> int {
 	return size_of(Windows_State)
 }
 
-windows_init :: proc(
-	platform_state: rawptr,
-	screen_width: int,
-	screen_height: int,
-	window_title: string,
-	options: Init_Options,
-	allocator: runtime.Allocator,
-) {
+CLASS_NAME :: "karl2d"
+
+windows_init_process :: proc(platform_state: rawptr, allocator: runtime.Allocator) {
 	assert(platform_state != nil)
 	s = (^Windows_State)(platform_state)
 	s.allocator = allocator
@@ -63,9 +65,14 @@ windows_init :: proc(
 	s.custom_context = context
 	hm.dynamic_init(&s.custom_cursors, allocator)
 
+	// This has to run before anything asks Windows about monitors or window sizes. Until it does,
+	// the process is DPI unaware and Windows hands back virtualized coordinates: on a 3840x2160
+	// display at 150% scaling, `GetMonitorInfoW` reports 2560x1440 and `GetDpiForMonitor` reports
+	// 96. That is why it lives here and not in `windows_init`, which only runs once a window is
+	// being opened.
 	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 	win32.SetProcessDPIAware()
-	CLASS_NAME :: "karl2d"
+
 	instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
 
 	cls := win32.WNDCLASSW {
@@ -77,6 +84,29 @@ windows_init :: proc(
 	}
 
 	win32.RegisterClassW(&cls)
+
+	win32.XInputEnable(true)
+
+	// The process is DPI aware now, so this reports real pixels. Refreshed on WM_DISPLAYCHANGE.
+	windows_refresh_monitors()
+}
+
+windows_shutdown_process :: proc() {
+	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
+		win32.DestroyCursor(cd.hcursor)
+	}
+
+	hm.dynamic_destroy(&s.custom_cursors)
+	delete(s.events)
+}
+
+windows_init :: proc(
+	screen_width: int,
+	screen_height: int,
+	window_title: string,
+	options: Window_Options,
+) {
+	instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
 
 	dpix, dpiy: win32.UINT
 	win32.GetDpiForMonitor(win32.MonitorFromWindow(nil, .MONITOR_DEFAULTTOPRIMARY), {}, &dpix, &dpiy)
@@ -116,8 +146,6 @@ windows_init :: proc(
 	assert(s.hwnd != nil, "Failed creating window")
 
 	windows_set_window_mode(options.window_mode)
-	
-	win32.XInputEnable(true)
 
 	when RENDER_BACKEND_NAME == "d3d11" {
 		s.window_render_glue = {
@@ -133,13 +161,8 @@ windows_init :: proc(
 }
 
 windows_shutdown :: proc() {
-	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
-		win32.DestroyCursor(cd.hcursor)
-	}
-	hm.dynamic_destroy(&s.custom_cursors)
-
 	win32.DestroyWindow(s.hwnd)
-	delete(s.events)
+	s.hwnd = nil
 }
 
 windows_get_window_render_glue :: proc() -> Window_Render_Glue {
@@ -473,6 +496,10 @@ Windows_State :: struct {
 	// Half of UTF-16 characters when it is a character when the character is outside the Basic
 	// Multilingual Plane (BMP). Emojis are examples of such characters.
 	char_high_surrogate: rune,
+
+	// Filled in by `windows_refresh_monitors`, which runs during `windows_init_process` and again
+	// whenever WM_DISPLAYCHANGE says the display setup changed.
+	monitors: Windows_Monitor_List,
 }
 
 Windows_Cursor :: struct {
@@ -528,6 +555,90 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 			win32.SWP_NOOWNERZORDER | win32.SWP_FRAMECHANGED)
 		}
 	}
+}
+
+WINDOWS_MAX_MONITORS :: 16
+
+// `MONITORINFO.dwFlags` isn't bound as a named constant anywhere in `core:sys/windows`.
+MONITORINFOF_PRIMARY :: 0x00000001
+
+Windows_Monitor :: struct {
+	hmonitor: win32.HMONITOR,
+	rect: win32.RECT,
+	primary: bool,
+}
+
+Windows_Monitor_List :: struct {
+	monitors: [WINDOWS_MAX_MONITORS]Windows_Monitor,
+	count: int,
+}
+
+// Enumerates connected monitors into `s.monitors`, primary first. Called by
+// `windows_init_process`, so the monitor queries work before a window exists, and again on
+// WM_DISPLAYCHANGE so the list doesn't go stale when a display is plugged in or unplugged.
+//
+// The process must already be DPI aware when this runs, otherwise the rects come back virtualized.
+windows_refresh_monitors :: proc() {
+	list: Windows_Monitor_List
+
+	enum_proc :: proc "system" (
+		hmonitor: win32.HMONITOR,
+		hdc: win32.HDC,
+		rect: win32.LPRECT,
+		lparam: win32.LPARAM,
+	) -> win32.BOOL {
+		context = runtime.default_context()
+		list := (^Windows_Monitor_List)(rawptr(uintptr(lparam)))
+
+		if list.count >= WINDOWS_MAX_MONITORS {
+			return true
+		}
+
+		info := win32.MONITORINFO { cbSize = size_of(win32.MONITORINFO) }
+
+		if win32.GetMonitorInfoW(hmonitor, &info) {
+			list.monitors[list.count] = Windows_Monitor {
+				hmonitor = hmonitor,
+				rect = info.rcMonitor,
+				primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0,
+			}
+			list.count += 1
+		}
+
+		return true
+	}
+
+	win32.EnumDisplayMonitors(nil, nil, enum_proc, win32.LPARAM(uintptr(rawptr(&list))))
+
+	// The primary monitor must be at index 0.
+	for i in 0..<list.count {
+		if list.monitors[i].primary && i != 0 {
+			list.monitors[0], list.monitors[i] = list.monitors[i], list.monitors[0]
+			break
+		}
+	}
+
+	s.monitors = list
+}
+
+windows_get_monitor_count :: proc() -> int {
+	return s.monitors.count
+}
+
+windows_get_monitor_size :: proc(monitor: int) -> [2]int {
+	r := s.monitors.monitors[monitor].rect
+	return { int(r.right - r.left), int(r.bottom - r.top) }
+}
+
+windows_get_monitor_position :: proc(monitor: int) -> [2]int {
+	r := s.monitors.monitors[monitor].rect
+	return { int(r.left), int(r.top) }
+}
+
+windows_get_monitor_scale :: proc(monitor: int) -> f32 {
+	dpix, dpiy: win32.UINT
+	win32.GetDpiForMonitor(s.monitors.monitors[monitor].hmonitor, {}, &dpix, &dpiy)
+	return f32(dpix) / 96.0
 }
 
 windows_set_cursor_hidden :: proc(hidden: bool) {
@@ -737,6 +848,11 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 	switch msg {
 	case win32.WM_DESTROY:
 		win32.PostQuitMessage(0)
+
+	case win32.WM_DISPLAYCHANGE:
+		// A display was plugged in, unplugged or had its resolution changed, so the cached monitor
+		// list is out of date.
+		windows_refresh_monitors()
 
 	case win32.WM_CLOSE:
 		append(&s.events, Event_Close_Window_Requested{})

@@ -30,30 +30,21 @@ import hm "core:container/handle_map"
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
-// Opens a window and initializes some internal state. The internal state will use `allocator` for
-// all dynamically allocated memory.
+// Allocates Karl2D's internal state and sets up the platform layer. Does not open a window.
 //
-// `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
-// The window might be slightly larger due to borders and headers. The true width and height will be
-// scaled up by the scaling setting in the operating system.
+// This is the first procedure to call, and the only one that has to run before a window exists:
+// `windows_init`/`linux_init` etc allocate from the package-global frame allocator, which is set up
+// here. Call `get_monitor_count`, `get_monitor_size`, `get_monitor_position` and
+// `get_monitor_scale` after this and before `open_window` if you want to pick a window size based
+// on the display.
 //
-// Call `init` before using Karl2D procedures that depend on runtime state, such as window,
-// drawing, input, audio, texture, font and shader procedures. Pure helper procedures, types and
-// constants can be used before `init`.
-//
-// The return value is a pointer to Karl2D's internal state. You can restore this state later using
-// `set_internal_state()`. This is useful for example when doing game code reload, as the state may
-// get reset when the library is reloaded. You can safely ignore the return value if you have no
-// such needs.
-init :: proc(
-	screen_width: int,
-	screen_height: int,
-	window_title: string,
-	options := Init_Options {},
+// The internal state will use `allocator` for all dynamically allocated memory. The return value is
+// a pointer to it, see `init` for what you can do with that pointer.
+init_platform :: proc(
 	allocator := context.allocator,
-	loc := #caller_location
+	loc := #caller_location,
 ) -> ^State {
-	assert(s == nil, "Don't call 'init' twice.")
+	assert(s == nil, "Don't call 'init_platform' twice.")
 	s = new(State, allocator, loc)
 	s.allocator = allocator
 
@@ -79,7 +70,7 @@ init :: proc(
 
 	// We allocate memory for the windowing backend and pass the blob of memory to it.
 	platform_state_alloc_error: runtime.Allocator_Error
-	
+
 	s.platform_state, platform_state_alloc_error = mem.alloc(
 		pf.state_size(),
 		allocator = s.allocator,
@@ -91,7 +82,48 @@ init :: proc(
 		platform_state_alloc_error,
 	)
 
-	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
+	// Process-level setup that has to happen before any window exists. On Windows this is what
+	// makes the process DPI aware, without which the monitor queries below would report
+	// virtualized sizes.
+	pf.init_process(s.platform_state, s.allocator)
+
+	return s
+}
+
+// Opens the window. Call `init_platform` first.
+//
+// `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
+// The window might be slightly larger due to borders and headers. The true width and height will be
+// scaled up by the scaling setting in the operating system.
+open_window :: proc(
+	screen_width: int,
+	screen_height: int,
+	window_title: string,
+	options := Window_Options {},
+	loc := #caller_location,
+) {
+	assert(s != nil, "Call k2.init_platform before k2.open_window")
+	assert(!s.window_open, "Don't call 'open_window' twice.")
+
+	pf.init(screen_width, screen_height, window_title, options)
+	s.window_open = true
+
+	s.events = make([dynamic]Event, s.allocator)
+	s.typed_runes = make([dynamic]rune, s.allocator)
+	s.touch_events_from_mouse = true
+}
+
+// Boots the rendering backend. Call `open_window` first.
+//
+// Sets up the projection, the vertex buffer, the batching system, the shape-drawing texture, the
+// default shader and the default font.
+init_rendering :: proc(
+	options := Rendering_Options {},
+	loc := #caller_location,
+) {
+	assert(s != nil, "Call k2.init_platform before k2.init_rendering")
+	assert(s.window_open, "Call k2.open_window before k2.init_rendering")
+	assert(!s.rendering_initialized, "Don't call 'init_rendering' twice.")
 
 	// This is an OS-independent handle that we can pass to any rendering backend.
 	window_render_glue := pf.get_window_render_glue()
@@ -137,10 +169,15 @@ init :: proc(
 		s.render_backend_state,
 		window_render_glue,
 		pf.get_screen_width(),
-		pf.get_screen_height(), 
+		pf.get_screen_height(),
 		options,
 		s.allocator,
 	)
+
+	// The render backend is up from here on, so the rest of this procedure can freely call the
+	// public procedures (`load_shader_from_bytes`, `load_dynamic_font_from_bytes`, ...) that assert
+	// rendering is initialized.
+	s.rendering_initialized = true
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`.
@@ -185,28 +222,73 @@ init :: proc(
 	default_font := load_dynamic_font_from_bytes(DEFAULT_FONT_DATA)
 	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
 	_set_font(FONT_DEFAULT)
+}
 
-	s.events = make([dynamic]Event, s.allocator)
-	s.typed_runes = make([dynamic]rune, s.allocator)
-	s.touch_events_from_mouse = true
+// Boots the audio backend and sets up the mixer's handle maps. Call `init_platform` first. Does not
+// depend on a window, so it can run before or after `open_window`/`init_rendering`.
+init_sound :: proc(loc := #caller_location) {
+	assert(s != nil, "Call k2.init_platform before k2.init_sound")
+	assert(!s.audio_initialized, "Don't call 'init_sound' twice.")
 
-	// Audio
-	{
-		s.audio_backend = AUDIO_BACKEND
-		ab = s.audio_backend
+	s.audio_backend = AUDIO_BACKEND
+	ab = s.audio_backend
 
-		audio_alloc_error: runtime.Allocator_Error
-		s.audio_backend_state, audio_alloc_error = mem.alloc(ab.state_size(), allocator = s.allocator)
-		log.assertf(audio_alloc_error == nil, "Failed allocating memory for audio backend: %v", audio_alloc_error)
-		ab.init(s.audio_backend_state, s.allocator)
-		hm.dynamic_init(&s.sounds, s.allocator)
-		hm.dynamic_init(&s.audio_clips, s.allocator)
-		hm.dynamic_init(&s.audio_streams, s.allocator)
-		hm.dynamic_init(&s.audio_buses, s.allocator)
-		s.master_bus.target_settings = DEFAULT_AUDIO_BUS_SETTINGS
-		s.master_bus.current_settings = DEFAULT_AUDIO_BUS_SETTINGS
-	}
+	audio_alloc_error: runtime.Allocator_Error
+	s.audio_backend_state, audio_alloc_error = mem.alloc(ab.state_size(), allocator = s.allocator)
+	log.assertf(
+		audio_alloc_error == nil,
+		"Failed allocating memory for audio backend: %v",
+		audio_alloc_error,
+	)
+	ab.init(s.audio_backend_state, s.allocator)
+	hm.dynamic_init(&s.sounds, s.allocator)
+	hm.dynamic_init(&s.audio_clips, s.allocator)
+	hm.dynamic_init(&s.audio_streams, s.allocator)
+	hm.dynamic_init(&s.audio_buses, s.allocator)
+	s.master_bus.target_settings = DEFAULT_AUDIO_BUS_SETTINGS
+	s.master_bus.current_settings = DEFAULT_AUDIO_BUS_SETTINGS
 
+	s.audio_initialized = true
+}
+
+// Opens a window and initializes some internal state. The internal state will use `allocator` for
+// all dynamically allocated memory.
+//
+// `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
+// The window might be slightly larger due to borders and headers. The true width and height will be
+// scaled up by the scaling setting in the operating system.
+//
+// Call `init` before using Karl2D procedures that depend on runtime state, such as window,
+// drawing, input, audio, texture, font and shader procedures. Pure helper procedures, types and
+// constants can be used before `init`.
+//
+// The return value is a pointer to Karl2D's internal state. You can restore this state later using
+// `set_internal_state()`. This is useful for example when doing game code reload, as the state may
+// get reset when the library is reloaded. You can safely ignore the return value if you have no
+// such needs.
+//
+// `init` is a wrapper over four procedures, called in this order:
+//
+//// k2.init_platform()
+//// k2.open_window()
+//// k2.init_rendering()
+//// k2.init_sound()
+//
+// Call them directly instead of `init` if you need to do work between the steps, such as querying
+// monitors with `get_monitor_size` before deciding how big a window to open, or if you want to skip
+// audio or rendering entirely.
+init :: proc(
+	screen_width: int,
+	screen_height: int,
+	window_title: string,
+	options := Init_Options {},
+	allocator := context.allocator,
+	loc := #caller_location
+) -> ^State {
+	init_platform(allocator, loc)
+	open_window(screen_width, screen_height, window_title, options.window, loc)
+	init_rendering(options.rendering, loc)
+	init_sound(loc)
 	return s
 }
 
@@ -236,10 +318,14 @@ init :: proc(
 ////     }
 //// }
 update :: proc() -> bool {
-	assert_initialized()
+	assert_window_open()
 	reset_frame_allocator()
 	calculate_frame_time()
-	update_audio_mixer()
+
+	if s.audio_initialized {
+		update_audio_mixer()
+	}
+
 	process_events()
 	return !close_window_requested()
 }
@@ -250,25 +336,61 @@ update :: proc() -> bool {
 //
 // Called by `update`, but can be called manually if you need more control.
 close_window_requested :: proc() -> bool {
-	assert_initialized()
+	assert_window_open()
 	return s.close_window_requested
 }
 
 // Closes the window and cleans up Karl2D's internal state.
+//
+// `shutdown` is a wrapper over four procedures, called in reverse order of `init`:
+//
+//// k2.shutdown_sound()
+//// k2.shutdown_rendering()
+//// k2.close_window()
+//// k2.shutdown_platform()
+//
+// Call them directly instead of `shutdown` if you only want to tear down some of what `init` set
+// up.
 shutdown :: proc() {
 	assert(s != nil, "You've called 'shutdown' without calling 'init' first")
+	shutdown_sound()
+	shutdown_rendering()
+	close_window()
+	shutdown_platform()
+}
 
-	// Audio
-	{
-		hm.dynamic_destroy(&s.audio_streams)
-		ab.shutdown()
-		hm.dynamic_destroy(&s.sounds)
-		hm.dynamic_destroy(&s.audio_clips)
-		hm.dynamic_destroy(&s.audio_buses)
-		free(s.audio_backend_state, s.allocator)
+// Destroys everything `init_sound` set up. Does nothing if `init_sound` was never called (or if
+// `shutdown_sound` has already run).
+//
+// Called by `shutdown`, but can be called manually if you need more control.
+shutdown_sound :: proc() {
+	assert(s != nil, "You've called 'shutdown_sound' without calling 'init_platform' first")
+
+	if !s.audio_initialized {
+		return
 	}
 
-	delete(s.events)
+	hm.dynamic_destroy(&s.audio_streams)
+	ab.shutdown()
+	hm.dynamic_destroy(&s.sounds)
+	hm.dynamic_destroy(&s.audio_clips)
+	hm.dynamic_destroy(&s.audio_buses)
+	free(s.audio_backend_state, s.allocator)
+
+	s.audio_initialized = false
+}
+
+// Destroys everything `init_rendering` set up. Does nothing if `init_rendering` was never called
+// (or if `shutdown_rendering` has already run).
+//
+// Called by `shutdown`, but can be called manually if you need more control.
+shutdown_rendering :: proc() {
+	assert(s != nil, "You've called 'shutdown_rendering' without calling 'init_platform' first")
+
+	if !s.rendering_initialized {
+		return
+	}
+
 	destroy_font(FONT_DEFAULT)
 	rb.destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
@@ -277,17 +399,42 @@ shutdown :: proc() {
 	delete(s.batch_draw_calls)
 	runtime.arena_destroy(&s.batch_arena)
 
-	pf.shutdown()
-
 	fs.Destroy(&s.fs)
 	delete(s.fonts)
 
+	free(s.render_backend_state, s.allocator)
+
+	s.rendering_initialized = false
+}
+
+// Closes the window `open_window` opened. Does nothing if `open_window` was never called (or if
+// `close_window` has already run).
+//
+// Called by `shutdown`, but can be called manually if you need more control.
+close_window :: proc() {
+	assert(s != nil, "You've called 'close_window' without calling 'init_platform' first")
+
+	if !s.window_open {
+		return
+	}
+
+	pf.shutdown()
+	delete(s.events)
 	delete(s.typed_runes)
 
-	a := s.allocator
-	free(s.platform_state, a)
-	free(s.render_backend_state, a)
-	free(s, a)
+	s.window_open = false
+}
+
+// Frees Karl2D's internal state. Call this last, after `shutdown_sound`, `shutdown_rendering` and
+// `close_window`.
+//
+// Called by `shutdown`, but can be called manually if you need more control.
+shutdown_platform :: proc() {
+	assert(s != nil, "You've called 'shutdown_platform' without calling 'init_platform' first")
+
+	pf.shutdown_process()
+	free(s.platform_state, s.allocator)
+	free(s, s.allocator)
 	s = nil
 }
 
@@ -295,7 +442,7 @@ shutdown :: proc() {
 // have set a Render Texture using the `set_render_texture` procedure, then that Render Texture will
 // be cleared instead.
 clear :: proc(color: Color) {
-	assert_initialized()
+	assert_rendering_initialized()
 	draw_current_batch()
 	rb.clear(s.current_render_target, color)
 }
@@ -305,7 +452,7 @@ clear :: proc(color: Color) {
 //
 // Called as part of `update`, but can be called manually if you need more control.
 reset_frame_allocator :: proc() {
-	assert_initialized()
+	assert_platform_initialized()
 	free_all(s.frame_allocator)
 }
 
@@ -314,7 +461,7 @@ reset_frame_allocator :: proc() {
 //
 // Called as part of `update`, but can be called manually if you need more control.
 calculate_frame_time :: proc() {
-	assert_initialized()
+	assert_platform_initialized()
 	now := time.now()
 
 	if s.prev_frame_time != {} {
@@ -341,7 +488,7 @@ calculate_frame_time :: proc() {
 // WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
 // make sure that all rendering has been sent off to the GPU (as it calls `draw_current_batch()`).
 present :: proc() {
-	assert_initialized()
+	assert_rendering_initialized()
 	draw_current_batch()
 	rb.present()
 }
@@ -352,7 +499,7 @@ present :: proc() {
 //
 // Called by `update`, but can be called manually if you need more control.
 process_events :: proc() {
-	assert_initialized()
+	assert_window_open()
 	s.key_went_up = {}
 	s.key_went_down = {}
 	s.key_repeat = {}
@@ -467,11 +614,13 @@ process_events :: proc() {
 			}
 
 		case Event_Screen_Resize:
-			// Recorded draw calls were meant for the old swapchain size.
-			draw_current_batch()
-			rb.resize_swapchain(e.width, e.height)
-			s.proj_matrix = make_default_projection(e.width, e.height, _camera_flip_y())
-			_update_view_projection()
+			if s.rendering_initialized {
+				// Recorded draw calls were meant for the old swapchain size.
+				draw_current_batch()
+				rb.resize_swapchain(e.width, e.height)
+				s.proj_matrix = make_default_projection(e.width, e.height, _camera_flip_y())
+				_update_view_projection()
+			}
 
 		case Event_Window_Focused:			
 
@@ -507,8 +656,10 @@ process_events :: proc() {
 			}
 
 		case Event_Window_Scale_Changed:
-			draw_current_batch()
-			rb.resize_swapchain(e.screen_width, e.screen_height)
+			if s.rendering_initialized {
+				draw_current_batch()
+				rb.resize_swapchain(e.screen_width, e.screen_height)
+			}
 		}
 	}
 
@@ -559,7 +710,7 @@ process_events :: proc() {
 // Warning: The returned slice is only valid during the current frame! You can make a clone of it
 // using the `slice.clone` procedure (import `core:slice`).
 get_events :: proc() -> []Event {
-	assert_initialized()
+	assert_window_open()
 	return s.events[:]
 }
 
@@ -567,7 +718,7 @@ get_events :: proc() -> []Event {
 //
 // This value is updated when `calculate_frame_time()` runs (which is also called by `update()`).
 get_frame_time :: proc() -> f32 {
-	assert_initialized()
+	assert_platform_initialized()
 	return s.frame_time
 }
 
@@ -576,42 +727,48 @@ get_frame_time :: proc() -> f32 {
 //
 // This value is updated when `calculate_frame_time()` runs (which is also called by `update()`).
 get_time :: proc() -> f64 {
-	assert_initialized()
+	assert_platform_initialized()
 	return s.time
 }
 
 // Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
 // windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
 set_screen_size :: proc(width: int, height: int) {
-	assert_initialized()
+	assert_window_open()
 
-	// Recorded draw calls were meant for the old screen size.
-	draw_current_batch()
+	if s.rendering_initialized {
+		// Recorded draw calls were meant for the old screen size.
+		draw_current_batch()
+	}
+
 	pf.set_screen_size(width, height)
-	rb.resize_swapchain(pf.get_screen_width(), pf.get_screen_height())
+
+	if s.rendering_initialized {
+		rb.resize_swapchain(pf.get_screen_width(), pf.get_screen_height())
+	}
 }
 
 // Gets the width of the drawing area within the window.
 get_screen_width :: proc() -> int {
-	assert_initialized()
+	assert_window_open()
 	return pf.get_screen_width()
 }
 
 // Gets the height of the drawing area within the window.
 get_screen_height :: proc() -> int  {
-	assert_initialized()
+	assert_window_open()
 	return pf.get_screen_height()
 }
 
 // Gets the screen width and height as a 2D vector.
 get_screen_size :: proc() -> Vec2 {
-	assert_initialized()
+	assert_window_open()
 	return { f32(pf.get_screen_width()), f32(pf.get_screen_height()) }
 }
 
 // Change the window title.
 set_window_title :: proc(title: string) {
-	assert_initialized()
+	assert_window_open()
 	pf.set_window_title(title)
 }
 
@@ -619,7 +776,7 @@ set_window_title :: proc(title: string) {
 //
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int) {
-	assert_initialized()
+	assert_window_open()
 	pf.set_window_position(x, y)
 }
 
@@ -627,7 +784,7 @@ set_window_position :: proc(x: int, y: int) {
 //
 // This returns {} for web and Wayland builds.
 get_window_position :: proc() -> Vec2 {
-	assert_initialized()
+	assert_window_open()
 	return pf.get_window_position()
 }
 
@@ -638,14 +795,61 @@ get_window_position :: proc() -> Vec2 {
 // wanted resolution by the scale and send it into `set_screen_size`. You can use a camera and set
 // the zoom to the window scale in order to make things the same percieved size.
 get_window_scale :: proc() -> f32 {
-	assert_initialized()
+	assert_window_open()
 	return pf.get_window_scale()
 }
 
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode) {
-	assert_initialized()
+	assert_window_open()
 	pf.set_window_mode(window_mode)
+}
+
+// Returns how many monitors are connected. Works after `init_platform`, before `open_window`, so
+// you can decide how big a window to open based on the display it will end up on.
+get_monitor_count :: proc() -> int {
+	assert_platform_initialized()
+	return pf.get_monitor_count()
+}
+
+// Returns the size of `monitor`, in physical pixels, matching what `set_screen_size` takes. Monitor
+// 0 is the primary monitor. Works after `init_platform`, before `open_window`.
+get_monitor_size :: proc(monitor := 0) -> [2]int {
+	assert_platform_initialized()
+
+	if monitor < 0 || monitor >= pf.get_monitor_count() {
+		log.errorf("Cannot get monitor size, monitor %v does not exist.", monitor)
+		return {}
+	}
+
+	return pf.get_monitor_size(monitor)
+}
+
+// Returns the position of `monitor`, in physical pixels. Monitor 0 is the primary monitor. Works
+// after `init_platform`, before `open_window`.
+get_monitor_position :: proc(monitor := 0) -> [2]int {
+	assert_platform_initialized()
+
+	if monitor < 0 || monitor >= pf.get_monitor_count() {
+		log.errorf("Cannot get monitor position, monitor %v does not exist.", monitor)
+		return {}
+	}
+
+	return pf.get_monitor_position(monitor)
+}
+
+// Returns the scale of `monitor`. This usually comes from some DPI scaling setting in the OS. 1
+// means 100% scale, 1.5 means 150% etc. Monitor 0 is the primary monitor. Works after
+// `init_platform`, before `open_window`.
+get_monitor_scale :: proc(monitor := 0) -> f32 {
+	assert_platform_initialized()
+
+	if monitor < 0 || monitor >= pf.get_monitor_count() {
+		log.errorf("Cannot get monitor scale, monitor %v does not exist.", monitor)
+		return {}
+	}
+
+	return pf.get_monitor_scale(monitor)
 }
 
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
@@ -661,6 +865,7 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 // dictates how big a vertex is. The maximum number of vertices in a batch is therefore
 // `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
 draw_current_batch :: proc() {
+	assert_rendering_initialized()
 	_finish_draw_call()
 
 	if len(s.batch_draw_calls) > 0 {
@@ -733,7 +938,7 @@ get_typed_runes :: proc() -> []rune {
 //
 // Warning: The returned slice is only valid during the current frame!
 get_touches :: proc() -> []Touch {
-	assert_initialized()
+	assert_window_open()
 	return s.touches[:]
 }
 
@@ -744,7 +949,7 @@ get_touches :: proc() -> []Touch {
 // The touch is built from the mouse state, so it never shows up in `get_events`, only in
 // `get_touches`.
 set_touch_events_from_mouse :: proc(enabled: bool) {
-	assert_initialized()
+	assert_window_open()
 
 	// Turning this off mid-press must not leave a phantom touch stuck in `get_touches`.
 	if !enabled {
@@ -1186,6 +1391,8 @@ draw_texture_fit :: proc(
 	rotation: f32 = 0,
 	tint := WHITE,
 ) {
+	assert_rendering_initialized()
+
 	if texture.handle == TEXTURE_NONE || texture.width == 0 || texture.height == 0 {
 		return
 	}
@@ -1737,6 +1944,7 @@ create_texture :: proc(
 	height: int,
 	format: Pixel_Format,
 ) -> (Texture, bool) #optional_ok {
+	assert_rendering_initialized()
 	h, h_ok := rb.create_texture(width, height, format)
 
 	if !h_ok {
@@ -1837,6 +2045,7 @@ load_texture_from_bytes_raw :: proc(
 	height: int,
 	format: Pixel_Format,
 ) -> (Texture, bool) #optional_ok {
+	assert_rendering_initialized()
 	backend_tex, backend_tex_ok := rb.load_texture(bytes[:], width, height, format)
 
 	if !backend_tex_ok {
@@ -1864,6 +2073,8 @@ load_texture_from_bytes_raw :: proc(
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
 // possible to use, but it won't draw anything.
 load_texture_from_image :: proc(image: Image) -> (Texture, bool) #optional_ok {
+	assert_rendering_initialized()
+
 	if image.width == 0 || image.height == 0 {
 		log.error("Invalid image: Height or width is zero")
 		return {}, false
@@ -1976,6 +2187,8 @@ get_texture_rect :: proc(t: Texture) -> Rect {
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
 // `tex` where the new pixels should end up.
 update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect) -> bool {
+	assert_rendering_initialized()
+
 	// Recorded draw calls may still be waiting to use the old pixels.
 	_flush_if_batch_uses_texture(tex.handle)
 	return rb.update_texture(tex.handle, bytes, rect)
@@ -1983,6 +2196,7 @@ update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect) -> bool {
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(tex: Texture) {
+	assert_rendering_initialized()
 	_flush_if_batch_uses_texture(tex.handle)
 	rb.destroy_texture(tex.handle)
 }
@@ -2005,6 +2219,8 @@ set_texture_filter_ex :: proc(
 	scale_up_filter: Texture_Filter,
 	mip_filter: Texture_Filter,
 ) {
+	assert_rendering_initialized()
+
 	// Recorded draw calls may still be waiting to sample this texture with the old filter.
 	_flush_if_batch_uses_texture(t.handle)
 	rb.set_texture_filter(t.handle, scale_down_filter, scale_up_filter, mip_filter)
@@ -2034,6 +2250,7 @@ play_audio_clip :: proc(
 	loop := false,
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound {
+	assert_audio_initialized()
 	audio_clip_object := hm.get(&s.audio_clips, clip)
 
 	if audio_clip_object == nil {
@@ -2074,6 +2291,7 @@ play_audio_clip :: proc(
 // `play_audio_stream`, this also rewinds the stream to the start. Use `set_sound_paused` to pause
 // the Sound instead, which won't lose the current playback position and settings.
 stop_sound :: proc(sound: Sound) {
+	assert_audio_initialized()
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2091,6 +2309,7 @@ stop_sound :: proc(sound: Sound) {
 // Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
 // or stopped.
 set_sound_paused :: proc(sound: Sound, paused: bool) {
+	assert_audio_initialized()
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2102,6 +2321,7 @@ set_sound_paused :: proc(sound: Sound, paused: bool) {
 
 // Returns true if the sound exists and is not paused.
 sound_is_playing :: proc(sound: Sound) -> bool {
+	assert_audio_initialized()
 	sound_object := hm.get(&s.sounds, sound)
 	return sound_object != nil && !sound_object.paused
 }
@@ -2109,11 +2329,13 @@ sound_is_playing :: proc(sound: Sound) -> bool {
 // Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
 // stopped sound is not.
 sound_is_valid :: proc(sound: Sound) -> bool {
+	assert_audio_initialized()
 	return hm.is_valid(&s.sounds, sound)
 }
 
 // Set the volume of a sound. Range: 0 to 1.
 set_sound_volume :: proc(sound: Sound, volume: f32) {
+	assert_audio_initialized()
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2125,6 +2347,7 @@ set_sound_volume :: proc(sound: Sound, volume: f32) {
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
 set_sound_pan :: proc(sound: Sound, pan: f32) {
+	assert_audio_initialized()
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2137,6 +2360,7 @@ set_sound_pan :: proc(sound: Sound, pan: f32) {
 // Set the pitch of a sound. Range: 0.01 and up, where 1 is the default. Pitch 2 makes the sound
 // play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32) {
+	assert_audio_initialized()
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2153,6 +2377,7 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 // audio has to be decoded before it can play. Don't do it every frame while dragging a scrub bar,
 // do it when the player lets go.
 set_sound_time :: proc(sound: Sound, seconds: f32) {
+	assert_audio_initialized()
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2185,6 +2410,7 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
 // each time it starts over. Returns 0 if the sound doesn't exist.
 get_sound_time :: proc(sound: Sound) -> f32 {
+	assert_audio_initialized()
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2258,6 +2484,7 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 // Get the length of the sound's audio, in seconds. Use it together with `get_sound_time` to show
 // how far into a song you are. Returns 0 if the sound doesn't exist or if the length is unknown.
 get_sound_length :: proc(sound: Sound) -> f32 {
+	assert_audio_initialized()
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2305,6 +2532,7 @@ get_sound_length :: proc(sound: Sound) -> f32 {
 // reaches into the streaming decoder and tells that one to loop. A `Sound` started from a stream
 // plays a short buffer that the decoder keeps filling, so that sound always loops.
 set_sound_loop :: proc(sound: Sound, loop: bool) {
+	assert_audio_initialized()
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2326,6 +2554,7 @@ set_sound_loop :: proc(sound: Sound, loop: bool) {
 
 // Route a sound into an audio bus. Pass `AUDIO_BUS_MASTER` for the master bus.
 set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
+	assert_audio_initialized()
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2343,6 +2572,7 @@ set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 // How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
 // start from the same clip.
 get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
+	assert_audio_initialized()
 	count: int
 
 	for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
@@ -2571,6 +2801,7 @@ load_audio_clip_from_bytes_raw :: proc(
 	sample_rate: int,
 	channels: Audio_Channels,
 ) -> (Audio_Clip, bool) #optional_ok {
+	assert_audio_initialized()
 	samples: []Audio_Sample
 
 	switch format{
@@ -2641,6 +2872,7 @@ load_audio_clip_from_bytes_raw :: proc(
 // Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Also stops sounds
 // playing this clip.
 destroy_audio_clip :: proc(clip: Audio_Clip)  {
+	assert_audio_initialized()
 	audio_clip_object := hm.get(&s.audio_clips, clip)
 
 	if audio_clip_object == nil {
@@ -2676,6 +2908,7 @@ load_audio_stream_from_file :: proc(
 	_stream: Audio_Stream,
 	_ok: bool,
 ) #optional_ok {
+	assert_audio_initialized()
 	f, f_err := file_open(filename)
 
 	if f_err != nil {
@@ -2856,6 +3089,7 @@ load_audio_stream_from_bytes :: proc(
 	_stream: Audio_Stream,
 	_ok: bool,
 ) #optional_ok {
+	assert_audio_initialized()
 	vorbis_err: stbv.Error
 
 	vorbis_buffer := stbv.vorbis_alloc {
@@ -2934,6 +3168,7 @@ load_audio_stream_from_bytes :: proc(
 // If you created the stream using `load_audio_stream_from_bytes`, then this procedure will NOT
 // deallocate the bytes that you sent into that procedure.
 destroy_audio_stream :: proc(stream: Audio_Stream) {
+	assert_audio_initialized()
 	sd := hm.get(&s.audio_streams, stream)
 
 	if sd == nil {
@@ -2965,6 +3200,7 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 // Streams in new audio data from the audio stream. You need to call this once per frame in order
 // for the streaming to actually happen. 
 update_audio_stream :: proc(stream: Audio_Stream) {
+	assert_audio_initialized()
 	sd := hm.get(&s.audio_streams, stream)
 
 	if sd == nil {
@@ -3178,6 +3414,7 @@ play_audio_stream :: proc(
 	loop := false,
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound {
+	assert_audio_initialized()
 	sd := hm.get(&s.audio_streams, stream)
 
 	if sd == nil {
@@ -3246,6 +3483,7 @@ play_audio_stream :: proc(
 // A new bus has volume 1, pan 0 and no effect. That makes it a passthrough: Playing a sound on a
 // fresh bus sounds exactly like playing it on the master bus, until you change something.
 create_audio_bus :: proc() -> Audio_Bus {
+	assert_audio_initialized()
 	bus_object := Audio_Bus_Object {
 		target_settings = DEFAULT_AUDIO_BUS_SETTINGS,
 		current_settings = DEFAULT_AUDIO_BUS_SETTINGS,
@@ -3266,6 +3504,8 @@ create_audio_bus :: proc() -> Audio_Bus {
 // Destroy an audio bus. Everything routed to it goes back to the master bus, including sounds that
 // are playing right now.
 destroy_audio_bus :: proc(bus: Audio_Bus) {
+	assert_audio_initialized()
+
 	if bus == AUDIO_BUS_MASTER {
 		log.error("Cannot destroy audio bus, the master bus cannot be destroyed.")
 		return
@@ -3293,6 +3533,7 @@ destroy_audio_bus :: proc(bus: Audio_Bus) {
 //
 // This works on `AUDIO_BUS_MASTER` as well, which is how you set the master volume of your game.
 set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32) {
+	assert_audio_initialized()
 	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
 
 	if bus_object == nil {
@@ -3311,6 +3552,7 @@ set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32) {
 // loudness the same. A bus is already a finished stereo mix, and a bus at pan 0 has to leave it
 // exactly as it is.
 set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32) {
+	assert_audio_initialized()
 	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
 
 	if bus_object == nil {
@@ -3330,6 +3572,7 @@ set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32) {
 //
 // See `Audio_Effect_Proc` for what the effect is given and what it is allowed to do.
 set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_data: rawptr = nil) {
+	assert_audio_initialized()
 	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
 
 	if bus_object == nil {
@@ -3350,6 +3593,8 @@ set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_dat
 //
 // Will only run if the audio backend is running low on audio data.
 update_audio_mixer :: proc() {
+	assert_audio_initialized()
+
 	// If the sample rate of the backend is 44100 samples/second and AUDIO_MIX_CHUNK_SIZE is 1400
 	// samples, then this procedure will only run roughly 44100/1400 = 31 times per second. This
 	// gives a latency of up to (1.5 * (44100/1400)) = 47 milliseconds. Is it too big, or too small?
@@ -3816,6 +4061,7 @@ update_audio_mixer :: proc() {
 // handle this error, it will also be logged. In case of failure, the returned `Render_Texture`
 // will still be possible to use, but setting it does nothing, so drawing stays where it was.
 create_render_texture :: proc(width: int, height: int) -> (Render_Texture, bool) #optional_ok {
+	assert_rendering_initialized()
 	texture, render_target, render_texture_ok := rb.create_render_texture(width, height)
 
 	if !render_texture_ok {
@@ -3835,6 +4081,8 @@ create_render_texture :: proc(width: int, height: int) -> (Render_Texture, bool)
 
 // Destroy a Render_Texture previously created using `create_render_texture`.
 destroy_render_texture :: proc(render_texture: Render_Texture) {
+	assert_rendering_initialized()
+
 	// Recorded draw calls may still be waiting to draw into this render target, or sample it.
 	_flush_if_batch_uses_render_target(render_texture.render_target)
 	_flush_if_batch_uses_texture(render_texture.texture.handle)
@@ -3845,6 +4093,8 @@ destroy_render_texture :: proc(render_texture: Render_Texture) {
 // Make all rendering go into a texture instead of onto the screen. Create the render texture using
 // `create_render_texture`. Pass `nil` to resume drawing onto the screen.
 set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
+	assert_rendering_initialized()
+
 	if rt, rt_ok := render_texture.?; rt_ok {
 		if rt.render_target == RENDER_TARGET_NONE {
 			log.errorf("Invalid render texture: %v", rt)
@@ -4372,6 +4622,7 @@ load_dynamic_font_from_bytes :: proc(
 	data: []u8,
 	options: Font_Options = {},
 ) -> (Font, bool) #optional_ok {
+	assert_rendering_initialized()
 	font_info: stbtt.fontinfo
 	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), 0)
 	init_ok := stbtt.InitFont(&font_info, raw_data(data), font_offset)
@@ -4425,6 +4676,8 @@ load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> (Font, b
 
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
 destroy_font :: proc(font: Font) {
+	assert_rendering_initialized()
+
 	if int(font) >= len(s.fonts) {
 		return
 	}
@@ -4570,6 +4823,7 @@ load_shader_from_bytes :: proc(
 	fragment_shader_bytes: []byte,
 	layout_formats: []Pixel_Format = {},
 ) -> (Shader, bool) #optional_ok {
+	assert_rendering_initialized()
 	handle, desc, shader_ok := rb.load_shader(
 		vertex_shader_bytes,
 		fragment_shader_bytes,
@@ -4655,6 +4909,8 @@ load_shader_from_bytes :: proc(
 
 // Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
 destroy_shader :: proc(shader: Shader) {
+	assert_rendering_initialized()
+
 	// Recorded draw calls may still be waiting to draw with this shader.
 	_flush_if_batch_uses_shader(shader.handle)
 	rb.destroy_shader(shader.handle)
@@ -4795,6 +5051,8 @@ pixel_format_size :: proc(f: Pixel_Format) -> int {
 // Make Karl2D use a camera. Return to the "default camera" by passing `nil`. All drawing operations
 // will use this camera until you again change it.
 set_camera :: proc(camera: Maybe(Camera)) {
+	assert_rendering_initialized()
+
 	if camera == s.current_camera {
 		return
 	}
@@ -4965,11 +5223,19 @@ set_internal_state :: proc(state: ^State) {
 	s = state
 	frame_allocator = s.frame_allocator
 	pf = s.platform
-	rb = s.render_backend
-	ab = s.audio_backend
+
+	// The platform state exists from `init_platform` onwards, not just once a window is open.
 	pf.set_internal_state(s.platform_state)
-	rb.set_internal_state(s.render_backend_state)
-	ab.set_internal_state(s.audio_backend_state)
+
+	if s.rendering_initialized {
+		rb = s.render_backend
+		rb.set_internal_state(s.render_backend_state)
+	}
+
+	if s.audio_initialized {
+		ab = s.audio_backend
+		ab.set_internal_state(s.audio_backend_state)
+	}
 }
 
 Open_URL_Error :: enum {
@@ -5263,11 +5529,8 @@ Window_Mode :: enum {
 	Borderless_Fullscreen,
 }
 
-Init_Options :: struct {
+Window_Options :: struct {
 	window_mode: Window_Mode,
-
-	// Enable to request anti-alias. On most systems this means 4x Multi Sample Anti Alias
-	anti_alias: bool,
 
 	// This hint may disable scaling of the window when created. Scaling here refers to the scaling
 	// that is set for the monitor in the OS settings (the same number returned by
@@ -5277,6 +5540,11 @@ Init_Options :: struct {
 	// platforms, such as Linux+Wayland, it does not work, because Wayland always auto scales all
 	// windows.
 	disable_auto_scale_hint: bool,
+}
+
+Rendering_Options :: struct {
+	// Enable to request anti-alias. On most systems this means 4x Multi Sample Anti Alias
+	anti_alias: bool,
 
 	// Enable depth testing. Draws are then sorted by the z value set with `set_z`: higher z ends up
 	// in front. Things drawn at the same z use the drawing order, like when depth testing is off.
@@ -5287,6 +5555,13 @@ Init_Options :: struct {
 	// coordinates. Only used when `depth_test` is on.
 	depth_range_min: f32,
 	depth_range_max: f32,
+}
+
+// The combination of `Window_Options` and `Rendering_Options`, used by `init`. The granular
+// procedures `open_window` and `init_rendering` take the individual halves instead.
+Init_Options :: struct {
+	using window: Window_Options,
+	using rendering: Rendering_Options,
 }
 
 DEPTH_RANGE_DEFAULT_MIN :: -1
@@ -5708,6 +5983,13 @@ State :: struct {
 	platform_state: rawptr,
 	render_backend: Render_Backend_Interface,
 	render_backend_state: rawptr,
+
+	// Rendering and audio are initialised by separate procedures from the platform and the window,
+	// so a program can skip either or query monitors before opening a window. These track how far
+	// along that setup is.
+	window_open: bool,
+	rendering_initialized: bool,
+	audio_initialized: bool,
 
 	fs: fs.FontContext,
 	
@@ -6172,8 +6454,23 @@ count_text_lines :: proc "contextless" (text: string) -> int {
 	return lines
 }
 
-assert_initialized :: proc(loc := #caller_location) {
-	assert(s != nil, "Call k2.init before using this Karl2D procedure", loc)
+assert_platform_initialized :: proc(loc := #caller_location) {
+	assert(s != nil, "Call k2.init_platform before using this Karl2D procedure", loc)
+}
+
+assert_window_open :: proc(loc := #caller_location) {
+	assert(s != nil, "Call k2.open_window before using this Karl2D procedure", loc)
+	assert(s.window_open, "Call k2.open_window before using this Karl2D procedure", loc)
+}
+
+assert_rendering_initialized :: proc(loc := #caller_location) {
+	assert(s != nil, "Call k2.init_rendering before using this Karl2D procedure", loc)
+	assert(s.rendering_initialized, "Call k2.init_rendering before using this Karl2D procedure", loc)
+}
+
+assert_audio_initialized :: proc(loc := #caller_location) {
+	assert(s != nil, "Call k2.init_sound before using this Karl2D procedure", loc)
+	assert(s.audio_initialized, "Call k2.init_sound before using this Karl2D procedure", loc)
 }
 
 // Finds a currently tracked touch by id. Returns nil if the touch isn't tracked, which happens for

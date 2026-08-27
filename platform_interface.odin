@@ -5,13 +5,24 @@ import "base:runtime"
 Platform_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 
-	init: proc(
+	// Process-level setup that has to happen before any window exists: making the process DPI
+	// aware, registering a window class, creating the application object and so on. Called by
+	// `init_platform`, which is what makes the monitor queries below work before `open_window`.
+	//
+	// This is also where the platform state pointer is handed over, so everything after this can
+	// use it.
+	init_process: proc(
 		platform_state: rawptr,
+		allocator: runtime.Allocator,
+	),
+
+	shutdown_process: proc(),
+
+	init: proc(
 		window_width: int,
 		window_height: int,
 		window_title: string,
-		init_options: Init_Options,
-		allocator: runtime.Allocator,
+		init_options: Window_Options,
 	),
 
 	shutdown: proc(),
@@ -25,6 +36,11 @@ Platform_Interface :: struct #all_or_none {
 	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
+
+	get_monitor_count: proc() -> int,
+	get_monitor_size: proc(monitor: int) -> [2]int,
+	get_monitor_position: proc(monitor: int) -> [2]int,
+	get_monitor_scale: proc(monitor: int) -> f32,
 
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
@@ -55,7 +71,7 @@ Window_Render_Glue :: struct {
 	using state: ^Window_Render_Glue_State,
 	make_context: proc(
 		state: ^Window_Render_Glue_State,
-		init_options: Init_Options,
+		init_options: Rendering_Options,
 	) -> bool,
 	present: proc(state: ^Window_Render_Glue_State),
 	destroy: proc(state: ^Window_Render_Glue_State),

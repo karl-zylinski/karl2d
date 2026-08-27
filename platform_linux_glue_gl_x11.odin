@@ -26,7 +26,10 @@ make_linux_gl_x11_glue :: proc(
 		state = (^Window_Render_Glue_State)(state),
 
 		// these casts just make the proc take a Windows_GL_Glue_State instead of a Window_Render_Glue_State
-		make_context = cast(proc(state: ^Window_Render_Glue_State, options: Init_Options) -> bool)(linux_gl_x11_glue_make_context),
+		make_context = cast(proc(
+			state: ^Window_Render_Glue_State,
+			options: Rendering_Options,
+		) -> bool)(linux_gl_x11_glue_make_context),
 		present = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_x11_glue_present),
 		destroy = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_x11_glue_destroy),
 		viewport_resized = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_x11_glue_viewport_resized),
@@ -40,7 +43,10 @@ Linux_GL_X11_Glue_State :: struct {
 	allocator: runtime.Allocator,
 }
 
-linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State, options: Init_Options) -> bool {
+linux_gl_x11_glue_make_context :: proc(
+	s: ^Linux_GL_X11_Glue_State,
+	options: Rendering_Options,
+) -> bool {
 	visual_attribs := slice.to_dynamic(
 		[]i32 {
 			glx.RENDER_TYPE, glx.RGBA_BIT,

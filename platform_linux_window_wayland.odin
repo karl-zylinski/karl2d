@@ -4,6 +4,8 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	state_size = wl_state_size,
+	init_process = wl_init_process,
+	shutdown_process = wl_shutdown_process,
 	init = wl_init,
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
@@ -16,6 +18,10 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	set_screen_size = wl_set_screen_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
+	get_monitor_count = wl_get_monitor_count,
+	get_monitor_size = wl_get_monitor_size,
+	get_monitor_position = wl_get_monitor_position,
+	get_monitor_scale = wl_get_monitor_scale,
 	set_cursor_hidden = wl_set_cursor_hidden,
 	is_cursor_hidden = wl_is_cursor_hidden,
 	set_mouse_locked = wl_set_mouse_locked,
@@ -52,14 +58,9 @@ wl_state_size :: proc() -> int {
 	return size_of(WL_State)
 }
 
-wl_init :: proc(
-	window_state: rawptr,
-	screen_width: int,
-	screen_height: int,
-	window_title: string,
-	options: Init_Options,
-	allocator: runtime.Allocator,
-) {
+// Connects to the compositor and collects the globals. None of this needs a surface, so it runs
+// before `open_window`.
+wl_init_process :: proc(window_state: rawptr, allocator: runtime.Allocator) {
 	s = (^WL_State)(window_state)
 	s.allocator = allocator
 	s.scale = 1
@@ -80,7 +81,14 @@ wl_init :: proc(
 
 	// Initializes pointer and keyboard based on seat capabilities.
 	wl.display_roundtrip(s.display)
+}
 
+wl_init :: proc(
+	screen_width: int,
+	screen_height: int,
+	window_title: string,
+	options: Window_Options,
+) {
 	// Sets default size that gets used if the compositor doesn't suggest a size.
 	s.last_configure_width = screen_width
 	s.last_configure_height = screen_height
@@ -696,7 +704,21 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 	},
 }
 
+// Destroys the surface and toplevel `wl_init` created. Everything else Wayland-related belongs to
+// the connection, and is torn down in `wl_shutdown_process`.
 wl_shutdown :: proc() {
+	if s.toplevel != nil {
+		wl.xdg_toplevel_destroy(s.toplevel)
+		s.toplevel = nil
+	}
+
+	if s.surface != nil {
+		wl.surface_destroy(s.surface)
+		s.surface = nil
+	}
+}
+
+wl_shutdown_process :: proc() {
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		wl.wp_viewport_destroy(cd.viewport)
 		wl.surface_destroy(cd.surface)
@@ -828,6 +850,33 @@ wl_set_screen_size :: proc(w, h: int) {
 
 wl_get_window_scale :: proc() -> f32 {
 	return s.scale
+}
+
+// Binding `wl_output` and listening for `geometry`/`mode`/`scale` would be the correct
+// implementation (the bindings exist in `platform_bindings/linux/wayland`), but it needs a new
+// registry global, a listener that accumulates per-output events, and an extra
+// `wl.display_roundtrip` to collect them before the values are usable. That's substantial protocol
+// plumbing on top of the existing registry handler, and it hasn't been done.
+//
+// So this reports zero monitors rather than one monitor of unknown size: a program that asks can
+// tell that Karl2D has nothing to say and fall back to a size of its own, which is what
+// `examples/monitors` does. Claiming one monitor and then reporting it as 0x0 would look like a
+// real answer. Scale can't reuse `wl_get_window_scale`/`s.scale` either, since that is only known
+// once a surface exists and has received a `wp_fractional_scale` event, i.e. after `open_window`.
+wl_get_monitor_count :: proc() -> int {
+	return 0
+}
+
+wl_get_monitor_size :: proc(monitor: int) -> [2]int {
+	return {}
+}
+
+wl_get_monitor_position :: proc(monitor: int) -> [2]int {
+	return {}
+}
+
+wl_get_monitor_scale :: proc(monitor: int) -> f32 {
+	return 0
 }
 
 wl_set_window_mode :: proc(window_mode: Window_Mode) {

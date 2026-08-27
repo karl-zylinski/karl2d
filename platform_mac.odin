@@ -19,6 +19,8 @@ import "log"
 @(private="package")
 PLATFORM_MAC :: Platform_Interface {
 	state_size = mac_state_size,
+	init_process = mac_init_process,
+	shutdown_process = mac_shutdown_process,
 	init = mac_init,
 	shutdown = mac_shutdown,
 	get_window_render_glue = mac_get_window_render_glue,
@@ -31,6 +33,11 @@ PLATFORM_MAC :: Platform_Interface {
 	get_window_position = mac_get_window_position,
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
+
+	get_monitor_count = mac_get_monitor_count,
+	get_monitor_size = mac_get_monitor_size,
+	get_monitor_position = mac_get_monitor_position,
+	get_monitor_scale = mac_get_monitor_scale,
 
 	set_cursor_hidden = mac_set_cursor_hidden,
 	is_cursor_hidden = mac_is_cursor_hidden,
@@ -125,14 +132,10 @@ mac_state_size :: proc() -> int {
 	return size_of(Mac_State)
 }
 
-mac_init :: proc(
-	platform_state: rawptr,
-	screen_width: int,
-	screen_height: int,
-	window_title: string,
-	init_options: Init_Options,
-	allocator: runtime.Allocator,
-) {
+// Creates the NSApplication and its menu bar. This has to happen before anything asks AppKit about
+// screens, which is why it runs from `init_platform` rather than from `mac_init`: `NSScreen` is
+// only dependable once the shared application exists.
+mac_init_process :: proc(platform_state: rawptr, allocator: runtime.Allocator) {
 	assert(platform_state != nil)
 	s = (^Mac_State)(platform_state)
 	s.odin_ctx = context
@@ -155,6 +158,25 @@ mac_init :: proc(
 	app_menu->addItemWithTitle(NS.AT("Quit"), NS.sel_registerName(cstring("terminate:")), NS.AT("q"))
 	app_menu_item->setSubmenu(app_menu)
 	s.app->setAppleMenu(app_menu)
+}
+
+mac_shutdown_process :: proc() {
+	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
+		cd.cursor->release()
+		delete(cd.pixels, s.allocator)
+	}
+
+	hm.dynamic_destroy(&s.custom_cursors)
+	delete(s.events)
+}
+
+mac_init :: proc(
+	screen_width: int,
+	screen_height: int,
+	window_title: string,
+	init_options: Window_Options,
+) {
+	NS.scoped_autoreleasepool()
 
 	// Create the window
 	rect := NS.Rect {
@@ -308,16 +330,11 @@ mac_init :: proc(
 }
 
 mac_shutdown :: proc() {
-	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
-		cd.cursor->release()
-		delete(cd.pixels, s.allocator)
-	}
-	hm.dynamic_destroy(&s.custom_cursors)
-
 	if s.window != nil {
 		s.window->close()
+		s.window = nil
 	}
-	delete(s.events)
+
 	a := s.allocator
 	free(s.gc_connect_blk, a)
 	free(s.gc_disconnect_blk, a)
@@ -796,6 +813,59 @@ mac_set_window_mode :: proc(window_mode: Window_Mode) {
 		s.screen_width  = int(f32(content_rect.width) * scale)
 		s.screen_height = int(f32(content_rect.height) * scale)
 	}
+}
+
+// Returns the `NS.Screen` for `monitor`, or `nil` if it is out of range. `karl2d.odin` already
+// validates `monitor` against `get_monitor_count`, but this stays defensive since it's also used
+// internally.
+mac_get_screen :: proc(monitor: int) -> ^NS.Screen {
+	screens := NS.Screen_screens()
+
+	if monitor < 0 || NS.UInteger(monitor) >= screens->count() {
+		return nil
+	}
+
+	return NS.Array_objectAs(screens, NS.UInteger(monitor), ^NS.Screen)
+}
+
+mac_get_monitor_count :: proc() -> int {
+	return int(NS.Screen_screens()->count())
+}
+
+mac_get_monitor_size :: proc(monitor: int) -> [2]int {
+	screen := mac_get_screen(monitor)
+
+	if screen == nil {
+		return {}
+	}
+
+	scale := f32(screen->backingScaleFactor())
+	frame := screen->frame()
+	return { int(f32(frame.size.width) * scale), int(f32(frame.size.height) * scale) }
+}
+
+mac_get_monitor_position :: proc(monitor: int) -> [2]int {
+	screen := mac_get_screen(monitor)
+
+	if screen == nil {
+		return {}
+	}
+
+	// Scaled by `backingScaleFactor` so this is in physical pixels, the same unit
+	// `mac_get_monitor_size` reports in and the one `get_monitor_position` documents.
+	scale := f32(screen->backingScaleFactor())
+	origin := screen->frame().origin
+	return { int(f32(origin.x) * scale), int(f32(origin.y) * scale) }
+}
+
+mac_get_monitor_scale :: proc(monitor: int) -> f32 {
+	screen := mac_get_screen(monitor)
+
+	if screen == nil {
+		return 0
+	}
+
+	return f32(screen->backingScaleFactor())
 }
 
 mac_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {

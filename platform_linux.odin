@@ -18,6 +18,8 @@ import "core:time"
 @(private="package")
 PLATFORM_LINUX :: Platform_Interface {
 	state_size = linux_state_size,
+	init_process = linux_init_process,
+	shutdown_process = linux_shutdown_process,
 	init = linux_init,
 	shutdown = linux_shutdown,
 	get_window_render_glue = linux_get_window_render_glue,
@@ -30,6 +32,10 @@ PLATFORM_LINUX :: Platform_Interface {
 	get_window_position = linux_get_window_position,
 	get_window_scale = linux_get_window_scale,
 	set_window_mode = linux_set_window_mode,
+	get_monitor_count = linux_get_monitor_count,
+	get_monitor_size = linux_get_monitor_size,
+	get_monitor_position = linux_get_monitor_position,
+	get_monitor_scale = linux_get_monitor_scale,
 	set_cursor_hidden = linux_set_cursor_hidden,
 	is_cursor_hidden = linux_is_cursor_hidden,
 	set_mouse_locked = linux_set_mouse_locked,
@@ -50,19 +56,14 @@ linux_state_size :: proc() -> int {
 	return size_of(Linux_State)
 }
 
-linux_init :: proc(
-	platform_state: rawptr,
-	screen_width: int,
-	screen_height: int,
-	window_title: string,
-	options: Init_Options,
-	allocator: runtime.Allocator,
-) {
+// Picks the windowing backend and sets up the gamepads. None of this needs a window, and doing it
+// here means `s.win` is already resolved when the monitor queries run before `open_window`.
+linux_init_process :: proc(platform_state: rawptr, allocator: runtime.Allocator) {
 	assert(platform_state != nil)
 	s = (^Linux_State)(platform_state)
 	s.allocator = allocator
 	xdg_session_type := os.get_env("XDG_SESSION_TYPE", frame_allocator)
-	
+
 	if xdg_session_type == "wayland" {
 		s.win = LINUX_WINDOW_WAYLAND
 	} else {
@@ -80,14 +81,7 @@ linux_init :: proc(
 		win_state_alloc_error,
 	)
 
-	s.win.init(
-		s.win_state,
-		screen_width,
-		screen_height,
-		window_title,
-		options,
-		allocator,
-	)
+	s.win.init_process(s.win_state, allocator)
 
 	linux_create_connected_gamepads()
 
@@ -101,7 +95,25 @@ linux_init :: proc(
 	}
 }
 
+linux_init :: proc(
+	screen_width: int,
+	screen_height: int,
+	window_title: string,
+	options: Window_Options,
+) {
+	s.win.init(
+		screen_width,
+		screen_height,
+		window_title,
+		options,
+	)
+}
+
 linux_shutdown :: proc() {
+	s.win.shutdown()
+}
+
+linux_shutdown_process :: proc() {
 	for &g in s.gamepads {
 		linux_destroy_gamepad(&g)
 	}
@@ -109,7 +121,7 @@ linux_shutdown :: proc() {
 	udev.monitor_unref(s.udev_mon)
 	udev.unref(s.udev_ptr)
 
-	s.win.shutdown()
+	s.win.shutdown_process()
 	a := s.allocator
 	free(s.win_state, a)
 }
@@ -188,6 +200,23 @@ set_screen_size :: proc(w, h: int) {
 
 linux_get_window_scale :: proc() -> f32 {
 	return s.win.get_window_scale()
+}
+
+// `s.win` is resolved in `linux_init_process`, so these work before `open_window` has run.
+linux_get_monitor_count :: proc() -> int {
+	return s.win.get_monitor_count()
+}
+
+linux_get_monitor_size :: proc(monitor: int) -> [2]int {
+	return s.win.get_monitor_size(monitor)
+}
+
+linux_get_monitor_position :: proc(monitor: int) -> [2]int {
+	return s.win.get_monitor_position(monitor)
+}
+
+linux_get_monitor_scale :: proc(monitor: int) -> f32 {
+	return s.win.get_monitor_scale(monitor)
 }
 
 linux_create_connected_gamepads :: proc() {
@@ -682,13 +711,20 @@ Linux_State :: struct {
 Linux_Window_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 
-	init: proc(
+	// Connects to the display server. Runs from `linux_init_process`, before any window exists, so
+	// the monitor queries have something to ask.
+	init_process: proc(
 		window_state: rawptr,
+		allocator: runtime.Allocator,
+	),
+
+	shutdown_process: proc(),
+
+	init: proc(
 		screen_width: int,
 		screen_height: int,
 		window_title: string,
-		init_options: Init_Options,
-		allocator: runtime.Allocator,
+		init_options: Window_Options,
 	),
 
 	shutdown: proc(),
@@ -702,6 +738,12 @@ Linux_Window_Interface :: struct #all_or_none {
 	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
+
+	get_monitor_count: proc() -> int,
+	get_monitor_size: proc(monitor: int) -> [2]int,
+	get_monitor_position: proc(monitor: int) -> [2]int,
+	get_monitor_scale: proc(monitor: int) -> f32,
+
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
 	set_mouse_locked: proc(locked: bool),

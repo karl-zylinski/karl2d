@@ -24,7 +24,10 @@ make_mac_gl_glue :: proc(
 		state = (^Window_Render_Glue_State)(state),
 
 		// these casts just make the proc take a Mac_GL_Glue_State instead of a Window_Render_Glue_State
-		make_context = cast(proc(state: ^Window_Render_Glue_State, options: Init_Options) -> bool)(mac_gl_glue_make_context),
+		make_context = cast(proc(
+			state: ^Window_Render_Glue_State,
+			options: Rendering_Options,
+		) -> bool)(mac_gl_glue_make_context),
 		present = cast(proc(state: ^Window_Render_Glue_State))(mac_gl_glue_present),
 		destroy = cast(proc(state: ^Window_Render_Glue_State))(mac_gl_glue_destroy),
 		viewport_resized = cast(proc(state: ^Window_Render_Glue_State))(mac_gl_glue_viewport_resized),
@@ -36,7 +39,7 @@ Mac_GL_Glue_State :: struct {
 	gl_ctx: ^nsgl.OpenGLContext,
 }
 
-mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue_State, options: Init_Options) -> bool {
+mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue_State, options: Rendering_Options) -> bool {
 	// Create pixel format attributes (null-terminated array)
 	attrs := slice.to_dynamic(
 		[]u32 {

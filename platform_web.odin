@@ -8,6 +8,8 @@ package karl2d
 @(private="package")
 PLATFORM_WEB :: Platform_Interface {
 	state_size = web_state_size,
+	init_process = web_init_process,
+	shutdown_process = web_shutdown_process,
 	init = web_init,
 	shutdown = web_shutdown,
 	get_window_render_glue = web_get_window_render_glue,
@@ -20,6 +22,11 @@ PLATFORM_WEB :: Platform_Interface {
 	get_window_position = web_get_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
+
+	get_monitor_count = web_get_monitor_count,
+	get_monitor_size = web_get_monitor_size,
+	get_monitor_position = web_get_monitor_position,
+	get_monitor_scale = web_get_monitor_scale,
 
 	set_cursor_hidden = web_set_cursor_hidden,
 	is_cursor_hidden = web_is_cursor_hidden,
@@ -50,21 +57,35 @@ web_state_size :: proc() -> int {
 	return size_of(Web_State)
 }
 
-web_init :: proc(
-	window_state: rawptr,
-	window_width: int,
-	window_height: int,
-	window_title: string,
-	init_options: Init_Options,
-	allocator: runtime.Allocator,
-) {
+// The browser has nothing to set up at the process level, but the canvas id has to be known before
+// the monitor queries run, and they run before `open_window`.
+web_init_process :: proc(window_state: rawptr, allocator: runtime.Allocator) {
 	s = (^Web_State)(window_state)
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
 	s.key_from_js_event_key_code = make(map[string]Keyboard_Key, allocator)
 	s.canvas_id = "webgl-canvas"
 	hm.dynamic_init(&s.custom_cursors, allocator)
+}
 
+web_shutdown_process :: proc() {
+	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
+		delete(cd.data_uri, s.allocator)
+		delete(cd.style_value, s.allocator)
+		delete(cd.style_value_scaled, s.allocator)
+	}
+
+	hm.dynamic_destroy(&s.custom_cursors)
+	delete(s.events)
+	delete(s.key_from_js_event_key_code)
+}
+
+web_init :: proc(
+	window_width: int,
+	window_height: int,
+	window_title: string,
+	init_options: Window_Options,
+) {
 	js.set_document_title(window_title)
 	s.prev_scale = f32(js.device_pixel_ratio())
 	// The browser window probably has some other size than what was sent in.
@@ -320,15 +341,6 @@ web_set_screen_size_to_window_size :: proc(canvas_id: HTML_Canvas_ID) {
 }
 
 web_shutdown :: proc() {
-	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
-		delete(cd.data_uri, s.allocator)
-		delete(cd.style_value, s.allocator)
-		delete(cd.style_value_scaled, s.allocator)
-	}
-	hm.dynamic_destroy(&s.custom_cursors)
-
-	delete(s.events)
-	delete(s.key_from_js_event_key_code)
 }
 
 web_get_window_render_glue :: proc() -> Window_Render_Glue {
@@ -467,6 +479,36 @@ web_set_window_mode :: proc(new_mode: Window_Mode) {
 	} else if new_mode == .Windowed && old_mode == .Windowed_Resizable {
 		web_set_screen_size(s.width, s.height)
 	}
+}
+
+// The web platform has no notion of multiple monitors, only the one screen the page runs on.
+web_get_monitor_count :: proc() -> int {
+	return 1
+}
+
+// `window.screen.width`/`window.screen.height` aren't exposed by the `core:sys/wasm/js` bindings,
+// so stash them onto an element and read them back, the same trick
+// `_web_event_pointer_lock_change` uses. The canvas is what that gets stashed on: Karl2D cannot run
+// without it, so it is the one element guaranteed to be there, whereas a page that was not built
+// from `index_template.html` may well have dropped the `id="body"` off its body tag.
+web_get_monitor_size :: proc(monitor: int) -> [2]int {
+	js.evaluate(
+		"document.getElementById('webgl-canvas')._k2_screen_width = window.screen.width; " +
+		"document.getElementById('webgl-canvas')._k2_screen_height = window.screen.height",
+	)
+
+	scale := f64(web_get_window_scale())
+	width := js.get_element_key_f64(s.canvas_id, "_k2_screen_width") * scale
+	height := js.get_element_key_f64(s.canvas_id, "_k2_screen_height") * scale
+	return { int(width), int(height) }
+}
+
+web_get_monitor_position :: proc(monitor: int) -> [2]int {
+	return {}
+}
+
+web_get_monitor_scale :: proc(monitor: int) -> f32 {
+	return web_get_window_scale()
 }
 
 web_set_cursor_hidden :: proc(hidden: bool) {

@@ -74,7 +74,7 @@ Render_Backend_Interface :: struct #all_or_none {
 		glue: Window_Render_Glue,
 		swapchain_width: int,
 		swapchain_height: int,
-		options: Init_Options,
+		options: Rendering_Options,
 		allocator: runtime.Allocator,
 	),
 

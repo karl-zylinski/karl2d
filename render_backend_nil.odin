@@ -56,8 +56,8 @@ rbnil_init :: proc(
 	state: rawptr,
 	glue: Window_Render_Glue,
 	swapchain_width,
-	swapchain_height: int, 
-	options: Init_Options,
+	swapchain_height: int,
+	options: Rendering_Options,
 	allocator := context.allocator
 ) {
 	log.info("Render Backend nil init")

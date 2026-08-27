@@ -7,6 +7,47 @@ package karl2d
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
+// Allocates Karl2D's internal state and sets up the platform layer. Does not open a window.
+//
+// This is the first procedure to call, and the only one that has to run before a window exists:
+// `windows_init`/`linux_init` etc allocate from the package-global frame allocator, which is set up
+// here. Call `get_monitor_count`, `get_monitor_size`, `get_monitor_position` and
+// `get_monitor_scale` after this and before `open_window` if you want to pick a window size based
+// on the display.
+//
+// The internal state will use `allocator` for all dynamically allocated memory. The return value is
+// a pointer to it, see `init` for what you can do with that pointer.
+init_platform :: proc(
+	allocator := context.allocator,
+	loc := #caller_location,
+) -> ^State
+
+// Opens the window. Call `init_platform` first.
+//
+// `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
+// The window might be slightly larger due to borders and headers. The true width and height will be
+// scaled up by the scaling setting in the operating system.
+open_window :: proc(
+	screen_width: int,
+	screen_height: int,
+	window_title: string,
+	options := Window_Options {},
+	loc := #caller_location,
+)
+
+// Boots the rendering backend. Call `open_window` first.
+//
+// Sets up the projection, the vertex buffer, the batching system, the shape-drawing texture, the
+// default shader and the default font.
+init_rendering :: proc(
+	options := Rendering_Options {},
+	loc := #caller_location,
+)
+
+// Boots the audio backend and sets up the mixer's handle maps. Call `init_platform` first. Does not
+// depend on a window, so it can run before or after `open_window`/`init_rendering`.
+init_sound :: proc(loc := #caller_location)
+
 // Opens a window and initializes some internal state. The internal state will use `allocator` for
 // all dynamically allocated memory.
 //
@@ -22,6 +63,17 @@ package karl2d
 // `set_internal_state()`. This is useful for example when doing game code reload, as the state may
 // get reset when the library is reloaded. You can safely ignore the return value if you have no
 // such needs.
+//
+// `init` is a wrapper over four procedures, called in this order:
+//
+//// k2.init_platform()
+//// k2.open_window()
+//// k2.init_rendering()
+//// k2.init_sound()
+//
+// Call them directly instead of `init` if you need to do work between the steps, such as querying
+// monitors with `get_monitor_size` before deciding how big a window to open, or if you want to skip
+// audio or rendering entirely.
 init :: proc(
 	screen_width: int,
 	screen_height: int,
@@ -66,7 +118,41 @@ update :: proc() -> bool
 close_window_requested :: proc() -> bool
 
 // Closes the window and cleans up Karl2D's internal state.
+//
+// `shutdown` is a wrapper over four procedures, called in reverse order of `init`:
+//
+//// k2.shutdown_sound()
+//// k2.shutdown_rendering()
+//// k2.close_window()
+//// k2.shutdown_platform()
+//
+// Call them directly instead of `shutdown` if you only want to tear down some of what `init` set
+// up.
 shutdown :: proc()
+
+// Destroys everything `init_sound` set up. Does nothing if `init_sound` was never called (or if
+// `shutdown_sound` has already run).
+//
+// Called by `shutdown`, but can be called manually if you need more control.
+shutdown_sound :: proc()
+
+// Destroys everything `init_rendering` set up. Does nothing if `init_rendering` was never called
+// (or if `shutdown_rendering` has already run).
+//
+// Called by `shutdown`, but can be called manually if you need more control.
+shutdown_rendering :: proc()
+
+// Closes the window `open_window` opened. Does nothing if `open_window` was never called (or if
+// `close_window` has already run).
+//
+// Called by `shutdown`, but can be called manually if you need more control.
+close_window :: proc()
+
+// Frees Karl2D's internal state. Call this last, after `shutdown_sound`, `shutdown_rendering` and
+// `close_window`.
+//
+// Called by `shutdown`, but can be called manually if you need more control.
+shutdown_platform :: proc()
 
 // Clear the "screen" with the supplied color. By default this will clear your window. But if you
 // have set a Render Texture using the `set_render_texture` procedure, then that Render Texture will
@@ -165,6 +251,23 @@ get_window_scale :: proc() -> f32
 
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode)
+
+// Returns how many monitors are connected. Works after `init_platform`, before `open_window`, so
+// you can decide how big a window to open based on the display it will end up on.
+get_monitor_count :: proc() -> int
+
+// Returns the size of `monitor`, in physical pixels, matching what `set_screen_size` takes. Monitor
+// 0 is the primary monitor. Works after `init_platform`, before `open_window`.
+get_monitor_size :: proc(monitor := 0) -> [2]int
+
+// Returns the position of `monitor`, in physical pixels. Monitor 0 is the primary monitor. Works
+// after `init_platform`, before `open_window`.
+get_monitor_position :: proc(monitor := 0) -> [2]int
+
+// Returns the scale of `monitor`. This usually comes from some DPI scaling setting in the OS. 1
+// means 100% scale, 1.5 means 150% etc. Monitor 0 is the primary monitor. Works after
+// `init_platform`, before `open_window`.
+get_monitor_scale :: proc(monitor := 0) -> f32
 
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
 // procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
@@ -1326,11 +1429,8 @@ Window_Mode :: enum {
 	Borderless_Fullscreen,
 }
 
-Init_Options :: struct {
+Window_Options :: struct {
 	window_mode: Window_Mode,
-
-	// Enable to request anti-alias. On most systems this means 4x Multi Sample Anti Alias
-	anti_alias: bool,
 
 	// This hint may disable scaling of the window when created. Scaling here refers to the scaling
 	// that is set for the monitor in the OS settings (the same number returned by
@@ -1340,6 +1440,11 @@ Init_Options :: struct {
 	// platforms, such as Linux+Wayland, it does not work, because Wayland always auto scales all
 	// windows.
 	disable_auto_scale_hint: bool,
+}
+
+Rendering_Options :: struct {
+	// Enable to request anti-alias. On most systems this means 4x Multi Sample Anti Alias
+	anti_alias: bool,
 
 	// Enable depth testing. Draws are then sorted by the z value set with `set_z`: higher z ends up
 	// in front. Things drawn at the same z use the drawing order, like when depth testing is off.
@@ -1350,6 +1455,13 @@ Init_Options :: struct {
 	// coordinates. Only used when `depth_test` is on.
 	depth_range_min: f32,
 	depth_range_max: f32,
+}
+
+// The combination of `Window_Options` and `Rendering_Options`, used by `init`. The granular
+// procedures `open_window` and `init_rendering` take the individual halves instead.
+Init_Options :: struct {
+	using window: Window_Options,
+	using rendering: Rendering_Options,
 }
 
 DEPTH_RANGE_DEFAULT_MIN :: -1
@@ -1772,6 +1884,13 @@ State :: struct {
 	platform_state: rawptr,
 	render_backend: Render_Backend_Interface,
 	render_backend_state: rawptr,
+
+	// Rendering and audio are initialised by separate procedures from the platform and the window,
+	// so a program can skip either or query monitors before opening a window. These track how far
+	// along that setup is.
+	window_open: bool,
+	rendering_initialized: bool,
+	audio_initialized: bool,
 
 	fs: fs.FontContext,
 	

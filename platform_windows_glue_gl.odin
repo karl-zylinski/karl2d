@@ -23,7 +23,10 @@ make_windows_gl_glue :: proc(
 		state = (^Window_Render_Glue_State)(state),
 
 		// these casts just make the proc take a Windows_GL_Glue_State instead of a Window_Render_Glue_State
-		make_context = cast(proc(state: ^Window_Render_Glue_State, init_options: Init_Options) -> bool)(windows_gl_glue_make_context),
+		make_context = cast(proc(
+			state: ^Window_Render_Glue_State,
+			init_options: Rendering_Options,
+		) -> bool)(windows_gl_glue_make_context),
 		present = cast(proc(state: ^Window_Render_Glue_State))(windows_gl_glue_present),
 		destroy = cast(proc(state: ^Window_Render_Glue_State))(windows_gl_glue_destroy),
 		viewport_resized = cast(proc(state: ^Window_Render_Glue_State))(windows_gl_glue_viewport_resized),
@@ -37,7 +40,10 @@ Windows_GL_Glue_State :: struct {
 	allocator: runtime.Allocator,
 }
 
-windows_gl_glue_make_context :: proc(s: ^Windows_GL_Glue_State, options: Init_Options) -> bool {
+windows_gl_glue_make_context :: proc(
+	s: ^Windows_GL_Glue_State,
+	options: Rendering_Options,
+) -> bool {
 	// We make an invisible dummy window and use that to get a dummy context. We need the dummy
 	// context because we can't get the actual context we need without already having a context.
 	DUMMY_CLASS :: "karl2d_wgl_dummy"

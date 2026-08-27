@@ -26,7 +26,10 @@ make_linux_gl_wayland_glue :: proc(
 		state = (^Window_Render_Glue_State)(state),
 
 		// these casts just make the proc take a Windows_GL_Glue_State instead of a Window_Render_Glue_State
-		make_context = cast(proc(state: ^Window_Render_Glue_State, options: Init_Options) -> bool)(linux_gl_wayland_glue_make_context),
+		make_context = cast(proc(
+			state: ^Window_Render_Glue_State,
+			options: Rendering_Options,
+		) -> bool)(linux_gl_wayland_glue_make_context),
 		present = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_wayland_glue_present),
 		destroy = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_wayland_glue_destroy),
 		viewport_resized = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_wayland_glue_viewport_resized),
@@ -42,7 +45,10 @@ Linux_GL_Wayland_Glue_State :: struct {
 	allocator: runtime.Allocator,
 }
 
-linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State, options: Init_Options) -> bool {
+linux_gl_wayland_glue_make_context :: proc(
+	s: ^Linux_GL_Wayland_Glue_State,
+	options: Rendering_Options,
+) -> bool {
 	// Get a valid EGL configuration based on some attribute guidelines
 	// Create a context based on a "chosen" configuration
 	EGL_CONTEXT_FLAGS_KHR :: 0x30FC
