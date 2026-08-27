@@ -48,6 +48,16 @@ Write them like a tweet, max 180 characters. Only simple sentences. Only allowed
   	_camera_flip_y(),
   )
   ```
+- The return values get split over several lines too, not just the parameters. When a signature does not fit, `-> (` opens the list, each return value sits on its own line ending with a comma, and `)` closes it with any tag and the opening brace after it. Splitting both lists reads better than keeping the return values packed on the closing line. See `load_audio_stream_from_bytes` in `karl2d.odin`.
+
+  ```
+  load_audio_stream_from_bytes :: proc(
+  	bytes: []u8,
+  ) -> (
+  	_stream: Audio_Stream,
+  	_ok: bool,
+  ) #optional_ok {
+  ```
 - Place `:` and `=` with consistent spacing as in `karl2d.odin`. Opening braces `{` go on the same line as the declaration.
 - Ranges are written without spaces: `for i in 0..<len(pixels)`, not `0 ..< len(pixels)`. Attributes too: `@(private="package")`, not `@(private = "package")`.
 - No single-line `if` bodies: the body goes on its own line, even when it is one statement. (One older example does this; don't copy it.)
@@ -80,6 +90,14 @@ Write them like a tweet, max 180 characters. Only simple sentences. Only allowed
 - It keeps handles assignable and comparable as-is. A `Custom_Cursor` goes straight into a `Cursor` union, so `selected = gauntlet` and `selected == gauntlet` just work. Wrapped in a `Maybe` both sides need unwrapping first, and the comparison needs an explicit `Cursor(...)` conversion. There is nothing to unwrap, so no `x, ok := h.?` before every use, and no temporary to carry the unwrapped value around.
 - Passing a zero handle is safe: procedures that take handles log and carry on rather than misbehaving. They log on every call though, so guard with `!= <TYPE>_NONE` in code that runs each frame.
 - See `examples/cursors/cursors.odin` for how this reads in practice.
+
+### Named return values are for naked returns, and start with `_`
+- A long procedure that can fail in many places ends up repeating `return SOMETHING_NONE, false` a dozen times. Naming the return values turns each of those into a naked `return`, which is shorter and keeps the failure value in one place. `load_audio_clip_from_bytes`, `load_audio_stream_from_file` and `load_static_font_from_bytes` do this.
+- Whether a procedure is long enough to want this is a judgement call, done by feel. Short procedures, and ones with only a couple of failure paths, keep writing the values out: `create_custom_cursor` still returns `CUSTOM_CURSOR_NONE, false`. Do not convert a procedure just to match a neighbour, and do not convert every procedure in a file at once.
+- Name them with a leading underscore: `_clip`, `_stream`, `_font`, `_ok`.
+- The only two things such a procedure does with them is a naked `return` on every failure path and one real `return value, true` at the end. Never assign to `_clip` or `_ok` themselves.
+- That is what the underscore is for. Assigning to a named return part way through is how they turn into bugs: a later naked `return` then hands back whatever was assigned instead of the zero value, and the reader has to track every assignment to know what actually comes out. A name that starts with `_` does not read like a variable you were meant to write to, so it doesn't happen by accident.
+- This works because every `<TYPE>_NONE` is the zero value of its type, so a naked `return` gives back exactly what the explicit `return SOMETHING_NONE, false` did.
 
 ### Avoid `defer`; write the cleanup where it happens
 - `defer` moves work away from the point it runs, so the reader has to reconstruct the order instead of reading top to bottom. Free, release or destroy a thing on the line after it stops being needed.
