@@ -737,7 +737,7 @@ load_audio_stream_from_bytes :: proc(
 destroy_audio_stream :: proc(stream: Audio_Stream)
 
 // Streams in new audio data from the audio stream. You need to call this once per frame in order
-// for the streaming to actually happen. 
+// for the streaming to actually happen.
 update_audio_stream :: proc(stream: Audio_Stream)
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
@@ -799,11 +799,11 @@ set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_dat
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
 //
-// This procedure implements a custom software audio mixer. The audio backend is just fed the
-// resulting mix. Therefore, you can see everything regarding how audio is processed in this
-// procedure.
+// This procedure implements a custom software audio mixer, using `_mix_one_chunk` to do the
+// mixing. The audio backend is just fed the resulting mix.
 //
-// Will only run if the audio backend is running low on audio data.
+// Does nothing while the mixer thread is running, since the thread produces the audio instead.
+// Otherwise mixes chunks, up to a limit per call, until the audio backend has enough of them.
 update_audio_mixer :: proc()
 
 //-----------------//
@@ -1350,6 +1350,11 @@ Init_Options :: struct {
 	// coordinates. Only used when `depth_test` is on.
 	depth_range_min: f32,
 	depth_range_max: f32,
+
+	// Turn off the audio mixer thread. The mixer then runs on the thread that calls `update`, and
+	// produces the audio a chunk at a time as the frames go by. Web always works this way, since
+	// there are no threads there.
+	disable_audio_mixer_thread: bool,
 }
 
 DEPTH_RANGE_DEFAULT_MIN :: -1
@@ -1554,6 +1559,9 @@ RENDER_TARGET_NONE :: Render_Target_Handle {}
 
 AUDIO_MIX_SAMPLE_RATE :: 44100
 AUDIO_MIX_CHUNK_SIZE :: 1400
+
+// How many samples the mixer tries to keep sitting in the audio backend.
+AUDIO_MIXER_TARGET_SAMPLES :: (3 * AUDIO_MIX_CHUNK_SIZE)/2
 
 // Single channel audio sample. Can have a value between -1 and 1. For stereo sound every other
 // sample in an array of samples will be interpreted as left and right respectively.
@@ -1883,6 +1891,18 @@ State :: struct {
 
 	// Where the mixer currently is in the mix buffer.
 	mix_buffer_offset: int,
+
+	// Guards everything the mixer touches: the sound, clip, stream and bus maps, the master bus
+	// and the mix buffer. The mixer runs on its own thread when there is one.
+	audio_mutex: sync.Mutex,
+
+	// `^thread.Thread` when the mixer runs on its own thread. Nil when `update_audio_mixer`
+	// produces the audio instead. Kept as a `rawptr` because `core:thread` does not exist on web.
+	audio_mixer_thread: rawptr,
+	audio_mixer_thread_run: bool,
+
+	// The mixer thread logs through the logger the game had when the thread was started.
+	audio_mixer_thread_logger: runtime.Logger,
 }
 
 // Karl2D currently reports left, right, and middle mouse buttons.
