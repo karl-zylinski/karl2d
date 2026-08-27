@@ -638,7 +638,7 @@ load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optio
 // The second return value is `true` if the audio clip was loaded correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
 // still be possible to use, but it won't play anything.
-load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool) #optional_ok
+load_audio_clip_from_bytes :: proc(bytes: []u8) -> (Audio_Clip, bool) #optional_ok
 
 // Load an audio clip from some raw audio data. You need to specify the data, format and sample
 // rate of the sound yourself. This assumes that there is no header in the data. If your data has a
@@ -673,10 +673,7 @@ destroy_audio_clip :: proc(clip: Audio_Clip)
 // still be possible to use, but it won't play anything.
 load_audio_stream_from_file :: proc(
 	filename: string,
-) -> (
-	_stream: Audio_Stream,
-	_ok: bool,
-) #optional_ok
+) -> (Audio_Stream, bool) #optional_ok
 
 // Load an audio stream from a byte slice that is completely in memory. This makes it possible to
 // have an encoded audio file in memory and decode it, a small bit a time.
@@ -707,10 +704,7 @@ load_audio_stream_from_file :: proc(
 // still be possible to use, but it won't play anything.
 load_audio_stream_from_bytes :: proc(
 	bytes: []u8,
-) -> (
-	_stream: Audio_Stream,
-	_ok: bool,
-) #optional_ok
+) -> (Audio_Stream, bool) #optional_ok
 
 // Destroy an audio stream previously loaded using `load_audio_stream_from_file` or
 // `load_audio_stream_from_bytes`. This cleans up some internal state and closes file handles.
@@ -910,7 +904,7 @@ load_static_font_from_bytes :: proc(
 	font_size: f32,
 	codepoints: []rune = {},
 	options: Font_Options = {},
-) -> (_font: Font, _ok: bool) #optional_ok
+) -> (Font, bool) #optional_ok
 
 // Like `load_dynamic_font_from_bytes`, but reads a file from disk using a filename.
 //

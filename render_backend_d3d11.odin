@@ -850,10 +850,15 @@ d3d11_load_shader :: proc(
 	desc_allocator := frame_allocator,
 	layout_formats: []Pixel_Format = {},
 ) -> (
-	handle: Shader_Handle,
-	desc: Shader_Desc,
-	ok: bool,
+	_handle: Shader_Handle,
+	_desc: Shader_Desc,
+	_ok: bool,
 ) {
+	// Built up as the two shaders are reflected over, and only handed back once everything worked.
+	// Filling in a named return value instead would mean the naked returns above hand out a
+	// half-built description alongside their `false`.
+	desc: Shader_Desc
+
 	vs_blob: ^d3d11.IBlob
 	vs_blob_errors: ^d3d11.IBlob
 	vs_compile_res := ch(d3d_compiler.Compile(
@@ -1130,7 +1135,7 @@ d3d11_load_shader :: proc(
 		input_layout->Release()
 		vertex_shader->Release()
 		pixel_shader->Release()
-		return SHADER_NONE, {}, false
+		return
 	}
 
 	return h, desc, true
