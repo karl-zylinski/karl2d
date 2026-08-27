@@ -2971,8 +2971,9 @@ set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_dat
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
 //
-// This procedure implements a custom software audio mixer, using `_mix_one_chunk` to do the
-// mixing. The audio backend is just fed the resulting mix.
+// This procedure implements a custom software audio mixer. The audio backend is just fed the
+// resulting mix. Therefore, you can see everything regarding how audio is processed here and in
+// the procedure that mixes a single chunk.
 //
 // Does nothing while the mixer thread is running, since the thread produces the audio instead.
 // Otherwise mixes chunks, up to a limit per call, until the audio backend has enough of them.
@@ -6310,45 +6311,53 @@ _mix_one_chunk :: proc() -> [][2]Audio_Sample {
 // `s` and `ab` are private to this file, so `audio_mixer_thread_default.odin` and
 // `audio_mixer_thread_web.odin` go through the following procs instead of touching them directly.
 
-@(private = "package")
+@(private="package")
 _audio_mixer_thread_get :: proc() -> rawptr {
 	return s.audio_mixer_thread
 }
 
-@(private = "package")
+@(private="package")
 _audio_mixer_thread_set :: proc(t: rawptr) {
 	s.audio_mixer_thread = t
 }
 
 // Captures the caller's logger and marks the thread as wanting to run. Called from the game
 // thread right before the mixer thread is created.
-@(private = "package")
+@(private="package")
 _audio_mixer_thread_begin :: proc() {
 	s.audio_mixer_thread_logger = context.logger
 	s.audio_mixer_thread_run = true
 }
 
-@(private = "package")
+@(private="package")
 _audio_mixer_thread_request_stop :: proc() {
 	sync.atomic_store(&s.audio_mixer_thread_run, false)
 }
 
-@(private = "package")
+@(private="package")
 _audio_mixer_thread_should_run :: proc() -> bool {
 	return sync.atomic_load(&s.audio_mixer_thread_run)
 }
 
 // The context the mixer thread should run with, captured when the thread was started.
-@(private = "package")
+@(private="package")
 _audio_mixer_thread_context :: proc() -> (runtime.Allocator, runtime.Logger) {
 	return s.allocator, s.audio_mixer_thread_logger
 }
 
 // Mixes and feeds chunks until the audio backend has enough of them. Called in a loop by the
 // mixer thread.
-@(private = "package")
+@(private="package")
 _audio_mixer_thread_tick :: proc() {
-	for ab.remaining_samples() <= AUDIO_MIXER_TARGET_SAMPLES {
+	// The nil audio backend always says it has zero samples left, so the loop needs a limit. The
+	// limit also bounds how long the thread goes without looking at whether it should stop.
+	MAX_CHUNKS_PER_TICK :: 8
+
+	for _ in 0..<MAX_CHUNKS_PER_TICK {
+		if ab.remaining_samples() > AUDIO_MIXER_TARGET_SAMPLES {
+			break
+		}
+
 		out: [][2]Audio_Sample
 
 		if sync.mutex_guard(&s.audio_mutex) {

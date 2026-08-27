@@ -3,10 +3,10 @@
 #+build js
 package karl2d
 
-@(private = "package")
+@(private="package")
 _start_audio_mixer_thread :: proc() {
 }
 
-@(private = "package")
+@(private="package")
 _stop_audio_mixer_thread :: proc() {
 }

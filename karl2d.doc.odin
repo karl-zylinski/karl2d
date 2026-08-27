@@ -799,8 +799,9 @@ set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_dat
 // Update the audio mixer and feed more audio data into the audio backend. This is done
 // automatically when `update` runs, so you normally don't need to call this manually.
 //
-// This procedure implements a custom software audio mixer, using `_mix_one_chunk` to do the
-// mixing. The audio backend is just fed the resulting mix.
+// This procedure implements a custom software audio mixer. The audio backend is just fed the
+// resulting mix. Therefore, you can see everything regarding how audio is processed here and in
+// the procedure that mixes a single chunk.
 //
 // Does nothing while the mixer thread is running, since the thread produces the audio instead.
 // Otherwise mixes chunks, up to a limit per call, until the audio backend has enough of them.
