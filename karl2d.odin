@@ -1626,7 +1626,7 @@ create_texture :: proc(
 			height,
 			format,
 		)
-		
+
 		return {}, false
 	}
 
@@ -1720,6 +1720,13 @@ load_texture_from_bytes_raw :: proc(
 	backend_tex, backend_tex_ok := rb.load_texture(bytes[:], width, height, format)
 
 	if !backend_tex_ok {
+		log.errorf(
+			"Failed loading texture with dimensions %v x %v and pixel format %v",
+			width,
+			height,
+			format,
+		)
+
 		return {}, false
 	}
 
@@ -3692,6 +3699,7 @@ create_render_texture :: proc(width: int, height: int) -> (Render_Texture, bool)
 	texture, render_target, render_texture_ok := rb.create_render_texture(width, height)
 
 	if !render_texture_ok {
+		log.errorf("Failed creating render texture with dimensions %v x %v", width, height)
 		return {}, false
 	}
 
