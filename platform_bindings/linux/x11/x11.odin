@@ -372,6 +372,8 @@ CursorImage :: struct {
 
 OpenDisplay: proc "c" (name: cstring) -> ^Display
 
+CloseDisplay: proc "c" (display: ^Display)
+
 DefaultScreen: proc "c" (display: ^Display) -> i32
 
 DefaultRootWindow: proc "c" (display: ^Display) -> Window
@@ -553,14 +555,24 @@ Symbol :: struct {
 	ptr:  rawptr,
 }
 
-// Loads `library_name` and fills in every symbol in `symbols`. On failure `missing` names the
-// library or the symbol that was not found.
 @(private)
-load_symbols :: proc(library_name: string, symbols: []Symbol) -> (missing: string, ok: bool) {
-	lib, lib_ok := dynlib.load_library(library_name)
+lib_x11: dynlib.Library
+
+@(private)
+lib_xcursor: dynlib.Library
+
+// Loads `library_name` and fills in every symbol in `symbols`. On failure `missing` names the
+// library or the symbol that was not found, and the library is closed again.
+@(private)
+load_symbols :: proc(
+	library_name: string,
+	symbols: []Symbol,
+) -> (lib: dynlib.Library, missing: string, ok: bool) {
+	lib_ok: bool
+	lib, lib_ok = dynlib.load_library(library_name)
 
 	if !lib_ok {
-		return library_name, false
+		return nil, library_name, false
 	}
 
 	for s in symbols {
@@ -568,13 +580,13 @@ load_symbols :: proc(library_name: string, symbols: []Symbol) -> (missing: strin
 
 		if !addr_ok {
 			dynlib.unload_library(lib)
-			return s.name, false
+			return nil, s.name, false
 		}
 
 		(^rawptr)(s.ptr)^ = addr
 	}
 
-	return "", true
+	return lib, "", true
 }
 
 // Loads libX11 and libXcursor. On failure `missing` names the library or symbol that was not
@@ -582,6 +594,7 @@ load_symbols :: proc(library_name: string, symbols: []Symbol) -> (missing: strin
 load :: proc() -> (missing: string, ok: bool) {
 	x11_symbols := []Symbol {
 		{"XOpenDisplay", &OpenDisplay},
+		{"XCloseDisplay", &CloseDisplay},
 		{"XDefaultScreen", &DefaultScreen},
 		{"XDefaultRootWindow", &DefaultRootWindow},
 		{"XCreateSimpleWindow", &CreateSimpleWindow},
@@ -622,7 +635,7 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"Xutf8LookupString", &Xutf8LookupString},
 	}
 
-	missing, ok = load_symbols(LIB_X11, x11_symbols)
+	lib_x11, missing, ok = load_symbols(LIB_X11, x11_symbols)
 
 	if !ok {
 		return
@@ -635,5 +648,25 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"XcursorLibraryLoadCursor", &cursorLibraryLoadCursor},
 	}
 
-	return load_symbols(LIB_XCURSOR, xcursor_symbols)
+	lib_xcursor, missing, ok = load_symbols(LIB_XCURSOR, xcursor_symbols)
+
+	if !ok {
+		unload()
+		return
+	}
+
+	return "", true
+}
+
+// Closes the libraries again, for when X11 turns out to be unusable after all.
+unload :: proc() {
+	if lib_xcursor != nil {
+		dynlib.unload_library(lib_xcursor)
+		lib_xcursor = nil
+	}
+
+	if lib_x11 != nil {
+		dynlib.unload_library(lib_x11)
+		lib_x11 = nil
+	}
 }

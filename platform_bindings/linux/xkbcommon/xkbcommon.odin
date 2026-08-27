@@ -70,6 +70,9 @@ state_key_get_utf8: proc "c" (
 
 LIB_XKBCOMMON :: "libxkbcommon.so.0"
 
+@(private)
+lib: dynlib.Library
+
 // Loads libxkbcommon. On failure `missing` names the library or the symbol that was not found.
 load :: proc() -> (missing: string, ok: bool) {
 	symbols := [?]struct {
@@ -86,9 +89,11 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"xkb_state_key_get_utf8", &state_key_get_utf8},
 	}
 
-	lib, lib_ok := dynlib.load_library(LIB_XKBCOMMON)
+	lib_ok: bool
+	lib, lib_ok = dynlib.load_library(LIB_XKBCOMMON)
 
 	if !lib_ok {
+		lib = nil
 		return LIB_XKBCOMMON, false
 	}
 
@@ -96,7 +101,7 @@ load :: proc() -> (missing: string, ok: bool) {
 		addr, addr_ok := dynlib.symbol_address(lib, s.name)
 
 		if !addr_ok {
-			dynlib.unload_library(lib)
+			unload()
 			return s.name, false
 		}
 
@@ -104,4 +109,12 @@ load :: proc() -> (missing: string, ok: bool) {
 	}
 
 	return "", true
+}
+
+// Closes the library again, for when Wayland turns out to be unusable after all.
+unload :: proc() {
+	if lib != nil {
+		dynlib.unload_library(lib)
+		lib = nil
+	}
 }

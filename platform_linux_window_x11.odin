@@ -6,7 +6,7 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	state_size = x11_state_size,
-	load_libraries = x11_load_libraries,
+	probe = x11_probe,
 	init = x11_init,
 	shutdown = x11_shutdown,
 	get_window_render_glue = x11_get_window_render_glue,
@@ -47,7 +47,7 @@ x11_state_size :: proc() -> int {
 	return size_of(X11_State)
 }
 
-x11_load_libraries :: proc() -> bool {
+x11_probe :: proc() -> bool {
 	missing, ok := X.load()
 
 	if !ok {
@@ -55,6 +55,17 @@ x11_load_libraries :: proc() -> bool {
 		return false
 	}
 
+	// The libraries being installed does not mean there is a server to talk to, so open a display
+	// and throw it away again. `x11_init` opens the one that gets used.
+	display := X.OpenDisplay(nil)
+
+	if display == nil {
+		X.unload()
+		log.info("Not using X11. Could not open a display.")
+		return false
+	}
+
+	X.CloseDisplay(display)
 	return true
 }
 

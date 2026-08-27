@@ -4,7 +4,7 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	state_size = wl_state_size,
-	load_libraries = wl_load_libraries,
+	probe = wl_probe,
 	init = wl_init,
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
@@ -53,13 +53,26 @@ wl_state_size :: proc() -> int {
 	return size_of(WL_State)
 }
 
-wl_load_libraries :: proc() -> bool {
+wl_probe :: proc() -> bool {
 	if missing, ok := wl.load(); !ok {
 		log.infof("Not using Wayland. Could not load %v.", missing)
 		return false
 	}
 
+	// The libraries being installed does not mean there is a compositor to talk to, so connect and
+	// throw the connection away again. `wl_init` makes the one that gets used.
+	display := wl.display_connect(nil)
+
+	if display == nil {
+		wl.unload()
+		log.info("Not using Wayland. Could not connect to a compositor.")
+		return false
+	}
+
+	wl.display_disconnect(display)
+
 	if missing, ok := xkb.load(); !ok {
+		wl.unload()
 		log.infof("Not using Wayland. Could not load %v.", missing)
 		return false
 	}

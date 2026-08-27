@@ -87,14 +87,27 @@ Symbol :: struct {
 	ptr:  rawptr,
 }
 
-// Loads `library_name` and fills in every symbol in `symbols`. On failure `missing` names the
-// library or the symbol that was not found.
 @(private)
-load_symbols :: proc(library_name: string, symbols: []Symbol) -> (missing: string, ok: bool) {
-	lib, lib_ok := dynlib.load_library(library_name)
+lib_client: dynlib.Library
+
+@(private)
+lib_egl: dynlib.Library
+
+@(private)
+lib_cursor: dynlib.Library
+
+// Loads `library_name` and fills in every symbol in `symbols`. On failure `missing` names the
+// library or the symbol that was not found, and the library is closed again.
+@(private)
+load_symbols :: proc(
+	library_name: string,
+	symbols: []Symbol,
+) -> (lib: dynlib.Library, missing: string, ok: bool) {
+	lib_ok: bool
+	lib, lib_ok = dynlib.load_library(library_name)
 
 	if !lib_ok {
-		return library_name, false
+		return nil, library_name, false
 	}
 
 	for s in symbols {
@@ -102,13 +115,13 @@ load_symbols :: proc(library_name: string, symbols: []Symbol) -> (missing: strin
 
 		if !addr_ok {
 			dynlib.unload_library(lib)
-			return s.name, false
+			return nil, s.name, false
 		}
 
 		(^rawptr)(s.ptr)^ = addr
 	}
 
-	return "", true
+	return lib, "", true
 }
 
 // Loads the three Wayland libraries. On failure `missing` names the library or symbol that was not
@@ -127,7 +140,7 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"wl_proxy_destroy", &proxy_destroy},
 	}
 
-	missing, ok = load_symbols(LIB_WAYLAND_CLIENT, client_symbols)
+	lib_client, missing, ok = load_symbols(LIB_WAYLAND_CLIENT, client_symbols)
 
 	if !ok {
 		return
@@ -139,9 +152,10 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"wl_egl_window_destroy", &egl_window_destroy},
 	}
 
-	missing, ok = load_symbols(LIB_WAYLAND_EGL, egl_symbols)
+	lib_egl, missing, ok = load_symbols(LIB_WAYLAND_EGL, egl_symbols)
 
 	if !ok {
+		unload()
 		return
 	}
 
@@ -152,5 +166,30 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"wl_cursor_image_get_buffer", &cursor_image_get_buffer},
 	}
 
-	return load_symbols(LIB_WAYLAND_CURSOR, cursor_symbols)
+	lib_cursor, missing, ok = load_symbols(LIB_WAYLAND_CURSOR, cursor_symbols)
+
+	if !ok {
+		unload()
+		return
+	}
+
+	return "", true
+}
+
+// Closes the libraries again, for when Wayland turns out to be unusable after all.
+unload :: proc() {
+	if lib_cursor != nil {
+		dynlib.unload_library(lib_cursor)
+		lib_cursor = nil
+	}
+
+	if lib_egl != nil {
+		dynlib.unload_library(lib_egl)
+		lib_egl = nil
+	}
+
+	if lib_client != nil {
+		dynlib.unload_library(lib_client)
+		lib_client = nil
+	}
 }

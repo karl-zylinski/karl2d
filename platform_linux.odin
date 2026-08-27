@@ -61,27 +61,21 @@ linux_init :: proc(
 	assert(platform_state != nil)
 	s = (^Linux_State)(platform_state)
 	s.allocator = allocator
-	xdg_session_type := os.get_env("XDG_SESSION_TYPE", frame_allocator)
-	prefer_wayland := xdg_session_type == "wayland"
+	// Wayland is tried first and X11 second, the way SDL and GLFW order them. Each probe both
+	// loads the libraries and checks that there is a server listening, so a Wayland session picks
+	// Wayland, an X11 session finds no compositor and falls through, and a machine that has only
+	// one of the two installed gets the one it has. Environment variables are not consulted here:
+	// `display_connect` and `OpenDisplay` already read the ones that matter, and they answer the
+	// question that is actually being asked.
+	s.win = LINUX_WINDOW_WAYLAND
 
-	if prefer_wayland {
-		s.win = LINUX_WINDOW_WAYLAND
-	} else {
+	if !s.win.probe() {
 		s.win = LINUX_WINDOW_X11
-	}
 
-	if !s.win.load_libraries() {
-		// The session type says what the compositor is, not what is installed. Try the other one
-		// before giving up, so a machine with only one of them still runs.
-		if prefer_wayland {
-			s.win = LINUX_WINDOW_X11
-		} else {
-			s.win = LINUX_WINDOW_WAYLAND
-		}
-
-		if !s.win.load_libraries() {
-			log.panicf(
-				"Failed loading the libraries for X11 and for Wayland. Karl2D needs one of them.",
+		if !s.win.probe() {
+			log.panic(
+				"Found neither Wayland nor X11. Karl2D needs one of them. The reason each was " +
+				"turned down is logged above.",
 			)
 		}
 	}
@@ -699,9 +693,10 @@ Linux_State :: struct {
 Linux_Window_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 
-	// Loads the shared libraries this windowing system needs. Returns false when one of them is
-	// missing, which is how a machine that only has X11 or only has Wayland installed is detected.
-	load_libraries: proc() -> bool,
+	// Reports whether this windowing system can be used, by loading its shared libraries and
+	// connecting to its server. Returns false when either step fails, and closes the libraries
+	// again when it does. On success the libraries stay loaded for `init` to use.
+	probe: proc() -> bool,
 
 	init: proc(
 		window_state: rawptr,
