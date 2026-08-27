@@ -13,7 +13,6 @@
 package karl2d_coordinate_system_test
 
 import k2 "../.."
-import "core:sync"
 import "core:testing"
 
 RT_W :: 64

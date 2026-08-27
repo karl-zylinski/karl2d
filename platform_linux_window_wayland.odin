@@ -1019,14 +1019,14 @@ wl_apply_cursor :: proc() {
 	wl.surface_commit(s.cursor_surface)
 }
 
-wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
 	stride := image.width * 4
 	size := stride * image.height
 
 	fd, fd_err := linux.memfd_create("cursor", {})
 	if fd_err != .NONE {
 		log.errorf("Failed to create Wayland cursor: memfd failed with %v", fd_err)
-		return {}
+		return {}, false
 	}
 
 	// The compositor dups the fd in shm_create_pool, so we don't have to keep ours around.
@@ -1034,13 +1034,13 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor 
 
 	if trunc_err := linux.ftruncate(fd, i64(size)); trunc_err != .NONE {
 		log.errorf("Failed to create Wayland cursor: ftruncate failed with %v", trunc_err)
-		return {}
+		return {}, false
 	}
 
 	data, mmap_err := linux.mmap(0, uint(size), {.READ, .WRITE}, {.SHARED}, fd, 0)
 	if mmap_err != .NONE {
 		log.errorf("Failed to create Wayland cursor: mmap failed with %v", mmap_err)
-		return {}
+		return {}, false
 	}
 
 	// Convert to ARGB and premultiply alpha
@@ -1090,10 +1090,10 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor 
 		wl.surface_destroy(cursor.surface)
 		wl.buffer_destroy(cursor.buffer)
 		linux.munmap(cursor.data, uint(cursor.data_size))
-		return {}
+		return {}, false
 	}
 
-	return handle
+	return handle, true
 }
 
 // A cursor image is sized in physical pixels, like everything else in Karl2D, but a Wayland surface

@@ -86,13 +86,21 @@ Render_Backend_Interface :: struct #all_or_none {
 
 	set_internal_state: proc(state: rawptr),
 
-	create_texture: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle,
-	load_texture: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle,
+	create_texture: proc(width: int, height: int, format: Pixel_Format) -> (Texture_Handle, bool),
+	load_texture: proc(
+		data: []u8,
+		width: int,
+		height: int,
+		format: Pixel_Format,
+	) -> (Texture_Handle, bool),
 	update_texture: proc(handle: Texture_Handle, data: []u8, rect: Rect) -> bool,
 	destroy_texture: proc(handle: Texture_Handle),
 	texture_needs_vertical_flip: proc(handle: Texture_Handle) -> bool,
 
-	create_render_texture: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle),
+	create_render_texture: proc(
+		width: int,
+		height: int,
+	) -> (Texture_Handle, Render_Target_Handle, bool),
 	destroy_render_target: proc(render_texture: Render_Target_Handle),
 	
 	set_texture_filter: proc(
@@ -110,6 +118,7 @@ Render_Backend_Interface :: struct #all_or_none {
 	) -> (
 		handle: Shader_Handle,
 		desc: Shader_Desc,
+		ok: bool,
 	),
 
 	destroy_shader: proc(shader: Shader_Handle),

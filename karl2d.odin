@@ -157,7 +157,14 @@ init :: proc(
 	// shader for textured drawing and shape drawing. It's just a white box.
 	white_rect: [16*16*4]u8
 	slice.fill(white_rect[:], 255)
-	s.shape_drawing_texture = rb.load_texture(white_rect[:], 16, 16, .RGBA_8_Norm)
+	shape_drawing_texture, shape_drawing_texture_ok := rb.load_texture(
+		white_rect[:],
+		16,
+		16,
+		.RGBA_8_Norm,
+	)
+	log.assertf(shape_drawing_texture_ok, "Failed loading shape drawing texture")
+	s.shape_drawing_texture = shape_drawing_texture
 
 	// The default shader will arrive in a different format depending on backend. GLSL for GL,
 	// HLSL for d3d etc.
@@ -1721,26 +1728,52 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 //--------------------//
 
 // Create an empty texture.
-create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture {
-	h := rb.create_texture(width, height, format)
+//
+// The second return value is `true` if the texture was created correctly. It's optional to handle
+// this error, it will also be logged. In case of failure, the returned `Texture` will still be
+// possible to use, but it won't draw anything.
+create_texture :: proc(
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture, bool) #optional_ok {
+	h, h_ok := rb.create_texture(width, height, format)
+
+	if !h_ok {
+		log.errorf(
+			"Failed creating texture with dimensions %v x %v and pixel format %v",
+			width,
+			height,
+			format,
+		)
+
+		return {}, false
+	}
 
 	return {
 		handle = h,
 		width = width,
 		height = height,
-	}
+	}, true
 }
 
 // Load a texture from disk and upload it to the GPU so you can draw it to the screen.
 // Supports PNG, BMP, TGA and baseline PNG. Note that progressive PNG files are not supported!
 //
 // The `options` parameter can be used to specify things things such as premultiplication of alpha.
-load_texture_from_file :: proc(filename: string, options: Load_Texture_Options = {}) -> Texture {
+//
+// The second return value is `true` if the texture was loaded correctly. It's optional to handle
+// this error, it will also be logged. In case of failure, the returned `Texture` will still be
+// possible to use, but it won't draw anything.
+load_texture_from_file :: proc(
+	filename: string,
+	options: Load_Texture_Options = {},
+) -> (Texture, bool) #optional_ok {
 	data, data_ok := read_entire_file(filename, frame_allocator)
 
 	if !data_ok {
 		log.errorf("Failed loading texture %s", filename)
-		return {}
+		return {}, false
 	}
 
 	load_options := image.Options {
@@ -1755,7 +1788,7 @@ load_texture_from_file :: proc(filename: string, options: Load_Texture_Options =
 
 	if img_err != nil {
 		log.errorf("Error loading texture '%v': %v", filename, img_err)
-		return {}
+		return {}, false
 	}
 
 	return load_texture_from_bytes_raw(img.pixels.buf[:], img.width, img.height, .RGBA_8_Norm)
@@ -1765,7 +1798,14 @@ load_texture_from_file :: proc(filename: string, options: Load_Texture_Options =
 // Supports PNG, BMP, TGA and baseline PNG. Note that progressive PNG files are not supported!
 //
 // The `options` parameter can be used to specify things things such as premultiplication of alpha.
-load_texture_from_bytes :: proc(bytes: []u8, options: Load_Texture_Options = {}) -> Texture {
+//
+// The second return value is `true` if the texture was loaded correctly. It's optional to handle
+// this error, it will also be logged. In case of failure, the returned `Texture` will still be
+// possible to use, but it won't draw anything.
+load_texture_from_bytes :: proc(
+	bytes: []u8,
+	options: Load_Texture_Options = {},
+) -> (Texture, bool) #optional_ok {
 	load_options := image.Options {
 		.alpha_add_if_missing,
 	}
@@ -1778,7 +1818,7 @@ load_texture_from_bytes :: proc(bytes: []u8, options: Load_Texture_Options = {})
 
 	if img_err != nil {
 		log.errorf("Error loading texture: %v", img_err)
-		return {}
+		return {}, false
 	}
 
 	return load_texture_from_bytes_raw(img.pixels.buf[:], img.width, img.height, .RGBA_8_Norm)
@@ -1787,56 +1827,85 @@ load_texture_from_bytes :: proc(bytes: []u8, options: Load_Texture_Options = {})
 // Load raw texture data. You need to specify the data, size and format of the texture yourself.
 // This assumes that there is no header in the data. If your data has a header (you read the data
 // from a file on disk), then please use `load_texture_from_bytes` instead.
-load_texture_from_bytes_raw :: proc(bytes: []u8, width: int, height: int, format: Pixel_Format) -> Texture {
-	backend_tex := rb.load_texture(bytes[:], width, height, format)
+//
+// The second return value is `true` if the texture was loaded correctly. It's optional to handle
+// this error, it will also be logged. In case of failure, the returned `Texture` will still be
+// possible to use, but it won't draw anything.
+load_texture_from_bytes_raw :: proc(
+	bytes: []u8,
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture, bool) #optional_ok {
+	backend_tex, backend_tex_ok := rb.load_texture(bytes[:], width, height, format)
 
-	if backend_tex == TEXTURE_NONE {
-		return {}
+	if !backend_tex_ok {
+		log.errorf(
+			"Failed loading texture with dimensions %v x %v and pixel format %v",
+			width,
+			height,
+			format,
+		)
+
+		return {}, false
 	}
 
 	return {
 		handle = backend_tex,
 		width = width,
 		height = height,
-	}
+	}, true
 }
 
 // Create a GPU texture from an image stored in RAM. There are currently no procedures to manipulate
 // the image. However, you can create an `Image` struct manually and fill out the data as needed.
-load_texture_from_image :: proc(image: Image) -> Texture {
+//
+// The second return value is `true` if the texture was loaded correctly. It's optional to handle
+// this error, it will also be logged. In case of failure, the returned `Texture` will still be
+// possible to use, but it won't draw anything.
+load_texture_from_image :: proc(image: Image) -> (Texture, bool) #optional_ok {
 	if image.width == 0 || image.height == 0 {
 		log.error("Invalid image: Height or width is zero")
-		return {}
+		return {}, false
 	}
 
 	if len(image.pixels) != (image.width*image.height) {
 		log.error("Invalid image: the pixels array is not of size image.width*image.height")
-		return {}
+		return {}, false
 	}
 
-	backend_tex := rb.load_texture(slice.reinterpret([]u8, image.pixels[:]), image.width, image.height, .RGBA_8_Norm)
+	backend_tex, backend_tex_ok := rb.load_texture(
+		slice.reinterpret([]u8, image.pixels[:]),
+		image.width,
+		image.height,
+		.RGBA_8_Norm,
+	)
 
-	if backend_tex == TEXTURE_NONE {
-		return {}
+	if !backend_tex_ok {
+		return {}, false
 	}
 
 	return {
 		handle = backend_tex,
 		width = image.width,
 		height = image.height,
-	}
+	}, true
 }
 
 // Load an image from disk into RAM. Supports the same formats as `load_texture_from_file`. The
 // image is always RGBA8 with straight (non-premultiplied) alpha.
 //
 // Use `destroy_image` when you are done with it.
-load_image :: proc(filename: string) -> Image {
+//
+// The second return value is `true` if the image was loaded correctly. It's optional to handle
+// this error, it will also be logged. In case of failure, the returned `Image` will be empty: it
+// has no pixels and a width and height of zero.
+load_image_from_file :: proc(filename: string) -> (Image, bool) #optional_ok {
 	data, data_ok := read_entire_file(filename, frame_allocator)
 
 	if !data_ok {
 		log.errorf("Failed loading image %s", filename)
-		return {}
+		return {}, false
 	}
 
 	return load_image_from_bytes(data)
@@ -1847,7 +1916,11 @@ load_image :: proc(filename: string) -> Image {
 // (non-premultiplied) alpha.
 //
 // Use `destroy_image` when you are done with it.
-load_image_from_bytes :: proc(bytes: []u8) -> Image {
+//
+// The second return value is `true` if the image was loaded correctly. It's optional to handle
+// this error, it will also be logged. In case of failure, the returned `Image` will be empty: it
+// has no pixels and a width and height of zero.
+load_image_from_bytes :: proc(bytes: []u8) -> (Image, bool) #optional_ok {
 	img, img_err := image.load_from_bytes(
 		bytes,
 		options = {.alpha_add_if_missing},
@@ -1856,7 +1929,7 @@ load_image_from_bytes :: proc(bytes: []u8) -> Image {
 
 	if img_err != nil {
 		log.errorf("Error loading image: %v", img_err)
-		return {}
+		return {}, false
 	}
 
 	if img.depth != 8 || img.channels != 4 {
@@ -1865,7 +1938,7 @@ load_image_from_bytes :: proc(bytes: []u8) -> Image {
 			img.depth, img.channels,
 		)
 		image.destroy(img, s.frame_allocator)
-		return {}
+		return {}, false
 	}
 
 	pixels := make([]Color, img.width*img.height, s.allocator)
@@ -1878,10 +1951,15 @@ load_image_from_bytes :: proc(bytes: []u8) -> Image {
 	}
 
 	image.destroy(img, s.frame_allocator)
-	return res
+	return res, true
 }
 
-// Destroy an image previously loaded using `load_image` or `load_image_from_bytes`.
+@(deprecated="Use load_image_from_file instead")
+load_image :: proc(filename: string) -> (Image, bool) #optional_ok {
+	return load_image_from_file(filename)
+}
+
+// Destroy an image previously loaded using `load_image_from_file` or `load_image_from_bytes`.
 destroy_image :: proc(img: Image) {
 	delete(img.pixels, s.allocator)
 }
@@ -2280,12 +2358,16 @@ get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
 //
 // Supports mono and stereo WAV files with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
 // float samples.
-load_audio_clip_from_file :: proc(filename: string) -> Audio_Clip {
+//
+// The second return value is `true` if the audio clip was loaded correctly. It's optional to
+// handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
+// still be possible to use, but it won't play anything.
+load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optional_ok {
 	data, data_ok := read_entire_file(filename, frame_allocator)
 
 	if !data_ok {
 		log.errorf("Failed to load audio clip from file '%v'", filename)
-		return AUDIO_CLIP_NONE
+		return AUDIO_CLIP_NONE, false
 	}
 
 	return load_audio_clip_from_bytes(data)
@@ -2297,16 +2379,20 @@ load_audio_clip_from_file :: proc(filename: string) -> Audio_Clip {
 // Supports mono and stereo WAV data with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
 // float samples. Note that the data should be the entire WAV file, including the header. If your
 // data does not include the header, then please use `load_audio_clip_from_bytes_raw`.
-load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip {
+//
+// The second return value is `true` if the audio clip was loaded correctly. It's optional to
+// handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
+// still be possible to use, but it won't play anything.
+load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool) #optional_ok {
 	// A WAV file is a RIFF file: A 12 byte header followed by any number of chunks.
 	if len(bytes) < 12 {
 		log.error("Invalid wav file: Too small to contain a RIFF header")
-		return AUDIO_CLIP_NONE
+		return
 	}
 
 	if string(bytes[:4]) != "RIFF" {
 		log.error("Invalid wav file: No RIFF identifier")
-		return AUDIO_CLIP_NONE
+		return
 	}
 
 	// This size can only fail to read if there are less than four bytes left, which the check above
@@ -2315,7 +2401,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip {
 
 	if string(bytes[8:12]) != "WAVE" {
 		log.error("Invalid wav file: Not WAVE format")
-		return AUDIO_CLIP_NONE
+		return
 	}
 
 	// `riff_size` counts everything after itself. Some programs write a size that doesn't match the
@@ -2367,7 +2453,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip {
 			//	bits_per_sample: u16
 			if len(content) < 16 {
 				log.errorf("Invalid wav fmt chunk: Size is %v, expected at least 16", len(content))
-				return AUDIO_CLIP_NONE
+				return
 			}
 
 			audio_format, _ := endian.get_u16(content[0:2], .Little)
@@ -2384,7 +2470,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip {
 				if len(content) < 26 {
 					log.errorf("Invalid wav fmt chunk: Size is %v, too small for an extensible " +
 						"sub format", len(content))
-					return AUDIO_CLIP_NONE
+					return
 				}
 
 				audio_format, _ = endian.get_u16(content[24:26], .Little)
@@ -2392,7 +2478,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip {
 
 			if fmt_sample_rate == 0 {
 				log.error("Invalid wav fmt chunk: Sample rate is zero")
-				return AUDIO_CLIP_NONE
+				return
 			}
 
 			switch num_channels {
@@ -2402,7 +2488,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip {
 				channels = .Stereo
 			case:
 				log.errorf("Unsupported number of channels in wav fmt chunk: %v", num_channels)
-				return AUDIO_CLIP_NONE
+				return
 			}
 
 			switch audio_format {
@@ -2418,7 +2504,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip {
 					format = .Integer32
 				case:
 					log.errorf("Unsupported bits per sample in wav fmt chunk: %v", bits_per_sample)
-					return AUDIO_CLIP_NONE
+					return
 				}
 
 			case WAV_FORMAT_FLOAT:
@@ -2432,12 +2518,12 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip {
 						"Unsupported bits per sample in float wav fmt chunk: %v",
 						bits_per_sample,
 					)
-					return AUDIO_CLIP_NONE
+					return
 				}
 
 			case:
 				log.errorf("Unsupported format in wav fmt chunk: %v", audio_format)
-				return AUDIO_CLIP_NONE
+				return
 			}
 
 			sample_rate = int(fmt_sample_rate)
@@ -2460,12 +2546,12 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip {
 
 	if !has_fmt {
 		log.error("Invalid wav file: No fmt chunk")
-		return AUDIO_CLIP_NONE
+		return
 	}
 
 	if !has_data {
 		log.error("Invalid wav file: No data chunk")
-		return AUDIO_CLIP_NONE
+		return
 	}
 
 	return load_audio_clip_from_bytes_raw(samples, format, sample_rate, channels)
@@ -2475,12 +2561,16 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> Audio_Clip {
 // rate of the sound yourself. This assumes that there is no header in the data. If your data has a
 // header (for example, you read a whole WAV file from disk), then please use
 // `load_audio_clip_from_bytes` instead.
+//
+// The second return value is `true` if the audio clip was loaded correctly. It's optional to
+// handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
+// still be possible to use, but it won't play anything.
 load_audio_clip_from_bytes_raw :: proc(
 	bytes: []u8,
 	format: Raw_Audio_Format,
 	sample_rate: int,
 	channels: Audio_Channels,
-) -> Audio_Clip {
+) -> (Audio_Clip, bool) #optional_ok {
 	samples: []Audio_Sample
 
 	switch format{
@@ -2542,10 +2632,10 @@ load_audio_clip_from_bytes_raw :: proc(
 
 	if audio_clip_add_error != nil {
 		log.errorf("Failed to load audio clip. Error: %v", audio_clip_add_error)
-		return AUDIO_CLIP_NONE
+		return AUDIO_CLIP_NONE, false
 	}
 
-	return audio_clip
+	return audio_clip, true
 }
 
 // Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Also stops sounds
@@ -2576,12 +2666,21 @@ destroy_audio_clip :: proc(clip: Audio_Clip)  {
 //
 // Audio streams do not stream in data automatically from the disk. You need to call
 // `update_audio_stream` every frame to stream in the new data.
-load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
+//
+// The second return value is `true` if the audio stream was loaded correctly. It's optional to
+// handle this error, it will also be logged. In case of failure, the returned `Audio_Stream` will
+// still be possible to use, but it won't play anything.
+load_audio_stream_from_file :: proc(
+	filename: string,
+) -> (
+	_stream: Audio_Stream,
+	_ok: bool,
+) #optional_ok {
 	f, f_err := file_open(filename)
 
 	if f_err != nil {
 		log.errorf("Failed opening file %v. Error: %v", filename, f_err)
-		return AUDIO_STREAM_NONE
+		return
 	}
 
 	buf := make([dynamic]u8, frame_allocator)
@@ -2595,7 +2694,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 			log.errorf("Failed closing file. Error: %v", close_err)
 		}
 		
-		return AUDIO_STREAM_NONE
+		return
 	}
 
 	vorbis_buffer := stbv.vorbis_alloc {
@@ -2629,7 +2728,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 				log.errorf("Failed seeking in audio stream file %v. Error: %v", filename, seek_err)
 				file_close(f)
 				free(vorbis_buffer.alloc_buffer, s.allocator)
-				return AUDIO_STREAM_NONE
+				return
 			}
 
 			break
@@ -2642,14 +2741,14 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 				log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
 				file_close(f)
 				free(vorbis_buffer.alloc_buffer, s.allocator)
-				return AUDIO_STREAM_NONE
+				return
 			}
 
 			if nbytes_read == 0 {
 				log.errorf("Failed to load audio stream. Reached end of file before stream could be loaded.")
 				file_close(f)
 				free(vorbis_buffer.alloc_buffer, s.allocator)
-				return AUDIO_STREAM_NONE
+				return
 			}
 
 			append(&buf, ..read_buf[:nbytes_read])
@@ -2657,7 +2756,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 			log.errorf("Failed to load audio stream. Error: %v", vorbis_err)
 			file_close(f)
 			free(vorbis_buffer.alloc_buffer, s.allocator)
-			return AUDIO_STREAM_NONE
+			return
 		}
 	}
 
@@ -2676,7 +2775,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		}
 				
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE
+		return
 	}
 
 	audio_clip := Audio_Clip_Object {
@@ -2696,7 +2795,7 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 
 		delete(audio_clip.samples, s.allocator)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE
+		return
 	}
 
 	asd := Audio_Stream_Data {
@@ -2718,10 +2817,10 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 		delete(audio_clip.samples, s.allocator)
 		hm.remove(&s.audio_clips, audio_clip_handle)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE
+		return
 	}
 
-	return stream
+	return stream, true
 }
 
 // Load an audio stream from a byte slice that is completely in memory. This makes it possible to
@@ -2747,7 +2846,16 @@ load_audio_stream_from_file :: proc(filename: string) -> Audio_Stream {
 // disk. For normal sounds there is a `load_audio_clip_from_bytes_raw` procedure where you just send
 // in the samples. There is no such procedure for audio streams since the whole idea is to stream an
 // encoded file into memory without having to decode the whole thing first.
-load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
+//
+// The second return value is `true` if the audio stream was loaded correctly. It's optional to
+// handle this error, it will also be logged. In case of failure, the returned `Audio_Stream` will
+// still be possible to use, but it won't play anything.
+load_audio_stream_from_bytes :: proc(
+	bytes: []u8,
+) -> (
+	_stream: Audio_Stream,
+	_ok: bool,
+) #optional_ok {
 	vorbis_err: stbv.Error
 
 	vorbis_buffer := stbv.vorbis_alloc {
@@ -2767,7 +2875,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 	if vorbis_err != nil {
 		log.errorf("Failed opening audio stream from bytes. Error: %v", vorbis_err)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE
+		return
 	}
 
 	info := stbv.get_info(vorbis_res)
@@ -2780,7 +2888,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 	} else{
 		log.errorf("Unsupported number of channels: %v", info.channels)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE
+		return
 	}
 
 	audio_clip := Audio_Clip_Object {
@@ -2795,7 +2903,7 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		log.errorf("Failed to load audio stream. Error: %v", audio_clip_handle_add_err)
 		delete(audio_clip.samples, s.allocator)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE
+		return
 	}
 
 	asd := Audio_Stream_Data {
@@ -2814,10 +2922,10 @@ load_audio_stream_from_bytes :: proc(bytes: []u8) -> Audio_Stream {
 		delete(audio_clip.samples, s.allocator)
 		hm.remove(&s.audio_clips, audio_clip_handle)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return AUDIO_STREAM_NONE
+		return
 	}
 
-	return stream
+	return stream, true
 }
 
 // Destroy an audio stream previously loaded using `load_audio_stream_from_file` or
@@ -3703,8 +3811,17 @@ update_audio_mixer :: proc() {
 
 // Create a texture that you can render into. Meaning that you can draw into it instead of drawing
 // onto the screen. Use `set_render_texture` to enable this Render Texture for drawing.
-create_render_texture :: proc(width: int, height: int) -> Render_Texture {
-	texture, render_target := rb.create_render_texture(width, height)
+//
+// The second return value is `true` if the render texture was created correctly. It's optional to
+// handle this error, it will also be logged. In case of failure, the returned `Render_Texture`
+// will still be possible to use, but setting it does nothing, so drawing stays where it was.
+create_render_texture :: proc(width: int, height: int) -> (Render_Texture, bool) #optional_ok {
+	texture, render_target, render_texture_ok := rb.create_render_texture(width, height)
+
+	if !render_texture_ok {
+		log.errorf("Failed creating render texture with dimensions %v x %v", width, height)
+		return {}, false
+	}
 
 	return {
 		texture = { 
@@ -3713,7 +3830,7 @@ create_render_texture :: proc(width: int, height: int) -> Render_Texture {
 			height = height,
 		},
 		render_target = render_target,
-	}
+	}, true
 }
 
 // Destroy a Render_Texture previously created using `create_render_texture`.
@@ -3942,12 +4059,21 @@ rotate :: proc(v: Vec2, angle_radians: f32) -> Vec2 {
 //-------//
 
 // Like `load_static_font_from_bytes` but reads a file from disk using a specified name.
-load_static_font_from_file :: proc(filename: string, font_size: f32, codepoints: []rune = {}, options: Font_Options = {}) -> Font {
+//
+// The second return value is `true` if the font was loaded correctly. It's optional to handle this
+// error, it will also be logged. In case of failure, the returned `Font` will still be possible to
+// use, but text drawn with it uses the default font.
+load_static_font_from_file :: proc(
+	filename: string,
+	font_size: f32,
+	codepoints: []rune = {},
+	options: Font_Options = {},
+) -> (Font, bool) #optional_ok {
 	data, data_ok := read_entire_file(filename, s.frame_allocator)
 
 	if !data_ok {
 		log.errorf("Failed loading font %s", filename)
-		return FONT_NONE
+		return FONT_NONE, false
 	}
 
 	return load_static_font_from_bytes(data, font_size, codepoints, options)
@@ -3956,12 +4082,16 @@ load_static_font_from_file :: proc(filename: string, font_size: f32, codepoints:
 // Load the TTF font contained in `data` and bake it into a texture. The characters in the texture
 // will be of of the specified `font_size`. If you do not specify a list of `codepoints`, then this
 // procedure defaults to using all codepoints between 32 to 127 (ASCII).
+//
+// The second return value is `true` if the font was loaded correctly. It's optional to handle this
+// error, it will also be logged. In case of failure, the returned `Font` will still be possible to
+// use, but text drawn with it uses the default font.
 load_static_font_from_bytes :: proc(
 	data: []byte,
 	font_size: f32,
 	codepoints: []rune = {},
 	options: Font_Options = {},
-) -> Font {
+) -> (_font: Font, _ok: bool) #optional_ok {
 	codepoints := codepoints
 	font_info: stbtt.fontinfo
 	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), 0)
@@ -3969,7 +4099,7 @@ load_static_font_from_bytes :: proc(
 
 	if !init_ok {
 		log.error("Failed loading TTF/TTC font")
-		return FONT_NONE
+		return
 	}
 
 	scale_factor := stbtt.ScaleForPixelHeight(&font_info, font_size)
@@ -4107,7 +4237,7 @@ load_static_font_from_bytes :: proc(
 
 	if !atlas_packed {
 		log.error("Failed packing font atlas")
-		return {}
+		return
 	}
 
 	atlas := make([]Color, atlas_size*atlas_size, s.frame_allocator)
@@ -4210,16 +4340,23 @@ load_static_font_from_bytes :: proc(
 
 	font_handle := Font(len(s.fonts))
 	append(&s.fonts, font)
-	return font_handle
+	return font_handle, true
 }
 
 // Like `load_dynamic_font_from_bytes`, but reads a file from disk using a filename.
-load_dynamic_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font {
+//
+// The second return value is `true` if the font was loaded correctly. It's optional to handle this
+// error, it will also be logged. In case of failure, the returned `Font` will still be possible to
+// use, but text drawn with it uses the default font.
+load_dynamic_font_from_file :: proc(
+	filename: string,
+	options: Font_Options = {},
+) -> (Font, bool) #optional_ok {
 	data, data_ok := read_entire_file(filename, s.frame_allocator)
 
 	if !data_ok {
 		log.errorf("Failed loading font %s", filename)
-		return FONT_NONE
+		return FONT_NONE, false
 	}
 
 	return load_dynamic_font_from_bytes(data, options)
@@ -4227,14 +4364,40 @@ load_dynamic_font_from_file :: proc(filename: string, options: Font_Options = {}
 
 // Load a TTF font stored in `data` as a dynamic font. This means that an atlas will be dynamically
 // built as you draw characters using this font.
-load_dynamic_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
+//
+// The second return value is `true` if the font was loaded correctly. It's optional to handle this
+// error, it will also be logged. In case of failure, the returned `Font` will still be possible to
+// use, but text drawn with it uses the default font.
+load_dynamic_font_from_bytes :: proc(
+	data: []u8,
+	options: Font_Options = {},
+) -> (Font, bool) #optional_ok {
+	font_info: stbtt.fontinfo
+	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), 0)
+	init_ok := stbtt.InitFont(&font_info, raw_data(data), font_offset)
+
+	if !init_ok {
+		log.error("Failed loading TTF/TTC font")
+		return FONT_NONE, false
+	}
+
 	fontstash_handle := fs.AddFontMem(&s.fs, "", slice.clone(data, s.allocator), false)
 	h := Font(len(s.fonts))
+
+	atlas_texture, atlas_texture_ok := rb.create_texture(
+		FONT_DEFAULT_ATLAS_SIZE,
+		FONT_DEFAULT_ATLAS_SIZE,
+		.RGBA_8_Norm,
+	)
+
+	if !atlas_texture_ok {
+		return FONT_NONE, false
+	}
 
 	data := Font_Data {
 		dynamic_fontstash_handle = fontstash_handle,
 		atlas = {
-			handle = rb.create_texture(FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .RGBA_8_Norm),
+			handle = atlas_texture,
 			width = FONT_DEFAULT_ATLAS_SIZE,
 			height = FONT_DEFAULT_ATLAS_SIZE,
 		},
@@ -4244,16 +4407,19 @@ load_dynamic_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> 
 
 	set_texture_filter(data.atlas, options.filter)
 	append(&s.fonts, data)
-	return h
+	return h, true
 }
 
 @(deprecated="Use load_dynamic_font_from_file or load_static_font_from_file.")
-load_font_from_file :: proc(filename: string, options: Font_Options = {}) -> Font {
+load_font_from_file :: proc(
+	filename: string,
+	options: Font_Options = {},
+) -> (Font, bool) #optional_ok {
 	return load_dynamic_font_from_file(filename, options)
 }
 
 @(deprecated="Use load_dynamic_font_from_bytes or load_static_font_from_bytes")
-load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> Font {
+load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> (Font, bool) #optional_ok {
 	return load_dynamic_font_from_bytes(data, options)
 }
 
@@ -4305,19 +4471,27 @@ set_cursor :: proc(cursor: Cursor) {
 //
 // The cursor does not need `image` after it is created. You may destroy it.
 //
-// If the cursor can't be created, then an error is logged and `CUSTOM_CURSOR_NONE` is returned.
-create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+// The second return value is `true` if the cursor was created correctly. It's optional to handle
+// this error, it will also be logged. In case of failure, the returned `Custom_Cursor` will still
+// be possible to use, but setting it leaves the cursor as it is.
+create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) #optional_ok {
 	if image.width == 0 || image.height == 0 {
 		log.error("Invalid cursor image: height or width is zero")
-		return {}
+		return CUSTOM_CURSOR_NONE, false
 	}
 
 	if len(image.pixels) != image.width*image.height {
 		log.error("Invalid cursor image: the pixels array is not of size image.width*image.height")
-		return {}
+		return CUSTOM_CURSOR_NONE, false
 	}
 
-	return pf.create_custom_cursor(image, hotspot)
+	cursor, cursor_ok := pf.create_custom_cursor(image, hotspot)
+
+	if !cursor_ok {
+		return CUSTOM_CURSOR_NONE, false
+	}
+
+	return cursor, true
 }
 
 // Destroy a cursor previously created using `create_custom_cursor`. If it is the cursor currently
@@ -4352,16 +4526,20 @@ is_cursor_hidden :: proc() -> bool {
 //
 // `layout_formats` can in many cases be left default initialized. It is used to specify the format
 // of the vertex shader inputs. By formats this means the format that you pass on the CPU side.
+//
+// The second return value is `true` if the shader was loaded correctly. It's optional to handle
+// this error, it will also be logged. In case of failure, the returned `Shader` will still be
+// possible to use, but setting it does nothing: drawing carries on with the shader already set.
 load_shader_from_file :: proc(
 	vertex_filename: string,
 	fragment_filename: string,
 	layout_formats: []Pixel_Format = {}
-) -> Shader {
+) -> (Shader, bool) #optional_ok {
 	vertex_source, vertex_source_ok := read_entire_file(vertex_filename, frame_allocator)
 
 	if !vertex_source_ok {
 		log.errorf("Failed loading shader %s", vertex_filename)
-		return {}
+		return {}, false
 	}
 
 	fragment_source: []byte
@@ -4374,7 +4552,7 @@ load_shader_from_file :: proc(
 
 		if !fragment_source_ok {
 			log.errorf("Failed loading shader %s", fragment_filename)
-			return {}
+			return {}, false
 		}
 	}
 
@@ -4383,21 +4561,24 @@ load_shader_from_file :: proc(
 
 // Load a vertex and fragment shader from a block of memory. See `load_shader_from_file` for what
 // `layout_formats` means.
+//
+// The second return value is `true` if the shader was loaded correctly. It's optional to handle
+// this error, it will also be logged. In case of failure, the returned `Shader` will still be
+// possible to use, but setting it does nothing: drawing carries on with the shader already set.
 load_shader_from_bytes :: proc(
 	vertex_shader_bytes: []byte,
 	fragment_shader_bytes: []byte,
 	layout_formats: []Pixel_Format = {},
-) -> Shader {
-	handle, desc := rb.load_shader(
+) -> (Shader, bool) #optional_ok {
+	handle, desc, shader_ok := rb.load_shader(
 		vertex_shader_bytes,
 		fragment_shader_bytes,
 		s.frame_allocator,
 		layout_formats,
 	)
 
-	if handle == SHADER_NONE {
-		log.error("Failed loading shader")
-		return {}
+	if !shader_ok {
+		return {}, false
 	}
 
 	constants_size: int
@@ -4469,7 +4650,7 @@ load_shader_from_bytes :: proc(
 	}
 
 	shd.vertex_size = input_offset
-	return shd
+	return shd, true
 }
 
 // Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`

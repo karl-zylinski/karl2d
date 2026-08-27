@@ -630,7 +630,7 @@ linux_is_mouse_locked :: proc() -> bool {
 	return s.win.is_mouse_locked()
 }
 
-linux_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+linux_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
 	return s.win.create_custom_cursor(image, hotspot)
 }
 
@@ -707,7 +707,7 @@ Linux_Window_Interface :: struct #all_or_none {
 	set_mouse_locked: proc(locked: bool),
 	is_mouse_locked: proc() -> bool,
 
-	create_custom_cursor: proc(image: Image, hotspot: [2]int) -> Custom_Cursor,
+	create_custom_cursor: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool),
 	set_cursor: proc(cursor: Cursor),
 	destroy_custom_cursor: proc(custom_cursor: Custom_Cursor),
 

@@ -500,14 +500,14 @@ web_is_mouse_locked :: proc() -> bool {
 	return s.mouse_locked
 }
 
-web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
 	// There is no hardware cursor API on the web, so we hand the browser a PNG as a data URI and
 	// let CSS do the work. core:image/png can only decode, not encode, so we encode it ourselves;
 	// see encode_png's own comment for why that is fine here.
 	png_bytes, encode_ok := encode_png(image, frame_allocator)
 	if !encode_ok {
 		log.error("Failed to encode cursor image as PNG")
-		return {}
+		return {}, false
 	}
 
 	// Browsers cap `cursor` images at 128 CSS pixels; anything bigger is either clamped or, in
@@ -542,10 +542,10 @@ web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 		delete(cursor.data_uri, s.allocator)
 		delete(cursor.style_value, s.allocator)
 		delete(cursor.style_value_scaled, s.allocator)
-		return {}
+		return {}, false
 	}
 
-	return handle
+	return handle, true
 }
 
 // The `cursor` property sizes its image in CSS pixels, but the rest of Karl2D works in device
