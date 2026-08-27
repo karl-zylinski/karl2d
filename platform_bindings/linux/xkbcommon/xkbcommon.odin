@@ -6,7 +6,7 @@
 package xkbcommon
 
 import "core:c"
-import "../dynload"
+import "core:dynlib"
 
 Context :: struct {}
 Keymap :: struct {}
@@ -70,8 +70,12 @@ state_key_get_utf8: proc "c" (
 
 LIB_XKBCOMMON :: "libxkbcommon.so.0"
 
-load :: proc() -> (err: dynload.Error, what: string) {
-	symbols := []dynload.Symbol {
+// Loads libxkbcommon. On failure `missing` names the library or the symbol that was not found.
+load :: proc() -> (missing: string, ok: bool) {
+	symbols := [?]struct {
+		name: string,
+		ptr:  rawptr,
+	} {
 		{"xkb_context_new", &context_new},
 		{"xkb_context_unref", &context_unref},
 		{"xkb_keymap_new_from_string", &keymap_new_from_string},
@@ -82,5 +86,22 @@ load :: proc() -> (err: dynload.Error, what: string) {
 		{"xkb_state_key_get_utf8", &state_key_get_utf8},
 	}
 
-	return dynload.load(LIB_XKBCOMMON, symbols)
+	lib, lib_ok := dynlib.load_library(LIB_XKBCOMMON)
+
+	if !lib_ok {
+		return LIB_XKBCOMMON, false
+	}
+
+	for s in symbols {
+		addr, addr_ok := dynlib.symbol_address(lib, s.name)
+
+		if !addr_ok {
+			dynlib.unload_library(lib)
+			return s.name, false
+		}
+
+		(^rawptr)(s.ptr)^ = addr
+	}
+
+	return "", true
 }

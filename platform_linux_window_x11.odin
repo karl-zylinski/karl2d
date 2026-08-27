@@ -39,7 +39,7 @@ import hm "core:container/handle_map"
 _ :: log
 _ :: fmt
 
-// The horizontal wheel is button 6 and 7. vendor:x11/xlib stops naming buttons at 5.
+// The horizontal wheel is button 6 and 7. Xlib stops naming buttons at 5.
 BUTTON_WHEEL_LEFT :: X.MouseButton(6)
 BUTTON_WHEEL_RIGHT :: X.MouseButton(7)
 
@@ -48,10 +48,10 @@ x11_state_size :: proc() -> int {
 }
 
 x11_load_libraries :: proc() -> bool {
-	err, what := X.load()
+	missing, ok := X.load()
 
-	if err != .None {
-		log.infof("Not using X11. Error: %v (%v)", err, what)
+	if !ok {
+		log.infof("Not using X11. Could not load %v.", missing)
 		return false
 	}
 
@@ -132,20 +132,15 @@ x11_init :: proc(
 		blank_pixmap := X.CreatePixmap(s.display, s.window, 1, 1, 1)
 		black: X.XColor
 
-		// The binding for this proc is broken, so I fixed it locally.
-		CreatePixmapCursor_Correct :: proc(
-			display:   ^X.Display,
-			source:    X.Pixmap,
-			mask:      X.Pixmap,
-			fg:        ^X.XColor,
-			bg:        ^X.XColor,
-			x:         u32,
-			y:         u32,
-		) -> X.Cursor
-
-		binding := cast(CreatePixmapCursor_Correct)(X.CreatePixmapCursor)
-
-		s.blank_cursor = binding(s.display, blank_pixmap, blank_pixmap, &black, &black, 0, 0)
+		s.blank_cursor = X.CreatePixmapCursor(
+			s.display,
+			blank_pixmap,
+			blank_pixmap,
+			&black,
+			&black,
+			0,
+			0,
+		)
 		X.FreePixmap(s.display, blank_pixmap)
 	}
 	

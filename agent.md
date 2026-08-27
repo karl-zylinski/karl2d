@@ -72,6 +72,7 @@ Write them like a tweet, max 180 characters. Only simple sentences. Only allowed
   // INPUT //
   //-------//
   ```
+- Those boxed section comments belong to `karl2d.odin` only. They organize the public API documentation. Do not use them in any other file, no matter how long it gets: platform backends, bindings and examples group their declarations without them.
 - Long procedures can be split up with short ALL-CAPS section comments: `// CAMERA PANNING`, `// DRAW WORLD` (see `examples/camera/camera.odin`).
 
 ### Handles use a zero value, not `Maybe`

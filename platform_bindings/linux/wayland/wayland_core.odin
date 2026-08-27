@@ -4,7 +4,7 @@
 package wayland
 
 import "core:c"
-import "../dynload"
+import "core:dynlib"
 
 display_connect: proc "c" (name: cstring) -> ^Display
 
@@ -79,11 +79,42 @@ Display :: struct {
 MARSHAL_FLAG_DESTROY :: 1
 
 LIB_WAYLAND_CLIENT :: "libwayland-client.so.0"
-LIB_WAYLAND_EGL     :: "libwayland-egl.so.1"
-LIB_WAYLAND_CURSOR  :: "libwayland-cursor.so.0"
+LIB_WAYLAND_EGL :: "libwayland-egl.so.1"
+LIB_WAYLAND_CURSOR :: "libwayland-cursor.so.0"
 
-load :: proc() -> (err: dynload.Error, what: string) {
-	client_symbols := []dynload.Symbol {
+Symbol :: struct {
+	name: string,
+	ptr:  rawptr,
+}
+
+// Loads `library_name` and fills in every symbol in `symbols`. On failure `missing` names the
+// library or the symbol that was not found.
+@(private)
+load_symbols :: proc(library_name: string, symbols: []Symbol) -> (missing: string, ok: bool) {
+	lib, lib_ok := dynlib.load_library(library_name)
+
+	if !lib_ok {
+		return library_name, false
+	}
+
+	for s in symbols {
+		addr, addr_ok := dynlib.symbol_address(lib, s.name)
+
+		if !addr_ok {
+			dynlib.unload_library(lib)
+			return s.name, false
+		}
+
+		(^rawptr)(s.ptr)^ = addr
+	}
+
+	return "", true
+}
+
+// Loads the three Wayland libraries. On failure `missing` names the library or symbol that was not
+// found, which is how a machine without Wayland installed is detected.
+load :: proc() -> (missing: string, ok: bool) {
+	client_symbols := []Symbol {
 		{"wl_display_connect", &display_connect},
 		{"wl_display_disconnect", &display_disconnect},
 		{"wl_display_dispatch", &display_dispatch},
@@ -96,30 +127,30 @@ load :: proc() -> (err: dynload.Error, what: string) {
 		{"wl_proxy_destroy", &proxy_destroy},
 	}
 
-	err, what = dynload.load(LIB_WAYLAND_CLIENT, client_symbols)
+	missing, ok = load_symbols(LIB_WAYLAND_CLIENT, client_symbols)
 
-	if err != .None {
+	if !ok {
 		return
 	}
 
-	egl_symbols := []dynload.Symbol {
+	egl_symbols := []Symbol {
 		{"wl_egl_window_create", &egl_window_create},
 		{"wl_egl_window_resize", &egl_window_resize},
 		{"wl_egl_window_destroy", &egl_window_destroy},
 	}
 
-	err, what = dynload.load(LIB_WAYLAND_EGL, egl_symbols)
+	missing, ok = load_symbols(LIB_WAYLAND_EGL, egl_symbols)
 
-	if err != .None {
+	if !ok {
 		return
 	}
 
-	cursor_symbols := []dynload.Symbol {
+	cursor_symbols := []Symbol {
 		{"wl_cursor_theme_load", &cursor_theme_load},
 		{"wl_cursor_theme_destroy", &cursor_theme_destroy},
 		{"wl_cursor_theme_get_cursor", &cursor_theme_get_cursor},
 		{"wl_cursor_image_get_buffer", &cursor_image_get_buffer},
 	}
 
-	return dynload.load(LIB_WAYLAND_CURSOR, cursor_symbols)
+	return load_symbols(LIB_WAYLAND_CURSOR, cursor_symbols)
 }

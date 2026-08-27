@@ -41,8 +41,8 @@ Linux_GL_X11_Glue_State :: struct {
 }
 
 linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State, options: Init_Options) -> bool {
-	if err, what := glx.load(); err != .None {
-		log.errorf("Failed loading GLX. Error: %v (%v)", err, what)
+	if missing, ok := glx.load(); !ok {
+		log.errorf("Failed loading GLX. Could not load %v.", missing)
 		return false
 	}
 

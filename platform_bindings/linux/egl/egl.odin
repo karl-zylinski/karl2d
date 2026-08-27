@@ -1,51 +1,39 @@
-// Wraps the slice of vendor:egl that Karl2D's Wayland GL glue needs, loading it with dlopen
+// Partial EGL bindings. Just enough for the Wayland GL glue to make a context. Loaded with dlopen
 // instead of a static foreign import. Karl2D compiles in both the X11 and the Wayland backend and
 // only one of them runs, so linking libEGL unconditionally would require every machine to have it
 // installed.
-//
-// vendor:egl stays imported for its types and constants, which links nothing on its own. Calling
-// a procedure directly on it puts libEGL straight back into the link list.
 package karl2d_egl_bindings
 
-import vendor_egl "vendor:egl"
-import "../dynload"
+import "core:dynlib"
 
-//-------//
-// TYPES //
-//-------//
+NativeDisplayType :: distinct rawptr
+NativeWindowType :: distinct rawptr
+Display :: distinct rawptr
+Surface :: distinct rawptr
+Config :: distinct rawptr
+Context :: distinct rawptr
 
-Boolean           :: vendor_egl.Boolean
-Config            :: vendor_egl.Config
-Context           :: vendor_egl.Context
-Display           :: vendor_egl.Display
-NativeDisplayType :: vendor_egl.NativeDisplayType
-NativeWindowType  :: vendor_egl.NativeWindowType
-Surface           :: vendor_egl.Surface
+Boolean :: b32
 
-//-----------//
-// CONSTANTS //
-//-----------//
+NO_DISPLAY :: Display(uintptr(0))
+NO_SURFACE :: Surface(uintptr(0))
+NO_CONTEXT :: Context(uintptr(0))
 
-NO_CONTEXT :: vendor_egl.NO_CONTEXT
-NO_DISPLAY :: vendor_egl.NO_DISPLAY
-NO_SURFACE :: vendor_egl.NO_SURFACE
+WINDOW_BIT :: 0x0004
+OPENGL_BIT :: 0x0008
 
-NONE                    :: vendor_egl.NONE
-ALPHA_SIZE              :: vendor_egl.ALPHA_SIZE
-BLUE_SIZE               :: vendor_egl.BLUE_SIZE
-CONTEXT_CLIENT_VERSION  :: vendor_egl.CONTEXT_CLIENT_VERSION
-DEPTH_SIZE              :: vendor_egl.DEPTH_SIZE
-GREEN_SIZE              :: vendor_egl.GREEN_SIZE
-OPENGL_API              :: vendor_egl.OPENGL_API
-OPENGL_BIT              :: vendor_egl.OPENGL_BIT
-RED_SIZE                :: vendor_egl.RED_SIZE
-RENDERABLE_TYPE         :: vendor_egl.RENDERABLE_TYPE
-SURFACE_TYPE            :: vendor_egl.SURFACE_TYPE
-WINDOW_BIT              :: vendor_egl.WINDOW_BIT
+ALPHA_SIZE :: 0x3021
+BLUE_SIZE :: 0x3022
+GREEN_SIZE :: 0x3023
+RED_SIZE :: 0x3024
+DEPTH_SIZE :: 0x3025
 
-//------------//
-// PROCEDURES //
-//------------//
+SURFACE_TYPE :: 0x3033
+NONE :: 0x3038
+RENDERABLE_TYPE :: 0x3040
+
+CONTEXT_CLIENT_VERSION :: 0x3098
+OPENGL_API :: 0x30A2
 
 GetDisplay: proc "c" (display: NativeDisplayType) -> Display
 
@@ -91,14 +79,14 @@ gl_set_proc_address :: proc(p: rawptr, name: cstring) {
 	(^rawptr)(p)^ = GetProcAddress(name)
 }
 
-//------//
-// LOAD //
-//------//
-
 LIB_EGL :: "libEGL.so.1"
 
-load :: proc() -> (err: dynload.Error, what: string) {
-	symbols := []dynload.Symbol {
+// Loads libEGL. On failure `missing` names the library or the symbol that was not found.
+load :: proc() -> (missing: string, ok: bool) {
+	symbols := [?]struct {
+		name: string,
+		ptr:  rawptr,
+	} {
 		{"eglGetDisplay", &GetDisplay},
 		{"eglInitialize", &Initialize},
 		{"eglChooseConfig", &ChooseConfig},
@@ -112,5 +100,22 @@ load :: proc() -> (err: dynload.Error, what: string) {
 		{"eglGetProcAddress", &GetProcAddress},
 	}
 
-	return dynload.load(LIB_EGL, symbols)
+	lib, lib_ok := dynlib.load_library(LIB_EGL)
+
+	if !lib_ok {
+		return LIB_EGL, false
+	}
+
+	for s in symbols {
+		addr, addr_ok := dynlib.symbol_address(lib, s.name)
+
+		if !addr_ok {
+			dynlib.unload_library(lib)
+			return s.name, false
+		}
+
+		(^rawptr)(s.ptr)^ = addr
+	}
+
+	return "", true
 }

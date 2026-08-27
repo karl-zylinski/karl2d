@@ -43,8 +43,8 @@ Linux_GL_Wayland_Glue_State :: struct {
 }
 
 linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State, options: Init_Options) -> bool {
-	if err, what := egl.load(); err != .None {
-		log.errorf("Failed loading EGL. Error: %v (%v)", err, what)
+	if missing, ok := egl.load(); !ok {
+		log.errorf("Failed loading EGL. Could not load %v.", missing)
 		return false
 	}
 

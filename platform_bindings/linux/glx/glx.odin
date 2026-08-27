@@ -4,7 +4,7 @@
 package karl2d_glx_bindings
 
 import x11 "../x11"
-import "../dynload"
+import "core:dynlib"
 
 RENDER_TYPE :: 0x8011
 RGBA_BIT :: 0x00000001
@@ -72,8 +72,12 @@ SetProcAddress :: proc(p: rawptr, name: cstring) {
 
 LIB_GL :: "libGL.so.1"
 
-load :: proc() -> (err: dynload.Error, what: string) {
-	symbols := []dynload.Symbol {
+// Loads libGL. On failure `missing` names the library or the symbol that was not found.
+load :: proc() -> (missing: string, ok: bool) {
+	symbols := [?]struct {
+		name: string,
+		ptr:  rawptr,
+	} {
 		{"glXCreateContext", &CreateContext},
 		{"glXDestroyContext", &DestroyContext},
 		{"glXMakeCurrent", &MakeCurrent},
@@ -82,5 +86,22 @@ load :: proc() -> (err: dynload.Error, what: string) {
 		{"glXChooseFBConfig", &ChooseFBConfig},
 	}
 
-	return dynload.load(LIB_GL, symbols)
+	lib, lib_ok := dynlib.load_library(LIB_GL)
+
+	if !lib_ok {
+		return LIB_GL, false
+	}
+
+	for s in symbols {
+		addr, addr_ok := dynlib.symbol_address(lib, s.name)
+
+		if !addr_ok {
+			dynlib.unload_library(lib)
+			return s.name, false
+		}
+
+		(^rawptr)(s.ptr)^ = addr
+	}
+
+	return "", true
 }

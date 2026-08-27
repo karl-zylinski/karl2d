@@ -54,13 +54,13 @@ wl_state_size :: proc() -> int {
 }
 
 wl_load_libraries :: proc() -> bool {
-	if err, what := wl.load(); err != .None {
-		log.infof("Not using Wayland. Error: %v (%v)", err, what)
+	if missing, ok := wl.load(); !ok {
+		log.infof("Not using Wayland. Could not load %v.", missing)
 		return false
 	}
 
-	if err, what := xkb.load(); err != .None {
-		log.infof("Not using Wayland. Error: %v (%v)", err, what)
+	if missing, ok := xkb.load(); !ok {
+		log.infof("Not using Wayland. Could not load %v.", missing)
 		return false
 	}
 
