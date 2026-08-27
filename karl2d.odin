@@ -2249,16 +2249,16 @@ load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optio
 // The second return value is `true` if the audio clip was loaded correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
 // still be possible to use, but it won't play anything.
-load_audio_clip_from_bytes :: proc(bytes: []u8) -> (Audio_Clip, bool) #optional_ok {
+load_audio_clip_from_bytes :: proc(bytes: []u8) -> (clip: Audio_Clip, ok: bool) #optional_ok {
 	// A WAV file is a RIFF file: A 12 byte header followed by any number of chunks.
 	if len(bytes) < 12 {
 		log.error("Invalid wav file: Too small to contain a RIFF header")
-		return AUDIO_CLIP_NONE, false
+		return
 	}
 
 	if string(bytes[:4]) != "RIFF" {
 		log.error("Invalid wav file: No RIFF identifier")
-		return AUDIO_CLIP_NONE, false
+		return
 	}
 
 	// This size can only fail to read if there are less than four bytes left, which the check above
@@ -2267,7 +2267,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (Audio_Clip, bool) #optional_
 
 	if string(bytes[8:12]) != "WAVE" {
 		log.error("Invalid wav file: Not WAVE format")
-		return AUDIO_CLIP_NONE, false
+		return
 	}
 
 	// `riff_size` counts everything after itself. Some programs write a size that doesn't match the
@@ -2319,7 +2319,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (Audio_Clip, bool) #optional_
 			//	bits_per_sample: u16
 			if len(content) < 16 {
 				log.errorf("Invalid wav fmt chunk: Size is %v, expected at least 16", len(content))
-				return AUDIO_CLIP_NONE, false
+				return
 			}
 
 			audio_format, _ := endian.get_u16(content[0:2], .Little)
@@ -2336,7 +2336,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (Audio_Clip, bool) #optional_
 				if len(content) < 26 {
 					log.errorf("Invalid wav fmt chunk: Size is %v, too small for an extensible " +
 						"sub format", len(content))
-					return AUDIO_CLIP_NONE, false
+					return
 				}
 
 				audio_format, _ = endian.get_u16(content[24:26], .Little)
@@ -2344,7 +2344,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (Audio_Clip, bool) #optional_
 
 			if fmt_sample_rate == 0 {
 				log.error("Invalid wav fmt chunk: Sample rate is zero")
-				return AUDIO_CLIP_NONE, false
+				return
 			}
 
 			switch num_channels {
@@ -2354,7 +2354,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (Audio_Clip, bool) #optional_
 				channels = .Stereo
 			case:
 				log.errorf("Unsupported number of channels in wav fmt chunk: %v", num_channels)
-				return AUDIO_CLIP_NONE, false
+				return
 			}
 
 			switch audio_format {
@@ -2370,7 +2370,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (Audio_Clip, bool) #optional_
 					format = .Integer32
 				case:
 					log.errorf("Unsupported bits per sample in wav fmt chunk: %v", bits_per_sample)
-					return AUDIO_CLIP_NONE, false
+					return
 				}
 
 			case WAV_FORMAT_FLOAT:
@@ -2384,12 +2384,12 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (Audio_Clip, bool) #optional_
 						"Unsupported bits per sample in float wav fmt chunk: %v",
 						bits_per_sample,
 					)
-					return AUDIO_CLIP_NONE, false
+					return
 				}
 
 			case:
 				log.errorf("Unsupported format in wav fmt chunk: %v", audio_format)
-				return AUDIO_CLIP_NONE, false
+				return
 			}
 
 			sample_rate = int(fmt_sample_rate)
@@ -2412,12 +2412,12 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (Audio_Clip, bool) #optional_
 
 	if !has_fmt {
 		log.error("Invalid wav file: No fmt chunk")
-		return AUDIO_CLIP_NONE, false
+		return
 	}
 
 	if !has_data {
 		log.error("Invalid wav file: No data chunk")
-		return AUDIO_CLIP_NONE, false
+		return
 	}
 
 	return load_audio_clip_from_bytes_raw(samples, format, sample_rate, channels)
