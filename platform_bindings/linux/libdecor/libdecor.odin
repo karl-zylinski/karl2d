@@ -31,8 +31,6 @@ frame_map: proc "c" (frame: ^Frame)
 
 frame_set_title: proc "c" (frame: ^Frame, title: cstring)
 
-frame_set_app_id: proc "c" (frame: ^Frame, app_id: cstring)
-
 frame_set_min_content_size: proc "c" (frame: ^Frame, width: c.int, height: c.int)
 
 frame_set_max_content_size: proc "c" (frame: ^Frame, width: c.int, height: c.int)
@@ -56,11 +54,6 @@ configuration_get_content_size: proc "c" (
 	frame:         ^Frame,
 	width:         ^c.int,
 	height:        ^c.int,
-) -> c.bool
-
-configuration_get_window_state: proc "c" (
-	configuration: ^Configuration,
-	window_state:  ^c.uint32_t,
 ) -> c.bool
 
 // The two vtables libdecor calls back through. Field order and count must match libdecor.h
@@ -116,7 +109,6 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"libdecor_frame_unref", &frame_unref},
 		{"libdecor_frame_map", &frame_map},
 		{"libdecor_frame_set_title", &frame_set_title},
-		{"libdecor_frame_set_app_id", &frame_set_app_id},
 		{"libdecor_frame_set_min_content_size", &frame_set_min_content_size},
 		{"libdecor_frame_set_max_content_size", &frame_set_max_content_size},
 		{"libdecor_frame_set_capabilities", &frame_set_capabilities},
@@ -127,7 +119,6 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"libdecor_state_new", &state_new},
 		{"libdecor_state_free", &state_free},
 		{"libdecor_configuration_get_content_size", &configuration_get_content_size},
-		{"libdecor_configuration_get_window_state", &configuration_get_window_state},
 	}
 
 	lib_ok: bool

@@ -15,6 +15,7 @@ import wl "platform_bindings/linux/wayland"
 WL_Shell :: struct {
 	xdg_surface:    ^wl.XDG_Surface,
 	toplevel:       ^wl.XDG_Toplevel,   // raw path; also nil-checked to pick the path
+	decoration:     ^wl.ZXDG_Toplevel_Decoration_V1,
 	libdecor_ctx:   ^ld.Libdecor,
 	libdecor_frame: ^ld.Frame,
 }
@@ -55,14 +56,14 @@ wl_shell_create :: proc(window_title: string, window_mode: Window_Mode) {
 	wl_shell_set_window_mode(window_mode)
 
 	if s.decoration_manager != nil {
-		s.decoration = wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
+		s.shell.decoration = wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
 			s.decoration_manager,
 			s.shell.toplevel,
 		)
 
 		// This adds titlebar and buttons to the window.
 		wl.zxdg_toplevel_decoration_v1_set_mode(
-			s.decoration,
+			s.shell.decoration,
 			wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE,
 		)
 	}
@@ -74,8 +75,17 @@ wl_shell_destroy :: proc() {
 		s.shell.libdecor_frame = nil
 		ld.context_unref(s.shell.libdecor_ctx)
 		s.shell.libdecor_ctx = nil
-		ld.unload()
+
+		// The library itself stays loaded, same as ALSA: unloading it at shutdown buys nothing and
+		// runs whatever the plugin registered on the way out.
 		return
+	}
+
+	// Before the toplevel: the decoration protocol raises `orphaned` if its xdg_toplevel goes
+	// first.
+	if s.shell.decoration != nil {
+		wl.zxdg_toplevel_decoration_v1_destroy(s.shell.decoration)
+		s.shell.decoration = nil
 	}
 
 	if s.shell.toplevel != nil {
@@ -105,13 +115,20 @@ wl_shell_set_window_mode :: proc(window_mode: Window_Mode) {
 			ld.frame_unset_fullscreen(s.shell.libdecor_frame)
 			w := c.int(s.last_configure_windowed_width)
 			h := c.int(s.last_configure_windowed_height)
+
+			// Zero means unconstrained, so equal limits are what pin the size.
 			ld.frame_set_min_content_size(s.shell.libdecor_frame, w, h)
 			ld.frame_set_max_content_size(s.shell.libdecor_frame, w, h)
+
+			// Otherwise the frame still offers resize edges and cursors for a size it cannot
+			// actually change.
+			ld.frame_unset_capabilities(s.shell.libdecor_frame, ld.CAPABILITY_RESIZE)
 
 		case .Windowed_Resizable:
 			ld.frame_unset_fullscreen(s.shell.libdecor_frame)
 			ld.frame_set_min_content_size(s.shell.libdecor_frame, 0, 0)
 			ld.frame_set_max_content_size(s.shell.libdecor_frame, 0, 0)
+			ld.frame_set_capabilities(s.shell.libdecor_frame, ld.CAPABILITY_RESIZE)
 
 		case .Borderless_Fullscreen:
 			ld.frame_set_fullscreen(s.shell.libdecor_frame, nil)
@@ -158,8 +175,8 @@ wl_shell_dispatch :: proc(blocking: bool) -> bool {
 // Prefers server-side decorations: KDE, sway and any other compositor with
 // zxdg_decoration_manager_v1 stay on the raw xdg-shell path they use today, and libdecor is only
 // loaded as a fallback for compositors like GNOME's Mutter that never advertise that global.
-// KARL2D_LINUX_DECORATIONS overrides this for debugging on real hardware without a rebuild: "server"
-// always uses server-side (or undecorated) raw xdg-shell, "libdecor" always uses libdecor.
+// KARL2D_LINUX_DECORATIONS overrides this for debugging on real hardware without a rebuild:
+// "server" always uses server-side (or undecorated) raw xdg-shell, "libdecor" always uses libdecor.
 //
 // Accepted limitation: a compositor that advertises the decoration manager and then answers
 // CLIENT_SIDE stays undecorated, because by then the toplevel already exists and switching shells
