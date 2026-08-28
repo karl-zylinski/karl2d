@@ -12,6 +12,8 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 
 	feed = waveout_feed,
 	remaining_samples = waveout_remaining_samples,
+	queued_samples = waveout_queued_samples,
+	target_samples = waveout_target_samples,
 }
 
 import "base:runtime"
@@ -120,4 +122,13 @@ waveout_remaining_samples :: proc() -> int {
 	}
 	win32.waveOutGetPosition(s.device, &t, size_of(win32.MMTIME))
 	return s.submitted_samples - int(t.u.sample)
+}
+
+// Not measured on this backend yet. Zero leaves the mixer on its own defaults.
+waveout_queued_samples :: proc() -> int {
+	return 0
+}
+
+waveout_target_samples :: proc() -> int {
+	return 0
 }

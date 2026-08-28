@@ -11,6 +11,8 @@ AUDIO_BACKEND_WEB_AUDIO :: Audio_Backend_Interface {
 	set_internal_state = web_audio_set_internal_state,
 	feed = web_audio_feed,
 	remaining_samples = web_audio_remaining_samples,
+	queued_samples = web_audio_queued_samples,
+	target_samples = web_audio_target_samples,
 }
 
 import "base:runtime"
@@ -54,4 +56,13 @@ web_audio_feed :: proc(samples: [][2]Audio_Sample) {
 
 web_audio_remaining_samples :: proc() -> int {
 	return js_web_audio_remaining_samples()
+}
+
+// Not measured on this backend yet. Zero leaves the mixer on its own defaults.
+web_audio_queued_samples :: proc() -> int {
+	return 0
+}
+
+web_audio_target_samples :: proc() -> int {
+	return 0
 }

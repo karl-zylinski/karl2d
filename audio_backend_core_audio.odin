@@ -13,6 +13,8 @@ AUDIO_BACKEND_CORE_AUDIO :: Audio_Backend_Interface {
 	feed = core_audio_feed,
 
 	remaining_samples = core_audio_remaining_samples,
+	queued_samples = core_audio_queued_samples,
+	target_samples = core_audio_target_samples,
 }
 
 import "base:intrinsics"
@@ -130,6 +132,15 @@ core_audio_feed :: proc(samples: [][2]Audio_Sample) {
 // `feed` while all of them are still in flight. The frame then stalls until one is played.
 core_audio_remaining_samples :: proc() -> int {
 	return intrinsics.atomic_load(&s.queued_samples)
+}
+
+// Not measured on this backend yet. Zero leaves the mixer on its own defaults.
+core_audio_queued_samples :: proc() -> int {
+	return 0
+}
+
+core_audio_target_samples :: proc() -> int {
+	return 0
 }
 
 ch :: proc(status: Audio.CFOSStatus, loc := #caller_location) -> bool {

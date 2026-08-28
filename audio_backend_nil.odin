@@ -12,6 +12,8 @@ AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
 	feed = abnil_feed,
 
 	remaining_samples = abnil_remaining_samples,
+	queued_samples = abnil_queued_samples,
+	target_samples = abnil_target_samples,
 }
 
 import "base:runtime"
@@ -33,5 +35,14 @@ abnil_feed :: proc(samples: [][2]Audio_Sample) {
 }
 
 abnil_remaining_samples :: proc() -> int {
+	return 0
+}
+
+// Not measured on this backend yet. Zero leaves the mixer on its own defaults.
+abnil_queued_samples :: proc() -> int {
+	return 0
+}
+
+abnil_target_samples :: proc() -> int {
 	return 0
 }

@@ -11,6 +11,8 @@ AUDIO_BACKEND_ALSA :: Audio_Backend_Interface {
 	set_internal_state = alsa_set_internal_state,
 	feed               = alsa_feed,
 	remaining_samples  = alsa_remaining_samples,
+	queued_samples     = alsa_queued_samples,
+	target_samples     = alsa_target_samples,
 }
 
 import "base:runtime"
@@ -35,6 +37,17 @@ Alsa_State :: struct {
 
 	feed_thread: ^thread.Thread,
 	run_thread: bool,
+
+	// How many samples ALSA has taken but not played yet, sampled by the feed thread after every
+	// write. The PCM belongs to that thread, so it is the only one that may ask.
+	device_delay: int,
+
+	// How many samples the mixer should keep queued. Taken from the buffer ALSA actually gave us,
+	// which is not always the one that was asked for.
+	target: int,
+
+	// Counts feed thread passes, so the latency log below can be kept to one line every so often.
+	delay_log_countdown: int,
 }
 
 alsa_state_size :: proc() -> int {
@@ -64,7 +77,10 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 		return
 	}
 
-	LATENCY_MICROSECONDS :: 25000
+	// The mixer thread tops the backend up every couple of milliseconds, so the device buffer no
+	// longer has to cover a whole frame. Measured end to end through PipeWire this lands at about
+	// 17 ms, against about 35 ms at 25000.
+	LATENCY_MICROSECONDS :: 10000
 	alsa_err = alsa.pcm_set_params(
 		pcm,
 		.FLOAT_LE,
@@ -87,6 +103,15 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 		log.errorf("pcm_prepare failed: %s", alsa.strerror(alsa_err))
 		alsa.pcm_close(pcm)
 		return
+	}
+
+	// `pcm_set_params` treats the latency as a request, so ask what actually came back. A failure
+	// here leaves `target` at zero, which just means the mixer uses its own default.
+	buffer_size, period_size: c.ulong
+
+	if alsa.pcm_get_params(pcm, &buffer_size, &period_size) == 0 {
+		s.target = int(buffer_size)
+		log.debugf("alsa buffer %v samples, period %v samples", buffer_size, period_size)
 	}
 
 	// Set the PCM before starting the thread: the thread uses it right away.
@@ -134,6 +159,34 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 		}
 
 		sync.atomic_store(&s.buf_start, end)
+
+		// Ask the device how far behind it is. This happens here rather than in
+		// `alsa_queued_samples` because the PCM handle is not safe to touch from two threads.
+		delay: c.long
+
+		if alsa.pcm_delay(s.pcm, &delay) == 0 && delay >= 0 {
+			sync.atomic_store(&s.device_delay, int(delay))
+		}
+
+		// The thread wakes every 5 ms, so this reports roughly every two seconds.
+		DELAY_LOG_PASSES :: 400
+		s.delay_log_countdown -= 1
+
+		if s.delay_log_countdown <= 0 {
+			s.delay_log_countdown = DELAY_LOG_PASSES
+			mixer_held := end - start
+
+			if mixer_held < 0 {
+				mixer_held += len(s.buf)
+			}
+
+			log.debugf(
+				"audio latency %.1f ms (mixer %v samples, device %v samples)",
+				f32(mixer_held + int(delay)) * 1000 / AUDIO_MIX_SAMPLE_RATE,
+				mixer_held,
+				delay,
+			)
+		}
 	}
 }
 
@@ -179,6 +232,22 @@ alsa_feed :: proc(samples: [][2]Audio_Sample) {
 
 	copy(s.buf[i:], samples[:])
 	sync.atomic_store(&s.buf_end, i + len(samples))
+}
+
+alsa_queued_samples :: proc() -> int {
+	if s.pcm == nil {
+		return 0
+	}
+
+	return sync.atomic_load(&s.device_delay)
+}
+
+alsa_target_samples :: proc() -> int {
+	if s.pcm == nil {
+		return 0
+	}
+
+	return s.target
 }
 
 alsa_remaining_samples :: proc() -> int {

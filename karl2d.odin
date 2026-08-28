@@ -3989,8 +3989,17 @@ _audio_mixer_thread_tick :: proc() {
 	// limit also bounds how long the thread goes without looking at whether it should stop.
 	MAX_CHUNKS_PER_TICK :: 8
 
+	// The backend knows how big its own buffer is, so it says how much should sit in it. Zero
+	// means it has no opinion. Only the thread asks: it tops the backend up every couple of
+	// milliseconds, while `update_audio_mixer` has a whole frame to cover and keeps the default.
+	target := ab.target_samples()
+
+	if target <= 0 {
+		target = AUDIO_MIXER_TARGET_SAMPLES
+	}
+
 	for _ in 0..<MAX_CHUNKS_PER_TICK {
-		if ab.remaining_samples() > AUDIO_MIXER_TARGET_SAMPLES {
+		if ab.remaining_samples() > target {
 			break
 		}
 

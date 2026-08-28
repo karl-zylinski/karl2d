@@ -42,6 +42,8 @@ pcm_set_params: proc "c" (
 
 pcm_prepare: proc "c" (pcm: PCM) -> c.int
 
+pcm_get_params: proc "c" (pcm: PCM, buffer_size: ^c.ulong, period_size: ^c.ulong) -> c.int
+
 pcm_writei: proc "c" (pcm: PCM, buffer: rawptr, size: c.ulong) -> c.long
 
 pcm_delay: proc "c" (pcm: PCM, delay: ^c.long) -> c.int
@@ -65,6 +67,7 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"snd_pcm_close", &pcm_close},
 		{"snd_pcm_set_params", &pcm_set_params},
 		{"snd_pcm_prepare", &pcm_prepare},
+		{"snd_pcm_get_params", &pcm_get_params},
 		{"snd_pcm_writei", &pcm_writei},
 		{"snd_pcm_delay", &pcm_delay},
 		{"snd_pcm_recover", &pcm_recover},
