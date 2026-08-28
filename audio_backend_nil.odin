@@ -12,8 +12,7 @@ AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
 	feed = abnil_feed,
 
 	remaining_samples = abnil_remaining_samples,
-	interrupt_feed = abnil_interrupt_feed,
-	queued_samples = abnil_queued_samples,
+	stop_feeding = abnil_stop_feeding,
 	target_samples = abnil_target_samples,
 }
 
@@ -38,16 +37,12 @@ abnil_feed :: proc(samples: [][2]Audio_Sample) {
 abnil_remaining_samples :: proc() -> int {
 	return 0
 }
-// `feed` never waits on this backend, so there is nothing to interrupt.
-abnil_interrupt_feed :: proc() {
+
+// `feed` never waits on this backend, so there is nothing to stop.
+abnil_stop_feeding :: proc() {
 }
 
-
-// Not measured on this backend yet. Zero leaves the mixer on its own defaults.
-abnil_queued_samples :: proc() -> int {
-	return 0
-}
-
+// This backend has no device, so it asks for nothing.
 abnil_target_samples :: proc() -> int {
 	return 0
 }

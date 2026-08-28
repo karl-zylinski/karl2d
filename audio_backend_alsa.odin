@@ -11,8 +11,7 @@ AUDIO_BACKEND_ALSA :: Audio_Backend_Interface {
 	set_internal_state = alsa_set_internal_state,
 	feed               = alsa_feed,
 	remaining_samples  = alsa_remaining_samples,
-	interrupt_feed     = alsa_interrupt_feed,
-	queued_samples     = alsa_queued_samples,
+	stop_feeding       = alsa_stop_feeding,
 	target_samples     = alsa_target_samples,
 }
 
@@ -38,10 +37,6 @@ Alsa_State :: struct {
 
 	feed_thread: ^thread.Thread,
 	run_thread: bool,
-
-	// How many samples ALSA has taken but not played yet, sampled by the feed thread after every
-	// write. The PCM belongs to that thread, so it is the only one that may ask.
-	device_delay: int,
 
 	// How many samples the mixer should keep queued. Taken from the buffer ALSA actually gave us,
 	// which is not always the one that was asked for.
@@ -167,13 +162,10 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 
 		sync.atomic_store(&s.buf_start, end)
 
-		// Ask the device how far behind it is. This happens here rather than in
-		// `alsa_queued_samples` because the PCM handle is not safe to touch from two threads.
+		// How far behind the device is. Only this thread may ask. Two threads must not touch the
+		// PCM handle.
 		delay: c.long
-
-		if alsa.pcm_delay(s.pcm, &delay) == 0 && delay >= 0 {
-			sync.atomic_store(&s.device_delay, int(delay))
-		}
+		alsa.pcm_delay(s.pcm, &delay)
 
 		// The thread wakes every 5 ms, so this reports roughly every two seconds.
 		DELAY_LOG_PASSES :: 400
@@ -241,17 +233,9 @@ alsa_feed :: proc(samples: [][2]Audio_Sample) {
 	copy(s.buf[i:], samples[:])
 	sync.atomic_store(&s.buf_end, i + len(samples))
 }
-// `feed` never waits on this backend, so there is nothing to interrupt.
-alsa_interrupt_feed :: proc() {
-}
 
-
-alsa_queued_samples :: proc() -> int {
-	if s.pcm == nil {
-		return 0
-	}
-
-	return sync.atomic_load(&s.device_delay)
+// `feed` never waits on this backend, so there is nothing to stop.
+alsa_stop_feeding :: proc() {
 }
 
 alsa_target_samples :: proc() -> int {

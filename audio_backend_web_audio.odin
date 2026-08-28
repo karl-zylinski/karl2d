@@ -11,8 +11,7 @@ AUDIO_BACKEND_WEB_AUDIO :: Audio_Backend_Interface {
 	set_internal_state = web_audio_set_internal_state,
 	feed = web_audio_feed,
 	remaining_samples = web_audio_remaining_samples,
-	interrupt_feed = web_audio_interrupt_feed,
-	queued_samples = web_audio_queued_samples,
+	stop_feeding = web_audio_stop_feeding,
 	target_samples = web_audio_target_samples,
 }
 
@@ -58,16 +57,12 @@ web_audio_feed :: proc(samples: [][2]Audio_Sample) {
 web_audio_remaining_samples :: proc() -> int {
 	return js_web_audio_remaining_samples()
 }
-// `feed` never waits on this backend, so there is nothing to interrupt.
-web_audio_interrupt_feed :: proc() {
+
+// `feed` never waits on this backend, so there is nothing to stop.
+web_audio_stop_feeding :: proc() {
 }
 
-
-// Not measured on this backend yet. Zero leaves the mixer on its own defaults.
-web_audio_queued_samples :: proc() -> int {
-	return 0
-}
-
+// Web has no mixer thread, so nothing reads this.
 web_audio_target_samples :: proc() -> int {
 	return 0
 }

@@ -12,8 +12,7 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 
 	feed = waveout_feed,
 	remaining_samples = waveout_remaining_samples,
-	interrupt_feed = waveout_interrupt_feed,
-	queued_samples = waveout_queued_samples,
+	stop_feeding = waveout_stop_feeding,
 	target_samples = waveout_target_samples,
 }
 
@@ -30,7 +29,7 @@ Waveout_State :: struct {
 	cur_header: int,
 	submitted_samples: int,
 
-	// Set when the mixer thread is being stopped, so the wait for a free header gives up.
+	// Set when the mixer thread is stopping. It makes the wait for a free header give up.
 	interrupted: bool,
 }
 
@@ -133,15 +132,12 @@ waveout_remaining_samples :: proc() -> int {
 	return s.submitted_samples - int(t.u.sample)
 }
 
-waveout_interrupt_feed :: proc() {
+// `feed` checks this flag while it waits for a header, so the wait ends on the next pass.
+waveout_stop_feeding :: proc() {
 	sync.atomic_store(&s.interrupted, true)
 }
 
-// Not measured on this backend yet. Zero leaves the mixer on its own defaults.
-waveout_queued_samples :: proc() -> int {
-	return 0
-}
-
+// The device is only as full as what the mixer feeds it, so it has nothing of its own to ask for.
 waveout_target_samples :: proc() -> int {
 	return 0
 }

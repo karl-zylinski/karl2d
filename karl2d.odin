@@ -3949,9 +3949,9 @@ _audio_mixer_thread_begin :: proc() {
 _audio_mixer_thread_request_stop :: proc() {
 	sync.atomic_store(&s.audio_mixer_thread_run, false)
 
-	// The thread may be sitting inside `ab.feed` waiting for the device to take more samples.
-	// Clearing the run flag does not reach it there, so the backend has to be told to let go.
-	ab.interrupt_feed()
+	// The thread may be sitting inside `ab.feed`, waiting for the device to take more samples. The
+	// run flag does not reach it there, so the backend has to end the wait.
+	ab.stop_feeding()
 }
 
 @(private="package")
@@ -3973,9 +3973,8 @@ _audio_mixer_thread_tick :: proc() {
 	// limit also bounds how long the thread goes without looking at whether it should stop.
 	MAX_CHUNKS_PER_TICK :: 8
 
-	// The backend knows how big its own buffer is, so it says how much should sit in it. Zero
-	// means it has no opinion. Only the thread asks: it tops the backend up every couple of
-	// milliseconds, while `update_audio_mixer` has a whole frame to cover and keeps the default.
+	// The backend says how much should sit in its buffer. Zero means it has no opinion. Only this
+	// thread asks. `update_audio_mixer` has a whole frame to cover, so it keeps the default.
 	target := ab.target_samples()
 
 	if target <= 0 {

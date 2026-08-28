@@ -13,8 +13,7 @@ AUDIO_BACKEND_CORE_AUDIO :: Audio_Backend_Interface {
 	feed = core_audio_feed,
 
 	remaining_samples = core_audio_remaining_samples,
-	interrupt_feed = core_audio_interrupt_feed,
-	queued_samples = core_audio_queued_samples,
+	stop_feeding = core_audio_stop_feeding,
 	target_samples = core_audio_target_samples,
 }
 
@@ -144,16 +143,12 @@ core_audio_remaining_samples :: proc() -> int {
 }
 
 // Posts once per buffer, so a `feed` waiting on any of them wakes up and sees the flag.
-core_audio_interrupt_feed :: proc() {
+core_audio_stop_feeding :: proc() {
 	intrinsics.atomic_store(&s.interrupted, true)
 	sync.sema_post(&s.semaphore, len(s.buffers))
 }
 
-// Not measured on this backend yet. Zero leaves the mixer on its own defaults.
-core_audio_queued_samples :: proc() -> int {
-	return 0
-}
-
+// The queue is only as deep as what the mixer feeds it, so it has nothing of its own to ask for.
 core_audio_target_samples :: proc() -> int {
 	return 0
 }
