@@ -41,7 +41,7 @@ main :: proc() {
 
 >[!NOTE]
 >On *Linux*, you may run into build errors due to missing dependencies. Exactly what you need to install may vary from distribution to distribution. On Ubuntu / Debian, something like this may help:
->`sudo apt install libasound2-dev libudev-dev`
+>`sudo apt install libudev-dev`
 >Did you have to install something else on your distro? Let me know!
 
 ## Get help

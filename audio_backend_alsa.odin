@@ -48,6 +48,13 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	s = (^Alsa_State)(state)
 	log.debug("Init audio backend alsa")
 
+	missing, load_ok := alsa.load()
+
+	if !load_ok {
+		log.errorf("No sound. Could not load %v.", missing)
+		return
+	}
+
 	alsa_err: c.int
 	pcm: alsa.PCM
 	alsa_err = alsa.pcm_open(&pcm, "default", .PLAYBACK, 0)
@@ -147,6 +154,8 @@ alsa_shutdown :: proc() {
 		alsa.pcm_close(s.pcm)
 		s.pcm = nil
 	}
+
+	alsa.unload()
 }
 
 alsa_set_internal_state :: proc(state: rawptr) {
