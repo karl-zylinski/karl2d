@@ -89,16 +89,25 @@ linux_init :: proc(
 	}
 
 	s.win = first
+	first_reason, first_ok := s.win.probe(frame_allocator)
 
-	if !s.win.probe() {
+	if !first_ok {
 		s.win = second
+		second_reason, second_ok := s.win.probe(frame_allocator)
 
-		if !s.win.probe() {
-			log.panic(
-				"Found neither Wayland nor X11. Karl2D needs one of them. The reason each was " +
-				"turned down is logged above.",
+		if !second_ok {
+			// The reasons go in the panic itself rather than only in the log above it: a game
+			// that raises the log level past info would otherwise be told to read reasons that
+			// were never printed.
+			log.panicf(
+				"Found neither Wayland nor X11. Karl2D needs one of them. %s %s",
+				first_reason,
+				second_reason,
 			)
 		}
+
+		// The fallback worked, so the first system turning us down is informational, not fatal.
+		log.info(first_reason)
 	}
 
 	win_state_alloc_error: runtime.Allocator_Error
@@ -715,9 +724,10 @@ Linux_Window_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 
 	// Reports whether this windowing system can be used, by loading its shared libraries and
-	// connecting to its server. Returns false when either step fails, and closes the libraries
-	// again when it does. On success the libraries stay loaded for `init` to use.
-	probe: proc() -> bool,
+	// connecting to its server. Returns false when either step fails, along with a reason for the
+	// caller to log or panic with, and closes the libraries again when it does. On success the
+	// libraries stay loaded for `init` to use.
+	probe: proc(reason_allocator: runtime.Allocator) -> (reason: string, ok: bool),
 
 	init: proc(
 		window_state: rawptr,

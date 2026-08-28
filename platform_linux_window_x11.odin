@@ -47,12 +47,12 @@ x11_state_size :: proc() -> int {
 	return size_of(X11_State)
 }
 
-x11_probe :: proc() -> bool {
-	missing, ok := X.load()
+x11_probe :: proc(reason_allocator: runtime.Allocator) -> (reason: string, ok: bool) {
+	missing, load_ok := X.load()
 
-	if !ok {
-		log.infof("Not using X11. Could not load %v.", missing)
-		return false
+	if !load_ok {
+		return fmt.aprintf("Not using X11. Could not load %v.", missing,
+			allocator = reason_allocator), false
 	}
 
 	// The libraries being installed does not mean there is a server to talk to, so open a display
@@ -61,12 +61,11 @@ x11_probe :: proc() -> bool {
 
 	if display == nil {
 		X.unload()
-		log.info("Not using X11. Could not open a display.")
-		return false
+		return "Not using X11. Could not open a display.", false
 	}
 
 	X.CloseDisplay(display)
-	return true
+	return "", true
 }
 
 x11_init :: proc(

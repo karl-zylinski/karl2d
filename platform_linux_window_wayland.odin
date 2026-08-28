@@ -53,10 +53,10 @@ wl_state_size :: proc() -> int {
 	return size_of(WL_State)
 }
 
-wl_probe :: proc() -> bool {
-	if missing, ok := wl.load(); !ok {
-		log.infof("Not using Wayland. Could not load %v.", missing)
-		return false
+wl_probe :: proc(reason_allocator: runtime.Allocator) -> (reason: string, ok: bool) {
+	if missing, load_ok := wl.load(); !load_ok {
+		return fmt.aprintf("Not using Wayland. Could not load %v.", missing,
+			allocator = reason_allocator), false
 	}
 
 	// The libraries being installed does not mean there is a compositor to talk to, so connect and
@@ -65,19 +65,18 @@ wl_probe :: proc() -> bool {
 
 	if display == nil {
 		wl.unload()
-		log.info("Not using Wayland. Could not connect to a compositor.")
-		return false
+		return "Not using Wayland. Could not connect to a compositor.", false
 	}
 
 	wl.display_disconnect(display)
 
-	if missing, ok := xkb.load(); !ok {
+	if missing, load_ok := xkb.load(); !load_ok {
 		wl.unload()
-		log.infof("Not using Wayland. Could not load %v.", missing)
-		return false
+		return fmt.aprintf("Not using Wayland. Could not load %v.", missing,
+			allocator = reason_allocator), false
 	}
 
-	return true
+	return "", true
 }
 
 wl_init :: proc(
