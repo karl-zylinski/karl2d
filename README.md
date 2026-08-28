@@ -40,8 +40,8 @@ main :: proc() {
 >procedures, types and constants can be used before `k2.init`.
 
 >[!NOTE]
->On *Linux*, you may run into build errors due to missing depdencies. Exactly what you need to install may vary from distribution to distribution. On Ubuntu / Debian, something like this may help:
->`sudo apt install libasound2-dev libgl1-mesa-dev libudev-dev libwayland-dev libegl1-mesa-dev libxkbcommon-dev`
+>On *Linux*, you may run into build errors due to missing dependencies. Exactly what you need to install may vary from distribution to distribution. On Ubuntu / Debian, something like this may help:
+>`sudo apt install libasound2-dev libudev-dev`
 >Did you have to install something else on your distro? Let me know!
 
 ## Get help
@@ -202,8 +202,6 @@ The platform-independent parts and the API lives in `karl2d.odin`. There is a [`
 
 The platform abstraction depends on the operating system. I do not use anything like GLFW in order to abstract away window creation and event handling. Less libraries between you and the OS, less trouble when shipping!
 
-On Linux there are two windowing systems to choose between, and both backends are in every build. Which one a game uses is decided when it starts: it tries Wayland and then X11, and uses the first one that both has its libraries installed and answers when connected to. The libraries are opened with `dlopen` rather than linked, so a machine that only has one of the two stacks installed can still run the game. Set the environment variable `KARL2D_LINUX_WINDOWING` to `x11` or `wayland` to change which one is tried first. It is only a preference: if that one does not answer, the other is still used.
-
 The rendering abstraction tells Karl2D how to talk to the GPU. I currently support three rendering APIs: D3D11, OpenGL and WebGL. On some platforms you have multiple choices, for example on Windows you can use both D3D11 and OpenGL (using the compile flag `-define:KARL2D_RENDER_BACKEND=gl/d3d11`). Using GL on windows may be beneficial if you want to share shader code between the desktop and web version (as they use almost the same verions of `glsl`). Some kind of shader-cross-API-compilation is _planned_, but not implemented.
 
 The platform independent code in `karl2d.odin` creates a list of vertices for each batch it needs to render. That's done independently of the rendering backend. The backend is just fed that list, along with information about what shader and such to use.
@@ -211,6 +209,8 @@ The platform independent code in `karl2d.odin` creates a list of vertices for ea
 The audio support in Karl2D is done using a software mixer that is part of `karl2d.odin`. The audio abstraction is small, it takes care of feeding the mixed audio samples into the platform's audio API. I wrote a blog post called [Audio in Karl2D: Software mixing, OS APIs and general design](https://zylinski.se/posts/audio-in-karl2d-software-mixing/) where I describe how the audio system works.
 
 The web builds do not need emscripten, instead I've written a WebGL backend and make use of the official Odin JS runtime.
+
+On Linux there are two windowing systems to choose between: `x11` and `wayland`. Karl2D dynamically opens their shared libraries and tries to connect to them, first it tries wayland, and then x11. Therefore it does not need both to be installed to launch. It is all handled at runtime. End users can define the environment variable `KARL2D_LINUX_WINDOWING=x11/wayland` if they need to override it (usually for troubleshooting).
 
 ## Contributing and Pull Request rules
 
