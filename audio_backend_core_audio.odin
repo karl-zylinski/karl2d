@@ -13,6 +13,7 @@ AUDIO_BACKEND_CORE_AUDIO :: Audio_Backend_Interface {
 	feed = core_audio_feed,
 
 	remaining_samples = core_audio_remaining_samples,
+	interrupt_feed = core_audio_interrupt_feed,
 	queued_samples = core_audio_queued_samples,
 	target_samples = core_audio_target_samples,
 }
@@ -34,6 +35,9 @@ Core_Audio_State :: struct {
 	buffers:        [3]Audio.QueueBufferRef,
 	buffer:         int,
 	queued_samples: int,
+
+	// Set when the mixer thread is being stopped, so the wait for a free buffer gives up.
+	interrupted:    bool,
 }
 
 core_audio_state_size :: proc() -> int {
@@ -103,6 +107,11 @@ core_audio_feed :: proc(samples: [][2]Audio_Sample) {
 	remaining := samples
 	for len(remaining) > 0 {
 		sync.sema_wait(&s.semaphore)
+
+		if intrinsics.atomic_load(&s.interrupted) {
+			return
+		}
+
 		buffer := s.buffers[s.buffer]
 		s.buffer = (s.buffer + 1) % len(s.buffers)
 
@@ -132,6 +141,12 @@ core_audio_feed :: proc(samples: [][2]Audio_Sample) {
 // `feed` while all of them are still in flight. The frame then stalls until one is played.
 core_audio_remaining_samples :: proc() -> int {
 	return intrinsics.atomic_load(&s.queued_samples)
+}
+
+// Posts once per buffer, so a `feed` waiting on any of them wakes up and sees the flag.
+core_audio_interrupt_feed :: proc() {
+	intrinsics.atomic_store(&s.interrupted, true)
+	sync.sema_post(&s.semaphore, len(s.buffers))
 }
 
 // Not measured on this backend yet. Zero leaves the mixer on its own defaults.

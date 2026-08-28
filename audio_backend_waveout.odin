@@ -12,6 +12,7 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 
 	feed = waveout_feed,
 	remaining_samples = waveout_remaining_samples,
+	interrupt_feed = waveout_interrupt_feed,
 	queued_samples = waveout_queued_samples,
 	target_samples = waveout_target_samples,
 }
@@ -20,6 +21,7 @@ import "base:runtime"
 import "log"
 import win32 "core:sys/windows"
 import "core:time"
+import "core:sync"
 import "core:slice"
 
 Waveout_State :: struct {
@@ -27,6 +29,9 @@ Waveout_State :: struct {
 	headers: [32]win32.WAVEHDR,
 	cur_header: int,
 	submitted_samples: int,
+
+	// Set when the mixer thread is being stopped, so the wait for a free header gives up.
+	interrupted: bool,
 }
 
 waveout_state_size :: proc() -> int {
@@ -95,6 +100,10 @@ waveout_feed :: proc(samples: [][2]Audio_Sample) {
 	h := &s.headers[s.cur_header]
 
 	for win32.waveOutUnprepareHeader(s.device, h, size_of(win32.WAVEHDR)) == win32.WAVERR_STILLPLAYING {
+		if sync.atomic_load(&s.interrupted) {
+			return
+		}
+
 		time.sleep(1 * time.Millisecond)
 	}
 
@@ -122,6 +131,10 @@ waveout_remaining_samples :: proc() -> int {
 	}
 	win32.waveOutGetPosition(s.device, &t, size_of(win32.MMTIME))
 	return s.submitted_samples - int(t.u.sample)
+}
+
+waveout_interrupt_feed :: proc() {
+	sync.atomic_store(&s.interrupted, true)
 }
 
 // Not measured on this backend yet. Zero leaves the mixer on its own defaults.

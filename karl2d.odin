@@ -3968,6 +3968,10 @@ _audio_mixer_thread_begin :: proc() {
 @(private="package")
 _audio_mixer_thread_request_stop :: proc() {
 	sync.atomic_store(&s.audio_mixer_thread_run, false)
+
+	// The thread may be sitting inside `ab.feed` waiting for the device to take more samples.
+	// Clearing the run flag does not reach it there, so the backend has to be told to let go.
+	ab.interrupt_feed()
 }
 
 @(private="package")

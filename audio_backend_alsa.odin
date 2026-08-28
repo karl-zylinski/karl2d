@@ -11,6 +11,7 @@ AUDIO_BACKEND_ALSA :: Audio_Backend_Interface {
 	set_internal_state = alsa_set_internal_state,
 	feed               = alsa_feed,
 	remaining_samples  = alsa_remaining_samples,
+	interrupt_feed     = alsa_interrupt_feed,
 	queued_samples     = alsa_queued_samples,
 	target_samples     = alsa_target_samples,
 }
@@ -240,6 +241,10 @@ alsa_feed :: proc(samples: [][2]Audio_Sample) {
 	copy(s.buf[i:], samples[:])
 	sync.atomic_store(&s.buf_end, i + len(samples))
 }
+// `feed` never waits on this backend, so there is nothing to interrupt.
+alsa_interrupt_feed :: proc() {
+}
+
 
 alsa_queued_samples :: proc() -> int {
 	if s.pcm == nil {
