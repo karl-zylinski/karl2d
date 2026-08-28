@@ -314,6 +314,22 @@ XConfigureEvent :: struct {
 	override_redirect: b32,
 }
 
+XPropertyEvent :: struct {
+	type:       EventType,
+	serial:     uint,
+	send_event: b32,
+	display:    ^Display,
+	window:     Window,
+	atom:       Atom,
+	time:       Time,
+	state:      PropertyState,
+}
+
+PropertyState :: enum i32 {
+	NewValue = 0,
+	Delete   = 1,
+}
+
 XClientMessageEvent :: struct {
 	type:         EventType,
 	serial:       uint,
@@ -339,6 +355,7 @@ XEvent :: struct #raw_union {
 	xmotion:    XMotionEvent,
 	xconfigure: XConfigureEvent,
 	xclient:    XClientMessageEvent,
+	xproperty:  XPropertyEvent,
 	_:          [24]int,
 }
 
@@ -347,6 +364,46 @@ XIM :: distinct rawptr
 XIC :: distinct rawptr
 
 XrmHashBucket :: distinct rawptr
+
+// The X resource database. It holds the desktop's settings, `Xft.dpi` among them, as a string on
+// the root window.
+XrmDatabase :: distinct rawptr
+
+XrmValue :: struct {
+	size: uint,
+	addr: rawptr,
+}
+
+Colormap :: XID
+
+XWindowAttributes :: struct {
+	x:                     i32,
+	y:                     i32,
+	width:                 i32,
+	height:                i32,
+	border_width:          i32,
+	depth:                 i32,
+	visual:                rawptr,
+	root:                  Window,
+	class:                 i32,
+	bit_gravity:           i32,
+	win_gravity:           i32,
+	backing_store:         i32,
+	backing_planes:        uint,
+	backing_pixel:         uint,
+	save_under:            b32,
+	colormap:              Colormap,
+	map_installed:         b32,
+	map_state:             i32,
+	all_event_masks:       EventMask,
+	your_event_mask:       EventMask,
+	do_not_propagate_mask: EventMask,
+	override_redirect:     b32,
+	screen:                rawptr,
+}
+
+// Passed to GetWindowProperty to accept whatever type the property already has.
+AnyPropertyType :: Atom(0)
 
 XNInputStyle: cstring : "inputStyle"
 XNClientWindow: cstring : "clientWindow"
@@ -399,6 +456,43 @@ StoreName: proc "c" (display: ^Display, window: Window, name: cstring)
 SelectInput: proc "c" (display: ^Display, window: Window, mask: EventMask)
 
 InternAtom: proc "c" (display: ^Display, name: cstring, existing: b32) -> Atom
+
+GetWindowAttributes: proc "c" (
+	display:    ^Display,
+	window:     Window,
+	attributes: ^XWindowAttributes,
+) -> Status
+
+GetWindowProperty: proc "c" (
+	display:       ^Display,
+	window:        Window,
+	property:      Atom,
+	long_offset:   int,
+	long_length:   int,
+	delete:        b32,
+	req_type:      Atom,
+	actual_type:   ^Atom,
+	actual_format: ^i32,
+	num_items:     ^uint,
+	bytes_after:   ^uint,
+	prop:          ^rawptr,
+) -> Status
+
+Free: proc "c" (data: rawptr) -> i32
+
+XrmInitialize: proc "c" ()
+
+XrmGetStringDatabase: proc "c" (data: cstring) -> XrmDatabase
+
+XrmGetResource: proc "c" (
+	db:    XrmDatabase,
+	name:  cstring,
+	class: cstring,
+	type:  ^cstring,
+	value: ^XrmValue,
+) -> b32
+
+XrmDestroyDatabase: proc "c" (db: XrmDatabase)
 
 SetWMProtocols: proc "c" (
 	display:   ^Display,
@@ -603,6 +697,13 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"XStoreName", &StoreName},
 		{"XSelectInput", &SelectInput},
 		{"XInternAtom", &InternAtom},
+		{"XGetWindowAttributes", &GetWindowAttributes},
+		{"XGetWindowProperty", &GetWindowProperty},
+		{"XFree", &Free},
+		{"XrmInitialize", &XrmInitialize},
+		{"XrmGetStringDatabase", &XrmGetStringDatabase},
+		{"XrmGetResource", &XrmGetResource},
+		{"XrmDestroyDatabase", &XrmDestroyDatabase},
 		{"XSetWMProtocols", &SetWMProtocols},
 		{"XSetWMNormalHints", &SetWMNormalHints},
 		{"XFlush", &Flush},
