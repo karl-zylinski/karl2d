@@ -130,6 +130,18 @@ main :: proc() {
 					}
 				}
 
+				// A name that starts with an underscore is internal. The underscore already says
+				// that on return values, so it says the same here. Filtering on it lets the
+				// helpers sit next to the API procedures that use them, instead of being pushed
+				// below `API_END` to keep them out of this file.
+				if len(dd.names) > 0 {
+					name := f.src[dd.names[0].pos.offset:dd.names[0].end.offset]
+
+					if strings.has_prefix(name, "_") {
+						continue decl_loop
+					}
+				}
+
 				val: string
 				for v, vi in dd.values {
 					#partial switch vd in v.derived {
