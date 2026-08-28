@@ -2407,8 +2407,8 @@ get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
 // still be possible to use, but it won't play anything.
 load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optional_ok {
-	sync.mutex_guard(&s.audio_mutex)
-
+	// Read the file before taking the mutex. The mixer holds the mutex while it mixes a chunk, so
+	// a read that waits for the disk with the mutex held makes the mixer wait for the disk too.
 	data, data_ok := read_entire_file(filename, frame_allocator)
 
 	if !data_ok {
@@ -2416,6 +2416,7 @@ load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optio
 		return AUDIO_CLIP_NONE, false
 	}
 
+	sync.mutex_guard(&s.audio_mutex)
 	return _load_audio_clip_from_bytes(data)
 }
 
@@ -2745,8 +2746,6 @@ load_audio_stream_from_file :: proc(
 	_stream: Audio_Stream,
 	_ok: bool,
 ) #optional_ok {
-	sync.mutex_guard(&s.audio_mutex)
-
 	f, f_err := file_open(filename)
 
 	if f_err != nil {
@@ -2855,11 +2854,15 @@ load_audio_stream_from_file :: proc(
 		channels = channels,
 	}
 
+	// Opening the file and starting the decoder above touch nothing the mixer looks at. The
+	// handle maps below are shared, so the mutex starts here and runs to the end of the procedure.
+	sync.mutex_guard(&s.audio_mutex)
+
 	audio_clip_handle, audio_clip_handle_add_err := hm.add(&s.audio_clips, audio_clip)
 
 	if audio_clip_handle_add_err != nil {
 		log.errorf("Failed to load audio stream. Error: %v", audio_clip_handle_add_err)
-		
+
 		if close_err := file_close(f); close_err != nil {
 			log.errorf("Failed closing file. Error: %v", close_err)
 		}
@@ -2927,8 +2930,6 @@ load_audio_stream_from_bytes :: proc(
 	_stream: Audio_Stream,
 	_ok: bool,
 ) #optional_ok {
-	sync.mutex_guard(&s.audio_mutex)
-
 	vorbis_err: stbv.Error
 
 	vorbis_buffer := stbv.vorbis_alloc {
@@ -2969,6 +2970,10 @@ load_audio_stream_from_bytes :: proc(
 		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
 		channels = channels,
 	}
+
+	// Starting the decoder above touches nothing the mixer looks at. The handle maps below are
+	// shared, so the mutex starts here and runs to the end of the procedure.
+	sync.mutex_guard(&s.audio_mutex)
 
 	audio_clip_handle, audio_clip_handle_add_err := hm.add(&s.audio_clips, audio_clip)
 
