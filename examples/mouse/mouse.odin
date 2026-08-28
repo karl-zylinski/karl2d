@@ -9,6 +9,7 @@ init :: proc() {
 }
 
 wheel: f32
+wheel_horizontal: f32
 
 step :: proc() -> bool {
 	if !k2.update() {
@@ -57,8 +58,9 @@ step :: proc() -> bool {
 	k2.draw_circle(right_pos, 10, right_color)
 
 	wheel += k2.get_mouse_wheel_delta()
+	wheel_horizontal += k2.get_mouse_wheel_delta_horizontal()
 
-	wheel_msg := fmt.tprintf("Wheel: %.1f", wheel)
+	wheel_msg := fmt.tprintf("Wheel: %.1f up, %.1f right", wheel, wheel_horizontal)
 	wheel_msg_width := k2.measure_text(wheel_msg, 20).x
 	k2.draw_text(wheel_msg, pos + {-wheel_msg_width/2, 70}, 20, k2.WHITE)
 

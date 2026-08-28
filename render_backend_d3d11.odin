@@ -28,6 +28,7 @@ RENDER_BACKEND_D3D11 :: Render_Backend_Interface {
 	destroy_shader = d3d11_destroy_shader,
 	default_shader_vertex_source = d3d11_default_shader_vertex_source,
 	default_shader_fragment_source = d3d11_default_shader_fragment_source,
+	get_depth_clip_range = d3d11_get_depth_clip_range,
 }
 
 import d3d11 "vendor:directx/d3d11"
@@ -127,6 +128,7 @@ d3d11_init :: proc(
 	
 	ch(dxgi_device->GetAdapter(&s.dxgi_adapter))
 	s.anti_alias = options.anti_alias
+	s.depth_test = options.depth_test
 
 	create_swapchain(swapchain_width, swapchain_height)
 
@@ -138,6 +140,17 @@ d3d11_init :: proc(
 	}
 
 	ch(s.device->CreateRasterizerState(&rasterizer_desc, &s.rasterizer_state))
+
+	if s.depth_test {
+		// Higher z ends up in front. GREATER_EQUAL instead of GREATER so that things drawn at the
+		// same z fall back to drawing order, like when depth testing is off.
+		depth_stencil_desc := d3d11.DEPTH_STENCIL_DESC{
+			DepthEnable    = true,
+			DepthWriteMask = .ALL,
+			DepthFunc      = .GREATER_EQUAL,
+		}
+		ch(s.device->CreateDepthStencilState(&depth_stencil_desc, &s.depth_stencil_state))
+	}
 
 	vertex_buffer_desc := d3d11.BUFFER_DESC{
 		ByteWidth = VERTEX_BUFFER_MAX,
@@ -192,6 +205,12 @@ d3d11_shutdown :: proc() {
 	s.blend_state_alpha->Release()
 	s.blend_state_premultiplied_alpha->Release()
 	s.dxgi_adapter->Release()
+
+	if s.depth_test {
+		s.depth_buffer->Release()
+		s.depth_buffer_view->Release()
+		s.depth_stencil_state->Release()
+	}
 
 	when ODIN_DEBUG {
 		d3d11_debug_print_live_objects()
@@ -270,8 +289,16 @@ d3d11_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		s.device_context->ClearRenderTargetView(rt.render_target_view, &c)
+
+		if s.depth_test {
+			s.device_context->ClearDepthStencilView(rt.depth_buffer_view, {.DEPTH}, 0, 0)
+		}
 	} else {
 		s.device_context->ClearRenderTargetView(s.framebuffer_view, &c)
+
+		if s.depth_test {
+			s.device_context->ClearDepthStencilView(s.depth_buffer_view, {.DEPTH}, 0, 0)
+		}
 	}
 }
 
@@ -297,6 +324,12 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 
 	dc->IASetPrimitiveTopology(.TRIANGLELIST)
 	dc->RSSetState(s.rasterizer_state)
+
+	// Never changes for the lifetime of the backend, so it only needs setting once here rather than
+	// per draw call.
+	if s.depth_test {
+		dc->OMSetDepthStencilState(s.depth_stencil_state, 0)
+	}
 
 	// Changes that belong to draw calls we could not draw. They never reached the device context.
 	// The next draw call we do run has to make them.
@@ -357,7 +390,7 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 
 		if .Render_Target in changed {
 			if rt != nil {
-				dc->OMSetRenderTargets(1, &rt.render_target_view, nil)
+				dc->OMSetRenderTargets(1, &rt.render_target_view, s.depth_test ? rt.depth_buffer_view : nil)
 
 				viewport := d3d11.VIEWPORT {
 					0, 0,
@@ -367,7 +400,7 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 
 				dc->RSSetViewports(1, &viewport)
 			} else {
-				dc->OMSetRenderTargets(1, &s.framebuffer_view, nil)
+				dc->OMSetRenderTargets(1, &s.framebuffer_view, s.depth_test ? s.depth_buffer_view : nil)
 
 				viewport := d3d11.VIEWPORT {
 					0, 0,
@@ -473,6 +506,12 @@ d3d11_resize_swapchain :: proc(w, h: int) {
 	s.framebuffer->Release()
 	s.framebuffer_view->Release()
 	s.swapchain->Release()
+
+	if s.depth_test {
+		s.depth_buffer->Release()
+		s.depth_buffer_view->Release()
+	}
+
 	s.width = w
 	s.height = h
 
@@ -498,6 +537,7 @@ create_texture :: proc(
 	data: rawptr,
 ) -> (
 	Texture_Handle,
+	bool,
 ) {
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
@@ -518,13 +558,21 @@ create_texture :: proc(
 			SysMemPitch = u32(width * pixel_format_size(format)),
 		}
 
-		s.device->CreateTexture2D(&texture_desc, &texture_data, &texture)
+		if ch(s.device->CreateTexture2D(&texture_desc, &texture_data, &texture)) < 0 {
+			return {}, false
+		}
 	} else {
-		s.device->CreateTexture2D(&texture_desc, nil, &texture)
+		if ch(s.device->CreateTexture2D(&texture_desc, nil, &texture)) < 0 {
+			return {}, false
+		}
 	}
-	
+
 	texture_view: ^d3d11.IShaderResourceView
-	s.device->CreateShaderResourceView(texture, nil, &texture_view)
+
+	if ch(s.device->CreateShaderResourceView(texture, nil, &texture_view)) < 0 {
+		texture->Release()
+		return {}, false
+	}
 
 	tex := D3D11_Texture {
 		tex = texture,
@@ -537,17 +585,26 @@ create_texture :: proc(
 
 	if tex_add_err != nil {
 		log.errorf("Failed to add texture. Error: %v", tex_add_err)
-		return TEXTURE_NONE
+		texture_view->Release()
+		texture->Release()
+		return TEXTURE_NONE, false
 	}
 
-	return tex_handle
+	return tex_handle, true
 }
 
-d3d11_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
+d3d11_create_texture :: proc(
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
 	return create_texture(width, height, format, nil)
 }
 
-d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
+d3d11_create_render_texture :: proc(
+	width: int,
+	height: int,
+) -> (Texture_Handle, Render_Target_Handle, bool) {
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
 		Height     = u32(height),
@@ -560,11 +617,18 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 	}
 
 	texture: ^d3d11.ITexture2D
-	ch(s.device->CreateTexture2D(&texture_desc, nil, &texture))
+
+	if ch(s.device->CreateTexture2D(&texture_desc, nil, &texture)) < 0 {
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+	}
 
 	texture_view: ^d3d11.IShaderResourceView
-	ch(s.device->CreateShaderResourceView(texture, nil, &texture_view))
-	
+
+	if ch(s.device->CreateShaderResourceView(texture, nil, &texture_view)) < 0 {
+		texture->Release()
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+	}
+
 	render_target_view_desc := d3d11.RENDER_TARGET_VIEW_DESC {
 		Format = texture_desc.Format,
 		ViewDimension = .TEXTURE2D,
@@ -572,7 +636,13 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 
 	render_target_view: ^d3d11.IRenderTargetView
 
-	ch(s.device->CreateRenderTargetView(texture, &render_target_view_desc, &render_target_view))
+	if ch(s.device->CreateRenderTargetView(
+		texture, &render_target_view_desc, &render_target_view,
+	)) < 0 {
+		texture_view->Release()
+		texture->Release()
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+	}
 
 	d3d11_texture := D3D11_Texture {
 		tex = texture,
@@ -587,32 +657,92 @@ d3d11_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 		height = height,
 	}
 
+	if s.depth_test {
+		depth_buffer_desc := d3d11.TEXTURE2D_DESC{
+			Width      = u32(width),
+			Height     = u32(height),
+			MipLevels  = 1,
+			ArraySize  = 1,
+			Format     = .D24_UNORM_S8_UINT,
+			SampleDesc = {Count = 1},
+			Usage      = .DEFAULT,
+			BindFlags  = {.DEPTH_STENCIL},
+		}
+
+		if ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &d3d11_render_target.depth_buffer)) < 0 {
+			render_target_view->Release()
+			texture_view->Release()
+			texture->Release()
+			return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		}
+
+		if ch(s.device->CreateDepthStencilView(
+			d3d11_render_target.depth_buffer,
+			nil,
+			&d3d11_render_target.depth_buffer_view,
+		)) < 0 {
+			d3d11_render_target.depth_buffer->Release()
+			render_target_view->Release()
+			texture_view->Release()
+			texture->Release()
+			return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		}
+	}
+
 	tex_handle, tex_add_err := hm.add(&s.textures, d3d11_texture)
 
 	if tex_add_err != nil {
 		log.errorf("Failed to add texture. Error: %v", tex_add_err)
-		return TEXTURE_NONE, RENDER_TARGET_NONE
+
+		if s.depth_test {
+			d3d11_render_target.depth_buffer_view->Release()
+			d3d11_render_target.depth_buffer->Release()
+		}
+
+		render_target_view->Release()
+		texture_view->Release()
+		texture->Release()
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	rt_handle, rt_add_err := hm.add(&s.render_targets, d3d11_render_target)
 
 	if rt_add_err != nil {
 		log.errorf("Failed to add render target. Error: %v", rt_add_err)
-		return TEXTURE_NONE, RENDER_TARGET_NONE
+
+		if s.depth_test {
+			d3d11_render_target.depth_buffer_view->Release()
+			d3d11_render_target.depth_buffer->Release()
+		}
+
+		render_target_view->Release()
+		texture_view->Release()
+		texture->Release()
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
-	return tex_handle, rt_handle
+	return tex_handle, rt_handle, true
 }
 
 d3d11_destroy_render_target :: proc(render_target: Render_Target_Handle) {
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		rt.render_target_view->Release()
+
+		if s.depth_test {
+			rt.depth_buffer->Release()
+			rt.depth_buffer_view->Release()
+		}
 	}
 
 	hm.remove(&s.render_targets, render_target)
 }
 
-d3d11_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
+d3d11_load_texture :: proc(
+	data: []u8,
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
 	return create_texture(width, height, format, raw_data(data))
 }
 
@@ -720,12 +850,30 @@ d3d11_load_shader :: proc(
 	desc_allocator := frame_allocator,
 	layout_formats: []Pixel_Format = {},
 ) -> (
-	handle: Shader_Handle,
-	desc: Shader_Desc,
+	_handle: Shader_Handle,
+	_desc: Shader_Desc,
+	_ok: bool,
 ) {
+	// Built up as the two shaders are reflected over, and only handed back once everything worked.
+	// Filling in a named return value instead would mean the naked returns above hand out a
+	// half-built description alongside their `false`.
+	desc: Shader_Desc
+
 	vs_blob: ^d3d11.IBlob
 	vs_blob_errors: ^d3d11.IBlob
-	ch(d3d_compiler.Compile(raw_data(vs_source), len(vs_source), nil, nil, nil, "vs_main", "vs_5_0", 0, 0, &vs_blob, &vs_blob_errors))
+	vs_compile_res := ch(d3d_compiler.Compile(
+		raw_data(vs_source),
+		len(vs_source),
+		nil,
+		nil,
+		nil,
+		"vs_main",
+		"vs_5_0",
+		0,
+		0,
+		&vs_blob,
+		&vs_blob_errors,
+	))
 
 	if vs_blob_errors != nil {
 		log.error("Failed compiling shader:")
@@ -733,14 +881,40 @@ d3d11_load_shader :: proc(
 		return
 	}
 
+	// The compiler can fail without producing an error blob, for example when it cannot even start
+	// on the source. There is no bytecode in that case, so there is nothing to make a shader from.
+	if vs_compile_res < 0 || vs_blob == nil {
+		log.error("Failed compiling vertex shader.")
+		return
+	}
+
 	// VERTEX SHADER
 
 	vertex_shader: ^d3d11.IVertexShader
-	ch(s.device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &vertex_shader))
+
+	if ch(s.device->CreateVertexShader(
+		vs_blob->GetBufferPointer(),
+		vs_blob->GetBufferSize(),
+		nil,
+		&vertex_shader,
+	)) < 0 {
+		vs_blob->Release()
+		return
+	}
 
 	vs_ref: ^d3d11.IShaderReflection
-	ch(d3d_compiler.Reflect(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), d3d11.ID3D11ShaderReflection_UUID, (^rawptr)(&vs_ref)))
-	
+
+	if ch(d3d_compiler.Reflect(
+		vs_blob->GetBufferPointer(),
+		vs_blob->GetBufferSize(),
+		d3d11.ID3D11ShaderReflection_UUID,
+		(^rawptr)(&vs_ref),
+	)) < 0 {
+		vertex_shader->Release()
+		vs_blob->Release()
+		return
+	}
+
 	vs_desc: d3d11.SHADER_DESC
 	ch(vs_ref->GetDesc(&vs_desc))
 
@@ -794,7 +968,7 @@ d3d11_load_shader :: proc(
 	d3d_constant_buffers := make([dynamic]D3D11_Shader_Constant_Buffer, s.allocator)
 	d3d_texture_bindings := make([dynamic]D3D11_Texture_Binding, s.allocator)
 	texture_bindpoint_descs := make([dynamic]Shader_Texture_Bindpoint_Desc, desc_allocator)
-	reflect_shader_constants(
+	vs_constants_ok := reflect_shader_constants(
 		vs_desc,
 		vs_ref,
 		&constant_descs,
@@ -805,6 +979,16 @@ d3d11_load_shader :: proc(
 		desc_allocator,
 		.Vertex,
 	)
+
+	// Everything the reflection had to say has been copied out by now, names included.
+	vs_ref->Release()
+
+	if !vs_constants_ok {
+		release_constant_buffers(d3d_constant_buffers[:])
+		vertex_shader->Release()
+		vs_blob->Release()
+		return
+	}
 
 	input_layout_desc := make([]d3d11.INPUT_ELEMENT_DESC, len(desc.inputs), frame_allocator)
 
@@ -819,30 +1003,95 @@ d3d11_load_shader :: proc(
 	}
 
 	input_layout: ^d3d11.IInputLayout
-	ch(s.device->CreateInputLayout(raw_data(input_layout_desc), u32(len(input_layout_desc)), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &input_layout))
+
+	if ch(s.device->CreateInputLayout(
+		raw_data(input_layout_desc),
+		u32(len(input_layout_desc)),
+		vs_blob->GetBufferPointer(),
+		vs_blob->GetBufferSize(),
+		&input_layout,
+	)) < 0 {
+		release_constant_buffers(d3d_constant_buffers[:])
+		vertex_shader->Release()
+		vs_blob->Release()
+		return
+	}
+
+	// The blob only holds the compiled bytecode. Nothing needs it after the input layout is made.
+	vs_blob->Release()
 
 	// PIXEL SHADER
 
 	ps_blob: ^d3d11.IBlob
 	ps_blob_errors: ^d3d11.IBlob
-	ch(d3d_compiler.Compile(raw_data(ps_source), len(ps_source), nil, nil, nil, "ps_main", "ps_5_0", 0, 0, &ps_blob, &ps_blob_errors))
+	ps_compile_res := ch(d3d_compiler.Compile(
+		raw_data(ps_source),
+		len(ps_source),
+		nil,
+		nil,
+		nil,
+		"ps_main",
+		"ps_5_0",
+		0,
+		0,
+		&ps_blob,
+		&ps_blob_errors,
+	))
 
 	if ps_blob_errors != nil {
 		log.error("Failed compiling shader:")
 		log.error(strings.string_from_ptr((^u8)(ps_blob_errors->GetBufferPointer()), int(ps_blob_errors->GetBufferSize())))
+		release_constant_buffers(d3d_constant_buffers[:])
+		input_layout->Release()
+		vertex_shader->Release()
+		return
+	}
+
+	if ps_compile_res < 0 || ps_blob == nil {
+		log.error("Failed compiling pixel shader.")
+		release_constant_buffers(d3d_constant_buffers[:])
+		input_layout->Release()
+		vertex_shader->Release()
 		return
 	}
 
 	pixel_shader: ^d3d11.IPixelShader
-	ch(s.device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nil, &pixel_shader))
+
+	if ch(s.device->CreatePixelShader(
+		ps_blob->GetBufferPointer(),
+		ps_blob->GetBufferSize(),
+		nil,
+		&pixel_shader,
+	)) < 0 {
+		release_constant_buffers(d3d_constant_buffers[:])
+		ps_blob->Release()
+		input_layout->Release()
+		vertex_shader->Release()
+		return
+	}
 
 	ps_ref: ^d3d11.IShaderReflection
-	ch(d3d_compiler.Reflect(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), d3d11.ID3D11ShaderReflection_UUID, (^rawptr)(&ps_ref)))
-	
+
+	if ch(d3d_compiler.Reflect(
+		ps_blob->GetBufferPointer(),
+		ps_blob->GetBufferSize(),
+		d3d11.ID3D11ShaderReflection_UUID,
+		(^rawptr)(&ps_ref),
+	)) < 0 {
+		release_constant_buffers(d3d_constant_buffers[:])
+		pixel_shader->Release()
+		ps_blob->Release()
+		input_layout->Release()
+		vertex_shader->Release()
+		return
+	}
+
+	ps_blob->Release()
+
 	ps_desc: d3d11.SHADER_DESC
 	ch(ps_ref->GetDesc(&ps_desc))
 
-	reflect_shader_constants(
+	ps_constants_ok := reflect_shader_constants(
 		ps_desc,
 		ps_ref,
 		&constant_descs,
@@ -853,6 +1102,16 @@ d3d11_load_shader :: proc(
 		desc_allocator,
 		.Pixel,
 	)
+
+	ps_ref->Release()
+
+	if !ps_constants_ok {
+		release_constant_buffers(d3d_constant_buffers[:])
+		pixel_shader->Release()
+		input_layout->Release()
+		vertex_shader->Release()
+		return
+	}
 
 	// Done with vertex and pixel shader. Just combine all the state.
 
@@ -872,15 +1131,29 @@ d3d11_load_shader :: proc(
 
 	if h_add_err != nil {
 		log.errorf("Failed to add shader. Error: %v", h_add_err)
-		return SHADER_NONE, {}
+		release_constant_buffers(d3d_constant_buffers[:])
+		input_layout->Release()
+		vertex_shader->Release()
+		pixel_shader->Release()
+		return
 	}
 
-	return h, desc
+	return h, desc, true
 }
 
 D3D11_Shader_Type :: enum {
 	Vertex,
 	Pixel,
+}
+
+// Shader loading creates constant buffers as it reflects over the vertex shader, so anything that
+// gives up after that point has to hand them back.
+release_constant_buffers :: proc(constant_buffers: []D3D11_Shader_Constant_Buffer) {
+	for c in constant_buffers {
+		if c.gpu_data != nil {
+			c.gpu_data->Release()
+		}
+	}
 }
 
 reflect_shader_constants :: proc(
@@ -893,7 +1166,7 @@ reflect_shader_constants :: proc(
 	texture_bindpoint_descs: ^[dynamic]Shader_Texture_Bindpoint_Desc,
 	desc_allocator: runtime.Allocator,
 	shader_type: D3D11_Shader_Type,
-) {
+) -> bool {
 	found_sampler_bindpoints := make([dynamic]u32, frame_allocator)
 
 	for br_idx in 0..<d3d_desc.BoundResources {
@@ -950,7 +1223,13 @@ reflect_shader_constants :: proc(
 					bound_shaders = {shader_type},
 				}
 
-				ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &buf.gpu_data))
+				// Without this buffer the shader never receives its constants, not even the
+				// view-projection matrix, so it would draw in the wrong place rather than fail.
+				if ch(s.device->CreateBuffer(&constant_buffer_desc, nil, &buf.gpu_data)) < 0 {
+					log.errorf("Failed creating constant buffer '%v'.", bind_desc.Name)
+					return false
+				}
+
 				buf.size = int(cb_desc.Size)
 				buf.bind_point = bind_desc.BindPoint
 				append(d3d_constant_buffers, buf)
@@ -1009,6 +1288,8 @@ reflect_shader_constants :: proc(
 			)
 		}
 	}
+
+	return true
 }
 
 d3d11_destroy_shader :: proc(h: Shader_Handle) {
@@ -1092,6 +1373,12 @@ D3D11_State :: struct {
 	vertex_buffer_gpu: ^d3d11.IBuffer,
 
 	all_samplers: map[^d3d11.ISamplerState]struct{},
+
+	// The depth things below are only created when `depth_test` is true.
+	depth_test: bool,
+	depth_buffer: ^d3d11.ITexture2D,
+	depth_buffer_view: ^d3d11.IDepthStencilView,
+	depth_stencil_state: ^d3d11.IDepthStencilState,
 }
 
 create_swapchain :: proc(w, h: int) {
@@ -1128,6 +1415,22 @@ create_swapchain :: proc(w, h: int) {
 	ch(s.swapchain->GetBuffer(0, d3d11.ITexture2D_UUID, (^rawptr)(&s.framebuffer)))
 	ch(s.device->CreateRenderTargetView(s.framebuffer, nil, &s.framebuffer_view))
 	dxgi_factory->MakeWindowAssociation(s.window_handle, { .NO_ALT_ENTER })
+
+	if s.depth_test {
+		depth_buffer_desc := d3d11.TEXTURE2D_DESC{
+			Width      = u32(w),
+			Height     = u32(h),
+			MipLevels  = 1,
+			ArraySize  = 1,
+			Format     = .D24_UNORM_S8_UINT,
+			SampleDesc = {Count = sample_count, Quality = swapchain_desc.SampleDesc.Quality},
+			Usage      = .DEFAULT,
+			BindFlags  = {.DEPTH_STENCIL},
+		}
+
+		ch(s.device->CreateTexture2D(&depth_buffer_desc, nil, &s.depth_buffer))
+		ch(s.device->CreateDepthStencilView(s.depth_buffer, nil, &s.depth_buffer_view))
+	}
 }
 
 D3D11_Texture :: struct {
@@ -1151,6 +1454,10 @@ D3D11_Render_Target :: struct {
 	render_target_view: ^d3d11.IRenderTargetView,
 	width: int,
 	height: int,
+
+	// Only set up when depth testing is enabled, see D3D11_State.depth_test.
+	depth_buffer: ^d3d11.ITexture2D,
+	depth_buffer_view: ^d3d11.IDepthStencilView,
 }
 
 dxgi_format_from_pixel_format :: proc(f: Pixel_Format) -> dxgi.FORMAT {
@@ -1229,4 +1536,8 @@ d3d11_default_shader_vertex_source :: proc() -> []byte {
 d3d11_default_shader_fragment_source :: proc() -> []byte {
 	s := DEFAULT_SHADER_SOURCE
 	return s
+}
+
+d3d11_get_depth_clip_range :: proc() -> (min: f32, max: f32) {
+	return 0, 1
 }

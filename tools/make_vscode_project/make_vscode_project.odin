@@ -65,7 +65,7 @@ main :: proc() {
 		name: string,
 		src: string,
 		launch_from_root := false
-	) {		
+	) {
 		TASKS_ENTRY_TEMPLATE ::
 `		{{
 			"label": "build %s",
@@ -130,7 +130,7 @@ main :: proc() {
 				WEB_TASKS_ENTRY_TEMPLATE,
 				name,
 				src,
-			)
+				)
 			
 			fmt.fprint(tasks_file, web_tasks_entry)
 		}

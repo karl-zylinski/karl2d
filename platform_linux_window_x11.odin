@@ -6,6 +6,7 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	state_size = x11_state_size,
+	try_load = x11_try_load,
 	init = x11_init,
 	shutdown = x11_shutdown,
 	get_window_render_glue = x11_get_window_render_glue,
@@ -28,7 +29,7 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_internal_state = x11_set_internal_state,
 }
 
-import X "vendor:x11/xlib"
+import X "platform_bindings/linux/x11"
 import "base:runtime"
 import "log"
 import "core:fmt"
@@ -39,21 +40,41 @@ import hm "core:container/handle_map"
 _ :: log
 _ :: fmt
 
-// XDestroyIC, XCloseIM and XrmDestroyDatabase aren't bound by vendor:x11/xlib, so we bind them
-// here ourselves.
-foreign import x11_extra "system:X11"
-
-foreign x11_extra {
-	XDestroyIC :: proc(ic: X.XIC) ---
-	XCloseIM :: proc(im: X.XIM) -> X.Status ---
-	XrmDestroyDatabase :: proc(db: X.XrmDatabase) ---
-}
+// The horizontal wheel is button 6 and 7. Xlib stops naming buttons at 5.
+BUTTON_WHEEL_LEFT :: X.MouseButton(6)
+BUTTON_WHEEL_RIGHT :: X.MouseButton(7)
 
 // The DPI that X11 and every toolkit on it treat as 100% scale.
 DEFAULT_DPI :: 96
 
 x11_state_size :: proc() -> int {
 	return size_of(X11_State)
+}
+
+x11_try_load :: proc(
+	failure_reason_allocator: runtime.Allocator,
+) -> (
+	failure_reason: string,
+	ok: bool,
+) {
+	missing, load_ok := X.load()
+
+	if !load_ok {
+		return fmt.aprintf("Not using X11. Could not load %v.", missing,
+			allocator = failure_reason_allocator), false
+	}
+
+	// The libraries being installed does not mean there is a server to talk to, so open a display
+	// and throw it away again. `x11_init` opens the one that gets used.
+	display := X.OpenDisplay(nil)
+
+	if display == nil {
+		X.unload()
+		return "Not using X11. Could not open a display.", false
+	}
+
+	X.CloseDisplay(display)
+	return "", true
 }
 
 x11_init :: proc(
@@ -156,20 +177,15 @@ x11_init :: proc(
 		blank_pixmap := X.CreatePixmap(s.display, s.window, 1, 1, 1)
 		black: X.XColor
 
-		// The binding for this proc is broken, so I fixed it locally.
-		CreatePixmapCursor_Correct :: proc(
-			display:   ^X.Display,
-			source:    X.Pixmap,
-			mask:      X.Pixmap,
-			fg:        ^X.XColor,
-			bg:        ^X.XColor,
-			x:         u32,
-			y:         u32,
-		) -> X.Cursor
-
-		binding := cast(CreatePixmapCursor_Correct)(X.CreatePixmapCursor)
-
-		s.blank_cursor = binding(s.display, blank_pixmap, blank_pixmap, &black, &black, 0, 0)
+		s.blank_cursor = X.CreatePixmapCursor(
+			s.display,
+			blank_pixmap,
+			blank_pixmap,
+			&black,
+			&black,
+			0,
+			0,
+		)
 		X.FreePixmap(s.display, blank_pixmap)
 	}
 	
@@ -186,11 +202,11 @@ x11_shutdown :: proc() {
 	delete(s.events)
 
 	if s.xic != nil {
-		XDestroyIC(s.xic)
+		X.DestroyIC(s.xic)
 	}
 
 	if s.xim != nil {
-		XCloseIM(s.xim)
+		X.CloseIM(s.xim)
 	}
 
 	for cached in s.standard_cursors {
@@ -297,7 +313,11 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 				// LOL X11!!! Mouse wheel is button 4 and 5 being pressed.
 
 				append(events, Event_Mouse_Wheel {
-					event.xbutton.button == .Button4 ? -1 : 1,
+					event.xbutton.button == .Button4 ? 1 : -1,
+				})
+			} else if event.xbutton.button <= BUTTON_WHEEL_RIGHT {
+				append(events, Event_Mouse_Wheel_Horizontal {
+					event.xbutton.button == BUTTON_WHEEL_LEFT ? -1 : 1,
 				})
 			}
 
@@ -356,7 +376,7 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 			}
 
 		case .PropertyNotify:
-			is_resource_manager := event.xproperty.state == .PropertyNewValue &&
+			is_resource_manager := event.xproperty.state == .NewValue &&
 				event.xproperty.window == X.DefaultRootWindow(s.display) &&
 				event.xproperty.atom == s.resource_manager
 
@@ -519,7 +539,7 @@ x11_fetch_window_scale :: proc() -> f32 {
 		&prop,
 	)
 
-	if get_status != i32(X.Status.Success) || prop == nil {
+	if get_status != .Success || prop == nil {
 		return 1
 	}
 
@@ -546,7 +566,7 @@ x11_fetch_window_scale :: proc() -> f32 {
 		}
 	}
 
-	XrmDestroyDatabase(db)
+	X.XrmDestroyDatabase(db)
 	return scale
 }
 
@@ -751,12 +771,12 @@ _x11_teleport_cursor_to_center :: proc() {
 	})
 }
 
-x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
 	img := X.cursorImageCreate(i32(image.width), i32(image.height))
 
 	if img == nil {
 		log.error("cursorImageCreate failed")
-		return {}
+		return {}, false
 	}
 
 	// Convert to ARGB and premultiply alpha, straight into the buffer Xcursor allocated for us.
@@ -781,7 +801,7 @@ x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 
 	if cursor == 0 {
 		log.error("cursorImageLoadCursor failed")
-		return {}
+		return {}, false
 	}
 
 	handle, add_err := hm.add(&s.custom_cursors, X11_Cursor{cursor = cursor})
@@ -789,10 +809,10 @@ x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 	if add_err != nil {
 		log.errorf("Failed to create cursor. Error: %v", add_err)
 		X.FreeCursor(s.display, cursor)
-		return {}
+		return {}, false
 	}
 
-	return handle
+	return handle, true
 }
 
 x11_set_cursor :: proc(cursor: Cursor) {

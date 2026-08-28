@@ -28,6 +28,7 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 
 	default_shader_vertex_source = webgl_default_shader_vertex_source,
 	default_shader_fragment_source = webgl_default_shader_fragment_source,
+	get_depth_clip_range = webgl_get_depth_clip_range,
 }
 
 import "base:runtime"
@@ -48,6 +49,7 @@ WebGL_State :: struct {
 	vertex_buffer_gpu: gl.Buffer,
 	textures: hm.Dynamic_Handle_Map(WebGL_Texture, Texture_Handle),
 	render_targets: hm.Dynamic_Handle_Map(WebGL_Render_Target, Render_Target_Handle),
+	depth_test: bool,
 }
 
 WebGL_Shader_Constant_Buffer :: struct {
@@ -93,6 +95,9 @@ WebGL_Render_Target :: struct {
 	framebuffer: gl.Framebuffer,
 	width: int,
 	height: int,
+
+	// Only set up when depth testing is enabled, see WebGL_State.depth_test.
+	depth_renderbuffer: gl.Renderbuffer,
 }
 
 WebGL_Shader :: struct {
@@ -131,6 +136,7 @@ webgl_init :: proc(
 	s.width = swapchain_width
 	s.height = swapchain_height
 	s.allocator = allocator
+	s.depth_test = options.depth_test
 
 	hm.dynamic_init(&s.shaders, allocator)
 	hm.dynamic_init(&s.textures, allocator)
@@ -142,6 +148,14 @@ webgl_init :: proc(
 		context_attribs -= { .disableAntialias }
 	} else {
 		context_attribs += { .disableAntialias }
+	}
+
+	// The canvas has a depth buffer by default, so only ask the browser to skip creating one when
+	// depth testing is off.
+	if s.depth_test {
+		context_attribs -= { .disableDepth }
+	} else {
+		context_attribs += { .disableDepth }
 	}
 
 	context_ok := gl.CreateCurrentContextById(s.canvas_id, context_attribs)
@@ -157,6 +171,15 @@ webgl_init :: proc(
 
 	gl.Disable(gl.CULL_FACE)
 	gl.Enable(gl.BLEND)
+
+	if s.depth_test {
+		gl.Enable(gl.DEPTH_TEST)
+
+		// Higher z ends up in front. GEQUAL instead of GREATER so that things drawn at the same z
+		// fall back to drawing order, like when depth testing is off.
+		gl.DepthFunc(gl.GEQUAL)
+		gl.ClearDepth(0)
+	}
 
 	gl.Viewport(0, 0, i32(s.width), i32(s.height))
 }
@@ -180,7 +203,17 @@ webgl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 
 	c := f32_color_from_color(color)
 	gl.ClearColor(c.r, c.g, c.b, c.a)
-	gl.Clear(u32(gl.COLOR_BUFFER_BIT))
+
+	clear_mask := u32(gl.COLOR_BUFFER_BIT)
+
+	if s.depth_test {
+		// glClear of the depth buffer is gated by the depth mask, so it must be on for this to
+		// have any effect. draw() doesn't touch the mask, so this only needs setting once here.
+		gl.DepthMask(true)
+		clear_mask |= u32(gl.DEPTH_BUFFER_BIT)
+	}
+
+	gl.Clear(clear_mask)
 }
 
 webgl_present :: proc() {
@@ -397,7 +430,25 @@ webgl_set_internal_state :: proc(state: rawptr) {
 	s = (^WebGL_State)(state)
 }
 
-create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawptr) -> WebGL_Texture {
+// WebGL hands out errors through a queue instead of return values, and nothing else in this backend
+// reads it, so it can hold something an earlier call left behind. Empty it, so that a check right
+// after a call only sees what that call did. The bound stops a lost context spinning here forever.
+GL_ERROR_QUEUE_DRAIN_LIMIT :: 32
+
+drain_gl_errors :: proc() {
+	for _ in 0..<GL_ERROR_QUEUE_DRAIN_LIMIT {
+		if gl.GetError() == gl.NO_ERROR {
+			return
+		}
+	}
+}
+
+create_texture :: proc(
+	width: int,
+	height: int,
+	format: Pixel_Format,
+	data: rawptr,
+) -> (WebGL_Texture, bool) {
 	id := gl.CreateTexture()
 	gl.BindTexture(gl.TEXTURE_2D, id)
 
@@ -408,35 +459,68 @@ create_texture :: proc(width: int, height: int, format: Pixel_Format, data: rawp
 
 	pf := gl_translate_pixel_format(format)
 
+	drain_gl_errors()
+
 	data_size := width*height*pixel_format_size(format)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, data_size, data)
+
+	// This is where a texture that is too big for the GPU, or one the GPU has no memory left for,
+	// gets caught. Without the check it would become a texture that silently draws nothing.
+	if err := gl.GetError(); err != gl.NO_ERROR {
+		log.errorf("Failed creating %v x %v texture. GL error: %v", width, height, err)
+		gl.DeleteTexture(id)
+		return {}, false
+	}
 
 	return {
 		id = id,
 		format = format,
-	}
+	}, true
 }
 
-webgl_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	texture_handle, texture_handle_err := hm.add(&s.textures, create_texture(width, height, format, nil))
+webgl_create_texture :: proc(
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
+	texture, texture_ok := create_texture(width, height, format, nil)
+
+	if !texture_ok {
+		return TEXTURE_NONE, false
+	}
+
+	texture_handle, texture_handle_err := hm.add(&s.textures, texture)
 
 	if texture_handle_err != nil {
 		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
-		return TEXTURE_NONE
+		gl.DeleteTexture(texture.id)
+		return TEXTURE_NONE, false
 	}
 
-	return texture_handle
+	return texture_handle, true
 }
 
-webgl_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	texture_handle, texture_handle_err := hm.add(&s.textures, create_texture(width, height, format, raw_data(data)))
+webgl_load_texture :: proc(
+	data: []u8,
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
+	texture, texture_ok := create_texture(width, height, format, raw_data(data))
+
+	if !texture_ok {
+		return TEXTURE_NONE, false
+	}
+
+	texture_handle, texture_handle_err := hm.add(&s.textures, texture)
 
 	if texture_handle_err != nil {
 		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
-		return TEXTURE_NONE
+		gl.DeleteTexture(texture.id)
+		return TEXTURE_NONE, false
 	}
 
-	return texture_handle
+	return texture_handle, true
 }
 
 webgl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
@@ -472,8 +556,16 @@ webgl_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
 	return tex.needs_vertical_flip
 }
 
-webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
-	texture := create_texture(width, height, .RGBA_32_Float, nil)
+webgl_create_render_texture :: proc(
+	width: int,
+	height: int,
+) -> (Texture_Handle, Render_Target_Handle, bool) {
+	texture, texture_ok := create_texture(width, height, .RGBA_32_Float, nil)
+
+	if !texture_ok {
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+	}
+
 	texture.needs_vertical_flip = true
 	
 	framebuffer := gl.CreateFramebuffer()
@@ -482,9 +574,30 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture.id, 0)
 	gl.DrawBuffers({gl.COLOR_ATTACHMENT0})
 
+	depth_renderbuffer: gl.Renderbuffer
+
+	if s.depth_test {
+		depth_renderbuffer = gl.CreateRenderbuffer()
+		gl.BindRenderbuffer(gl.RENDERBUFFER, depth_renderbuffer)
+		gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, i32(width), i32(height))
+
+		gl.FramebufferRenderbuffer(
+			gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth_renderbuffer,
+		)
+	}
+
 	if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
 		log.errorf("Failed creating frame buffer of size %v x %v", width, height)
-		return TEXTURE_NONE, RENDER_TARGET_NONE
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		gl.BindRenderbuffer(gl.RENDERBUFFER, 0)
+		gl.DeleteTexture(texture.id)
+		gl.DeleteFramebuffer(framebuffer)
+
+		if s.depth_test {
+			gl.DeleteRenderbuffer(depth_renderbuffer)
+		}
+
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
@@ -494,6 +607,7 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 		framebuffer = framebuffer,
 		width = width,
 		height = height,
+		depth_renderbuffer = depth_renderbuffer,
 	}
 
 	texture_handle, texture_handle_err := hm.add(&s.textures, texture)
@@ -502,24 +616,39 @@ webgl_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle,
 		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
 		gl.DeleteTexture(texture.id)
 		gl.DeleteFramebuffer(framebuffer)
-		return TEXTURE_NONE, RENDER_TARGET_NONE
+
+		if s.depth_test {
+			gl.DeleteRenderbuffer(depth_renderbuffer)
+		}
+
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	render_target_handle, render_target_handle_err := hm.add(&s.render_targets, rt)
 
 	if render_target_handle_err != nil {
 		log.errorf("Failed adding render target to handle map: %v", render_target_handle_err)
+		hm.remove(&s.textures, texture_handle)
 		gl.DeleteTexture(texture.id)
 		gl.DeleteFramebuffer(framebuffer)
-		return TEXTURE_NONE, RENDER_TARGET_NONE
+
+		if s.depth_test {
+			gl.DeleteRenderbuffer(depth_renderbuffer)
+		}
+
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
-	return texture_handle, render_target_handle
+	return texture_handle, render_target_handle, true
 }
 
 webgl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		gl.DeleteFramebuffer(rt.framebuffer)
+
+		if rt.depth_renderbuffer != 0 {
+			gl.DeleteRenderbuffer(rt.depth_renderbuffer)
+		}
 	}
 }
 
@@ -587,28 +716,42 @@ link_shader :: proc(vs_shader: gl.Shader, fs_shader: gl.Shader, err_buf: []u8, e
 	return program_id, true
 }
 
-webgl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator := frame_allocator, layout_formats: []Pixel_Format = {}) -> (handle: Shader_Handle, desc: Shader_Desc) {
+webgl_load_shader :: proc(
+	vs_source: []byte,
+	fs_source: []byte,
+	desc_allocator := frame_allocator,
+	layout_formats: []Pixel_Format = {},
+) -> (
+	_handle: Shader_Handle,
+	_desc: Shader_Desc,
+	_ok: bool,
+) {
+	// Built up as the shaders are reflected over, and only handed back once everything worked.
+	// Filling in a named return value instead would mean the naked returns below hand out a
+	// half-built description alongside their `false`.
+	desc: Shader_Desc
+
 	@static err: [1024]u8
 	err_msg: string
 	vs_shader, vs_shader_ok := compile_shader_from_source(vs_source, gl.VERTEX_SHADER, err[:], &err_msg)
 
 	if !vs_shader_ok  {
 		log.error(err_msg)
-		return {}, {}
+		return
 	}
 	
 	fs_shader, fs_shader_ok := compile_shader_from_source(fs_source, gl.FRAGMENT_SHADER, err[:], &err_msg)
 
 	if !fs_shader_ok {
 		log.error(err_msg)
-		return {}, {}
+		return
 	}
 
 	program, program_ok := link_shader(vs_shader, fs_shader, err[:], &err_msg)
 
 	if !program_ok {
 		log.error(err_msg)
-		return {}, {}
+		return
 	}
 
 	stride: int
@@ -791,10 +934,10 @@ webgl_load_shader :: proc(vs_source: []byte, fs_source: []byte, desc_allocator :
 		gl.DeleteProgram(program)
 		gl.DeleteShader(vs_shader)
 		gl.DeleteShader(fs_shader)
-		return SHADER_NONE, {}
+		return
 	}
 
-	return shader_handle, desc
+	return shader_handle, desc, true
 }
 
 // I might have missed something. But it doesn't seem like GL gives you this information.
@@ -900,5 +1043,9 @@ webgl_default_shader_vertex_source :: proc() -> []byte {
 webgl_default_shader_fragment_source :: proc() -> []byte {
 	fragment_source := #load("default_shaders/default_shader_webgl_fragment.glsl")
 	return fragment_source
+}
+
+webgl_get_depth_clip_range :: proc() -> (min: f32, max: f32) {
+	return -1, 1
 }
 

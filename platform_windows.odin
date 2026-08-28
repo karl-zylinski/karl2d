@@ -574,7 +574,7 @@ _windows_teleport_cursor_to_center :: proc() {
 	})
 }
 
-windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
 	// CreateBitmap makes a device-dependent bitmap, which is not documented to support a real
 	// alpha channel. A 32-bit cursor with alpha needs a DIB section instead: CreateDIBSection with
 	// a BITMAPV5HEADER and explicit channel masks, which is also what GLFW and SDL do for this.
@@ -608,7 +608,7 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 
 	if h_color == nil || dib_pixels == nil {
 		log.errorf("CreateDIBSection failed with %v", win32.GetLastError())
-		return {}
+		return {}, false
 	}
 
 	// We receive RGBA but the DIB, like GDI generally, wants BGRA.
@@ -641,7 +641,7 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 
 	if hcursor == nil {
 		log.errorf("CreateIconIndirect failed with %v", win32.GetLastError())
-		return {}
+		return {}, false
 	}
 
 	handle, add_err := hm.add(&s.custom_cursors, Windows_Cursor{hcursor = hcursor})
@@ -649,10 +649,10 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cu
 	if add_err != nil {
 		log.errorf("Failed to create cursor. Error: %v", add_err)
 		win32.DestroyCursor(hcursor)
-		return {}
+		return {}, false
 	}
 
-	return handle
+	return handle, true
 }
 
 windows_set_cursor :: proc(cursor: Cursor) {
@@ -741,6 +741,11 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 	case win32.WM_CLOSE:
 		append(&s.events, Event_Close_Window_Requested{})
 
+		// The default handler destroys the window. We don't want that: it's up to the application
+		// to decide what a close request means, it may want to show a confirmation dialogue. The
+		// window is destroyed in `windows_shutdown`.
+		return 0
+
 	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:
 		repeat := bool(lparam & (1 << 30))
 		key := key_from_event_params(wparam, lparam)
@@ -823,6 +828,14 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 			delta = delta,
 		})
 
+	case win32.WM_MOUSEHWHEEL:
+		// Windows measures the horizontal wheel to the right, which is the direction we want.
+		delta := f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
+
+		append(&s.events, Event_Mouse_Wheel_Horizontal {
+			delta = delta,
+		})
+
 	case win32.WM_LBUTTONDOWN:
 		append(&s.events, Event_Mouse_Button_Went_Down {
 			button = .Left,
@@ -872,11 +885,27 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 		new_dpi := win32.LOWORD(wparam)
 		s.window_scale = f32(new_dpi) / 96.0
 
+		// Windows supplies the outer window rectangle that preserves the window's logical size at
+		// the new DPI. Applying it here is important for apps like AltSnap, where unlike the native
+		// title-bar drag loop, they do not necessarily perform this adjustment on our behalf.
+		suggested_rect := (^win32.RECT)(uintptr(lparam))
+		win32.SetWindowPos(
+			hwnd,
+			{},
+			suggested_rect.left,
+			suggested_rect.top,
+			suggested_rect.right - suggested_rect.left,
+			suggested_rect.bottom - suggested_rect.top,
+			win32.SWP_NOACTIVATE | win32.SWP_NOZORDER,
+		)
+
 		append(&s.events, Event_Window_Scale_Changed {
 			scale = s.window_scale,
 			screen_width = s.screen_width,
 			screen_height = s.screen_height,
 		})
+
+		return 0
 
 	case win32.WM_ENTERSIZEMOVE:
 		s.in_resize_move_state = true

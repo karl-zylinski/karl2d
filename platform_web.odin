@@ -80,9 +80,16 @@ web_init :: proc(
 	s.window_mode = init_options.window_mode
 
 	add_window_event_listener(.Resize, web_event_window_resize)
-	add_canvas_event_listener(.Mouse_Move, web_event_mouse_move)
-	add_canvas_event_listener(.Mouse_Down, web_event_mouse_down)
-	add_window_event_listener(.Mouse_Up, web_event_mouse_up)
+
+	// One pointer model for mouse, pen and touch. Up sits on the window because a mouse pointer
+	// gets no implicit capture: a drag that ends outside the canvas still has to release. Touch
+	// pointers do get capture, and their events bubble to the window anyway.
+	add_canvas_event_listener(.Pointer_Down, web_event_pointer_down)
+	add_canvas_event_listener(.Pointer_Move, web_event_pointer_move)
+	add_window_event_listener(.Pointer_Up, web_event_pointer_up)
+	add_canvas_event_listener(.Pointer_Cancel, web_event_pointer_cancel)
+
+	// Not a pointer event, so the wheel keeps its own listener.
 	add_canvas_event_listener(.Wheel, web_event_mouse_wheel)
 
 	add_window_event_listener(.Key_Down, web_event_key_down)
@@ -163,7 +170,61 @@ web_event_window_resize :: proc(e: js.Event) {
 	}
 }
 
-web_event_mouse_move :: proc(e: js.Event) {
+
+web_event_mouse_wheel :: proc(e: js.Event) {
+	// Not the best way, but how would we know what the wheel deltaMode really represents? If it is
+	// in pixels, how much "scroll" does that equal to? So we keep the direction and call it one
+	// click. The browser measures down and right as positive, so the vertical axis is flipped.
+	// A swipe along one axis reports zero on the other, which is not worth an event.
+	if e.wheel.delta.y != 0 {
+		append(&s.events, Event_Mouse_Wheel {
+			delta = e.wheel.delta.y > 0 ? -1 : 1,
+		})
+	}
+
+	if e.wheel.delta.x != 0 {
+		append(&s.events, Event_Mouse_Wheel_Horizontal {
+			delta = e.wheel.delta.x > 0 ? 1 : -1,
+		})
+	}
+}
+
+// Mouse, pen and touch all arrive here. Touch becomes touch events, everything else drives the
+// mouse. The browser's own post-tap mouse events are not pointer events, so they never reach us
+// and a tap cannot arrive twice.
+web_event_pointer_down :: proc(e: js.Event) {
+	if e.mouse.pointer.pointer_type == .Touch {
+		append(&s.events, Event_Touch_Went_Down {
+			id = Touch_Id(e.mouse.pointer.pointer_id),
+			position = web_touch_position(e),
+		})
+		return
+	}
+
+	button := Mouse_Button.Left
+
+	if e.mouse.button == 2 {
+		button = .Right
+	}
+
+	if e.mouse.button == 1 {
+		button = .Middle
+	}
+
+	append(&s.events, Event_Mouse_Button_Went_Down {
+		button = button,
+	})
+}
+
+web_event_pointer_move :: proc(e: js.Event) {
+	if e.mouse.pointer.pointer_type == .Touch {
+		append(&s.events, Event_Touch_Moved {
+			id = Touch_Id(e.mouse.pointer.pointer_id),
+			position = web_touch_position(e),
+		})
+		return
+	}
+
 	if s.mouse_locked {
 		cx := f32(s.width / 2)
 		cy := f32(s.height / 2)
@@ -181,7 +242,15 @@ web_event_mouse_move :: proc(e: js.Event) {
 	}
 }
 
-web_event_mouse_down :: proc(e: js.Event) {
+web_event_pointer_up :: proc(e: js.Event) {
+	if e.mouse.pointer.pointer_type == .Touch {
+		append(&s.events, Event_Touch_Went_Up {
+			id = Touch_Id(e.mouse.pointer.pointer_id),
+			position = web_touch_position(e),
+		})
+		return
+	}
+
 	button := Mouse_Button.Left
 
 	if e.mouse.button == 2 {
@@ -189,23 +258,7 @@ web_event_mouse_down :: proc(e: js.Event) {
 	}
 
 	if e.mouse.button == 1 {
-		button = .Middle 
-	}
-
-	append(&s.events, Event_Mouse_Button_Went_Down {
-		button = button,
-	})
-}
-
-web_event_mouse_up :: proc(e: js.Event) {
-	button := Mouse_Button.Left
-
-	if e.mouse.button == 2 {
-		button = .Right
-	}
-
-	if e.mouse.button == 1 {
-		button = .Middle 
+		button = .Middle
 	}
 
 	append(&s.events, Event_Mouse_Button_Went_Up {
@@ -213,12 +266,20 @@ web_event_mouse_up :: proc(e: js.Event) {
 	})
 }
 
-web_event_mouse_wheel :: proc(e: js.Event) {
-	append(&s.events, Event_Mouse_Wheel {
-		// Not the best way, but how would we know what the wheel deltaMode really represents? If it
-		// is in pixels, how much "scroll" does that equal to?
-		delta = f32(e.wheel.delta.y > 0 ? -1 : 1),
-	})
+// Only touch is cancelled in practice. A mouse that somehow gets here has no button to release.
+web_event_pointer_cancel :: proc(e: js.Event) {
+	if e.mouse.pointer.pointer_type != .Touch {
+		return
+	}
+
+	append(&s.events, Event_Touch_Cancelled { id = Touch_Id(e.mouse.pointer.pointer_id) })
+}
+
+web_touch_position :: proc(e: js.Event) -> Vec2 {
+	return {
+		math.floor(f32(e.mouse.client.x) * f32(js.device_pixel_ratio())),
+		math.floor(f32(e.mouse.client.y) * f32(js.device_pixel_ratio())),
+	}
 }
 
 add_canvas_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
@@ -439,14 +500,14 @@ web_is_mouse_locked :: proc() -> bool {
 	return s.mouse_locked
 }
 
-web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
 	// There is no hardware cursor API on the web, so we hand the browser a PNG as a data URI and
 	// let CSS do the work. core:image/png can only decode, not encode, so we encode it ourselves;
 	// see encode_png's own comment for why that is fine here.
 	png_bytes, encode_ok := encode_png(image, frame_allocator)
 	if !encode_ok {
 		log.error("Failed to encode cursor image as PNG")
-		return {}
+		return {}, false
 	}
 
 	// Browsers cap `cursor` images at 128 CSS pixels; anything bigger is either clamped or, in
@@ -481,10 +542,10 @@ web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor
 		delete(cursor.data_uri, s.allocator)
 		delete(cursor.style_value, s.allocator)
 		delete(cursor.style_value_scaled, s.allocator)
-		return {}
+		return {}, false
 	}
 
-	return handle
+	return handle, true
 }
 
 // The `cursor` property sizes its image in CSS pixels, but the rest of Karl2D works in device

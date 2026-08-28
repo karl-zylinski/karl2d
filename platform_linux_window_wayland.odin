@@ -4,6 +4,7 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	state_size = wl_state_size,
+	try_load = wl_try_load,
 	init = wl_init,
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
@@ -50,6 +51,37 @@ THEME_CURSOR_SIZE :: 24
 
 wl_state_size :: proc() -> int {
 	return size_of(WL_State)
+}
+
+wl_try_load :: proc(
+	failure_reason_allocator: runtime.Allocator,
+) -> (
+	failure_reason: string,
+	ok: bool,
+) {
+	if missing, load_ok := wl.load(); !load_ok {
+		return fmt.aprintf("Not using Wayland. Could not load %v.", missing,
+			allocator = failure_reason_allocator), false
+	}
+
+	// The libraries being installed does not mean there is a compositor to talk to, so connect and
+	// throw the connection away again. `wl_init` makes the one that gets used.
+	display := wl.display_connect(nil)
+
+	if display == nil {
+		wl.unload()
+		return "Not using Wayland. Could not connect to a compositor.", false
+	}
+
+	wl.display_disconnect(display)
+
+	if missing, load_ok := xkb.load(); !load_ok {
+		wl.unload()
+		return fmt.aprintf("Not using Wayland. Could not load %v.", missing,
+			allocator = failure_reason_allocator), false
+	}
+
+	return "", true
 }
 
 wl_init :: proc(
@@ -616,12 +648,16 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		// Vertical scroll
-		if axis == 0 {
-			event_direction: f32 = value > 0 ? -1 : 1
-			
+		// Wayland measures down and right as positive, so the vertical axis needs flipping.
+		switch axis {
+		case wl.POINTER_AXIS_VERTICAL_SCROLL:
 			append(&s.events, Event_Mouse_Wheel {
-				delta = event_direction,
+				delta = f32(math.sign(value)) * -1,
+			})
+
+		case wl.POINTER_AXIS_HORIZONTAL_SCROLL:
+			append(&s.events, Event_Mouse_Wheel_Horizontal {
+				delta = f32(math.sign(value)),
 			})
 		}
 	},
@@ -1015,14 +1051,14 @@ wl_apply_cursor :: proc() {
 	wl.surface_commit(s.cursor_surface)
 }
 
-wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor {
+wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
 	stride := image.width * 4
 	size := stride * image.height
 
 	fd, fd_err := linux.memfd_create("cursor", {})
 	if fd_err != .NONE {
 		log.errorf("Failed to create Wayland cursor: memfd failed with %v", fd_err)
-		return {}
+		return {}, false
 	}
 
 	// The compositor dups the fd in shm_create_pool, so we don't have to keep ours around.
@@ -1030,13 +1066,13 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor 
 
 	if trunc_err := linux.ftruncate(fd, i64(size)); trunc_err != .NONE {
 		log.errorf("Failed to create Wayland cursor: ftruncate failed with %v", trunc_err)
-		return {}
+		return {}, false
 	}
 
 	data, mmap_err := linux.mmap(0, uint(size), {.READ, .WRITE}, {.SHARED}, fd, 0)
 	if mmap_err != .NONE {
 		log.errorf("Failed to create Wayland cursor: mmap failed with %v", mmap_err)
-		return {}
+		return {}, false
 	}
 
 	// Convert to ARGB and premultiply alpha
@@ -1086,10 +1122,10 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> Custom_Cursor 
 		wl.surface_destroy(cursor.surface)
 		wl.buffer_destroy(cursor.buffer)
 		linux.munmap(cursor.data, uint(cursor.data_size))
-		return {}
+		return {}, false
 	}
 
-	return handle
+	return handle, true
 }
 
 // A cursor image is sized in physical pixels, like everything else in Karl2D, but a Wayland surface

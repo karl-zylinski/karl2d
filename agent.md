@@ -12,25 +12,66 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - See `karl2d.doc.odin` for a full API overview. It is generated output: never edit it by hand.
 
 ## Workflow
+- If the work is on an existing pull request, start with `gh pr checkout <number>` rather than a branch or worktree that merely looks like the right one. It checks out the PR head (including from forks) and sets up tracking, so `git push` updates the PR instead of creating a disconnected branch.
 - Keep changes focused. Don't touch unrelated code, don't use auto-formatters (e.g. odinfmt), and don't modify whitespace on lines you aren't otherwise changing.
 - If you make unintended changes, revert them in additional commits (squash merges are used).
 - If you break backwards compatbility, introduce @(deprecated) procedures or somehow try to do it gracefully. If you cannot help it, then so be, but flag about it in the review.
 - Keep dependencies minimal. Prefer clarity and simplicity over cleverness.
 - Draft Pull Requests are always welcome and do not need to follow strict rules. A _ready for review_ PR must contain working, tested, complete code that follows the style below.
 
+## Commit messages
+
+Write them like a tweet, max 180 characters. Only simple sentences. Only allowed punctuation is the period. If possible, keep them to 3-4 words. Use more words if really needed.
+
+## Pull request descriptions
+
+Keep them short. They contain only these things, in this order:
+
+- A short description of what was done. A few sentences at most.
+- The things that changed in the API. Say so explicitly if nothing did.
+- Bullet points of the changes that are not in the API.
+- The line "Created with the help of Claude Code" at the bottom.
+
+Nothing else. No narrative of how the work was done, no verification logs, no rationale that belongs in the issue.
+
 ## Verifying Your Work
 - Build and test through the examples in `examples/`. Prefer the existing VS Code build tasks; they already include `-vet -strict-style -vet-tabs` and come in three variants: default (D3D11 on Windows), `(GL)`, and `(web)`. Use the same `-vet -strict-style -vet-tabs` flags when running `odin` directly.
 - After edits, run the most relevant build task(s) for what you touched. After a large change, run `odin run tools/test_examples`, the CI script that builds every example (some are excluded from web builds, e.g. `minimal_hello_world`, `custom_frame_update`).
+- `tests/coordinate_system` holds the coordinate system checks. Run it both ways: once plain and once with `-define:KARL2D_TEST_Y_UP=true`, both with `-define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1`. They open a window, so they only run where one can be created.
 - Regenerate `karl2d.doc.odin`: `odin run tools/api_doc_builder`. Any change in `karl2d.doc.odin` is a user-facing API change. Make sure you want that change to actually happen. Think about what happens if you break backwards compatibility.
 - Web builds use the script in `build_web/`. Forward game/compiler flags after `--`: `odin run build_web -- your_game_path -debug`. A web game must have `init` and `step` procedures; `examples/minimal_hello_world_web/` is the template.
 - `tools/make_sublime_projects`, `tools/make_vscode_project/` and `tools/make_zed_project/` generate editor project configurations.
 
 ## Code Style
 
+### Paradigm
+- Write procedural imperative code. This is the most important code idea. None of that functional or OOP stuff. Prefer long procedures over compositing everything to tiny procedures. Just seeing the code that does something is easier than hopping into some othe procedure.
+
 ### Formatting
 - Tabs, not spaces, for indentation.
 - Max line length in `.odin` files: 100 characters. Use a ruler in your editor, split `//` comment lines at the ruler, and never go beyond it. Markdown files can and should use longer lines, since they will be viewed with line wrapping on.
-- Procedure signatures that are too long are split across lines (see `init` in `karl2d.odin`).
+- Anything that does not fit on one line is split with one item per line. That goes for procedure calls, procedure signatures, struct definitions and struct literals. The item list is indented one tab, each item ends with a comma including the last one, and the closing bracket sits on its own line at the indentation of the line that opened it. Do not pack several items onto a continuation line to save space. See `init` in `karl2d.odin` for a signature and `draw_text_static`'s call to `draw_texture_fit` for a call.
+
+  ```
+  s.proj_matrix = make_default_projection(
+  	pf.get_screen_width(),
+  	pf.get_screen_height(),
+  	_camera_flip_y(),
+  )
+  ```
+- The return values get split over several lines too, not just the parameters. When a signature does not fit, `-> (` opens the list, each return value sits on its own line ending with a comma, and `)` closes it with any tag and the opening brace after it. Splitting both lists reads better than keeping the return values packed on the closing line. This is only about where the line breaks go: it says nothing about naming the return values, which is a separate decision covered further down. See `create_texture` in `render_backend_d3d11.odin`.
+
+  ```
+  create_texture :: proc(
+  	width: int,
+  	height: int,
+  	format: Pixel_Format,
+  	data: rawptr,
+  ) -> (
+  	Texture_Handle,
+  	bool,
+  ) {
+  ```
 - Place `:` and `=` with consistent spacing as in `karl2d.odin`. Opening braces `{` go on the same line as the declaration.
 - Ranges are written without spaces: `for i in 0..<len(pixels)`, not `0 ..< len(pixels)`. Attributes too: `@(private="package")`, not `@(private = "package")`.
 - No single-line `if` bodies: the body goes on its own line, even when it is one statement. (One older example does this; don't copy it.)
@@ -43,13 +84,9 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - Log messages follow "Failed <doing> <thing>. Error: %v" or "Cannot <verb>, <thing> does not exist.". In platform backends it is also fine to name the failing OS call: "CreateIconIndirect failed with %v".
 
 ### Comments
-- Public API procedures and types get a clear, concise comment above them. Document parameters and return values where appropriate.
-- Voice: short and conversational; first person is fine ("We piggyback on the resize event", "I fixed the binding locally"). State the fact rather than writing a justification. One line is the norm; go longer only for an OS quirk or something genuinely non-obvious.
-- Use short sentences. Prefer a period over all other forms of punctuation.
-- A doc comment tells the reader two things. What does this do? And why does it do it that way, if that would otherwise surprise them. Leave out everything else.
-- Never write about how something used to work, or about what a change improved. The reader has only ever seen the current version. That story belongs in the commit message.
-- If you are unsure whether something belongs on a procedure or on a struct, put it on the procedure. That is what people look up.
-- Short notes can be trailing comments on the line they describe: `camera: k2.Camera // world camera`.
+- Use short sentences. Prefer a period over all other forms of punctuation
+- Never write about how something used to work, or about what a change improved. The reader has only ever seen the current version.
+- Don't duplicate information on a procedure and on a struct that the procedure uses. Put it on the procedure if unsure where to put it.
 
 ### File organization
 - Group related procedures and types together.
@@ -59,6 +96,7 @@ Conventions for writing code, writing documentation, and collaborating on this p
   // INPUT //
   //-------//
   ```
+- Those boxed section comments belong to `karl2d.odin` only. They organize the public API documentation. Do not use them in any other file, no matter how long it gets: platform backends, bindings and examples group their declarations without them.
 - Long procedures can be split up with short ALL-CAPS section comments: `// CAMERA PANNING`, `// DRAW WORLD` (see `examples/camera/camera.odin`).
 
 ### Handles use a zero value, not `Maybe`
@@ -67,6 +105,14 @@ Conventions for writing code, writing documentation, and collaborating on this p
 - It keeps handles assignable and comparable as-is. A `Custom_Cursor` goes straight into a `Cursor` union, so `selected = gauntlet` and `selected == gauntlet` just work. Wrapped in a `Maybe` both sides need unwrapping first, and the comparison needs an explicit `Cursor(...)` conversion. There is nothing to unwrap, so no `x, ok := h.?` before every use, and no temporary to carry the unwrapped value around.
 - Passing a zero handle is safe: procedures that take handles log and carry on rather than misbehaving. They log on every call though, so guard with `!= <TYPE>_NONE` in code that runs each frame.
 - See `examples/cursors/cursors.odin` for how this reads in practice.
+
+### Named return values are for naked returns, and start with `_`
+- A long procedure that can fail in many places ends up repeating `return SOMETHING_NONE, false` a dozen times. Naming the return values turns each of those into a naked `return`, which is shorter and keeps the failure value in one place. `load_audio_clip_from_bytes`, `load_audio_stream_from_file` and `load_static_font_from_bytes` do this.
+- Whether a procedure is long enough to want this is a judgement call, done by feel. Short procedures, and ones with only a couple of failure paths, keep writing the values out: `create_custom_cursor` still returns `CUSTOM_CURSOR_NONE, false`. Do not convert a procedure just to match a neighbour, and do not convert every procedure in a file at once.
+- Name them with a leading underscore: `_clip`, `_stream`, `_font`, `_ok`.
+- The only two things such a procedure does with them is a naked `return` on every failure path and one real `return value, true` at the end. Never assign to `_clip` or `_ok` themselves.
+- That is what the underscore is for. Assigning to a named return part way through is how they turn into bugs: a later naked `return` then hands back whatever was assigned instead of the zero value, and the reader has to track every assignment to know what actually comes out. A name that starts with `_` does not read like a variable you were meant to write to, so it doesn't happen by accident.
+- This works because every `<TYPE>_NONE` is the zero value of its type, so a naked `return` gives back exactly what the explicit `return SOMETHING_NONE, false` did.
 
 ### Avoid `defer`; write the cleanup where it happens
 - `defer` moves work away from the point it runs, so the reader has to reconstruct the order instead of reading top to bottom. Free, release or destroy a thing on the line after it stops being needed.

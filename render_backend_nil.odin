@@ -27,9 +27,26 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 
 	default_shader_vertex_source = rbnil_default_shader_vertex_source,
 	default_shader_fragment_source = rbnil_default_shader_fragment_source,
+	get_depth_clip_range = rbnil_get_depth_clip_range,
 }
 
 import "log"
+
+// The nil backend hands out handles from a monotonic counter. Nothing ever looks the handles up, we
+// just need them to be non-zero: a zero handle means TEXTURE_NONE/SHADER_NONE and makes the drawing
+// procedures in karl2d.odin bail out early.
+rbnil_next_handle_idx: u32 = 1
+
+rbnil_handle :: proc() -> Handle {
+	h := Handle { idx = rbnil_next_handle_idx, gen = 1 }
+	rbnil_next_handle_idx += 1
+	return h
+}
+
+// The nil backend has no state of its own (`state_size` is 0), so the swapchain size lives here.
+// It still needs to report a real size: the default projection matrix is built from it.
+rbnil_swapchain_width: int
+rbnil_swapchain_height: int
 
 rbnil_state_size :: proc() -> int {
 	return 0
@@ -44,6 +61,8 @@ rbnil_init :: proc(
 	allocator := context.allocator
 ) {
 	log.info("Render Backend nil init")
+	rbnil_swapchain_width = swapchain_width
+	rbnil_swapchain_height = swapchain_height
 }
 
 rbnil_shutdown :: proc() {
@@ -60,25 +79,36 @@ rbnil_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 }
 
 rbnil_resize_swapchain :: proc(w, h: int) {
+	rbnil_swapchain_width = w
+	rbnil_swapchain_height = h
 }
 
 rbnil_get_swapchain_width :: proc() -> int {
-	return 0
+	return rbnil_swapchain_width
 }
 
 rbnil_get_swapchain_height :: proc() -> int {
-	return 0
+	return rbnil_swapchain_height
 }
 
 rbnil_set_internal_state :: proc(state: rawptr) {
 }
 
-rbnil_create_texture :: proc(width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return {}
+rbnil_create_texture :: proc(
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
+	return Texture_Handle(rbnil_handle()), true
 }
 
-rbnil_load_texture :: proc(data: []u8, width: int, height: int, format: Pixel_Format) -> Texture_Handle {
-	return {}
+rbnil_load_texture :: proc(
+	data: []u8,
+	width: int,
+	height: int,
+	format: Pixel_Format,
+) -> (Texture_Handle, bool) {
+	return Texture_Handle(rbnil_handle()), true
 }
 
 rbnil_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
@@ -92,8 +122,11 @@ rbnil_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
 	return false
 }
 
-rbnil_create_render_texture :: proc(width: int, height: int) -> (Texture_Handle, Render_Target_Handle) {
-	return {}, {}
+rbnil_create_render_texture :: proc(
+	width: int,
+	height: int,
+) -> (Texture_Handle, Render_Target_Handle, bool) {
+	return Texture_Handle(rbnil_handle()), Render_Target_Handle(rbnil_handle()), true
 }
 
 rbnil_destroy_render_target :: proc(render_target: Render_Target_Handle) {
@@ -108,6 +141,10 @@ rbnil_set_texture_filter :: proc(
 ) {
 }
 
+// The nil backend does not parse shader source. It reports the same layout the built-in default
+// shader uses, which is what the batching code in karl2d.odin needs in order to lay out vertices.
+// That's enough to run the library headless (tests, benchmarks, dedicated servers). Custom shaders
+// with a different vertex layout will be reported as if they had the default one.
 rbnil_load_shader :: proc(
 	vs_source: []byte,
 	fs_source: []byte,
@@ -116,8 +153,30 @@ rbnil_load_shader :: proc(
 ) -> (
 	handle: Shader_Handle,
 	desc: Shader_Desc,
+	ok: bool,
 ) {
-	return {}, {}
+	inputs := make([]Shader_Input, 3, desc_allocator)
+	inputs[0] = { name = "position", register = 0, type = .Vec2, format = .RG_32_Float }
+	inputs[1] = { name = "texcoord", register = 1, type = .Vec2, format = .RG_32_Float }
+	inputs[2] = { name = "color",    register = 2, type = .Vec4, format = .RGBA_8_Norm }
+
+	for &input, input_idx in inputs {
+		if input_idx < len(layout_formats) && layout_formats[input_idx] != .Unknown {
+			input.format = layout_formats[input_idx]
+		}
+	}
+
+	constants := make([]Shader_Constant_Desc, 1, desc_allocator)
+	constants[0] = { name = "view_projection", size = size_of(matrix[4,4]f32) }
+
+	texture_bindpoints := make([]Shader_Texture_Bindpoint_Desc, 1, desc_allocator)
+	texture_bindpoints[0] = { name = "tex" }
+
+	return Shader_Handle(rbnil_handle()), {
+		constants = constants,
+		texture_bindpoints = texture_bindpoints,
+		inputs = inputs,
+	}, true
 }
 
 rbnil_destroy_shader :: proc(h: Shader_Handle) {
@@ -129,5 +188,9 @@ rbnil_default_shader_vertex_source :: proc() -> []byte {
 
 rbnil_default_shader_fragment_source :: proc() -> []byte {
 	return {}
+}
+
+rbnil_get_depth_clip_range :: proc() -> (min: f32, max: f32) {
+	return 0, 1
 }
 
