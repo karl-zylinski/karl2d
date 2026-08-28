@@ -85,6 +85,7 @@ Nothing else. No narrative of how the work was done, no verification logs, no ra
 
 ### Comments
 - Use short sentences. Prefer a period over all other forms of punctuation
+- Name the subject and the object. The reader must never have to guess which thing acts and which thing is acted on. "The backend ends the wait", not "the wait gets ended".
 - Never write about how something used to work, or about what a change improved. The reader has only ever seen the current version.
 - Don't duplicate information on a procedure and on a struct that the procedure uses. Put it on the procedure if unsure where to put it.
 
