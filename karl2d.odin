@@ -2293,6 +2293,50 @@ get_sound_length :: proc(sound: Sound) -> f32 {
 	return length
 }
 
+// Unguarded implementation of `get_sound_length`. Also used by `set_sound_time`, which is already
+// guarded by the time it needs the length.
+_get_sound_length :: proc(sound: Sound) -> f32 {
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return 0
+	}
+
+	if sound_object.stream == AUDIO_STREAM_NONE {
+		clip := hm.get(&s.audio_clips, sound_object.clip)
+
+		if clip == nil {
+			return 0
+		}
+
+		channels := 1
+		if clip.channels == .Stereo {
+			channels = 2
+		}
+
+		return f32(len(clip.samples) / channels) / f32(clip.sample_rate)
+	}
+
+	sd := hm.get(&s.audio_streams, sound_object.stream)
+
+	if sd == nil {
+		return 0
+	}
+
+	ab := hm.get(&s.audio_clips, sd.clip)
+
+	if ab == nil {
+		return 0
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	return f32(sd.total_samples / channels) / f32(ab.sample_rate)
+}
+
 // Make a sound loop when it reaches the end.
 //
 // Technical note: This also works for sounds started using `play_audio_stream`, but then it
@@ -2391,6 +2435,182 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool
 	return _load_audio_clip_from_bytes(bytes)
 }
 
+// Unguarded implementation of `load_audio_clip_from_bytes`. Also used by
+// `load_audio_clip_from_file`, which is already guarded by the time it needs this.
+_load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool) #optional_ok {
+	// A WAV file is a RIFF file: A 12 byte header followed by any number of chunks.
+	if len(bytes) < 12 {
+		log.error("Invalid wav file: Too small to contain a RIFF header")
+		return
+	}
+
+	if string(bytes[:4]) != "RIFF" {
+		log.error("Invalid wav file: No RIFF identifier")
+		return
+	}
+
+	// This size can only fail to read if there are less than four bytes left, which the check above
+	// rules out. Same thing for the reads of the chunk headers further down.
+	riff_size, _ := endian.get_u32(bytes[4:8], .Little)
+
+	if string(bytes[8:12]) != "WAVE" {
+		log.error("Invalid wav file: Not WAVE format")
+		return
+	}
+
+	// `riff_size` counts everything after itself. Some programs write a size that doesn't match the
+	// file, so use it to cut away trailing junk but never trust it over the size of the buffer.
+	chunks_end := len(bytes)
+
+	if riff_end := int(riff_size) + 8; riff_end >= 12 && riff_end < chunks_end {
+		chunks_end = riff_end
+	}
+
+	chunks := bytes[12:chunks_end]
+
+	sample_rate: int
+	samples: []u8
+	channels: Audio_Channels
+	format: Raw_Audio_Format
+	has_fmt: bool
+	has_data: bool
+
+	// Each chunk is a four character id, the size of its content as a u32, and then the content
+	// itself. We only look at "fmt " and "data". The others carry things such as metadata and loop
+	// points, which we don't use.
+	for len(chunks) >= 8 {
+		chunk_id := string(chunks[:4])
+		chunk_size, _ := endian.get_u32(chunks[4:8], .Little)
+		content := chunks[8:]
+
+		// Truncated file, or a program that wrote a too big size: Use what is actually there.
+		if u64(chunk_size) < u64(len(content)) {
+			content = content[:chunk_size]
+		}
+
+		switch chunk_id {
+		case "fmt ":
+			// The values the `audio_format` field below can have. Extensible means that the real
+			// format is in a GUID at the end of the chunk. Recording programs tend to use it for
+			// anything with more than 16 bits per sample.
+			WAV_FORMAT_PCM :: 1
+			WAV_FORMAT_FLOAT :: 3
+			WAV_FORMAT_EXTENSIBLE :: 0xfffe
+
+			// The fmt chunk is at least 16 bytes:
+			//
+			//	audio_format:    u16
+			//	num_channels:    u16
+			//	sample_rate:     u32
+			//	byte_per_sec:    u32 // sample_rate * byte_per_bloc
+			//	byte_per_bloc:   u16 // (num_channels * bits_per_sample) / 8
+			//	bits_per_sample: u16
+			if len(content) < 16 {
+				log.errorf("Invalid wav fmt chunk: Size is %v, expected at least 16", len(content))
+				return
+			}
+
+			audio_format, _ := endian.get_u16(content[0:2], .Little)
+			num_channels, _ := endian.get_u16(content[2:4], .Little)
+			fmt_sample_rate, _ := endian.get_u32(content[4:8], .Little)
+			bits_per_sample, _ := endian.get_u16(content[14:16], .Little)
+
+			// Those 16 bytes can be followed by an extension: A u16 with the size of the
+			// extension, and for the extensible format also 6 bytes of extra channel information
+			// and a 16 byte sub format GUID. The first two bytes of that GUID are the real
+			// `audio_format`. We skip the rest: The channel mask in it only matters for more
+			// channels than we support.
+			if audio_format == WAV_FORMAT_EXTENSIBLE {
+				if len(content) < 26 {
+					log.errorf("Invalid wav fmt chunk: Size is %v, too small for an extensible " +
+						"sub format", len(content))
+					return
+				}
+
+				audio_format, _ = endian.get_u16(content[24:26], .Little)
+			}
+
+			if fmt_sample_rate == 0 {
+				log.error("Invalid wav fmt chunk: Sample rate is zero")
+				return
+			}
+
+			switch num_channels {
+			case 1:
+				channels = .Mono
+			case 2:
+				channels = .Stereo
+			case:
+				log.errorf("Unsupported number of channels in wav fmt chunk: %v", num_channels)
+				return
+			}
+
+			switch audio_format {
+			case WAV_FORMAT_PCM:
+				switch bits_per_sample {
+				case 8:
+					format = .Integer8
+				case 16:
+					format = .Integer16
+				case 24:
+					format = .Integer24
+				case 32:
+					format = .Integer32
+				case:
+					log.errorf("Unsupported bits per sample in wav fmt chunk: %v", bits_per_sample)
+					return
+				}
+
+			case WAV_FORMAT_FLOAT:
+				switch bits_per_sample {
+				case 32:
+					format = .Float32
+				case 64:
+					format = .Float64
+				case:
+					log.errorf(
+						"Unsupported bits per sample in float wav fmt chunk: %v",
+						bits_per_sample,
+					)
+					return
+				}
+
+			case:
+				log.errorf("Unsupported format in wav fmt chunk: %v", audio_format)
+				return
+			}
+
+			sample_rate = int(fmt_sample_rate)
+			has_fmt = true
+
+		case "data":
+			samples = content
+			has_data = true
+		}
+
+		// Content is padded to an even number of bytes. The pad byte isn't part of the size.
+		next := 8 + len(content) + (len(content) & 1)
+
+		if next >= len(chunks) {
+			break
+		}
+
+		chunks = chunks[next:]
+	}
+
+	if !has_fmt {
+		log.error("Invalid wav file: No fmt chunk")
+		return
+	}
+
+	if !has_data {
+		log.error("Invalid wav file: No data chunk")
+		return
+	}
+
+	return _load_audio_clip_from_bytes_raw(samples, format, sample_rate, channels)
+}
+
 // Load an audio clip from some raw audio data. You need to specify the data, format and sample
 // rate of the sound yourself. This assumes that there is no header in the data. If your data has a
 // header (for example, you read a whole WAV file from disk), then please use
@@ -2408,6 +2628,81 @@ load_audio_clip_from_bytes_raw :: proc(
 	sync.mutex_guard(&s.audio_mutex)
 
 	return _load_audio_clip_from_bytes_raw(bytes, format, sample_rate, channels)
+}
+
+// Unguarded implementation of `load_audio_clip_from_bytes_raw`. Also used by
+// `load_audio_clip_from_bytes`, which is already guarded by the time it needs this.
+_load_audio_clip_from_bytes_raw :: proc(
+	bytes: []u8,
+	format: Raw_Audio_Format,
+	sample_rate: int,
+	channels: Audio_Channels,
+) -> (Audio_Clip, bool) #optional_ok {
+	samples: []Audio_Sample
+
+	switch format{
+	case .Integer8:
+		samples_u8 := bytes
+		samples = make([]Audio_Sample, len(samples_u8), s.allocator)
+
+		for idx in 0..<len(samples) {
+			samples[idx] = (f32(samples_u8[idx]) - 128.0) / 128.0
+		}
+
+	case .Integer16:
+		samples_i16 := slice.reinterpret([]i16, bytes)
+		samples = make([]Audio_Sample, len(samples_i16), s.allocator)
+
+		for idx in 0..<len(samples) {
+			samples[idx] = f32(samples_i16[idx]) / f32(max(i16))
+		}
+
+	case .Integer24:
+		// There is no 24 bit integer type, so shift each sample up into the top of an i32. That
+		// makes the same division as for 32 bit samples work.
+		num_samples := len(bytes)/3
+		samples = make([]Audio_Sample, num_samples, s.allocator)
+
+		for idx in 0..<num_samples {
+			b := bytes[idx*3:]
+			sample := i32(u32(b[0]) << 8 | u32(b[1]) << 16 | u32(b[2]) << 24)
+			samples[idx] = f32(sample) / f32(max(i32))
+		}
+
+	case .Integer32:
+		samples_i32 := slice.reinterpret([]i32, bytes)
+		samples = make([]Audio_Sample, len(samples_i32), s.allocator)
+
+		for idx in 0..<len(samples) {
+			samples[idx] = f32(samples_i32[idx]) / f32(max(i32))
+		}
+
+	case .Float32:
+		samples = slice.clone(slice.reinterpret([]Audio_Sample, bytes), s.allocator)
+
+	case .Float64:
+		samples_f64 := slice.reinterpret([]f64, bytes)
+		samples = make([]Audio_Sample, len(samples_f64), s.allocator)
+
+		for idx in 0..<len(samples) {
+			samples[idx] = Audio_Sample(samples_f64[idx])
+		}
+	}
+
+	audio_clip_object := Audio_Clip_Object {
+		sample_rate = sample_rate,
+		samples = samples,
+		channels = channels,
+	}
+
+	audio_clip, audio_clip_add_error := hm.add(&s.audio_clips, audio_clip_object)
+
+	if audio_clip_add_error != nil {
+		log.errorf("Failed to load audio clip. Error: %v", audio_clip_add_error)
+		return AUDIO_CLIP_NONE, false
+	}
+
+	return audio_clip, true
 }
 
 // Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Also stops sounds
@@ -2751,6 +3046,204 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	_update_audio_stream(stream)
 }
 
+// Unguarded implementation of `update_audio_stream`. Also used by `play_audio_stream` and
+// `_apply_sound_time`, which are already guarded (or run under the mixer's lock) by the time they
+// need this.
+_update_audio_stream :: proc(stream: Audio_Stream) {
+	sd := hm.get(&s.audio_streams, stream)
+
+	if sd == nil {
+		log.error("Trying to update destroyed audio stream")
+		return
+	}
+
+	pab := hm.get(&s.sounds, sd.sound)
+
+	if pab == nil {
+		// Don't log an error here: Not playing the stream is a valid state. It just doesn't need
+		// any updating.
+		return
+	}
+
+	ab := hm.get(&s.audio_clips, pab.clip)
+
+	if ab == nil {
+		hm.remove(&s.sounds, sd.sound)
+		log.error("Trying to update audio stream with destroyed clip")
+		return
+	}
+
+	audio_stream_remaining :: proc(as: ^Audio_Stream_Data, pab: ^Sound_Object, ab: ^Audio_Clip_Object) -> int {
+		remaining := as.buffer_write_pos - pab.offset 
+
+		if remaining < 0 {
+			remaining = len(ab.samples) - pab.offset + as.buffer_write_pos 
+		}
+
+		return remaining
+	}
+
+	switch sd.mode {
+	case .From_File:
+		for audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+			channels: i32
+			samples: i32
+			output: [^]^f32
+
+			bytes_used := stbv.decode_frame_pushdata(
+				sd.vorbis,
+				raw_data(sd.file_read_buf[sd.file_read_buf_offset:]),
+				i32(len(sd.file_read_buf) - sd.file_read_buf_offset),
+				&channels,
+				&output, 
+				&samples,
+			)
+
+			if bytes_used == 0 && samples == 0 {
+				read_buf_size := len(sd.file_read_buf)
+				non_zero_resize(&sd.file_read_buf, read_buf_size + 256)
+				read, read_err := file_read(sd.file, sd.file_read_buf[read_buf_size:read_buf_size+256])
+
+				if read > 0 {
+					shrink(&sd.file_read_buf, read_buf_size + read)
+				}
+
+				if read_err != nil {
+					if read_err == .EOF {
+						if sd.loop {
+							_, seek_err := file_seek(sd.file, 0, .Start)
+
+							if seek_err != nil {
+								log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
+								hm.remove(&s.sounds, sd.sound)
+								_reset_audio_stream(stream)
+								break
+							}
+
+							stbv.flush_pushdata(sd.vorbis)
+							sd.decode_cursor = 0
+
+							// A discard larger than the file would otherwise spin forever.
+							sd.seek_discard = 0
+
+							continue
+						} else {
+							hm.remove(&s.sounds, sd.sound)
+							_reset_audio_stream(stream)
+							break
+						}
+					} else {
+						hm.remove(&s.sounds, sd.sound)
+						log.errorf("Failed reading from audio stream file. Error: %v", read_err)
+						break
+					}
+				}
+			} else if bytes_used > 0 && samples == 0 {
+				sd.file_read_buf_offset += int(bytes_used)
+			} else if bytes_used > 0 && samples > 0 {
+				if channels == 1 {
+					mono: [^]f32 = output[0]
+
+					for samp_idx in 0..<samples {
+						// A pending seek throws away decoded samples instead of writing them,
+						// until the decoder has caught up to the target position.
+						if sd.seek_discard > 0 {
+							sd.seek_discard -= 1
+						} else {
+							ab.samples[sd.buffer_write_pos] = mono[samp_idx]
+							sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
+						}
+
+						sd.decode_cursor += 1
+					}
+				} else if channels == 2 {
+					left: [^]f32 = output[0]
+					right: [^]f32 = output[1]
+
+					for samp_idx in 0..<samples {
+						if sd.seek_discard > 0 {
+							sd.seek_discard -= 2
+						} else {
+							ab.samples[sd.buffer_write_pos] = left[samp_idx]
+							ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
+							sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
+						}
+
+						sd.decode_cursor += 2
+					}
+				} else {
+					hm.remove(&s.sounds, sd.sound)
+					log.error("Invalid num channels")
+					break
+				}
+				sd.file_read_buf_offset += int(bytes_used)
+			} else {
+				hm.remove(&s.sounds, sd.sound)
+				log.error("Invalid vorbis")
+				break
+			}
+		}
+
+		if len(sd.file_read_buf) > 0 {
+			// We didn't consume all the data in the read buffer. Move the remaining data to the start
+			// of the buffer so that it can be consumed in the next update.
+			copy(sd.file_read_buf[:], sd.file_read_buf[sd.file_read_buf_offset:])
+			shrink(&sd.file_read_buf, len(sd.file_read_buf) - sd.file_read_buf_offset)
+			sd.file_read_buf_offset = 0
+		}
+	case .From_Bytes:
+		channels: i32
+		output: [^]^f32
+
+		for audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+			samples := stbv.get_frame_float(sd.vorbis, &channels, &output)
+
+			if samples == 0 {
+				if sd.loop {
+					stbv.seek_start(sd.vorbis)
+					sd.decode_cursor = 0
+
+					// A discard larger than the file would otherwise spin forever.
+					sd.seek_discard = 0
+
+					continue
+				} else {
+					// TODO: Stopping here is bad as the samples haven't been mixed in yet. Remove the
+					// stream but push the final samples into the clip and destroy that one
+					// when it finishes playing (in the mixer).
+					hm.remove(&s.sounds, sd.sound)
+					_reset_audio_stream(stream)
+					break
+				}
+			}
+
+			if channels == 1 {
+				mono: [^]f32 = output[0]
+
+				for samp_idx in 0..<samples {
+					ab.samples[sd.buffer_write_pos] = mono[samp_idx]
+					sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
+					sd.decode_cursor += 1
+				}
+			} else if channels == 2 {
+				left: [^]f32 = output[0]
+				right: [^]f32 = output[1]
+
+				for samp_idx in 0..<samples {
+					ab.samples[sd.buffer_write_pos] = left[samp_idx]
+					ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
+					sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
+					sd.decode_cursor += 2
+				}
+			} else {
+				hm.remove(&s.sounds, sd.sound)
+				log.error("Invalid num channels")
+				break
+			}
+		}
+	}
+}
+
 // Start playing an audio stream. Returns a `Sound`, which you can control using
 // `set_sound_volume`, `stop_sound` etc. The playback starts from wherever the stream last was,
 // which is the beginning if the stream was just loaded, was stopped using `stop_sound` or has
@@ -2978,499 +3471,6 @@ update_audio_mixer :: proc() {
 		}
 
 		ab.feed(out)
-	}
-}
-
-// Unguarded implementation of `get_sound_length`. Also used by `set_sound_time`, which is already
-// guarded by the time it needs the length.
-_get_sound_length :: proc(sound: Sound) -> f32 {
-	sound_object := hm.get(&s.sounds, sound)
-
-	if sound_object == nil {
-		return 0
-	}
-
-	if sound_object.stream == AUDIO_STREAM_NONE {
-		clip := hm.get(&s.audio_clips, sound_object.clip)
-
-		if clip == nil {
-			return 0
-		}
-
-		channels := 1
-		if clip.channels == .Stereo {
-			channels = 2
-		}
-
-		return f32(len(clip.samples) / channels) / f32(clip.sample_rate)
-	}
-
-	sd := hm.get(&s.audio_streams, sound_object.stream)
-
-	if sd == nil {
-		return 0
-	}
-
-	ab := hm.get(&s.audio_clips, sd.clip)
-
-	if ab == nil {
-		return 0
-	}
-
-	channels := 1
-	if ab.channels == .Stereo {
-		channels = 2
-	}
-
-	return f32(sd.total_samples / channels) / f32(ab.sample_rate)
-}
-
-// Unguarded implementation of `load_audio_clip_from_bytes`. Also used by
-// `load_audio_clip_from_file`, which is already guarded by the time it needs this.
-_load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool) #optional_ok {
-	// A WAV file is a RIFF file: A 12 byte header followed by any number of chunks.
-	if len(bytes) < 12 {
-		log.error("Invalid wav file: Too small to contain a RIFF header")
-		return
-	}
-
-	if string(bytes[:4]) != "RIFF" {
-		log.error("Invalid wav file: No RIFF identifier")
-		return
-	}
-
-	// This size can only fail to read if there are less than four bytes left, which the check above
-	// rules out. Same thing for the reads of the chunk headers further down.
-	riff_size, _ := endian.get_u32(bytes[4:8], .Little)
-
-	if string(bytes[8:12]) != "WAVE" {
-		log.error("Invalid wav file: Not WAVE format")
-		return
-	}
-
-	// `riff_size` counts everything after itself. Some programs write a size that doesn't match the
-	// file, so use it to cut away trailing junk but never trust it over the size of the buffer.
-	chunks_end := len(bytes)
-
-	if riff_end := int(riff_size) + 8; riff_end >= 12 && riff_end < chunks_end {
-		chunks_end = riff_end
-	}
-
-	chunks := bytes[12:chunks_end]
-
-	sample_rate: int
-	samples: []u8
-	channels: Audio_Channels
-	format: Raw_Audio_Format
-	has_fmt: bool
-	has_data: bool
-
-	// Each chunk is a four character id, the size of its content as a u32, and then the content
-	// itself. We only look at "fmt " and "data". The others carry things such as metadata and loop
-	// points, which we don't use.
-	for len(chunks) >= 8 {
-		chunk_id := string(chunks[:4])
-		chunk_size, _ := endian.get_u32(chunks[4:8], .Little)
-		content := chunks[8:]
-
-		// Truncated file, or a program that wrote a too big size: Use what is actually there.
-		if u64(chunk_size) < u64(len(content)) {
-			content = content[:chunk_size]
-		}
-
-		switch chunk_id {
-		case "fmt ":
-			// The values the `audio_format` field below can have. Extensible means that the real
-			// format is in a GUID at the end of the chunk. Recording programs tend to use it for
-			// anything with more than 16 bits per sample.
-			WAV_FORMAT_PCM :: 1
-			WAV_FORMAT_FLOAT :: 3
-			WAV_FORMAT_EXTENSIBLE :: 0xfffe
-
-			// The fmt chunk is at least 16 bytes:
-			//
-			//	audio_format:    u16
-			//	num_channels:    u16
-			//	sample_rate:     u32
-			//	byte_per_sec:    u32 // sample_rate * byte_per_bloc
-			//	byte_per_bloc:   u16 // (num_channels * bits_per_sample) / 8
-			//	bits_per_sample: u16
-			if len(content) < 16 {
-				log.errorf("Invalid wav fmt chunk: Size is %v, expected at least 16", len(content))
-				return
-			}
-
-			audio_format, _ := endian.get_u16(content[0:2], .Little)
-			num_channels, _ := endian.get_u16(content[2:4], .Little)
-			fmt_sample_rate, _ := endian.get_u32(content[4:8], .Little)
-			bits_per_sample, _ := endian.get_u16(content[14:16], .Little)
-
-			// Those 16 bytes can be followed by an extension: A u16 with the size of the
-			// extension, and for the extensible format also 6 bytes of extra channel information
-			// and a 16 byte sub format GUID. The first two bytes of that GUID are the real
-			// `audio_format`. We skip the rest: The channel mask in it only matters for more
-			// channels than we support.
-			if audio_format == WAV_FORMAT_EXTENSIBLE {
-				if len(content) < 26 {
-					log.errorf("Invalid wav fmt chunk: Size is %v, too small for an extensible " +
-						"sub format", len(content))
-					return
-				}
-
-				audio_format, _ = endian.get_u16(content[24:26], .Little)
-			}
-
-			if fmt_sample_rate == 0 {
-				log.error("Invalid wav fmt chunk: Sample rate is zero")
-				return
-			}
-
-			switch num_channels {
-			case 1:
-				channels = .Mono
-			case 2:
-				channels = .Stereo
-			case:
-				log.errorf("Unsupported number of channels in wav fmt chunk: %v", num_channels)
-				return
-			}
-
-			switch audio_format {
-			case WAV_FORMAT_PCM:
-				switch bits_per_sample {
-				case 8:
-					format = .Integer8
-				case 16:
-					format = .Integer16
-				case 24:
-					format = .Integer24
-				case 32:
-					format = .Integer32
-				case:
-					log.errorf("Unsupported bits per sample in wav fmt chunk: %v", bits_per_sample)
-					return
-				}
-
-			case WAV_FORMAT_FLOAT:
-				switch bits_per_sample {
-				case 32:
-					format = .Float32
-				case 64:
-					format = .Float64
-				case:
-					log.errorf(
-						"Unsupported bits per sample in float wav fmt chunk: %v",
-						bits_per_sample,
-					)
-					return
-				}
-
-			case:
-				log.errorf("Unsupported format in wav fmt chunk: %v", audio_format)
-				return
-			}
-
-			sample_rate = int(fmt_sample_rate)
-			has_fmt = true
-
-		case "data":
-			samples = content
-			has_data = true
-		}
-
-		// Content is padded to an even number of bytes. The pad byte isn't part of the size.
-		next := 8 + len(content) + (len(content) & 1)
-
-		if next >= len(chunks) {
-			break
-		}
-
-		chunks = chunks[next:]
-	}
-
-	if !has_fmt {
-		log.error("Invalid wav file: No fmt chunk")
-		return
-	}
-
-	if !has_data {
-		log.error("Invalid wav file: No data chunk")
-		return
-	}
-
-	return _load_audio_clip_from_bytes_raw(samples, format, sample_rate, channels)
-}
-
-// Unguarded implementation of `load_audio_clip_from_bytes_raw`. Also used by
-// `load_audio_clip_from_bytes`, which is already guarded by the time it needs this.
-_load_audio_clip_from_bytes_raw :: proc(
-	bytes: []u8,
-	format: Raw_Audio_Format,
-	sample_rate: int,
-	channels: Audio_Channels,
-) -> (Audio_Clip, bool) #optional_ok {
-	samples: []Audio_Sample
-
-	switch format{
-	case .Integer8:
-		samples_u8 := bytes
-		samples = make([]Audio_Sample, len(samples_u8), s.allocator)
-
-		for idx in 0..<len(samples) {
-			samples[idx] = (f32(samples_u8[idx]) - 128.0) / 128.0
-		}
-
-	case .Integer16:
-		samples_i16 := slice.reinterpret([]i16, bytes)
-		samples = make([]Audio_Sample, len(samples_i16), s.allocator)
-
-		for idx in 0..<len(samples) {
-			samples[idx] = f32(samples_i16[idx]) / f32(max(i16))
-		}
-
-	case .Integer24:
-		// There is no 24 bit integer type, so shift each sample up into the top of an i32. That
-		// makes the same division as for 32 bit samples work.
-		num_samples := len(bytes)/3
-		samples = make([]Audio_Sample, num_samples, s.allocator)
-
-		for idx in 0..<num_samples {
-			b := bytes[idx*3:]
-			sample := i32(u32(b[0]) << 8 | u32(b[1]) << 16 | u32(b[2]) << 24)
-			samples[idx] = f32(sample) / f32(max(i32))
-		}
-
-	case .Integer32:
-		samples_i32 := slice.reinterpret([]i32, bytes)
-		samples = make([]Audio_Sample, len(samples_i32), s.allocator)
-
-		for idx in 0..<len(samples) {
-			samples[idx] = f32(samples_i32[idx]) / f32(max(i32))
-		}
-
-	case .Float32:
-		samples = slice.clone(slice.reinterpret([]Audio_Sample, bytes), s.allocator)
-
-	case .Float64:
-		samples_f64 := slice.reinterpret([]f64, bytes)
-		samples = make([]Audio_Sample, len(samples_f64), s.allocator)
-
-		for idx in 0..<len(samples) {
-			samples[idx] = Audio_Sample(samples_f64[idx])
-		}
-	}
-
-	audio_clip_object := Audio_Clip_Object {
-		sample_rate = sample_rate,
-		samples = samples,
-		channels = channels,
-	}
-
-	audio_clip, audio_clip_add_error := hm.add(&s.audio_clips, audio_clip_object)
-
-	if audio_clip_add_error != nil {
-		log.errorf("Failed to load audio clip. Error: %v", audio_clip_add_error)
-		return AUDIO_CLIP_NONE, false
-	}
-
-	return audio_clip, true
-}
-
-// Unguarded implementation of `update_audio_stream`. Also used by `play_audio_stream` and
-// `_apply_sound_time`, which are already guarded (or run under the mixer's lock) by the time they
-// need this.
-_update_audio_stream :: proc(stream: Audio_Stream) {
-	sd := hm.get(&s.audio_streams, stream)
-
-	if sd == nil {
-		log.error("Trying to update destroyed audio stream")
-		return
-	}
-
-	pab := hm.get(&s.sounds, sd.sound)
-
-	if pab == nil {
-		// Don't log an error here: Not playing the stream is a valid state. It just doesn't need
-		// any updating.
-		return
-	}
-
-	ab := hm.get(&s.audio_clips, pab.clip)
-
-	if ab == nil {
-		hm.remove(&s.sounds, sd.sound)
-		log.error("Trying to update audio stream with destroyed clip")
-		return
-	}
-
-	audio_stream_remaining :: proc(as: ^Audio_Stream_Data, pab: ^Sound_Object, ab: ^Audio_Clip_Object) -> int {
-		remaining := as.buffer_write_pos - pab.offset 
-
-		if remaining < 0 {
-			remaining = len(ab.samples) - pab.offset + as.buffer_write_pos 
-		}
-
-		return remaining
-	}
-
-	switch sd.mode {
-	case .From_File:
-		for audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
-			channels: i32
-			samples: i32
-			output: [^]^f32
-
-			bytes_used := stbv.decode_frame_pushdata(
-				sd.vorbis,
-				raw_data(sd.file_read_buf[sd.file_read_buf_offset:]),
-				i32(len(sd.file_read_buf) - sd.file_read_buf_offset),
-				&channels,
-				&output, 
-				&samples,
-			)
-
-			if bytes_used == 0 && samples == 0 {
-				read_buf_size := len(sd.file_read_buf)
-				non_zero_resize(&sd.file_read_buf, read_buf_size + 256)
-				read, read_err := file_read(sd.file, sd.file_read_buf[read_buf_size:read_buf_size+256])
-
-				if read > 0 {
-					shrink(&sd.file_read_buf, read_buf_size + read)
-				}
-
-				if read_err != nil {
-					if read_err == .EOF {
-						if sd.loop {
-							_, seek_err := file_seek(sd.file, 0, .Start)
-
-							if seek_err != nil {
-								log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
-								hm.remove(&s.sounds, sd.sound)
-								_reset_audio_stream(stream)
-								break
-							}
-
-							stbv.flush_pushdata(sd.vorbis)
-							sd.decode_cursor = 0
-
-							// A discard larger than the file would otherwise spin forever.
-							sd.seek_discard = 0
-
-							continue
-						} else {
-							hm.remove(&s.sounds, sd.sound)
-							_reset_audio_stream(stream)
-							break
-						}
-					} else {
-						hm.remove(&s.sounds, sd.sound)
-						log.errorf("Failed reading from audio stream file. Error: %v", read_err)
-						break
-					}
-				}
-			} else if bytes_used > 0 && samples == 0 {
-				sd.file_read_buf_offset += int(bytes_used)
-			} else if bytes_used > 0 && samples > 0 {
-				if channels == 1 {
-					mono: [^]f32 = output[0]
-
-					for samp_idx in 0..<samples {
-						// A pending seek throws away decoded samples instead of writing them,
-						// until the decoder has caught up to the target position.
-						if sd.seek_discard > 0 {
-							sd.seek_discard -= 1
-						} else {
-							ab.samples[sd.buffer_write_pos] = mono[samp_idx]
-							sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
-						}
-
-						sd.decode_cursor += 1
-					}
-				} else if channels == 2 {
-					left: [^]f32 = output[0]
-					right: [^]f32 = output[1]
-
-					for samp_idx in 0..<samples {
-						if sd.seek_discard > 0 {
-							sd.seek_discard -= 2
-						} else {
-							ab.samples[sd.buffer_write_pos] = left[samp_idx]
-							ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
-							sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
-						}
-
-						sd.decode_cursor += 2
-					}
-				} else {
-					hm.remove(&s.sounds, sd.sound)
-					log.error("Invalid num channels")
-					break
-				}
-				sd.file_read_buf_offset += int(bytes_used)
-			} else {
-				hm.remove(&s.sounds, sd.sound)
-				log.error("Invalid vorbis")
-				break
-			}
-		}
-
-		if len(sd.file_read_buf) > 0 {
-			// We didn't consume all the data in the read buffer. Move the remaining data to the start
-			// of the buffer so that it can be consumed in the next update.
-			copy(sd.file_read_buf[:], sd.file_read_buf[sd.file_read_buf_offset:])
-			shrink(&sd.file_read_buf, len(sd.file_read_buf) - sd.file_read_buf_offset)
-			sd.file_read_buf_offset = 0
-		}
-	case .From_Bytes:
-		channels: i32
-		output: [^]^f32
-
-		for audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
-			samples := stbv.get_frame_float(sd.vorbis, &channels, &output)
-
-			if samples == 0 {
-				if sd.loop {
-					stbv.seek_start(sd.vorbis)
-					sd.decode_cursor = 0
-
-					// A discard larger than the file would otherwise spin forever.
-					sd.seek_discard = 0
-
-					continue
-				} else {
-					// TODO: Stopping here is bad as the samples haven't been mixed in yet. Remove the
-					// stream but push the final samples into the clip and destroy that one
-					// when it finishes playing (in the mixer).
-					hm.remove(&s.sounds, sd.sound)
-					_reset_audio_stream(stream)
-					break
-				}
-			}
-
-			if channels == 1 {
-				mono: [^]f32 = output[0]
-
-				for samp_idx in 0..<samples {
-					ab.samples[sd.buffer_write_pos] = mono[samp_idx]
-					sd.buffer_write_pos = (sd.buffer_write_pos + 1) % len(ab.samples)
-					sd.decode_cursor += 1
-				}
-			} else if channels == 2 {
-				left: [^]f32 = output[0]
-				right: [^]f32 = output[1]
-
-				for samp_idx in 0..<samples {
-					ab.samples[sd.buffer_write_pos] = left[samp_idx]
-					ab.samples[sd.buffer_write_pos + 1] = right[samp_idx]
-					sd.buffer_write_pos = (sd.buffer_write_pos + 2) % len(ab.samples)
-					sd.decode_cursor += 2
-				}
-			} else {
-				hm.remove(&s.sounds, sd.sound)
-				log.error("Invalid num channels")
-				break
-			}
-		}
 	}
 }
 
