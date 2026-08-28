@@ -9,11 +9,12 @@ package karl2d
 
 // Allocates Karl2D's internal state and sets up the platform layer. Does not open a window.
 //
-// This is the first procedure to call, and the only one that has to run before a window exists:
-// `windows_init`/`linux_init` etc allocate from the package-global frame allocator, which is set up
-// here. Call `get_monitor_count`, `get_monitor_size`, `get_monitor_position` and
-// `get_monitor_scale` after this and before `open_window` if you want to pick a window size based
-// on the display.
+// This is the first procedure to call. It sets up the package-global frame allocator that the
+// platform backends allocate from, and it does the process-level work that has to happen before
+// any window exists, such as making the process DPI aware on Windows.
+//
+// Call `get_monitor_count`, `get_monitor_size`, `get_monitor_position` and `get_monitor_scale`
+// after this and before `open_window` if you want to pick a window size based on the display.
 //
 // The internal state will use `allocator` for all dynamically allocated memory. The return value is
 // a pointer to it, see `init` for what you can do with that pointer.

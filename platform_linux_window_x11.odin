@@ -6,10 +6,10 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	state_size = x11_state_size,
-	init_process = x11_init_process,
-	shutdown_process = x11_shutdown_process,
 	init = x11_init,
 	shutdown = x11_shutdown,
+	open_window = x11_open_window,
+	close_window = x11_close_window,
 	get_window_render_glue = x11_get_window_render_glue,
 	get_events = x11_get_events,
 	set_title = x11_set_title,
@@ -62,7 +62,7 @@ x11_state_size :: proc() -> int {
 
 // Opens the connection to the X server. Runs before any window exists so the monitor queries have
 // a display to ask.
-x11_init_process :: proc(window_state: rawptr, allocator: runtime.Allocator) {
+x11_init :: proc(window_state: rawptr, allocator: runtime.Allocator) {
 	s = (^X11_State)(window_state)
 	s.allocator = allocator
 	s.display = X.OpenDisplay(nil)
@@ -70,7 +70,7 @@ x11_init_process :: proc(window_state: rawptr, allocator: runtime.Allocator) {
 	hm.dynamic_init(&s.custom_cursors, allocator)
 }
 
-x11_shutdown_process :: proc() {
+x11_shutdown :: proc() {
 	delete(s.events)
 	hm.dynamic_destroy(&s.custom_cursors)
 
@@ -80,7 +80,7 @@ x11_shutdown_process :: proc() {
 	}
 }
 
-x11_init :: proc(
+x11_open_window :: proc(
 	screen_width: int,
 	screen_height: int,
 	window_title: string,
@@ -173,7 +173,7 @@ x11_init :: proc(
 	}
 }
 
-x11_shutdown :: proc() {
+x11_close_window :: proc() {
 	if s.xic != nil {
 		XDestroyIC(s.xic)
 	}
@@ -463,7 +463,7 @@ x11_get_window_scale :: proc() -> f32 {
 // setup that means one oversized monitor spanning them all. Proper per-monitor enumeration needs
 // XRandR bindings, which aren't written.
 //
-// `s.display` is opened by `x11_init_process`, so these work before `open_window` is called.
+// `s.display` is opened by `x11_init`, so these work before `open_window` is called.
 x11_get_monitor_count :: proc() -> int {
 	return 1
 }

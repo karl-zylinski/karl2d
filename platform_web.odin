@@ -8,10 +8,10 @@ package karl2d
 @(private="package")
 PLATFORM_WEB :: Platform_Interface {
 	state_size = web_state_size,
-	init_process = web_init_process,
-	shutdown_process = web_shutdown_process,
 	init = web_init,
 	shutdown = web_shutdown,
+	open_window = web_open_window,
+	close_window = web_close_window,
 	get_window_render_glue = web_get_window_render_glue,
 	get_events = web_get_events,
 	set_window_title = web_set_window_title,
@@ -59,7 +59,7 @@ web_state_size :: proc() -> int {
 
 // The browser has nothing to set up at the process level, but the canvas id has to be known before
 // the monitor queries run, and they run before `open_window`.
-web_init_process :: proc(window_state: rawptr, allocator: runtime.Allocator) {
+web_init :: proc(window_state: rawptr, allocator: runtime.Allocator) {
 	s = (^Web_State)(window_state)
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
@@ -68,7 +68,7 @@ web_init_process :: proc(window_state: rawptr, allocator: runtime.Allocator) {
 	hm.dynamic_init(&s.custom_cursors, allocator)
 }
 
-web_shutdown_process :: proc() {
+web_shutdown :: proc() {
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		delete(cd.data_uri, s.allocator)
 		delete(cd.style_value, s.allocator)
@@ -80,7 +80,7 @@ web_shutdown_process :: proc() {
 	delete(s.key_from_js_event_key_code)
 }
 
-web_init :: proc(
+web_open_window :: proc(
 	window_width: int,
 	window_height: int,
 	window_title: string,
@@ -340,7 +340,7 @@ web_set_screen_size_to_window_size :: proc(canvas_id: HTML_Canvas_ID) {
 	})
 }
 
-web_shutdown :: proc() {
+web_close_window :: proc() {
 }
 
 web_get_window_render_glue :: proc() -> Window_Render_Glue {

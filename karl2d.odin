@@ -32,11 +32,12 @@ import hm "core:container/handle_map"
 
 // Allocates Karl2D's internal state and sets up the platform layer. Does not open a window.
 //
-// This is the first procedure to call, and the only one that has to run before a window exists:
-// `windows_init`/`linux_init` etc allocate from the package-global frame allocator, which is set up
-// here. Call `get_monitor_count`, `get_monitor_size`, `get_monitor_position` and
-// `get_monitor_scale` after this and before `open_window` if you want to pick a window size based
-// on the display.
+// This is the first procedure to call. It sets up the package-global frame allocator that the
+// platform backends allocate from, and it does the process-level work that has to happen before
+// any window exists, such as making the process DPI aware on Windows.
+//
+// Call `get_monitor_count`, `get_monitor_size`, `get_monitor_position` and `get_monitor_scale`
+// after this and before `open_window` if you want to pick a window size based on the display.
 //
 // The internal state will use `allocator` for all dynamically allocated memory. The return value is
 // a pointer to it, see `init` for what you can do with that pointer.
@@ -85,7 +86,7 @@ init_platform :: proc(
 	// Process-level setup that has to happen before any window exists. On Windows this is what
 	// makes the process DPI aware, without which the monitor queries below would report
 	// virtualized sizes.
-	pf.init_process(s.platform_state, s.allocator)
+	pf.init(s.platform_state, s.allocator)
 
 	return s
 }
@@ -105,7 +106,7 @@ open_window :: proc(
 	assert(s != nil, "Call k2.init_platform before k2.open_window")
 	assert(!s.window_open, "Don't call 'open_window' twice.")
 
-	pf.init(screen_width, screen_height, window_title, options)
+	pf.open_window(screen_width, screen_height, window_title, options)
 	s.window_open = true
 
 	s.events = make([dynamic]Event, s.allocator)
@@ -418,7 +419,7 @@ close_window :: proc() {
 		return
 	}
 
-	pf.shutdown()
+	pf.close_window()
 	delete(s.events)
 	delete(s.typed_runes)
 
@@ -432,7 +433,7 @@ close_window :: proc() {
 shutdown_platform :: proc() {
 	assert(s != nil, "You've called 'shutdown_platform' without calling 'init_platform' first")
 
-	pf.shutdown_process()
+	pf.shutdown()
 	free(s.platform_state, s.allocator)
 	free(s, s.allocator)
 	s = nil

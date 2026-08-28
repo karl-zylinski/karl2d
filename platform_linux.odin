@@ -18,10 +18,10 @@ import "core:time"
 @(private="package")
 PLATFORM_LINUX :: Platform_Interface {
 	state_size = linux_state_size,
-	init_process = linux_init_process,
-	shutdown_process = linux_shutdown_process,
 	init = linux_init,
 	shutdown = linux_shutdown,
+	open_window = linux_open_window,
+	close_window = linux_close_window,
 	get_window_render_glue = linux_get_window_render_glue,
 	get_events = linux_get_events,
 	set_window_title = linux_set_window_title,
@@ -58,7 +58,7 @@ linux_state_size :: proc() -> int {
 
 // Picks the windowing backend and sets up the gamepads. None of this needs a window, and doing it
 // here means `s.win` is already resolved when the monitor queries run before `open_window`.
-linux_init_process :: proc(platform_state: rawptr, allocator: runtime.Allocator) {
+linux_init :: proc(platform_state: rawptr, allocator: runtime.Allocator) {
 	assert(platform_state != nil)
 	s = (^Linux_State)(platform_state)
 	s.allocator = allocator
@@ -81,7 +81,7 @@ linux_init_process :: proc(platform_state: rawptr, allocator: runtime.Allocator)
 		win_state_alloc_error,
 	)
 
-	s.win.init_process(s.win_state, allocator)
+	s.win.init(s.win_state, allocator)
 
 	linux_create_connected_gamepads()
 
@@ -95,13 +95,13 @@ linux_init_process :: proc(platform_state: rawptr, allocator: runtime.Allocator)
 	}
 }
 
-linux_init :: proc(
+linux_open_window :: proc(
 	screen_width: int,
 	screen_height: int,
 	window_title: string,
 	options: Window_Options,
 ) {
-	s.win.init(
+	s.win.open_window(
 		screen_width,
 		screen_height,
 		window_title,
@@ -109,11 +109,11 @@ linux_init :: proc(
 	)
 }
 
-linux_shutdown :: proc() {
-	s.win.shutdown()
+linux_close_window :: proc() {
+	s.win.close_window()
 }
 
-linux_shutdown_process :: proc() {
+linux_shutdown :: proc() {
 	for &g in s.gamepads {
 		linux_destroy_gamepad(&g)
 	}
@@ -121,7 +121,7 @@ linux_shutdown_process :: proc() {
 	udev.monitor_unref(s.udev_mon)
 	udev.unref(s.udev_ptr)
 
-	s.win.shutdown_process()
+	s.win.shutdown()
 	a := s.allocator
 	free(s.win_state, a)
 }
@@ -202,7 +202,7 @@ linux_get_window_scale :: proc() -> f32 {
 	return s.win.get_window_scale()
 }
 
-// `s.win` is resolved in `linux_init_process`, so these work before `open_window` has run.
+// `s.win` is resolved in `linux_init`, so these work before `open_window` has run.
 linux_get_monitor_count :: proc() -> int {
 	return s.win.get_monitor_count()
 }
@@ -711,23 +711,23 @@ Linux_State :: struct {
 Linux_Window_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 
-	// Connects to the display server. Runs from `linux_init_process`, before any window exists, so
+	// Connects to the display server. Runs from `linux_init`, before any window exists, so
 	// the monitor queries have something to ask.
-	init_process: proc(
+	init: proc(
 		window_state: rawptr,
 		allocator: runtime.Allocator,
 	),
 
-	shutdown_process: proc(),
+	shutdown: proc(),
 
-	init: proc(
+	open_window: proc(
 		screen_width: int,
 		screen_height: int,
 		window_title: string,
 		init_options: Window_Options,
 	),
 
-	shutdown: proc(),
+	close_window: proc(),
 	get_window_render_glue: proc() -> Window_Render_Glue,
 	get_events: proc(events: ^[dynamic]Event),
 	set_title: proc(title: string),

@@ -7,10 +7,10 @@ package karl2d
 @(private="package")
 PLATFORM_WINDOWS :: Platform_Interface {
 	state_size = windows_state_size,
-	init_process = windows_init_process,
-	shutdown_process = windows_shutdown_process,
 	init = windows_init,
 	shutdown = windows_shutdown,
+	open_window = windows_open_window,
+	close_window = windows_close_window,
 	get_window_render_glue = windows_get_window_render_glue,
 	get_events = windows_get_events,
 	set_window_title = windows_set_window_title,
@@ -57,7 +57,7 @@ windows_state_size :: proc() -> int {
 
 CLASS_NAME :: "karl2d"
 
-windows_init_process :: proc(platform_state: rawptr, allocator: runtime.Allocator) {
+windows_init :: proc(platform_state: rawptr, allocator: runtime.Allocator) {
 	assert(platform_state != nil)
 	s = (^Windows_State)(platform_state)
 	s.allocator = allocator
@@ -68,8 +68,8 @@ windows_init_process :: proc(platform_state: rawptr, allocator: runtime.Allocato
 	// This has to run before anything asks Windows about monitors or window sizes. Until it does,
 	// the process is DPI unaware and Windows hands back virtualized coordinates: on a 3840x2160
 	// display at 150% scaling, `GetMonitorInfoW` reports 2560x1440 and `GetDpiForMonitor` reports
-	// 96. That is why it lives here and not in `windows_init`, which only runs once a window is
-	// being opened.
+	// 96. That is why it lives here and not in `windows_open_window`, which only runs once a
+	// window is being opened.
 	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 	win32.SetProcessDPIAware()
 
@@ -91,7 +91,7 @@ windows_init_process :: proc(platform_state: rawptr, allocator: runtime.Allocato
 	windows_refresh_monitors()
 }
 
-windows_shutdown_process :: proc() {
+windows_shutdown :: proc() {
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		win32.DestroyCursor(cd.hcursor)
 	}
@@ -100,7 +100,7 @@ windows_shutdown_process :: proc() {
 	delete(s.events)
 }
 
-windows_init :: proc(
+windows_open_window :: proc(
 	screen_width: int,
 	screen_height: int,
 	window_title: string,
@@ -160,7 +160,7 @@ windows_init :: proc(
 	}
 }
 
-windows_shutdown :: proc() {
+windows_close_window :: proc() {
 	win32.DestroyWindow(s.hwnd)
 	s.hwnd = nil
 }
@@ -497,7 +497,7 @@ Windows_State :: struct {
 	// Multilingual Plane (BMP). Emojis are examples of such characters.
 	char_high_surrogate: rune,
 
-	// Filled in by `windows_refresh_monitors`, which runs during `windows_init_process` and again
+	// Filled in by `windows_refresh_monitors`, which runs during `windows_init` and again
 	// whenever WM_DISPLAYCHANGE says the display setup changed.
 	monitors: Windows_Monitor_List,
 }
@@ -574,7 +574,7 @@ Windows_Monitor_List :: struct {
 }
 
 // Enumerates connected monitors into `s.monitors`, primary first. Called by
-// `windows_init_process`, so the monitor queries work before a window exists, and again on
+// `windows_init`, so the monitor queries work before a window exists, and again on
 // WM_DISPLAYCHANGE so the list doesn't go stale when a display is plugged in or unplugged.
 //
 // The process must already be DPI aware when this runs, otherwise the rects come back virtualized.
@@ -859,7 +859,7 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 
 		// The default handler destroys the window. We don't want that: it's up to the application
 		// to decide what a close request means, it may want to show a confirmation dialogue. The
-		// window is destroyed in `windows_shutdown`.
+		// window is destroyed in `windows_close_window`.
 		return 0
 
 	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:

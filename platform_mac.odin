@@ -19,10 +19,10 @@ import "log"
 @(private="package")
 PLATFORM_MAC :: Platform_Interface {
 	state_size = mac_state_size,
-	init_process = mac_init_process,
-	shutdown_process = mac_shutdown_process,
 	init = mac_init,
 	shutdown = mac_shutdown,
+	open_window = mac_open_window,
+	close_window = mac_close_window,
 	get_window_render_glue = mac_get_window_render_glue,
 	get_events = mac_get_events,
 	set_window_title = mac_set_window_title,
@@ -133,9 +133,9 @@ mac_state_size :: proc() -> int {
 }
 
 // Creates the NSApplication and its menu bar. This has to happen before anything asks AppKit about
-// screens, which is why it runs from `init_platform` rather than from `mac_init`: `NSScreen` is
-// only dependable once the shared application exists.
-mac_init_process :: proc(platform_state: rawptr, allocator: runtime.Allocator) {
+// screens, which is why it runs from `init_platform` rather than from `mac_open_window`:
+// `NSScreen` is only dependable once the shared application exists.
+mac_init :: proc(platform_state: rawptr, allocator: runtime.Allocator) {
 	assert(platform_state != nil)
 	s = (^Mac_State)(platform_state)
 	s.odin_ctx = context
@@ -160,7 +160,7 @@ mac_init_process :: proc(platform_state: rawptr, allocator: runtime.Allocator) {
 	s.app->setAppleMenu(app_menu)
 }
 
-mac_shutdown_process :: proc() {
+mac_shutdown :: proc() {
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		cd.cursor->release()
 		delete(cd.pixels, s.allocator)
@@ -170,7 +170,7 @@ mac_shutdown_process :: proc() {
 	delete(s.events)
 }
 
-mac_init :: proc(
+mac_open_window :: proc(
 	screen_width: int,
 	screen_height: int,
 	window_title: string,
@@ -268,7 +268,7 @@ mac_init :: proc(
 
 				// Returning true closes the window, which also releases it. It's up to the
 				// application to decide what a close request means, it may want to show a
-				// confirmation dialogue. The window is closed in `mac_shutdown`.
+				// confirmation dialogue. The window is closed in `mac_close_window`.
 				return false
 			},
 
@@ -329,7 +329,7 @@ mac_init :: proc(
 	}
 }
 
-mac_shutdown :: proc() {
+mac_close_window :: proc() {
 	if s.window != nil {
 		s.window->close()
 		s.window = nil

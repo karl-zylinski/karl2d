@@ -11,21 +11,21 @@ Platform_Interface :: struct #all_or_none {
 	//
 	// This is also where the platform state pointer is handed over, so everything after this can
 	// use it.
-	init_process: proc(
+	init: proc(
 		platform_state: rawptr,
 		allocator: runtime.Allocator,
 	),
 
-	shutdown_process: proc(),
+	shutdown: proc(),
 
-	init: proc(
+	open_window: proc(
 		window_width: int,
 		window_height: int,
 		window_title: string,
 		init_options: Window_Options,
 	),
 
-	shutdown: proc(),
+	close_window: proc(),
 	get_window_render_glue: proc() -> Window_Render_Glue,
 	get_events: proc(events: ^[dynamic]Event),
 	set_window_title: proc(title: string),

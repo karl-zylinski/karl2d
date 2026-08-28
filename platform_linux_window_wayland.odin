@@ -4,10 +4,10 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	state_size = wl_state_size,
-	init_process = wl_init_process,
-	shutdown_process = wl_shutdown_process,
 	init = wl_init,
 	shutdown = wl_shutdown,
+	open_window = wl_open_window,
+	close_window = wl_close_window,
 	get_window_render_glue = wl_get_window_render_glue,
 	get_events = wl_get_events,
 	set_title = wl_set_title,
@@ -60,7 +60,7 @@ wl_state_size :: proc() -> int {
 
 // Connects to the compositor and collects the globals. None of this needs a surface, so it runs
 // before `open_window`.
-wl_init_process :: proc(window_state: rawptr, allocator: runtime.Allocator) {
+wl_init :: proc(window_state: rawptr, allocator: runtime.Allocator) {
 	s = (^WL_State)(window_state)
 	s.allocator = allocator
 	s.scale = 1
@@ -83,7 +83,7 @@ wl_init_process :: proc(window_state: rawptr, allocator: runtime.Allocator) {
 	wl.display_roundtrip(s.display)
 }
 
-wl_init :: proc(
+wl_open_window :: proc(
 	screen_width: int,
 	screen_height: int,
 	window_title: string,
@@ -704,9 +704,9 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 	},
 }
 
-// Destroys the surface and toplevel `wl_init` created. Everything else Wayland-related belongs to
-// the connection, and is torn down in `wl_shutdown_process`.
-wl_shutdown :: proc() {
+// Destroys the surface and toplevel `wl_open_window` created. Everything else Wayland-related
+// belongs to the connection, and is torn down in `wl_shutdown`.
+wl_close_window :: proc() {
 	if s.toplevel != nil {
 		wl.xdg_toplevel_destroy(s.toplevel)
 		s.toplevel = nil
@@ -718,7 +718,7 @@ wl_shutdown :: proc() {
 	}
 }
 
-wl_shutdown_process :: proc() {
+wl_shutdown :: proc() {
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		wl.wp_viewport_destroy(cd.viewport)
 		wl.surface_destroy(cd.surface)
@@ -995,7 +995,7 @@ wl_load_cursor_theme :: proc() {
 // cursor, so every entry point goes through this instead of setting it independently. The pointer
 // re-entering the window does too, since the compositor forgets the cursor when it leaves.
 wl_apply_cursor :: proc() {
-	// The fractional scale listener can fire during wl_init, before the pointer and the cursor
+	// The fractional scale listener can fire during wl_open_window, before the pointer and the cursor
 	// surface exist. Passing a nil surface to the compositor would mean "hide the cursor", and
 	// attaching a buffer to one would dereference a nil proxy inside libwayland.
 	if s.pointer == nil || s.cursor_surface == nil {
@@ -1053,9 +1053,9 @@ wl_apply_cursor :: proc() {
 	image := theme_cursor.images[0]
 	buf := wl.cursor_image_get_buffer(image)
 
-	// The theme image is THEME_CURSOR_SIZE*scale physical pixels but the viewport set up in wl_init
-	// maps it down to THEME_CURSOR_SIZE logical pixels, so the hotspot (in the image's own pixels)
-	// has to be scaled down to match.
+	// The theme image is THEME_CURSOR_SIZE*scale physical pixels but the viewport set up in
+	// wl_open_window maps it down to THEME_CURSOR_SIZE logical pixels, so the hotspot (in the
+	// image's own pixels) has to be scaled down to match.
 	wl.pointer_set_cursor(
 		s.pointer,
 		s.pointer_enter_serial,
