@@ -154,8 +154,6 @@ alsa_shutdown :: proc() {
 		alsa.pcm_close(s.pcm)
 		s.pcm = nil
 	}
-
-	alsa.unload()
 }
 
 alsa_set_internal_state :: proc(state: rawptr) {
