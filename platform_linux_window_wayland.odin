@@ -136,10 +136,10 @@ wl_init :: proc(
 	wl_set_window_mode(options.window_mode)
 
 	if s.decoration_manager != nil {
-		decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
+		s.decoration = wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
 
 		// This adds titlebar and buttons to the window.
-		wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
+		wl.zxdg_toplevel_decoration_v1_set_mode(s.decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
 	}
 
 	if s.fractional_scale_manager != nil {
@@ -737,6 +737,12 @@ wl_shutdown :: proc() {
 	}
 	hm.dynamic_destroy(&s.custom_cursors)
 
+	// Only set on compositors that advertise zxdg_decoration_manager_v1.
+	if s.decoration != nil {
+		wl.zxdg_toplevel_decoration_v1_destroy(s.decoration)
+		s.decoration = nil
+	}
+
 	// The cursor shape protocol is optional, so these are nil on compositors that lack it.
 	if s.cursor_shape_device != nil {
 		wl.cursor_shape_device_destroy(s.cursor_shape_device)
@@ -1274,6 +1280,7 @@ WL_State :: struct {
 	viewporter: ^wl.WP_Viewporter,
 	viewport: ^wl.WP_Viewport,
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
+	decoration: ^wl.ZXDG_Toplevel_Decoration_V1,
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
 	xdg_base: ^wl.XDG_WM_Base,
