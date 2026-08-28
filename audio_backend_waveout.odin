@@ -66,6 +66,10 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	format.nBlockAlign = (format.wBitsPerSample * format.nChannels) / 8 // see nBlockAlign docs
 	format.nAvgBytesPerSec = (u32(format.wBitsPerSample * format.nChannels) * format.nSamplesPerSec) / 8
 
+	// The mixer thread tops the device up every couple of milliseconds. `time.sleep` rounds up to
+	// the timer period, which is 15.6 ms by default. This asks Windows for 1 ms instead.
+	win32.timeBeginPeriod(1)
+
 	ch(win32.waveOutOpen(
 		&s.device,
 		win32.WAVE_MAPPER,
@@ -88,6 +92,7 @@ ch :: proc(mr: win32.MMRESULT, loc := #caller_location) -> win32.MMRESULT {
 waveout_shutdown :: proc() {
 	log.debug("Shutdown audio backend waveout")
 	win32.waveOutClose(s.device)
+	win32.timeEndPeriod(1)
 }
 
 waveout_set_internal_state :: proc(state: rawptr) {
