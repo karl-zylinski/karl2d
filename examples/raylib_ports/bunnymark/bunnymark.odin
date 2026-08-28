@@ -81,7 +81,7 @@ step :: proc() -> bool {
 		dest := src
 		dest.x = b.position.x 
 		dest.y = b.position.y
-		k2.draw_texture_ex(tex_bunny, src, dest, {dest.w/2, dest.h/2}, b.rot, b.color)
+		k2.draw_texture_fit(tex_bunny, src, dest, {dest.w/2, dest.h/2}, b.rot, b.color)
 	}
 
 	k2.draw_text(
