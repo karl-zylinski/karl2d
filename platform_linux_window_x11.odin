@@ -6,7 +6,7 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	state_size = x11_state_size,
-	probe = x11_probe,
+	try_load = x11_try_load,
 	init = x11_init,
 	shutdown = x11_shutdown,
 	get_window_render_glue = x11_get_window_render_glue,
@@ -47,12 +47,17 @@ x11_state_size :: proc() -> int {
 	return size_of(X11_State)
 }
 
-x11_probe :: proc(reason_allocator: runtime.Allocator) -> (reason: string, ok: bool) {
+x11_try_load :: proc(
+	failure_reason_allocator: runtime.Allocator,
+) -> (
+	failure_reason: string,
+	ok: bool,
+) {
 	missing, load_ok := X.load()
 
 	if !load_ok {
 		return fmt.aprintf("Not using X11. Could not load %v.", missing,
-			allocator = reason_allocator), false
+			allocator = failure_reason_allocator), false
 	}
 
 	// The libraries being installed does not mean there is a server to talk to, so open a display
