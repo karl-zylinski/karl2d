@@ -93,7 +93,7 @@ load :: proc() -> (missing: string, ok: bool) {
 	return "", true
 }
 
-// Closes the library again.
+// Closes the library again, for when one of the symbols turns out to be missing.
 unload :: proc() {
 	if lib != nil {
 		dynlib.unload_library(lib)
