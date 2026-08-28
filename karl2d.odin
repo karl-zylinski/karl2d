@@ -2876,7 +2876,7 @@ load_audio_stream_from_file :: proc(
 		vorbis_buffer = vorbis_buffer,
 		clip = audio_clip_handle,
 		total_samples = _ogg_file_total_frames(f) * int(info.channels),
-		file_read_buf = make([dynamic]u8, s.allocator),
+		file_read_buf = make([]u8, AUDIO_STREAM_READ_BUF_SIZE, s.allocator),
 	}
 
 	stream, stream_add_err := hm.add(&s.audio_streams, asd)
@@ -2884,7 +2884,7 @@ load_audio_stream_from_file :: proc(
 	if stream_add_err != nil {
 		log.errorf("Failed to create audio stream from file. Error: %v", stream_add_err)
 		file_close(asd.file)
-		delete(asd.file_read_buf)
+		delete(asd.file_read_buf, s.allocator)
 		delete(audio_clip.samples, s.allocator)
 		hm.remove(&s.audio_clips, audio_clip_handle)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
@@ -3029,7 +3029,7 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 	switch sd.mode {
 	case .From_File:
 		file_close(sd.file)
-		delete(sd.file_read_buf)
+		delete(sd.file_read_buf, s.allocator)
 	case .From_Bytes:
 		// don't free the bytes, they are owned by the game
 	}
@@ -3093,20 +3093,30 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 			bytes_used := stbv.decode_frame_pushdata(
 				sd.vorbis,
 				raw_data(sd.file_read_buf[sd.file_read_buf_offset:]),
-				i32(len(sd.file_read_buf) - sd.file_read_buf_offset),
+				i32(sd.file_read_buf_len - sd.file_read_buf_offset),
 				&channels,
 				&output, 
 				&samples,
 			)
 
 			if bytes_used == 0 && samples == 0 {
-				read_buf_size := len(sd.file_read_buf)
-				non_zero_resize(&sd.file_read_buf, read_buf_size + 256)
-				read, read_err := file_read(sd.file, sd.file_read_buf[read_buf_size:read_buf_size+256])
+				// The decoder leaves the bytes it has used behind, so reclaim those before
+				// deciding there is no room left.
+				_compact_stream_read_buf(sd)
+				space := len(sd.file_read_buf) - sd.file_read_buf_len
 
-				if read > 0 {
-					shrink(&sd.file_read_buf, read_buf_size + read)
+				if space == 0 {
+					log.error("Cannot decode audio stream, an ogg page is too big. Stopping it.")
+					hm.remove(&s.sounds, sd.sound)
+					break
 				}
+
+				to_read := min(space, AUDIO_STREAM_READ_SIZE)
+				read, read_err := file_read(
+					sd.file,
+					sd.file_read_buf[sd.file_read_buf_len:sd.file_read_buf_len + to_read],
+				)
+				sd.file_read_buf_len += read
 
 				if read_err != nil {
 					if read_err == .EOF {
@@ -3119,6 +3129,10 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 								_reset_audio_stream(stream)
 								break
 							}
+
+							// The leftover bytes are from the end of the file.
+							sd.file_read_buf_len = 0
+							sd.file_read_buf_offset = 0
 
 							stbv.flush_pushdata(sd.vorbis)
 							sd.decode_cursor = 0
@@ -3184,13 +3198,9 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 			}
 		}
 
-		if len(sd.file_read_buf) > 0 {
-			// We didn't consume all the data in the read buffer. Move the remaining data to the start
-			// of the buffer so that it can be consumed in the next update.
-			copy(sd.file_read_buf[:], sd.file_read_buf[sd.file_read_buf_offset:])
-			shrink(&sd.file_read_buf, len(sd.file_read_buf) - sd.file_read_buf_offset)
-			sd.file_read_buf_offset = 0
-		}
+		// We didn't consume all the data in the read buffer. Move the remaining data to the start
+		// of the buffer so that it can be consumed in the next update.
+		_compact_stream_read_buf(sd)
 	case .From_Bytes:
 		channels: i32
 		output: [^]^f32
@@ -3242,6 +3252,18 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 			}
 		}
 	}
+}
+
+// Moves the bytes the decoder has not used yet to the start of the read buffer. That frees the
+// space they were sitting behind, so the next read has somewhere to go.
+_compact_stream_read_buf :: proc(sd: ^Audio_Stream_Data) {
+	if sd.file_read_buf_offset == 0 {
+		return
+	}
+
+	copy(sd.file_read_buf[:], sd.file_read_buf[sd.file_read_buf_offset:sd.file_read_buf_len])
+	sd.file_read_buf_len -= sd.file_read_buf_offset
+	sd.file_read_buf_offset = 0
 }
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
@@ -5714,6 +5736,17 @@ AUDIO_STREAM_NONE :: Audio_Stream {}
 
 AUDIO_STREAM_BUFFER_SIZE :: 3 * AUDIO_MIX_SAMPLE_RATE
 
+// The biggest an ogg page can be.
+MAX_OGG_PAGE_SIZE :: 65307
+
+// The pushdata decoder needs a whole ogg page in hand, and a partial page may already sit in
+// front of it, so room for two always suffices.
+AUDIO_STREAM_READ_BUF_SIZE :: 2 * MAX_OGG_PAGE_SIZE
+
+// Ogg pages are usually 4 to 8 kilobytes, so reading this much normally turns up a page right
+// away.
+AUDIO_STREAM_READ_SIZE :: 8192
+
 Audio_Channels :: enum {
 	Mono,
 	Stereo,
@@ -5764,7 +5797,12 @@ Audio_Stream_Data :: struct {
 
 	// use if mode = .From_File
 	file: ^File,
-	file_read_buf: [dynamic]u8,
+	file_read_buf: []u8,
+
+	// How many bytes in `file_read_buf` are valid.
+	file_read_buf_len: int,
+
+	// How many of the valid bytes in `file_read_buf` the decoder has consumed.
 	file_read_buf_offset: int,
 
 	// use if mode == .From_Bytes
@@ -6445,10 +6483,6 @@ _seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
 	// Seeks the file to `offset` and lets the decoder find a page from there. Returns the frame the
 	// decoder ends up at, or -1 if no page turned up.
 	resync_at :: proc(sd: ^Audio_Stream_Data, offset: i64) -> int {
-		// Ogg pages are usually 4 to 8 kilobytes, so reading this much normally turns up a page
-		// right away.
-		READ_SIZE :: 8192
-
 		// A page should turn up long before this many reads. This is here so that a file that is
 		// not what we think it is cannot spin forever.
 		MAX_READS :: 64
@@ -6457,7 +6491,7 @@ _seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
 			return -1
 		}
 
-		runtime.clear(&sd.file_read_buf)
+		sd.file_read_buf_len = 0
 		sd.file_read_buf_offset = 0
 		stbv.flush_pushdata(sd.vorbis)
 
@@ -6469,7 +6503,7 @@ _seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
 			bytes_used := stbv.decode_frame_pushdata(
 				sd.vorbis,
 				raw_data(sd.file_read_buf[sd.file_read_buf_offset:]),
-				i32(len(sd.file_read_buf) - sd.file_read_buf_offset),
+				i32(sd.file_read_buf_len - sd.file_read_buf_offset),
 				&decoded_channels,
 				&output,
 				&samples,
@@ -6484,16 +6518,22 @@ _seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
 			}
 
 			if bytes_used == 0 {
-				read_buf_size := len(sd.file_read_buf)
-				non_zero_resize(&sd.file_read_buf, read_buf_size + READ_SIZE)
+				// The decoder leaves the bytes it has used behind, so reclaim those before
+				// deciding there is no room left.
+				_compact_stream_read_buf(sd)
+				space := len(sd.file_read_buf) - sd.file_read_buf_len
+
+				if space == 0 {
+					log.error("Cannot seek in audio stream, an ogg page is too big.")
+					return -1
+				}
+
+				to_read := min(space, AUDIO_STREAM_READ_SIZE)
 				read, read_err := file_read(
 					sd.file,
-					sd.file_read_buf[read_buf_size:read_buf_size + READ_SIZE],
+					sd.file_read_buf[sd.file_read_buf_len:sd.file_read_buf_len + to_read],
 				)
-
-				if read > 0 {
-					shrink(&sd.file_read_buf, read_buf_size + read)
-				}
+				sd.file_read_buf_len += read
 
 				if read <= 0 || read_err != nil {
 					return -1
@@ -6584,11 +6624,7 @@ _seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
 
 	// Move the bytes the decoder hasn't used yet to the start of the read buffer, the same way
 	// `update_audio_stream` does, so that it carries on from here.
-	if len(sd.file_read_buf) > 0 {
-		copy(sd.file_read_buf[:], sd.file_read_buf[sd.file_read_buf_offset:])
-		shrink(&sd.file_read_buf, len(sd.file_read_buf) - sd.file_read_buf_offset)
-		sd.file_read_buf_offset = 0
-	}
+	_compact_stream_read_buf(sd)
 
 	return best_frame
 }
@@ -6602,10 +6638,6 @@ _seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
 //
 // The file position is restored before returning. Returns 0 if no length could be found.
 _ogg_file_total_frames :: proc(f: ^File) -> int {
-	// The biggest an ogg page can be. Reading this many bytes from the end of the file means we
-	// are certain to see the start of the last page.
-	MAX_OGG_PAGE_SIZE :: 65307
-
 	// The smallest an ogg page header can be. Reading fewer bytes than this means there is no
 	// page to find.
 	MIN_OGG_PAGE_SIZE :: 27
@@ -6622,6 +6654,7 @@ _ogg_file_total_frames :: proc(f: ^File) -> int {
 		return 0
 	}
 
+	// Reading a whole page from the end of the file means we are certain to see the last page.
 	read_size := min(int(file_size), MAX_OGG_PAGE_SIZE)
 
 	if read_size < MIN_OGG_PAGE_SIZE {
@@ -6764,7 +6797,7 @@ _apply_sound_time :: proc(sound: Sound, seconds: f32) {
 
 		// The file could not be searched, so go back to the start and decode from there.
 		file_seek(sd.file, 0, .Start)
-		runtime.clear(&sd.file_read_buf)
+		sd.file_read_buf_len = 0
 		sd.file_read_buf_offset = 0
 		stbv.flush_pushdata(sd.vorbis)
 		sd.decode_cursor = 0
@@ -6803,7 +6836,7 @@ _reset_audio_stream :: proc(stream: Audio_Stream) {
 	switch sd.mode {
 	case .From_File:
 		file_seek(sd.file, 0, .Start)
-		runtime.clear(&sd.file_read_buf)
+		sd.file_read_buf_len = 0
 		sd.file_read_buf_offset = 0
 		stbv.flush_pushdata(sd.vorbis)
 

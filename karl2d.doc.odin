@@ -1585,6 +1585,17 @@ AUDIO_STREAM_NONE :: Audio_Stream {}
 
 AUDIO_STREAM_BUFFER_SIZE :: 3 * AUDIO_MIX_SAMPLE_RATE
 
+// The biggest an ogg page can be.
+MAX_OGG_PAGE_SIZE :: 65307
+
+// The pushdata decoder needs a whole ogg page in hand, and a partial page may already sit in
+// front of it, so room for two always suffices.
+AUDIO_STREAM_READ_BUF_SIZE :: 2 * MAX_OGG_PAGE_SIZE
+
+// Ogg pages are usually 4 to 8 kilobytes, so reading this much normally turns up a page right
+// away.
+AUDIO_STREAM_READ_SIZE :: 8192
+
 Audio_Channels :: enum {
 	Mono,
 	Stereo,
@@ -1635,7 +1646,12 @@ Audio_Stream_Data :: struct {
 
 	// use if mode = .From_File
 	file: ^File,
-	file_read_buf: [dynamic]u8,
+	file_read_buf: []u8,
+
+	// How many bytes in `file_read_buf` are valid.
+	file_read_buf_len: int,
+
+	// How many of the valid bytes in `file_read_buf` the decoder has consumed.
 	file_read_buf_offset: int,
 
 	// use if mode == .From_Bytes
