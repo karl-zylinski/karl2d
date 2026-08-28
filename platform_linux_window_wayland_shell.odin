@@ -36,6 +36,10 @@ wl_shell_create :: proc(window_title: string, window_mode: Window_Mode) {
 		)
 
 		wl_shell_set_window_mode(window_mode)
+
+		// frame_map commits the surface, which asks the compositor for the first configure. No
+		// commit of our own may land between here and that configure -- libdecor owns the surface's
+		// initial commit sequence.
 		ld.frame_map(s.shell.libdecor_frame)
 		return
 	}
@@ -67,6 +71,9 @@ wl_shell_create :: proc(window_title: string, window_mode: Window_Mode) {
 			wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE,
 		)
 	}
+
+	// Committing with no buffer attached is what asks the compositor for the first configure.
+	wl.surface_commit(s.surface)
 }
 
 wl_shell_destroy :: proc() {

@@ -159,9 +159,8 @@ wl_init :: proc(
 
 	s.viewport = wl.wp_viewporter_get_viewport(s.viewporter, s.surface)
 
-	wl.surface_commit(s.surface)
-
-	// Wait for the first configure: it's what creates the EGL window.
+	// Wait for the first configure, which wl_shell_create asked for. It's what creates the EGL
+	// window.
 	for !s.configured {
 		if !wl_shell_dispatch(blocking = true) {
 			break
