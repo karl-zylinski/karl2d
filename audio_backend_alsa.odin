@@ -48,6 +48,10 @@ Alsa_State :: struct {
 
 	// Counts feed thread passes, so the latency log below can be kept to one line every so often.
 	delay_log_countdown: int,
+
+	// How many times the device ran dry and had to be recovered. Reported by the latency log,
+	// because a crackle that shows up here and one that does not have different causes.
+	underruns: int,
 }
 
 alsa_state_size :: proc() -> int {
@@ -77,10 +81,11 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 		return
 	}
 
-	// The mixer thread tops the backend up every couple of milliseconds, so the device buffer no
-	// longer has to cover a whole frame. Measured end to end through PipeWire this lands at about
-	// 17 ms, against about 35 ms at 25000.
-	LATENCY_MICROSECONDS :: 10000
+	// Do not lower this to chase latency. On PipeWire the ALSA plugin passes the request down to
+	// the graph, which drops its quantum to match. At 10000 the graph went to 64 samples and the
+	// sink began xrunning, heard as crackling, while ALSA itself still reported every write as
+	// fine. The latency worth winning is in how much the mixer keeps queued, not in this buffer.
+	LATENCY_MICROSECONDS :: 25000
 	alsa_err = alsa.pcm_set_params(
 		pcm,
 		.FLOAT_LE,
@@ -135,6 +140,7 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 				if ret < 0 {
 					// Recover from errors. One possible error is an underrun. I.e. ALSA ran out of bytes.
 					// In that case we must recover the PCM device and then try feeding it data again.
+					s.underruns += 1
 					recover_ret := alsa.pcm_recover(s.pcm, c.int(ret), 1)
 
 					// Can't recover!
@@ -181,10 +187,11 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 			}
 
 			log.debugf(
-				"audio latency %.1f ms (mixer %v samples, device %v samples)",
+				"audio latency %.1f ms (mixer %v, device %v, underruns %v)",
 				f32(mixer_held + int(delay)) * 1000 / AUDIO_MIX_SAMPLE_RATE,
 				mixer_held,
 				delay,
+				s.underruns,
 			)
 		}
 	}
