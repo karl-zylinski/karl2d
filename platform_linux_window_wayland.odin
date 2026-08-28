@@ -29,7 +29,6 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 
 import "base:runtime"
 import "core:fmt"
-import "core:strings"
 import "core:c"
 import "core:math"
 import "core:sys/linux"
@@ -124,23 +123,9 @@ wl_init :: proc(
 	
 	// Makes sure the window does "pings" that keeps it alive.
 	wl.add_listener(s.xdg_base, &wm_base_listener, nil)
-	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, s.surface)
 
-	// Top-level means an application at the top of the window hierarchy. The callback in the
-	// toplevel listener effecively creates a window handle.
-	s.toplevel = wl.xdg_surface_get_toplevel(xdg_surface)
-	wl.add_listener(s.toplevel, &toplevel_listener, nil)
-	wl.add_listener(xdg_surface, &window_listener, nil)
-	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(window_title, frame_allocator))
-
-	wl_set_window_mode(options.window_mode)
-
-	if s.decoration_manager != nil {
-		s.decoration = wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
-
-		// This adds titlebar and buttons to the window.
-		wl.zxdg_toplevel_decoration_v1_set_mode(s.decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
-	}
+	s.window_mode = options.window_mode
+	wl_shell_create(window_title, options.window_mode)
 
 	if s.fractional_scale_manager != nil {
 		fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(
@@ -178,7 +163,7 @@ wl_init :: proc(
 
 	// Wait for the first configure: it's what creates the EGL window.
 	for !s.configured {
-		if wl.display_dispatch(s.display) < 0 {
+		if !wl_shell_dispatch(blocking = true) {
 			break
 		}
 	}
@@ -373,31 +358,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 			new_height = h != 0 ? h : s.last_configure_windowed_height
 		}
 
-		window_resized := new_width != s.last_configure_width || new_height != s.last_configure_height
-
-		if window_resized || !s.configured {
-			s.screen_width = int(f32(new_width) * s.scale)
-			s.screen_height = int(f32(new_height) * s.scale)
-
-			if !s.configured {
-				s.window = wl.egl_window_create(s.surface, i32(s.screen_width), i32(s.screen_height))
-			} else {
-				wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
-			}
-			wl.wp_viewport_set_destination(s.viewport, i32(new_width), i32(new_height))
-
-			s.last_configure_width = new_width
-			s.last_configure_height = new_height
-			if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-				s.last_configure_windowed_width = new_width
-				s.last_configure_windowed_height = new_height
-			}
-
-			append(&s.events, Event_Screen_Resize {
-				width = s.screen_width,
-				height = s.screen_height,
-			})
-		}
+		wl_apply_content_size(new_width, new_height)
 		s.configured = true
 	},
 	close = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel) {
@@ -408,6 +369,37 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 	wm_capabilities = proc "c" (data: rawptr, xdg_toplevel: ^wl.XDG_Toplevel, capabilities: ^wl.Array,) {},
 }
 
+// Both shell paths hand us a content size -- neither ever calls set_window_geometry, so this is
+// all there is to applying one: create the EGL window on the first configure, resize it and the
+// viewport on every later one, and record the new size. A no-op when the size didn't change and
+// this isn't the first configure.
+wl_apply_content_size :: proc(new_width: int, new_height: int) {
+	window_resized := new_width != s.last_configure_width || new_height != s.last_configure_height
+
+	if window_resized || !s.configured {
+		s.screen_width = int(f32(new_width) * s.scale)
+		s.screen_height = int(f32(new_height) * s.scale)
+
+		if !s.configured {
+			s.window = wl.egl_window_create(s.surface, i32(s.screen_width), i32(s.screen_height))
+		} else {
+			wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
+		}
+		wl.wp_viewport_set_destination(s.viewport, i32(new_width), i32(new_height))
+
+		s.last_configure_width = new_width
+		s.last_configure_height = new_height
+		if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
+			s.last_configure_windowed_width = new_width
+			s.last_configure_windowed_height = new_height
+		}
+
+		append(&s.events, Event_Screen_Resize {
+			width = s.screen_width,
+			height = s.screen_height,
+		})
+	}
+}
 
 window_listener := wl.XDG_Surface_Listener {
 	configure = proc "c" (data: rawptr, surface: ^wl.XDG_Surface, serial: c.uint32_t) {
@@ -729,6 +721,8 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 }
 
 wl_shutdown :: proc() {
+	wl_shell_destroy()
+
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		wl.wp_viewport_destroy(cd.viewport)
 		wl.surface_destroy(cd.surface)
@@ -790,7 +784,7 @@ wl_get_window_render_glue :: proc() -> Window_Render_Glue {
 }
 
 wl_get_events :: proc(events: ^[dynamic]Event) {
-	wl.display_dispatch_pending(s.display)
+	wl_shell_dispatch(blocking = false)
 
 	// Wayland compositors don't send repeat events -- we have to synthesize them ourselves from
 	// the rate/delay reported by the keyboard's `repeat_info` event.
@@ -826,7 +820,7 @@ wl_get_events :: proc(events: ^[dynamic]Event) {
 }
 
 wl_set_title :: proc(title: string) {
-	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(title, frame_allocator))
+	wl_shell_set_title(title)
 }
 
 wl_get_screen_width :: proc() -> int {
@@ -870,23 +864,7 @@ wl_get_window_scale :: proc() -> f32 {
 
 wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	s.window_mode = window_mode
-	 
-	switch window_mode {
-	case .Windowed:
-		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
-		w := i32(s.last_configure_windowed_width)
-		h := i32(s.last_configure_windowed_height)
-		wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
-		wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
-
-	case .Windowed_Resizable:
-		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
-		wl.xdg_toplevel_set_max_size(s.toplevel, 0, 0)
-		wl.xdg_toplevel_set_min_size(s.toplevel, 0, 0)
-
-	case .Borderless_Fullscreen:
-		wl.xdg_toplevel_set_fullscreen(s.toplevel, nil)
-	}
+	wl_shell_set_window_mode(window_mode)
 }
 
 wl_set_cursor_hidden :: proc(hidden: bool) {
@@ -1276,7 +1254,7 @@ WL_State :: struct {
 	surface: ^wl.Surface,
 	compositor: ^wl.Compositor,
 	window: ^wl.EGL_Window,
-	toplevel: ^wl.XDG_Toplevel,
+	shell: WL_Shell,
 	viewporter: ^wl.WP_Viewporter,
 	viewport: ^wl.WP_Viewport,
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
