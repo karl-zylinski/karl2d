@@ -16,6 +16,20 @@ display_flush: proc "c" (display: ^Display) -> c.int
 
 display_dispatch_pending: proc "c" (display: ^Display) -> c.int
 
+display_get_fd: proc "c" (display: ^Display) -> c.int
+
+display_create_queue: proc "c" (display: ^Display) -> ^Event_Queue
+
+event_queue_destroy: proc "c" (queue: ^Event_Queue)
+
+display_dispatch_queue_pending: proc "c" (display: ^Display, queue: ^Event_Queue) -> c.int
+
+display_prepare_read_queue: proc "c" (display: ^Display, queue: ^Event_Queue) -> c.int
+
+display_read_events: proc "c" (display: ^Display) -> c.int
+
+display_cancel_read: proc "c" (display: ^Display)
+
 proxy_marshal_flags: proc "c" (
 	proxy:     ^Proxy,
 	opcode:    u32,
@@ -32,6 +46,12 @@ display_roundtrip: proc "c" (display: ^Display) -> c.int
 proxy_add_listener: proc "c" (proxy: ^Proxy, implementation: rawptr, userdata: rawptr) -> c.int
 
 proxy_destroy: proc "c" (proxy: ^Proxy)
+
+proxy_create_wrapper: proc "c" (proxy: ^Proxy) -> ^Proxy
+
+proxy_wrapper_destroy: proc "c" (proxy_wrapper: ^Proxy)
+
+proxy_set_queue: proc "c" (proxy: ^Proxy, queue: ^Event_Queue)
 
 egl_window_create: proc "c" (surface: ^Surface, width: c.int, height: c.int) -> ^EGL_Window
 
@@ -71,6 +91,8 @@ Interface :: struct {
 }
 
 Proxy :: struct {}
+
+Event_Queue :: struct {}
 
 Display :: struct {
 	using proxy: Proxy,
@@ -133,11 +155,21 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"wl_display_dispatch", &display_dispatch},
 		{"wl_display_flush", &display_flush},
 		{"wl_display_dispatch_pending", &display_dispatch_pending},
+		{"wl_display_get_fd", &display_get_fd},
+		{"wl_display_create_queue", &display_create_queue},
+		{"wl_event_queue_destroy", &event_queue_destroy},
+		{"wl_display_dispatch_queue_pending", &display_dispatch_queue_pending},
+		{"wl_display_prepare_read_queue", &display_prepare_read_queue},
+		{"wl_display_read_events", &display_read_events},
+		{"wl_display_cancel_read", &display_cancel_read},
 		{"wl_proxy_marshal_flags", &proxy_marshal_flags},
 		{"wl_proxy_get_version", &proxy_get_version},
 		{"wl_display_roundtrip", &display_roundtrip},
 		{"wl_proxy_add_listener", &proxy_add_listener},
 		{"wl_proxy_destroy", &proxy_destroy},
+		{"wl_proxy_create_wrapper", &proxy_create_wrapper},
+		{"wl_proxy_wrapper_destroy", &proxy_wrapper_destroy},
+		{"wl_proxy_set_queue", &proxy_set_queue},
 	}
 
 	lib_client, missing, ok = load_symbols(LIB_WAYLAND_CLIENT, client_symbols)

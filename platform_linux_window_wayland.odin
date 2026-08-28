@@ -186,11 +186,11 @@ wl_init :: proc(
 	log.ensure(s.window != nil, "Wayland compositor never sent an initial configure")
 
 	when RENDER_BACKEND_NAME == "gl" {
-		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
+		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.surface, s.window, s.allocator)
 	} else when RENDER_BACKEND_NAME == "nil" {
 		s.window_render_glue = {}
 	} else {
-		#panic("Unsupported combo of Linux + X11 and render backend '" + RENDER_BACKEND_NAME + "'")
+		#panic("Unsupported combo of Linux + Wayland and render backend '" + RENDER_BACKEND_NAME + "'")
 	}
 
 	if options.disable_auto_scale_hint {
