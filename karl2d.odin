@@ -2040,138 +2040,132 @@ play_audio_clip :: proc(
 	loop := false,
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound {
-	if sync.mutex_guard(&s.audio_mutex) {
-		audio_clip_object := hm.get(&s.audio_clips, clip)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if audio_clip_object == nil {
-			log.error("Cannot play audio clip, audio clip does not exist.")
-			return SOUND_NONE
-		}
+	audio_clip_object := hm.get(&s.audio_clips, clip)
 
-		if bus != AUDIO_BUS_MASTER && hm.get(&s.audio_buses, bus) == nil {
-			log.error("Cannot play audio clip, audio bus does not exist.")
-			return SOUND_NONE
-		}
-
-		playback_settings := Sound_Settings {
-			volume = clamp(volume, 0, 1),
-			pan = clamp(pan, -1, 1),
-			pitch = max(pitch, 0.01),
-		}
-
-		sound_object := Sound_Object {
-			clip = clip,
-			target_settings = playback_settings,
-			current_settings = playback_settings,
-			loop = loop,
-			bus = bus,
-		}
-
-		sound, add_err := hm.add(&s.sounds, sound_object)
-
-		if add_err != nil {
-			log.errorf("Failed playing audio clip. Error: %v", add_err)
-			return SOUND_NONE
-		}
-
-		return sound
+	if audio_clip_object == nil {
+		log.error("Cannot play audio clip, audio clip does not exist.")
+		return SOUND_NONE
 	}
 
-	return SOUND_NONE
+	if bus != AUDIO_BUS_MASTER && hm.get(&s.audio_buses, bus) == nil {
+		log.error("Cannot play audio clip, audio bus does not exist.")
+		return SOUND_NONE
+	}
+
+	playback_settings := Sound_Settings {
+		volume = clamp(volume, 0, 1),
+		pan = clamp(pan, -1, 1),
+		pitch = max(pitch, 0.01),
+	}
+
+	sound_object := Sound_Object {
+		clip = clip,
+		target_settings = playback_settings,
+		current_settings = playback_settings,
+		loop = loop,
+		bus = bus,
+	}
+
+	sound, add_err := hm.add(&s.sounds, sound_object)
+
+	if add_err != nil {
+		log.errorf("Failed playing audio clip. Error: %v", add_err)
+		return SOUND_NONE
+	}
+
+	return sound
 }
 
 // Stops the sound, which destroys its playback state in the mixer. For a `Sound` started using
 // `play_audio_stream`, this also rewinds the stream to the start. Use `set_sound_paused` to pause
 // the Sound instead, which won't lose the current playback position and settings.
 stop_sound :: proc(sound: Sound) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		sound_object := hm.get(&s.sounds, sound)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if sound_object == nil {
-			return
-		}
+	sound_object := hm.get(&s.sounds, sound)
 
-		stream := sound_object.stream
-		hm.remove(&s.sounds, sound)
+	if sound_object == nil {
+		return
+	}
 
-		if stream != AUDIO_STREAM_NONE {
-			_reset_audio_stream(stream)
-		}
+	stream := sound_object.stream
+	hm.remove(&s.sounds, sound)
+
+	if stream != AUDIO_STREAM_NONE {
+		_reset_audio_stream(stream)
 	}
 }
 
 // Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
 // or stopped.
 set_sound_paused :: proc(sound: Sound, paused: bool) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		sound_object := hm.get(&s.sounds, sound)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if sound_object == nil {
-			return
-		}
+	sound_object := hm.get(&s.sounds, sound)
 
-		sound_object.paused = paused
+	if sound_object == nil {
+		return
 	}
+
+	sound_object.paused = paused
 }
 
 // Returns true if the sound exists and is not paused.
 sound_is_playing :: proc(sound: Sound) -> bool {
-	if sync.mutex_guard(&s.audio_mutex) {
-		sound_object := hm.get(&s.sounds, sound)
-		return sound_object != nil && !sound_object.paused
-	}
+	sync.mutex_guard(&s.audio_mutex)
 
-	return false
+	sound_object := hm.get(&s.sounds, sound)
+	return sound_object != nil && !sound_object.paused
 }
 
 // Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
 // stopped sound is not.
 sound_is_valid :: proc(sound: Sound) -> bool {
-	if sync.mutex_guard(&s.audio_mutex) {
-		return hm.is_valid(&s.sounds, sound)
-	}
+	sync.mutex_guard(&s.audio_mutex)
 
-	return false
+	return hm.is_valid(&s.sounds, sound)
 }
 
 // Set the volume of a sound. Range: 0 to 1.
 set_sound_volume :: proc(sound: Sound, volume: f32) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		sound_object := hm.get(&s.sounds, sound)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if sound_object == nil {
-			return
-		}
+	sound_object := hm.get(&s.sounds, sound)
 
-		sound_object.target_settings.volume = clamp(volume, 0, 1)
+	if sound_object == nil {
+		return
 	}
+
+	sound_object.target_settings.volume = clamp(volume, 0, 1)
 }
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
 set_sound_pan :: proc(sound: Sound, pan: f32) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		sound_object := hm.get(&s.sounds, sound)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if sound_object == nil {
-			return
-		}
+	sound_object := hm.get(&s.sounds, sound)
 
-		sound_object.target_settings.pan = clamp(pan, -1, 1)
+	if sound_object == nil {
+		return
 	}
+
+	sound_object.target_settings.pan = clamp(pan, -1, 1)
 }
 
 // Set the pitch of a sound. Range: 0.01 and up, where 1 is the default. Pitch 2 makes the sound
 // play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		sound_object := hm.get(&s.sounds, sound)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if sound_object == nil {
-			return
-		}
+	sound_object := hm.get(&s.sounds, sound)
 
-		sound_object.target_settings.pitch = max(pitch, 0.01)
+	if sound_object == nil {
+		return
 	}
+
+	sound_object.target_settings.pitch = max(pitch, 0.01)
 }
 
 // Move the sound to another spot in its audio. `seconds` is measured from the start of the audio,
@@ -2181,113 +2175,110 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 // audio has to be decoded before it can play. Don't do it every frame while dragging a scrub bar,
 // do it when the player lets go.
 set_sound_time :: proc(sound: Sound, seconds: f32) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		sound_object := hm.get(&s.sounds, sound)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if sound_object == nil {
-			return
-		}
+	sound_object := hm.get(&s.sounds, sound)
 
-		wanted_seconds := max(seconds, 0)
-		length := _get_sound_length(sound)
-
-		if length > 0 {
-			wanted_seconds = min(wanted_seconds, length)
-		}
-
-		// Jumping to another spot in the audio makes the waveform jump, which is heard as a click.
-		// So we don't jump right away: The mixer fades the sound out first, then jumps, then fades
-		// it back in. A paused sound isn't being mixed, so there is nothing to fade and nothing
-		// that could click. Jump straight away in that case.
-		if sound_object.paused {
-			// Fade the sound in when it is unpaused, instead of jumping straight into the middle of
-			// the waveform.
-			sound_object.seek_fade = 1
-			_apply_sound_time(sound, wanted_seconds)
-			return
-		}
-
-		sound_object.pending_seek_seconds = wanted_seconds
-		sound_object.has_pending_seek = true
+	if sound_object == nil {
+		return
 	}
+
+	wanted_seconds := max(seconds, 0)
+	length := _get_sound_length(sound)
+
+	if length > 0 {
+		wanted_seconds = min(wanted_seconds, length)
+	}
+
+	// Jumping to another spot in the audio makes the waveform jump, which is heard as a click. So
+	// we don't jump right away: The mixer fades the sound out first, then jumps, then fades it
+	// back in. A paused sound isn't being mixed, so there is nothing to fade and nothing that
+	// could click. Jump straight away in that case.
+	if sound_object.paused {
+		// Fade the sound in when it is unpaused, instead of jumping straight into the middle of
+		// the waveform.
+		sound_object.seek_fade = 1
+		_apply_sound_time(sound, wanted_seconds)
+		return
+	}
+
+	sound_object.pending_seek_seconds = wanted_seconds
+	sound_object.has_pending_seek = true
 }
 
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
 // each time it starts over. Returns 0 if the sound doesn't exist.
 get_sound_time :: proc(sound: Sound) -> f32 {
-	if sync.mutex_guard(&s.audio_mutex) {
-		sound_object := hm.get(&s.sounds, sound)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if sound_object == nil {
-			return 0
-		}
+	sound_object := hm.get(&s.sounds, sound)
 
-		// A seek that is still fading out hasn't moved the sound yet, but it is on its way there.
-		// Report where it is going, so that things like a seek bar don't jump backwards for a
-		// moment.
-		if sound_object.has_pending_seek {
-			return sound_object.pending_seek_seconds
-		}
+	if sound_object == nil {
+		return 0
+	}
 
-		if sound_object.stream == AUDIO_STREAM_NONE {
-			clip := hm.get(&s.audio_clips, sound_object.clip)
+	// A seek that is still fading out hasn't moved the sound yet, but it is on its way there.
+	// Report where it is going, so that things like a seek bar don't jump backwards for a moment.
+	if sound_object.has_pending_seek {
+		return sound_object.pending_seek_seconds
+	}
 
-			if clip == nil {
-				return 0
-			}
+	if sound_object.stream == AUDIO_STREAM_NONE {
+		clip := hm.get(&s.audio_clips, sound_object.clip)
 
-			channels := 1
-			if clip.channels == .Stereo {
-				channels = 2
-			}
-
-			return f32(sound_object.offset / channels) / f32(clip.sample_rate)
-		}
-
-		sd := hm.get(&s.audio_streams, sound_object.stream)
-
-		if sd == nil {
-			return 0
-		}
-
-		ab := hm.get(&s.audio_clips, sd.clip)
-
-		if ab == nil {
+		if clip == nil {
 			return 0
 		}
 
 		channels := 1
-		if ab.channels == .Stereo {
+		if clip.channels == .Stereo {
 			channels = 2
 		}
 
-		// A seek that is still catching up has emptied the buffer, so there is nothing in there to
-		// measure. Report where the sound is about to be instead.
-		if sd.seek_discard > 0 {
-			return f32((sd.decode_cursor + sd.seek_discard) / channels) / f32(ab.sample_rate)
-		}
-
-		// How many decoded samples are still sitting unplayed in the circular staging buffer.
-		remaining := sd.buffer_write_pos - sound_object.offset
-
-		if remaining < 0 {
-			remaining = len(ab.samples) - sound_object.offset + sd.buffer_write_pos
-		}
-
-		position := sd.decode_cursor - remaining
-
-		// A looping stream starts decoding the beginning of the file again before the listener has
-		// heard the end of it, since the end is still sitting in the buffer. Count back into the
-		// previous time round, so that the last bit of the audio is reported instead of jumping to
-		// the start early.
-		for position < 0 && sd.total_samples > 0 {
-			position += sd.total_samples
-		}
-
-		return f32(max(position, 0) / channels) / f32(ab.sample_rate)
+		return f32(sound_object.offset / channels) / f32(clip.sample_rate)
 	}
 
-	return 0
+	sd := hm.get(&s.audio_streams, sound_object.stream)
+
+	if sd == nil {
+		return 0
+	}
+
+	ab := hm.get(&s.audio_clips, sd.clip)
+
+	if ab == nil {
+		return 0
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	// A seek that is still catching up has emptied the buffer, so there is nothing in there to
+	// measure. Report where the sound is about to be instead.
+	if sd.seek_discard > 0 {
+		return f32((sd.decode_cursor + sd.seek_discard) / channels) / f32(ab.sample_rate)
+	}
+
+	// How many decoded samples are still sitting unplayed in the circular staging buffer.
+	remaining := sd.buffer_write_pos - sound_object.offset
+
+	if remaining < 0 {
+		remaining = len(ab.samples) - sound_object.offset + sd.buffer_write_pos
+	}
+
+	position := sd.decode_cursor - remaining
+
+	// A looping stream starts decoding the beginning of the file again before the listener has
+	// heard the end of it, since the end is still sitting in the buffer. Count back into the
+	// previous time round, so that the last bit of the audio is reported instead of jumping to
+	// the start early.
+	for position < 0 && sd.total_samples > 0 {
+		position += sd.total_samples
+	}
+
+	return f32(max(position, 0) / channels) / f32(ab.sample_rate)
 }
 
 // Get the length of the sound's audio, in seconds. Use it together with `get_sound_time` to show
@@ -2295,9 +2286,9 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 get_sound_length :: proc(sound: Sound) -> f32 {
 	length: f32
 
-	if sync.mutex_guard(&s.audio_mutex) {
-		length = _get_sound_length(sound)
-	}
+	sync.mutex_guard(&s.audio_mutex)
+
+	length = _get_sound_length(sound)
 
 	return length
 }
@@ -2308,43 +2299,43 @@ get_sound_length :: proc(sound: Sound) -> f32 {
 // reaches into the streaming decoder and tells that one to loop. A `Sound` started from a stream
 // plays a short buffer that the decoder keeps filling, so that sound always loops.
 set_sound_loop :: proc(sound: Sound, loop: bool) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		sound_object := hm.get(&s.sounds, sound)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if sound_object == nil {
-			return
-		}
+	sound_object := hm.get(&s.sounds, sound)
 
-		// A stream loops by seeking its decoder back to the start. The voice of a stream always
-		// loops: that is what makes its buffer circular, so it must not be touched here.
-		if sound_object.stream != AUDIO_STREAM_NONE {
-			if sd := hm.get(&s.audio_streams, sound_object.stream); sd != nil {
-				sd.loop = loop
-			}
-
-			return
-		}
-
-		sound_object.loop = loop
+	if sound_object == nil {
+		return
 	}
+
+	// A stream loops by seeking its decoder back to the start. The voice of a stream always loops:
+	// that is what makes its buffer circular, so it must not be touched here.
+	if sound_object.stream != AUDIO_STREAM_NONE {
+		if sd := hm.get(&s.audio_streams, sound_object.stream); sd != nil {
+			sd.loop = loop
+		}
+
+		return
+	}
+
+	sound_object.loop = loop
 }
 
 // Route a sound into an audio bus. Pass `AUDIO_BUS_MASTER` for the master bus.
 set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		sound_object := hm.get(&s.sounds, sound)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if sound_object == nil {
-			return
-		}
+	sound_object := hm.get(&s.sounds, sound)
 
-		if bus != AUDIO_BUS_MASTER && hm.get(&s.audio_buses, bus) == nil {
-			log.error("Cannot set bus, audio bus does not exist.")
-			return
-		}
-
-		sound_object.bus = bus
+	if sound_object == nil {
+		return
 	}
+
+	if bus != AUDIO_BUS_MASTER && hm.get(&s.audio_buses, bus) == nil {
+		log.error("Cannot set bus, audio bus does not exist.")
+		return
+	}
+
+	sound_object.bus = bus
 }
 
 // How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
@@ -2352,11 +2343,11 @@ set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
 	count: int
 
-	if sync.mutex_guard(&s.audio_mutex) {
-		for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
-			if sound_object.clip == clip {
-				count += 1
-			}
+	sync.mutex_guard(&s.audio_mutex)
+
+	for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
+		if sound_object.clip == clip {
+			count += 1
 		}
 	}
 
@@ -2372,18 +2363,16 @@ get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
 // still be possible to use, but it won't play anything.
 load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optional_ok {
-	if sync.mutex_guard(&s.audio_mutex) {
-		data, data_ok := read_entire_file(filename, frame_allocator)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if !data_ok {
-			log.errorf("Failed to load audio clip from file '%v'", filename)
-			return AUDIO_CLIP_NONE, false
-		}
+	data, data_ok := read_entire_file(filename, frame_allocator)
 
-		return _load_audio_clip_from_bytes(data)
+	if !data_ok {
+		log.errorf("Failed to load audio clip from file '%v'", filename)
+		return AUDIO_CLIP_NONE, false
 	}
 
-	return AUDIO_CLIP_NONE, false
+	return _load_audio_clip_from_bytes(data)
 }
 
 // Load a WAV file from some pre-loaded memory (can be loaded using `#load("sound.wav")`). Returns
@@ -2397,11 +2386,9 @@ load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optio
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
 // still be possible to use, but it won't play anything.
 load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool) #optional_ok {
-	if sync.mutex_guard(&s.audio_mutex) {
-		return _load_audio_clip_from_bytes(bytes)
-	}
+	sync.mutex_guard(&s.audio_mutex)
 
-	return
+	return _load_audio_clip_from_bytes(bytes)
 }
 
 // Load an audio clip from some raw audio data. You need to specify the data, format and sample
@@ -2418,33 +2405,31 @@ load_audio_clip_from_bytes_raw :: proc(
 	sample_rate: int,
 	channels: Audio_Channels,
 ) -> (Audio_Clip, bool) #optional_ok {
-	if sync.mutex_guard(&s.audio_mutex) {
-		return _load_audio_clip_from_bytes_raw(bytes, format, sample_rate, channels)
-	}
+	sync.mutex_guard(&s.audio_mutex)
 
-	return AUDIO_CLIP_NONE, false
+	return _load_audio_clip_from_bytes_raw(bytes, format, sample_rate, channels)
 }
 
 // Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Also stops sounds
 // playing this clip.
 destroy_audio_clip :: proc(clip: Audio_Clip)  {
-	if sync.mutex_guard(&s.audio_mutex) {
-		audio_clip_object := hm.get(&s.audio_clips, clip)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if audio_clip_object == nil {
-			log.debug("Tried to destroy non-existing audio clip")
-			return
-		}
+	audio_clip_object := hm.get(&s.audio_clips, clip)
 
-		for it := hm.dynamic_iterator_make(&s.sounds); snd, snd_handle in hm.dynamic_iterate(&it) {
-			if snd.clip == clip {
-				hm.remove(&s.sounds, snd_handle)
-			}
-		}
-
-		delete(audio_clip_object.samples, s.allocator)
-		hm.remove(&s.audio_clips, clip)
+	if audio_clip_object == nil {
+		log.debug("Tried to destroy non-existing audio clip")
+		return
 	}
+
+	for it := hm.dynamic_iterator_make(&s.sounds); snd, snd_handle in hm.dynamic_iterate(&it) {
+		if snd.clip == clip {
+			hm.remove(&s.sounds, snd_handle)
+		}
+	}
+
+	delete(audio_clip_object.samples, s.allocator)
+	hm.remove(&s.audio_clips, clip)
 }
 
 // Load an audio stream from a file on disk. This is often used for playing music. An audio stream
@@ -2465,155 +2450,153 @@ load_audio_stream_from_file :: proc(
 	_stream: Audio_Stream,
 	_ok: bool,
 ) #optional_ok {
-	if sync.mutex_guard(&s.audio_mutex) {
-		f, f_err := file_open(filename)
-	
-		if f_err != nil {
-			log.errorf("Failed opening file %v. Error: %v", filename, f_err)
-			return
+	sync.mutex_guard(&s.audio_mutex)
+
+	f, f_err := file_open(filename)
+
+	if f_err != nil {
+		log.errorf("Failed opening file %v. Error: %v", filename, f_err)
+		return
+	}
+
+	buf := make([dynamic]u8, frame_allocator)
+	read_buf: [256]u8
+	nbytes_read, read_err := file_read(f, read_buf[:])
+
+	if read_err != nil {
+		log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
+
+		if close_err := file_close(f); close_err != nil {
+			log.errorf("Failed closing file. Error: %v", close_err)
 		}
-	
-		buf := make([dynamic]u8, frame_allocator)
-		read_buf: [256]u8
-		nbytes_read, read_err := file_read(f, read_buf[:])
-	
-		if read_err != nil {
-			log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
-	
-			if close_err := file_close(f); close_err != nil {
-				log.errorf("Failed closing file. Error: %v", close_err)
-			}
-			
-			return
-		}
-	
-		vorbis_buffer := stbv.vorbis_alloc {
-			alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
-			alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
-		}
-	
-		append(&buf, ..read_buf[:nbytes_read])
-		vorbis_res: ^stbv.vorbis
-	
-		// This loop tries to read in just enough from the file so that it has enough info to play it.
-		// `stbv.open_pushdata` returns an error if it needs more data, in which case the the loop
-		// might continue.
-		for {
-			vorbis_err: stbv.Error
-			consumed: i32
-			vorbis := stbv.open_pushdata(
-				raw_data(buf),
-				i32(len(buf)),
-				&consumed,
-				&vorbis_err,
-				&vorbis_buffer,
-			)
-	
-			if vorbis_err == nil {
-				// The file was properly loaded!
-				vorbis_res = vorbis
-				_, seek_err := file_seek(f, i64(consumed), .Start)
-	
-				if seek_err != nil {
-					log.errorf("Failed seeking in audio stream file %v. Error: %v", filename, seek_err)
-					file_close(f)
-					free(vorbis_buffer.alloc_buffer, s.allocator)
-					return
-				}
-	
-				break
-			} else if vorbis_err == .need_more_data {
-				// Read in more data from the file so that maybe `stbv.open_pushdata` succeeds next
-				// iteration.
-				nbytes_read, read_err = file_read(f, read_buf[:])
-	
-				if read_err != nil {
-					log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
-					file_close(f)
-					free(vorbis_buffer.alloc_buffer, s.allocator)
-					return
-				}
-	
-				if nbytes_read == 0 {
-					log.errorf("Failed to load audio stream. Reached end of file before stream could be loaded.")
-					file_close(f)
-					free(vorbis_buffer.alloc_buffer, s.allocator)
-					return
-				}
-	
-				append(&buf, ..read_buf[:nbytes_read])
-			} else {
-				log.errorf("Failed to load audio stream. Error: %v", vorbis_err)
+		
+		return
+	}
+
+	vorbis_buffer := stbv.vorbis_alloc {
+		alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
+		alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
+	}
+
+	append(&buf, ..read_buf[:nbytes_read])
+	vorbis_res: ^stbv.vorbis
+
+	// This loop tries to read in just enough from the file so that it has enough info to play it.
+	// `stbv.open_pushdata` returns an error if it needs more data, in which case the the loop
+	// might continue.
+	for {
+		vorbis_err: stbv.Error
+		consumed: i32
+		vorbis := stbv.open_pushdata(
+			raw_data(buf),
+			i32(len(buf)),
+			&consumed,
+			&vorbis_err,
+			&vorbis_buffer,
+		)
+
+		if vorbis_err == nil {
+			// The file was properly loaded!
+			vorbis_res = vorbis
+			_, seek_err := file_seek(f, i64(consumed), .Start)
+
+			if seek_err != nil {
+				log.errorf("Failed seeking in audio stream file %v. Error: %v", filename, seek_err)
 				file_close(f)
 				free(vorbis_buffer.alloc_buffer, s.allocator)
 				return
 			}
-		}
-	
-		info := stbv.get_info(vorbis_res)
-		channels: Audio_Channels
-	
-		if info.channels == 1 {
-			channels = Audio_Channels.Mono
-		} else if info.channels == 2 {
-			channels = Audio_Channels.Stereo
-		} else{
-			log.errorf("Unsupported number of channels: %v", info.channels)
-	
-			if close_err := file_close(f); close_err != nil {
-				log.errorf("Failed closing file. Error: %v", close_err)
+
+			break
+		} else if vorbis_err == .need_more_data {
+			// Read in more data from the file so that maybe `stbv.open_pushdata` succeeds next
+			// iteration.
+			nbytes_read, read_err = file_read(f, read_buf[:])
+
+			if read_err != nil {
+				log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
+				file_close(f)
+				free(vorbis_buffer.alloc_buffer, s.allocator)
+				return
 			}
-					
-			free(vorbis_buffer.alloc_buffer, s.allocator)
-			return
-		}
-	
-		audio_clip := Audio_Clip_Object {
-			sample_rate = int(info.sample_rate),
-			samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
-			channels = channels,
-		}
-	
-		audio_clip_handle, audio_clip_handle_add_err := hm.add(&s.audio_clips, audio_clip)
-	
-		if audio_clip_handle_add_err != nil {
-			log.errorf("Failed to load audio stream. Error: %v", audio_clip_handle_add_err)
-			
-			if close_err := file_close(f); close_err != nil {
-				log.errorf("Failed closing file. Error: %v", close_err)
+
+			if nbytes_read == 0 {
+				log.errorf("Failed to load audio stream. Reached end of file before stream could be loaded.")
+				file_close(f)
+				free(vorbis_buffer.alloc_buffer, s.allocator)
+				return
 			}
-	
-			delete(audio_clip.samples, s.allocator)
+
+			append(&buf, ..read_buf[:nbytes_read])
+		} else {
+			log.errorf("Failed to load audio stream. Error: %v", vorbis_err)
+			file_close(f)
 			free(vorbis_buffer.alloc_buffer, s.allocator)
 			return
 		}
-	
-		asd := Audio_Stream_Data {
-			mode = .From_File,
-			file = f,
-			vorbis = vorbis_res,
-			vorbis_buffer = vorbis_buffer,
-			clip = audio_clip_handle,
-			total_samples = _ogg_file_total_frames(f) * int(info.channels),
-			file_read_buf = make([dynamic]u8, s.allocator),
-		}
-	
-		stream, stream_add_err := hm.add(&s.audio_streams, asd)
-	
-		if stream_add_err != nil {
-			log.errorf("Failed to create audio stream from file. Error: %v", stream_add_err)
-			file_close(asd.file)
-			delete(asd.file_read_buf)
-			delete(audio_clip.samples, s.allocator)
-			hm.remove(&s.audio_clips, audio_clip_handle)
-			free(vorbis_buffer.alloc_buffer, s.allocator)
-			return
-		}
-	
-		return stream, true
 	}
 
-	return
+	info := stbv.get_info(vorbis_res)
+	channels: Audio_Channels
+
+	if info.channels == 1 {
+		channels = Audio_Channels.Mono
+	} else if info.channels == 2 {
+		channels = Audio_Channels.Stereo
+	} else{
+		log.errorf("Unsupported number of channels: %v", info.channels)
+
+		if close_err := file_close(f); close_err != nil {
+			log.errorf("Failed closing file. Error: %v", close_err)
+		}
+				
+		free(vorbis_buffer.alloc_buffer, s.allocator)
+		return
+	}
+
+	audio_clip := Audio_Clip_Object {
+		sample_rate = int(info.sample_rate),
+		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
+		channels = channels,
+	}
+
+	audio_clip_handle, audio_clip_handle_add_err := hm.add(&s.audio_clips, audio_clip)
+
+	if audio_clip_handle_add_err != nil {
+		log.errorf("Failed to load audio stream. Error: %v", audio_clip_handle_add_err)
+		
+		if close_err := file_close(f); close_err != nil {
+			log.errorf("Failed closing file. Error: %v", close_err)
+		}
+
+		delete(audio_clip.samples, s.allocator)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
+		return
+	}
+
+	asd := Audio_Stream_Data {
+		mode = .From_File,
+		file = f,
+		vorbis = vorbis_res,
+		vorbis_buffer = vorbis_buffer,
+		clip = audio_clip_handle,
+		total_samples = _ogg_file_total_frames(f) * int(info.channels),
+		file_read_buf = make([dynamic]u8, s.allocator),
+	}
+
+	stream, stream_add_err := hm.add(&s.audio_streams, asd)
+
+	if stream_add_err != nil {
+		log.errorf("Failed to create audio stream from file. Error: %v", stream_add_err)
+		file_close(asd.file)
+		delete(asd.file_read_buf)
+		delete(audio_clip.samples, s.allocator)
+		hm.remove(&s.audio_clips, audio_clip_handle)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
+		return
+	}
+
+	return stream, true
 }
 
 // Load an audio stream from a byte slice that is completely in memory. This makes it possible to
@@ -2649,80 +2632,78 @@ load_audio_stream_from_bytes :: proc(
 	_stream: Audio_Stream,
 	_ok: bool,
 ) #optional_ok {
-	if sync.mutex_guard(&s.audio_mutex) {
-		vorbis_err: stbv.Error
-	
-		vorbis_buffer := stbv.vorbis_alloc {
-			alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
-			alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
-		}
-	
-		// This procedure is specifically made for our use case: Streaming from a file that is already
-		// completely in memory.
-		vorbis_res := stbv.open_memory(
-			raw_data(bytes),
-			i32(len(bytes)),
-			&vorbis_err,
-			&vorbis_buffer,
-		)
-	
-		if vorbis_err != nil {
-			log.errorf("Failed opening audio stream from bytes. Error: %v", vorbis_err)
-			free(vorbis_buffer.alloc_buffer, s.allocator)
-			return
-		}
-	
-		info := stbv.get_info(vorbis_res)
-		channels: Audio_Channels
-	
-		if info.channels == 1 {
-			channels = Audio_Channels.Mono
-		} else if info.channels == 2 {
-			channels = Audio_Channels.Stereo
-		} else{
-			log.errorf("Unsupported number of channels: %v", info.channels)
-			free(vorbis_buffer.alloc_buffer, s.allocator)
-			return
-		}
-	
-		audio_clip := Audio_Clip_Object {
-			sample_rate = int(info.sample_rate),
-			samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
-			channels = channels,
-		}
-	
-		audio_clip_handle, audio_clip_handle_add_err := hm.add(&s.audio_clips, audio_clip)
-	
-		if audio_clip_handle_add_err != nil {
-			log.errorf("Failed to load audio stream. Error: %v", audio_clip_handle_add_err)
-			delete(audio_clip.samples, s.allocator)
-			free(vorbis_buffer.alloc_buffer, s.allocator)
-			return
-		}
-	
-		asd := Audio_Stream_Data {
-			mode = .From_Bytes,
-			bytes = bytes,
-			vorbis = vorbis_res,
-			clip = audio_clip_handle,
-			vorbis_buffer = vorbis_buffer,
-			total_samples = int(stbv.stream_length_in_samples(vorbis_res)) * int(info.channels),
-		}
-	
-		stream, stream_add_err := hm.add(&s.audio_streams, asd)
-	
-		if stream_add_err != nil {
-			log.errorf("Failed to create audio stream from bytes. Error: %v", stream_add_err)
-			delete(audio_clip.samples, s.allocator)
-			hm.remove(&s.audio_clips, audio_clip_handle)
-			free(vorbis_buffer.alloc_buffer, s.allocator)
-			return
-		}
-	
-		return stream, true
+	sync.mutex_guard(&s.audio_mutex)
+
+	vorbis_err: stbv.Error
+
+	vorbis_buffer := stbv.vorbis_alloc {
+		alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
+		alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
 	}
 
-	return
+	// This procedure is specifically made for our use case: Streaming from a file that is already
+	// completely in memory.
+	vorbis_res := stbv.open_memory(
+		raw_data(bytes),
+		i32(len(bytes)),
+		&vorbis_err,
+		&vorbis_buffer,
+	)
+
+	if vorbis_err != nil {
+		log.errorf("Failed opening audio stream from bytes. Error: %v", vorbis_err)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
+		return
+	}
+
+	info := stbv.get_info(vorbis_res)
+	channels: Audio_Channels
+
+	if info.channels == 1 {
+		channels = Audio_Channels.Mono
+	} else if info.channels == 2 {
+		channels = Audio_Channels.Stereo
+	} else{
+		log.errorf("Unsupported number of channels: %v", info.channels)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
+		return
+	}
+
+	audio_clip := Audio_Clip_Object {
+		sample_rate = int(info.sample_rate),
+		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
+		channels = channels,
+	}
+
+	audio_clip_handle, audio_clip_handle_add_err := hm.add(&s.audio_clips, audio_clip)
+
+	if audio_clip_handle_add_err != nil {
+		log.errorf("Failed to load audio stream. Error: %v", audio_clip_handle_add_err)
+		delete(audio_clip.samples, s.allocator)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
+		return
+	}
+
+	asd := Audio_Stream_Data {
+		mode = .From_Bytes,
+		bytes = bytes,
+		vorbis = vorbis_res,
+		clip = audio_clip_handle,
+		vorbis_buffer = vorbis_buffer,
+		total_samples = int(stbv.stream_length_in_samples(vorbis_res)) * int(info.channels),
+	}
+
+	stream, stream_add_err := hm.add(&s.audio_streams, asd)
+
+	if stream_add_err != nil {
+		log.errorf("Failed to create audio stream from bytes. Error: %v", stream_add_err)
+		delete(audio_clip.samples, s.allocator)
+		hm.remove(&s.audio_clips, audio_clip_handle)
+		free(vorbis_buffer.alloc_buffer, s.allocator)
+		return
+	}
+
+	return stream, true
 }
 
 // Destroy an audio stream previously loaded using `load_audio_stream_from_file` or
@@ -2731,43 +2712,43 @@ load_audio_stream_from_bytes :: proc(
 // If you created the stream using `load_audio_stream_from_bytes`, then this procedure will NOT
 // deallocate the bytes that you sent into that procedure.
 destroy_audio_stream :: proc(stream: Audio_Stream) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		sd := hm.get(&s.audio_streams, stream)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if sd == nil {
-			log.error("Trying to destroy invalid audio stream. It may already be destroyed, or " +
-				"the handle may be invalid.")
-			return
-		}
+	sd := hm.get(&s.audio_streams, stream)
 
-		if playing := hm.get(&s.sounds, sd.sound); playing != nil {
-			hm.remove(&s.sounds, sd.sound)
-		}
-
-		if ab := hm.get(&s.audio_clips, sd.clip); ab != nil {
-			delete(ab.samples, s.allocator)
-			hm.remove(&s.audio_clips, sd.clip)
-		}
-
-		switch sd.mode {
-		case .From_File:
-			file_close(sd.file)
-			delete(sd.file_read_buf)
-		case .From_Bytes:
-			// don't free the bytes, they are owned by the game
-		}
-
-		free(sd.vorbis_buffer.alloc_buffer, s.allocator)
-		hm.remove(&s.audio_streams, stream)
+	if sd == nil {
+		log.error("Trying to destroy invalid audio stream. It may already be destroyed, or " +
+			"the handle may be invalid.")
+		return
 	}
+
+	if playing := hm.get(&s.sounds, sd.sound); playing != nil {
+		hm.remove(&s.sounds, sd.sound)
+	}
+
+	if ab := hm.get(&s.audio_clips, sd.clip); ab != nil {
+		delete(ab.samples, s.allocator)
+		hm.remove(&s.audio_clips, sd.clip)
+	}
+
+	switch sd.mode {
+	case .From_File:
+		file_close(sd.file)
+		delete(sd.file_read_buf)
+	case .From_Bytes:
+		// don't free the bytes, they are owned by the game
+	}
+
+	free(sd.vorbis_buffer.alloc_buffer, s.allocator)
+	hm.remove(&s.audio_streams, stream)
 }
 
 // Streams in new audio data from the audio stream. You need to call this once per frame in order
 // for the streaming to actually happen.
 update_audio_stream :: proc(stream: Audio_Stream) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		_update_audio_stream(stream)
-	}
+	sync.mutex_guard(&s.audio_mutex)
+
+	_update_audio_stream(stream)
 }
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
@@ -2789,69 +2770,67 @@ play_audio_stream :: proc(
 	loop := false,
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound {
-	if sync.mutex_guard(&s.audio_mutex) {
-		sd := hm.get(&s.audio_streams, stream)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if sd == nil {
-			log.error("Cannot play audio stream, stream does not exist.")
-			return SOUND_NONE
-		}
+	sd := hm.get(&s.audio_streams, stream)
 
-		if bus != AUDIO_BUS_MASTER && hm.get(&s.audio_buses, bus) == nil {
-			log.error("Cannot play audio stream, audio bus does not exist.")
-			return SOUND_NONE
-		}
-
-		// A stream can only feed one sound, and that sound is already playing, so there is nothing
-		// to start. Hand back the sound that is already going. Unpause it though: This procedure is
-		// how you play a stream, so it should be playing when we are done.
-		if existing := hm.get(&s.sounds, sd.sound); existing != nil {
-			existing.paused = false
-			return sd.sound
-		}
-
-		sd.loop = loop
-
-		playback_settings := Sound_Settings {
-			volume = clamp(volume, 0, 1),
-			pan = clamp(pan, -1, 1),
-			pitch = max(pitch, 0.01),
-		}
-
-		sound_object := Sound_Object {
-			clip = sd.clip,
-			target_settings = playback_settings,
-			current_settings = playback_settings,
-			bus = bus,
-			stream = stream,
-
-			// This means that we are looping the buffer itself. We will use this buffer as a
-			// circular buffer, filling it with samples as we stream in more. Thus it needs to be
-			// looped to not stop when the end of the circular buffer is reached.
-			loop = true,
-		}
-
-		add_err: runtime.Allocator_Error
-		sd.sound, add_err = hm.add(&s.sounds, sound_object)
-
-		if add_err != nil {
-			log.errorf("Failed playing audio stream. Error: %v", add_err)
-			return SOUND_NONE
-		}
-
-		sound := sd.sound
-
-		// Decode into the buffer before returning, so that there is something to play right away.
-		// The mixer may well run before the game gets around to calling `update_audio_stream`. A
-		// sound that reads an empty buffer moves its read position past the write position, which
-		// makes the buffer look full rather than empty, so it would not be refilled until the read
-		// position had wrapped all the way around.
-		_update_audio_stream(stream)
-
-		return sound
+	if sd == nil {
+		log.error("Cannot play audio stream, stream does not exist.")
+		return SOUND_NONE
 	}
 
-	return SOUND_NONE
+	if bus != AUDIO_BUS_MASTER && hm.get(&s.audio_buses, bus) == nil {
+		log.error("Cannot play audio stream, audio bus does not exist.")
+		return SOUND_NONE
+	}
+
+	// A stream can only feed one sound, and that sound is already playing, so there is nothing to
+	// start. Hand back the sound that is already going. Unpause it though: This procedure is how
+	// you play a stream, so it should be playing when we are done.
+	if existing := hm.get(&s.sounds, sd.sound); existing != nil {
+		existing.paused = false
+		return sd.sound
+	}
+
+	sd.loop = loop
+
+	playback_settings := Sound_Settings {
+		volume = clamp(volume, 0, 1),
+		pan = clamp(pan, -1, 1),
+		pitch = max(pitch, 0.01),
+	}
+
+	sound_object := Sound_Object {
+		clip = sd.clip,
+		target_settings = playback_settings,
+		current_settings = playback_settings,
+		bus = bus,
+		stream = stream,
+
+		// This means that we are looping the buffer itself. We will use this buffer as a circular
+		// buffer, filling it with samples as we stream in more. Thus it needs to be looped to not
+		// stop when the end of the circular buffer is reached.
+		loop = true,
+	}
+
+	add_err: runtime.Allocator_Error
+	sd.sound, add_err = hm.add(&s.sounds, sound_object)
+
+	if add_err != nil {
+		log.errorf("Failed playing audio stream. Error: %v", add_err)
+		return SOUND_NONE
+	}
+
+	sound := sd.sound
+
+	// Decode into the buffer before returning, so that there is something to play right away.
+	// The mixer may well run before the game gets around to calling `update_audio_stream`. A
+	// sound that reads an empty buffer moves its read position past the write position, which
+	// makes the buffer look full rather than empty, so it would not be refilled until the read
+	// position had wrapped all the way around.
+	_update_audio_stream(stream)
+
+	return sound
 }
 
 // Create an audio bus: A group of sounds that are mixed together before they reach the master bus.
@@ -2861,69 +2840,67 @@ play_audio_stream :: proc(
 // A new bus has volume 1, pan 0 and no effect. That makes it a passthrough: Playing a sound on a
 // fresh bus sounds exactly like playing it on the master bus, until you change something.
 create_audio_bus :: proc() -> Audio_Bus {
-	if sync.mutex_guard(&s.audio_mutex) {
-		bus_object := Audio_Bus_Object {
-			target_settings = DEFAULT_AUDIO_BUS_SETTINGS,
-			current_settings = DEFAULT_AUDIO_BUS_SETTINGS,
-		}
+	sync.mutex_guard(&s.audio_mutex)
 
-		bus, add_err := hm.add(&s.audio_buses, bus_object)
-
-		if add_err != nil {
-			log.errorf("Failed creating audio bus. Error: %v", add_err)
-
-			// The master bus always exists, so anything routed to this handle still plays.
-			return AUDIO_BUS_MASTER
-		}
-
-		return bus
+	bus_object := Audio_Bus_Object {
+		target_settings = DEFAULT_AUDIO_BUS_SETTINGS,
+		current_settings = DEFAULT_AUDIO_BUS_SETTINGS,
 	}
 
-	return AUDIO_BUS_MASTER
+	bus, add_err := hm.add(&s.audio_buses, bus_object)
+
+	if add_err != nil {
+		log.errorf("Failed creating audio bus. Error: %v", add_err)
+
+		// The master bus always exists, so anything routed to this handle still plays.
+		return AUDIO_BUS_MASTER
+	}
+
+	return bus
 }
 
 // Destroy an audio bus. Everything routed to it goes back to the master bus, including sounds that
 // are playing right now.
 destroy_audio_bus :: proc(bus: Audio_Bus) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		if bus == AUDIO_BUS_MASTER {
-			log.error("Cannot destroy audio bus, the master bus cannot be destroyed.")
-			return
-		}
+	sync.mutex_guard(&s.audio_mutex)
 
-		if hm.get(&s.audio_buses, bus) == nil {
-			log.error("Cannot destroy audio bus, audio bus does not exist.")
-			return
-		}
-
-		// Move everything that points at this bus over to the master bus. We do it here, and not
-		// by letting the mixer notice that the bus is gone, so that the mixer never has to deal
-		// with a bus handle that doesn't resolve.
-
-		for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
-			if sound_object.bus == bus {
-				sound_object.bus = AUDIO_BUS_MASTER
-			}
-		}
-
-		hm.remove(&s.audio_buses, bus)
+	if bus == AUDIO_BUS_MASTER {
+		log.error("Cannot destroy audio bus, the master bus cannot be destroyed.")
+		return
 	}
+
+	if hm.get(&s.audio_buses, bus) == nil {
+		log.error("Cannot destroy audio bus, audio bus does not exist.")
+		return
+	}
+
+	// Move everything that points at this bus over to the master bus. We do it here, and not by
+	// letting the mixer notice that the bus is gone, so that the mixer never has to deal with a bus
+	// handle that doesn't resolve.
+
+	for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
+		if sound_object.bus == bus {
+			sound_object.bus = AUDIO_BUS_MASTER
+		}
+	}
+
+	hm.remove(&s.audio_buses, bus)
 }
 
 // Set the volume of an audio bus. Range: 0 to 1. Everything mixed into the bus is scaled by this.
 //
 // This works on `AUDIO_BUS_MASTER` as well, which is how you set the master volume of your game.
 set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if bus_object == nil {
-			log.error("Cannot set audio bus volume, audio bus does not exist.")
-			return
-		}
+	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
 
-		bus_object.target_settings.volume = clamp(volume, 0, 1)
+	if bus_object == nil {
+		log.error("Cannot set audio bus volume, audio bus does not exist.")
+		return
 	}
+
+	bus_object.target_settings.volume = clamp(volume, 0, 1)
 }
 
 // Set the pan of an audio bus. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full
@@ -2934,16 +2911,16 @@ set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32) {
 // loudness the same. A bus is already a finished stereo mix, and a bus at pan 0 has to leave it
 // exactly as it is.
 set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if bus_object == nil {
-			log.error("Cannot set audio bus pan, audio bus does not exist.")
-			return
-		}
+	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
 
-		bus_object.target_settings.pan = clamp(pan, -1, 1)
+	if bus_object == nil {
+		log.error("Cannot set audio bus pan, audio bus does not exist.")
+		return
 	}
+
+	bus_object.target_settings.pan = clamp(pan, -1, 1)
 }
 
 // Set an effect to run on everything that is mixed into the bus. This is how you apply your own
@@ -2955,17 +2932,17 @@ set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32) {
 //
 // See `Audio_Effect_Proc` for what the effect is given and what it is allowed to do.
 set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_data: rawptr = nil) {
-	if sync.mutex_guard(&s.audio_mutex) {
-		bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
+	sync.mutex_guard(&s.audio_mutex)
 
-		if bus_object == nil {
-			log.error("Cannot set audio bus effect, audio bus does not exist.")
-			return
-		}
+	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
 
-		bus_object.effect = effect
-		bus_object.effect_user_data = user_data
+	if bus_object == nil {
+		log.error("Cannot set audio bus effect, audio bus does not exist.")
+		return
 	}
+
+	bus_object.effect = effect
+	bus_object.effect_user_data = user_data
 }
 
 // Update the audio mixer and feed more audio data into the audio backend. This is done
@@ -2993,6 +2970,9 @@ update_audio_mixer :: proc() {
 
 		out: [][2]Audio_Sample
 
+		// The `if` is what keeps the lock scoped to the mixing. Everywhere else the guard is a
+		// bare statement and unlocks when the procedure returns, but `ab.feed` blocks on both
+		// waveout and CoreAudio, and holding the lock across it would stall the game thread.
 		if sync.mutex_guard(&s.audio_mutex) {
 			out = _mix_one_chunk()
 		}
@@ -4009,6 +3989,9 @@ _audio_mixer_thread_tick :: proc() {
 
 		out: [][2]Audio_Sample
 
+		// The `if` is what keeps the lock scoped to the mixing. Everywhere else the guard is a
+		// bare statement and unlocks when the procedure returns, but `ab.feed` blocks on both
+		// waveout and CoreAudio, and holding the lock across it would stall the game thread.
 		if sync.mutex_guard(&s.audio_mutex) {
 			out = _mix_one_chunk()
 		}
