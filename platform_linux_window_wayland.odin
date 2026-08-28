@@ -4,6 +4,7 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	state_size = wl_state_size,
+	try_load = wl_try_load,
 	init = wl_init,
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
@@ -50,6 +51,37 @@ THEME_CURSOR_SIZE :: 24
 
 wl_state_size :: proc() -> int {
 	return size_of(WL_State)
+}
+
+wl_try_load :: proc(
+	failure_reason_allocator: runtime.Allocator,
+) -> (
+	failure_reason: string,
+	ok: bool,
+) {
+	if missing, load_ok := wl.load(); !load_ok {
+		return fmt.aprintf("Not using Wayland. Could not load %v.", missing,
+			allocator = failure_reason_allocator), false
+	}
+
+	// The libraries being installed does not mean there is a compositor to talk to, so connect and
+	// throw the connection away again. `wl_init` makes the one that gets used.
+	display := wl.display_connect(nil)
+
+	if display == nil {
+		wl.unload()
+		return "Not using Wayland. Could not connect to a compositor.", false
+	}
+
+	wl.display_disconnect(display)
+
+	if missing, load_ok := xkb.load(); !load_ok {
+		wl.unload()
+		return fmt.aprintf("Not using Wayland. Could not load %v.", missing,
+			allocator = failure_reason_allocator), false
+	}
+
+	return "", true
 }
 
 wl_init :: proc(
@@ -154,11 +186,11 @@ wl_init :: proc(
 	log.ensure(s.window != nil, "Wayland compositor never sent an initial configure")
 
 	when RENDER_BACKEND_NAME == "gl" {
-		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.window, s.allocator)
+		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.surface, s.window, s.allocator)
 	} else when RENDER_BACKEND_NAME == "nil" {
 		s.window_render_glue = {}
 	} else {
-		#panic("Unsupported combo of Linux + X11 and render backend '" + RENDER_BACKEND_NAME + "'")
+		#panic("Unsupported combo of Linux + Wayland and render backend '" + RENDER_BACKEND_NAME + "'")
 	}
 
 	if options.disable_auto_scale_hint {

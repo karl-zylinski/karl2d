@@ -40,8 +40,8 @@ main :: proc() {
 >procedures, types and constants can be used before `k2.init`.
 
 >[!NOTE]
->On *Linux*, you may run into build errors due to missing depdencies. Exactly what you need to install may vary from distribution to distribution. On Ubuntu / Debian, something like this may help:
->`sudo apt install libasound2-dev libgl1-mesa-dev libudev-dev libwayland-dev libegl1-mesa-dev libxkbcommon-dev`
+>On *Linux*, you may run into build errors due to missing dependencies. Exactly what you need to install may vary from distribution to distribution. On Ubuntu / Debian, something like this may help:
+>`sudo apt install libudev-dev`
 >Did you have to install something else on your distro? Let me know!
 
 ## Get help
@@ -209,6 +209,8 @@ The platform independent code in `karl2d.odin` creates a list of vertices for ea
 The audio support in Karl2D is done using a software mixer that is part of `karl2d.odin`. The audio abstraction is small, it takes care of feeding the mixed audio samples into the platform's audio API. I wrote a blog post called [Audio in Karl2D: Software mixing, OS APIs and general design](https://zylinski.se/posts/audio-in-karl2d-software-mixing/) where I describe how the audio system works.
 
 The web builds do not need emscripten, instead I've written a WebGL backend and make use of the official Odin JS runtime.
+
+On Linux there are two windowing systems to choose between: `x11` and `wayland`. Karl2D dynamically opens their shared libraries and tries to connect to them, first it tries wayland, and then x11. Therefore it does not need both to be installed to launch. It is all handled at runtime. End users can define the environment variable `KARL2D_LINUX_WINDOWING=x11/wayland` if they need to override it (usually for troubleshooting).
 
 ## Contributing and Pull Request rules
 

@@ -1,19 +1,23 @@
-// Glues together OpenGL with an X11 window. This is done by making a glX context and using it to
-// SwapBuffers etc.
+// Glues together OpenGL with a Wayland window. This is done by making an EGL context and using
+// it to SwapBuffers etc.
 #+build linux
 
 package karl2d
 
 import gl "vendor:OpenGL"
 import "log"
-import "vendor:egl"
+import egl "platform_bindings/linux/egl"
 import wl "platform_bindings/linux/wayland"
 import "base:runtime"
+import "core:c"
 import "core:slice"
+import "core:sys/posix"
+import "core:time"
 
 @(private="package")
 make_linux_gl_wayland_glue :: proc(
 	display: ^wl.Display,
+	surface: ^wl.Surface,
 	window: ^wl.EGL_Window,
 	allocator: runtime.Allocator,
 	loc := #caller_location
@@ -22,6 +26,16 @@ make_linux_gl_wayland_glue :: proc(
 	state.display = display
 	state.window = window
 	state.allocator = allocator
+
+	// The frame callback gets an event queue of its own. It is requested on a proxy wrapper of
+	// the surface, which is what makes its `done` event land in that queue instead of in the
+	// default one. Waiting for a frame in `linux_gl_wayland_glue_present` then dispatches only
+	// frame callbacks. Input and `xdg_toplevel.configure` stay queued and are dispatched at the
+	// top of the next frame, where the rest of the code expects them.
+	state.frame_queue = wl.display_create_queue(display)
+	state.frame_surface = (^wl.Surface)(wl.proxy_create_wrapper(surface))
+	wl.proxy_set_queue(state.frame_surface, state.frame_queue)
+
 	return {
 		state = (^Window_Render_Glue_State)(state),
 
@@ -35,6 +49,9 @@ make_linux_gl_wayland_glue :: proc(
 
 Linux_GL_Wayland_Glue_State :: struct {
 	display: ^wl.Display,
+	frame_queue: ^wl.Event_Queue,
+	frame_surface: ^wl.Surface,
+	frame_callback: ^wl.Callback,
 	window: ^wl.EGL_Window,
 	egl_context: egl.Context,
 	egl_display: egl.Display,
@@ -43,6 +60,11 @@ Linux_GL_Wayland_Glue_State :: struct {
 }
 
 linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State, options: Init_Options) -> bool {
+	if missing, ok := egl.load(); !ok {
+		log.errorf("Failed loading EGL. Could not load %v.", missing)
+		return false
+	}
+
 	// Get a valid EGL configuration based on some attribute guidelines
 	// Create a context based on a "chosen" configuration
 	EGL_CONTEXT_FLAGS_KHR :: 0x30FC
@@ -120,11 +142,13 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State, opti
 	}
 
 	if egl.MakeCurrent(s.egl_display, s.egl_surface, s.egl_surface, s.egl_context) {
-		egl.SwapInterval(s.egl_display, 1)
 		gl.load_up_to(3, 3, egl.gl_set_proc_address)
 
-		// vsync
-		egl.SwapInterval(s.egl_display, 1)
+		// Disable EGL vsync (swap interval = 0)
+		// Otherwise egl.SwapBuffers would block indefinitely for unfocused windows.
+		// Frame timing is managed in linux_gl_wayland_glue_present using frame callbacks,
+		// which ensures that the event loop stays responsive.
+		egl.SwapInterval(s.egl_display, interval=0)
 
 		return true
 	}
@@ -132,11 +156,116 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State, opti
 	return false
 }
 
+// How long `linux_gl_wayland_glue_present` waits for the compositor to signal that it wants a new
+// frame. The wait needs a timeout because a compositor sends no frame callbacks at all for a window
+// it doesn't show, and the game would hang. It also must not fire while the window is visible: a
+// whole frame is at stake, so anything shorter than the display's frame time times out every frame
+// and the game free runs. 50 ms leaves room down to 20 Hz.
+FRAME_CALLBACK_TIMEOUT :: 50*time.Millisecond
+
 linux_gl_wayland_glue_present :: proc(s: ^Linux_GL_Wayland_Glue_State) {
+	if s.frame_callback != nil {
+		// Hand the frame to the GPU before going to sleep, so it has something to work on
+		// during the wait.
+		gl.Flush()
+		wayland_wait_for_frame(s)
+	}
+
+	// Nothing to request while the previous callback is still pending, which is the case when
+	// the wait above timed out. That one is waited for again next frame.
+	if s.frame_callback == nil {
+		@static listener := wl.Callback_Listener {
+			proc "c" (data: rawptr, callback: ^wl.Callback, callback_data: u32) {
+				wl.destroy(callback)
+				(^^wl.Callback)(data)^ = nil // Clear callback to exit the loop
+			},
+		}
+		s.frame_callback = wl.surface_frame(s.frame_surface)
+		wl.add_listener(s.frame_callback, &listener, &s.frame_callback)
+	}
+
+	// Non-blocking swap (egl.SwapInterval is 0). It commits the surface, which is what carries
+	// the frame request above to the compositor.
 	egl.SwapBuffers(s.egl_display, s.egl_surface)
 }
 
+// Waits for the frame callback the previous `linux_gl_wayland_glue_present` requested. This is what
+// throttles the frame rate now that EGL's own vsync is off. Returns when the callback arrives, when
+// `FRAME_CALLBACK_TIMEOUT` runs out or when the connection to the compositor breaks. The timeout is
+// a budget for the whole wait, not for each poll, so unrelated events arriving in a stream cannot
+// stretch it indefinitely.
+@(private="file")
+wayland_wait_for_frame :: proc(s: ^Linux_GL_Wayland_Glue_State) {
+	fd := posix.FD(wl.display_get_fd(s.display))
+	deadline := time.tick_add(time.tick_now(), FRAME_CALLBACK_TIMEOUT)
+
+	for s.frame_callback != nil {
+		// Reading the socket has to be announced first. That fails while the frame queue still
+		// holds events, and dispatching those may be all that is needed.
+		for wl.display_prepare_read_queue(s.display, s.frame_queue) != 0 {
+			if wl.display_dispatch_queue_pending(s.display, s.frame_queue) < 0 {
+				return
+			}
+		}
+
+		if s.frame_callback == nil {
+			wl.display_cancel_read(s.display)
+			return
+		}
+
+		// Sends the frame request off. EAGAIN only means the socket buffer is full, and the
+		// poll below gives the compositor time to drain it.
+		if wl.display_flush(s.display) < 0 && posix.errno() != .EAGAIN {
+			wl.display_cancel_read(s.display)
+			return
+		}
+
+		remaining := time.tick_diff(time.tick_now(), deadline)
+
+		if remaining <= 0 {
+			wl.display_cancel_read(s.display)
+			return
+		}
+
+		pfd := posix.pollfd {
+			fd     = fd,
+			events = {.IN},
+		}
+
+		// Rounded up so that a sliver of remaining time doesn't turn into a zero timeout, which
+		// would spin.
+		timeout_ms := c.int((remaining + time.Millisecond - 1)/time.Millisecond)
+		poll_res := posix.poll(&pfd, nfds=1, timeout=timeout_ms)
+
+		if poll_res <= 0 {
+			wl.display_cancel_read(s.display)
+
+			// Zero is the timeout. -1 with EINTR or EAGAIN is just a signal arriving, so try
+			// again until the deadline runs out. Anything else is a real error.
+			if poll_res < 0 && (posix.errno() == .EINTR || posix.errno() == .EAGAIN) {
+				continue
+			}
+
+			return
+		}
+
+		if wl.display_read_events(s.display) < 0 {
+			return
+		}
+
+		if wl.display_dispatch_queue_pending(s.display, s.frame_queue) < 0 {
+			return
+		}
+	}
+}
+
 linux_gl_wayland_glue_destroy :: proc(s: ^Linux_GL_Wayland_Glue_State) {
+	if s.frame_callback != nil {
+		wl.destroy(s.frame_callback)
+	}
+
+	wl.proxy_wrapper_destroy(s.frame_surface)
+	wl.event_queue_destroy(s.frame_queue)
 	egl.DestroyContext(s.egl_display, s.egl_context)
 	a := s.allocator
 	free(s, a)

@@ -6,7 +6,7 @@ package karl2d
 
 import "platform_bindings/linux/glx"
 import gl "vendor:OpenGL"
-import X "vendor:x11/xlib"
+import X "platform_bindings/linux/x11"
 import "log"
 import "base:runtime"
 import "core:slice"
@@ -41,6 +41,11 @@ Linux_GL_X11_Glue_State :: struct {
 }
 
 linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State, options: Init_Options) -> bool {
+	if missing, ok := glx.load(); !ok {
+		log.errorf("Failed loading GLX. Could not load %v.", missing)
+		return false
+	}
+
 	visual_attribs := slice.to_dynamic(
 		[]i32 {
 			glx.RENDER_TYPE, glx.RGBA_BIT,

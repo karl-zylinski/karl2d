@@ -6,6 +6,7 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	state_size = x11_state_size,
+	try_load = x11_try_load,
 	init = x11_init,
 	shutdown = x11_shutdown,
 	get_window_render_glue = x11_get_window_render_glue,
@@ -28,30 +29,52 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_internal_state = x11_set_internal_state,
 }
 
-import X "vendor:x11/xlib"
+import X "platform_bindings/linux/x11"
 import "base:runtime"
 import "log"
 import "core:fmt"
 import "core:slice"
+import "core:strconv"
 import hm "core:container/handle_map"
 
 _ :: log
 _ :: fmt
 
-// XDestroyIC and XCloseIM aren't bound by vendor:x11/xlib, so we bind them here ourselves.
-foreign import x11_extra "system:X11"
-
-foreign x11_extra {
-	XDestroyIC :: proc(ic: X.XIC) ---
-	XCloseIM :: proc(im: X.XIM) -> X.Status ---
-}
-
-// The horizontal wheel is button 6 and 7. vendor:x11/xlib stops naming buttons at 5.
+// The horizontal wheel is button 6 and 7. Xlib stops naming buttons at 5.
 BUTTON_WHEEL_LEFT :: X.MouseButton(6)
 BUTTON_WHEEL_RIGHT :: X.MouseButton(7)
 
+// The DPI that X11 and every toolkit on it treat as 100% scale.
+DEFAULT_DPI :: 96
+
 x11_state_size :: proc() -> int {
 	return size_of(X11_State)
+}
+
+x11_try_load :: proc(
+	failure_reason_allocator: runtime.Allocator,
+) -> (
+	failure_reason: string,
+	ok: bool,
+) {
+	missing, load_ok := X.load()
+
+	if !load_ok {
+		return fmt.aprintf("Not using X11. Could not load %v.", missing,
+			allocator = failure_reason_allocator), false
+	}
+
+	// The libraries being installed does not mean there is a server to talk to, so open a display
+	// and throw it away again. `x11_init` opens the one that gets used.
+	display := X.OpenDisplay(nil)
+
+	if display == nil {
+		X.unload()
+		return "Not using X11. Could not open a display.", false
+	}
+
+	X.CloseDisplay(display)
+	return "", true
 }
 
 x11_init :: proc(
@@ -64,17 +87,31 @@ x11_init :: proc(
 ) {
 	s = (^X11_State)(window_state)
 	s.allocator = allocator
-	s.screen_width = screen_width
-	s.screen_height = screen_height
-	s.display = X.OpenDisplay(nil)
 	s.events = make([dynamic]Event, allocator)
 	hm.dynamic_init(&s.custom_cursors, allocator)
+
+	// Xlib wants this before anything touches the resource database.
+	X.XrmInitialize()
+	s.display = X.OpenDisplay(nil)
+
+	// The resource database, holding the DPI setting among other things, lives in this property on
+	// the root window. See x11_fetch_window_scale.
+	s.resource_manager = X.InternAtom(s.display, "RESOURCE_MANAGER", false)
+	s.window_scale = x11_fetch_window_scale()
+
+	if init_options.disable_auto_scale_hint {
+		s.screen_width = screen_width
+		s.screen_height = screen_height
+	} else {
+		s.screen_width = int(f32(screen_width) * s.window_scale)
+		s.screen_height = int(f32(screen_height) * s.window_scale)
+	}
 
 	s.window = X.CreateSimpleWindow(
 		s.display,
 		X.DefaultRootWindow(s.display),
 		0, 0,
-		u32(screen_width), u32(screen_height),
+		u32(s.screen_width), u32(s.screen_height),
 		0,
 		0,
 		0,
@@ -121,6 +158,18 @@ x11_init :: proc(
 		)
 	}
 
+	// A DPI change shows up as a PropertyNotify for the resource database on the root window. This
+	// is also how GTK and Qt notice. It means we see every other root property the window manager
+	// touches too, which is why x11_get_events checks the atom.
+	//
+	// SelectInput replaces our mask for a window rather than adding to it, and the input method
+	// above shares this display connection and may select on the root window too. So we run after
+	// it and keep whatever it asked for.
+	root := X.DefaultRootWindow(s.display)
+	root_attribs: X.XWindowAttributes
+	X.GetWindowAttributes(s.display, root, &root_attribs)
+	X.SelectInput(s.display, root, root_attribs.your_event_mask | {.PropertyChange})
+
 	x11_set_window_mode(init_options.window_mode)
 
 	// blank cursor for hiding it
@@ -128,20 +177,15 @@ x11_init :: proc(
 		blank_pixmap := X.CreatePixmap(s.display, s.window, 1, 1, 1)
 		black: X.XColor
 
-		// The binding for this proc is broken, so I fixed it locally.
-		CreatePixmapCursor_Correct :: proc(
-			display:   ^X.Display,
-			source:    X.Pixmap,
-			mask:      X.Pixmap,
-			fg:        ^X.XColor,
-			bg:        ^X.XColor,
-			x:         u32,
-			y:         u32,
-		) -> X.Cursor
-
-		binding := cast(CreatePixmapCursor_Correct)(X.CreatePixmapCursor)
-
-		s.blank_cursor = binding(s.display, blank_pixmap, blank_pixmap, &black, &black, 0, 0)
+		s.blank_cursor = X.CreatePixmapCursor(
+			s.display,
+			blank_pixmap,
+			blank_pixmap,
+			&black,
+			&black,
+			0,
+			0,
+		)
 		X.FreePixmap(s.display, blank_pixmap)
 	}
 	
@@ -158,11 +202,11 @@ x11_shutdown :: proc() {
 	delete(s.events)
 
 	if s.xic != nil {
-		XDestroyIC(s.xic)
+		X.DestroyIC(s.xic)
 	}
 
 	if s.xim != nil {
-		XCloseIM(s.xim)
+		X.CloseIM(s.xim)
 	}
 
 	for cached in s.standard_cursors {
@@ -330,6 +374,26 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 					height = h,
 				})
 			}
+
+		case .PropertyNotify:
+			is_resource_manager := event.xproperty.state == .NewValue &&
+				event.xproperty.window == X.DefaultRootWindow(s.display) &&
+				event.xproperty.atom == s.resource_manager
+
+			if is_resource_manager {
+				new_scale := x11_fetch_window_scale()
+
+				if new_scale != s.window_scale {
+					s.window_scale = new_scale
+
+					append(events, Event_Window_Scale_Changed {
+						scale = new_scale,
+						screen_width = s.screen_width,
+						screen_height = s.screen_height,
+					})
+				}
+			}
+
 		case .FocusIn:
 			if s.xic != nil {
 				X.SetICFocus(s.xic)
@@ -438,7 +502,72 @@ x11_set_screen_size :: proc(w, h: int) {
 }
 
 x11_get_window_scale :: proc() -> f32 {
-	return 1
+	return s.window_scale
+}
+
+// Reads the DPI scale from the X resource database. `Xft.dpi` is what GTK and Qt use, so this
+// matches the rest of the desktop. There is no per-monitor DPI in X11: one number covers
+// everything. Desktops that would set it to 96 tend to remove the entry instead, so a missing
+// entry means 100%.
+//
+// We fetch the root window property ourselves instead of calling XResourceManagerString. That one
+// returns the copy Xlib took when the display connection was opened, so it never reflects a change
+// made while the game is running.
+x11_fetch_window_scale :: proc() -> f32 {
+	// A length in 32-bit units. The server sends only what is actually there, so this just has to
+	// be bigger than any real resource database.
+	MAX_RESOURCE_WORDS :: 1024 * 1024
+
+	actual_type: X.Atom
+	actual_format: i32
+	num_items: uint
+	bytes_after: uint
+	prop: rawptr
+
+	get_status := X.GetWindowProperty(
+		s.display,
+		X.DefaultRootWindow(s.display),
+		s.resource_manager,
+		0,
+		MAX_RESOURCE_WORDS,
+		false,
+		X.AnyPropertyType,
+		&actual_type,
+		&actual_format,
+		&num_items,
+		&bytes_after,
+		&prop,
+	)
+
+	if get_status != .Success || prop == nil {
+		return 1
+	}
+
+	// Xlib puts a zero byte after the data it hands back, so this is a valid cstring even though
+	// the property itself is not terminated.
+	db := X.XrmGetStringDatabase(cstring(prop))
+	X.Free(prop)
+
+	if db == nil {
+		return 1
+	}
+
+	scale: f32 = 1
+	res_type: cstring
+	res_value: X.XrmValue
+
+	found := bool(X.XrmGetResource(db, "Xft.dpi", "Xft.Dpi", &res_type, &res_value))
+
+	if found && res_type == "String" && res_value.addr != nil {
+		dpi, dpi_ok := strconv.parse_f32(string(cstring(res_value.addr)))
+
+		if dpi_ok && dpi > 0 {
+			scale = dpi/DEFAULT_DPI
+		}
+	}
+
+	X.XrmDestroyDatabase(db)
+	return scale
 }
 
 enter_borderless_fullscreen :: proc() {
@@ -733,6 +862,12 @@ X11_State :: struct {
 	last_configure_windowed_width: int,
 	last_configure_windowed_height: int,
 	
+	// The scale from the OS. 1 means 100%. See x11_fetch_window_scale.
+	window_scale: f32,
+
+	// The root window property holding the X resource database. We watch it to notice DPI changes.
+	resource_manager: X.Atom,
+
 	display: ^X.Display,
 	window: X.Window,
 	delete_msg: X.Atom,
