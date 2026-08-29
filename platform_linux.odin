@@ -68,9 +68,10 @@ linux_state_size :: proc() -> int {
 	return size_of(Linux_State)
 }
 
-// Picks between Wayland and X11 and loads the winner's libraries into `win`. Uses
-// `context.temp_allocator` rather than `frame_allocator`, which is zeroed before `init` and so
-// cannot be relied on here.
+// Picks between Wayland and X11 and loads the winner's libraries into `win`. Nothing here touches
+// `frame_allocator`, which is zeroed before `init` and so cannot be relied on: the environment
+// variable goes into a stack buffer, and the only allocations left are the failure reason strings
+// below, which have to outlive this procedure and so take `context.temp_allocator`.
 //
 // Returns why each windowing system was turned down when neither loaded, so `linux_init` can put
 // them in its panic. Only success is remembered: a failed resolution is retried on the next call,
@@ -101,7 +102,14 @@ linux_ensure_basic_setup :: proc() -> (
 	// that the first choice was turned down. The default order falling through to X11 is ordinary
 	// detection on an X11 machine, not something anyone needs to read about.
 	preference_given := false
-	windowing_preference := os.get_env("KARL2D_LINUX_WINDOWING", context.temp_allocator)
+
+	// Read into a stack buffer instead of through an allocator. This can run before `init`, when
+	// there is no frame allocator to reach for, and the answer only ever has to hold "wayland" or
+	// "x11". The rest of the room is so the warning below can print a typo in full rather than a
+	// clipped version of it. A value too long for the buffer comes back empty, which reads as no
+	// preference given.
+	windowing_preference_buf: [64]u8
+	windowing_preference := os.get_env(windowing_preference_buf[:], "KARL2D_LINUX_WINDOWING")
 
 	switch windowing_preference {
 	case "":
