@@ -51,14 +51,15 @@ PLATFORM_LINUX :: Platform_Interface {
 // before `init`, when there is no `Linux_State` to keep this in -- see the same choice.
 win: Linux_Window_Interface
 
-// Only put things behind this flag that are harmless to run twice. Nothing that needs freeing: a
-// hot reload zeroes it along with `win` and `basic_setup_ok`, so this runs again in the same
-// process and re-resolves `win` to procedure pointers from the new code image.
-basic_setup_done: bool
-
-// Whether `win` actually points at a working windowing backend. False means the monitor queries
-// have nothing to report; `linux_init` still panics in that case, since a window cannot be opened
-// without one.
+// Whether `win` actually points at a working windowing backend. This doubles as the "already
+// resolved" flag, so only a successful resolution is remembered.
+//
+// Only things that are harmless to run twice belong behind it, and nothing that needs freeing: a
+// hot reload zeroes it along with `win`, so the resolution runs again in the same process and
+// re-points `win` at procedures in the new code image.
+//
+// False means the monitor queries have nothing to report. `linux_init` panics in that case, since
+// a window cannot be opened without a windowing backend.
 basic_setup_ok: bool
 
 s: ^Linux_State
@@ -70,9 +71,18 @@ linux_state_size :: proc() -> int {
 // Picks between Wayland and X11 and loads the winner's libraries into `win`. Uses
 // `context.temp_allocator` rather than `frame_allocator`, which is zeroed before `init` and so
 // cannot be relied on here.
-linux_ensure_basic_setup :: proc() {
-	if basic_setup_done {
-		return
+//
+// Returns why each windowing system was turned down when neither loaded, so `linux_init` can put
+// them in its panic. Only success is remembered: a failed resolution is retried on the next call,
+// which is what keeps those reasons available to whoever asks next instead of only to the first
+// caller. Retrying costs a couple of `dlopen` attempts, and only on a machine that has no
+// windowing system at all.
+linux_ensure_basic_setup :: proc() -> (
+	first_failure_reason: string,
+	second_failure_reason: string,
+) {
+	if basic_setup_ok {
+		return "", ""
 	}
 
 	// Each `try_load` opens a windowing system's libraries and checks that a server is listening,
@@ -112,32 +122,26 @@ linux_ensure_basic_setup :: proc() {
 	}
 
 	win = first
-	first_failure_reason, first_ok := win.try_load(context.temp_allocator)
+	first_reason, first_ok := win.try_load(context.temp_allocator)
 
 	if first_ok {
 		basic_setup_ok = true
-	} else {
-		win = second
-		second_failure_reason, second_ok := win.try_load(context.temp_allocator)
-		basic_setup_ok = second_ok
-
-		if second_ok {
-			if preference_given {
-				log.info(first_failure_reason)
-			}
-		} else {
-			// Logged here rather than only left for `linux_init` to panic about, since a monitor
-			// query calling this before `init` never panics and would otherwise leave the reasons
-			// unreported.
-			log.errorf(
-				"Found neither Wayland nor X11. %s %s",
-				first_failure_reason,
-				second_failure_reason,
-			)
-		}
+		return "", ""
 	}
 
-	basic_setup_done = true
+	win = second
+	second_reason, second_ok := win.try_load(context.temp_allocator)
+	basic_setup_ok = second_ok
+
+	if second_ok {
+		if preference_given {
+			log.info(first_reason)
+		}
+
+		return "", ""
+	}
+
+	return first_reason, second_reason
 }
 
 linux_init :: proc(
@@ -152,12 +156,16 @@ linux_init :: proc(
 	s = (^Linux_State)(platform_state)
 	s.allocator = allocator
 
-	linux_ensure_basic_setup()
+	first_failure_reason, second_failure_reason := linux_ensure_basic_setup()
 
-	// A window cannot be opened without a working windowing backend. The reasons why neither
-	// loaded were already logged by `linux_ensure_basic_setup`.
 	if !basic_setup_ok {
-		log.panicf("Found neither Wayland nor X11. Karl2D needs one of them.")
+		// The reasons go in the panic itself rather than only in a log line: a game that raises
+		// the log level would otherwise be told to read reasons that were never printed.
+		log.panicf(
+			"Found neither Wayland nor X11. Karl2D needs one of them. %s %s",
+			first_failure_reason,
+			second_failure_reason,
+		)
 	}
 
 	win_state_alloc_error: runtime.Allocator_Error
@@ -724,7 +732,7 @@ linux_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Linux_State)(state)
 
-	// A hot reload zeroes `basic_setup_done` along with `win`, so this re-resolves it to
+	// A hot reload zeroes `basic_setup_ok` along with `win`, so this re-resolves it to
 	// procedure pointers from the new code image.
 	linux_ensure_basic_setup()
 
