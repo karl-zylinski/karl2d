@@ -1,6 +1,8 @@
 // How we get an xdg_toplevel: through libdecor when it is available and the compositor won't
 // decorate us itself, raw xdg-shell otherwise. Every touchpoint that differs between the two lives
 // in this file, behind these five procs -- the rest of the Wayland backend never branches on it.
+// Each of the five picks between a `_libdecor_` and a `_server_` implementation, named after the
+// two values of KARL2D_LINUX_DECORATIONS.
 #+build linux
 package karl2d
 
@@ -14,169 +16,55 @@ import wl "platform_bindings/linux/wayland"
 
 WL_Shell :: struct {
 	xdg_surface:    ^wl.XDG_Surface,
-	toplevel:       ^wl.XDG_Toplevel,   // raw path; also nil-checked to pick the path
+	toplevel:       ^wl.XDG_Toplevel,
 	decoration:     ^wl.ZXDG_Toplevel_Decoration_V1,
 	libdecor_ctx:   ^ld.Libdecor,
+
+	// Non-nil only on the libdecor path. That is how the five procs below pick an implementation
+	// after wl_shell_create has made the choice once.
 	libdecor_frame: ^ld.Frame,
 }
 
 wl_shell_create :: proc(window_title: string, window_mode: Window_Mode) {
 	if wl_shell_use_libdecor() {
-		s.shell.libdecor_ctx = ld.context_new(s.display, &libdecor_interface)
-		s.shell.libdecor_frame = ld.decorate(
-			s.shell.libdecor_ctx,
-			s.surface,
-			&libdecor_frame_interface,
-			nil,
-		)
-
-		ld.frame_set_title(
-			s.shell.libdecor_frame,
-			strings.clone_to_cstring(window_title, frame_allocator),
-		)
-
-		wl_shell_set_window_mode(window_mode)
-
-		// frame_map commits the surface, which asks the compositor for the first configure. No
-		// commit of our own may land between here and that configure -- libdecor owns the surface's
-		// initial commit sequence.
-		ld.frame_map(s.shell.libdecor_frame)
-		return
+		_libdecor_create(window_title, window_mode)
+	} else {
+		_server_create(window_title, window_mode)
 	}
-
-	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, s.surface)
-	s.shell.xdg_surface = xdg_surface
-
-	// Top-level means an application at the top of the window hierarchy. The callback in the
-	// toplevel listener effectively creates a window handle.
-	s.shell.toplevel = wl.xdg_surface_get_toplevel(xdg_surface)
-	wl.add_listener(s.shell.toplevel, &toplevel_listener, nil)
-	wl.add_listener(xdg_surface, &window_listener, nil)
-	wl.xdg_toplevel_set_title(
-		s.shell.toplevel,
-		strings.clone_to_cstring(window_title, frame_allocator),
-	)
-
-	wl_shell_set_window_mode(window_mode)
-
-	if s.decoration_manager != nil {
-		s.shell.decoration = wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
-			s.decoration_manager,
-			s.shell.toplevel,
-		)
-
-		// This adds titlebar and buttons to the window.
-		wl.zxdg_toplevel_decoration_v1_set_mode(
-			s.shell.decoration,
-			wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE,
-		)
-	}
-
-	// Committing with no buffer attached is what asks the compositor for the first configure.
-	wl.surface_commit(s.surface)
 }
 
 wl_shell_destroy :: proc() {
 	if s.shell.libdecor_frame != nil {
-		ld.frame_unref(s.shell.libdecor_frame)
-		s.shell.libdecor_frame = nil
-		ld.context_unref(s.shell.libdecor_ctx)
-		s.shell.libdecor_ctx = nil
-
-		// The library itself stays loaded, same as ALSA: unloading it at shutdown buys nothing and
-		// runs whatever the plugin registered on the way out.
-		return
-	}
-
-	// Before the toplevel: the decoration protocol raises `orphaned` if its xdg_toplevel goes
-	// first.
-	if s.shell.decoration != nil {
-		wl.zxdg_toplevel_decoration_v1_destroy(s.shell.decoration)
-		s.shell.decoration = nil
-	}
-
-	if s.shell.toplevel != nil {
-		wl.xdg_toplevel_destroy(s.shell.toplevel)
-		s.shell.toplevel = nil
-	}
-
-	if s.shell.xdg_surface != nil {
-		wl.xdg_surface_destroy(s.shell.xdg_surface)
-		s.shell.xdg_surface = nil
+		_libdecor_destroy()
+	} else {
+		_server_destroy()
 	}
 }
 
 wl_shell_set_title :: proc(title: string) {
 	if s.shell.libdecor_frame != nil {
-		ld.frame_set_title(s.shell.libdecor_frame, strings.clone_to_cstring(title, frame_allocator))
-		return
+		_libdecor_set_title(title)
+	} else {
+		_server_set_title(title)
 	}
-
-	wl.xdg_toplevel_set_title(s.shell.toplevel, strings.clone_to_cstring(title, frame_allocator))
 }
 
 wl_shell_set_window_mode :: proc(window_mode: Window_Mode) {
 	if s.shell.libdecor_frame != nil {
-		switch window_mode {
-		case .Windowed:
-			ld.frame_unset_fullscreen(s.shell.libdecor_frame)
-			w := c.int(s.last_configure_windowed_width)
-			h := c.int(s.last_configure_windowed_height)
-
-			// Zero means unconstrained, so equal limits are what pin the size.
-			ld.frame_set_min_content_size(s.shell.libdecor_frame, w, h)
-			ld.frame_set_max_content_size(s.shell.libdecor_frame, w, h)
-
-			// Otherwise the frame still offers resize edges and cursors for a size it cannot
-			// actually change.
-			ld.frame_unset_capabilities(s.shell.libdecor_frame, ld.CAPABILITY_RESIZE)
-
-		case .Windowed_Resizable:
-			ld.frame_unset_fullscreen(s.shell.libdecor_frame)
-			ld.frame_set_min_content_size(s.shell.libdecor_frame, 0, 0)
-			ld.frame_set_max_content_size(s.shell.libdecor_frame, 0, 0)
-			ld.frame_set_capabilities(s.shell.libdecor_frame, ld.CAPABILITY_RESIZE)
-
-		case .Borderless_Fullscreen:
-			ld.frame_set_fullscreen(s.shell.libdecor_frame, nil)
-		}
-		return
-	}
-
-	switch window_mode {
-	case .Windowed:
-		wl.xdg_toplevel_unset_fullscreen(s.shell.toplevel)
-		w := i32(s.last_configure_windowed_width)
-		h := i32(s.last_configure_windowed_height)
-		wl.xdg_toplevel_set_max_size(s.shell.toplevel, w, h)
-		wl.xdg_toplevel_set_min_size(s.shell.toplevel, w, h)
-
-	case .Windowed_Resizable:
-		wl.xdg_toplevel_unset_fullscreen(s.shell.toplevel)
-		wl.xdg_toplevel_set_max_size(s.shell.toplevel, 0, 0)
-		wl.xdg_toplevel_set_min_size(s.shell.toplevel, 0, 0)
-
-	case .Borderless_Fullscreen:
-		wl.xdg_toplevel_set_fullscreen(s.shell.toplevel, nil)
+		_libdecor_set_window_mode(window_mode)
+	} else {
+		_server_set_window_mode(window_mode)
 	}
 }
 
 // blocking = true is only used to wait out the first configure in wl_init. blocking = false is the
-// per-frame pump in wl_get_events. libdecor_dispatch has to be used instead of
-// display_dispatch(_pending) on that path -- libdecor owns the xdg_surface/xdg_toplevel objects and
-// wants to be the one pumping the display, and calling both would process events twice.
+// per-frame pump in wl_get_events.
 wl_shell_dispatch :: proc(blocking: bool) -> bool {
 	if s.shell.libdecor_frame != nil {
-		timeout_ms: c.int = blocking ? -1 : 0
-		return ld.dispatch(s.shell.libdecor_ctx, timeout_ms) >= 0
+		return _libdecor_dispatch(blocking)
 	}
 
-	if blocking {
-		return wl.display_dispatch(s.display) >= 0
-	}
-
-	wl.display_dispatch_pending(s.display)
-	return true
+	return _server_dispatch(blocking)
 }
 
 // Prefers server-side decorations: KDE, sway and any other compositor with
@@ -217,6 +105,80 @@ wl_shell_use_libdecor :: proc() -> bool {
 	}
 
 	return true
+}
+
+// The libdecor path. libdecor is not a decoration library so much as a shell library: it takes the
+// wl_surface and creates the xdg_surface and xdg_toplevel itself, so none of those objects are ours
+// to touch here.
+
+_libdecor_create :: proc(window_title: string, window_mode: Window_Mode) {
+	s.shell.libdecor_ctx = ld.context_new(s.display, &libdecor_interface)
+	s.shell.libdecor_frame = ld.decorate(
+		s.shell.libdecor_ctx,
+		s.surface,
+		&libdecor_frame_interface,
+		nil,
+	)
+
+	ld.frame_set_title(
+		s.shell.libdecor_frame,
+		strings.clone_to_cstring(window_title, frame_allocator),
+	)
+
+	_libdecor_set_window_mode(window_mode)
+
+	// frame_map commits the surface, which asks the compositor for the first configure. No commit
+	// of our own may land between here and that configure -- libdecor owns the surface's initial
+	// commit sequence.
+	ld.frame_map(s.shell.libdecor_frame)
+}
+
+_libdecor_destroy :: proc() {
+	ld.frame_unref(s.shell.libdecor_frame)
+	s.shell.libdecor_frame = nil
+	ld.context_unref(s.shell.libdecor_ctx)
+	s.shell.libdecor_ctx = nil
+
+	// The library itself stays loaded, same as ALSA: unloading it at shutdown buys nothing and
+	// runs whatever the plugin registered on the way out.
+}
+
+_libdecor_set_title :: proc(title: string) {
+	ld.frame_set_title(s.shell.libdecor_frame, strings.clone_to_cstring(title, frame_allocator))
+}
+
+_libdecor_set_window_mode :: proc(window_mode: Window_Mode) {
+	switch window_mode {
+	case .Windowed:
+		ld.frame_unset_fullscreen(s.shell.libdecor_frame)
+		w := c.int(s.last_configure_windowed_width)
+		h := c.int(s.last_configure_windowed_height)
+
+		// Zero means unconstrained, so equal limits are what pin the size.
+		ld.frame_set_min_content_size(s.shell.libdecor_frame, w, h)
+		ld.frame_set_max_content_size(s.shell.libdecor_frame, w, h)
+
+		// Otherwise the frame still offers resize edges and cursors for a size it cannot actually
+		// change.
+		ld.frame_unset_capabilities(s.shell.libdecor_frame, ld.CAPABILITY_RESIZE)
+
+	case .Windowed_Resizable:
+		ld.frame_unset_fullscreen(s.shell.libdecor_frame)
+		ld.frame_set_min_content_size(s.shell.libdecor_frame, 0, 0)
+		ld.frame_set_max_content_size(s.shell.libdecor_frame, 0, 0)
+		ld.frame_set_capabilities(s.shell.libdecor_frame, ld.CAPABILITY_RESIZE)
+
+	case .Borderless_Fullscreen:
+		ld.frame_set_fullscreen(s.shell.libdecor_frame, nil)
+	}
+}
+
+// libdecor_dispatch has to be used here instead of display_dispatch(_pending): it is the app
+// main-loop pump and dispatches the default queue itself, so calling both would process events
+// twice.
+_libdecor_dispatch :: proc(blocking: bool) -> bool {
+	timeout_ms: c.int = blocking ? -1 : 0
+	return ld.dispatch(s.shell.libdecor_ctx, timeout_ms) >= 0
 }
 
 libdecor_interface := ld.Interface {
@@ -270,4 +232,92 @@ libdecor_frame_interface := ld.Frame_Interface {
 		wl.surface_commit(s.surface)
 	},
 	dismiss_popup = proc "c" (frame: ^ld.Frame, seat_name: cstring, user_data: rawptr) {},
+}
+
+// The raw xdg-shell path. We own the shell objects and ask the compositor to decorate them, which
+// it does on KDE and sway. Where zxdg_decoration_manager_v1 is missing and libdecor could not be
+// loaded either, this is also the undecorated path.
+
+_server_create :: proc(window_title: string, window_mode: Window_Mode) {
+	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, s.surface)
+	s.shell.xdg_surface = xdg_surface
+
+	// Top-level means an application at the top of the window hierarchy. The callback in the
+	// toplevel listener effectively creates a window handle.
+	s.shell.toplevel = wl.xdg_surface_get_toplevel(xdg_surface)
+	wl.add_listener(s.shell.toplevel, &toplevel_listener, nil)
+	wl.add_listener(xdg_surface, &window_listener, nil)
+	wl.xdg_toplevel_set_title(
+		s.shell.toplevel,
+		strings.clone_to_cstring(window_title, frame_allocator),
+	)
+
+	_server_set_window_mode(window_mode)
+
+	if s.decoration_manager != nil {
+		s.shell.decoration = wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
+			s.decoration_manager,
+			s.shell.toplevel,
+		)
+
+		// This adds titlebar and buttons to the window.
+		wl.zxdg_toplevel_decoration_v1_set_mode(
+			s.shell.decoration,
+			wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE,
+		)
+	}
+
+	// Committing with no buffer attached is what asks the compositor for the first configure.
+	wl.surface_commit(s.surface)
+}
+
+_server_destroy :: proc() {
+	// Before the toplevel: the decoration protocol raises `orphaned` if its xdg_toplevel goes
+	// first.
+	if s.shell.decoration != nil {
+		wl.zxdg_toplevel_decoration_v1_destroy(s.shell.decoration)
+		s.shell.decoration = nil
+	}
+
+	if s.shell.toplevel != nil {
+		wl.xdg_toplevel_destroy(s.shell.toplevel)
+		s.shell.toplevel = nil
+	}
+
+	if s.shell.xdg_surface != nil {
+		wl.xdg_surface_destroy(s.shell.xdg_surface)
+		s.shell.xdg_surface = nil
+	}
+}
+
+_server_set_title :: proc(title: string) {
+	wl.xdg_toplevel_set_title(s.shell.toplevel, strings.clone_to_cstring(title, frame_allocator))
+}
+
+_server_set_window_mode :: proc(window_mode: Window_Mode) {
+	switch window_mode {
+	case .Windowed:
+		wl.xdg_toplevel_unset_fullscreen(s.shell.toplevel)
+		w := i32(s.last_configure_windowed_width)
+		h := i32(s.last_configure_windowed_height)
+		wl.xdg_toplevel_set_max_size(s.shell.toplevel, w, h)
+		wl.xdg_toplevel_set_min_size(s.shell.toplevel, w, h)
+
+	case .Windowed_Resizable:
+		wl.xdg_toplevel_unset_fullscreen(s.shell.toplevel)
+		wl.xdg_toplevel_set_max_size(s.shell.toplevel, 0, 0)
+		wl.xdg_toplevel_set_min_size(s.shell.toplevel, 0, 0)
+
+	case .Borderless_Fullscreen:
+		wl.xdg_toplevel_set_fullscreen(s.shell.toplevel, nil)
+	}
+}
+
+_server_dispatch :: proc(blocking: bool) -> bool {
+	if blocking {
+		return wl.display_dispatch(s.display) >= 0
+	}
+
+	wl.display_dispatch_pending(s.display)
+	return true
 }
