@@ -3054,6 +3054,42 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 // Unguarded implementation of `update_audio_stream`. Also used by `play_audio_stream` and
 // `_apply_sound_time`, which are already guarded (or run under the mixer's lock) by the time they
 // need this.
+// How many samples the clip holds that the sound has not played yet. The decoder writes at
+// `buffer_write_pos` and the sound reads at its own offset, so the two of them make the clip a
+// circular buffer.
+_audio_stream_remaining :: proc(
+	sd: ^Audio_Stream_Data,
+	pab: ^Sound_Object,
+	ab: ^Audio_Clip_Object,
+) -> int {
+	remaining := sd.buffer_write_pos - pab.offset
+
+	if remaining < 0 {
+		remaining = len(ab.samples) - pab.offset + sd.buffer_write_pos
+	}
+
+	return remaining
+}
+
+// Called when the decoder reaches the end of a stream that does not loop. The clip still holds
+// samples the listener has not reached, so the sound is left alone to play them out. Everything
+// past those samples is zeroed, because the decoder will not write there again and the sound
+// would otherwise be heard replaying whatever the clip held before.
+_finish_audio_stream :: proc(sd: ^Audio_Stream_Data, pab: ^Sound_Object, ab: ^Audio_Clip_Object) {
+	sd.decode_finished = true
+	sd.samples_left = _audio_stream_remaining(sd, pab, ab)
+	sd.last_play_offset = pab.offset
+
+	// The samples still to play run from the sound's offset up to `buffer_write_pos`. Zero the
+	// rest of the clip, which is the part that wraps from `buffer_write_pos` back around.
+	if sd.buffer_write_pos <= pab.offset {
+		slice.zero(ab.samples[sd.buffer_write_pos:pab.offset])
+	} else {
+		slice.zero(ab.samples[sd.buffer_write_pos:])
+		slice.zero(ab.samples[:pab.offset])
+	}
+}
+
 _update_audio_stream :: proc(stream: Audio_Stream) {
 	sd := hm.get(&s.audio_streams, stream)
 
@@ -3078,19 +3114,29 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	audio_stream_remaining :: proc(as: ^Audio_Stream_Data, pab: ^Sound_Object, ab: ^Audio_Clip_Object) -> int {
-		remaining := as.buffer_write_pos - pab.offset 
+	// The decoder is done and the sound is playing out what is left in the clip. Count off what it
+	// played since the last call, and stop it once it has played everything.
+	if sd.decode_finished {
+		played := pab.offset - sd.last_play_offset
 
-		if remaining < 0 {
-			remaining = len(ab.samples) - pab.offset + as.buffer_write_pos 
+		if played < 0 {
+			played += len(ab.samples)
 		}
 
-		return remaining
+		sd.samples_left -= played
+		sd.last_play_offset = pab.offset
+
+		if sd.samples_left <= 0 {
+			hm.remove(&s.sounds, sd.sound)
+			_reset_audio_stream(stream)
+		}
+
+		return
 	}
 
 	switch sd.mode {
 	case .From_File:
-		for audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+		for _audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
 			channels: i32
 			samples: i32
 			output: [^]^f32
@@ -3147,8 +3193,7 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 
 							continue
 						} else {
-							hm.remove(&s.sounds, sd.sound)
-							_reset_audio_stream(stream)
+							_finish_audio_stream(sd, pab, ab)
 							break
 						}
 					} else {
@@ -3210,7 +3255,7 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 		channels: i32
 		output: [^]^f32
 
-		for audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+		for _audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
 			samples := stbv.get_frame_float(sd.vorbis, &channels, &output)
 
 			if samples == 0 {
@@ -3223,11 +3268,7 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 
 					continue
 				} else {
-					// TODO: Stopping here is bad as the samples haven't been mixed in yet. Remove the
-					// stream but push the final samples into the clip and destroy that one
-					// when it finishes playing (in the mixer).
-					hm.remove(&s.sounds, sd.sound)
-					_reset_audio_stream(stream)
+					_finish_audio_stream(sd, pab, ab)
 					break
 				}
 			}
@@ -5788,6 +5829,18 @@ Audio_Stream_Data :: struct {
 	// steps of a whole ogg page.
 	seek_discard: int,
 
+	// Set when the decoder reaches the end of a stream that does not loop. The decoder runs ahead
+	// of the listener, so the clip still holds samples nobody has heard. The sound keeps playing
+	// those, and `update_audio_stream` stops it once they run out.
+	decode_finished: bool,
+
+	// How many samples the sound has left to play. Only used while `decode_finished` is set.
+	samples_left: int,
+
+	// Where the sound was when `samples_left` was last brought up to date. Only used while
+	// `decode_finished` is set.
+	last_play_offset: int,
+
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
 	total_samples: int,
@@ -6837,6 +6890,9 @@ _reset_audio_stream :: proc(stream: Audio_Stream) {
 	sd.buffer_write_pos = 0
 	sd.decode_cursor = 0
 	sd.seek_discard = 0
+	sd.decode_finished = false
+	sd.samples_left = 0
+	sd.last_play_offset = 0
 
 	switch sd.mode {
 	case .From_File:
