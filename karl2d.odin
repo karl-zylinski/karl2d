@@ -6867,6 +6867,14 @@ _apply_sound_time :: proc(sound: Sound, seconds: f32) {
 	sound_object.offset = 0
 	sound_object.offset_fraction = 0
 
+	// The seek gives the decoder somewhere new to read from, so a stream that had reached the end
+	// of its file is no longer finished. Leaving this set would make `update_audio_stream` count
+	// the samples it thinks are left against a sound that just went back to the start, and stop it.
+	// The seek gives the decoder somewhere new to read from, so a stream that had reached the end
+	// of its file is no longer finished. Leaving this set would make `update_audio_stream` count
+	// the samples it thinks are left against a sound that just went back to the start, and stop it.
+	sd.decode_finished = false
+
 	// Decode into the buffer right away. If we left this to the next `update_audio_stream` then
 	// the mixer would play the silence we just wrote. Worse, once the mixer has moved the read
 	// position past the write position, the buffer looks full rather than empty, so it would not
