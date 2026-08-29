@@ -6995,6 +6995,14 @@ BATCH_ARENA_BLOCK_SIZE :: 64*1024
 @(private="file")
 s: ^State
 
+// A constant rather than a global assigned during `init`, because the platform is picked at
+// compile time anyway. See `platform_chooser.odin` for how it is picked. That is what lets the
+// monitor queries run before `init`: `pf` is already there. The backends' own state is still
+// allocated by `init` though, so anything reachable before that must not touch it -- see
+// `ensure_basic_setup` in each backend.
+@(private="file")
+pf :: PLATFORM
+
 @(private="file")
 rb: Render_Backend_Interface
 
