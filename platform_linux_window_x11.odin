@@ -19,6 +19,8 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_screen_size = x11_set_screen_size,
 	get_window_scale = x11_get_window_scale,
 	set_window_mode = x11_set_window_mode,
+	get_monitor_count = x11_get_monitor_count,
+	get_monitor_info = x11_get_monitor_info,
 	set_cursor_hidden = x11_set_cursor_hidden,
 	is_cursor_hidden = x11_is_cursor_hidden,
 	set_mouse_locked = x11_set_mouse_locked,
@@ -222,6 +224,7 @@ x11_shutdown :: proc() {
 
 	X.FreeCursor(s.display, s.blank_cursor)
 	X.DestroyWindow(s.display, s.window)
+	s = nil
 }
 
 x11_get_window_render_glue :: proc() -> Window_Render_Glue {
@@ -514,6 +517,13 @@ x11_get_window_scale :: proc() -> f32 {
 // returns the copy Xlib took when the display connection was opened, so it never reflects a change
 // made while the game is running.
 x11_fetch_window_scale :: proc() -> f32 {
+	return x11_fetch_scale_from_display(s.display, s.resource_manager)
+}
+
+// The body of x11_fetch_window_scale, taking the display and resource manager atom as parameters
+// instead of reading them from `s`. This is also called from the monitor queries, which have their
+// own temporary display connection and no `s` to read from -- they may run before `init`.
+x11_fetch_scale_from_display :: proc(display: ^X.Display, resource_manager: X.Atom) -> f32 {
 	// A length in 32-bit units. The server sends only what is actually there, so this just has to
 	// be bigger than any real resource database.
 	MAX_RESOURCE_WORDS :: 1024 * 1024
@@ -525,9 +535,9 @@ x11_fetch_window_scale :: proc() -> f32 {
 	prop: rawptr
 
 	get_status := X.GetWindowProperty(
-		s.display,
-		X.DefaultRootWindow(s.display),
-		s.resource_manager,
+		display,
+		X.DefaultRootWindow(display),
+		resource_manager,
 		0,
 		MAX_RESOURCE_WORDS,
 		false,
@@ -568,6 +578,84 @@ x11_fetch_window_scale :: proc() -> f32 {
 
 	X.XrmDestroyDatabase(db)
 	return scale
+}
+
+// Reports one monitor covering the whole X screen rather than the physical monitors behind it.
+// Per-monitor enumeration needs XRandR bindings, which do not exist in platform_bindings/linux yet.
+//
+// Reuses the live display connection in `s` when `init` has already run -- opening a second
+// connection to talk to the same server that a window is already open on would be pointless. Only
+// when there is no live state does this open a temporary connection, and then it closes only the
+// connection it opened itself; `x11_shutdown` nils `s`, so a stale, freed `s` is never read here.
+//
+// When it does open its own connection, it closes that connection before returning, but never
+// calls `X.unload()`. `X.unload()` is not reference counted: it closes the libraries and clears the
+// handles no matter who else is using them, so a query made while a window is open would pull
+// libX11 out from under that window. Loading is idempotent and the libraries are shared for the
+// life of the process, so leaving them loaded is the correct thing.
+x11_get_monitor_count :: proc() -> int {
+	if s != nil && s.display != nil {
+		return 1
+	}
+
+	_, load_ok := X.load()
+
+	if !load_ok {
+		return 0
+	}
+
+	display := X.OpenDisplay(nil)
+
+	if display == nil {
+		return 0
+	}
+
+	X.CloseDisplay(display)
+	return 1
+}
+
+x11_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	if monitor != 0 {
+		return {}, false
+	}
+
+	display: ^X.Display
+	resource_manager: X.Atom
+	opened_here := false
+
+	if s != nil && s.display != nil {
+		display = s.display
+		resource_manager = s.resource_manager
+	} else {
+		_, load_ok := X.load()
+
+		if !load_ok {
+			return {}, false
+		}
+
+		display = X.OpenDisplay(nil)
+
+		if display == nil {
+			return {}, false
+		}
+
+		opened_here = true
+		resource_manager = X.InternAtom(display, "RESOURCE_MANAGER", false)
+	}
+
+	screen := X.DefaultScreen(display)
+
+	info := Monitor_Info {
+		size = {int(X.DisplayWidth(display, screen)), int(X.DisplayHeight(display, screen))},
+		position = {0, 0},
+		scale = x11_fetch_scale_from_display(display, resource_manager),
+	}
+
+	if opened_here {
+		X.CloseDisplay(display)
+	}
+
+	return info, true
 }
 
 enter_borderless_fullscreen :: proc() {

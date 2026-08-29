@@ -26,6 +26,14 @@ Platform_Interface :: struct #all_or_none {
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
 
+	// Callable before `init`, when the backend's own state does not exist yet. Implementations
+	// must check for that rather than assume it, calling the backend's `ensure_basic_setup` first
+	// if it needs any. Once the state exists, an implementation may read it -- X11 reuses the live
+	// display connection instead of opening a second one -- but must not write to it or otherwise
+	// give the two callers different observable state.
+	get_monitor_count: proc() -> int,
+	get_monitor_info: proc(monitor: int) -> (Monitor_Info, bool),
+
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
 	set_mouse_locked: proc(locked: bool),

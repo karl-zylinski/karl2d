@@ -32,6 +32,9 @@ PLATFORM_MAC :: Platform_Interface {
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
 
+	get_monitor_count = mac_get_monitor_count,
+	get_monitor_info = mac_get_monitor_info,
+
 	set_cursor_hidden = mac_set_cursor_hidden,
 	is_cursor_hidden = mac_is_cursor_hidden,
 	set_mouse_locked = mac_set_mouse_locked,
@@ -50,6 +53,26 @@ PLATFORM_MAC :: Platform_Interface {
 
 HAPTICS_SHARPNESS_LEFT  :: 0.1
 HAPTICS_SHARPNESS_RIGHT :: 0.9
+
+basic_setup_done: bool
+
+// Process-wide OS state that has to exist before anything asks about monitors. `mac_init` creates
+// the shared application itself, so it never needs this, but the monitor queries have to work
+// without `init` ever having run.
+//
+// Only put things here that are harmless to run twice. Nothing that needs releasing: a hot reload
+// zeroes `basic_setup_done`, so this can run again in the same process.
+mac_ensure_basic_setup :: proc() {
+	if basic_setup_done {
+		return
+	}
+
+	// NSScreen is only dependable once the shared application object exists. This is an OS
+	// singleton, so calling it again is free -- but keep this rule: only things that are harmless
+	// to repeat belong here, nothing that would need releasing.
+	NS.Application_sharedApplication()
+	basic_setup_done = true
+}
 
 Mac_State :: struct {
 	odin_ctx:         runtime.Context,
@@ -321,6 +344,7 @@ mac_shutdown :: proc() {
 	a := s.allocator
 	free(s.gc_connect_blk, a)
 	free(s.gc_disconnect_blk, a)
+	s = nil
 }
 
 mac_get_window_render_glue :: proc() -> Window_Render_Glue {
@@ -549,6 +573,61 @@ mac_set_screen_size :: proc(w, h: int) {
 
 mac_get_window_scale :: proc() -> f32 {
 	return f32(s.window->backingScaleFactor())
+}
+
+// There is nothing in Mac_State to reuse even when `s` is live: NSScreen.screens is a process-wide
+// query, not tied to a window.
+mac_get_monitor_count :: proc() -> int {
+	mac_ensure_basic_setup()
+	return int(NS.Array_count(NS.Screen_screens()))
+}
+
+mac_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	mac_ensure_basic_setup()
+
+	screens := NS.Screen_screens()
+	count := int(NS.Array_count(screens))
+
+	if monitor < 0 || monitor >= count {
+		return {}, false
+	}
+
+	// Karl2D promises that monitor 0 is the primary one. `NSScreen.screens` is widely observed to
+	// put the primary first, but that is someone else's ordering to change, so find it ourselves
+	// instead of trusting it: in Cocoa's global coordinate space the primary screen is by
+	// definition the one at the origin. Then swap it with index 0, the same way the Windows
+	// backend does after `EnumDisplayMonitors`, which promises no order at all.
+	primary := 0
+
+	for i in 0..<count {
+		candidate := NS.Array_objectAs(screens, NS.UInteger(i), ^NS.Screen)
+		origin := candidate->frame().origin
+
+		if origin.x == 0 && origin.y == 0 {
+			primary = i
+			break
+		}
+	}
+
+	index := monitor
+
+	if monitor == 0 {
+		index = primary
+	} else if monitor == primary {
+		index = 0
+	}
+
+	screen := NS.Array_objectAs(screens, NS.UInteger(index), ^NS.Screen)
+	frame := screen->frame()
+	scale := f32(screen->backingScaleFactor())
+
+	// Both size and position are in points; multiplied by the scale to match the physical pixels
+	// the rest of Karl2D uses.
+	return Monitor_Info {
+		size = {int(f32(frame.width) * scale), int(f32(frame.height) * scale)},
+		position = {int(f32(frame.x) * scale), int(f32(frame.y) * scale)},
+		scale = scale,
+	}, true
 }
 
 mac_set_cursor_hidden :: proc(hidden: bool) {

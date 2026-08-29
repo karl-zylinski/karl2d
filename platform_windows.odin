@@ -20,6 +20,9 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
 
+	get_monitor_count = windows_get_monitor_count,
+	get_monitor_info = windows_get_monitor_info,
+
 	set_cursor_hidden = windows_set_cursor_hidden,
 	is_cursor_hidden = windows_is_cursor_hidden,
 	set_mouse_locked = windows_set_mouse_locked,
@@ -44,6 +47,24 @@ import "base:runtime"
 import hm "core:container/handle_map"
 @require import "log"
 
+basic_setup_done: bool
+
+// Process-wide OS state that has to be set before anything asks about monitors or window sizes.
+// Until it is, the process is DPI unaware and Windows reports virtualized numbers: on a 3840x2160
+// display at 150% scaling `GetMonitorInfoW` says 2560x1440 and `GetDpiForMonitor` says 96.
+//
+// Only put things here that are harmless to run twice. Nothing that needs freeing: a hot reload
+// zeroes `basic_setup_done`, so this can run again in the same process.
+windows_ensure_basic_setup :: proc() {
+	if basic_setup_done {
+		return
+	}
+
+	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+	win32.SetProcessDPIAware()
+	basic_setup_done = true
+}
+
 windows_state_size :: proc() -> int {
 	return size_of(Windows_State)
 }
@@ -63,8 +84,7 @@ windows_init :: proc(
 	s.custom_context = context
 	hm.dynamic_init(&s.custom_cursors, allocator)
 
-	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
-	win32.SetProcessDPIAware()
+	windows_ensure_basic_setup()
 	CLASS_NAME :: "karl2d"
 	instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
 
@@ -140,6 +160,7 @@ windows_shutdown :: proc() {
 
 	win32.DestroyWindow(s.hwnd)
 	delete(s.events)
+	s = nil
 }
 
 windows_get_window_render_glue :: proc() -> Window_Render_Glue {
@@ -1107,4 +1128,88 @@ WIN32_VK_MAP := [255]Keyboard_Key {
 	// NP_Enter is handled separately
 
 	win32.VK_OEM_NEC_EQUAL = .NP_Equal,
+}
+
+// Not bound in core:sys/windows.
+MONITORINFOF_PRIMARY :: 0x00000001
+
+WINDOWS_MONITOR_COUNT_MAX :: 16
+
+Windows_Monitor_List :: struct {
+	items: [WINDOWS_MONITOR_COUNT_MAX]Monitor_Info,
+	count: int,
+	primary_index: int,
+}
+
+// Enumerated fresh on every call rather than cached in Windows_State, since these queries have to
+// work when there is no state to cache it in yet. There is also nothing in Windows_State to reuse
+// even when `s` is live: EnumDisplayMonitors is a process-wide query, not tied to a window.
+windows_collect_monitors :: proc() -> Windows_Monitor_List {
+	windows_ensure_basic_setup()
+
+	list: Windows_Monitor_List
+	win32.EnumDisplayMonitors(nil, nil, windows_monitor_enum_proc, win32.LPARAM(uintptr(&list)))
+
+	// The primary monitor must be at index 0. EnumDisplayMonitors doesn't guarantee an order, so
+	// swap it into place after enumerating.
+	if list.primary_index != 0 && list.primary_index < list.count {
+		list.items[0], list.items[list.primary_index] = list.items[list.primary_index], list.items[0]
+	}
+
+	return list
+}
+
+windows_monitor_enum_proc :: proc "system" (
+	hmonitor: win32.HMONITOR,
+	hdc: win32.HDC,
+	rect: win32.LPRECT,
+	lparam: win32.LPARAM,
+) -> win32.BOOL {
+	context = runtime.default_context()
+
+	list := (^Windows_Monitor_List)(uintptr(lparam))
+
+	if list.count >= WINDOWS_MONITOR_COUNT_MAX {
+		return false
+	}
+
+	mi := win32.MONITORINFO { cbSize = size_of(win32.MONITORINFO) }
+
+	if !win32.GetMonitorInfoW(hmonitor, &mi) {
+		return true
+	}
+
+	dpix, dpiy: win32.UINT
+	win32.GetDpiForMonitor(hmonitor, {}, &dpix, &dpiy)
+
+	if mi.dwFlags & MONITORINFOF_PRIMARY != 0 {
+		list.primary_index = list.count
+	}
+
+	list.items[list.count] = Monitor_Info {
+		size = {
+			int(mi.rcMonitor.right - mi.rcMonitor.left),
+			int(mi.rcMonitor.bottom - mi.rcMonitor.top),
+		},
+		position = {int(mi.rcMonitor.left), int(mi.rcMonitor.top)},
+		scale = f32(dpix) / 96.0,
+	}
+	list.count += 1
+
+	return true
+}
+
+windows_get_monitor_count :: proc() -> int {
+	list := windows_collect_monitors()
+	return list.count
+}
+
+windows_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	list := windows_collect_monitors()
+
+	if monitor < 0 || monitor >= list.count {
+		return {}, false
+	}
+
+	return list.items[monitor], true
 }

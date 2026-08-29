@@ -180,6 +180,35 @@ set_window_mode :: proc(window_mode: Window_Mode)
 // `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
 draw_current_batch :: proc()
 
+//----------//
+// MONITORS //
+//----------//
+
+// The primary monitor. Every platform puts it at index 0, so this is the default the monitor
+// procedures use. It is a named constant rather than a bare 0 because 0 here means "the primary
+// one", not "whichever the operating system happened to list first".
+MONITOR_PRIMARY :: 0
+
+// Reports how many monitors are connected. Works before `k2.init` has been called, so a program
+// can size its window from the display it is about to open on.
+//
+// Not every platform can report every monitor: Wayland has no implementation yet and always
+// reports 0, and X11 reports 1 monitor covering the whole X screen rather than the physical
+// monitors behind it.
+get_monitor_count :: proc() -> int
+
+// Returns the size of `monitor`, in physical pixels, matching what `set_screen_size` takes.
+// `MONITOR_PRIMARY` is the primary monitor. Works before `k2.init` has been called.
+get_monitor_size :: proc(monitor := MONITOR_PRIMARY) -> [2]int
+
+// Returns the position of `monitor`, in the same coordinate system used by `set_window_position`.
+// `MONITOR_PRIMARY` is the primary monitor. Works before `k2.init` has been called.
+get_monitor_position :: proc(monitor := MONITOR_PRIMARY) -> [2]int
+
+// Returns the scale of `monitor`. 1 means 100% scale, 1.5 means 150% etc. `MONITOR_PRIMARY` is the
+// primary monitor. Works before `k2.init` has been called.
+get_monitor_scale :: proc(monitor := MONITOR_PRIMARY) -> f32
+
 //-------//
 // INPUT //
 //-------//
@@ -1768,7 +1797,6 @@ State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
-	platform: Platform_Interface,
 	platform_state: rawptr,
 	render_backend: Render_Backend_Interface,
 	render_backend_state: rawptr,

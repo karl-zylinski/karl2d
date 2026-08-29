@@ -33,6 +33,7 @@ main :: proc() {
 		"minimal_hello_world",
 		"custom_frame_update",
 		"events",
+		"monitors",
 		"premultiplied_alpha",
 		"raylib_ports",
 		"scaling_auto_window_resize",

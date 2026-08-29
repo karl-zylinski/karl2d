@@ -63,20 +63,6 @@ init :: proc(
 	s.frame_allocator = runtime.arena_allocator(&s.frame_arena)
 	frame_allocator = s.frame_allocator
 
-	when ODIN_OS == .Windows {
-		s.platform = PLATFORM_WINDOWS
-	} else when ODIN_OS == .JS {
-		s.platform = PLATFORM_WEB
-	} else when ODIN_OS == .Linux {
-		s.platform = PLATFORM_LINUX
-	} else when ODIN_OS == .Darwin {
-		s.platform = PLATFORM_MAC
-	} else {
-		#panic("Unsupported platform")
-	}
-
-	pf = s.platform
-
 	// We allocate memory for the windowing backend and pass the blob of memory to it.
 	platform_state_alloc_error: runtime.Allocator_Error
 	
@@ -674,6 +660,64 @@ draw_current_batch :: proc() {
 	s.current_draw_call = {}
 	s.vertex_buffer_cpu_used = 0
 	free_all(s.batch_allocator)
+}
+
+//----------//
+// MONITORS //
+//----------//
+
+// The primary monitor. Every platform puts it at index 0, so this is the default the monitor
+// procedures use. It is a named constant rather than a bare 0 because 0 here means "the primary
+// one", not "whichever the operating system happened to list first".
+MONITOR_PRIMARY :: 0
+
+// Reports how many monitors are connected. Works before `k2.init` has been called, so a program
+// can size its window from the display it is about to open on.
+//
+// Not every platform can report every monitor: Wayland has no implementation yet and always
+// reports 0, and X11 reports 1 monitor covering the whole X screen rather than the physical
+// monitors behind it.
+get_monitor_count :: proc() -> int {
+	return pf.get_monitor_count()
+}
+
+// Returns the size of `monitor`, in physical pixels, matching what `set_screen_size` takes.
+// `MONITOR_PRIMARY` is the primary monitor. Works before `k2.init` has been called.
+get_monitor_size :: proc(monitor := MONITOR_PRIMARY) -> [2]int {
+	info, ok := pf.get_monitor_info(monitor)
+
+	if !ok {
+		log.errorf("Cannot get monitor size, monitor %v does not exist.", monitor)
+		return {}
+	}
+
+	return info.size
+}
+
+// Returns the position of `monitor`, in the same coordinate system used by `set_window_position`.
+// `MONITOR_PRIMARY` is the primary monitor. Works before `k2.init` has been called.
+get_monitor_position :: proc(monitor := MONITOR_PRIMARY) -> [2]int {
+	info, ok := pf.get_monitor_info(monitor)
+
+	if !ok {
+		log.errorf("Cannot get monitor position, monitor %v does not exist.", monitor)
+		return {}
+	}
+
+	return info.position
+}
+
+// Returns the scale of `monitor`. 1 means 100% scale, 1.5 means 150% etc. `MONITOR_PRIMARY` is the
+// primary monitor. Works before `k2.init` has been called.
+get_monitor_scale :: proc(monitor := MONITOR_PRIMARY) -> f32 {
+	info, ok := pf.get_monitor_info(monitor)
+
+	if !ok {
+		log.errorf("Cannot get monitor scale, monitor %v does not exist.", monitor)
+		return 0
+	}
+
+	return info.scale
 }
 
 //-------//
@@ -4964,7 +5008,6 @@ get_z :: proc() -> f32 {
 set_internal_state :: proc(state: ^State) {
 	s = state
 	frame_allocator = s.frame_allocator
-	pf = s.platform
 	rb = s.render_backend
 	ab = s.audio_backend
 	pf.set_internal_state(s.platform_state)
@@ -5704,7 +5747,6 @@ State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
-	platform: Platform_Interface,
 	platform_state: rawptr,
 	render_backend: Render_Backend_Interface,
 	render_backend_state: rawptr,
@@ -6148,6 +6190,15 @@ Event_Touch_Cancelled :: struct { id: Touch_Id }
 
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
+
+// Holds what the monitor queries report. Internal: the public API is the four getters in the
+// MONITORS section above.
+@(private="package")
+Monitor_Info :: struct {
+	size: [2]int,
+	position: [2]int,
+	scale: f32,
+}
 
 // Returns true if `r` should be treated as a typed character for text input purposes. Filters out
 // control characters such as Backspace, Enter, Tab, Escape and Delete. Used by the platform
@@ -6943,9 +6994,6 @@ BATCH_ARENA_BLOCK_SIZE :: 64*1024
 
 @(private="file")
 s: ^State
-
-@(private="file")
-pf: Platform_Interface
 
 @(private="file")
 rb: Render_Backend_Interface

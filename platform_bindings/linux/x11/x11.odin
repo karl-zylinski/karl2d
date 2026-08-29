@@ -433,6 +433,12 @@ CloseDisplay: proc "c" (display: ^Display)
 
 DefaultScreen: proc "c" (display: ^Display) -> i32
 
+// DisplayWidth/DisplayHeight are macros in Xlib.h, but libX11 also exports them as real functions
+// for bindings from other languages, which is what these load.
+DisplayWidth: proc "c" (display: ^Display, screen_number: i32) -> i32
+
+DisplayHeight: proc "c" (display: ^Display, screen_number: i32) -> i32
+
 DefaultRootWindow: proc "c" (display: ^Display) -> Window
 
 CreateSimpleWindow: proc "c" (
@@ -685,11 +691,21 @@ load_symbols :: proc(
 
 // Loads libX11 and libXcursor. On failure `missing` names the library or symbol that was not
 // found, which is how a machine without X11 installed is detected.
+//
+// Calling this when the libraries are already loaded does nothing. The monitor queries call it
+// without knowing whether `init` has run, and re-resolving every symbol on each of those would be
+// wasted work.
 load :: proc() -> (missing: string, ok: bool) {
+	if lib_x11 != nil && lib_xcursor != nil {
+		return "", true
+	}
+
 	x11_symbols := []Symbol {
 		{"XOpenDisplay", &OpenDisplay},
 		{"XCloseDisplay", &CloseDisplay},
 		{"XDefaultScreen", &DefaultScreen},
+		{"XDisplayWidth", &DisplayWidth},
+		{"XDisplayHeight", &DisplayHeight},
 		{"XDefaultRootWindow", &DefaultRootWindow},
 		{"XCreateSimpleWindow", &CreateSimpleWindow},
 		{"XDestroyWindow", &DestroyWindow},

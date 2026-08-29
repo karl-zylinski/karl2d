@@ -21,6 +21,9 @@ PLATFORM_WEB :: Platform_Interface {
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
 
+	get_monitor_count = web_get_monitor_count,
+	get_monitor_info = web_get_monitor_info,
+
 	set_cursor_hidden = web_set_cursor_hidden,
 	is_cursor_hidden = web_is_cursor_hidden,
 	set_mouse_locked = web_set_mouse_locked,
@@ -46,6 +49,12 @@ import hm "core:container/handle_map"
 import "log"
 import "core:fmt"
 
+// The canvas element's id. `s.canvas_id` is not available before `init`, so the monitor query below
+// uses this constant directly instead, and `web_init` uses it too so both agree on the same id.
+// Karl2D cannot run without the canvas, unlike `id="body"`, which a page not built from
+// `index_template.html` may not have kept.
+WEB_CANVAS_ID :: "webgl-canvas"
+
 web_state_size :: proc() -> int {
 	return size_of(Web_State)
 }
@@ -62,7 +71,7 @@ web_init :: proc(
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
 	s.key_from_js_event_key_code = make(map[string]Keyboard_Key, allocator)
-	s.canvas_id = "webgl-canvas"
+	s.canvas_id = WEB_CANVAS_ID
 	hm.dynamic_init(&s.custom_cursors, allocator)
 
 	js.set_document_title(window_title)
@@ -329,6 +338,7 @@ web_shutdown :: proc() {
 
 	delete(s.events)
 	delete(s.key_from_js_event_key_code)
+	s = nil
 }
 
 web_get_window_render_glue :: proc() -> Window_Render_Glue {
@@ -451,6 +461,38 @@ web_set_screen_size :: proc(w, h: int) {
 
 web_get_window_scale :: proc() -> f32 {
 	return f32(js.device_pixel_ratio())
+}
+
+// window.screen.width/height are not exposed by core:sys/wasm/js, so this stashes them on the
+// canvas element with js.evaluate and reads them back with get_element_key_f64, the same trick
+// _web_event_pointer_lock_change uses for the pointer lock state. No setup is needed before this,
+// unlike Windows and Mac: the DOM already knows the screen size.
+WEB_MONITOR_SIZE_EVAL :: "var karl2d_el = document.getElementById('" + WEB_CANVAS_ID + "'); " +
+	"karl2d_el._screenWidth = window.screen.width; " +
+	"karl2d_el._screenHeight = window.screen.height;"
+
+// There is nothing in Web_State to reuse even when `s` is live: window.screen is DOM-global, not
+// tied to a window, and `s.canvas_id` is always WEB_CANVAS_ID anyway (see web_init).
+web_get_monitor_count :: proc() -> int {
+	return 1
+}
+
+web_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	if monitor != 0 {
+		return {}, false
+	}
+
+	js.evaluate(WEB_MONITOR_SIZE_EVAL)
+
+	scale := f32(js.device_pixel_ratio())
+	width := f32(js.get_element_key_f64(WEB_CANVAS_ID, "_screenWidth"))
+	height := f32(js.get_element_key_f64(WEB_CANVAS_ID, "_screenHeight"))
+
+	return Monitor_Info {
+		size = {int(width * scale), int(height * scale)},
+		position = {0, 0},
+		scale = scale,
+	}, true
 }
 
 web_set_window_mode :: proc(new_mode: Window_Mode) {

@@ -30,6 +30,8 @@ PLATFORM_LINUX :: Platform_Interface {
 	get_window_position = linux_get_window_position,
 	get_window_scale = linux_get_window_scale,
 	set_window_mode = linux_set_window_mode,
+	get_monitor_count = linux_get_monitor_count,
+	get_monitor_info = linux_get_monitor_info,
 	set_cursor_hidden = linux_set_cursor_hidden,
 	is_cursor_hidden = linux_is_cursor_hidden,
 	set_mouse_locked = linux_set_mouse_locked,
@@ -44,23 +46,35 @@ PLATFORM_LINUX :: Platform_Interface {
 	set_internal_state = linux_set_internal_state,
 }
 
+// Which windowing backend was chosen, and whether one was found at all. Resolved once by
+// `linux_ensure_basic_setup`, so both `linux_init` and the monitor queries -- which may run
+// before `init`, when there is no `Linux_State` to keep this in -- see the same choice.
+win: Linux_Window_Interface
+
+// Only put things behind this flag that are harmless to run twice. Nothing that needs freeing: a
+// hot reload zeroes it along with `win` and `basic_setup_ok`, so this runs again in the same
+// process and re-resolves `win` to procedure pointers from the new code image.
+basic_setup_done: bool
+
+// Whether `win` actually points at a working windowing backend. False means the monitor queries
+// have nothing to report; `linux_init` still panics in that case, since a window cannot be opened
+// without one.
+basic_setup_ok: bool
+
 s: ^Linux_State
 
 linux_state_size :: proc() -> int {
 	return size_of(Linux_State)
 }
 
-linux_init :: proc(
-	platform_state: rawptr,
-	screen_width: int,
-	screen_height: int,
-	window_title: string,
-	options: Init_Options,
-	allocator: runtime.Allocator,
-) {
-	assert(platform_state != nil)
-	s = (^Linux_State)(platform_state)
-	s.allocator = allocator
+// Picks between Wayland and X11 and loads the winner's libraries into `win`. Uses
+// `context.temp_allocator` rather than `frame_allocator`, which is zeroed before `init` and so
+// cannot be relied on here.
+linux_ensure_basic_setup :: proc() {
+	if basic_setup_done {
+		return
+	}
+
 	// Each `try_load` opens a windowing system's libraries and checks that a server is listening,
 	// so a Wayland session picks Wayland, an X11 session finds no compositor and falls through,
 	// and a machine with only one of the two installed gets the one it has. Nothing here reads the
@@ -77,7 +91,7 @@ linux_init :: proc(
 	// that the first choice was turned down. The default order falling through to X11 is ordinary
 	// detection on an X11 machine, not something anyone needs to read about.
 	preference_given := false
-	windowing_preference := os.get_env("KARL2D_LINUX_WINDOWING", frame_allocator)
+	windowing_preference := os.get_env("KARL2D_LINUX_WINDOWING", context.temp_allocator)
 
 	switch windowing_preference {
 	case "":
@@ -97,32 +111,58 @@ linux_init :: proc(
 		)
 	}
 
-	s.win = first
-	first_failure_reason, first_ok := s.win.try_load(frame_allocator)
+	win = first
+	first_failure_reason, first_ok := win.try_load(context.temp_allocator)
 
-	if !first_ok {
-		s.win = second
-		second_failure_reason, second_ok := s.win.try_load(frame_allocator)
+	if first_ok {
+		basic_setup_ok = true
+	} else {
+		win = second
+		second_failure_reason, second_ok := win.try_load(context.temp_allocator)
+		basic_setup_ok = second_ok
 
-		if !second_ok {
-			// The reasons go in the panic itself rather than only in the log above it: a game
-			// that raises the log level past info would otherwise be told to read reasons that
-			// were never printed.
-			log.panicf(
-				"Found neither Wayland nor X11. Karl2D needs one of them. %s %s",
+		if second_ok {
+			if preference_given {
+				log.info(first_failure_reason)
+			}
+		} else {
+			// Logged here rather than only left for `linux_init` to panic about, since a monitor
+			// query calling this before `init` never panics and would otherwise leave the reasons
+			// unreported.
+			log.errorf(
+				"Found neither Wayland nor X11. %s %s",
 				first_failure_reason,
 				second_failure_reason,
 			)
 		}
+	}
 
-		if preference_given {
-			log.info(first_failure_reason)
-		}
+	basic_setup_done = true
+}
+
+linux_init :: proc(
+	platform_state: rawptr,
+	screen_width: int,
+	screen_height: int,
+	window_title: string,
+	options: Init_Options,
+	allocator: runtime.Allocator,
+) {
+	assert(platform_state != nil)
+	s = (^Linux_State)(platform_state)
+	s.allocator = allocator
+
+	linux_ensure_basic_setup()
+
+	// A window cannot be opened without a working windowing backend. The reasons why neither
+	// loaded were already logged by `linux_ensure_basic_setup`.
+	if !basic_setup_ok {
+		log.panicf("Found neither Wayland nor X11. Karl2D needs one of them.")
 	}
 
 	win_state_alloc_error: runtime.Allocator_Error
 	s.win_state, win_state_alloc_error = mem.alloc(
-		s.win.state_size(),
+		win.state_size(),
 		allocator = allocator,
 	)
 
@@ -131,7 +171,7 @@ linux_init :: proc(
 		win_state_alloc_error,
 	)
 
-	s.win.init(
+	win.init(
 		s.win_state,
 		screen_width,
 		screen_height,
@@ -160,17 +200,18 @@ linux_shutdown :: proc() {
 	udev.monitor_unref(s.udev_mon)
 	udev.unref(s.udev_ptr)
 
-	s.win.shutdown()
+	win.shutdown()
 	a := s.allocator
 	free(s.win_state, a)
+	s = nil
 }
 
 linux_get_window_render_glue :: proc() -> Window_Render_Glue {
-	return s.win.get_window_render_glue()
+	return win.get_window_render_glue()
 }
 
 linux_get_events :: proc(events: ^[dynamic]Event) {
-	s.win.get_events(events)
+	win.get_events(events)
 	linux_poll_for_new_gamepads()
 	linux_get_gamepad_events(events)
 }
@@ -214,31 +255,55 @@ linux_poll_for_new_gamepads :: proc() {
 }
 
 linux_get_screen_width :: proc() -> int {
-	return s.win.get_screen_width()
+	return win.get_screen_width()
 }
 
 linux_get_screen_height :: proc() -> int {
-	return s.win.get_screen_height()
+	return win.get_screen_height()
 }
 
 linux_set_window_title :: proc(title: string) {
-	s.win.set_title(title)
+	win.set_title(title)
 }
 
 linux_set_window_position :: proc(x: int, y: int) {
-	s.win.set_position(x, y)
+	win.set_position(x, y)
 }
 
 linux_get_window_position :: proc() -> Vec2 {
-	return s.win.get_position()
+	return win.get_position()
 }
 
 set_screen_size :: proc(w, h: int) {
-	s.win.set_screen_size(w, h)
+	win.set_screen_size(w, h)
 }
 
 linux_get_window_scale :: proc() -> f32 {
-	return s.win.get_window_scale()
+	return win.get_window_scale()
+}
+
+// Callable before `init`. Uses the global `win` set up by `linux_ensure_basic_setup`, never
+// `s.win_state`, since there may be no `Linux_State` yet. Reports nothing rather than panicking
+// when no windowing backend was found: a program asking about monitors on a machine with no
+// working windowing system should get "none", not a crash.
+linux_get_monitor_count :: proc() -> int {
+	linux_ensure_basic_setup()
+
+	if !basic_setup_ok {
+		return 0
+	}
+
+	return win.get_monitor_count()
+}
+
+linux_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	linux_ensure_basic_setup()
+
+	if !basic_setup_ok {
+		return {}, false
+	}
+
+	return win.get_monitor_info(monitor)
 }
 
 linux_create_connected_gamepads :: proc() {
@@ -658,35 +723,40 @@ linux_open_url :: proc(url: string) -> bool {
 linux_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Linux_State)(state)
-	s.win.set_internal_state(s.win_state)
+
+	// A hot reload zeroes `basic_setup_done` along with `win`, so this re-resolves it to
+	// procedure pointers from the new code image.
+	linux_ensure_basic_setup()
+
+	win.set_internal_state(s.win_state)
 }
 
 linux_set_window_mode :: proc(window_mode: Window_Mode) {
-	s.win.set_window_mode(window_mode)
+	win.set_window_mode(window_mode)
 }
 
 linux_set_cursor_hidden :: proc(hidden: bool) {
-	s.win.set_cursor_hidden(hidden)
+	win.set_cursor_hidden(hidden)
 }
 
 linux_is_cursor_hidden :: proc() -> bool {
-	return s.win.is_cursor_hidden()
+	return win.is_cursor_hidden()
 }
 
 linux_set_mouse_locked :: proc(locked: bool) {
-	s.win.set_mouse_locked(locked)
+	win.set_mouse_locked(locked)
 }
 
 linux_is_mouse_locked :: proc() -> bool {
-	return s.win.is_mouse_locked()
+	return win.is_mouse_locked()
 }
 
 linux_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
-	return s.win.create_custom_cursor(image, hotspot)
+	return win.create_custom_cursor(image, hotspot)
 }
 
 linux_set_cursor :: proc(cursor: Cursor) {
-	s.win.set_cursor(cursor)
+	win.set_cursor(cursor)
 }
 
 // Cursor theme names for a standard cursor. Both X11 and Wayland load cursors out of the user's
@@ -716,11 +786,10 @@ linux_standard_cursor_names :: proc(cursor: Standard_Cursor) -> (name: cstring, 
 }
 
 linux_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
-	s.win.destroy_custom_cursor(custom_cursor)
+	win.destroy_custom_cursor(custom_cursor)
 }
 
 Linux_State :: struct {
-	win: Linux_Window_Interface,
 	win_state: rawptr,
 	allocator: runtime.Allocator,
 
@@ -764,6 +833,12 @@ Linux_Window_Interface :: struct #all_or_none {
 	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
+
+	// Callable before `init`, through the global `win` -- see `linux_get_monitor_count` and
+	// `linux_get_monitor_info`.
+	get_monitor_count: proc() -> int,
+	get_monitor_info: proc(monitor: int) -> (Monitor_Info, bool),
+
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
 	set_mouse_locked: proc(locked: bool),
