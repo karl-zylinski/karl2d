@@ -21,20 +21,25 @@ step :: proc() -> bool {
 	monitor_count := k2.get_monitor_count()
 	k2.draw_text(fmt.tprintf("Monitors: %v", monitor_count), {20, 20}, 30, k2.WHITE)
 
+	// Drag the window to another monitor and watch this follow it. This is usually the one you
+	// want, rather than `k2.MONITOR_PRIMARY`, since it is the display the player is looking at.
+	current := k2.get_window_monitor()
+
 	y: f32 = 70
 
 	for i in 0..<monitor_count {
 		// Monitor 0 is always the primary one, whatever order the operating system lists them in.
-		// `k2.MONITOR_PRIMARY` is that 0, for when you only care about the main display.
 		line := fmt.tprintf(
-			"%v: %v x %v at %v",
+			"%v: %v x %v at %v%v%v",
 			i,
 			k2.get_monitor_width(i),
 			k2.get_monitor_height(i),
 			k2.get_monitor_position(i),
+			i == k2.MONITOR_PRIMARY ? "  primary" : "",
+			i == current ? "  <- window is here" : "",
 		)
 
-		k2.draw_text(line, {20, y}, 24, i == k2.MONITOR_PRIMARY ? k2.YELLOW : k2.LIGHT_GREEN)
+		k2.draw_text(line, {20, y}, 24, i == current ? k2.YELLOW : k2.LIGHT_GREEN)
 		y += 32
 	}
 
