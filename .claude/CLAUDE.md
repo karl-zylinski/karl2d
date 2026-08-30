@@ -19,7 +19,6 @@ Read this before starting and go through it again before saying the work is done
 - No single line `if` bodies. No spaces in `0..<n` or around the `=` in an attribute.
 - Anything that does not fit on one line is split one item per line, each ending with a comma, closing bracket on its own line. Return value lists split the same way.
 - Ran the relevant build task(s), and `odin run tools/test_examples` if the change was large.
-- Ran `odin run tools/style_check` and it passed.
 - If the API surface changed: regenerate `karl2d.doc.odin` with `tools/api_doc_builder`.
 - The commit message reads like a tweet: 180 characters at most, simple sentences, the period is the only punctuation.
 - The pull request description contains only the four things listed under Pull request descriptions.
@@ -59,7 +58,6 @@ Nothing else. No narrative of how the work was done, no verification logs, no ra
 - After edits, run the most relevant build task(s) for what you touched. After a large change, run `odin run tools/test_examples`, the CI script that builds every example (some are excluded from web builds, e.g. `minimal_hello_world`, `custom_frame_update`).
 - Regenerate `karl2d.doc.odin`: `odin run tools/api_doc_builder`. Any change in `karl2d.doc.odin` is a user-facing API change. Make sure you want that change to actually happen. Think about what happens if you break backwards compatibility.
 - Web builds use the script in `build_web/`. Forward game/compiler flags after `--`: `odin run build_web -- your_game_path -debug`. A web game must have `init` and `step` procedures; `examples/minimal_hello_world_web/` is the template.
-- `odin run tools/style_check` reports the mechanical style rules broken by the lines your change adds: line length, trailing whitespace, single line `if` bodies, spacing in ranges and attributes, and result names written the wrong way round. It looks at the working tree against `HEAD`; pass `-- -base <revision>` to check a whole branch instead, which is what the CI does.
 - `tools/make_sublime_projects`, `tools/make_vscode_project/` and `tools/make_zed_project/` generate editor project configurations.
 
 ## Code Style
