@@ -33,22 +33,35 @@ DECORATION_BORDER :: 1
 // trick every toolkit plays with the shadow around its windows.
 DECORATION_RESIZE_MARGIN :: 8
 
-// What the frame is painted with. The fill covers the titlebar and the outline runs around the
-// outside of the whole window, which is all the thin sides are. Premultiplied ARGB, the format the
-// decoration buffers are in.
+// A titlebar button, and how much room it takes, in logical pixels. `glyph` is the box the drawing
+// inside it fits in and `stroke` how wide the lines of that drawing are.
+DECORATION_BUTTON_WIDTH :: 32
+DECORATION_BUTTON_GLYPH :: 12
+DECORATION_BUTTON_STROKE :: 1.2
+
+// What the frame is painted with. The fill covers the titlebar, the outline runs around the
+// outside of the whole window, which is all the thin sides are, `text` draws the button glyphs and
+// the title, and `hover` lights up the button under the pointer. Premultiplied ARGB, the format
+// the decoration buffers are in.
 WL_Decoration_Colors :: struct {
 	fill: u32,
 	outline: u32,
+	text: u32,
+	hover: u32,
 }
 
 DECORATION_COLORS_DARK :: WL_Decoration_Colors {
 	fill = 0xff2e2e2e,
 	outline = 0xff4a4a4a,
+	text = 0xffdadada,
+	hover = 0xff474747,
 }
 
 DECORATION_COLORS_LIGHT :: WL_Decoration_Colors {
 	fill = 0xffe8e8e8,
 	outline = 0xffb4b4b4,
+	text = 0xff303030,
+	hover = 0xffd0d0d0,
 }
 
 // One part of the window frame Karl2D draws for itself. Each is a subsurface of the surface the
@@ -84,6 +97,21 @@ WL_Decoration_Part :: enum {
 	Bottom,
 }
 
+// The buttons in the titlebar, laid out from the right edge of the window inwards in this order.
+WL_Decoration_Button :: enum {
+	None,
+	Close,
+}
+
+// A rectangle in logical pixels with the game canvas at the origin, which is how the frame
+// measures everything it draws.
+WL_Decoration_Rect :: struct {
+	x: int,
+	y: int,
+	width: int,
+	height: int,
+}
+
 // Everything the frame keeps track of. `WL_State` holds one of these, so that the state of the
 // window and the state of the frame around it stay apart.
 WL_Decorations :: struct {
@@ -98,6 +126,11 @@ WL_Decorations :: struct {
 	// moves the window rather than resizing it, and stale whenever the pointer is not on the frame
 	// at all, which `wldeco_has_pointer` is what answers.
 	pointer_edge: u32,
+
+	// The button under the pointer, which is the one that lights up, and the one the button went
+	// down on. A button only acts if the pointer is still on it when the button comes back up.
+	pointer_button: WL_Decoration_Button,
+	pressed_button: WL_Decoration_Button,
 }
 
 // Creates the four surfaces that make up the window frame. They are subsurfaces of the surface the
@@ -253,11 +286,103 @@ wldeco_paint :: proc(part: WL_Decoration_Part) {
 		}
 	}
 
+	if part == .Titlebar {
+		for button in WL_Decoration_Button {
+			if button != .None {
+				wldeco_paint_button(d, button)
+			}
+		}
+	}
+
 	wl.subsurface_set_position(d.subsurface, i32(d.x), i32(d.y))
 	wl.wp_viewport_set_destination(d.viewport, i32(max(1, d.width)), i32(max(1, d.height)))
 	wl.surface_attach(d.surface, d.buffer, 0, 0)
 	wl.surface_damage_buffer(d.surface, 0, 0, i32(buffer_width), i32(buffer_height))
 	wl.surface_commit(d.surface)
+}
+
+// Draws one button into the titlebar buffer: a lit background while the pointer is on it, and the
+// glyph that says what it does. `d` is the titlebar, whose buffer the button is painted into.
+wldeco_paint_button :: proc(d: ^WL_Decoration, button: WL_Decoration_Button) {
+	rect := wldeco_button_rect(button)
+
+	// The button's corner in the titlebar's own physical pixels.
+	x0 := int(math.round(f32(rect.x - d.x) * s.scale))
+	y0 := int(math.round(f32(rect.y - d.y) * s.scale))
+	x1 := min(d.buffer_width, int(math.round(f32(rect.x + rect.width - d.x) * s.scale)))
+	y1 := min(d.buffer_height, int(math.round(f32(rect.y + rect.height - d.y) * s.scale)))
+
+	if x0 >= x1 || y0 >= y1 {
+		return
+	}
+
+	background := s.decorations.colors.fill
+
+	if s.decorations.pointer_button == button {
+		background = s.decorations.colors.hover
+	}
+
+	center_x := f32(x0 + x1)/2
+	center_y := f32(y0 + y1)/2
+	reach := DECORATION_BUTTON_GLYPH/2 * s.scale
+	half_stroke := DECORATION_BUTTON_STROKE/2 * s.scale
+
+	for y in y0..<y1 {
+		for x in x0..<x1 {
+			// How far this pixel is from each of the two strokes of the X. Turning that distance
+			// into coverage costs nothing and keeps the glyph from looking like a staircase.
+			dx := f32(x) - center_x + 0.5
+			dy := f32(y) - center_y + 0.5
+			coverage := f32(0)
+
+			if abs(dx) <= reach && abs(dy) <= reach {
+				// The 0.7071 turns the distance along an axis into the distance to a 45 degree
+				// line, which is what the strokes are.
+				to_stroke := min(abs(dx - dy), abs(dx + dy)) * 0.70710678
+				coverage = clamp(half_stroke + 0.5 - to_stroke, 0, 1)
+			}
+
+			d.pixels[y*d.buffer_width + x] = wldeco_blend(
+				background,
+				s.decorations.colors.text,
+				coverage,
+			)
+		}
+	}
+}
+
+// Mixes two opaque colors, `amount` being how much of `over` shows.
+wldeco_blend :: proc(under: u32, over: u32, amount: f32) -> u32 {
+	if amount <= 0 {
+		return under
+	}
+
+	if amount >= 1 {
+		return over
+	}
+
+	mixed := u32(0xff000000)
+
+	for shift in ([]u32 {16, 8, 0}) {
+		a := f32((under >> shift) & 0xff)
+		b := f32((over >> shift) & 0xff)
+		mixed |= u32(a + (b - a)*amount) << shift
+	}
+
+	return mixed
+}
+
+// Where a titlebar button sits. They are laid out from the right edge of the window inwards, in the
+// order of the enum, and fill the titlebar's height inside the outline.
+wldeco_button_rect :: proc(button: WL_Decoration_Button) -> WL_Decoration_Rect {
+	slot := int(button) - 1
+
+	return {
+		x = s.last_configure_width - (slot + 1)*DECORATION_BUTTON_WIDTH,
+		y = -DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER,
+		width = DECORATION_BUTTON_WIDTH,
+		height = DECORATION_TITLEBAR_HEIGHT - DECORATION_BORDER,
+	}
 }
 
 // Makes a fresh shared memory buffer for one part of the frame, throwing away the one it had. The
@@ -476,12 +601,20 @@ wldeco_has_pointer :: proc() -> bool {
 	return s.pointer_surface != nil && s.pointer_surface != s.surface
 }
 
-// Follows the pointer across the frame and works out what is under it. Returns true when that
-// changed, which is the only time anything has to be done about it: resting the pointer on the
-// frame has to cost nothing at all, and repainting on every motion event is exactly the mistake
-// that made libdecor drop a window from 90 frames a second to one.
+// Follows the pointer across the frame and works out what is under it: the edge it can resize from
+// and the button it is on. Returns true when the cursor has to be set again.
+//
+// Nothing at all happens while the pointer sits still, and a button lighting up repaints the
+// titlebar and nothing else. Repainting the whole frame on every motion event is exactly the
+// mistake that dropped a libdecor window from 90 frames a second to one.
 wldeco_pointer_moved :: proc(local_x: f32, local_y: f32) -> bool {
 	edge := wldeco_resize_edge(local_x, local_y)
+	button := wldeco_button_at(local_x, local_y, edge)
+
+	if button != s.decorations.pointer_button {
+		s.decorations.pointer_button = button
+		wldeco_paint(.Titlebar)
+	}
 
 	if edge == s.decorations.pointer_edge {
 		return false
@@ -491,11 +624,41 @@ wldeco_pointer_moved :: proc(local_x: f32, local_y: f32) -> bool {
 	return true
 }
 
-// Acts on a button that went down on the frame. Near an edge that starts a resize and anywhere
-// else it starts a move. The compositor runs both itself, grabbing the pointer until the button
-// comes back up, so there is nothing here to follow along with.
-wldeco_pointer_pressed :: proc(button: u32, serial: u32) {
+// The pointer left the frame, so nothing on it is under the pointer any more.
+wldeco_pointer_left :: proc() {
+	s.decorations.pressed_button = .None
+
+	if s.decorations.pointer_button != .None {
+		s.decorations.pointer_button = .None
+		wldeco_paint(.Titlebar)
+	}
+
+	s.decorations.pointer_edge = wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE
+}
+
+// Acts on a mouse button that changed state over the frame. Pressing near an edge starts a resize
+// and pressing anywhere else that is not a titlebar button starts a move; the compositor runs both
+// itself, grabbing the pointer until the button comes back up, so there is nothing here to follow
+// along with. A titlebar button waits for the release, and only acts if the pointer is still on it,
+// so that pressing one and sliding off changes nothing.
+wldeco_pointer_button :: proc(button: u32, state: u32, serial: u32) {
 	if button != wl.POINTER_BTN_LEFT {
+		return
+	}
+
+	if state != wl.POINTER_BUTTON_STATE_PRESSED {
+		acted := s.decorations.pressed_button
+		s.decorations.pressed_button = .None
+
+		if acted != .None && acted == s.decorations.pointer_button {
+			wldeco_button_acted(acted)
+		}
+
+		return
+	}
+
+	if s.decorations.pointer_button != .None {
+		s.decorations.pressed_button = s.decorations.pointer_button
 		return
 	}
 
@@ -505,6 +668,50 @@ wldeco_pointer_pressed :: proc(button: u32, serial: u32) {
 	}
 
 	wl.xdg_toplevel_move(s.toplevel, s.seat, serial)
+}
+
+// What a titlebar button does when it is clicked.
+wldeco_button_acted :: proc(button: WL_Decoration_Button) {
+	switch button {
+	case .None:
+
+	case .Close:
+		// The same event the compositor's own close button would have sent. What happens next is
+		// the game's business: Karl2D does not close the window by itself.
+		append(&s.events, Event_Close_Window_Requested{})
+	}
+}
+
+// Which titlebar button is under the pointer, if any. `edge` is the resize edge there, since a
+// grip near the corner of the window resizes rather than pressing the button beneath it.
+wldeco_button_at :: proc(
+	local_x: f32,
+	local_y: f32,
+	edge: u32,
+) -> WL_Decoration_Button {
+	if edge != wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE || wldeco_pointer_part() != .Titlebar {
+		return .None
+	}
+
+	d := s.decorations.parts[.Titlebar]
+	x := f32(d.x) + local_x
+	y := f32(d.y) + local_y
+
+	for button in WL_Decoration_Button {
+		if button == .None {
+			continue
+		}
+
+		rect := wldeco_button_rect(button)
+		inside_x := x >= f32(rect.x) && x < f32(rect.x + rect.width)
+		inside_y := y >= f32(rect.y) && y < f32(rect.y + rect.height)
+
+		if inside_x && inside_y {
+			return button
+		}
+	}
+
+	return .None
 }
 
 // Which window edge the pointer is over, as an `xdg_toplevel` resize edge. Zero means it is on the

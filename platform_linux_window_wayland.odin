@@ -685,6 +685,11 @@ pointer_listener := wl.Pointer_Listener {
 		surface: ^wl.Surface,
 	) {
 		context = s.odin_ctx
+
+		if wldeco_has_pointer() {
+			wldeco_pointer_left()
+		}
+
 		s.pointer_surface = nil
 	},
 	motion = proc "c" (
@@ -724,10 +729,7 @@ pointer_listener := wl.Pointer_Listener {
 		context = s.odin_ctx
 
 		if wldeco_has_pointer() {
-			if state == wl.POINTER_BUTTON_STATE_PRESSED {
-				wldeco_pointer_pressed(u32(button), u32(serial))
-			}
-
+			wldeco_pointer_button(u32(button), u32(state), u32(serial))
 			return
 		}
 
