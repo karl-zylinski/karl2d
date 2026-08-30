@@ -6928,10 +6928,6 @@ BATCH_ARENA_BLOCK_SIZE :: 64*1024
 @(private="file")
 s: ^State
 
-// A constant rather than a global assigned during `init`, since the platform is picked at compile
-// time anyway. See `platform_chooser.odin`. Keeping it out of `State` also means that
-// `set_internal_state` no longer hands back procedure pointers captured in a previous code image,
-// which is what it did when the interface was stored and restored across a hot reload.
 @(private="file")
 pf :: PLATFORM
 
