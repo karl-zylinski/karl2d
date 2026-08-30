@@ -1,0 +1,29 @@
+{
+	"hooks": {
+		"PreToolUse": [
+			{
+				"matcher": "Bash",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/pre_git_commit.sh\"",
+						"shell": "bash",
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/done_checklist.sh\"",
+						"shell": "bash",
+						"timeout": 15
+					}
+				]
+			}
+		]
+	}
+}

@@ -1,0 +1,2 @@
+# Hook scripts are run by bash, which chokes on carriage returns.
+*.sh text eol=lf
