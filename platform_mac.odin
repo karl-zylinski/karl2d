@@ -31,6 +31,7 @@ PLATFORM_MAC :: Platform_Interface {
 	get_window_position = mac_get_window_position,
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
+	set_window_icon = mac_set_window_icon,
 
 	set_cursor_hidden = mac_set_cursor_hidden,
 	is_cursor_hidden = mac_is_cursor_hidden,
@@ -85,6 +86,11 @@ Mac_State :: struct {
 	modifier_key_is_held: #sparse [Keyboard_Key]bool,
 
 	window_render_glue: Window_Render_Glue,
+
+	// The application icon and the pixels it was built from. Both nil until
+	// `mac_set_window_icon` runs.
+	icon:        ^NS.Image,
+	icon_pixels: []Color,
 
 	gamepads:           [MAX_GAMEPADS]Gamepad,
 	gc_connect_blk:     ^NS.Block,
@@ -313,6 +319,12 @@ mac_shutdown :: proc() {
 		delete(cd.pixels, s.allocator)
 	}
 	hm.dynamic_destroy(&s.custom_cursors)
+
+	if s.icon != nil {
+		s.icon->release()
+		delete(s.icon_pixels, s.allocator)
+		s.icon = nil
+	}
 
 	if s.window != nil {
 		s.window->close()
@@ -796,6 +808,50 @@ mac_set_window_mode :: proc(window_mode: Window_Mode) {
 		s.screen_width  = int(f32(content_rect.width) * scale)
 		s.screen_height = int(f32(content_rect.height) * scale)
 	}
+}
+
+// macOS windows have no icon of their own, so this sets the application's icon, the one in the
+// Dock. It lasts for as long as the process runs. An app bundle takes its icon from the .icns file
+// inside it until this replaces it.
+mac_set_window_icon :: proc(image: Image) -> bool {
+	// NSBitmapImageRep points at the pixel planes it is handed rather than copying them, so a copy
+	// of the pixels must stay alive for as long as the image does.
+	pixels := slice.clone(image.pixels, s.allocator)
+	planes := [?]^u8 {(^u8)(raw_data(pixels))}
+
+	rep := NS.BitmapImageRep_alloc()->initWithBitmapDataPlanes(
+		&planes[0],
+		NS.Integer(image.width),
+		NS.Integer(image.height),
+		8, 4, true, false,
+		NS.DeviceRGBColorSpace,
+		NS.BitmapFormatFlags{.AlphaNonpremultiplied},
+		NS.Integer(image.width * 4),
+		32,
+	)
+
+	// The Dock decides how big to draw the icon, so the size in points only has to carry the
+	// aspect ratio of the pixels.
+	ns_image := NS.Image_alloc()->initWithSize({
+		CF.CGFloat(image.width),
+		CF.CGFloat(image.height),
+	})
+	ns_image->addRepresentation((^NS.ImageRep)(rep))
+
+	// The image retains the representation, so that can go now.
+	rep->release()
+
+	ce.Application_setApplicationIconImage(s.app, ns_image)
+
+	// The icon that was in the Dock is only safe to release now that this one has replaced it.
+	if s.icon != nil {
+		s.icon->release()
+		delete(s.icon_pixels, s.allocator)
+	}
+
+	s.icon = ns_image
+	s.icon_pixels = pixels
+	return true
 }
 
 mac_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {

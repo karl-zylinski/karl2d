@@ -18,6 +18,11 @@ Application_presentationOptions :: proc "c" (self: ^NS.Application) -> NS.Applic
 	return msgSend(NS.ApplicationPresentationOptions, self, "presentationOptions")
 }
 
+// The icon the application shows in the Dock. macOS windows have no icon of their own.
+Application_setApplicationIconImage :: proc "c" (self: ^NS.Application, image: ^NS.Image) {
+	msgSend(nil, self, "setApplicationIconImage:", image)
+}
+
 // NSWindow content size (sets the size of the content area, excluding decorations)
 Window_setContentSize :: proc "c" (self: ^NS.Window, size: NS.Size) {
 	msgSend(nil, self, "setContentSize:", size)

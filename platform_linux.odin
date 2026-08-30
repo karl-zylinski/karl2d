@@ -30,6 +30,7 @@ PLATFORM_LINUX :: Platform_Interface {
 	get_window_position = linux_get_window_position,
 	get_window_scale = linux_get_window_scale,
 	set_window_mode = linux_set_window_mode,
+	set_window_icon = linux_set_window_icon,
 	set_cursor_hidden = linux_set_cursor_hidden,
 	is_cursor_hidden = linux_is_cursor_hidden,
 	set_mouse_locked = linux_set_mouse_locked,
@@ -665,6 +666,10 @@ linux_set_window_mode :: proc(window_mode: Window_Mode) {
 	s.win.set_window_mode(window_mode)
 }
 
+linux_set_window_icon :: proc(image: Image) -> bool {
+	return s.win.set_window_icon(image)
+}
+
 linux_set_cursor_hidden :: proc(hidden: bool) {
 	s.win.set_cursor_hidden(hidden)
 }
@@ -764,6 +769,7 @@ Linux_Window_Interface :: struct #all_or_none {
 	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
+	set_window_icon: proc(image: Image) -> bool,
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
 	set_mouse_locked: proc(locked: bool),

@@ -20,6 +20,7 @@ PLATFORM_WEB :: Platform_Interface {
 	get_window_position = web_get_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
+	set_window_icon = web_set_window_icon,
 
 	set_cursor_hidden = web_set_cursor_hidden,
 	is_cursor_hidden = web_is_cursor_hidden,
@@ -45,6 +46,9 @@ import "base:runtime"
 import hm "core:container/handle_map"
 import "log"
 import "core:fmt"
+
+// The link element in index.html that `web_set_window_icon` writes the favicon into.
+FAVICON_ELEMENT_ID :: "karl2d-favicon"
 
 web_state_size :: proc() -> int {
 	return size_of(Web_State)
@@ -467,6 +471,40 @@ web_set_window_mode :: proc(new_mode: Window_Mode) {
 	} else if new_mode == .Windowed && old_mode == .Windowed_Resizable {
 		web_set_screen_size(s.width, s.height)
 	}
+}
+
+// A page has no window icon, so this sets the favicon instead, as a PNG data URI.
+//
+// Fails when `index.html` has no `karl2d-favicon` element. A page that took the element out is
+// left alone, so a game can pick its own favicon in HTML and keep it.
+web_set_window_icon :: proc(image: Image) -> bool {
+	// A `rel` of "icon" is what the template gives the element, so any non-empty answer means it
+	// is there. A missing element reads back as an empty string.
+	rel_buf: [8]u8
+	if js.get_element_key_string(FAVICON_ELEMENT_ID, "rel", rel_buf[:]) == "" {
+		log.warnf(
+			"Cannot set the window icon: index.html has no element with the id '%v'. Add " +
+			"<link id=\"%v\" rel=\"icon\" href=\"\"> to its <head>, or set the favicon in the " +
+			"HTML and leave this alone.",
+			FAVICON_ELEMENT_ID, FAVICON_ELEMENT_ID,
+		)
+
+		return false
+	}
+
+	// core:image/png can only decode, not encode, so we encode it ourselves. See `encode_png`'s
+	// own comment for why that is fine here.
+	png_bytes, encode_ok := encode_png(image, frame_allocator)
+	if !encode_ok {
+		log.error("Failed encoding the window icon as a PNG")
+		return false
+	}
+
+	// The base64 is copied into the data URI below, so it is not needed after that.
+	pixels_b64 := base64.encode(png_bytes, allocator = frame_allocator)
+	data_uri := fmt.aprintf("data:image/png;base64,%v", pixels_b64, allocator = frame_allocator)
+	js.set_element_key_string(FAVICON_ELEMENT_ID, "href", data_uri)
+	return true
 }
 
 web_set_cursor_hidden :: proc(hidden: bool) {

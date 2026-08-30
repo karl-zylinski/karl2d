@@ -93,6 +93,15 @@ init :: proc(
 
 	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
 
+	// The window has an icon from the start this way. A game replaces it with its own by calling
+	// `set_window_icon`.
+	default_icon, default_icon_ok := load_image_from_bytes(DEFAULT_ICON_DATA)
+
+	if default_icon_ok {
+		pf.set_window_icon(default_icon)
+		destroy_image(default_icon)
+	}
+
 	// This is an OS-independent handle that we can pass to any rendering backend.
 	window_render_glue := pf.get_window_render_glue()
 
@@ -646,6 +655,42 @@ get_window_scale :: proc() -> f32 {
 set_window_mode :: proc(window_mode: Window_Mode) {
 	assert_initialized()
 	pf.set_window_mode(window_mode)
+}
+
+// Sets the icon that the OS shows for your game, in places such as the title bar, the task bar and
+// the window switcher. Karl2D puts its own icon there during `init`, so call this to replace it
+// with your game's own.
+//
+// Make `image` square. That is the shape the OS scales down to the sizes it needs. Linux+Wayland
+// goes further and rejects anything else, so Karl2D pads a non-square image with transparent
+// pixels there.
+//
+// The icon does not need `image` after this returns. You may destroy it.
+//
+// What the icon is varies by platform:
+// - macOS has no per-window icon, so this sets the icon in the Dock, for the whole application.
+// - On the web this sets the page's favicon. It needs the `karl2d-favicon` link element that
+//   `build_web` puts in `index.html`.
+// - Linux+Wayland can only do this through a protocol that not every compositor implements.
+//
+// Returns `true` if the icon was set. The reason is logged when it wasn't.
+//
+// This only covers the running program. The icon a file browser shows for your executable lives
+// in the executable itself and is set when you build it.
+set_window_icon :: proc(image: Image) -> bool {
+	assert_initialized()
+
+	if image.width == 0 || image.height == 0 {
+		log.error("Invalid icon image: height or width is zero")
+		return false
+	}
+
+	if len(image.pixels) != image.width*image.height {
+		log.error("Invalid icon image: the pixels array is not of size image.width*image.height")
+		return false
+	}
+
+	return pf.set_window_icon(image)
 }
 
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
@@ -5429,6 +5474,11 @@ Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
+
+// The Karl2D icon, applied by `init` and replaceable with `set_window_icon`. It is a PNG, so
+// `load_image_from_bytes` turns it into an `Image`.
+DEFAULT_ICON_DATA :: #load("default_icons/karl2d.png")
+
 // The cursors an operating system provides out of the box. Use with `set_cursor`.
 //
 // Not every platform has every one of them. Where one is missing, the closest thing is used
