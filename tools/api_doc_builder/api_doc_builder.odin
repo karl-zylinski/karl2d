@@ -147,6 +147,18 @@ main :: proc() {
 					break decl_loop
 				}
 
+				// A name that starts with an underscore is internal. The underscore already says
+				// that on return values, so it says the same here. Skipping those lets a helper
+				// sit next to the API procedure that uses it, rather than having to be moved out
+				// of the way to keep it out of this file.
+				if len(dd.names) > 0 {
+					name := f.src[dd.names[0].pos.offset:dd.names[0].end.offset]
+
+					if strings.has_prefix(name, "_") {
+						continue decl_loop
+					}
+				}
+
 				if dd.docs != nil {
 					pln(o, "")
 					pln(o, f.src[dd.docs.pos.offset:dd.docs.end.offset])

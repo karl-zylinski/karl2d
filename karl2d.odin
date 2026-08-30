@@ -11,6 +11,7 @@ import "core:slice"
 import "core:strings"
 import "core:reflect"
 import "core:time"
+import "core:sync"
 import "core:encoding/endian"
 
 import fs "vendor:fontstash"
@@ -198,13 +199,18 @@ init :: proc(
 		audio_alloc_error: runtime.Allocator_Error
 		s.audio_backend_state, audio_alloc_error = mem.alloc(ab.state_size(), allocator = s.allocator)
 		log.assertf(audio_alloc_error == nil, "Failed allocating memory for audio backend: %v", audio_alloc_error)
-		ab.init(s.audio_backend_state, s.allocator)
+
+		// Everything the mixer reads has to be ready before the backend starts. A backend that
+		// runs the mixer itself asks for samples from its own thread as soon as it is going.
 		hm.dynamic_init(&s.sounds, s.allocator)
 		hm.dynamic_init(&s.audio_clips, s.allocator)
 		hm.dynamic_init(&s.audio_streams, s.allocator)
 		hm.dynamic_init(&s.audio_buses, s.allocator)
 		s.master_bus.target_settings = DEFAULT_AUDIO_BUS_SETTINGS
 		s.master_bus.current_settings = DEFAULT_AUDIO_BUS_SETTINGS
+		s.audio_thread_logger = context.logger
+
+		ab.init(s.audio_backend_state, s.allocator)
 	}
 
 	return s
@@ -260,8 +266,10 @@ shutdown :: proc() {
 
 	// Audio
 	{
-		hm.dynamic_destroy(&s.audio_streams)
+		// Stop the backend first. A backend that runs the mixer itself reaches the handle maps
+		// from its own thread right up until it is shut down.
 		ab.shutdown()
+		hm.dynamic_destroy(&s.audio_streams)
 		hm.dynamic_destroy(&s.sounds)
 		hm.dynamic_destroy(&s.audio_clips)
 		hm.dynamic_destroy(&s.audio_buses)
@@ -2034,6 +2042,8 @@ play_audio_clip :: proc(
 	loop := false,
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound {
+	sync.recursive_mutex_guard(&s.audio_mutex)
+
 	audio_clip_object := hm.get(&s.audio_clips, clip)
 
 	if audio_clip_object == nil {
@@ -2074,6 +2084,7 @@ play_audio_clip :: proc(
 // `play_audio_stream`, this also rewinds the stream to the start. Use `set_sound_paused` to pause
 // the Sound instead, which won't lose the current playback position and settings.
 stop_sound :: proc(sound: Sound) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2091,6 +2102,7 @@ stop_sound :: proc(sound: Sound) {
 // Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
 // or stopped.
 set_sound_paused :: proc(sound: Sound, paused: bool) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2102,6 +2114,7 @@ set_sound_paused :: proc(sound: Sound, paused: bool) {
 
 // Returns true if the sound exists and is not paused.
 sound_is_playing :: proc(sound: Sound) -> bool {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 	return sound_object != nil && !sound_object.paused
 }
@@ -2109,11 +2122,13 @@ sound_is_playing :: proc(sound: Sound) -> bool {
 // Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
 // stopped sound is not.
 sound_is_valid :: proc(sound: Sound) -> bool {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	return hm.is_valid(&s.sounds, sound)
 }
 
 // Set the volume of a sound. Range: 0 to 1.
 set_sound_volume :: proc(sound: Sound, volume: f32) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2125,6 +2140,7 @@ set_sound_volume :: proc(sound: Sound, volume: f32) {
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
 set_sound_pan :: proc(sound: Sound, pan: f32) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2137,6 +2153,7 @@ set_sound_pan :: proc(sound: Sound, pan: f32) {
 // Set the pitch of a sound. Range: 0.01 and up, where 1 is the default. Pitch 2 makes the sound
 // play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2153,6 +2170,7 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 // audio has to be decoded before it can play. Don't do it every frame while dragging a scrub bar,
 // do it when the player lets go.
 set_sound_time :: proc(sound: Sound, seconds: f32) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2185,6 +2203,7 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
 // each time it starts over. Returns 0 if the sound doesn't exist.
 get_sound_time :: proc(sound: Sound) -> f32 {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2258,6 +2277,7 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 // Get the length of the sound's audio, in seconds. Use it together with `get_sound_time` to show
 // how far into a song you are. Returns 0 if the sound doesn't exist or if the length is unknown.
 get_sound_length :: proc(sound: Sound) -> f32 {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2305,6 +2325,7 @@ get_sound_length :: proc(sound: Sound) -> f32 {
 // reaches into the streaming decoder and tells that one to loop. A `Sound` started from a stream
 // plays a short buffer that the decoder keeps filling, so that sound always loops.
 set_sound_loop :: proc(sound: Sound, loop: bool) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2326,6 +2347,7 @@ set_sound_loop :: proc(sound: Sound, loop: bool) {
 
 // Route a sound into an audio bus. Pass `AUDIO_BUS_MASTER` for the master bus.
 set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2343,6 +2365,7 @@ set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 // How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
 // start from the same clip.
 get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	count: int
 
 	for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
@@ -2571,6 +2594,11 @@ load_audio_clip_from_bytes_raw :: proc(
 	sample_rate: int,
 	channels: Audio_Channels,
 ) -> (Audio_Clip, bool) #optional_ok {
+	// `load_audio_clip_from_file` and `load_audio_clip_from_bytes` reach the shared state through
+	// here, so this is the only one of the three that takes the mutex. Their reading and parsing
+	// then happens without it, which keeps the file access away from the mixer.
+	sync.recursive_mutex_guard(&s.audio_mutex)
+
 	samples: []Audio_Sample
 
 	switch format{
@@ -2641,6 +2669,7 @@ load_audio_clip_from_bytes_raw :: proc(
 // Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Also stops sounds
 // playing this clip.
 destroy_audio_clip :: proc(clip: Audio_Clip)  {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	audio_clip_object := hm.get(&s.audio_clips, clip)
 
 	if audio_clip_object == nil {
@@ -2784,6 +2813,10 @@ load_audio_stream_from_file :: proc(
 		channels = channels,
 	}
 
+	// Opening the file and starting the decoder above touch nothing the mixer reads. The handle
+	// maps below are shared, so the mutex is taken here rather than at the top.
+	sync.recursive_mutex_guard(&s.audio_mutex)
+
 	audio_clip_handle, audio_clip_handle_add_err := hm.add(&s.audio_clips, audio_clip)
 
 	if audio_clip_handle_add_err != nil {
@@ -2897,6 +2930,10 @@ load_audio_stream_from_bytes :: proc(
 		channels = channels,
 	}
 
+	// Opening the file and starting the decoder above touch nothing the mixer reads. The handle
+	// maps below are shared, so the mutex is taken here rather than at the top.
+	sync.recursive_mutex_guard(&s.audio_mutex)
+
 	audio_clip_handle, audio_clip_handle_add_err := hm.add(&s.audio_clips, audio_clip)
 
 	if audio_clip_handle_add_err != nil {
@@ -2934,12 +2971,19 @@ load_audio_stream_from_bytes :: proc(
 // If you created the stream using `load_audio_stream_from_bytes`, then this procedure will NOT
 // deallocate the bytes that you sent into that procedure.
 destroy_audio_stream :: proc(stream: Audio_Stream) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
+
 	sd := hm.get(&s.audio_streams, stream)
 
 	if sd == nil {
 		log.error("Trying to destroy invalid audio stream. It may already be destroyed, or the handle may be invalid.")
 		return
 	}
+
+	// Wait for a thread that is decoding this stream before freeing anything. It is writing into
+	// the clip's samples and using the decoder and the file, so all of that has to outlive it.
+	// The audio mutex is already held, which is the order everything else takes these two in.
+	sync.mutex_lock(&sd.decode_mutex)
 
 	if playing := hm.get(&s.sounds, sd.sound); playing != nil {
 		hm.remove(&s.sounds, sd.sound)
@@ -2959,12 +3003,75 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 	}
 
 	free(sd.vorbis_buffer.alloc_buffer, s.allocator)
+
+	// Unlock before the stream leaves the handle map, so the mutex is released while it still has
+	// somewhere to live.
+	sync.mutex_unlock(&sd.decode_mutex)
 	hm.remove(&s.audio_streams, stream)
 }
 
-// Streams in new audio data from the audio stream. You need to call this once per frame in order
-// for the streaming to actually happen. 
+// Streams in new audio data from the audio stream. The streaming only happens when you call this,
+// so call it often enough to keep the buffer fed. Once per frame is the simple way to do that.
+//
+// You can call this from a thread of your own instead. That keeps the music going through a long
+// frame, such as one that loads a level or drags the window. The decoding does not hold the mutex
+// the mixer needs, so a slow read from disk delays the streaming and nothing else.
+//
+// One thread at a time per stream. Two threads calling this for the same stream at once is not
+// supported. Different streams on different threads is fine. 
 update_audio_stream :: proc(stream: Audio_Stream) {
+	// Find everything under the audio mutex, then take the stream's own mutex before letting the
+	// audio mutex go. Holding the stream mutex across that handover is what stops
+	// `destroy_audio_stream` from freeing the decoder while the decoding below is using it.
+	sync.recursive_mutex_lock(&s.audio_mutex)
+
+	sd := hm.get(&s.audio_streams, stream)
+
+	if sd == nil {
+		sync.recursive_mutex_unlock(&s.audio_mutex)
+		log.error("Trying to update destroyed audio stream")
+		return
+	}
+
+	pab := hm.get(&s.sounds, sd.sound)
+
+	if pab == nil {
+		// Not playing the stream is a valid state. It just doesn't need any updating.
+		sync.recursive_mutex_unlock(&s.audio_mutex)
+		return
+	}
+
+	ab := hm.get(&s.audio_clips, pab.clip)
+
+	if ab == nil {
+		hm.remove(&s.sounds, sd.sound)
+		sync.recursive_mutex_unlock(&s.audio_mutex)
+		log.error("Trying to update audio stream with destroyed clip")
+		return
+	}
+
+	play_offset := pab.offset
+	sync.mutex_lock(&sd.decode_mutex)
+	sync.recursive_mutex_unlock(&s.audio_mutex)
+
+	// Decode with only the stream mutex held, so the mixer keeps going while this reads the disk.
+	_decode_audio_stream(sd, ab, play_offset)
+	sync.mutex_unlock(&sd.decode_mutex)
+
+	// Let go of the stream mutex before taking the audio mutex again. Everything that wants both
+	// takes the audio mutex first, so doing it the other way round here would deadlock.
+	sync.recursive_mutex_guard(&s.audio_mutex)
+
+	// The stream may have been destroyed while this was decoding, so look it up again.
+	if sd_now := hm.get(&s.audio_streams, stream); sd_now != nil {
+		_apply_audio_stream_stop(sd_now, stream)
+	}
+}
+
+// Same as `update_audio_stream`, for the callers that already hold `s.audio_mutex`. They are on a
+// thread that is inside the mixer or inside another audio procedure, so the handover the public
+// one does would release a mutex they still need.
+_update_audio_stream_locked :: proc(stream: Audio_Stream) {
 	sd := hm.get(&s.audio_streams, stream)
 
 	if sd == nil {
@@ -2975,8 +3082,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	pab := hm.get(&s.sounds, sd.sound)
 
 	if pab == nil {
-		// Don't log an error here: Not playing the stream is a valid state. It just doesn't need
-		// any updating.
+		// Not playing the stream is a valid state. It just doesn't need any updating.
 		return
 	}
 
@@ -2988,11 +3094,41 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	audio_stream_remaining :: proc(as: ^Audio_Stream_Data, pab: ^Sound_Object, ab: ^Audio_Clip_Object) -> int {
-		remaining := as.buffer_write_pos - pab.offset 
+	// The audio mutex is already held, and the stream mutex is always taken second.
+	if sync.mutex_guard(&sd.decode_mutex) {
+		_decode_audio_stream(sd, ab, pab.offset)
+	}
+
+	_apply_audio_stream_stop(sd, stream)
+}
+
+// Carries out what the decoder asked for. The decoder does not reach the handle maps, so it asks
+// for the sound to go away rather than removing it. The caller holds `s.audio_mutex`.
+_apply_audio_stream_stop :: proc(sd: ^Audio_Stream_Data, stream: Audio_Stream) {
+	if !sd.stop_requested {
+		return
+	}
+
+	sd.stop_requested = false
+	rewind := sd.rewind_requested
+	sd.rewind_requested = false
+	hm.remove(&s.sounds, sd.sound)
+
+	if rewind {
+		_reset_audio_stream(stream)
+	}
+}
+
+// Decodes more of the stream into the clip it feeds. Reads and writes the stream and the clip and
+// nothing else, so the caller can run this without holding `s.audio_mutex`. `play_offset` is where
+// the sound had reached in the clip. The decoder fills the space in front of it, and the sound
+// only moves forward, so an offset from a moment ago just means it writes a little less.
+_decode_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, play_offset: int) {
+	audio_stream_remaining :: proc(as: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, play_offset: int) -> int {
+		remaining := as.buffer_write_pos - play_offset
 
 		if remaining < 0 {
-			remaining = len(ab.samples) - pab.offset + as.buffer_write_pos 
+			remaining = len(ab.samples) - play_offset + as.buffer_write_pos
 		}
 
 		return remaining
@@ -3000,7 +3136,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 	switch sd.mode {
 	case .From_File:
-		for audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+		for audio_stream_remaining(sd, ab, play_offset) < AUDIO_STREAM_BUFFER_SIZE / 2 {
 			channels: i32
 			samples: i32
 			output: [^]^f32
@@ -3030,8 +3166,8 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 							if seek_err != nil {
 								log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
-								hm.remove(&s.sounds, sd.sound)
-								_reset_audio_stream(stream)
+								sd.stop_requested = true
+								sd.rewind_requested = true
 								break
 							}
 
@@ -3043,12 +3179,12 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 							continue
 						} else {
-							hm.remove(&s.sounds, sd.sound)
-							_reset_audio_stream(stream)
+							sd.stop_requested = true
+							sd.rewind_requested = true
 							break
 						}
 					} else {
-						hm.remove(&s.sounds, sd.sound)
+						sd.stop_requested = true
 						log.errorf("Failed reading from audio stream file. Error: %v", read_err)
 						break
 					}
@@ -3087,13 +3223,13 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 						sd.decode_cursor += 2
 					}
 				} else {
-					hm.remove(&s.sounds, sd.sound)
+					sd.stop_requested = true
 					log.error("Invalid num channels")
 					break
 				}
 				sd.file_read_buf_offset += int(bytes_used)
 			} else {
-				hm.remove(&s.sounds, sd.sound)
+				sd.stop_requested = true
 				log.error("Invalid vorbis")
 				break
 			}
@@ -3110,7 +3246,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 		channels: i32
 		output: [^]^f32
 
-		for audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+		for audio_stream_remaining(sd, ab, play_offset) < AUDIO_STREAM_BUFFER_SIZE / 2 {
 			samples := stbv.get_frame_float(sd.vorbis, &channels, &output)
 
 			if samples == 0 {
@@ -3126,8 +3262,8 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 					// TODO: Stopping here is bad as the samples haven't been mixed in yet. Remove the
 					// stream but push the final samples into the clip and destroy that one
 					// when it finishes playing (in the mixer).
-					hm.remove(&s.sounds, sd.sound)
-					_reset_audio_stream(stream)
+					sd.stop_requested = true
+					sd.rewind_requested = true
 					break
 				}
 			}
@@ -3151,7 +3287,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 					sd.decode_cursor += 2
 				}
 			} else {
-				hm.remove(&s.sounds, sd.sound)
+				sd.stop_requested = true
 				log.error("Invalid num channels")
 				break
 			}
@@ -3178,6 +3314,8 @@ play_audio_stream :: proc(
 	loop := false,
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound {
+	sync.recursive_mutex_guard(&s.audio_mutex)
+
 	sd := hm.get(&s.audio_streams, stream)
 
 	if sd == nil {
@@ -3234,7 +3372,7 @@ play_audio_stream :: proc(
 	// that reads an empty buffer moves its read position past the write position, which makes the
 	// buffer look full rather than empty, so it would not be refilled until the read position had
 	// wrapped all the way around.
-	update_audio_stream(stream)
+	_update_audio_stream_locked(stream)
 
 	return sound
 }
@@ -3246,6 +3384,7 @@ play_audio_stream :: proc(
 // A new bus has volume 1, pan 0 and no effect. That makes it a passthrough: Playing a sound on a
 // fresh bus sounds exactly like playing it on the master bus, until you change something.
 create_audio_bus :: proc() -> Audio_Bus {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	bus_object := Audio_Bus_Object {
 		target_settings = DEFAULT_AUDIO_BUS_SETTINGS,
 		current_settings = DEFAULT_AUDIO_BUS_SETTINGS,
@@ -3266,6 +3405,7 @@ create_audio_bus :: proc() -> Audio_Bus {
 // Destroy an audio bus. Everything routed to it goes back to the master bus, including sounds that
 // are playing right now.
 destroy_audio_bus :: proc(bus: Audio_Bus) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	if bus == AUDIO_BUS_MASTER {
 		log.error("Cannot destroy audio bus, the master bus cannot be destroyed.")
 		return
@@ -3293,6 +3433,7 @@ destroy_audio_bus :: proc(bus: Audio_Bus) {
 //
 // This works on `AUDIO_BUS_MASTER` as well, which is how you set the master volume of your game.
 set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
 
 	if bus_object == nil {
@@ -3311,6 +3452,7 @@ set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32) {
 // loudness the same. A bus is already a finished stereo mix, and a bus at pan 0 has to leave it
 // exactly as it is.
 set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
 
 	if bus_object == nil {
@@ -3330,6 +3472,7 @@ set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32) {
 //
 // See `Audio_Effect_Proc` for what the effect is given and what it is allowed to do.
 set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_data: rawptr = nil) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
 	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
 
 	if bus_object == nil {
@@ -3350,32 +3493,74 @@ set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_dat
 //
 // Will only run if the audio backend is running low on audio data.
 update_audio_mixer :: proc() {
-	// If the sample rate of the backend is 44100 samples/second and AUDIO_MIX_CHUNK_SIZE is 1400
-	// samples, then this procedure will only run roughly 44100/1400 = 31 times per second. This
-	// gives a latency of up to (1.5 * (44100/1400)) = 47 milliseconds. Is it too big, or too small?
-	// Perhaps we can use more low latency backends to push it down. Perhaps the backend should
-	// control AUDIO_MIX_CHUNK_SIZE based on how low latency it can give us without stalling?
-	if ab.remaining_samples() > (3 * AUDIO_MIX_CHUNK_SIZE)/2 {
+	// The backend runs the mixer on a thread of its own, so there is nothing to hand it.
+	if ab.mixes_itself {
 		return
 	}
-	
-	// We are going to go past the end of the mix_buffer, so just hop to the start instead. It's
-	// 1 megabyte big, so hopping over a few bytes at the end is OK.
-	if (s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE) > len(s.mix_buffer) {
-		s.mix_buffer_offset = 0
-	}
 
-	// A slice of the mixed samples we are going to output.
-	out := s.mix_buffer[s.mix_buffer_offset:s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE]
-	
-	// Zero out old mixed data from buffer (the buffer is "circular", there may be old stuff in
-	// the `out` slice).
+	// One chunk per call is not enough. This runs once per frame, so a game below
+	// 44100/1400 = 31.5 frames per second would make audio slower than it is played. Keep going
+	// until the backend has enough. The nil backend always says it has none, so cap the loop.
+	MAX_CHUNKS_PER_UPDATE :: 8
+
+	for _ in 0..<MAX_CHUNKS_PER_UPDATE {
+		if ab.remaining_samples() > (3 * AUDIO_MIX_CHUNK_SIZE)/2 {
+			break
+		}
+
+		// We are going to go past the end of the mix_buffer, so just hop to the start instead.
+		// It's 1 megabyte big, so hopping over a few bytes at the end is OK.
+		if (s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE) > len(s.mix_buffer) {
+			s.mix_buffer_offset = 0
+		}
+
+		out := s.mix_buffer[s.mix_buffer_offset:s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE]
+		s.mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
+
+		// `feed` waits for the device on some backends, and holding the mutex across that would
+		// make every audio procedure the game calls wait with it.
+		if sync.recursive_mutex_guard(&s.audio_mutex) {
+			_mix_into(out)
+		}
+
+		ab.feed(out)
+	}
+}
+
+// Mixes straight into a buffer the audio backend is about to play. A backend that runs the mixer
+// itself calls this from its own thread.
+@(private="package")
+_mix_audio :: proc(dest: [][2]Audio_Sample) {
+	sync.recursive_mutex_guard(&s.audio_mutex)
+	_mix_into(dest)
+}
+
+// The context a backend's mixing thread should run with, captured when `init` ran. `s` is private
+// to this file, so the backends go through this rather than reaching into it.
+@(private="package")
+_audio_thread_context :: proc() -> (runtime.Allocator, runtime.Logger) {
+	return s.allocator, s.audio_thread_logger
+}
+
+// Fills `buffer` with the mix of everything that is playing. The caller holds `s.audio_mutex`.
+//
+// Everything here works off `len(buffer)` rather than `AUDIO_MIX_CHUNK_SIZE`, because each backend
+// asks for the buffer size its own device wants. The volume and pan ramps are written as a rate
+// per second, so a shorter buffer covers less of a ramp and takes more buffers to finish it. The
+// ramp lasts the same amount of time either way.
+_mix_into :: proc(buffer: [][2]Audio_Sample) {
+	out := buffer
+	chunk_size := len(out)
+
+	// The backend hands back a buffer it has already played, and the mixing below adds into the
+	// destination rather than assigning to it.
 	slice.zero(out)
 
 	// The buses have a chunk each, which the sounds routed to that bus are mixed into. Those hold
-	// the previous chunk's mix, so they need zeroing too.
+	// the previous chunk's mix, so they need zeroing too. A bus chunk is as long as the longest
+	// buffer a backend can ask for, so only the part in use is touched.
 	for it := hm.dynamic_iterator_make(&s.audio_buses); bus, _ in hm.dynamic_iterate(&it) {
-		slice.zero(bus.chunk[:])
+		slice.zero(bus.chunk[:chunk_size])
 	}
 
 	audio_mix :: proc(
@@ -3516,10 +3701,11 @@ update_audio_mixer :: proc() {
 	// Used for the smooth adjustment of volume, pan and pitch, both for the playing sounds below
 	// and for the buses further down.
 
-	calc_adjust_parameter_delta :: proc(sample_rate: int, pitch: f32) -> f32 {
+	// The ramp is a rate, so dividing by it says how much of one this buffer gets through.
+	calc_adjust_parameter_delta :: proc(sample_rate: int, pitch: f32, chunk_size: int) -> f32 {
 		RAMP_TIME :: 0.03
 		ramp_samples := RAMP_TIME * f32(sample_rate) * pitch
-		return AUDIO_MIX_CHUNK_SIZE / ramp_samples
+		return f32(chunk_size) / ramp_samples
 	}
 
 	move_towards :: proc(current: f32, target: f32, delta: f32) -> f32 {
@@ -3553,7 +3739,7 @@ update_audio_mixer :: proc() {
 
 		if ps.bus != AUDIO_BUS_MASTER {
 			if bus := hm.get(&s.audio_buses, ps.bus); bus != nil {
-				dest = bus.chunk[:]
+				dest = bus.chunk[:chunk_size]
 			}
 		}
 
@@ -3567,10 +3753,14 @@ update_audio_mixer :: proc() {
 		target_settings := &ps.target_settings
 
 		// We get the delta twice because we first need to move the pitch towards its target.
-		adjust_parameter_delta := calc_adjust_parameter_delta(data.sample_rate, max(settings.pitch, 0.01))
+		adjust_parameter_delta := calc_adjust_parameter_delta(
+			data.sample_rate,
+			max(settings.pitch, 0.01),
+			chunk_size,
+		)
 		settings.pitch = max(move_towards(settings.pitch, target_settings.pitch, adjust_parameter_delta), 0.01)
 		pitch := settings.pitch
-		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch)
+		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch, chunk_size)
 
 		// `set_sound_time` doesn't move the sound itself, it just says where the sound should go.
 		// We move it here, once the sound has faded out. Then we fade it back in. That way moving
@@ -3643,7 +3833,7 @@ update_audio_mixer :: proc() {
 			data.channels,
 			interpolate,
 			source_dest_ratio,
-			AUDIO_MIX_CHUNK_SIZE,
+			chunk_size,
 			ps.offset_fraction,
 			volume_start,
 			volume_end,
@@ -3666,7 +3856,7 @@ update_audio_mixer :: proc() {
 		}
 
 		// We didn't mix all the samples! This means that we reached the end of the sound.
-		if num_mixed < AUDIO_MIX_CHUNK_SIZE {
+		if num_mixed < chunk_size {
 			if ps.loop {
 				ps.offset = 0
 				ps.offset_fraction = 0
@@ -3674,12 +3864,12 @@ update_audio_mixer :: proc() {
 				// The sound looped. Make sure to mix in the remaining samples from the start of the
 				// sound!
 				mixed_before_loop := num_mixed
-				overflow := AUDIO_MIX_CHUNK_SIZE - mixed_before_loop
+				overflow := chunk_size - mixed_before_loop
 
 				// Carry the volume and pan ramps on from where the first part of the chunk got to.
 				// Starting them over would jump the volume back up in the middle of the chunk,
 				// which is heard as a click.
-				split := f32(mixed_before_loop) / f32(AUDIO_MIX_CHUNK_SIZE)
+				split := f32(mixed_before_loop) / f32(chunk_size)
 				volume_split := math.lerp(volume_start, volume_end, split)
 				pan_stereo_split := linalg.lerp(pan_stereo_start, pan_stereo_end, split)
 
@@ -3724,14 +3914,14 @@ update_audio_mixer :: proc() {
 
 	// The buses run at the mixer's sample rate and are never pitched, so the ramp is the same for
 	// all of them.
-	bus_adjust_delta := calc_adjust_parameter_delta(AUDIO_MIX_SAMPLE_RATE, 1)
+	bus_adjust_delta := calc_adjust_parameter_delta(AUDIO_MIX_SAMPLE_RATE, 1, chunk_size)
 
 	for it := hm.dynamic_iterator_make(&s.audio_buses); bus, _ in hm.dynamic_iterate(&it) {
 		// The effect runs even when the bus is silent. Effects tend to keep state, such as a filter
 		// or an echo. Skipping them while silent would leave that state behind, and it would jump
 		// once the bus is turned back up.
 		if bus.effect != nil {
-			bus.effect(bus.chunk[:], bus.effect_user_data)
+			bus.effect(bus.chunk[:chunk_size], bus.effect_user_data)
 		}
 
 		volume_start := bus.current_settings.volume
@@ -3759,8 +3949,8 @@ update_audio_mixer :: proc() {
 			volume_end * min(1, 1 + pan_end),
 		}
 
-		for samp_idx in 0..<AUDIO_MIX_CHUNK_SIZE {
-			t := f32(samp_idx) / f32(AUDIO_MIX_CHUNK_SIZE)
+		for samp_idx in 0..<chunk_size {
+			t := f32(samp_idx) / f32(chunk_size)
 			out[samp_idx] += bus.chunk[samp_idx] * linalg.lerp(gain_start, gain_end, t)
 		}
 	}
@@ -3795,14 +3985,11 @@ update_audio_mixer :: proc() {
 			volume_end * min(1, 1 + pan_end),
 		}
 
-		for samp_idx in 0..<AUDIO_MIX_CHUNK_SIZE {
-			t := f32(samp_idx) / f32(AUDIO_MIX_CHUNK_SIZE)
+		for samp_idx in 0..<chunk_size {
+			t := f32(samp_idx) / f32(chunk_size)
 			out[samp_idx] *= linalg.lerp(gain_start, gain_end, t)
 		}
 	}
-
-	ab.feed(out)
-	s.mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
 }
 
 //-----------------//
@@ -5548,6 +5735,23 @@ Audio_Stream_Data :: struct {
 	// steps of a whole ogg page.
 	seek_discard: int,
 
+	// Guards the decoder: `vorbis`, `file`, the read buffer, `decode_cursor`, `seek_discard`,
+	// `buffer_write_pos` and the two flags below. `update_audio_stream` holds this instead of
+	// `s.audio_mutex` while it decodes, so a game can stream on a thread of its own without
+	// making the mixer wait for the disk.
+	//
+	// Anything that wants both mutexes takes `s.audio_mutex` first. Taking them the other way
+	// round anywhere would deadlock against the mixer, which reaches the decoder through
+	// `_apply_sound_time` with the audio mutex already held.
+	decode_mutex: sync.Mutex,
+
+	// Set by the decoder when it runs into something that means the sound cannot carry on. The
+	// decoder does not reach the handle maps, so whoever called it removes the sound instead.
+	stop_requested: bool,
+
+	// Set alongside `stop_requested` when the stream should also go back to its start.
+	rewind_requested: bool,
+
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
 	total_samples: int,
@@ -5662,12 +5866,14 @@ AUDIO_BUS_MASTER :: Audio_Bus {}
 // Runs on the mixed samples of a whole bus, before the bus is mixed into the master bus. Modify
 // `samples` in place. This is how you write your own audio effects, such as a filter or an echo.
 //
-// `samples` is `AUDIO_MIX_CHUNK_SIZE` stereo samples at `AUDIO_MIX_SAMPLE_RATE`. Keep any state
-// your effect needs in `user_data`: You get called once per mixed chunk, so anything you want to
-// carry between the chunks needs to live there.
+// `samples` is stereo samples at `AUDIO_MIX_SAMPLE_RATE`. How many depends on the audio backend,
+// so read `len(samples)` rather than assuming. Keep any state your effect needs in `user_data`:
+// You get called once per mixed chunk, so anything you want to carry between the chunks needs to
+// live there.
 //
-// This runs on the main thread today, but keep in mind that it may move to a separate thread in the
-// future.
+// This runs on the thread the audio backend mixes on, which is not the thread your game runs on.
+// Anything the effect touches is shared with your game, so guard it yourself. Do not call Karl2D
+// audio procedures from in here.
 Audio_Effect_Proc :: proc(samples: [][2]Audio_Sample, user_data: rawptr)
 
 Audio_Bus_Settings :: struct {
@@ -5814,11 +6020,35 @@ State :: struct {
 	master_bus: Audio_Bus_Object,
 
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
-	// ample.
+	// ample. Only used by the backends that are handed samples: a backend that runs the mixer
+	// itself has the mixer write straight into the buffer its device is about to play.
 	mix_buffer: [AUDIO_MIX_CHUNK_SIZE*10][2]Audio_Sample,
 
 	// Where the mixer currently is in the mix buffer.
 	mix_buffer_offset: int,
+
+	// Guards everything the mixer reads and writes: the sound, clip, stream and bus handle maps,
+	// and the master bus.
+	//
+	// One mutex covers all of it on purpose. The mixer takes it once per buffer, which is every
+	// 16 milliseconds or so, and holds it for a few hundred microseconds. The procedures a game
+	// calls take it far more often but hold it for almost no time. Contention is therefore a
+	// fraction of a percent, and splitting this into several mutexes would buy nothing while
+	// adding an ordering problem between them.
+	//
+	// What does matter is that nothing slow happens while this is held. A file read or an ogg
+	// decode under this mutex stalls the mixer, and the mixer has a deadline. The loaders read
+	// their files before taking it, and `update_audio_stream` decodes under a mutex of its own.
+	//
+	// It is recursive because several of the procedures a game calls reach the shared state
+	// through another one of them. `set_sound_time` asks `get_sound_length`, and the audio clip
+	// loaders pass the work down to each other. A plain mutex would need each of those bodies
+	// split into a guarded wrapper and an unguarded worker, for no gain the game can measure.
+	audio_mutex: sync.Recursive_Mutex,
+
+	// A backend that runs the mixer on its own thread logs through the logger the game had when
+	// `init` ran.
+	audio_thread_logger: runtime.Logger,
 }
 
 
@@ -6568,7 +6798,7 @@ _apply_sound_time :: proc(sound: Sound, seconds: f32) {
 	// be refilled until the read position had wrapped all the way around.
 	//
 	// This may remove the sound, so don't touch `sound_object` after it.
-	update_audio_stream(sound_object.stream)
+	_update_audio_stream_locked(sound_object.stream)
 }
 
 // Moves the decode cursor of a stream back to the start. Run when a stream-fed sound is stopped
@@ -6585,6 +6815,11 @@ _reset_audio_stream :: proc(stream: Audio_Stream) {
 	sd.buffer_write_pos = 0
 	sd.decode_cursor = 0
 	sd.seek_discard = 0
+
+	// The stream is going back to its start, so anything the decoder asked for before that no
+	// longer applies. Leaving these set would stop a sound that has just been started.
+	sd.stop_requested = false
+	sd.rewind_requested = false
 
 	switch sd.mode {
 	case .From_File:

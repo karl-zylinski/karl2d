@@ -736,8 +736,15 @@ load_audio_stream_from_bytes :: proc(
 // deallocate the bytes that you sent into that procedure.
 destroy_audio_stream :: proc(stream: Audio_Stream)
 
-// Streams in new audio data from the audio stream. You need to call this once per frame in order
-// for the streaming to actually happen. 
+// Streams in new audio data from the audio stream. The streaming only happens when you call this,
+// so call it often enough to keep the buffer fed. Once per frame is the simple way to do that.
+//
+// You can call this from a thread of your own instead. That keeps the music going through a long
+// frame, such as one that loads a level or drags the window. The decoding does not hold the mutex
+// the mixer needs, so a slow read from disk delays the streaming and nothing else.
+//
+// One thread at a time per stream. Two threads calling this for the same stream at once is not
+// supported. Different streams on different threads is fine. 
 update_audio_stream :: proc(stream: Audio_Stream)
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
@@ -1612,6 +1619,23 @@ Audio_Stream_Data :: struct {
 	// steps of a whole ogg page.
 	seek_discard: int,
 
+	// Guards the decoder: `vorbis`, `file`, the read buffer, `decode_cursor`, `seek_discard`,
+	// `buffer_write_pos` and the two flags below. `update_audio_stream` holds this instead of
+	// `s.audio_mutex` while it decodes, so a game can stream on a thread of its own without
+	// making the mixer wait for the disk.
+	//
+	// Anything that wants both mutexes takes `s.audio_mutex` first. Taking them the other way
+	// round anywhere would deadlock against the mixer, which reaches the decoder through
+	// `_apply_sound_time` with the audio mutex already held.
+	decode_mutex: sync.Mutex,
+
+	// Set by the decoder when it runs into something that means the sound cannot carry on. The
+	// decoder does not reach the handle maps, so whoever called it removes the sound instead.
+	stop_requested: bool,
+
+	// Set alongside `stop_requested` when the stream should also go back to its start.
+	rewind_requested: bool,
+
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
 	total_samples: int,
@@ -1726,12 +1750,14 @@ AUDIO_BUS_MASTER :: Audio_Bus {}
 // Runs on the mixed samples of a whole bus, before the bus is mixed into the master bus. Modify
 // `samples` in place. This is how you write your own audio effects, such as a filter or an echo.
 //
-// `samples` is `AUDIO_MIX_CHUNK_SIZE` stereo samples at `AUDIO_MIX_SAMPLE_RATE`. Keep any state
-// your effect needs in `user_data`: You get called once per mixed chunk, so anything you want to
-// carry between the chunks needs to live there.
+// `samples` is stereo samples at `AUDIO_MIX_SAMPLE_RATE`. How many depends on the audio backend,
+// so read `len(samples)` rather than assuming. Keep any state your effect needs in `user_data`:
+// You get called once per mixed chunk, so anything you want to carry between the chunks needs to
+// live there.
 //
-// This runs on the main thread today, but keep in mind that it may move to a separate thread in the
-// future.
+// This runs on the thread the audio backend mixes on, which is not the thread your game runs on.
+// Anything the effect touches is shared with your game, so guard it yourself. Do not call Karl2D
+// audio procedures from in here.
 Audio_Effect_Proc :: proc(samples: [][2]Audio_Sample, user_data: rawptr)
 
 Audio_Bus_Settings :: struct {
@@ -1878,11 +1904,35 @@ State :: struct {
 	master_bus: Audio_Bus_Object,
 
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
-	// ample.
+	// ample. Only used by the backends that are handed samples: a backend that runs the mixer
+	// itself has the mixer write straight into the buffer its device is about to play.
 	mix_buffer: [AUDIO_MIX_CHUNK_SIZE*10][2]Audio_Sample,
 
 	// Where the mixer currently is in the mix buffer.
 	mix_buffer_offset: int,
+
+	// Guards everything the mixer reads and writes: the sound, clip, stream and bus handle maps,
+	// and the master bus.
+	//
+	// One mutex covers all of it on purpose. The mixer takes it once per buffer, which is every
+	// 16 milliseconds or so, and holds it for a few hundred microseconds. The procedures a game
+	// calls take it far more often but hold it for almost no time. Contention is therefore a
+	// fraction of a percent, and splitting this into several mutexes would buy nothing while
+	// adding an ordering problem between them.
+	//
+	// What does matter is that nothing slow happens while this is held. A file read or an ogg
+	// decode under this mutex stalls the mixer, and the mixer has a deadline. The loaders read
+	// their files before taking it, and `update_audio_stream` decodes under a mutex of its own.
+	//
+	// It is recursive because several of the procedures a game calls reach the shared state
+	// through another one of them. `set_sound_time` asks `get_sound_length`, and the audio clip
+	// loaders pass the work down to each other. A plain mutex would need each of those bodies
+	// split into a guarded wrapper and an unguarded worker, for no gain the game can measure.
+	audio_mutex: sync.Recursive_Mutex,
+
+	// A backend that runs the mixer on its own thread logs through the logger the game had when
+	// `init` ran.
+	audio_thread_logger: runtime.Logger,
 }
 
 // Karl2D currently reports left, right, and middle mouse buttons.

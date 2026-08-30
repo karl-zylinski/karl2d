@@ -10,6 +10,7 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 	shutdown = waveout_shutdown,
 	set_internal_state = waveout_set_internal_state,
 
+	mixes_itself = true,
 	feed = waveout_feed,
 	remaining_samples = waveout_remaining_samples,
 }
@@ -19,12 +20,25 @@ import "log"
 import win32 "core:sys/windows"
 import "core:time"
 import "core:slice"
+import "core:sync"
+import "core:thread"
+
+// waveOut has no callback that can fill a buffer, so a thread waits for one to finish playing and
+// has the mixer fill it. Four buffers of 700 samples is 63 milliseconds of audio at worst, and the
+// three that are normally in flight are 47 milliseconds.
+WAVEOUT_BUFFER_SAMPLES :: 700
+WAVEOUT_BUFFER_COUNT :: 4
 
 Waveout_State :: struct {
 	device: win32.HWAVEOUT,
-	headers: [32]win32.WAVEHDR,
+	headers: [WAVEOUT_BUFFER_COUNT]win32.WAVEHDR,
+
+	// The mixer writes straight into these, so a buffer belongs to the header that plays it.
+	buffers: [WAVEOUT_BUFFER_COUNT][WAVEOUT_BUFFER_SAMPLES][2]Audio_Sample,
 	cur_header: int,
-	submitted_samples: int,
+
+	mix_thread: ^thread.Thread,
+	run_thread: bool,
 }
 
 waveout_state_size :: proc() -> int {
@@ -60,14 +74,61 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	format.nBlockAlign = (format.wBitsPerSample * format.nChannels) / 8 // see nBlockAlign docs
 	format.nAvgBytesPerSec = (u32(format.wBitsPerSample * format.nChannels) * format.nSamplesPerSec) / 8
 
-	ch(win32.waveOutOpen(
+	if ch(win32.waveOutOpen(
 		&s.device,
 		win32.WAVE_MAPPER,
 		&format,
 		0,
 		0,
 		win32.CALLBACK_NULL,
-	))
+	)) != 0 {
+		return
+	}
+
+	// The thread waits a millisecond at a time for a buffer to finish. `time.sleep` rounds up to
+	// the timer period, which is 15.6 ms by default, so ask Windows for 1 ms instead.
+	win32.timeBeginPeriod(1)
+
+	// Set the device before starting the thread: the thread uses it right away.
+	s.run_thread = true
+	s.mix_thread = thread.create(waveout_thread_proc)
+	thread.start(s.mix_thread)
+}
+
+// Has the mixer fill a buffer and gives it to the device. waveOut plays straight out of the
+// buffer, so one is only refilled once the device has finished with it.
+waveout_thread_proc :: proc(t: ^thread.Thread) {
+	context.allocator, context.logger = _audio_thread_context()
+
+	for sync.atomic_load(&s.run_thread) {
+		h := &s.headers[s.cur_header]
+
+		for win32.waveOutUnprepareHeader(s.device, h, size_of(win32.WAVEHDR)) == win32.WAVERR_STILLPLAYING {
+			if !sync.atomic_load(&s.run_thread) {
+				return
+			}
+
+			time.sleep(1 * time.Millisecond)
+		}
+
+		buffer := s.buffers[s.cur_header][:]
+		_mix_audio(buffer)
+		byte_samples := slice.reinterpret([]u8, buffer)
+
+		h^ = {
+			dwBufferLength = u32(len(byte_samples)),
+			lpData = raw_data(byte_samples),
+		}
+
+		win32.waveOutPrepareHeader(s.device, h, size_of(win32.WAVEHDR))
+		win32.waveOutWrite(s.device, h, size_of(win32.WAVEHDR))
+
+		s.cur_header += 1
+
+		if s.cur_header >= len(s.headers) {
+			s.cur_header = 0
+		}
+	}
 }
 
 ch :: proc(mr: win32.MMRESULT, loc := #caller_location) -> win32.MMRESULT {
@@ -81,6 +142,18 @@ ch :: proc(mr: win32.MMRESULT, loc := #caller_location) -> win32.MMRESULT {
 
 waveout_shutdown :: proc() {
 	log.debug("Shutdown audio backend waveout")
+	sync.atomic_store(&s.run_thread, false)
+
+	// The thread is only created once the device is open. It stays nil if opening it failed.
+	if s.mix_thread != nil {
+		thread.join(s.mix_thread)
+		thread.destroy(s.mix_thread)
+		s.mix_thread = nil
+		win32.timeEndPeriod(1)
+	}
+
+	// Take back the buffers the device is still playing before the state they live in goes away.
+	win32.waveOutReset(s.device)
 	win32.waveOutClose(s.device)
 }
 
@@ -89,35 +162,10 @@ waveout_set_internal_state :: proc(state: rawptr) {
 	s = (^Waveout_State)(state)
 }
 
+// The thread asks the mixer for samples, so nothing hands them over.
 waveout_feed :: proc(samples: [][2]Audio_Sample) {
-	h := &s.headers[s.cur_header]
-
-	for win32.waveOutUnprepareHeader(s.device, h, size_of(win32.WAVEHDR)) == win32.WAVERR_STILLPLAYING {
-		time.sleep(1 * time.Millisecond)
-	}
-
-	byte_samples := slice.reinterpret([]u8, samples)
-
-	h^ = {
-		dwBufferLength = u32(len(byte_samples)),
-		lpData = raw_data(byte_samples),
-	}
-
-	win32.waveOutPrepareHeader(s.device, h, size_of(win32.WAVEHDR))
-	win32.waveOutWrite(s.device, h, size_of(win32.WAVEHDR))
-
-	s.submitted_samples += len(samples)
-	s.cur_header += 1
-
-	if s.cur_header >= len(s.headers) {
-		s.cur_header = 0
-	}
 }
 
 waveout_remaining_samples :: proc() -> int {
-	t := win32.MMTIME {
-		wType = .TIME_SAMPLES,
-	}
-	win32.waveOutGetPosition(s.device, &t, size_of(win32.MMTIME))
-	return s.submitted_samples - int(t.u.sample)
+	return 0
 }

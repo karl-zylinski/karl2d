@@ -9,6 +9,7 @@ AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
 	shutdown = abnil_shutdown,
 	set_internal_state = abnil_set_internal_state,
 
+	mixes_itself = false,
 	feed = abnil_feed,
 
 	remaining_samples = abnil_remaining_samples,

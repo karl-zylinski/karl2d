@@ -10,6 +10,7 @@ AUDIO_BACKEND_WEB_AUDIO :: Audio_Backend_Interface {
 	shutdown = web_audio_shutdown,
 	set_internal_state = web_audio_set_internal_state,
 	feed = web_audio_feed,
+	mixes_itself = false,
 	remaining_samples = web_audio_remaining_samples,
 }
 
