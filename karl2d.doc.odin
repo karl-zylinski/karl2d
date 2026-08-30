@@ -170,9 +170,8 @@ set_window_mode :: proc(window_mode: Window_Mode)
 // MONITORS //
 //----------//
 
-// The primary monitor, and the default the procedures below use. A named constant rather than a
-// bare 0, because 0 here means "the primary one" and not "whichever the operating system happened
-// to list first".
+// Every platform puts the primary monitor at index 0, so this is the default the procedures below
+// use.
 MONITOR_PRIMARY :: 0
 
 // Returns how many monitors are connected.
