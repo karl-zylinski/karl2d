@@ -328,7 +328,7 @@ subsurface_place_above :: proc "c" (subsurface: ^Subsurface, sibling: ^Surface) 
 }
 
 // A subsurface starts out synchronized, meaning its commits only take effect when the parent
-// surface commits. Desynchronized lets a decoration repaint itself without waiting for a game frame.
+// surface commits. Desynchronized lets a decoration repaint itself without waiting for a frame.
 subsurface_set_desync :: proc "c" (subsurface: ^Subsurface) {
 	proxy_marshal_flags(subsurface, 5, nil, proxy_get_version(subsurface), 0)
 }
