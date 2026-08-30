@@ -45,9 +45,6 @@ DECORATION_COLORS_LIGHT :: WL_Decoration_Colors {
 	outline = 0xffb4b4b4,
 }
 
-
-
-
 // One part of the window frame Karl2D draws for itself. Each is a subsurface of the surface the
 // game renders into, with a shared memory buffer that we fill on the CPU.
 WL_Decoration :: struct {
@@ -81,18 +78,29 @@ WL_Decoration_Part :: enum {
 	Bottom,
 }
 
+// Everything the frame keeps track of. `WL_State` holds one of these, so that the state of the
+// window and the state of the frame around it stay apart.
+WL_Decorations :: struct {
+	// True when Karl2D draws the frame, because the compositor draws none or because
+	// `KARL2D_LINUX_DECORATIONS=custom` said to. Nothing else in here is touched when it is false.
+	on: bool,
+
+	parts: [WL_Decoration_Part]WL_Decoration,
+	colors: WL_Decoration_Colors,
+}
+
 // Creates the four surfaces that make up the window frame. They are subsurfaces of the surface the
 // game renders into, so the compositor keeps them glued to it and no render backend has to know
 // that they exist.
-wl_create_decorations :: proc() {
+wldeco_create :: proc() {
 	if s.subcompositor == nil {
 		return
 	}
 
-	s.decoration_colors = wl_desktop_decoration_colors()
+	s.decorations.colors = wldeco_desktop_colors()
 
 	for part in WL_Decoration_Part {
-		d := &s.decorations[part]
+		d := &s.decorations.parts[part]
 		d.surface = wl.compositor_create_surface(s.compositor)
 		d.subsurface = wl.subcompositor_get_subsurface(s.subcompositor, d.surface, s.surface)
 		d.viewport = wl.wp_viewporter_get_viewport(s.viewporter, d.surface)
@@ -102,18 +110,18 @@ wl_create_decorations :: proc() {
 		wl.subsurface_set_desync(d.subsurface)
 	}
 
-	wl_layout_decorations()
+	wldeco_layout()
 }
 
 // Puts every part of the frame where it belongs for the current window size and repaints it. The
 // compositor leaves the parts where they were put, so this runs on every resize and scale change.
-wl_layout_decorations :: proc() {
-	if s.decorations[.Titlebar].surface == nil {
+wldeco_layout :: proc() {
+	if s.decorations.parts[.Titlebar].surface == nil {
 		return
 	}
 
 	for part in WL_Decoration_Part {
-		wl_paint_decoration(part)
+		wldeco_paint(part)
 	}
 
 	// The window is the game canvas plus everything drawn around it. Without this the compositor
@@ -131,10 +139,10 @@ wl_layout_decorations :: proc() {
 // Works out where one part of the frame sits for the current window size, fills it with a single
 // color and puts it there. Positions are in logical pixels relative to the game canvas, which
 // means the titlebar has a negative y since it hangs above the canvas.
-wl_paint_decoration :: proc(part: WL_Decoration_Part) {
+wldeco_paint :: proc(part: WL_Decoration_Part) {
 	w := s.last_configure_width
 	h := s.last_configure_height
-	d := &s.decorations[part]
+	d := &s.decorations.parts[part]
 
 	switch part {
 	case .Titlebar:
@@ -168,7 +176,7 @@ wl_paint_decoration :: proc(part: WL_Decoration_Part) {
 	buffer_height := max(1, int(math.round(f32(d.height) * s.scale)))
 
 	if buffer_width != d.buffer_width || buffer_height != d.buffer_height {
-		wl_make_decoration_buffer(d, buffer_width, buffer_height)
+		wldeco_make_buffer(d, buffer_width, buffer_height)
 	}
 
 	if d.buffer == nil {
@@ -179,7 +187,7 @@ wl_paint_decoration :: proc(part: WL_Decoration_Part) {
 	// outline along the top and down the two sides, where it meets the desktop rather than the
 	// game canvas.
 	for i in 0..<buffer_width*buffer_height {
-		d.pixels[i] = part == .Titlebar ? s.decoration_colors.fill : s.decoration_colors.outline
+		d.pixels[i] = part == .Titlebar ? s.decorations.colors.fill : s.decorations.colors.outline
 	}
 
 	if part == .Titlebar {
@@ -188,7 +196,7 @@ wl_paint_decoration :: proc(part: WL_Decoration_Part) {
 		for y in 0..<buffer_height {
 			for x in 0..<buffer_width {
 				if y < thickness || x < thickness || x >= buffer_width - thickness {
-					d.pixels[y*buffer_width + x] = s.decoration_colors.outline
+					d.pixels[y*buffer_width + x] = s.decorations.colors.outline
 				}
 			}
 		}
@@ -204,7 +212,7 @@ wl_paint_decoration :: proc(part: WL_Decoration_Part) {
 // Makes a fresh shared memory buffer for one part of the frame, throwing away the one it had. The
 // compositor keeps its own mapping of the memory for as long as it needs the pixels, so unmapping
 // ours here is safe even if the old buffer is still on screen.
-wl_make_decoration_buffer :: proc(d: ^WL_Decoration, width: int, height: int) {
+wldeco_make_buffer :: proc(d: ^WL_Decoration, width: int, height: int) {
 	if d.buffer != nil {
 		wl.buffer_destroy(d.buffer)
 		linux.munmap(d.pixels, uint(d.data_size))
@@ -255,9 +263,9 @@ wl_make_decoration_buffer :: proc(d: ^WL_Decoration, width: int, height: int) {
 	d.buffer_height = height
 }
 
-wl_destroy_decorations :: proc() {
+wldeco_destroy :: proc() {
 	for part in WL_Decoration_Part {
-		d := &s.decorations[part]
+		d := &s.decorations.parts[part]
 
 		if d.surface == nil {
 			continue
@@ -283,7 +291,7 @@ wl_destroy_decorations :: proc() {
 //
 // This is read once, while the window is being made. A player who switches their desktop between
 // dark and light while the game runs keeps the frame they started with.
-wl_desktop_decoration_colors :: proc() -> WL_Decoration_Colors {
+wldeco_desktop_colors :: proc() -> WL_Decoration_Colors {
 	if missing, load_ok := dbus.load(); !load_ok {
 		log.debugf("Using dark window decorations. Could not load %v.", missing)
 		return DECORATION_COLORS_DARK
@@ -299,12 +307,12 @@ wl_desktop_decoration_colors :: proc() -> WL_Decoration_Colors {
 	// Otherwise libdbus ends the game itself when the bus goes away.
 	dbus.connection_set_exit_on_disconnect(connection, 0)
 
-	scheme, result := wl_read_portal_setting(connection, "ReadOne")
+	scheme, result := wldeco_read_portal_setting(connection, "ReadOne")
 
 	// `ReadOne` arrived in xdg-desktop-portal 1.17. An older portal has only `Read`, which is the
 	// same question asked of a portal that answers it with one variant too many.
 	if result == .No_Such_Method {
-		scheme, result = wl_read_portal_setting(connection, "Read")
+		scheme, result = wldeco_read_portal_setting(connection, "Read")
 	}
 
 	dbus.connection_close(connection)
@@ -327,7 +335,7 @@ WL_Portal_Result :: enum {
 // Asks the desktop portal for the color scheme with one of its two reading methods. Both take the
 // setting's namespace and key and answer with the value inside one or more variants, which is what
 // the unwrapping at the end is for.
-wl_read_portal_setting :: proc(
+wldeco_read_portal_setting :: proc(
 	connection: dbus.Connection,
 	method: cstring,
 ) -> (
@@ -413,16 +421,16 @@ wl_read_portal_setting :: proc(
 // True while the pointer is over one of the surfaces that make up the frame Karl2D draws. Pointer
 // events name the surface they happened on, which is what tells a click on the titlebar apart from
 // a click in the game. The game hears about neither the clicks nor the movement.
-wl_pointer_on_decoration :: proc() -> bool {
+wldeco_has_pointer :: proc() -> bool {
 	return s.pointer_surface != nil && s.pointer_surface != s.surface
 }
 
 // How much wider and taller the window is than the game canvas inside it. Zero unless Karl2D draws
 // the decorations, since the ones a compositor draws sit outside the window entirely.
-wl_decoration_extra_width :: proc() -> int {
-	return s.custom_decorations ? DECORATION_BORDER*2 : 0
+wldeco_extra_width :: proc() -> int {
+	return s.decorations.on ? DECORATION_BORDER*2 : 0
 }
 
-wl_decoration_extra_height :: proc() -> int {
-	return s.custom_decorations ? DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER : 0
+wldeco_extra_height :: proc() -> int {
+	return s.decorations.on ? DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER : 0
 }

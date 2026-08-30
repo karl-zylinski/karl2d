@@ -162,7 +162,7 @@ wl_init :: proc(
 
 	// A missing decoration manager means the compositor draws nothing, and `wl_try_load` only lets
 	// the session get this far in that case when Karl2D is drawing the decorations itself.
-	s.custom_decorations = s.decoration_manager == nil || wl_custom_decorations_requested()
+	s.decorations.on = s.decoration_manager == nil || wl_custom_decorations_requested()
 
 	if s.decoration_manager != nil {
 		decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
@@ -174,14 +174,14 @@ wl_init :: proc(
 		// never say, so the client side has to be asked for as explicitly as the server side.
 		mode: c.uint32_t = wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
 
-		if s.custom_decorations {
+		if s.decorations.on {
 			mode = wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE
 		}
 
 		wl.zxdg_toplevel_decoration_v1_set_mode(decoration, mode)
 	}
 
-	if s.custom_decorations && s.subcompositor == nil {
+	if s.decorations.on && s.subcompositor == nil {
 		log.error("Wayland compositor has no wl_subcompositor. The window will have no borders.")
 	}
 
@@ -230,8 +230,8 @@ wl_init :: proc(
 
 	// After the first configure, so that the frame is laid out around a window whose size the
 	// compositor has already had its say about.
-	if s.custom_decorations {
-		wl_create_decorations()
+	if s.decorations.on {
+		wldeco_create()
 	}
 
 	when RENDER_BACKEND_NAME == "gl" {
@@ -439,11 +439,11 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 		// The compositor sizes the whole window, decorations included, while everything below is
 		// about the game canvas inside them.
 		if w != 0 {
-			w = max(1, w - wl_decoration_extra_width())
+			w = max(1, w - wldeco_extra_width())
 		}
 
 		if h != 0 {
-			h = max(1, h - wl_decoration_extra_height())
+			h = max(1, h - wldeco_extra_height())
 		}
 
 		new_width: int
@@ -479,7 +479,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 				s.last_configure_windowed_height = new_height
 			}
 
-			wl_layout_decorations()
+			wldeco_layout()
 
 			append(&s.events, Event_Screen_Resize {
 				width = s.screen_width,
@@ -694,7 +694,7 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		if wl_pointer_on_decoration() {
+		if wldeco_has_pointer() {
 			return
 		}
 
@@ -715,7 +715,7 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		if wl_pointer_on_decoration() {
+		if wldeco_has_pointer() {
 			// Dragging anywhere on the frame moves the window. The compositor runs the drag itself
 			// once asked, grabbing the pointer until the button goes back up, so there is nothing
 			// here to follow along with.
@@ -753,7 +753,7 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		if wl_pointer_on_decoration() {
+		if wldeco_has_pointer() {
 			return
 		}
 
@@ -819,7 +819,7 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		}
 
 		// The decoration buffers hold physical pixels, so a new scale means new buffers.
-		wl_layout_decorations()
+		wldeco_layout()
 
 		// The cursor theme is loaded at a fixed physical size, so it needs reloading whenever
 		// the scale changes. Only relevant without the cursor shape protocol - the compositor
@@ -841,7 +841,7 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 }
 
 wl_shutdown :: proc() {
-	wl_destroy_decorations()
+	wldeco_destroy()
 
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		wl.wp_viewport_destroy(cd.viewport)
@@ -970,7 +970,7 @@ wl_set_screen_size :: proc(w, h: int) {
 	}
 
 	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
-	wl_layout_decorations()
+	wldeco_layout()
 }
 
 wl_get_window_scale :: proc() -> f32 {
@@ -986,8 +986,8 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 
 		// A size limit covers the window, decorations included, so a fixed-size game asks for a
 		// window that is its canvas plus the frame around it.
-		w := i32(s.last_configure_windowed_width + wl_decoration_extra_width())
-		h := i32(s.last_configure_windowed_height + wl_decoration_extra_height())
+		w := i32(s.last_configure_windowed_width + wldeco_extra_width())
+		h := i32(s.last_configure_windowed_height + wldeco_extra_height())
 		wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
 		wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
 
@@ -1394,11 +1394,8 @@ WL_State :: struct {
 	viewport: ^wl.WP_Viewport,
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
 
-	// True when Karl2D draws the titlebar and the borders itself, because the compositor won't or
-	// because `KARL2D_LINUX_DECORATIONS=custom` said to. The decorations are only made then.
-	custom_decorations: bool,
-	decorations: [WL_Decoration_Part]WL_Decoration,
-	decoration_colors: WL_Decoration_Colors,
+	// The frame Karl2D draws itself. See platform_linux_window_wayland_decorations.odin.
+	decorations: WL_Decorations,
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
 	xdg_base: ^wl.XDG_WM_Base,
