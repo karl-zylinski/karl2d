@@ -90,6 +90,12 @@ proc_type_text :: proc(f: ^ast.File, type: ^ast.Proc_Type) -> string {
 	return fmt.tprintf("%v -> (%v)%v", params, joined, tag)
 }
 
+// A declaration and the comment groups standing on their own above it.
+Doc_Entry :: struct {
+	decl:     ^ast.Value_Decl,
+	comments: []^ast.Comment_Group,
+}
+
 main :: proc() {
 	context.logger = log.create_console_logger()
 
@@ -120,58 +126,105 @@ main :: proc() {
 			continue
 		}
 
-		decl_loop: for &d in f.decls {
-			#partial switch &dd in d.derived {
-			case ^ast.Value_Decl:
-				for a in dd.attributes {
-					attr_text := f.src[a.pos.offset:a.close.offset]
-					if strings.contains(attr_text, "deprecated") {
-						continue decl_loop						
-					}
-				}
+		// The boxed section headers such as `// INPUT //` are comment groups of their own. The
+		// parser hands a box and the doc comment beneath it over separately, and only the second is
+		// reachable through `decl.docs`, so each declaration is first paired up with whatever stands
+		// above it. Declarations and comments are both in source order, so this walks the two lists
+		// together and looks at each comment once for the whole file.
+		entries := make([dynamic]Doc_Entry, context.temp_allocator)
+		next_comment := 0
+		prev_decl_end := 0
 
-				val: string
-				for v, vi in dd.values {
-					#partial switch vd in v.derived {
-					case ^ast.Proc_Lit:
-						name := f.src[dd.names[vi].pos.offset:dd.names[vi].end.offset]
-						val = fmt.tprintf("%v :: %v", name, proc_type_text(f, vd.type))
-					}
-				}
+		for d in f.decls {
+			decl, is_value_decl := d.derived.(^ast.Value_Decl)
 
-				if val == "" {
-					val = f.src[dd.pos.offset:dd.end.offset]
-				}
-
-				if val == "API_END :: true" {
-					break decl_loop
-				}
-
-				// A name that starts with an underscore is internal. The underscore already says
-				// that on return values, so it says the same here. Skipping those lets a helper
-				// sit next to the API procedure that uses it, rather than having to be moved out
-				// of the way to keep it out of this file.
-				if len(dd.names) > 0 {
-					name := f.src[dd.names[0].pos.offset:dd.names[0].end.offset]
-
-					if strings.has_prefix(name, "_") {
-						continue decl_loop
-					}
-				}
-
-				if dd.docs != nil {
-					pln(o, "")
-					pln(o, f.src[dd.docs.pos.offset:dd.docs.end.offset])
-				} else {
-					if prev_line != dd.pos.line - 1 {
-						pln(o, "")
-					}
-				}
-
-				pln(o, val)
-
-				prev_line = dd.pos.line
+			if !is_value_decl {
+				continue
 			}
+
+			// Comments that sat inside the previous declaration, such as the ones on struct
+			// fields, belong to it. Only what stands between two declarations is a header.
+			for next_comment < len(f.comments) &&
+			    f.comments[next_comment].pos.offset < prev_decl_end {
+				next_comment += 1
+			}
+
+			first := next_comment
+
+			for next_comment < len(f.comments) &&
+			    f.comments[next_comment].end.offset <= decl.pos.offset {
+				next_comment += 1
+			}
+
+			comments := f.comments[first:next_comment]
+
+			// The last group before a declaration is its doc comment, which is written from
+			// `decl.docs` below. On an older Odin the box and the doc comment arrive as one group,
+			// so this drops the lot and the output stays as it was before the parser changed.
+			if decl.docs != nil && len(comments) > 0 && comments[len(comments) - 1] == decl.docs {
+				comments = comments[:len(comments) - 1]
+			}
+
+			append(&entries, Doc_Entry { decl = decl, comments = comments })
+			prev_decl_end = decl.end.offset
+		}
+
+		entry_loop: for entry in entries {
+			dd := entry.decl
+
+			for a in dd.attributes {
+				attr_text := f.src[a.pos.offset:a.close.offset]
+				if strings.contains(attr_text, "deprecated") {
+					continue entry_loop
+				}
+			}
+
+			val: string
+			for v, vi in dd.values {
+				#partial switch vd in v.derived {
+				case ^ast.Proc_Lit:
+					name := f.src[dd.names[vi].pos.offset:dd.names[vi].end.offset]
+					val = fmt.tprintf("%v :: %v", name, proc_type_text(f, vd.type))
+				}
+			}
+
+			if val == "" {
+				val = f.src[dd.pos.offset:dd.end.offset]
+			}
+
+			if val == "API_END :: true" {
+				break entry_loop
+			}
+
+			// A name that starts with an underscore is internal. The underscore already says that
+			// on return values, so it says the same here. Filtering on it lets a helper sit next
+			// to the API procedure that uses it, instead of being moved out of the way to keep it
+			// out of this file.
+			if len(dd.names) > 0 {
+				name := f.src[dd.names[0].pos.offset:dd.names[0].end.offset]
+
+				if strings.has_prefix(name, "_") {
+					continue entry_loop
+				}
+			}
+
+			for comment in entry.comments {
+				pln(o, "")
+				pln(o, f.src[comment.pos.offset:comment.end.offset])
+			}
+
+			if dd.docs != nil {
+				pln(o, "")
+				pln(o, f.src[dd.docs.pos.offset:dd.docs.end.offset])
+			} else {
+				if prev_line != dd.pos.line - 1 && len(entry.comments) == 0 {
+					pln(o, "")
+				}
+			}
+
+			pln(o, val)
+
+			prev_line = dd.pos.line
 		}
 	}
 

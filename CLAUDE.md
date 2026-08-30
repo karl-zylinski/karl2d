@@ -1,1 +1,0 @@
-See `agent.md` for claude instructions.
