@@ -15,6 +15,7 @@ AUDIO_BACKEND_CORE_AUDIO :: Audio_Backend_Interface {
 	remaining_samples = core_audio_remaining_samples,
 	stop_feeding = core_audio_stop_feeding,
 	target_samples = core_audio_target_samples,
+	drives_itself = core_audio_drives_itself,
 }
 
 import "base:intrinsics"
@@ -159,5 +160,11 @@ ch :: proc(status: Audio.CFOSStatus, loc := #caller_location) -> bool {
 	}
 
 	log.errorf("CoreAudio error %v", status, location=loc)
+	return false
+}
+
+// The audio queue hands buffers back on its own thread, but the mixer is still fed rather than
+// asked. See `_pull_audio` for the shape a backend that drives itself uses.
+core_audio_drives_itself :: proc() -> bool {
 	return false
 }

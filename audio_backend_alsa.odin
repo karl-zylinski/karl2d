@@ -13,6 +13,7 @@ AUDIO_BACKEND_ALSA :: Audio_Backend_Interface {
 	remaining_samples  = alsa_remaining_samples,
 	stop_feeding       = alsa_stop_feeding,
 	target_samples     = alsa_target_samples,
+	drives_itself      = alsa_drives_itself,
 }
 
 import "base:runtime"
@@ -258,4 +259,9 @@ alsa_remaining_samples :: proc() -> int {
 	} 
 	
 	return len(s.buf) - start + end
+}
+
+// The writing thread drains a ring the mixer fills, so the mixer is fed rather than asked.
+alsa_drives_itself :: proc() -> bool {
+	return false
 }

@@ -199,15 +199,20 @@ init :: proc(
 		audio_alloc_error: runtime.Allocator_Error
 		s.audio_backend_state, audio_alloc_error = mem.alloc(ab.state_size(), allocator = s.allocator)
 		log.assertf(audio_alloc_error == nil, "Failed allocating memory for audio backend: %v", audio_alloc_error)
-		ab.init(s.audio_backend_state, s.allocator)
+
+		// Everything the mixer reads has to exist before the backend starts, because a backend
+		// that drives itself asks for samples from its own thread as soon as it is running.
 		hm.dynamic_init(&s.sounds, s.allocator)
 		hm.dynamic_init(&s.audio_clips, s.allocator)
 		hm.dynamic_init(&s.audio_streams, s.allocator)
 		hm.dynamic_init(&s.audio_buses, s.allocator)
 		s.master_bus.target_settings = DEFAULT_AUDIO_BUS_SETTINGS
 		s.master_bus.current_settings = DEFAULT_AUDIO_BUS_SETTINGS
+		s.audio_thread_logger = context.logger
 
-		if !options.disable_audio_mixer_thread {
+		ab.init(s.audio_backend_state, s.allocator)
+
+		if !ab.drives_itself() && !options.disable_audio_mixer_thread {
 			_start_audio_mixer_thread()
 		}
 	}
@@ -265,9 +270,11 @@ shutdown :: proc() {
 
 	// Audio
 	{
+		// Stop everything that mixes before taking away what it mixes from. The mixer thread and
+		// the thread a backend runs when it drives itself both reach the handle maps.
 		_stop_audio_mixer_thread()
-		hm.dynamic_destroy(&s.audio_streams)
 		ab.shutdown()
+		hm.dynamic_destroy(&s.audio_streams)
 		hm.dynamic_destroy(&s.sounds)
 		hm.dynamic_destroy(&s.audio_clips)
 		hm.dynamic_destroy(&s.audio_buses)
@@ -3627,8 +3634,8 @@ set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_dat
 // Does nothing while the mixer thread is running, since the thread produces the audio instead.
 // Otherwise mixes chunks, up to a limit per call, until the audio backend has enough of them.
 update_audio_mixer :: proc() {
-	// The mixer thread produces the audio when it is running.
-	if s.audio_mixer_thread != nil {
+	// The backend asks for the audio itself, or the mixer thread produces it.
+	if ab.drives_itself() || s.audio_mixer_thread != nil {
 		return
 	}
 
@@ -3653,14 +3660,13 @@ update_audio_mixer :: proc() {
 	}
 }
 
-// Mixes one chunk and returns it. The caller feeds it to the audio backend. Both the mixer thread
-// and `update_audio_mixer` use this. The caller holds `s.audio_mutex`.
+// Mixes `dest` full of audio. The caller holds `s.audio_mutex`.
 //
-// The chunk is `AUDIO_MIX_CHUNK_SIZE` samples long today. Everything in here works off the length
-// of the chunk rather than that constant, so a backend that asks for a different length gets the
-// volume and pan ramps it should. The ramps are written as a rate per second, so a shorter chunk
-// covers less of a ramp and takes more chunks to finish it, and the ramp lasts the same time.
-_mix_one_chunk :: proc() -> [][2]Audio_Sample {
+// Everything in here works off the length of `dest` rather than `AUDIO_MIX_CHUNK_SIZE`, so a
+// backend that asks for a different length gets the volume and pan ramps it should. The ramps are
+// written as a rate per second, so a shorter destination covers less of a ramp and takes more of
+// them to finish it, and the ramp lasts the same amount of time either way.
+_mix_into :: proc(buffer: [][2]Audio_Sample) {
 	audio_mix :: proc(
 		dest: [][2]Audio_Sample,
 		source: []Audio_Sample,
@@ -3816,19 +3822,11 @@ _mix_one_chunk :: proc() -> [][2]Audio_Sample {
 		return current + dir * delta
 	}
 
-	chunk_size := AUDIO_MIX_CHUNK_SIZE
+	out := buffer
+	chunk_size := len(out)
 
-	// We are going to go past the end of the mix_buffer, so just hop to the start instead. It's
-	// 1 megabyte big, so hopping over a few bytes at the end is OK.
-	if (s.mix_buffer_offset + chunk_size) > len(s.mix_buffer) {
-		s.mix_buffer_offset = 0
-	}
-
-	// A slice of the mixed samples we are going to output.
-	out := s.mix_buffer[s.mix_buffer_offset:s.mix_buffer_offset + chunk_size]
-
-	// Zero out old mixed data from buffer (the buffer is "circular", there may be old stuff in
-	// the `out` slice).
+	// Zero out whatever the destination held before. A backend hands back the buffer it just
+	// played, and the mixer adds into the destination rather than assigning to it.
 	slice.zero(out)
 
 	// The buses have a chunk each, which the sounds routed to that bus are mixed into. Those hold
@@ -4111,8 +4109,28 @@ _mix_one_chunk :: proc() -> [][2]Audio_Sample {
 			out[samp_idx] *= linalg.lerp(gain_start, gain_end, t)
 		}
 	}
+}
 
-	s.mix_buffer_offset += chunk_size
+// Mixes audio straight into a buffer the audio backend is about to play. A backend that drives
+// itself calls this from whatever thread its API gives it.
+@(private="package")
+_pull_audio :: proc(dest: [][2]Audio_Sample) {
+	sync.mutex_guard(&s.audio_mutex)
+	_mix_into(dest)
+}
+
+// Mixes one chunk into the mix buffer and returns it, for the backends that are fed rather than
+// pulling for themselves. The caller holds `s.audio_mutex`.
+_mix_one_chunk :: proc() -> [][2]Audio_Sample {
+	// We are going to go past the end of the mix_buffer, so just hop to the start instead. It's
+	// 1 megabyte big, so hopping over a few bytes at the end is OK.
+	if (s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE) > len(s.mix_buffer) {
+		s.mix_buffer_offset = 0
+	}
+
+	out := s.mix_buffer[s.mix_buffer_offset:s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE]
+	_mix_into(out)
+	s.mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
 	return out
 }
 
@@ -4133,7 +4151,6 @@ _audio_mixer_thread_set :: proc(t: rawptr) {
 // thread right before the mixer thread is created.
 @(private="package")
 _audio_mixer_thread_begin :: proc() {
-	s.audio_mixer_thread_logger = context.logger
 	s.audio_mixer_thread_run = true
 }
 
@@ -4151,10 +4168,11 @@ _audio_mixer_thread_should_run :: proc() -> bool {
 	return sync.atomic_load(&s.audio_mixer_thread_run)
 }
 
-// The context the mixer thread should run with, captured when the thread was started.
+// The context a thread that mixes audio should run with, captured when `init` ran. Used by the
+// mixer thread and by a backend that runs a thread of its own to pull samples.
 @(private="package")
-_audio_mixer_thread_context :: proc() -> (runtime.Allocator, runtime.Logger) {
-	return s.allocator, s.audio_mixer_thread_logger
+_audio_thread_context :: proc() -> (runtime.Allocator, runtime.Logger) {
+	return s.allocator, s.audio_thread_logger
 }
 
 // Mixes and feeds chunks until the audio backend has enough of them. Called in a loop by the
@@ -6268,8 +6286,9 @@ State :: struct {
 	audio_mixer_thread: rawptr,
 	audio_mixer_thread_run: bool,
 
-	// The mixer thread logs through the logger the game had when the thread was started.
-	audio_mixer_thread_logger: runtime.Logger,
+	// A thread that mixes audio logs through the logger the game had when `init` ran. That covers
+	// the mixer thread and the thread a backend runs when it drives itself.
+	audio_thread_logger: runtime.Logger,
 }
 
 

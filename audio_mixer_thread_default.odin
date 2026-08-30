@@ -9,7 +9,7 @@ import "core:thread"
 import "core:time"
 
 _audio_mixer_thread_proc :: proc(t: ^thread.Thread) {
-	context.allocator, context.logger = _audio_mixer_thread_context()
+	context.allocator, context.logger = _audio_thread_context()
 
 	for _audio_mixer_thread_should_run() {
 		_audio_mixer_thread_tick()

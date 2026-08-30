@@ -14,6 +14,7 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 	remaining_samples = waveout_remaining_samples,
 	stop_feeding = waveout_stop_feeding,
 	target_samples = waveout_target_samples,
+	drives_itself = waveout_drives_itself,
 }
 
 import "base:runtime"
@@ -22,15 +23,25 @@ import win32 "core:sys/windows"
 import "core:time"
 import "core:sync"
 import "core:slice"
+import "core:thread"
+
+// How many samples one buffer holds, and how many buffers there are. waveOut has no callback that
+// can fill a buffer, so a thread waits for one to finish playing and asks the mixer to fill it.
+// Four buffers of 700 samples is 63 milliseconds of audio at most, and three of them in flight is
+// the 47 milliseconds the mixer used to aim for.
+WAVEOUT_BUFFER_SAMPLES :: 700
+WAVEOUT_BUFFER_COUNT :: 4
 
 Waveout_State :: struct {
 	device: win32.HWAVEOUT,
-	headers: [32]win32.WAVEHDR,
-	cur_header: int,
-	submitted_samples: int,
+	headers: [WAVEOUT_BUFFER_COUNT]win32.WAVEHDR,
 
-	// Set when the mixer thread is stopping. It makes the wait for a free header give up.
-	interrupted: bool,
+	// The mixer writes straight into these, so each buffer belongs to one header.
+	buffers: [WAVEOUT_BUFFER_COUNT][WAVEOUT_BUFFER_SAMPLES][2]Audio_Sample,
+	cur_header: int,
+
+	feed_thread: ^thread.Thread,
+	run_thread: bool,
 }
 
 waveout_state_size :: proc() -> int {
@@ -66,8 +77,8 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	format.nBlockAlign = (format.wBitsPerSample * format.nChannels) / 8 // see nBlockAlign docs
 	format.nAvgBytesPerSec = (u32(format.wBitsPerSample * format.nChannels) * format.nSamplesPerSec) / 8
 
-	// The mixer thread tops the device up every couple of milliseconds. `time.sleep` rounds up to
-	// the timer period, which is 15.6 ms by default. This asks Windows for 1 ms instead.
+	// The feed thread waits a millisecond at a time for a buffer to finish. `time.sleep` rounds up
+	// to the timer period, which is 15.6 ms by default. This asks Windows for 1 ms instead.
 	win32.timeBeginPeriod(1)
 
 	ch(win32.waveOutOpen(
@@ -78,6 +89,47 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 		0,
 		win32.CALLBACK_NULL,
 	))
+
+	// Set the device before starting the thread: the thread uses it right away.
+	s.run_thread = true
+	s.feed_thread = thread.create(waveout_thread_proc)
+	thread.start(s.feed_thread)
+}
+
+// Asks the mixer for samples and hands them to the device, one buffer at a time. waveOut plays
+// straight out of the buffer, so a buffer is only refilled once the device has finished with it.
+waveout_thread_proc :: proc(t: ^thread.Thread) {
+	context.allocator, context.logger = _audio_thread_context()
+
+	for sync.atomic_load(&s.run_thread) {
+		h := &s.headers[s.cur_header]
+
+		for win32.waveOutUnprepareHeader(s.device, h, size_of(win32.WAVEHDR)) == win32.WAVERR_STILLPLAYING {
+			if !sync.atomic_load(&s.run_thread) {
+				return
+			}
+
+			time.sleep(1 * time.Millisecond)
+		}
+
+		buffer := s.buffers[s.cur_header][:]
+		_pull_audio(buffer)
+		byte_samples := slice.reinterpret([]u8, buffer)
+
+		h^ = {
+			dwBufferLength = u32(len(byte_samples)),
+			lpData = raw_data(byte_samples),
+		}
+
+		win32.waveOutPrepareHeader(s.device, h, size_of(win32.WAVEHDR))
+		win32.waveOutWrite(s.device, h, size_of(win32.WAVEHDR))
+
+		s.cur_header += 1
+
+		if s.cur_header >= len(s.headers) {
+			s.cur_header = 0
+		}
+	}
 }
 
 ch :: proc(mr: win32.MMRESULT, loc := #caller_location) -> win32.MMRESULT {
@@ -91,6 +143,16 @@ ch :: proc(mr: win32.MMRESULT, loc := #caller_location) -> win32.MMRESULT {
 
 waveout_shutdown :: proc() {
 	log.debug("Shutdown audio backend waveout")
+	sync.atomic_store(&s.run_thread, false)
+
+	// The thread is only created once the device is open. It is nil if opening it failed.
+	if s.feed_thread != nil {
+		thread.join(s.feed_thread)
+		thread.destroy(s.feed_thread)
+		s.feed_thread = nil
+	}
+
+	win32.waveOutReset(s.device)
 	win32.waveOutClose(s.device)
 	win32.timeEndPeriod(1)
 }
@@ -100,49 +162,21 @@ waveout_set_internal_state :: proc(state: rawptr) {
 	s = (^Waveout_State)(state)
 }
 
+// The feed thread asks the mixer for samples, so nothing hands them over.
 waveout_feed :: proc(samples: [][2]Audio_Sample) {
-	h := &s.headers[s.cur_header]
-
-	for win32.waveOutUnprepareHeader(s.device, h, size_of(win32.WAVEHDR)) == win32.WAVERR_STILLPLAYING {
-		if sync.atomic_load(&s.interrupted) {
-			return
-		}
-
-		time.sleep(1 * time.Millisecond)
-	}
-
-	byte_samples := slice.reinterpret([]u8, samples)
-
-	h^ = {
-		dwBufferLength = u32(len(byte_samples)),
-		lpData = raw_data(byte_samples),
-	}
-
-	win32.waveOutPrepareHeader(s.device, h, size_of(win32.WAVEHDR))
-	win32.waveOutWrite(s.device, h, size_of(win32.WAVEHDR))
-
-	s.submitted_samples += len(samples)
-	s.cur_header += 1
-
-	if s.cur_header >= len(s.headers) {
-		s.cur_header = 0
-	}
 }
 
 waveout_remaining_samples :: proc() -> int {
-	t := win32.MMTIME {
-		wType = .TIME_SAMPLES,
-	}
-	win32.waveOutGetPosition(s.device, &t, size_of(win32.MMTIME))
-	return s.submitted_samples - int(t.u.sample)
+	return 0
 }
 
-// `feed` checks this flag while it waits for a header, so the wait ends on the next pass.
 waveout_stop_feeding :: proc() {
-	sync.atomic_store(&s.interrupted, true)
 }
 
-// The device is only as full as what the mixer feeds it, so it has nothing of its own to ask for.
 waveout_target_samples :: proc() -> int {
 	return 0
+}
+
+waveout_drives_itself :: proc() -> bool {
+	return true
 }

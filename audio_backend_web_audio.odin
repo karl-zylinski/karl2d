@@ -13,6 +13,7 @@ AUDIO_BACKEND_WEB_AUDIO :: Audio_Backend_Interface {
 	remaining_samples = web_audio_remaining_samples,
 	stop_feeding = web_audio_stop_feeding,
 	target_samples = web_audio_target_samples,
+	drives_itself = web_audio_drives_itself,
 }
 
 import "base:runtime"
@@ -65,4 +66,9 @@ web_audio_stop_feeding :: proc() {
 // Web has no mixer thread, so nothing reads this.
 web_audio_target_samples :: proc() -> int {
 	return 0
+}
+// The audio worklet is a separate JS realm and cannot call into the wasm module, so the samples
+// have to be pushed to it from the game loop.
+web_audio_drives_itself :: proc() -> bool {
+	return false
 }

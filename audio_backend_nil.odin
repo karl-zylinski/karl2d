@@ -14,6 +14,7 @@ AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
 	remaining_samples = abnil_remaining_samples,
 	stop_feeding = abnil_stop_feeding,
 	target_samples = abnil_target_samples,
+	drives_itself = abnil_drives_itself,
 }
 
 import "base:runtime"
@@ -45,4 +46,8 @@ abnil_stop_feeding :: proc() {
 // This backend has no device, so it asks for nothing.
 abnil_target_samples :: proc() -> int {
 	return 0
+}
+// The nil backend plays nothing, so nothing asks the mixer for samples.
+abnil_drives_itself :: proc() -> bool {
+	return false
 }

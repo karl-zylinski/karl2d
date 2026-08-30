@@ -1957,8 +1957,9 @@ State :: struct {
 	audio_mixer_thread: rawptr,
 	audio_mixer_thread_run: bool,
 
-	// The mixer thread logs through the logger the game had when the thread was started.
-	audio_mixer_thread_logger: runtime.Logger,
+	// A thread that mixes audio logs through the logger the game had when `init` ran. That covers
+	// the mixer thread and the thread a backend runs when it drives itself.
+	audio_thread_logger: runtime.Logger,
 }
 
 // Karl2D currently reports left, right, and middle mouse buttons.
