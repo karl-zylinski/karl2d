@@ -16,7 +16,9 @@ package karl2d
 
 import "core:c"
 import "core:math"
+import "core:strings"
 import "core:sys/linux"
+import stbtt "vendor:stb/truetype"
 
 import "log"
 import "platform_bindings/linux/dbus"
@@ -38,6 +40,11 @@ DECORATION_RESIZE_MARGIN :: 8
 DECORATION_BUTTON_WIDTH :: 32
 DECORATION_BUTTON_GLYPH :: 12
 DECORATION_BUTTON_STROKE :: 1.2
+
+// How tall the title is drawn, in logical pixels, and how much room is left either side of it
+// before it is left out entirely.
+DECORATION_TITLE_SIZE :: 13
+DECORATION_TITLE_PADDING :: 8
 
 // What the frame is painted with. The fill covers the titlebar, the outline runs around the
 // outside of the whole window, which is all the thin sides are, `text` draws the button glyphs and
@@ -131,6 +138,15 @@ WL_Decorations :: struct {
 	// down on. A button only acts if the pointer is still on it when the button comes back up.
 	pointer_button: WL_Decoration_Button,
 	pressed_button: WL_Decoration_Button,
+
+	// The window title, kept because the titlebar has to be repainted with it whenever anything
+	// else about the titlebar changes. Owned by the frame, in the allocator Karl2D was given.
+	title: string,
+
+	// The embedded font, parsed once. It points into `DEFAULT_FONT_DATA`, which is baked into the
+	// program and outlives everything.
+	font: stbtt.fontinfo,
+	font_ok: bool,
 }
 
 // Creates the four surfaces that make up the window frame. They are subsurfaces of the surface the
@@ -142,6 +158,19 @@ wldeco_create :: proc() {
 	}
 
 	s.decorations.colors = wldeco_desktop_colors()
+
+	// The title is drawn with the font Karl2D embeds for the game to use. Parsing it is just
+	// reading the table offsets out of the file, and the file is baked into the program.
+	offset := stbtt.GetFontOffsetForIndex(raw_data(DEFAULT_FONT_DATA), 0)
+	s.decorations.font_ok = bool(stbtt.InitFont(
+		&s.decorations.font,
+		raw_data(DEFAULT_FONT_DATA),
+		offset,
+	))
+
+	if !s.decorations.font_ok {
+		log.error("Failed reading the built in font. The window title will not be drawn.")
+	}
 
 	for part in WL_Decoration_Part {
 		d := &s.decorations.parts[part]
@@ -206,6 +235,30 @@ wldeco_layout :: proc() {
 // titlebar above it.
 wldeco_shown :: proc() -> bool {
 	return s.decorations.on && s.window_mode != .Borderless_Fullscreen
+}
+
+// Repaints the titlebar alone, for the things that change while the window stays the same size:
+// the title, whether the window has focus, and which button the pointer is on.
+wldeco_repaint_titlebar :: proc() {
+	if !wldeco_shown() || s.decorations.parts[.Titlebar].surface == nil {
+		return
+	}
+
+	wldeco_paint(.Titlebar)
+}
+
+// Takes the title to draw. The compositor is told separately, since it wants one for its window
+// list whether or not it draws any of this.
+wldeco_set_title :: proc(title: string) {
+	// Games that put their frame rate in the title set it every frame, and repainting the titlebar
+	// for a title that has not changed would be that much work for nothing.
+	if !s.decorations.on || s.decorations.title == title {
+		return
+	}
+
+	delete(s.decorations.title, s.allocator)
+	s.decorations.title = strings.clone(title, s.allocator)
+	wldeco_repaint_titlebar()
 }
 
 // Works out where one part of the frame sits for the current window size, paints it and puts it
@@ -287,6 +340,8 @@ wldeco_paint :: proc(part: WL_Decoration_Part) {
 	}
 
 	if part == .Titlebar {
+		wldeco_paint_title(d)
+
 		for button in WL_Decoration_Button {
 			if button != .None {
 				wldeco_paint_button(d, button)
@@ -299,6 +354,127 @@ wldeco_paint :: proc(part: WL_Decoration_Part) {
 	wl.surface_attach(d.surface, d.buffer, 0, 0)
 	wl.surface_damage_buffer(d.surface, 0, 0, i32(buffer_width), i32(buffer_height))
 	wl.surface_commit(d.surface)
+}
+
+// Draws the window title across the middle of the titlebar, in the space the buttons leave. The
+// glyphs are rasterized straight out of the font Karl2D already embeds, one at a time, which is
+// little enough work for something that only happens when the title, the size, the focus or the
+// button under the pointer changes.
+wldeco_paint_title :: proc(d: ^WL_Decoration) {
+	if !s.decorations.font_ok || s.decorations.title == "" {
+		return
+	}
+
+	font := &s.decorations.font
+	scale_factor := stbtt.ScaleForPixelHeight(font, DECORATION_TITLE_SIZE * s.scale)
+
+	ascent, descent, line_gap: i32
+	stbtt.GetFontVMetrics(font, &ascent, &descent, &line_gap)
+
+	// The room between the left edge of the window and the first button, in the titlebar's own
+	// physical pixels.
+	buttons := wldeco_button_rect(max(WL_Decoration_Button))
+	left := int(math.round(f32(-d.x + DECORATION_TITLE_PADDING) * s.scale))
+	right := int(math.round(f32(buttons.x - d.x - DECORATION_TITLE_PADDING) * s.scale))
+
+	if right <= left {
+		return
+	}
+
+	width := 0
+
+	for r in s.decorations.title {
+		advance, left_bearing: i32
+		stbtt.GetCodepointHMetrics(font, r, &advance, &left_bearing)
+		width += int(math.round(f32(advance) * scale_factor))
+	}
+
+	// Centred in that room, or against the left edge of it when the title is too long to fit.
+	pen := max(left, left + (right - left - width)/2)
+	top := int(math.round(f32(-DECORATION_TITLEBAR_HEIGHT - d.y) * s.scale))
+	bar_height := int(math.round(DECORATION_TITLEBAR_HEIGHT * s.scale))
+	text_height := f32(ascent - descent) * scale_factor
+	baseline := top + int((f32(bar_height) - text_height)/2 + f32(ascent)*scale_factor)
+	color := wldeco_text_color()
+
+	for r in s.decorations.title {
+		advance, left_bearing: i32
+		stbtt.GetCodepointHMetrics(font, r, &advance, &left_bearing)
+
+		glyph_width, glyph_height, glyph_x, glyph_y: i32
+		coverage := stbtt.GetCodepointBitmap(
+			font,
+			0,
+			scale_factor,
+			r,
+			&glyph_width,
+			&glyph_height,
+			&glyph_x,
+			&glyph_y,
+		)
+
+		if coverage != nil {
+			wldeco_blit_glyph(
+				d,
+				coverage[:glyph_width*glyph_height],
+				int(glyph_width),
+				pen + int(glyph_x),
+				baseline + int(glyph_y),
+				left,
+				right,
+				color,
+			)
+
+			stbtt.FreeBitmap(coverage, nil)
+		}
+
+		pen += int(math.round(f32(advance) * scale_factor))
+
+		if pen >= right {
+			break
+		}
+	}
+}
+
+// Blends one rasterized glyph into the titlebar buffer. `coverage` is stbtt's 8 bit alpha, and
+// `clip_left` and `clip_right` keep the title out of the buttons and off the window's edge.
+wldeco_blit_glyph :: proc(
+	d: ^WL_Decoration,
+	coverage: []u8,
+	glyph_width: int,
+	at_x: int,
+	at_y: int,
+	clip_left: int,
+	clip_right: int,
+	color: u32,
+) {
+	for i in 0..<len(coverage) {
+		alpha := coverage[i]
+
+		if alpha == 0 {
+			continue
+		}
+
+		x := at_x + i%glyph_width
+		y := at_y + i/glyph_width
+
+		if x < clip_left || x >= clip_right || y < 0 || y >= d.buffer_height {
+			continue
+		}
+
+		at := y*d.buffer_width + x
+		d.pixels[at] = wldeco_blend(d.pixels[at], color, f32(alpha)/255)
+	}
+}
+
+// What the title and the button glyphs are drawn in. Dimmed towards the titlebar itself while the
+// window is not the one being typed into, the way every other window on the desktop dims.
+wldeco_text_color :: proc() -> u32 {
+	if s.active {
+		return s.decorations.colors.text
+	}
+
+	return wldeco_blend(s.decorations.colors.fill, s.decorations.colors.text, 0.45)
 }
 
 // Draws one button into the titlebar buffer: a lit background while the pointer is on it, and the
@@ -342,11 +518,7 @@ wldeco_paint_button :: proc(d: ^WL_Decoration, button: WL_Decoration_Button) {
 				coverage = clamp(half_stroke + 0.5 - to_stroke, 0, 1)
 			}
 
-			d.pixels[y*d.buffer_width + x] = wldeco_blend(
-				background,
-				s.decorations.colors.text,
-				coverage,
-			)
+			d.pixels[y*d.buffer_width + x] = wldeco_blend(background, wldeco_text_color(), coverage)
 		}
 	}
 }
@@ -458,6 +630,9 @@ wldeco_destroy :: proc() {
 
 		d^ = {}
 	}
+
+	delete(s.decorations.title, s.allocator)
+	s.decorations.title = ""
 }
 
 // Picks the frame colors from what the desktop is set up for, by asking the desktop portal over
@@ -613,7 +788,7 @@ wldeco_pointer_moved :: proc(local_x: f32, local_y: f32) -> bool {
 
 	if button != s.decorations.pointer_button {
 		s.decorations.pointer_button = button
-		wldeco_paint(.Titlebar)
+		wldeco_repaint_titlebar()
 	}
 
 	if edge == s.decorations.pointer_edge {
@@ -630,7 +805,7 @@ wldeco_pointer_left :: proc() {
 
 	if s.decorations.pointer_button != .None {
 		s.decorations.pointer_button = .None
-		wldeco_paint(.Titlebar)
+		wldeco_repaint_titlebar()
 	}
 
 	s.decorations.pointer_edge = wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE

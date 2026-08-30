@@ -165,7 +165,7 @@ wl_init :: proc(
 	s.toplevel = wl.xdg_surface_get_toplevel(s.xdg_surface)
 	wl.add_listener(s.toplevel, &toplevel_listener, nil)
 	wl.add_listener(s.xdg_surface, &window_listener, nil)
-	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(window_title, frame_allocator))
+	wl_set_title(window_title)
 
 	wl_set_window_mode(options.window_mode)
 
@@ -436,6 +436,23 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 		h := int(height)
 
 		context = s.odin_ctx
+
+		// The compositor lists what the window currently is. Focus arrives this way and nowhere
+		// else, and the titlebar dims without it.
+		active := false
+
+		if states != nil && states.data != nil {
+			for state in ([^]u32)(states.data)[:states.size/size_of(u32)] {
+				if state == wl.XDG_TOPLEVEL_STATE_ACTIVATED {
+					active = true
+				}
+			}
+		}
+
+		if active != s.active {
+			s.active = active
+			wldeco_repaint_titlebar()
+		}
 
 		// The compositor sizes the whole window, decorations included, while everything below is
 		// about the game canvas inside them.
@@ -942,6 +959,7 @@ wl_get_events :: proc(events: ^[dynamic]Event) {
 
 wl_set_title :: proc(title: string) {
 	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(title, frame_allocator))
+	wldeco_set_title(title)
 }
 
 wl_get_screen_width :: proc() -> int {
@@ -1451,6 +1469,10 @@ WL_State :: struct {
 
 	// True if toplevel_listener.configure has run
 	configured: bool,
+
+	// Whether the compositor says this is the window being typed into. The frame Karl2D draws
+	// dims itself when it is not.
+	active: bool,
 
 	window_render_glue: Window_Render_Glue,
 
