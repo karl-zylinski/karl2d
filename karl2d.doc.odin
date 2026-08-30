@@ -1924,11 +1924,14 @@ State :: struct {
 	// decode under this mutex stalls the mixer, and the mixer has a deadline. The loaders read
 	// their files before taking it, and `update_audio_stream` decodes under a mutex of its own.
 	//
-	// It is recursive because several of the procedures a game calls reach the shared state
-	// through another one of them. `set_sound_time` asks `get_sound_length`, and the audio clip
-	// loaders pass the work down to each other. A plain mutex would need each of those bodies
-	// split into a guarded wrapper and an unguarded worker, for no gain the game can measure.
-	audio_mutex: sync.Recursive_Mutex,
+	// It is a plain mutex rather than a recursive one because web needs it to be. Odin's recursive
+	// mutex signals the futex on every unlock, and the futex panics on a wasm build without the
+	// atomics feature, which is what `build_web` produces. A plain mutex only reaches the futex
+	// when a thread is actually waiting, which cannot happen on a page with no threads.
+	//
+	// So no procedure that holds this may call another one that takes it. `set_sound_time` is the
+	// only place that wanted to, and it uses `_get_sound_length` instead.
+	audio_mutex: sync.Mutex,
 
 	// A backend that runs the mixer on its own thread logs through the logger the game had when
 	// `init` ran.

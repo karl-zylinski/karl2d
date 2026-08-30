@@ -2042,7 +2042,7 @@ play_audio_clip :: proc(
 	loop := false,
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 
 	audio_clip_object := hm.get(&s.audio_clips, clip)
 
@@ -2084,7 +2084,7 @@ play_audio_clip :: proc(
 // `play_audio_stream`, this also rewinds the stream to the start. Use `set_sound_paused` to pause
 // the Sound instead, which won't lose the current playback position and settings.
 stop_sound :: proc(sound: Sound) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2102,7 +2102,7 @@ stop_sound :: proc(sound: Sound) {
 // Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
 // or stopped.
 set_sound_paused :: proc(sound: Sound, paused: bool) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2114,7 +2114,7 @@ set_sound_paused :: proc(sound: Sound, paused: bool) {
 
 // Returns true if the sound exists and is not paused.
 sound_is_playing :: proc(sound: Sound) -> bool {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 	return sound_object != nil && !sound_object.paused
 }
@@ -2122,13 +2122,13 @@ sound_is_playing :: proc(sound: Sound) -> bool {
 // Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
 // stopped sound is not.
 sound_is_valid :: proc(sound: Sound) -> bool {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	return hm.is_valid(&s.sounds, sound)
 }
 
 // Set the volume of a sound. Range: 0 to 1.
 set_sound_volume :: proc(sound: Sound, volume: f32) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2140,7 +2140,7 @@ set_sound_volume :: proc(sound: Sound, volume: f32) {
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
 set_sound_pan :: proc(sound: Sound, pan: f32) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2153,7 +2153,7 @@ set_sound_pan :: proc(sound: Sound, pan: f32) {
 // Set the pitch of a sound. Range: 0.01 and up, where 1 is the default. Pitch 2 makes the sound
 // play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2170,7 +2170,7 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 // audio has to be decoded before it can play. Don't do it every frame while dragging a scrub bar,
 // do it when the player lets go.
 set_sound_time :: proc(sound: Sound, seconds: f32) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2178,7 +2178,7 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 	}
 
 	wanted_seconds := max(seconds, 0)
-	length := get_sound_length(sound)
+	length := _get_sound_length(sound)
 
 	if length > 0 {
 		wanted_seconds = min(wanted_seconds, length)
@@ -2203,7 +2203,7 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
 // each time it starts over. Returns 0 if the sound doesn't exist.
 get_sound_time :: proc(sound: Sound) -> f32 {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2277,7 +2277,13 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 // Get the length of the sound's audio, in seconds. Use it together with `get_sound_time` to show
 // how far into a song you are. Returns 0 if the sound doesn't exist or if the length is unknown.
 get_sound_length :: proc(sound: Sound) -> f32 {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
+	return _get_sound_length(sound)
+}
+
+// Unguarded `get_sound_length`, for `set_sound_time`, which holds the audio mutex by the time it
+// needs the length.
+_get_sound_length :: proc(sound: Sound) -> f32 {
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2325,7 +2331,7 @@ get_sound_length :: proc(sound: Sound) -> f32 {
 // reaches into the streaming decoder and tells that one to loop. A `Sound` started from a stream
 // plays a short buffer that the decoder keeps filling, so that sound always loops.
 set_sound_loop :: proc(sound: Sound, loop: bool) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2347,7 +2353,7 @@ set_sound_loop :: proc(sound: Sound, loop: bool) {
 
 // Route a sound into an audio bus. Pass `AUDIO_BUS_MASTER` for the master bus.
 set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
 
 	if sound_object == nil {
@@ -2365,7 +2371,7 @@ set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 // How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
 // start from the same clip.
 get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	count: int
 
 	for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
@@ -2597,7 +2603,7 @@ load_audio_clip_from_bytes_raw :: proc(
 	// `load_audio_clip_from_file` and `load_audio_clip_from_bytes` reach the shared state through
 	// here, so this is the only one of the three that takes the mutex. Their reading and parsing
 	// then happens without it, which keeps the file access away from the mixer.
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 
 	samples: []Audio_Sample
 
@@ -2669,7 +2675,7 @@ load_audio_clip_from_bytes_raw :: proc(
 // Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Also stops sounds
 // playing this clip.
 destroy_audio_clip :: proc(clip: Audio_Clip)  {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	audio_clip_object := hm.get(&s.audio_clips, clip)
 
 	if audio_clip_object == nil {
@@ -2815,7 +2821,7 @@ load_audio_stream_from_file :: proc(
 
 	// Opening the file and starting the decoder above touch nothing the mixer reads. The handle
 	// maps below are shared, so the mutex is taken here rather than at the top.
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 
 	audio_clip_handle, audio_clip_handle_add_err := hm.add(&s.audio_clips, audio_clip)
 
@@ -2932,7 +2938,7 @@ load_audio_stream_from_bytes :: proc(
 
 	// Opening the file and starting the decoder above touch nothing the mixer reads. The handle
 	// maps below are shared, so the mutex is taken here rather than at the top.
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 
 	audio_clip_handle, audio_clip_handle_add_err := hm.add(&s.audio_clips, audio_clip)
 
@@ -2971,7 +2977,7 @@ load_audio_stream_from_bytes :: proc(
 // If you created the stream using `load_audio_stream_from_bytes`, then this procedure will NOT
 // deallocate the bytes that you sent into that procedure.
 destroy_audio_stream :: proc(stream: Audio_Stream) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 
 	sd := hm.get(&s.audio_streams, stream)
 
@@ -3023,12 +3029,12 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	// Find everything under the audio mutex, then take the stream's own mutex before letting the
 	// audio mutex go. Holding the stream mutex across that handover is what stops
 	// `destroy_audio_stream` from freeing the decoder while the decoding below is using it.
-	sync.recursive_mutex_lock(&s.audio_mutex)
+	sync.mutex_lock(&s.audio_mutex)
 
 	sd := hm.get(&s.audio_streams, stream)
 
 	if sd == nil {
-		sync.recursive_mutex_unlock(&s.audio_mutex)
+		sync.mutex_unlock(&s.audio_mutex)
 		log.error("Trying to update destroyed audio stream")
 		return
 	}
@@ -3037,7 +3043,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 	if pab == nil {
 		// Not playing the stream is a valid state. It just doesn't need any updating.
-		sync.recursive_mutex_unlock(&s.audio_mutex)
+		sync.mutex_unlock(&s.audio_mutex)
 		return
 	}
 
@@ -3045,14 +3051,14 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 	if ab == nil {
 		hm.remove(&s.sounds, sd.sound)
-		sync.recursive_mutex_unlock(&s.audio_mutex)
+		sync.mutex_unlock(&s.audio_mutex)
 		log.error("Trying to update audio stream with destroyed clip")
 		return
 	}
 
 	play_offset := pab.offset
 	sync.mutex_lock(&sd.decode_mutex)
-	sync.recursive_mutex_unlock(&s.audio_mutex)
+	sync.mutex_unlock(&s.audio_mutex)
 
 	// Decode with only the stream mutex held, so the mixer keeps going while this reads the disk.
 	_decode_audio_stream(sd, ab, play_offset)
@@ -3060,7 +3066,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 	// Let go of the stream mutex before taking the audio mutex again. Everything that wants both
 	// takes the audio mutex first, so doing it the other way round here would deadlock.
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 
 	// The stream may have been destroyed while this was decoding, so look it up again.
 	if sd_now := hm.get(&s.audio_streams, stream); sd_now != nil {
@@ -3314,7 +3320,7 @@ play_audio_stream :: proc(
 	loop := false,
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 
 	sd := hm.get(&s.audio_streams, stream)
 
@@ -3384,7 +3390,7 @@ play_audio_stream :: proc(
 // A new bus has volume 1, pan 0 and no effect. That makes it a passthrough: Playing a sound on a
 // fresh bus sounds exactly like playing it on the master bus, until you change something.
 create_audio_bus :: proc() -> Audio_Bus {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	bus_object := Audio_Bus_Object {
 		target_settings = DEFAULT_AUDIO_BUS_SETTINGS,
 		current_settings = DEFAULT_AUDIO_BUS_SETTINGS,
@@ -3405,7 +3411,7 @@ create_audio_bus :: proc() -> Audio_Bus {
 // Destroy an audio bus. Everything routed to it goes back to the master bus, including sounds that
 // are playing right now.
 destroy_audio_bus :: proc(bus: Audio_Bus) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	if bus == AUDIO_BUS_MASTER {
 		log.error("Cannot destroy audio bus, the master bus cannot be destroyed.")
 		return
@@ -3433,7 +3439,7 @@ destroy_audio_bus :: proc(bus: Audio_Bus) {
 //
 // This works on `AUDIO_BUS_MASTER` as well, which is how you set the master volume of your game.
 set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
 
 	if bus_object == nil {
@@ -3452,7 +3458,7 @@ set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32) {
 // loudness the same. A bus is already a finished stereo mix, and a bus at pan 0 has to leave it
 // exactly as it is.
 set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
 
 	if bus_object == nil {
@@ -3472,7 +3478,7 @@ set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32) {
 //
 // See `Audio_Effect_Proc` for what the effect is given and what it is allowed to do.
 set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_data: rawptr = nil) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	bus_object := bus == AUDIO_BUS_MASTER ? &s.master_bus : hm.get(&s.audio_buses, bus)
 
 	if bus_object == nil {
@@ -3519,7 +3525,7 @@ update_audio_mixer :: proc() {
 
 		// `feed` waits for the device on some backends, and holding the mutex across that would
 		// make every audio procedure the game calls wait with it.
-		if sync.recursive_mutex_guard(&s.audio_mutex) {
+		if sync.mutex_guard(&s.audio_mutex) {
 			_mix_into(out)
 		}
 
@@ -3531,7 +3537,7 @@ update_audio_mixer :: proc() {
 // itself calls this from its own thread.
 @(private="package")
 _mix_audio :: proc(dest: [][2]Audio_Sample) {
-	sync.recursive_mutex_guard(&s.audio_mutex)
+	sync.mutex_guard(&s.audio_mutex)
 	_mix_into(dest)
 }
 
@@ -6040,11 +6046,14 @@ State :: struct {
 	// decode under this mutex stalls the mixer, and the mixer has a deadline. The loaders read
 	// their files before taking it, and `update_audio_stream` decodes under a mutex of its own.
 	//
-	// It is recursive because several of the procedures a game calls reach the shared state
-	// through another one of them. `set_sound_time` asks `get_sound_length`, and the audio clip
-	// loaders pass the work down to each other. A plain mutex would need each of those bodies
-	// split into a guarded wrapper and an unguarded worker, for no gain the game can measure.
-	audio_mutex: sync.Recursive_Mutex,
+	// It is a plain mutex rather than a recursive one because web needs it to be. Odin's recursive
+	// mutex signals the futex on every unlock, and the futex panics on a wasm build without the
+	// atomics feature, which is what `build_web` produces. A plain mutex only reaches the futex
+	// when a thread is actually waiting, which cannot happen on a page with no threads.
+	//
+	// So no procedure that holds this may call another one that takes it. `set_sound_time` is the
+	// only place that wanted to, and it uses `_get_sound_length` instead.
+	audio_mutex: sync.Mutex,
 
 	// A backend that runs the mixer on its own thread logs through the logger the game had when
 	// `init` ran.
