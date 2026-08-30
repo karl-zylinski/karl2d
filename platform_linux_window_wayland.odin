@@ -73,7 +73,23 @@ wl_try_load :: proc(
 		return "Not using Wayland. Could not connect to a compositor.", false
 	}
 
+	// Karl2D never draws a titlebar, so a Wayland window is only usable where the compositor
+	// draws one. The same connection answers that: zxdg_decoration_manager_v1 is how a
+	// compositor offers server-side decorations, and its absence is how GNOME says that clients
+	// are expected to decorate themselves.
+	decorations_offered := false
+	registry := wl.display_get_registry(display)
+	wl.add_listener(registry, &decoration_probe_listener, &decorations_offered)
+	wl.display_roundtrip(display)
+	wl.destroy(registry)
+
 	wl.display_disconnect(display)
+
+	if !decorations_offered {
+		wl.unload()
+		return "Not using Wayland. The compositor does not offer server-side window decorations " +
+			"and Karl2D does not draw its own titlebar.", false
+	}
 
 	if missing, load_ok := xkb.load(); !load_ok {
 		wl.unload()
@@ -135,12 +151,19 @@ wl_init :: proc(
 
 	wl_set_window_mode(options.window_mode)
 
-	if s.decoration_manager != nil {
-		decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(s.decoration_manager, s.toplevel)
+	// `wl_try_load` turns Wayland down where this global is missing, so it is always here.
+	log.ensure(s.decoration_manager != nil, "Wayland compositor offers no window decorations")
 
-		// This adds titlebar and buttons to the window.
-		wl.zxdg_toplevel_decoration_v1_set_mode(decoration, wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
-	}
+	decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
+		s.decoration_manager,
+		s.toplevel,
+	)
+
+	// This adds titlebar and buttons to the window.
+	wl.zxdg_toplevel_decoration_v1_set_mode(
+		decoration,
+		wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE,
+	)
 
 	if s.fractional_scale_manager != nil {
 		fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(
@@ -196,6 +219,24 @@ wl_init :: proc(
 	if options.disable_auto_scale_hint {
 		log.warn("disable_auto_scale_hint not supported on linux/wayland")
 	}
+}
+
+// Used by `wl_try_load`, which runs before there is a `WL_State` to write into, so this reports
+// through its `data` pointer instead of through `s`. It also binds nothing: the connection it
+// looks at is thrown away again, and `registry_listener` binds the globals on the one that stays.
+decoration_probe_listener := wl.Registry_Listener {
+	global = proc "c" (
+		data: rawptr,
+		registry: ^wl.Registry,
+		name: u32,
+		interface: cstring,
+		version: u32,
+	) {
+		if interface == wl.zxdg_decoration_manager_v1_interface.name {
+			(^bool)(data)^ = true
+		}
+	},
+	global_remove = proc "c" (data: rawptr, registry: ^wl.Registry, name: u32) {},
 }
 
 registry_listener := wl.Registry_Listener {

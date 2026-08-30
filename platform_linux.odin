@@ -70,25 +70,23 @@ linux_init :: proc(
 	//
 	// Wayland goes first, the way SDL and GLFW order them. `KARL2D_LINUX_WINDOWING` swaps the
 	// order, for when both work but the preferred one behaves badly.
+	//
+	// Wayland also turns itself down where the compositor leaves decorations to the client, since
+	// Karl2D draws no titlebar of its own. That is what sends GNOME here to X11, where the
+	// compositor decorates the window.
 	first := LINUX_WINDOW_WAYLAND
 	second := LINUX_WINDOW_X11
 
-	// Whether the player asked for a particular windowing system. Only then is it worth saying
-	// that the first choice was turned down. The default order falling through to X11 is ordinary
-	// detection on an X11 machine, not something anyone needs to read about.
-	preference_given := false
 	windowing_preference := os.get_env("KARL2D_LINUX_WINDOWING", frame_allocator)
 
 	switch windowing_preference {
 	case "":
 
 	case "wayland":
-		preference_given = true
 
 	case "x11":
 		first = LINUX_WINDOW_X11
 		second = LINUX_WINDOW_WAYLAND
-		preference_given = true
 
 	case:
 		log.warnf(
@@ -115,9 +113,10 @@ linux_init :: proc(
 			)
 		}
 
-		if preference_given {
-			log.info(first_failure_reason)
-		}
+		// Always said, not just when the player asked for a windowing system by name. Wayland is
+		// now turned down on compositors that work fine but leave decorations to the client, and
+		// landing on X11 for that reason is worth a line rather than a silent switch.
+		log.info(first_failure_reason)
 	}
 
 	win_state_alloc_error: runtime.Allocator_Error
