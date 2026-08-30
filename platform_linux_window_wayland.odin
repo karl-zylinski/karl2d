@@ -681,6 +681,7 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 		s.pointer_enter_serial = u32(serial)
+		s.pointer_surface = surface
 		wl_apply_cursor()
 	},
 	leave = proc "c" (
@@ -689,7 +690,8 @@ pointer_listener := wl.Pointer_Listener {
 		serial: c.uint32_t,
 		surface: ^wl.Surface,
 	) {
-
+		context = s.odin_ctx
+		s.pointer_surface = nil
 	},
 	motion = proc "c" (
 		data: rawptr,
@@ -699,6 +701,10 @@ pointer_listener := wl.Pointer_Listener {
 		surface_y: wl.Fixed,
 	) {
 		context = s.odin_ctx
+
+		if wl_pointer_on_decoration() {
+			return
+		}
 
 		// surface_x and surface_y are fixed point 24.8 variables. 
 		// Just bitshift them to remove the decimal part and obtain 
@@ -716,6 +722,17 @@ pointer_listener := wl.Pointer_Listener {
 		state: c.uint32_t,
 	) {
 		context = s.odin_ctx
+
+		if wl_pointer_on_decoration() {
+			// Dragging anywhere on the frame moves the window. The compositor runs the drag itself
+			// once asked, grabbing the pointer until the button goes back up, so there is nothing
+			// here to follow along with.
+			if button == wl.POINTER_BTN_LEFT && state == wl.POINTER_BUTTON_STATE_PRESSED {
+				wl.xdg_toplevel_move(s.toplevel, s.seat, serial)
+			}
+
+			return
+		}
 
 		btn: Mouse_Button
 		switch button {
@@ -743,6 +760,10 @@ pointer_listener := wl.Pointer_Listener {
 		value: wl.Fixed,
 	) {
 		context = s.odin_ctx
+
+		if wl_pointer_on_decoration() {
+			return
+		}
 
 		// Wayland measures down and right as positive, so the vertical axis needs flipping.
 		switch axis {
@@ -1511,6 +1532,13 @@ wl_destroy_decorations :: proc() {
 	}
 }
 
+// True while the pointer is over one of the surfaces that make up the frame Karl2D draws. Pointer
+// events name the surface they happened on, which is what tells a click on the titlebar apart from
+// a click in the game. The game hears about neither the clicks nor the movement.
+wl_pointer_on_decoration :: proc() -> bool {
+	return s.pointer_surface != nil && s.pointer_surface != s.surface
+}
+
 // How much wider and taller the window is than the game canvas inside it. Zero unless Karl2D draws
 // the decorations, since the ones a compositor draws sit outside the window entirely.
 wl_decoration_extra_width :: proc() -> int {
@@ -1621,6 +1649,10 @@ WL_State :: struct {
 	keyboard: ^wl.Keyboard,
 	pointer: ^wl.Pointer,
 	pointer_enter_serial: u32,
+
+	// The surface the pointer is over, from the last enter event. It is one of the decorations
+	// rather than the game canvas whenever the pointer is on the frame Karl2D draws.
+	pointer_surface: ^wl.Surface,
 	cursor_hidden: bool,
 	shm: ^wl.SHM,
 	cursor_surface: ^wl.Surface,
