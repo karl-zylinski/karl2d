@@ -32,6 +32,7 @@ import "core:fmt"
 import "core:strings"
 import "core:c"
 import "core:math"
+import "core:os"
 import "core:sys/linux"
 import "core:time"
 import hm "core:container/handle_map"
@@ -73,10 +74,9 @@ wl_try_load :: proc(
 		return "Not using Wayland. Could not connect to a compositor.", false
 	}
 
-	// Karl2D never draws a titlebar, so a Wayland window is only usable where the compositor
-	// draws one. The same connection answers that: zxdg_decoration_manager_v1 is how a
-	// compositor offers server-side decorations, and its absence is how GNOME says that clients
-	// are expected to decorate themselves.
+	// A window has to get its decorations from somewhere. The same connection answers where from:
+	// zxdg_decoration_manager_v1 is how a compositor offers to draw them, and its absence is how
+	// GNOME says that clients are expected to decorate themselves.
 	decorations_offered := false
 	registry := wl.display_get_registry(display)
 	wl.add_listener(registry, &decoration_probe_listener, &decorations_offered)
@@ -85,10 +85,12 @@ wl_try_load :: proc(
 
 	wl.display_disconnect(display)
 
-	if !decorations_offered {
+	// Karl2D can draw its own, but only when asked to, so a compositor that offers nothing is
+	// turned down here and the session falls through to X11.
+	if !decorations_offered && !wl_custom_decorations_requested() {
 		wl.unload()
-		return "Not using Wayland. The compositor does not offer server-side window decorations " +
-			"and Karl2D does not draw its own titlebar.", false
+		return "Not using Wayland. The compositor leaves window decorations to the client. Set " +
+			"KARL2D_LINUX_DECORATIONS=custom to have Karl2D draw them.", false
 	}
 
 	if missing, load_ok := xkb.load(); !load_ok {
@@ -98,6 +100,12 @@ wl_try_load :: proc(
 	}
 
 	return "", true
+}
+
+// Whether the player asked Karl2D to draw the window decorations rather than leave them to the
+// compositor. Read once before `WL_State` exists, in `wl_try_load`, and once after, in `wl_init`.
+wl_custom_decorations_requested :: proc() -> bool {
+	return os.get_env("KARL2D_LINUX_DECORATIONS", frame_allocator) == "custom"
 }
 
 wl_init :: proc(
@@ -151,19 +159,30 @@ wl_init :: proc(
 
 	wl_set_window_mode(options.window_mode)
 
-	// `wl_try_load` turns Wayland down where this global is missing, so it is always here.
-	log.ensure(s.decoration_manager != nil, "Wayland compositor offers no window decorations")
+	// A missing decoration manager means the compositor draws nothing, and `wl_try_load` only lets
+	// the session get this far in that case when Karl2D is drawing the decorations itself.
+	s.custom_decorations = s.decoration_manager == nil || wl_custom_decorations_requested()
 
-	decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
-		s.decoration_manager,
-		s.toplevel,
-	)
+	if s.decoration_manager != nil {
+		decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
+			s.decoration_manager,
+			s.toplevel,
+		)
 
-	// This adds titlebar and buttons to the window.
-	wl.zxdg_toplevel_decoration_v1_set_mode(
-		decoration,
-		wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE,
-	)
+		// Which side draws the titlebar and the buttons. The compositor picks for itself if we
+		// never say, so the client side has to be asked for as explicitly as the server side.
+		mode: c.uint32_t = wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+
+		if s.custom_decorations {
+			mode = wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE
+		}
+
+		wl.zxdg_toplevel_decoration_v1_set_mode(decoration, mode)
+	}
+
+	if s.custom_decorations && s.subcompositor == nil {
+		log.error("Wayland compositor has no wl_subcompositor. The window will have no borders.")
+	}
 
 	if s.fractional_scale_manager != nil {
 		fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(
@@ -255,6 +274,15 @@ registry_listener := wl.Registry_Listener {
 				registry,
 				name,
 				&wl.compositor_interface,
+				version,
+			)
+
+		case wl.subcompositor_interface.name:
+			s.subcompositor = wl.registry_bind(
+				wl.Subcompositor,
+				registry,
+				name,
+				&wl.subcompositor_interface,
 				version,
 			)
 
@@ -1310,11 +1338,16 @@ WL_State :: struct {
 	display: ^wl.Display,
 	surface: ^wl.Surface,
 	compositor: ^wl.Compositor,
+	subcompositor: ^wl.Subcompositor,
 	window: ^wl.EGL_Window,
 	toplevel: ^wl.XDG_Toplevel,
 	viewporter: ^wl.WP_Viewporter,
 	viewport: ^wl.WP_Viewport,
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
+
+	// True when Karl2D draws the titlebar and the borders itself, because the compositor won't or
+	// because `KARL2D_LINUX_DECORATIONS=custom` said to.
+	custom_decorations: bool,
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
 	xdg_base: ^wl.XDG_WM_Base,

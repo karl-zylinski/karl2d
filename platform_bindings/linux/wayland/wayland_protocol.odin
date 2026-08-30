@@ -252,6 +252,81 @@ surface_interface := Interface {
 	}),
 }
 
+Subcompositor :: struct {
+	using proxy: Proxy,
+}
+
+subcompositor_get_subsurface :: proc "c" (
+	subcompositor: ^Subcompositor,
+	surface: ^Surface,
+	parent: ^Surface,
+) -> ^Subsurface {
+	return (^Subsurface)(proxy_marshal_flags(
+		subcompositor,
+		1,
+		&subsurface_interface,
+		proxy_get_version(subcompositor),
+		0,
+		nil,
+		surface,
+		parent,
+	))
+}
+
+subcompositor_interface := Interface {
+	"wl_subcompositor",
+	1,
+	2,
+	raw_data([]Message {
+		{"destroy", "", raw_data([]^Interface{})},
+		{
+			"get_subsurface", "noo",
+			raw_data([]^Interface{&subsurface_interface, &surface_interface, &surface_interface}),
+		},
+	}),
+	0,
+	nil,
+}
+
+
+Subsurface :: struct {
+	using proxy: Proxy,
+}
+
+subsurface_destroy :: proc "c" (subsurface: ^Subsurface) {
+	proxy_marshal_flags(subsurface, 0, nil, proxy_get_version(subsurface), MARSHAL_FLAG_DESTROY)
+}
+
+subsurface_set_position :: proc "c" (subsurface: ^Subsurface, x: c.int32_t, y: c.int32_t) {
+	proxy_marshal_flags(subsurface, 1, nil, proxy_get_version(subsurface), 0, x, y)
+}
+
+subsurface_place_above :: proc "c" (subsurface: ^Subsurface, sibling: ^Surface) {
+	proxy_marshal_flags(subsurface, 2, nil, proxy_get_version(subsurface), 0, sibling)
+}
+
+// A subsurface starts out synchronized, meaning its commits only take effect when the parent
+// surface commits. Desynchronized lets a decoration repaint itself without waiting for a game frame.
+subsurface_set_desync :: proc "c" (subsurface: ^Subsurface) {
+	proxy_marshal_flags(subsurface, 5, nil, proxy_get_version(subsurface), 0)
+}
+
+subsurface_interface := Interface {
+	"wl_subsurface",
+	1,
+	6,
+	raw_data([]Message {
+		{"destroy", "", raw_data([]^Interface{})},
+		{"set_position", "ii", raw_data([]^Interface{nil, nil})},
+		{"place_above", "o", raw_data([]^Interface{&surface_interface})},
+		{"place_below", "o", raw_data([]^Interface{&surface_interface})},
+		{"set_sync", "", raw_data([]^Interface{})},
+		{"set_desync", "", raw_data([]^Interface{})},
+	}),
+	0,
+	nil,
+}
+
 Seat :: struct {
 	using proxy: Proxy,
 }
