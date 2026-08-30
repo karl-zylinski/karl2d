@@ -63,20 +63,6 @@ init :: proc(
 	s.frame_allocator = runtime.arena_allocator(&s.frame_arena)
 	frame_allocator = s.frame_allocator
 
-	when ODIN_OS == .Windows {
-		s.platform = PLATFORM_WINDOWS
-	} else when ODIN_OS == .JS {
-		s.platform = PLATFORM_WEB
-	} else when ODIN_OS == .Linux {
-		s.platform = PLATFORM_LINUX
-	} else when ODIN_OS == .Darwin {
-		s.platform = PLATFORM_MAC
-	} else {
-		#panic("Unsupported platform")
-	}
-
-	pf = s.platform
-
 	// We allocate memory for the windowing backend and pass the blob of memory to it.
 	platform_state_alloc_error: runtime.Allocator_Error
 	
@@ -4964,7 +4950,6 @@ get_z :: proc() -> f32 {
 set_internal_state :: proc(state: ^State) {
 	s = state
 	frame_allocator = s.frame_allocator
-	pf = s.platform
 	rb = s.render_backend
 	ab = s.audio_backend
 	pf.set_internal_state(s.platform_state)
@@ -5704,7 +5689,6 @@ State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
-	platform: Platform_Interface,
 	platform_state: rawptr,
 	render_backend: Render_Backend_Interface,
 	render_backend_state: rawptr,
@@ -6944,8 +6928,20 @@ BATCH_ARENA_BLOCK_SIZE :: 64*1024
 @(private="file")
 s: ^State
 
+when ODIN_OS == .Windows {
+	PLATFORM :: PLATFORM_WINDOWS
+} else when ODIN_OS == .JS {
+	PLATFORM :: PLATFORM_WEB
+} else when ODIN_OS == .Linux {
+	PLATFORM :: PLATFORM_LINUX
+} else when ODIN_OS == .Darwin {
+	PLATFORM :: PLATFORM_MAC
+} else {
+	#panic("Unsupported platform")
+}
+
 @(private="file")
-pf: Platform_Interface
+pf :: PLATFORM
 
 @(private="file")
 rb: Render_Backend_Interface
