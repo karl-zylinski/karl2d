@@ -432,6 +432,8 @@ OpenDisplay: proc "c" (name: cstring) -> ^Display
 CloseDisplay: proc "c" (display: ^Display)
 
 DefaultScreen: proc "c" (display: ^Display) -> i32
+DisplayWidth: proc "c" (display: ^Display, screen: i32) -> i32
+DisplayHeight: proc "c" (display: ^Display, screen: i32) -> i32
 
 DefaultRootWindow: proc "c" (display: ^Display) -> Window
 
@@ -690,6 +692,8 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"XOpenDisplay", &OpenDisplay},
 		{"XCloseDisplay", &CloseDisplay},
 		{"XDefaultScreen", &DefaultScreen},
+		{"XDisplayWidth", &DisplayWidth},
+		{"XDisplayHeight", &DisplayHeight},
 		{"XDefaultRootWindow", &DefaultRootWindow},
 		{"XCreateSimpleWindow", &CreateSimpleWindow},
 		{"XDestroyWindow", &DestroyWindow},

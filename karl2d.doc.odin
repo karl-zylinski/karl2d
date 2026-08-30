@@ -166,6 +166,36 @@ get_window_scale :: proc() -> f32
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode)
 
+//----------//
+// MONITORS //
+//----------//
+
+// The primary monitor, and the default the procedures below use. A named constant rather than a
+// bare 0, because 0 here means "the primary one" and not "whichever the operating system happened
+// to list first".
+MONITOR_PRIMARY :: 0
+
+// Returns how many monitors are connected.
+//
+// Not every platform can report them: Wayland has no implementation yet and always says 0, and X11
+// reports a single monitor covering the whole X screen rather than the physical monitors behind
+// it.
+get_monitor_count :: proc() -> int
+
+// Returns the width of `monitor` in pixels.
+get_monitor_width :: proc(monitor := MONITOR_PRIMARY) -> int
+
+// Returns the height of `monitor` in pixels.
+get_monitor_height :: proc(monitor := MONITOR_PRIMARY) -> int
+
+// Returns the size of `monitor` in pixels, as a 2D vector.
+get_monitor_size :: proc(monitor := MONITOR_PRIMARY) -> Vec2
+
+// Returns the position of `monitor`, in the same coordinate system `set_window_position` uses. The
+// monitors sit side by side in one big coordinate space, so this is what tells you where one is
+// relative to another.
+get_monitor_position :: proc(monitor := MONITOR_PRIMARY) -> Vec2
+
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
 // procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
 // call this procedure manually. It is done automatically when `present` or `clear` run. It can also

@@ -20,6 +20,9 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
 
+	get_monitor_count = windows_get_monitor_count,
+	get_monitor_info = windows_get_monitor_info,
+
 	set_cursor_hidden = windows_set_cursor_hidden,
 	is_cursor_hidden = windows_is_cursor_hidden,
 	set_mouse_locked = windows_set_mouse_locked,
@@ -1107,4 +1110,78 @@ WIN32_VK_MAP := [255]Keyboard_Key {
 	// NP_Enter is handled separately
 
 	win32.VK_OEM_NEC_EQUAL = .NP_Equal,
+}
+// `MONITORINFO.dwFlags` is not bound as a named constant anywhere in `core:sys/windows`.
+MONITORINFOF_PRIMARY :: 0x00000001
+
+WINDOWS_MONITOR_COUNT_MAX :: 16
+
+Windows_Monitor_List :: struct {
+	items: [WINDOWS_MONITOR_COUNT_MAX]Monitor_Info,
+	count: int,
+	primary_index: int,
+}
+
+// Enumerated fresh on each call rather than cached. `EnumDisplayMonitors` is a process-wide query
+// with nothing in `Windows_State` to reuse, and enumerating again is how a display being plugged in
+// or unplugged gets noticed.
+windows_collect_monitors :: proc() -> Windows_Monitor_List {
+	list: Windows_Monitor_List
+	win32.EnumDisplayMonitors(nil, nil, windows_monitor_enum_proc, win32.LPARAM(uintptr(&list)))
+
+	// `EnumDisplayMonitors` promises no particular order, so put the primary one at index 0.
+	if list.primary_index != 0 && list.primary_index < list.count {
+		list.items[0], list.items[list.primary_index] = list.items[list.primary_index], list.items[0]
+	}
+
+	return list
+}
+
+windows_monitor_enum_proc :: proc "system" (
+	hmonitor: win32.HMONITOR,
+	hdc: win32.HDC,
+	rect: win32.LPRECT,
+	lparam: win32.LPARAM,
+) -> win32.BOOL {
+	context = runtime.default_context()
+	list := (^Windows_Monitor_List)(uintptr(lparam))
+
+	if list.count >= WINDOWS_MONITOR_COUNT_MAX {
+		return false
+	}
+
+	mi := win32.MONITORINFO { cbSize = size_of(win32.MONITORINFO) }
+
+	if !win32.GetMonitorInfoW(hmonitor, &mi) {
+		return true
+	}
+
+	if mi.dwFlags & MONITORINFOF_PRIMARY != 0 {
+		list.primary_index = list.count
+	}
+
+	list.items[list.count] = Monitor_Info {
+		size = {
+			int(mi.rcMonitor.right - mi.rcMonitor.left),
+			int(mi.rcMonitor.bottom - mi.rcMonitor.top),
+		},
+		position = {int(mi.rcMonitor.left), int(mi.rcMonitor.top)},
+	}
+
+	list.count += 1
+	return true
+}
+
+windows_get_monitor_count :: proc() -> int {
+	return windows_collect_monitors().count
+}
+
+windows_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	list := windows_collect_monitors()
+
+	if monitor < 0 || monitor >= list.count {
+		return {}, false
+	}
+
+	return list.items[monitor], true
 }

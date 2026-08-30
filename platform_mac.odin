@@ -32,6 +32,9 @@ PLATFORM_MAC :: Platform_Interface {
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
 
+	get_monitor_count = mac_get_monitor_count,
+	get_monitor_info = mac_get_monitor_info,
+
 	set_cursor_hidden = mac_set_cursor_hidden,
 	is_cursor_hidden = mac_is_cursor_hidden,
 	set_mouse_locked = mac_set_mouse_locked,
@@ -1236,4 +1239,61 @@ when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 		}
 
 	}
+}
+
+// Karl2D promises that monitor 0 is the primary one. `NSScreen.screens` is widely observed to put
+// it first, but that is someone else's ordering to change, so find it here instead: in Cocoa's
+// global coordinate space the primary screen is by definition the one at the origin. Then swap it
+// with index 0, the same way the Windows backend does.
+mac_screen_for_monitor :: proc(monitor: int) -> ^NS.Screen {
+	screens := NS.Screen_screens()
+	count := int(NS.Array_count(screens))
+
+	if monitor < 0 || monitor >= count {
+		return nil
+	}
+
+	primary := 0
+
+	for i in 0..<count {
+		candidate := NS.Array_objectAs(screens, NS.UInteger(i), ^NS.Screen)
+		origin := candidate->frame().origin
+
+		if origin.x == 0 && origin.y == 0 {
+			primary = i
+			break
+		}
+	}
+
+	index := monitor
+
+	if monitor == 0 {
+		index = primary
+	} else if monitor == primary {
+		index = 0
+	}
+
+	return NS.Array_objectAs(screens, NS.UInteger(index), ^NS.Screen)
+}
+
+mac_get_monitor_count :: proc() -> int {
+	return int(NS.Array_count(NS.Screen_screens()))
+}
+
+mac_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	screen := mac_screen_for_monitor(monitor)
+
+	if screen == nil {
+		return {}, false
+	}
+
+	// `frame` is in points. Scaling by the backing factor turns it into the pixels the rest of
+	// Karl2D deals in.
+	scale := f32(screen->backingScaleFactor())
+	frame := screen->frame()
+
+	return Monitor_Info {
+		size = {int(f32(frame.width) * scale), int(f32(frame.height) * scale)},
+		position = {int(f32(frame.x) * scale), int(f32(frame.y) * scale)},
+	}, true
 }

@@ -19,6 +19,8 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_screen_size = x11_set_screen_size,
 	get_window_scale = x11_get_window_scale,
 	set_window_mode = x11_set_window_mode,
+	get_monitor_count = x11_get_monitor_count,
+	get_monitor_info = x11_get_monitor_info,
 	set_cursor_hidden = x11_set_cursor_hidden,
 	is_cursor_hidden = x11_is_cursor_hidden,
 	set_mouse_locked = x11_set_mouse_locked,
@@ -903,3 +905,25 @@ X11_Cursor :: struct {
 
 s: ^X11_State
 
+
+// Reports one monitor covering the whole X screen rather than the physical monitors behind it.
+// Per-monitor enumeration needs XRandR bindings, which do not exist in platform_bindings/linux yet.
+// On a multi-monitor desktop that means one oversized monitor spanning them all.
+//
+// Uses the display connection `x11_init` opened, so there is nothing to open or close here.
+x11_get_monitor_count :: proc() -> int {
+	return 1
+}
+
+x11_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	if monitor != 0 {
+		return {}, false
+	}
+
+	screen := X.DefaultScreen(s.display)
+
+	return Monitor_Info {
+		size = {int(X.DisplayWidth(s.display, screen)), int(X.DisplayHeight(s.display, screen))},
+		position = {0, 0},
+	}, true
+}

@@ -17,6 +17,8 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	set_screen_size = wl_set_screen_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
+	get_monitor_count = wl_get_monitor_count,
+	get_monitor_info = wl_get_monitor_info,
 	set_cursor_hidden = wl_set_cursor_hidden,
 	is_cursor_hidden = wl_is_cursor_hidden,
 	set_mouse_locked = wl_set_mouse_locked,
@@ -1328,3 +1330,18 @@ WL_State :: struct {
 
 s: ^WL_State
 
+
+// Binding `wl_output` and listening for its `geometry` and `mode` events is the correct
+// implementation, but it needs a new registry global, a listener that accumulates per-output events
+// and an extra roundtrip to collect them, so it has not been written yet.
+//
+// Reporting zero monitors rather than one of unknown size is deliberate: a caller can tell that
+// Karl2D has nothing to say and fall back to something of its own. Claiming one monitor and then
+// reporting it as 0x0 would look like a real answer.
+wl_get_monitor_count :: proc() -> int {
+	return 0
+}
+
+wl_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	return {}, false
+}
