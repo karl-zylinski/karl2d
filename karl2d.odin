@@ -3527,11 +3527,29 @@ _mix_audio :: proc(dest: [][2]Audio_Sample) {
 	_mix_into(dest)
 }
 
-// The context a backend's mixing thread should run with, captured when `init` ran. `s` is private
-// to this file, so the backends go through this rather than reaching into it.
+// The context a backend's mixing thread should run with. Give it to the thread through its
+// `init_context` field, or assign it in a callback the operating system calls on a thread of its
+// own. `s` is private to this file, so the backends go through this rather than reaching into it.
+//
+// The temp allocator is left as the default one. That is `@thread_local` data, and `core:thread`
+// re-points it on the thread that is starting, so a thread given this context still gets a temp
+// allocator of its own. It does not get it destroyed for it though, which
+// `_destroy_audio_thread_temp_allocator` takes care of.
 @(private="package")
-_audio_thread_context :: proc() -> (runtime.Allocator, runtime.Logger) {
-	return s.allocator, s.audio_thread_logger
+_audio_thread_context :: proc() -> runtime.Context {
+	ctx := runtime.default_context()
+	ctx.allocator = s.allocator
+	ctx.logger = s.audio_thread_logger
+	return ctx
+}
+
+// Frees the temp allocator of a mixing thread, to be called as that thread finishes. `core:thread`
+// only cleans up after a thread it gave a context to itself, and these threads are handed one.
+@(private="package")
+_destroy_audio_thread_temp_allocator :: proc() {
+	if context.temp_allocator.procedure == runtime.default_temp_allocator_proc {
+		runtime.default_temp_allocator_destroy(auto_cast context.temp_allocator.data)
+	}
 }
 
 // Fills `buffer` with the mix of everything that is playing. The caller holds `s.audio_mutex`.

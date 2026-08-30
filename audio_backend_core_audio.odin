@@ -89,8 +89,8 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 // Has the mixer fill a buffer and gives it back to the queue. Runs on the queue's thread when the
 // callback calls it, and on the game thread once per buffer while starting up.
 core_audio_fill :: proc "contextless" (buffer: Audio.QueueBufferRef) {
-	context = runtime.default_context()
-	context.allocator, context.logger = _audio_thread_context()
+	// The queue calls this on a thread of its own, which has no Odin context of its own.
+	context = _audio_thread_context()
 
 	samples := ([^][2]Audio_Sample)(buffer.mAudioData)[:CORE_AUDIO_BUFFER_SAMPLES]
 	_mix_audio(samples)

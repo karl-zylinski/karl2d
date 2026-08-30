@@ -92,27 +92,31 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	// Set the device before starting the thread: the thread uses it right away.
 	s.run_thread = true
 	s.mix_thread = thread.create(waveout_thread_proc)
+	s.mix_thread.init_context = _audio_thread_context()
 	thread.start(s.mix_thread)
 }
 
 // Has the mixer fill a buffer and gives it to the device. waveOut plays straight out of the
 // buffer, so one is only refilled once the device has finished with it.
 //
-// The context is set here rather than through the thread's `init_context` on purpose. Leaving
-// `init_context` alone is what makes the runtime give this thread a temp allocator of its own and
-// destroy it when the thread ends.
 waveout_thread_proc :: proc(t: ^thread.Thread) {
-	context.allocator, context.logger = _audio_thread_context()
+	waiting_for_header: bool
 
 	for sync.atomic_load(&s.run_thread) {
 		h := &s.headers[s.cur_header]
+		waiting_for_header = false
 
 		for win32.waveOutUnprepareHeader(s.device, h, size_of(win32.WAVEHDR)) == win32.WAVERR_STILLPLAYING {
 			if !sync.atomic_load(&s.run_thread) {
-				return
+				waiting_for_header = true
+				break
 			}
 
 			time.sleep(1 * time.Millisecond)
+		}
+
+		if waiting_for_header {
+			break
 		}
 
 		buffer := s.buffers[s.cur_header][:]
@@ -133,6 +137,8 @@ waveout_thread_proc :: proc(t: ^thread.Thread) {
 			s.cur_header = 0
 		}
 	}
+
+	_destroy_audio_thread_temp_allocator()
 }
 
 ch :: proc(mr: win32.MMRESULT, loc := #caller_location) -> win32.MMRESULT {

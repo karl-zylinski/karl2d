@@ -92,6 +92,7 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	s.pcm = pcm
 	s.run_thread = true
 	s.feed_thread = thread.create(alsa_thread_proc)
+	s.feed_thread.init_context = _audio_thread_context()
 	thread.start(s.feed_thread)
 }
 
@@ -101,15 +102,7 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 // zero rather than `PCM_Open_Mode.NONBLOCK`, so `pcm_writei` waits in the kernel until the device
 // has taken the frames. The device sets the pace, which is what the old five millisecond sleep was
 // approximating, and it does it exactly rather than by guessing.
-//
-// The context is set here rather than through the thread's `init_context` on purpose. Leaving
-// `init_context` alone is what makes the runtime give this thread a temp allocator of its own and
-// destroy it when the thread ends. Setting `init_context` hands that job back to us, and all this
-// thread wants is the game's logger, so that what the mixer logs goes where the game's own logging
-// goes, and Karl2D's allocator for anything it allocates.
 alsa_thread_proc :: proc(t: ^thread.Thread) {
-	context.allocator, context.logger = _audio_thread_context()
-
 	for sync.atomic_load(&s.run_thread) {
 		_mix_audio(s.buf[:])
 
@@ -140,6 +133,8 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 
 		write(s.pcm, s.buf[:])
 	}
+
+	_destroy_audio_thread_temp_allocator()
 }
 
 alsa_shutdown :: proc() {
