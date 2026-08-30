@@ -97,6 +97,10 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 
 // Has the mixer fill a buffer and gives it to the device. waveOut plays straight out of the
 // buffer, so one is only refilled once the device has finished with it.
+//
+// The context is set here rather than through the thread's `init_context` on purpose. Leaving
+// `init_context` alone is what makes the runtime give this thread a temp allocator of its own and
+// destroy it when the thread ends.
 waveout_thread_proc :: proc(t: ^thread.Thread) {
 	context.allocator, context.logger = _audio_thread_context()
 
