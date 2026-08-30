@@ -36,14 +36,17 @@ DECORATION_BORDER :: 1
 DECORATION_RESIZE_MARGIN :: 8
 
 // A titlebar button, and how much room it takes, in logical pixels. `glyph` is the box the drawing
-// inside it fits in and `stroke` how wide the lines of that drawing are.
+// inside it fits in, `stroke` how wide the lines of that drawing are, and `inset` how far the
+// button keeps away from the edges of its share of the titlebar, so that the lit background under
+// the pointer does not run into the window's outline or into the next button along.
 DECORATION_BUTTON_WIDTH :: 32
 DECORATION_BUTTON_GLYPH :: 12
 DECORATION_BUTTON_STROKE :: 1.2
+DECORATION_BUTTON_INSET :: 4
 
 // How tall the title is drawn, in logical pixels, and how much room is left either side of it
 // before it is left out entirely.
-DECORATION_TITLE_SIZE :: 13
+DECORATION_TITLE_SIZE :: 15
 DECORATION_TITLE_PADDING :: 8
 
 // What the frame is painted with. The fill covers the titlebar, the outline runs around the
@@ -65,10 +68,10 @@ DECORATION_COLORS_DARK :: WL_Decoration_Colors {
 }
 
 DECORATION_COLORS_LIGHT :: WL_Decoration_Colors {
-	fill = 0xffe8e8e8,
+	fill = 0xfff6f6f6,
 	outline = 0xffb4b4b4,
 	text = 0xff303030,
-	hover = 0xffd0d0d0,
+	hover = 0xffe0e0e0,
 }
 
 // One part of the window frame Karl2D draws for itself. Each is a subsurface of the surface the
@@ -330,16 +333,22 @@ wldeco_paint :: proc(part: WL_Decoration_Part) {
 	right := int(math.round(f32(w + DECORATION_BORDER - d.x) * s.scale))
 	bottom := int(math.round(f32(h + DECORATION_BORDER - d.y) * s.scale))
 
+	// Where the titlebar meets the game canvas, which gets a line of its own so that the two are
+	// told apart whatever the game draws up against it. In every part but the titlebar this lands
+	// outside the buffer and nothing comes of it.
+	canvas_top := int(math.round(f32(-d.y) * s.scale))
+
 	for y in 0..<buffer_height {
 		for x in 0..<buffer_width {
 			// How far inside the window this pixel is, measured to the nearest side. Negative
 			// means it is out in the grip, and a premultiplied zero leaves that fully transparent.
 			inset := min(x - left, right - 1 - x, y - top, bottom - 1 - y)
+			under_titlebar := y >= canvas_top - thickness && y < canvas_top
 			color := s.decorations.colors.fill
 
 			if inset < 0 {
 				color = 0
-			} else if inset < thickness {
+			} else if inset < thickness || under_titlebar {
 				color = s.decorations.colors.outline
 			}
 
@@ -379,11 +388,12 @@ wldeco_paint_title :: proc(d: ^WL_Decoration) {
 	ascent, descent, line_gap: i32
 	stbtt.GetFontVMetrics(font, &ascent, &descent, &line_gap)
 
-	// The room between the left edge of the window and the first button, in the titlebar's own
-	// physical pixels.
+	// Everything below is in the titlebar's own physical pixels. `left` and `right` are as far as
+	// the title may reach: the window's left edge on one side and the first button on the other.
 	buttons := wldeco_button_rect(max(WL_Decoration_Button))
-	left := int(math.round(f32(-d.x + DECORATION_TITLE_PADDING) * s.scale))
-	right := int(math.round(f32(buttons.x - d.x - DECORATION_TITLE_PADDING) * s.scale))
+	padding := int(math.round(DECORATION_TITLE_PADDING * s.scale))
+	left := int(math.round(f32(-d.x) * s.scale)) + padding
+	right := int(math.round(f32(buttons.x - d.x) * s.scale)) - padding
 
 	if right <= left {
 		return
@@ -397,8 +407,11 @@ wldeco_paint_title :: proc(d: ^WL_Decoration) {
 		width += int(math.round(f32(advance) * scale_factor))
 	}
 
-	// Centred in that room, or against the left edge of it when the title is too long to fit.
-	pen := max(left, left + (right - left - width)/2)
+	// Centered on the window itself rather than on the room beside the buttons, so that it sits
+	// where the eye looks for it. A title too long for that room runs into the buttons and is cut
+	// off there instead.
+	center := int(math.round(f32(s.last_configure_width - d.x*2) * s.scale))/2
+	pen := max(left, center - width/2)
 	top := int(math.round(f32(-DECORATION_TITLEBAR_HEIGHT - d.y) * s.scale))
 	bar_height := int(math.round(DECORATION_TITLEBAR_HEIGHT * s.scale))
 	text_height := f32(ascent - descent) * scale_factor
@@ -532,17 +545,21 @@ wldeco_paint_button :: proc(d: ^WL_Decoration, button: WL_Decoration_Button) {
 				}
 
 			case .Maximize:
-				// A square, and a second one behind it once the window is maximized, which is what
-				// pressing it undoes.
-				to_line = wldeco_square_distance(dx, dy, reach*0.8)
+				if !s.maximized {
+					to_line = wldeco_square_distance(dx, dy, reach*0.8)
+					break
+				}
 
-				if s.maximized {
-					shift := reach*0.3
-					to_line = min(to_line, wldeco_square_distance(
-						dx - shift,
-						dy + shift,
-						reach*0.55,
-					))
+				// Once the window is maximized the button undoes that, and says so as two windows
+				// laid over one another: one at the front, and one behind it up and to the right
+				// showing only the corner the front one does not cover.
+				window := reach*0.62
+				shift := window*0.45
+				to_line = wldeco_square_distance(dx + shift, dy - shift, window)
+				covered := max(abs(dx + shift), abs(dy - shift)) <= window + half_stroke + 0.5
+
+				if !covered {
+					to_line = min(to_line, wldeco_square_distance(dx - shift, dy + shift, window))
 				}
 
 			case .Minimize:
@@ -558,7 +575,7 @@ wldeco_paint_button :: proc(d: ^WL_Decoration, button: WL_Decoration_Button) {
 	}
 }
 
-// How far a point is from the outline of a square of half width `reach` centred on the origin, so
+// How far a point is from the outline of a square of half width `reach` centered on the origin, so
 // that a square comes out of the same coverage code as the diagonal strokes of the X.
 wldeco_square_distance :: proc(dx: f32, dy: f32, reach: f32) -> f32 {
 	return abs(max(abs(dx), abs(dy)) - reach)
@@ -585,16 +602,17 @@ wldeco_blend :: proc(under: u32, over: u32, amount: f32) -> u32 {
 	return mixed
 }
 
-// Where a titlebar button sits. They are laid out from the right edge of the window inwards, in the
-// order of the enum, and fill the titlebar's height inside the outline.
+// Where a titlebar button sits, both for drawing it and for deciding whether the pointer is on it.
+// They are laid out from the right edge of the window inwards, in the order of the enum, each in a
+// slot of its own with a little room left around it.
 wldeco_button_rect :: proc(button: WL_Decoration_Button) -> WL_Decoration_Rect {
 	slot := int(button) - 1
 
 	return {
-		x = s.last_configure_width - (slot + 1)*DECORATION_BUTTON_WIDTH,
-		y = -DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER,
-		width = DECORATION_BUTTON_WIDTH,
-		height = DECORATION_TITLEBAR_HEIGHT - DECORATION_BORDER,
+		x = s.last_configure_width - (slot + 1)*DECORATION_BUTTON_WIDTH + DECORATION_BUTTON_INSET,
+		y = -DECORATION_TITLEBAR_HEIGHT + DECORATION_BUTTON_INSET,
+		width = DECORATION_BUTTON_WIDTH - DECORATION_BUTTON_INSET*2,
+		height = DECORATION_TITLEBAR_HEIGHT - DECORATION_BUTTON_INSET*2,
 	}
 }
 
@@ -678,22 +696,22 @@ wldeco_destroy :: proc() {
 
 // Picks the frame colors from what the desktop is set up for, by asking the desktop portal over
 // D-Bus. That is the one place every desktop answers the question: GNOME, KDE, GTK, Qt and SDL all
-// read the preference from here. A machine with no portal, or one with no preference, gets the
-// dark scheme.
+// read the preference from here. A machine with no portal gets the light scheme, the same as one
+// whose desktop has no preference.
 //
 // This is read once, while the window is being made. A player who switches their desktop between
 // dark and light while the game runs keeps the frame they started with.
 wldeco_desktop_colors :: proc() -> WL_Decoration_Colors {
 	if missing, load_ok := dbus.load(); !load_ok {
-		log.debugf("Using dark window decorations. Could not load %v.", missing)
-		return DECORATION_COLORS_DARK
+		log.debugf("Using light window decorations. Could not load %v.", missing)
+		return DECORATION_COLORS_LIGHT
 	}
 
 	connection := dbus.bus_get_private(.Session, nil)
 
 	if connection == nil {
-		log.debug("Using dark window decorations. Could not connect to the session bus.")
-		return DECORATION_COLORS_DARK
+		log.debug("Using light window decorations. Could not connect to the session bus.")
+		return DECORATION_COLORS_LIGHT
 	}
 
 	// Otherwise libdbus ends the game itself when the bus goes away.
@@ -711,11 +729,13 @@ wldeco_desktop_colors :: proc() -> WL_Decoration_Colors {
 	dbus.connection_unref(connection)
 
 	if result != .Value {
-		return DECORATION_COLORS_DARK
+		return DECORATION_COLORS_LIGHT
 	}
 
-	// 0 means the desktop has no preference, 1 dark and 2 light.
-	return scheme == 2 ? DECORATION_COLORS_LIGHT : DECORATION_COLORS_DARK
+	// 1 asks for dark, 2 asks for light and 0 is a desktop with no opinion. No opinion means light
+	// in practice: GNOME sets the preference to dark when its dark style is picked and back to
+	// nothing when its light one is, so anything but an explicit 1 belongs in the light scheme.
+	return scheme == 1 ? DECORATION_COLORS_DARK : DECORATION_COLORS_LIGHT
 }
 
 WL_Portal_Result :: enum {
