@@ -1583,6 +1583,19 @@ AUDIO_STREAM_NONE :: Audio_Stream {}
 
 AUDIO_STREAM_BUFFER_SIZE :: 3 * AUDIO_MIX_SAMPLE_RATE
 
+// The biggest an ogg page can be.
+MAX_OGG_PAGE_SIZE :: 65307
+
+// The pushdata decoder needs a whole ogg page in hand, and a partial page may already sit in front
+// of it, so room for two always suffices. The buffer is this big from the moment the stream is
+// loaded and never changes size, so decoding a stream does not reach the allocator. That matters
+// because the decoding runs on whichever thread called `update_audio_stream`, and on the mixing
+// thread when a seek lands, while the game may be allocating at the same time.
+AUDIO_STREAM_READ_BUF_SIZE :: 2 * MAX_OGG_PAGE_SIZE
+
+// How much is read from the file at a time when the decoder wants more.
+AUDIO_STREAM_READ_SIZE :: 4096
+
 Audio_Channels :: enum {
 	Mono,
 	Stereo,
@@ -1636,6 +1649,7 @@ Audio_Stream_Data :: struct {
 	// Set alongside `stop_requested` when the stream should also go back to its start.
 	rewind_requested: bool,
 
+
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
 	total_samples: int,
@@ -1650,7 +1664,12 @@ Audio_Stream_Data :: struct {
 
 	// use if mode = .From_File
 	file: ^File,
-	file_read_buf: [dynamic]u8,
+	file_read_buf: []u8,
+
+	// How many bytes in `file_read_buf` are valid.
+	file_read_buf_len: int,
+
+	// How many of the valid bytes in `file_read_buf` the decoder has consumed.
 	file_read_buf_offset: int,
 
 	// use if mode == .From_Bytes
