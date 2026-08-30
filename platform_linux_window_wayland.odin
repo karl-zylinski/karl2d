@@ -48,7 +48,6 @@ _ :: fmt
 // THEME_CURSOR_SIZE*scale physical pixels and a viewport scales it back down to this.
 THEME_CURSOR_SIZE :: 24
 
-
 @(private="package")
 
 wl_state_size :: proc() -> int {
