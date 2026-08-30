@@ -170,10 +170,6 @@ set_window_mode :: proc(window_mode: Window_Mode)
 // MONITORS //
 //----------//
 
-// Every platform puts the primary monitor at index 0, so this is the default the procedures below
-// use.
-MONITOR_PRIMARY :: 0
-
 // Returns how many monitors are connected.
 //
 // X11 is the exception: without XRandR bindings it reports a single monitor covering the whole X
@@ -181,26 +177,26 @@ MONITOR_PRIMARY :: 0
 get_monitor_count :: proc() -> int
 
 // Returns the width of `monitor` in pixels.
-get_monitor_width :: proc(monitor := MONITOR_PRIMARY) -> int
+get_monitor_width :: proc(monitor: int) -> int
 
 // Returns the height of `monitor` in pixels.
-get_monitor_height :: proc(monitor := MONITOR_PRIMARY) -> int
+get_monitor_height :: proc(monitor: int) -> int
 
 // Returns the size of `monitor` in pixels, as a 2D vector.
-get_monitor_size :: proc(monitor := MONITOR_PRIMARY) -> Vec2
+get_monitor_size :: proc(monitor: int) -> Vec2
 
-// Returns which monitor the window is currently on, for feeding to the procedures above. Use this
-// rather than `MONITOR_PRIMARY` when you want the display the player is actually looking at, since
-// they may well have dragged the window onto a different one.
+// Returns which monitor the window is currently on. This is the one to feed to the procedures
+// above: the player may well have dragged the window onto a display other than the one it opened
+// on.
 //
-// Returns `MONITOR_PRIMARY` on platforms that cannot tell, which is the same answer X11 and web
+// Falls back to monitor 0 when the platform cannot tell, which is the same answer X11 and web
 // would give anyway since they only ever report one monitor.
 get_window_monitor :: proc() -> int
 
 // Returns the position of `monitor`, in the same coordinate system `set_window_position` uses. The
 // monitors sit side by side in one big coordinate space, so this is what tells you where one is
 // relative to another.
-get_monitor_position :: proc(monitor := MONITOR_PRIMARY) -> Vec2
+get_monitor_position :: proc(monitor: int) -> Vec2
 
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
 // procedure sends all that off to the rendering backend for drawing. Normally, you do not need to

@@ -1242,39 +1242,14 @@ when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 	}
 }
 
-// Karl2D promises that monitor 0 is the primary one. `NSScreen.screens` is widely observed to put
-// it first, but that is someone else's ordering to change, so find it here instead: in Cocoa's
-// global coordinate space the primary screen is by definition the one at the origin. Then swap it
-// with index 0, the same way the Windows backend does.
 mac_screen_for_monitor :: proc(monitor: int) -> ^NS.Screen {
 	screens := NS.Screen_screens()
-	count := int(NS.Array_count(screens))
 
-	if monitor < 0 || monitor >= count {
+	if monitor < 0 || monitor >= int(NS.Array_count(screens)) {
 		return nil
 	}
 
-	primary := 0
-
-	for i in 0..<count {
-		candidate := NS.Array_objectAs(screens, NS.UInteger(i), ^NS.Screen)
-		origin := candidate->frame().origin
-
-		if origin.x == 0 && origin.y == 0 {
-			primary = i
-			break
-		}
-	}
-
-	index := monitor
-
-	if monitor == 0 {
-		index = primary
-	} else if monitor == primary {
-		index = 0
-	}
-
-	return NS.Array_objectAs(screens, NS.UInteger(index), ^NS.Screen)
+	return NS.Array_objectAs(screens, NS.UInteger(monitor), ^NS.Screen)
 }
 
 mac_get_monitor_count :: proc() -> int {
@@ -1303,18 +1278,17 @@ mac_get_window_monitor :: proc() -> int {
 	window_screen := s.window->screen()
 
 	if window_screen == nil {
-		return MONITOR_PRIMARY
+		return 0
 	}
 
-	// `mac_screen_for_monitor` already maps a Karl2D index onto an `NSScreen.screens` index,
-	// primary swap included, so walking it backwards keeps the two in agreement.
-	count := int(NS.Array_count(NS.Screen_screens()))
+	screens := NS.Screen_screens()
+	count := int(NS.Array_count(screens))
 
 	for i in 0..<count {
-		if mac_screen_for_monitor(i) == window_screen {
+		if NS.Array_objectAs(screens, NS.UInteger(i), ^NS.Screen) == window_screen {
 			return i
 		}
 	}
 
-	return MONITOR_PRIMARY
+	return 0
 }

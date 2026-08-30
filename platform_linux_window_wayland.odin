@@ -1507,7 +1507,7 @@ surface_listener := wl.Surface_Listener {
 
 wl_get_window_monitor :: proc() -> int {
 	if s.current_output == nil {
-		return MONITOR_PRIMARY
+		return 0
 	}
 
 	seen := 0
@@ -1524,5 +1524,5 @@ wl_get_window_monitor :: proc() -> int {
 		seen += 1
 	}
 
-	return MONITOR_PRIMARY
+	return 0
 }

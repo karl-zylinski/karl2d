@@ -1112,9 +1112,6 @@ WIN32_VK_MAP := [255]Keyboard_Key {
 
 	win32.VK_OEM_NEC_EQUAL = .NP_Equal,
 }
-// `MONITORINFO.dwFlags` is not bound as a named constant anywhere in `core:sys/windows`.
-MONITORINFOF_PRIMARY :: 0x00000001
-
 WINDOWS_MONITOR_COUNT_MAX :: 16
 
 Windows_Monitor_List :: struct {
@@ -1125,7 +1122,6 @@ Windows_Monitor_List :: struct {
 	// sees.
 	handles: [WINDOWS_MONITOR_COUNT_MAX]win32.HMONITOR,
 	count: int,
-	primary_index: int,
 }
 
 // Enumerated fresh on each call rather than cached. `EnumDisplayMonitors` is a process-wide query
@@ -1134,14 +1130,6 @@ Windows_Monitor_List :: struct {
 windows_collect_monitors :: proc() -> Windows_Monitor_List {
 	list: Windows_Monitor_List
 	win32.EnumDisplayMonitors(nil, nil, windows_monitor_enum_proc, win32.LPARAM(uintptr(&list)))
-
-	// `EnumDisplayMonitors` promises no particular order, so put the primary one at index 0.
-	if list.primary_index != 0 && list.primary_index < list.count {
-		primary := list.primary_index
-		list.items[0], list.items[primary] = list.items[primary], list.items[0]
-		list.handles[0], list.handles[primary] = list.handles[primary], list.handles[0]
-	}
-
 	return list
 }
 
@@ -1162,10 +1150,6 @@ windows_monitor_enum_proc :: proc "system" (
 
 	if !win32.GetMonitorInfoW(hmonitor, &mi) {
 		return true
-	}
-
-	if mi.dwFlags & MONITORINFOF_PRIMARY != 0 {
-		list.primary_index = list.count
 	}
 
 	list.items[list.count] = Monitor_Info {
@@ -1191,7 +1175,7 @@ windows_get_window_monitor :: proc() -> int {
 		}
 	}
 
-	return MONITOR_PRIMARY
+	return 0
 }
 
 windows_get_monitor_count :: proc() -> int {

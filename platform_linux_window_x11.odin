@@ -932,5 +932,5 @@ x11_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
 // Only one monitor is reported, covering the whole X screen, so the window is always on it.
 // Telling which physical monitor it overlaps needs the XRandR bindings that do not exist yet.
 x11_get_window_monitor :: proc() -> int {
-	return MONITOR_PRIMARY
+	return 0
 }

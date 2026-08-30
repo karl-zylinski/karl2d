@@ -933,5 +933,5 @@ web_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
 
 // The page is on one screen and there is no way to ask which of the user's displays that is.
 web_get_window_monitor :: proc() -> int {
-	return MONITOR_PRIMARY
+	return 0
 }

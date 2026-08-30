@@ -26,17 +26,12 @@ Platform_Interface :: struct #all_or_none {
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
 
-	// The monitor at index 0 must be the primary one. No operating system enumerates in that order
-	// for free: `EnumDisplayMonitors` documents no order at all, and macOS relies on the order of
-	// `NSScreen.screens`, so both backends find the primary themselves and swap it into place. A
-	// future XRandR implementation for X11 has to do the same, since outputs come back in CRTC
-	// order. Getting this wrong is silent and only shows up for people with two monitors.
-	//
-	// `get_monitor_info` returns ok = false for an index outside `0..<get_monitor_count()`.
+	// Indices run `0..<get_monitor_count()` in whatever order the operating system reports them.
+	// `get_monitor_info` returns ok = false for anything outside that.
 	get_monitor_count: proc() -> int,
 	get_monitor_info: proc(monitor: int) -> (Monitor_Info, bool),
 
-	// Which monitor the window is on. Backends that cannot tell return `MONITOR_PRIMARY`.
+	// Which of those indices the window is on. Backends that cannot tell return 0.
 	get_window_monitor: proc() -> int,
 
 	set_cursor_hidden: proc(hidden: bool),
