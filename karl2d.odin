@@ -3059,13 +3059,13 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 // circular buffer.
 _audio_stream_remaining :: proc(
 	sd: ^Audio_Stream_Data,
-	pab: ^Sound_Object,
 	ab: ^Audio_Clip_Object,
+	play_offset: int,
 ) -> int {
-	remaining := sd.buffer_write_pos - pab.offset
+	remaining := sd.buffer_write_pos - play_offset
 
 	if remaining < 0 {
-		remaining = len(ab.samples) - pab.offset + sd.buffer_write_pos
+		remaining = len(ab.samples) - play_offset + sd.buffer_write_pos
 	}
 
 	return remaining
@@ -3075,18 +3075,18 @@ _audio_stream_remaining :: proc(
 // samples the listener has not reached, so the sound is left alone to play them out. Everything
 // past those samples is zeroed, because the decoder will not write there again and the sound
 // would otherwise be heard replaying whatever the clip held before.
-_finish_audio_stream :: proc(sd: ^Audio_Stream_Data, pab: ^Sound_Object, ab: ^Audio_Clip_Object) {
+_finish_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, play_offset: int) {
 	sd.decode_finished = true
-	sd.samples_left = _audio_stream_remaining(sd, pab, ab)
-	sd.last_play_offset = pab.offset
+	sd.samples_left = _audio_stream_remaining(sd, ab, play_offset)
+	sd.last_play_offset = play_offset
 
 	// The samples still to play run from the sound's offset up to `buffer_write_pos`. Zero the
 	// rest of the clip, which is the part that wraps from `buffer_write_pos` back around.
-	if sd.buffer_write_pos <= pab.offset {
-		slice.zero(ab.samples[sd.buffer_write_pos:pab.offset])
+	if sd.buffer_write_pos <= play_offset {
+		slice.zero(ab.samples[sd.buffer_write_pos:play_offset])
 	} else {
 		slice.zero(ab.samples[sd.buffer_write_pos:])
-		slice.zero(ab.samples[:pab.offset])
+		slice.zero(ab.samples[:play_offset])
 	}
 }
 
@@ -3134,9 +3134,31 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
+	_decode_audio_stream(sd, ab, pab.offset)
+
+	// The decoder does not reach the handle maps, so it asks for the sound to go away instead of
+	// removing it itself.
+	if sd.stop_requested {
+		sd.stop_requested = false
+		rewind := sd.rewind_requested
+		sd.rewind_requested = false
+		hm.remove(&s.sounds, sd.sound)
+
+		if rewind {
+			_reset_audio_stream(stream)
+		}
+	}
+}
+
+// Decodes more of the stream into the clip it feeds. Reads and writes the stream and the clip and
+// nothing else, so the caller can run this without holding the mutex that guards the handle maps.
+// `play_offset` says where the sound had reached in the clip. The decoder fills the space in front
+// of it, and the sound only ever moves further forward, so a slightly stale offset just means the
+// decoder writes a little less than it could have.
+_decode_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, play_offset: int) {
 	switch sd.mode {
 	case .From_File:
-		for _audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+		for _audio_stream_remaining(sd, ab, play_offset) < AUDIO_STREAM_BUFFER_SIZE / 2 {
 			channels: i32
 			samples: i32
 			output: [^]^f32
@@ -3158,7 +3180,7 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 
 				if space == 0 {
 					log.error("Cannot decode audio stream, an ogg page is too big. Stopping it.")
-					hm.remove(&s.sounds, sd.sound)
+					sd.stop_requested = true
 					break
 				}
 
@@ -3176,8 +3198,8 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 
 							if seek_err != nil {
 								log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
-								hm.remove(&s.sounds, sd.sound)
-								_reset_audio_stream(stream)
+								sd.stop_requested = true
+								sd.rewind_requested = true
 								break
 							}
 
@@ -3193,11 +3215,11 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 
 							continue
 						} else {
-							_finish_audio_stream(sd, pab, ab)
+							_finish_audio_stream(sd, ab, play_offset)
 							break
 						}
 					} else {
-						hm.remove(&s.sounds, sd.sound)
+						sd.stop_requested = true
 						log.errorf("Failed reading from audio stream file. Error: %v", read_err)
 						break
 					}
@@ -3236,13 +3258,13 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 						sd.decode_cursor += 2
 					}
 				} else {
-					hm.remove(&s.sounds, sd.sound)
+					sd.stop_requested = true
 					log.error("Invalid num channels")
 					break
 				}
 				sd.file_read_buf_offset += int(bytes_used)
 			} else {
-				hm.remove(&s.sounds, sd.sound)
+				sd.stop_requested = true
 				log.error("Invalid vorbis")
 				break
 			}
@@ -3255,7 +3277,7 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 		channels: i32
 		output: [^]^f32
 
-		for _audio_stream_remaining(sd, pab, ab) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+		for _audio_stream_remaining(sd, ab, play_offset) < AUDIO_STREAM_BUFFER_SIZE / 2 {
 			samples := stbv.get_frame_float(sd.vorbis, &channels, &output)
 
 			if samples == 0 {
@@ -3268,7 +3290,7 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 
 					continue
 				} else {
-					_finish_audio_stream(sd, pab, ab)
+					_finish_audio_stream(sd, ab, play_offset)
 					break
 				}
 			}
@@ -3292,7 +3314,7 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 					sd.decode_cursor += 2
 				}
 			} else {
-				hm.remove(&s.sounds, sd.sound)
+				sd.stop_requested = true
 				log.error("Invalid num channels")
 				break
 			}
@@ -5841,6 +5863,13 @@ Audio_Stream_Data :: struct {
 	// `decode_finished` is set.
 	last_play_offset: int,
 
+	// Set by the decoder when it runs into something that means the sound cannot carry on. The
+	// decoder does not reach the handle maps, so whoever called it removes the sound instead.
+	stop_requested: bool,
+
+	// Set alongside `stop_requested` when the stream should also go back to its start.
+	rewind_requested: bool,
+
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
 	total_samples: int,
@@ -6901,6 +6930,8 @@ _reset_audio_stream :: proc(stream: Audio_Stream) {
 	sd.decode_finished = false
 	sd.samples_left = 0
 	sd.last_play_offset = 0
+	sd.stop_requested = false
+	sd.rewind_requested = false
 
 	switch sd.mode {
 	case .From_File:
