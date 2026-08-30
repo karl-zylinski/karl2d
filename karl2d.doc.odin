@@ -1649,6 +1649,10 @@ Audio_Stream_Data :: struct {
 	// Set alongside `stop_requested` when the stream should also go back to its start.
 	rewind_requested: bool,
 
+	// Set when the stream has been moved and its buffer holds nothing from the new spot yet. The
+	// mixer leaves the sound alone while this is set, and `update_audio_stream` clears it once it
+	// has decoded. Filling the buffer is slow, so it is deliberately not done during the move.
+	needs_refill: bool,
 
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.

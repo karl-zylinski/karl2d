@@ -3056,6 +3056,8 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 	// The stream may have been destroyed while this was decoding, so look it up again.
 	if sd_now := hm.get(&s.audio_streams, stream); sd_now != nil {
+		// There is something to play from the new spot now, so let the mixer have the sound back.
+		sd_now.needs_refill = false
 		_apply_audio_stream_stop(sd_now, stream)
 	}
 }
@@ -3091,6 +3093,8 @@ _update_audio_stream_locked :: proc(stream: Audio_Stream) {
 		_decode_audio_stream(sd, ab, pab.offset)
 	}
 
+	// There is something to play from the new spot now, so let the mixer have the sound back.
+	sd.needs_refill = false
 	_apply_audio_stream_stop(sd, stream)
 }
 
@@ -3763,6 +3767,14 @@ _mix_into :: proc(buffer: [][2]Audio_Sample) {
 			continue
 		}
 
+		// A stream that has just been moved has nothing in its buffer yet. Leave it where it is
+		// until `update_audio_stream` has decoded from the new spot, so that it does not play the
+		// silence and walk its read position past the write position while it is at it.
+		if ps.stream != AUDIO_STREAM_NONE {
+			if sd := hm.get(&s.audio_streams, ps.stream); sd != nil && sd.needs_refill {
+				continue
+			}
+		}
 
 		// Where this sound is mixed into: The chunk of the bus it is routed to, or the output
 		// itself, which is the master bus. `destroy_audio_bus` moves everything back to the master
@@ -5797,6 +5809,10 @@ Audio_Stream_Data :: struct {
 	// Set alongside `stop_requested` when the stream should also go back to its start.
 	rewind_requested: bool,
 
+	// Set when the stream has been moved and its buffer holds nothing from the new spot yet. The
+	// mixer leaves the sound alone while this is set, and `update_audio_stream` clears it once it
+	// has decoded. Filling the buffer is slow, so it is deliberately not done during the move.
+	needs_refill: bool,
 
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
@@ -6844,13 +6860,16 @@ _apply_sound_time :: proc(sound: Sound, seconds: f32) {
 	sound_object.offset = 0
 	sound_object.offset_fraction = 0
 
-	// Decode into the buffer right away. If we left this to the next `update_audio_stream` then
-	// the mixer would play the silence we just wrote. Worse, once the mixer has moved the read
-	// position past the write position, the buffer looks full rather than empty, so it would not
-	// be refilled until the read position had wrapped all the way around.
+	// Everything above is quick: a seek in the file and a buffer to zero. Filling the buffer back
+	// up is not, because the decoder has to chew through whatever sits between the ogg page it
+	// landed on and the spot that was asked for, and then decode a second and a half on top. That
+	// is left to `update_audio_stream`, which decodes without holding the audio mutex, so a seek
+	// no longer stops the mixer and every other audio procedure for the length of it.
 	//
-	// This may remove the sound, so don't touch `sound_object` after it.
-	_update_audio_stream_locked(sound_object.stream)
+	// The sound is held until that happens. It would otherwise play the silence just written, and
+	// once its read position passed the write position the buffer would look full rather than
+	// empty and would never be refilled.
+	sd.needs_refill = true
 }
 
 // Moves the decode cursor of a stream back to the start. Run when a stream-fed sound is stopped
@@ -6869,9 +6888,11 @@ _reset_audio_stream :: proc(stream: Audio_Stream) {
 	sd.seek_discard = 0
 
 	// The stream is going back to its start, so anything the decoder asked for before that no
-	// longer applies. Leaving these set would stop a sound that has just been started.
+	// longer applies. Leaving these set would stop a sound that has just been started, or hold it
+	// silent waiting for a move that is no longer happening.
 	sd.stop_requested = false
 	sd.rewind_requested = false
+	sd.needs_refill = false
 
 	switch sd.mode {
 	case .From_File:
