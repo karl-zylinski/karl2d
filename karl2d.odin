@@ -211,10 +211,6 @@ init :: proc(
 		s.audio_thread_logger = context.logger
 
 		ab.init(s.audio_backend_state, s.allocator)
-
-		if !ab.drives_itself() && !options.disable_audio_mixer_thread {
-			_start_audio_mixer_thread()
-		}
 	}
 
 	return s
@@ -270,9 +266,8 @@ shutdown :: proc() {
 
 	// Audio
 	{
-		// Stop everything that mixes before taking away what it mixes from. The mixer thread and
-		// the thread a backend runs when it drives itself both reach the handle maps.
-		_stop_audio_mixer_thread()
+		// Stop the backend before taking away what it mixes from. A backend that drives itself
+		// reaches the handle maps from its own thread until it is shut down.
 		ab.shutdown()
 		hm.dynamic_destroy(&s.audio_streams)
 		hm.dynamic_destroy(&s.sounds)
@@ -3634,8 +3629,8 @@ set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_dat
 // Does nothing while the mixer thread is running, since the thread produces the audio instead.
 // Otherwise mixes chunks, up to a limit per call, until the audio backend has enough of them.
 update_audio_mixer :: proc() {
-	// The backend asks for the audio itself, or the mixer thread produces it.
-	if ab.drives_itself() || s.audio_mixer_thread != nil {
+	// The backend asks for the audio itself, so there is nothing to push to it.
+	if ab.drives_itself() {
 		return
 	}
 
@@ -4134,79 +4129,12 @@ _mix_one_chunk :: proc() -> [][2]Audio_Sample {
 	return out
 }
 
-// `s` and `ab` are private to this file, so `audio_mixer_thread_default.odin` and
-// `audio_mixer_thread_web.odin` go through the following procs instead of touching them directly.
-
-@(private="package")
-_audio_mixer_thread_get :: proc() -> rawptr {
-	return s.audio_mixer_thread
-}
-
-@(private="package")
-_audio_mixer_thread_set :: proc(t: rawptr) {
-	s.audio_mixer_thread = t
-}
-
-// Captures the caller's logger and marks the thread as wanting to run. Called from the game
-// thread right before the mixer thread is created.
-@(private="package")
-_audio_mixer_thread_begin :: proc() {
-	s.audio_mixer_thread_run = true
-}
-
-@(private="package")
-_audio_mixer_thread_request_stop :: proc() {
-	sync.atomic_store(&s.audio_mixer_thread_run, false)
-
-	// The thread may be sitting inside `ab.feed`, waiting for the device to take more samples. The
-	// run flag does not reach it there, so the backend has to end the wait.
-	ab.stop_feeding()
-}
-
-@(private="package")
-_audio_mixer_thread_should_run :: proc() -> bool {
-	return sync.atomic_load(&s.audio_mixer_thread_run)
-}
-
-// The context a thread that mixes audio should run with, captured when `init` ran. Used by the
-// mixer thread and by a backend that runs a thread of its own to pull samples.
+// The context a thread that mixes audio should run with, captured when `init` ran. Used by a
+// backend that runs a thread of its own to pull samples. `s` is private to this file, so the
+// backends go through this instead of touching it directly.
 @(private="package")
 _audio_thread_context :: proc() -> (runtime.Allocator, runtime.Logger) {
 	return s.allocator, s.audio_thread_logger
-}
-
-// Mixes and feeds chunks until the audio backend has enough of them. Called in a loop by the
-// mixer thread.
-@(private="package")
-_audio_mixer_thread_tick :: proc() {
-	// The nil audio backend always says it has zero samples left, so the loop needs a limit. The
-	// limit also bounds how long the thread goes without looking at whether it should stop.
-	MAX_CHUNKS_PER_TICK :: 8
-
-	// The backend says how much should sit in its buffer. Zero means it has no opinion. Only this
-	// thread asks. `update_audio_mixer` has a whole frame to cover, so it keeps the default.
-	target := ab.target_samples()
-
-	if target <= 0 {
-		target = AUDIO_MIXER_TARGET_SAMPLES
-	}
-
-	for _ in 0..<MAX_CHUNKS_PER_TICK {
-		if ab.remaining_samples() > target {
-			break
-		}
-
-		out: [][2]Audio_Sample
-
-		// The `if` is what keeps the lock scoped to the mixing. Everywhere else the guard is a
-		// bare statement and unlocks when the procedure returns, but `ab.feed` blocks on both
-		// waveout and CoreAudio, and holding the lock across it would stall the game thread.
-		if sync.mutex_guard(&s.audio_mutex) {
-			out = _mix_one_chunk()
-		}
-
-		ab.feed(out)
-	}
 }
 
 //-----------------//
@@ -5692,10 +5620,6 @@ Init_Options :: struct {
 	depth_range_min: f32,
 	depth_range_max: f32,
 
-	// Turn off the audio mixer thread. The mixer then runs on the thread that calls `update`, and
-	// produces the audio a chunk at a time as the frames go by. Web always works this way, since
-	// there are no threads there.
-	disable_audio_mixer_thread: bool,
 }
 
 DEPTH_RANGE_DEFAULT_MIN :: -1
@@ -6278,16 +6202,12 @@ State :: struct {
 	mix_buffer_offset: int,
 
 	// Guards everything the mixer touches: the sound, clip, stream and bus maps, the master bus
-	// and the mix buffer. The mixer runs on its own thread when there is one.
+	// and the mix buffer. A backend that drives itself mixes on a thread of its own, so this is
+	// what keeps the game thread and that one out of each other's way.
 	audio_mutex: sync.Mutex,
 
-	// `^thread.Thread` when the mixer runs on its own thread. Nil when `update_audio_mixer`
-	// produces the audio instead. Kept as a `rawptr` because `core:thread` does not exist on web.
-	audio_mixer_thread: rawptr,
-	audio_mixer_thread_run: bool,
-
-	// A thread that mixes audio logs through the logger the game had when `init` ran. That covers
-	// the mixer thread and the thread a backend runs when it drives itself.
+	// A thread that mixes audio logs through the logger the game had when `init` ran. That is the
+	// thread a backend runs when it drives itself.
 	audio_thread_logger: runtime.Logger,
 }
 

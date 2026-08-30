@@ -21,27 +21,21 @@ import "core:c"
 import "log"
 import alsa "platform_bindings/linux/alsa"
 import "core:thread"
-import "core:time"
 import "core:sync"
+
+// How many samples the mixer is asked for at a time. `pcm_writei` blocks until the device has
+// taken them, so this is the granularity the feed thread runs at rather than a latency figure.
+ALSA_BUFFER_SAMPLES :: 700
 
 Alsa_State :: struct {
 	pcm: alsa.PCM,
 
-	// This is a "circular" buffer. We write new things at `buf_end` and read from `buf_start`.
-	// AUDIO_MIX_CHUNK_SIZE * 3 should be enough, but I added some head room. 3 should be enough
-	// because the mixer tends to not never produce more than 2.5 * AUDIO_MIX_CHUNK_SIZE samples
-	// (it throws in another chunk if the remaining number of samples is less than
-	// 1.5 * AUDIO_MIX_CHUNK_SIZE).
-	buf: [AUDIO_MIX_CHUNK_SIZE*5][2]Audio_Sample,
-	buf_start: int,
-	buf_end: int,
+	// The mixer fills this and the feed thread writes it straight to the device. `pcm_writei`
+	// waits until the device has room, which is what paces the thread.
+	buf: [ALSA_BUFFER_SAMPLES][2]Audio_Sample,
 
 	feed_thread: ^thread.Thread,
 	run_thread: bool,
-
-	// How many samples the mixer should keep queued. Taken from the buffer ALSA actually gave us,
-	// which is not always the one that was asked for.
-	target: int,
 
 	// Counts feed thread passes, so the latency log below can be kept to one line every so often.
 	delay_log_countdown: int,
@@ -107,12 +101,11 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 		return
 	}
 
-	// `pcm_set_params` treats the latency as a request, so ask what actually came back. A failure
-	// here leaves `target` at zero, which just means the mixer uses its own default.
+	// `pcm_set_params` treats the latency as a request, so report what actually came back. The
+	// device buffer is what decides the latency now that the thread writes straight to it.
 	buffer_size, period_size: c.ulong
 
 	if alsa.pcm_get_params(pcm, &buffer_size, &period_size) == 0 {
-		s.target = int(buffer_size)
 		log.debugf("alsa buffer %v samples, period %v samples", buffer_size, period_size)
 	}
 
@@ -123,67 +116,56 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	thread.start(s.feed_thread)
 }
 
+// Asks the mixer for samples and writes them to the device. `pcm_writei` waits until the device
+// has room for them, so the device sets the pace and this thread never has to guess at one.
 alsa_thread_proc :: proc(t: ^thread.Thread) {
-	for sync.atomic_load(&s.run_thread) {
-		time.sleep(5 * time.Millisecond)
-		start, end := sync.atomic_load(&s.buf_start), sync.atomic_load(&s.buf_end)
+	context.allocator, context.logger = _audio_thread_context()
 
-		write :: proc(pcm: alsa.PCM, data: [][2]Audio_Sample) {
-			remaining := data
+	write :: proc(pcm: alsa.PCM, data: [][2]Audio_Sample) {
+		remaining := data
 
-			for len(remaining) > 0 {
-				ret := alsa.pcm_writei(pcm, raw_data(remaining), c.ulong(len(remaining)))
+		for len(remaining) > 0 {
+			ret := alsa.pcm_writei(pcm, raw_data(remaining), c.ulong(len(remaining)))
 
-				if ret < 0 {
-					// Recover from errors. One possible error is an underrun. I.e. ALSA ran out of bytes.
-					// In that case we must recover the PCM device and then try feeding it data again.
-					s.underruns += 1
-					recover_ret := alsa.pcm_recover(s.pcm, c.int(ret), 1)
+			if ret < 0 {
+				// Recover from errors. One possible error is an underrun. I.e. ALSA ran out of bytes.
+				// In that case we must recover the PCM device and then try feeding it data again.
+				s.underruns += 1
+				recover_ret := alsa.pcm_recover(s.pcm, c.int(ret), 1)
 
-					// Can't recover!
-					if recover_ret < 0 {
-						log.errorf("Fatal sound error:pcm_writei failed and recovery also failed: %s", alsa.strerror(c.int(ret)))
-						sync.atomic_store(&s.run_thread, false)
-						return
-					}
-
-					continue
+				// Can't recover!
+				if recover_ret < 0 {
+					log.errorf("Fatal sound error:pcm_writei failed and recovery also failed: %s", alsa.strerror(c.int(ret)))
+					sync.atomic_store(&s.run_thread, false)
+					return
 				}
 
-				remaining = remaining[ret:]
+				continue
 			}
-		}
 
-		if start > end {
-			write(s.pcm, s.buf[start:])
-			write(s.pcm, s.buf[:end])
-		} else {
-			write(s.pcm, s.buf[start:end])
+			remaining = remaining[ret:]
 		}
+	}
 
-		sync.atomic_store(&s.buf_start, end)
+	for sync.atomic_load(&s.run_thread) {
+		_pull_audio(s.buf[:])
+		write(s.pcm, s.buf[:])
 
 		// How far behind the device is. Only this thread may ask. Two threads must not touch the
 		// PCM handle.
 		delay: c.long
 		alsa.pcm_delay(s.pcm, &delay)
 
-		// The thread wakes every 5 ms, so this reports roughly every two seconds.
-		DELAY_LOG_PASSES :: 400
+		// One pass covers ALSA_BUFFER_SAMPLES, so this reports every few seconds.
+		DELAY_LOG_PASSES :: 128
 		s.delay_log_countdown -= 1
 
 		if s.delay_log_countdown <= 0 {
 			s.delay_log_countdown = DELAY_LOG_PASSES
-			mixer_held := end - start
-
-			if mixer_held < 0 {
-				mixer_held += len(s.buf)
-			}
 
 			log.debugf(
-				"audio latency %.1f ms (mixer %v, device %v, underruns %v)",
-				f32(mixer_held + int(delay)) * 1000 / AUDIO_MIX_SAMPLE_RATE,
-				mixer_held,
+				"audio latency %.1f ms (device %v, underruns %v)",
+				f32(delay) * 1000 / AUDIO_MIX_SAMPLE_RATE,
 				delay,
 				s.underruns,
 			)
@@ -215,53 +197,22 @@ alsa_set_internal_state :: proc(state: rawptr) {
 	s = (^Alsa_State)(state)
 }
 
+// The feed thread asks the mixer for samples, so nothing hands them over.
 alsa_feed :: proc(samples: [][2]Audio_Sample) {
-	if s.pcm == nil || len(samples) == 0 {
-		return
-	}
-
-	samples := samples
-	i := sync.atomic_load(&s.buf_end)
-	overflow := (i + len(samples)) - len(s.buf)
-
-	if overflow > 0 {
-		to_copy := len(samples) - overflow
-		copy(s.buf[i:], samples[:to_copy])
-		i = 0
-		samples = samples[to_copy:]
-	}
-
-	copy(s.buf[i:], samples[:])
-	sync.atomic_store(&s.buf_end, i + len(samples))
 }
 
-// `feed` never waits on this backend, so there is nothing to stop.
 alsa_stop_feeding :: proc() {
 }
 
 alsa_target_samples :: proc() -> int {
-	if s.pcm == nil {
-		return 0
-	}
-
-	return s.target
+	return 0
 }
 
 alsa_remaining_samples :: proc() -> int {
-	if s.pcm == nil {
-		return 0
-	}
-
-	start, end := sync.atomic_load(&s.buf_start), sync.atomic_load(&s.buf_end)
-
-	if end >= start {
-		return end - start
-	} 
-	
-	return len(s.buf) - start + end
+	return 0
 }
 
-// The writing thread drains a ring the mixer fills, so the mixer is fed rather than asked.
+// The feed thread asks the mixer for samples whenever the device has room for more.
 alsa_drives_itself :: proc() -> bool {
-	return false
+	return true
 }

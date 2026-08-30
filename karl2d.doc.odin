@@ -1362,10 +1362,6 @@ Init_Options :: struct {
 	depth_range_min: f32,
 	depth_range_max: f32,
 
-	// Turn off the audio mixer thread. The mixer then runs on the thread that calls `update`, and
-	// produces the audio a chunk at a time as the frames go by. Web always works this way, since
-	// there are no threads there.
-	disable_audio_mixer_thread: bool,
 }
 
 DEPTH_RANGE_DEFAULT_MIN :: -1
@@ -1949,16 +1945,12 @@ State :: struct {
 	mix_buffer_offset: int,
 
 	// Guards everything the mixer touches: the sound, clip, stream and bus maps, the master bus
-	// and the mix buffer. The mixer runs on its own thread when there is one.
+	// and the mix buffer. A backend that drives itself mixes on a thread of its own, so this is
+	// what keeps the game thread and that one out of each other's way.
 	audio_mutex: sync.Mutex,
 
-	// `^thread.Thread` when the mixer runs on its own thread. Nil when `update_audio_mixer`
-	// produces the audio instead. Kept as a `rawptr` because `core:thread` does not exist on web.
-	audio_mixer_thread: rawptr,
-	audio_mixer_thread_run: bool,
-
-	// A thread that mixes audio logs through the logger the game had when `init` ran. That covers
-	// the mixer thread and the thread a backend runs when it drives itself.
+	// A thread that mixes audio logs through the logger the game had when `init` ran. That is the
+	// thread a backend runs when it drives itself.
 	audio_thread_logger: runtime.Logger,
 }
 
