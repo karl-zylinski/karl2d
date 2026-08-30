@@ -108,6 +108,8 @@ WL_Decoration_Part :: enum {
 WL_Decoration_Button :: enum {
 	None,
 	Close,
+	Maximize,
+	Minimize,
 }
 
 // A rectangle in logical pixels with the game canvas at the origin, which is how the frame
@@ -147,6 +149,12 @@ WL_Decorations :: struct {
 	// program and outlives everything.
 	font: stbtt.fontinfo,
 	font_ok: bool,
+
+	// When and where the last press on the titlebar was, to catch the second one of a double
+	// click. The time is the compositor's, in milliseconds.
+	last_press_time: u32,
+	last_press_x: f32,
+	last_press_y: f32,
 }
 
 // Creates the four surfaces that make up the window frame. They are subsurfaces of the surface the
@@ -502,25 +510,58 @@ wldeco_paint_button :: proc(d: ^WL_Decoration, button: WL_Decoration_Button) {
 	center_y := f32(y0 + y1)/2
 	reach := DECORATION_BUTTON_GLYPH/2 * s.scale
 	half_stroke := DECORATION_BUTTON_STROKE/2 * s.scale
+	color := wldeco_text_color()
 
 	for y in y0..<y1 {
 		for x in x0..<x1 {
-			// How far this pixel is from each of the two strokes of the X. Turning that distance
-			// into coverage costs nothing and keeps the glyph from looking like a staircase.
+			// Every glyph is drawn from how far the pixel is from the lines that make it up.
+			// Turning that distance into coverage costs nothing and keeps the drawing from
+			// looking like a staircase at any scale.
 			dx := f32(x) - center_x + 0.5
 			dy := f32(y) - center_y + 0.5
-			coverage := f32(0)
+			to_line := max(f32)
 
-			if abs(dx) <= reach && abs(dy) <= reach {
-				// The 0.7071 turns the distance along an axis into the distance to a 45 degree
-				// line, which is what the strokes are.
-				to_stroke := min(abs(dx - dy), abs(dx + dy)) * 0.70710678
-				coverage = clamp(half_stroke + 0.5 - to_stroke, 0, 1)
+			switch button {
+			case .None:
+
+			case .Close:
+				if abs(dx) <= reach && abs(dy) <= reach {
+					// The 0.7071 turns a distance along an axis into the distance to a line at 45
+					// degrees, which is what the two strokes of an X are.
+					to_line = min(abs(dx - dy), abs(dx + dy)) * 0.70710678
+				}
+
+			case .Maximize:
+				// A square, and a second one behind it once the window is maximized, which is what
+				// pressing it undoes.
+				to_line = wldeco_square_distance(dx, dy, reach*0.8)
+
+				if s.maximized {
+					shift := reach*0.3
+					to_line = min(to_line, wldeco_square_distance(
+						dx - shift,
+						dy + shift,
+						reach*0.55,
+					))
+				}
+
+			case .Minimize:
+				// A line along the bottom of where the other glyphs are.
+				if abs(dx) <= reach*0.8 {
+					to_line = abs(dy - reach*0.6)
+				}
 			}
 
-			d.pixels[y*d.buffer_width + x] = wldeco_blend(background, wldeco_text_color(), coverage)
+			coverage := clamp(half_stroke + 0.5 - to_line, 0, 1)
+			d.pixels[y*d.buffer_width + x] = wldeco_blend(background, color, coverage)
 		}
 	}
+}
+
+// How far a point is from the outline of a square of half width `reach` centred on the origin, so
+// that a square comes out of the same coverage code as the diagonal strokes of the X.
+wldeco_square_distance :: proc(dx: f32, dy: f32, reach: f32) -> f32 {
+	return abs(max(abs(dx), abs(dy)) - reach)
 }
 
 // Mixes two opaque colors, `amount` being how much of `over` shows.
@@ -816,7 +857,32 @@ wldeco_pointer_left :: proc() {
 // itself, grabbing the pointer until the button comes back up, so there is nothing here to follow
 // along with. A titlebar button waits for the release, and only acts if the pointer is still on it,
 // so that pressing one and sliding off changes nothing.
-wldeco_pointer_button :: proc(button: u32, state: u32, serial: u32) {
+wldeco_pointer_button :: proc(
+	button: u32,
+	state: u32,
+	time: u32,
+	serial: u32,
+	local_x: f32,
+	local_y: f32,
+) {
+	// The right button asks the compositor for the window menu, which is the one thing on the
+	// frame that Karl2D does not draw itself.
+	if button == wl.POINTER_BTN_RIGHT && state == wl.POINTER_BUTTON_STATE_PRESSED {
+		d := s.decorations.parts[wldeco_pointer_part()]
+
+		// The position is measured from the corner of the window geometry, which starts at the
+		// outside of the border rather than at the game canvas.
+		wl.xdg_toplevel_show_window_menu(
+			s.toplevel,
+			s.seat,
+			serial,
+			i32(f32(d.x + DECORATION_BORDER) + local_x),
+			i32(f32(d.y + DECORATION_TITLEBAR_HEIGHT) + local_y),
+		)
+
+		return
+	}
+
 	if button != wl.POINTER_BTN_LEFT {
 		return
 	}
@@ -842,6 +908,25 @@ wldeco_pointer_button :: proc(button: u32, state: u32, serial: u32) {
 		return
 	}
 
+	// Two presses close together in the same spot on the titlebar maximize the window, the way
+	// they do on every desktop. The compositor's clock is what times them.
+	DOUBLE_CLICK_MS :: 400
+	DOUBLE_CLICK_SLOP :: 6
+
+	quick := time - s.decorations.last_press_time < DOUBLE_CLICK_MS
+	near_x := abs(local_x - s.decorations.last_press_x) < DOUBLE_CLICK_SLOP
+	near_y := abs(local_y - s.decorations.last_press_y) < DOUBLE_CLICK_SLOP
+	s.decorations.last_press_time = time
+	s.decorations.last_press_x = local_x
+	s.decorations.last_press_y = local_y
+
+	if quick && near_x && near_y && wldeco_pointer_part() == .Titlebar {
+		// So that a third press is not the start of another double click.
+		s.decorations.last_press_time = 0
+		wldeco_toggle_maximized()
+		return
+	}
+
 	wl.xdg_toplevel_move(s.toplevel, s.seat, serial)
 }
 
@@ -854,7 +939,24 @@ wldeco_button_acted :: proc(button: WL_Decoration_Button) {
 		// The same event the compositor's own close button would have sent. What happens next is
 		// the game's business: Karl2D does not close the window by itself.
 		append(&s.events, Event_Close_Window_Requested{})
+
+	case .Maximize:
+		wldeco_toggle_maximized()
+
+	case .Minimize:
+		wl.xdg_toplevel_set_minimized(s.toplevel)
 	}
+}
+
+// Fills the screen with the window, or gives it back the size it had. The compositor answers with
+// a configure, which is where the new size and the new state come from.
+wldeco_toggle_maximized :: proc() {
+	if s.maximized {
+		wl.xdg_toplevel_unset_maximized(s.toplevel)
+		return
+	}
+
+	wl.xdg_toplevel_set_maximized(s.toplevel)
 }
 
 // Which titlebar button is under the pointer, if any. `edge` is the resize edge there, since a

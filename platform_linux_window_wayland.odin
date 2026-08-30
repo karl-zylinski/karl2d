@@ -440,17 +440,23 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 		// The compositor lists what the window currently is. Focus arrives this way and nowhere
 		// else, and the titlebar dims without it.
 		active := false
+		maximized := false
 
 		if states != nil && states.data != nil {
 			for state in ([^]u32)(states.data)[:states.size/size_of(u32)] {
-				if state == wl.XDG_TOPLEVEL_STATE_ACTIVATED {
+				switch state {
+				case wl.XDG_TOPLEVEL_STATE_ACTIVATED:
 					active = true
+
+				case wl.XDG_TOPLEVEL_STATE_MAXIMIZED:
+					maximized = true
 				}
 			}
 		}
 
-		if active != s.active {
+		if active != s.active || maximized != s.maximized {
 			s.active = active
+			s.maximized = maximized
 			wldeco_repaint_titlebar()
 		}
 
@@ -692,6 +698,8 @@ pointer_listener := wl.Pointer_Listener {
 		context = s.odin_ctx
 		s.pointer_enter_serial = u32(serial)
 		s.pointer_surface = surface
+		s.pointer_x = surface_x
+		s.pointer_y = surface_y
 		wldeco_pointer_moved(f32(surface_x >> 8), f32(surface_y >> 8))
 		wl_apply_cursor()
 	},
@@ -717,6 +725,9 @@ pointer_listener := wl.Pointer_Listener {
 		surface_y: wl.Fixed,
 	) {
 		context = s.odin_ctx
+
+		s.pointer_x = surface_x
+		s.pointer_y = surface_y
 
 		if wldeco_has_pointer() {
 			// Only the cursor changes on the frame, and only when the pointer crosses between the
@@ -746,7 +757,15 @@ pointer_listener := wl.Pointer_Listener {
 		context = s.odin_ctx
 
 		if wldeco_has_pointer() {
-			wldeco_pointer_button(u32(button), u32(state), u32(serial))
+			wldeco_pointer_button(
+				u32(button),
+				u32(state),
+				u32(time),
+				u32(serial),
+				f32(s.pointer_x >> 8),
+				f32(s.pointer_y >> 8),
+			)
+
 			return
 		}
 
@@ -1442,9 +1461,12 @@ WL_State :: struct {
 	pointer: ^wl.Pointer,
 	pointer_enter_serial: u32,
 
-	// The surface the pointer is over, from the last enter event. It is one of the decorations
-	// rather than the game canvas whenever the pointer is on the frame Karl2D draws.
+	// The surface the pointer is over, from the last enter event, and where on it the pointer was
+	// last seen. It is one of the decorations rather than the game canvas whenever the pointer is
+	// on the frame Karl2D draws, and a button event carries no position of its own.
 	pointer_surface: ^wl.Surface,
+	pointer_x: wl.Fixed,
+	pointer_y: wl.Fixed,
 	cursor_hidden: bool,
 	shm: ^wl.SHM,
 	cursor_surface: ^wl.Surface,
@@ -1470,9 +1492,11 @@ WL_State :: struct {
 	// True if toplevel_listener.configure has run
 	configured: bool,
 
-	// Whether the compositor says this is the window being typed into. The frame Karl2D draws
-	// dims itself when it is not.
+	// What the compositor says the window currently is, from the states in its configure. The
+	// frame Karl2D draws dims itself without focus and has a different maximize button when the
+	// window already fills the screen.
 	active: bool,
+	maximized: bool,
 
 	window_render_glue: Window_Render_Glue,
 
