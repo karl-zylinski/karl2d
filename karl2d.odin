@@ -6184,25 +6184,31 @@ is_typable_rune :: proc(r: rune) -> bool {
 	return r >= 32 && r != 0x7f
 }
 
-// The Karl2D icon as pixel art: the K and the 2 from the logo. `.` is background, `Y` is yellow
-// and `R` is the dark red. `_make_default_icon` scales it up to an `Image`.
-_DEFAULT_ICON_ART :: [16]string {
-	"................",
-	"................",
-	"................",
-	"................",
-	"...R..R...RR....",
-	"...Y..Y..RYYR...",
-	"...Y.RY..Y..Y...",
-	"...YRY......Y...",
-	"...YYR....RRY...",
-	"...Y.YR..RYY....",
-	"...Y..Y..YRRR...",
-	"...Y..Y..YYYY...",
-	"................",
-	"................",
-	"................",
-	"................",
+// The Karl2D icon as pixel art: the K and the 2 from the logo. Each cell is an index into
+// `_DEFAULT_ICON_COLORS`. `_make_default_icon` scales it up to an `Image`.
+_DEFAULT_ICON_ART :: [16][16]u8 {
+	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 2, 0, 0, 2, 0, 0, 0, 2, 2, 0, 0, 0, 0},
+	{0, 0, 0, 1, 0, 0, 1, 0, 0, 2, 1, 1, 2, 0, 0, 0},
+	{0, 0, 0, 1, 0, 2, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0},
+	{0, 0, 0, 1, 2, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0},
+	{0, 0, 0, 1, 1, 2, 0, 0, 0, 0, 2, 2, 1, 0, 0, 0},
+	{0, 0, 0, 1, 0, 1, 2, 0, 0, 2, 1, 1, 0, 0, 0, 0},
+	{0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 2, 2, 2, 0, 0, 0},
+	{0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+}
+
+_DEFAULT_ICON_COLORS :: [3]Color {
+	{33, 11, 11, 255},  // background
+	{255, 209, 0, 255}, // yellow
+	{127, 6, 34, 255},  // dark red
 }
 
 // 256 covers every size an OS shows an icon at. The web favicon only ever shows small, and a
@@ -6214,20 +6220,13 @@ _DEFAULT_ICON_SIZE :: 256 when ODIN_OS != .JS else 64
 _make_default_icon :: proc(size: int, allocator: runtime.Allocator, loc := #caller_location) -> Image {
 	pixels := make([]Color, size*size, allocator, loc)
 	art := _DEFAULT_ICON_ART
+	colors := _DEFAULT_ICON_COLORS
 
 	for y in 0..<size {
 		row := art[y*len(art)/size]
 
 		for x in 0..<size {
-			col: Color
-
-			switch row[x*len(row)/size] {
-			case 'Y': col = {255, 209, 0, 255}
-			case 'R': col = {127, 6, 34, 255}
-			case:     col = {33, 11, 11, 255}
-			}
-
-			pixels[y*size + x] = col
+			pixels[y*size + x] = colors[row[x*len(row)/size]]
 		}
 	}
 
