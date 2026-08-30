@@ -1516,8 +1516,7 @@ Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
 // The Karl2D icon, applied by `init` and replaceable with `set_window_icon`. The file holds the
-// raw RGBA8 pixels, so it can go straight into an `Image`. `default_icons/karl2d.png` is the same
-// image, used by the web backend, where the favicon takes a PNG as-is.
+// raw RGBA8 pixels, so it can go straight into an `Image`.
 DEFAULT_ICON :: Image {
 	pixels = #load("default_icons/karl2d.rgba", []Color),
 	width = 256,

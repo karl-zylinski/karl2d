@@ -81,13 +81,7 @@ init :: proc(
 
 	// The window has an icon from the start this way. A game replaces it with its own by calling
 	// `set_window_icon`.
-	when ODIN_OS == .JS {
-		// The web backend applies the icon from its PNG form instead of from `DEFAULT_ICON`,
-		// since a favicon takes a PNG as-is and re-encoding the pixels makes it ~100x bigger.
-		web_set_default_icon()
-	} else {
-		pf.set_window_icon(DEFAULT_ICON, false)
-	}
+	pf.set_window_icon(DEFAULT_ICON, false)
 
 	// This is an OS-independent handle that we can pass to any rendering backend.
 	window_render_glue := pf.get_window_render_glue()
@@ -5464,8 +5458,7 @@ Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
 // The Karl2D icon, applied by `init` and replaceable with `set_window_icon`. The file holds the
-// raw RGBA8 pixels, so it can go straight into an `Image`. `default_icons/karl2d.png` is the same
-// image, used by the web backend, where the favicon takes a PNG as-is.
+// raw RGBA8 pixels, so it can go straight into an `Image`.
 DEFAULT_ICON :: Image {
 	pixels = #load("default_icons/karl2d.rgba", []Color),
 	width = 256,
