@@ -10,6 +10,23 @@ on:
     - cron: 0 20 * * *
 
 jobs:
+  style:
+    name: style
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: laytan/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release: nightly
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: style_check
+        run: odin run tools/style_check -- -base ${{ github.event.pull_request.base.sha }}
+
   build:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

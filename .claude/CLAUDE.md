@@ -4,6 +4,24 @@ Conventions for writing code, writing documentation, and collaborating on this p
 
 > Human can read this file too, but it might not be optimized for human consumption. Also, note that no form of vibe coded changes are allowed. You can use an LLM to do code reviews and generate code, but you _must_ understand the code generated.
 
+## Checklist
+
+Read this before starting and go through it again before saying the work is done. The hooks in `.claude/hooks/` pull this section straight out of this file when they run, so this is the only copy of it and the sections further down are what each line means in full.
+
+- No comment says how the code used to work or what a change improved. The reader has only ever seen the current version.
+- Nothing moved or got reordered that did not have to move. A new caller gets a wrapper next to the existing body; the body stays where it sits.
+- No unrelated code touched, no auto-formatter output, no whitespace changed on lines not otherwise being changed.
+- Cleanup is written where it happens. `defer` only where several exits would each repeat it.
+- A parameter is a pointer only when the procedure writes through it.
+- Handles use the zero value `<TYPE>_NONE`, never `Maybe`.
+- Boxed section comments appear only in `karl2d.odin`.
+- Tabs for indentation, at most 100 characters per line, no single line `if` bodies, no spaces in `0..<n` or around the `=` in an attribute.
+- Anything that does not fit on one line is split one item per line, each ending with a comma, closing bracket on its own line.
+- Ran the relevant build task(s), and `odin run tools/test_examples` if the change was large.
+- Ran `odin run tools/style_check` and it passed.
+- If the API surface changed: regenerated `karl2d.doc.odin` and ran `api_verifier` (see Verifying Your Work).
+- The commit message reads like a tweet: 180 characters at most, simple sentences, the period is the only punctuation.
+
 ## Project Overview
 - **Karl2D** is a 2D game development library written in the Odin programming language, licensed under Zlib license.
 - The focus is on being beginner-friendly, using a minimal set of dependencies and minimizing issues when you actually want to ship the game.
@@ -40,6 +58,7 @@ Nothing else. No narrative of how the work was done, no verification logs, no ra
 - `tests/coordinate_system` holds the coordinate system checks. Run it both ways: once plain and once with `-define:KARL2D_TEST_Y_UP=true`, both with `-define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1`. They open a window, so they only run where one can be created.
 - Regenerate `karl2d.doc.odin`: `odin run tools/api_doc_builder`. Any change in `karl2d.doc.odin` is a user-facing API change. Make sure you want that change to actually happen. Think about what happens if you break backwards compatibility.
 - Web builds use the script in `build_web/`. Forward game/compiler flags after `--`: `odin run build_web -- your_game_path -debug`. A web game must have `init` and `step` procedures; `examples/minimal_hello_world_web/` is the template.
+- `odin run tools/style_check` reports the mechanical style rules broken by the lines your change adds: line length, trailing whitespace, single line `if` bodies, spacing in ranges and attributes, and result names written the wrong way round. It looks at the working tree against `HEAD`; pass `-- -base <revision>` to check a whole branch instead, which is what the CI does.
 - `tools/make_sublime_projects`, `tools/make_vscode_project/` and `tools/make_zed_project/` generate editor project configurations.
 
 ## Code Style
@@ -147,9 +166,3 @@ Nothing else. No narrative of how the work was done, no verification logs, no ra
 - No external windowing libraries (like GLFW) are used; all window/event handling is custom.
 - Rendering is batch-based for performance.
 - Web builds use Odin's JS runtime and a custom WebGL backend (no emscripten required).
-
-## Checklist Before You Are Done
-- Ran the relevant build task(s), and `odin run tools/test_examples` if the change was large.
-- If the API surface changed: regenerated `karl2d.doc.odin` and ran `api_verifier` (see Verifying Your Work).
-- No unrelated code touched, no auto-formatter output, no whitespace changes on untouched lines.
-- New code follows the Code Style section, including the comment voice and the handle/defer patterns.
