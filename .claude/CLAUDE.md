@@ -1,35 +1,31 @@
 # LLM agent instructions for Karl2D
 
-Conventions for writing code, writing documentation, and collaborating on this project.
-
-> Human can read this file too, but it might not be optimized for human consumption. Also, note that no form of vibe coded changes are allowed. You can use an LLM to do code reviews and generate code, but you _must_ understand the code generated.
-
 ## Checklist
 
 Read this before starting and go through it again before saying the work is done. It is a summary of the sections further down, which are what each line means in full, and it is the only copy of the summary: the hooks in `.claude/hooks/` pull this section straight out of this file when they run. A line here that disagrees with its section is a bug in this file.
 
-- Procedural imperative code. A long procedure beats splitting the work across small ones.
+- Write procedural, imperative code. A long procedure beats splitting the work across small ones.
 - No comment says how the code used to work or what a change improved. The reader has only ever seen the current version.
-- Nothing moved or got reordered that did not have to move. A new caller gets a wrapper next to the existing body; the body stays where it sits.
+- Try to keep the diff small: Don't move and reorder whole procedures for no good reason.
 - No unrelated code touched, no auto-formatter output, no whitespace changed on lines not otherwise being changed.
-- Backwards compatibility kept, or broken deliberately with `@(deprecated)` and flagged in the review.
+- If you need to do breaking changes, then add `@(deprecated)` on old version, if possible.
 - Cleanup is written where it happens. `defer` only where several exits would each repeat it.
-- A pointer parameter tells the reader the procedure writes through it. A pointer is also right when the value is optional, or when the thing itself is wanted rather than its value.
+- A pointer parameter tells the reader the procedure writes through it. Values are automatically passed by reference if big enough, don't pass by pointer to optimize!
 - Handles use the zero value `<TYPE>_NONE`, never `Maybe`. Code that runs every frame guards with `!= <TYPE>_NONE`.
 - Named return values are for naked returns only, start with `_`, and are never assigned to.
 - Multi-return results are named `thing_err` and `thing_ok`, never `err_thing`.
 - Boxed section comments appear only in `karl2d.odin`.
-- Tabs for indentation. At most 100 characters per line in `.odin` files; markdown uses longer lines.
+- Tabs for indentation. At most 100 characters per line in `.odin` files. Markdown files should not have hard linebreaks, we'll use wrapping in editor for those.
 - No single line `if` bodies. No spaces in `0..<n` or around the `=` in an attribute.
 - Anything that does not fit on one line is split one item per line, each ending with a comma, closing bracket on its own line. Return value lists split the same way.
 - Ran the relevant build task(s), and `odin run tools/test_examples` if the change was large.
 - Ran `odin run tools/style_check` and it passed.
-- If the API surface changed: regenerated `karl2d.doc.odin` with `tools/api_doc_builder` and ran `tools/api_verifier`.
+- If the API surface changed: regenerate `karl2d.doc.odin` with `tools/api_doc_builder`.
 - The commit message reads like a tweet: 180 characters at most, simple sentences, the period is the only punctuation.
 - The pull request description contains only the four things listed under Pull request descriptions.
 
 ## Project Overview
-- **Karl2D** is a 2D game development library written in the Odin programming language, licensed under Zlib license.
+- **Karl2D** is a 2D game development library written in the Odin programming language.
 - The focus is on being beginner-friendly, using a minimal set of dependencies and minimizing issues when you actually want to ship the game.
 - Karl2D usually requires the latest release of Odin.
 - The main entry point is `karl2d.odin`, which contains the platform-independent API and core logic. Platform, render and audio backends live in separate files.
@@ -61,7 +57,6 @@ Nothing else. No narrative of how the work was done, no verification logs, no ra
 ## Verifying Your Work
 - Build and test through the examples in `examples/`. Prefer the existing VS Code build tasks; they already include `-vet -strict-style -vet-tabs` and come in three variants: default (D3D11 on Windows), `(GL)`, and `(web)`. Use the same `-vet -strict-style -vet-tabs` flags when running `odin` directly.
 - After edits, run the most relevant build task(s) for what you touched. After a large change, run `odin run tools/test_examples`, the CI script that builds every example (some are excluded from web builds, e.g. `minimal_hello_world`, `custom_frame_update`).
-- `tests/coordinate_system` holds the coordinate system checks. Run it both ways: once plain and once with `-define:KARL2D_TEST_Y_UP=true`, both with `-define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1`. They open a window, so they only run where one can be created.
 - Regenerate `karl2d.doc.odin`: `odin run tools/api_doc_builder`. Any change in `karl2d.doc.odin` is a user-facing API change. Make sure you want that change to actually happen. Think about what happens if you break backwards compatibility.
 - Web builds use the script in `build_web/`. Forward game/compiler flags after `--`: `odin run build_web -- your_game_path -debug`. A web game must have `init` and `step` procedures; `examples/minimal_hello_world_web/` is the template.
 - `odin run tools/style_check` reports the mechanical style rules broken by the lines your change adds: line length, trailing whitespace, single line `if` bodies, spacing in ranges and attributes, and result names written the wrong way round. It looks at the working tree against `HEAD`; pass `-- -base <revision>` to check a whole branch instead, which is what the CI does.
@@ -104,7 +99,6 @@ Nothing else. No narrative of how the work was done, no verification logs, no ra
 
 ### Naming
 - Multi-return result names use suffixes: `img, img_err := ...` and `data, data_ok := ...`. Always `thing_err`/`thing_ok`, never `err_thing`.
-- A number that appears in more than one place gets a file-level constant, with a unit comment when the unit isn't obvious: `CAMERA_KEY_MOVE_SPEED :: 300 // in screen pixels/sec`.
 - Procs that implement the platform interface carry the platform prefix (`mac_set_cursor`). Internal helpers may skip the prefix when the file is `#+private file` (`apply_cursor_state`).
 - Log messages follow "Failed <doing> <thing>. Error: %v" or "Cannot <verb>, <thing> does not exist.". In platform backends it is also fine to name the failing OS call: "CreateIconIndirect failed with %v".
 
@@ -149,8 +143,6 @@ Nothing else. No narrative of how the work was done, no verification logs, no ra
 - Odin already passes anything bigger than 16 bytes by implicit reference, so `^T` does not save you a copy. Passing a big struct by value is free.
 - What `^T` does is tell the reader that the procedure may write to what they handed it. Spend that on read-only parameters and a pointer stops meaning anything, so nobody can tell the mutating procedures from the rest at a glance.
 - `_draw_call_changes` compares two draw calls and returns what differs between them, so it takes `Draw_Call`, not `^Draw_Call`, even though they are 128 bytes each. The platform interface's `get_events` fills the array you hand it, so that one takes a pointer.
-- Pointers are also right when the value is optional, or when you need the thing itself rather than its value, which is why `hm.get` hands one back.
-- Don't reach for a pointer because you think it will be faster. If you believe a signature costs something, measure it. The compiler is already doing the thing you are about to do by hand.
 
 ## Architecture Notes
 
