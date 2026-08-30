@@ -500,16 +500,19 @@ web_png_data_uri :: proc(image: Image, allocator: runtime.Allocator) -> (string,
 	return web_png_data_uri_from_bytes(png_bytes, allocator), true
 }
 
-// Puts the Karl2D icon in the favicon element, straight from the PNG bytes it is stored as: no
-// decode and no re-encode, so the data URI stays as small as the PNG. Quietly does nothing when
-// the element is missing, since the game never asked for the default icon.
+// The same image as `DEFAULT_ICON`, in the PNG form the favicon wants.
+DEFAULT_ICON_PNG :: #load("default_icons/karl2d.png")
+
+// Puts the Karl2D icon in the favicon element, straight from its PNG form: no decode and no
+// re-encode, so the data URI stays as small as the PNG. Quietly does nothing when the element is
+// missing, since the game never asked for the default icon.
 @(private="package")
-web_set_default_icon :: proc(png_bytes: []u8) {
+web_set_default_icon :: proc() {
 	if !web_favicon_element_exists() {
 		return
 	}
 
-	uri := web_png_data_uri_from_bytes(png_bytes, frame_allocator)
+	uri := web_png_data_uri_from_bytes(DEFAULT_ICON_PNG, frame_allocator)
 	js.set_element_key_string(FAVICON_ELEMENT_ID, "href", uri)
 }
 
