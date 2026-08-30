@@ -2735,7 +2735,8 @@ destroy_audio_clip :: proc(clip: Audio_Clip)  {
 // Supported file formats: ogg
 //
 // Audio streams do not stream in data automatically from the disk. You need to call
-// `update_audio_stream` every frame to stream in the new data.
+// `update_audio_stream` regularly to stream in the new data, from the game loop or from a thread
+// of your own.
 //
 // The second return value is `true` if the audio stream was loaded correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Stream` will
@@ -2905,7 +2906,8 @@ load_audio_stream_from_file :: proc(
 // Supported formats: ogg
 //
 // Audio streams do not stream in data automatically from the source. You need to call
-// `update_audio_stream` every frame to stream in the new data.
+// `update_audio_stream` regularly to stream in the new data, from the game loop or from a thread
+// of your own.
 //
 // This procedure is useful in some specific cases. One such case is web builds. Web builds don't
 // support `load_audio_stream_from_file` since they don't have a file system. Instead, you can do
@@ -3031,6 +3033,11 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 		hm.remove(&s.audio_clips, sd.clip)
 	}
 
+	// Wait for a thread that is decoding this stream, so the decoder and the file are not freed
+	// while it is using them. The audio mutex is already held, which is the order everything else
+	// takes these two in.
+	sync.mutex_lock(&sd.decode_mutex)
+
 	switch sd.mode {
 	case .From_File:
 		file_close(sd.file)
@@ -3040,15 +3047,77 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 	}
 
 	free(sd.vorbis_buffer.alloc_buffer, s.allocator)
+
+	// Unlock before the stream leaves the handle map, so the mutex is released while it still has
+	// somewhere to live.
+	sync.mutex_unlock(&sd.decode_mutex)
 	hm.remove(&s.audio_streams, stream)
 }
 
-// Streams in new audio data from the audio stream. You need to call this once per frame in order
-// for the streaming to actually happen.
+// Streams in new audio data from the audio stream. The streaming only happens when you call this,
+// so call it often enough to keep the buffer fed. Once per frame is the simple way to do that.
+//
+// You can call this from a thread of your own instead. That keeps the music going through a long
+// frame, such as one that loads a level. The decoding does not hold the lock the mixer needs, so a
+// slow read from disk delays the streaming and nothing else.
+//
+// One thread at a time per stream. Two threads calling this for the same stream at once is not
+// supported. Different streams on different threads is fine.
 update_audio_stream :: proc(stream: Audio_Stream) {
+	// Find everything under the audio mutex, then take the stream's own mutex before letting the
+	// audio mutex go. Holding the stream mutex across that handover is what stops
+	// `destroy_audio_stream` from freeing the decoder while the decoding below is using it.
+	sync.mutex_lock(&s.audio_mutex)
+
+	sd := hm.get(&s.audio_streams, stream)
+
+	if sd == nil {
+		sync.mutex_unlock(&s.audio_mutex)
+		log.error("Trying to update destroyed audio stream")
+		return
+	}
+
+	pab := hm.get(&s.sounds, sd.sound)
+
+	if pab == nil {
+		// Not playing the stream is a valid state. It just doesn't need any updating.
+		sync.mutex_unlock(&s.audio_mutex)
+		return
+	}
+
+	ab := hm.get(&s.audio_clips, pab.clip)
+
+	if ab == nil {
+		hm.remove(&s.sounds, sd.sound)
+		sync.mutex_unlock(&s.audio_mutex)
+		log.error("Trying to update audio stream with destroyed clip")
+		return
+	}
+
+	if sd.decode_finished {
+		_drain_audio_stream(sd, ab, stream, pab.offset)
+		sync.mutex_unlock(&s.audio_mutex)
+		return
+	}
+
+	play_offset := pab.offset
+	sync.mutex_lock(&sd.decode_mutex)
+	sync.mutex_unlock(&s.audio_mutex)
+
+	// Decode with only the stream mutex held. The mixer keeps mixing throughout, and the sound
+	// only moves further forward, so a play offset from a moment ago just means the decoder writes
+	// a little less than it could have.
+	_decode_audio_stream(sd, ab, play_offset)
+	sync.mutex_unlock(&sd.decode_mutex)
+
+	// Let go of the stream mutex before taking the audio mutex again. Holding both in that order
+	// is what the mixer does, so doing it the other way round here would deadlock.
 	sync.mutex_guard(&s.audio_mutex)
 
-	_update_audio_stream(stream)
+	// The stream may have been destroyed while this was decoding, so look it up again.
+	if sd_now := hm.get(&s.audio_streams, stream); sd_now != nil {
+		_apply_audio_stream_stop(sd_now, stream)
+	}
 }
 
 // Unguarded implementation of `update_audio_stream`. Also used by `play_audio_stream` and
@@ -3114,39 +3183,58 @@ _update_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	// The decoder is done and the sound is playing out what is left in the clip. Count off what it
-	// played since the last call, and stop it once it has played everything.
 	if sd.decode_finished {
-		played := pab.offset - sd.last_play_offset
-
-		if played < 0 {
-			played += len(ab.samples)
-		}
-
-		sd.samples_left -= played
-		sd.last_play_offset = pab.offset
-
-		if sd.samples_left <= 0 {
-			hm.remove(&s.sounds, sd.sound)
-			_reset_audio_stream(stream)
-		}
-
+		_drain_audio_stream(sd, ab, stream, pab.offset)
 		return
 	}
 
-	_decode_audio_stream(sd, ab, pab.offset)
+	// The mixer reaches this procedure with `s.audio_mutex` held, so the stream mutex is taken
+	// second. `update_audio_stream` takes them in the same order.
+	if sync.mutex_guard(&sd.decode_mutex) {
+		_decode_audio_stream(sd, ab, pab.offset)
+	}
 
-	// The decoder does not reach the handle maps, so it asks for the sound to go away instead of
-	// removing it itself.
-	if sd.stop_requested {
-		sd.stop_requested = false
-		rewind := sd.rewind_requested
-		sd.rewind_requested = false
+	_apply_audio_stream_stop(sd, stream)
+}
+
+// Counts off what the sound played since the last call and stops it once the clip has nothing
+// left. Used while the decoder has reached the end of a stream that does not loop. The caller
+// holds `s.audio_mutex`.
+_drain_audio_stream :: proc(
+	sd: ^Audio_Stream_Data,
+	ab: ^Audio_Clip_Object,
+	stream: Audio_Stream,
+	play_offset: int,
+) {
+	played := play_offset - sd.last_play_offset
+
+	if played < 0 {
+		played += len(ab.samples)
+	}
+
+	sd.samples_left -= played
+	sd.last_play_offset = play_offset
+
+	if sd.samples_left <= 0 {
 		hm.remove(&s.sounds, sd.sound)
+		_reset_audio_stream(stream)
+	}
+}
 
-		if rewind {
-			_reset_audio_stream(stream)
-		}
+// Carries out what the decoder asked for. The decoder does not reach the handle maps, so it asks
+// for the sound to go away instead of removing it itself. The caller holds `s.audio_mutex`.
+_apply_audio_stream_stop :: proc(sd: ^Audio_Stream_Data, stream: Audio_Stream) {
+	if !sd.stop_requested {
+		return
+	}
+
+	sd.stop_requested = false
+	rewind := sd.rewind_requested
+	sd.rewind_requested = false
+	hm.remove(&s.sounds, sd.sound)
+
+	if rewind {
+		_reset_audio_stream(stream)
 	}
 }
 
@@ -3344,7 +3432,8 @@ _compact_stream_read_buf :: proc(sd: ^Audio_Stream_Data) {
 // procedures to change how it plays. Use `stop_sound` first if you want to start over from the
 // beginning. A paused sound starts playing again.
 //
-// Don't forget to call `update_audio_stream` every frame in order to stream in new data.
+// Don't forget to call `update_audio_stream` regularly in order to stream in new data. The game
+// loop is the simple place for it, but a thread of your own works too.
 play_audio_stream :: proc(
 	stream: Audio_Stream,
 	volume: f32 = 1,
@@ -5869,6 +5958,16 @@ Audio_Stream_Data :: struct {
 
 	// Set alongside `stop_requested` when the stream should also go back to its start.
 	rewind_requested: bool,
+
+	// Guards the decoder: `vorbis`, `file`, the read buffer, `decode_cursor`, `seek_discard`,
+	// `buffer_write_pos` and the flags above. `update_audio_stream` holds this instead of
+	// `s.audio_mutex` while it decodes, so a game can stream on a thread of its own without
+	// making the mixer wait for the disk.
+	//
+	// Anything that wants both mutexes takes `s.audio_mutex` first. The mixer reaches the decoder
+	// through `_apply_sound_time` with `s.audio_mutex` already held, so taking them the other way
+	// round anywhere would deadlock.
+	decode_mutex: sync.Mutex,
 
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.

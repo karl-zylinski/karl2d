@@ -689,7 +689,8 @@ destroy_audio_clip :: proc(clip: Audio_Clip)
 // Supported file formats: ogg
 //
 // Audio streams do not stream in data automatically from the disk. You need to call
-// `update_audio_stream` every frame to stream in the new data.
+// `update_audio_stream` regularly to stream in the new data, from the game loop or from a thread
+// of your own.
 //
 // The second return value is `true` if the audio stream was loaded correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Stream` will
@@ -706,7 +707,8 @@ load_audio_stream_from_file :: proc(
 // Supported formats: ogg
 //
 // Audio streams do not stream in data automatically from the source. You need to call
-// `update_audio_stream` every frame to stream in the new data.
+// `update_audio_stream` regularly to stream in the new data, from the game loop or from a thread
+// of your own.
 //
 // This procedure is useful in some specific cases. One such case is web builds. Web builds don't
 // support `load_audio_stream_from_file` since they don't have a file system. Instead, you can do
@@ -736,8 +738,15 @@ load_audio_stream_from_bytes :: proc(
 // deallocate the bytes that you sent into that procedure.
 destroy_audio_stream :: proc(stream: Audio_Stream)
 
-// Streams in new audio data from the audio stream. You need to call this once per frame in order
-// for the streaming to actually happen.
+// Streams in new audio data from the audio stream. The streaming only happens when you call this,
+// so call it often enough to keep the buffer fed. Once per frame is the simple way to do that.
+//
+// You can call this from a thread of your own instead. That keeps the music going through a long
+// frame, such as one that loads a level. The decoding does not hold the lock the mixer needs, so a
+// slow read from disk delays the streaming and nothing else.
+//
+// One thread at a time per stream. Two threads calling this for the same stream at once is not
+// supported. Different streams on different threads is fine.
 update_audio_stream :: proc(stream: Audio_Stream)
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
@@ -750,7 +759,8 @@ update_audio_stream :: proc(stream: Audio_Stream)
 // procedures to change how it plays. Use `stop_sound` first if you want to start over from the
 // beginning. A paused sound starts playing again.
 //
-// Don't forget to call `update_audio_stream` every frame in order to stream in new data.
+// Don't forget to call `update_audio_stream` regularly in order to stream in new data. The game
+// loop is the simple place for it, but a thread of your own works too.
 play_audio_stream :: proc(
 	stream: Audio_Stream,
 	volume: f32 = 1,
@@ -1631,6 +1641,35 @@ Audio_Stream_Data :: struct {
 	// writing them to the clip. Used when moving the stream, since the decoder can only move in
 	// steps of a whole ogg page.
 	seek_discard: int,
+
+	// Set when the decoder reaches the end of a stream that does not loop. The decoder runs ahead
+	// of the listener, so the clip still holds samples nobody has heard. The sound keeps playing
+	// those, and `update_audio_stream` stops it once they run out.
+	decode_finished: bool,
+
+	// How many samples the sound has left to play. Only used while `decode_finished` is set.
+	samples_left: int,
+
+	// Where the sound was when `samples_left` was last brought up to date. Only used while
+	// `decode_finished` is set.
+	last_play_offset: int,
+
+	// Set by the decoder when it runs into something that means the sound cannot carry on. The
+	// decoder does not reach the handle maps, so whoever called it removes the sound instead.
+	stop_requested: bool,
+
+	// Set alongside `stop_requested` when the stream should also go back to its start.
+	rewind_requested: bool,
+
+	// Guards the decoder: `vorbis`, `file`, the read buffer, `decode_cursor`, `seek_discard`,
+	// `buffer_write_pos` and the flags above. `update_audio_stream` holds this instead of
+	// `s.audio_mutex` while it decodes, so a game can stream on a thread of its own without
+	// making the mixer wait for the disk.
+	//
+	// Anything that wants both mutexes takes `s.audio_mutex` first. The mixer reaches the decoder
+	// through `_apply_sound_time` with `s.audio_mutex` already held, so taking them the other way
+	// round anywhere would deadlock.
+	decode_mutex: sync.Mutex,
 
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
