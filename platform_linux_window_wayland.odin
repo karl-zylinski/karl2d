@@ -53,9 +53,23 @@ THEME_CURSOR_SIZE :: 24
 DECORATION_TITLEBAR_HEIGHT :: 32
 DECORATION_BORDER :: 1
 
-// Premultiplied ARGB, the format the decoration buffers are in.
-DECORATION_TITLEBAR_COLOR :: u32(0xff2b2b2b)
-DECORATION_BORDER_COLOR :: u32(0xff555555)
+// What the frame is painted with. The fill covers the titlebar and the outline runs around the
+// outside of the whole window, which is all the thin sides are. Premultiplied ARGB, the format the
+// decoration buffers are in.
+WL_Decoration_Colors :: struct {
+	fill: u32,
+	outline: u32,
+}
+
+DECORATION_COLORS_DARK :: WL_Decoration_Colors {
+	fill = 0xff2e2e2e,
+	outline = 0xff4a4a4a,
+}
+
+DECORATION_COLORS_LIGHT :: WL_Decoration_Colors {
+	fill = 0xffe8e8e8,
+	outline = 0xffb4b4b4,
+}
 
 @(private="package")
 
@@ -1357,6 +1371,8 @@ wl_create_decorations :: proc() {
 		return
 	}
 
+	s.decoration_colors = wl_desktop_decoration_colors()
+
 	for part in WL_Decoration_Part {
 		d := &s.decorations[part]
 		d.surface = wl.compositor_create_surface(s.compositor)
@@ -1401,7 +1417,6 @@ wl_paint_decoration :: proc(part: WL_Decoration_Part) {
 	w := s.last_configure_width
 	h := s.last_configure_height
 	d := &s.decorations[part]
-	color: u32
 
 	switch part {
 	case .Titlebar:
@@ -1409,28 +1424,24 @@ wl_paint_decoration :: proc(part: WL_Decoration_Part) {
 		d.y = -DECORATION_TITLEBAR_HEIGHT
 		d.width = w + DECORATION_BORDER*2
 		d.height = DECORATION_TITLEBAR_HEIGHT
-		color = DECORATION_TITLEBAR_COLOR
 
 	case .Left:
 		d.x = -DECORATION_BORDER
 		d.y = 0
 		d.width = DECORATION_BORDER
 		d.height = h
-		color = DECORATION_BORDER_COLOR
 
 	case .Right:
 		d.x = w
 		d.y = 0
 		d.width = DECORATION_BORDER
 		d.height = h
-		color = DECORATION_BORDER_COLOR
 
 	case .Bottom:
 		d.x = -DECORATION_BORDER
 		d.y = h
 		d.width = w + DECORATION_BORDER*2
 		d.height = DECORATION_BORDER
-		color = DECORATION_BORDER_COLOR
 	}
 
 	// The buffer holds physical pixels and a viewport maps it back to the logical size, the way
@@ -1446,8 +1457,23 @@ wl_paint_decoration :: proc(part: WL_Decoration_Part) {
 		return
 	}
 
+	// The three thin sides are outline all the way through. The titlebar is filled, with the
+	// outline along the top and down the two sides, where it meets the desktop rather than the
+	// game canvas.
 	for i in 0..<buffer_width*buffer_height {
-		d.pixels[i] = color
+		d.pixels[i] = part == .Titlebar ? s.decoration_colors.fill : s.decoration_colors.outline
+	}
+
+	if part == .Titlebar {
+		thickness := max(1, int(math.round(DECORATION_BORDER * s.scale)))
+
+		for y in 0..<buffer_height {
+			for x in 0..<buffer_width {
+				if y < thickness || x < thickness || x >= buffer_width - thickness {
+					d.pixels[y*buffer_width + x] = s.decoration_colors.outline
+				}
+			}
+		}
 	}
 
 	wl.subsurface_set_position(d.subsurface, i32(d.x), i32(d.y))
@@ -1530,6 +1556,45 @@ wl_destroy_decorations :: proc() {
 
 		d^ = {}
 	}
+}
+
+// Picks the frame colors from what the desktop is set up for. GTK writes the preference into its
+// settings file, which is where every desktop that has an opinion tends to leave one, and reading
+// a file is a great deal less work than the conversation with the desktop portal that would answer
+// this properly. A desktop that leaves no hint gets the dark scheme.
+wl_desktop_decoration_colors :: proc() -> WL_Decoration_Colors {
+	home := os.get_env("HOME", frame_allocator)
+
+	if home == "" {
+		return DECORATION_COLORS_DARK
+	}
+
+	for directory in ([]string {"gtk-4.0", "gtk-3.0"}) {
+		path := fmt.aprintf(
+			"%v/.config/%v/settings.ini",
+			home,
+			directory,
+			allocator = frame_allocator,
+		)
+
+		// Read straight through `core:os` rather than Karl2D's own file reading, which logs an
+		// error. Most machines have no such file and that is not worth a word to the player.
+		data, data_err := os.read_entire_file(path, frame_allocator)
+
+		if data_err != nil {
+			continue
+		}
+
+		if strings.contains(string(data), "gtk-application-prefer-dark-theme=false") {
+			return DECORATION_COLORS_LIGHT
+		}
+
+		if strings.contains(string(data), "gtk-application-prefer-dark-theme=true") {
+			return DECORATION_COLORS_DARK
+		}
+	}
+
+	return DECORATION_COLORS_DARK
 }
 
 // True while the pointer is over one of the surfaces that make up the frame Karl2D draws. Pointer
@@ -1639,6 +1704,7 @@ WL_State :: struct {
 	// because `KARL2D_LINUX_DECORATIONS=custom` said to. The decorations are only made then.
 	custom_decorations: bool,
 	decorations: [WL_Decoration_Part]WL_Decoration,
+	decoration_colors: WL_Decoration_Colors,
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
 	xdg_base: ^wl.XDG_WM_Base,
