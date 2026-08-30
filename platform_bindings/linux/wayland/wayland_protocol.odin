@@ -202,6 +202,28 @@ surface_attach :: proc "c" (surface: ^Surface, buffer: ^Buffer, x: c.int32_t, y:
 	)
 }
 
+// Marks a rectangle of the attached buffer as changed, in buffer pixels. A compositor is free to
+// leave everything else as it was, so a new buffer only shows up once its area has been damaged.
+surface_damage_buffer :: proc "c" (
+	surface: ^Surface,
+	x: c.int32_t,
+	y: c.int32_t,
+	width: c.int32_t,
+	height: c.int32_t,
+) {
+	proxy_marshal_flags(
+		surface,
+		9,
+		nil,
+		proxy_get_version(surface),
+		0,
+		x,
+		y,
+		width,
+		height,
+	)
+}
+
 surface_frame :: proc "c" (surface: ^Surface) -> ^Callback {
 	callback: ^Proxy
 	callback = proxy_marshal_flags(

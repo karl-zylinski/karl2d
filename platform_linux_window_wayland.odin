@@ -48,6 +48,15 @@ _ :: fmt
 // THEME_CURSOR_SIZE*scale physical pixels and a viewport scales it back down to this.
 THEME_CURSOR_SIZE :: 24
 
+// The frame Karl2D draws around the game canvas where the compositor draws none, in logical
+// pixels. The border is the thin line along the three sides that have no titlebar.
+DECORATION_TITLEBAR_HEIGHT :: 32
+DECORATION_BORDER :: 1
+
+// Premultiplied ARGB, the format the decoration buffers are in.
+DECORATION_TITLEBAR_COLOR :: u32(0xff2b2b2b)
+DECORATION_BORDER_COLOR :: u32(0xff555555)
+
 @(private="package")
 
 wl_state_size :: proc() -> int {
@@ -148,13 +157,13 @@ wl_init :: proc(
 	
 	// Makes sure the window does "pings" that keeps it alive.
 	wl.add_listener(s.xdg_base, &wm_base_listener, nil)
-	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, s.surface)
+	s.xdg_surface = wl.xdg_wm_base_get_xdg_surface(s.xdg_base, s.surface)
 
 	// Top-level means an application at the top of the window hierarchy. The callback in the
 	// toplevel listener effecively creates a window handle.
-	s.toplevel = wl.xdg_surface_get_toplevel(xdg_surface)
+	s.toplevel = wl.xdg_surface_get_toplevel(s.xdg_surface)
 	wl.add_listener(s.toplevel, &toplevel_listener, nil)
-	wl.add_listener(xdg_surface, &window_listener, nil)
+	wl.add_listener(s.xdg_surface, &window_listener, nil)
 	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(window_title, frame_allocator))
 
 	wl_set_window_mode(options.window_mode)
@@ -226,6 +235,12 @@ wl_init :: proc(
 	}
 
 	log.ensure(s.window != nil, "Wayland compositor never sent an initial configure")
+
+	// After the first configure, so that the frame is laid out around a window whose size the
+	// compositor has already had its say about.
+	if s.custom_decorations {
+		wl_create_decorations()
+	}
 
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.surface, s.window, s.allocator)
@@ -429,6 +444,16 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 
 		context = s.odin_ctx
 
+		// The compositor sizes the whole window, decorations included, while everything below is
+		// about the game canvas inside them.
+		if w != 0 {
+			w = max(1, w - wl_decoration_extra_width())
+		}
+
+		if h != 0 {
+			h = max(1, h - wl_decoration_extra_height())
+		}
+
 		new_width: int
 		new_height: int
 
@@ -461,6 +486,8 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 				s.last_configure_windowed_width = new_width
 				s.last_configure_windowed_height = new_height
 			}
+
+			wl_layout_decorations()
 
 			append(&s.events, Event_Screen_Resize {
 				width = s.screen_width,
@@ -778,6 +805,9 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 			wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
 		}
 
+		// The decoration buffers hold physical pixels, so a new scale means new buffers.
+		wl_layout_decorations()
+
 		// The cursor theme is loaded at a fixed physical size, so it needs reloading whenever
 		// the scale changes. Only relevant without the cursor shape protocol - the compositor
 		// handles its own DPI when we use that instead.
@@ -798,6 +828,8 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 }
 
 wl_shutdown :: proc() {
+	wl_destroy_decorations()
+
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		wl.wp_viewport_destroy(cd.viewport)
 		wl.surface_destroy(cd.surface)
@@ -925,6 +957,7 @@ wl_set_screen_size :: proc(w, h: int) {
 	}
 
 	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
+	wl_layout_decorations()
 }
 
 wl_get_window_scale :: proc() -> f32 {
@@ -937,8 +970,11 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	switch window_mode {
 	case .Windowed:
 		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
-		w := i32(s.last_configure_windowed_width)
-		h := i32(s.last_configure_windowed_height)
+
+		// A size limit covers the window, decorations included, so a fixed-size game asks for a
+		// window that is its canvas plus the frame around it.
+		w := i32(s.last_configure_windowed_width + wl_decoration_extra_width())
+		h := i32(s.last_configure_windowed_height + wl_decoration_extra_height())
 		wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
 		wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
 
@@ -1292,6 +1328,199 @@ wl_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 	wl_apply_cursor()
 }
 
+// Creates the four surfaces that make up the window frame. They are subsurfaces of the surface the
+// game renders into, so the compositor keeps them glued to it and no render backend has to know
+// that they exist.
+wl_create_decorations :: proc() {
+	if s.subcompositor == nil {
+		return
+	}
+
+	for part in WL_Decoration_Part {
+		d := &s.decorations[part]
+		d.surface = wl.compositor_create_surface(s.compositor)
+		d.subsurface = wl.subcompositor_get_subsurface(s.subcompositor, d.surface, s.surface)
+		d.viewport = wl.wp_viewporter_get_viewport(s.viewporter, d.surface)
+
+		// A subsurface starts out synchronized, which would tie repainting the frame to the game
+		// drawing its next frame.
+		wl.subsurface_set_desync(d.subsurface)
+	}
+
+	wl_layout_decorations()
+}
+
+// Puts every part of the frame where it belongs for the current window size and repaints it. The
+// compositor leaves the parts where they were put, so this runs on every resize and scale change.
+wl_layout_decorations :: proc() {
+	if s.decorations[.Titlebar].surface == nil {
+		return
+	}
+
+	for part in WL_Decoration_Part {
+		wl_paint_decoration(part)
+	}
+
+	// The window is the game canvas plus everything drawn around it. Without this the compositor
+	// would treat the canvas alone as the window, and a maximized window would hang off the screen
+	// by the height of the titlebar.
+	wl.xdg_surface_set_window_geometry(
+		s.xdg_surface,
+		-DECORATION_BORDER,
+		-DECORATION_TITLEBAR_HEIGHT,
+		i32(s.last_configure_width + DECORATION_BORDER*2),
+		i32(s.last_configure_height + DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER),
+	)
+}
+
+// Works out where one part of the frame sits for the current window size, fills it with a single
+// color and puts it there. Positions are in logical pixels relative to the game canvas, which
+// means the titlebar has a negative y since it hangs above the canvas.
+wl_paint_decoration :: proc(part: WL_Decoration_Part) {
+	w := s.last_configure_width
+	h := s.last_configure_height
+	d := &s.decorations[part]
+	color: u32
+
+	switch part {
+	case .Titlebar:
+		d.x = -DECORATION_BORDER
+		d.y = -DECORATION_TITLEBAR_HEIGHT
+		d.width = w + DECORATION_BORDER*2
+		d.height = DECORATION_TITLEBAR_HEIGHT
+		color = DECORATION_TITLEBAR_COLOR
+
+	case .Left:
+		d.x = -DECORATION_BORDER
+		d.y = 0
+		d.width = DECORATION_BORDER
+		d.height = h
+		color = DECORATION_BORDER_COLOR
+
+	case .Right:
+		d.x = w
+		d.y = 0
+		d.width = DECORATION_BORDER
+		d.height = h
+		color = DECORATION_BORDER_COLOR
+
+	case .Bottom:
+		d.x = -DECORATION_BORDER
+		d.y = h
+		d.width = w + DECORATION_BORDER*2
+		d.height = DECORATION_BORDER
+		color = DECORATION_BORDER_COLOR
+	}
+
+	// The buffer holds physical pixels and a viewport maps it back to the logical size, the way
+	// cursor images are handled. That keeps a one pixel border one pixel at any scale.
+	buffer_width := max(1, int(math.round(f32(d.width) * s.scale)))
+	buffer_height := max(1, int(math.round(f32(d.height) * s.scale)))
+
+	if buffer_width != d.buffer_width || buffer_height != d.buffer_height {
+		wl_make_decoration_buffer(d, buffer_width, buffer_height)
+	}
+
+	if d.buffer == nil {
+		return
+	}
+
+	for i in 0..<buffer_width*buffer_height {
+		d.pixels[i] = color
+	}
+
+	wl.subsurface_set_position(d.subsurface, i32(d.x), i32(d.y))
+	wl.wp_viewport_set_destination(d.viewport, i32(max(1, d.width)), i32(max(1, d.height)))
+	wl.surface_attach(d.surface, d.buffer, 0, 0)
+	wl.surface_damage_buffer(d.surface, 0, 0, i32(buffer_width), i32(buffer_height))
+	wl.surface_commit(d.surface)
+}
+
+// Makes a fresh shared memory buffer for one part of the frame, throwing away the one it had. The
+// compositor keeps its own mapping of the memory for as long as it needs the pixels, so unmapping
+// ours here is safe even if the old buffer is still on screen.
+wl_make_decoration_buffer :: proc(d: ^WL_Decoration, width: int, height: int) {
+	if d.buffer != nil {
+		wl.buffer_destroy(d.buffer)
+		linux.munmap(d.pixels, uint(d.data_size))
+		d.buffer = nil
+		d.pixels = nil
+		d.buffer_width = 0
+		d.buffer_height = 0
+	}
+
+	stride := width * 4
+	size := stride * height
+
+	fd, fd_err := linux.memfd_create("karl2d-decoration", {})
+	if fd_err != .NONE {
+		log.errorf("Failed making a window decoration: memfd failed with %v", fd_err)
+		return
+	}
+
+	// The compositor dups the fd in shm_create_pool, so we don't have to keep ours around.
+	defer linux.close(fd)
+
+	if trunc_err := linux.ftruncate(fd, i64(size)); trunc_err != .NONE {
+		log.errorf("Failed making a window decoration: ftruncate failed with %v", trunc_err)
+		return
+	}
+
+	data, mmap_err := linux.mmap(0, uint(size), {.READ, .WRITE}, {.SHARED}, fd, 0)
+	if mmap_err != .NONE {
+		log.errorf("Failed making a window decoration: mmap failed with %v", mmap_err)
+		return
+	}
+
+	pool := wl.shm_create_pool(s.shm, c.int32_t(fd), c.int32_t(size))
+
+	d.buffer = wl.shm_pool_create_buffer(
+		pool, 0,
+		c.int32_t(width), c.int32_t(height), c.int32_t(stride),
+		wl.SHM_FORMAT_ARGB8888,
+	)
+
+	// The pool can go away immediately: the mapping stays alive until every buffer made from it
+	// has been destroyed.
+	wl.shm_pool_destroy(pool)
+
+	d.pixels = ([^]u32)(data)
+	d.data_size = size
+	d.buffer_width = width
+	d.buffer_height = height
+}
+
+wl_destroy_decorations :: proc() {
+	for part in WL_Decoration_Part {
+		d := &s.decorations[part]
+
+		if d.surface == nil {
+			continue
+		}
+
+		wl.wp_viewport_destroy(d.viewport)
+		wl.subsurface_destroy(d.subsurface)
+		wl.surface_destroy(d.surface)
+
+		if d.buffer != nil {
+			wl.buffer_destroy(d.buffer)
+			linux.munmap(d.pixels, uint(d.data_size))
+		}
+
+		d^ = {}
+	}
+}
+
+// How much wider and taller the window is than the game canvas inside it. Zero unless Karl2D draws
+// the decorations, since the ones a compositor draws sit outside the window entirely.
+wl_decoration_extra_width :: proc() -> int {
+	return s.custom_decorations ? DECORATION_BORDER*2 : 0
+}
+
+wl_decoration_extra_height :: proc() -> int {
+	return s.custom_decorations ? DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER : 0
+}
+
 wl_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^WL_State)(state)
@@ -1315,6 +1544,39 @@ WL_Cursor :: struct {
 	// Scales the surface down from physical to logical pixels, see `wl_apply_cursor_scale`.
 	viewport: ^wl.WP_Viewport,
 	built_for_scale: f32,
+}
+
+// One part of the window frame Karl2D draws for itself. Each is a subsurface of the surface the
+// game renders into, with a shared memory buffer that we fill on the CPU.
+WL_Decoration :: struct {
+	surface: ^wl.Surface,
+	subsurface: ^wl.Subsurface,
+
+	// Scales the buffer down from physical to logical pixels, like the one a cursor has.
+	viewport: ^wl.WP_Viewport,
+
+	// The compositor may read the buffer at any point while it is attached, so both it and the
+	// mapping stay alive until the part is resized or the window goes away.
+	buffer: ^wl.Buffer,
+	pixels: [^]u32,
+	data_size: int,
+
+	// Size of the buffer, in physical pixels.
+	buffer_width: int,
+	buffer_height: int,
+
+	// Where the part sits and how big it is, in logical pixels relative to the game canvas.
+	x: int,
+	y: int,
+	width: int,
+	height: int,
+}
+
+WL_Decoration_Part :: enum {
+	Titlebar,
+	Left,
+	Right,
+	Bottom,
 }
 
 WL_State :: struct {
@@ -1346,11 +1608,13 @@ WL_State :: struct {
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
 
 	// True when Karl2D draws the titlebar and the borders itself, because the compositor won't or
-	// because `KARL2D_LINUX_DECORATIONS=custom` said to.
+	// because `KARL2D_LINUX_DECORATIONS=custom` said to. The decorations are only made then.
 	custom_decorations: bool,
+	decorations: [WL_Decoration_Part]WL_Decoration,
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
 	xdg_base: ^wl.XDG_WM_Base,
+	xdg_surface: ^wl.XDG_Surface,
 	seat: ^wl.Seat,
 	scale: f32,
 
