@@ -80,8 +80,10 @@ init :: proc(
 	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
 
 	// The window has an icon from the start this way. A game replaces it with its own by calling
-	// `set_window_icon`. The frame allocator reclaims the pixels on the first `present`.
-	pf.set_window_icon(_make_default_icon(_DEFAULT_ICON_SIZE, s.frame_allocator), false)
+	// `set_window_icon`.
+	default_icon := make_karl2d_icon()
+	pf.set_window_icon(default_icon, false)
+	destroy_image(default_icon)
 
 	// This is an OS-independent handle that we can pass to any rendering backend.
 	window_render_glue := pf.get_window_render_glue()
@@ -4958,6 +4960,65 @@ camera_world_matrix :: proc(c: Camera) -> Mat4 {
 // MISC //
 //------//
 
+// Makes the Karl2D icon, the K and the 2 from the logo, by scaling its pixel art up with nearest
+// neighbor. `init` puts it on the window; pass it to `set_window_icon` to bring it back, or to
+// `load_texture_from_image` to draw it.
+//
+// Use `destroy_image` when you are done with it.
+make_karl2d_icon :: proc() -> Image {
+	// 16 pixels per cell makes the icon 256x256, which covers every size an OS shows an icon at.
+	// The web favicon only ever shows small, and a smaller image there keeps the PNG data URI it
+	// turns into small too.
+	CELL_SIZE :: 16 when ODIN_OS != .JS else 4
+
+	// 0 is background, 1 is yellow, 2 is the dark red.
+	art := [16][16]u8 {
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 2, 0, 0, 2, 0, 0, 0, 2, 2, 0, 0, 0, 0},
+		{0, 0, 0, 1, 0, 0, 1, 0, 0, 2, 1, 1, 2, 0, 0, 0},
+		{0, 0, 0, 1, 0, 2, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0},
+		{0, 0, 0, 1, 2, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0},
+		{0, 0, 0, 1, 1, 2, 0, 0, 0, 0, 2, 2, 1, 0, 0, 0},
+		{0, 0, 0, 1, 0, 1, 2, 0, 0, 2, 1, 1, 0, 0, 0, 0},
+		{0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 2, 2, 2, 0, 0, 0},
+		{0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	}
+
+	return _image_from_karl2d_art(art, CELL_SIZE)
+}
+
+// Makes the Karl2D logo, the whole "KARL2D" mark, by scaling its pixel art up with nearest
+// neighbor. The image comes out at 480x160 pixels; pass it to `load_texture_from_image` to
+// draw it.
+//
+// Use `destroy_image` when you are done with it.
+make_karl2d_logo :: proc() -> Image {
+	CELL_SIZE :: 16
+
+	// 0 is background, 1 is yellow, 2 is the dark red.
+	art := [10][30]u8 {
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 2, 0, 0, 2, 0, 0, 2, 2, 0, 0, 2, 2, 2, 0, 0, 2, 0, 0, 0, 0, 2, 2, 0, 0, 2, 2, 2, 0, 0},
+		{0, 1, 0, 0, 1, 0, 2, 1, 1, 2, 0, 1, 1, 1, 2, 0, 1, 0, 0, 0, 2, 1, 1, 2, 0, 1, 1, 1, 2, 0},
+		{0, 1, 0, 2, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0},
+		{0, 1, 2, 1, 0, 0, 1, 2, 2, 1, 0, 1, 2, 2, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0},
+		{0, 1, 1, 2, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 2, 0, 1, 0, 0, 0, 0, 2, 2, 1, 0, 1, 0, 0, 1, 0},
+		{0, 1, 0, 1, 2, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 2, 1, 1, 0, 0, 1, 0, 0, 1, 0},
+		{0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 2, 2, 0, 1, 2, 2, 2, 0, 1, 2, 2, 1, 0},
+		{0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	}
+
+	return _image_from_karl2d_art(art, CELL_SIZE)
+}
+
 // Choose how the alpha channel is used when mixing half-transparent color with what is already
 // drawn. The default is the .Alpha mode, but you also have the option of using .Premultiply_Alpha.
 set_blend_mode :: proc(mode: Blend_Mode) {
@@ -6184,56 +6245,29 @@ is_typable_rune :: proc(r: rune) -> bool {
 	return r >= 32 && r != 0x7f
 }
 
-// The Karl2D icon as pixel art: the K and the 2 from the logo. Each cell is an index into
-// `_DEFAULT_ICON_COLORS`. `_make_default_icon` scales it up to an `Image`.
-_DEFAULT_ICON_ART :: [16][16]u8 {
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{0, 0, 0, 2, 0, 0, 2, 0, 0, 0, 2, 2, 0, 0, 0, 0},
-	{0, 0, 0, 1, 0, 0, 1, 0, 0, 2, 1, 1, 2, 0, 0, 0},
-	{0, 0, 0, 1, 0, 2, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0},
-	{0, 0, 0, 1, 2, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0},
-	{0, 0, 0, 1, 1, 2, 0, 0, 0, 0, 2, 2, 1, 0, 0, 0},
-	{0, 0, 0, 1, 0, 1, 2, 0, 0, 2, 1, 1, 0, 0, 0, 0},
-	{0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 2, 2, 2, 0, 0, 0},
-	{0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-}
+// Turns the cell art of `make_karl2d_icon` and `make_karl2d_logo` into an `Image` in the Karl2D
+// logo colors, `cell_size` pixels per cell.
+_image_from_karl2d_art :: proc(art: [$H][$W]u8, cell_size: int) -> Image {
+	colors := [3]Color {
+		{33, 11, 11, 255},  // background
+		{255, 209, 0, 255}, // yellow
+		{127, 6, 34, 255},  // dark red
+	}
 
-_DEFAULT_ICON_COLORS :: [3]Color {
-	{33, 11, 11, 255},  // background
-	{255, 209, 0, 255}, // yellow
-	{127, 6, 34, 255},  // dark red
-}
+	width := W*cell_size
+	height := H*cell_size
+	pixels := make([]Color, width*height, s.allocator)
 
-// 256 covers every size an OS shows an icon at. The web favicon only ever shows small, and a
-// smaller image there keeps the PNG data URI it turns into small too.
-_DEFAULT_ICON_SIZE :: 256 when ODIN_OS != .JS else 64
-
-// Builds the Karl2D icon at `size`x`size` pixels by scaling `_DEFAULT_ICON_ART` up with nearest
-// neighbor.
-_make_default_icon :: proc(size: int, allocator: runtime.Allocator, loc := #caller_location) -> Image {
-	pixels := make([]Color, size*size, allocator, loc)
-	art := _DEFAULT_ICON_ART
-	colors := _DEFAULT_ICON_COLORS
-
-	for y in 0..<size {
-		row := art[y*len(art)/size]
-
-		for x in 0..<size {
-			pixels[y*size + x] = colors[row[x*len(row)/size]]
+	for y in 0..<height {
+		for x in 0..<width {
+			pixels[y*width + x] = colors[art[y/cell_size][x/cell_size]]
 		}
 	}
 
 	return {
 		pixels = pixels,
-		width = size,
-		height = size,
+		width = width,
+		height = height,
 	}
 }
 

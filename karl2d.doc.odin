@@ -1116,6 +1116,20 @@ camera_inverse_view_matrix :: proc(c: Camera) -> Mat4
 // MISC //
 //------//
 
+// Makes the Karl2D icon, the K and the 2 from the logo, by scaling its pixel art up with nearest
+// neighbor. `init` puts it on the window; pass it to `set_window_icon` to bring it back, or to
+// `load_texture_from_image` to draw it.
+//
+// Use `destroy_image` when you are done with it.
+make_karl2d_icon :: proc() -> Image
+
+// Makes the Karl2D logo, the whole "KARL2D" mark, by scaling its pixel art up with nearest
+// neighbor. The image comes out at 480x160 pixels; pass it to `load_texture_from_image` to
+// draw it.
+//
+// Use `destroy_image` when you are done with it.
+make_karl2d_logo :: proc() -> Image
+
 // Choose how the alpha channel is used when mixing half-transparent color with what is already
 // drawn. The default is the .Alpha mode, but you also have the option of using .Premultiply_Alpha.
 set_blend_mode :: proc(mode: Blend_Mode)
