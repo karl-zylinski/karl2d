@@ -143,12 +143,15 @@ windows_shutdown :: proc() {
 	}
 	hm.dynamic_destroy(&s.custom_cursors)
 
+	win32.DestroyWindow(s.hwnd)
+
+	// The window showed this icon until the line above, and an icon that is in use may not be
+	// destroyed.
 	if s.hicon != nil {
 		win32.DestroyIcon(s.hicon)
 		s.hicon = nil
 	}
 
-	win32.DestroyWindow(s.hwnd)
 	delete(s.events)
 }
 
@@ -543,7 +546,7 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-windows_set_window_icon :: proc(image: Image) -> bool {
+windows_set_window_icon :: proc(image: Image, _: bool) -> bool {
 	hicon := windows_create_hicon(image, {0, 0}, true)
 
 	if hicon == nil {

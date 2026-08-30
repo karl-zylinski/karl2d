@@ -669,14 +669,20 @@ x11_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-x11_set_window_icon :: proc(image: Image) -> bool {
+x11_set_window_icon :: proc(image: Image, _: bool) -> bool {
 	// `_NET_WM_ICON` holds a list of icons, each one its width and height followed by its pixels
 	// in ARGB. We send a single icon and let the window manager scale it to the sizes it wants.
 	//
 	// The property has a format of 32, which in Xlib means an array of C `long`. That is 64 bits
 	// wide on 64-bit Linux, so each pixel travels in the low half of its own `uint`. Handing this
 	// call a `[]u32` is the usual way to get garbage on screen instead of an icon.
-	data := make([]uint, 2 + image.width*image.height, frame_allocator)
+	data, data_err := make([]uint, 2 + image.width*image.height, frame_allocator)
+
+	if data_err != nil {
+		log.errorf("Failed setting window icon: allocating the property failed with %v", data_err)
+		return false
+	}
+
 	data[0] = uint(image.width)
 	data[1] = uint(image.height)
 
@@ -697,6 +703,9 @@ x11_set_window_icon :: proc(image: Image) -> bool {
 	)
 
 	X.Flush(s.display)
+
+	// The X server reports a rejected property change asynchronously, so true here means the
+	// request was sent, not that the icon reached the screen.
 	return true
 }
 

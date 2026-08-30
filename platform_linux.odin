@@ -666,8 +666,8 @@ linux_set_window_mode :: proc(window_mode: Window_Mode) {
 	s.win.set_window_mode(window_mode)
 }
 
-linux_set_window_icon :: proc(image: Image) -> bool {
-	return s.win.set_window_icon(image)
+linux_set_window_icon :: proc(image: Image, warn_if_unsupported: bool) -> bool {
+	return s.win.set_window_icon(image, warn_if_unsupported)
 }
 
 linux_set_cursor_hidden :: proc(hidden: bool) {
@@ -769,7 +769,7 @@ Linux_Window_Interface :: struct #all_or_none {
 	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
-	set_window_icon: proc(image: Image) -> bool,
+	set_window_icon: proc(image: Image, warn_if_unsupported: bool) -> bool,
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
 	set_mouse_locked: proc(locked: bool),

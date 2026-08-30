@@ -95,11 +95,17 @@ init :: proc(
 
 	// The window has an icon from the start this way. A game replaces it with its own by calling
 	// `set_window_icon`.
-	default_icon, default_icon_ok := load_image_from_bytes(DEFAULT_ICON_DATA)
+	when ODIN_OS == .JS {
+		// The icon is a PNG and the favicon takes a PNG as-is. Going through `Image` would
+		// re-encode it without compression, making the data URI in the page about 100x bigger.
+		web_set_default_icon(DEFAULT_ICON_DATA)
+	} else {
+		default_icon, default_icon_ok := load_image_from_bytes(DEFAULT_ICON_DATA)
 
-	if default_icon_ok {
-		pf.set_window_icon(default_icon)
-		destroy_image(default_icon)
+		if default_icon_ok {
+			pf.set_window_icon(default_icon, false)
+			destroy_image(default_icon)
+		}
 	}
 
 	// This is an OS-independent handle that we can pass to any rendering backend.
@@ -680,8 +686,10 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 set_window_icon :: proc(image: Image) -> bool {
 	assert_initialized()
 
-	if image.width == 0 || image.height == 0 {
-		log.error("Invalid icon image: height or width is zero")
+	// Two negative dimensions have a positive product, so the length check below cannot catch
+	// them. This check has to.
+	if image.width <= 0 || image.height <= 0 {
+		log.error("Invalid icon image: height or width is zero or negative")
 		return false
 	}
 
@@ -690,7 +698,7 @@ set_window_icon :: proc(image: Image) -> bool {
 		return false
 	}
 
-	return pf.set_window_icon(image)
+	return pf.set_window_icon(image, true)
 }
 
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This

@@ -473,36 +473,67 @@ web_set_window_mode :: proc(new_mode: Window_Mode) {
 	}
 }
 
-// A page has no window icon, so this sets the favicon instead, as a PNG data URI.
-//
-// Fails when `index.html` has no `karl2d-favicon` element. A page that took the element out is
-// left alone, so a game can pick its own favicon in HTML and keep it.
-web_set_window_icon :: proc(image: Image) -> bool {
-	// A `rel` of "icon" is what the template gives the element, so any non-empty answer means it
-	// is there. A missing element reads back as an empty string.
-	rel_buf: [8]u8
-	if js.get_element_key_string(FAVICON_ELEMENT_ID, "rel", rel_buf[:]) == "" {
-		log.warnf(
-			"Cannot set the window icon: index.html has no element with the id '%v'. Add " +
-			"<link id=\"%v\" rel=\"icon\" href=\"\"> to its <head>, or set the favicon in the " +
-			"HTML and leave this alone.",
-			FAVICON_ELEMENT_ID, FAVICON_ELEMENT_ID,
-		)
+// True when index.html has the favicon element. Every element that exists has its own id as the
+// value of its `id` property, so a zero length only happens when there is no element at all.
+web_favicon_element_exists :: proc() -> bool {
+	return js.get_element_key_string_length(FAVICON_ELEMENT_ID, "id") > 0
+}
 
-		return false
-	}
-
-	// core:image/png can only decode, not encode, so we encode it ourselves. See `encode_png`'s
-	// own comment for why that is fine here.
-	png_bytes, encode_ok := encode_png(image, frame_allocator)
-	if !encode_ok {
-		log.error("Failed encoding the window icon as a PNG")
-		return false
-	}
-
+// Makes a data URI out of PNG bytes, for handing an image to the DOM through a string property.
+web_png_data_uri_from_bytes :: proc(png_bytes: []u8, allocator: runtime.Allocator) -> string {
 	// The base64 is copied into the data URI below, so it is not needed after that.
 	pixels_b64 := base64.encode(png_bytes, allocator = frame_allocator)
-	data_uri := fmt.aprintf("data:image/png;base64,%v", pixels_b64, allocator = frame_allocator)
+	return fmt.aprintf("data:image/png;base64,%v", pixels_b64, allocator = allocator)
+}
+
+// Makes a data URI out of an image, for handing it to the DOM through a string property.
+// core:image/png can only decode, not encode, so the image goes through our own `encode_png`; see
+// that proc's comment for why its uncompressed output is fine here.
+web_png_data_uri :: proc(image: Image, allocator: runtime.Allocator) -> (string, bool) {
+	png_bytes, encode_ok := encode_png(image, frame_allocator)
+
+	if !encode_ok {
+		log.error("Failed encoding image as PNG")
+		return "", false
+	}
+
+	return web_png_data_uri_from_bytes(png_bytes, allocator), true
+}
+
+// Puts the Karl2D icon in the favicon element, straight from the PNG bytes it is stored as: no
+// decode and no re-encode, so the data URI stays as small as the PNG. Quietly does nothing when
+// the element is missing, since the game never asked for the default icon.
+@(private="package")
+web_set_default_icon :: proc(png_bytes: []u8) {
+	if !web_favicon_element_exists() {
+		return
+	}
+
+	uri := web_png_data_uri_from_bytes(png_bytes, frame_allocator)
+	js.set_element_key_string(FAVICON_ELEMENT_ID, "href", uri)
+}
+
+// A page has no window icon, so this sets the favicon instead, as a PNG data URI. Needs the
+// `karl2d-favicon` link element that the `build_web` template puts in `index.html`.
+web_set_window_icon :: proc(image: Image, warn_if_unsupported: bool) -> bool {
+	if !web_favicon_element_exists() {
+		if warn_if_unsupported {
+			log.warnf(
+				"Cannot set the window icon: index.html has no element with the id '%v'. Add " +
+				"<link id=\"%v\" rel=\"icon\" href=\"\"> to its <head>.",
+				FAVICON_ELEMENT_ID, FAVICON_ELEMENT_ID,
+			)
+		}
+
+		return false
+	}
+
+	data_uri, data_uri_ok := web_png_data_uri(image, frame_allocator)
+
+	if !data_uri_ok {
+		return false
+	}
+
 	js.set_element_key_string(FAVICON_ELEMENT_ID, "href", data_uri)
 	return true
 }
@@ -540,11 +571,9 @@ web_is_mouse_locked :: proc() -> bool {
 
 web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
 	// There is no hardware cursor API on the web, so we hand the browser a PNG as a data URI and
-	// let CSS do the work. core:image/png can only decode, not encode, so we encode it ourselves;
-	// see encode_png's own comment for why that is fine here.
-	png_bytes, encode_ok := encode_png(image, frame_allocator)
-	if !encode_ok {
-		log.error("Failed to encode cursor image as PNG")
+	// let CSS do the work.
+	data_uri, data_uri_ok := web_png_data_uri(image, s.allocator)
+	if !data_uri_ok {
 		return {}, false
 	}
 
@@ -562,15 +591,8 @@ web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Curso
 		)
 	}
 
-	// The base64 is copied into the data URI below, so it is not needed after that.
-	pixels_b64 := base64.encode(png_bytes, allocator = frame_allocator)
-
 	cursor := Web_Cursor{hotspot = hotspot}
-	cursor.data_uri = fmt.aprintf(
-		"data:image/png;base64,%v",
-		pixels_b64,
-		allocator = s.allocator,
-	)
+	cursor.data_uri = data_uri
 	web_build_cursor_style(&cursor)
 
 	handle, add_err := hm.add(&s.custom_cursors, cursor)

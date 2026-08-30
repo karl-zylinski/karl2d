@@ -810,36 +810,65 @@ mac_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-// macOS windows have no icon of their own, so this sets the application's icon, the one in the
-// Dock. It lasts for as long as the process runs. An app bundle takes its icon from the .icns file
-// inside it until this replaces it.
-mac_set_window_icon :: proc(image: Image) -> bool {
-	// NSBitmapImageRep points at the pixel planes it is handed rather than copying them, so a copy
-	// of the pixels must stay alive for as long as the image does.
-	pixels := slice.clone(image.pixels, s.allocator)
+// Wraps `pixels` in an NSImage of `point_size` points. The pixels are not copied: they must stay
+// alive for as long as the image does, and stay valid RGBA8 with straight alpha.
+//
+// Returns nil when AppKit rejects the bitmap, which is logged.
+mac_make_ns_image :: proc(
+	pixels: []Color,
+	width: int,
+	height: int,
+	point_size: NS.Size,
+) -> ^NS.Image {
 	planes := [?]^u8 {(^u8)(raw_data(pixels))}
 
 	rep := NS.BitmapImageRep_alloc()->initWithBitmapDataPlanes(
 		&planes[0],
-		NS.Integer(image.width),
-		NS.Integer(image.height),
-		8, 4, true, false,
+		NS.Integer(width),
+		NS.Integer(height),
+		8,
+		4,
+		true,
+		false,
 		NS.DeviceRGBColorSpace,
 		NS.BitmapFormatFlags{.AlphaNonpremultiplied},
-		NS.Integer(image.width * 4),
+		NS.Integer(width * 4),
 		32,
 	)
 
-	// The Dock decides how big to draw the icon, so the size in points only has to carry the
-	// aspect ratio of the pixels.
-	ns_image := NS.Image_alloc()->initWithSize({
-		CF.CGFloat(image.width),
-		CF.CGFloat(image.height),
-	})
+	if rep == nil {
+		log.errorf("initWithBitmapDataPlanes failed for a %vx%v image", width, height)
+		return nil
+	}
+
+	ns_image := NS.Image_alloc()->initWithSize(point_size)
 	ns_image->addRepresentation((^NS.ImageRep)(rep))
 
 	// The image retains the representation, so that can go now.
 	rep->release()
+
+	return ns_image
+}
+
+// macOS windows have no icon of their own, so this sets the application's icon, the one in the
+// Dock. It lasts for as long as the process runs. An app bundle takes its icon from the .icns file
+// inside it until this replaces it.
+mac_set_window_icon :: proc(image: Image, _: bool) -> bool {
+	// The NSImage points at these rather than copying them, so a copy of the pixels must stay
+	// alive for as long as it does.
+	pixels := slice.clone(image.pixels, s.allocator)
+
+	// The Dock decides how big to draw the icon, so the size in points only has to carry the
+	// aspect ratio of the pixels.
+	ns_image := mac_make_ns_image(pixels, image.width, image.height, {
+		CF.CGFloat(image.width),
+		CF.CGFloat(image.height),
+	})
+
+	if ns_image == nil {
+		delete(pixels, s.allocator)
+		return false
+	}
 
 	ce.Application_setApplicationIconImage(s.app, ns_image)
 
@@ -862,6 +891,11 @@ mac_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Curso
 		hotspot = hotspot,
 	}
 	mac_build_cursor(&cursor)
+
+	if cursor.cursor == nil {
+		delete(cursor.pixels, s.allocator)
+		return {}, false
+	}
 
 	handle, add_err := hm.add(&s.custom_cursors, cursor)
 
@@ -888,24 +922,15 @@ mac_build_cursor :: proc(cursor: ^Mac_Cursor) {
 
 	scale := mac_get_window_scale()
 
-	planes := [?]^u8 {(^u8)(raw_data(cursor.pixels))}
-
-	rep := NS.BitmapImageRep_alloc()->initWithBitmapDataPlanes(
-		&planes[0],
-		NS.Integer(cursor.width),
-		NS.Integer(cursor.height),
-		8, 4, true, false,
-		NS.DeviceRGBColorSpace,
-		NS.BitmapFormatFlags{.AlphaNonpremultiplied},
-		NS.Integer(cursor.width * 4),
-		32,
-	)
-
-	ns_image := NS.Image_alloc()->initWithSize({
+	ns_image := mac_make_ns_image(cursor.pixels, cursor.width, cursor.height, {
 		CF.CGFloat(f32(cursor.width) / scale),
 		CF.CGFloat(f32(cursor.height) / scale),
 	})
-	ns_image->addRepresentation((^NS.ImageRep)(rep))
+
+	// Whatever cursor was there stays on.
+	if ns_image == nil {
+		return
+	}
 
 	// The hotspot is in the image's coordinate system, so it is in points too.
 	cursor.cursor = NS.Cursor_alloc()->initWithImage(ns_image, {
@@ -913,9 +938,8 @@ mac_build_cursor :: proc(cursor: ^Mac_Cursor) {
 		CF.CGFloat(f32(cursor.hotspot.y) / scale),
 	})
 
-	// The NSCursor retains the image, which retains the representation, so both can go now.
+	// The NSCursor retains the image, so it can go now.
 	ns_image->release()
-	rep->release()
 
 	cursor.built_for_scale = scale
 

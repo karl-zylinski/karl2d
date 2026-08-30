@@ -300,12 +300,15 @@ registry_listener := wl.Registry_Listener {
 			)
 
 		case wl.xdg_toplevel_icon_manager_v1_interface.name:
+			// Bound at the version these bindings implement at most. Binding at whatever the
+			// compositor advertises tells it we understand events we don't, and an event past the
+			// end of our event table makes libwayland abort the process.
 			s.toplevel_icon_manager = wl.registry_bind(
 				wl.XDG_Toplevel_Icon_Manager_V1,
 				registry,
 				name,
 				&wl.xdg_toplevel_icon_manager_v1_interface,
-				version,
+				min(version, u32(wl.xdg_toplevel_icon_manager_v1_interface.version)),
 			)
 		}
 	},
@@ -901,9 +904,11 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-wl_set_window_icon :: proc(image: Image) -> bool {
+wl_set_window_icon :: proc(image: Image, warn_if_unsupported: bool) -> bool {
 	if s.toplevel_icon_manager == nil {
-		if !s.warned_about_missing_icon_protocol {
+		// `init` passes false for its default icon, which also keeps the warn-once flag intact
+		// for the call the game makes itself.
+		if warn_if_unsupported && !s.warned_about_missing_icon_protocol {
 			log.warn(
 				"Cannot set the window icon: this Wayland compositor does not implement the " +
 				"xdg-toplevel-icon-v1 protocol. The other way to give a Wayland window an icon " +
@@ -920,31 +925,14 @@ wl_set_window_icon :: proc(image: Image) -> bool {
 
 	// The protocol only takes square buffers. A non-square image goes in the middle of one.
 	size := max(image.width, image.height)
-	stride := size*4
-	data_size := stride*size
+	buffer, data, data_size, buffer_ok := wl_create_shm_buffer("karl2d-icon", size, size)
 
-	fd, fd_err := linux.memfd_create("karl2d-icon", {})
-	if fd_err != .NONE {
-		log.errorf("Failed setting window icon: memfd failed with %v", fd_err)
+	if !buffer_ok {
 		return false
 	}
 
-	// The compositor dups the fd in shm_create_pool, so we don't have to keep ours around.
-	defer linux.close(fd)
-
-	if trunc_err := linux.ftruncate(fd, i64(data_size)); trunc_err != .NONE {
-		log.errorf("Failed setting window icon: ftruncate failed with %v", trunc_err)
-		return false
-	}
-
-	data, mmap_err := linux.mmap(0, uint(data_size), {.READ, .WRITE}, {.SHARED}, fd, 0)
-	if mmap_err != .NONE {
-		log.errorf("Failed setting window icon: mmap failed with %v", mmap_err)
-		return false
-	}
-
-	// Convert to ARGB and premultiply alpha. A fresh memfd is all zeroes, so any padding around a
-	// non-square image is already transparent.
+	// Convert to ARGB and premultiply alpha. A fresh shm buffer is all zeroes, so any padding
+	// around a non-square image is already transparent.
 	pixel_data := ([^]u32)(data)
 	offset_x := (size - image.width)/2
 	offset_y := (size - image.height)/2
@@ -959,18 +947,6 @@ wl_set_window_icon :: proc(image: Image) -> bool {
 			pixel_data[(offset_y + y)*size + offset_x + x] = a << 24 | r << 16 | g << 8 | b
 		}
 	}
-
-	pool := wl.shm_create_pool(s.shm, c.int32_t(fd), c.int32_t(data_size))
-
-	buffer := wl.shm_pool_create_buffer(
-		pool, 0,
-		c.int32_t(size), c.int32_t(size), c.int32_t(stride),
-		wl.SHM_FORMAT_ARGB8888,
-	)
-
-	// The pool can go away immediately: the mapping stays alive until every buffer made from it
-	// has been destroyed.
-	wl.shm_pool_destroy(pool)
 
 	icon := wl.xdg_toplevel_icon_manager_v1_create_icon(s.toplevel_icon_manager)
 
@@ -1177,27 +1153,68 @@ wl_apply_cursor :: proc() {
 	wl.surface_commit(s.cursor_surface)
 }
 
-wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
-	stride := image.width * 4
-	size := stride * image.height
+// Creates a `width` x `height` ARGB shm buffer for handing pixels to the compositor, along with
+// the memory it reads from, mapped into our address space. The caller fills the pixels through
+// `_data` and owns both: the buffer dies by `wl.buffer_destroy` and the memory by `linux.munmap`
+// with `_data_size`, buffer first. The memory starts out all zeroes.
+//
+// `name` shows up in /proc/.../fd for debugging. Failure is logged with it, and means nothing
+// needs to be cleaned up.
+wl_create_shm_buffer :: proc(
+	name: cstring,
+	width: int,
+	height: int,
+) -> (
+	_buffer: ^wl.Buffer,
+	_data: rawptr,
+	_data_size: int,
+	_ok: bool,
+) {
+	stride := width*4
+	size := stride*height
 
-	fd, fd_err := linux.memfd_create("cursor", {})
+	fd, fd_err := linux.memfd_create(name, {})
 	if fd_err != .NONE {
-		log.errorf("Failed to create Wayland cursor: memfd failed with %v", fd_err)
-		return {}, false
+		log.errorf("Failed creating shm buffer '%s': memfd failed with %v", name, fd_err)
+		return
 	}
 
 	// The compositor dups the fd in shm_create_pool, so we don't have to keep ours around.
 	defer linux.close(fd)
 
 	if trunc_err := linux.ftruncate(fd, i64(size)); trunc_err != .NONE {
-		log.errorf("Failed to create Wayland cursor: ftruncate failed with %v", trunc_err)
-		return {}, false
+		log.errorf("Failed creating shm buffer '%s': ftruncate failed with %v", name, trunc_err)
+		return
 	}
 
 	data, mmap_err := linux.mmap(0, uint(size), {.READ, .WRITE}, {.SHARED}, fd, 0)
 	if mmap_err != .NONE {
-		log.errorf("Failed to create Wayland cursor: mmap failed with %v", mmap_err)
+		log.errorf("Failed creating shm buffer '%s': mmap failed with %v", name, mmap_err)
+		return
+	}
+
+	pool := wl.shm_create_pool(s.shm, c.int32_t(fd), c.int32_t(size))
+
+	buffer := wl.shm_pool_create_buffer(
+		pool,
+		0,
+		c.int32_t(width),
+		c.int32_t(height),
+		c.int32_t(stride),
+		wl.SHM_FORMAT_ARGB8888,
+	)
+
+	// The pool can go away immediately: the mapping stays alive until every buffer made from it
+	// has been destroyed.
+	wl.shm_pool_destroy(pool)
+
+	return buffer, data, size, true
+}
+
+wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
+	buffer, data, data_size, buffer_ok := wl_create_shm_buffer("cursor", image.width, image.height)
+
+	if !buffer_ok {
 		return {}, false
 	}
 
@@ -1212,18 +1229,6 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor
 		pixel_data[i] = a << 24 | r << 16 | g << 8 | b
 	}
 
-	pool := wl.shm_create_pool(s.shm, c.int32_t(fd), c.int32_t(size))
-
-	buffer := wl.shm_pool_create_buffer(
-		pool, 0,
-		c.int32_t(image.width), c.int32_t(image.height), c.int32_t(stride),
-		wl.SHM_FORMAT_ARGB8888,
-	)
-
-	// The pool can go away immediately: the mapping stays alive until every buffer made from it
-	// has been destroyed.
-	wl.shm_pool_destroy(pool)
-
 	surface := wl.compositor_create_surface(s.compositor)
 	wl.surface_attach(surface, buffer, 0, 0)
 
@@ -1234,7 +1239,7 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor
 		height    = image.height,
 		buffer    = buffer,
 		data      = data,
-		data_size = size,
+		data_size = data_size,
 		viewport  = wl.wp_viewporter_get_viewport(s.viewporter, surface),
 	}
 
