@@ -80,8 +80,8 @@ init :: proc(
 	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
 
 	// The window has an icon from the start this way. A game replaces it with its own by calling
-	// `set_window_icon`.
-	pf.set_window_icon(DEFAULT_ICON, false)
+	// `set_window_icon`. The frame allocator reclaims the pixels on the first `present`.
+	pf.set_window_icon(_make_default_icon(_DEFAULT_ICON_SIZE, s.frame_allocator), false)
 
 	// This is an OS-independent handle that we can pass to any rendering backend.
 	window_render_glue := pf.get_window_render_glue()
@@ -5457,14 +5457,6 @@ Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
-// The Karl2D icon, applied by `init` and replaceable with `set_window_icon`. The file holds the
-// raw RGBA8 pixels, so it can go straight into an `Image`.
-DEFAULT_ICON :: Image {
-	pixels = #load("default_icons/karl2d.rgba", []Color),
-	width = 256,
-	height = 256,
-}
-
 // The cursors an operating system provides out of the box. Use with `set_cursor`.
 //
 // Not every platform has every one of them. Where one is missing, the closest thing is used
@@ -6190,6 +6182,60 @@ API_END :: true
 @(private="package")
 is_typable_rune :: proc(r: rune) -> bool {
 	return r >= 32 && r != 0x7f
+}
+
+// The Karl2D icon as pixel art: the K and the 2 from the logo. `.` is background, `Y` is yellow
+// and `R` is the dark red. `_make_default_icon` scales it up to an `Image`.
+_DEFAULT_ICON_ART :: [16]string {
+	"................",
+	"................",
+	"................",
+	"................",
+	"...R..R...RR....",
+	"...Y..Y..RYYR...",
+	"...Y.RY..Y..Y...",
+	"...YRY......Y...",
+	"...YYR....RRY...",
+	"...Y.YR..RYY....",
+	"...Y..Y..YRRR...",
+	"...Y..Y..YYYY...",
+	"................",
+	"................",
+	"................",
+	"................",
+}
+
+// 256 covers every size an OS shows an icon at. The web favicon only ever shows small, and a
+// smaller image there keeps the PNG data URI it turns into small too.
+_DEFAULT_ICON_SIZE :: 256 when ODIN_OS != .JS else 64
+
+// Builds the Karl2D icon at `size`x`size` pixels by scaling `_DEFAULT_ICON_ART` up with nearest
+// neighbor.
+_make_default_icon :: proc(size: int, allocator: runtime.Allocator, loc := #caller_location) -> Image {
+	pixels := make([]Color, size*size, allocator, loc)
+	art := _DEFAULT_ICON_ART
+
+	for y in 0..<size {
+		row := art[y*len(art)/size]
+
+		for x in 0..<size {
+			col: Color
+
+			switch row[x*len(row)/size] {
+			case 'Y': col = {255, 209, 0, 255}
+			case 'R': col = {127, 6, 34, 255}
+			case:     col = {33, 11, 11, 255}
+			}
+
+			pixels[y*size + x] = col
+		}
+	}
+
+	return {
+		pixels = pixels,
+		width = size,
+		height = size,
+	}
 }
 
 // The number of lines `text` occupies. Used to size the text block without having to measure the

@@ -1515,14 +1515,6 @@ Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
 
-// The Karl2D icon, applied by `init` and replaceable with `set_window_icon`. The file holds the
-// raw RGBA8 pixels, so it can go straight into an `Image`.
-DEFAULT_ICON :: Image {
-	pixels = #load("default_icons/karl2d.rgba", []Color),
-	width = 256,
-	height = 256,
-}
-
 // The cursors an operating system provides out of the box. Use with `set_cursor`.
 //
 // Not every platform has every one of them. Where one is missing, the closest thing is used
