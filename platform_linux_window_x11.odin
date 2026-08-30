@@ -21,6 +21,7 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_window_mode = x11_set_window_mode,
 	get_monitor_count = x11_get_monitor_count,
 	get_monitor_info = x11_get_monitor_info,
+	get_window_monitor = x11_get_window_monitor,
 	set_cursor_hidden = x11_set_cursor_hidden,
 	is_cursor_hidden = x11_is_cursor_hidden,
 	set_mouse_locked = x11_set_mouse_locked,
@@ -926,4 +927,10 @@ x11_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
 		size = {int(X.DisplayWidth(s.display, screen)), int(X.DisplayHeight(s.display, screen))},
 		position = {0, 0},
 	}, true
+}
+
+// Only one monitor is reported, covering the whole X screen, so the window is always on it.
+// Telling which physical monitor it overlaps needs the XRandR bindings that do not exist yet.
+x11_get_window_monitor :: proc() -> int {
+	return MONITOR_PRIMARY
 }

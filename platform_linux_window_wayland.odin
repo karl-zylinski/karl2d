@@ -19,6 +19,7 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	set_window_mode = wl_set_window_mode,
 	get_monitor_count = wl_get_monitor_count,
 	get_monitor_info = wl_get_monitor_info,
+	get_window_monitor = wl_get_window_monitor,
 	set_cursor_hidden = wl_set_cursor_hidden,
 	is_cursor_hidden = wl_is_cursor_hidden,
 	set_mouse_locked = wl_set_mouse_locked,
@@ -1344,4 +1345,10 @@ wl_get_monitor_count :: proc() -> int {
 
 wl_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
 	return {}, false
+}
+
+// No monitors are reported, so there is no index that means anything. A caller that asks anyway
+// gets `MONITOR_PRIMARY`, which the monitor procedures will then say does not exist.
+wl_get_window_monitor :: proc() -> int {
+	return MONITOR_PRIMARY
 }

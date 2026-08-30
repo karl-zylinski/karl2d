@@ -22,6 +22,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 
 	get_monitor_count = windows_get_monitor_count,
 	get_monitor_info = windows_get_monitor_info,
+	get_window_monitor = windows_get_window_monitor,
 
 	set_cursor_hidden = windows_set_cursor_hidden,
 	is_cursor_hidden = windows_is_cursor_hidden,
@@ -1118,6 +1119,11 @@ WINDOWS_MONITOR_COUNT_MAX :: 16
 
 Windows_Monitor_List :: struct {
 	items: [WINDOWS_MONITOR_COUNT_MAX]Monitor_Info,
+
+	// Kept alongside `items` so `windows_get_window_monitor` can match what `MonitorFromWindow`
+	// hands back against an index. Not part of `Monitor_Info`, which is what the rest of Karl2D
+	// sees.
+	handles: [WINDOWS_MONITOR_COUNT_MAX]win32.HMONITOR,
 	count: int,
 	primary_index: int,
 }
@@ -1131,7 +1137,9 @@ windows_collect_monitors :: proc() -> Windows_Monitor_List {
 
 	// `EnumDisplayMonitors` promises no particular order, so put the primary one at index 0.
 	if list.primary_index != 0 && list.primary_index < list.count {
-		list.items[0], list.items[list.primary_index] = list.items[list.primary_index], list.items[0]
+		primary := list.primary_index
+		list.items[0], list.items[primary] = list.items[primary], list.items[0]
+		list.handles[0], list.handles[primary] = list.handles[primary], list.handles[0]
 	}
 
 	return list
@@ -1168,8 +1176,22 @@ windows_monitor_enum_proc :: proc "system" (
 		position = {int(mi.rcMonitor.left), int(mi.rcMonitor.top)},
 	}
 
+	list.handles[list.count] = hmonitor
 	list.count += 1
 	return true
+}
+
+windows_get_window_monitor :: proc() -> int {
+	hmonitor := win32.MonitorFromWindow(s.hwnd, .MONITOR_DEFAULTTONEAREST)
+	list := windows_collect_monitors()
+
+	for i in 0..<list.count {
+		if list.handles[i] == hmonitor {
+			return i
+		}
+	}
+
+	return MONITOR_PRIMARY
 }
 
 windows_get_monitor_count :: proc() -> int {

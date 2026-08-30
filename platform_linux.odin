@@ -32,6 +32,7 @@ PLATFORM_LINUX :: Platform_Interface {
 	set_window_mode = linux_set_window_mode,
 	get_monitor_count = linux_get_monitor_count,
 	get_monitor_info = linux_get_monitor_info,
+	get_window_monitor = linux_get_window_monitor,
 	set_cursor_hidden = linux_set_cursor_hidden,
 	is_cursor_hidden = linux_is_cursor_hidden,
 	set_mouse_locked = linux_set_mouse_locked,
@@ -769,6 +770,7 @@ Linux_Window_Interface :: struct #all_or_none {
 
 	get_monitor_count: proc() -> int,
 	get_monitor_info: proc(monitor: int) -> (Monitor_Info, bool),
+	get_window_monitor: proc() -> int,
 
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
@@ -929,4 +931,8 @@ linux_get_monitor_count :: proc() -> int {
 
 linux_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
 	return s.win.get_monitor_info(monitor)
+}
+
+linux_get_window_monitor :: proc() -> int {
+	return s.win.get_window_monitor()
 }

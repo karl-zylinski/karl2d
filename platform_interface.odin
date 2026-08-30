@@ -36,6 +36,9 @@ Platform_Interface :: struct #all_or_none {
 	get_monitor_count: proc() -> int,
 	get_monitor_info: proc(monitor: int) -> (Monitor_Info, bool),
 
+	// Which monitor the window is on. Backends that cannot tell return `MONITOR_PRIMARY`.
+	get_window_monitor: proc() -> int,
+
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
 	set_mouse_locked: proc(locked: bool),

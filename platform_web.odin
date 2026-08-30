@@ -23,6 +23,7 @@ PLATFORM_WEB :: Platform_Interface {
 
 	get_monitor_count = web_get_monitor_count,
 	get_monitor_info = web_get_monitor_info,
+	get_window_monitor = web_get_window_monitor,
 
 	set_cursor_hidden = web_set_cursor_hidden,
 	is_cursor_hidden = web_is_cursor_hidden,
@@ -928,4 +929,9 @@ web_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
 		size = {int(width), int(height)},
 		position = {0, 0},
 	}, true
+}
+
+// The page is on one screen and there is no way to ask which of the user's displays that is.
+web_get_window_monitor :: proc() -> int {
+	return MONITOR_PRIMARY
 }

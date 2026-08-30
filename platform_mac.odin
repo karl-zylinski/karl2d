@@ -34,6 +34,7 @@ PLATFORM_MAC :: Platform_Interface {
 
 	get_monitor_count = mac_get_monitor_count,
 	get_monitor_info = mac_get_monitor_info,
+	get_window_monitor = mac_get_window_monitor,
 
 	set_cursor_hidden = mac_set_cursor_hidden,
 	is_cursor_hidden = mac_is_cursor_hidden,
@@ -1296,4 +1297,24 @@ mac_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
 		size = {int(f32(frame.width) * scale), int(f32(frame.height) * scale)},
 		position = {int(f32(frame.x) * scale), int(f32(frame.y) * scale)},
 	}, true
+}
+
+mac_get_window_monitor :: proc() -> int {
+	window_screen := s.window->screen()
+
+	if window_screen == nil {
+		return MONITOR_PRIMARY
+	}
+
+	// `mac_screen_for_monitor` already maps a Karl2D index onto an `NSScreen.screens` index,
+	// primary swap included, so walking it backwards keeps the two in agreement.
+	count := int(NS.Array_count(NS.Screen_screens()))
+
+	for i in 0..<count {
+		if mac_screen_for_monitor(i) == window_screen {
+			return i
+		}
+	}
+
+	return MONITOR_PRIMARY
 }

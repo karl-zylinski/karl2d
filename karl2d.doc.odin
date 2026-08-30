@@ -190,6 +190,15 @@ get_monitor_height :: proc(monitor := MONITOR_PRIMARY) -> int
 // Returns the size of `monitor` in pixels, as a 2D vector.
 get_monitor_size :: proc(monitor := MONITOR_PRIMARY) -> Vec2
 
+// Returns which monitor the window is currently on, for feeding to the procedures above. Use this
+// rather than `MONITOR_PRIMARY` when you want the display the player is actually looking at, since
+// they may well have dragged the window onto a different one.
+//
+// Returns `MONITOR_PRIMARY` on platforms that cannot tell, which is the same thing X11 and web
+// report anyway since they only ever report one monitor. On Wayland, where no monitors are
+// reported at all, the returned index does not exist and the procedures above will say so.
+get_window_monitor :: proc() -> int
+
 // Returns the position of `monitor`, in the same coordinate system `set_window_position` uses. The
 // monitors sit side by side in one big coordinate space, so this is what tells you where one is
 // relative to another.
