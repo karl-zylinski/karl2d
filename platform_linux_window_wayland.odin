@@ -75,24 +75,7 @@ wl_try_load :: proc(
 		return "Not using Wayland. Could not connect to a compositor.", false
 	}
 
-	// A window has to get its decorations from somewhere. The same connection answers where from:
-	// zxdg_decoration_manager_v1 is how a compositor offers to draw them, and its absence is how
-	// GNOME says that clients are expected to decorate themselves.
-	decorations_offered := false
-	registry := wl.display_get_registry(display)
-	wl.add_listener(registry, &decoration_probe_listener, &decorations_offered)
-	wl.display_roundtrip(display)
-	wl.destroy(registry)
-
 	wl.display_disconnect(display)
-
-	// Karl2D can draw its own, but only when asked to, so a compositor that offers nothing is
-	// turned down here and the session falls through to X11.
-	if !decorations_offered && !wl_custom_decorations_requested() {
-		wl.unload()
-		return "Not using Wayland. The compositor leaves window decorations to the client. Set " +
-			"KARL2D_LINUX_DECORATIONS=custom to have Karl2D draw them.", false
-	}
 
 	if missing, load_ok := xkb.load(); !load_ok {
 		wl.unload()
@@ -103,8 +86,9 @@ wl_try_load :: proc(
 	return "", true
 }
 
-// Whether the player asked Karl2D to draw the window decorations rather than leave them to the
-// compositor. Read once before `WL_State` exists, in `wl_try_load`, and once after, in `wl_init`.
+// Whether the player asked Karl2D to draw the window decorations even where the compositor offers
+// to draw them itself. A compositor that offers nothing gets Karl2D's own without being asked, so
+// this is only for seeing them on a compositor that does decorate windows.
 wl_custom_decorations_requested :: proc() -> bool {
 	return os.get_env("KARL2D_LINUX_DECORATIONS", frame_allocator) == "custom"
 }
@@ -138,9 +122,9 @@ wl_init :: proc(
 	// Initializes pointer and keyboard based on seat capabilities.
 	wl.display_roundtrip(s.display)
 
-	// A missing decoration manager means the compositor draws nothing, and `wl_try_load` only lets
-	// the session get this far in that case when Karl2D is drawing the decorations itself. Decided
-	// before the window is set up, because the frame changes how big the window is asked to be.
+	// A compositor without the decoration manager, GNOME being the one that matters, draws no
+	// titlebar and expects the window to come with its own. Decided before the window is set up,
+	// because a frame Karl2D draws changes how big the window has to be asked for.
 	s.decorations.on = s.decoration_manager == nil || wl_custom_decorations_requested()
 
 	if s.decorations.on && s.subcompositor == nil {
@@ -246,24 +230,6 @@ wl_init :: proc(
 	if options.disable_auto_scale_hint {
 		log.warn("disable_auto_scale_hint not supported on linux/wayland")
 	}
-}
-
-// Used by `wl_try_load`, which runs before there is a `WL_State` to write into, so this reports
-// through its `data` pointer instead of through `s`. It also binds nothing: the connection it
-// looks at is thrown away again, and `registry_listener` binds the globals on the one that stays.
-decoration_probe_listener := wl.Registry_Listener {
-	global = proc "c" (
-		data: rawptr,
-		registry: ^wl.Registry,
-		name: u32,
-		interface: cstring,
-		version: u32,
-	) {
-		if interface == wl.zxdg_decoration_manager_v1_interface.name {
-			(^bool)(data)^ = true
-		}
-	},
-	global_remove = proc "c" (data: rawptr, registry: ^wl.Registry, name: u32) {},
 }
 
 registry_listener := wl.Registry_Listener {
