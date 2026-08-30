@@ -138,6 +138,15 @@ wl_init :: proc(
 	// Initializes pointer and keyboard based on seat capabilities.
 	wl.display_roundtrip(s.display)
 
+	// A missing decoration manager means the compositor draws nothing, and `wl_try_load` only lets
+	// the session get this far in that case when Karl2D is drawing the decorations itself. Decided
+	// before the window is set up, because the frame changes how big the window is asked to be.
+	s.decorations.on = s.decoration_manager == nil || wl_custom_decorations_requested()
+
+	if s.decorations.on && s.subcompositor == nil {
+		log.error("Wayland compositor has no wl_subcompositor. The window will have no borders.")
+	}
+
 	// Sets default size that gets used if the compositor doesn't suggest a size.
 	s.last_configure_width = screen_width
 	s.last_configure_height = screen_height
@@ -160,10 +169,6 @@ wl_init :: proc(
 
 	wl_set_window_mode(options.window_mode)
 
-	// A missing decoration manager means the compositor draws nothing, and `wl_try_load` only lets
-	// the session get this far in that case when Karl2D is drawing the decorations itself.
-	s.decorations.on = s.decoration_manager == nil || wl_custom_decorations_requested()
-
 	if s.decoration_manager != nil {
 		decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
 			s.decoration_manager,
@@ -179,10 +184,6 @@ wl_init :: proc(
 		}
 
 		wl.zxdg_toplevel_decoration_v1_set_mode(decoration, mode)
-	}
-
-	if s.decorations.on && s.subcompositor == nil {
-		log.error("Wayland compositor has no wl_subcompositor. The window will have no borders.")
 	}
 
 	if s.fractional_scale_manager != nil {
@@ -674,6 +675,7 @@ pointer_listener := wl.Pointer_Listener {
 		context = s.odin_ctx
 		s.pointer_enter_serial = u32(serial)
 		s.pointer_surface = surface
+		wldeco_pointer_moved(f32(surface_x >> 8), f32(surface_y >> 8))
 		wl_apply_cursor()
 	},
 	leave = proc "c" (
@@ -695,6 +697,12 @@ pointer_listener := wl.Pointer_Listener {
 		context = s.odin_ctx
 
 		if wldeco_has_pointer() {
+			// Only the cursor changes on the frame, and only when the pointer crosses between the
+			// part that moves the window and the edges that resize it.
+			if wldeco_pointer_moved(f32(surface_x >> 8), f32(surface_y >> 8)) {
+				wl_apply_cursor()
+			}
+
 			return
 		}
 
@@ -716,11 +724,8 @@ pointer_listener := wl.Pointer_Listener {
 		context = s.odin_ctx
 
 		if wldeco_has_pointer() {
-			// Dragging anywhere on the frame moves the window. The compositor runs the drag itself
-			// once asked, grabbing the pointer until the button goes back up, so there is nothing
-			// here to follow along with.
-			if button == wl.POINTER_BTN_LEFT && state == wl.POINTER_BUTTON_STATE_PRESSED {
-				wl.xdg_toplevel_move(s.toplevel, s.seat, serial)
+			if state == wl.POINTER_BUTTON_STATE_PRESSED {
+				wldeco_pointer_pressed(u32(button), u32(serial))
 			}
 
 			return
@@ -999,6 +1004,10 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	case .Borderless_Fullscreen:
 		wl.xdg_toplevel_set_fullscreen(s.toplevel, nil)
 	}
+
+	// The frame comes and goes with fullscreen, and the window is a different size with it than
+	// without it.
+	wldeco_layout()
 }
 
 wl_set_cursor_hidden :: proc(hidden: bool) {
@@ -1103,23 +1112,29 @@ wl_apply_cursor :: proc() {
 		return
 	}
 
-	if s.cursor_hidden {
-		wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
-		return
-	}
-
 	standard := Standard_Cursor.Default
 
-	switch cur in s.current_cursor {
-	case Standard_Cursor:
-		standard = cur
-
-	case Custom_Cursor:
-		if cd := hm.get(&s.custom_cursors, cur); cd != nil {
-			wl_point_at_cursor(cd, s.pointer_enter_serial)
+	// The frame belongs to Karl2D, so the pointer over it shows what the frame wants there rather
+	// than what the game asked for. A game that hides its cursor still gets one on its titlebar.
+	if wldeco_has_pointer() {
+		standard = wldeco_cursor()
+	} else {
+		if s.cursor_hidden {
+			wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
 			return
 		}
-		// Otherwise it was destroyed while on screen; fall through to the default cursor below.
+
+		switch cur in s.current_cursor {
+		case Standard_Cursor:
+			standard = cur
+
+		case Custom_Cursor:
+			if cd := hm.get(&s.custom_cursors, cur); cd != nil {
+				wl_point_at_cursor(cd, s.pointer_enter_serial)
+				return
+			}
+			// Otherwise it was destroyed while on screen; fall through to the default cursor below.
+		}
 	}
 
 	// A standard cursor. Prefer the cursor shape protocol, which lets the compositor render it at

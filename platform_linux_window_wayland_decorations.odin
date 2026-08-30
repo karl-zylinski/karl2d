@@ -27,6 +27,12 @@ import wl "platform_bindings/linux/wayland"
 DECORATION_TITLEBAR_HEIGHT :: 32
 DECORATION_BORDER :: 1
 
+// How far the grip for resizing reaches outside the window. A one pixel border is nothing to aim
+// at, so every part of the frame is bigger than what it paints and the extra is left transparent.
+// A surface takes pointer events across all of it, whatever is drawn there, which is the same
+// trick every toolkit plays with the shadow around its windows.
+DECORATION_RESIZE_MARGIN :: 8
+
 // What the frame is painted with. The fill covers the titlebar and the outline runs around the
 // outside of the whole window, which is all the thin sides are. Premultiplied ARGB, the format the
 // decoration buffers are in.
@@ -87,6 +93,11 @@ WL_Decorations :: struct {
 
 	parts: [WL_Decoration_Part]WL_Decoration,
 	colors: WL_Decoration_Colors,
+
+	// The window edge under the pointer, as an `xdg_toplevel` resize edge. Zero where the frame
+	// moves the window rather than resizing it, and stale whenever the pointer is not on the frame
+	// at all, which `wldeco_has_pointer` is what answers.
+	pointer_edge: u32,
 }
 
 // Creates the four surfaces that make up the window frame. They are subsurfaces of the surface the
@@ -120,13 +131,34 @@ wldeco_layout :: proc() {
 		return
 	}
 
+	// In fullscreen the window is the canvas and nothing else, so the parts come off the screen
+	// entirely. Attaching no buffer to a surface is how Wayland says that.
+	if !wldeco_shown() {
+		for part in WL_Decoration_Part {
+			d := &s.decorations.parts[part]
+			wl.surface_attach(d.surface, nil, 0, 0)
+			wl.surface_commit(d.surface)
+		}
+
+		wl.xdg_surface_set_window_geometry(
+			s.xdg_surface,
+			0,
+			0,
+			i32(s.last_configure_width),
+			i32(s.last_configure_height),
+		)
+
+		return
+	}
+
 	for part in WL_Decoration_Part {
 		wldeco_paint(part)
 	}
 
-	// The window is the game canvas plus everything drawn around it. Without this the compositor
-	// would treat the canvas alone as the window, and a maximized window would hang off the screen
-	// by the height of the titlebar.
+	// The window is the game canvas plus the frame drawn around it, but not the grip that reaches
+	// out past the frame: that is ours to feel, not part of the window as far as the compositor is
+	// concerned. Without this the compositor would treat the canvas alone as the window, and a
+	// maximized window would hang off the screen by the height of the titlebar.
 	wl.xdg_surface_set_window_geometry(
 		s.xdg_surface,
 		-DECORATION_BORDER,
@@ -136,38 +168,49 @@ wldeco_layout :: proc() {
 	)
 }
 
-// Works out where one part of the frame sits for the current window size, fills it with a single
-// color and puts it there. Positions are in logical pixels relative to the game canvas, which
-// means the titlebar has a negative y since it hangs above the canvas.
+// Whether the frame is on screen. It is not in fullscreen: that mode is for the game covering the
+// screen, and a compositor sizes a fullscreen window to exactly the output with no room for a
+// titlebar above it.
+wldeco_shown :: proc() -> bool {
+	return s.decorations.on && s.window_mode != .Borderless_Fullscreen
+}
+
+// Works out where one part of the frame sits for the current window size, paints it and puts it
+// there. Positions are in logical pixels relative to the game canvas, so the titlebar has a
+// negative y since it hangs above the canvas, and the parts start a grip's width further out
+// still.
 wldeco_paint :: proc(part: WL_Decoration_Part) {
 	w := s.last_configure_width
 	h := s.last_configure_height
 	d := &s.decorations.parts[part]
 
+	// How far a part reaches beyond the window on the sides that face the desktop.
+	out :: DECORATION_BORDER + DECORATION_RESIZE_MARGIN
+
 	switch part {
 	case .Titlebar:
-		d.x = -DECORATION_BORDER
-		d.y = -DECORATION_TITLEBAR_HEIGHT
-		d.width = w + DECORATION_BORDER*2
-		d.height = DECORATION_TITLEBAR_HEIGHT
+		d.x = -out
+		d.y = -DECORATION_TITLEBAR_HEIGHT - DECORATION_RESIZE_MARGIN
+		d.width = w + out*2
+		d.height = DECORATION_TITLEBAR_HEIGHT + DECORATION_RESIZE_MARGIN
 
 	case .Left:
-		d.x = -DECORATION_BORDER
+		d.x = -out
 		d.y = 0
-		d.width = DECORATION_BORDER
+		d.width = out
 		d.height = h
 
 	case .Right:
 		d.x = w
 		d.y = 0
-		d.width = DECORATION_BORDER
+		d.width = out
 		d.height = h
 
 	case .Bottom:
-		d.x = -DECORATION_BORDER
+		d.x = -out
 		d.y = h
-		d.width = w + DECORATION_BORDER*2
-		d.height = DECORATION_BORDER
+		d.width = w + out*2
+		d.height = out
 	}
 
 	// The buffer holds physical pixels and a viewport maps it back to the logical size, the way
@@ -183,22 +226,30 @@ wldeco_paint :: proc(part: WL_Decoration_Part) {
 		return
 	}
 
-	// The three thin sides are outline all the way through. The titlebar is filled, with the
-	// outline along the top and down the two sides, where it meets the desktop rather than the
-	// game canvas.
-	for i in 0..<buffer_width*buffer_height {
-		d.pixels[i] = part == .Titlebar ? s.decorations.colors.fill : s.decorations.colors.outline
-	}
+	// Where the window itself is inside this part, in the part's own physical pixels. Anything
+	// outside that rectangle is the grip, which is left transparent; the outermost pixels of it are
+	// the outline; and what remains is the titlebar to fill. One rule paints all four parts, and
+	// the corners come out right because the same rectangle describes the window in each of them.
+	thickness := max(1, int(math.round(DECORATION_BORDER * s.scale)))
+	left := int(math.round(f32(-DECORATION_BORDER - d.x) * s.scale))
+	top := int(math.round(f32(-DECORATION_TITLEBAR_HEIGHT - d.y) * s.scale))
+	right := int(math.round(f32(w + DECORATION_BORDER - d.x) * s.scale))
+	bottom := int(math.round(f32(h + DECORATION_BORDER - d.y) * s.scale))
 
-	if part == .Titlebar {
-		thickness := max(1, int(math.round(DECORATION_BORDER * s.scale)))
+	for y in 0..<buffer_height {
+		for x in 0..<buffer_width {
+			// How far inside the window this pixel is, measured to the nearest side. Negative
+			// means it is out in the grip, and a premultiplied zero leaves that fully transparent.
+			inset := min(x - left, right - 1 - x, y - top, bottom - 1 - y)
+			color := s.decorations.colors.fill
 
-		for y in 0..<buffer_height {
-			for x in 0..<buffer_width {
-				if y < thickness || x < thickness || x >= buffer_width - thickness {
-					d.pixels[y*buffer_width + x] = s.decorations.colors.outline
-				}
+			if inset < 0 {
+				color = 0
+			} else if inset < thickness {
+				color = s.decorations.colors.outline
 			}
+
+			d.pixels[y*buffer_width + x] = color
 		}
 	}
 
@@ -425,12 +476,112 @@ wldeco_has_pointer :: proc() -> bool {
 	return s.pointer_surface != nil && s.pointer_surface != s.surface
 }
 
+// Follows the pointer across the frame and works out what is under it. Returns true when that
+// changed, which is the only time anything has to be done about it: resting the pointer on the
+// frame has to cost nothing at all, and repainting on every motion event is exactly the mistake
+// that made libdecor drop a window from 90 frames a second to one.
+wldeco_pointer_moved :: proc(local_x: f32, local_y: f32) -> bool {
+	edge := wldeco_resize_edge(local_x, local_y)
+
+	if edge == s.decorations.pointer_edge {
+		return false
+	}
+
+	s.decorations.pointer_edge = edge
+	return true
+}
+
+// Acts on a button that went down on the frame. Near an edge that starts a resize and anywhere
+// else it starts a move. The compositor runs both itself, grabbing the pointer until the button
+// comes back up, so there is nothing here to follow along with.
+wldeco_pointer_pressed :: proc(button: u32, serial: u32) {
+	if button != wl.POINTER_BTN_LEFT {
+		return
+	}
+
+	if s.decorations.pointer_edge != wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE {
+		wl.xdg_toplevel_resize(s.toplevel, s.seat, serial, s.decorations.pointer_edge)
+		return
+	}
+
+	wl.xdg_toplevel_move(s.toplevel, s.seat, serial)
+}
+
+// Which window edge the pointer is over, as an `xdg_toplevel` resize edge. Zero means it is on the
+// frame but not near an edge, which is where dragging moves the window instead. The position is
+// surface-local and in logical pixels, as pointer events give it.
+wldeco_resize_edge :: proc(local_x: f32, local_y: f32) -> u32 {
+	// Only a window the game lets the player resize has edges to grab. A fixed size one, and a
+	// fullscreen one, can only be moved.
+	if s.window_mode != .Windowed_Resizable {
+		return wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE
+	}
+
+	d := s.decorations.parts[wldeco_pointer_part()]
+
+	// Where the pointer is with the game canvas at the origin, which is what the window's own
+	// edges are measured against.
+	x := f32(d.x) + local_x
+	y := f32(d.y) + local_y
+
+	// The grip runs from the margin outside the window to the border just inside it, so a corner
+	// is that much square.
+	grip :: f32(DECORATION_RESIZE_MARGIN + DECORATION_BORDER)
+	edge: u32
+
+	if y < f32(-DECORATION_TITLEBAR_HEIGHT) + grip {
+		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_TOP
+	} else if y >= f32(s.last_configure_height + DECORATION_BORDER) - grip {
+		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM
+	}
+
+	if x < f32(-DECORATION_BORDER) + grip {
+		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_LEFT
+	} else if x >= f32(s.last_configure_width + DECORATION_BORDER) - grip {
+		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_RIGHT
+	}
+
+	return edge
+}
+
+// Which part of the frame the pointer is on. Only meaningful while `wldeco_has_pointer` is true.
+wldeco_pointer_part :: proc() -> WL_Decoration_Part {
+	for part in WL_Decoration_Part {
+		if s.decorations.parts[part].surface == s.pointer_surface {
+			return part
+		}
+	}
+
+	return .Titlebar
+}
+
+// The cursor the frame wants under the pointer: the matching double arrow along the edges that
+// resize the window, and the ordinary arrow everywhere else. The game's own cursor stays on the
+// game's own canvas.
+wldeco_cursor :: proc() -> Standard_Cursor {
+	switch s.decorations.pointer_edge {
+	case wl.XDG_TOPLEVEL_RESIZE_EDGE_TOP, wl.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM:
+		return .Resize_NS
+
+	case wl.XDG_TOPLEVEL_RESIZE_EDGE_LEFT, wl.XDG_TOPLEVEL_RESIZE_EDGE_RIGHT:
+		return .Resize_EW
+
+	case wl.XDG_TOPLEVEL_RESIZE_EDGE_TOP_LEFT, wl.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT:
+		return .Resize_NWSE
+
+	case wl.XDG_TOPLEVEL_RESIZE_EDGE_TOP_RIGHT, wl.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_LEFT:
+		return .Resize_NESW
+	}
+
+	return .Default
+}
+
 // How much wider and taller the window is than the game canvas inside it. Zero unless Karl2D draws
 // the decorations, since the ones a compositor draws sit outside the window entirely.
 wldeco_extra_width :: proc() -> int {
-	return s.decorations.on ? DECORATION_BORDER*2 : 0
+	return wldeco_shown() ? DECORATION_BORDER*2 : 0
 }
 
 wldeco_extra_height :: proc() -> int {
-	return s.decorations.on ? DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER : 0
+	return wldeco_shown() ? DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER : 0
 }
