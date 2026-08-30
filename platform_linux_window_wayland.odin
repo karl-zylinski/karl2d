@@ -38,6 +38,7 @@ import "core:time"
 import hm "core:container/handle_map"
 
 import "log"
+import "platform_bindings/linux/dbus"
 import wl "platform_bindings/linux/wayland"
 import xkb "platform_bindings/linux/xkbcommon"
 
@@ -1558,43 +1559,138 @@ wl_destroy_decorations :: proc() {
 	}
 }
 
-// Picks the frame colors from what the desktop is set up for. GTK writes the preference into its
-// settings file, which is where every desktop that has an opinion tends to leave one, and reading
-// a file is a great deal less work than the conversation with the desktop portal that would answer
-// this properly. A desktop that leaves no hint gets the dark scheme.
+// Picks the frame colors from what the desktop is set up for, by asking the desktop portal over
+// D-Bus. That is the one place every desktop answers the question: GNOME, KDE, GTK, Qt and SDL all
+// read the preference from here. A machine with no portal, or one with no preference, gets the
+// dark scheme.
+//
+// This is read once, while the window is being made. A player who switches their desktop between
+// dark and light while the game runs keeps the frame they started with.
 wl_desktop_decoration_colors :: proc() -> WL_Decoration_Colors {
-	home := os.get_env("HOME", frame_allocator)
-
-	if home == "" {
+	if missing, load_ok := dbus.load(); !load_ok {
+		log.debugf("Using dark window decorations. Could not load %v.", missing)
 		return DECORATION_COLORS_DARK
 	}
 
-	for directory in ([]string {"gtk-4.0", "gtk-3.0"}) {
-		path := fmt.aprintf(
-			"%v/.config/%v/settings.ini",
-			home,
-			directory,
-			allocator = frame_allocator,
-		)
+	connection := dbus.bus_get_private(.Session, nil)
 
-		// Read straight through `core:os` rather than Karl2D's own file reading, which logs an
-		// error. Most machines have no such file and that is not worth a word to the player.
-		data, data_err := os.read_entire_file(path, frame_allocator)
-
-		if data_err != nil {
-			continue
-		}
-
-		if strings.contains(string(data), "gtk-application-prefer-dark-theme=false") {
-			return DECORATION_COLORS_LIGHT
-		}
-
-		if strings.contains(string(data), "gtk-application-prefer-dark-theme=true") {
-			return DECORATION_COLORS_DARK
-		}
+	if connection == nil {
+		log.debug("Using dark window decorations. Could not connect to the session bus.")
+		return DECORATION_COLORS_DARK
 	}
 
-	return DECORATION_COLORS_DARK
+	// Otherwise libdbus ends the game itself when the bus goes away.
+	dbus.connection_set_exit_on_disconnect(connection, 0)
+
+	scheme, result := wl_read_portal_setting(connection, "ReadOne")
+
+	// `ReadOne` arrived in xdg-desktop-portal 1.17. An older portal has only `Read`, which is the
+	// same question asked of a portal that answers it with one variant too many.
+	if result == .No_Such_Method {
+		scheme, result = wl_read_portal_setting(connection, "Read")
+	}
+
+	dbus.connection_close(connection)
+	dbus.connection_unref(connection)
+
+	if result != .Value {
+		return DECORATION_COLORS_DARK
+	}
+
+	// 0 means the desktop has no preference, 1 dark and 2 light.
+	return scheme == 2 ? DECORATION_COLORS_LIGHT : DECORATION_COLORS_DARK
+}
+
+WL_Portal_Result :: enum {
+	Value,
+	No_Such_Method,
+	Failed,
+}
+
+// Asks the desktop portal for the color scheme with one of its two reading methods. Both take the
+// setting's namespace and key and answer with the value inside one or more variants, which is what
+// the unwrapping at the end is for.
+wl_read_portal_setting :: proc(
+	connection: dbus.Connection,
+	method: cstring,
+) -> (
+	u32,
+	WL_Portal_Result,
+) {
+	call := dbus.message_new_method_call(
+		"org.freedesktop.portal.Desktop",
+		"/org/freedesktop/portal/desktop",
+		"org.freedesktop.portal.Settings",
+		method,
+	)
+
+	if call == nil {
+		return 0, .Failed
+	}
+
+	namespace := cstring("org.freedesktop.appearance")
+	key := cstring("color-scheme")
+	arguments: dbus.Message_Iter
+	dbus.message_iter_init_append(call, &arguments)
+	dbus.message_iter_append_basic(&arguments, dbus.TYPE_STRING, &namespace)
+	dbus.message_iter_append_basic(&arguments, dbus.TYPE_STRING, &key)
+
+	// A portal that has to be started first takes a moment, but a game must not hang on its way to
+	// a window because something on the desktop is unwell.
+	PORTAL_TIMEOUT_MS :: 500
+
+	error: dbus.Error
+	dbus.error_init(&error)
+	reply := dbus.connection_send_with_reply_and_block(connection, call, PORTAL_TIMEOUT_MS, &error)
+	dbus.message_unref(call)
+
+	if reply == nil {
+		// An old portal answers this way, and is the one failure worth trying something else after.
+		missing := error.name == dbus.ERROR_UNKNOWN_METHOD
+
+		log.debugf(
+			"Desktop portal %v did not answer with a color scheme. Error: %v",
+			method,
+			error.name,
+		)
+
+		dbus.error_free(&error)
+		return 0, missing ? .No_Such_Method : .Failed
+	}
+
+	dbus.error_free(&error)
+
+	// Unwrap variants until the number falls out. Two levels is as deep as either method goes.
+	outer: dbus.Message_Iter
+	inner: dbus.Message_Iter
+	value := &outer
+
+	if dbus.message_iter_init(reply, &outer) == 0 {
+		dbus.message_unref(reply)
+		return 0, .Failed
+	}
+
+	if dbus.message_iter_get_arg_type(value) == dbus.TYPE_VARIANT {
+		dbus.message_iter_recurse(&outer, &inner)
+		value = &inner
+	}
+
+	unwrapped: dbus.Message_Iter
+
+	if dbus.message_iter_get_arg_type(value) == dbus.TYPE_VARIANT {
+		dbus.message_iter_recurse(value, &unwrapped)
+		value = &unwrapped
+	}
+
+	if dbus.message_iter_get_arg_type(value) != dbus.TYPE_UINT32 {
+		dbus.message_unref(reply)
+		return 0, .Failed
+	}
+
+	scheme: u32
+	dbus.message_iter_get_basic(value, &scheme)
+	dbus.message_unref(reply)
+	return scheme, .Value
 }
 
 // True while the pointer is over one of the surfaces that make up the frame Karl2D draws. Pointer
