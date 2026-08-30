@@ -44,7 +44,6 @@ step :: proc() -> bool {
 	}
 
 	if monitor_count == 0 {
-		// Wayland has no implementation yet, so it reports none.
 		k2.draw_text("This platform does not report monitors.", {20, y}, 24, k2.RED)
 	}
 

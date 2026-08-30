@@ -124,6 +124,7 @@ wl_init :: proc(
 
 	s.surface = wl.compositor_create_surface(s.compositor)
 	log.ensure(s.surface != nil, "Error creating Wayland surface")
+	wl.add_listener(s.surface, &surface_listener, nil)
 	
 	// Makes sure the window does "pings" that keeps it alive.
 	wl.add_listener(s.xdg_base, &wm_base_listener, nil)
@@ -237,6 +238,23 @@ registry_listener := wl.Registry_Listener {
 				&wl.seat_interface,
 				version,
 			)
+
+		case wl.output_interface.name:
+			// One of these per monitor. The compositor announces them all before the first
+			// roundtrip finishes, then fills each one in through the listener below.
+			if s.monitor_count < WL_MONITOR_COUNT_MAX {
+				output := wl.registry_bind(
+					wl.Output,
+					registry,
+					name,
+					&wl.output_interface,
+					version,
+				)
+
+				s.monitors[s.monitor_count] = { output = output, scale = 1 }
+				s.monitor_count += 1
+				wl.add_listener(output, &output_listener, nil)
+			}
 
 		case wl.zxdg_decoration_manager_v1_interface.name:
 			s.decoration_manager = wl.registry_bind(
@@ -1251,8 +1269,26 @@ WL_Cursor :: struct {
 	built_for_scale: f32,
 }
 
+// One `wl_output`. The compositor sends the fields in separate events and then a `done`, so a
+// record is only worth reporting once its size has arrived.
+WL_Monitor :: struct {
+	output: ^wl.Output,
+	position: [2]int,
+	size: [2]int,
+	scale: int,
+	got_mode: bool,
+}
+
+WL_MONITOR_COUNT_MAX :: 16
+
 WL_State :: struct {
 	allocator: runtime.Allocator,
+
+	monitors: [WL_MONITOR_COUNT_MAX]WL_Monitor,
+	monitor_count: int,
+
+	// Which output the surface most recently entered. Nil until the compositor says.
+	current_output: ^wl.Output,
 
 	screen_width: int,
 	screen_height: int,
@@ -1331,24 +1367,162 @@ WL_State :: struct {
 
 s: ^WL_State
 
+// The compositor sends a monitor's fields in separate events and then a `done`, so each of these
+// just records what it was given. The `output` parameter is what says which monitor is being
+// described.
+output_listener := wl.Output_Listener {
+	geometry = proc "c" (
+		data: rawptr,
+		output: ^wl.Output,
+		x: c.int32_t,
+		y: c.int32_t,
+		physical_width: c.int32_t,
+		physical_height: c.int32_t,
+		subpixel: c.int32_t,
+		make: cstring,
+		model: cstring,
+		transform: c.int32_t,
+	) {
+		context = s.odin_ctx
+		monitor := wl_find_monitor(output)
 
-// Binding `wl_output` and listening for its `geometry` and `mode` events is the correct
-// implementation, but it needs a new registry global, a listener that accumulates per-output events
-// and an extra roundtrip to collect them, so it has not been written yet.
-//
-// Reporting zero monitors rather than one of unknown size is deliberate: a caller can tell that
-// Karl2D has nothing to say and fall back to something of its own. Claiming one monitor and then
-// reporting it as 0x0 would look like a real answer.
+		if monitor != nil {
+			monitor.position = {int(x), int(y)}
+		}
+	},
+
+	mode = proc "c" (
+		data: rawptr,
+		output: ^wl.Output,
+		flags: u32,
+		width: c.int32_t,
+		height: c.int32_t,
+		refresh: c.int32_t,
+	) {
+		context = s.odin_ctx
+
+		// A monitor reports every mode it supports. Only the one flagged current is the size it is
+		// actually running at.
+		if (flags & wl.OUTPUT_MODE_CURRENT) == 0 {
+			return
+		}
+
+		monitor := wl_find_monitor(output)
+
+		if monitor != nil {
+			monitor.size = {int(width), int(height)}
+			monitor.got_mode = true
+		}
+	},
+
+	done = proc "c" (data: rawptr, output: ^wl.Output) {
+	},
+
+	scale = proc "c" (data: rawptr, output: ^wl.Output, factor: c.int32_t) {
+		context = s.odin_ctx
+		monitor := wl_find_monitor(output)
+
+		if monitor != nil && factor > 0 {
+			monitor.scale = int(factor)
+		}
+	},
+
+	name = proc "c" (data: rawptr, output: ^wl.Output, name: cstring) {
+	},
+
+	description = proc "c" (data: rawptr, output: ^wl.Output, description: cstring) {
+	},
+}
+
+wl_find_monitor :: proc(output: ^wl.Output) -> ^WL_Monitor {
+	for &monitor in s.monitors[:s.monitor_count] {
+		if monitor.output == output {
+			return &monitor
+		}
+	}
+
+	return nil
+}
+
+// Only monitors whose size has arrived are counted. A compositor announces an output before it has
+// described it, so counting the rest would mean handing out an index with nothing behind it.
 wl_get_monitor_count :: proc() -> int {
-	return 0
+	count := 0
+
+	for monitor in s.monitors[:s.monitor_count] {
+		if monitor.got_mode {
+			count += 1
+		}
+	}
+
+	return count
 }
 
 wl_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	if monitor < 0 {
+		return {}, false
+	}
+
+	seen := 0
+
+	for m in s.monitors[:s.monitor_count] {
+		if !m.got_mode {
+			continue
+		}
+
+		if seen == monitor {
+			// `mode` is in physical pixels already, unlike the surface sizes elsewhere in this
+			// file, so the scale does not come into it.
+			return Monitor_Info { size = m.size, position = m.position }, true
+		}
+
+		seen += 1
+	}
+
 	return {}, false
 }
 
-// No monitors are reported, so there is no index that means anything. A caller that asks anyway
-// gets `MONITOR_PRIMARY`, which the monitor procedures will then say does not exist.
+// The compositor tells a surface which outputs it overlaps. A window straddling two monitors gets
+// an `enter` for both, and the most recent one is the better guess at where the player is looking.
+surface_listener := wl.Surface_Listener {
+	enter = proc "c" (data: rawptr, surface: ^wl.Surface, output: ^wl.Output) {
+		context = s.odin_ctx
+		s.current_output = output
+	},
+
+	leave = proc "c" (data: rawptr, surface: ^wl.Surface, output: ^wl.Output) {
+		context = s.odin_ctx
+
+		if s.current_output == output {
+			s.current_output = nil
+		}
+	},
+
+	preferred_buffer_scale = proc "c" (data: rawptr, surface: ^wl.Surface, factor: c.int32_t) {
+	},
+
+	preferred_buffer_transform = proc "c" (data: rawptr, surface: ^wl.Surface, transform: u32) {
+	},
+}
+
 wl_get_window_monitor :: proc() -> int {
+	if s.current_output == nil {
+		return MONITOR_PRIMARY
+	}
+
+	seen := 0
+
+	for m in s.monitors[:s.monitor_count] {
+		if !m.got_mode {
+			continue
+		}
+
+		if m.output == s.current_output {
+			return seen
+		}
+
+		seen += 1
+	}
+
 	return MONITOR_PRIMARY
 }
