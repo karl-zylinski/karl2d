@@ -473,12 +473,6 @@ web_set_window_mode :: proc(new_mode: Window_Mode) {
 	}
 }
 
-// True when index.html has the favicon element. Every element that exists has its own id as the
-// value of its `id` property, so a zero length only happens when there is no element at all.
-web_favicon_element_exists :: proc() -> bool {
-	return js.get_element_key_string_length(FAVICON_ELEMENT_ID, "id") > 0
-}
-
 // Makes a data URI out of an image, for handing it to the DOM through a string property.
 // core:image/png can only decode, not encode, so the image goes through our own `encode_png`; see
 // that proc's comment for why its uncompressed output is fine here.
@@ -498,7 +492,9 @@ web_png_data_uri :: proc(image: Image, allocator: runtime.Allocator) -> (string,
 // A page has no window icon, so this sets the favicon instead, as a PNG data URI. Needs the
 // `karl2d-favicon` link element that the `build_web` template puts in `index.html`.
 web_set_window_icon :: proc(image: Image, warn_if_unsupported: bool) -> bool {
-	if !web_favicon_element_exists() {
+	// Every element that exists has its own id as the value of its `id` property, so a zero length
+	// means there is no such element.
+	if js.get_element_key_string_length(FAVICON_ELEMENT_ID, "id") == 0 {
 		if warn_if_unsupported {
 			log.warnf(
 				"Cannot set the window icon: index.html has no element with the id '%v'. Add " +
