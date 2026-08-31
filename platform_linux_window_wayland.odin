@@ -124,7 +124,7 @@ wl_init :: proc(
 	// A compositor without the decoration manager, GNOME being the one that matters, draws no
 	// titlebar and expects the window to come with its own. Decided before the window is set up,
 	// because a frame Karl2D draws changes how big the window has to be asked for.
-	s.decorations.on = s.decoration_manager == nil || wl_custom_decorations_requested()
+	s.has_deco = s.decoration_manager == nil || wl_custom_decorations_requested()
 
 	// Sets default size that gets used if the compositor doesn't suggest a size.
 	s.last_configure_width = screen_width
@@ -147,7 +147,7 @@ wl_init :: proc(
 
 	// Before anything that draws or sizes the frame, since all of that goes through it. The first
 	// configure lays it out again around whatever size the compositor settles on.
-	if s.decorations.on {
+	if s.has_deco {
 		wldeco_init(&s.decorations, s)
 	}
 
@@ -165,7 +165,7 @@ wl_init :: proc(
 		// never say, so the client side has to be asked for as explicitly as the server side.
 		mode: c.uint32_t = wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
 
-		if s.decorations.on {
+		if s.has_deco {
 			mode = wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE
 		}
 
@@ -420,14 +420,14 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 			s.active = active
 			s.maximized = maximized
 
-			if s.decorations.on {
+			if s.has_deco {
 				wldeco_repaint_titlebar(&s.decorations)
 			}
 		}
 
 		// What arrives is the size of the whole window. Everything below is about the game canvas
 		// inside it.
-		if s.decorations.on {
+		if s.has_deco {
 			w, h = wldeco_canvas_size(&s.decorations, w, h)
 		}
 
@@ -464,7 +464,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 				s.last_configure_windowed_height = new_height
 			}
 
-			if s.decorations.on {
+			if s.has_deco {
 				wldeco_layout(&s.decorations)
 			}
 
@@ -664,7 +664,7 @@ pointer_listener := wl.Pointer_Listener {
 		s.pointer_x = surface_x
 		s.pointer_y = surface_y
 
-		if s.decorations.on {
+		if s.has_deco {
 			wldeco_pointer_moved(&s.decorations, f32(surface_x >> 8), f32(surface_y >> 8))
 		}
 
@@ -678,7 +678,7 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		if s.decorations.on && wldeco_has_pointer(&s.decorations) {
+		if s.has_deco && wldeco_has_pointer(&s.decorations) {
 			wldeco_pointer_left(&s.decorations)
 		}
 
@@ -696,7 +696,7 @@ pointer_listener := wl.Pointer_Listener {
 		s.pointer_x = surface_x
 		s.pointer_y = surface_y
 
-		if s.decorations.on && wldeco_has_pointer(&s.decorations) {
+		if s.has_deco && wldeco_has_pointer(&s.decorations) {
 			// Only the cursor changes on the frame, and only when the pointer crosses between the
 			// part that moves the window and the edges that resize it.
 			if wldeco_pointer_moved(&s.decorations, f32(surface_x >> 8), f32(surface_y >> 8)) {
@@ -723,7 +723,7 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		if s.decorations.on && wldeco_has_pointer(&s.decorations) {
+		if s.has_deco && wldeco_has_pointer(&s.decorations) {
 			wldeco_pointer_button(
 				&s.decorations,
 				u32(button),
@@ -764,7 +764,7 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		if s.decorations.on && wldeco_has_pointer(&s.decorations) {
+		if s.has_deco && wldeco_has_pointer(&s.decorations) {
 			return
 		}
 
@@ -830,7 +830,7 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		}
 
 		// The decoration buffers hold physical pixels, so a new scale means new buffers.
-		if s.decorations.on {
+		if s.has_deco {
 			wldeco_layout(&s.decorations)
 		}
 
@@ -854,7 +854,7 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 }
 
 wl_shutdown :: proc() {
-	if s.decorations.on {
+	if s.has_deco {
 		wldeco_destroy(&s.decorations)
 	}
 
@@ -953,7 +953,7 @@ wl_set_title :: proc(title: string) {
 	// and in the switcher.
 	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(title, frame_allocator))
 
-	if s.decorations.on {
+	if s.has_deco {
 		wldeco_set_title(&s.decorations, title)
 	}
 }
@@ -992,7 +992,7 @@ wl_set_screen_size :: proc(w, h: int) {
 
 	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
 
-	if s.decorations.on {
+	if s.has_deco {
 		wldeco_layout(&s.decorations)
 	}
 }
@@ -1013,7 +1013,7 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 		w := s.last_configure_windowed_width
 		h := s.last_configure_windowed_height
 
-		if s.decorations.on {
+		if s.has_deco {
 			w, h = wldeco_window_size(&s.decorations, w, h)
 		}
 
@@ -1031,7 +1031,7 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 
 	// The frame comes and goes with fullscreen, and the window is a different size with it than
 	// without it.
-	if s.decorations.on {
+	if s.has_deco {
 		wldeco_layout(&s.decorations)
 	}
 }
@@ -1142,7 +1142,7 @@ wl_apply_cursor :: proc() {
 
 	// The frame belongs to Karl2D, so the pointer over it shows what the frame wants there rather
 	// than what the game asked for. A game that hides its cursor still gets one on its titlebar.
-	if s.decorations.on && wldeco_has_pointer(&s.decorations) {
+	if s.has_deco && wldeco_has_pointer(&s.decorations) {
 		standard = wldeco_cursor(&s.decorations)
 	} else {
 		if s.cursor_hidden {
@@ -1434,6 +1434,10 @@ WL_State :: struct {
 	viewporter: ^wl.WP_Viewporter,
 	viewport: ^wl.WP_Viewport,
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
+
+	// Whether Karl2D draws the window's frame itself, because the compositor draws none or because
+	// `KARL2D_LINUX_DECORATIONS=custom` said to. Nothing in `decorations` is touched without it.
+	has_deco: bool,
 
 	// The frame Karl2D draws itself. See platform_linux_window_wayland_decorations.odin.
 	decorations: WL_Decorations,

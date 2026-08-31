@@ -133,11 +133,6 @@ WL_Decorations :: struct {
 	// the same allocation it lives in.
 	win: ^WL_State,
 
-	// True when Karl2D draws the frame, because the compositor draws none or because
-	// `KARL2D_LINUX_DECORATIONS=custom` said to. Only the window reads this, to decide whether to
-	// call in here at all.
-	on: bool,
-
 	parts: [WL_Decoration_Part]WL_Decoration,
 	colors: WL_Decoration_Colors,
 
