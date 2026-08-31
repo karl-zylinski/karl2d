@@ -20,3 +20,43 @@ karl2d.doc.compare.odin
 scrap/
 .DS_Store
 .claude/worktrees/
+# Odin names a build after the folder it was built from, so an example's binary has no file
+# extension for a pattern to match. They are listed one by one instead. A new example needs a line
+# here, and until it has one its binary turns up in `git status`.
+examples/audio/audio
+examples/audio_bus/audio_bus
+examples/basics/basics
+examples/box2d/box2d
+examples/camera/camera
+examples/cursors/cursors
+examples/custom_frame_update/custom_frame_update
+examples/depth_test/depth_test
+examples/dual_grid_tilemap/dual_grid_tilemap
+examples/events/events
+examples/fonts/fonts
+examples/gamepad/gamepad
+examples/measure_text/measure_text
+examples/minimal_hello_world/minimal_hello_world
+examples/minimal_hello_world_web/minimal_hello_world_web
+examples/mouse/mouse
+examples/mouse_locking/mouse_locking
+examples/multitexture/multitexture
+examples/palette/palette
+examples/positional_audio/positional_audio
+examples/premultiplied_alpha/premultiplied_alpha
+examples/raylib_ports/bunnymark/bunnymark
+examples/raylib_ports/shaders_texture_waves/shaders_texture_waves
+examples/render_texture/render_texture
+examples/scraps/karl_playground/karl_playground
+examples/snake/snake
+examples/space_cat/space_cat
+examples/touch/touch
+examples/ui/ui
+
+# The tools are run with `odin run`, which leaves their binaries in the folder it was run from.
+/api_doc_builder
+/api_verifier
+/make_sublime_project
+/make_vscode_project
+/make_zed_project
+/test_examples

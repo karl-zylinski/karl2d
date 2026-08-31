@@ -33,6 +33,7 @@ import "core:fmt"
 import "core:strings"
 import "core:c"
 import "core:math"
+import "core:os"
 import "core:sys/linux"
 import "core:time"
 import hm "core:container/handle_map"
@@ -74,23 +75,7 @@ wl_try_load :: proc(
 		return "Not using Wayland. Could not connect to a compositor.", false
 	}
 
-	// Karl2D never draws a titlebar, so a Wayland window is only usable where the compositor
-	// draws one. The same connection answers that: zxdg_decoration_manager_v1 is how a
-	// compositor offers server-side decorations, and its absence is how GNOME says that clients
-	// are expected to decorate themselves.
-	decorations_offered := false
-	registry := wl.display_get_registry(display)
-	wl.add_listener(registry, &decoration_probe_listener, &decorations_offered)
-	wl.display_roundtrip(display)
-	wl.destroy(registry)
-
 	wl.display_disconnect(display)
-
-	if !decorations_offered {
-		wl.unload()
-		return "Not using Wayland. The compositor does not offer server-side window decorations " +
-			"and Karl2D does not draw its own titlebar.", false
-	}
 
 	if missing, load_ok := xkb.load(); !load_ok {
 		wl.unload()
@@ -99,6 +84,12 @@ wl_try_load :: proc(
 	}
 
 	return "", true
+}
+
+// True if user wants us to draw custom window decorations, even when server-side decorations are
+// available.
+wl_custom_decorations_requested :: proc() -> bool {
+	return os.get_env("KARL2D_LINUX_DECORATIONS", frame_allocator) == "custom"
 }
 
 wl_init :: proc(
@@ -130,6 +121,10 @@ wl_init :: proc(
 	// Initializes pointer and keyboard based on seat capabilities.
 	wl.display_roundtrip(s.display)
 
+	// Some systems, like GNOME, don't support the decoration manager (server-side decorations). In
+	// that case we will draw them outselves using the `wldeco_` calls in this file.
+	s.has_deco = s.decoration_manager == nil || wl_custom_decorations_requested()
+
 	// Sets default size that gets used if the compositor doesn't suggest a size.
 	s.last_configure_width = screen_width
 	s.last_configure_height = screen_height
@@ -141,30 +136,41 @@ wl_init :: proc(
 	
 	// Makes sure the window does "pings" that keeps it alive.
 	wl.add_listener(s.xdg_base, &wm_base_listener, nil)
-	xdg_surface := wl.xdg_wm_base_get_xdg_surface(s.xdg_base, s.surface)
+	s.xdg_surface = wl.xdg_wm_base_get_xdg_surface(s.xdg_base, s.surface)
 
 	// Top-level means an application at the top of the window hierarchy. The callback in the
 	// toplevel listener effecively creates a window handle.
-	s.toplevel = wl.xdg_surface_get_toplevel(xdg_surface)
+	s.toplevel = wl.xdg_surface_get_toplevel(s.xdg_surface)
 	wl.add_listener(s.toplevel, &toplevel_listener, nil)
-	wl.add_listener(xdg_surface, &window_listener, nil)
-	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(window_title, frame_allocator))
+	wl.add_listener(s.xdg_surface, &window_listener, nil)
+
+	// Initialize the custom decorations before anything that draws or sizes the frame, since all
+	// of that goes through them. The first configure lays them out again around whatever size the
+	// compositor settles on.
+	if s.has_deco {
+		wldeco_init(&s.decorations, s)
+	}
+
+	wl_set_title(window_title)
 
 	wl_set_window_mode(options.window_mode)
 
-	// `wl_try_load` turns Wayland down where this global is missing, so it is always here.
-	log.ensure(s.decoration_manager != nil, "Wayland compositor offers no window decorations")
+	if s.decoration_manager != nil {
+		decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
+			s.decoration_manager,
+			s.toplevel,
+		)
 
-	decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
-		s.decoration_manager,
-		s.toplevel,
-	)
+		// Which side draws the titlebar and the buttons. The compositor picks for itself if we
+		// never say, so the client side has to be asked for as explicitly as the server side.
+		mode: c.uint32_t = wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
 
-	// This adds titlebar and buttons to the window.
-	wl.zxdg_toplevel_decoration_v1_set_mode(
-		decoration,
-		wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE,
-	)
+		if s.has_deco {
+			mode = wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE
+		}
+
+		wl.zxdg_toplevel_decoration_v1_set_mode(decoration, mode)
+	}
 
 	if s.fractional_scale_manager != nil {
 		fractional_scale := wl.wp_fractional_scale_manager_get_fractional_scale(
@@ -222,24 +228,6 @@ wl_init :: proc(
 	}
 }
 
-// Used by `wl_try_load`, which runs before there is a `WL_State` to write into, so this reports
-// through its `data` pointer instead of through `s`. It also binds nothing: the connection it
-// looks at is thrown away again, and `registry_listener` binds the globals on the one that stays.
-decoration_probe_listener := wl.Registry_Listener {
-	global = proc "c" (
-		data: rawptr,
-		registry: ^wl.Registry,
-		name: u32,
-		interface: cstring,
-		version: u32,
-	) {
-		if interface == wl.zxdg_decoration_manager_v1_interface.name {
-			(^bool)(data)^ = true
-		}
-	},
-	global_remove = proc "c" (data: rawptr, registry: ^wl.Registry, name: u32) {},
-}
-
 registry_listener := wl.Registry_Listener {
 	global = proc "c" (
 		data: rawptr,
@@ -256,6 +244,15 @@ registry_listener := wl.Registry_Listener {
 				registry,
 				name,
 				&wl.compositor_interface,
+				version,
+			)
+
+		case wl.subcompositor_interface.name:
+			s.subcompositor = wl.registry_bind(
+				wl.Subcompositor,
+				registry,
+				name,
+				&wl.subcompositor_interface,
 				version,
 			)
 
@@ -414,6 +411,40 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 
 		context = s.odin_ctx
 
+		// The compositor lists what the window currently is. Focus arrives this way and nowhere
+		// else, and the titlebar dims without it.
+		active := false
+		maximized := false
+
+		if states != nil && states.data != nil {
+			for state in ([^]u32)(states.data)[:states.size/size_of(u32)] {
+				switch state {
+				case wl.XDG_TOPLEVEL_STATE_ACTIVATED:
+					active = true
+
+				case wl.XDG_TOPLEVEL_STATE_MAXIMIZED:
+					maximized = true
+				}
+			}
+		}
+
+		if active != s.active || maximized != s.maximized {
+			s.active = active
+			s.maximized = maximized
+
+			// Everything is repainted, not just the titlebar: the shadow fades with focus too, and
+			// it is drawn by all four parts.
+			if s.has_deco {
+				wldeco_repaint_all(&s.decorations)
+			}
+		}
+
+		// What arrives is the size of the whole window. Everything below is about the game canvas
+		// inside it.
+		if s.has_deco {
+			w, h = wldeco_canvas_size(&s.decorations, w, h)
+		}
+
 		new_width: int
 		new_height: int
 
@@ -445,6 +476,10 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 			if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
 				s.last_configure_windowed_width = new_width
 				s.last_configure_windowed_height = new_height
+			}
+
+			if s.has_deco {
+				wldeco_repaint_all(&s.decorations)
 			}
 
 			append(&s.events, Event_Screen_Resize {
@@ -639,6 +674,14 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 		s.pointer_enter_serial = u32(serial)
+		s.pointer_surface = surface
+		s.pointer_x = surface_x
+		s.pointer_y = surface_y
+
+		if s.has_deco && wldeco_has_pointer(&s.decorations) {
+			wldeco_pointer_moved(&s.decorations, f32(surface_x >> 8), f32(surface_y >> 8))
+		}
+
 		wl_apply_cursor()
 	},
 	leave = proc "c" (
@@ -647,7 +690,13 @@ pointer_listener := wl.Pointer_Listener {
 		serial: c.uint32_t,
 		surface: ^wl.Surface,
 	) {
+		context = s.odin_ctx
 
+		if s.has_deco && wldeco_has_pointer(&s.decorations) {
+			wldeco_pointer_left(&s.decorations)
+		}
+
+		s.pointer_surface = nil
 	},
 	motion = proc "c" (
 		data: rawptr,
@@ -657,6 +706,19 @@ pointer_listener := wl.Pointer_Listener {
 		surface_y: wl.Fixed,
 	) {
 		context = s.odin_ctx
+
+		s.pointer_x = surface_x
+		s.pointer_y = surface_y
+
+		if s.has_deco && wldeco_has_pointer(&s.decorations) {
+			// Only the cursor changes on the frame, and only when the pointer crosses between the
+			// part that moves the window and the edges that resize it.
+			if wldeco_pointer_moved(&s.decorations, f32(surface_x >> 8), f32(surface_y >> 8)) {
+				wl_apply_cursor()
+			}
+
+			return
+		}
 
 		// surface_x and surface_y are fixed point 24.8 variables. 
 		// Just bitshift them to remove the decimal part and obtain 
@@ -674,6 +736,20 @@ pointer_listener := wl.Pointer_Listener {
 		state: c.uint32_t,
 	) {
 		context = s.odin_ctx
+
+		if s.has_deco && wldeco_has_pointer(&s.decorations) {
+			wldeco_pointer_button(
+				&s.decorations,
+				u32(button),
+				u32(state),
+				u32(time),
+				u32(serial),
+				f32(s.pointer_x >> 8),
+				f32(s.pointer_y >> 8),
+			)
+
+			return
+		}
 
 		btn: Mouse_Button
 		switch button {
@@ -701,6 +777,10 @@ pointer_listener := wl.Pointer_Listener {
 		value: wl.Fixed,
 	) {
 		context = s.odin_ctx
+
+		if s.has_deco && wldeco_has_pointer(&s.decorations) {
+			return
+		}
 
 		// Wayland measures down and right as positive, so the vertical axis needs flipping.
 		switch axis {
@@ -763,6 +843,11 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 			wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
 		}
 
+		// The decoration buffers hold physical pixels, so a new scale means new buffers.
+		if s.has_deco {
+			wldeco_repaint_all(&s.decorations)
+		}
+
 		// The cursor theme is loaded at a fixed physical size, so it needs reloading whenever
 		// the scale changes. Only relevant without the cursor shape protocol - the compositor
 		// handles its own DPI when we use that instead.
@@ -783,6 +868,10 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 }
 
 wl_shutdown :: proc() {
+	if s.has_deco {
+		wldeco_destroy(&s.decorations)
+	}
+
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		wl.wp_viewport_destroy(cd.viewport)
 		wl.surface_destroy(cd.surface)
@@ -848,6 +937,12 @@ wl_get_window_render_glue :: proc() -> Window_Render_Glue {
 wl_get_events :: proc(events: ^[dynamic]Event) {
 	wl.display_dispatch_pending(s.display)
 
+	// Paint the frame here, once, after everything the compositor had to say and before the game
+	// draws its own frame. The frame's commits then ride along with the game's.
+	if s.has_deco {
+		wldeco_flush(&s.decorations)
+	}
+
 	// Wayland compositors don't send repeat events -- we have to synthesize them ourselves from
 	// the rate/delay reported by the keyboard's `repeat_info` event.
 	if s.repeat_key != .None && s.repeat_rate > 0 {
@@ -882,7 +977,13 @@ wl_get_events :: proc(events: ^[dynamic]Event) {
 }
 
 wl_set_title :: proc(title: string) {
+	// The compositor wants a title whoever draws the titlebar: it is the name in the window list
+	// and in the switcher.
 	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(title, frame_allocator))
+
+	if s.has_deco {
+		wldeco_set_title(&s.decorations, title)
+	}
 }
 
 wl_get_screen_width :: proc() -> int {
@@ -918,6 +1019,10 @@ wl_set_screen_size :: proc(w, h: int) {
 	}
 
 	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
+
+	if s.has_deco {
+		wldeco_repaint_all(&s.decorations)
+	}
 }
 
 wl_get_window_scale :: proc() -> f32 {
@@ -930,10 +1035,18 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	switch window_mode {
 	case .Windowed:
 		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
-		w := i32(s.last_configure_windowed_width)
-		h := i32(s.last_configure_windowed_height)
-		wl.xdg_toplevel_set_max_size(s.toplevel, w, h)
-		wl.xdg_toplevel_set_min_size(s.toplevel, w, h)
+
+		// A size limit is about the whole window, so a game that keeps its canvas at a fixed size
+		// asks for the window that canvas needs.
+		w := s.last_configure_windowed_width
+		h := s.last_configure_windowed_height
+
+		if s.has_deco {
+			w, h = wldeco_window_size(&s.decorations, w, h)
+		}
+
+		wl.xdg_toplevel_set_max_size(s.toplevel, i32(w), i32(h))
+		wl.xdg_toplevel_set_min_size(s.toplevel, i32(w), i32(h))
 
 	case .Windowed_Resizable:
 		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
@@ -942,6 +1055,12 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 
 	case .Borderless_Fullscreen:
 		wl.xdg_toplevel_set_fullscreen(s.toplevel, nil)
+	}
+
+	// The frame comes and goes with fullscreen, and the window is a different size with it than
+	// without it.
+	if s.has_deco {
+		wldeco_repaint_all(&s.decorations)
 	}
 }
 
@@ -1128,23 +1247,29 @@ wl_apply_cursor :: proc() {
 		return
 	}
 
-	if s.cursor_hidden {
-		wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
-		return
-	}
-
 	standard := Standard_Cursor.Default
 
-	switch cur in s.current_cursor {
-	case Standard_Cursor:
-		standard = cur
-
-	case Custom_Cursor:
-		if cd := hm.get(&s.custom_cursors, cur); cd != nil {
-			wl_point_at_cursor(cd, s.pointer_enter_serial)
+	// The frame belongs to Karl2D, so the pointer over it shows what the frame wants there rather
+	// than what the game asked for. A game that hides its cursor still gets one on its titlebar.
+	if s.has_deco && wldeco_has_pointer(&s.decorations) {
+		standard = wldeco_cursor(&s.decorations)
+	} else {
+		if s.cursor_hidden {
+			wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
 			return
 		}
-		// Otherwise it was destroyed while on screen; fall through to the default cursor below.
+
+		switch cur in s.current_cursor {
+		case Standard_Cursor:
+			standard = cur
+
+		case Custom_Cursor:
+			if cd := hm.get(&s.custom_cursors, cur); cd != nil {
+				wl_point_at_cursor(cd, s.pointer_enter_serial)
+				return
+			}
+			// Otherwise it was destroyed while on screen; fall through to the default cursor below.
+		}
 	}
 
 	// A standard cursor. Prefer the cursor shape protocol, which lets the compositor render it at
@@ -1441,20 +1566,36 @@ WL_State :: struct {
 	display: ^wl.Display,
 	surface: ^wl.Surface,
 	compositor: ^wl.Compositor,
+	subcompositor: ^wl.Subcompositor,
 	window: ^wl.EGL_Window,
 	toplevel: ^wl.XDG_Toplevel,
 	viewporter: ^wl.WP_Viewporter,
 	viewport: ^wl.WP_Viewport,
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
+
+	// Whether Karl2D draws the window's frame itself, because the compositor draws none or because
+	// `KARL2D_LINUX_DECORATIONS=custom` said to. Nothing in `decorations` is touched without it.
+	has_deco: bool,
+
+	// The frame Karl2D draws itself. See platform_linux_window_wayland_decorations.odin.
+	decorations: WL_Decorations,
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
 	xdg_base: ^wl.XDG_WM_Base,
+	xdg_surface: ^wl.XDG_Surface,
 	seat: ^wl.Seat,
 	scale: f32,
 
 	keyboard: ^wl.Keyboard,
 	pointer: ^wl.Pointer,
 	pointer_enter_serial: u32,
+
+	// The surface the pointer is over, from the last enter event, and where on it the pointer was
+	// last seen. It is one of the decorations rather than the game canvas whenever the pointer is
+	// on the frame Karl2D draws, and a button event carries no position of its own.
+	pointer_surface: ^wl.Surface,
+	pointer_x: wl.Fixed,
+	pointer_y: wl.Fixed,
 	cursor_hidden: bool,
 	shm: ^wl.SHM,
 	cursor_surface: ^wl.Surface,
@@ -1491,6 +1632,12 @@ WL_State :: struct {
 
 	// True if toplevel_listener.configure has run
 	configured: bool,
+
+	// What the compositor says the window currently is, from the states in its configure. The
+	// frame Karl2D draws dims itself without focus and has a different maximize button when the
+	// window already fills the screen.
+	active: bool,
+	maximized: bool,
 
 	window_render_glue: Window_Render_Glue,
 

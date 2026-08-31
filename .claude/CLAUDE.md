@@ -12,7 +12,7 @@ Read this before starting and go through it again before saying the work is done
 - Cleanup is written where it happens. `defer` only where several exits would each repeat it.
 - A pointer parameter tells the reader the procedure writes through it. Values are automatically passed by reference if big enough, don't pass by pointer to optimize!
 - Handles use the zero value `<TYPE>_NONE`, never `Maybe`. Code that runs every frame guards with `!= <TYPE>_NONE`.
-- Named return values are for naked returns only, start with `_`, and are never assigned to.
+- Named return values either drive naked returns, in which case they start with `_`, or say what a returned value is. Never assigned to either way.
 - Multi-return results are named `thing_err` and `thing_ok`, never `err_thing`.
 - Boxed section comments appear only in `karl2d.odin`.
 - Tabs for indentation. At most 100 characters per line in `.odin` files. Markdown files should not have hard linebreaks, we'll use wrapping in editor for those.
@@ -123,13 +123,15 @@ Nothing else. No narrative of how the work was done, no verification logs, no ra
 - Passing a zero handle is safe: procedures that take handles log and carry on rather than misbehaving. They log on every call though, so guard with `!= <TYPE>_NONE` in code that runs each frame.
 - See `examples/cursors/cursors.odin` for how this reads in practice.
 
-### Named return values are for naked returns, and start with `_`
+### Named return values are for naked returns, or for saying what a value is
 - A long procedure that can fail in many places ends up repeating `return SOMETHING_NONE, false` a dozen times. Naming the return values turns each of those into a naked `return`, which is shorter and keeps the failure value in one place. `load_audio_clip_from_bytes`, `load_audio_stream_from_file` and `load_static_font_from_bytes` do this.
 - Whether a procedure is long enough to want this is a judgement call, done by feel. Short procedures, and ones with only a couple of failure paths, keep writing the values out: `create_custom_cursor` still returns `CUSTOM_CURSOR_NONE, false`. Do not convert a procedure just to match a neighbour, and do not convert every procedure in a file at once.
 - Name them with a leading underscore: `_clip`, `_stream`, `_font`, `_ok`.
 - The only two things such a procedure does with them is a naked `return` on every failure path and one real `return value, true` at the end. Never assign to `_clip` or `_ok` themselves.
 - That is what the underscore is for. Assigning to a named return part way through is how they turn into bugs: a later naked `return` then hands back whatever was assigned instead of the zero value, and the reader has to track every assignment to know what actually comes out. A name that starts with `_` does not read like a variable you were meant to write to, so it doesn't happen by accident.
 - This works because every `<TYPE>_NONE` is the zero value of its type, so a naked `return` gives back exactly what the explicit `return SOMETHING_NONE, false` did.
+- The other reason to name them has nothing to do with naked returns: a procedure whose return values are not obvious from their types can name them to say what they are. `wldeco_canvas_size` in `platform_linux_window_wayland_decorations.odin` returns `(canvas_width: int, canvas_height: int)` and takes two ints as well, so without the names the reader cannot tell which way it converts.
+- Names used that way carry no underscore, because there is no naked return for the underscore to protect. The procedure still returns its values explicitly on every path, and still never assigns to the names.
 
 ### Avoid `defer`; write the cleanup where it happens
 - `defer` moves work away from the point it runs, so the reader has to reconstruct the order instead of reading top to bottom. Free, release or destroy a thing on the line after it stops being needed.
