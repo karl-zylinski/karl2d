@@ -425,7 +425,7 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 		wldeco_paint_title(deco, d)
 
 		for button in WL_Decoration_Button {
-			if button != .None {
+			if wldeco_button_shown(deco, button) {
 				wldeco_paint_button(deco, d, button)
 			}
 		}
@@ -728,14 +728,40 @@ wldeco_blend :: proc(under: u32, over: u32, amount: f32) -> u32 {
 	return 0xff000000 | r << 16 | g << 8 | b
 }
 
+// Whether a button is in the titlebar at all. A window the game keeps at a fixed size cannot be
+// maximized, and a compositor handed `set_maximized` for one moves it into the corner of the
+// screen at the size it already had, so such a window does not get the button.
+wldeco_button_shown :: proc(deco: ^WL_Decorations, button: WL_Decoration_Button) -> bool {
+	if button == .None {
+		return false
+	}
+
+	if button == .Maximize {
+		return deco.win.window_mode == .Windowed_Resizable
+	}
+
+	return true
+}
+
 // Where a titlebar button sits, both for drawing it and for deciding whether the pointer is on it.
 // They are laid out from the right edge of the window inwards, in the order of the enum, each in a
-// slot of its own with a little room left around it.
+// slot of its own with a little room left around it. A button that is not shown takes up no slot,
+// so the ones inside it move out towards the edge.
 wldeco_button_rect :: proc(
 	deco: ^WL_Decorations,
 	button: WL_Decoration_Button,
 ) -> WL_Decoration_Rect {
-	slot := int(button) - 1
+	slot := 0
+
+	for b in WL_Decoration_Button {
+		if b == button {
+			break
+		}
+
+		if wldeco_button_shown(deco, b) {
+			slot += 1
+		}
+	}
 
 	return {
 		x = deco.win.last_configure_width - (slot + 1)*DECORATION_BUTTON_WIDTH + DECORATION_BUTTON_INSET,
@@ -1066,7 +1092,8 @@ wldeco_pointer_button :: proc(
 	}
 
 	// Two presses close together in the same spot on the titlebar maximize the window, the way
-	// they do on every desktop. The compositor's clock is what times them.
+	// they do on every desktop, as long as it is a window that can be maximized at all. The
+	// compositor's clock is what times them.
 	DOUBLE_CLICK_MS :: 400
 	DOUBLE_CLICK_SLOP :: 6
 
@@ -1077,7 +1104,9 @@ wldeco_pointer_button :: proc(
 	deco.last_press_x = local_x
 	deco.last_press_y = local_y
 
-	if quick && near_x && near_y && wldeco_pointer_part(deco) == .Titlebar {
+	resizable := deco.win.window_mode == .Windowed_Resizable
+
+	if quick && near_x && near_y && resizable && wldeco_pointer_part(deco) == .Titlebar {
 		// Forget the press, so that a third one is not the start of another double click.
 		deco.last_press_time = 0
 		wldeco_toggle_maximized(deco)
@@ -1133,7 +1162,7 @@ wldeco_button_at :: proc(
 	y := f32(d.y) + local_y
 
 	for button in WL_Decoration_Button {
-		if button == .None {
+		if !wldeco_button_shown(deco, button) {
 			continue
 		}
 
