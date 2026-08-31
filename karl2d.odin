@@ -4948,14 +4948,14 @@ camera_world_matrix :: proc(c: Camera) -> Mat4 {
 // MISC //
 //------//
 
-// Makes the Karl2D icon, the K and the 2 from the logo, `size` pixels a side. It is drawn from
-// pixel art 16 cells a side, scaled up with nearest neighbor, so a `size` that divides by 16 gives
-// cells that are all the same number of pixels across. Other sizes work and make some cells a
-// pixel wider than others. `init` makes one of these and sets it by default.
+// Makes a Karl2D icon with K and the 2 from the logo. It will be `size*size` pixels. It's created
+// from pixel art that is 16x16, scaled up with nearest neighbor. So a size divisible by 16 is
+// recommended.
 //
-// Use `destroy_image` when you are done with it.
+// `init` uses this procedure for the default window icon.
+//
+// Use `destroy_image` when you no longer need the image.
 make_karl2d_icon :: proc(size: int) -> Image {
-	// 0 is background, 1 is yellow, 2 is the dark red.
 	art := [16][16]u8 {
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -4975,18 +4975,32 @@ make_karl2d_icon :: proc(size: int) -> Image {
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 	}
 
-	return _image_from_karl2d_art(art, size, size)
+	colors := [3]Color {
+		{33, 11, 11, 255},  // background
+		{255, 209, 0, 255}, // yellow
+		{127, 6, 34, 255},  // dark red
+	}
+
+	pixels := make([]Color, size*size, s.allocator)
+
+	for y in 0..<size {
+		for x in 0..<size {
+			pixels[y*size + x] = colors[art[y*16/size][x*16/size]]
+		}
+	}
+
+	return {
+		pixels = pixels,
+		width = size,
+		height = size,
+	}
 }
 
-// Makes the Karl2D logo, the whole "KARL2D" mark, `width` pixels across and a third of that tall,
-// which is the shape of the mark. It is drawn from pixel art 30 cells across, scaled up with
-// nearest neighbor, so a `width` that divides by 30 gives cells that are all the same number of
-// pixels across. Other widths work and make some cells a pixel wider than others. Pass the image
-// to `load_texture_from_image` to draw it.
+// Makes a Karl2D logo that says KARL2D. It will be `width*width/3` pixels. It is created from pixel
+// art that is 30x10 pixels large. So a width that is divisible by 30 recommended.
 //
-// Use `destroy_image` when you are done with it.
+// Use `destroy_image` when you no longer need the image.
 make_karl2d_logo :: proc(width: int) -> Image {
-	// 0 is background, 1 is yellow, 2 is the dark red.
 	art := [10][30]u8 {
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		{0, 2, 0, 0, 2, 0, 0, 2, 2, 0, 0, 2, 2, 2, 0, 0, 2, 0, 0, 0, 0, 2, 2, 0, 0, 2, 2, 2, 0, 0},
@@ -5000,7 +5014,27 @@ make_karl2d_logo :: proc(width: int) -> Image {
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 	}
 
-	return _image_from_karl2d_art(art, width, width/3)
+	height := width/3
+
+	colors := [3]Color {
+		{33, 11, 11, 255},  // background
+		{255, 209, 0, 255}, // yellow
+		{127, 6, 34, 255},  // dark red
+	}
+
+	pixels := make([]Color, width*height, s.allocator)
+
+	for y in 0..<height {
+		for x in 0..<width {
+			pixels[y*width + x] = colors[art[y*10/height][x*30/width]]
+		}
+	}
+
+	return {
+		pixels = pixels,
+		width = width,
+		height = height,
+	}
 }
 
 // Choose how the alpha channel is used when mixing half-transparent color with what is already
@@ -6227,36 +6261,6 @@ API_END :: true
 @(private="package")
 is_typable_rune :: proc(r: rune) -> bool {
 	return r >= 32 && r != 0x7f
-}
-
-// Turns the cell art of `make_karl2d_icon` and `make_karl2d_logo` into an `Image` in the Karl2D
-// logo colors, `width` by `height` pixels. Each pixel takes the color of the cell it lands in,
-// which is nearest neighbor scaling and keeps the edges of the art hard at any size.
-_image_from_karl2d_art :: proc(art: [$H][$W]u8, width: int, height: int) -> Image {
-	if width <= 0 || height <= 0 {
-		log.error("Cannot make the Karl2D art image, the size must be at least one pixel.")
-		return {}
-	}
-
-	colors := [3]Color {
-		{33, 11, 11, 255},  // background
-		{255, 209, 0, 255}, // yellow
-		{127, 6, 34, 255},  // dark red
-	}
-
-	pixels := make([]Color, width*height, s.allocator)
-
-	for y in 0..<height {
-		for x in 0..<width {
-			pixels[y*width + x] = colors[art[y*H/height][x*W/width]]
-		}
-	}
-
-	return {
-		pixels = pixels,
-		width = width,
-		height = height,
-	}
 }
 
 // The number of lines `text` occupies. Used to size the text block without having to measure the
