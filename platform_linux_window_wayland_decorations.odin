@@ -49,13 +49,17 @@ DECORATION_BUTTON_INSET :: 4
 DECORATION_TITLE_SIZE :: 15
 DECORATION_TITLE_PADDING :: 8
 
-// What the frame is painted with. The fill covers the titlebar, the outline runs around the
-// outside of the whole window, which is all the thin sides are, `text` draws the button glyphs and
-// the title, and `hover` lights up the button under the pointer. Premultiplied ARGB, the format
-// the decoration buffers are in.
+// What the frame is painted with. The fill covers the titlebar, the outline runs around the whole
+// window, which is all the thin sides are, `text` draws the button glyphs and the title, and
+// `hover` lights up the button under the pointer. Premultiplied ARGB, the format the decoration
+// buffers are in.
+//
+// `edge` is a darker line one pixel further out again. Without it a light frame sitting on a light
+// desktop, or over bright game content behind it, has nothing to end against.
 WL_Decoration_Colors :: struct {
 	fill: u32,
 	outline: u32,
+	edge: u32,
 	text: u32,
 	hover: u32,
 }
@@ -63,6 +67,7 @@ WL_Decoration_Colors :: struct {
 DECORATION_COLORS_DARK :: WL_Decoration_Colors {
 	fill = 0xff2e2e2e,
 	outline = 0xff4a4a4a,
+	edge = 0xff141414,
 	text = 0xffdadada,
 	hover = 0xff474747,
 }
@@ -70,6 +75,7 @@ DECORATION_COLORS_DARK :: WL_Decoration_Colors {
 DECORATION_COLORS_LIGHT :: WL_Decoration_Colors {
 	fill = 0xfff6f6f6,
 	outline = 0xffb4b4b4,
+	edge = 0xff8c8c8c,
 	text = 0xff303030,
 	hover = 0xffe0e0e0,
 }
@@ -332,10 +338,11 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 		return
 	}
 
-	// Where the window itself is inside this part, in the part's own physical pixels. Anything
-	// outside that rectangle is the grip, which is left transparent; the outermost pixels of it are
-	// the outline; and what remains is the titlebar to fill. One rule paints all four parts, and
-	// the corners come out right because the same rectangle describes the window in each of them.
+	// Where the window itself is inside this part, in the part's own physical pixels. One ring of
+	// pixels just outside that rectangle is the dark edge, the outermost pixels inside it are the
+	// outline, what remains is the titlebar to fill, and the rest of the part is the grip and stays
+	// transparent. One rule paints all four parts, and the corners come out right because the same
+	// rectangle describes the window in each of them.
 	thickness := max(1, int(math.round(DECORATION_BORDER * deco.win.scale)))
 	left := int(math.round(f32(-DECORATION_BORDER - d.x) * deco.win.scale))
 	top := int(math.round(f32(-DECORATION_TITLEBAR_HEIGHT - d.y) * deco.win.scale))
@@ -355,8 +362,10 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 			under_titlebar := y >= canvas_top - thickness && y < canvas_top
 			color := deco.colors.fill
 
-			if inset < 0 {
+			if inset < -thickness {
 				color = 0
+			} else if inset < 0 {
+				color = deco.colors.edge
 			} else if inset < thickness || under_titlebar {
 				color = deco.colors.outline
 			}
