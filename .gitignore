@@ -35,6 +35,7 @@ examples/dual_grid_tilemap/dual_grid_tilemap
 examples/events/events
 examples/fonts/fonts
 examples/gamepad/gamepad
+examples/logo/logo
 examples/measure_text/measure_text
 examples/minimal_hello_world/minimal_hello_world
 examples/minimal_hello_world_web/minimal_hello_world_web

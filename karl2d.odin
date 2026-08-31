@@ -640,33 +640,17 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 	pf.set_window_mode(window_mode)
 }
 
-// Sets the icon that the OS shows for your game, in places such as the title bar, the task bar and
-// the window switcher. Karl2D puts its own icon there during `init`, so call this to replace it
-// with your game's own.
+// Sets the icon shown in the titlebar and the OS's program switcher bar. By default Karl2D uses an
+// icon that says K2. Load the image using for example `k2.load_image_from_file`.
 //
-// Make `image` square. That is the shape the OS scales down to the sizes it needs. Linux+Wayland
-// goes further and rejects anything else, so Karl2D pads a non-square image with transparent
-// pixels there.
+// The data of `image` is copied, so you can destroy it after running this.
 //
-// The icon does not need `image` after this returns. You may destroy it.
-//
-// What the icon is varies by platform:
-// - macOS has no per-window icon, so this sets the icon in the Dock, for the whole application.
-// - On the web this sets the page's favicon. It needs the `karl2d-favicon` link element that
-//   `build_web` puts in `index.html`.
-// - Linux+Wayland can only tell the compositor through a protocol that not every compositor
-//   implements. Where Karl2D draws the window frame itself, which is what it does on GNOME, the
-//   icon goes in that titlebar in front of the title whatever the compositor supports.
+// On web this modifies the icon shown on the tab.
 //
 // Returns `true` if the icon was set. The reason is logged when it wasn't.
-//
-// This only covers the running program. The icon a file browser shows for your executable lives
-// in the executable itself and is set when you build it.
 set_window_icon :: proc(image: Image) -> bool {
 	assert_initialized()
 
-	// Two negative dimensions have a positive product, so the length check below cannot catch
-	// them. This check has to.
 	if image.width <= 0 || image.height <= 0 {
 		log.error("Invalid icon image: height or width is zero or negative")
 		return false
