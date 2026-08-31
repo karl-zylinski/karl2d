@@ -21,7 +21,7 @@ Read this before starting and go through it again before saying the work is done
 - Ran the relevant build task(s), and `odin run tools/test_examples` if the change was large.
 - If the API surface changed: regenerate `karl2d.doc.odin` with `tools/api_doc_builder`.
 - The commit message reads like a tweet: 180 characters at most, simple sentences, the period is the only punctuation.
-- The pull request description contains only the four things listed under Pull request descriptions.
+- The pull request description contains only the things listed under Pull request descriptions, ending with a "Testing and reviewing" checklist that lists only the platforms the change actually touches.
 
 ## Project Overview
 - **Karl2D** is a 2D game development library written in the Odin programming language.
@@ -49,9 +49,40 @@ Keep them short. They contain only these things, in this order:
 - A short description of what was done. A few sentences at most.
 - The things that changed in the API. Say so explicitly if nothing did.
 - Bullet points of the changes that are not in the API.
-- The line "Created with the help of Claude Code" at the bottom.
+- The line "Created with the help of Claude Code".
+- A "Testing and reviewing" checklist of empty checkboxes, at the bottom.
 
 Nothing else. No narrative of how the work was done, no verification logs, no rationale that belongs in the issue.
+
+### The testing and reviewing checklist
+
+Every pull request ends with a list of unticked checkboxes, so the review and the testing can be signed off one item at a time. The boxes belong to the humans who review and test the change. Never tick one, not even for a platform you built and ran yourself, and never tick one later either. The full form looks like this:
+
+```
+## Testing and reviewing
+- [ ] Platform agnostic code reviewed
+
+Platform specific code reviewed
+- [ ] Windows
+- [ ] Mac
+- [ ] Web
+- [ ] Linux Wayland
+- [ ] Linux X11
+
+Tested on:
+- [ ] Windows
+- [ ] Mac
+- [ ] Web
+- [ ] Linux Wayland
+- [ ] Linux Wayland GNOME
+- [ ] Linux X11
+```
+
+Cut it down to what the change actually touches. A list full of lines nobody needs to look at makes the ones that matter easy to miss.
+
+- Keep "Platform agnostic code reviewed" only if the change touched code outside the platform backends.
+- Under "Platform specific code reviewed", list only the platforms whose code the change touched. Drop the whole block when it touched none of them. A change that only edits Wayland files lists Wayland alone.
+- Under "Tested on", list the platforms the change can affect. Platform agnostic changes affect all of them. A Wayland-only change lists the two Wayland lines, and an X11-only change lists the X11 line. Wayland has two lines because GNOME's compositor behaves differently from the others, so it gets tested separately.
 
 ## Verifying Your Work
 - Build and test through the examples in `examples/`. Prefer the existing VS Code build tasks; they already include `-vet -strict-style -vet-tabs` and come in three variants: default (D3D11 on Windows), `(GL)`, and `(web)`. Use the same `-vet -strict-style -vet-tabs` flags when running `odin` directly.
