@@ -127,8 +127,15 @@ WL_Decoration_Rect :: struct {
 // Everything the frame keeps track of. `WL_State` holds one of these, so that the state of the
 // window and the state of the frame around it stay apart.
 WL_Decorations :: struct {
+	// The window the frame is drawn around, handed over by `wldeco_init`. Everything in this file
+	// reaches the compositor through it, so that none of it goes looking for the Wayland backend's
+	// own state on its own. `WL_State` is allocated once and never moves, and this points back into
+	// the same allocation it lives in.
+	win: ^WL_State,
+
 	// True when Karl2D draws the frame, because the compositor draws none or because
-	// `KARL2D_LINUX_DECORATIONS=custom` said to. Nothing else in here is touched when it is false.
+	// `KARL2D_LINUX_DECORATIONS=custom` said to. Only the window reads this, to decide whether to
+	// call in here at all.
 	on: bool,
 
 	parts: [WL_Decoration_Part]WL_Decoration,
@@ -162,70 +169,73 @@ WL_Decorations :: struct {
 
 // Creates the four surfaces that make up the window frame. They are subsurfaces of the surface the
 // game renders into, so the compositor keeps them glued to it and no render backend has to know
-// that they exist.
-wldeco_create :: proc() {
-	if s.subcompositor == nil {
+// that they exist. `win` is the window they go around, and the frame holds on to it.
+wldeco_init :: proc(deco: ^WL_Decorations, win: ^WL_State) {
+	deco.win = win
+
+	if win.subcompositor == nil {
+		log.error("Wayland compositor has no wl_subcompositor. The window gets no frame.")
 		return
 	}
 
-	s.decorations.colors = wldeco_desktop_colors()
+	deco.colors = wldeco_desktop_colors()
 
 	// The title is drawn with the font Karl2D embeds for the game to use. Parsing it is just
 	// reading the table offsets out of the file, and the file is baked into the program.
 	offset := stbtt.GetFontOffsetForIndex(raw_data(DEFAULT_FONT_DATA), 0)
-	s.decorations.font_ok = bool(stbtt.InitFont(
-		&s.decorations.font,
+	deco.font_ok = bool(stbtt.InitFont(
+		&deco.font,
 		raw_data(DEFAULT_FONT_DATA),
 		offset,
 	))
 
-	if !s.decorations.font_ok {
+	if !deco.font_ok {
 		log.error("Failed reading the built in font. The window title will not be drawn.")
 	}
 
 	for part in WL_Decoration_Part {
-		d := &s.decorations.parts[part]
-		d.surface = wl.compositor_create_surface(s.compositor)
-		d.subsurface = wl.subcompositor_get_subsurface(s.subcompositor, d.surface, s.surface)
-		d.viewport = wl.wp_viewporter_get_viewport(s.viewporter, d.surface)
+		d := &deco.parts[part]
+		d.surface = wl.compositor_create_surface(win.compositor)
+		d.subsurface = wl.subcompositor_get_subsurface(win.subcompositor, d.surface, win.surface)
+		d.viewport = wl.wp_viewporter_get_viewport(win.viewporter, d.surface)
 
 		// A subsurface starts out synchronized, which would tie repainting the frame to the game
 		// drawing its next frame.
 		wl.subsurface_set_desync(d.subsurface)
 	}
 
-	wldeco_layout()
+	wldeco_layout(deco)
 }
 
 // Puts every part of the frame where it belongs for the current window size and repaints it. The
 // compositor leaves the parts where they were put, so this runs on every resize and scale change.
-wldeco_layout :: proc() {
-	if s.decorations.parts[.Titlebar].surface == nil {
+wldeco_layout :: proc(deco: ^WL_Decorations) {
+	if deco.parts[.Titlebar].surface == nil {
 		return
 	}
 
 	// In fullscreen the window is the canvas and nothing else, so the parts come off the screen
 	// entirely. Attaching no buffer to a surface is how Wayland says that.
-	if !wldeco_shown() {
+	if !wldeco_shown(deco) {
 		for part in WL_Decoration_Part {
-			d := &s.decorations.parts[part]
+			d := &deco.parts[part]
 			wl.surface_attach(d.surface, nil, 0, 0)
 			wl.surface_commit(d.surface)
 		}
 
 		wl.xdg_surface_set_window_geometry(
-			s.xdg_surface,
+			deco.win.xdg_surface,
 			0,
 			0,
-			i32(s.last_configure_width),
-			i32(s.last_configure_height),
+			i32(deco.win.last_configure_width),
+			i32(deco.win.last_configure_height),
 		)
 
 		return
 	}
 
 	for part in WL_Decoration_Part {
-		wldeco_paint(part)
+		wldeco_paint(deco, part)
 	}
 
 	// The window is the game canvas plus the frame drawn around it, but not the grip that reaches
@@ -233,53 +243,53 @@ wldeco_layout :: proc() {
 	// concerned. Without this the compositor would treat the canvas alone as the window, and a
 	// maximized window would hang off the screen by the height of the titlebar.
 	wl.xdg_surface_set_window_geometry(
-		s.xdg_surface,
+		deco.win.xdg_surface,
 		-DECORATION_BORDER,
 		-DECORATION_TITLEBAR_HEIGHT,
-		i32(s.last_configure_width + DECORATION_BORDER*2),
-		i32(s.last_configure_height + DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER),
+		i32(deco.win.last_configure_width + DECORATION_BORDER*2),
+		i32(deco.win.last_configure_height + DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER),
 	)
 }
 
 // Whether the frame is on screen. It is not in fullscreen: that mode is for the game covering the
 // screen, and a compositor sizes a fullscreen window to exactly the output with no room for a
 // titlebar above it.
-wldeco_shown :: proc() -> bool {
-	return s.decorations.on && s.window_mode != .Borderless_Fullscreen
+wldeco_shown :: proc(deco: ^WL_Decorations) -> bool {
+	return deco.win.window_mode != .Borderless_Fullscreen
 }
 
 // Repaints the titlebar alone, for the things that change while the window stays the same size:
 // the title, whether the window has focus, and which button the pointer is on.
-wldeco_repaint_titlebar :: proc() {
-	if !wldeco_shown() || s.decorations.parts[.Titlebar].surface == nil {
+wldeco_repaint_titlebar :: proc(deco: ^WL_Decorations) {
+	if !wldeco_shown(deco) || deco.parts[.Titlebar].surface == nil {
 		return
 	}
 
-	wldeco_paint(.Titlebar)
+	wldeco_paint(deco, .Titlebar)
 }
 
 // Takes the title to draw. The compositor is told separately, since it wants one for its window
 // list whether or not it draws any of this.
-wldeco_set_title :: proc(title: string) {
+wldeco_set_title :: proc(deco: ^WL_Decorations, title: string) {
 	// Games that put their frame rate in the title set it every frame, and repainting the titlebar
 	// for a title that has not changed would be that much work for nothing.
-	if !s.decorations.on || s.decorations.title == title {
+	if deco.title == title {
 		return
 	}
 
-	delete(s.decorations.title, s.allocator)
-	s.decorations.title = strings.clone(title, s.allocator)
-	wldeco_repaint_titlebar()
+	delete(deco.title, deco.win.allocator)
+	deco.title = strings.clone(title, deco.win.allocator)
+	wldeco_repaint_titlebar(deco)
 }
 
 // Works out where one part of the frame sits for the current window size, paints it and puts it
 // there. Positions are in logical pixels relative to the game canvas, so the titlebar has a
 // negative y since it hangs above the canvas, and the parts start a grip's width further out
 // still.
-wldeco_paint :: proc(part: WL_Decoration_Part) {
-	w := s.last_configure_width
-	h := s.last_configure_height
-	d := &s.decorations.parts[part]
+wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
+	w := deco.win.last_configure_width
+	h := deco.win.last_configure_height
+	d := &deco.parts[part]
 
 	// How far a part reaches beyond the window on the sides that face the desktop.
 	out :: DECORATION_BORDER + DECORATION_RESIZE_MARGIN
@@ -312,11 +322,11 @@ wldeco_paint :: proc(part: WL_Decoration_Part) {
 
 	// The buffer holds physical pixels and a viewport maps it back to the logical size, the way
 	// cursor images are handled. That keeps a one pixel border one pixel at any scale.
-	buffer_width := max(1, int(math.round(f32(d.width) * s.scale)))
-	buffer_height := max(1, int(math.round(f32(d.height) * s.scale)))
+	buffer_width := max(1, int(math.round(f32(d.width) * deco.win.scale)))
+	buffer_height := max(1, int(math.round(f32(d.height) * deco.win.scale)))
 
 	if buffer_width != d.buffer_width || buffer_height != d.buffer_height {
-		wldeco_make_buffer(d, buffer_width, buffer_height)
+		wldeco_make_buffer(deco, d, buffer_width, buffer_height)
 	}
 
 	if d.buffer == nil {
@@ -327,16 +337,16 @@ wldeco_paint :: proc(part: WL_Decoration_Part) {
 	// outside that rectangle is the grip, which is left transparent; the outermost pixels of it are
 	// the outline; and what remains is the titlebar to fill. One rule paints all four parts, and
 	// the corners come out right because the same rectangle describes the window in each of them.
-	thickness := max(1, int(math.round(DECORATION_BORDER * s.scale)))
-	left := int(math.round(f32(-DECORATION_BORDER - d.x) * s.scale))
-	top := int(math.round(f32(-DECORATION_TITLEBAR_HEIGHT - d.y) * s.scale))
-	right := int(math.round(f32(w + DECORATION_BORDER - d.x) * s.scale))
-	bottom := int(math.round(f32(h + DECORATION_BORDER - d.y) * s.scale))
+	thickness := max(1, int(math.round(DECORATION_BORDER * deco.win.scale)))
+	left := int(math.round(f32(-DECORATION_BORDER - d.x) * deco.win.scale))
+	top := int(math.round(f32(-DECORATION_TITLEBAR_HEIGHT - d.y) * deco.win.scale))
+	right := int(math.round(f32(w + DECORATION_BORDER - d.x) * deco.win.scale))
+	bottom := int(math.round(f32(h + DECORATION_BORDER - d.y) * deco.win.scale))
 
 	// Where the titlebar meets the game canvas, which gets a line of its own so that the two are
 	// told apart whatever the game draws up against it. In every part but the titlebar this lands
 	// outside the buffer and nothing comes of it.
-	canvas_top := int(math.round(f32(-d.y) * s.scale))
+	canvas_top := int(math.round(f32(-d.y) * deco.win.scale))
 
 	for y in 0..<buffer_height {
 		for x in 0..<buffer_width {
@@ -344,12 +354,12 @@ wldeco_paint :: proc(part: WL_Decoration_Part) {
 			// means it is out in the grip, and a premultiplied zero leaves that fully transparent.
 			inset := min(x - left, right - 1 - x, y - top, bottom - 1 - y)
 			under_titlebar := y >= canvas_top - thickness && y < canvas_top
-			color := s.decorations.colors.fill
+			color := deco.colors.fill
 
 			if inset < 0 {
 				color = 0
 			} else if inset < thickness || under_titlebar {
-				color = s.decorations.colors.outline
+				color = deco.colors.outline
 			}
 
 			d.pixels[y*buffer_width + x] = color
@@ -357,11 +367,11 @@ wldeco_paint :: proc(part: WL_Decoration_Part) {
 	}
 
 	if part == .Titlebar {
-		wldeco_paint_title(d)
+		wldeco_paint_title(deco, d)
 
 		for button in WL_Decoration_Button {
 			if button != .None {
-				wldeco_paint_button(d, button)
+				wldeco_paint_button(deco, d, button)
 			}
 		}
 	}
@@ -377,23 +387,23 @@ wldeco_paint :: proc(part: WL_Decoration_Part) {
 // glyphs are rasterized straight out of the font Karl2D already embeds, one at a time, which is
 // little enough work for something that only happens when the title, the size, the focus or the
 // button under the pointer changes.
-wldeco_paint_title :: proc(d: ^WL_Decoration) {
-	if !s.decorations.font_ok || s.decorations.title == "" {
+wldeco_paint_title :: proc(deco: ^WL_Decorations, d: ^WL_Decoration) {
+	if !deco.font_ok || deco.title == "" {
 		return
 	}
 
-	font := &s.decorations.font
-	scale_factor := stbtt.ScaleForPixelHeight(font, DECORATION_TITLE_SIZE * s.scale)
+	font := &deco.font
+	scale_factor := stbtt.ScaleForPixelHeight(font, DECORATION_TITLE_SIZE * deco.win.scale)
 
 	ascent, descent, line_gap: i32
 	stbtt.GetFontVMetrics(font, &ascent, &descent, &line_gap)
 
 	// Everything below is in the titlebar's own physical pixels. `left` and `right` are as far as
 	// the title may reach: the window's left edge on one side and the first button on the other.
-	buttons := wldeco_button_rect(max(WL_Decoration_Button))
-	padding := int(math.round(DECORATION_TITLE_PADDING * s.scale))
-	left := int(math.round(f32(-d.x) * s.scale)) + padding
-	right := int(math.round(f32(buttons.x - d.x) * s.scale)) - padding
+	buttons := wldeco_button_rect(deco, max(WL_Decoration_Button))
+	padding := int(math.round(DECORATION_TITLE_PADDING * deco.win.scale))
+	left := int(math.round(f32(-d.x) * deco.win.scale)) + padding
+	right := int(math.round(f32(buttons.x - d.x) * deco.win.scale)) - padding
 
 	if right <= left {
 		return
@@ -401,7 +411,7 @@ wldeco_paint_title :: proc(d: ^WL_Decoration) {
 
 	width := 0
 
-	for r in s.decorations.title {
+	for r in deco.title {
 		advance, left_bearing: i32
 		stbtt.GetCodepointHMetrics(font, r, &advance, &left_bearing)
 		width += int(math.round(f32(advance) * scale_factor))
@@ -410,15 +420,15 @@ wldeco_paint_title :: proc(d: ^WL_Decoration) {
 	// Centered on the window itself rather than on the room beside the buttons, so that it sits
 	// where the eye looks for it. A title too long for that room runs into the buttons and is cut
 	// off there instead.
-	center := int(math.round(f32(s.last_configure_width - d.x*2) * s.scale))/2
+	center := int(math.round(f32(deco.win.last_configure_width - d.x*2) * deco.win.scale))/2
 	pen := max(left, center - width/2)
-	top := int(math.round(f32(-DECORATION_TITLEBAR_HEIGHT - d.y) * s.scale))
-	bar_height := int(math.round(DECORATION_TITLEBAR_HEIGHT * s.scale))
+	top := int(math.round(f32(-DECORATION_TITLEBAR_HEIGHT - d.y) * deco.win.scale))
+	bar_height := int(math.round(DECORATION_TITLEBAR_HEIGHT * deco.win.scale))
 	text_height := f32(ascent - descent) * scale_factor
 	baseline := top + int((f32(bar_height) - text_height)/2 + f32(ascent)*scale_factor)
-	color := wldeco_text_color()
+	color := wldeco_text_color(deco)
 
-	for r in s.decorations.title {
+	for r in deco.title {
 		advance, left_bearing: i32
 		stbtt.GetCodepointHMetrics(font, r, &advance, &left_bearing)
 
@@ -490,40 +500,44 @@ wldeco_blit_glyph :: proc(
 
 // What the title and the button glyphs are drawn in. Dimmed towards the titlebar itself while the
 // window is not the one being typed into, the way every other window on the desktop dims.
-wldeco_text_color :: proc() -> u32 {
-	if s.active {
-		return s.decorations.colors.text
+wldeco_text_color :: proc(deco: ^WL_Decorations) -> u32 {
+	if deco.win.active {
+		return deco.colors.text
 	}
 
-	return wldeco_blend(s.decorations.colors.fill, s.decorations.colors.text, 0.45)
+	return wldeco_blend(deco.colors.fill, deco.colors.text, 0.45)
 }
 
 // Draws one button into the titlebar buffer: a lit background while the pointer is on it, and the
 // glyph that says what it does. `d` is the titlebar, whose buffer the button is painted into.
-wldeco_paint_button :: proc(d: ^WL_Decoration, button: WL_Decoration_Button) {
-	rect := wldeco_button_rect(button)
+wldeco_paint_button :: proc(
+	deco: ^WL_Decorations,
+	d: ^WL_Decoration,
+	button: WL_Decoration_Button,
+) {
+	rect := wldeco_button_rect(deco, button)
 
 	// The button's corner in the titlebar's own physical pixels.
-	x0 := int(math.round(f32(rect.x - d.x) * s.scale))
-	y0 := int(math.round(f32(rect.y - d.y) * s.scale))
-	x1 := min(d.buffer_width, int(math.round(f32(rect.x + rect.width - d.x) * s.scale)))
-	y1 := min(d.buffer_height, int(math.round(f32(rect.y + rect.height - d.y) * s.scale)))
+	x0 := int(math.round(f32(rect.x - d.x) * deco.win.scale))
+	y0 := int(math.round(f32(rect.y - d.y) * deco.win.scale))
+	x1 := min(d.buffer_width, int(math.round(f32(rect.x + rect.width - d.x) * deco.win.scale)))
+	y1 := min(d.buffer_height, int(math.round(f32(rect.y + rect.height - d.y) * deco.win.scale)))
 
 	if x0 >= x1 || y0 >= y1 {
 		return
 	}
 
-	background := s.decorations.colors.fill
+	background := deco.colors.fill
 
-	if s.decorations.pointer_button == button {
-		background = s.decorations.colors.hover
+	if deco.pointer_button == button {
+		background = deco.colors.hover
 	}
 
 	center_x := f32(x0 + x1)/2
 	center_y := f32(y0 + y1)/2
-	reach := DECORATION_BUTTON_GLYPH/2 * s.scale
-	half_stroke := DECORATION_BUTTON_STROKE/2 * s.scale
-	color := wldeco_text_color()
+	reach := DECORATION_BUTTON_GLYPH/2 * deco.win.scale
+	half_stroke := DECORATION_BUTTON_STROKE/2 * deco.win.scale
+	color := wldeco_text_color(deco)
 
 	for y in y0..<y1 {
 		for x in x0..<x1 {
@@ -545,7 +559,7 @@ wldeco_paint_button :: proc(d: ^WL_Decoration, button: WL_Decoration_Button) {
 				}
 
 			case .Maximize:
-				if !s.maximized {
+				if !deco.win.maximized {
 					to_line = wldeco_square_distance(dx, dy, reach*0.8)
 					break
 				}
@@ -605,11 +619,14 @@ wldeco_blend :: proc(under: u32, over: u32, amount: f32) -> u32 {
 // Where a titlebar button sits, both for drawing it and for deciding whether the pointer is on it.
 // They are laid out from the right edge of the window inwards, in the order of the enum, each in a
 // slot of its own with a little room left around it.
-wldeco_button_rect :: proc(button: WL_Decoration_Button) -> WL_Decoration_Rect {
+wldeco_button_rect :: proc(
+	deco: ^WL_Decorations,
+	button: WL_Decoration_Button,
+) -> WL_Decoration_Rect {
 	slot := int(button) - 1
 
 	return {
-		x = s.last_configure_width - (slot + 1)*DECORATION_BUTTON_WIDTH + DECORATION_BUTTON_INSET,
+		x = deco.win.last_configure_width - (slot + 1)*DECORATION_BUTTON_WIDTH + DECORATION_BUTTON_INSET,
 		y = -DECORATION_TITLEBAR_HEIGHT + DECORATION_BUTTON_INSET,
 		width = DECORATION_BUTTON_WIDTH - DECORATION_BUTTON_INSET*2,
 		height = DECORATION_TITLEBAR_HEIGHT - DECORATION_BUTTON_INSET*2,
@@ -619,7 +636,7 @@ wldeco_button_rect :: proc(button: WL_Decoration_Button) -> WL_Decoration_Rect {
 // Makes a fresh shared memory buffer for one part of the frame, throwing away the one it had. The
 // compositor keeps its own mapping of the memory for as long as it needs the pixels, so unmapping
 // ours here is safe even if the old buffer is still on screen.
-wldeco_make_buffer :: proc(d: ^WL_Decoration, width: int, height: int) {
+wldeco_make_buffer :: proc(deco: ^WL_Decorations, d: ^WL_Decoration, width: int, height: int) {
 	if d.buffer != nil {
 		wl.buffer_destroy(d.buffer)
 		linux.munmap(d.pixels, uint(d.data_size))
@@ -652,7 +669,7 @@ wldeco_make_buffer :: proc(d: ^WL_Decoration, width: int, height: int) {
 		return
 	}
 
-	pool := wl.shm_create_pool(s.shm, c.int32_t(fd), c.int32_t(size))
+	pool := wl.shm_create_pool(deco.win.shm, c.int32_t(fd), c.int32_t(size))
 
 	d.buffer = wl.shm_pool_create_buffer(
 		pool, 0,
@@ -670,9 +687,9 @@ wldeco_make_buffer :: proc(d: ^WL_Decoration, width: int, height: int) {
 	d.buffer_height = height
 }
 
-wldeco_destroy :: proc() {
+wldeco_destroy :: proc(deco: ^WL_Decorations) {
 	for part in WL_Decoration_Part {
-		d := &s.decorations.parts[part]
+		d := &deco.parts[part]
 
 		if d.surface == nil {
 			continue
@@ -690,8 +707,8 @@ wldeco_destroy :: proc() {
 		d^ = {}
 	}
 
-	delete(s.decorations.title, s.allocator)
-	s.decorations.title = ""
+	delete(deco.title, deco.win.allocator)
+	deco.title = ""
 }
 
 // Picks the frame colors from what the desktop is set up for, by asking the desktop portal over
@@ -833,8 +850,8 @@ wldeco_read_portal_setting :: proc(
 // True while the pointer is over one of the surfaces that make up the frame Karl2D draws. Pointer
 // events name the surface they happened on, which is what tells a click on the titlebar apart from
 // a click in the game. The game hears about neither the clicks nor the movement.
-wldeco_has_pointer :: proc() -> bool {
-	return s.pointer_surface != nil && s.pointer_surface != s.surface
+wldeco_has_pointer :: proc(deco: ^WL_Decorations) -> bool {
+	return deco.win.pointer_surface != nil && deco.win.pointer_surface != deco.win.surface
 }
 
 // Follows the pointer across the frame and works out what is under it: the edge it can resize from
@@ -843,33 +860,33 @@ wldeco_has_pointer :: proc() -> bool {
 // Nothing at all happens while the pointer sits still, and a button lighting up repaints the
 // titlebar and nothing else. Repainting the whole frame on every motion event is exactly the
 // mistake that dropped a libdecor window from 90 frames a second to one.
-wldeco_pointer_moved :: proc(local_x: f32, local_y: f32) -> bool {
-	edge := wldeco_resize_edge(local_x, local_y)
-	button := wldeco_button_at(local_x, local_y, edge)
+wldeco_pointer_moved :: proc(deco: ^WL_Decorations, local_x: f32, local_y: f32) -> bool {
+	edge := wldeco_resize_edge(deco, local_x, local_y)
+	button := wldeco_button_at(deco, local_x, local_y, edge)
 
-	if button != s.decorations.pointer_button {
-		s.decorations.pointer_button = button
-		wldeco_repaint_titlebar()
+	if button != deco.pointer_button {
+		deco.pointer_button = button
+		wldeco_repaint_titlebar(deco)
 	}
 
-	if edge == s.decorations.pointer_edge {
+	if edge == deco.pointer_edge {
 		return false
 	}
 
-	s.decorations.pointer_edge = edge
+	deco.pointer_edge = edge
 	return true
 }
 
 // The pointer left the frame, so nothing on it is under the pointer any more.
-wldeco_pointer_left :: proc() {
-	s.decorations.pressed_button = .None
+wldeco_pointer_left :: proc(deco: ^WL_Decorations) {
+	deco.pressed_button = .None
 
-	if s.decorations.pointer_button != .None {
-		s.decorations.pointer_button = .None
-		wldeco_repaint_titlebar()
+	if deco.pointer_button != .None {
+		deco.pointer_button = .None
+		wldeco_repaint_titlebar(deco)
 	}
 
-	s.decorations.pointer_edge = wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE
+	deco.pointer_edge = wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE
 }
 
 // Acts on a mouse button that changed state over the frame. Pressing near an edge starts a resize
@@ -878,6 +895,7 @@ wldeco_pointer_left :: proc() {
 // along with. A titlebar button waits for the release, and only acts if the pointer is still on it,
 // so that pressing one and sliding off changes nothing.
 wldeco_pointer_button :: proc(
+	deco: ^WL_Decorations,
 	button: u32,
 	state: u32,
 	time: u32,
@@ -888,13 +906,13 @@ wldeco_pointer_button :: proc(
 	// The right button asks the compositor for the window menu, which is the one thing on the
 	// frame that Karl2D does not draw itself.
 	if button == wl.POINTER_BTN_RIGHT && state == wl.POINTER_BUTTON_STATE_PRESSED {
-		d := s.decorations.parts[wldeco_pointer_part()]
+		d := deco.parts[wldeco_pointer_part(deco)]
 
 		// The position is measured from the corner of the window geometry, which starts at the
 		// outside of the border rather than at the game canvas.
 		wl.xdg_toplevel_show_window_menu(
-			s.toplevel,
-			s.seat,
+			deco.win.toplevel,
+			deco.win.seat,
 			serial,
 			i32(f32(d.x + DECORATION_BORDER) + local_x),
 			i32(f32(d.y + DECORATION_TITLEBAR_HEIGHT) + local_y),
@@ -908,23 +926,23 @@ wldeco_pointer_button :: proc(
 	}
 
 	if state != wl.POINTER_BUTTON_STATE_PRESSED {
-		acted := s.decorations.pressed_button
-		s.decorations.pressed_button = .None
+		acted := deco.pressed_button
+		deco.pressed_button = .None
 
-		if acted != .None && acted == s.decorations.pointer_button {
-			wldeco_button_acted(acted)
+		if acted != .None && acted == deco.pointer_button {
+			wldeco_button_acted(deco, acted)
 		}
 
 		return
 	}
 
-	if s.decorations.pointer_button != .None {
-		s.decorations.pressed_button = s.decorations.pointer_button
+	if deco.pointer_button != .None {
+		deco.pressed_button = deco.pointer_button
 		return
 	}
 
-	if s.decorations.pointer_edge != wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE {
-		wl.xdg_toplevel_resize(s.toplevel, s.seat, serial, s.decorations.pointer_edge)
+	if deco.pointer_edge != wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE {
+		wl.xdg_toplevel_resize(deco.win.toplevel, deco.win.seat, serial, deco.pointer_edge)
 		return
 	}
 
@@ -933,64 +951,65 @@ wldeco_pointer_button :: proc(
 	DOUBLE_CLICK_MS :: 400
 	DOUBLE_CLICK_SLOP :: 6
 
-	quick := time - s.decorations.last_press_time < DOUBLE_CLICK_MS
-	near_x := abs(local_x - s.decorations.last_press_x) < DOUBLE_CLICK_SLOP
-	near_y := abs(local_y - s.decorations.last_press_y) < DOUBLE_CLICK_SLOP
-	s.decorations.last_press_time = time
-	s.decorations.last_press_x = local_x
-	s.decorations.last_press_y = local_y
+	quick := time - deco.last_press_time < DOUBLE_CLICK_MS
+	near_x := abs(local_x - deco.last_press_x) < DOUBLE_CLICK_SLOP
+	near_y := abs(local_y - deco.last_press_y) < DOUBLE_CLICK_SLOP
+	deco.last_press_time = time
+	deco.last_press_x = local_x
+	deco.last_press_y = local_y
 
-	if quick && near_x && near_y && wldeco_pointer_part() == .Titlebar {
+	if quick && near_x && near_y && wldeco_pointer_part(deco) == .Titlebar {
 		// So that a third press is not the start of another double click.
-		s.decorations.last_press_time = 0
-		wldeco_toggle_maximized()
+		deco.last_press_time = 0
+		wldeco_toggle_maximized(deco)
 		return
 	}
 
-	wl.xdg_toplevel_move(s.toplevel, s.seat, serial)
+	wl.xdg_toplevel_move(deco.win.toplevel, deco.win.seat, serial)
 }
 
 // What a titlebar button does when it is clicked.
-wldeco_button_acted :: proc(button: WL_Decoration_Button) {
+wldeco_button_acted :: proc(deco: ^WL_Decorations, button: WL_Decoration_Button) {
 	switch button {
 	case .None:
 
 	case .Close:
 		// The same event the compositor's own close button would have sent. What happens next is
 		// the game's business: Karl2D does not close the window by itself.
-		append(&s.events, Event_Close_Window_Requested{})
+		append(&deco.win.events, Event_Close_Window_Requested{})
 
 	case .Maximize:
-		wldeco_toggle_maximized()
+		wldeco_toggle_maximized(deco)
 
 	case .Minimize:
-		wl.xdg_toplevel_set_minimized(s.toplevel)
+		wl.xdg_toplevel_set_minimized(deco.win.toplevel)
 	}
 }
 
 // Fills the screen with the window, or gives it back the size it had. The compositor answers with
 // a configure, which is where the new size and the new state come from.
-wldeco_toggle_maximized :: proc() {
-	if s.maximized {
-		wl.xdg_toplevel_unset_maximized(s.toplevel)
+wldeco_toggle_maximized :: proc(deco: ^WL_Decorations) {
+	if deco.win.maximized {
+		wl.xdg_toplevel_unset_maximized(deco.win.toplevel)
 		return
 	}
 
-	wl.xdg_toplevel_set_maximized(s.toplevel)
+	wl.xdg_toplevel_set_maximized(deco.win.toplevel)
 }
 
 // Which titlebar button is under the pointer, if any. `edge` is the resize edge there, since a
 // grip near the corner of the window resizes rather than pressing the button beneath it.
 wldeco_button_at :: proc(
+	deco: ^WL_Decorations,
 	local_x: f32,
 	local_y: f32,
 	edge: u32,
 ) -> WL_Decoration_Button {
-	if edge != wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE || wldeco_pointer_part() != .Titlebar {
+	if edge != wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE || wldeco_pointer_part(deco) != .Titlebar {
 		return .None
 	}
 
-	d := s.decorations.parts[.Titlebar]
+	d := deco.parts[.Titlebar]
 	x := f32(d.x) + local_x
 	y := f32(d.y) + local_y
 
@@ -999,7 +1018,7 @@ wldeco_button_at :: proc(
 			continue
 		}
 
-		rect := wldeco_button_rect(button)
+		rect := wldeco_button_rect(deco, button)
 		inside_x := x >= f32(rect.x) && x < f32(rect.x + rect.width)
 		inside_y := y >= f32(rect.y) && y < f32(rect.y + rect.height)
 
@@ -1014,14 +1033,14 @@ wldeco_button_at :: proc(
 // Which window edge the pointer is over, as an `xdg_toplevel` resize edge. Zero means it is on the
 // frame but not near an edge, which is where dragging moves the window instead. The position is
 // surface-local and in logical pixels, as pointer events give it.
-wldeco_resize_edge :: proc(local_x: f32, local_y: f32) -> u32 {
+wldeco_resize_edge :: proc(deco: ^WL_Decorations, local_x: f32, local_y: f32) -> u32 {
 	// Only a window the game lets the player resize has edges to grab. A fixed size one, and a
 	// fullscreen one, can only be moved.
-	if s.window_mode != .Windowed_Resizable {
+	if deco.win.window_mode != .Windowed_Resizable {
 		return wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE
 	}
 
-	d := s.decorations.parts[wldeco_pointer_part()]
+	d := deco.parts[wldeco_pointer_part(deco)]
 
 	// Where the pointer is with the game canvas at the origin, which is what the window's own
 	// edges are measured against.
@@ -1035,13 +1054,13 @@ wldeco_resize_edge :: proc(local_x: f32, local_y: f32) -> u32 {
 
 	if y < f32(-DECORATION_TITLEBAR_HEIGHT) + grip {
 		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_TOP
-	} else if y >= f32(s.last_configure_height + DECORATION_BORDER) - grip {
+	} else if y >= f32(deco.win.last_configure_height + DECORATION_BORDER) - grip {
 		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM
 	}
 
 	if x < f32(-DECORATION_BORDER) + grip {
 		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_LEFT
-	} else if x >= f32(s.last_configure_width + DECORATION_BORDER) - grip {
+	} else if x >= f32(deco.win.last_configure_width + DECORATION_BORDER) - grip {
 		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_RIGHT
 	}
 
@@ -1049,9 +1068,9 @@ wldeco_resize_edge :: proc(local_x: f32, local_y: f32) -> u32 {
 }
 
 // Which part of the frame the pointer is on. Only meaningful while `wldeco_has_pointer` is true.
-wldeco_pointer_part :: proc() -> WL_Decoration_Part {
+wldeco_pointer_part :: proc(deco: ^WL_Decorations) -> WL_Decoration_Part {
 	for part in WL_Decoration_Part {
-		if s.decorations.parts[part].surface == s.pointer_surface {
+		if deco.parts[part].surface == deco.win.pointer_surface {
 			return part
 		}
 	}
@@ -1062,8 +1081,8 @@ wldeco_pointer_part :: proc() -> WL_Decoration_Part {
 // The cursor the frame wants under the pointer: the matching double arrow along the edges that
 // resize the window, and the ordinary arrow everywhere else. The game's own cursor stays on the
 // game's own canvas.
-wldeco_cursor :: proc() -> Standard_Cursor {
-	switch s.decorations.pointer_edge {
+wldeco_cursor :: proc(deco: ^WL_Decorations) -> Standard_Cursor {
+	switch deco.pointer_edge {
 	case wl.XDG_TOPLEVEL_RESIZE_EDGE_TOP, wl.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM:
 		return .Resize_NS
 
@@ -1080,12 +1099,53 @@ wldeco_cursor :: proc() -> Standard_Cursor {
 	return .Default
 }
 
-// How much wider and taller the window is than the game canvas inside it. Zero unless Karl2D draws
-// the decorations, since the ones a compositor draws sit outside the window entirely.
-wldeco_extra_width :: proc() -> int {
-	return wldeco_shown() ? DECORATION_BORDER*2 : 0
+// The game canvas that fits inside a window of this size. The compositor sizes the whole window,
+// frame included, while the rest of Karl2D is about the canvas, so every size that arrives in a
+// configure comes through here first.
+//
+// An axis of zero means the compositor is leaving that one to us and stays zero.
+wldeco_canvas_size :: proc(
+	deco: ^WL_Decorations,
+	window_width: int,
+	window_height: int,
+) -> (
+	int,
+	int,
+) {
+	if !wldeco_shown(deco) {
+		return window_width, window_height
+	}
+
+	width := window_width
+	height := window_height
+
+	if width != 0 {
+		width = max(1, width - DECORATION_BORDER*2)
+	}
+
+	if height != 0 {
+		height = max(1, height - DECORATION_TITLEBAR_HEIGHT - DECORATION_BORDER)
+	}
+
+	return width, height
 }
 
-wldeco_extra_height :: proc() -> int {
-	return wldeco_shown() ? DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER : 0
+// The window that a canvas of this size needs, which is the other direction: sizes Karl2D tells
+// the compositor about, like the limits on a window the game keeps at a fixed size, are the
+// window's and not the canvas'deco.win.
+wldeco_window_size :: proc(
+	deco: ^WL_Decorations,
+	canvas_width: int,
+	canvas_height: int,
+) -> (
+	int,
+	int,
+) {
+	if !wldeco_shown(deco) {
+		return canvas_width, canvas_height
+	}
+
+	width := canvas_width + DECORATION_BORDER*2
+	height := canvas_height + DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER
+	return width, height
 }
