@@ -54,8 +54,9 @@ DECORATION_TITLE_PADDING :: 8
 // `hover` lights up the button under the pointer. Premultiplied ARGB, the format the decoration
 // buffers are in.
 //
-// `edge` is a darker line one pixel further out again. Without it a light frame sitting on a light
-// desktop, or over bright game content behind it, has nothing to end against.
+// `edge` sits one pixel outside the outline and goes the other way from it: dark outside a light
+// outline, light outside a dark one. Whichever way round, one of the two lines has something to
+// contrast with, so the window ends cleanly on a bright desktop as well as a dark one.
 WL_Decoration_Colors :: struct {
 	fill: u32,
 	outline: u32,
@@ -74,8 +75,8 @@ DECORATION_COLORS_DARK :: WL_Decoration_Colors {
 
 DECORATION_COLORS_LIGHT :: WL_Decoration_Colors {
 	fill = 0xfff6f6f6,
-	outline = 0xffb4b4b4,
-	edge = 0xff8c8c8c,
+	outline = 0xff8c8c8c,
+	edge = 0xfffcfcfc,
 	text = 0xff303030,
 	hover = 0xffe0e0e0,
 }
