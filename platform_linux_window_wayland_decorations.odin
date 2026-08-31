@@ -477,7 +477,7 @@ wldeco_set_input_region :: proc(deco: ^WL_Decorations, d: ^WL_Decoration) {
 	band_right := deco.win.last_configure_width + DECORATION_RESIZE_MARGIN
 	band_bottom := deco.win.last_configure_height + DECORATION_RESIZE_MARGIN
 
-	// The band, clipped to this part and put in the part's own coordinates.
+	// Clip the band to this part and put it in the part's own coordinates.
 	x0 := max(d.x, band_left) - d.x
 	y0 := max(d.y, band_top) - d.y
 	x1 := min(d.x + d.width, band_right) - d.x
@@ -849,7 +849,8 @@ wldeco_desktop_colors :: proc() -> WL_Decoration_Colors {
 		return DECORATION_COLORS_LIGHT
 	}
 
-	// Otherwise libdbus ends the game itself when the bus goes away.
+	// Tell libdbus to leave the process alone when the bus goes away. It ends the game itself
+	// otherwise.
 	dbus.connection_set_exit_on_disconnect(connection, 0)
 
 	scheme, result := wldeco_read_portal_setting(connection, "ReadOne")
@@ -1077,7 +1078,7 @@ wldeco_pointer_button :: proc(
 	deco.last_press_y = local_y
 
 	if quick && near_x && near_y && wldeco_pointer_part(deco) == .Titlebar {
-		// So that a third press is not the start of another double click.
+		// Forget the press, so that a third one is not the start of another double click.
 		deco.last_press_time = 0
 		wldeco_toggle_maximized(deco)
 		return

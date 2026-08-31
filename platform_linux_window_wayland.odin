@@ -85,9 +85,8 @@ wl_try_load :: proc(
 	return "", true
 }
 
-// Whether the player asked Karl2D to draw the window decorations even where the compositor offers
-// to draw them itself. A compositor that offers nothing gets Karl2D's own without being asked, so
-// this is only for seeing them on a compositor that does decorate windows.
+// True if user wants us to draw custom window decorations, even when server-side decorations are
+// available.
 wl_custom_decorations_requested :: proc() -> bool {
 	return os.get_env("KARL2D_LINUX_DECORATIONS", frame_allocator) == "custom"
 }
@@ -121,9 +120,8 @@ wl_init :: proc(
 	// Initializes pointer and keyboard based on seat capabilities.
 	wl.display_roundtrip(s.display)
 
-	// A compositor without the decoration manager, GNOME being the one that matters, draws no
-	// titlebar and expects the window to come with its own. Decided before the window is set up,
-	// because a frame Karl2D draws changes how big the window has to be asked for.
+	// Some systems, like GNOME, don't support the decoration manager (server-side decorations). In
+	// that case we will draw them outselves using the `wldeco_` calls in this file.
 	s.has_deco = s.decoration_manager == nil || wl_custom_decorations_requested()
 
 	// Sets default size that gets used if the compositor doesn't suggest a size.
@@ -145,8 +143,9 @@ wl_init :: proc(
 	wl.add_listener(s.toplevel, &toplevel_listener, nil)
 	wl.add_listener(s.xdg_surface, &window_listener, nil)
 
-	// Before anything that draws or sizes the frame, since all of that goes through it. The first
-	// configure lays it out again around whatever size the compositor settles on.
+	// Initialize the custom decorations before anything that draws or sizes the frame, since all
+	// of that goes through them. The first configure lays them out again around whatever size the
+	// compositor settles on.
 	if s.has_deco {
 		wldeco_init(&s.decorations, s)
 	}
@@ -917,8 +916,8 @@ wl_get_window_render_glue :: proc() -> Window_Render_Glue {
 wl_get_events :: proc(events: ^[dynamic]Event) {
 	wl.display_dispatch_pending(s.display)
 
-	// Painted here, once, after everything the compositor had to say and before the game draws its
-	// own frame. The frame's commits then ride along with the game's.
+	// Paint the frame here, once, after everything the compositor had to say and before the game
+	// draws its own frame. The frame's commits then ride along with the game's.
 	if s.has_deco {
 		wldeco_flush(&s.decorations)
 	}
