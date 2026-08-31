@@ -29,16 +29,36 @@ import wl "platform_bindings/linux/wayland"
 // titlebar, and what sets the window apart from the desktop is the shadow it casts.
 DECORATION_TITLEBAR_HEIGHT :: 32
 
-// The shadow. `reach` is how far it spreads, `offset` how far down it is cast so that the window
-// reads as sitting above the desktop rather than in it, and the opacities how dark it gets with
-// and without focus.
-DECORATION_SHADOW_REACH :: 24
-DECORATION_SHADOW_OFFSET :: 6
+// How far the shadow spreads from the window, in logical pixels.
+DECORATION_SHADOW_REACH :: 43
+
+// How dark the shadow is at a given distance from the window: `a*exp(-b*distance) + c`, distance
+// in logical pixels. Adwaita's shadow is a stack of CSS box shadows, which is nothing a CPU
+// rasterizer wants to reproduce, so these are the curve sctk-adwaita fitted to a screenshot of a
+// real Adwaita window and draws its own Wayland decorations with. Straight black, and the same in
+// both color schemes, which is how GNOME does it.
+WL_Decoration_Shadow :: struct {
+	a: f32,
+	b: f32,
+	c: f32,
+}
+
+DECORATION_SHADOW_FOCUSED :: WL_Decoration_Shadow {
+	a = 0.2065055,
+	b = 0.10461753,
+	c = -0.0005424462,
+}
+
+DECORATION_SHADOW_UNFOCUSED :: WL_Decoration_Shadow {
+	a = 0.16829729,
+	b = 0.2042998,
+	c = 0.0017697986,
+}
 
 // How far outside the window the pointer can still grab an edge to resize. Well inside the shadow,
 // and the only part of the shadow that takes pointer events at all: the rest lets clicks through
-// to whatever is behind the window.
-DECORATION_RESIZE_MARGIN :: 8
+// to whatever is behind the window. GTK uses the same twelve pixels.
+DECORATION_RESIZE_MARGIN :: 12
 
 // A titlebar button, and how much room it takes, in logical pixels. `glyph` is the box the drawing
 // inside it fits in, `stroke` how wide the lines of that drawing are, and `inset` how far the
@@ -55,33 +75,24 @@ DECORATION_TITLE_SIZE :: 15
 DECORATION_TITLE_PADDING :: 8
 
 // What the frame is painted with. The fill covers the titlebar, `text` draws the title and the
-// button glyphs, and `hover` lights up the button under the pointer. Colors are premultiplied
-// ARGB, the format the decoration buffers are in.
-//
-// The shadow is black in both schemes, as a shadow is, and only its strength differs: a dark
-// window on a dark desktop needs more of one than a light window on a light desktop.
+// button glyphs, and `hover` lights up the button under the pointer. Premultiplied ARGB, the
+// format the decoration buffers are in.
 WL_Decoration_Colors :: struct {
 	fill: u32,
 	text: u32,
 	hover: u32,
-	shadow: f32,
-	shadow_unfocused: f32,
 }
 
 DECORATION_COLORS_DARK :: WL_Decoration_Colors {
 	fill = 0xff2e2e2e,
 	text = 0xffdadada,
 	hover = 0xff474747,
-	shadow = 0.45,
-	shadow_unfocused = 0.22,
 }
 
 DECORATION_COLORS_LIGHT :: WL_Decoration_Colors {
 	fill = 0xfff6f6f6,
 	text = 0xff303030,
 	hover = 0xffe0e0e0,
-	shadow = 0.32,
-	shadow_unfocused = 0.16,
 }
 
 // One part of the window frame Karl2D draws for itself. Each is a subsurface of the surface the
@@ -93,13 +104,12 @@ WL_Decoration :: struct {
 	// Scales the buffer down from physical to logical pixels, like the one a cursor has.
 	viewport: ^wl.WP_Viewport,
 
-	// The compositor may read the buffer at any point while it is attached, so both it and the
-	// mapping stay alive until the part is resized or the window goes away.
-	buffer: ^wl.Buffer,
-	pixels: [^]u32,
-	data_size: int,
+	// A part paints into one buffer while the compositor may still be reading the one before it, so
+	// it keeps a few. Two are enough in practice; the third is headroom.
+	buffers: [3]WL_Decoration_Buffer,
 
-	// Size of the buffer, in physical pixels.
+	// The buffer being painted into right now, and its size in physical pixels.
+	pixels: [^]u32,
 	buffer_width: int,
 	buffer_height: int,
 
@@ -108,6 +118,25 @@ WL_Decoration :: struct {
 	y: int,
 	width: int,
 	height: int,
+}
+
+// One shared memory buffer belonging to a part. `busy` is true from the moment it is attached
+// until the compositor says it has finished reading it. Destroying a buffer before that leaves the
+// surface with undefined contents, which on screen is the frame vanishing for a frame.
+WL_Decoration_Buffer :: struct {
+	buffer: ^wl.Buffer,
+	pixels: [^]u32,
+	data_size: int,
+	width: int,
+	height: int,
+	busy: bool,
+}
+
+// The compositor has finished reading a buffer, so it can be painted into or thrown away again.
+decoration_buffer_listener := wl.Buffer_Listener {
+	release = proc "c" (data: rawptr, buffer: ^wl.Buffer) {
+		(^WL_Decoration_Buffer)(data).busy = false
+	},
 }
 
 WL_Decoration_Part :: enum {
@@ -301,7 +330,7 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 	d := &deco.parts[part]
 
 	// How far a part reaches past the window, which is as far as the shadow goes.
-	out :: DECORATION_SHADOW_REACH + DECORATION_SHADOW_OFFSET
+	out :: DECORATION_SHADOW_REACH
 
 	switch part {
 	case .Titlebar:
@@ -334,13 +363,15 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 	buffer_width := max(1, int(math.round(f32(d.width) * deco.win.scale)))
 	buffer_height := max(1, int(math.round(f32(d.height) * deco.win.scale)))
 
-	if buffer_width != d.buffer_width || buffer_height != d.buffer_height {
-		wldeco_make_buffer(deco, d, buffer_width, buffer_height)
-	}
+	slot := wldeco_take_buffer(deco, d, buffer_width, buffer_height)
 
-	if d.buffer == nil {
+	if slot == nil {
 		return
 	}
+
+	d.pixels = slot.pixels
+	d.buffer_width = buffer_width
+	d.buffer_height = buffer_height
 
 	// Where the window is inside this part, in the part's own physical pixels. The titlebar is the
 	// only piece of the window that lands in a decoration surface at all; everything else in every
@@ -350,11 +381,8 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 	right := int(math.round(f32(w - d.x) * deco.win.scale))
 	bottom := int(math.round(f32(h - d.y) * deco.win.scale))
 
-	// The shadow is cast from the window pushed down a little, which is what puts more of it below
-	// the window than above and reads as the window floating over the desktop.
-	offset := int(math.round(DECORATION_SHADOW_OFFSET * deco.win.scale))
+	shadow := deco.win.active ? DECORATION_SHADOW_FOCUSED : DECORATION_SHADOW_UNFOCUSED
 	reach := DECORATION_SHADOW_REACH * deco.win.scale
-	darkest := deco.win.active ? deco.colors.shadow : deco.colors.shadow_unfocused
 
 	for y in 0..<buffer_height {
 		for x in 0..<buffer_width {
@@ -363,16 +391,20 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 				continue
 			}
 
-			// How far outside the shadow's own rectangle this pixel is. Zero on both axes means it
-			// is under the window, where the shadow is at its darkest.
+			// How far this pixel is from the window, which is all the shadow depends on. The
+			// distance is put back into logical pixels because that is what the curve was fitted
+			// against, and the shadow is black, so premultiplying leaves nothing but the alpha.
 			dx := f32(max(left - x, 0, x - right + 1))
-			dy := f32(max(top + offset - y, 0, y - bottom - offset + 1))
-			fade := clamp(1 - math.sqrt(dx*dx + dy*dy)/reach, 0, 1)
+			dy := f32(max(top - y, 0, y - bottom + 1))
+			distance := math.sqrt(dx*dx + dy*dy)
+			alpha := f32(0)
 
-			// Squaring the falloff is what makes it look like a blur rather than a ramp. The
-			// shadow is black, so premultiplying leaves nothing but the alpha.
-			alpha := u32(darkest * fade * fade * 255)
-			d.pixels[y*buffer_width + x] = alpha << 24
+			if distance < reach {
+				faded := shadow.a*math.exp(-shadow.b*distance/deco.win.scale) + shadow.c
+				alpha = clamp(faded, 0, 1)
+			}
+
+			d.pixels[y*buffer_width + x] = u32(alpha*255) << 24
 		}
 	}
 
@@ -389,9 +421,38 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 	wldeco_set_input_region(deco, d)
 	wl.subsurface_set_position(d.subsurface, i32(d.x), i32(d.y))
 	wl.wp_viewport_set_destination(d.viewport, i32(max(1, d.width)), i32(max(1, d.height)))
-	wl.surface_attach(d.surface, d.buffer, 0, 0)
+	wl.surface_attach(d.surface, slot.buffer, 0, 0)
 	wl.surface_damage_buffer(d.surface, 0, 0, i32(buffer_width), i32(buffer_height))
 	wl.surface_commit(d.surface)
+	slot.busy = true
+}
+
+// Finds a buffer of this size that the compositor is not reading, making one if none of the part's
+// slots holds it already. Handing back the buffer that is on screen would mean painting over what
+// the compositor is showing, and freeing it would leave the surface with nothing at all.
+wldeco_take_buffer :: proc(
+	deco: ^WL_Decorations,
+	d: ^WL_Decoration,
+	width: int,
+	height: int,
+) -> ^WL_Decoration_Buffer {
+	for &slot in d.buffers {
+		if !slot.busy && slot.buffer != nil && slot.width == width && slot.height == height {
+			return &slot
+		}
+	}
+
+	for &slot in d.buffers {
+		if !slot.busy {
+			wldeco_make_buffer(deco, &slot, width, height)
+			return slot.buffer != nil ? &slot : nil
+		}
+	}
+
+	// Every slot is still on the compositor's hands. It lets go of them as soon as it shows
+	// something else, so this means it is several frames behind and the frame can wait one more.
+	log.debug("Every window decoration buffer is still in use. Skipping a repaint.")
+	return nil
 }
 
 // Says which pixels of a part take pointer events: the window itself and a band around it wide
@@ -671,17 +732,19 @@ wldeco_button_rect :: proc(
 	}
 }
 
-// Makes a fresh shared memory buffer for one part of the frame, throwing away the one it had. The
-// compositor keeps its own mapping of the memory for as long as it needs the pixels, so unmapping
-// ours here is safe even if the old buffer is still on screen.
-wldeco_make_buffer :: proc(deco: ^WL_Decorations, d: ^WL_Decoration, width: int, height: int) {
-	if d.buffer != nil {
-		wl.buffer_destroy(d.buffer)
-		linux.munmap(d.pixels, uint(d.data_size))
-		d.buffer = nil
-		d.pixels = nil
-		d.buffer_width = 0
-		d.buffer_height = 0
+// Fills one of a part's slots with a fresh shared memory buffer. Whatever the slot held is thrown
+// away first, which is safe because a slot is only ever passed here once the compositor has said
+// it has finished reading it.
+wldeco_make_buffer :: proc(
+	deco: ^WL_Decorations,
+	slot: ^WL_Decoration_Buffer,
+	width: int,
+	height: int,
+) {
+	if slot.buffer != nil {
+		wl.buffer_destroy(slot.buffer)
+		linux.munmap(slot.pixels, uint(slot.data_size))
+		slot^ = {}
 	}
 
 	stride := width * 4
@@ -709,7 +772,7 @@ wldeco_make_buffer :: proc(deco: ^WL_Decorations, d: ^WL_Decoration, width: int,
 
 	pool := wl.shm_create_pool(deco.win.shm, c.int32_t(fd), c.int32_t(size))
 
-	d.buffer = wl.shm_pool_create_buffer(
+	slot.buffer = wl.shm_pool_create_buffer(
 		pool, 0,
 		c.int32_t(width), c.int32_t(height), c.int32_t(stride),
 		wl.SHM_FORMAT_ARGB8888,
@@ -719,10 +782,11 @@ wldeco_make_buffer :: proc(deco: ^WL_Decorations, d: ^WL_Decoration, width: int,
 	// has been destroyed.
 	wl.shm_pool_destroy(pool)
 
-	d.pixels = ([^]u32)(data)
-	d.data_size = size
-	d.buffer_width = width
-	d.buffer_height = height
+	slot.pixels = ([^]u32)(data)
+	slot.data_size = size
+	slot.width = width
+	slot.height = height
+	wl.add_listener(slot.buffer, &decoration_buffer_listener, slot)
 }
 
 wldeco_destroy :: proc(deco: ^WL_Decorations) {
@@ -737,9 +801,12 @@ wldeco_destroy :: proc(deco: ^WL_Decorations) {
 		wl.subsurface_destroy(d.subsurface)
 		wl.surface_destroy(d.surface)
 
-		if d.buffer != nil {
-			wl.buffer_destroy(d.buffer)
-			linux.munmap(d.pixels, uint(d.data_size))
+		// The surfaces are gone, so the compositor is reading none of these whatever they say.
+		for &slot in d.buffers {
+			if slot.buffer != nil {
+				wl.buffer_destroy(slot.buffer)
+				linux.munmap(slot.pixels, uint(slot.data_size))
+			}
 		}
 
 		d^ = {}
