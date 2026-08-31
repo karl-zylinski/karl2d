@@ -1104,21 +1104,19 @@ camera_inverse_view_matrix :: proc(c: Camera) -> Mat4
 // MISC //
 //------//
 
-// Makes the Karl2D icon, the K and the 2 from the logo, `size` pixels a side. It is drawn from
-// pixel art 16 cells a side, scaled up with nearest neighbor, so a `size` that divides by 16 gives
-// cells that are all the same number of pixels across. Other sizes work and make some cells a
-// pixel wider than others. `init` makes one of these and sets it by default.
+// Makes a Karl2D icon with K and the 2 from the logo. It will be `size*size` pixels. It's created
+// from pixel art that is 16x16, scaled up with nearest neighbor. So a size divisible by 16 is
+// recommended.
 //
-// Use `destroy_image` when you are done with it.
+// `init` uses this procedure for the default window icon.
+//
+// Use `destroy_image` when you no longer need the image.
 make_karl2d_icon :: proc(size: int) -> Image
 
-// Makes the Karl2D logo, the whole "KARL2D" mark, `width` pixels across and a third of that tall,
-// which is the shape of the mark. It is drawn from pixel art 30 cells across, scaled up with
-// nearest neighbor, so a `width` that divides by 30 gives cells that are all the same number of
-// pixels across. Other widths work and make some cells a pixel wider than others. Pass the image
-// to `load_texture_from_image` to draw it.
+// Makes a Karl2D logo that says KARL2D. It will be `width*width/3` pixels. It is created from pixel
+// art that is 30x10 pixels large. So a width that is divisible by 30 is recommended.
 //
-// Use `destroy_image` when you are done with it.
+// Use `destroy_image` when you no longer need the image.
 make_karl2d_logo :: proc(width: int) -> Image
 
 // Choose how the alpha channel is used when mixing half-transparent color with what is already

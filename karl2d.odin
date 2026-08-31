@@ -4997,7 +4997,7 @@ make_karl2d_icon :: proc(size: int) -> Image {
 }
 
 // Makes a Karl2D logo that says KARL2D. It will be `width*width/3` pixels. It is created from pixel
-// art that is 30x10 pixels large. So a width that is divisible by 30 recommended.
+// art that is 30x10 pixels large. So a width that is divisible by 30 is recommended.
 //
 // Use `destroy_image` when you no longer need the image.
 make_karl2d_logo :: proc(width: int) -> Image {
