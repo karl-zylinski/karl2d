@@ -422,7 +422,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 			// Everything is repainted, not just the titlebar: the shadow fades with focus too, and
 			// it is drawn by all four parts.
 			if s.has_deco {
-				wldeco_layout(&s.decorations)
+				wldeco_repaint_all(&s.decorations)
 			}
 		}
 
@@ -466,7 +466,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 			}
 
 			if s.has_deco {
-				wldeco_layout(&s.decorations)
+				wldeco_repaint_all(&s.decorations)
 			}
 
 			append(&s.events, Event_Screen_Resize {
@@ -832,7 +832,7 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 
 		// The decoration buffers hold physical pixels, so a new scale means new buffers.
 		if s.has_deco {
-			wldeco_layout(&s.decorations)
+			wldeco_repaint_all(&s.decorations)
 		}
 
 		// The cursor theme is loaded at a fixed physical size, so it needs reloading whenever
@@ -1000,7 +1000,7 @@ wl_set_screen_size :: proc(w, h: int) {
 	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
 
 	if s.has_deco {
-		wldeco_layout(&s.decorations)
+		wldeco_repaint_all(&s.decorations)
 	}
 }
 
@@ -1039,7 +1039,7 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	// The frame comes and goes with fullscreen, and the window is a different size with it than
 	// without it.
 	if s.has_deco {
-		wldeco_layout(&s.decorations)
+		wldeco_repaint_all(&s.decorations)
 	}
 }
 

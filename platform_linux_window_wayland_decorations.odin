@@ -245,12 +245,12 @@ wldeco_init :: proc(deco: ^WL_Decorations, win: ^WL_State) {
 		d.viewport = wl.wp_viewporter_get_viewport(win.viewporter, d.surface)
 	}
 
-	wldeco_layout(deco)
+	wldeco_repaint_all(deco)
 }
 
 // Says that the whole frame has to be laid out and painted again, which is what a resize or a scale
 // change means. Nothing is drawn here; `wldeco_flush` does that once, before the next game frame.
-wldeco_layout :: proc(deco: ^WL_Decorations) {
+wldeco_repaint_all :: proc(deco: ^WL_Decorations) {
 	deco.needs_paint = {.Titlebar, .Left, .Right, .Bottom}
 }
 
