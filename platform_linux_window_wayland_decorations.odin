@@ -24,29 +24,26 @@ import "log"
 import "platform_bindings/linux/dbus"
 import wl "platform_bindings/linux/wayland"
 
-// The frame Karl2D draws around the game canvas where the compositor draws none, in logical
-// pixels. Reading inwards from the desktop: a ring that makes the window stand out against
-// whatever is behind it, the outline proper, the titlebar's own color carrying on down the sides
-// and along the bottom, and a line hugging the game canvas on all four sides. `border` is the
-// three of those that are part of the window, and so how much wider and taller it is than the
-// canvas.
+// The frame Karl2D draws where the compositor draws none, in logical pixels. There is no border
+// around the game canvas: it runs right to the window's edge on the three sides that have no
+// titlebar, and what sets the window apart from the desktop is the shadow it casts.
 DECORATION_TITLEBAR_HEIGHT :: 32
-DECORATION_EDGE :: 1
-DECORATION_OUTLINE :: 1
-DECORATION_SIDE :: 2
-DECORATION_SEPARATOR :: 1
-DECORATION_BORDER :: DECORATION_OUTLINE + DECORATION_SIDE + DECORATION_SEPARATOR
 
-// How far the grip for resizing reaches outside the window. A one pixel border is nothing to aim
-// at, so every part of the frame is bigger than what it paints and the extra is left transparent.
-// A surface takes pointer events across all of it, whatever is drawn there, which is the same
-// trick every toolkit plays with the shadow around its windows.
+// The shadow. `reach` is how far it spreads, `offset` how far down it is cast so that the window
+// reads as sitting above the desktop rather than in it, and the opacities how dark it gets with
+// and without focus.
+DECORATION_SHADOW_REACH :: 24
+DECORATION_SHADOW_OFFSET :: 6
+
+// How far outside the window the pointer can still grab an edge to resize. Well inside the shadow,
+// and the only part of the shadow that takes pointer events at all: the rest lets clicks through
+// to whatever is behind the window.
 DECORATION_RESIZE_MARGIN :: 8
 
 // A titlebar button, and how much room it takes, in logical pixels. `glyph` is the box the drawing
 // inside it fits in, `stroke` how wide the lines of that drawing are, and `inset` how far the
 // button keeps away from the edges of its share of the titlebar, so that the lit background under
-// the pointer does not run into the window's outline or into the next button along.
+// the pointer does not run into the next button along.
 DECORATION_BUTTON_WIDTH :: 32
 DECORATION_BUTTON_GLYPH :: 12
 DECORATION_BUTTON_STROKE :: 1.2
@@ -57,36 +54,34 @@ DECORATION_BUTTON_INSET :: 4
 DECORATION_TITLE_SIZE :: 15
 DECORATION_TITLE_PADDING :: 8
 
-// What the frame is painted with. The fill covers the titlebar, the outline runs around the whole
-// window, which is all the thin sides are, `text` draws the button glyphs and the title, and
-// `hover` lights up the button under the pointer. Premultiplied ARGB, the format the decoration
-// buffers are in.
+// What the frame is painted with. The fill covers the titlebar, `text` draws the title and the
+// button glyphs, and `hover` lights up the button under the pointer. Colors are premultiplied
+// ARGB, the format the decoration buffers are in.
 //
-// `edge` sits one pixel outside the outline and goes the other way from it: dark outside a light
-// outline, light outside a dark one. Whichever way round, one of the two lines has something to
-// contrast with, so the window ends cleanly on a bright desktop as well as a dark one.
+// The shadow is black in both schemes, as a shadow is, and only its strength differs: a dark
+// window on a dark desktop needs more of one than a light window on a light desktop.
 WL_Decoration_Colors :: struct {
 	fill: u32,
-	outline: u32,
-	edge: u32,
 	text: u32,
 	hover: u32,
+	shadow: f32,
+	shadow_unfocused: f32,
 }
 
 DECORATION_COLORS_DARK :: WL_Decoration_Colors {
 	fill = 0xff2e2e2e,
-	outline = 0xff4a4a4a,
-	edge = 0xff141414,
 	text = 0xffdadada,
 	hover = 0xff474747,
+	shadow = 0.45,
+	shadow_unfocused = 0.22,
 }
 
 DECORATION_COLORS_LIGHT :: WL_Decoration_Colors {
 	fill = 0xfff6f6f6,
-	outline = 0xff8c8c8c,
-	edge = 0xfffcfcfc,
 	text = 0xff303030,
 	hover = 0xffe0e0e0,
+	shadow = 0.32,
+	shadow_unfocused = 0.16,
 }
 
 // One part of the window frame Karl2D draws for itself. Each is a subsurface of the surface the
@@ -248,16 +243,15 @@ wldeco_layout :: proc(deco: ^WL_Decorations) {
 		wldeco_paint(deco, part)
 	}
 
-	// The window is the game canvas plus the frame drawn around it, but not the grip that reaches
-	// out past the frame: that is ours to feel, not part of the window as far as the compositor is
-	// concerned. Without this the compositor would treat the canvas alone as the window, and a
+	// The window is the game canvas with the titlebar on top, and neither the shadow nor the grip
+	// around it. Without this the compositor would treat the canvas alone as the window, and a
 	// maximized window would hang off the screen by the height of the titlebar.
 	wl.xdg_surface_set_window_geometry(
 		deco.win.xdg_surface,
-		-DECORATION_BORDER,
+		0,
 		-DECORATION_TITLEBAR_HEIGHT,
-		i32(deco.win.last_configure_width + DECORATION_BORDER*2),
-		i32(deco.win.last_configure_height + DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER),
+		i32(deco.win.last_configure_width),
+		i32(deco.win.last_configure_height + DECORATION_TITLEBAR_HEIGHT),
 	)
 }
 
@@ -298,22 +292,22 @@ wldeco_set_title :: proc(deco: ^WL_Decorations, title: string) {
 
 // Works out where one part of the frame sits for the current window size, paints it and puts it
 // there. Positions are in logical pixels relative to the game canvas, so the titlebar has a
-// negative y since it hangs above the canvas, and the parts start a grip's width further out
-// still.
+// negative y since it hangs above the canvas, and every part reaches a shadow's width further out
+// again.
 wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 	w := deco.win.last_configure_width
 	h := deco.win.last_configure_height
 	d := &deco.parts[part]
 
-	// How far a part reaches beyond the window on the sides that face the desktop.
-	out :: DECORATION_BORDER + DECORATION_RESIZE_MARGIN
+	// How far a part reaches past the window, which is as far as the shadow goes.
+	out :: DECORATION_SHADOW_REACH + DECORATION_SHADOW_OFFSET
 
 	switch part {
 	case .Titlebar:
 		d.x = -out
-		d.y = -DECORATION_TITLEBAR_HEIGHT - DECORATION_RESIZE_MARGIN
+		d.y = -DECORATION_TITLEBAR_HEIGHT - out
 		d.width = w + out*2
-		d.height = DECORATION_TITLEBAR_HEIGHT + DECORATION_RESIZE_MARGIN
+		d.height = DECORATION_TITLEBAR_HEIGHT + out
 
 	case .Left:
 		d.x = -out
@@ -335,7 +329,7 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 	}
 
 	// The buffer holds physical pixels and a viewport maps it back to the logical size, the way
-	// cursor images are handled. That keeps a one pixel border one pixel at any scale.
+	// cursor images are handled.
 	buffer_width := max(1, int(math.round(f32(d.width) * deco.win.scale)))
 	buffer_height := max(1, int(math.round(f32(d.height) * deco.win.scale)))
 
@@ -347,49 +341,37 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 		return
 	}
 
-	// Where the window itself is inside this part, in the part's own physical pixels. One ring of
-	// pixels just outside that rectangle is the edge, the outermost pixels inside it are the
-	// outline, everything further in is fill, and the rest of the part is the grip and stays
-	// transparent. One rule paints all four parts, and the corners come out right because the same
-	// rectangle describes the window in each of them.
-	outline := max(1, int(math.round(DECORATION_OUTLINE * deco.win.scale)))
-	edge := max(1, int(math.round(DECORATION_EDGE * deco.win.scale)))
-	separator := max(1, int(math.round(DECORATION_SEPARATOR * deco.win.scale)))
-	left := int(math.round(f32(-DECORATION_BORDER - d.x) * deco.win.scale))
+	// Where the window is inside this part, in the part's own physical pixels. The titlebar is the
+	// only piece of the window that lands in a decoration surface at all; everything else in every
+	// part is shadow.
+	left := int(math.round(f32(-d.x) * deco.win.scale))
 	top := int(math.round(f32(-DECORATION_TITLEBAR_HEIGHT - d.y) * deco.win.scale))
-	right := int(math.round(f32(w + DECORATION_BORDER - d.x) * deco.win.scale))
-	bottom := int(math.round(f32(h + DECORATION_BORDER - d.y) * deco.win.scale))
+	right := int(math.round(f32(w - d.x) * deco.win.scale))
+	bottom := int(math.round(f32(h - d.y) * deco.win.scale))
 
-	// And where the game canvas is, which no part overlaps: the line that hugs it is the first
-	// pixels outside it, and following the canvas rather than the window is what carries that line
-	// around all four corners.
-	canvas_left := int(math.round(f32(-d.x) * deco.win.scale))
-	canvas_top := int(math.round(f32(-d.y) * deco.win.scale))
-	canvas_right := int(math.round(f32(w - d.x) * deco.win.scale))
-	canvas_bottom := int(math.round(f32(h - d.y) * deco.win.scale))
+	// The shadow is cast from the window pushed down a little, which is what puts more of it below
+	// the window than above and reads as the window floating over the desktop.
+	offset := int(math.round(DECORATION_SHADOW_OFFSET * deco.win.scale))
+	reach := DECORATION_SHADOW_REACH * deco.win.scale
+	darkest := deco.win.active ? deco.colors.shadow : deco.colors.shadow_unfocused
 
 	for y in 0..<buffer_height {
 		for x in 0..<buffer_width {
-			// How far inside the window this pixel is, measured to the nearest side. Negative
-			// means it is out in the grip, and a premultiplied zero leaves that fully transparent.
-			inset := min(x - left, right - 1 - x, y - top, bottom - 1 - y)
-			gap := max(
-				canvas_left - x,
-				x - canvas_right + 1,
-				canvas_top - y,
-				y - canvas_bottom + 1,
-			)
-			color := deco.colors.fill
-
-			if inset < -edge {
-				color = 0
-			} else if inset < 0 {
-				color = deco.colors.edge
-			} else if inset < outline || gap <= separator {
-				color = deco.colors.outline
+			if x >= left && x < right && y >= top && y < bottom {
+				d.pixels[y*buffer_width + x] = deco.colors.fill
+				continue
 			}
 
-			d.pixels[y*buffer_width + x] = color
+			// How far outside the shadow's own rectangle this pixel is. Zero on both axes means it
+			// is under the window, where the shadow is at its darkest.
+			dx := f32(max(left - x, 0, x - right + 1))
+			dy := f32(max(top + offset - y, 0, y - bottom - offset + 1))
+			fade := clamp(1 - math.sqrt(dx*dx + dy*dy)/reach, 0, 1)
+
+			// Squaring the falloff is what makes it look like a blur rather than a ramp. The
+			// shadow is black, so premultiplying leaves nothing but the alpha.
+			alpha := u32(darkest * fade * fade * 255)
+			d.pixels[y*buffer_width + x] = alpha << 24
 		}
 	}
 
@@ -403,11 +385,37 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 		}
 	}
 
+	wldeco_set_input_region(deco, d)
 	wl.subsurface_set_position(d.subsurface, i32(d.x), i32(d.y))
 	wl.wp_viewport_set_destination(d.viewport, i32(max(1, d.width)), i32(max(1, d.height)))
 	wl.surface_attach(d.surface, d.buffer, 0, 0)
 	wl.surface_damage_buffer(d.surface, 0, 0, i32(buffer_width), i32(buffer_height))
 	wl.surface_commit(d.surface)
+}
+
+// Says which pixels of a part take pointer events: the window itself and a band around it wide
+// enough to grab for resizing. Without this the shadow would swallow every click that landed on it,
+// and a window has a lot of shadow around it.
+wldeco_set_input_region :: proc(deco: ^WL_Decorations, d: ^WL_Decoration) {
+	band_left := -DECORATION_RESIZE_MARGIN
+	band_top := -DECORATION_TITLEBAR_HEIGHT - DECORATION_RESIZE_MARGIN
+	band_right := deco.win.last_configure_width + DECORATION_RESIZE_MARGIN
+	band_bottom := deco.win.last_configure_height + DECORATION_RESIZE_MARGIN
+
+	// The band, clipped to this part and put in the part's own coordinates.
+	x0 := max(d.x, band_left) - d.x
+	y0 := max(d.y, band_top) - d.y
+	x1 := min(d.x + d.width, band_right) - d.x
+	y1 := min(d.y + d.height, band_bottom) - d.y
+
+	region := wl.compositor_create_region(deco.win.compositor)
+
+	if x1 > x0 && y1 > y0 {
+		wl.region_add(region, i32(x0), i32(y0), i32(x1 - x0), i32(y1 - y0))
+	}
+
+	wl.surface_set_input_region(d.surface, region)
+	wl.region_destroy(region)
 }
 
 // Draws the window title across the middle of the titlebar, in the space the buttons leave. The
@@ -937,13 +945,13 @@ wldeco_pointer_button :: proc(
 	if button == wl.POINTER_BTN_RIGHT && state == wl.POINTER_BUTTON_STATE_PRESSED {
 		d := deco.parts[wldeco_pointer_part(deco)]
 
-		// The position is measured from the corner of the window geometry, which starts at the
-		// outside of the border rather than at the game canvas.
+		// The position is measured from the corner of the window geometry, which is the top left of
+		// the titlebar.
 		wl.xdg_toplevel_show_window_menu(
 			deco.win.toplevel,
 			deco.win.seat,
 			serial,
-			i32(f32(d.x + DECORATION_BORDER) + local_x),
+			i32(f32(d.x) + local_x),
 			i32(f32(d.y + DECORATION_TITLEBAR_HEIGHT) + local_y),
 		)
 
@@ -1076,20 +1084,20 @@ wldeco_resize_edge :: proc(deco: ^WL_Decorations, local_x: f32, local_y: f32) ->
 	x := f32(d.x) + local_x
 	y := f32(d.y) + local_y
 
-	// The grip runs from the margin outside the window to the border just inside it, so a corner
-	// is that much square.
-	grip :: f32(DECORATION_RESIZE_MARGIN + DECORATION_BORDER)
+	// The grip reaches from the margin outside the window to the same distance inside it, so a
+	// corner is that much square.
+	grip :: f32(DECORATION_RESIZE_MARGIN)
 	edge: u32
 
 	if y < f32(-DECORATION_TITLEBAR_HEIGHT) + grip {
 		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_TOP
-	} else if y >= f32(deco.win.last_configure_height + DECORATION_BORDER) - grip {
+	} else if y >= f32(deco.win.last_configure_height) - grip {
 		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM
 	}
 
-	if x < f32(-DECORATION_BORDER) + grip {
+	if x < grip {
 		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_LEFT
-	} else if x >= f32(deco.win.last_configure_width + DECORATION_BORDER) - grip {
+	} else if x >= f32(deco.win.last_configure_width) - grip {
 		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_RIGHT
 	}
 
@@ -1145,18 +1153,13 @@ wldeco_canvas_size :: proc(
 		return window_width, window_height
 	}
 
-	width := window_width
 	height := window_height
 
-	if width != 0 {
-		width = max(1, width - DECORATION_BORDER*2)
-	}
-
 	if height != 0 {
-		height = max(1, height - DECORATION_TITLEBAR_HEIGHT - DECORATION_BORDER)
+		height = max(1, height - DECORATION_TITLEBAR_HEIGHT)
 	}
 
-	return width, height
+	return window_width, height
 }
 
 // The window that a canvas of this size needs, which is the other direction: sizes Karl2D tells
@@ -1174,7 +1177,5 @@ wldeco_window_size :: proc(
 		return canvas_width, canvas_height
 	}
 
-	width := canvas_width + DECORATION_BORDER*2
-	height := canvas_height + DECORATION_TITLEBAR_HEIGHT + DECORATION_BORDER
-	return width, height
+	return canvas_width, canvas_height + DECORATION_TITLEBAR_HEIGHT
 }

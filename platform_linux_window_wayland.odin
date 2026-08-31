@@ -420,8 +420,10 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 			s.active = active
 			s.maximized = maximized
 
+			// Everything is repainted, not just the titlebar: the shadow fades with focus too, and
+			// it is drawn by all four parts.
 			if s.has_deco {
-				wldeco_repaint_titlebar(&s.decorations)
+				wldeco_layout(&s.decorations)
 			}
 		}
 

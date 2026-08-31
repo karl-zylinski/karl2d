@@ -111,15 +111,58 @@ compositor_create_surface :: proc "c" (compositor: ^Compositor) -> ^Surface {
 	))
 }
 
+compositor_create_region :: proc "c" (compositor: ^Compositor) -> ^Region {
+	return (^Region)(proxy_marshal_flags(
+		compositor,
+		1,
+		&region_interface,
+		proxy_get_version(compositor),
+		0,
+		nil,
+	))
+}
+
 compositor_interface := Interface {
 	"wl_compositor",
 	6, 
 	2,
 	raw_data([]Message {
 		{"create_surface", "n", raw_data([]^Interface{&surface_interface})},
-		{"create_region", "n", raw_data([]^Interface{nil})},
+		{"create_region", "n", raw_data([]^Interface{&region_interface})},
 	}),
 	0, 
+	nil,
+}
+
+
+Region :: struct {
+	using proxy: Proxy,
+}
+
+region_destroy :: proc "c" (region: ^Region) {
+	proxy_marshal_flags(region, 0, nil, proxy_get_version(region), MARSHAL_FLAG_DESTROY)
+}
+
+region_add :: proc "c" (
+	region: ^Region,
+	x: c.int32_t,
+	y: c.int32_t,
+	width: c.int32_t,
+	height: c.int32_t,
+) {
+	proxy_marshal_flags(region, 1, nil, proxy_get_version(region), 0, x, y, width, height)
+}
+
+region_interface := Interface {
+	"wl_region",
+	1,
+	3,
+	raw_data([]Message {
+		{"destroy", "", raw_data([]^Interface{})},
+		{"add", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
+		{"subtract", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
+	}),
+	0,
 	nil,
 }
 
@@ -224,6 +267,12 @@ surface_damage_buffer :: proc "c" (
 	)
 }
 
+// Which part of a surface takes pointer events. A surface with no region set takes them
+// everywhere it reaches, transparent pixels included.
+surface_set_input_region :: proc "c" (surface: ^Surface, region: ^Region) {
+	proxy_marshal_flags(surface, 5, nil, proxy_get_version(surface), 0, region)
+}
+
 surface_frame :: proc "c" (surface: ^Surface) -> ^Callback {
 	callback: ^Proxy
 	callback = proxy_marshal_flags(
@@ -258,7 +307,7 @@ surface_interface := Interface {
 		{"damage", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
 		{"frame", "n", raw_data([]^Interface{&callback_interface})},
 		{"set_opaque_region", "?o", raw_data([]^Interface{nil})},
-		{"set_input_region", "?o", raw_data([]^Interface{nil})},
+		{"set_input_region", "?o", raw_data([]^Interface{&region_interface})},
 		{"commit", "", raw_data([]^Interface{})},
 		{"set_buffer_transform", "i", raw_data([]^Interface{nil})},
 		{"set_buffer_scale", "i", raw_data([]^Interface{nil})},
