@@ -111,15 +111,58 @@ compositor_create_surface :: proc "c" (compositor: ^Compositor) -> ^Surface {
 	))
 }
 
+compositor_create_region :: proc "c" (compositor: ^Compositor) -> ^Region {
+	return (^Region)(proxy_marshal_flags(
+		compositor,
+		1,
+		&region_interface,
+		proxy_get_version(compositor),
+		0,
+		nil,
+	))
+}
+
 compositor_interface := Interface {
 	"wl_compositor",
 	6, 
 	2,
 	raw_data([]Message {
 		{"create_surface", "n", raw_data([]^Interface{&surface_interface})},
-		{"create_region", "n", raw_data([]^Interface{nil})},
+		{"create_region", "n", raw_data([]^Interface{&region_interface})},
 	}),
 	0, 
+	nil,
+}
+
+
+Region :: struct {
+	using proxy: Proxy,
+}
+
+region_destroy :: proc "c" (region: ^Region) {
+	proxy_marshal_flags(region, 0, nil, proxy_get_version(region), MARSHAL_FLAG_DESTROY)
+}
+
+region_add :: proc "c" (
+	region: ^Region,
+	x: c.int32_t,
+	y: c.int32_t,
+	width: c.int32_t,
+	height: c.int32_t,
+) {
+	proxy_marshal_flags(region, 1, nil, proxy_get_version(region), 0, x, y, width, height)
+}
+
+region_interface := Interface {
+	"wl_region",
+	1,
+	3,
+	raw_data([]Message {
+		{"destroy", "", raw_data([]^Interface{})},
+		{"add", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
+		{"subtract", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
+	}),
+	0,
 	nil,
 }
 
@@ -202,6 +245,34 @@ surface_attach :: proc "c" (surface: ^Surface, buffer: ^Buffer, x: c.int32_t, y:
 	)
 }
 
+// Marks a rectangle of the attached buffer as changed, in buffer pixels. A compositor is free to
+// leave everything else as it was, so a new buffer only shows up once its area has been damaged.
+surface_damage_buffer :: proc "c" (
+	surface: ^Surface,
+	x: c.int32_t,
+	y: c.int32_t,
+	width: c.int32_t,
+	height: c.int32_t,
+) {
+	proxy_marshal_flags(
+		surface,
+		9,
+		nil,
+		proxy_get_version(surface),
+		0,
+		x,
+		y,
+		width,
+		height,
+	)
+}
+
+// Which part of a surface takes pointer events. A surface with no region set takes them
+// everywhere it reaches, transparent pixels included.
+surface_set_input_region :: proc "c" (surface: ^Surface, region: ^Region) {
+	proxy_marshal_flags(surface, 5, nil, proxy_get_version(surface), 0, region)
+}
+
 surface_frame :: proc "c" (surface: ^Surface) -> ^Callback {
 	callback: ^Proxy
 	callback = proxy_marshal_flags(
@@ -236,7 +307,7 @@ surface_interface := Interface {
 		{"damage", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
 		{"frame", "n", raw_data([]^Interface{&callback_interface})},
 		{"set_opaque_region", "?o", raw_data([]^Interface{nil})},
-		{"set_input_region", "?o", raw_data([]^Interface{nil})},
+		{"set_input_region", "?o", raw_data([]^Interface{&region_interface})},
 		{"commit", "", raw_data([]^Interface{})},
 		{"set_buffer_transform", "i", raw_data([]^Interface{nil})},
 		{"set_buffer_scale", "i", raw_data([]^Interface{nil})},
@@ -250,6 +321,71 @@ surface_interface := Interface {
 		{"preferred_buffer_scale", "i", raw_data([]^Interface{nil})},
 		{"preferred_buffer_transform", "u", raw_data([]^Interface{nil})},
 	}),
+}
+
+Subcompositor :: struct {
+	using proxy: Proxy,
+}
+
+subcompositor_get_subsurface :: proc "c" (
+	subcompositor: ^Subcompositor,
+	surface: ^Surface,
+	parent: ^Surface,
+) -> ^Subsurface {
+	return (^Subsurface)(proxy_marshal_flags(
+		subcompositor,
+		1,
+		&subsurface_interface,
+		proxy_get_version(subcompositor),
+		0,
+		nil,
+		surface,
+		parent,
+	))
+}
+
+subcompositor_interface := Interface {
+	"wl_subcompositor",
+	1,
+	2,
+	raw_data([]Message {
+		{"destroy", "", raw_data([]^Interface{})},
+		{
+			"get_subsurface", "noo",
+			raw_data([]^Interface{&subsurface_interface, &surface_interface, &surface_interface}),
+		},
+	}),
+	0,
+	nil,
+}
+
+
+Subsurface :: struct {
+	using proxy: Proxy,
+}
+
+subsurface_destroy :: proc "c" (subsurface: ^Subsurface) {
+	proxy_marshal_flags(subsurface, 0, nil, proxy_get_version(subsurface), MARSHAL_FLAG_DESTROY)
+}
+
+subsurface_set_position :: proc "c" (subsurface: ^Subsurface, x: c.int32_t, y: c.int32_t) {
+	proxy_marshal_flags(subsurface, 1, nil, proxy_get_version(subsurface), 0, x, y)
+}
+
+subsurface_interface := Interface {
+	"wl_subsurface",
+	1,
+	6,
+	raw_data([]Message {
+		{"destroy", "", raw_data([]^Interface{})},
+		{"set_position", "ii", raw_data([]^Interface{nil, nil})},
+		{"place_above", "o", raw_data([]^Interface{&surface_interface})},
+		{"place_below", "o", raw_data([]^Interface{&surface_interface})},
+		{"set_sync", "", raw_data([]^Interface{})},
+		{"set_desync", "", raw_data([]^Interface{})},
+	}),
+	0,
+	nil,
 }
 
 Seat :: struct {
