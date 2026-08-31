@@ -372,12 +372,6 @@ subsurface_set_position :: proc "c" (subsurface: ^Subsurface, x: c.int32_t, y: c
 	proxy_marshal_flags(subsurface, 1, nil, proxy_get_version(subsurface), 0, x, y)
 }
 
-// A subsurface starts out synchronized, meaning its commits only take effect when the parent
-// surface commits. Desynchronized lets a decoration repaint itself without waiting for a frame.
-subsurface_set_desync :: proc "c" (subsurface: ^Subsurface) {
-	proxy_marshal_flags(subsurface, 5, nil, proxy_get_version(subsurface), 0)
-}
-
 subsurface_interface := Interface {
 	"wl_subsurface",
 	1,

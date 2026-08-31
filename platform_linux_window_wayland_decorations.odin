@@ -175,6 +175,11 @@ WL_Decorations :: struct {
 // Creates the four surfaces that make up the window frame. They are subsurfaces of the surface the
 // game renders into, so the compositor keeps them glued to it and no render backend has to know
 // that they exist. `win` is the window they go around, and the frame holds on to it.
+//
+// They are left synchronized, which is how a subsurface starts: everything the frame commits waits
+// for the game's next frame and lands with it in one go. Anything else tears the window in half
+// while it resizes, since a subsurface's position always waits for the parent whatever its buffer
+// does.
 wldeco_init :: proc(deco: ^WL_Decorations, win: ^WL_State) {
 	deco.win = win
 
@@ -203,10 +208,6 @@ wldeco_init :: proc(deco: ^WL_Decorations, win: ^WL_State) {
 		d.surface = wl.compositor_create_surface(win.compositor)
 		d.subsurface = wl.subcompositor_get_subsurface(win.subcompositor, d.surface, win.surface)
 		d.viewport = wl.wp_viewporter_get_viewport(win.viewporter, d.surface)
-
-		// A subsurface starts out synchronized, which would tie repainting the frame to the game
-		// drawing its next frame.
-		wl.subsurface_set_desync(d.subsurface)
 	}
 
 	wldeco_layout(deco)
