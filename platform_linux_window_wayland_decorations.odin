@@ -768,8 +768,8 @@ wldeco_read_portal_setting :: proc(
 	connection: dbus.Connection,
 	method: cstring,
 ) -> (
-	u32,
-	WL_Portal_Result,
+	color_scheme: u32,
+	result: WL_Portal_Result,
 ) {
 	call := dbus.message_new_method_call(
 		"org.freedesktop.portal.Desktop",
@@ -1109,8 +1109,8 @@ wldeco_canvas_size :: proc(
 	window_width: int,
 	window_height: int,
 ) -> (
-	int,
-	int,
+	canvas_width: int,
+	canvas_height: int,
 ) {
 	if !wldeco_shown(deco) {
 		return window_width, window_height
@@ -1132,14 +1132,14 @@ wldeco_canvas_size :: proc(
 
 // The window that a canvas of this size needs, which is the other direction: sizes Karl2D tells
 // the compositor about, like the limits on a window the game keeps at a fixed size, are the
-// window's and not the canvas'deco.win.
+// window's and not the canvas's.
 wldeco_window_size :: proc(
 	deco: ^WL_Decorations,
 	canvas_width: int,
 	canvas_height: int,
 ) -> (
-	int,
-	int,
+	window_width: int,
+	window_height: int,
 ) {
 	if !wldeco_shown(deco) {
 		return canvas_width, canvas_height
