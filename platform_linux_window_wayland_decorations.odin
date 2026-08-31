@@ -194,6 +194,12 @@ WL_Decorations :: struct {
 	font: stbtt.fontinfo,
 	font_ok: bool,
 
+	// The parts that have changed since the last game frame. The frame is painted at most once per
+	// frame however much happens in between, because a subsurface committed twice before its
+	// parent catches up throws the first buffer away without the compositor ever having read it,
+	// and so without ever saying it is done with it.
+	needs_paint: bit_set[WL_Decoration_Part],
+
 	// When and where the last press on the titlebar was, to catch the second one of a double
 	// click. The time is the compositor's, in milliseconds.
 	last_press_time: u32,
@@ -242,12 +248,29 @@ wldeco_init :: proc(deco: ^WL_Decorations, win: ^WL_State) {
 	wldeco_layout(deco)
 }
 
-// Puts every part of the frame where it belongs for the current window size and repaints it. The
-// compositor leaves the parts where they were put, so this runs on every resize and scale change.
+// Says that the whole frame has to be laid out and painted again, which is what a resize or a scale
+// change means. Nothing is drawn here; `wldeco_flush` does that once, before the next game frame.
 wldeco_layout :: proc(deco: ^WL_Decorations) {
-	if deco.parts[.Titlebar].surface == nil {
+	deco.needs_paint = {.Titlebar, .Left, .Right, .Bottom}
+}
+
+// Says that the titlebar alone has to be painted again, for the things that change while the
+// window stays the same size: the title, whether the window has focus, and which button the
+// pointer is on.
+wldeco_repaint_titlebar :: proc(deco: ^WL_Decorations) {
+	deco.needs_paint += {.Titlebar}
+}
+
+// Paints whatever has changed and puts it where it belongs. Called once per game frame, just
+// before the game draws its own, so that everything the frame commits is picked up by the same
+// commit that shows the game's next frame.
+wldeco_flush :: proc(deco: ^WL_Decorations) {
+	if deco.needs_paint == {} || deco.parts[.Titlebar].surface == nil {
 		return
 	}
+
+	parts := deco.needs_paint
+	deco.needs_paint = {}
 
 	// In fullscreen the window is the canvas and nothing else, so the parts come off the screen
 	// entirely. Attaching no buffer to a surface is how Wayland says that.
@@ -269,7 +292,7 @@ wldeco_layout :: proc(deco: ^WL_Decorations) {
 		return
 	}
 
-	for part in WL_Decoration_Part {
+	for part in parts {
 		wldeco_paint(deco, part)
 	}
 
@@ -294,16 +317,6 @@ wldeco_shown :: proc(deco: ^WL_Decorations) -> bool {
 	}
 
 	return deco.win.window_mode != .Borderless_Fullscreen
-}
-
-// Repaints the titlebar alone, for the things that change while the window stays the same size:
-// the title, whether the window has focus, and which button the pointer is on.
-wldeco_repaint_titlebar :: proc(deco: ^WL_Decorations) {
-	if !wldeco_shown(deco) || deco.parts[.Titlebar].surface == nil {
-		return
-	}
-
-	wldeco_paint(deco, .Titlebar)
 }
 
 // Takes the title to draw. The compositor is told separately, since it wants one for its window

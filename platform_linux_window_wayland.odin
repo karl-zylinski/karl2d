@@ -917,6 +917,12 @@ wl_get_window_render_glue :: proc() -> Window_Render_Glue {
 wl_get_events :: proc(events: ^[dynamic]Event) {
 	wl.display_dispatch_pending(s.display)
 
+	// Painted here, once, after everything the compositor had to say and before the game draws its
+	// own frame. The frame's commits then ride along with the game's.
+	if s.has_deco {
+		wldeco_flush(&s.decorations)
+	}
+
 	// Wayland compositors don't send repeat events -- we have to synthesize them ourselves from
 	// the rate/delay reported by the keyboard's `repeat_info` event.
 	if s.repeat_key != .None && s.repeat_rate > 0 {
