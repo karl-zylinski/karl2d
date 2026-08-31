@@ -664,7 +664,7 @@ pointer_listener := wl.Pointer_Listener {
 		s.pointer_x = surface_x
 		s.pointer_y = surface_y
 
-		if s.has_deco {
+		if s.has_deco && wldeco_has_pointer(&s.decorations) {
 			wldeco_pointer_moved(&s.decorations, f32(surface_x >> 8), f32(surface_y >> 8))
 		}
 

@@ -250,6 +250,10 @@ wldeco_layout :: proc(deco: ^WL_Decorations) {
 // screen, and a compositor sizes a fullscreen window to exactly the output with no room for a
 // titlebar above it.
 wldeco_shown :: proc(deco: ^WL_Decorations) -> bool {
+	if deco.parts[.Titlebar].surface == nil {
+		return false
+	}
+
 	return deco.win.window_mode != .Borderless_Fullscreen
 }
 
@@ -600,15 +604,17 @@ wldeco_blend :: proc(under: u32, over: u32, amount: f32) -> u32 {
 		return over
 	}
 
-	mixed := u32(0xff000000)
+	from_r := f32((under >> 16) & 0xff)
+	from_g := f32((under >> 8) & 0xff)
+	from_b := f32(under & 0xff)
+	to_r := f32((over >> 16) & 0xff)
+	to_g := f32((over >> 8) & 0xff)
+	to_b := f32(over & 0xff)
 
-	for shift in ([]u32 {16, 8, 0}) {
-		a := f32((under >> shift) & 0xff)
-		b := f32((over >> shift) & 0xff)
-		mixed |= u32(a + (b - a)*amount) << shift
-	}
-
-	return mixed
+	r := u32(from_r + (to_r - from_r)*amount)
+	g := u32(from_g + (to_g - from_g)*amount)
+	b := u32(from_b + (to_b - from_b)*amount)
+	return 0xff000000 | r << 16 | g << 8 | b
 }
 
 // Where a titlebar button sits, both for drawing it and for deciding whether the pointer is on it.
