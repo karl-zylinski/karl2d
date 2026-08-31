@@ -30,6 +30,9 @@ PLATFORM_LINUX :: Platform_Interface {
 	get_window_position = linux_get_window_position,
 	get_window_scale = linux_get_window_scale,
 	set_window_mode = linux_set_window_mode,
+	get_monitor_count = linux_get_monitor_count,
+	get_monitor_info = linux_get_monitor_info,
+	get_window_monitor = linux_get_window_monitor,
 	set_cursor_hidden = linux_set_cursor_hidden,
 	is_cursor_hidden = linux_is_cursor_hidden,
 	set_mouse_locked = linux_set_mouse_locked,
@@ -764,6 +767,11 @@ Linux_Window_Interface :: struct #all_or_none {
 	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
+
+	get_monitor_count: proc() -> int,
+	get_monitor_info: proc(monitor: int) -> (Monitor_Info, bool),
+	get_window_monitor: proc() -> int,
+
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
 	set_mouse_locked: proc(locked: bool),
@@ -915,4 +923,16 @@ KEY_FROM_XKEYCODE := [255]Keyboard_Key {
 	133 = .Left_Super,
 	134 = .Right_Super,
 	135 = .Menu,
+}
+
+linux_get_monitor_count :: proc() -> int {
+	return s.win.get_monitor_count()
+}
+
+linux_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	return s.win.get_monitor_info(monitor)
+}
+
+linux_get_window_monitor :: proc() -> int {
+	return s.win.get_window_monitor()
 }

@@ -32,6 +32,10 @@ PLATFORM_MAC :: Platform_Interface {
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
 
+	get_monitor_count = mac_get_monitor_count,
+	get_monitor_info = mac_get_monitor_info,
+	get_window_monitor = mac_get_window_monitor,
+
 	set_cursor_hidden = mac_set_cursor_hidden,
 	is_cursor_hidden = mac_is_cursor_hidden,
 	set_mouse_locked = mac_set_mouse_locked,
@@ -1236,4 +1240,55 @@ when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 		}
 
 	}
+}
+
+mac_screen_for_monitor :: proc(monitor: int) -> ^NS.Screen {
+	screens := NS.Screen_screens()
+
+	if monitor < 0 || monitor >= int(NS.Array_count(screens)) {
+		return nil
+	}
+
+	return NS.Array_objectAs(screens, NS.UInteger(monitor), ^NS.Screen)
+}
+
+mac_get_monitor_count :: proc() -> int {
+	return int(NS.Array_count(NS.Screen_screens()))
+}
+
+mac_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	screen := mac_screen_for_monitor(monitor)
+
+	if screen == nil {
+		return {}, false
+	}
+
+	// `frame` is in points. Scaling by the backing factor turns it into the pixels the rest of
+	// Karl2D deals in.
+	scale := f32(screen->backingScaleFactor())
+	frame := screen->frame()
+
+	return Monitor_Info {
+		size = {int(f32(frame.width) * scale), int(f32(frame.height) * scale)},
+		position = {int(f32(frame.x) * scale), int(f32(frame.y) * scale)},
+	}, true
+}
+
+mac_get_window_monitor :: proc() -> int {
+	window_screen := s.window->screen()
+
+	if window_screen == nil {
+		return 0
+	}
+
+	screens := NS.Screen_screens()
+	count := int(NS.Array_count(screens))
+
+	for i in 0..<count {
+		if NS.Array_objectAs(screens, NS.UInteger(i), ^NS.Screen) == window_screen {
+			return i
+		}
+	}
+
+	return 0
 }

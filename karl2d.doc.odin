@@ -166,6 +166,38 @@ get_window_scale :: proc() -> f32
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode)
 
+//----------//
+// MONITORS //
+//----------//
+
+// Returns how many monitors are connected.
+//
+// X11 is the exception: without XRandR bindings it reports a single monitor covering the whole X
+// screen rather than the physical monitors behind it.
+get_monitor_count :: proc() -> int
+
+// Returns the width of `monitor` in pixels.
+get_monitor_width :: proc(monitor: int) -> int
+
+// Returns the height of `monitor` in pixels.
+get_monitor_height :: proc(monitor: int) -> int
+
+// Returns the size of `monitor` in pixels, as a 2D vector.
+get_monitor_size :: proc(monitor: int) -> Vec2
+
+// Returns which monitor the window is currently on. This is the one to feed to the procedures
+// above: the player may well have dragged the window onto a display other than the one it opened
+// on.
+//
+// Falls back to monitor 0 when the platform cannot tell, which is the same answer X11 and web
+// would give anyway since they only ever report one monitor.
+get_window_monitor :: proc() -> int
+
+// Returns the position of `monitor`, in the same coordinate system `set_window_position` uses. The
+// monitors sit side by side in one big coordinate space, so this is what tells you where one is
+// relative to another.
+get_monitor_position :: proc(monitor: int) -> Vec2
+
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
 // procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
 // call this procedure manually. It is done automatically when `present` or `clear` run. It can also

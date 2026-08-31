@@ -21,6 +21,10 @@ PLATFORM_WEB :: Platform_Interface {
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
 
+	get_monitor_count = web_get_monitor_count,
+	get_monitor_info = web_get_monitor_info,
+	get_window_monitor = web_get_window_monitor,
+
 	set_cursor_hidden = web_set_cursor_hidden,
 	is_cursor_hidden = web_is_cursor_hidden,
 	set_mouse_locked = web_set_mouse_locked,
@@ -896,4 +900,38 @@ key_from_js_event :: proc(e: js.Event) -> Keyboard_Key {
 	}
 
 	return res
+}
+
+// The browser exposes one screen, the one the page is on. `window.screen.width`/`height` are not in
+// the `core:sys/wasm/js` bindings, so stash them on the canvas and read them back, the same trick
+// `_web_event_pointer_lock_change` uses for the pointer lock state.
+WEB_MONITOR_SIZE_EVAL :: "var karl2d_el = document.getElementById('webgl-canvas'); " +
+	"karl2d_el._screenWidth = window.screen.width; " +
+	"karl2d_el._screenHeight = window.screen.height;"
+
+web_get_monitor_count :: proc() -> int {
+	return 1
+}
+
+web_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	if monitor != 0 {
+		return {}, false
+	}
+
+	js.evaluate(WEB_MONITOR_SIZE_EVAL)
+
+	// `window.screen` is in CSS pixels, so scale it the way the canvas is scaled.
+	scale := f64(js.device_pixel_ratio())
+	width := js.get_element_key_f64(s.canvas_id, "_screenWidth") * scale
+	height := js.get_element_key_f64(s.canvas_id, "_screenHeight") * scale
+
+	return Monitor_Info {
+		size = {int(width), int(height)},
+		position = {0, 0},
+	}, true
+}
+
+// The page is on one screen and there is no way to ask which of the user's displays that is.
+web_get_window_monitor :: proc() -> int {
+	return 0
 }

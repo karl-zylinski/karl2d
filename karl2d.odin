@@ -634,6 +634,84 @@ set_window_mode :: proc(window_mode: Window_Mode) {
 	pf.set_window_mode(window_mode)
 }
 
+//----------//
+// MONITORS //
+//----------//
+
+// Returns how many monitors are connected.
+//
+// X11 is the exception: without XRandR bindings it reports a single monitor covering the whole X
+// screen rather than the physical monitors behind it.
+get_monitor_count :: proc() -> int {
+	assert_initialized()
+	return pf.get_monitor_count()
+}
+
+// Returns the width of `monitor` in pixels.
+get_monitor_width :: proc(monitor: int) -> int {
+	assert_initialized()
+	info, ok := pf.get_monitor_info(monitor)
+
+	if !ok {
+		log.errorf("Cannot get monitor width, monitor %v does not exist.", monitor)
+		return 0
+	}
+
+	return info.size.x
+}
+
+// Returns the height of `monitor` in pixels.
+get_monitor_height :: proc(monitor: int) -> int {
+	assert_initialized()
+	info, ok := pf.get_monitor_info(monitor)
+
+	if !ok {
+		log.errorf("Cannot get monitor height, monitor %v does not exist.", monitor)
+		return 0
+	}
+
+	return info.size.y
+}
+
+// Returns the size of `monitor` in pixels, as a 2D vector.
+get_monitor_size :: proc(monitor: int) -> Vec2 {
+	assert_initialized()
+	info, ok := pf.get_monitor_info(monitor)
+
+	if !ok {
+		log.errorf("Cannot get monitor size, monitor %v does not exist.", monitor)
+		return {}
+	}
+
+	return {f32(info.size.x), f32(info.size.y)}
+}
+
+// Returns which monitor the window is currently on. This is the one to feed to the procedures
+// above: the player may well have dragged the window onto a display other than the one it opened
+// on.
+//
+// Falls back to monitor 0 when the platform cannot tell, which is the same answer X11 and web
+// would give anyway since they only ever report one monitor.
+get_window_monitor :: proc() -> int {
+	assert_initialized()
+	return pf.get_window_monitor()
+}
+
+// Returns the position of `monitor`, in the same coordinate system `set_window_position` uses. The
+// monitors sit side by side in one big coordinate space, so this is what tells you where one is
+// relative to another.
+get_monitor_position :: proc(monitor: int) -> Vec2 {
+	assert_initialized()
+	info, ok := pf.get_monitor_info(monitor)
+
+	if !ok {
+		log.errorf("Cannot get monitor position, monitor %v does not exist.", monitor)
+		return {}
+	}
+
+	return {f32(info.position.x), f32(info.position.y)}
+}
+
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
 // procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
 // call this procedure manually. It is done automatically when `present` or `clear` run. It can also
@@ -6132,6 +6210,15 @@ Event_Touch_Cancelled :: struct { id: Touch_Id }
 
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
+
+// What a platform backend reports about one monitor. Kept internal: the public procedures hand out
+// the pieces separately, the way `get_screen_width` and friends do. Sizes and positions are in
+// pixels.
+@(private="package")
+Monitor_Info :: struct {
+	size: [2]int,
+	position: [2]int,
+}
 
 // Returns true if `r` should be treated as a typed character for text input purposes. Filters out
 // control characters such as Backspace, Enter, Tab, Escape and Delete. Used by the platform

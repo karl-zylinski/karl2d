@@ -20,6 +20,10 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
 
+	get_monitor_count = windows_get_monitor_count,
+	get_monitor_info = windows_get_monitor_info,
+	get_window_monitor = windows_get_window_monitor,
+
 	set_cursor_hidden = windows_set_cursor_hidden,
 	is_cursor_hidden = windows_is_cursor_hidden,
 	set_mouse_locked = windows_set_mouse_locked,
@@ -1107,4 +1111,83 @@ WIN32_VK_MAP := [255]Keyboard_Key {
 	// NP_Enter is handled separately
 
 	win32.VK_OEM_NEC_EQUAL = .NP_Equal,
+}
+WINDOWS_MONITOR_COUNT_MAX :: 16
+
+Windows_Monitor_List :: struct {
+	items: [WINDOWS_MONITOR_COUNT_MAX]Monitor_Info,
+
+	// Kept alongside `items` so `windows_get_window_monitor` can match what `MonitorFromWindow`
+	// hands back against an index. Not part of `Monitor_Info`, which is what the rest of Karl2D
+	// sees.
+	handles: [WINDOWS_MONITOR_COUNT_MAX]win32.HMONITOR,
+	count: int,
+}
+
+// Enumerated fresh on each call rather than cached. `EnumDisplayMonitors` is a process-wide query
+// with nothing in `Windows_State` to reuse, and enumerating again is how a display being plugged in
+// or unplugged gets noticed.
+windows_collect_monitors :: proc() -> Windows_Monitor_List {
+	list: Windows_Monitor_List
+	win32.EnumDisplayMonitors(nil, nil, windows_monitor_enum_proc, win32.LPARAM(uintptr(&list)))
+	return list
+}
+
+windows_monitor_enum_proc :: proc "system" (
+	hmonitor: win32.HMONITOR,
+	hdc: win32.HDC,
+	rect: win32.LPRECT,
+	lparam: win32.LPARAM,
+) -> win32.BOOL {
+	context = runtime.default_context()
+	list := (^Windows_Monitor_List)(uintptr(lparam))
+
+	if list.count >= WINDOWS_MONITOR_COUNT_MAX {
+		return false
+	}
+
+	mi := win32.MONITORINFO { cbSize = size_of(win32.MONITORINFO) }
+
+	if !win32.GetMonitorInfoW(hmonitor, &mi) {
+		return true
+	}
+
+	list.items[list.count] = Monitor_Info {
+		size = {
+			int(mi.rcMonitor.right - mi.rcMonitor.left),
+			int(mi.rcMonitor.bottom - mi.rcMonitor.top),
+		},
+		position = {int(mi.rcMonitor.left), int(mi.rcMonitor.top)},
+	}
+
+	list.handles[list.count] = hmonitor
+	list.count += 1
+	return true
+}
+
+windows_get_window_monitor :: proc() -> int {
+	hmonitor := win32.MonitorFromWindow(s.hwnd, .MONITOR_DEFAULTTONEAREST)
+	list := windows_collect_monitors()
+
+	for i in 0..<list.count {
+		if list.handles[i] == hmonitor {
+			return i
+		}
+	}
+
+	return 0
+}
+
+windows_get_monitor_count :: proc() -> int {
+	return windows_collect_monitors().count
+}
+
+windows_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	list := windows_collect_monitors()
+
+	if monitor < 0 || monitor >= list.count {
+		return {}, false
+	}
+
+	return list.items[monitor], true
 }

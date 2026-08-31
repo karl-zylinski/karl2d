@@ -26,6 +26,14 @@ Platform_Interface :: struct #all_or_none {
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
 
+	// Indices run `0..<get_monitor_count()` in whatever order the operating system reports them.
+	// `get_monitor_info` returns ok = false for anything outside that.
+	get_monitor_count: proc() -> int,
+	get_monitor_info: proc(monitor: int) -> (Monitor_Info, bool),
+
+	// Which of those indices the window is on. Backends that cannot tell return 0.
+	get_window_monitor: proc() -> int,
+
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
 	set_mouse_locked: proc(locked: bool),
