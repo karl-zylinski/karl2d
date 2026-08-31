@@ -129,6 +129,11 @@ x11_init :: proc(
 		.FocusChange,
 	})
 
+	// The window manager reads the size hints when it first decorates the window and keeps the
+	// titlebar layout it picks from them. Set after the window is mapped they still stop it being
+	// resized, but the titlebar keeps an empty slot where the maximize button would have gone.
+	x11_apply_size_hints(init_options.window_mode)
+
 	X.MapWindow(s.display, s.window)
 
 	s.delete_msg = X.InternAtom(s.display, "WM_DELETE_WINDOW", false)
@@ -170,6 +175,8 @@ x11_init :: proc(
 	X.GetWindowAttributes(s.display, root, &root_attribs)
 	X.SelectInput(s.display, root, root_attribs.your_event_mask | {.PropertyChange})
 
+	// Borderless fullscreen is a request to the window manager about a window it already has on
+	// screen, so that part of the window mode has to wait until after the window is mapped.
 	x11_set_window_mode(init_options.window_mode)
 
 	// blank cursor for hiding it
@@ -629,40 +636,41 @@ leave_borderless_fullscreen :: proc() {
 	X.SendEvent(s.display, X.DefaultRootWindow(s.display), false, {.SubstructureNotify, .SubstructureRedirect}, &exit_fullscreen)
 }
 
-x11_set_window_mode :: proc(window_mode: Window_Mode) {
-	if window_mode == s.window_mode {
-		return
-	}
+// Tells the window manager what sizes the window will accept. A window the game keeps at a fixed
+// size pins its minimum and maximum to the size it has, which is what makes the window manager
+// leave out the resize handles and the maximize button.
+x11_apply_size_hints :: proc(window_mode: Window_Mode) {
+	hints: X.XSizeHints
 
-	old_window_mode := s.window_mode
-	s.window_mode = window_mode
-
-	switch window_mode {
-	case .Windowed:
-		if old_window_mode == .Borderless_Fullscreen {
-			leave_borderless_fullscreen()
-		}
-
-		hints := X.XSizeHints {
-			flags = { .PMinSize, .PMaxSize },
+	if window_mode == .Windowed {
+		hints = {
+			flags = {.PMinSize, .PMaxSize},
 			min_width = i32(s.screen_width),
 			max_width = i32(s.screen_width),
 			min_height = i32(s.screen_height),
 			max_height = i32(s.screen_height),
 		}
+	} else {
+		hints = {
+			flags = {.USSize},
+		}
+	}
 
-		X.SetWMNormalHints(s.display, s.window, &hints)
+	X.SetWMNormalHints(s.display, s.window, &hints)
+}
 
-	case .Windowed_Resizable: 
+x11_set_window_mode :: proc(window_mode: Window_Mode) {
+	old_window_mode := s.window_mode
+	s.window_mode = window_mode
+
+	switch window_mode {
+	case .Windowed, .Windowed_Resizable:
 		if old_window_mode == .Borderless_Fullscreen {
 			leave_borderless_fullscreen()
 		}
 
-		hints := X.XSizeHints {
-			flags = {.USSize},
-		}
+		x11_apply_size_hints(window_mode)
 
-		X.SetWMNormalHints(s.display, s.window, &hints)
 	case .Borderless_Fullscreen:
 		enter_borderless_fullscreen()
 	}
