@@ -9,7 +9,9 @@ logo: k2.Texture
 init :: proc() {
 	k2.init(1280, 720, "Karl2D Logo")
 
-	logo_image := k2.make_karl2d_logo()
+	// 960 pixels across makes every cell of the pixel art 32 pixels wide, and leaves room either
+	// side of the logo in the window.
+	logo_image := k2.make_karl2d_logo(960)
 	logo = k2.load_texture_from_image(logo_image)
 
 	// The texture holds its own copy of the pixels.
@@ -24,17 +26,15 @@ step :: proc() -> bool {
 	k2.clear({33, 11, 11, 255})
 
 	logo_rect := k2.get_texture_rect(logo)
-	logo_w := logo_rect.w*2
-	logo_h := logo_rect.h*2
 
 	k2.draw_texture_fit(
 		logo,
 		logo_rect,
 		{
-			k2.get_screen_size().x/2 - logo_w/2,
-			k2.get_screen_size().y/2 - logo_h/2,
-			logo_w,
-			logo_h,
+			k2.get_screen_size().x/2 - logo_rect.w/2,
+			k2.get_screen_size().y/2 - logo_rect.h/2,
+			logo_rect.w,
+			logo_rect.h,
 		},
 	)
 

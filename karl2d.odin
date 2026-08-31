@@ -80,8 +80,10 @@ init :: proc(
 	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
 
 	// The window has an icon from the start this way. A game replaces it with its own by calling
-	// `set_window_icon`.
-	default_icon := make_karl2d_icon()
+	// `set_window_icon`. 256 pixels covers every size an OS shows an icon at. The web favicon only
+	// ever shows small, and a smaller image there keeps the PNG data URI it turns into small too.
+	DEFAULT_ICON_SIZE :: 256 when ODIN_OS != .JS else 64
+	default_icon := make_karl2d_icon(DEFAULT_ICON_SIZE)
 	pf.set_window_icon(default_icon, false)
 	destroy_image(default_icon)
 
@@ -4946,17 +4948,13 @@ camera_world_matrix :: proc(c: Camera) -> Mat4 {
 // MISC //
 //------//
 
-// Makes the Karl2D icon, the K and the 2 from the logo, by scaling its pixel art up with nearest
-// neighbor. `init` puts it on the window; pass it to `set_window_icon` to bring it back, or to
-// `load_texture_from_image` to draw it.
+// Makes the Karl2D icon, the K and the 2 from the logo, `size` pixels a side. It is drawn from
+// pixel art 16 cells a side, scaled up with nearest neighbor, so a `size` that divides by 16 gives
+// cells that are all the same number of pixels across. Other sizes work and make some cells a
+// pixel wider than others. `init` makes one of these and sets it by default.
 //
 // Use `destroy_image` when you are done with it.
-make_karl2d_icon :: proc() -> Image {
-	// 16 pixels per cell makes the icon 256x256, which covers every size an OS shows an icon at.
-	// The web favicon only ever shows small, and a smaller image there keeps the PNG data URI it
-	// turns into small too.
-	CELL_SIZE :: 16 when ODIN_OS != .JS else 4
-
+make_karl2d_icon :: proc(size: int) -> Image {
 	// 0 is background, 1 is yellow, 2 is the dark red.
 	art := [16][16]u8 {
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -4977,17 +4975,17 @@ make_karl2d_icon :: proc() -> Image {
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 	}
 
-	return _image_from_karl2d_art(art, CELL_SIZE)
+	return _image_from_karl2d_art(art, size, size)
 }
 
-// Makes the Karl2D logo, the whole "KARL2D" mark, by scaling its pixel art up with nearest
-// neighbor. The image comes out at 480x160 pixels; pass it to `load_texture_from_image` to
-// draw it.
+// Makes the Karl2D logo, the whole "KARL2D" mark, `width` pixels across and a third of that tall,
+// which is the shape of the mark. It is drawn from pixel art 30 cells across, scaled up with
+// nearest neighbor, so a `width` that divides by 30 gives cells that are all the same number of
+// pixels across. Other widths work and make some cells a pixel wider than others. Pass the image
+// to `load_texture_from_image` to draw it.
 //
 // Use `destroy_image` when you are done with it.
-make_karl2d_logo :: proc() -> Image {
-	CELL_SIZE :: 16
-
+make_karl2d_logo :: proc(width: int) -> Image {
 	// 0 is background, 1 is yellow, 2 is the dark red.
 	art := [10][30]u8 {
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -5002,7 +5000,7 @@ make_karl2d_logo :: proc() -> Image {
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 	}
 
-	return _image_from_karl2d_art(art, CELL_SIZE)
+	return _image_from_karl2d_art(art, width, width/3)
 }
 
 // Choose how the alpha channel is used when mixing half-transparent color with what is already
@@ -6232,21 +6230,25 @@ is_typable_rune :: proc(r: rune) -> bool {
 }
 
 // Turns the cell art of `make_karl2d_icon` and `make_karl2d_logo` into an `Image` in the Karl2D
-// logo colors, `cell_size` pixels per cell.
-_image_from_karl2d_art :: proc(art: [$H][$W]u8, cell_size: int) -> Image {
+// logo colors, `width` by `height` pixels. Each pixel takes the color of the cell it lands in,
+// which is nearest neighbor scaling and keeps the edges of the art hard at any size.
+_image_from_karl2d_art :: proc(art: [$H][$W]u8, width: int, height: int) -> Image {
+	if width <= 0 || height <= 0 {
+		log.error("Cannot make the Karl2D art image, the size must be at least one pixel.")
+		return {}
+	}
+
 	colors := [3]Color {
 		{33, 11, 11, 255},  // background
 		{255, 209, 0, 255}, // yellow
 		{127, 6, 34, 255},  // dark red
 	}
 
-	width := W*cell_size
-	height := H*cell_size
 	pixels := make([]Color, width*height, s.allocator)
 
 	for y in 0..<height {
 		for x in 0..<width {
-			pixels[y*width + x] = colors[art[y/cell_size][x/cell_size]]
+			pixels[y*width + x] = colors[art[y*H/height][x*W/width]]
 		}
 	}
 
