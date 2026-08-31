@@ -25,9 +25,13 @@ import "platform_bindings/linux/dbus"
 import wl "platform_bindings/linux/wayland"
 
 // The frame Karl2D draws around the game canvas where the compositor draws none, in logical
-// pixels. The border is the thin line along the three sides that have no titlebar.
+// pixels. `border` is the outline around the window, and is what the three sides that have no
+// titlebar are made of. `edge` is the ring painted one step outside it, and `separator` the line
+// where the titlebar meets the game canvas.
 DECORATION_TITLEBAR_HEIGHT :: 32
-DECORATION_BORDER :: 1
+DECORATION_BORDER :: 2
+DECORATION_EDGE :: 1
+DECORATION_SEPARATOR :: 1
 
 // How far the grip for resizing reaches outside the window. A one pixel border is nothing to aim
 // at, so every part of the frame is bigger than what it paints and the extra is left transparent.
@@ -344,7 +348,9 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 	// outline, what remains is the titlebar to fill, and the rest of the part is the grip and stays
 	// transparent. One rule paints all four parts, and the corners come out right because the same
 	// rectangle describes the window in each of them.
-	thickness := max(1, int(math.round(DECORATION_BORDER * deco.win.scale)))
+	border := max(1, int(math.round(DECORATION_BORDER * deco.win.scale)))
+	edge := max(1, int(math.round(DECORATION_EDGE * deco.win.scale)))
+	separator := max(1, int(math.round(DECORATION_SEPARATOR * deco.win.scale)))
 	left := int(math.round(f32(-DECORATION_BORDER - d.x) * deco.win.scale))
 	top := int(math.round(f32(-DECORATION_TITLEBAR_HEIGHT - d.y) * deco.win.scale))
 	right := int(math.round(f32(w + DECORATION_BORDER - d.x) * deco.win.scale))
@@ -360,14 +366,14 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 			// How far inside the window this pixel is, measured to the nearest side. Negative
 			// means it is out in the grip, and a premultiplied zero leaves that fully transparent.
 			inset := min(x - left, right - 1 - x, y - top, bottom - 1 - y)
-			under_titlebar := y >= canvas_top - thickness && y < canvas_top
+			under_titlebar := y >= canvas_top - separator && y < canvas_top
 			color := deco.colors.fill
 
-			if inset < -thickness {
+			if inset < -edge {
 				color = 0
 			} else if inset < 0 {
 				color = deco.colors.edge
-			} else if inset < thickness || under_titlebar {
+			} else if inset < border || under_titlebar {
 				color = deco.colors.outline
 			}
 
