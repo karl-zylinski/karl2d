@@ -25,13 +25,15 @@ import "platform_bindings/linux/dbus"
 import wl "platform_bindings/linux/wayland"
 
 // The frame Karl2D draws around the game canvas where the compositor draws none, in logical
-// pixels. `border` is the outline around the window, and is what the three sides that have no
-// titlebar are made of. `edge` is the ring painted one step outside it, and `separator` the line
-// where the titlebar meets the game canvas.
+// pixels. The three sides that have no titlebar are built from the outside in: a ring that makes
+// the window stand out against whatever is behind it, the outline proper, and then the titlebar's
+// own color carrying on down the sides and along the bottom. `border` is the two of those that are
+// part of the window, and so how much wider and taller it is than the game canvas.
 DECORATION_TITLEBAR_HEIGHT :: 32
-DECORATION_BORDER :: 2
 DECORATION_EDGE :: 1
-DECORATION_SEPARATOR :: 1
+DECORATION_OUTLINE :: 1
+DECORATION_SIDE :: 2
+DECORATION_BORDER :: DECORATION_OUTLINE + DECORATION_SIDE
 
 // How far the grip for resizing reaches outside the window. A one pixel border is nothing to aim
 // at, so every part of the frame is bigger than what it paints and the extra is left transparent.
@@ -344,36 +346,29 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 	}
 
 	// Where the window itself is inside this part, in the part's own physical pixels. One ring of
-	// pixels just outside that rectangle is the dark edge, the outermost pixels inside it are the
-	// outline, what remains is the titlebar to fill, and the rest of the part is the grip and stays
+	// pixels just outside that rectangle is the edge, the outermost pixels inside it are the
+	// outline, everything further in is fill, and the rest of the part is the grip and stays
 	// transparent. One rule paints all four parts, and the corners come out right because the same
 	// rectangle describes the window in each of them.
-	border := max(1, int(math.round(DECORATION_BORDER * deco.win.scale)))
+	outline := max(1, int(math.round(DECORATION_OUTLINE * deco.win.scale)))
 	edge := max(1, int(math.round(DECORATION_EDGE * deco.win.scale)))
-	separator := max(1, int(math.round(DECORATION_SEPARATOR * deco.win.scale)))
 	left := int(math.round(f32(-DECORATION_BORDER - d.x) * deco.win.scale))
 	top := int(math.round(f32(-DECORATION_TITLEBAR_HEIGHT - d.y) * deco.win.scale))
 	right := int(math.round(f32(w + DECORATION_BORDER - d.x) * deco.win.scale))
 	bottom := int(math.round(f32(h + DECORATION_BORDER - d.y) * deco.win.scale))
-
-	// Where the titlebar meets the game canvas, which gets a line of its own so that the two are
-	// told apart whatever the game draws up against it. In every part but the titlebar this lands
-	// outside the buffer and nothing comes of it.
-	canvas_top := int(math.round(f32(-d.y) * deco.win.scale))
 
 	for y in 0..<buffer_height {
 		for x in 0..<buffer_width {
 			// How far inside the window this pixel is, measured to the nearest side. Negative
 			// means it is out in the grip, and a premultiplied zero leaves that fully transparent.
 			inset := min(x - left, right - 1 - x, y - top, bottom - 1 - y)
-			under_titlebar := y >= canvas_top - separator && y < canvas_top
 			color := deco.colors.fill
 
 			if inset < -edge {
 				color = 0
 			} else if inset < 0 {
 				color = deco.colors.edge
-			} else if inset < border || under_titlebar {
+			} else if inset < outline {
 				color = deco.colors.outline
 			}
 
