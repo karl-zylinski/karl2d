@@ -19,6 +19,7 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_screen_size = x11_set_screen_size,
 	get_window_scale = x11_get_window_scale,
 	set_window_mode = x11_set_window_mode,
+	set_window_icon = x11_set_window_icon,
 	set_cursor_hidden = x11_set_cursor_hidden,
 	is_cursor_hidden = x11_is_cursor_hidden,
 	set_mouse_locked = x11_set_mouse_locked,
@@ -674,6 +675,46 @@ x11_set_window_mode :: proc(window_mode: Window_Mode) {
 	case .Borderless_Fullscreen:
 		enter_borderless_fullscreen()
 	}
+}
+
+x11_set_window_icon :: proc(image: Image, _: bool) -> bool {
+	// `_NET_WM_ICON` holds a list of icons, each one its width and height followed by its pixels
+	// in ARGB. We send a single icon and let the window manager scale it to the sizes it wants.
+	//
+	// The property has a format of 32, which in Xlib means an array of C `long`. That is 64 bits
+	// wide on 64-bit Linux, so each pixel travels in the low half of its own `uint`. Handing this
+	// call a `[]u32` is the usual way to get garbage on screen instead of an icon.
+	data, data_err := make([]uint, 2 + image.width*image.height, frame_allocator)
+
+	if data_err != nil {
+		log.errorf("Failed setting window icon: allocating the property failed with %v", data_err)
+		return false
+	}
+
+	data[0] = uint(image.width)
+	data[1] = uint(image.height)
+
+	for i in 0..<len(image.pixels) {
+		col := image.pixels[i]
+		data[2 + i] = uint(col.a) << 24 | uint(col.r) << 16 | uint(col.g) << 8 | uint(col.b)
+	}
+
+	X.ChangeProperty(
+		s.display,
+		s.window,
+		X.InternAtom(s.display, "_NET_WM_ICON", false),
+		X.XA_CARDINAL,
+		32,
+		X.PropModeReplace,
+		raw_data(data),
+		i32(len(data)),
+	)
+
+	X.Flush(s.display)
+
+	// The X server reports a rejected property change asynchronously, so true here means the
+	// request was sent, not that the icon reached the screen.
+	return true
 }
 
 x11_set_cursor_hidden :: proc(hidden: bool) {

@@ -166,6 +166,16 @@ get_window_scale :: proc() -> f32
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode)
 
+// Sets the icon shown in the titlebar and the OS's program switcher bar. By default Karl2D uses an
+// icon that says K2. Load the image using for example `k2.load_image_from_file`.
+//
+// The data of `image` is copied, so you can destroy it after running this.
+//
+// On web this modifies the icon shown on the tab.
+//
+// Returns `true` if the icon was set. The reason is logged when it wasn't.
+set_window_icon :: proc(image: Image) -> bool
+
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
 // procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
 // call this procedure manually. It is done automatically when `present` or `clear` run. It can also
@@ -1093,6 +1103,21 @@ camera_inverse_view_matrix :: proc(c: Camera) -> Mat4
 //------//
 // MISC //
 //------//
+
+// Makes a Karl2D icon with K and the 2 from the logo. It will be `size*size` pixels. It's created
+// from pixel art that is 16x16, scaled up with nearest neighbor. So a size divisible by 16 is
+// recommended.
+//
+// `init` uses this procedure for the default window icon.
+//
+// Use `destroy_image` when you no longer need the image.
+make_karl2d_icon :: proc(size: int) -> Image
+
+// Makes a Karl2D logo that says KARL2D. It will be `width*width/3` pixels. It is created from pixel
+// art that is 30x10 pixels large. So a width that is divisible by 30 is recommended.
+//
+// Use `destroy_image` when you no longer need the image.
+make_karl2d_logo :: proc(width: int) -> Image
 
 // Choose how the alpha channel is used when mixing half-transparent color with what is already
 // drawn. The default is the .Alpha mode, but you also have the option of using .Premultiply_Alpha.

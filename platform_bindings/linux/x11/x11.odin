@@ -405,6 +405,14 @@ XWindowAttributes :: struct {
 // Passed to GetWindowProperty to accept whatever type the property already has.
 AnyPropertyType :: Atom(0)
 
+// One of the atoms the X server predefines, so it needs no InternAtom call.
+XA_CARDINAL :: Atom(6)
+
+// The `mode` of ChangeProperty. Replace throws away whatever the property held before.
+PropModeReplace :: i32(0)
+PropModePrepend :: i32(1)
+PropModeAppend :: i32(2)
+
 XNInputStyle: cstring : "inputStyle"
 XNClientWindow: cstring : "clientWindow"
 XNFocusWindow: cstring : "focusWindow"
@@ -477,6 +485,19 @@ GetWindowProperty: proc "c" (
 	bytes_after:   ^uint,
 	prop:          ^rawptr,
 ) -> Status
+
+// `format` is 8, 16 or 32, and says how wide one element of `data` is. Note that a format of 32
+// means an array of C `long`, which is 64 bits on 64-bit Linux, not an array of 32-bit values.
+ChangeProperty: proc "c" (
+	display:   ^Display,
+	window:    Window,
+	property:  Atom,
+	type:      Atom,
+	format:    i32,
+	mode:      i32,
+	data:      rawptr,
+	num_items: i32,
+) -> i32
 
 Free: proc "c" (data: rawptr) -> i32
 
@@ -699,6 +720,7 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"XInternAtom", &InternAtom},
 		{"XGetWindowAttributes", &GetWindowAttributes},
 		{"XGetWindowProperty", &GetWindowProperty},
+		{"XChangeProperty", &ChangeProperty},
 		{"XFree", &Free},
 		{"XrmInitialize", &XrmInitialize},
 		{"XrmGetStringDatabase", &XrmGetStringDatabase},

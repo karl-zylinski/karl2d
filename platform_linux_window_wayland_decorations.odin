@@ -74,6 +74,11 @@ DECORATION_BUTTON_INSET :: 4
 DECORATION_TITLE_SIZE :: 15
 DECORATION_TITLE_PADDING :: 8
 
+// The window icon, in logical pixels: the box it is drawn in and the gap it keeps to the title it
+// sits in front of. Sixteen pixels is the size a desktop draws a window icon at.
+DECORATION_ICON_SIZE :: 16
+DECORATION_ICON_GAP :: 6
+
 // What the frame is painted with. The fill covers the titlebar, `text` draws the title and the
 // button glyphs, and `hover` lights up the button under the pointer. Premultiplied ARGB, the
 // format the decoration buffers are in.
@@ -188,6 +193,11 @@ WL_Decorations :: struct {
 	// The window title, kept because the titlebar has to be repainted with it whenever anything
 	// else about the titlebar changes. Owned by the frame, in the allocator Karl2D was given.
 	title: string,
+
+	// The window icon, drawn in front of the title. Empty until `set_window_icon` runs, which
+	// `init` does for every game. A copy in the allocator Karl2D was given, at the size it came in
+	// at, scaled down to the titlebar every time that is painted.
+	icon: Image,
 
 	// The embedded font, parsed once. It points into `DEFAULT_FONT_DATA`, which is baked into the
 	// program and outlives everything.
@@ -330,6 +340,22 @@ wldeco_set_title :: proc(deco: ^WL_Decorations, title: string) {
 
 	delete(deco.title, deco.win.allocator)
 	deco.title = strings.clone(title, deco.win.allocator)
+	wldeco_repaint_titlebar(deco)
+}
+
+// Takes the icon to draw in front of the title. The image belongs to whoever passed it in and may
+// be gone by the next repaint, so the frame keeps a copy of the pixels.
+wldeco_set_icon :: proc(deco: ^WL_Decorations, image: Image) {
+	pixels := make([]Color, len(image.pixels), deco.win.allocator)
+	copy(pixels, image.pixels)
+	delete(deco.icon.pixels, deco.win.allocator)
+
+	deco.icon = {
+		pixels = pixels,
+		width = image.width,
+		height = image.height,
+	}
+
 	wldeco_repaint_titlebar(deco)
 }
 
@@ -493,10 +519,10 @@ wldeco_set_input_region :: proc(deco: ^WL_Decorations, d: ^WL_Decoration) {
 	wl.region_destroy(region)
 }
 
-// Draws the window title across the middle of the titlebar, in the space the buttons leave. The
-// glyphs are rasterized straight out of the font Karl2D already embeds, one at a time, which is
-// little enough work for something that only happens when the title, the size, the focus or the
-// button under the pointer changes.
+// Draws the window title across the middle of the titlebar, with the window icon in front of it,
+// in the space the buttons leave. The glyphs are rasterized straight out of the font Karl2D
+// already embeds, one at a time, which is little enough work for something that only happens when
+// the title, the size, the focus or the button under the pointer changes.
 wldeco_paint_title :: proc(deco: ^WL_Decorations, d: ^WL_Decoration) {
 	if !deco.font_ok || deco.title == "" {
 		return
@@ -504,9 +530,6 @@ wldeco_paint_title :: proc(deco: ^WL_Decorations, d: ^WL_Decoration) {
 
 	font := &deco.font
 	scale_factor := stbtt.ScaleForPixelHeight(font, DECORATION_TITLE_SIZE * deco.win.scale)
-
-	ascent, descent, line_gap: i32
-	stbtt.GetFontVMetrics(font, &ascent, &descent, &line_gap)
 
 	// Everything below is in the titlebar's own physical pixels. `left` and `right` are as far as
 	// the title may reach: the window's left edge on one side and the first button on the other.
@@ -527,15 +550,44 @@ wldeco_paint_title :: proc(deco: ^WL_Decorations, d: ^WL_Decoration) {
 		width += int(math.round(f32(advance) * scale_factor))
 	}
 
+	// The icon stays in front of the title wherever that ends up, so the room it takes comes off
+	// the left of the space the text has.
+	icon_size := 0
+	icon_room := 0
+
+	if len(deco.icon.pixels) > 0 {
+		icon_size = int(math.round(DECORATION_ICON_SIZE * deco.win.scale))
+		icon_room = icon_size + int(math.round(DECORATION_ICON_GAP * deco.win.scale))
+	}
+
 	// Centered on the window itself rather than on the room beside the buttons, so that it sits
 	// where the eye looks for it. A title too long for that room runs into the buttons and is cut
 	// off there instead.
 	center := int(math.round(f32(deco.win.last_configure_width - d.x*2) * deco.win.scale))/2
-	pen := max(left, center - width/2)
+	pen := max(left + icon_room, center - width/2)
 	top := int(math.round(f32(-DECORATION_TITLEBAR_HEIGHT - d.y) * deco.win.scale))
 	bar_height := int(math.round(DECORATION_TITLEBAR_HEIGHT * deco.win.scale))
-	text_height := f32(ascent - descent) * scale_factor
-	baseline := top + int((f32(bar_height) - text_height)/2 + f32(ascent)*scale_factor)
+
+	if icon_size > 0 {
+		wldeco_paint_icon(
+			deco,
+			d,
+			pen - icon_room,
+			top + (bar_height - icon_size)/2,
+			icon_size,
+			left,
+			right,
+		)
+	}
+
+	// The text is centered on the band the capital letters fill, which is what the eye reads as
+	// the middle of it. Centering on the font's ascent and descent instead sets it too high, since
+	// those leave room for accents and for descenders that a title rarely has. The capital H is
+	// what that band is measured from.
+	cap_x0, cap_y0, cap_x1, cap_y1: i32
+	stbtt.GetCodepointBox(font, 'H', &cap_x0, &cap_y0, &cap_x1, &cap_y1)
+	cap_height := f32(cap_y1) * scale_factor
+	baseline := top + int(math.round((f32(bar_height) + cap_height)/2))
 	color := wldeco_text_color(deco)
 
 	for r in deco.title {
@@ -605,6 +657,80 @@ wldeco_blit_glyph :: proc(
 
 		at := y*d.buffer_width + x
 		d.pixels[at] = wldeco_blend(d.pixels[at], color, f32(alpha)/255)
+	}
+}
+
+// Draws the window icon into the titlebar buffer, inside a box `size` physical pixels a side at
+// `at_x`, `at_y`, keeping the proportions the image came in with. Every pixel of it is the average
+// of the source pixels it covers, which is what keeps an icon far larger than the box, and the
+// 256x256 one Karl2D ships is, from coming out ragged. `clip_left` and `clip_right` keep it out of
+// the buttons and off the window's edge, the same as the title.
+wldeco_paint_icon :: proc(
+	deco: ^WL_Decorations,
+	d: ^WL_Decoration,
+	at_x: int,
+	at_y: int,
+	size: int,
+	clip_left: int,
+	clip_right: int,
+) {
+	icon := deco.icon
+	draw_width := size
+	draw_height := size
+
+	if icon.width > icon.height {
+		draw_height = max(1, size*icon.height/icon.width)
+	} else if icon.height > icon.width {
+		draw_width = max(1, size*icon.width/icon.height)
+	}
+
+	// A picture that does not fill the box sits in the middle of it.
+	box_x := at_x + (size - draw_width)/2
+	box_y := at_y + (size - draw_height)/2
+
+	for y in 0..<draw_height {
+		for x in 0..<draw_width {
+			to_x := box_x + x
+			to_y := box_y + y
+
+			if to_x < clip_left || to_x >= clip_right || to_y < 0 || to_y >= d.buffer_height {
+				continue
+			}
+
+			// The source pixels this one covers. Averaging them is the whole of the scaling, and
+			// the color is weighted by alpha so that transparent pixels do not wash the edges out.
+			from_x0 := x*icon.width/draw_width
+			from_x1 := max(from_x0 + 1, (x + 1)*icon.width/draw_width)
+			from_y0 := y*icon.height/draw_height
+			from_y1 := max(from_y0 + 1, (y + 1)*icon.height/draw_height)
+			total_a := 0
+			total_r := 0
+			total_g := 0
+			total_b := 0
+
+			for from_y in from_y0..<from_y1 {
+				for from_x in from_x0..<from_x1 {
+					col := icon.pixels[from_y*icon.width + from_x]
+					a := int(col.a)
+					total_a += a
+					total_r += int(col.r)*a
+					total_g += int(col.g)*a
+					total_b += int(col.b)*a
+				}
+			}
+
+			if total_a == 0 {
+				continue
+			}
+
+			sampled := (from_x1 - from_x0)*(from_y1 - from_y0)
+			r := u32(total_r/total_a)
+			g := u32(total_g/total_a)
+			b := u32(total_b/total_a)
+			alpha := f32(total_a)/f32(sampled*255)
+			at := to_y*d.buffer_width + to_x
+			d.pixels[at] = wldeco_blend(d.pixels[at], 0xff000000 | r << 16 | g << 8 | b, alpha)
+		}
 	}
 }
 
@@ -853,6 +979,8 @@ wldeco_destroy :: proc(deco: ^WL_Decorations) {
 
 	delete(deco.title, deco.win.allocator)
 	deco.title = ""
+	delete(deco.icon.pixels, deco.win.allocator)
+	deco.icon = {}
 }
 
 // Picks the frame colors from what the desktop is set up for, by asking the desktop portal over

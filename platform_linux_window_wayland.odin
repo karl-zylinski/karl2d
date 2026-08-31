@@ -17,6 +17,7 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	set_screen_size = wl_set_screen_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
+	set_window_icon = wl_set_window_icon,
 	set_cursor_hidden = wl_set_cursor_hidden,
 	is_cursor_hidden = wl_is_cursor_hidden,
 	set_mouse_locked = wl_set_mouse_locked,
@@ -334,6 +335,18 @@ registry_listener := wl.Registry_Listener {
 				name,
 				&wl.wp_cursor_shape_manager_v1_interface,
 				version,
+			)
+
+		case wl.xdg_toplevel_icon_manager_v1_interface.name:
+			// Bound at the version these bindings implement at most. Binding at whatever the
+			// compositor advertises tells it we understand events we don't, and an event past the
+			// end of our event table makes libwayland abort the process.
+			s.toplevel_icon_manager = wl.registry_bind(
+				wl.XDG_Toplevel_Icon_Manager_V1,
+				registry,
+				name,
+				&wl.xdg_toplevel_icon_manager_v1_interface,
+				min(version, u32(wl.xdg_toplevel_icon_manager_v1_interface.version)),
 			)
 		}
 	},
@@ -867,6 +880,14 @@ wl_shutdown :: proc() {
 	}
 	hm.dynamic_destroy(&s.custom_cursors)
 
+	wl_destroy_toplevel_icon()
+
+	// The icon protocol is optional, so this is nil on compositors that lack it.
+	if s.toplevel_icon_manager != nil {
+		wl.xdg_toplevel_icon_manager_v1_destroy(s.toplevel_icon_manager)
+		s.toplevel_icon_manager = nil
+	}
+
 	// The cursor shape protocol is optional, so these are nil on compositors that lack it.
 	if s.cursor_shape_device != nil {
 		wl.cursor_shape_device_destroy(s.cursor_shape_device)
@@ -1040,6 +1061,94 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	// without it.
 	if s.has_deco {
 		wldeco_repaint_all(&s.decorations)
+	}
+}
+
+wl_set_window_icon :: proc(image: Image, warn_if_unsupported: bool) -> bool {
+	// The frame Karl2D draws for itself puts the icon in its titlebar. The compositor is told
+	// separately below, for the window list and the switcher, which are its own to draw.
+	if s.has_deco {
+		wldeco_set_icon(&s.decorations, image)
+	}
+
+	if s.toplevel_icon_manager == nil {
+		// `init` passes false for its default icon, which also keeps the warn-once flag intact
+		// for the call the game makes itself.
+		if warn_if_unsupported && !s.warned_about_missing_icon_protocol {
+			log.warn(
+				"Cannot tell the compositor the window icon: it does not implement the " +
+				"xdg-toplevel-icon-v1 protocol. The other way to give a Wayland window an icon " +
+				"is to install a .desktop file in a place such as " +
+				"~/.local/share/applications/, name it after the game's app id and give it an " +
+				"Icon= line. Compositors that lack the protocol use that instead.",
+			)
+
+			s.warned_about_missing_icon_protocol = true
+		}
+
+		// The titlebar Karl2D draws is still an icon on screen, where there is one.
+		return s.has_deco
+	}
+
+	// The protocol only takes square buffers. A non-square image goes in the middle of one.
+	size := max(image.width, image.height)
+	buffer, data, data_size, buffer_ok := wl_create_shm_buffer("karl2d-icon", size, size)
+
+	if !buffer_ok {
+		return false
+	}
+
+	// Convert to ARGB and premultiply alpha. A fresh shm buffer is all zeroes, so any padding
+	// around a non-square image is already transparent.
+	pixel_data := ([^]u32)(data)
+	offset_x := (size - image.width)/2
+	offset_y := (size - image.height)/2
+
+	for y in 0..<image.height {
+		for x in 0..<image.width {
+			col := image.pixels[y*image.width + x]
+			a := u32(col.a)
+			r := u32(col.r) * a / 255
+			g := u32(col.g) * a / 255
+			b := u32(col.b) * a / 255
+			pixel_data[(offset_y + y)*size + offset_x + x] = a << 24 | r << 16 | g << 8 | b
+		}
+	}
+
+	icon := wl.xdg_toplevel_icon_manager_v1_create_icon(s.toplevel_icon_manager)
+
+	// A scale of 1 says the buffer holds one pixel per logical pixel. The compositor scales it to
+	// each size it wants to show the icon at.
+	wl.xdg_toplevel_icon_v1_add_buffer(icon, buffer, 1)
+	wl.xdg_toplevel_icon_manager_v1_set_icon(s.toplevel_icon_manager, s.toplevel, icon)
+
+	// The previous icon is only safe to take apart now that the toplevel points at this one.
+	wl_destroy_toplevel_icon()
+
+	s.toplevel_icon = icon
+	s.toplevel_icon_buffer = buffer
+	s.toplevel_icon_data = data
+	s.toplevel_icon_data_size = data_size
+	return true
+}
+
+// Takes apart the icon that `wl_set_window_icon` made. Does nothing when there is none. The icon
+// object goes first: the protocol wants its buffer to outlive it.
+wl_destroy_toplevel_icon :: proc() {
+	if s.toplevel_icon != nil {
+		wl.xdg_toplevel_icon_v1_destroy(s.toplevel_icon)
+		s.toplevel_icon = nil
+	}
+
+	if s.toplevel_icon_buffer != nil {
+		wl.buffer_destroy(s.toplevel_icon_buffer)
+		s.toplevel_icon_buffer = nil
+	}
+
+	if s.toplevel_icon_data != nil {
+		linux.munmap(s.toplevel_icon_data, uint(s.toplevel_icon_data_size))
+		s.toplevel_icon_data = nil
+		s.toplevel_icon_data_size = 0
 	}
 }
 
@@ -1217,27 +1326,68 @@ wl_apply_cursor :: proc() {
 	wl.surface_commit(s.cursor_surface)
 }
 
-wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
-	stride := image.width * 4
-	size := stride * image.height
+// Creates a `width` x `height` ARGB shm buffer for handing pixels to the compositor, along with
+// the memory it reads from, mapped into our address space. The caller fills the pixels through
+// `_data` and owns both: the buffer dies by `wl.buffer_destroy` and the memory by `linux.munmap`
+// with `_data_size`, buffer first. The memory starts out all zeroes.
+//
+// `name` shows up in /proc/.../fd for debugging. Failure is logged with it, and means nothing
+// needs to be cleaned up.
+wl_create_shm_buffer :: proc(
+	name: cstring,
+	width: int,
+	height: int,
+) -> (
+	_buffer: ^wl.Buffer,
+	_data: rawptr,
+	_data_size: int,
+	_ok: bool,
+) {
+	stride := width*4
+	size := stride*height
 
-	fd, fd_err := linux.memfd_create("cursor", {})
+	fd, fd_err := linux.memfd_create(name, {})
 	if fd_err != .NONE {
-		log.errorf("Failed to create Wayland cursor: memfd failed with %v", fd_err)
-		return {}, false
+		log.errorf("Failed creating shm buffer '%s': memfd failed with %v", name, fd_err)
+		return
 	}
 
 	// The compositor dups the fd in shm_create_pool, so we don't have to keep ours around.
 	defer linux.close(fd)
 
 	if trunc_err := linux.ftruncate(fd, i64(size)); trunc_err != .NONE {
-		log.errorf("Failed to create Wayland cursor: ftruncate failed with %v", trunc_err)
-		return {}, false
+		log.errorf("Failed creating shm buffer '%s': ftruncate failed with %v", name, trunc_err)
+		return
 	}
 
 	data, mmap_err := linux.mmap(0, uint(size), {.READ, .WRITE}, {.SHARED}, fd, 0)
 	if mmap_err != .NONE {
-		log.errorf("Failed to create Wayland cursor: mmap failed with %v", mmap_err)
+		log.errorf("Failed creating shm buffer '%s': mmap failed with %v", name, mmap_err)
+		return
+	}
+
+	pool := wl.shm_create_pool(s.shm, c.int32_t(fd), c.int32_t(size))
+
+	buffer := wl.shm_pool_create_buffer(
+		pool,
+		0,
+		c.int32_t(width),
+		c.int32_t(height),
+		c.int32_t(stride),
+		wl.SHM_FORMAT_ARGB8888,
+	)
+
+	// The pool can go away immediately: the mapping stays alive until every buffer made from it
+	// has been destroyed.
+	wl.shm_pool_destroy(pool)
+
+	return buffer, data, size, true
+}
+
+wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
+	buffer, data, data_size, buffer_ok := wl_create_shm_buffer("cursor", image.width, image.height)
+
+	if !buffer_ok {
 		return {}, false
 	}
 
@@ -1252,18 +1402,6 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor
 		pixel_data[i] = a << 24 | r << 16 | g << 8 | b
 	}
 
-	pool := wl.shm_create_pool(s.shm, c.int32_t(fd), c.int32_t(size))
-
-	buffer := wl.shm_pool_create_buffer(
-		pool, 0,
-		c.int32_t(image.width), c.int32_t(image.height), c.int32_t(stride),
-		wl.SHM_FORMAT_ARGB8888,
-	)
-
-	// The pool can go away immediately: the mapping stays alive until every buffer made from it
-	// has been destroyed.
-	wl.shm_pool_destroy(pool)
-
 	surface := wl.compositor_create_surface(s.compositor)
 	wl.surface_attach(surface, buffer, 0, 0)
 
@@ -1274,7 +1412,7 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor
 		height    = image.height,
 		buffer    = buffer,
 		data      = data,
-		data_size = size,
+		data_size = data_size,
 		viewport  = wl.wp_viewporter_get_viewport(s.viewporter, surface),
 	}
 
@@ -1486,6 +1624,18 @@ WL_State :: struct {
 
 	cursor_shape_manager: ^wl.WP_Cursor_Shape_Manager_V1,
 	cursor_shape_device:  ^wl.WP_Cursor_Shape_Device_V1,
+
+	// The window icon and the shm buffer it is drawn from. All nil on compositors that don't
+	// implement the icon protocol. See `wl_set_window_icon`.
+	toplevel_icon_manager: ^wl.XDG_Toplevel_Icon_Manager_V1,
+	toplevel_icon: ^wl.XDG_Toplevel_Icon_V1,
+	toplevel_icon_buffer: ^wl.Buffer,
+	toplevel_icon_data: rawptr,
+	toplevel_icon_data_size: int,
+
+	// Keeps the warning in `wl_set_window_icon` down to one. A compositor without the protocol
+	// never gains it while the game runs.
+	warned_about_missing_icon_protocol: bool,
 
 	// True if toplevel_listener.configure has run
 	configured: bool,

@@ -79,6 +79,14 @@ init :: proc(
 
 	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
 
+	// The window has an icon from the start this way. A game replaces it with its own by calling
+	// `set_window_icon`. 256 pixels covers every size an OS shows an icon at. The web favicon only
+	// ever shows small, and a smaller image there keeps the PNG data URI it turns into small too.
+	DEFAULT_ICON_SIZE :: 256 when ODIN_OS != .JS else 64
+	default_icon := make_karl2d_icon(DEFAULT_ICON_SIZE)
+	pf.set_window_icon(default_icon, false)
+	destroy_image(default_icon)
+
 	// This is an OS-independent handle that we can pass to any rendering backend.
 	window_render_glue := pf.get_window_render_glue()
 
@@ -632,6 +640,30 @@ get_window_scale :: proc() -> f32 {
 set_window_mode :: proc(window_mode: Window_Mode) {
 	assert_initialized()
 	pf.set_window_mode(window_mode)
+}
+
+// Sets the icon shown in the titlebar and the OS's program switcher bar. By default Karl2D uses an
+// icon that says K2. Load the image using for example `k2.load_image_from_file`.
+//
+// The data of `image` is copied, so you can destroy it after running this.
+//
+// On web this modifies the icon shown on the tab.
+//
+// Returns `true` if the icon was set. The reason is logged when it wasn't.
+set_window_icon :: proc(image: Image) -> bool {
+	assert_initialized()
+
+	if image.width <= 0 || image.height <= 0 {
+		log.error("Invalid icon image: height or width is zero or negative")
+		return false
+	}
+
+	if len(image.pixels) != image.width*image.height {
+		log.error("Invalid icon image: the pixels array is not of size image.width*image.height")
+		return false
+	}
+
+	return pf.set_window_icon(image, true)
 }
 
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
@@ -4916,6 +4948,95 @@ camera_world_matrix :: proc(c: Camera) -> Mat4 {
 // MISC //
 //------//
 
+// Makes a Karl2D icon with K and the 2 from the logo. It will be `size*size` pixels. It's created
+// from pixel art that is 16x16, scaled up with nearest neighbor. So a size divisible by 16 is
+// recommended.
+//
+// `init` uses this procedure for the default window icon.
+//
+// Use `destroy_image` when you no longer need the image.
+make_karl2d_icon :: proc(size: int) -> Image {
+	art := [16][16]u8 {
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 2, 0, 0, 2, 0, 0, 0, 2, 2, 0, 0, 0, 0},
+		{0, 0, 0, 1, 0, 0, 1, 0, 0, 2, 1, 1, 2, 0, 0, 0},
+		{0, 0, 0, 1, 0, 2, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0},
+		{0, 0, 0, 1, 2, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0},
+		{0, 0, 0, 1, 1, 2, 0, 0, 0, 0, 2, 2, 1, 0, 0, 0},
+		{0, 0, 0, 1, 0, 1, 2, 0, 0, 2, 1, 1, 0, 0, 0, 0},
+		{0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 2, 2, 2, 0, 0, 0},
+		{0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	}
+
+	colors := [3]Color {
+		{33, 11, 11, 255},  // background
+		{255, 209, 0, 255}, // yellow
+		{127, 6, 34, 255},  // dark red
+	}
+
+	pixels := make([]Color, size*size, s.allocator)
+
+	for y in 0..<size {
+		for x in 0..<size {
+			pixels[y*size + x] = colors[art[y*16/size][x*16/size]]
+		}
+	}
+
+	return {
+		pixels = pixels,
+		width = size,
+		height = size,
+	}
+}
+
+// Makes a Karl2D logo that says KARL2D. It will be `width*width/3` pixels. It is created from pixel
+// art that is 30x10 pixels large. So a width that is divisible by 30 is recommended.
+//
+// Use `destroy_image` when you no longer need the image.
+make_karl2d_logo :: proc(width: int) -> Image {
+	art := [10][30]u8 {
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 2, 0, 0, 2, 0, 0, 2, 2, 0, 0, 2, 2, 2, 0, 0, 2, 0, 0, 0, 0, 2, 2, 0, 0, 2, 2, 2, 0, 0},
+		{0, 1, 0, 0, 1, 0, 2, 1, 1, 2, 0, 1, 1, 1, 2, 0, 1, 0, 0, 0, 2, 1, 1, 2, 0, 1, 1, 1, 2, 0},
+		{0, 1, 0, 2, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0},
+		{0, 1, 2, 1, 0, 0, 1, 2, 2, 1, 0, 1, 2, 2, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0},
+		{0, 1, 1, 2, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 2, 0, 1, 0, 0, 0, 0, 2, 2, 1, 0, 1, 0, 0, 1, 0},
+		{0, 1, 0, 1, 2, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 2, 1, 1, 0, 0, 1, 0, 0, 1, 0},
+		{0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 2, 2, 0, 1, 2, 2, 2, 0, 1, 2, 2, 1, 0},
+		{0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	}
+
+	height := width/3
+
+	colors := [3]Color {
+		{33, 11, 11, 255},  // background
+		{255, 209, 0, 255}, // yellow
+		{127, 6, 34, 255},  // dark red
+	}
+
+	pixels := make([]Color, width*height, s.allocator)
+
+	for y in 0..<height {
+		for x in 0..<width {
+			pixels[y*width + x] = colors[art[y*10/height][x*30/width]]
+		}
+	}
+
+	return {
+		pixels = pixels,
+		width = width,
+		height = height,
+	}
+}
+
 // Choose how the alpha channel is used when mixing half-transparent color with what is already
 // drawn. The default is the .Alpha mode, but you also have the option of using .Premultiply_Alpha.
 set_blend_mode :: proc(mode: Blend_Mode) {
@@ -5414,6 +5535,7 @@ Texture_Handle :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
+
 // The cursors an operating system provides out of the box. Use with `set_cursor`.
 //
 // Not every platform has every one of them. Where one is missing, the closest thing is used
