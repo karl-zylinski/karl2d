@@ -180,7 +180,9 @@ set_window_mode :: proc(window_mode: Window_Mode)
 // - macOS has no per-window icon, so this sets the icon in the Dock, for the whole application.
 // - On the web this sets the page's favicon. It needs the `karl2d-favicon` link element that
 //   `build_web` puts in `index.html`.
-// - Linux+Wayland can only do this through a protocol that not every compositor implements.
+// - Linux+Wayland can only tell the compositor through a protocol that not every compositor
+//   implements. Where Karl2D draws the window frame itself, which is what it does on GNOME, the
+//   icon goes in that titlebar in front of the title whatever the compositor supports.
 //
 // Returns `true` if the icon was set. The reason is logged when it wasn't.
 //

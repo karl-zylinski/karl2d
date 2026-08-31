@@ -1065,12 +1065,18 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 }
 
 wl_set_window_icon :: proc(image: Image, warn_if_unsupported: bool) -> bool {
+	// The frame Karl2D draws for itself puts the icon in its titlebar. The compositor is told
+	// separately below, for the window list and the switcher, which are its own to draw.
+	if s.has_deco {
+		wldeco_set_icon(&s.decorations, image)
+	}
+
 	if s.toplevel_icon_manager == nil {
 		// `init` passes false for its default icon, which also keeps the warn-once flag intact
 		// for the call the game makes itself.
 		if warn_if_unsupported && !s.warned_about_missing_icon_protocol {
 			log.warn(
-				"Cannot set the window icon: this Wayland compositor does not implement the " +
+				"Cannot tell the compositor the window icon: it does not implement the " +
 				"xdg-toplevel-icon-v1 protocol. The other way to give a Wayland window an icon " +
 				"is to install a .desktop file in a place such as " +
 				"~/.local/share/applications/, name it after the game's app id and give it an " +
@@ -1080,7 +1086,8 @@ wl_set_window_icon :: proc(image: Image, warn_if_unsupported: bool) -> bool {
 			s.warned_about_missing_icon_protocol = true
 		}
 
-		return false
+		// The titlebar Karl2D draws is still an icon on screen, where there is one.
+		return s.has_deco
 	}
 
 	// The protocol only takes square buffers. A non-square image goes in the middle of one.
