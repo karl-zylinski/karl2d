@@ -23,8 +23,6 @@ import       "log"
 import CA    "platform_bindings/mac/CoreAudio"
 import Audio "platform_bindings/mac/AudioToolbox"
 
-// The queue hands a buffer back on its own thread once it has been played, and the mixer fills it
-// there and then. Four buffers of 700 samples is 63 milliseconds of audio at worst.
 CORE_AUDIO_BUFFER_SAMPLES :: 700
 BUFFER_SIZE :: CORE_AUDIO_BUFFER_SAMPLES * size_of([2]Audio_Sample)
 
@@ -32,8 +30,6 @@ Core_Audio_State :: struct {
 	queue:   Audio.QueueRef,
 	buffers: [4]Audio.QueueBufferRef,
 
-	// Cleared before the queue is stopped, so the callback stops handing buffers back to a queue
-	// that is going away.
 	running: bool,
 }
 
@@ -71,8 +67,6 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 
 	s.running = true
 
-	// Fill every buffer once and hand it over. After that the callback keeps them going as the
-	// queue plays them.
 	for &buffer in s.buffers {
 		if !ch(Audio.QueueAllocateBuffer(s.queue, BUFFER_SIZE, &buffer)) {
 			return
@@ -86,10 +80,7 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	}
 }
 
-// Has the mixer fill a buffer and gives it back to the queue. Runs on the queue's thread when the
-// callback calls it, and on the game thread once per buffer while starting up.
 core_audio_fill :: proc "contextless" (buffer: Audio.QueueBufferRef) {
-	// The queue calls this on a thread of its own, which has no Odin context of its own.
 	context = _audio_thread_context()
 
 	samples := ([^][2]Audio_Sample)(buffer.mAudioData)[:CORE_AUDIO_BUFFER_SAMPLES]
@@ -98,7 +89,10 @@ core_audio_fill :: proc "contextless" (buffer: Audio.QueueBufferRef) {
 	Audio.QueueEnqueueBuffer(s.queue, buffer, 0, nil)
 }
 
-// The queue hands a buffer back once it has been played. That is when the mixer fills it again.
+// TODO-UPDATE-COMMENT the callback has the mixer fill the buffer again and gives it back to the
+// queue. Nothing counts samples any more.
+// The queue hands a buffer back once it has been played. That is the moment its samples stop
+// counting towards what is left to play.
 _core_audio_callback :: proc "c" (
 	inUserData: rawptr,
 	inAQ: Audio.QueueRef,
@@ -114,8 +108,6 @@ _core_audio_callback :: proc "c" (
 }
 
 core_audio_shutdown :: proc() {
-	// Stop the callback refilling buffers before the queue goes away. `QueueStop` waits for the
-	// queue to finish, so no callback is running by the time `QueueDispose` runs.
 	intrinsics.atomic_store(&s.running, false)
 	Audio.QueueStop(s.queue, true)
 	Audio.QueueDispose(s.queue, true)
@@ -126,10 +118,18 @@ core_audio_set_internal_state :: proc(state: rawptr) {
 	s = (^Core_Audio_State)(state)
 }
 
-// The callback asks the mixer for samples, so nothing hands them over.
 core_audio_feed :: proc(samples: [][2]Audio_Sample) {
 }
 
+// TODO-UPDATE-COMMENT nothing calls this any more. The backend mixes itself, so it always returns
+// zero.
+// How many samples the queue still has left to play. This counts what is in the buffers that have
+// been enqueued and not handed back yet.
+//
+// It is deliberately not the queue's own playback position. The mixer uses this number to decide
+// when to feed, and `feed` blocks until the queue hands a buffer back, so the two have to agree.
+// The playback position says nothing about which buffers are free, so it can send the mixer into
+// `feed` while all of them are still in flight. The frame then stalls until one is played.
 core_audio_remaining_samples :: proc() -> int {
 	return 0
 }

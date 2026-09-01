@@ -21,15 +21,18 @@ import alsa "platform_bindings/linux/alsa"
 import "core:thread"
 import "core:sync"
 
-// How many samples the mixer is asked for at a time. `pcm_writei` waits until the device has room
-// for them, so this is how often the thread wakes rather than a latency figure. The device buffer
-// set by `LATENCY_MICROSECONDS` below is what decides the latency.
 ALSA_BUFFER_SAMPLES :: 700
 
 Alsa_State :: struct {
 	pcm: alsa.PCM,
 
-	// The mixer fills this and the thread writes it straight to the device.
+	// TODO-UPDATE-COMMENT this is no longer circular. The mixer fills it and the thread writes
+	// all of it to the device.
+	// This is a "circular" buffer. We write new things at `buf_end` and read from `buf_start`.
+	// AUDIO_MIX_CHUNK_SIZE * 3 should be enough, but I added some head room. 3 should be enough
+	// because the mixer tends to not never produce more than 2.5 * AUDIO_MIX_CHUNK_SIZE samples
+	// (it throws in another chunk if the remaining number of samples is less than
+	// 1.5 * AUDIO_MIX_CHUNK_SIZE).
 	buf: [ALSA_BUFFER_SAMPLES][2]Audio_Sample,
 
 	feed_thread: ^thread.Thread,
@@ -96,12 +99,6 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	thread.start(s.feed_thread)
 }
 
-// Has the mixer fill the buffer and writes it to the device.
-//
-// There is no sleep in this loop and it does not spin. `alsa_init` opens the PCM with a mode of
-// zero rather than `PCM_Open_Mode.NONBLOCK`, so `pcm_writei` waits in the kernel until the device
-// has taken the frames. The device sets the pace, which is what the old five millisecond sleep was
-// approximating, and it does it exactly rather than by guessing.
 alsa_thread_proc :: proc(t: ^thread.Thread) {
 	for sync.atomic_load(&s.run_thread) {
 		_mix_audio(s.buf[:])
@@ -161,7 +158,6 @@ alsa_set_internal_state :: proc(state: rawptr) {
 	s = (^Alsa_State)(state)
 }
 
-// The thread asks the mixer for samples, so nothing hands them over.
 alsa_feed :: proc(samples: [][2]Audio_Sample) {
 }
 

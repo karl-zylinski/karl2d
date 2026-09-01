@@ -23,9 +23,6 @@ import "core:slice"
 import "core:sync"
 import "core:thread"
 
-// waveOut has no callback that can fill a buffer, so a thread waits for one to finish playing and
-// has the mixer fill it. Four buffers of 700 samples is 63 milliseconds of audio at worst, and the
-// three that are normally in flight are 47 milliseconds.
 WAVEOUT_BUFFER_SAMPLES :: 700
 WAVEOUT_BUFFER_COUNT :: 4
 
@@ -33,7 +30,6 @@ Waveout_State :: struct {
 	device: win32.HWAVEOUT,
 	headers: [WAVEOUT_BUFFER_COUNT]win32.WAVEHDR,
 
-	// The mixer writes straight into these, so a buffer belongs to the header that plays it.
 	buffers: [WAVEOUT_BUFFER_COUNT][WAVEOUT_BUFFER_SAMPLES][2]Audio_Sample,
 	cur_header: int,
 
@@ -85,20 +81,14 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 		return
 	}
 
-	// The thread waits a millisecond at a time for a buffer to finish. `time.sleep` rounds up to
-	// the timer period, which is 15.6 ms by default, so ask Windows for 1 ms instead.
 	win32.timeBeginPeriod(1)
 
-	// Set the device before starting the thread: the thread uses it right away.
 	s.run_thread = true
 	s.mix_thread = thread.create(waveout_thread_proc)
 	s.mix_thread.init_context = _audio_thread_context()
 	thread.start(s.mix_thread)
 }
 
-// Has the mixer fill a buffer and gives it to the device. waveOut plays straight out of the
-// buffer, so one is only refilled once the device has finished with it.
-//
 waveout_thread_proc :: proc(t: ^thread.Thread) {
 	waiting_for_header: bool
 
@@ -154,7 +144,6 @@ waveout_shutdown :: proc() {
 	log.debug("Shutdown audio backend waveout")
 	sync.atomic_store(&s.run_thread, false)
 
-	// The thread is only created once the device is open. It stays nil if opening it failed.
 	if s.mix_thread != nil {
 		thread.join(s.mix_thread)
 		thread.destroy(s.mix_thread)
@@ -162,7 +151,6 @@ waveout_shutdown :: proc() {
 		win32.timeEndPeriod(1)
 	}
 
-	// Take back the buffers the device is still playing before the state they live in goes away.
 	win32.waveOutReset(s.device)
 	win32.waveOutClose(s.device)
 }
@@ -172,7 +160,6 @@ waveout_set_internal_state :: proc(state: rawptr) {
 	s = (^Waveout_State)(state)
 }
 
-// The thread asks the mixer for samples, so nothing hands them over.
 waveout_feed :: proc(samples: [][2]Audio_Sample) {
 }
 
