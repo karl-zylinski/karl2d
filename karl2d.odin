@@ -2996,7 +2996,6 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 // for the streaming to actually happen. 
 update_audio_stream :: proc(stream: Audio_Stream) {
 	sync.mutex_lock(&s.audio_mutex)
-
 	sd := hm.get(&s.audio_streams, stream)
 
 	if sd == nil {
@@ -3005,35 +3004,35 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	pab := hm.get(&s.sounds, sd.sound)
+	so := hm.get(&s.sounds, sd.sound)
 
-	if pab == nil {
+	if so == nil {
 		sync.mutex_unlock(&s.audio_mutex)
 		return
 	}
 
-	ab := hm.get(&s.audio_clips, pab.clip)
+	aco := hm.get(&s.audio_clips, so.clip)
 
-	if ab == nil {
+	if aco == nil {
 		hm.remove(&s.sounds, sd.sound)
 		sync.mutex_unlock(&s.audio_mutex)
 		log.error("Trying to update audio stream with destroyed clip")
 		return
 	}
 
-	play_offset := pab.offset
+	play_offset := so.offset
 	sync.mutex_lock(&sd.decode_mutex)
 	sync.mutex_unlock(&s.audio_mutex)
-
-	_decode_audio_stream(sd, ab, play_offset)
+	_decode_audio_stream(sd, aco, play_offset)
 	sync.mutex_unlock(&sd.decode_mutex)
-
-	sync.mutex_guard(&s.audio_mutex)
+	sync.mutex_lock(&s.audio_mutex)
 
 	if sd_now := hm.get(&s.audio_streams, stream); sd_now != nil {
 		sd_now.needs_refill = false
 		_apply_audio_stream_stop(sd_now, stream)
 	}
+	
+	sync.mutex_unlock(&s.audio_mutex)
 }
 
 _apply_audio_stream_stop :: proc(sd: ^Audio_Stream_Data, stream: Audio_Stream) {
