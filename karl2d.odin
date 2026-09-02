@@ -2250,13 +2250,6 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 		return sd.seek_seconds
 	}
 
-	// A seek that is still catching up has emptied the buffer, so there is nothing in there to
-	// measure. Report where the sound is about to be instead.
-	if sd.reported_seek_discard > 0 {
-		target := sd.reported_decode_cursor + sd.reported_seek_discard
-		return f32(target / channels) / f32(ab.sample_rate)
-	}
-
 	// How many decoded samples are still sitting unplayed in the circular staging buffer.
 	remaining := sd.reported_write_pos - sound_object.offset
 
@@ -3060,7 +3053,6 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	stop := _decode_audio_stream(sd, aco, play_offset, loop)
 	write_pos := sd.buffer_write_pos
 	decode_cursor := sd.decode_cursor
-	seek_discard := sd.seek_discard
 	sync.mutex_unlock(&sd.decode_mutex)
 	sync.mutex_lock(&s.audio_mutex)
 
@@ -3071,7 +3063,6 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	if sd = hm.get(&s.audio_streams, stream); sd != nil {
 		sd.reported_write_pos = write_pos
 		sd.reported_decode_cursor = decode_cursor
-		sd.reported_seek_discard = seek_discard
 
 		if sd.seek_state == .Seeking {
 			sd.seek_state = .None
@@ -3350,7 +3341,6 @@ play_audio_stream :: proc(
 	sync.mutex_guard(&s.audio_mutex)
 	sd.reported_write_pos = sd.buffer_write_pos
 	sd.reported_decode_cursor = sd.decode_cursor
-	sd.reported_seek_discard = sd.seek_discard
 
 	playback_settings := Sound_Settings {
 		volume = clamp(volume, 0, 1),
@@ -5791,7 +5781,6 @@ Audio_Stream_Data :: struct {
 
 	reported_write_pos: int,
 	reported_decode_cursor: int,
-	reported_seek_discard: int,
 
 	decode_mutex: sync.Mutex,
 
