@@ -3055,16 +3055,6 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	sync.mutex_unlock(&s.audio_mutex)
 }
 
-_compact_stream_read_buf :: proc(sd: ^Audio_Stream_Data) {
-	if sd.file_read_buf_offset == 0 {
-		return
-	}
-
-	copy(sd.file_read_buf[:], sd.file_read_buf[sd.file_read_buf_offset:sd.file_read_buf_len])
-	sd.file_read_buf_len -= sd.file_read_buf_offset
-	sd.file_read_buf_offset = 0
-}
-
 _decode_audio_stream :: proc(
 	sd: ^Audio_Stream_Data,
 	ab: ^Audio_Clip_Object,
@@ -3104,7 +3094,12 @@ _decode_audio_stream :: proc(
 
 			// see stbvorbis docs for what these different combos of bytes_used and samples mean.
 			if bytes_used == 0 && samples == 0 {
-				_compact_stream_read_buf(sd)
+				copy(
+					sd.file_read_buf[:],
+					sd.file_read_buf[sd.file_read_buf_offset:sd.file_read_buf_len],
+				)
+				sd.file_read_buf_len -= sd.file_read_buf_offset
+				sd.file_read_buf_offset = 0
 				space := len(sd.file_read_buf) - sd.file_read_buf_len
 
 				if space == 0 {
@@ -3196,10 +3191,6 @@ _decode_audio_stream :: proc(
 				break
 			}
 		}
-
-		// We didn't consume all the data in the read buffer. Move the remaining data to the start
-		// of the buffer so that it can be consumed in the next update.
-		_compact_stream_read_buf(sd)
 	case .From_Bytes:
 		channels: i32
 		output: [^]^f32
@@ -6507,7 +6498,12 @@ _seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
 			}
 
 			if bytes_used == 0 {
-				_compact_stream_read_buf(sd)
+				copy(
+					sd.file_read_buf[:],
+					sd.file_read_buf[sd.file_read_buf_offset:sd.file_read_buf_len],
+				)
+				sd.file_read_buf_len -= sd.file_read_buf_offset
+				sd.file_read_buf_offset = 0
 				space := len(sd.file_read_buf) - sd.file_read_buf_len
 
 				if space == 0 {
@@ -6609,9 +6605,6 @@ _seek_file_stream :: proc(sd: ^Audio_Stream_Data, target_frame: int) -> int {
 		return -1
 	}
 
-	// Move the bytes the decoder hasn't used yet to the start of the read buffer, the same way
-	// `update_audio_stream` does, so that it carries on from here.
-	_compact_stream_read_buf(sd)
 	return best_frame
 }
 
