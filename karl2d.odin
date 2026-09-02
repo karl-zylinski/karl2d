@@ -3468,6 +3468,11 @@ update_audio_mixer :: proc() {
 		return
 	}
 
+	assert(
+		ab.push_samples != nil && ab.pushed_samples_remaining != nil,
+		"Audio backend that does not mix itself must accept samples through `push_samples` and also implement `samples_remaining`",
+	)
+
 	MAX_CHUNKS_PER_UPDATE :: 8
 
 	// TODO-UPDATE-COMMENT this now runs several chunks per call, and the backends that mix on a
@@ -3478,7 +3483,7 @@ update_audio_mixer :: proc() {
 	// Perhaps we can use more low latency backends to push it down. Perhaps the backend should
 	// control AUDIO_MIX_CHUNK_SIZE based on how low latency it can give us without stalling?
 	for _ in 0..<MAX_CHUNKS_PER_UPDATE {
-		if ab.remaining_samples() > (3 * AUDIO_MIX_CHUNK_SIZE)/2 {
+		if ab.pushed_samples_remaining() > (3 * AUDIO_MIX_CHUNK_SIZE)/2 {
 			break
 		}
 
@@ -3491,36 +3496,15 @@ update_audio_mixer :: proc() {
 		out := s.mix_buffer[s.mix_buffer_offset:s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE]
 		s.mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
 
-		if sync.mutex_guard(&s.audio_mutex) {
-			_mix_into(out)
-		}
+		_mix_audio_into_buffer(out)
 
-		ab.feed(out)
+		ab.push_samples(out)
 	}
 }
 
-@(private="package")
-_mix_audio :: proc(dest: [][2]Audio_Sample) {
+_mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	sync.mutex_guard(&s.audio_mutex)
-	_mix_into(dest)
-}
-
-@(private="package")
-_audio_thread_context :: proc() -> runtime.Context {
-	ctx := runtime.default_context()
-	ctx.allocator = s.allocator
-	ctx.logger = s.audio_thread_logger
-	return ctx
-}
-
-@(private="package")
-_destroy_audio_thread_temp_allocator :: proc() {
-	if context.temp_allocator.procedure == runtime.default_temp_allocator_proc {
-		runtime.default_temp_allocator_destroy(auto_cast context.temp_allocator.data)
-	}
-}
-
-_mix_into :: proc(buffer: [][2]Audio_Sample) {
+	
 	// A slice of the mixed samples we are going to output.
 	out := buffer
 	chunk_size := len(out)
@@ -3967,6 +3951,19 @@ _mix_into :: proc(buffer: [][2]Audio_Sample) {
 			t := f32(samp_idx) / f32(chunk_size)
 			out[samp_idx] *= linalg.lerp(gain_start, gain_end, t)
 		}
+	}
+}
+
+_audio_thread_context :: proc() -> runtime.Context {
+	ctx := runtime.default_context()
+	ctx.allocator = s.allocator
+	ctx.logger = s.audio_thread_logger
+	return ctx
+}
+
+_destroy_audio_thread_temp_allocator :: proc() {
+	if context.temp_allocator.procedure == runtime.default_temp_allocator_proc {
+		runtime.default_temp_allocator_destroy(auto_cast context.temp_allocator.data)
 	}
 }
 

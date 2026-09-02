@@ -79,7 +79,7 @@ const karl2dAudioJsImports = {
 			this.remaining_samples = 0;
 		},
 
-		web_audio_feed: function(samples_f32_ptr, samples_f32_len) {
+		web_audio_push_samples: function(samples_f32_ptr, samples_f32_len) {
 			// Count the samples even when they can't be sent anywhere, so that the mixer is fed
 			// at the same rate either way. `web_audio_remaining_samples` counts them off again.
 			this.remaining_samples += samples_f32_len / 2;
@@ -96,7 +96,7 @@ const karl2dAudioJsImports = {
 			});
 		},
 
-		web_audio_remaining_samples: function() {
+		web_audio_pushed_samples_remaining: function() {
 			let now = performance.now();
 			let blocked = this.audio_node == null || this.audio_ctx.state === 'suspended';
 

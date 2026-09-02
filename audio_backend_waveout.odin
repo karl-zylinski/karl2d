@@ -11,8 +11,6 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 	set_internal_state = waveout_set_internal_state,
 
 	mixes_itself = true,
-	feed = waveout_feed,
-	remaining_samples = waveout_remaining_samples,
 }
 
 import "base:runtime"
@@ -34,7 +32,7 @@ Waveout_State :: struct {
 	cur_header: int,
 
 	mix_thread: ^thread.Thread,
-	run_thread: bool,
+	run_mix_thread: bool,
 }
 
 waveout_state_size :: proc() -> int {
@@ -83,34 +81,30 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 
 	win32.timeBeginPeriod(1)
 
-	s.run_thread = true
+	s.run_mix_thread = true
 	s.mix_thread = thread.create(waveout_thread_proc)
 	s.mix_thread.init_context = _audio_thread_context()
 	thread.start(s.mix_thread)
 }
 
 waveout_thread_proc :: proc(t: ^thread.Thread) {
-	waiting_for_header: bool
-
-	for sync.atomic_load(&s.run_thread) {
+	thread_loop: for sync.atomic_load(&s.run_mix_thread) {
 		h := &s.headers[s.cur_header]
-		waiting_for_header = false
 
+		// There is a circular buffer of headers that are playing audio. If one is still playing,
+		// then it means we have wrapped around to the start of the buffer. Then we can only wait.
+		//
+		// The game may quit while we wait. Therefore we do an internal check of `run_mix_thread`.
 		for win32.waveOutUnprepareHeader(s.device, h, size_of(win32.WAVEHDR)) == win32.WAVERR_STILLPLAYING {
-			if !sync.atomic_load(&s.run_thread) {
-				waiting_for_header = true
-				break
+			if !sync.atomic_load(&s.run_mix_thread) {
+				break thread_loop
 			}
 
 			time.sleep(1 * time.Millisecond)
 		}
 
-		if waiting_for_header {
-			break
-		}
-
 		buffer := s.buffers[s.cur_header][:]
-		_mix_audio(buffer)
+		_mix_audio_into_buffer(buffer)
 		byte_samples := slice.reinterpret([]u8, buffer)
 
 		h^ = {
@@ -142,7 +136,7 @@ ch :: proc(mr: win32.MMRESULT, loc := #caller_location) -> win32.MMRESULT {
 
 waveout_shutdown :: proc() {
 	log.debug("Shutdown audio backend waveout")
-	sync.atomic_store(&s.run_thread, false)
+	sync.atomic_store(&s.run_mix_thread, false)
 
 	if s.mix_thread != nil {
 		thread.join(s.mix_thread)
@@ -158,11 +152,4 @@ waveout_shutdown :: proc() {
 waveout_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Waveout_State)(state)
-}
-
-waveout_feed :: proc(samples: [][2]Audio_Sample) {
-}
-
-waveout_remaining_samples :: proc() -> int {
-	return 0
 }

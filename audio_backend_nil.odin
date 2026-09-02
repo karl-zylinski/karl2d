@@ -10,9 +10,9 @@ AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
 	set_internal_state = abnil_set_internal_state,
 
 	mixes_itself = false,
-	feed = abnil_feed,
+	push_samples = abnil_push_samples,
 
-	remaining_samples = abnil_remaining_samples,
+	pushed_samples_remaining = abnil_pushed_samples_remaining,
 }
 
 import "base:runtime"
@@ -30,9 +30,9 @@ abnil_shutdown :: proc() {
 abnil_set_internal_state :: proc(state: rawptr) {
 }
 
-abnil_feed :: proc(samples: [][2]Audio_Sample) {
+abnil_push_samples :: proc(samples: [][2]Audio_Sample) {
 }
 
-abnil_remaining_samples :: proc() -> int {
+abnil_pushed_samples_remaining :: proc() -> int {
 	return 0
 }
