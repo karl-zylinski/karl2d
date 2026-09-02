@@ -10,8 +10,6 @@ AUDIO_BACKEND_ALSA :: Audio_Backend_Interface {
 	shutdown           = alsa_shutdown,
 	set_internal_state = alsa_set_internal_state,
 	mixes_itself       = true,
-	feed               = alsa_feed,
-	remaining_samples  = alsa_remaining_samples,
 }
 
 import "base:runtime"
@@ -35,8 +33,8 @@ Alsa_State :: struct {
 	// 1.5 * AUDIO_MIX_CHUNK_SIZE).
 	buf: [ALSA_BUFFER_SAMPLES][2]Audio_Sample,
 
-	feed_thread: ^thread.Thread,
-	run_thread: bool,
+	mix_thread: ^thread.Thread,
+	run_mix_thread: bool,
 }
 
 alsa_state_size :: proc() -> int {
@@ -93,15 +91,15 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 
 	// Set the PCM before starting the thread: the thread uses it right away.
 	s.pcm = pcm
-	s.run_thread = true
-	s.feed_thread = thread.create(alsa_thread_proc)
-	s.feed_thread.init_context = _audio_thread_context()
-	thread.start(s.feed_thread)
+	s.run_mix_thread = true
+	s.mix_thread = thread.create(alsa_thread_proc)
+	s.mix_thread.init_context = _audio_thread_context()
+	thread.start(s.mix_thread)
 }
 
 alsa_thread_proc :: proc(t: ^thread.Thread) {
-	for sync.atomic_load(&s.run_thread) {
-		_mix_audio(s.buf[:])
+	for sync.atomic_load(&s.run_mix_thread) {
+		_mix_audio_into_buffer(s.buf[:])
 
 		write :: proc(pcm: alsa.PCM, data: [][2]Audio_Sample) {
 			remaining := data
@@ -117,7 +115,7 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 					// Can't recover!
 					if recover_ret < 0 {
 						log.errorf("Fatal sound error:pcm_writei failed and recovery also failed: %s", alsa.strerror(c.int(ret)))
-						sync.atomic_store(&s.run_thread, false)
+						sync.atomic_store(&s.run_mix_thread, false)
 						return
 					}
 
@@ -137,14 +135,14 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 alsa_shutdown :: proc() {
 	log.debug("Shutdown audio backend alsa")
 
-	sync.atomic_store(&s.run_thread, false)
+	sync.atomic_store(&s.run_mix_thread, false)
 
 	// The thread is only created if the whole of `alsa_init` succeeded. It may be nil if for
 	// example no ALSA device was available.
-	if s.feed_thread != nil {
-		thread.join(s.feed_thread)
-		thread.destroy(s.feed_thread)
-		s.feed_thread = nil
+	if s.mix_thread != nil {
+		thread.join(s.mix_thread)
+		thread.destroy(s.mix_thread)
+		s.mix_thread = nil
 	}
 
 	if s.pcm != nil {
@@ -156,11 +154,4 @@ alsa_shutdown :: proc() {
 alsa_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Alsa_State)(state)
-}
-
-alsa_feed :: proc(samples: [][2]Audio_Sample) {
-}
-
-alsa_remaining_samples :: proc() -> int {
-	return 0
 }

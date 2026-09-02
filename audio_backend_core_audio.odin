@@ -11,9 +11,6 @@ AUDIO_BACKEND_CORE_AUDIO :: Audio_Backend_Interface {
 	set_internal_state = core_audio_set_internal_state,
 
 	mixes_itself = true,
-	feed = core_audio_feed,
-
-	remaining_samples = core_audio_remaining_samples,
 }
 
 import "base:intrinsics"
@@ -84,7 +81,7 @@ core_audio_fill :: proc "contextless" (buffer: Audio.QueueBufferRef) {
 	context = _audio_thread_context()
 
 	samples := ([^][2]Audio_Sample)(buffer.mAudioData)[:CORE_AUDIO_BUFFER_SAMPLES]
-	_mix_audio(samples)
+	_mix_audio_into_buffer(samples)
 	buffer.mAudioDataByteSize = u32(BUFFER_SIZE)
 	Audio.QueueEnqueueBuffer(s.queue, buffer, 0, nil)
 }
@@ -116,22 +113,6 @@ core_audio_shutdown :: proc() {
 core_audio_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Core_Audio_State)(state)
-}
-
-core_audio_feed :: proc(samples: [][2]Audio_Sample) {
-}
-
-// TODO-UPDATE-COMMENT nothing calls this any more. The backend mixes itself, so it always returns
-// zero.
-// How many samples the queue still has left to play. This counts what is in the buffers that have
-// been enqueued and not handed back yet.
-//
-// It is deliberately not the queue's own playback position. The mixer uses this number to decide
-// when to feed, and `feed` blocks until the queue hands a buffer back, so the two have to agree.
-// The playback position says nothing about which buffers are free, so it can send the mixer into
-// `feed` while all of them are still in flight. The frame then stalls until one is played.
-core_audio_remaining_samples :: proc() -> int {
-	return 0
 }
 
 ch :: proc(status: Audio.CFOSStatus, loc := #caller_location) -> bool {
