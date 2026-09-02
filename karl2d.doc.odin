@@ -737,8 +737,8 @@ load_audio_stream_from_bytes :: proc(
 // deallocate the bytes that you sent into that procedure.
 destroy_audio_stream :: proc(stream: Audio_Stream)
 
-// TODO-UPDATE-COMMENT this may now be called from a thread of your own, one thread at a time per
-// stream, and the decoding it does no longer holds the mutex the mixer needs.
+// TODO-UPDATE-COMMENT the decoding runs without the mutex the mixer needs, so this must be called
+// from the same thread as the rest of the audio API, once per frame.
 // Streams in new audio data from the audio stream. You need to call this once per frame in order
 // for the streaming to actually happen. 
 update_audio_stream :: proc(stream: Audio_Stream)
@@ -1617,13 +1617,11 @@ Audio_Stream_Data :: struct {
 	// steps of a whole ogg page.
 	seek_discard: int,
 
-	decode_mutex: sync.Mutex,
-
 	stop_requested: bool,
 
-	rewind_requested: bool,
-
-	needs_refill: bool,
+	seek_seconds: f32,
+	seeks_requested: int,
+	seeks_done: int,
 
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
