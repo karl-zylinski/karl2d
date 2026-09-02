@@ -78,7 +78,8 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 }
 
 core_audio_fill :: proc "contextless" (buffer: Audio.QueueBufferRef) {
-	context = _audio_thread_context()
+	context = runtime.default_context()
+	context.logger = _logger()
 
 	samples := ([^][2]Audio_Sample)(buffer.mAudioData)[:CORE_AUDIO_BUFFER_SAMPLES]
 	_mix_audio_into_buffer(samples)
