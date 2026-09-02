@@ -3036,38 +3036,6 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	}
 }
 
-_update_audio_stream_locked :: proc(stream: Audio_Stream) {
-	sd := hm.get(&s.audio_streams, stream)
-
-	if sd == nil {
-		log.error("Trying to update destroyed audio stream")
-		return
-	}
-
-	pab := hm.get(&s.sounds, sd.sound)
-
-	if pab == nil {
-		// Don't log an error here: Not playing the stream is a valid state. It just doesn't need
-		// any updating.
-		return
-	}
-
-	ab := hm.get(&s.audio_clips, pab.clip)
-
-	if ab == nil {
-		hm.remove(&s.sounds, sd.sound)
-		log.error("Trying to update audio stream with destroyed clip")
-		return
-	}
-
-	if sync.mutex_guard(&sd.decode_mutex) {
-		_decode_audio_stream(sd, ab, pab.offset)
-	}
-
-	sd.needs_refill = false
-	_apply_audio_stream_stop(sd, stream)
-}
-
 _apply_audio_stream_stop :: proc(sd: ^Audio_Stream_Data, stream: Audio_Stream) {
 	if !sd.stop_requested {
 		return
@@ -3291,16 +3259,18 @@ play_audio_stream :: proc(
 	loop := false,
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound {
-	sync.mutex_guard(&s.audio_mutex)
+	sync.mutex_lock(&s.audio_mutex)
 
 	sd := hm.get(&s.audio_streams, stream)
 
 	if sd == nil {
+		sync.mutex_unlock(&s.audio_mutex)
 		log.error("Cannot play audio stream, stream does not exist.")
 		return SOUND_NONE
 	}
 
 	if bus != AUDIO_BUS_MASTER && hm.get(&s.audio_buses, bus) == nil {
+		sync.mutex_unlock(&s.audio_mutex)
 		log.error("Cannot play audio stream, audio bus does not exist.")
 		return SOUND_NONE
 	}
@@ -3310,10 +3280,53 @@ play_audio_stream :: proc(
 	// you play a stream, so it should be playing when we are done.
 	if existing := hm.get(&s.sounds, sd.sound); existing != nil {
 		existing.paused = false
+		sync.mutex_unlock(&s.audio_mutex)
 		return sd.sound
 	}
 
+	ab := hm.get(&s.audio_clips, sd.clip)
+
+	if ab == nil {
+		sync.mutex_unlock(&s.audio_mutex)
+		log.error("Cannot play audio stream, its clip does not exist.")
+		return SOUND_NONE
+	}
+
 	sd.loop = loop
+
+	sync.mutex_lock(&sd.decode_mutex)
+	sync.mutex_unlock(&s.audio_mutex)
+
+	// Decode into the buffer before returning, so that there is something to play right away. The
+	// mixer may well run before the game gets around to calling `update_audio_stream`. A sound
+	// that reads an empty buffer moves its read position past the write position, which makes the
+	// buffer look full rather than empty, so it would not be refilled until the read position had
+	// wrapped all the way around.
+	_decode_audio_stream(sd, ab, 0)
+	sync.mutex_unlock(&sd.decode_mutex)
+
+	sync.mutex_guard(&s.audio_mutex)
+
+	sd = hm.get(&s.audio_streams, stream)
+
+	if sd == nil {
+		log.error("Cannot play audio stream, stream was destroyed while decoding.")
+		return SOUND_NONE
+	}
+
+	sd.needs_refill = false
+
+	if sd.stop_requested {
+		rewind := sd.rewind_requested
+		sd.stop_requested = false
+		sd.rewind_requested = false
+
+		if rewind {
+			_reset_audio_stream(stream)
+		}
+
+		return SOUND_NONE
+	}
 
 	playback_settings := Sound_Settings {
 		volume = clamp(volume, 0, 1),
@@ -3342,16 +3355,7 @@ play_audio_stream :: proc(
 		return SOUND_NONE
 	}
 
-	sound := sd.sound
-
-	// Decode into the buffer before returning, so that there is something to play right away. The
-	// mixer may well run before the game gets around to calling `update_audio_stream`. A sound
-	// that reads an empty buffer moves its read position past the write position, which makes the
-	// buffer look full rather than empty, so it would not be refilled until the read position had
-	// wrapped all the way around.
-	_update_audio_stream_locked(stream)
-
-	return sound
+	return sd.sound
 }
 
 // Create an audio bus: A group of sounds that are mixed together before they reach the master bus.
