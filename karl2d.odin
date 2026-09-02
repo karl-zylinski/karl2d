@@ -3092,8 +3092,9 @@ _decode_audio_stream :: proc(
 				&samples,
 			)
 
-			// see stbvorbis docs for what these different combos of bytes_used and samples mean.
 			if bytes_used == 0 && samples == 0 {
+				// ^ 0 bytes used, 0 samples output (need more data)
+
 				copy(
 					sd.file_read_buf[:],
 					sd.file_read_buf[sd.file_read_buf_offset:sd.file_read_buf_len],
@@ -3147,8 +3148,11 @@ _decode_audio_stream :: proc(
 					}
 				}
 			} else if bytes_used > 0 && samples == 0 {
+				// ^ N bytes used, 0 samples output (resynching the stream, keep going)
 				sd.file_read_buf_offset += int(bytes_used)
 			} else if bytes_used > 0 && samples > 0 {
+				// ^ N bytes used, M samples output (one frame of data)
+
 				if channels == 1 {
 					mono: [^]f32 = output[0]
 
