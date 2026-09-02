@@ -2082,9 +2082,25 @@ stop_sound :: proc(sound: Sound) {
 	stream := sound_object.stream
 	hm.remove(&s.sounds, sound)
 
-	if stream != AUDIO_STREAM_NONE {
-		_reset_audio_stream(stream)
+	if stream == AUDIO_STREAM_NONE {
+		return
 	}
+
+	sd := hm.get(&s.audio_streams, stream)
+
+	if sd == nil {
+		log.error("Cannot reset audio stream, stream does not exist.")
+		return
+	}
+
+	ab := hm.get(&s.audio_clips, sd.clip)
+
+	if ab == nil {
+		log.error("Cannot reset audio stream, its clip does not exist.")
+		return
+	}
+
+	_reset_audio_stream(sd, ab)
 }
 
 // Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
@@ -3225,7 +3241,7 @@ _decode_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, pla
 
 	if stop {
 		if rewind {
-			_reset_audio_stream(sd.handle)
+			_reset_audio_stream(sd, ab)
 		}
 
 		sync.atomic_store(&sd.stop_requested, true)
@@ -6784,14 +6800,7 @@ _seek_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, secon
 // Moves the decode cursor of a stream back to the start. Run when a stream-fed sound is stopped
 // and when a non-looping stream reaches the end of the file, so that playing it again starts from
 // the beginning.
-_reset_audio_stream :: proc(stream: Audio_Stream) {
-	sd := hm.get(&s.audio_streams, stream)
-
-	if sd == nil {
-		log.error("Cannot reset audio stream, stream does not exist.")
-		return
-	}
-
+_reset_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object) {
 	sd.buffer_write_pos = 0
 	sd.decode_cursor = 0
 	sd.seek_discard = 0
@@ -6811,9 +6820,7 @@ _reset_audio_stream :: proc(stream: Audio_Stream) {
 
 	// Zero the staging buffer so a replay doesn't briefly play stale samples before
 	// `update_audio_stream` refills it.
-	if ab := hm.get(&s.audio_clips, sd.clip); ab != nil {
-		slice.zero(ab.samples)
-	}
+	slice.zero(ab.samples)
 }
 
 // Run by the drawing procedures before they add any vertices. Draws the batch if `vertices_needed`
