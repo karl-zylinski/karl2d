@@ -9,8 +9,7 @@ AUDIO_BACKEND_CORE_AUDIO :: Audio_Backend_Interface {
 	init = core_audio_init,
 	shutdown = core_audio_shutdown,
 	set_internal_state = core_audio_set_internal_state,
-
-	mixes_itself = true,
+	has_mixer_thread = true,
 }
 
 import "base:intrinsics"

@@ -9,8 +9,7 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 	init = waveout_init,
 	shutdown = waveout_shutdown,
 	set_internal_state = waveout_set_internal_state,
-
-	mixes_itself = true,
+	has_mixer_thread = true,
 }
 
 import "base:runtime"

@@ -3476,7 +3476,7 @@ update_audio :: proc() {
 	}
 
 	// Platforms without an audio thread will run this. Web is such a platform.
-	if !ab.mixes_itself {
+	if !ab.has_mixer_thread {
 		assert(
 			ab.push_samples != nil && ab.pushed_samples_remaining != nil,
 			"Audio backend that does not mix itself must accept samples through `push_samples` and also implement `samples_remaining`",
@@ -3523,7 +3523,7 @@ update_audio :: proc() {
 // for non-crucial logging formatting. If called from an audio thread, then that thread must use
 // `context = _audio_thread_context()`.
 _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
-	if ab.mixes_itself {
+	if ab.has_mixer_thread {
 		assert(context.user_index == _AUDIO_THREAD_CONTEXT_MARKER)
 	}
 
@@ -3988,8 +3988,11 @@ _AUDIO_THREAD_CONTEXT_MARKER :: 421337
 // can use temp allocator, but only for non-crucial error message formatting. The temp allocator
 // uses a 4096 byte arena.
 //
-// The audio thread context should be assigned at the start of the audio thread proc. That proc\
+// The audio thread context should be assigned at the start of the audio thread proc. That proc
 // should `free_all(context.temp_allocator)` at the end of each "audio frame".
+//
+// Do note use `thread.init_context` to set this. That field has strange side-effects. Instead, just
+// set do `context = _audio_thread_context()` as first line in the thread proc.
 @(private="package")
 _audio_thread_context :: proc() -> runtime.Context {
 	return {

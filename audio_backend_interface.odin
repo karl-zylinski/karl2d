@@ -8,11 +8,15 @@ Audio_Backend_Interface :: struct {
 	shutdown: proc(),
 	set_internal_state: proc(state: rawptr),
 
-	// If true, then `update_audio_mixer` will not do any mixing. Instead, the backend is assumed to
-	// have a thread of its own that calls `_mix_audio_into_buffer`.
-	mixes_itself: bool,
+	// If `false`, then `audio_update` will mix the audio and push it to this backend using
+	// `push_samples`.
+	//
+	// If `true` then `audio_update` will not do any mixing and will not push any samples to the
+	// backend. Instead, that backend is assumed to set up a thread that directly calls
+	// `_mix_audio_into_buffer`.
+	has_mixer_thread: bool,
 
-	// These are not required when `mixes_itself` is true.
+	// These are not required when `has_mixer_thread` is true.
 	push_samples: proc(samples: [][2]Audio_Sample),
 	pushed_samples_remaining: proc() -> int,
 }
