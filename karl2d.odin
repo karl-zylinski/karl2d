@@ -2988,10 +2988,11 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 	hm.remove(&s.audio_streams, stream)
 }
 
-// TODO-UPDATE-COMMENT the decoding runs without the mutex the mixer needs. One thread per stream
-// may call this, and it may be a thread of your own. The rest of the audio API may run on another.
-// Streams in new audio data from the audio stream. You need to call this once per frame in order
-// for the streaming to actually happen. 
+// Streams in new audio data from the audio stream. You need to call this regularly for the stream
+// to not run out of data.
+//
+// THREAD SAFE: One thread per stream may call this. That way you can create a "music thread" that
+// is immune to both in-game stalls and external stalls, such as the window being moved.
 update_audio_stream :: proc(stream: Audio_Stream) {
 	sync.mutex_lock(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -3019,11 +3020,15 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
+	// We fetch this while guarded by audio_mutex, we'll use them during the seeking & decode.
 	play_offset := so.offset
 	seek := sd.seek_state == .Requested
 	seek_seconds := sd.seek_seconds
 
 	if seek {
+		// .Seeking is only really used in this proc. But some other code may try to seek before we
+		// can clear it to .None at the end of this proc. In that case it will have become
+		// .Requested again. This makes sure we don't miss any seeks.
 		sd.seek_state = .Seeking
 	}
 
@@ -3037,15 +3042,17 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 	stop := _decode_audio_stream(sd, aco, play_offset)
 	sync.mutex_unlock(&sd.decode_mutex)
-	sync.mutex_guard(&s.audio_mutex)
+	sync.mutex_lock(&s.audio_mutex)
 
 	if stop {
 		hm.remove(&s.sounds, sound)
 	}
 
-	if sd_now := hm.get(&s.audio_streams, stream); sd_now != nil && sd_now.seek_state == .Seeking {
-		sd_now.seek_state = .None
+	if sd = hm.get(&s.audio_streams, stream); sd != nil && sd.seek_state == .Seeking {
+		sd.seek_state = .None
 	}
+
+	sync.mutex_unlock(&s.audio_mutex)
 }
 
 _compact_stream_read_buf :: proc(sd: ^Audio_Stream_Data) {
@@ -3063,7 +3070,11 @@ _decode_audio_stream :: proc(
 	ab: ^Audio_Clip_Object,
 	play_offset: int,
 ) -> bool {
-	audio_stream_remaining :: proc(as: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, play_offset: int) -> int {
+	audio_stream_remaining :: proc(
+		as: ^Audio_Stream_Data,
+		ab: ^Audio_Clip_Object,
+		play_offset: int,
+	) -> int {
 		remaining := as.buffer_write_pos - play_offset
 
 		if remaining < 0 {
@@ -3091,6 +3102,7 @@ _decode_audio_stream :: proc(
 				&samples,
 			)
 
+			// see stbvorbis docs for what these different combos of bytes_used and samples mean.
 			if bytes_used == 0 && samples == 0 {
 				_compact_stream_read_buf(sd)
 				space := len(sd.file_read_buf) - sd.file_read_buf_len
@@ -6739,6 +6751,7 @@ _apply_sound_time :: proc(sound: Sound, seconds: f32) {
 	sd.seek_state = .Requested
 }
 
+// The caller must hold sd.decode_mutex
 _seek_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, seconds: f32) {
 	channels := 1
 	if ab.channels == .Stereo {
