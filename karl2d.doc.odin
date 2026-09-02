@@ -1613,6 +1613,8 @@ Audio_Stream_Data :: struct {
 	// Together with the `offset` of the Sound_Object, this forms a circular buffer.
 	buffer_write_pos: int,
 
+	// TODO-UPDATE-COMMENT `get_sound_time` reads the `reported_` copies below. They are written
+	// under `audio_mutex` once a decode is done, so it never sees a decode in progress.
 	// How far into the file the samples we most recently wrote into the clip were, counted the
 	// same way as the clip's samples: In the case of stereo, left and right count as one each.
 	// Take away the samples in the clip that haven't played yet and you get the spot the listener
@@ -1623,6 +1625,10 @@ Audio_Stream_Data :: struct {
 	// writing them to the clip. Used when moving the stream, since the decoder can only move in
 	// steps of a whole ogg page.
 	seek_discard: int,
+
+	reported_write_pos: int,
+	reported_decode_cursor: int,
+	reported_seek_discard: int,
 
 	decode_mutex: sync.Mutex,
 
@@ -1904,8 +1910,8 @@ State :: struct {
 	// map can't store, and it needs to exist without anyone creating it.
 	master_bus: Audio_Bus_Object,
 
-	// This is the buffer that is used the audio backend has no mixer thread. In that case we say
-	// that we "push" samples into the audio backend. That mixing will happen into buffer.
+	// This is the buffer that is used when the audio backend has no mixer thread. In that case we
+	// say that we "push" samples into the audio backend. That mixing will happen into buffer.
 	//
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
 	// ample.

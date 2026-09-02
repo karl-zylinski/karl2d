@@ -2252,18 +2252,19 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 
 	// A seek that is still catching up has emptied the buffer, so there is nothing in there to
 	// measure. Report where the sound is about to be instead.
-	if sd.seek_discard > 0 {
-		return f32((sd.decode_cursor + sd.seek_discard) / channels) / f32(ab.sample_rate)
+	if sd.reported_seek_discard > 0 {
+		target := sd.reported_decode_cursor + sd.reported_seek_discard
+		return f32(target / channels) / f32(ab.sample_rate)
 	}
 
 	// How many decoded samples are still sitting unplayed in the circular staging buffer.
-	remaining := sd.buffer_write_pos - sound_object.offset
+	remaining := sd.reported_write_pos - sound_object.offset
 
 	if remaining < 0 {
-		remaining = len(ab.samples) - sound_object.offset + sd.buffer_write_pos
+		remaining = len(ab.samples) - sound_object.offset + sd.reported_write_pos
 	}
 
-	position := sd.decode_cursor - remaining
+	position := sd.reported_decode_cursor - remaining
 
 	// A looping stream starts decoding the beginning of the file again before the listener has
 	// heard the end of it, since the end is still sitting in the buffer. Count back into the
@@ -3037,6 +3038,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 	// We fetch this while guarded by audio_mutex, we'll use them during the seeking & decode.
 	play_offset := so.offset
+	loop := sd.loop
 	seek := sd.seek_state == .Requested
 	seek_seconds := sd.seek_seconds
 
@@ -3055,7 +3057,10 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 		sd.buffer_write_pos = play_offset
 	}
 
-	stop := _decode_audio_stream(sd, aco, play_offset)
+	stop := _decode_audio_stream(sd, aco, play_offset, loop)
+	write_pos := sd.buffer_write_pos
+	decode_cursor := sd.decode_cursor
+	seek_discard := sd.seek_discard
 	sync.mutex_unlock(&sd.decode_mutex)
 	sync.mutex_lock(&s.audio_mutex)
 
@@ -3063,8 +3068,14 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 		hm.remove(&s.sounds, sound)
 	}
 
-	if sd = hm.get(&s.audio_streams, stream); sd != nil && sd.seek_state == .Seeking {
-		sd.seek_state = .None
+	if sd = hm.get(&s.audio_streams, stream); sd != nil {
+		sd.reported_write_pos = write_pos
+		sd.reported_decode_cursor = decode_cursor
+		sd.reported_seek_discard = seek_discard
+
+		if sd.seek_state == .Seeking {
+			sd.seek_state = .None
+		}
 	}
 
 	sync.mutex_unlock(&s.audio_mutex)
@@ -3074,6 +3085,7 @@ _decode_audio_stream :: proc(
 	sd: ^Audio_Stream_Data,
 	ab: ^Audio_Clip_Object,
 	play_offset: int,
+	loop: bool,
 ) -> bool {
 	audio_stream_remaining :: proc(
 		as: ^Audio_Stream_Data,
@@ -3133,7 +3145,7 @@ _decode_audio_stream :: proc(
 
 				if read_err != nil {
 					if read_err == .EOF {
-						if sd.loop {
+						if loop {
 							_, seek_err := file_seek(sd.file, 0, .Start)
 
 							if seek_err != nil {
@@ -3218,7 +3230,7 @@ _decode_audio_stream :: proc(
 			samples := stbv.get_frame_float(sd.vorbis, &channels, &output)
 
 			if samples == 0 {
-				if sd.loop {
+				if loop {
 					stbv.seek_start(sd.vorbis)
 					sd.decode_cursor = 0
 
@@ -3328,7 +3340,7 @@ play_audio_stream :: proc(
 	// that reads an empty buffer moves its read position past the write position, which makes the
 	// buffer look full rather than empty, so it would not be refilled until the read position had
 	// wrapped all the way around.
-	stop := _decode_audio_stream(sd, ab, 0)
+	stop := _decode_audio_stream(sd, ab, 0, loop)
 	sync.mutex_unlock(&sd.decode_mutex)
 
 	if stop {
@@ -3336,6 +3348,9 @@ play_audio_stream :: proc(
 	}
 
 	sync.mutex_guard(&s.audio_mutex)
+	sd.reported_write_pos = sd.buffer_write_pos
+	sd.reported_decode_cursor = sd.decode_cursor
+	sd.reported_seek_discard = sd.seek_discard
 
 	playback_settings := Sound_Settings {
 		volume = clamp(volume, 0, 1),
@@ -3499,7 +3514,7 @@ update_audio :: proc() {
 	if !ab.has_mixer_thread {
 		assert(
 			ab.push_samples != nil && ab.pushed_samples_remaining != nil,
-			"Audio backend that does not mix itself must accept samples through `push_samples` and also implement `samples_remaining`",
+			"Audio backend that does not mix itself must accept samples through `push_samples` and also implement `pushed_samples_remaining`",
 		)
 
 		// Sometimes the mixing will fall behind due to a big stall. It will therefore try to mix up
@@ -4011,8 +4026,8 @@ _AUDIO_THREAD_CONTEXT_MARKER :: 421337
 // The audio thread context should be assigned at the start of the audio thread proc. That proc
 // should `free_all(context.temp_allocator)` at the end of each "audio frame".
 //
-// Do note use `thread.init_context` to set this. That field has strange side-effects. Instead, just
-// set do `context = _audio_thread_context()` as first line in the thread proc.
+// Do not use `thread.init_context` to set this. That field has strange side-effects. Instead, just
+// do `context = _audio_thread_context()` as first line in the thread proc.
 @(private="package")
 _audio_thread_context :: proc() -> runtime.Context {
 	return {
@@ -5766,6 +5781,8 @@ Audio_Stream_Data :: struct {
 	// Together with the `offset` of the Sound_Object, this forms a circular buffer.
 	buffer_write_pos: int,
 
+	// TODO-UPDATE-COMMENT `get_sound_time` reads the `reported_` copies below. They are written
+	// under `audio_mutex` once a decode is done, so it never sees a decode in progress.
 	// How far into the file the samples we most recently wrote into the clip were, counted the
 	// same way as the clip's samples: In the case of stereo, left and right count as one each.
 	// Take away the samples in the clip that haven't played yet and you get the spot the listener
@@ -5776,6 +5793,10 @@ Audio_Stream_Data :: struct {
 	// writing them to the clip. Used when moving the stream, since the decoder can only move in
 	// steps of a whole ogg page.
 	seek_discard: int,
+
+	reported_write_pos: int,
+	reported_decode_cursor: int,
+	reported_seek_discard: int,
 
 	decode_mutex: sync.Mutex,
 
@@ -6057,8 +6078,8 @@ State :: struct {
 	// map can't store, and it needs to exist without anyone creating it.
 	master_bus: Audio_Bus_Object,
 
-	// This is the buffer that is used the audio backend has no mixer thread. In that case we say
-	// that we "push" samples into the audio backend. That mixing will happen into buffer.
+	// This is the buffer that is used when the audio backend has no mixer thread. In that case we
+	// say that we "push" samples into the audio backend. That mixing will happen into buffer.
 	//
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
 	// ample.
