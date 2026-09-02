@@ -184,6 +184,11 @@ init :: proc(
 		s.audio_backend = AUDIO_BACKEND
 		ab = s.audio_backend
 
+		mem.arena_init(
+			&s.audio_thread_temp_allocator_arena,
+			s.audio_thread_temp_allocator_buffer[:],
+		)
+
 		audio_alloc_error: runtime.Allocator_Error
 		s.audio_backend_state, audio_alloc_error = mem.alloc(ab.state_size(), allocator = s.allocator)
 		log.assertf(audio_alloc_error == nil, "Failed allocating memory for audio backend: %v", audio_alloc_error)
@@ -3513,7 +3518,15 @@ update_audio :: proc() {
 //    `audio_backend_` files).
 // 2. If the platform has no audio thread, then this is called by `update_audio`. An example of such
 //    a platform is Web.
+//
+// This procedure never allocates using `context.allocator` and only uses `context.temp_allocator`
+// for non-crucial logging formatting. If called from an audio thread, then that thread must use
+// `context = _audio_thread_context()`.
 _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
+	if ab.mixes_itself {
+		assert(context.user_index == _AUDIO_THREAD_CONTEXT_MARKER)
+	}
+
 	sync.mutex_guard(&s.audio_mutex)
 	
 	// A slice of the mixed samples we are going to output.
@@ -3969,9 +3982,22 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	}
 }
 
+_AUDIO_THREAD_CONTEXT_MARKER :: 421337
+
+// Any audio thread must use this context. Audio threads are not allowed to allocate memory. They
+// can use temp allocator, but only for non-crucial error message formatting. The temp allocator
+// uses a 4096 byte arena.
+//
+// The audio thread context should be assigned at the start of the audio thread proc. That proc\
+// should `free_all(context.temp_allocator)` at the end of each "audio frame".
 @(private="package")
-_logger :: proc() -> runtime.Logger {
-	return s.logger
+_audio_thread_context :: proc() -> runtime.Context {
+	return {
+		allocator = mem.panic_allocator(),
+		temp_allocator = mem.arena_allocator(&s.audio_thread_temp_allocator_arena),
+		logger = s.logger,
+		user_index = _AUDIO_THREAD_CONTEXT_MARKER,
+	}
 }
 
 //-----------------//
@@ -6018,6 +6044,9 @@ State :: struct {
 	push_mix_buffer_offset: int,
 
 	audio_mutex: sync.Mutex,
+
+	audio_thread_temp_allocator_buffer: [4096]byte,
+	audio_thread_temp_allocator_arena: mem.Arena,
 }
 
 

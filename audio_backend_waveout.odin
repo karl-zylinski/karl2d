@@ -89,7 +89,7 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 }
 
 waveout_thread_proc :: proc(t: ^thread.Thread) {
-	context.logger = _logger()
+	context = _audio_thread_context()
 
 	thread_loop: for sync.atomic_load(&s.run_mix_thread) {
 		h := &s.headers[s.cur_header]
@@ -123,6 +123,8 @@ waveout_thread_proc :: proc(t: ^thread.Thread) {
 		if s.cur_header >= len(s.headers) {
 			s.cur_header = 0
 		}
+
+		free_all(context.temp_allocator)
 	}
 }
 
