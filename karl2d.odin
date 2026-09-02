@@ -3494,7 +3494,7 @@ update_audio :: proc() {
 	if !ab.has_mixer_thread {
 		assert(
 			ab.push_samples != nil && ab.pushed_samples_remaining != nil,
-			"Audio backend that does not mix itself must accept samples through `push_samples` and also implement `samples_remaining`",
+			"Audio backend that does not mix itself must accept samples through `push_samples` and also implement `pushed_samples_remaining`",
 		)
 
 		// Sometimes the mixing will fall behind due to a big stall. It will therefore try to mix up
@@ -4006,8 +4006,8 @@ _AUDIO_THREAD_CONTEXT_MARKER :: 421337
 // The audio thread context should be assigned at the start of the audio thread proc. That proc
 // should `free_all(context.temp_allocator)` at the end of each "audio frame".
 //
-// Do note use `thread.init_context` to set this. That field has strange side-effects. Instead, just
-// set do `context = _audio_thread_context()` as first line in the thread proc.
+// Do not use `thread.init_context` to set this. That field has strange side-effects. Instead, just
+// do `context = _audio_thread_context()` as first line in the thread proc.
 @(private="package")
 _audio_thread_context :: proc() -> runtime.Context {
 	return {
@@ -6052,8 +6052,8 @@ State :: struct {
 	// map can't store, and it needs to exist without anyone creating it.
 	master_bus: Audio_Bus_Object,
 
-	// This is the buffer that is used the audio backend has no mixer thread. In that case we say
-	// that we "push" samples into the audio backend. That mixing will happen into buffer.
+	// This is the buffer that is used when the audio backend has no mixer thread. In that case we
+	// say that we "push" samples into the audio backend. That mixing will happen into buffer.
 	//
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
 	// ample.

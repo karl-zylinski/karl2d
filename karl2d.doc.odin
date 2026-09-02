@@ -1904,8 +1904,8 @@ State :: struct {
 	// map can't store, and it needs to exist without anyone creating it.
 	master_bus: Audio_Bus_Object,
 
-	// This is the buffer that is used the audio backend has no mixer thread. In that case we say
-	// that we "push" samples into the audio backend. That mixing will happen into buffer.
+	// This is the buffer that is used when the audio backend has no mixer thread. In that case we
+	// say that we "push" samples into the audio backend. That mixing will happen into buffer.
 	//
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
 	// ample.
