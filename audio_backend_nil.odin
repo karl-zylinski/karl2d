@@ -14,23 +14,39 @@ AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
 }
 
 import "base:runtime"
+import "core:time"
 
-abnil_state_size :: proc() -> int {
-	return 0
+Nil_State :: struct {
+	start: time.Tick,
+	pushed: int,
 }
 
-abnil_init :: proc(state: rawptr, allocator: runtime.Allocator) {
+s: ^Nil_State
+
+abnil_state_size :: proc() -> int {
+	return size_of(Nil_State)
+}
+
+abnil_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
+	assert(state != nil)
+	s = (^Nil_State)(state)
+	s.start = time.tick_now()
+	return true
 }
 
 abnil_shutdown :: proc() {
 }
 
 abnil_set_internal_state :: proc(state: rawptr) {
+	assert(state != nil)
+	s = (^Nil_State)(state)
 }
 
 abnil_push_samples :: proc(samples: [][2]Audio_Sample) {
+	s.pushed += len(samples)
 }
 
 abnil_pushed_samples_remaining :: proc() -> int {
-	return 0
+	elapsed := int(time.duration_seconds(time.tick_since(s.start)) * AUDIO_MIX_SAMPLE_RATE)
+	return max(s.pushed - elapsed, 0)
 }

@@ -200,7 +200,22 @@ init :: proc(
 		s.master_bus.target_settings = DEFAULT_AUDIO_BUS_SETTINGS
 		s.master_bus.current_settings = DEFAULT_AUDIO_BUS_SETTINGS
 
-		ab.init(s.audio_backend_state, s.allocator)
+		if !ab.init(s.audio_backend_state, s.allocator) {
+			log.error("Failed initializing audio backend. Sounds will play silently.")
+			free(s.audio_backend_state, s.allocator)
+			s.audio_backend = AUDIO_BACKEND_NIL
+			ab = s.audio_backend
+			s.audio_backend_state, audio_alloc_error = mem.alloc(
+				ab.state_size(),
+				allocator = s.allocator,
+			)
+			log.assertf(
+				audio_alloc_error == nil,
+				"Failed allocating memory for audio backend: %v",
+				audio_alloc_error,
+			)
+			ab.init(s.audio_backend_state, s.allocator)
+		}
 	}
 
 	return s
@@ -3473,6 +3488,8 @@ update_audio :: proc() {
 		}
 	}
 
+	// TODO-UPDATE-COMMENT the nil backend also runs this. It is the fallback when the platform's
+	// backend fails to initialize, and it advances the sounds at real time using a clock.
 	// Platforms without an audio thread will run this. Web is such a platform.
 	if !ab.has_mixer_thread {
 		assert(

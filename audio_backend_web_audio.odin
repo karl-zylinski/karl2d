@@ -36,8 +36,9 @@ web_audio_state_size :: proc() -> int {
 	return 0
 }
 
-web_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) {
+web_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
 	js_web_audio_init()
+	return true
 }
 
 web_audio_shutdown :: proc() {

@@ -40,7 +40,7 @@ waveout_state_size :: proc() -> int {
 
 s: ^Waveout_State
 
-waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
+waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
 	assert(state != nil)
 	s = (^Waveout_State)(state)
 	log.debug("Init audio backend waveout")
@@ -75,7 +75,7 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 		0,
 		win32.CALLBACK_NULL,
 	)) != 0 {
-		return
+		return false
 	}
 
 	win32.timeBeginPeriod(1)
@@ -85,6 +85,7 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	// Don't set `s.mix_thread.init_context` here. We set the parts of the context we need in the thread
 	// proc. `init_context` has too many unpredictable side-effects.
 	thread.start(s.mix_thread)
+	return true
 }
 
 waveout_thread_proc :: proc(t: ^thread.Thread) {

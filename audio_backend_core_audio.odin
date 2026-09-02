@@ -35,7 +35,7 @@ core_audio_state_size :: proc() -> int {
 
 s: ^Core_Audio_State
 
-core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) {
+core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
 	assert(state != nil)
 	s = (^Core_Audio_State)(state)
 
@@ -59,21 +59,27 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 		nil,
 		0,
 		&s.queue,
-	)) { return }
+	)) { return false }
 
 	s.running = true
 
 	for &buffer in s.buffers {
 		if !ch(Audio.QueueAllocateBuffer(s.queue, BUFFER_SIZE, &buffer)) {
-			return
+			s.running = false
+			Audio.QueueDispose(s.queue, true)
+			return false
 		}
 
 		core_audio_fill(buffer)
 	}
 
 	if !ch(Audio.QueueStart(s.queue, nil)) {
-		return
+		s.running = false
+		Audio.QueueDispose(s.queue, true)
+		return false
 	}
+
+	return true
 }
 
 core_audio_fill :: proc "contextless" (buffer: Audio.QueueBufferRef) {

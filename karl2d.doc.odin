@@ -737,10 +737,11 @@ load_audio_stream_from_bytes :: proc(
 // deallocate the bytes that you sent into that procedure.
 destroy_audio_stream :: proc(stream: Audio_Stream)
 
-// TODO-UPDATE-COMMENT the decoding runs without the mutex the mixer needs. One thread per stream
-// may call this, and it may be a thread of your own. The rest of the audio API may run on another.
-// Streams in new audio data from the audio stream. You need to call this once per frame in order
-// for the streaming to actually happen. 
+// Streams in new audio data from the audio stream. You need to call this regularly for the stream
+// to not run out of data.
+//
+// THREAD SAFE: One thread per stream may call this. That way you can create a "music thread" that
+// is immune to both in-game stalls and external stalls, such as the window being moved.
 update_audio_stream :: proc(stream: Audio_Stream)
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
