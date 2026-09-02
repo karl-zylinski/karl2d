@@ -1628,7 +1628,6 @@ Audio_Stream_Data :: struct {
 
 	reported_write_pos: int,
 	reported_decode_cursor: int,
-	reported_seek_discard: int,
 
 	decode_mutex: sync.Mutex,
 
