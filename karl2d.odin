@@ -52,11 +52,13 @@ init :: proc(
 	window_title: string,
 	options := Init_Options {},
 	allocator := context.allocator,
-	loc := #caller_location
+	loc := #caller_location,
+	logger := context.logger,
 ) -> ^State {
 	assert(s == nil, "Don't call 'init' twice.")
 	s = new(State, allocator, loc)
 	s.allocator = allocator
+	s.logger = logger
 
 	// This is the same type of arena as the default temp allocator. This arena is for allocations
 	// that have a lifetime of "one frame". They are valid until you call `present()`, at which
@@ -3954,17 +3956,9 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	}
 }
 
-_audio_thread_context :: proc() -> runtime.Context {
-	ctx := runtime.default_context()
-	ctx.allocator = s.allocator
-	ctx.logger = s.audio_thread_logger
-	return ctx
-}
-
-_destroy_audio_thread_temp_allocator :: proc() {
-	if context.temp_allocator.procedure == runtime.default_temp_allocator_proc {
-		runtime.default_temp_allocator_destroy(auto_cast context.temp_allocator.data)
-	}
+@(private="package")
+_logger :: proc() -> runtime.Logger {
+	return s.logger
 }
 
 //-----------------//
@@ -5881,6 +5875,7 @@ DEFAULT_AUDIO_BUS_SETTINGS :: Audio_Bus_Settings {
 // to it, so you can later use 'set_internal_state' to restore it (after for example hot reload).
 State :: struct {
 	allocator: runtime.Allocator,
+	logger: runtime.Logger,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
 	platform_state: rawptr,

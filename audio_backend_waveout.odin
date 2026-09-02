@@ -83,11 +83,14 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 
 	s.run_mix_thread = true
 	s.mix_thread = thread.create(waveout_thread_proc)
-	s.mix_thread.init_context = _audio_thread_context()
+	// Don't set thread.init_context here. We set the parts of the context we need in the thread
+	// proc.
 	thread.start(s.mix_thread)
 }
 
 waveout_thread_proc :: proc(t: ^thread.Thread) {
+	context.logger = _logger()
+
 	thread_loop: for sync.atomic_load(&s.run_mix_thread) {
 		h := &s.headers[s.cur_header]
 
@@ -121,8 +124,6 @@ waveout_thread_proc :: proc(t: ^thread.Thread) {
 			s.cur_header = 0
 		}
 	}
-
-	_destroy_audio_thread_temp_allocator()
 }
 
 ch :: proc(mr: win32.MMRESULT, loc := #caller_location) -> win32.MMRESULT {
