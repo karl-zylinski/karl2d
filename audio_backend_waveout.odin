@@ -83,8 +83,8 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 
 	s.run_mix_thread = true
 	s.mix_thread = thread.create(waveout_thread_proc)
-	// Don't set thread.init_context here. We set the parts of the context we need in the thread
-	// proc.
+	// Don't set `s.mix_thread.init_context` here. We set the parts of the context we need in the thread
+	// proc. `init_context` has too many unpredictable side-effects.
 	thread.start(s.mix_thread)
 }
 

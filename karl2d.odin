@@ -194,7 +194,6 @@ init :: proc(
 		hm.dynamic_init(&s.audio_buses, s.allocator)
 		s.master_bus.target_settings = DEFAULT_AUDIO_BUS_SETTINGS
 		s.master_bus.current_settings = DEFAULT_AUDIO_BUS_SETTINGS
-		s.audio_thread_logger = context.logger
 
 		ab.init(s.audio_backend_state, s.allocator)
 	}
@@ -231,7 +230,7 @@ update :: proc() -> bool {
 	assert_initialized()
 	reset_frame_allocator()
 	calculate_frame_time()
-	update_audio_mixer()
+	update_audio()
 	process_events()
 	return !close_window_requested()
 }
@@ -3457,53 +3456,63 @@ set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_dat
 	bus_object.effect_user_data = user_data
 }
 
-// Update the audio mixer and feed more audio data into the audio backend. This is done
-// automatically when `update` runs, so you normally don't need to call this manually.
+// This procedure does some audio housekeeping, removing dead sounds. For platforms that don't use
+// an audio thread it also runs the audio mixer.
 //
-// This procedure implements a custom software audio mixer. The audio backend is just fed the
-// resulting mix. Therefore, you can see everything regarding how audio is processed in this
-// procedure.
-//
-// Will only run if the audio backend is running low on audio data.
-update_audio_mixer :: proc() {
-	if ab.mixes_itself {
-		return
+// This procedure is run automatically by `update`. You normally don't have to call it.
+update_audio :: proc() {
+	if sync.mutex_guard(&s.audio_mutex) {
+		ps_iter := hm.dynamic_iterator_make(&s.sounds)
+		for ps, ps_handle in hm.dynamic_iterate(&ps_iter) {
+			if ps.remove {
+				hm.remove(&s.sounds, ps_handle)
+			}
+		}
 	}
 
-	assert(
-		ab.push_samples != nil && ab.pushed_samples_remaining != nil,
-		"Audio backend that does not mix itself must accept samples through `push_samples` and also implement `samples_remaining`",
-	)
+	// Platforms without an audio thread will run this. Web is such a platform.
+	if !ab.mixes_itself {
+		assert(
+			ab.push_samples != nil && ab.pushed_samples_remaining != nil,
+			"Audio backend that does not mix itself must accept samples through `push_samples` and also implement `samples_remaining`",
+		)
 
-	MAX_CHUNKS_PER_UPDATE :: 8
+		// Sometimes the mixing will fall behind due to a big stall. It will therefore try to mix up
+		// to 8 chunks in one go. This is more of a fail-safe than normal operation.
+		MAX_CHUNKS_PER_UPDATE :: 8
 
-	// TODO-UPDATE-COMMENT this now runs several chunks per call, and the backends that mix on a
-	// thread of their own have returned above.
-	// If the sample rate of the backend is 44100 samples/second and AUDIO_MIX_CHUNK_SIZE is 1400
-	// samples, then this procedure will only run roughly 44100/1400 = 31 times per second. This
-	// gives a latency of up to (1.5 * (44100/1400)) = 47 milliseconds. Is it too big, or too small?
-	// Perhaps we can use more low latency backends to push it down. Perhaps the backend should
-	// control AUDIO_MIX_CHUNK_SIZE based on how low latency it can give us without stalling?
-	for _ in 0..<MAX_CHUNKS_PER_UPDATE {
-		if ab.pushed_samples_remaining() > (3 * AUDIO_MIX_CHUNK_SIZE)/2 {
-			break
+		// If the sample rate of the backend is 44100 samples/second and AUDIO_MIX_CHUNK_SIZE is
+		// 1400 samples, then this procedure will only run roughly 44100/1400 = 31 times per second.
+		// This gives a latency of up to (1.5 * (44100/1400)) = 47 milliseconds. Is it too big, or
+		// too small? Perhaps the platforms that need pushed samples can give us a chunk sized based
+		// on their latency.
+		for _ in 0..<MAX_CHUNKS_PER_UPDATE {
+			if ab.pushed_samples_remaining() > (3 * AUDIO_MIX_CHUNK_SIZE)/2 {
+				break
+			}
+
+			// We are going to go past the end of the mix_buffer, so just hop to the start instead.
+			// It's 1 megabyte big, so hopping over a few bytes at the end is OK.
+			if (s.push_mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE) > len(s.push_mix_buffer) {
+				s.push_mix_buffer_offset = 0
+			}
+
+			push_mix_slice := s.push_mix_buffer[s.push_mix_buffer_offset:s.push_mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE]
+			s.push_mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
+			_mix_audio_into_buffer(push_mix_slice)
+			ab.push_samples(push_mix_slice)
 		}
-
-		// We are going to go past the end of the mix_buffer, so just hop to the start instead.
-		// It's 1 megabyte big, so hopping over a few bytes at the end is OK.
-		if (s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE) > len(s.mix_buffer) {
-			s.mix_buffer_offset = 0
-		}
-
-		out := s.mix_buffer[s.mix_buffer_offset:s.mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE]
-		s.mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
-
-		_mix_audio_into_buffer(out)
-
-		ab.push_samples(out)
 	}
 }
 
+// This procedure implements a custom software audio mixer. It will write the mixed samples into
+// `buffer`. You can see everything regarding how audio is mixed in this procedure.
+//
+// This procedure gets called in two different ways:
+// 1. If the platform has an audio thread, then the audio thread calls this procedure (see the
+//    `audio_backend_` files).
+// 2. If the platform has no audio thread, then this is called by `update_audio`. An example of such
+//    a platform is Web.
 _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	sync.mutex_guard(&s.audio_mutex)
 	
@@ -3676,11 +3685,15 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	}
 
 	for ps_iter := hm.dynamic_iterator_make(&s.sounds); ps, ps_handle in hm.dynamic_iterate(&ps_iter) {
+		if ps.remove {
+			continue
+		}
+
 		data := hm.get(&s.audio_clips, ps.clip)
 
 		if data == nil {
 			log.error("Trying to play sound with destroyed data")
-			hm.remove(&s.sounds, ps_handle)
+			ps.remove = true
 			continue
 		}
 
@@ -3865,7 +3878,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 					ps.offset_fraction = 0
 				}
 			} else {
-				hm.remove(&s.sounds, ps_handle)
+				ps.remove = true
 				continue
 			}
 		}
@@ -5799,6 +5812,12 @@ Sound_Object :: struct {
 	// Set using `set_sound_paused`. The mixer skips paused sounds.
 	paused: bool,
 
+	// If true, then this Sound will be deleted next time `update_audio` runs. We don't remove
+	// directly when mixing because we don't want to touch memory allocations there. This is because
+	// the mixing may happen on a thread. It may look like `hm.remove` is thread safe, but the XAR
+	// array that the handle map uses internally may append to a dynamically allocated freelist.
+	remove: bool,
+
 	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
 	// moves it, then fades it back in, so that landing in a completely different part of the
 	// waveform doesn't click. This is where it is going once the fade out is done.
@@ -5986,18 +6005,19 @@ State :: struct {
 	// map can't store, and it needs to exist without anyone creating it.
 	master_bus: Audio_Bus_Object,
 
-	// TODO-UPDATE-COMMENT only the backends that are handed samples use this. A backend that mixes
-	// itself has the mixer write straight into the buffer its device is about to play.
+	// This is the buffer that is used the audio backend has no mixer thread. In that case we say
+	// that we "push" samples into the audio backend. That mixing will happen into buffer.
+	//
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
 	// ample.
-	mix_buffer: [AUDIO_MIX_CHUNK_SIZE*10][2]Audio_Sample,
+	//
+	// TODO: Should the audio backends that need push data expose their own buffer?
+	push_mix_buffer: [AUDIO_MIX_CHUNK_SIZE*10][2]Audio_Sample,
 
-	// Where the mixer currently is in the mix buffer.
-	mix_buffer_offset: int,
+	// Where the push mixer currently is in the mix buffer.
+	push_mix_buffer_offset: int,
 
 	audio_mutex: sync.Mutex,
-
-	audio_thread_logger: runtime.Logger,
 }
 
 
