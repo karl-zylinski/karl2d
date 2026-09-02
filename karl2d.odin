@@ -2079,28 +2079,7 @@ stop_sound :: proc(sound: Sound) {
 		return
 	}
 
-	stream := sound_object.stream
 	hm.remove(&s.sounds, sound)
-
-	if stream == AUDIO_STREAM_NONE {
-		return
-	}
-
-	sd := hm.get(&s.audio_streams, stream)
-
-	if sd == nil {
-		log.error("Cannot reset audio stream, stream does not exist.")
-		return
-	}
-
-	ab := hm.get(&s.audio_clips, sd.clip)
-
-	if ab == nil {
-		log.error("Cannot reset audio stream, its clip does not exist.")
-		return
-	}
-
-	_reset_audio_stream(sd, ab)
 }
 
 // Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
@@ -2252,7 +2231,7 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 		channels = 2
 	}
 
-	if sd.seeks_requested != sync.atomic_load(&sd.seeks_done) {
+	if sd.seek_state != .None {
 		return sd.seek_seconds
 	}
 
@@ -2985,6 +2964,8 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
+	sync.mutex_lock(&sd.decode_mutex)
+
 	if playing := hm.get(&s.sounds, sd.sound); playing != nil {
 		hm.remove(&s.sounds, sd.sound)
 	}
@@ -3003,11 +2984,12 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 	}
 
 	free(sd.vorbis_buffer.alloc_buffer, s.allocator)
+	sync.mutex_unlock(&sd.decode_mutex)
 	hm.remove(&s.audio_streams, stream)
 }
 
-// TODO-UPDATE-COMMENT the decoding runs without the mutex the mixer needs, so this must be called
-// from the same thread as the rest of the audio API, once per frame.
+// TODO-UPDATE-COMMENT the decoding runs without the mutex the mixer needs. One thread per stream
+// may call this, and it may be a thread of your own. The rest of the audio API may run on another.
 // Streams in new audio data from the audio stream. You need to call this once per frame in order
 // for the streaming to actually happen. 
 update_audio_stream :: proc(stream: Audio_Stream) {
@@ -3020,9 +3002,10 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	so := hm.get(&s.sounds, sd.sound)
+	sound := sd.sound
+	so := hm.get(&s.sounds, sound)
 
-	if so == nil || sync.atomic_load(&sd.stop_requested) {
+	if so == nil {
 		sync.mutex_unlock(&s.audio_mutex)
 		return
 	}
@@ -3030,15 +3013,39 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	aco := hm.get(&s.audio_clips, so.clip)
 
 	if aco == nil {
-		hm.remove(&s.sounds, sd.sound)
+		hm.remove(&s.sounds, sound)
 		sync.mutex_unlock(&s.audio_mutex)
 		log.error("Trying to update audio stream with destroyed clip")
 		return
 	}
 
 	play_offset := so.offset
+	seek := sd.seek_state == .Requested
+	seek_seconds := sd.seek_seconds
+
+	if seek {
+		sd.seek_state = .Seeking
+	}
+
+	sync.mutex_lock(&sd.decode_mutex)
 	sync.mutex_unlock(&s.audio_mutex)
-	_decode_audio_stream(sd, aco, play_offset)
+
+	if seek {
+		_seek_audio_stream(sd, aco, seek_seconds)
+		sd.buffer_write_pos = play_offset
+	}
+
+	stop := _decode_audio_stream(sd, aco, play_offset)
+	sync.mutex_unlock(&sd.decode_mutex)
+	sync.mutex_guard(&s.audio_mutex)
+
+	if stop {
+		hm.remove(&s.sounds, sound)
+	}
+
+	if sd_now := hm.get(&s.audio_streams, stream); sd_now != nil && sd_now.seek_state == .Seeking {
+		sd_now.seek_state = .None
+	}
 }
 
 _compact_stream_read_buf :: proc(sd: ^Audio_Stream_Data) {
@@ -3051,7 +3058,11 @@ _compact_stream_read_buf :: proc(sd: ^Audio_Stream_Data) {
 	sd.file_read_buf_offset = 0
 }
 
-_decode_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, play_offset: int) {
+_decode_audio_stream :: proc(
+	sd: ^Audio_Stream_Data,
+	ab: ^Audio_Clip_Object,
+	play_offset: int,
+) -> bool {
 	audio_stream_remaining :: proc(as: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, play_offset: int) -> int {
 		remaining := as.buffer_write_pos - play_offset
 
@@ -3062,15 +3073,7 @@ _decode_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, pla
 		return remaining
 	}
 
-	seeks_requested := sync.atomic_load(&sd.seeks_requested)
-
-	if seeks_requested != sd.seeks_done {
-		_seek_audio_stream(sd, ab, sd.seek_seconds)
-		sd.buffer_write_pos = play_offset
-	}
-
 	stop: bool
-	rewind: bool
 
 	switch sd.mode {
 	case .From_File:
@@ -3113,7 +3116,6 @@ _decode_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, pla
 							if seek_err != nil {
 								log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
 								stop = true
-								rewind = true
 								break
 							}
 
@@ -3129,7 +3131,6 @@ _decode_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, pla
 							continue
 						} else {
 							stop = true
-							rewind = true
 							break
 						}
 					} else {
@@ -3208,7 +3209,6 @@ _decode_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, pla
 					// stream but push the final samples into the clip and destroy that one
 					// when it finishes playing (in the mixer).
 					stop = true
-					rewind = true
 					break
 				}
 			}
@@ -3239,15 +3239,7 @@ _decode_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, pla
 		}
 	}
 
-	if stop {
-		if rewind {
-			_reset_audio_stream(sd, ab)
-		}
-
-		sync.atomic_store(&sd.stop_requested, true)
-	}
-
-	sync.atomic_store(&sd.seeks_done, seeks_requested)
+	return stop
 }
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
@@ -3303,17 +3295,21 @@ play_audio_stream :: proc(
 	}
 
 	sd.loop = loop
-	sync.atomic_store(&sd.stop_requested, false)
+	sd.seek_state = .None
+	sync.mutex_lock(&sd.decode_mutex)
 	sync.mutex_unlock(&s.audio_mutex)
+
+	_reset_audio_stream(sd, ab)
 
 	// Decode into the buffer before returning, so that there is something to play right away. The
 	// mixer may well run before the game gets around to calling `update_audio_stream`. A sound
 	// that reads an empty buffer moves its read position past the write position, which makes the
 	// buffer look full rather than empty, so it would not be refilled until the read position had
 	// wrapped all the way around.
-	_decode_audio_stream(sd, ab, 0)
+	stop := _decode_audio_stream(sd, ab, 0)
+	sync.mutex_unlock(&sd.decode_mutex)
 
-	if sync.atomic_load(&sd.stop_requested) {
+	if stop {
 		return SOUND_NONE
 	}
 
@@ -3711,15 +3707,8 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		}
 
 		if ps.stream != AUDIO_STREAM_NONE {
-			if sd := hm.get(&s.audio_streams, ps.stream); sd != nil {
-				if sync.atomic_load(&sd.stop_requested) {
-					ps.remove = true
-					continue
-				}
-
-				if sync.atomic_load(&sd.seeks_requested) != sync.atomic_load(&sd.seeks_done) {
-					continue
-				}
+			if sd := hm.get(&s.audio_streams, ps.stream); sd != nil && sd.seek_state != .None {
+				continue
 			}
 		}
 
@@ -5727,6 +5716,12 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
+Audio_Stream_Seek_State :: enum {
+	None,
+	Requested,
+	Seeking,
+}
+
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
@@ -5753,11 +5748,10 @@ Audio_Stream_Data :: struct {
 	// steps of a whole ogg page.
 	seek_discard: int,
 
-	stop_requested: bool,
+	decode_mutex: sync.Mutex,
 
 	seek_seconds: f32,
-	seeks_requested: int,
-	seeks_done: int,
+	seek_state: Audio_Stream_Seek_State,
 
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
@@ -6742,7 +6736,7 @@ _apply_sound_time :: proc(sound: Sound, seconds: f32) {
 	//
 	// This may remove the sound, so don't touch `sound_object` after it.
 	sd.seek_seconds = clamped_seconds
-	sync.atomic_add(&sd.seeks_requested, 1)
+	sd.seek_state = .Requested
 }
 
 _seek_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, seconds: f32) {
@@ -6797,6 +6791,7 @@ _seek_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, secon
 	slice.zero(ab.samples)
 }
 
+// TODO-UPDATE-COMMENT this now runs from `play_audio_stream` only, right before the first decode.
 // Moves the decode cursor of a stream back to the start. Run when a stream-fed sound is stopped
 // and when a non-looping stream reaches the end of the file, so that playing it again starts from
 // the beginning.
@@ -6804,8 +6799,6 @@ _reset_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object) {
 	sd.buffer_write_pos = 0
 	sd.decode_cursor = 0
 	sd.seek_discard = 0
-
-	sync.atomic_store(&sd.stop_requested, false)
 
 	switch sd.mode {
 	case .From_File:

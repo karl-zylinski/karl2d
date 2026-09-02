@@ -737,8 +737,8 @@ load_audio_stream_from_bytes :: proc(
 // deallocate the bytes that you sent into that procedure.
 destroy_audio_stream :: proc(stream: Audio_Stream)
 
-// TODO-UPDATE-COMMENT the decoding runs without the mutex the mixer needs, so this must be called
-// from the same thread as the rest of the audio API, once per frame.
+// TODO-UPDATE-COMMENT the decoding runs without the mutex the mixer needs. One thread per stream
+// may call this, and it may be a thread of your own. The rest of the audio API may run on another.
 // Streams in new audio data from the audio stream. You need to call this once per frame in order
 // for the streaming to actually happen. 
 update_audio_stream :: proc(stream: Audio_Stream)
@@ -1591,6 +1591,12 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
+Audio_Stream_Seek_State :: enum {
+	None,
+	Requested,
+	Seeking,
+}
+
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
@@ -1617,11 +1623,10 @@ Audio_Stream_Data :: struct {
 	// steps of a whole ogg page.
 	seek_discard: int,
 
-	stop_requested: bool,
+	decode_mutex: sync.Mutex,
 
 	seek_seconds: f32,
-	seeks_requested: int,
-	seeks_done: int,
+	seek_state: Audio_Stream_Seek_State,
 
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
