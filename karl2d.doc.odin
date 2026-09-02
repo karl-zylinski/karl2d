@@ -28,7 +28,8 @@ init :: proc(
 	window_title: string,
 	options := Init_Options {},
 	allocator := context.allocator,
-	loc := #caller_location
+	loc := #caller_location,
+	logger := context.logger,
 ) -> ^State
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
@@ -798,15 +799,11 @@ set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32)
 // See `Audio_Effect_Proc` for what the effect is given and what it is allowed to do.
 set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_data: rawptr = nil)
 
-// Update the audio mixer and feed more audio data into the audio backend. This is done
-// automatically when `update` runs, so you normally don't need to call this manually.
+// This procedure does some audio housekeeping, removing dead sounds. For platforms that don't use
+// an audio thread it also runs the audio mixer.
 //
-// This procedure implements a custom software audio mixer. The audio backend is just fed the
-// resulting mix. Therefore, you can see everything regarding how audio is processed in this
-// procedure.
-//
-// Will only run if the audio backend is running low on audio data.
-update_audio_mixer :: proc()
+// This procedure is run automatically by `update`. You normally don't have to call it.
+update_audio :: proc()
 
 //-----------------//
 // RENDER TEXTURES //
@@ -1710,6 +1707,12 @@ Sound_Object :: struct {
 	// Set using `set_sound_paused`. The mixer skips paused sounds.
 	paused: bool,
 
+	// If true, then this Sound will be deleted next time `update_audio` runs. We don't remove
+	// directly when mixing because we don't want to touch memory allocations there. This is because
+	// the mixing may happen on a thread. It may look like `hm.remove` is thread safe, but the XAR
+	// array that the handle map uses internally may append to a dynamically allocated freelist.
+	remove: bool,
+
 	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
 	// moves it, then fades it back in, so that landing in a completely different part of the
 	// waveform doesn't click. This is where it is going once the fade out is done.
@@ -1786,6 +1789,7 @@ DEFAULT_AUDIO_BUS_SETTINGS :: Audio_Bus_Settings {
 // to it, so you can later use 'set_internal_state' to restore it (after for example hot reload).
 State :: struct {
 	allocator: runtime.Allocator,
+	logger: runtime.Logger,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
 	platform_state: rawptr,
@@ -1896,18 +1900,22 @@ State :: struct {
 	// map can't store, and it needs to exist without anyone creating it.
 	master_bus: Audio_Bus_Object,
 
-	// TODO-UPDATE-COMMENT only the backends that are handed samples use this. A backend that mixes
-	// itself has the mixer write straight into the buffer its device is about to play.
+	// This is the buffer that is used the audio backend has no mixer thread. In that case we say
+	// that we "push" samples into the audio backend. That mixing will happen into buffer.
+	//
 	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
 	// ample.
-	mix_buffer: [AUDIO_MIX_CHUNK_SIZE*10][2]Audio_Sample,
+	//
+	// TODO: Should the audio backends that need push data expose their own buffer?
+	push_mix_buffer: [AUDIO_MIX_CHUNK_SIZE*10][2]Audio_Sample,
 
-	// Where the mixer currently is in the mix buffer.
-	mix_buffer_offset: int,
+	// Where the push mixer currently is in the mix buffer.
+	push_mix_buffer_offset: int,
 
 	audio_mutex: sync.Mutex,
 
-	audio_thread_logger: runtime.Logger,
+	audio_thread_temp_allocator_buffer: [4096]byte,
+	audio_thread_temp_allocator_arena: mem.Arena,
 }
 
 // Karl2D currently reports left, right, and middle mouse buttons.

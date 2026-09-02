@@ -78,13 +78,13 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 }
 
 core_audio_fill :: proc "contextless" (buffer: Audio.QueueBufferRef) {
-	context = runtime.default_context()
-	context.logger = _logger()
+	context = _audio_thread_context()
 
 	samples := ([^][2]Audio_Sample)(buffer.mAudioData)[:CORE_AUDIO_BUFFER_SAMPLES]
 	_mix_audio_into_buffer(samples)
 	buffer.mAudioDataByteSize = u32(BUFFER_SIZE)
 	Audio.QueueEnqueueBuffer(s.queue, buffer, 0, nil)
+	free_all(context.temp_allocator)
 }
 
 // TODO-UPDATE-COMMENT the callback has the mixer fill the buffer again and gives it back to the

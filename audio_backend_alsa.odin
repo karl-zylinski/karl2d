@@ -97,7 +97,7 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 }
 
 alsa_thread_proc :: proc(t: ^thread.Thread) {
-	context.logger = _logger()
+	context = _audio_thread_context()
 
 	for sync.atomic_load(&s.run_mix_thread) {
 		_mix_audio_into_buffer(s.buf[:])
@@ -128,6 +128,7 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 		}
 
 		write(s.pcm, s.buf[:])
+		free_all(context.temp_allocator)
 	}
 }
 
