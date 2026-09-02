@@ -193,6 +193,23 @@ d3d11_init :: proc(
 	}
 
 	ch(s.device->CreateBlendState(&blend_premultiplied_alpha_desc, &s.blend_state_premultiplied_alpha))
+
+	blend_additive_desc := d3d11.BLEND_DESC {
+		RenderTarget = {
+			0 = {
+				BlendEnable = true,
+				SrcBlend = .SRC_ALPHA,
+				DestBlend = .ONE,
+				BlendOp = .ADD,
+				SrcBlendAlpha = .SRC_ALPHA,
+				DestBlendAlpha = .ONE,
+				BlendOpAlpha = .ADD,
+				RenderTargetWriteMask = u8(d3d11.COLOR_WRITE_ENABLE_ALL),
+			},
+		},
+	}
+
+	ch(s.device->CreateBlendState(&blend_additive_desc, &s.blend_state_additive))
 }
 
 d3d11_shutdown :: proc() {
@@ -204,6 +221,7 @@ d3d11_shutdown :: proc() {
 	s.swapchain->Release()
 	s.blend_state_alpha->Release()
 	s.blend_state_premultiplied_alpha->Release()
+	s.blend_state_additive->Release()
 	s.dxgi_adapter->Release()
 
 	if s.depth_test {
@@ -441,6 +459,8 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 				dc->OMSetBlendState(s.blend_state_alpha, nil, ~u32(0))
 			case .Premultiplied_Alpha:
 				dc->OMSetBlendState(s.blend_state_premultiplied_alpha, nil, ~u32(0))
+			case .Additive:
+				dc->OMSetBlendState(s.blend_state_additive, nil, ~u32(0))
 			}
 		}
 
@@ -1363,6 +1383,7 @@ D3D11_State :: struct {
 	framebuffer: ^d3d11.ITexture2D,
 	blend_state_alpha: ^d3d11.IBlendState,
 	blend_state_premultiplied_alpha: ^d3d11.IBlendState,
+	blend_state_additive: ^d3d11.IBlendState,
 	anti_alias: bool,
 
 	textures: hm.Dynamic_Handle_Map(D3D11_Texture, Texture_Handle),

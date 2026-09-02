@@ -271,6 +271,7 @@ gl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 			switch call.blend_mode {
 			case .Alpha: gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 			case .Premultiplied_Alpha: gl.BlendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+			case .Additive: gl.BlendFunc(gl.SRC_ALPHA, gl.ONE)
 			}
 		}
 
@@ -1124,4 +1125,3 @@ gl_default_shader_fragment_source :: proc() -> []byte {
 gl_get_depth_clip_range :: proc() -> (min: f32, max: f32) {
 	return -1, 1
 }
-

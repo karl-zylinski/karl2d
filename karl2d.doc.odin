@@ -1119,8 +1119,7 @@ make_karl2d_icon :: proc(size: int) -> Image
 // Use `destroy_image` when you no longer need the image.
 make_karl2d_logo :: proc(width: int) -> Image
 
-// Choose how the alpha channel is used when mixing half-transparent color with what is already
-// drawn. The default is the .Alpha mode, but you also have the option of using .Premultiply_Alpha.
+// Choose how drawn colors are mixed with what is already drawn. The default is .Alpha.
 set_blend_mode :: proc(mode: Blend_Mode)
 
 // Make everything outside of the screen-space rectangle `scissor_rect` not render. Disable the
@@ -1279,6 +1278,9 @@ Blend_Mode :: enum {
 	// Requires the alpha-channel to be multiplied into texture RGB channels. You can automatically
 	// do this using the `Premultiply_Alpha` option when loading a texture.
 	Premultiplied_Alpha,
+
+	// Adds the source color, multiplied by its alpha, to the color already drawn.
+	Additive,
 }
 
 // A render texture is a texture that you can draw into, instead of drawing to the screen. Create
