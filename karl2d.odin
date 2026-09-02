@@ -222,7 +222,7 @@ init :: proc(
 ////     k2.reset_frame_allocator()
 ////     k2.calculate_frame_time()
 ////     k2.process_events()
-////     k2.update_audio_mixer()
+////     k2.update_audio()
 ////     
 ////     k2.clear(k2.BLUE)
 ////     k2.present()
@@ -3457,6 +3457,11 @@ set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_dat
 
 	bus_object.effect = effect
 	bus_object.effect_user_data = user_data
+}
+
+@(deprecated="Use k2.update_audio() instead")
+update_audio_mixer :: proc() {
+	update_audio()
 }
 
 // This procedure does some audio housekeeping, removing dead sounds. For platforms that don't use
