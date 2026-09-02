@@ -43,7 +43,7 @@ alsa_state_size :: proc() -> int {
 
 s: ^Alsa_State
 
-alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
+alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
 	assert(state != nil)
 	s = (^Alsa_State)(state)
 	log.debug("Init audio backend alsa")
@@ -52,7 +52,7 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 
 	if !load_ok {
 		log.errorf("No sound. Could not load %v.", missing)
-		return
+		return false
 	}
 
 	alsa_err: c.int
@@ -61,7 +61,7 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 
 	if alsa_err < 0 {
 		log.errorf("pcm_open failed for 'default': %s", alsa.strerror(alsa_err))
-		return
+		return false
 	}
 
 	LATENCY_MICROSECONDS :: 25000
@@ -78,7 +78,7 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	if alsa_err < 0 {
 		log.errorf("pcm_set_params failed: %s", alsa.strerror(alsa_err))
 		alsa.pcm_close(pcm)
-		return
+		return false
 	}
 
 	alsa_err = alsa.pcm_prepare(pcm)
@@ -86,7 +86,7 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	if alsa_err < 0 {
 		log.errorf("pcm_prepare failed: %s", alsa.strerror(alsa_err))
 		alsa.pcm_close(pcm)
-		return
+		return false
 	}
 
 	// Set the PCM before starting the thread: the thread uses it right away.
@@ -94,6 +94,7 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	s.run_mix_thread = true
 	s.mix_thread = thread.create(alsa_thread_proc)
 	thread.start(s.mix_thread)
+	return true
 }
 
 alsa_thread_proc :: proc(t: ^thread.Thread) {
@@ -137,6 +138,8 @@ alsa_shutdown :: proc() {
 
 	sync.atomic_store(&s.run_mix_thread, false)
 
+	// TODO-UPDATE-COMMENT this shutdown only runs after a successful `alsa_init`, since a failed
+	// one makes `init` switch to the nil backend. The nil checks below are no longer reachable.
 	// The thread is only created if the whole of `alsa_init` succeeded. It may be nil if for
 	// example no ALSA device was available.
 	if s.mix_thread != nil {
