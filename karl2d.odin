@@ -138,7 +138,7 @@ init :: proc(
 
 	// The vertex buffer is created in a render backend-independent way. It is passed to the
 	// render backend each frame as part of `draw_current_batch()`.
-	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX, s.allocator, loc)
+	s.vertex_buffer_cpu = make([]u8, VERTEX_BUFFER_MAX + VERTEX_COPY_CHUNK, s.allocator, loc)
 
 	// Draw calls are recorded here as you draw. `draw_current_batch` runs them. The arena holds the
 	// values they point at. It is emptied at the same time.
@@ -989,12 +989,7 @@ draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0
 		}
 	}
 
-	batch_vertex(tl, {0, 0}, color)
-	batch_vertex(tr, {1, 0}, color)
-	batch_vertex(br, {1, 1}, color)
-	batch_vertex(tl, {0, 0}, color)
-	batch_vertex(br, {1, 1}, color)
-	batch_vertex(bl, {0, 1}, color)
+	_batch_quad(tl, tr, bl, br, {0, 0}, {1, 0}, {0, 1}, {1, 1}, color)
 }
 
 // Creates a rectangle from a position and a size and draws it using the specified color.
@@ -1296,37 +1291,26 @@ draw_texture_fit :: proc(
 	
 	c := tint
 
-	uv0 := up
-	uv1 := up + {us.x, 0}
-	uv2 := up + us
-	uv3 := up
-	uv4 := up + us
-	uv5 := up + {0, us.y}
+	uv_tl := up
+	uv_tr := up + {us.x, 0}
+	uv_bl := up + {0, us.y}
+	uv_br := up + us
 
 	if flip_x {
-		uv0.x += us.x
-		uv1.x -= us.x
-		uv2.x -= us.x
-		uv3.x += us.x
-		uv4.x -= us.x
-		uv5.x += us.x
+		uv_tl.x += us.x
+		uv_tr.x -= us.x
+		uv_bl.x += us.x
+		uv_br.x -= us.x
 	}
 
 	if flip_y {
-		uv0.y += us.y
-		uv1.y += us.y
-		uv2.y -= us.y
-		uv3.y += us.y
-		uv4.y -= us.y
-		uv5.y -= us.y		
+		uv_tl.y += us.y
+		uv_tr.y += us.y
+		uv_bl.y -= us.y
+		uv_br.y -= us.y
 	}
 
-	batch_vertex(tl, uv0, c)
-	batch_vertex(tr, uv1, c)
-	batch_vertex(br, uv2, c)
-	batch_vertex(tl, uv3, c)
-	batch_vertex(br, uv4, c)
-	batch_vertex(bl, uv5, c)
+	_batch_quad(tl, tr, bl, br, uv_tl, uv_tr, uv_bl, uv_br, c)
 }
 
 @(deprecated="Use draw_texture_rect instead")
@@ -5894,6 +5878,9 @@ State :: struct {
 
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
+
+	// Scratch for the `Vertex_Writer` of whatever shape is being added right now.
+	vertex_prototype: [VERTEX_PROTOTYPE_MAX + VERTEX_COPY_CHUNK]u8,
 	default_shader: Shader,
 
 	// Time when the first call to `new_frame` happened
@@ -6726,7 +6713,7 @@ _begin_vertices :: proc(texture: Texture_Handle, vertices_needed: int) {
 	// Starting a draw call can pad the write position by up to one vertex, so ask for one extra.
 	bytes_needed := s.current_shader.vertex_size*(vertices_needed + 1)
 
-	if s.vertex_buffer_cpu_used + bytes_needed > len(s.vertex_buffer_cpu) {
+	if s.vertex_buffer_cpu_used + bytes_needed > VERTEX_BUFFER_MAX {
 		draw_current_batch()
 	}
 
@@ -6923,17 +6910,195 @@ _draw_call_changes :: proc(
 	return
 }
 
+// The vertex the default shader takes. Laying one out is otherwise a run of offset lookups and
+// conditional writes, which is what the general path in `batch_vertex` does.
+Default_Vertex :: struct {
+	pos: Vec2,
+	uv: Vec2,
+	color: Color,
+}
+
+// Whether a vertex for this shader is exactly a `Default_Vertex`. Then it can be written with a
+// single store instead of field by field. An input override rules it out: those are written on top
+// of position, uv and color, so they need the general path.
+_uses_default_vertex :: #force_inline proc(shd: ^Shader) -> bool {
+	if shd.vertex_size != size_of(Default_Vertex) ||
+	   shd.default_input_offsets[.Position] != int(offset_of(Default_Vertex, pos)) ||
+	   shd.default_input_offsets[.UV] != int(offset_of(Default_Vertex, uv)) ||
+	   shd.default_input_offsets[.Color] != int(offset_of(Default_Vertex, color)) {
+		return false
+	}
+
+	for &o in shd.input_overrides {
+		if o.used != 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Everything needed to lay out a vertex, worked out once per shape instead of once per vertex.
+// Whatever does not vary between the corners of a shape is already in `prototype`: the input
+// overrides, and the color. Writing a vertex is then that copy plus the position and the uv.
+Vertex_Writer :: struct {
+	size: int,
+
+	// Where the position and uv go, or -1 when the shader has no such input. An override covering
+	// one of them also parks it at -1: the override is what the vertex used to end up with, since
+	// it was applied last.
+	pos_offset: int,
+	uv_offset: int,
+
+	prototype: []u8,
+}
+
+// Fills in a writer for the current shader. Fails for a vertex too big to prototype, which leaves
+// the caller to write the vertices one at a time.
+_make_vertex_writer :: proc(shd: ^Shader, color: Color) -> (w: Vertex_Writer, ok: bool) {
+	if shd.vertex_size > VERTEX_PROTOTYPE_MAX {
+		return {}, false
+	}
+
+	w = {
+		size = shd.vertex_size,
+		pos_offset = shd.default_input_offsets[.Position],
+		uv_offset = shd.default_input_offsets[.UV],
+		prototype = s.vertex_prototype[:shd.vertex_size],
+	}
+
+	mem.set(raw_data(w.prototype), 0, w.size)
+
+	if color_offset := shd.default_input_offsets[.Color]; color_offset != -1 {
+		(^Color)(&w.prototype[color_offset])^ = color
+	}
+
+	// An override is applied last, so it wins over the position and the uv. Whichever of those it
+	// covers is parked at -1 and never written. One that covers a field only in part cannot be
+	// expressed that way, so the caller has to go back to writing a field at a time.
+	covers :: proc(o_offset: int, o_size: int, offset: int, size: int) -> (covered: bool, ok: bool) {
+		if offset == -1 || o_offset + o_size <= offset || offset + size <= o_offset {
+			return false, true
+		}
+
+		if o_offset <= offset && offset + size <= o_offset + o_size {
+			return true, true
+		}
+
+		return false, false
+	}
+
+	override_offset: int
+
+	for &input in shd.inputs {
+		o := &shd.input_overrides[input.register]
+
+		if o.used != 0 {
+			mem.copy(&w.prototype[override_offset], raw_data(&o.val), o.used)
+
+			pos_covered := covers(override_offset, o.used, w.pos_offset, size_of(Vec2)) or_return
+			uv_covered := covers(override_offset, o.used, w.uv_offset, size_of(Vec2)) or_return
+
+			if pos_covered {
+				w.pos_offset = -1
+			}
+
+			if uv_covered {
+				w.uv_offset = -1
+			}
+		}
+
+		override_offset += pixel_format_size(input.format)
+	}
+
+	return w, true
+}
+
+// Copies a vertex in fixed size chunks, which the compiler turns into a couple of stores instead of
+// a call. It can run past the end of the vertex, which is why both buffers it is used on carry
+// `VERTEX_COPY_CHUNK` bytes of slack. The bytes it overshoots into belong to the next vertex and
+// are written again right after.
+_copy_vertex :: #force_inline proc(dst: [^]u8, src: [^]u8, size: int) {
+	for i := 0; i < size; i += VERTEX_COPY_CHUNK {
+		(^[VERTEX_COPY_CHUNK]u8)(dst[i:])^ = (^[VERTEX_COPY_CHUNK]u8)(src[i:])^
+	}
+}
+
+_write_vertex :: #force_inline proc(w: Vertex_Writer, dst: [^]u8, v: Vec2, uv: Vec2) {
+	_copy_vertex(dst, raw_data(w.prototype), w.size)
+
+	if w.pos_offset != -1 {
+		(^Vec2)(dst[w.pos_offset:])^ = v
+	}
+
+	if w.uv_offset != -1 {
+		(^Vec2)(dst[w.uv_offset:])^ = uv
+	}
+}
+
+// Adds the two triangles that make up a quad. Doing the four corners in one go is what makes the
+// shape and texture drawing procedures cheap: the layout is worked out once rather than six times.
+_batch_quad :: proc(tl, tr, bl, br: Vec2, uv_tl, uv_tr, uv_bl, uv_br: Vec2, color: Color) {
+	shd := &s.current_shader
+
+	if _uses_default_vertex(shd) {
+		base_offset := s.vertex_buffer_cpu_used
+
+		(^[6]Default_Vertex)(&s.vertex_buffer_cpu[base_offset])^ = {
+			{ tl, uv_tl, color },
+			{ tr, uv_tr, color },
+			{ br, uv_br, color },
+			{ tl, uv_tl, color },
+			{ br, uv_br, color },
+			{ bl, uv_bl, color },
+		}
+
+		s.vertex_buffer_cpu_used = base_offset + 6*size_of(Default_Vertex)
+		return
+	}
+
+	w, w_ok := _make_vertex_writer(shd, color)
+
+	if !w_ok {
+		batch_vertex(tl, uv_tl, color)
+		batch_vertex(tr, uv_tr, color)
+		batch_vertex(br, uv_br, color)
+		batch_vertex(tl, uv_tl, color)
+		batch_vertex(br, uv_br, color)
+		batch_vertex(bl, uv_bl, color)
+		return
+	}
+
+	base_offset := s.vertex_buffer_cpu_used
+	dst := raw_data(s.vertex_buffer_cpu)[base_offset:]
+
+	_write_vertex(w, dst[0*w.size:], tl, uv_tl)
+	_write_vertex(w, dst[1*w.size:], tr, uv_tr)
+	_write_vertex(w, dst[2*w.size:], br, uv_br)
+	_write_vertex(w, dst[3*w.size:], tl, uv_tl)
+	_write_vertex(w, dst[4*w.size:], br, uv_br)
+	_write_vertex(w, dst[5*w.size:], bl, uv_bl)
+
+	s.vertex_buffer_cpu_used = base_offset + 6*w.size
+}
+
 // Callers must run `_begin_vertices` first. That leaves room in the buffer and a draw call to put
 // the vertex in.
 batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
-	shd := s.current_shader
+	shd := &s.current_shader
 
 	base_offset := s.vertex_buffer_cpu_used
 	pos_offset := shd.default_input_offsets[.Position]
 	uv_offset := shd.default_input_offsets[.UV]
 	color_offset := shd.default_input_offsets[.Color]
-	
+
+	if _uses_default_vertex(shd) {
+		(^Default_Vertex)(&s.vertex_buffer_cpu[base_offset])^ = { v, uv, color }
+		s.vertex_buffer_cpu_used = base_offset + size_of(Default_Vertex)
+		return
+	}
+
 	mem.set(&s.vertex_buffer_cpu[base_offset], 0, shd.vertex_size)
 
 	if pos_offset != -1 {
@@ -7043,6 +7208,14 @@ _update_view_projection :: proc() {
 }
 
 VERTEX_BUFFER_MAX :: 1000000
+
+// How many bytes `_copy_vertex` moves at a time. The vertex buffer and the prototype both carry
+// this much slack past their end so that the last copy of a run may overshoot.
+VERTEX_COPY_CHUNK :: 16
+
+// The biggest vertex a `Vertex_Writer` can prototype. Anything past this is written a field at a
+// time instead.
+VERTEX_PROTOTYPE_MAX :: 256
 
 // How much room the batch arena starts with. A draw call needs a handful of bytes for its
 // textures. It only copies the constants when they actually changed. This therefore covers a frame

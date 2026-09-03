@@ -1876,6 +1876,9 @@ State :: struct {
 
 	vertex_buffer_cpu: []u8,
 	vertex_buffer_cpu_used: int,
+
+	// Scratch for the `Vertex_Writer` of whatever shape is being added right now.
+	vertex_prototype: [VERTEX_PROTOTYPE_MAX + VERTEX_COPY_CHUNK]u8,
 	default_shader: Shader,
 
 	// Time when the first call to `new_frame` happened
