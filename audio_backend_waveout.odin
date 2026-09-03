@@ -67,14 +67,17 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
 	format.nBlockAlign = (format.wBitsPerSample * format.nChannels) / 8 // see nBlockAlign docs
 	format.nAvgBytesPerSec = (u32(format.wBitsPerSample * format.nChannels) * format.nSamplesPerSec) / 8
 
-	if ch(win32.waveOutOpen(
+	open_err := win32.waveOutOpen(
 		&s.device,
 		win32.WAVE_MAPPER,
 		&format,
 		0,
 		0,
 		win32.CALLBACK_NULL,
-	)) != 0 {
+	)
+
+	if open_err != 0 {
+		log.errorf("waveOutOpen failed. Error code: %v", int(open_err))
 		return false
 	}
 
@@ -126,15 +129,6 @@ waveout_thread_proc :: proc(t: ^thread.Thread) {
 
 		free_all(context.temp_allocator)
 	}
-}
-
-ch :: proc(mr: win32.MMRESULT, loc := #caller_location) -> win32.MMRESULT {
-	if mr == 0 {
-		return mr
-	}
-
-	log.errorf("waveout error. Error code: %v", u32(mr), location = loc)
-	return mr
 }
 
 waveout_shutdown :: proc() {

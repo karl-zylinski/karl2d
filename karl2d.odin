@@ -2163,8 +2163,8 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 	sound_object.target_settings.pitch = max(pitch, 0.01)
 }
 
-// Move the sound to another spot in its audio. `seconds` is measured from the start of the audio,
-// so 0 moves it back to the beginning. Use `get_sound_length` to find out how far you can go.
+// Move the sound to another spot in its audio. `seconds` is measured from the start of the audio.
+// Use `get_sound_length` to find out how long the sound is.
 //
 // Moving a sound that plays an audio stream is a bit slower than one that plays a clip, since some
 // audio has to be decoded before it can play. Don't do it every frame while dragging a scrub bar,
@@ -2188,6 +2188,7 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 	// we don't jump right away: The mixer fades the sound out first, then jumps, then fades it
 	// back in. A paused sound isn't being mixed, so there is nothing to fade and nothing that
 	// could click. Jump straight away in that case.
+	
 	if sound_object.paused {
 		// Fade the sound in when it is unpaused, instead of jumping straight into the middle of
 		// the waveform.
