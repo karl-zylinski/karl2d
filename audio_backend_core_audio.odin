@@ -23,7 +23,7 @@ CORE_AUDIO_BUFFER_SAMPLES :: 700
 BUFFER_SIZE :: CORE_AUDIO_BUFFER_SAMPLES * size_of([2]Audio_Sample)
 
 Core_Audio_State :: struct {
-	allocator: runtime.Allocator
+	allocator: runtime.Allocator,
 	queue: Audio.QueueRef,
 	buffers: [4]Audio.QueueBufferRef,
 
@@ -53,9 +53,10 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
 		mFramesPerPacket = 1,
 		mChannelsPerFrame = 2,
 		mBitsPerChannel = size_of(f32) * 8,
-		mBytesPerFrame = descriptor.mChannelsPerFrame * (descriptor.mBitsPerChannel / 8),
-		mBytesPerPacket = descriptor.mBytesPerFrame * descriptor.mFramesPerPacket,
 	}
+
+	descriptor.mBytesPerFrame = descriptor.mChannelsPerFrame * (descriptor.mBitsPerChannel / 8)
+	descriptor.mBytesPerPacket = descriptor.mBytesPerFrame * descriptor.mFramesPerPacket
 
 	queue_err := Audio.QueueNewOutput(
 		&descriptor,
