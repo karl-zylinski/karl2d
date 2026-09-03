@@ -12,7 +12,6 @@ AUDIO_BACKEND_ALSA :: Audio_Backend_Interface {
 	has_mixer_thread = true,
 }
 
-import "base:runtime"
 import "core:c"
 import "log"
 import alsa "platform_bindings/linux/alsa"
@@ -34,7 +33,7 @@ alsa_state_size :: proc() -> int {
 
 s: ^Alsa_State
 
-alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
+alsa_init :: proc(state: rawptr) -> bool {
 	assert(state != nil)
 	s = (^Alsa_State)(state)
 	log.debug("Init audio backend alsa")
@@ -144,12 +143,6 @@ alsa_shutdown :: proc() {
 alsa_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	new_state := (^Alsa_State)(state)
-
-	if new_state.mix_thread == nil {
-		s = new_state
-		return
-	}
-
 	sync.atomic_store(&new_state.run_mix_thread, false)
 	thread.join(new_state.mix_thread)
 	thread.destroy(new_state.mix_thread)

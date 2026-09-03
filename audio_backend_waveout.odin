@@ -12,7 +12,6 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 	has_mixer_thread = true,
 }
 
-import "base:runtime"
 import "log"
 import win32 "core:sys/windows"
 import "core:time"
@@ -40,7 +39,7 @@ waveout_state_size :: proc() -> int {
 
 s: ^Waveout_State
 
-waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
+waveout_init :: proc(state: rawptr) -> bool {
 	assert(state != nil)
 	s = (^Waveout_State)(state)
 	log.debug("Init audio backend waveout")
@@ -85,6 +84,14 @@ waveout_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
 
 	s.run_mix_thread = true
 	s.mix_thread = thread.create(waveout_thread_proc)
+
+	if s.mix_thread == nil {
+		log.errorf("Failed creating waveout mixer thread")
+		win32.timeEndPeriod(1)
+		win32.waveOutClose(s.device)
+		return false
+	}
+
 	// Don't set `s.mix_thread.init_context` here. We set the parts of the context we need in the thread
 	// proc. `init_context` has too many unpredictable side-effects.
 	thread.start(s.mix_thread)
@@ -134,14 +141,9 @@ waveout_thread_proc :: proc(t: ^thread.Thread) {
 waveout_shutdown :: proc() {
 	log.debug("Shutdown audio backend waveout")
 	sync.atomic_store(&s.run_mix_thread, false)
-
-	if s.mix_thread != nil {
-		thread.join(s.mix_thread)
-		thread.destroy(s.mix_thread)
-		s.mix_thread = nil
-		win32.timeEndPeriod(1)
-	}
-
+	thread.join(s.mix_thread)
+	thread.destroy(s.mix_thread)
+	win32.timeEndPeriod(1)
 	win32.waveOutReset(s.device)
 	win32.waveOutClose(s.device)
 }
@@ -149,12 +151,6 @@ waveout_shutdown :: proc() {
 waveout_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	new_state := (^Waveout_State)(state)
-
-	if new_state.mix_thread == nil {
-		s = new_state
-		return
-	}
-
 	sync.atomic_store(&new_state.run_mix_thread, false)
 	thread.join(new_state.mix_thread)
 	thread.destroy(new_state.mix_thread)

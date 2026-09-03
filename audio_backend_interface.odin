@@ -1,10 +1,8 @@
 package karl2d
 
-import "base:runtime"
-
 Audio_Backend_Interface :: struct {
 	state_size: proc() -> int,
-	init: proc(state: rawptr, allocator: runtime.Allocator) -> bool,
+	init: proc(state: rawptr) -> bool,
 	shutdown: proc(),
 	set_internal_state: proc(state: rawptr),
 

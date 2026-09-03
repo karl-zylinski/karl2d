@@ -14,7 +14,6 @@ AUDIO_BACKEND_WEB_AUDIO :: Audio_Backend_Interface {
 	pushed_samples_remaining = web_audio_pushed_samples_remaining,
 }
 
-import "base:runtime"
 import "core:slice"
 
 foreign import karl2d_web_audio "karl2d_web_audio"
@@ -36,7 +35,7 @@ web_audio_state_size :: proc() -> int {
 	return 0
 }
 
-web_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
+web_audio_init :: proc(state: rawptr) -> bool {
 	js_web_audio_init()
 	return true
 }

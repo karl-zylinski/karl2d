@@ -23,7 +23,6 @@ CORE_AUDIO_BUFFER_SAMPLES :: 700
 BUFFER_SIZE :: CORE_AUDIO_BUFFER_SAMPLES * size_of([2]Audio_Sample)
 
 Core_Audio_State :: struct {
-	allocator: runtime.Allocator,
 	queue: Audio.QueueRef,
 	buffers: [4]Audio.QueueBufferRef,
 
@@ -38,10 +37,9 @@ core_audio_state_size :: proc() -> int {
 
 s: ^Core_Audio_State
 
-core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
+core_audio_init :: proc(state: rawptr) -> bool {
 	assert(state != nil)
 	s = (^Core_Audio_State)(state)
-	s.allocator = allocator
 	s.fill_context = _audio_thread_context()
 
 	log.debug("Init audio backend CoreAudio")
@@ -133,7 +131,6 @@ core_audio_shutdown :: proc() {
 core_audio_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Core_Audio_State)(state)
-	allocator := s.allocator
 	core_audio_shutdown()
-	core_audio_init(state, allocator)
+	core_audio_init(state)
 }

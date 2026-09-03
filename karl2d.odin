@@ -31,14 +31,17 @@ import hm "core:container/handle_map"
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
-// Opens a window, initializes the renderer and starts up the audio systems. 
+// Opens a window, initializes the renderer and starts up the audio systems.
 //
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
 // The window might be slightly larger due to borders and headers. The true width and height will be
 // scaled up by the scaling setting in the operating system.
 //
-// Karl2D will use `allocator` for all dynamically allocated memory that is needed needed more than
-// one frame. For single frame allocations the library uses an internal "frame allocator".
+// Karl2D will use `allocator` for all dynamically allocated memory that is needed more than one
+// frame. For single frame allocations the library uses an internal "frame allocator".
+//
+// `logger` is used by the audio thread, which has no access to the context of the thread that
+// called `init`.
 //
 // Call `init` before using Karl2D procedures that depend on runtime state, such as window,
 // drawing, input, audio, texture, font and shader procedures. Pure helper procedures, types and
@@ -202,7 +205,7 @@ init :: proc(
 		s.master_bus.target_settings = DEFAULT_AUDIO_BUS_SETTINGS
 		s.master_bus.current_settings = DEFAULT_AUDIO_BUS_SETTINGS
 
-		if !ab.init(s.audio_backend_state, s.allocator) {
+		if !ab.init(s.audio_backend_state) {
 			log.error("Failed initializing audio backend. Sounds will play silently.")
 			free(s.audio_backend_state, s.allocator)
 			s.audio_backend = AUDIO_BACKEND_NIL
@@ -216,7 +219,7 @@ init :: proc(
 				"Failed allocating memory for audio backend: %v",
 				audio_alloc_error,
 			)
-			ab.init(s.audio_backend_state, s.allocator)
+			ab.init(s.audio_backend_state)
 		}
 	}
 
@@ -2116,14 +2119,15 @@ set_sound_paused :: proc(sound: Sound, paused: bool) {
 sound_is_playing :: proc(sound: Sound) -> bool {
 	sync.mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
-	return sound_object != nil && !sound_object.paused
+	return sound_object != nil && !sound_object.remove && !sound_object.paused
 }
 
 // Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
 // stopped sound is not.
 sound_is_valid :: proc(sound: Sound) -> bool {
 	sync.mutex_guard(&s.audio_mutex)
-	return hm.is_valid(&s.sounds, sound)
+	sound_object := hm.get(&s.sounds, sound)
+	return sound_object != nil && !sound_object.remove
 }
 
 // Set the volume of a sound. Range: 0 to 1.
@@ -2372,7 +2376,7 @@ get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
 	count: int
 
 	for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
-		if sound_object.clip == clip {
+		if sound_object.clip == clip && !sound_object.remove {
 			count += 1
 		}
 	}
@@ -2597,8 +2601,6 @@ load_audio_clip_from_bytes_raw :: proc(
 	sample_rate: int,
 	channels: Audio_Channels,
 ) -> (Audio_Clip, bool) #optional_ok {
-	sync.mutex_guard(&s.audio_mutex)
-
 	samples: []Audio_Sample
 
 	switch format{
@@ -2656,6 +2658,7 @@ load_audio_clip_from_bytes_raw :: proc(
 		channels = channels,
 	}
 
+	sync.mutex_guard(&s.audio_mutex)
 	audio_clip, audio_clip_add_error := hm.add(&s.audio_clips, audio_clip_object)
 
 	if audio_clip_add_error != nil {
@@ -3048,8 +3051,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	sync.mutex_lock(&sd.decode_mutex)
 	sync.mutex_unlock(&s.audio_mutex)
 
-	if seek {
-		_seek_audio_stream(sd, aco, seek_seconds)
+	if seek && _seek_audio_stream(sd, aco, seek_seconds) {
 		sd.buffer_write_pos = play_offset
 	}
 
@@ -3308,7 +3310,7 @@ play_audio_stream :: proc(
 	// A stream can only feed one sound, and that sound is already playing, so there is nothing to
 	// start. Hand back the sound that is already going. Unpause it though: This procedure is how
 	// you play a stream, so it should be playing when we are done.
-	if existing := hm.get(&s.sounds, sd.sound); existing != nil {
+	if existing := hm.get(&s.sounds, sd.sound); existing != nil && !existing.remove {
 		existing.paused = false
 		sync.mutex_unlock(&s.audio_mutex)
 		return sd.sound
@@ -3524,16 +3526,8 @@ update_audio :: proc() {
 				break
 			}
 
-			// We are going to go past the end of the mix_buffer, so just hop to the start instead.
-			// It's 1 megabyte big, so hopping over a few bytes at the end is OK.
-			if (s.push_mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE) > len(s.push_mix_buffer) {
-				s.push_mix_buffer_offset = 0
-			}
-
-			push_mix_slice := s.push_mix_buffer[s.push_mix_buffer_offset:s.push_mix_buffer_offset + AUDIO_MIX_CHUNK_SIZE]
-			s.push_mix_buffer_offset += AUDIO_MIX_CHUNK_SIZE
-			_mix_audio_into_buffer(push_mix_slice)
-			ab.push_samples(push_mix_slice)
+			_mix_audio_into_buffer(s.push_mix_buffer[:])
+			ab.push_samples(s.push_mix_buffer[:])
 		}
 	}
 }
@@ -6072,6 +6066,8 @@ State :: struct {
 	// map can't store, and it needs to exist without anyone creating it.
 	master_bus: Audio_Bus_Object,
 
+	// TODO-UPDATE-COMMENT this is one chunk. `push_samples` copies it before returning, so the
+	// next chunk can be mixed straight over it.
 	// This is the buffer that is used when the audio backend has no mixer thread. In that case we
 	// say that we "push" samples into the audio backend. That mixing will happen into buffer.
 	//
@@ -6079,10 +6075,7 @@ State :: struct {
 	// ample.
 	//
 	// TODO: Should the audio backends that need push data expose their own buffer?
-	push_mix_buffer: [AUDIO_MIX_CHUNK_SIZE*10][2]Audio_Sample,
-
-	// Where the push mixer currently is in the mix buffer.
-	push_mix_buffer_offset: int,
+	push_mix_buffer: [AUDIO_MIX_CHUNK_SIZE][2]Audio_Sample,
 
 	audio_mutex: sync.Mutex,
 
@@ -6786,7 +6779,11 @@ _apply_sound_time :: proc(sound: Sound, seconds: f32) {
 }
 
 // The caller must hold sd.decode_mutex
-_seek_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, seconds: f32) {
+_seek_audio_stream :: proc(
+	sd: ^Audio_Stream_Data,
+	ab: ^Audio_Clip_Object,
+	seconds: f32,
+) -> bool {
 	channels := 1
 	if ab.channels == .Stereo {
 		channels = 2
@@ -6803,7 +6800,7 @@ _seek_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, secon
 	case .From_Bytes:
 		if stbv.seek(sd.vorbis, u32(target_frame)) == 0 {
 			log.error("Cannot set sound position, seeking in the audio stream failed.")
-			return
+			return false
 		}
 
 		sd.decode_cursor = target_frame * channels
@@ -6836,6 +6833,7 @@ _seek_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object, secon
 	}
 
 	slice.zero(ab.samples)
+	return true
 }
 
 // TODO-UPDATE-COMMENT this now runs from `play_audio_stream` only, right before the first decode.

@@ -13,7 +13,6 @@ AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
 	pushed_samples_remaining = abnil_pushed_samples_remaining,
 }
 
-import "base:runtime"
 import "core:time"
 
 Nil_State :: struct {
@@ -27,7 +26,7 @@ abnil_state_size :: proc() -> int {
 	return size_of(Nil_State)
 }
 
-abnil_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
+abnil_init :: proc(state: rawptr) -> bool {
 	assert(state != nil)
 	s = (^Nil_State)(state)
 	s.start = time.tick_now()

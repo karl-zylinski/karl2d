@@ -7,12 +7,17 @@ package karl2d
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
-// Opens a window and initializes some internal state. The internal state will use `allocator` for
-// all dynamically allocated memory.
+// Opens a window, initializes the renderer and starts up the audio systems.
 //
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
 // The window might be slightly larger due to borders and headers. The true width and height will be
 // scaled up by the scaling setting in the operating system.
+//
+// Karl2D will use `allocator` for all dynamically allocated memory that is needed more than one
+// frame. For single frame allocations the library uses an internal "frame allocator".
+//
+// `logger` is used by the audio thread, which has no access to the context of the thread that
+// called `init`.
 //
 // Call `init` before using Karl2D procedures that depend on runtime state, such as window,
 // drawing, input, audio, texture, font and shader procedures. Pure helper procedures, types and
@@ -48,7 +53,7 @@ init :: proc(
 ////     k2.reset_frame_allocator()
 ////     k2.calculate_frame_time()
 ////     k2.process_events()
-////     k2.update_audio_mixer()
+////     k2.update_audio()
 ////     
 ////     k2.clear(k2.BLUE)
 ////     k2.present()
@@ -1911,6 +1916,8 @@ State :: struct {
 	// map can't store, and it needs to exist without anyone creating it.
 	master_bus: Audio_Bus_Object,
 
+	// TODO-UPDATE-COMMENT this is one chunk. `push_samples` copies it before returning, so the
+	// next chunk can be mixed straight over it.
 	// This is the buffer that is used when the audio backend has no mixer thread. In that case we
 	// say that we "push" samples into the audio backend. That mixing will happen into buffer.
 	//
@@ -1918,10 +1925,7 @@ State :: struct {
 	// ample.
 	//
 	// TODO: Should the audio backends that need push data expose their own buffer?
-	push_mix_buffer: [AUDIO_MIX_CHUNK_SIZE*10][2]Audio_Sample,
-
-	// Where the push mixer currently is in the mix buffer.
-	push_mix_buffer_offset: int,
+	push_mix_buffer: [AUDIO_MIX_CHUNK_SIZE][2]Audio_Sample,
 
 	audio_mutex: sync.Mutex,
 
