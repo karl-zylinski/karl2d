@@ -31,12 +31,14 @@ import hm "core:container/handle_map"
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
-// Opens a window and initializes some internal state. The internal state will use `allocator` for
-// all dynamically allocated memory.
+// Opens a window, initializes the renderer and starts up the audio systems. 
 //
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
 // The window might be slightly larger due to borders and headers. The true width and height will be
 // scaled up by the scaling setting in the operating system.
+//
+// Karl2D will use `allocator` for all dynamically allocated memory that is needed needed more than
+// one frame. For single frame allocations the library uses an internal "frame allocator".
 //
 // Call `init` before using Karl2D procedures that depend on runtime state, such as window,
 // drawing, input, audio, texture, font and shader procedures. Pure helper procedures, types and
