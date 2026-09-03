@@ -5,11 +5,11 @@ package karl2d
 
 @(private = "package")
 AUDIO_BACKEND_ALSA :: Audio_Backend_Interface {
-	state_size         = alsa_state_size,
-	init               = alsa_init,
-	shutdown           = alsa_shutdown,
+	state_size = alsa_state_size,
+	init = alsa_init,
+	shutdown = alsa_shutdown,
 	set_internal_state = alsa_set_internal_state,
-	has_mixer_thread   = true,
+	has_mixer_thread = true,
 }
 
 import "base:runtime"
@@ -23,16 +23,7 @@ ALSA_BUFFER_SAMPLES :: 700
 
 Alsa_State :: struct {
 	pcm: alsa.PCM,
-
-	// TODO-UPDATE-COMMENT this is no longer circular. The mixer fills it and the thread writes
-	// all of it to the device.
-	// This is a "circular" buffer. We write new things at `buf_end` and read from `buf_start`.
-	// AUDIO_MIX_CHUNK_SIZE * 3 should be enough, but I added some head room. 3 should be enough
-	// because the mixer tends to not never produce more than 2.5 * AUDIO_MIX_CHUNK_SIZE samples
-	// (it throws in another chunk if the remaining number of samples is less than
-	// 1.5 * AUDIO_MIX_CHUNK_SIZE).
 	buf: [ALSA_BUFFER_SAMPLES][2]Audio_Sample,
-
 	mix_thread: ^thread.Thread,
 	run_mix_thread: bool,
 }
@@ -93,6 +84,13 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
 	s.pcm = pcm
 	s.run_mix_thread = true
 	s.mix_thread = thread.create(alsa_thread_proc)
+
+	if s.mix_thread == nil {
+		log.errorf("Failed creating ALSA mixer thread")
+		alsa.pcm_close(pcm)
+		return false
+	}
+
 	thread.start(s.mix_thread)
 	return true
 }
@@ -138,20 +136,9 @@ alsa_shutdown :: proc() {
 
 	sync.atomic_store(&s.run_mix_thread, false)
 
-	// TODO-UPDATE-COMMENT this shutdown only runs after a successful `alsa_init`, since a failed
-	// one makes `init` switch to the nil backend. The nil checks below are no longer reachable.
-	// The thread is only created if the whole of `alsa_init` succeeded. It may be nil if for
-	// example no ALSA device was available.
-	if s.mix_thread != nil {
-		thread.join(s.mix_thread)
-		thread.destroy(s.mix_thread)
-		s.mix_thread = nil
-	}
-
-	if s.pcm != nil {
-		alsa.pcm_close(s.pcm)
-		s.pcm = nil
-	}
+	thread.join(s.mix_thread)
+	thread.destroy(s.mix_thread)
+	alsa.pcm_close(s.pcm)
 }
 
 alsa_set_internal_state :: proc(state: rawptr) {
