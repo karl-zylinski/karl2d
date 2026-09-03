@@ -5184,6 +5184,8 @@ get_z :: proc() -> f32 {
 	return s.z
 }
 
+// TODO-UPDATE-COMMENT this also restarts the audio backend's mixer thread so that it runs the
+// newly loaded code. Call it while the old library is still loaded. Audio drops out briefly.
 // Restore the internal state using the pointer returned by `init`. Useful after reloading the
 // library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State) {
