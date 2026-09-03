@@ -15,19 +15,20 @@ AUDIO_BACKEND_CORE_AUDIO :: Audio_Backend_Interface {
 import "base:runtime"
 import "core:sync"
 
-import       "log"
-import CA    "platform_bindings/mac/CoreAudio"
+import "log"
+import CA "platform_bindings/mac/CoreAudio"
 import Audio "platform_bindings/mac/AudioToolbox"
 
 CORE_AUDIO_BUFFER_SAMPLES :: 700
 BUFFER_SIZE :: CORE_AUDIO_BUFFER_SAMPLES * size_of([2]Audio_Sample)
 
 Core_Audio_State :: struct {
-	queue:   Audio.QueueRef,
+	allocator: runtime.Allocator
+	queue: Audio.QueueRef,
 	buffers: [4]Audio.QueueBufferRef,
 
 	callback_mutex: sync.Mutex,
-	running:        bool,
+	running: bool,
 }
 
 core_audio_state_size :: proc() -> int {
@@ -39,20 +40,22 @@ s: ^Core_Audio_State
 core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
 	assert(state != nil)
 	s = (^Core_Audio_State)(state)
+	s.allocator = allocator
 
 	log.debug("Init audio backend CoreAudio")
 
-	descriptor: CA.StreamBasicDescription
-	descriptor.mSampleRate       = 44100
-	descriptor.mFormatID         = .LinearPCM
-	descriptor.mFormatFlags      = {.IsFloat, .IsPacked}
-	descriptor.mFramesPerPacket  = 1
-	descriptor.mChannelsPerFrame = 2
-	descriptor.mBitsPerChannel   = size_of(f32) * 8
-	descriptor.mBytesPerFrame    = descriptor.mChannelsPerFrame * (descriptor.mBitsPerChannel / 8)
-	descriptor.mBytesPerPacket   = descriptor.mBytesPerFrame * descriptor.mFramesPerPacket
+	descriptor := CA.StreamBasicDescription {
+		mSampleRate = 44100,
+		mFormatID = .LinearPCM,
+		mFormatFlags = {.IsFloat, .IsPacked},
+		mFramesPerPacket = 1,
+		mChannelsPerFrame = 2,
+		mBitsPerChannel = size_of(f32) * 8,
+		mBytesPerFrame = descriptor.mChannelsPerFrame * (descriptor.mBitsPerChannel / 8),
+		mBytesPerPacket = descriptor.mBytesPerFrame * descriptor.mFramesPerPacket,
+	}
 
-	if !ch(Audio.QueueNewOutput(
+	queue_err := Audio.QueueNewOutput(
 		&descriptor,
 		_core_audio_callback,
 		s,
@@ -60,23 +63,32 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
 		nil,
 		0,
 		&s.queue,
-	)) { return false }
+	)
+
+	if queue_err != 0 {
+		log.errorf("CoreAudio: Audio.QueueNewOutput failed. Error code: %v", queue_err)
+		return false
+	}
 
 	s.running = true
 
 	for &buffer in s.buffers {
-		if !ch(Audio.QueueAllocateBuffer(s.queue, BUFFER_SIZE, &buffer)) {
+		buffer_err := Audio.QueueAllocateBuffer(s.queue, BUFFER_SIZE, &buffer)
+		if buffer_err != 0 {
 			s.running = false
 			Audio.QueueDispose(s.queue, true)
+			log.errorf("CoreAudio: Audio.QueueAllocateBuffer failed. Error code: %v", buffer_err)
 			return false
 		}
 
 		core_audio_fill(buffer)
 	}
 
-	if !ch(Audio.QueueStart(s.queue, nil)) {
+	queue_start_err := Audio.QueueStart(s.queue, nil)
+	if queue_start_err != 0 {
 		s.running = false
 		Audio.QueueDispose(s.queue, true)
+		log.errorf("CoreAudio: Audio.QueueStart failed. Error code: %v", queue_start_err)
 		return false
 	}
 
@@ -123,15 +135,7 @@ core_audio_shutdown :: proc() {
 core_audio_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Core_Audio_State)(state)
+	allocator := s.allocator
 	core_audio_shutdown()
-	core_audio_init(state, context.allocator)
-}
-
-ch :: proc(status: Audio.CFOSStatus, loc := #caller_location) -> bool {
-	if status == 0 {
-		return true
-	}
-
-	log.errorf("CoreAudio error %v", status, location=loc)
-	return false
+	core_audio_init(state, allocator)
 }
