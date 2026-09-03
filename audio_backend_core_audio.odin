@@ -29,6 +29,7 @@ Core_Audio_State :: struct {
 
 	callback_mutex: sync.Mutex,
 	running: bool,
+	fill_context: runtime.Context,
 }
 
 core_audio_state_size :: proc() -> int {
@@ -41,6 +42,7 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
 	assert(state != nil)
 	s = (^Core_Audio_State)(state)
 	s.allocator = allocator
+	s.fill_context = _audio_thread_context()
 
 	log.debug("Init audio backend CoreAudio")
 
@@ -81,7 +83,7 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
 			return false
 		}
 
-		core_audio_fill(buffer)
+		_core_audio_fill(buffer)
 	}
 
 	queue_start_err := Audio.QueueStart(s.queue, nil)
@@ -95,9 +97,8 @@ core_audio_init :: proc(state: rawptr, allocator: runtime.Allocator) -> bool {
 	return true
 }
 
-core_audio_fill :: proc "contextless" (buffer: Audio.QueueBufferRef) {
-	context = _audio_thread_context()
-
+_core_audio_fill :: proc "contextless" (buffer: Audio.QueueBufferRef) {
+	context = s.fill_context
 	samples := ([^][2]Audio_Sample)(buffer.mAudioData)[:CORE_AUDIO_BUFFER_SAMPLES]
 	_mix_audio_into_buffer(samples)
 	buffer.mAudioDataByteSize = u32(BUFFER_SIZE)
@@ -105,10 +106,6 @@ core_audio_fill :: proc "contextless" (buffer: Audio.QueueBufferRef) {
 	free_all(context.temp_allocator)
 }
 
-// TODO-UPDATE-COMMENT the callback has the mixer fill the buffer again and gives it back to the
-// queue. Nothing counts samples any more.
-// The queue hands a buffer back once it has been played. That is the moment its samples stop
-// counting towards what is left to play.
 _core_audio_callback :: proc "c" (
 	inUserData: rawptr,
 	inAQ: Audio.QueueRef,
@@ -118,7 +115,7 @@ _core_audio_callback :: proc "c" (
 	sync.mutex_lock(&state.callback_mutex)
 
 	if state.running {
-		core_audio_fill(inBuffer)
+		_core_audio_fill(inBuffer)
 	}
 
 	sync.mutex_unlock(&state.callback_mutex)
