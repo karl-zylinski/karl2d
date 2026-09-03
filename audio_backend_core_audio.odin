@@ -12,8 +12,8 @@ AUDIO_BACKEND_CORE_AUDIO :: Audio_Backend_Interface {
 	has_mixer_thread = true,
 }
 
-import "base:intrinsics"
 import "base:runtime"
+import "core:sync"
 
 import       "log"
 import CA    "platform_bindings/mac/CoreAudio"
@@ -26,7 +26,8 @@ Core_Audio_State :: struct {
 	queue:   Audio.QueueRef,
 	buffers: [4]Audio.QueueBufferRef,
 
-	running: bool,
+	callback_mutex: sync.Mutex,
+	running:        bool,
 }
 
 core_audio_state_size :: proc() -> int {
@@ -102,16 +103,19 @@ _core_audio_callback :: proc "c" (
 	inBuffer: Audio.QueueBufferRef,
 ) {
 	state := (^Core_Audio_State)(inUserData)
+	sync.mutex_lock(&state.callback_mutex)
 
-	if !intrinsics.atomic_load(&state.running) {
-		return
+	if state.running {
+		core_audio_fill(inBuffer)
 	}
 
-	core_audio_fill(inBuffer)
+	sync.mutex_unlock(&state.callback_mutex)
 }
 
 core_audio_shutdown :: proc() {
-	intrinsics.atomic_store(&s.running, false)
+	sync.mutex_lock(&s.callback_mutex)
+	s.running = false
+	sync.mutex_unlock(&s.callback_mutex)
 	Audio.QueueStop(s.queue, true)
 	Audio.QueueDispose(s.queue, true)
 }
@@ -119,6 +123,8 @@ core_audio_shutdown :: proc() {
 core_audio_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Core_Audio_State)(state)
+	core_audio_shutdown()
+	core_audio_init(state, context.allocator)
 }
 
 ch :: proc(status: Audio.CFOSStatus, loc := #caller_location) -> bool {

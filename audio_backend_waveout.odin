@@ -154,5 +154,18 @@ waveout_shutdown :: proc() {
 
 waveout_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
-	s = (^Waveout_State)(state)
+	new_state := (^Waveout_State)(state)
+
+	if new_state.mix_thread == nil {
+		s = new_state
+		return
+	}
+
+	sync.atomic_store(&new_state.run_mix_thread, false)
+	thread.join(new_state.mix_thread)
+	thread.destroy(new_state.mix_thread)
+	s = new_state
+	s.run_mix_thread = true
+	s.mix_thread = thread.create(waveout_thread_proc)
+	thread.start(s.mix_thread)
 }

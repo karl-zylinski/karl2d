@@ -156,5 +156,18 @@ alsa_shutdown :: proc() {
 
 alsa_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
-	s = (^Alsa_State)(state)
+	new_state := (^Alsa_State)(state)
+
+	if new_state.mix_thread == nil {
+		s = new_state
+		return
+	}
+
+	sync.atomic_store(&new_state.run_mix_thread, false)
+	thread.join(new_state.mix_thread)
+	thread.destroy(new_state.mix_thread)
+	s = new_state
+	s.run_mix_thread = true
+	s.mix_thread = thread.create(alsa_thread_proc)
+	thread.start(s.mix_thread)
 }
