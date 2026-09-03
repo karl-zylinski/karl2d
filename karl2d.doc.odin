@@ -617,8 +617,8 @@ set_sound_pan :: proc(sound: Sound, pan: f32)
 // play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
-// Move the sound to another spot in its audio. `seconds` is measured from the start of the audio,
-// so 0 moves it back to the beginning. Use `get_sound_length` to find out how far you can go.
+// Move the sound to another spot in its audio. `seconds` is measured from the start of the audio.
+// Use `get_sound_length` to find out how long the sound is.
 //
 // Moving a sound that plays an audio stream is a bit slower than one that plays a clip, since some
 // audio has to be decoded before it can play. Don't do it every frame while dragging a scrub bar,
