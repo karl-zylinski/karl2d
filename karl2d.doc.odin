@@ -615,6 +615,11 @@ sound_is_valid :: proc(sound: Sound) -> bool
 set_sound_volume :: proc(sound: Sound, volume: f32)
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
+//
+// What pan does depends on the audio clip. A mono clip is moved between the left and right
+// speakers while keeping its overall loudness the same. A stereo clip is already a finished stereo
+// mix, so instead of moving it, pan turns the opposite side down. Either way, a sound at pan 0
+// plays at the level it was authored at.
 set_sound_pan :: proc(sound: Sound, pan: f32)
 
 // Set the pitch of a sound. Range: 0.01 and up, where 1 is the default. Pitch 2 makes the sound
@@ -790,10 +795,10 @@ set_audio_bus_volume :: proc(bus: Audio_Bus, volume: f32)
 // Set the pan of an audio bus. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full
 // right.
 //
-// This is a balance control: It turns the opposite side down. The pan of a sound works
-// differently: It moves the sound between the left and right speakers while keeping the overall
-// loudness the same. A bus is already a finished stereo mix, and a bus at pan 0 has to leave it
-// exactly as it is.
+// This is a balance control: It turns the opposite side down. A bus is already a finished stereo
+// mix, and a bus at pan 0 has to leave it exactly as it is. A sound that plays a mono clip works
+// differently: It moves between the left and right speakers while keeping the overall loudness the
+// same. See `set_sound_pan`.
 set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32)
 
 // Set an effect to run on everything that is mixed into the bus. This is how you apply your own
