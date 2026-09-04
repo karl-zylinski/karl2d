@@ -3503,6 +3503,8 @@ update_audio :: proc() {
 		}
 	}
 
+	// If the platform has mixer thread then `_mix_audio_into_buffer` will be called from that
+	// thread instead.
 	if !ab.has_mixer_thread {
 		assert(
 			ab.push_samples != nil && ab.pushed_samples_remaining != nil,
@@ -3515,10 +3517,10 @@ update_audio :: proc() {
 
 		for _ in 0..<MAX_CHUNKS_PER_UPDATE {
 			// If the sample rate of the backend is 44100 samples/second and AUDIO_MIX_CHUNK_SIZE is
-			// 1400 samples, then this procedure will only run roughly 44100/1400 = 31 times per second.
-			// This gives a latency of up to (1.5 * (44100/1400)) = 47 milliseconds. Is it too big, or
-			// too small? Perhaps the platforms that need pushed samples can give us a chunk sized based
-			// on their latency.
+			// 1400 samples, then this procedure will only run roughly 44100/1400 = 31 times per
+			// second. This gives a latency of up to (1.5 * (44100/1400)) = 47 milliseconds.
+			//
+			// Note that AUDIO_MIX_CHUNK_SIZE varies, it depends on the audio backend.
 			if ab.pushed_samples_remaining() > (3 * AUDIO_MIX_CHUNK_SIZE)/2 {
 				break
 			}
@@ -3549,13 +3551,8 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	assert(len(buffer) == AUDIO_MIX_CHUNK_SIZE)
 	sync.mutex_guard(&s.audio_mutex)
 
-	// A slice of the mixed samples we are going to output.
-	out := buffer
-
-	// TODO-UPDATE-COMMENT the buffer comes from the backend and holds what it has just played.
-	// Zero out old mixed data from buffer (the buffer is "circular", there may be old stuff in
-	// the `out` slice).
-	slice.zero(out)
+	// `buffer` may contain old mixed data, so clear it.
+	slice.zero(buffer)
 
 	// The buses have a chunk each, which the sounds routed to that bus are mixed into. Those hold
 	// the previous chunk's mix, so they need zeroing too.
@@ -3569,7 +3566,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		source_channels: Audio_Channels,
 		interpolate: bool,
 		dest_source_ratio: f32,
-		dest_to_write: int,
+		dest_num_to_write: int,
 		source_fractional_offset: f32,
 		volume_start: f32,
 		volume_end: f32,
@@ -3600,17 +3597,17 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		switch kind {
 		case .Mono:
-			n := dest_to_write
+			n := dest_num_to_write
 
 			if n > len(source) {
 				n = len(source)
 			}
 
 			for samp_idx in 0..<n {
-				// Note that this uses `dest_to_write` and not `n`: The ramps run across the whole
+				// Note that this uses `dest_num_to_write` and not `n`: The ramps run across the whole
 				// chunk. If we run out of samples early then only part of the ramp is used here,
 				// and the caller carries it on from there.
-				t := f32(samp_idx) / f32(dest_to_write)
+				t := f32(samp_idx) / f32(dest_num_to_write)
 				volume := math.lerp(volume_start, volume_end, t)
 				pan := linalg.lerp(pan_start, pan_end, t)
 
@@ -3621,17 +3618,17 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			return n
 		case .Stereo:
 			source_stereo := slice.reinterpret([][2]Audio_Sample, source)
-			n := dest_to_write
+			n := dest_num_to_write
 
 			if n > len(source_stereo) {
 				n = len(source_stereo)
 			}
 
 			for samp_idx in 0..<n {
-				// Note that this uses `dest_to_write` and not `n`: The ramps run across the whole
+				// Note that this uses `dest_num_to_write` and not `n`: The ramps run across the whole
 				// chunk. If we run out of samples early then only part of the ramp is used here,
 				// and the caller carries it on from there.
-				t := f32(samp_idx) / f32(dest_to_write)
+				t := f32(samp_idx) / f32(dest_num_to_write)
 				volume := math.lerp(volume_start, volume_end, t)
 				pan := linalg.lerp(pan_start, pan_end, t)
 
@@ -3643,7 +3640,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		case .Mono_Interpolate:
 			dest_idx: int
 
-			for ; dest_idx < dest_to_write; dest_idx += 1 {
+			for ; dest_idx < dest_num_to_write; dest_idx += 1 {
 				src_pos := source_fractional_offset + f32(dest_idx) * dest_source_ratio
 				src_idx := int(src_pos)
 				
@@ -3657,7 +3654,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 				prev_val := source[src_idx]
 				cur_val := source[src_next]
 
-				t := f32(dest_idx) / f32(dest_to_write)
+				t := f32(dest_idx) / f32(dest_num_to_write)
 				volume := math.lerp(volume_start, volume_end, t)
 				pan := linalg.lerp(pan_start, pan_end, t)
 
@@ -3671,7 +3668,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			source_stereo := slice.reinterpret([][2]Audio_Sample, source)
 			dest_idx: int
 
-			for ; dest_idx < dest_to_write; dest_idx += 1 {
+			for ; dest_idx < dest_num_to_write; dest_idx += 1 {
 				src_pos := source_fractional_offset + f32(dest_idx) * dest_source_ratio
 				src_idx := int(src_pos)
 				
@@ -3685,7 +3682,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 				prev_val := source_stereo[src_idx]
 				cur_val := source_stereo[src_next]
 
-				t := f32(dest_idx) / f32(dest_to_write)
+				t := f32(dest_idx) / f32(dest_num_to_write)
 				volume := math.lerp(volume_start, volume_end, t)
 				pan := linalg.lerp(pan_start, pan_end, t)
 
@@ -3740,13 +3737,8 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			}
 		}
 
-		// TODO-UPDATE-COMMENT the mixer runs 44100 / AUDIO_MIX_CHUNK_SIZE times a second, which is
-		// 63 on desktop and 31 on web.
-		// Where this sound is mixed into: The chunk of the bus it is routed to, or the output
-		// itself, which is the master bus. `destroy_audio_bus` moves everything back to the master
-		// bus, so a bus that doesn't resolve shouldn't happen. Fall back to the master bus if it
-		// does anyway, without logging: We'd log it 31 times a second.
-		dest := out
+		// The slice of samples to write into. `buffer` is used for the master bus.
+		dest := buffer
 
 		if ps.bus != AUDIO_BUS_MASTER {
 			if bus := hm.get(&s.audio_buses, ps.bus); bus != nil {
@@ -3958,7 +3950,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		for samp_idx in 0..<AUDIO_MIX_CHUNK_SIZE {
 			t := f32(samp_idx) / f32(AUDIO_MIX_CHUNK_SIZE)
-			out[samp_idx] += bus.chunk[samp_idx] * linalg.lerp(gain_start, gain_end, t)
+			buffer[samp_idx] += bus.chunk[samp_idx] * linalg.lerp(gain_start, gain_end, t)
 		}
 	}
 
@@ -3969,7 +3961,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	master := &s.master_bus
 
 	if master.effect != nil {
-		master.effect(out, master.effect_user_data)
+		master.effect(buffer, master.effect_user_data)
 	}
 
 	volume_start := master.current_settings.volume
@@ -3994,7 +3986,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		for samp_idx in 0..<AUDIO_MIX_CHUNK_SIZE {
 			t := f32(samp_idx) / f32(AUDIO_MIX_CHUNK_SIZE)
-			out[samp_idx] *= linalg.lerp(gain_start, gain_end, t)
+			buffer[samp_idx] *= linalg.lerp(gain_start, gain_end, t)
 		}
 	}
 }
