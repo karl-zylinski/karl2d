@@ -132,6 +132,4 @@ core_audio_shutdown :: proc() {
 core_audio_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Core_Audio_State)(state)
-	core_audio_shutdown()
-	core_audio_init(state)
 }

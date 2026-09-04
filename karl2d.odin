@@ -5171,8 +5171,8 @@ get_z :: proc() -> f32 {
 	return s.z
 }
 
-// TODO-UPDATE-COMMENT this also restarts the audio backend's mixer thread so that it runs the
-// newly loaded code. Call it while the old library is still loaded. Audio drops out briefly.
+// TODO-UPDATE-COMMENT audio effect procs point into the old code, so the game must set them again
+// with `set_audio_bus_effect` after a reload.
 // Restore the internal state using the pointer returned by `init`. Useful after reloading the
 // library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State) {

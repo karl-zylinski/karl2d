@@ -1116,8 +1116,8 @@ set_z :: proc(z: f32)
 // Get the z previously set with `set_z`. Defaults to 0.
 get_z :: proc() -> f32
 
-// TODO-UPDATE-COMMENT this also restarts the audio backend's mixer thread so that it runs the
-// newly loaded code. Call it while the old library is still loaded. Audio drops out briefly.
+// TODO-UPDATE-COMMENT audio effect procs point into the old code, so the game must set them again
+// with `set_audio_bus_effect` after a reload.
 // Restore the internal state using the pointer returned by `init`. Useful after reloading the
 // library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State)
@@ -1912,20 +1912,12 @@ State :: struct {
 
 	audio_buses: hm.Dynamic_Handle_Map(Audio_Bus_Object, Audio_Bus),
 
-	// The master bus is not in `audio_buses`. It is identified by the zero handle, which the handle
-	// map can't store, and it needs to exist without anyone creating it.
+	// Identified by AUDIO_BUS_MASTER. Does not live in `audio_buses` because it is associated with
+	// the zero handle, which cannot be fetched from the handle map.
+	//
+	// We only use the `chunk` field of this bus when `update_audio` runs the mixer, which happens
+	// in case there is no audio thread. 
 	master_bus: Audio_Bus_Object,
-
-	// TODO-UPDATE-COMMENT this is one chunk. `push_samples` copies it before returning, so the
-	// next chunk can be mixed straight over it.
-	// This is the buffer that is used when the audio backend has no mixer thread. In that case we
-	// say that we "push" samples into the audio backend. That mixing will happen into buffer.
-	//
-	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
-	// ample.
-	//
-	// TODO: Should the audio backends that need push data expose their own buffer?
-	push_mix_buffer: [AUDIO_MIX_CHUNK_SIZE][2]Audio_Sample,
 
 	audio_mutex: sync.Mutex,
 
