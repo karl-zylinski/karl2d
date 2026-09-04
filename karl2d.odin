@@ -3546,11 +3546,11 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		assert(context.user_index == _AUDIO_THREAD_CONTEXT_MARKER)
 	}
 
+	assert(len(buffer) == AUDIO_MIX_CHUNK_SIZE)
 	sync.mutex_guard(&s.audio_mutex)
-	
+
 	// A slice of the mixed samples we are going to output.
 	out := buffer
-	chunk_size := len(out)
 
 	// TODO-UPDATE-COMMENT the buffer comes from the backend and holds what it has just played.
 	// Zero out old mixed data from buffer (the buffer is "circular", there may be old stuff in
@@ -3560,7 +3560,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	// The buses have a chunk each, which the sounds routed to that bus are mixed into. Those hold
 	// the previous chunk's mix, so they need zeroing too.
 	for it := hm.dynamic_iterator_make(&s.audio_buses); bus, _ in hm.dynamic_iterate(&it) {
-		slice.zero(bus.chunk[:chunk_size])
+		slice.zero(bus.chunk[:])
 	}
 
 	audio_mix :: proc(
@@ -3701,10 +3701,10 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	// Used for the smooth adjustment of volume, pan and pitch, both for the playing sounds below
 	// and for the buses further down.
 
-	calc_adjust_parameter_delta :: proc(sample_rate: int, pitch: f32, chunk_size: int) -> f32 {
+	calc_adjust_parameter_delta :: proc(sample_rate: int, pitch: f32) -> f32 {
 		RAMP_TIME :: 0.03
 		ramp_samples := RAMP_TIME * f32(sample_rate) * pitch
-		return f32(chunk_size) / ramp_samples
+		return f32(AUDIO_MIX_CHUNK_SIZE) / ramp_samples
 	}
 
 	move_towards :: proc(current: f32, target: f32, delta: f32) -> f32 {
@@ -3740,6 +3740,8 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			}
 		}
 
+		// TODO-UPDATE-COMMENT the mixer runs 44100 / AUDIO_MIX_CHUNK_SIZE times a second, which is
+		// 63 on desktop and 31 on web.
 		// Where this sound is mixed into: The chunk of the bus it is routed to, or the output
 		// itself, which is the master bus. `destroy_audio_bus` moves everything back to the master
 		// bus, so a bus that doesn't resolve shouldn't happen. Fall back to the master bus if it
@@ -3748,7 +3750,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		if ps.bus != AUDIO_BUS_MASTER {
 			if bus := hm.get(&s.audio_buses, ps.bus); bus != nil {
-				dest = bus.chunk[:chunk_size]
+				dest = bus.chunk[:]
 			}
 		}
 
@@ -3762,14 +3764,10 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		target_settings := &ps.target_settings
 
 		// We get the delta twice because we first need to move the pitch towards its target.
-		adjust_parameter_delta := calc_adjust_parameter_delta(
-			data.sample_rate,
-			max(settings.pitch, 0.01),
-			chunk_size,
-		)
+		adjust_parameter_delta := calc_adjust_parameter_delta(data.sample_rate, max(settings.pitch, 0.01))
 		settings.pitch = max(move_towards(settings.pitch, target_settings.pitch, adjust_parameter_delta), 0.01)
 		pitch := settings.pitch
-		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch, chunk_size)
+		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch)
 
 		// `set_sound_time` doesn't move the sound itself, it just says where the sound should go.
 		// We move it here, once the sound has faded out. Then we fade it back in. That way moving
@@ -3842,7 +3840,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			data.channels,
 			interpolate,
 			source_dest_ratio,
-			chunk_size,
+			AUDIO_MIX_CHUNK_SIZE,
 			ps.offset_fraction,
 			volume_start,
 			volume_end,
@@ -3865,7 +3863,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		}
 
 		// We didn't mix all the samples! This means that we reached the end of the sound.
-		if num_mixed < chunk_size {
+		if num_mixed < AUDIO_MIX_CHUNK_SIZE {
 			if ps.loop {
 				ps.offset = 0
 				ps.offset_fraction = 0
@@ -3873,12 +3871,12 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 				// The sound looped. Make sure to mix in the remaining samples from the start of the
 				// sound!
 				mixed_before_loop := num_mixed
-				overflow := chunk_size - mixed_before_loop
+				overflow := AUDIO_MIX_CHUNK_SIZE - mixed_before_loop
 
 				// Carry the volume and pan ramps on from where the first part of the chunk got to.
 				// Starting them over would jump the volume back up in the middle of the chunk,
 				// which is heard as a click.
-				split := f32(mixed_before_loop) / f32(chunk_size)
+				split := f32(mixed_before_loop) / f32(AUDIO_MIX_CHUNK_SIZE)
 				volume_split := math.lerp(volume_start, volume_end, split)
 				pan_stereo_split := linalg.lerp(pan_stereo_start, pan_stereo_end, split)
 
@@ -3923,14 +3921,14 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 	// The buses run at the mixer's sample rate and are never pitched, so the ramp is the same for
 	// all of them.
-	bus_adjust_delta := calc_adjust_parameter_delta(AUDIO_MIX_SAMPLE_RATE, 1, chunk_size)
+	bus_adjust_delta := calc_adjust_parameter_delta(AUDIO_MIX_SAMPLE_RATE, 1)
 
 	for it := hm.dynamic_iterator_make(&s.audio_buses); bus, _ in hm.dynamic_iterate(&it) {
 		// The effect runs even when the bus is silent. Effects tend to keep state, such as a filter
 		// or an echo. Skipping them while silent would leave that state behind, and it would jump
 		// once the bus is turned back up.
 		if bus.effect != nil {
-			bus.effect(bus.chunk[:chunk_size], bus.effect_user_data)
+			bus.effect(bus.chunk[:], bus.effect_user_data)
 		}
 
 		volume_start := bus.current_settings.volume
@@ -3958,8 +3956,8 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			volume_end * min(1, 1 + pan_end),
 		}
 
-		for samp_idx in 0..<chunk_size {
-			t := f32(samp_idx) / f32(chunk_size)
+		for samp_idx in 0..<AUDIO_MIX_CHUNK_SIZE {
+			t := f32(samp_idx) / f32(AUDIO_MIX_CHUNK_SIZE)
 			out[samp_idx] += bus.chunk[samp_idx] * linalg.lerp(gain_start, gain_end, t)
 		}
 	}
@@ -3994,8 +3992,8 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			volume_end * min(1, 1 + pan_end),
 		}
 
-		for samp_idx in 0..<chunk_size {
-			t := f32(samp_idx) / f32(chunk_size)
+		for samp_idx in 0..<AUDIO_MIX_CHUNK_SIZE {
+			t := f32(samp_idx) / f32(AUDIO_MIX_CHUNK_SIZE)
 			out[samp_idx] *= linalg.lerp(gain_start, gain_end, t)
 		}
 	}
@@ -5707,7 +5705,7 @@ TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
 AUDIO_MIX_SAMPLE_RATE :: 44100
-AUDIO_MIX_CHUNK_SIZE :: 1400
+AUDIO_MIX_CHUNK_SIZE :: AUDIO_BACKEND.mix_chunk_size
 
 // Single channel audio sample. Can have a value between -1 and 1. For stereo sound every other
 // sample in an array of samples will be interpreted as left and right respectively.
@@ -5910,8 +5908,8 @@ AUDIO_BUS_MASTER :: Audio_Bus {}
 // Runs on the mixed samples of a whole bus, before the bus is mixed into the master bus. Modify
 // `samples` in place. This is how you write your own audio effects, such as a filter or an echo.
 //
-// TODO-UPDATE-COMMENT `len(samples)` is now whatever buffer size the backend asked for, and this
-// runs on the thread the backend mixes on rather than on the main thread.
+// TODO-UPDATE-COMMENT `AUDIO_MIX_CHUNK_SIZE` is now set per audio backend, and this runs on the
+// thread the backend mixes on rather than on the main thread.
 // `samples` is `AUDIO_MIX_CHUNK_SIZE` stereo samples at `AUDIO_MIX_SAMPLE_RATE`. Keep any state
 // your effect needs in `user_data`: You get called once per mixed chunk, so anything you want to
 // carry between the chunks needs to live there.

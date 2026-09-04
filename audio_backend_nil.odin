@@ -8,6 +8,7 @@ AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
 	init = abnil_init,
 	shutdown = abnil_shutdown,
 	set_internal_state = abnil_set_internal_state,
+	mix_chunk_size = 700,
 	has_mixer_thread = false,
 	push_samples = abnil_push_samples,
 	pushed_samples_remaining = abnil_pushed_samples_remaining,

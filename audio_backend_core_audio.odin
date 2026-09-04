@@ -9,6 +9,7 @@ AUDIO_BACKEND_CORE_AUDIO :: Audio_Backend_Interface {
 	init = core_audio_init,
 	shutdown = core_audio_shutdown,
 	set_internal_state = core_audio_set_internal_state,
+	mix_chunk_size = CORE_AUDIO_BUFFER_SAMPLES,
 	has_mixer_thread = true,
 }
 

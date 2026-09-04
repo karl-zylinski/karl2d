@@ -9,6 +9,7 @@ AUDIO_BACKEND_WEB_AUDIO :: Audio_Backend_Interface {
 	init = web_audio_init,
 	shutdown = web_audio_shutdown,
 	set_internal_state = web_audio_set_internal_state,
+	mix_chunk_size = 1400,
 	has_mixer_thread = false,
 	push_samples = web_audio_push_samples,
 	pushed_samples_remaining = web_audio_pushed_samples_remaining,

@@ -806,7 +806,7 @@ set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32)
 set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_data: rawptr = nil)
 
 // This procedure does some audio housekeeping, removing dead sounds. For platforms that don't use
-// an audio thread it also runs the audio mixer.
+// an audio thread it also runs the audio mixer. Web is such a platform.
 //
 // This procedure is run automatically by `update`. You normally don't have to call it.
 update_audio :: proc()
@@ -1560,7 +1560,7 @@ TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
 AUDIO_MIX_SAMPLE_RATE :: 44100
-AUDIO_MIX_CHUNK_SIZE :: 1400
+AUDIO_MIX_CHUNK_SIZE :: AUDIO_BACKEND.mix_chunk_size
 
 // Single channel audio sample. Can have a value between -1 and 1. For stereo sound every other
 // sample in an array of samples will be interpreted as left and right respectively.
@@ -1763,8 +1763,8 @@ AUDIO_BUS_MASTER :: Audio_Bus {}
 // Runs on the mixed samples of a whole bus, before the bus is mixed into the master bus. Modify
 // `samples` in place. This is how you write your own audio effects, such as a filter or an echo.
 //
-// TODO-UPDATE-COMMENT `len(samples)` is now whatever buffer size the backend asked for, and this
-// runs on the thread the backend mixes on rather than on the main thread.
+// TODO-UPDATE-COMMENT `AUDIO_MIX_CHUNK_SIZE` is now set per audio backend, and this runs on the
+// thread the backend mixes on rather than on the main thread.
 // `samples` is `AUDIO_MIX_CHUNK_SIZE` stereo samples at `AUDIO_MIX_SAMPLE_RATE`. Keep any state
 // your effect needs in `user_data`: You get called once per mixed chunk, so anything you want to
 // carry between the chunks needs to live there.

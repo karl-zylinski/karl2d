@@ -9,6 +9,7 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 	init = waveout_init,
 	shutdown = waveout_shutdown,
 	set_internal_state = waveout_set_internal_state,
+	mix_chunk_size = WAVEOUT_BUFFER_SAMPLES,
 	has_mixer_thread = true,
 }
 

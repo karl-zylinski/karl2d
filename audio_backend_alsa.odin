@@ -9,6 +9,7 @@ AUDIO_BACKEND_ALSA :: Audio_Backend_Interface {
 	init = alsa_init,
 	shutdown = alsa_shutdown,
 	set_internal_state = alsa_set_internal_state,
+	mix_chunk_size = ALSA_BUFFER_SAMPLES,
 	has_mixer_thread = true,
 }
 

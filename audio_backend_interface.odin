@@ -6,6 +6,8 @@ Audio_Backend_Interface :: struct {
 	shutdown: proc(),
 	set_internal_state: proc(state: rawptr),
 
+	mix_chunk_size: int,
+
 	// If `false`, then `update_audio` will mix the audio and push it to this backend using
 	// `push_samples`.
 	//
