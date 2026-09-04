@@ -3490,7 +3490,7 @@ update_audio_mixer :: proc() {
 }
 
 // This procedure does some audio housekeeping, removing dead sounds. For platforms that don't use
-// an audio thread it also runs the audio mixer.
+// an audio thread it also runs the audio mixer. Web is such a platform.
 //
 // This procedure is run automatically by `update`. You normally don't have to call it.
 update_audio :: proc() {
@@ -3503,9 +3503,6 @@ update_audio :: proc() {
 		}
 	}
 
-	// TODO-UPDATE-COMMENT the nil backend also runs this. It is the fallback when the platform's
-	// backend fails to initialize, and it advances the sounds at real time using a clock.
-	// Platforms without an audio thread will run this. Web is such a platform.
 	if !ab.has_mixer_thread {
 		assert(
 			ab.push_samples != nil && ab.pushed_samples_remaining != nil,
@@ -3516,12 +3513,12 @@ update_audio :: proc() {
 		// to 8 chunks in one go. This is more of a fail-safe than normal operation.
 		MAX_CHUNKS_PER_UPDATE :: 8
 
-		// If the sample rate of the backend is 44100 samples/second and AUDIO_MIX_CHUNK_SIZE is
-		// 1400 samples, then this procedure will only run roughly 44100/1400 = 31 times per second.
-		// This gives a latency of up to (1.5 * (44100/1400)) = 47 milliseconds. Is it too big, or
-		// too small? Perhaps the platforms that need pushed samples can give us a chunk sized based
-		// on their latency.
 		for _ in 0..<MAX_CHUNKS_PER_UPDATE {
+			// If the sample rate of the backend is 44100 samples/second and AUDIO_MIX_CHUNK_SIZE is
+			// 1400 samples, then this procedure will only run roughly 44100/1400 = 31 times per second.
+			// This gives a latency of up to (1.5 * (44100/1400)) = 47 milliseconds. Is it too big, or
+			// too small? Perhaps the platforms that need pushed samples can give us a chunk sized based
+			// on their latency.
 			if ab.pushed_samples_remaining() > (3 * AUDIO_MIX_CHUNK_SIZE)/2 {
 				break
 			}
