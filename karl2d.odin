@@ -3515,6 +3515,8 @@ update_audio :: proc() {
 		// to 8 chunks in one go. This is more of a fail-safe than normal operation.
 		MAX_CHUNKS_PER_UPDATE :: 8
 
+		master_bus_chunk := s.master_bus.chunk[:]
+
 		for _ in 0..<MAX_CHUNKS_PER_UPDATE {
 			// If the sample rate of the backend is 44100 samples/second and AUDIO_MIX_CHUNK_SIZE is
 			// 1400 samples, then this procedure will only run roughly 44100/1400 = 31 times per
@@ -3525,8 +3527,8 @@ update_audio :: proc() {
 				break
 			}
 
-			_mix_audio_into_buffer(s.push_mix_buffer[:])
-			ab.push_samples(s.push_mix_buffer[:])
+			_mix_audio_into_buffer(master_bus_chunk[:])
+			ab.push_samples(master_bus_chunk[:])
 		}
 	}
 }
@@ -3551,8 +3553,11 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	assert(len(buffer) == AUDIO_MIX_CHUNK_SIZE)
 	sync.mutex_guard(&s.audio_mutex)
 
-	// `buffer` may contain old mixed data, so clear it.
-	slice.zero(buffer)
+	// `buffer` is where the final mix should go. The final mix is the master bus.
+	master_bus_chunk := buffer
+
+	// The chunk may contain old mixed data, so clear it.
+	slice.zero(master_bus_chunk)
 
 	// The buses have a chunk each, which the sounds routed to that bus are mixed into. Those hold
 	// the previous chunk's mix, so they need zeroing too.
@@ -3738,7 +3743,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		}
 
 		// The slice of samples to write into. `buffer` is used for the master bus.
-		dest := buffer
+		dest := master_bus_chunk
 
 		if ps.bus != AUDIO_BUS_MASTER {
 			if bus := hm.get(&s.audio_buses, ps.bus); bus != nil {
@@ -3950,13 +3955,13 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		for samp_idx in 0..<AUDIO_MIX_CHUNK_SIZE {
 			t := f32(samp_idx) / f32(AUDIO_MIX_CHUNK_SIZE)
-			buffer[samp_idx] += bus.chunk[samp_idx] * linalg.lerp(gain_start, gain_end, t)
+			master_bus_chunk[samp_idx] += bus.chunk[samp_idx] * linalg.lerp(gain_start, gain_end, t)
 		}
 	}
 
 	// MASTER BUS
 	//
-	// Everything is in `out` now. The master effect, volume and pan apply to the whole mix.
+	// Everything is in `master_bus_chunk` now. Apply any effects, volume and panning to the master.
 
 	master := &s.master_bus
 
@@ -6049,20 +6054,12 @@ State :: struct {
 
 	audio_buses: hm.Dynamic_Handle_Map(Audio_Bus_Object, Audio_Bus),
 
-	// The master bus is not in `audio_buses`. It is identified by the zero handle, which the handle
-	// map can't store, and it needs to exist without anyone creating it.
+	// Identified by AUDIO_BUS_MASTER. Does not live in `audio_buses` because it is associated with
+	// the zero handle, which cannot be fetched from the handle map.
+	//
+	// We only use the `chunk` field of this bus when `update_audio` runs the mixer, which happens
+	// in case there is no audio thread. 
 	master_bus: Audio_Bus_Object,
-
-	// TODO-UPDATE-COMMENT this is one chunk. `push_samples` copies it before returning, so the
-	// next chunk can be mixed straight over it.
-	// This is the buffer that is used when the audio backend has no mixer thread. In that case we
-	// say that we "push" samples into the audio backend. That mixing will happen into buffer.
-	//
-	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
-	// ample.
-	//
-	// TODO: Should the audio backends that need push data expose their own buffer?
-	push_mix_buffer: [AUDIO_MIX_CHUNK_SIZE][2]Audio_Sample,
 
 	audio_mutex: sync.Mutex,
 
