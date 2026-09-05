@@ -1599,12 +1599,6 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
-Audio_Stream_Seek_State :: enum {
-	None,
-	Requested,
-	Seeking,
-}
-
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
@@ -1616,31 +1610,16 @@ Audio_Stream_Data :: struct {
 	sound: Sound,
 	clip: Audio_Clip,
 
+	// TODO-UPDATE-COMMENT `written` counts every sample the decoder has ever written, it never
+	// wraps. The index into the clip is `written % len(samples)`, and the file position is
+	// `written % total_samples`.
 	// Where in the audio clip referred to by `clip` that we have most recently written samples.
 	// Together with the `offset` of the Sound_Object, this forms a circular buffer.
-	buffer_write_pos: int,
-
-	// TODO-UPDATE-COMMENT `get_sound_time` reads the `reported_` copies below. They are written
-	// under `audio_mutex` once a decode is done, so it never sees a decode in progress.
-	// How far into the file the samples we most recently wrote into the clip were, counted the
-	// same way as the clip's samples: In the case of stereo, left and right count as one each.
-	// Take away the samples in the clip that haven't played yet and you get the spot the listener
-	// is hearing, which is what `get_sound_time` does.
-	decode_cursor: int,
-
-	// When above zero, `update_audio_stream` throws this many decoded samples away instead of
-	// writing them to the clip. Used when moving the stream, since the decoder can only move in
-	// steps of a whole ogg page.
-	seek_discard: int,
-
-	reported_write_pos: int,
-	reported_decode_cursor: int,
+	written: int,
 
 	decode_mutex: sync.Mutex,
 
-	seek_seconds: f32,
-	seek_state: Audio_Stream_Seek_State,
-
+	// TODO-UPDATE-COMMENT counted the same way as `written`.
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
 	total_samples: int,
@@ -1729,11 +1708,13 @@ Sound_Object :: struct {
 	// array that the handle map uses internally may append to a dynamically allocated freelist.
 	remove: bool,
 
+	// TODO-UPDATE-COMMENT `seek_stage` says how far the move has come. A stream sound stays in
+	// `.Waiting_For_Decoder` until `update_audio_stream` has moved the decoder and set `offset`.
 	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
 	// moves it, then fades it back in, so that landing in a completely different part of the
 	// waveform doesn't click. This is where it is going once the fade out is done.
-	pending_seek_seconds: f32,
-	has_pending_seek: bool,
+	seek_seconds: f32,
+	seek_stage: Seek_Stage,
 
 	// The fade used when moving a sound: 0 is no fade and 1 is completely faded out. The mixer
 	// raises it while a move is pending and lowers it again once the move is done.
@@ -1745,6 +1726,12 @@ Sound_Object :: struct {
 	// Set when this sound plays an audio stream. Zero for sounds played from a clip. Used by
 	// `set_sound_loop` to redirect to the stream's own loop flag.
 	stream: Audio_Stream,
+}
+
+Seek_Stage :: enum {
+	None,
+	Fading_Out,
+	Waiting_For_Decoder,
 }
 
 // A bus is a group of sounds that are mixed together before they reach the master bus. You can set
