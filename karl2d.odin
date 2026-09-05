@@ -5171,8 +5171,6 @@ get_z :: proc() -> f32 {
 	return s.z
 }
 
-// TODO-UPDATE-COMMENT audio effect procs point into the old code, so the game must set them again
-// with `set_audio_bus_effect` after a reload.
 // Restore the internal state using the pointer returned by `init`. Useful after reloading the
 // library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State) {
@@ -5902,17 +5900,9 @@ Audio_Bus :: distinct Handle
 // That's how you set the master volume of your game.
 AUDIO_BUS_MASTER :: Audio_Bus {}
 
-// Runs on the mixed samples of a whole bus, before the bus is mixed into the master bus. Modify
-// `samples` in place. This is how you write your own audio effects, such as a filter or an echo.
-//
-// TODO-UPDATE-COMMENT `AUDIO_MIX_CHUNK_SIZE` is now set per audio backend, and this runs on the
-// thread the backend mixes on rather than on the main thread.
-// `samples` is `AUDIO_MIX_CHUNK_SIZE` stereo samples at `AUDIO_MIX_SAMPLE_RATE`. Keep any state
-// your effect needs in `user_data`: You get called once per mixed chunk, so anything you want to
-// carry between the chunks needs to live there.
-//
-// This runs on the main thread today, but keep in mind that it may move to a separate thread in the
-// future.
+// The type of procedure to pass to `set_audio_bus_effect`. For the bus where the effect is applied,
+// `samples` is the finished mix. You may modify these samples in order to create your effect.
+// `user_data` is the user data you passed to `set_audio_bus_effect`.
 Audio_Effect_Proc :: proc(samples: [][2]Audio_Sample, user_data: rawptr)
 
 Audio_Bus_Settings :: struct {
