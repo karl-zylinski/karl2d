@@ -1116,8 +1116,6 @@ set_z :: proc(z: f32)
 // Get the z previously set with `set_z`. Defaults to 0.
 get_z :: proc() -> f32
 
-// TODO-UPDATE-COMMENT audio effect procs point into the old code, so the game must set them again
-// with `set_audio_bus_effect` after a reload.
 // Restore the internal state using the pointer returned by `init`. Useful after reloading the
 // library (for example, when doing code hot reload).
 set_internal_state :: proc(state: ^State)
@@ -1608,20 +1606,11 @@ Audio_Stream_Seek_State :: enum {
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
-Audio_Stream_Data :: struct {
-	handle: Audio_Stream,
-	
-	vorbis: ^stbv.vorbis,
-	vorbis_buffer: stbv.vorbis_alloc,
-	sound: Sound,
-	clip: Audio_Clip,
-
+Audio_Stream_Cursor :: struct {
 	// Where in the audio clip referred to by `clip` that we have most recently written samples.
 	// Together with the `offset` of the Sound_Object, this forms a circular buffer.
 	buffer_write_pos: int,
 
-	// TODO-UPDATE-COMMENT `get_sound_time` reads the `reported_` copies below. They are written
-	// under `audio_mutex` once a decode is done, so it never sees a decode in progress.
 	// How far into the file the samples we most recently wrote into the clip were, counted the
 	// same way as the clip's samples: In the case of stereo, left and right count as one each.
 	// Take away the samples in the clip that haven't played yet and you get the spot the listener
@@ -1632,9 +1621,17 @@ Audio_Stream_Data :: struct {
 	// writing them to the clip. Used when moving the stream, since the decoder can only move in
 	// steps of a whole ogg page.
 	seek_discard: int,
+}
 
-	reported_write_pos: int,
-	reported_decode_cursor: int,
+Audio_Stream_Data :: struct {
+	handle: Audio_Stream,
+	
+	vorbis: ^stbv.vorbis,
+	vorbis_buffer: stbv.vorbis_alloc,
+	sound: Sound,
+	clip: Audio_Clip,
+
+	cursor: Audio_Stream_Cursor,
 
 	decode_mutex: sync.Mutex,
 
@@ -1760,17 +1757,9 @@ Audio_Bus :: distinct Handle
 // That's how you set the master volume of your game.
 AUDIO_BUS_MASTER :: Audio_Bus {}
 
-// Runs on the mixed samples of a whole bus, before the bus is mixed into the master bus. Modify
-// `samples` in place. This is how you write your own audio effects, such as a filter or an echo.
-//
-// TODO-UPDATE-COMMENT `AUDIO_MIX_CHUNK_SIZE` is now set per audio backend, and this runs on the
-// thread the backend mixes on rather than on the main thread.
-// `samples` is `AUDIO_MIX_CHUNK_SIZE` stereo samples at `AUDIO_MIX_SAMPLE_RATE`. Keep any state
-// your effect needs in `user_data`: You get called once per mixed chunk, so anything you want to
-// carry between the chunks needs to live there.
-//
-// This runs on the main thread today, but keep in mind that it may move to a separate thread in the
-// future.
+// The type of procedure to pass to `set_audio_bus_effect`. For the bus where the effect is applied,
+// `samples` is the finished mix. You may modify these samples in order to create your effect.
+// `user_data` is the user data you passed to `set_audio_bus_effect`.
 Audio_Effect_Proc :: proc(samples: [][2]Audio_Sample, user_data: rawptr)
 
 Audio_Bus_Settings :: struct {
