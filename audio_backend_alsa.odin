@@ -5,36 +5,27 @@ package karl2d
 
 @(private = "package")
 AUDIO_BACKEND_ALSA :: Audio_Backend_Interface {
-	state_size         = alsa_state_size,
-	init               = alsa_init,
-	shutdown           = alsa_shutdown,
+	state_size = alsa_state_size,
+	init = alsa_init,
+	shutdown = alsa_shutdown,
 	set_internal_state = alsa_set_internal_state,
-	feed               = alsa_feed,
-	remaining_samples  = alsa_remaining_samples,
+	mix_chunk_size = ALSA_BUFFER_SAMPLES,
+	has_mixer_thread = true,
 }
 
-import "base:runtime"
 import "core:c"
 import "log"
 import alsa "platform_bindings/linux/alsa"
 import "core:thread"
-import "core:time"
 import "core:sync"
+
+ALSA_BUFFER_SAMPLES :: 700
 
 Alsa_State :: struct {
 	pcm: alsa.PCM,
-
-	// This is a "circular" buffer. We write new things at `buf_end` and read from `buf_start`.
-	// AUDIO_MIX_CHUNK_SIZE * 3 should be enough, but I added some head room. 3 should be enough
-	// because the mixer tends to not never produce more than 2.5 * AUDIO_MIX_CHUNK_SIZE samples
-	// (it throws in another chunk if the remaining number of samples is less than
-	// 1.5 * AUDIO_MIX_CHUNK_SIZE).
-	buf: [AUDIO_MIX_CHUNK_SIZE*5][2]Audio_Sample,
-	buf_start: int,
-	buf_end: int,
-
-	feed_thread: ^thread.Thread,
-	run_thread: bool,
+	buf: [ALSA_BUFFER_SAMPLES][2]Audio_Sample,
+	mix_thread: ^thread.Thread,
+	run_mix_thread: bool,
 }
 
 alsa_state_size :: proc() -> int {
@@ -43,7 +34,7 @@ alsa_state_size :: proc() -> int {
 
 s: ^Alsa_State
 
-alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
+alsa_init :: proc(state: rawptr) -> bool {
 	assert(state != nil)
 	s = (^Alsa_State)(state)
 	log.debug("Init audio backend alsa")
@@ -52,7 +43,7 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 
 	if !load_ok {
 		log.errorf("No sound. Could not load %v.", missing)
-		return
+		return false
 	}
 
 	alsa_err: c.int
@@ -61,7 +52,7 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 
 	if alsa_err < 0 {
 		log.errorf("pcm_open failed for 'default': %s", alsa.strerror(alsa_err))
-		return
+		return false
 	}
 
 	LATENCY_MICROSECONDS :: 25000
@@ -78,7 +69,7 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	if alsa_err < 0 {
 		log.errorf("pcm_set_params failed: %s", alsa.strerror(alsa_err))
 		alsa.pcm_close(pcm)
-		return
+		return false
 	}
 
 	alsa_err = alsa.pcm_prepare(pcm)
@@ -86,20 +77,29 @@ alsa_init :: proc(state: rawptr, allocator: runtime.Allocator) {
 	if alsa_err < 0 {
 		log.errorf("pcm_prepare failed: %s", alsa.strerror(alsa_err))
 		alsa.pcm_close(pcm)
-		return
+		return false
 	}
 
 	// Set the PCM before starting the thread: the thread uses it right away.
 	s.pcm = pcm
-	s.run_thread = true
-	s.feed_thread = thread.create(alsa_thread_proc)
-	thread.start(s.feed_thread)
+	s.run_mix_thread = true
+	s.mix_thread = thread.create(alsa_thread_proc)
+
+	if s.mix_thread == nil {
+		log.errorf("Failed creating ALSA mixer thread")
+		alsa.pcm_close(pcm)
+		return false
+	}
+
+	thread.start(s.mix_thread)
+	return true
 }
 
 alsa_thread_proc :: proc(t: ^thread.Thread) {
-	for sync.atomic_load(&s.run_thread) {
-		time.sleep(5 * time.Millisecond)
-		start, end := sync.atomic_load(&s.buf_start), sync.atomic_load(&s.buf_end)
+	context = _audio_thread_context()
+
+	for sync.atomic_load(&s.run_mix_thread) {
+		_mix_audio_into_buffer(s.buf[:])
 
 		write :: proc(pcm: alsa.PCM, data: [][2]Audio_Sample) {
 			remaining := data
@@ -115,7 +115,7 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 					// Can't recover!
 					if recover_ret < 0 {
 						log.errorf("Fatal sound error:pcm_writei failed and recovery also failed: %s", alsa.strerror(c.int(ret)))
-						sync.atomic_store(&s.run_thread, false)
+						sync.atomic_store(&s.run_mix_thread, false)
 						return
 					}
 
@@ -126,71 +126,22 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 			}
 		}
 
-		if start > end {
-			write(s.pcm, s.buf[start:])
-			write(s.pcm, s.buf[:end])
-		} else {
-			write(s.pcm, s.buf[start:end])
-		}
-
-		sync.atomic_store(&s.buf_start, end)
+		write(s.pcm, s.buf[:])
+		free_all(context.temp_allocator)
 	}
 }
 
 alsa_shutdown :: proc() {
 	log.debug("Shutdown audio backend alsa")
 
-	sync.atomic_store(&s.run_thread, false)
+	sync.atomic_store(&s.run_mix_thread, false)
 
-	// The thread is only created if the whole of `alsa_init` succeeded. It may be nil if for
-	// example no ALSA device was available.
-	if s.feed_thread != nil {
-		thread.join(s.feed_thread)
-		thread.destroy(s.feed_thread)
-		s.feed_thread = nil
-	}
-
-	if s.pcm != nil {
-		alsa.pcm_close(s.pcm)
-		s.pcm = nil
-	}
+	thread.join(s.mix_thread)
+	thread.destroy(s.mix_thread)
+	alsa.pcm_close(s.pcm)
 }
 
 alsa_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Alsa_State)(state)
-}
-
-alsa_feed :: proc(samples: [][2]Audio_Sample) {
-	if s.pcm == nil || len(samples) == 0 {
-		return
-	}
-
-	samples := samples
-	i := sync.atomic_load(&s.buf_end)
-	overflow := (i + len(samples)) - len(s.buf)
-
-	if overflow > 0 {
-		to_copy := len(samples) - overflow
-		copy(s.buf[i:], samples[:to_copy])
-		i = 0
-		samples = samples[to_copy:]
-	}
-
-	copy(s.buf[i:], samples[:])
-	sync.atomic_store(&s.buf_end, i + len(samples))
-}
-
-alsa_remaining_samples :: proc() -> int {
-	if s.pcm == nil {
-		return 0
-	}
-
-	start, end := sync.atomic_load(&s.buf_start), sync.atomic_load(&s.buf_end)
-
-	if end >= start {
-		return end - start
-	} 
-	
-	return len(s.buf) - start + end
 }

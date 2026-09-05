@@ -196,6 +196,14 @@ main :: proc() {
 				break entry_loop
 			}
 
+			if len(dd.names) > 0 {
+				name := f.src[dd.names[0].pos.offset:dd.names[0].end.offset]
+
+				if strings.has_prefix(name, "_") {
+					continue entry_loop
+				}
+			}
+
 			for comment in entry.comments {
 				pln(o, "")
 				pln(o, f.src[comment.pos.offset:comment.end.offset])

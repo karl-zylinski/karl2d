@@ -7,12 +7,17 @@ package karl2d
 // SETUP, WINDOW MANAGEMENT AND FRAME MANAGEMENT //
 //-----------------------------------------------//
 
-// Opens a window and initializes some internal state. The internal state will use `allocator` for
-// all dynamically allocated memory.
+// Opens a window, initializes the renderer and starts up the audio systems.
 //
 // `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
 // The window might be slightly larger due to borders and headers. The true width and height will be
 // scaled up by the scaling setting in the operating system.
+//
+// Karl2D will use `allocator` for all dynamically allocated memory that is needed more than one
+// frame. For single frame allocations the library uses an internal "frame allocator".
+//
+// `logger` is used by the audio thread, which has no access to the context of the thread that
+// called `init`.
 //
 // Call `init` before using Karl2D procedures that depend on runtime state, such as window,
 // drawing, input, audio, texture, font and shader procedures. Pure helper procedures, types and
@@ -28,7 +33,8 @@ init :: proc(
 	window_title: string,
 	options := Init_Options {},
 	allocator := context.allocator,
-	loc := #caller_location
+	loc := #caller_location,
+	logger := context.logger,
 ) -> ^State
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
@@ -47,7 +53,7 @@ init :: proc(
 ////     k2.reset_frame_allocator()
 ////     k2.calculate_frame_time()
 ////     k2.process_events()
-////     k2.update_audio_mixer()
+////     k2.update_audio()
 ////     
 ////     k2.clear(k2.BLUE)
 ////     k2.present()
@@ -621,8 +627,8 @@ set_sound_pan :: proc(sound: Sound, pan: f32)
 // play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
-// Move the sound to another spot in its audio. `seconds` is measured from the start of the audio,
-// so 0 moves it back to the beginning. Use `get_sound_length` to find out how far you can go.
+// Move the sound to another spot in its audio. `seconds` is measured from the start of the audio.
+// Use `get_sound_length` to find out how long the sound is.
 //
 // Moving a sound that plays an audio stream is a bit slower than one that plays a clip, since some
 // audio has to be decoded before it can play. Don't do it every frame while dragging a scrub bar,
@@ -746,8 +752,11 @@ load_audio_stream_from_bytes :: proc(
 // deallocate the bytes that you sent into that procedure.
 destroy_audio_stream :: proc(stream: Audio_Stream)
 
-// Streams in new audio data from the audio stream. You need to call this once per frame in order
-// for the streaming to actually happen. 
+// Streams in new audio data from the audio stream. You need to call this regularly for the stream
+// to not run out of data.
+//
+// THREAD SAFE: One thread per stream may call this. That way you can create a "music thread" that
+// is immune to both in-game stalls and external stalls, such as the window being moved.
 update_audio_stream :: proc(stream: Audio_Stream)
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
@@ -806,15 +815,11 @@ set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32)
 // See `Audio_Effect_Proc` for what the effect is given and what it is allowed to do.
 set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_data: rawptr = nil)
 
-// Update the audio mixer and feed more audio data into the audio backend. This is done
-// automatically when `update` runs, so you normally don't need to call this manually.
+// This procedure does some audio housekeeping, removing dead sounds. For platforms that don't use
+// an audio thread it also runs the audio mixer. Web is such a platform.
 //
-// This procedure implements a custom software audio mixer. The audio backend is just fed the
-// resulting mix. Therefore, you can see everything regarding how audio is processed in this
-// procedure.
-//
-// Will only run if the audio backend is running low on audio data.
-update_audio_mixer :: proc()
+// This procedure is run automatically by `update`. You normally don't have to call it.
+update_audio :: proc()
 
 //-----------------//
 // RENDER TEXTURES //
@@ -1580,7 +1585,7 @@ TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
 AUDIO_MIX_SAMPLE_RATE :: 44100
-AUDIO_MIX_CHUNK_SIZE :: 1400
+AUDIO_MIX_CHUNK_SIZE :: AUDIO_BACKEND.mix_chunk_size
 
 // Single channel audio sample. Can have a value between -1 and 1. For stereo sound every other
 // sample in an array of samples will be interpreted as left and right respectively.
@@ -1603,6 +1608,12 @@ AUDIO_STREAM_NONE :: Audio_Stream {}
 
 AUDIO_STREAM_BUFFER_SIZE :: 3 * AUDIO_MIX_SAMPLE_RATE
 
+MAX_OGG_PAGE_SIZE :: 65307
+
+AUDIO_STREAM_READ_BUF_SIZE :: 2 * MAX_OGG_PAGE_SIZE
+
+AUDIO_STREAM_READ_SIZE :: 4096
+
 Audio_Channels :: enum {
 	Mono,
 	Stereo,
@@ -1613,17 +1624,16 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
+Audio_Stream_Seek_State :: enum {
+	None,
+	Requested,
+	Seeking,
+}
+
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
-Audio_Stream_Data :: struct {
-	handle: Audio_Stream,
-	
-	vorbis: ^stbv.vorbis,
-	vorbis_buffer: stbv.vorbis_alloc,
-	sound: Sound,
-	clip: Audio_Clip,
-
+Audio_Stream_Cursor :: struct {
 	// Where in the audio clip referred to by `clip` that we have most recently written samples.
 	// Together with the `offset` of the Sound_Object, this forms a circular buffer.
 	buffer_write_pos: int,
@@ -1638,6 +1648,22 @@ Audio_Stream_Data :: struct {
 	// writing them to the clip. Used when moving the stream, since the decoder can only move in
 	// steps of a whole ogg page.
 	seek_discard: int,
+}
+
+Audio_Stream_Data :: struct {
+	handle: Audio_Stream,
+	
+	vorbis: ^stbv.vorbis,
+	vorbis_buffer: stbv.vorbis_alloc,
+	sound: Sound,
+	clip: Audio_Clip,
+
+	cursor: Audio_Stream_Cursor,
+
+	decode_mutex: sync.Mutex,
+
+	seek_seconds: f32,
+	seek_state: Audio_Stream_Seek_State,
 
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
@@ -1653,7 +1679,9 @@ Audio_Stream_Data :: struct {
 
 	// use if mode = .From_File
 	file: ^File,
-	file_read_buf: [dynamic]u8,
+	file_read_buf: []u8,
+
+	file_read_buf_len: int,
 	file_read_buf_offset: int,
 
 	// use if mode == .From_Bytes
@@ -1719,6 +1747,12 @@ Sound_Object :: struct {
 	// Set using `set_sound_paused`. The mixer skips paused sounds.
 	paused: bool,
 
+	// If true, then this Sound will be deleted next time `update_audio` runs. We don't remove
+	// directly when mixing because we don't want to touch memory allocations there. This is because
+	// the mixing may happen on a thread. It may look like `hm.remove` is thread safe, but the XAR
+	// array that the handle map uses internally may append to a dynamically allocated freelist.
+	remove: bool,
+
 	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
 	// moves it, then fades it back in, so that landing in a completely different part of the
 	// waveform doesn't click. This is where it is going once the fade out is done.
@@ -1750,15 +1784,9 @@ Audio_Bus :: distinct Handle
 // That's how you set the master volume of your game.
 AUDIO_BUS_MASTER :: Audio_Bus {}
 
-// Runs on the mixed samples of a whole bus, before the bus is mixed into the master bus. Modify
-// `samples` in place. This is how you write your own audio effects, such as a filter or an echo.
-//
-// `samples` is `AUDIO_MIX_CHUNK_SIZE` stereo samples at `AUDIO_MIX_SAMPLE_RATE`. Keep any state
-// your effect needs in `user_data`: You get called once per mixed chunk, so anything you want to
-// carry between the chunks needs to live there.
-//
-// This runs on the main thread today, but keep in mind that it may move to a separate thread in the
-// future.
+// The type of procedure to pass to `set_audio_bus_effect`. For the bus where the effect is applied,
+// `samples` is the finished mix. You may modify these samples in order to create your effect.
+// `user_data` is the user data you passed to `set_audio_bus_effect`.
 Audio_Effect_Proc :: proc(samples: [][2]Audio_Sample, user_data: rawptr)
 
 Audio_Bus_Settings :: struct {
@@ -1793,6 +1821,7 @@ DEFAULT_AUDIO_BUS_SETTINGS :: Audio_Bus_Settings {
 // to it, so you can later use 'set_internal_state' to restore it (after for example hot reload).
 State :: struct {
 	allocator: runtime.Allocator,
+	logger: runtime.Logger,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
 	platform_state: rawptr,
@@ -1899,16 +1928,17 @@ State :: struct {
 
 	audio_buses: hm.Dynamic_Handle_Map(Audio_Bus_Object, Audio_Bus),
 
-	// The master bus is not in `audio_buses`. It is identified by the zero handle, which the handle
-	// map can't store, and it needs to exist without anyone creating it.
+	// Identified by AUDIO_BUS_MASTER. Does not live in `audio_buses` because it is associated with
+	// the zero handle, which cannot be fetched from the handle map.
+	//
+	// We only use the `chunk` field of this bus when `update_audio` runs the mixer, which happens
+	// in case there is no audio thread. 
 	master_bus: Audio_Bus_Object,
 
-	// Mixer will never mix in more than 1.5 * AUDIO_MIX_CHUNK_SIZE. So 10 times the chunk size is
-	// ample.
-	mix_buffer: [AUDIO_MIX_CHUNK_SIZE*10][2]Audio_Sample,
+	audio_mutex: sync.Mutex,
 
-	// Where the mixer currently is in the mix buffer.
-	mix_buffer_offset: int,
+	audio_thread_temp_allocator_buffer: [4096]byte,
+	audio_thread_temp_allocator_arena: mem.Arena,
 }
 
 // Karl2D currently reports left, right, and middle mouse buttons.
