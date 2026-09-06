@@ -2198,7 +2198,7 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 	if sound_object.paused {
 		// Fade the sound in when it is unpaused, instead of jumping straight into the middle of
 		// the waveform.
-		sound_object.seek_fade = 1
+		sound_object.current_settings.volume = 0
 	}
 
 	sound_object.pending_seek_seconds = wanted_seconds
@@ -3038,7 +3038,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	// We fetch this while guarded by audio_mutex, we'll use them during the seeking & decode.
 	play_offset := so.offset
 	loop := sd.loop
-	seek := so.has_pending_seek && so.seek_fade >= 1
+	seek := so.has_pending_seek && so.current_settings.volume == 0
 	seek_seconds := so.pending_seek_seconds
 	cursor := sd.cursor
 
@@ -3764,32 +3764,35 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		pitch := settings.pitch
 		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch)
 
-		// TODO-UPDATE-COMMENT only sounds that play a clip are moved here. A sound that plays an
-		// audio stream is moved by `update_audio_stream`, which waits for the same fade.
+		// TODO-UPDATE-COMMENT the fade out is done by aiming the volume at 0 until the sound is
+		// silent. The fade in is the volume chasing its target again after the move. Only sounds
+		// that play a clip are moved here. A sound that plays an audio stream is moved by
+		// `update_audio_stream`, which waits for the same silence.
 		// `set_sound_time` doesn't move the sound itself, it just says where the sound should go.
 		// We move it here, once the sound has faded out. Then we fade it back in. That way moving
 		// to a completely different part of the waveform doesn't click.
 
-		seek_fade_target: f32 = ps.has_pending_seek ? 1 : 0
-		seek_fade_start := clamp(ps.seek_fade, 0, 1)
-		seek_fade_moved := move_towards(ps.seek_fade, seek_fade_target, adjust_parameter_delta)
-		seek_fade_end := clamp(seek_fade_moved, 0, 1)
-		ps.seek_fade = seek_fade_end
+		volume_target := target_settings.volume
 
-		// Wait for `seek_fade_start` rather than `seek_fade_end`: The chunk that fades the sound
-		// all the way out is the one that holds the fade, so it still has to be mixed.
-		if ps.has_pending_seek && seek_fade_start == 1 && ps.stream == AUDIO_STREAM_NONE {
-			channels := 1
-			if data.channels == .Stereo {
-				channels = 2
+		if ps.has_pending_seek {
+			if settings.volume == 0 {
+				if ps.stream == AUDIO_STREAM_NONE {
+					channels := 1
+					if data.channels == .Stereo {
+						channels = 2
+					}
+
+					total_frames := len(data.samples) / channels
+					target_frame := int(ps.pending_seek_seconds * f32(data.sample_rate))
+					ps.offset = clamp(target_frame, 0, total_frames) * channels
+					ps.offset_fraction = 0
+					ps.has_pending_seek = false
+				}
+
+				continue
 			}
 
-			total_frames := len(data.samples) / channels
-			target_frame := int(ps.pending_seek_seconds * f32(data.sample_rate))
-			ps.offset = clamp(target_frame, 0, total_frames) * channels
-			ps.offset_fraction = 0
-			ps.has_pending_seek = false
-			continue
+			volume_target = 0
 		}
 
 		// We can't just use the `volume_end` value for the volume. We are going to mix in
@@ -3798,10 +3801,9 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		// the last one should use. Then we feed those into the `add`/`add_interpolate` procedures.
 		// It will lerp across the range as it is mixing in the samples.
 
-		volume_start := clamp(settings.volume, 0, 1) * (1 - seek_fade_start)
-		volume_end := clamp(move_towards(settings.volume, target_settings.volume, adjust_parameter_delta), 0, 1)
+		volume_start := clamp(settings.volume, 0, 1)
+		volume_end := clamp(move_towards(settings.volume, volume_target, adjust_parameter_delta), 0, 1)
 		settings.volume = volume_end
-		volume_end *= 1 - seek_fade_end
 
 		if volume_start == volume_end && volume_end == 0 {
 			continue
@@ -5869,16 +5871,12 @@ Sound_Object :: struct {
 	remove: bool,
 
 	// TODO-UPDATE-COMMENT the mixer only moves sounds that play a clip. For a sound that plays an
-	// audio stream, `update_audio_stream` does the move once `seek_fade` says the fade out is done.
+	// audio stream, `update_audio_stream` does the move once `current_settings.volume` is 0.
 	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
 	// moves it, then fades it back in, so that landing in a completely different part of the
 	// waveform doesn't click. This is where it is going once the fade out is done.
 	pending_seek_seconds: f32,
 	has_pending_seek: bool,
-
-	// The fade used when moving a sound: 0 is no fade and 1 is completely faded out. The mixer
-	// raises it while a move is pending and lowers it again once the move is done.
-	seek_fade: f32,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,

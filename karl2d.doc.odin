@@ -1723,16 +1723,12 @@ Sound_Object :: struct {
 	remove: bool,
 
 	// TODO-UPDATE-COMMENT the mixer only moves sounds that play a clip. For a sound that plays an
-	// audio stream, `update_audio_stream` does the move once `seek_fade` says the fade out is done.
+	// audio stream, `update_audio_stream` does the move once `current_settings.volume` is 0.
 	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
 	// moves it, then fades it back in, so that landing in a completely different part of the
 	// waveform doesn't click. This is where it is going once the fade out is done.
 	pending_seek_seconds: f32,
 	has_pending_seek: bool,
-
-	// The fade used when moving a sound: 0 is no fade and 1 is completely faded out. The mixer
-	// raises it while a move is pending and lowers it again once the move is done.
-	seek_fade: f32,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
