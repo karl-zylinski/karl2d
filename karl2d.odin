@@ -2190,6 +2190,7 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 
 	// TODO-UPDATE-COMMENT a paused sound no longer jumps straight away. It is marked as fully
 	// faded out, so the jump happens as soon as the mixer or `update_audio_stream` sees it.
+	// ---
 	// Jumping to another spot in the audio makes the waveform jump, which is heard as a click. So
 	// we don't jump right away: The mixer fades the sound out first, then jumps, then fades it
 	// back in. A paused sound isn't being mixed, so there is nothing to fade and nothing that
@@ -3768,6 +3769,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		// silent. The fade in is the volume chasing its target again after the move. Only sounds
 		// that play a clip are moved here. A sound that plays an audio stream is moved by
 		// `update_audio_stream`, which waits for the same silence.
+		// ---
 		// `set_sound_time` doesn't move the sound itself, it just says where the sound should go.
 		// We move it here, once the sound has faded out. Then we fade it back in. That way moving
 		// to a completely different part of the waveform doesn't click.
@@ -5872,6 +5874,7 @@ Sound_Object :: struct {
 
 	// TODO-UPDATE-COMMENT the mixer only moves sounds that play a clip. For a sound that plays an
 	// audio stream, `update_audio_stream` does the move once `current_settings.volume` is 0.
+	// ---
 	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
 	// moves it, then fades it back in, so that landing in a completely different part of the
 	// waveform doesn't click. This is where it is going once the fade out is done.
@@ -6769,6 +6772,7 @@ _seek_audio_stream :: proc(
 // TODO-UPDATE-COMMENT this now runs from `play_audio_stream` only, right before the first decode.
 // It no longer touches the cursor positions, `play_audio_stream` starts from a zeroed
 // `Audio_Stream_Cursor` instead.
+// ---
 // Moves the decode cursor of a stream back to the start. Run when a stream-fed sound is stopped
 // and when a non-looping stream reaches the end of the file, so that playing it again starts from
 // the beginning.

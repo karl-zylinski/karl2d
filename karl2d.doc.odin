@@ -1724,6 +1724,7 @@ Sound_Object :: struct {
 
 	// TODO-UPDATE-COMMENT the mixer only moves sounds that play a clip. For a sound that plays an
 	// audio stream, `update_audio_stream` does the move once `current_settings.volume` is 0.
+	// ---
 	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
 	// moves it, then fades it back in, so that landing in a completely different part of the
 	// waveform doesn't click. This is where it is going once the fade out is done.
