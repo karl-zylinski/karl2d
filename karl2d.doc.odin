@@ -1597,12 +1597,6 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
-Audio_Stream_Seek_State :: enum {
-	None,
-	Requested,
-	Seeking,
-}
-
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
@@ -1621,6 +1615,8 @@ Audio_Stream_Cursor :: struct {
 	// writing them to the clip. Used when moving the stream, since the decoder can only move in
 	// steps of a whole ogg page.
 	seek_discard: int,
+
+
 }
 
 Audio_Stream_Data :: struct {
@@ -1636,7 +1632,7 @@ Audio_Stream_Data :: struct {
 	decode_mutex: sync.Mutex,
 
 	seek_seconds: f32,
-	seek_state: Audio_Stream_Seek_State,
+	seeking: bool,
 
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
@@ -1726,6 +1722,8 @@ Sound_Object :: struct {
 	// array that the handle map uses internally may append to a dynamically allocated freelist.
 	remove: bool,
 
+	// TODO-UPDATE-COMMENT the mixer only moves sounds that play a clip. For a sound that plays an
+	// audio stream, `update_audio_stream` does the move once `seek_fade` says the fade out is done.
 	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
 	// moves it, then fades it back in, so that landing in a completely different part of the
 	// waveform doesn't click. This is where it is going once the fade out is done.

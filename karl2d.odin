@@ -2188,6 +2188,8 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 		wanted_seconds = min(wanted_seconds, length)
 	}
 
+	// TODO-UPDATE-COMMENT a paused sound no longer jumps straight away. It is marked as fully
+	// faded out, so the jump happens as soon as the mixer or `update_audio_stream` sees it.
 	// Jumping to another spot in the audio makes the waveform jump, which is heard as a click. So
 	// we don't jump right away: The mixer fades the sound out first, then jumps, then fades it
 	// back in. A paused sound isn't being mixed, so there is nothing to fade and nothing that
@@ -2197,8 +2199,6 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 		// Fade the sound in when it is unpaused, instead of jumping straight into the middle of
 		// the waveform.
 		sound_object.seek_fade = 1
-		_apply_sound_time(sound, wanted_seconds)
-		return
 	}
 
 	sound_object.pending_seek_seconds = wanted_seconds
@@ -2253,7 +2253,7 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 		channels = 2
 	}
 
-	if sd.seek_state != .None {
+	if sd.seeking {
 		return sd.seek_seconds
 	}
 
@@ -3038,15 +3038,14 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	// We fetch this while guarded by audio_mutex, we'll use them during the seeking & decode.
 	play_offset := so.offset
 	loop := sd.loop
-	seek := sd.seek_state == .Requested
-	seek_seconds := sd.seek_seconds
+	seek := so.has_pending_seek && so.seek_fade >= 1
+	seek_seconds := so.pending_seek_seconds
 	cursor := sd.cursor
 
 	if seek {
-		// .Seeking is only really used in this proc. But some other code may try to seek before we
-		// can clear it to .None at the end of this proc. In that case it will have become
-		// .Requested again. This makes sure we don't miss any seeks.
-		sd.seek_state = .Seeking
+		so.has_pending_seek = false
+		sd.seek_seconds = seek_seconds
+		sd.seeking = true
 	}
 
 	sync.mutex_lock(&sd.decode_mutex)
@@ -3075,10 +3074,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 	if sd = hm.get(&s.audio_streams, stream); sd != nil {
 		sd.cursor = post_decode_cursor
-
-		if sd.seek_state == .Seeking {
-			sd.seek_state = .None
-		}
+		sd.seeking = false
 	}
 
 	sync.mutex_unlock(&s.audio_mutex)
@@ -3328,7 +3324,7 @@ play_audio_stream :: proc(
 	}
 
 	sd.loop = loop
-	sd.seek_state = .None
+	sd.seeking = false
 	sync.mutex_lock(&sd.decode_mutex)
 	sync.mutex_unlock(&s.audio_mutex)
 
@@ -3720,7 +3716,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		return current + dir * delta
 	}
 
-	for ps_iter := hm.dynamic_iterator_make(&s.sounds); ps, ps_handle in hm.dynamic_iterate(&ps_iter) {
+	for ps_iter := hm.dynamic_iterator_make(&s.sounds); ps, _ in hm.dynamic_iterate(&ps_iter) {
 		if ps.remove {
 			continue
 		}
@@ -3739,7 +3735,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		}
 
 		if ps.stream != AUDIO_STREAM_NONE {
-			if sd := hm.get(&s.audio_streams, ps.stream); sd != nil && sd.seek_state != .None {
+			if sd := hm.get(&s.audio_streams, ps.stream); sd != nil && sd.seeking {
 				continue
 			}
 		}
@@ -3768,6 +3764,8 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		pitch := settings.pitch
 		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch)
 
+		// TODO-UPDATE-COMMENT only sounds that play a clip are moved here. A sound that plays an
+		// audio stream is moved by `update_audio_stream`, which waits for the same fade.
 		// `set_sound_time` doesn't move the sound itself, it just says where the sound should go.
 		// We move it here, once the sound has faded out. Then we fade it back in. That way moving
 		// to a completely different part of the waveform doesn't click.
@@ -3780,13 +3778,17 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		// Wait for `seek_fade_start` rather than `seek_fade_end`: The chunk that fades the sound
 		// all the way out is the one that holds the fade, so it still has to be mixed.
-		if ps.has_pending_seek && seek_fade_start == 1 {
-			seek_seconds := ps.pending_seek_seconds
-			ps.has_pending_seek = false
+		if ps.has_pending_seek && seek_fade_start == 1 && ps.stream == AUDIO_STREAM_NONE {
+			channels := 1
+			if data.channels == .Stereo {
+				channels = 2
+			}
 
-			// This may remove the sound, so `continue` makes us avoid using `ps` after this. There
-			// is nothing to mix anyway: The fade has taken the volume all the way down.
-			_apply_sound_time(ps_handle, seek_seconds)
+			total_frames := len(data.samples) / channels
+			target_frame := int(ps.pending_seek_seconds * f32(data.sample_rate))
+			ps.offset = clamp(target_frame, 0, total_frames) * channels
+			ps.offset_fraction = 0
+			ps.has_pending_seek = false
 			continue
 		}
 
@@ -5741,12 +5743,6 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
-Audio_Stream_Seek_State :: enum {
-	None,
-	Requested,
-	Seeking,
-}
-
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
@@ -5782,7 +5778,7 @@ Audio_Stream_Data :: struct {
 	decode_mutex: sync.Mutex,
 
 	seek_seconds: f32,
-	seek_state: Audio_Stream_Seek_State,
+	seeking: bool,
 
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
@@ -5872,6 +5868,8 @@ Sound_Object :: struct {
 	// array that the handle map uses internally may append to a dynamically allocated freelist.
 	remove: bool,
 
+	// TODO-UPDATE-COMMENT the mixer only moves sounds that play a clip. For a sound that plays an
+	// audio stream, `update_audio_stream` does the move once `seek_fade` says the fade out is done.
 	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
 	// moves it, then fades it back in, so that landing in a completely different part of the
 	// waveform doesn't click. This is where it is going once the fade out is done.
@@ -6704,55 +6702,6 @@ _ogg_file_total_frames :: proc(f: ^File) -> int {
 	}
 
 	return 0
-}
-
-// Moves a sound to another spot in its audio. Run by the mixer once the sound has faded out, and
-// by `set_sound_time` directly for sounds that are paused.
-_apply_sound_time :: proc(sound: Sound, seconds: f32) {
-	sound_object := hm.get(&s.sounds, sound)
-
-	if sound_object == nil {
-		return
-	}
-
-	clamped_seconds := max(seconds, 0)
-
-	if sound_object.stream == AUDIO_STREAM_NONE {
-		clip := hm.get(&s.audio_clips, sound_object.clip)
-
-		if clip == nil {
-			return
-		}
-
-		channels := 1
-		if clip.channels == .Stereo {
-			channels = 2
-		}
-
-		total_frames := len(clip.samples) / channels
-		target_frame := clamp(int(clamped_seconds * f32(clip.sample_rate)), 0, total_frames)
-
-		sound_object.offset = target_frame * channels
-		sound_object.offset_fraction = 0
-		return
-	}
-
-	sd := hm.get(&s.audio_streams, sound_object.stream)
-
-	if sd == nil {
-		return
-	}
-
-	// TODO-UPDATE-COMMENT the seek is now a request that `update_audio_stream` carries out. The
-	// mixer holds the sound silent until the decoder has done it.
-	// Decode into the buffer right away. If we left this to the next `update_audio_stream` then
-	// the mixer would play the silence we just wrote. Worse, once the mixer has moved the read
-	// position past the write position, the buffer looks full rather than empty, so it would not
-	// be refilled until the read position had wrapped all the way around.
-	//
-	// This may remove the sound, so don't touch `sound_object` after it.
-	sd.seek_seconds = clamped_seconds
-	sd.seek_state = .Requested
 }
 
 // The caller must hold sd.decode_mutex
