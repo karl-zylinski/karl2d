@@ -1597,6 +1597,13 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
+Audio_Stream_Seek_State :: enum {
+	None,
+	Fading_Out,
+	Ready,
+	Seeking,
+}
+
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
@@ -1640,6 +1647,9 @@ Audio_Stream_Data :: struct {
 	// buffer itself. That's something you always want for a stream: We are continously writing
 	// data from a file into a small buffer that is a few seconds long.
 	loop: bool,
+
+	seek_state: Audio_Stream_Seek_State,
+	seek_seconds: f32,
 
 	mode: Audio_Stream_Mode,
 
@@ -1692,13 +1702,6 @@ Sound_Settings :: struct {
 	pitch: f32,
 }
 
-Sound_Seek_State :: enum {
-	None,
-	Fading_Out,
-	Ready,
-	Seeking,
-}
-
 // What `Sound` handles are mapped to: something that is currently playing in the mixer. It holds
 // the clip it plays and the settings it plays with.
 Sound_Object :: struct {
@@ -1726,14 +1729,14 @@ Sound_Object :: struct {
 	// array that the handle map uses internally may append to a dynamically allocated freelist.
 	remove: bool,
 
-	// TODO-UPDATE-COMMENT the mixer only moves sounds that play a clip. For a sound that plays an
-	// audio stream, `update_audio_stream` does the move once `seek_state` is `.Ready`.
+	// TODO-UPDATE-COMMENT these are only used by sounds that play a clip. A sound that plays an
+	// audio stream keeps its seek on the `Audio_Stream_Data` instead.
 	// ---
 	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
 	// moves it, then fades it back in, so that landing in a completely different part of the
 	// waveform doesn't click. This is where it is going once the fade out is done.
+	has_pending_seek: bool,
 	pending_seek_seconds: f32,
-	seek_state: Sound_Seek_State,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,

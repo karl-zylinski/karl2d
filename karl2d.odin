@@ -2189,22 +2189,35 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 	}
 
 	// TODO-UPDATE-COMMENT a paused sound no longer jumps straight away. It is marked as fully
-	// faded out, so the jump happens as soon as the mixer or `update_audio_stream` sees it.
+	// faded out, so the jump happens as soon as the mixer or `update_audio_stream` sees it. A
+	// sound that plays a clip is moved by the mixer, a sound that plays a stream is moved by
+	// `update_audio_stream`, so the request goes on the stream in that case.
 	// ---
 	// Jumping to another spot in the audio makes the waveform jump, which is heard as a click. So
 	// we don't jump right away: The mixer fades the sound out first, then jumps, then fades it
 	// back in. A paused sound isn't being mixed, so there is nothing to fade and nothing that
 	// could click. Jump straight away in that case.
-	
-	sound_object.pending_seek_seconds = wanted_seconds
-	sound_object.seek_state = .Fading_Out
 
 	if sound_object.paused {
 		// Fade the sound in when it is unpaused, instead of jumping straight into the middle of
 		// the waveform.
 		sound_object.current_settings.volume = 0
-		sound_object.seek_state = .Ready
 	}
+
+	if sound_object.stream == AUDIO_STREAM_NONE {
+		sound_object.has_pending_seek = true
+		sound_object.pending_seek_seconds = wanted_seconds
+		return
+	}
+
+	sd := hm.get(&s.audio_streams, sound_object.stream)
+
+	if sd == nil {
+		return
+	}
+
+	sd.seek_seconds = wanted_seconds
+	sd.seek_state = sound_object.paused ? .Ready : .Fading_Out
 }
 
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
@@ -2219,11 +2232,11 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 
 	// A seek that is still fading out hasn't moved the sound yet, but it is on its way there.
 	// Report where it is going, so that things like a seek bar don't jump backwards for a moment.
-	if sound_object.seek_state != .None {
-		return sound_object.pending_seek_seconds
-	}
-
 	if sound_object.stream == AUDIO_STREAM_NONE {
+		if sound_object.has_pending_seek {
+			return sound_object.pending_seek_seconds
+		}
+
 		clip := hm.get(&s.audio_clips, sound_object.clip)
 
 		if clip == nil {
@@ -2242,6 +2255,10 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 
 	if sd == nil {
 		return 0
+	}
+
+	if sd.seek_state != .None {
+		return sd.seek_seconds
 	}
 
 	ab := hm.get(&s.audio_clips, sd.clip)
@@ -3036,12 +3053,12 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	// We fetch this while guarded by audio_mutex, we'll use them during the seeking & decode.
 	play_offset := so.offset
 	loop := sd.loop
-	seek := so.seek_state == .Ready
-	seek_seconds := so.pending_seek_seconds
+	seek := sd.seek_state == .Ready
+	seek_seconds := sd.seek_seconds
 	cursor := sd.cursor
 
 	if seek {
-		so.seek_state = .Seeking
+		sd.seek_state = .Seeking
 	}
 
 	sync.mutex_lock(&sd.decode_mutex)
@@ -3070,10 +3087,10 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 	if sd = hm.get(&s.audio_streams, stream); sd != nil {
 		sd.cursor = post_decode_cursor
-	}
 
-	if so = hm.get(&s.sounds, sound); so != nil && so.seek_state == .Seeking {
-		so.seek_state = .None
+		if sd.seek_state == .Seeking {
+			sd.seek_state = .None
+		}
 	}
 
 	sync.mutex_unlock(&s.audio_mutex)
@@ -3323,6 +3340,7 @@ play_audio_stream :: proc(
 	}
 
 	sd.loop = loop
+	sd.seek_state = .None
 	sync.mutex_lock(&sd.decode_mutex)
 	sync.mutex_unlock(&s.audio_mutex)
 
@@ -3756,10 +3774,10 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		pitch := settings.pitch
 		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch)
 
-		// TODO-UPDATE-COMMENT `seek_state` drives this. `.Fading_Out` aims the volume at 0 and
-		// becomes `.Ready` once it gets there. Only sounds that play a clip are moved here. A sound
-		// that plays an audio stream is moved by `update_audio_stream`, which sets `.Seeking` while
-		// it works. The fade in is the volume chasing its target again after the move.
+		// TODO-UPDATE-COMMENT a sound that plays a clip is moved here, in the same chunk as the
+		// volume reaches 0, and fades back in during that chunk. A sound that plays an audio
+		// stream is only faded out here. `update_audio_stream` moves it once the stream's
+		// `seek_state` is `.Ready`, and the sound stays silent until that is done.
 		// ---
 		// `set_sound_time` doesn't move the sound itself, it just says where the sound should go.
 		// We move it here, once the sound has faded out. Then we fade it back in. That way moving
@@ -3767,31 +3785,37 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		volume_target := target_settings.volume
 
-		switch ps.seek_state {
-		case .None:
-		case .Fading_Out:
-			volume_target = 0
+		if ps.stream == AUDIO_STREAM_NONE {
+			if ps.has_pending_seek {
+				volume_target = 0
 
-			if settings.volume == 0 {
-				ps.seek_state = .Ready
-			}
-		case .Ready:
-			if ps.stream == AUDIO_STREAM_NONE {
-				channels := 1
-				if data.channels == .Stereo {
-					channels = 2
+				if settings.volume == 0 {
+					channels := 1
+					if data.channels == .Stereo {
+						channels = 2
+					}
+
+					total_frames := len(data.samples) / channels
+					target_frame := int(ps.pending_seek_seconds * f32(data.sample_rate))
+					ps.offset = clamp(target_frame, 0, total_frames) * channels
+					ps.offset_fraction = 0
+					ps.has_pending_seek = false
+					volume_target = target_settings.volume
 				}
-
-				total_frames := len(data.samples) / channels
-				target_frame := int(ps.pending_seek_seconds * f32(data.sample_rate))
-				ps.offset = clamp(target_frame, 0, total_frames) * channels
-				ps.offset_fraction = 0
-				ps.seek_state = .None
 			}
+		} else if sd := hm.get(&s.audio_streams, ps.stream); sd != nil {
+			switch sd.seek_state {
+			case .None:
+			case .Fading_Out:
+				volume_target = 0
 
-			continue
-		case .Seeking:
-			continue
+				if settings.volume == 0 {
+					sd.seek_state = .Ready
+					continue
+				}
+			case .Ready, .Seeking:
+				continue
+			}
 		}
 
 		// We can't just use the `volume_end` value for the volume. We are going to mix in
@@ -5744,6 +5768,13 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
+Audio_Stream_Seek_State :: enum {
+	None,
+	Fading_Out,
+	Ready,
+	Seeking,
+}
+
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
@@ -5787,6 +5818,9 @@ Audio_Stream_Data :: struct {
 	// buffer itself. That's something you always want for a stream: We are continously writing
 	// data from a file into a small buffer that is a few seconds long.
 	loop: bool,
+
+	seek_state: Audio_Stream_Seek_State,
+	seek_seconds: f32,
 
 	mode: Audio_Stream_Mode,
 
@@ -5839,13 +5873,6 @@ Sound_Settings :: struct {
 	pitch: f32,
 }
 
-Sound_Seek_State :: enum {
-	None,
-	Fading_Out,
-	Ready,
-	Seeking,
-}
-
 // What `Sound` handles are mapped to: something that is currently playing in the mixer. It holds
 // the clip it plays and the settings it plays with.
 Sound_Object :: struct {
@@ -5873,14 +5900,14 @@ Sound_Object :: struct {
 	// array that the handle map uses internally may append to a dynamically allocated freelist.
 	remove: bool,
 
-	// TODO-UPDATE-COMMENT the mixer only moves sounds that play a clip. For a sound that plays an
-	// audio stream, `update_audio_stream` does the move once `seek_state` is `.Ready`.
+	// TODO-UPDATE-COMMENT these are only used by sounds that play a clip. A sound that plays an
+	// audio stream keeps its seek on the `Audio_Stream_Data` instead.
 	// ---
 	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
 	// moves it, then fades it back in, so that landing in a completely different part of the
 	// waveform doesn't click. This is where it is going once the fade out is done.
+	has_pending_seek: bool,
 	pending_seek_seconds: f32,
-	seek_state: Sound_Seek_State,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
