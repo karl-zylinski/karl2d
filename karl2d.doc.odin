@@ -1631,9 +1631,6 @@ Audio_Stream_Data :: struct {
 
 	decode_mutex: sync.Mutex,
 
-	seek_seconds: f32,
-	seeking: bool,
-
 	// How many samples the whole file has, counted the same way as `decode_cursor`. Worked out
 	// when the stream is loaded. Zero if it could not be worked out.
 	total_samples: int,
@@ -1695,6 +1692,13 @@ Sound_Settings :: struct {
 	pitch: f32,
 }
 
+Sound_Seek_State :: enum {
+	None,
+	Fading_Out,
+	Ready,
+	Seeking,
+}
+
 // What `Sound` handles are mapped to: something that is currently playing in the mixer. It holds
 // the clip it plays and the settings it plays with.
 Sound_Object :: struct {
@@ -1723,13 +1727,13 @@ Sound_Object :: struct {
 	remove: bool,
 
 	// TODO-UPDATE-COMMENT the mixer only moves sounds that play a clip. For a sound that plays an
-	// audio stream, `update_audio_stream` does the move once `current_settings.volume` is 0.
+	// audio stream, `update_audio_stream` does the move once `seek_state` is `.Ready`.
 	// ---
 	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
 	// moves it, then fades it back in, so that landing in a completely different part of the
 	// waveform doesn't click. This is where it is going once the fade out is done.
 	pending_seek_seconds: f32,
-	has_pending_seek: bool,
+	seek_state: Sound_Seek_State,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
