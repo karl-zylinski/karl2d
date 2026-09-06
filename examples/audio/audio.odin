@@ -16,14 +16,27 @@ chord_clip: k2.Audio_Clip
 music: k2.Audio_Stream
 music_sound: k2.Sound
 
-// True while the left mouse button is dragging the seek bar.
-seeking: bool
+sweep_clip: k2.Audio_Clip
+sweep_sound: k2.Sound
 
-// How far along the seek bar the drag currently is, from 0 to 1.
-seek_fraction: f32
+Seek_Bar :: struct {
+	// Where the seek bar is drawn. Clicking anywhere in it jumps to that spot in the song.
+	rect: k2.Rect,
 
-// Where the seek bar is drawn. Clicking anywhere in it jumps to that spot in the song.
-SEEK_BAR :: k2.Rect { 20, 330, 800, 30 }
+	// True while the left mouse button is dragging the seek bar.
+	dragging: bool,
+
+	// How far along the seek bar the drag currently is, from 0 to 1.
+	fraction: f32,
+}
+
+music_seek_bar := Seek_Bar {
+	rect = { 20, 330, 800, 30 },
+}
+
+sweep_seek_bar := Seek_Bar {
+	rect = { 20, 460, 800, 30 },
+}
 
 snd_volume: f32
 snd_pan: f32
@@ -41,6 +54,7 @@ init :: proc() {
 	sine_clip_440 = make_sine_wave(440, 1, 44100)
 	sine_clip_700 = make_sine_wave(700, 1, 22050)
 	chord_clip = k2.load_audio_clip_from_bytes(#load("chord.wav"))
+	sweep_clip = make_sine_sweep(200, 800, 10, 44100)
 
 	when HAS_MUSIC {
 		when ODIN_OS == .JS {
@@ -70,6 +84,90 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio
 	}
 
 	return k2.load_audio_clip_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float32, sample_rate, .Mono)
+}
+
+make_sine_sweep :: proc(
+	start_freq: f32,
+	end_freq: f32,
+	length: f32,
+	sample_rate: int,
+) -> k2.Audio_Clip {
+	num_samples := int(f32(sample_rate) * length)
+	sweep_data := make([]k2.Audio_Sample, num_samples, allocator = context.temp_allocator)
+	phase: f32
+
+	for &samp, i in sweep_data {
+		freq := start_freq + (end_freq - start_freq) * f32(i) / f32(num_samples)
+		phase += (2.0*math.PI) * freq / f32(sample_rate)
+
+		if phase > 2.0*math.PI {
+			phase -= 2.0*math.PI
+		}
+
+		samp = math.sin(phase)*0.25
+	}
+
+	return k2.load_audio_clip_from_bytes_raw(
+		slice.reinterpret([]u8, sweep_data),
+		.Float32,
+		sample_rate,
+		.Mono,
+	)
+}
+
+// TODO-UPDATE-COMMENT this is shared by the music bar and the sine sweep bar, and it draws the
+// bar too.
+// ---
+// Press inside the bar to start dragging it, then release to jump to that spot. The drag
+// continues even if the mouse leaves the bar, which is what you'd expect from a scrub bar.
+//
+// We only move the music when the button is released, not every frame of the drag.
+// Seeking backwards in a stream that was loaded from file has to decode the file from the
+// start, so doing it every frame would make the dragging stutter.
+seek_bar :: proc(bar: ^Seek_Bar, sound: k2.Sound) {
+	if k2.mouse_button_went_down(.Left) && k2.point_in_rect(k2.get_mouse_position(), bar.rect) {
+		bar.dragging = true
+	}
+
+	length := k2.get_sound_length(sound)
+
+	if bar.dragging {
+		bar.fraction = clamp((k2.get_mouse_position().x - bar.rect.x) / bar.rect.w, 0, 1)
+
+		if !k2.mouse_button_is_held(.Left) {
+			bar.dragging = false
+
+			if length > 0 {
+				k2.set_sound_time(sound, bar.fraction * length)
+			}
+		}
+	}
+
+	fraction: f32
+
+	if length > 0 {
+		fraction = clamp(k2.get_sound_time(sound)/length, 0, 1)
+	}
+
+	// While dragging, the bar follows the mouse instead of the music. The music catches up
+	// when the button is released.
+	if bar.dragging {
+		fraction = bar.fraction
+	}
+
+	k2.draw_rect(bar.rect, k2.LIGHT_GRAY)
+
+	played := bar.rect
+	played.w = bar.rect.w * fraction
+	k2.draw_rect(played, bar.dragging ? k2.LIGHT_BLUE : k2.DARK_GRAY)
+	k2.draw_rect_outline(bar.rect, 1, k2.BLACK)
+
+	k2.draw_text(
+		fmt.tprintf("%.1f / %.1f s", fraction*length, length),
+		{bar.rect.x, bar.rect.y + bar.rect.h + 8},
+		30,
+		k2.BLACK,
+	)
 }
 
 step :: proc() -> bool {
@@ -119,6 +217,15 @@ step :: proc() -> bool {
 		k2.play_audio_clip(chord_clip, pitch = 0.5, pan = 1)
 	}
 	
+	if k2.key_went_down(.L) {
+		k2.stop_sound(sweep_sound)
+		sweep_sound = k2.play_audio_clip(sweep_clip, loop = true)
+	}
+
+	if k2.key_went_down(.K) {
+		k2.set_sound_paused(sweep_sound, k2.sound_is_playing(sweep_sound))
+	}
+
 	snd_pan = clamp(snd_pan, -1, 1)
 	snd_volume = clamp(snd_volume, 0, 1)
 	snd_pitch = math.max(snd_pitch, 0.01)
@@ -144,31 +251,6 @@ step :: proc() -> bool {
 
 		if k2.key_went_down(.P) {
 			k2.set_sound_paused(music_sound, k2.sound_is_playing(music_sound))
-		}
-
-		// SEEK BAR
-		//
-		// Press inside the bar to start dragging it, then release to jump to that spot. The drag
-		// continues even if the mouse leaves the bar, which is what you'd expect from a scrub bar.
-		//
-		// We only move the music when the button is released, not every frame of the drag.
-		// Seeking backwards in a stream that was loaded from file has to decode the file from the
-		// start, so doing it every frame would make the dragging stutter.
-		if k2.mouse_button_went_down(.Left) && k2.point_in_rect(k2.get_mouse_position(), SEEK_BAR) {
-			seeking = true
-		}
-
-		if seeking {
-			seek_fraction = clamp((k2.get_mouse_position().x - SEEK_BAR.x) / SEEK_BAR.w, 0, 1)
-
-			if !k2.mouse_button_is_held(.Left) {
-				seeking = false
-				music_length := k2.get_sound_length(music_sound)
-
-				if music_length > 0 {
-					k2.set_sound_time(music_sound, seek_fraction * music_length)
-				}
-			}
 		}
 
 		k2.set_sound_pitch(music_sound, snd_pitch)
@@ -211,34 +293,17 @@ step :: proc() -> bool {
 			k2.BLACK,
 		)
 
-		time := k2.get_sound_time(music_sound)
-		length := k2.get_sound_length(music_sound)
-		fraction: f32
-
-		if length > 0 {
-			fraction = clamp(time/length, 0, 1)
-		}
-
-		// While dragging, the bar follows the mouse instead of the music. The music catches up
-		// when the button is released.
-		if seeking {
-			fraction = seek_fraction
-		}
-
-		k2.draw_rect(SEEK_BAR, k2.LIGHT_GRAY)
-
-		played := SEEK_BAR
-		played.w = SEEK_BAR.w * fraction
-		k2.draw_rect(played, seeking ? k2.LIGHT_BLUE : k2.DARK_GRAY)
-		k2.draw_rect_outline(SEEK_BAR, 1, k2.BLACK)
-
-		k2.draw_text(
-			fmt.tprintf("%.1f / %.1f s", fraction*length, length),
-			{SEEK_BAR.x, SEEK_BAR.y + SEEK_BAR.h + 8},
-			30,
-			k2.BLACK,
-		)
+		seek_bar(&music_seek_bar, music_sound)
 	}
+
+	k2.draw_text(
+		"L plays a looping 10 second sine sweep, K pauses. Drag the bar to seek.",
+		{20, 410},
+		40,
+		k2.BLACK,
+	)
+
+	seek_bar(&sweep_seek_bar, sweep_sound)
 
 	k2.present()
 	free_all(context.temp_allocator)
@@ -251,6 +316,7 @@ shutdown :: proc() {
 	k2.destroy_audio_clip(sine_clip_440)
 	k2.destroy_audio_clip(sine_clip_700)
 	k2.destroy_audio_clip(chord_clip)
+	k2.destroy_audio_clip(sweep_clip)
 
 	when HAS_MUSIC {
 		k2.destroy_audio_stream(music)
