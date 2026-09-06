@@ -3052,20 +3052,28 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	sync.mutex_lock(&sd.decode_mutex)
 	sync.mutex_unlock(&s.audio_mutex)
 
-	if seek && _seek_audio_stream(sd, aco, &cursor, seek_seconds) {
-		cursor.buffer_write_pos = play_offset
+
+	if seek {
+		post_seek_cursor, seek_ok := _seek_audio_stream(sd, aco, cursor, seek_seconds)
+
+		if seek_ok {
+			cursor = post_seek_cursor
+			cursor.buffer_write_pos = play_offset
+		}
 	}
 
-	stop := _decode_audio_stream(sd, aco, &cursor, play_offset, loop)
+	post_decode_cursor, decode_ok := _decode_audio_stream(sd, aco, cursor, play_offset, loop)
 	sync.mutex_unlock(&sd.decode_mutex)
 	sync.mutex_lock(&s.audio_mutex)
 
-	if stop {
+	if !decode_ok {
 		hm.remove(&s.sounds, sound)
+		sync.mutex_unlock(&s.audio_mutex)
+		return
 	}
 
 	if sd = hm.get(&s.audio_streams, stream); sd != nil {
-		sd.cursor = cursor
+		sd.cursor = post_decode_cursor
 
 		if sd.seek_state == .Seeking {
 			sd.seek_state = .None
@@ -3078,10 +3086,15 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 _decode_audio_stream :: proc(
 	sd: ^Audio_Stream_Data,
 	ab: ^Audio_Clip_Object,
-	cursor: ^Audio_Stream_Cursor,
+	cursor: Audio_Stream_Cursor,
 	play_offset: int,
 	loop: bool,
-) -> bool {
+) -> (
+	_post_decode_cursor: Audio_Stream_Cursor,
+	_ok: bool,
+) {
+	cursor := cursor
+
 	audio_stream_remaining :: proc(
 		cursor: Audio_Stream_Cursor,
 		ab: ^Audio_Clip_Object,
@@ -3096,11 +3109,9 @@ _decode_audio_stream :: proc(
 		return remaining
 	}
 
-	stop: bool
-
 	switch sd.mode {
 	case .From_File:
-		for audio_stream_remaining(cursor^, ab, play_offset) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+		for audio_stream_remaining(cursor, ab, play_offset) < AUDIO_STREAM_BUFFER_SIZE / 2 {
 			channels: i32
 			samples: i32
 			output: [^]^f32
@@ -3127,8 +3138,7 @@ _decode_audio_stream :: proc(
 
 				if space == 0 {
 					log.error("Cannot decode audio stream, an ogg page is too big. Stopping it.")
-					stop = true
-					break
+					return
 				}
 
 				to_read := min(space, AUDIO_STREAM_READ_SIZE)
@@ -3145,8 +3155,7 @@ _decode_audio_stream :: proc(
 
 							if seek_err != nil {
 								log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
-								stop = true
-								break
+								return
 							}
 
 							sd.file_read_buf_len = 0
@@ -3160,13 +3169,11 @@ _decode_audio_stream :: proc(
 
 							continue
 						} else {
-							stop = true
-							break
+							return
 						}
 					} else {
-						stop = true
 						log.errorf("Failed reading from audio stream file. Error: %v", read_err)
-						break
+						return
 					}
 				}
 			} else if bytes_used > 0 && samples == 0 {
@@ -3206,22 +3213,20 @@ _decode_audio_stream :: proc(
 						cursor.decode_cursor += 2
 					}
 				} else {
-					stop = true
 					log.error("Invalid num channels")
-					break
+					return
 				}
 				sd.file_read_buf_offset += int(bytes_used)
 			} else {
-				stop = true
 				log.error("Invalid vorbis")
-				break
+				return
 			}
 		}
 	case .From_Bytes:
 		channels: i32
 		output: [^]^f32
 
-		for audio_stream_remaining(cursor^, ab, play_offset) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+		for audio_stream_remaining(cursor, ab, play_offset) < AUDIO_STREAM_BUFFER_SIZE / 2 {
 			samples := stbv.get_frame_float(sd.vorbis, &channels, &output)
 
 			if samples == 0 {
@@ -3237,8 +3242,7 @@ _decode_audio_stream :: proc(
 					// TODO: Stopping here is bad as the samples haven't been mixed in yet. Remove the
 					// stream but push the final samples into the clip and destroy that one
 					// when it finishes playing (in the mixer).
-					stop = true
-					break
+					return
 				}
 			}
 
@@ -3261,14 +3265,13 @@ _decode_audio_stream :: proc(
 					cursor.decode_cursor += 2
 				}
 			} else {
-				stop = true
 				log.error("Invalid num channels")
-				break
+				return
 			}
 		}
 	}
 
-	return stop
+	return cursor, true
 }
 
 // Start playing an audio stream. Returns a `Sound`, which you can control using
@@ -3329,22 +3332,21 @@ play_audio_stream :: proc(
 	sync.mutex_unlock(&s.audio_mutex)
 
 	_reset_audio_stream(sd, ab)
-	cursor: Audio_Stream_Cursor
 
 	// Decode into the buffer before returning, so that there is something to play right away. The
 	// mixer may well run before the game gets around to calling `update_audio_stream`. A sound
 	// that reads an empty buffer moves its read position past the write position, which makes the
 	// buffer look full rather than empty, so it would not be refilled until the read position had
 	// wrapped all the way around.
-	stop := _decode_audio_stream(sd, ab, &cursor, 0, loop)
+	post_decode_cursor, decode_ok := _decode_audio_stream(sd, ab, {}, 0, loop)
 	sync.mutex_unlock(&sd.decode_mutex)
 
-	if stop {
+	if !decode_ok {
 		return SOUND_NONE
 	}
 
 	sync.mutex_guard(&s.audio_mutex)
-	sd.cursor = cursor
+	sd.cursor = post_decode_cursor
 
 	playback_settings := Sound_Settings {
 		volume = clamp(volume, 0, 1),
@@ -5762,6 +5764,8 @@ Audio_Stream_Cursor :: struct {
 	// writing them to the clip. Used when moving the stream, since the decoder can only move in
 	// steps of a whole ogg page.
 	seek_discard: int,
+
+
 }
 
 Audio_Stream_Data :: struct {
@@ -6754,9 +6758,14 @@ _apply_sound_time :: proc(sound: Sound, seconds: f32) {
 _seek_audio_stream :: proc(
 	sd: ^Audio_Stream_Data,
 	ab: ^Audio_Clip_Object,
-	cursor: ^Audio_Stream_Cursor,
+	cursor: Audio_Stream_Cursor,
 	seconds: f32,
-) -> bool {
+) -> (
+	_post_seek_cursor: Audio_Stream_Cursor,
+	_ok: bool,
+) {
+	cursor := cursor
+
 	channels := 1
 	if ab.channels == .Stereo {
 		channels = 2
@@ -6773,7 +6782,7 @@ _seek_audio_stream :: proc(
 	case .From_Bytes:
 		if stbv.seek(sd.vorbis, u32(target_frame)) == 0 {
 			log.error("Cannot set sound position, seeking in the audio stream failed.")
-			return false
+			return
 		}
 
 		cursor.decode_cursor = target_frame * channels
@@ -6807,7 +6816,7 @@ _seek_audio_stream :: proc(
 	}
 
 	slice.zero(ab.samples)
-	return true
+	return cursor, true
 }
 
 // TODO-UPDATE-COMMENT this now runs from `play_audio_stream` only, right before the first decode.
