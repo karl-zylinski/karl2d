@@ -3054,10 +3054,11 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 
 	if seek {
-		post_seek_cursor, seek_ok := _seek_audio_stream(sd, aco, cursor, seek_seconds)
+		post_seek_cursor, seek_ok := _seek_audio_stream(sd, aco^, cursor, seek_seconds)
 
 		if seek_ok {
 			cursor = post_seek_cursor
+			slice.zero(aco.samples)
 			cursor.buffer_write_pos = play_offset
 		}
 	}
@@ -6757,7 +6758,7 @@ _apply_sound_time :: proc(sound: Sound, seconds: f32) {
 // The caller must hold sd.decode_mutex
 _seek_audio_stream :: proc(
 	sd: ^Audio_Stream_Data,
-	ab: ^Audio_Clip_Object,
+	ab: Audio_Clip_Object,
 	cursor: Audio_Stream_Cursor,
 	seconds: f32,
 ) -> (
@@ -6815,7 +6816,6 @@ _seek_audio_stream :: proc(
 		cursor.seek_discard = target
 	}
 
-	slice.zero(ab.samples)
 	return cursor, true
 }
 
