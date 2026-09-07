@@ -205,8 +205,10 @@ init :: proc(
 		s.master_bus.target_settings = DEFAULT_AUDIO_BUS_SETTINGS
 		s.master_bus.current_settings = DEFAULT_AUDIO_BUS_SETTINGS
 
-		if !ab.init(s.audio_backend_state) {
-			log.error("Failed initializing audio backend. Sounds will play silently.")
+		audio_init_ok := ab.init(s.audio_backend_state)
+
+		if !audio_init_ok {
+			log.error("Failed initializing audio backend. Sounds will play silently through the 'nil audio backend'")
 			free(s.audio_backend_state, s.allocator)
 			s.audio_backend = AUDIO_BACKEND_NIL
 			ab = s.audio_backend
