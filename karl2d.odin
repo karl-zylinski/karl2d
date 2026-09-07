@@ -3883,7 +3883,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			// The fraction advance may become larger than 1, in which case the offset needs to eat
 			// the integer part.
 			ps.offset += int(fraction_advance) * source_channels
-			
+			ps.offset = min(ps.offset, len(data.samples))
 			ps.offset_fraction = linalg.fract(fraction_advance)
 		} else {
 			ps.offset += num_mixed * source_channels
@@ -3929,7 +3929,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 					// The fraction advance may become larger than 1, in which case the offset needs to eat
 					// the integer part.
 					ps.offset += int(fraction_advance) * source_channels
-					
+					ps.offset = min(ps.offset, len(data.samples))
 					ps.offset_fraction = linalg.fract(fraction_advance)
 				} else {
 					ps.offset += num_mixed * source_channels
