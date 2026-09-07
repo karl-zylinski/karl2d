@@ -16,9 +16,6 @@ package karl2d
 // Karl2D will use `allocator` for all dynamically allocated memory that is needed more than one
 // frame. For single frame allocations the library uses an internal "frame allocator".
 //
-// `logger` is used by the audio thread, which has no access to the context of the thread that
-// called `init`.
-//
 // Call `init` before using Karl2D procedures that depend on runtime state, such as window,
 // drawing, input, audio, texture, font and shader procedures. Pure helper procedures, types and
 // constants can be used before `init`.
@@ -27,6 +24,9 @@ package karl2d
 // `set_internal_state()`. This is useful for example when doing game code reload, as the state may
 // get reset when the library is reloaded. You can safely ignore the return value if you have no
 // such needs.
+//
+// THREAD INFO: The value of `audio_thread_logger` will be stored for later use by the audio thread.
+// Make sure your logger is thread safe (the file/console loggers in Odin are).
 init :: proc(
 	screen_width: int,
 	screen_height: int,
@@ -34,7 +34,7 @@ init :: proc(
 	options := Init_Options {},
 	allocator := context.allocator,
 	loc := #caller_location,
-	logger := context.logger,
+	audio_thread_logger := context.logger,
 ) -> ^State
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
@@ -620,9 +620,8 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32)
 // Move the sound to another spot in its audio. `seconds` is measured from the start of the audio.
 // Use `get_sound_length` to find out how long the sound is.
 //
-// Moving a sound that plays an audio stream is a bit slower than one that plays a clip, since some
-// audio has to be decoded before it can play. Don't do it every frame while dragging a scrub bar,
-// do it when the player lets go.
+// Note that calling this for an Audio_Clip-based sound is fast. But calling it for an Audio_Stream-
+// based Sound can be a bit slower. The stream has to seek, perhaps fetching data from disk.
 set_sound_time :: proc(sound: Sound, seconds: f32)
 
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
@@ -805,10 +804,13 @@ set_audio_bus_pan :: proc(bus: Audio_Bus, pan: f32)
 // See `Audio_Effect_Proc` for what the effect is given and what it is allowed to do.
 set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_data: rawptr = nil)
 
-// This procedure does some audio housekeeping, removing dead sounds. For platforms that don't use
-// an audio thread it also runs the audio mixer. Web is such a platform.
+// This procedure runs the audio mixer and does some audio housekeeping. For platforms that have an
+// audio thread, the mixer does not run here, it is run from those threads instead.
 //
 // This procedure is run automatically by `update`. You normally don't have to call it.
+//
+// Note that you should always call this once a frame, be it through `update` or manually. It
+// removes sounds that have been declared dead by the audio thread. 
 update_audio :: proc()
 
 //-----------------//
@@ -1607,23 +1609,23 @@ Audio_Stream_Seek_State :: enum {
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
+// Tracks where the audio stream has written samples and where in the file it is decoding from.
 Audio_Stream_Cursor :: struct {
-	// Where in the audio clip referred to by `clip` that we have most recently written samples.
-	// Together with the `offset` of the Sound_Object, this forms a circular buffer.
+	// Where in the audio clip referred to by `Audio_Stream_Data.clip` that we have most recently
+	// written samples. Together with the `offset` of the Sound_Object, this forms a circular buffer
 	buffer_write_pos: int,
 
-	// How far into the file the samples we most recently wrote into the clip were, counted the
-	// same way as the clip's samples: In the case of stereo, left and right count as one each.
-	// Take away the samples in the clip that haven't played yet and you get the spot the listener
-	// is hearing, which is what `get_sound_time` does.
+	// Where in the file we most recently fetched samples from. For stereo, left and right count as
+	// one sample each.
 	decode_cursor: int,
 
-	// When above zero, `update_audio_stream` throws this many decoded samples away instead of
-	// writing them to the clip. Used when moving the stream, since the decoder can only move in
-	// steps of a whole ogg page.
+	// Used for discarding unwanted samples at the decode cursor. This exists because the vorbis
+	// pushdata API can't position the decoding exactly. When seeking we land the decoder at or
+	// before the wanted spot and store how many samples to skip from there.
+	//
+	// Also used for short seeks forward, which don't move the file at all and just decode past
+	// the samples in between.
 	seek_discard: int,
-
-
 }
 
 Audio_Stream_Data :: struct {
@@ -1725,16 +1727,15 @@ Sound_Object :: struct {
 
 	// If true, then this Sound will be deleted next time `update_audio` runs. We don't remove
 	// directly when mixing because we don't want to touch memory allocations there. This is because
-	// the mixing may happen on a thread. It may look like `hm.remove` is thread safe, but the XAR
-	// array that the handle map uses internally may append to a dynamically allocated freelist.
+	// the mixing may happen on a thread. It may look like `hm.remove` is thread safe. But the
+	// handle map uses an XAR array. The XAR array may internally append to a dynamically allocated
+	// freelist, which can cause allocations to happen.
 	remove: bool,
 
-	// TODO-UPDATE-COMMENT these are only used by sounds that play a clip. A sound that plays an
-	// audio stream keeps its seek on the `Audio_Stream_Data` instead.
-	// ---
-	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
-	// moves it, then fades it back in, so that landing in a completely different part of the
-	// waveform doesn't click. This is where it is going once the fade out is done.
+	// For seeking audio clips. The mixer does the seeking since it needs to fade out, move the
+	// playback position and then fade in again. This avoids clicks when seeking.
+	//
+	// For Audio_Stream-based sounds, the seeking state is inside Audio_Stream_Data.
 	has_pending_seek: bool,
 	pending_seek_seconds: f32,
 
@@ -1796,7 +1797,6 @@ DEFAULT_AUDIO_BUS_SETTINGS :: Audio_Bus_Settings {
 // to it, so you can later use 'set_internal_state' to restore it (after for example hot reload).
 State :: struct {
 	allocator: runtime.Allocator,
-	logger: runtime.Logger,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
 	platform_state: rawptr,
@@ -1914,6 +1914,7 @@ State :: struct {
 
 	audio_thread_temp_allocator_buffer: [4096]byte,
 	audio_thread_temp_allocator_arena: mem.Arena,
+	audio_thread_logger: runtime.Logger,
 }
 
 // Karl2D currently reports left, right, and middle mouse buttons.
