@@ -5780,23 +5780,23 @@ Audio_Stream_Seek_State :: enum {
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
+// Tracks where the audio stream has written samples and where in the file it is decoding from.
 Audio_Stream_Cursor :: struct {
-	// Where in the audio clip referred to by `clip` that we have most recently written samples.
-	// Together with the `offset` of the Sound_Object, this forms a circular buffer.
+	// Where in the audio clip referred to by `Audio_Stream_Data.clip` that we have most recently
+	// written samples. Together with the `offset` of the Sound_Object, this forms a circular buffer
 	buffer_write_pos: int,
 
-	// How far into the file the samples we most recently wrote into the clip were, counted the
-	// same way as the clip's samples: In the case of stereo, left and right count as one each.
-	// Take away the samples in the clip that haven't played yet and you get the spot the listener
-	// is hearing, which is what `get_sound_time` does.
+	// Where in the file we most recently fetched samples from. For stereo, left and right count as
+	// one sample each.
 	decode_cursor: int,
 
-	// When above zero, `update_audio_stream` throws this many decoded samples away instead of
-	// writing them to the clip. Used when moving the stream, since the decoder can only move in
-	// steps of a whole ogg page.
+	// Used for discarding unwanted samples at the decode cursor. This exists because the vorbis
+	// pushdata API can't position the decoding exactly. When seeking we land the decoder at or
+	// before the wanted spot and store how many samples to skip from there.
+	//
+	// Also used for short seeks forward, which don't move the file at all and just decode past
+	// the samples in between.
 	seek_discard: int,
-
-
 }
 
 Audio_Stream_Data :: struct {
