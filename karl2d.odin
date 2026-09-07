@@ -49,8 +49,8 @@ import hm "core:container/handle_map"
 // get reset when the library is reloaded. You can safely ignore the return value if you have no
 // such needs.
 //
-// THREAD INFO: The value of `context.logger` will be stored for later use by the audio thread. Make
-// sure your logger is thread safe (the file/console loggers in Odin are).
+// THREAD INFO: The value of `audio_thread_logger` will be stored for later use by the audio thread.
+// Make sure your logger is thread safe (the file/console loggers in Odin are).
 init :: proc(
 	screen_width: int,
 	screen_height: int,
@@ -58,11 +58,12 @@ init :: proc(
 	options := Init_Options {},
 	allocator := context.allocator,
 	loc := #caller_location,
+	audio_thread_logger := context.logger,
 ) -> ^State {
 	assert(s == nil, "Don't call 'init' twice.")
 	s = new(State, allocator, loc)
 	s.allocator = allocator
-	s.audio_thread_logger = context.logger
+	s.audio_thread_logger = audio_thread_logger
 
 	// This is the same type of arena as the default temp allocator. This arena is for allocations
 	// that have a lifetime of "one frame". They are valid until you call `present()`, at which
