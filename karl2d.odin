@@ -3348,11 +3348,7 @@ play_audio_stream :: proc(
 
 	_reset_audio_stream(sd, ab)
 
-	// Decode into the buffer before returning, so that there is something to play right away. The
-	// mixer may well run before the game gets around to calling `update_audio_stream`. A sound
-	// that reads an empty buffer moves its read position past the write position, which makes the
-	// buffer look full rather than empty, so it would not be refilled until the read position had
-	// wrapped all the way around.
+	// Decode into the buffer before returning, so that there is something to play right away.
 	post_decode_cursor, decode_ok := _decode_audio_stream(sd, ab, {}, 0, loop)
 	sync.mutex_unlock(&sd.decode_mutex)
 
@@ -3505,10 +3501,13 @@ update_audio_mixer :: proc() {
 	update_audio()
 }
 
-// This procedure does some audio housekeeping, removing dead sounds. For platforms that don't use
-// an audio thread it also runs the audio mixer. Web is such a platform.
+// This procedure runs the audio mixer and does some audio housekeeping. For platforms that have an
+// audio thread, the mixer does not run here, it is run from those threads instead.
 //
 // This procedure is run automatically by `update`. You normally don't have to call it.
+//
+// Note that you should always call this once a frame, be it through `update` or manually. It
+// removes sounds that have been declared dead by the audio thread. 
 update_audio :: proc() {
 	if sync.mutex_guard(&s.audio_mutex) {
 		ps_iter := hm.dynamic_iterator_make(&s.sounds)
