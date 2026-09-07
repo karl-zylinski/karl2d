@@ -9,7 +9,6 @@ has_logger :: proc() -> bool {
 	return context.logger.procedure != runtime.default_logger_proc
 }
 
-
 debugf :: proc(fmt_str: string, args: ..any, location := #caller_location) {
 	if has_logger() {
 		log.debugf(fmt_str, ..args, location=location)	

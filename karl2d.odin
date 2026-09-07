@@ -40,9 +40,6 @@ import hm "core:container/handle_map"
 // Karl2D will use `allocator` for all dynamically allocated memory that is needed more than one
 // frame. For single frame allocations the library uses an internal "frame allocator".
 //
-// `logger` is used by the audio thread, which has no access to the context of the thread that
-// called `init`.
-//
 // Call `init` before using Karl2D procedures that depend on runtime state, such as window,
 // drawing, input, audio, texture, font and shader procedures. Pure helper procedures, types and
 // constants can be used before `init`.
@@ -51,6 +48,9 @@ import hm "core:container/handle_map"
 // `set_internal_state()`. This is useful for example when doing game code reload, as the state may
 // get reset when the library is reloaded. You can safely ignore the return value if you have no
 // such needs.
+//
+// THREAD INFO: The value of `context.logger` will be stored for later use by the audio thread. Make
+// sure your logger is thread safe (the file/console loggers in Odin are).
 init :: proc(
 	screen_width: int,
 	screen_height: int,
@@ -58,12 +58,11 @@ init :: proc(
 	options := Init_Options {},
 	allocator := context.allocator,
 	loc := #caller_location,
-	logger := context.logger,
 ) -> ^State {
 	assert(s == nil, "Don't call 'init' twice.")
 	s = new(State, allocator, loc)
 	s.allocator = allocator
-	s.logger = logger
+	s.audio_thread_logger = context.logger
 
 	// This is the same type of arena as the default temp allocator. This arena is for allocations
 	// that have a lifetime of "one frame". They are valid until you call `present()`, at which
@@ -4041,7 +4040,7 @@ _audio_thread_context :: proc() -> runtime.Context {
 	return {
 		allocator = mem.panic_allocator(),
 		temp_allocator = mem.arena_allocator(&s.audio_thread_temp_allocator_arena),
-		logger = s.logger,
+		logger = s.audio_thread_logger,
 		user_index = _AUDIO_THREAD_CONTEXT_MARKER,
 	}
 }
@@ -5967,7 +5966,6 @@ DEFAULT_AUDIO_BUS_SETTINGS :: Audio_Bus_Settings {
 // to it, so you can later use 'set_internal_state' to restore it (after for example hot reload).
 State :: struct {
 	allocator: runtime.Allocator,
-	logger: runtime.Logger,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
 	platform_state: rawptr,
@@ -6085,6 +6083,7 @@ State :: struct {
 
 	audio_thread_temp_allocator_buffer: [4096]byte,
 	audio_thread_temp_allocator_arena: mem.Arena,
+	audio_thread_logger: runtime.Logger,
 }
 
 
