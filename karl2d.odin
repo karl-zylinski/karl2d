@@ -3066,7 +3066,6 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	sync.mutex_lock(&sd.decode_mutex)
 	sync.mutex_unlock(&s.audio_mutex)
 
-
 	if seek {
 		post_seek_cursor, seek_ok := _seek_audio_stream(sd, aco^, cursor, seek_seconds)
 
@@ -3346,7 +3345,20 @@ play_audio_stream :: proc(
 	sync.mutex_lock(&sd.decode_mutex)
 	sync.mutex_unlock(&s.audio_mutex)
 
-	_reset_audio_stream(sd, ab)
+	switch sd.mode {
+	case .From_File:
+		file_seek(sd.file, 0, .Start)
+		sd.file_read_buf_len = 0
+		sd.file_read_buf_offset = 0
+		stbv.flush_pushdata(sd.vorbis)
+
+	case .From_Bytes:
+		stbv.seek_start(sd.vorbis)
+	}
+
+	// Zero the staging buffer so a replay doesn't briefly play stale samples before
+	// `update_audio_stream` refills it.
+	slice.zero(ab.samples)
 
 	// Decode into the buffer before returning, so that there is something to play right away.
 	post_decode_cursor, decode_ok := _decode_audio_stream(sd, ab, {}, 0, loop)
@@ -5897,16 +5909,15 @@ Sound_Object :: struct {
 
 	// If true, then this Sound will be deleted next time `update_audio` runs. We don't remove
 	// directly when mixing because we don't want to touch memory allocations there. This is because
-	// the mixing may happen on a thread. It may look like `hm.remove` is thread safe, but the XAR
-	// array that the handle map uses internally may append to a dynamically allocated freelist.
+	// the mixing may happen on a thread. It may look like `hm.remove` is thread safe. But the
+	// handle map uses an XAR array. The XAR array may internally append to a dynamically allocated
+	// freelist, which can cause allocations to happen.
 	remove: bool,
 
-	// TODO-UPDATE-COMMENT these are only used by sounds that play a clip. A sound that plays an
-	// audio stream keeps its seek on the `Audio_Stream_Data` instead.
-	// ---
-	// `set_sound_time` doesn't move the sound straight away. The mixer fades it out first, then
-	// moves it, then fades it back in, so that landing in a completely different part of the
-	// waveform doesn't click. This is where it is going once the fade out is done.
+	// For seeking audio clips. The mixer does the seeking since it needs to fade out, move the
+	// playback position and then fade in again. This avoids clicks when seeking.
+	//
+	// For Audio_Stream-based sounds, the seeking state is inside Audio_Stream_Data.
 	has_pending_seek: bool,
 	pending_seek_seconds: f32,
 
@@ -6796,30 +6807,6 @@ _seek_audio_stream :: proc(
 	}
 
 	return cursor, true
-}
-
-// TODO-UPDATE-COMMENT this now runs from `play_audio_stream` only, right before the first decode.
-// It no longer touches the cursor positions, `play_audio_stream` starts from a zeroed
-// `Audio_Stream_Cursor` instead.
-// ---
-// Moves the decode cursor of a stream back to the start. Run when a stream-fed sound is stopped
-// and when a non-looping stream reaches the end of the file, so that playing it again starts from
-// the beginning.
-_reset_audio_stream :: proc(sd: ^Audio_Stream_Data, ab: ^Audio_Clip_Object) {
-	switch sd.mode {
-	case .From_File:
-		file_seek(sd.file, 0, .Start)
-		sd.file_read_buf_len = 0
-		sd.file_read_buf_offset = 0
-		stbv.flush_pushdata(sd.vorbis)
-
-	case .From_Bytes:
-		stbv.seek_start(sd.vorbis)
-	}
-
-	// Zero the staging buffer so a replay doesn't briefly play stale samples before
-	// `update_audio_stream` refills it.
-	slice.zero(ab.samples)
 }
 
 // Run by the drawing procedures before they add any vertices. Draws the batch if `vertices_needed`
