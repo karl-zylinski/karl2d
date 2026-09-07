@@ -115,15 +115,6 @@ make_sine_sweep :: proc(
 	)
 }
 
-// TODO-UPDATE-COMMENT this is shared by the music bar and the sine sweep bar, and it draws the
-// bar too.
-// ---
-// Press inside the bar to start dragging it, then release to jump to that spot. The drag
-// continues even if the mouse leaves the bar, which is what you'd expect from a scrub bar.
-//
-// We only move the music when the button is released, not every frame of the drag.
-// Seeking backwards in a stream that was loaded from file has to decode the file from the
-// start, so doing it every frame would make the dragging stutter.
 seek_bar :: proc(bar: ^Seek_Bar, sound: k2.Sound) {
 	if k2.mouse_button_went_down(.Left) && k2.point_in_rect(k2.get_mouse_position(), bar.rect) {
 		bar.dragging = true

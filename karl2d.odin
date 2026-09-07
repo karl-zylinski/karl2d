@@ -3783,14 +3783,9 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		pitch := settings.pitch
 		adjust_parameter_delta = calc_adjust_parameter_delta(data.sample_rate, pitch)
 
-		// TODO-UPDATE-COMMENT a sound that plays a clip is moved here, in the same chunk as the
-		// volume reaches 0, and fades back in during that chunk. A sound that plays an audio
-		// stream is only faded out here. `update_audio_stream` moves it once the stream's
-		// `seek_state` is `.Ready`, and the sound stays silent until that is done.
-		// ---
-		// `set_sound_time` doesn't move the sound itself, it just says where the sound should go.
-		// We move it here, once the sound has faded out. Then we fade it back in. That way moving
-		// to a completely different part of the waveform doesn't click.
+		// `set_sound_time` doesn't seek the sound itself, it just says where the sound should go.
+		// For sounds based on audio clips we seek it here (after fading it out, so it doesn't
+		// click). For audio streams the seeking happens in update_audio_stream.
 
 		volume_target := target_settings.volume
 
