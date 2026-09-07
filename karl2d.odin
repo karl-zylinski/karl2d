@@ -2172,9 +2172,8 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 // Move the sound to another spot in its audio. `seconds` is measured from the start of the audio.
 // Use `get_sound_length` to find out how long the sound is.
 //
-// Moving a sound that plays an audio stream is a bit slower than one that plays a clip, since some
-// audio has to be decoded before it can play. Don't do it every frame while dragging a scrub bar,
-// do it when the player lets go.
+// Note that calling this for an Audio_Clip-based sound is fast. But calling it for an Audio_Stream-
+// based Sound can be a bit slower. The stream has to seek, perhaps fetching data from disk.
 set_sound_time :: proc(sound: Sound, seconds: f32) {
 	sync.mutex_guard(&s.audio_mutex)
 	sound_object := hm.get(&s.sounds, sound)
