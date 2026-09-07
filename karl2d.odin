@@ -2189,21 +2189,22 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 		wanted_seconds = min(wanted_seconds, length)
 	}
 
-	// TODO-UPDATE-COMMENT a paused sound no longer jumps straight away. It is marked as fully
-	// faded out, so the jump happens as soon as the mixer or `update_audio_stream` sees it. A
-	// sound that plays a clip is moved by the mixer, a sound that plays a stream is moved by
-	// `update_audio_stream`, so the request goes on the stream in that case.
-	// ---
 	// Jumping to another spot in the audio makes the waveform jump, which is heard as a click. So
 	// we don't jump right away: The mixer fades the sound out first, then jumps, then fades it
-	// back in. A paused sound isn't being mixed, so there is nothing to fade and nothing that
-	// could click. Jump straight away in that case.
+	// back in.
 
 	if sound_object.paused {
-		// Fade the sound in when it is unpaused, instead of jumping straight into the middle of
-		// the waveform.
+		// A paused sound may have its volume at non-zero. We set it to zero here so that nothing
+		// has to wait for the volume to be ramped down.
 		sound_object.current_settings.volume = 0
 	}
+
+	// Note that we do this a bit differently for audio streams and clips. For clips we set the
+	// `has_pending_seek` state. The mixer will ramp down the volume and then move it to the correct
+	// position in the buffer.
+	//
+	// For a stream the seeking happens in `update_audio_stream` using state that lives on the
+	// audio stream object.
 
 	if sound_object.stream == AUDIO_STREAM_NONE {
 		sound_object.has_pending_seek = true
