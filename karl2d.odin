@@ -3356,10 +3356,6 @@ play_audio_stream :: proc(
 		stbv.seek_start(sd.vorbis)
 	}
 
-	// Zero the staging buffer so a replay doesn't briefly play stale samples before
-	// `update_audio_stream` refills it.
-	slice.zero(ab.samples)
-
 	// Decode into the buffer before returning, so that there is something to play right away.
 	post_decode_cursor, decode_ok := _decode_audio_stream(sd, ab, {}, 0, loop)
 	sync.mutex_unlock(&sd.decode_mutex)
