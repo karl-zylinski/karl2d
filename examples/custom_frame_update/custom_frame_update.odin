@@ -22,6 +22,9 @@ main :: proc() {
 		// Update the times returned by `k2.get_frame_time()` and `k2.get_time()`
 		k2.calculate_frame_time()
 
+		// Update audio. Does some house keeping. Mixes audio on some platforms (web).
+		k2.update_audio()
+
 		// Thus proc fetches events from the platform API and acts on them. It makes sure that procs
 		// like `k2.key_is_held(.A)` has up-to-date input information.
 		k2.process_events()

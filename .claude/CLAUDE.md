@@ -4,6 +4,8 @@
 
 Read this before starting and go through it again before saying the work is done. It is a summary of the sections further down, which are what each line means in full, and it is the only copy of the summary: the hooks in `.claude/hooks/` pull this section straight out of this file when they run. A line here that disagrees with its section is a bug in this file.
 
+When you report on the checklist, write only the items that made you do something: the ones that changed the code, or that you had to act on to satisfy. Say nothing about the rest. A report that walks the whole list buries the few lines that matter in lines nobody needs to read.
+
 - Write procedural, imperative code. A long procedure beats splitting the work across small ones.
 - No comment says how the code used to work or what a change improved. The reader has only ever seen the current version.
 - Try to keep the diff small: Don't move and reorder whole procedures for no good reason.
