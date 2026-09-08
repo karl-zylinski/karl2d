@@ -656,22 +656,21 @@ set_sound_bus :: proc(sound: Sound, bus: Audio_Bus)
 // start from the same clip.
 get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int
 
-// Load a WAV file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`.
+// Load a audio file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`.
 //
-// Supports mono and stereo WAV files with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
-// float samples.
+// Supports WAV and OGG files.
 //
 // The second return value is `true` if the audio clip was loaded correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
 // still be possible to use, but it won't play anything.
 load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optional_ok
 
-// Load a WAV file from some pre-loaded memory (can be loaded using `#load("sound.wav")`). Returns
-// an `Audio_Clip` which can be played using `play_audio_clip`.
+// Load an audio file from some pre-loaded memory (can be loaded using `#load("sound.wav")`).
+// Returns an `Audio_Clip` which can be played using `play_audio_clip`.
 //
-// Supports mono and stereo WAV data with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
-// float samples. Note that the data should be the entire WAV file, including the header. If your
-// data does not include the header, then please use `load_audio_clip_from_bytes_raw`.
+// Supports WAV and OGG format. Note that `bytes` need to contain the FULL FILE, including any
+// headers. If you rather load raw audio data directly som samples, then please use
+// `load_audio_clip_from_bytes_raw`.
 //
 // The second return value is `true` if the audio clip was loaded correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
@@ -1703,12 +1702,15 @@ Raw_Audio_Format :: enum {
 	Float64,
 }
 
+// An Audio_Buffer is the internal type used for any kind of audio data that is loaded into memory.
+// Both Audio_Clips and Audio_Streams use this to store the samples to be played.
 Audio_Buffer :: distinct Handle
 
 AUDIO_BUFFER_NONE :: Audio_Buffer {}
 
 // A piece of audio that has been completely loaded into memory. Play it using `play_audio_clip`.
-// Several sounds can play the same clip at the same time.
+// Several sounds can play the same clip at the same time. This is actually just an Audio_Buffer,
+// but under a distinct name that is given special treatment.
 Audio_Clip :: distinct Audio_Buffer
 
 AUDIO_CLIP_NONE :: Audio_Clip{}
@@ -1716,7 +1718,7 @@ AUDIO_CLIP_NONE :: Audio_Clip{}
 Audio_Buffer_Object :: struct {
 	handle: Audio_Buffer,
 
-	// All the samples of the audio clip. In the case of stereo, the left and right samples are
+	// The audio samples the buffer cotnains. In the case of stereo, the left and right samples are
 	// interleaved.
 	samples: []Audio_Sample,
 
@@ -1772,8 +1774,8 @@ Sound_Object :: struct {
 	// playback position and then fade in again. This avoids clicks when seeking.
 	//
 	// For Audio_Stream-based sounds, the seeking state is inside Audio_Stream_Data.
-	has_pending_seek: bool,
-	pending_seek_seconds: f32,
+	clip_has_pending_seek: bool,
+	clip_pending_seek_seconds: f32,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
