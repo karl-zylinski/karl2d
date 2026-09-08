@@ -2433,12 +2433,9 @@ get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
 	return count
 }
 
-// TODO-UPDATE-COMMENT this procedure also loads ogg files now.
-// ---
-// Load a WAV file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`.
+// Load a audio file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`.
 //
-// Supports mono and stereo WAV files with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
-// float samples.
+// Supports WAV and OGG files.
 //
 // The second return value is `true` if the audio clip was loaded correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
@@ -2454,15 +2451,12 @@ load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optio
 	return load_audio_clip_from_bytes(data)
 }
 
-// TODO-UPDATE-COMMENT this procedure also loads ogg data now. Ogg data is fully decoded into
-// memory here, unlike `load_audio_stream_from_bytes`, which decodes it a little bit at a time.
-// ---
-// Load a WAV file from some pre-loaded memory (can be loaded using `#load("sound.wav")`). Returns
-// an `Audio_Clip` which can be played using `play_audio_clip`.
+// Load an audio file from some pre-loaded memory (can be loaded using `#load("sound.wav")`).
+// Returns an `Audio_Clip` which can be played using `play_audio_clip`.
 //
-// Supports mono and stereo WAV data with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
-// float samples. Note that the data should be the entire WAV file, including the header. If your
-// data does not include the header, then please use `load_audio_clip_from_bytes_raw`.
+// Supports WAV and OGG format. Note that `bytes` need to contain the FULL FILE, including any
+// headers. If you rather load raw audio data directly som samples, then please use
+// `load_audio_clip_from_bytes_raw`.
 //
 // The second return value is `true` if the audio clip was loaded correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
