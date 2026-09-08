@@ -2233,16 +2233,16 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 	}
 
 	// Note that we do this a bit differently for audio streams and clips. For clips we set the
-	// `has_pending_seek` state. The mixer will ramp down the volume and then move it to the correct
-	// position in the buffer.
+	// `clip_has_pending_seek` state. The mixer will ramp down the volume and then move it to the
+	// correct position in the buffer. It will then ramp it up again.
 	//
 	// For a stream the seeking happens in `update_audio_stream` using state that lives on the
 	// audio stream object.
 
 	switch src in sound_object.source {
 	case Audio_Clip:
-		sound_object.has_pending_seek = true
-		sound_object.pending_seek_seconds = wanted_seconds
+		sound_object.clip_has_pending_seek = true
+		sound_object.clip_pending_seek_seconds = wanted_seconds
 
 	case Audio_Stream:
 		sd := hm.get(&s.audio_streams, src)
@@ -2281,8 +2281,8 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 	case Audio_Clip:
 		// A seek that is still fading out hasn't moved the sound yet, but it is on its way there.
 		// Report where it is going, so that things like a seek bar don't jump backwards for a moment.
-		if sound_object.has_pending_seek {
-			return sound_object.pending_seek_seconds
+		if sound_object.clip_has_pending_seek {
+			return sound_object.clip_pending_seek_seconds
 		}
 
 		return f32(sound_object.offset / channels) / f32(ab.sample_rate)
@@ -2294,6 +2294,7 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 			return 0
 		}
 
+		// A seek is pending, just return where it is going.
 		if sd.seek_state != .None {
 			return sd.seek_seconds
 		}
@@ -2375,13 +2376,13 @@ set_sound_loop :: proc(sound: Sound, loop: bool) {
 	if sound_object == nil {
 		return
 	}
-
-	// A stream loops by seeking its decoder back to the start. The voice of a stream always loops:
-	// that is what makes its buffer circular, so it must not be touched here.
 	switch src in sound_object.source {
 	case Audio_Clip:
 		sound_object.loop = loop
 
+	// The Sound the stream uses always loops. It's just a short buffer that it feeds its data into.
+	// The real looping flag is on the audio stream object itself. That's what is used when the
+	// stream ends.
 	case Audio_Stream:
 		if sd := hm.get(&s.audio_streams, src); sd != nil {
 			sd.loop = loop
@@ -3806,13 +3807,15 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		// `set_sound_time` doesn't seek the sound itself, it just says where the sound should go.
 		// For sounds based on audio clips we seek it here (after fading it out, so it doesn't
-		// click). For audio streams the seeking happens in update_audio_stream.
+		// click). For audio streams the seeking happens in update_audio_stream, but we still fade
+		// the sound here. When it has finished fading, then update_audio_stream will do the actual
+		// seeking.
 
 		volume_target := target_settings.volume
 
 		switch src in ps.source {
 		case Audio_Clip:
-			if ps.has_pending_seek {
+			if ps.clip_has_pending_seek {
 				volume_target = 0
 
 				if settings.volume == 0 {
@@ -3822,10 +3825,10 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 					}
 
 					total_frames := len(data.samples) / channels
-					target_frame := int(ps.pending_seek_seconds * f32(data.sample_rate))
+					target_frame := int(ps.clip_pending_seek_seconds * f32(data.sample_rate))
 					ps.offset = clamp(target_frame, 0, total_frames) * channels
 					ps.offset_fraction = 0
-					ps.has_pending_seek = false
+					ps.clip_has_pending_seek = false
 					volume_target = target_settings.volume
 				}
 			}
@@ -5966,12 +5969,15 @@ Raw_Audio_Format :: enum {
 	Float64,
 }
 
+// An Audio_Buffer is the internal type used for any kind of audio data that is loaded into memory.
+// Both Audio_Clips and Audio_Streams use this to store the samples to be played.
 Audio_Buffer :: distinct Handle
 
 AUDIO_BUFFER_NONE :: Audio_Buffer {}
 
 // A piece of audio that has been completely loaded into memory. Play it using `play_audio_clip`.
-// Several sounds can play the same clip at the same time.
+// Several sounds can play the same clip at the same time. This is actually just an Audio_Buffer,
+// but under a distinct name that is given special treatment.
 Audio_Clip :: distinct Audio_Buffer
 
 AUDIO_CLIP_NONE :: Audio_Clip{}
@@ -5979,7 +5985,7 @@ AUDIO_CLIP_NONE :: Audio_Clip{}
 Audio_Buffer_Object :: struct {
 	handle: Audio_Buffer,
 
-	// All the samples of the audio clip. In the case of stereo, the left and right samples are
+	// The audio samples the buffer cotnains. In the case of stereo, the left and right samples are
 	// interleaved.
 	samples: []Audio_Sample,
 
@@ -6035,8 +6041,8 @@ Sound_Object :: struct {
 	// playback position and then fade in again. This avoids clicks when seeking.
 	//
 	// For Audio_Stream-based sounds, the seeking state is inside Audio_Stream_Data.
-	has_pending_seek: bool,
-	pending_seek_seconds: f32,
+	clip_has_pending_seek: bool,
+	clip_pending_seek_seconds: f32,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
