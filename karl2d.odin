@@ -2468,84 +2468,111 @@ load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optio
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
 // still be possible to use, but it won't play anything.
 load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool) #optional_ok {
+	audio_clip_object: Audio_Clip_Object
+	audio_clip_object_ok: bool
+
 	if len(bytes) >= 4 && string(bytes[:4]) == "OggS" {
-		vorbis_buffer := stbv.vorbis_alloc {
-			alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, frame_allocator),
-			alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
-		}
-
-		vorbis_err: stbv.Error
-		vorbis := stbv.open_memory(
-			raw_data(bytes),
-			i32(len(bytes)),
-			&vorbis_err,
-			&vorbis_buffer,
-		)
-
-		if vorbis_err != nil {
-			log.errorf("Failed loading audio clip from ogg data. Error: %v", vorbis_err)
-			return
-		}
-
-		info := stbv.get_info(vorbis)
-		channels: Audio_Channels
-
-		if info.channels == 1 {
-			channels = .Mono
-		} else if info.channels == 2 {
-			channels = .Stereo
-		} else {
-			log.errorf("Unsupported number of channels in ogg data: %v", info.channels)
-			stbv.close(vorbis)
-			return
-		}
-
-		num_samples := int(stbv.stream_length_in_samples(vorbis)) * int(info.channels)
-
-		if num_samples == 0 {
-			log.error("Failed loading audio clip from ogg data. It contains no samples.")
-			stbv.close(vorbis)
-			return
-		}
-
-		samples := make([]Audio_Sample, num_samples, s.allocator)
-
-		num_decoded := int(stbv.get_samples_float_interleaved(
-			vorbis,
-			info.channels,
-			raw_data(samples),
-			i32(num_samples),
-		)) * int(info.channels)
-
-		stbv.close(vorbis)
-
-		if num_decoded != num_samples {
-			log.warnf(
-				"Decoded %v of the %v samples the ogg data says it has. The end of the audio " +
-				"clip will be silent.",
-				num_decoded,
-				num_samples,
-			)
-		}
-
-		audio_clip_object := Audio_Clip_Object {
-			sample_rate = int(info.sample_rate),
-			samples = samples,
-			channels = channels,
-		}
-
-		sync.mutex_guard(&s.audio_mutex)
-		audio_clip, audio_clip_add_error := hm.add(&s.audio_clips, audio_clip_object)
-
-		if audio_clip_add_error != nil {
-			log.errorf("Failed loading audio clip from ogg data. Error: %v", audio_clip_add_error)
-			delete(samples, s.allocator)
-			return
-		}
-
-		return audio_clip, true
+		audio_clip_object, audio_clip_object_ok = _load_audio_clip_from_bytes_ogg(bytes)
+	} else {
+		audio_clip_object, audio_clip_object_ok = _load_audio_clip_from_bytes_wav(bytes)
 	}
 
+	if !audio_clip_object_ok {
+		return
+	}
+
+	sync.mutex_guard(&s.audio_mutex)
+	audio_clip, audio_clip_add_error := hm.add(&s.audio_clips, audio_clip_object)
+
+	if audio_clip_add_error != nil {
+		log.errorf("Failed to load audio clip. Error: %v", audio_clip_add_error)
+		delete(audio_clip_object.samples, s.allocator)
+		return
+	}
+
+	return audio_clip, true
+}
+
+_load_audio_clip_from_bytes_ogg :: proc(
+	bytes: []u8,
+) -> (
+	_audio_clip_object: Audio_Clip_Object,
+	_ok: bool,
+) {
+	vorbis_buffer := stbv.vorbis_alloc {
+		alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, frame_allocator),
+		alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
+	}
+
+	vorbis_err: stbv.Error
+	vorbis := stbv.open_memory(
+		raw_data(bytes),
+		i32(len(bytes)),
+		&vorbis_err,
+		&vorbis_buffer,
+	)
+
+	if vorbis_err != nil {
+		log.errorf("Failed loading audio clip from ogg data. Error: %v", vorbis_err)
+		return
+	}
+
+	info := stbv.get_info(vorbis)
+	channels: Audio_Channels
+
+	if info.channels == 1 {
+		channels = .Mono
+	} else if info.channels == 2 {
+		channels = .Stereo
+	} else {
+		log.errorf("Unsupported number of channels in ogg data: %v", info.channels)
+		stbv.close(vorbis)
+		return
+	}
+
+	num_samples := int(stbv.stream_length_in_samples(vorbis)) * int(info.channels)
+
+	if num_samples == 0 {
+		log.error("Failed loading audio clip from ogg data. It contains no samples.")
+		stbv.close(vorbis)
+		return
+	}
+
+	samples := make([]Audio_Sample, num_samples, s.allocator)
+
+	num_decoded := int(stbv.get_samples_float_interleaved(
+		vorbis,
+		info.channels,
+		raw_data(samples),
+		i32(num_samples),
+	)) * int(info.channels)
+
+	stbv.close(vorbis)
+
+	if num_decoded != num_samples {
+		log.warnf(
+			"Decoded %v of the %v samples the ogg data says it has. The end of the audio " +
+			"clip will be silent.",
+			num_decoded,
+			num_samples,
+		)
+	}
+
+	audio_clip_object := Audio_Clip_Object {
+		sample_rate = int(info.sample_rate),
+		samples = samples,
+		channels = channels,
+	}
+
+	return audio_clip_object, true
+}
+
+_load_audio_clip_from_bytes_wav :: proc(
+	bytes: []u8,
+) -> (
+	_audio_clip_object: Audio_Clip_Object,
+	_ok: bool,
+) {
 	// A WAV file is a RIFF file: A 12 byte header followed by any number of chunks.
 	if len(bytes) < 12 {
 		log.error("Invalid audio file: Too small to contain a RIFF header")
@@ -2716,7 +2743,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool
 		return
 	}
 
-	return load_audio_clip_from_bytes_raw(samples, format, sample_rate, channels)
+	return _load_audio_clip_from_bytes_raw(samples, format, sample_rate, channels), true
 }
 
 // Load an audio clip from some raw audio data. You need to specify the data, format and sample
@@ -2733,6 +2760,26 @@ load_audio_clip_from_bytes_raw :: proc(
 	sample_rate: int,
 	channels: Audio_Channels,
 ) -> (Audio_Clip, bool) #optional_ok {
+	audio_clip_object := _load_audio_clip_from_bytes_raw(bytes, format, sample_rate, channels)
+
+	sync.mutex_guard(&s.audio_mutex)
+	audio_clip, audio_clip_add_error := hm.add(&s.audio_clips, audio_clip_object)
+
+	if audio_clip_add_error != nil {
+		log.errorf("Failed to load audio clip. Error: %v", audio_clip_add_error)
+		delete(audio_clip_object.samples, s.allocator)
+		return AUDIO_CLIP_NONE, false
+	}
+
+	return audio_clip, true
+}
+
+_load_audio_clip_from_bytes_raw :: proc(
+	bytes: []u8,
+	format: Raw_Audio_Format,
+	sample_rate: int,
+	channels: Audio_Channels,
+) -> Audio_Clip_Object {
 	samples: []Audio_Sample
 
 	switch format{
@@ -2790,15 +2837,7 @@ load_audio_clip_from_bytes_raw :: proc(
 		channels = channels,
 	}
 
-	sync.mutex_guard(&s.audio_mutex)
-	audio_clip, audio_clip_add_error := hm.add(&s.audio_clips, audio_clip_object)
-
-	if audio_clip_add_error != nil {
-		log.errorf("Failed to load audio clip. Error: %v", audio_clip_add_error)
-		return AUDIO_CLIP_NONE, false
-	}
-
-	return audio_clip, true
+	return audio_clip_object
 }
 
 // Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Also stops sounds
