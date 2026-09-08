@@ -53,7 +53,7 @@ init :: proc() {
 	snd_pitch = 1
 	sine_clip_440 = make_sine_wave(440, 1, 44100)
 	sine_clip_700 = make_sine_wave(700, 1, 22050)
-	chord_clip = k2.load_audio_clip_from_bytes(#load("chord.wav"))
+	chord_clip = k2.load_audio_clip_from_bytes(#load("chord.ogg"))
 	sweep_clip = make_sine_sweep(200, 800, 10, 44100)
 
 	when HAS_MUSIC {

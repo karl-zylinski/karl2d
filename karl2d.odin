@@ -2433,6 +2433,8 @@ get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
 	return count
 }
 
+// TODO-UPDATE-COMMENT this procedure also loads ogg files now.
+// ---
 // Load a WAV file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`.
 //
 // Supports mono and stereo WAV files with 8, 16, 24 or 32 bit integer samples, or 32 or 64 bit
@@ -2452,6 +2454,9 @@ load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optio
 	return load_audio_clip_from_bytes(data)
 }
 
+// TODO-UPDATE-COMMENT this procedure also loads ogg data now. Ogg data is fully decoded into
+// memory here, unlike `load_audio_stream_from_bytes`, which decodes it a little bit at a time.
+// ---
 // Load a WAV file from some pre-loaded memory (can be loaded using `#load("sound.wav")`). Returns
 // an `Audio_Clip` which can be played using `play_audio_clip`.
 //
@@ -2463,14 +2468,92 @@ load_audio_clip_from_file :: proc(filename: string) -> (Audio_Clip, bool) #optio
 // handle this error, it will also be logged. In case of failure, the returned `Audio_Clip` will
 // still be possible to use, but it won't play anything.
 load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool) #optional_ok {
+	if len(bytes) >= 4 && string(bytes[:4]) == "OggS" {
+		vorbis_buffer := stbv.vorbis_alloc {
+			alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, frame_allocator),
+			alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
+		}
+
+		vorbis_err: stbv.Error
+		vorbis := stbv.open_memory(
+			raw_data(bytes),
+			i32(len(bytes)),
+			&vorbis_err,
+			&vorbis_buffer,
+		)
+
+		if vorbis_err != nil {
+			log.errorf("Failed loading audio clip from ogg data. Error: %v", vorbis_err)
+			return
+		}
+
+		info := stbv.get_info(vorbis)
+		channels: Audio_Channels
+
+		if info.channels == 1 {
+			channels = .Mono
+		} else if info.channels == 2 {
+			channels = .Stereo
+		} else {
+			log.errorf("Unsupported number of channels in ogg data: %v", info.channels)
+			stbv.close(vorbis)
+			return
+		}
+
+		num_samples := int(stbv.stream_length_in_samples(vorbis)) * int(info.channels)
+
+		if num_samples == 0 {
+			log.error("Failed loading audio clip from ogg data. It contains no samples.")
+			stbv.close(vorbis)
+			return
+		}
+
+		samples := make([]Audio_Sample, num_samples, s.allocator)
+
+		num_decoded := int(stbv.get_samples_float_interleaved(
+			vorbis,
+			info.channels,
+			raw_data(samples),
+			i32(num_samples),
+		)) * int(info.channels)
+
+		stbv.close(vorbis)
+
+		if num_decoded != num_samples {
+			log.warnf(
+				"Decoded %v of the %v samples the ogg data says it has. The end of the audio " +
+				"clip will be silent.",
+				num_decoded,
+				num_samples,
+			)
+		}
+
+		audio_clip_object := Audio_Clip_Object {
+			sample_rate = int(info.sample_rate),
+			samples = samples,
+			channels = channels,
+		}
+
+		sync.mutex_guard(&s.audio_mutex)
+		audio_clip, audio_clip_add_error := hm.add(&s.audio_clips, audio_clip_object)
+
+		if audio_clip_add_error != nil {
+			log.errorf("Failed loading audio clip from ogg data. Error: %v", audio_clip_add_error)
+			delete(samples, s.allocator)
+			return
+		}
+
+		return audio_clip, true
+	}
+
 	// A WAV file is a RIFF file: A 12 byte header followed by any number of chunks.
 	if len(bytes) < 12 {
-		log.error("Invalid wav file: Too small to contain a RIFF header")
+		log.error("Invalid audio file: Too small to contain a RIFF header")
 		return
 	}
 
 	if string(bytes[:4]) != "RIFF" {
-		log.error("Invalid wav file: No RIFF identifier")
+		log.error("Unsupported audio file format. Only wav and ogg are supported.")
 		return
 	}
 
