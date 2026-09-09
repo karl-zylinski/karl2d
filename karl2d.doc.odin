@@ -1645,22 +1645,22 @@ Audio_Stream_Seek_State :: enum {
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
-// Tracks where the audio stream has written samples and where in the file it is decoding from.
 Audio_Stream_Cursor :: struct {
-	// Where in the audio clip referred to by `Audio_Stream_Data.clip` that we have most recently
-	// written samples. Together with the `offset` of the Sound_Object, this forms a circular buffer
+	// Where in `Audio_Stream_Data.buffer` we have most recently written samples. Together with
+	// `Sound_Object.offset`, this forms a circular buffer. This field is the 'head' and the offset
+	// is the 'tail'.
 	buffer_write_pos: int,
 
-	// Where in the file we most recently fetched samples from. For stereo, left and right count as
-	// one sample each.
+	// Where in the streamed source we most recently fetched samples from. For stereo, left and
+	// right count as one sample each.
 	decode_cursor: int,
 
 	// Used for discarding unwanted samples at the decode cursor. This exists because the vorbis
 	// pushdata API can't position the decoding exactly. When seeking we land the decoder at or
 	// before the wanted spot and store how many samples to skip from there.
 	//
-	// Also used for short seeks forward, which don't move the file at all and just decode past
-	// the samples in between.
+	// Also used for short forward seeks, which don't move the file at all and just decode past the
+	// samples in between.
 	seek_discard: int,
 }
 
@@ -1670,7 +1670,7 @@ Audio_Stream_Data :: struct {
 	vorbis: ^stbv.vorbis,
 	vorbis_buffer: stbv.vorbis_alloc,
 	sound: Sound,
-	clip: Audio_Clip,
+	buffer: Audio_Buffer,
 
 	cursor: Audio_Stream_Cursor,
 
@@ -1712,22 +1712,32 @@ Raw_Audio_Format :: enum {
 	Float64,
 }
 
+// An Audio_Buffer is the internal type used for any kind of audio data that is loaded into memory.
+// Both Audio_Clips and Audio_Streams use this to store the samples to be played.
+Audio_Buffer :: distinct Handle
+
+AUDIO_BUFFER_NONE :: Audio_Buffer {}
+
 // A piece of audio that has been completely loaded into memory. Play it using `play_audio_clip`.
-// Several sounds can play the same clip at the same time.
-Audio_Clip :: distinct Handle
+//
+// This is actually just an `Audio_Buffer`, but under a distinct name that is given special
+// treatment. When `play_audio_clip` runs, then a `Sound` is created. The `Sound` tracks where in
+// the `Audio_Clip` it is playing audio from. That way, many `Sound` instances can play audio from
+// the same `Audio_Clip` data.
+Audio_Clip :: distinct Audio_Buffer
 
 AUDIO_CLIP_NONE :: Audio_Clip{}
 
-Audio_Clip_Object :: struct {
-	handle: Audio_Clip,
+Audio_Buffer_Object :: struct {
+	handle: Audio_Buffer,
 
-	// All the samples of the audio clip. In the case of stereo, the left and right samples are
+	// The audio samples the buffer contains. In the case of stereo, the left and right samples are
 	// interleaved.
 	samples: []Audio_Sample,
 
 	// The number of samples per second. Note that the mixer uses 44100 samples per second (as
-	// defined by AUDIO_MIX_SAMPLE_RATE). When the sample rate of the buffer and the mixer do no
-	// match, then interpolation will happen during mixing.
+	// defined by AUDIO_MIX_SAMPLE_RATE). When the sample rate of the buffer and the mixer mismatch,
+	// interpolation will happen during mixing.
 	sample_rate: int,
 
 	// If this is Stereo, then the left and right samples are interleaved in `samples`.
@@ -1740,22 +1750,30 @@ Sound_Settings :: struct {
 	pitch: f32,
 }
 
-// What `Sound` handles are mapped to: something that is currently playing in the mixer. It holds
-// the clip it plays and the settings it plays with.
+// A `Sound_Object` is what `Sound` handles map to. It represents something currently playing in
+// the mixer. It holds a `buffer` which is where the mixer reads audio samples from. How that buffer
+// gets refilled depends on the `source` field. The source can either be an Audio_Clip or an
+// Audio_Stream. For clips `buffer` is the same as the clip's buffer. For audio streams the
+// buffer is a small amount of memory that is continuously being filled with data from the audio
+// stream.
 Sound_Object :: struct {
 	handle: Sound,
-	clip: Audio_Clip,
+	buffer: Audio_Buffer,
 	target_settings: Sound_Settings,
 	current_settings: Sound_Settings,
 
-	// How many samples have played?
+	// Where in `buffer` should we play samples from next?
 	offset: int,
 
 	// Only used when playing sounds that have pitch != 1 or when the sound has a sample rate that
 	// does not match the mixer's sample rate. In those cases we may get "fractional samples"
-	// because we may be in samples that are inbetween two samples in the original sound.
+	// because we may be in samples that are in-between two samples in the original sound.
 	offset_fraction: f32,
 
+	// If source is Audio_Clip: Set this flag using `set_sound_loop`.
+	// If source is Audio_Stream: Always true (the stream has its own loop flag internally and just
+	// refills the buffer with data, which continuously plays it). `set_sound_loop` will set the
+	// loop flag inside the Audio_Stream source data.
 	loop: bool,
 
 	// Set using `set_sound_paused`. The mixer skips paused sounds.
@@ -1772,15 +1790,18 @@ Sound_Object :: struct {
 	// playback position and then fade in again. This avoids clicks when seeking.
 	//
 	// For Audio_Stream-based sounds, the seeking state is inside Audio_Stream_Data.
-	has_pending_seek: bool,
-	pending_seek_seconds: f32,
+	clip_has_pending_seek: bool,
+	clip_pending_seek_seconds: f32,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
 
-	// Set when this sound plays an audio stream. Zero for sounds played from a clip. Used by
-	// `set_sound_loop` to redirect to the stream's own loop flag.
-	stream: Audio_Stream,
+	// This is the Audio_Clip or Audio_Stream that was passed to either `play_audio_clip` or
+	// `play_audio_stream`, whichever was used to create this Sound.
+	source: union #no_nil {
+		Audio_Clip,
+		Audio_Stream,
+	},
 }
 
 // A bus is a group of sounds that are mixed together before they reach the master bus. You can set
@@ -1932,7 +1953,7 @@ State :: struct {
 	audio_backend: Audio_Backend_Interface,
 	audio_backend_state: rawptr,
 
-	audio_clips: hm.Dynamic_Handle_Map(Audio_Clip_Object, Audio_Clip),
+	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
 	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
