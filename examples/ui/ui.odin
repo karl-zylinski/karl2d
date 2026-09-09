@@ -53,6 +53,9 @@ step :: proc() -> bool {
 	r := k2.rect_from_pos_size({0, 0}, k2.screen_to_camera(k2.get_screen_size(), ui_cam))
 	left_panel, right_panel := ui_horizontal_splitter(r, &panel_splitter_x)
 
+	left_panel = k2.rect_shrink(left_panel, 4, 4)
+	right_panel = k2.rect_shrink(right_panel, 4, 4)
+
 	row := k2.rect_cut_top(&right_panel, 30, 5)
 	text_box_rect := k2.rect_shrink(row, 4, 4)
 	new_text, has_new_text := ui_text_box(text_box_rect, text_field)
@@ -186,9 +189,9 @@ ui_horizontal_splitter :: proc(
 	id := ui_next_id()
 
 	left, right := k2.rect_split_left(r, x^, 0)
-	panel_drag_handle_rect := k2.rect_from_pos_size(
-		{right.x - 10, right.y},
-		{20, right.h},
+	drag_handle_rect := k2.rect_from_pos_size(
+		{right.x - 5, right.y},
+		{10, right.h},
 	)
 
 	k2.draw_rect(right, COLOR_PANEL_BG)
@@ -196,6 +199,11 @@ ui_horizontal_splitter :: proc(
 	k2.set_cursor(.Default)
 
 	state, is_active := ui_get_active_state(id, UI_State_Splitter)
+	hovering_drag_handle := k2.point_in_rect(mp, drag_handle_rect)
+
+	if hovering_drag_handle {
+		k2.draw_rect(k2.rect_shrink(drag_handle_rect, 1, 0), {120, 120, 200, 120})
+	}
 
 	if is_active {
 		k2.set_cursor(.Resize_EW)
@@ -210,7 +218,7 @@ ui_horizontal_splitter :: proc(
 			ui_clear_active()
 		}
 	} else {
-		if k2.point_in_rect(mp, panel_drag_handle_rect) {
+		if hovering_drag_handle {
 			k2.set_cursor(.Resize_EW)
 
 			if k2.mouse_button_went_down(.Left) {
