@@ -1788,7 +1788,7 @@ Sound_Object :: struct {
 
 	// This is the Audio_Clip or Audio_Stream that was passed to either `play_audio_clip` or
 	// `play_audio_stream`, whichever was used to create this Sound.
-	source: union {
+	source: union #no_nil {
 		Audio_Clip,
 		Audio_Stream,
 	},
