@@ -18,6 +18,7 @@ import fs "vendor:fontstash"
 import stbv "vendor:stb/vorbis"
 import stbtt "vendor:stb/truetype"
 import stbrp "vendor:stb/rect_pack"
+import "flac"
 
 import "core:image"
 import "core:image/jpeg"
@@ -2467,6 +2468,8 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool
 
 	if len(bytes) >= 4 && string(bytes[:4]) == "OggS" {
 		audio_clip_object, audio_clip_object_ok = _load_audio_clip_from_bytes_ogg(bytes)
+	} else if len(bytes) >= 4 && string(bytes[:4]) == "fLaC" {
+		audio_clip_object, audio_clip_object_ok = _load_audio_clip_from_bytes_flac(bytes)
 	} else {
 		audio_clip_object, audio_clip_object_ok = _load_audio_clip_from_bytes_wav(bytes)
 	}
@@ -2485,6 +2488,57 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool
 	}
 
 	return audio_clip, true
+}
+
+_load_audio_clip_from_bytes_flac :: proc(
+	bytes: []u8,
+) -> (
+	_audio_clip_object: Audio_Clip_Object,
+	_ok: bool,
+) {
+	decoder := flac.open_memory(bytes)
+	if decoder == nil {
+		log.error("Failed loading audio clip from flac data: Invalid FLAC data")
+		return
+	}
+	defer free(decoder, context.allocator)
+
+	channels: Audio_Channels
+	channel_count: int
+
+	if decoder.info.channels == 1 {
+		channels = .Mono
+		channel_count = 1
+	} else if decoder.info.channels >= 2 {
+		channels = .Stereo
+		channel_count = 2
+	} else {
+		log.errorf("Invalid number of channels in flac data: %v", decoder.info.channels)
+		return
+	}
+
+	num_frames := int(decoder.info.sample_count)
+	if num_frames == 0 {
+		log.error("Failed loading audio clip from flac data. It contains no samples.")
+		return
+	}
+
+	num_samples := num_frames * channel_count
+	samples := make([]Audio_Sample, num_samples, s.allocator)
+
+	num_decoded := flac.read_float(decoder, samples, channel_count)
+
+	if num_decoded != num_frames {
+		log.warnf("Decoded %v of %v frames in flac data.", num_decoded, num_frames)
+	}
+
+	audio_clip_object := Audio_Clip_Object {
+		sample_rate = int(decoder.info.sample_rate),
+		samples = samples,
+		channels = channels,
+	}
+
+	return audio_clip_object, true
 }
 
 _load_audio_clip_from_bytes_ogg :: proc(
@@ -2574,7 +2628,7 @@ _load_audio_clip_from_bytes_wav :: proc(
 	}
 
 	if string(bytes[:4]) != "RIFF" {
-		log.error("Unsupported audio file format. Only wav and ogg are supported.")
+		log.error("Unsupported audio file format. Only wav, ogg and flac are supported.")
 		return
 	}
 
