@@ -6020,20 +6020,21 @@ VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
 // Tracks where the audio stream has written samples and where in the file it is decoding from.
 Audio_Stream_Cursor :: struct {
-	// Where in the audio buffer referred to by `Audio_Stream_Data.buffer` that we have most recently
-	// written samples. Together with the `offset` of the Sound_Object, this forms a circular buffer
+	// Where in `Audio_Stream_Data.buffer` we have most recently written samples. Together with
+	// `Sound_Object.offset`, this forms a circular buffer. This field is the 'head' and the offset
+	// is the 'tail'.
 	buffer_write_pos: int,
 
-	// Where in the file we most recently fetched samples from. For stereo, left and right count as
-	// one sample each.
+	// Where in streamed source we most recently fetched samples. For stereo, left and right count
+	// as one sample each.
 	decode_cursor: int,
 
 	// Used for discarding unwanted samples at the decode cursor. This exists because the vorbis
 	// pushdata API can't position the decoding exactly. When seeking we land the decoder at or
 	// before the wanted spot and store how many samples to skip from there.
 	//
-	// Also used for short seeks forward, which don't move the file at all and just decode past
-	// the samples in between.
+	// Also used for short forward seeks, which don't move the file at all and just decode past the
+	// samples in between.
 	seek_discard: int,
 }
 
