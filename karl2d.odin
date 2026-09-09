@@ -6123,27 +6123,30 @@ Sound_Settings :: struct {
 	pitch: f32,
 }
 
-Sound_Source :: union {
-	Audio_Clip,
-	Audio_Stream,
-}
-
-// What `Sound` handles are mapped to: something that is currently playing in the mixer. It holds
-// the clip it plays and the settings it plays with.
+// A `Sound_Object` is what `Sound` handles map to. They represent something currently playing in
+// the mixer. It holds a `buffer` which is where the mixer reads audio samples from. How that buffer
+// gets refilled depends on the `source` field. The source can either be an Audio_Clip or an
+// Audio_Stream. For clips `buffer` is the same as the the clip's buffer. For audio streams the
+// buffer is a small amount of memory that is continuously being filled with data from the audio
+// stream.
 Sound_Object :: struct {
 	handle: Sound,
 	buffer: Audio_Buffer,
 	target_settings: Sound_Settings,
 	current_settings: Sound_Settings,
 
-	// How many samples have played?
+	// Where in `buffer` should we play samples from next?
 	offset: int,
 
 	// Only used when playing sounds that have pitch != 1 or when the sound has a sample rate that
 	// does not match the mixer's sample rate. In those cases we may get "fractional samples"
-	// because we may be in samples that are inbetween two samples in the original sound.
+	// because we may be in samples that are in-between two samples in the original sound.
 	offset_fraction: f32,
 
+	// If source is Audio_Clip: Set this flag using `set_sound_loop`.
+	// If source is Audio_Stream: Always true (the stream has its own loop flag internally and just
+	// refills the buffer with data, which continuously plays it). `set_sound_loop` will set the
+	// loop flag inside the Audio_Stream source data.
 	loop: bool,
 
 	// Set using `set_sound_paused`. The mixer skips paused sounds.
@@ -6165,13 +6168,13 @@ Sound_Object :: struct {
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
-
-	// TODO-UPDATE-COMMENT this is now a union that says whether the sound was started from a clip
-	// or from a stream, and which one it was. The audio itself is always read through `buffer`.
-	// ---
-	// Set when this sound plays an audio stream. Zero for sounds played from a clip. Used by
-	// `set_sound_loop` to redirect to the stream's own loop flag.
-	source: Sound_Source,
+	
+	// This is the Audio_Clip or Audio_Stream that was passed to either `play_audio_clip` or
+	// `play_audio_stream`, whichever was used to create this Sound.
+	source: union {
+		Audio_Clip,
+		Audio_Stream,
+	},
 }
 
 // A bus is a group of sounds that are mixed together before they reach the master bus. You can set
