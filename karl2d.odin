@@ -2376,14 +2376,15 @@ set_sound_loop :: proc(sound: Sound, loop: bool) {
 	if sound_object == nil {
 		return
 	}
+
 	switch src in sound_object.source {
 	case Audio_Clip:
 		sound_object.loop = loop
 
-	// The Sound the stream uses always loops. It's just a short buffer that it feeds its data into.
-	// The real looping flag is on the audio stream object itself. That's what is used when the
-	// stream ends.
 	case Audio_Stream:
+		// The Sound the stream uses always loops. It's just a short buffer that it feeds its data
+		// into. The real looping flag is on the audio stream object itself. That's what is used
+		// when the stream ends.
 		if sd := hm.get(&s.audio_streams, src); sd != nil {
 			sd.loop = loop
 		}
@@ -3391,9 +3392,9 @@ _decode_audio_stream :: proc(
 
 					continue
 				} else {
-					// TODO: Stopping here is bad as the samples haven't been mixed in yet. Remove the
-					// stream but push the final samples into the clip and destroy that one
-					// when it finishes playing (in the mixer).
+					// TODO: Stopping here is bad as the samples haven't been mixed in yet. Perhaps
+					// we should remove the stream but push the final samples into the buffer and
+					// destroy that one when it finishes playing in the mixer.
 					return
 				}
 			}
@@ -6171,7 +6172,7 @@ Sound_Object :: struct {
 
 	// This is the Audio_Clip or Audio_Stream that was passed to either `play_audio_clip` or
 	// `play_audio_stream`, whichever was used to create this Sound.
-	source: union {
+	source: union #no_nil {
 		Audio_Clip,
 		Audio_Stream,
 	},
