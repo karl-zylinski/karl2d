@@ -1709,8 +1709,11 @@ Audio_Buffer :: distinct Handle
 AUDIO_BUFFER_NONE :: Audio_Buffer {}
 
 // A piece of audio that has been completely loaded into memory. Play it using `play_audio_clip`.
-// Several sounds can play the same clip at the same time. This is actually just an Audio_Buffer,
-// but under a distinct name that is given special treatment.
+//
+// This is actually just an `Audio_Buffer`, but under a distinct name that is given special
+// treatment. When `play_audio_clip` runs, then a `Sound` is created. The `Sound` tracks where in
+// the `Audio_Clip` it is playing audio from. That way, many `Sound` instances can play audio from
+// the same `Audio_Clip` data.
 Audio_Clip :: distinct Audio_Buffer
 
 AUDIO_CLIP_NONE :: Audio_Clip{}
@@ -1718,13 +1721,13 @@ AUDIO_CLIP_NONE :: Audio_Clip{}
 Audio_Buffer_Object :: struct {
 	handle: Audio_Buffer,
 
-	// The audio samples the buffer cotnains. In the case of stereo, the left and right samples are
+	// The audio samples the buffer contains. In the case of stereo, the left and right samples are
 	// interleaved.
 	samples: []Audio_Sample,
 
 	// The number of samples per second. Note that the mixer uses 44100 samples per second (as
-	// defined by AUDIO_MIX_SAMPLE_RATE). When the sample rate of the buffer and the mixer do no
-	// match, then interpolation will happen during mixing.
+	// defined by AUDIO_MIX_SAMPLE_RATE). When the sample rate of the buffer and the mixer mismatch,
+	// interpolation will happen during mixing.
 	sample_rate: int,
 
 	// If this is Stereo, then the left and right samples are interleaved in `samples`.
