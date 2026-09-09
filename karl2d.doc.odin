@@ -1515,12 +1515,12 @@ Font_Type :: enum {
 }
 
 Font_Data :: struct {
-	atlas: Texture,
 	options: Font_Options,
 
 	type: Font_Type,
 
 	// type == .Static
+	static_atlas: Texture,
 	static_glyphs: []Font_Baked_Glyph,
 	static_glyph_ranges: []Font_Baked_Glyph_Range,
 	static_font_size: f32,
@@ -1528,6 +1528,13 @@ Font_Data :: struct {
 
 	// type == .Dynamic
 	dynamic_fontstash_handle: int,
+	dynamic_atlas: int,
+}
+
+Font_Atlas :: struct {
+	texture: Texture,
+	premultiply_alpha: bool,
+	filter: Texture_Filter,
 }
 
 Handle :: hm.Handle64
@@ -1894,6 +1901,7 @@ State :: struct {
 
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
+	font_atlases: [dynamic]Font_Atlas,
 	shape_drawing_texture: Texture_Handle,
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.
