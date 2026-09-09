@@ -338,15 +338,12 @@ registry_listener := wl.Registry_Listener {
 			)
 
 		case wl.xdg_toplevel_icon_manager_v1_interface.name:
-			// Bound at the version these bindings implement at most. Binding at whatever the
-			// compositor advertises tells it we understand events we don't, and an event past the
-			// end of our event table makes libwayland abort the process.
 			s.toplevel_icon_manager = wl.registry_bind(
 				wl.XDG_Toplevel_Icon_Manager_V1,
 				registry,
 				name,
 				&wl.xdg_toplevel_icon_manager_v1_interface,
-				min(version, u32(wl.xdg_toplevel_icon_manager_v1_interface.version)),
+				version,
 			)
 		}
 	},
@@ -679,7 +676,11 @@ pointer_listener := wl.Pointer_Listener {
 		s.pointer_y = surface_y
 
 		if s.has_deco && wldeco_has_pointer(&s.decorations) {
-			wldeco_pointer_moved(&s.decorations, f32(surface_x >> 8), f32(surface_y >> 8))
+			wldeco_pointer_moved(
+				&s.decorations,
+				wl.fixed_to_f32(surface_x),
+				wl.fixed_to_f32(surface_y),
+			)
 		}
 
 		wl_apply_cursor()
@@ -713,18 +714,28 @@ pointer_listener := wl.Pointer_Listener {
 		if s.has_deco && wldeco_has_pointer(&s.decorations) {
 			// Only the cursor changes on the frame, and only when the pointer crosses between the
 			// part that moves the window and the edges that resize it.
-			if wldeco_pointer_moved(&s.decorations, f32(surface_x >> 8), f32(surface_y >> 8)) {
+			if wldeco_pointer_moved(
+				&s.decorations,
+				wl.fixed_to_f32(surface_x),
+				wl.fixed_to_f32(surface_y),
+			) {
 				wl_apply_cursor()
 			}
 
 			return
 		}
 
+		// TODO-UPDATE-COMMENT the conversion is now a divide by 256 inside wl.fixed_to_f32, not a
+		// bitshift here.
+		// ---
 		// surface_x and surface_y are fixed point 24.8 variables. 
 		// Just bitshift them to remove the decimal part and obtain 
 		// a screen coordinate
 		append(&s.events, Event_Mouse_Move {
-			position = { math.floor(f32(surface_x >> 8) * s.scale), math.floor(f32(surface_y >> 8) * s.scale) }, 
+			position = {
+				math.floor(wl.fixed_to_f32(surface_x) * s.scale),
+				math.floor(wl.fixed_to_f32(surface_y) * s.scale),
+			},
 		})
 	},
 	button = proc "c" (
@@ -744,8 +755,8 @@ pointer_listener := wl.Pointer_Listener {
 				u32(state),
 				u32(time),
 				u32(serial),
-				f32(s.pointer_x >> 8),
-				f32(s.pointer_y >> 8),
+				wl.fixed_to_f32(s.pointer_x),
+				wl.fixed_to_f32(s.pointer_y),
 			)
 
 			return
@@ -753,9 +764,9 @@ pointer_listener := wl.Pointer_Listener {
 
 		btn: Mouse_Button
 		switch button {
-		case wl.POINTER_BTN_LEFT: btn = .Left
-		case wl.POINTER_BTN_MIDDLE: btn = .Middle
-		case wl.POINTER_BTN_RIGHT: btn = .Right
+		case wl.BTN_LEFT: btn = .Left
+		case wl.BTN_MIDDLE: btn = .Middle
+		case wl.BTN_RIGHT: btn = .Right
 		}
 	
 		switch state {
@@ -1190,8 +1201,8 @@ relative_pointer_listener := wl.ZWP_Relative_Pointer_V1_Listener {
 		context = s.odin_ctx
 		cx := f32(s.screen_width / 2)
 		cy := f32(s.screen_height / 2)
-		fdx := f32(dx_unaccel >> 8)
-		fdy := f32(dy_unaccel >> 8)
+		fdx := wl.fixed_to_f32(dx_unaccel)
+		fdy := wl.fixed_to_f32(dy_unaccel)
 		// Move relative to center, matching the warp-based platforms
 		append(&s.events, Event_Mouse_Move {
 			position = {cx + fdx, cy + fdy},

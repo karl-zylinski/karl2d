@@ -10,10 +10,12 @@ add_listener :: proc(
 	return proxy_add_listener(proxy, rawptr(listener), data)
 }
 
+DISPLAY_GET_REGISTRY :: 1
+
 display_get_registry :: proc "c" (display: ^Display) -> ^Registry {
 	return (^Registry)(proxy_marshal_flags(
 		display,
-		1, // WL_DISPLAY_GET_REGISTRY
+		DISPLAY_GET_REGISTRY,
 		&registry_interface,
 		proxy_get_version(display),
 		0,
@@ -37,6 +39,11 @@ Registry_Listener :: struct {
 	global_remove: proc "c" (data: rawptr, registry: ^Registry, name: u32),
 }
 
+REGISTRY_BIND :: 0
+
+// Bound at the version these bindings implement at most. Binding at whatever the
+// compositor advertises tells it we understand events we don't, and an event past the
+// end of our event table makes libwayland abort the process.
 registry_bind :: proc(
 	$T: typeid,
 	registry: ^Registry,
@@ -44,15 +51,17 @@ registry_bind :: proc(
 	interface: ^Interface,
 	version: u32,
 ) -> ^T {
+	bind_version := min(version, u32(interface.version))
+
 	return (^T)(proxy_marshal_flags(
 		registry,
-		0,
+		REGISTRY_BIND,
 		interface,
-		version,
+		bind_version,
 		0,
 		name,
 		interface.name,
-		version,
+		bind_version,
 		nil,
 	))
 }
@@ -103,7 +112,7 @@ Compositor_Listener :: struct {}
 compositor_create_surface :: proc "c" (compositor: ^Compositor) -> ^Surface {
 	return (^Surface)(proxy_marshal_flags(
 		compositor,
-		0,
+		COMPOSITOR_CREATE_SURFACE,
 		&surface_interface,
 		proxy_get_version(compositor),
 		0,
@@ -114,7 +123,7 @@ compositor_create_surface :: proc "c" (compositor: ^Compositor) -> ^Surface {
 compositor_create_region :: proc "c" (compositor: ^Compositor) -> ^Region {
 	return (^Region)(proxy_marshal_flags(
 		compositor,
-		1,
+		COMPOSITOR_CREATE_REGION,
 		&region_interface,
 		proxy_get_version(compositor),
 		0,
@@ -130,9 +139,12 @@ compositor_interface := Interface {
 		{"create_surface", "n", raw_data([]^Interface{&surface_interface})},
 		{"create_region", "n", raw_data([]^Interface{&region_interface})},
 	}),
-	0, 
+	0,
 	nil,
 }
+
+COMPOSITOR_CREATE_SURFACE :: 0
+COMPOSITOR_CREATE_REGION :: 1
 
 
 Region :: struct {
@@ -140,7 +152,13 @@ Region :: struct {
 }
 
 region_destroy :: proc "c" (region: ^Region) {
-	proxy_marshal_flags(region, 0, nil, proxy_get_version(region), MARSHAL_FLAG_DESTROY)
+	proxy_marshal_flags(
+		region,
+		REGION_DESTROY,
+		nil,
+		proxy_get_version(region),
+		MARSHAL_FLAG_DESTROY,
+	)
 }
 
 region_add :: proc "c" (
@@ -150,7 +168,7 @@ region_add :: proc "c" (
 	width: c.int32_t,
 	height: c.int32_t,
 ) {
-	proxy_marshal_flags(region, 1, nil, proxy_get_version(region), 0, x, y, width, height)
+	proxy_marshal_flags(region, REGION_ADD, nil, proxy_get_version(region), 0, x, y, width, height)
 }
 
 region_interface := Interface {
@@ -166,6 +184,10 @@ region_interface := Interface {
 	nil,
 }
 
+REGION_DESTROY :: 0
+REGION_ADD :: 1
+REGION_SUBTRACT :: 2
+
 
 Buffer :: struct {
 	using proxy: Proxy,
@@ -178,7 +200,7 @@ Buffer_Listener :: struct {
 buffer_destroy :: proc "c" (buffer: ^Buffer) {
 	proxy_marshal_flags(
 		buffer,
-		0,
+		BUFFER_DESTROY,
 		nil,
 		proxy_get_version(buffer),
 		MARSHAL_FLAG_DESTROY,
@@ -188,11 +210,13 @@ buffer_destroy :: proc "c" (buffer: ^Buffer) {
 buffer_interface := Interface {
 	"wl_buffer",
 	1,
-	1, 
+	1,
 	raw_data([]Message{{"destroy", "", raw_data([]^Interface{})}}),
-	1, 
+	1,
 	raw_data([]Message{{"release", "", raw_data([]^Interface{})}}),
 }
+
+BUFFER_DESTROY :: 0
 
 
 Surface :: struct {
@@ -225,7 +249,7 @@ Surface_Listener :: struct {
 surface_destroy :: proc "c" (surface: ^Surface) {
 	proxy_marshal_flags(
 		surface,
-		0,
+		SURFACE_DESTROY,
 		nil,
 		proxy_get_version(surface),
 		MARSHAL_FLAG_DESTROY,
@@ -235,7 +259,7 @@ surface_destroy :: proc "c" (surface: ^Surface) {
 surface_attach :: proc "c" (surface: ^Surface, buffer: ^Buffer, x: c.int32_t, y: c.int32_t) {
 	proxy_marshal_flags(
 		surface,
-		1,
+		SURFACE_ATTACH,
 		nil,
 		proxy_get_version(surface),
 		0,
@@ -256,7 +280,7 @@ surface_damage_buffer :: proc "c" (
 ) {
 	proxy_marshal_flags(
 		surface,
-		9,
+		SURFACE_DAMAGE_BUFFER,
 		nil,
 		proxy_get_version(surface),
 		0,
@@ -270,14 +294,21 @@ surface_damage_buffer :: proc "c" (
 // Which part of a surface takes pointer events. A surface with no region set takes them
 // everywhere it reaches, transparent pixels included.
 surface_set_input_region :: proc "c" (surface: ^Surface, region: ^Region) {
-	proxy_marshal_flags(surface, 5, nil, proxy_get_version(surface), 0, region)
+	proxy_marshal_flags(
+		surface,
+		SURFACE_SET_INPUT_REGION,
+		nil,
+		proxy_get_version(surface),
+		0,
+		region,
+	)
 }
 
 surface_frame :: proc "c" (surface: ^Surface) -> ^Callback {
 	callback: ^Proxy
 	callback = proxy_marshal_flags(
 		surface,
-		3,
+		SURFACE_FRAME,
 		&callback_interface,
 		proxy_get_version(surface),
 		0,
@@ -290,7 +321,7 @@ surface_frame :: proc "c" (surface: ^Surface) -> ^Callback {
 surface_commit :: proc "c" (surface: ^Surface) {
 	proxy_marshal_flags(
 		surface,
-		6,
+		SURFACE_COMMIT,
 		nil,
 		proxy_get_version(surface),
 		0,
@@ -306,22 +337,40 @@ surface_interface := Interface {
 		{"attach", "?oii", raw_data([]^Interface{&buffer_interface, nil, nil})},
 		{"damage", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
 		{"frame", "n", raw_data([]^Interface{&callback_interface})},
-		{"set_opaque_region", "?o", raw_data([]^Interface{nil})},
+		{"set_opaque_region", "?o", raw_data([]^Interface{&region_interface})},
 		{"set_input_region", "?o", raw_data([]^Interface{&region_interface})},
 		{"commit", "", raw_data([]^Interface{})},
-		{"set_buffer_transform", "i", raw_data([]^Interface{nil})},
-		{"set_buffer_scale", "i", raw_data([]^Interface{nil})},
-		{"damage_buffer", "iiii", raw_data([]^Interface{nil, nil, nil, nil})},
-		{"offset", "ii", raw_data([]^Interface{nil, nil})},
+		{"set_buffer_transform", "2i", raw_data([]^Interface{nil})},
+		{"set_buffer_scale", "3i", raw_data([]^Interface{nil})},
+		{"damage_buffer", "4iiii", raw_data([]^Interface{nil, nil, nil, nil})},
+		{"offset", "5ii", raw_data([]^Interface{nil, nil})},
 	}),
 	4,
 	raw_data([]Message {
 		{"enter", "o", raw_data([]^Interface{&output_interface})},
 		{"leave", "o", raw_data([]^Interface{&output_interface})},
-		{"preferred_buffer_scale", "i", raw_data([]^Interface{nil})},
-		{"preferred_buffer_transform", "u", raw_data([]^Interface{nil})},
+		{"preferred_buffer_scale", "6i", raw_data([]^Interface{nil})},
+		{"preferred_buffer_transform", "6u", raw_data([]^Interface{nil})},
 	}),
 }
+
+SURFACE_DESTROY :: 0
+SURFACE_ATTACH :: 1
+SURFACE_DAMAGE :: 2
+SURFACE_FRAME :: 3
+SURFACE_SET_OPAQUE_REGION :: 4
+SURFACE_SET_INPUT_REGION :: 5
+SURFACE_COMMIT :: 6
+SURFACE_SET_BUFFER_TRANSFORM :: 7
+SURFACE_SET_BUFFER_SCALE :: 8
+SURFACE_DAMAGE_BUFFER :: 9
+SURFACE_OFFSET :: 10
+
+SURFACE_ERROR_INVALID_SCALE :: 0
+SURFACE_ERROR_INVALID_TRANSFORM :: 1
+SURFACE_ERROR_INVALID_SIZE :: 2
+SURFACE_ERROR_INVALID_OFFSET :: 3
+SURFACE_ERROR_DEFUNCT_ROLE_OBJECT :: 4
 
 Subcompositor :: struct {
 	using proxy: Proxy,
@@ -334,7 +383,7 @@ subcompositor_get_subsurface :: proc "c" (
 ) -> ^Subsurface {
 	return (^Subsurface)(proxy_marshal_flags(
 		subcompositor,
-		1,
+		SUBCOMPOSITOR_GET_SUBSURFACE,
 		&subsurface_interface,
 		proxy_get_version(subcompositor),
 		0,
@@ -359,17 +408,37 @@ subcompositor_interface := Interface {
 	nil,
 }
 
+SUBCOMPOSITOR_DESTROY :: 0
+SUBCOMPOSITOR_GET_SUBSURFACE :: 1
+
+SUBCOMPOSITOR_ERROR_BAD_SURFACE :: 0
+SUBCOMPOSITOR_ERROR_BAD_PARENT :: 1
+
 
 Subsurface :: struct {
 	using proxy: Proxy,
 }
 
 subsurface_destroy :: proc "c" (subsurface: ^Subsurface) {
-	proxy_marshal_flags(subsurface, 0, nil, proxy_get_version(subsurface), MARSHAL_FLAG_DESTROY)
+	proxy_marshal_flags(
+		subsurface,
+		SUBSURFACE_DESTROY,
+		nil,
+		proxy_get_version(subsurface),
+		MARSHAL_FLAG_DESTROY,
+	)
 }
 
 subsurface_set_position :: proc "c" (subsurface: ^Subsurface, x: c.int32_t, y: c.int32_t) {
-	proxy_marshal_flags(subsurface, 1, nil, proxy_get_version(subsurface), 0, x, y)
+	proxy_marshal_flags(
+		subsurface,
+		SUBSURFACE_SET_POSITION,
+		nil,
+		proxy_get_version(subsurface),
+		0,
+		x,
+		y,
+	)
 }
 
 subsurface_interface := Interface {
@@ -388,6 +457,15 @@ subsurface_interface := Interface {
 	nil,
 }
 
+SUBSURFACE_DESTROY :: 0
+SUBSURFACE_SET_POSITION :: 1
+SUBSURFACE_PLACE_ABOVE :: 2
+SUBSURFACE_PLACE_BELOW :: 3
+SUBSURFACE_SET_SYNC :: 4
+SUBSURFACE_SET_DESYNC :: 5
+
+SUBSURFACE_ERROR_BAD_SURFACE :: 0
+
 Seat :: struct {
 	using proxy: Proxy,
 }
@@ -400,7 +478,7 @@ Seat_Listener :: struct {
 seat_get_pointer :: proc "c" (seat: ^Seat) -> ^Pointer {
 	return (^Pointer)(proxy_marshal_flags(
 		seat,
-		0,
+		SEAT_GET_POINTER,
 		&pointer_interface,
 		proxy_get_version(seat),
 		0,
@@ -411,7 +489,7 @@ seat_get_pointer :: proc "c" (seat: ^Seat) -> ^Pointer {
 seat_get_keyboard :: proc "c" (seat: ^Seat) -> ^Keyboard {
 	return (^Keyboard)(proxy_marshal_flags(
 		seat,
-		1,
+		SEAT_GET_KEYBOARD,
 		&keyboard_interface,
 		proxy_get_version(seat),
 		0,
@@ -422,7 +500,7 @@ seat_get_keyboard :: proc "c" (seat: ^Seat) -> ^Keyboard {
 seat_get_touch :: proc "c" (seat: ^Seat) -> ^Touch {
 	return (^Touch)(proxy_marshal_flags(
 		seat,
-		2,
+		SEAT_GET_TOUCH,
 		&touch_interface,
 		proxy_get_version(seat),
 		0,
@@ -433,7 +511,7 @@ seat_get_touch :: proc "c" (seat: ^Seat) -> ^Touch {
 seat_release :: proc "c" (seat: ^Seat) {
 	proxy_marshal_flags(
 		seat,
-		3,
+		SEAT_RELEASE,
 		nil,
 		proxy_get_version(seat),
 		MARSHAL_FLAG_DESTROY,
@@ -448,14 +526,21 @@ seat_interface := Interface {
 		{"get_pointer", "n", raw_data([]^Interface{&pointer_interface})},
 		{"get_keyboard", "n", raw_data([]^Interface{&keyboard_interface})},
 		{"get_touch", "n", raw_data([]^Interface{&touch_interface})},
-		{"release", "", raw_data([]^Interface{})},
+		{"release", "5", raw_data([]^Interface{})},
 	}),
 	2,
 	raw_data([]Message {
 		{"capabilities", "u", raw_data([]^Interface{nil})},
-		{"name", "s", raw_data([]^Interface{nil})},
+		{"name", "2s", raw_data([]^Interface{nil})},
 	}),
 }
+
+SEAT_GET_POINTER :: 0
+SEAT_GET_KEYBOARD :: 1
+SEAT_GET_TOUCH :: 2
+SEAT_RELEASE :: 3
+
+SEAT_ERROR_MISSING_CAPABILITY :: 0
 
 Seat_Capability :: enum u32 {
 	Pointer,
@@ -548,7 +633,7 @@ pointer_set_cursor :: proc "c" (
 ) {
 	proxy_marshal_flags(
 		pointer,
-		0,
+		POINTER_SET_CURSOR,
 		nil,
 		proxy_get_version(pointer),
 		0,
@@ -562,7 +647,7 @@ pointer_set_cursor :: proc "c" (
 pointer_release :: proc "c" (pointer: ^Pointer) {
 	proxy_marshal_flags(
 		pointer,
-		1,
+		POINTER_RELEASE,
 		nil,
 		proxy_get_version(pointer),
 		MARSHAL_FLAG_DESTROY,
@@ -575,7 +660,7 @@ pointer_interface := Interface {
 	2,
 	raw_data([]Message {
 		{"set_cursor", "u?oii", raw_data([]^Interface{nil, &surface_interface, nil, nil})},
-		{"release", "", raw_data([]^Interface{})},
+		{"release", "3", raw_data([]^Interface{})},
 	}),
 	11,
 	raw_data([]Message {
@@ -584,14 +669,17 @@ pointer_interface := Interface {
 		{"motion", "uff", raw_data([]^Interface{nil, nil, nil})},
 		{"button", "uuuu", raw_data([]^Interface{nil, nil, nil, nil})},
 		{"axis", "uuf", raw_data([]^Interface{nil, nil, nil})},
-		{"frame", "", raw_data([]^Interface{})},
-		{"axis_source", "u", raw_data([]^Interface{nil})},
-		{"axis_stop", "uu", raw_data([]^Interface{nil, nil})},
-		{"axis_discrete", "ui", raw_data([]^Interface{nil, nil})},
-		{"axis_value120", "ui", raw_data([]^Interface{nil, nil})},
-		{"axis_relative_direction", "uu", raw_data([]^Interface{nil, nil})},
+		{"frame", "5", raw_data([]^Interface{})},
+		{"axis_source", "5u", raw_data([]^Interface{nil})},
+		{"axis_stop", "5uu", raw_data([]^Interface{nil, nil})},
+		{"axis_discrete", "5ui", raw_data([]^Interface{nil, nil})},
+		{"axis_value120", "8ui", raw_data([]^Interface{nil, nil})},
+		{"axis_relative_direction", "9uu", raw_data([]^Interface{nil, nil})},
 	}),
 }
+
+POINTER_SET_CURSOR :: 0
+POINTER_RELEASE :: 1
 
 POINTER_ERROR_ROLE :: 0
 POINTER_BUTTON_STATE_PRESSED :: 1
@@ -605,14 +693,14 @@ POINTER_AXIS_SOURCE_FINGER :: 1
 POINTER_AXIS_RELATIVE_DIRECTION_IDENTICAL :: 0
 POINTER_AXIS_RELATIVE_DIRECTION_INVERTED :: 1
 
-POINTER_BTN_LEFT :: 0x110
-POINTER_BTN_RIGHT :: 0x111
-POINTER_BTN_MIDDLE :: 0x112
-POINTER_BTN_SIDE :: 0x113
-POINTER_BTN_EXTRA :: 0x114
-POINTER_BTN_FORWARD :: 0x115
-POINTER_BTN_BACK :: 0x116
-POINTER_BTN_TASK :: 0x117
+BTN_LEFT :: 0x110
+BTN_RIGHT :: 0x111
+BTN_MIDDLE :: 0x112
+BTN_SIDE :: 0x113
+BTN_EXTRA :: 0x114
+BTN_FORWARD :: 0x115
+BTN_BACK :: 0x116
+BTN_TASK :: 0x117
 
 Keyboard :: struct {
 	using proxy: Proxy,
@@ -667,7 +755,7 @@ Keyboard_Listener :: struct {
 keyboard_release :: proc "c" (keyboard: ^Keyboard) {
 	proxy_marshal_flags(
 		keyboard,
-		0,
+		KEYBOARD_RELEASE,
 		nil,
 		proxy_get_version(keyboard),
 		MARSHAL_FLAG_DESTROY,
@@ -678,7 +766,7 @@ keyboard_interface := Interface {
 	"wl_keyboard",
 	9,
 	1,
-	raw_data([]Message{{"release", "", raw_data([]^Interface{})}}),
+	raw_data([]Message{{"release", "3", raw_data([]^Interface{})}}),
 	6,
 	raw_data([]Message {
 		{"keymap", "uhu", raw_data([]^Interface{nil, nil, nil})},
@@ -686,14 +774,17 @@ keyboard_interface := Interface {
 		{"leave", "uo", raw_data([]^Interface{nil, &surface_interface})},
 		{"key", "uuuu", raw_data([]^Interface{nil, nil, nil, nil})},
 		{"modifiers", "uuuuu", raw_data([]^Interface{nil, nil, nil, nil, nil})},
-		{"repeat_info", "ii", raw_data([]^Interface{nil, nil})},
+		{"repeat_info", "4ii", raw_data([]^Interface{nil, nil})},
 	}),
 }
+
+KEYBOARD_RELEASE :: 0
 
 KEYBOARD_KEYMAP_FORMAT_NO_KEYMAP :: 0
 KEYBOARD_KEYMAP_FORMAT_XKB_V1 :: 1
 KEYBOARD_KEY_STATE_RELEASED :: 0
 KEYBOARD_KEY_STATE_PRESSED :: 1
+KEYBOARD_KEY_STATE_REPEATED :: 2
 
 
 Touch :: struct {
@@ -746,7 +837,7 @@ Touch_Listener :: struct {
 touch_release :: proc "c" (touch: ^Touch) {
 	proxy_marshal_flags(
 		touch,
-		0,
+		TOUCH_RELEASE,
 		nil,
 		proxy_get_version(touch),
 		MARSHAL_FLAG_DESTROY,
@@ -757,7 +848,7 @@ touch_interface := Interface {
 	"wl_touch",
 	9,
 	1,
-	raw_data([]Message{{"release", "", raw_data([]^Interface{})}}),
+	raw_data([]Message{{"release", "3", raw_data([]^Interface{})}}),
 	7,
 	raw_data([]Message {
 		{"down", "uuoiff", raw_data([]^Interface{nil, nil, &surface_interface, nil, nil, nil})},
@@ -765,10 +856,12 @@ touch_interface := Interface {
 		{"motion", "uiff", raw_data([]^Interface{nil, nil, nil, nil})},
 		{"frame", "", raw_data([]^Interface{})},
 		{"cancel", "", raw_data([]^Interface{})},
-		{"shape", "iff", raw_data([]^Interface{nil, nil, nil})},
-		{"orientation", "if", raw_data([]^Interface{nil, nil})},
+		{"shape", "6iff", raw_data([]^Interface{nil, nil, nil})},
+		{"orientation", "6if", raw_data([]^Interface{nil, nil})},
 	}),
 }
+
+TOUCH_RELEASE :: 0
 
 Output :: struct {
 	using proxy: Proxy,
@@ -804,7 +897,7 @@ Output_Listener :: struct {
 output_release :: proc "c" (output: ^Output) {
 	proxy_marshal_flags(
 		output,
-		0,
+		OUTPUT_RELEASE,
 		nil,
 		proxy_get_version(output),
 		MARSHAL_FLAG_DESTROY,
@@ -815,17 +908,19 @@ output_interface := Interface {
 	"wl_output",
 	4,
 	1,
-	raw_data([]Message{{"release", "", raw_data([]^Interface{})}}),
+	raw_data([]Message{{"release", "3", raw_data([]^Interface{})}}),
 	6,
 	raw_data([]Message {
 		{"geometry", "iiiiissi", raw_data([]^Interface{nil, nil, nil, nil, nil, nil, nil, nil})},
 		{"mode", "uiii", raw_data([]^Interface{nil, nil, nil, nil})},
-		{"done", "", raw_data([]^Interface{})},
-		{"scale", "i", raw_data([]^Interface{nil})},
-		{"name", "s", raw_data([]^Interface{nil})},
-		{"description", "s", raw_data([]^Interface{nil})},
+		{"done", "2", raw_data([]^Interface{})},
+		{"scale", "2i", raw_data([]^Interface{nil})},
+		{"name", "4s", raw_data([]^Interface{nil})},
+		{"description", "4s", raw_data([]^Interface{nil})},
 	}),
 }
+
+OUTPUT_RELEASE :: 0
 
 OUTPUT_SUBPIXEL_NONE :: 1
 OUTPUT_SUBPIXEL_HORIZONTAL_RGB :: 2
@@ -848,12 +943,17 @@ SHM_Pool :: struct {
 	using proxy: Proxy,
 }
 
+SHM_ERROR_INVALID_FORMAT :: 0
+SHM_ERROR_INVALID_STRIDE :: 1
+SHM_ERROR_INVALID_FD :: 2
+
 SHM_FORMAT_ARGB8888 :: u32(0)
+SHM_FORMAT_XRGB8888 :: u32(1)
 
 shm_create_pool :: proc "c" (shm: ^SHM, fd: c.int32_t, size: c.int32_t) -> ^SHM_Pool {
 	return (^SHM_Pool)(proxy_marshal_flags(
 		shm,
-		0,
+		SHM_CREATE_POOL,
 		&shm_pool_interface,
 		proxy_get_version(shm),
 		0,
@@ -865,7 +965,7 @@ shm_create_pool :: proc "c" (shm: ^SHM, fd: c.int32_t, size: c.int32_t) -> ^SHM_
 
 shm_pool_interface := Interface {
 	"wl_shm_pool",
-	1,
+	2,
 	3,
 	raw_data([]Message{
 		{
@@ -879,6 +979,10 @@ shm_pool_interface := Interface {
 	nil,
 }
 
+SHM_POOL_CREATE_BUFFER :: 0
+SHM_POOL_DESTROY :: 1
+SHM_POOL_RESIZE :: 2
+
 shm_pool_create_buffer :: proc "c" (
 	pool: ^SHM_Pool,
 	offset: c.int32_t,
@@ -889,7 +993,7 @@ shm_pool_create_buffer :: proc "c" (
 ) -> ^Buffer {
 	return (^Buffer)(proxy_marshal_flags(
 		pool,
-		0,
+		SHM_POOL_CREATE_BUFFER,
 		&buffer_interface,
 		proxy_get_version(pool),
 		0,
@@ -903,7 +1007,7 @@ shm_pool_create_buffer :: proc "c" (
 }
 
 shm_pool_destroy :: proc "c" (pool: ^SHM_Pool) {
-	proxy_marshal_flags(pool, 1, nil, proxy_get_version(pool), MARSHAL_FLAG_DESTROY)
+	proxy_marshal_flags(pool, SHM_POOL_DESTROY, nil, proxy_get_version(pool), MARSHAL_FLAG_DESTROY)
 }
 
 WP_Cursor_Shape_Manager_V1 :: struct {
@@ -925,13 +1029,16 @@ wp_cursor_shape_manager_v1_interface := Interface {
 	nil,
 }
 
+WP_CURSOR_SHAPE_MANAGER_V1_DESTROY :: 0
+WP_CURSOR_SHAPE_MANAGER_V1_GET_POINTER :: 1
+
 cursor_shape_manager_get_pointer :: proc "c" (
 	manager: ^WP_Cursor_Shape_Manager_V1,
 	pointer: ^Pointer,
 ) -> ^WP_Cursor_Shape_Device_V1 {
 	return (^WP_Cursor_Shape_Device_V1)(proxy_marshal_flags(
 		manager,
-		1,
+		WP_CURSOR_SHAPE_MANAGER_V1_GET_POINTER,
 		&cursor_shape_device_interface,
 		proxy_get_version(manager),
 		0,
@@ -941,7 +1048,13 @@ cursor_shape_manager_get_pointer :: proc "c" (
 }
 
 cursor_shape_manager_destroy :: proc "c" (manager: ^WP_Cursor_Shape_Manager_V1) {
-	proxy_marshal_flags(manager, 0, nil, proxy_get_version(manager), MARSHAL_FLAG_DESTROY)
+	proxy_marshal_flags(
+		manager,
+		WP_CURSOR_SHAPE_MANAGER_V1_DESTROY,
+		nil,
+		proxy_get_version(manager),
+		MARSHAL_FLAG_DESTROY,
+	)
 }
 
 WP_Cursor_Shape_Device_V1 :: struct {
@@ -997,14 +1110,33 @@ cursor_shape_device_interface := Interface {
 	nil,
 }
 
+WP_CURSOR_SHAPE_DEVICE_V1_DESTROY :: 0
+WP_CURSOR_SHAPE_DEVICE_V1_SET_SHAPE :: 1
+
+WP_CURSOR_SHAPE_DEVICE_V1_ERROR_INVALID_SHAPE :: 1
+
 cursor_shape_device_set_shape :: proc "c" (
 	device: ^WP_Cursor_Shape_Device_V1,
 	serial: u32,
 	shape: WP_Cursor_Shape,
 ) {
-	proxy_marshal_flags(device, 1, nil, proxy_get_version(device), 0, serial, u32(shape))
+	proxy_marshal_flags(
+		device,
+		WP_CURSOR_SHAPE_DEVICE_V1_SET_SHAPE,
+		nil,
+		proxy_get_version(device),
+		0,
+		serial,
+		u32(shape),
+	)
 }
 
 cursor_shape_device_destroy :: proc "c" (device: ^WP_Cursor_Shape_Device_V1) {
-	proxy_marshal_flags(device, 0, nil, proxy_get_version(device), MARSHAL_FLAG_DESTROY)
+	proxy_marshal_flags(
+		device,
+		WP_CURSOR_SHAPE_DEVICE_V1_DESTROY,
+		nil,
+		proxy_get_version(device),
+		MARSHAL_FLAG_DESTROY,
+	)
 }
