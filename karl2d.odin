@@ -6018,7 +6018,6 @@ Audio_Stream_Seek_State :: enum {
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
-// Tracks where the audio stream has written samples and where in the file it is decoding from.
 Audio_Stream_Cursor :: struct {
 	// Where in `Audio_Stream_Data.buffer` we have most recently written samples. Together with
 	// `Sound_Object.offset`, this forms a circular buffer. This field is the 'head' and the offset
