@@ -190,8 +190,8 @@ init :: proc(
 
 	s.events = make([dynamic]Event, s.allocator)
 	s.typed_runes = make([dynamic]rune, s.allocator)
-	s.mouse_touch_emulation = .Mouse_Events_From_Touch
-	s.mouse_touch_id = EMULATED_TOUCH_ID
+	s.mouse_touch_emulation = .Touch_To_Mouse
+	s.touch_to_mouse_id = TOUCH_TO_MOUSE_ID_NONE
 
 	// Audio
 	{
@@ -409,7 +409,7 @@ process_events :: proc() {
 	switch s.mouse_touch_emulation {
 	case .None:
 
-	case .Mouse_Events_From_Touch:
+	case .Touch_To_Mouse:
 		num_platform_events := len(s.events)
 		touches_down := len(s.touches)
 
@@ -417,7 +417,7 @@ process_events :: proc() {
 			#partial switch e in s.events[i] {
 			case Event_Touch_Went_Down:
 				if touches_down == 0 {
-					s.mouse_touch_id = e.id
+					s.touch_to_mouse_id = e.id
 					append(&s.events, Event_Mouse_Teleported { position = e.position })
 					append(&s.events, Event_Mouse_Button_Went_Down { button = .Left })
 				}
@@ -425,15 +425,15 @@ process_events :: proc() {
 				touches_down += 1
 
 			case Event_Touch_Moved:
-				if e.id == s.mouse_touch_id {
+				if e.id == s.touch_to_mouse_id {
 					append(&s.events, Event_Mouse_Move { position = e.position })
 				}
 
 			case Event_Touch_Went_Up:
 				touches_down -= 1
 
-				if e.id == s.mouse_touch_id {
-					s.mouse_touch_id = EMULATED_TOUCH_ID
+				if e.id == s.touch_to_mouse_id {
+					s.touch_to_mouse_id = TOUCH_TO_MOUSE_ID_NONE
 					append(&s.events, Event_Mouse_Move { position = e.position })
 					append(&s.events, Event_Mouse_Button_Went_Up { button = .Left })
 				}
@@ -441,14 +441,14 @@ process_events :: proc() {
 			case Event_Touch_Cancelled:
 				touches_down -= 1
 
-				if e.id == s.mouse_touch_id {
-					s.mouse_touch_id = EMULATED_TOUCH_ID
+				if e.id == s.touch_to_mouse_id {
+					s.touch_to_mouse_id = TOUCH_TO_MOUSE_ID_NONE
 					append(&s.events, Event_Mouse_Button_Went_Up { button = .Left })
 				}
 			}
 		}
 
-	case .Touch_Events_From_Mouse:
+	case .Mouse_To_Touch:
 		num_platform_events := len(s.events)
 		mouse_position := s.mouse_position
 		touch_is_down := _find_touch(EMULATED_TOUCH_ID) != nil
@@ -616,7 +616,7 @@ process_events :: proc() {
 				}
 			}
 
-			s.mouse_touch_id = EMULATED_TOUCH_ID
+			s.touch_to_mouse_id = TOUCH_TO_MOUSE_ID_NONE
 
 		case Event_Window_Scale_Changed:
 			draw_current_batch()
@@ -832,8 +832,8 @@ get_typed_runes :: proc() -> []rune {
 // Returns all touches that were active at any point during this frame, including those that ended
 // this frame (those have `went_up` set).
 //
-// TODO-UPDATE-COMMENT the mouse no longer makes touches by default, `.Touch_Events_From_Mouse` has
-// to be turned on for that.
+// TODO-UPDATE-COMMENT the mouse no longer makes touches by default, `.Mouse_To_Touch` has to be
+// turned on for that.
 // ---
 // Note: Only web reports touches from a real touch screen. On desktop the only touches you get are
 // the ones `set_touch_events_from_mouse` makes from the mouse.
@@ -852,8 +852,8 @@ set_mouse_touch_emulation :: proc(emulation: Mouse_Touch_Emulation) {
 	s.mouse_touch_emulation = emulation
 }
 
-// TODO-UPDATE-COMMENT this is the deprecated version, and the default is now
-// `.Mouse_Events_From_Touch`. The touch also shows up in `get_events` these days.
+// TODO-UPDATE-COMMENT this is the deprecated version, and the default is now `.Touch_To_Mouse`. The
+// touch also shows up in `get_events` these days.
 // ---
 // Enabled by default. Holding the left mouse button produces a touch (with id `EMULATED_TOUCH_ID`),
 // so code written for touch also works with a mouse. Turn it off if you handle the mouse yourself,
@@ -863,7 +863,7 @@ set_mouse_touch_emulation :: proc(emulation: Mouse_Touch_Emulation) {
 // `get_touches`.
 @(deprecated="Use set_mouse_touch_emulation instead.")
 set_touch_events_from_mouse :: proc(enabled: bool) {
-	set_mouse_touch_emulation(enabled ? .Touch_Events_From_Mouse : .None)
+	set_mouse_touch_emulation(enabled ? .Mouse_To_Touch : .None)
 }
 
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
@@ -6303,7 +6303,7 @@ State :: struct {
 	// See `set_mouse_touch_emulation`.
 	mouse_touch_emulation: Mouse_Touch_Emulation,
 
-	mouse_touch_id: Touch_Id,
+	touch_to_mouse_id: Touch_Id,
 
 	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
@@ -6409,7 +6409,8 @@ MAX_TOUCHES :: 11
 // goes down until it goes up. Ids may be reused after that.
 Touch_Id :: distinct u64
 
-// TODO-UPDATE-COMMENT this id is also what `mouse_touch_id` holds while no finger drives the mouse
+// TODO-UPDATE-COMMENT `TOUCH_TO_MOUSE_ID_NONE` reserves the next id down, so the top two ids are
+// both spoken for.
 // ---
 // The id of the touch synthesized by `set_mouse_touch_emulation`. Never collides with a real id.
 EMULATED_TOUCH_ID :: max(Touch_Id)
@@ -6436,8 +6437,8 @@ Touch :: struct {
 
 Mouse_Touch_Emulation :: enum {
 	None,
-	Mouse_Events_From_Touch,
-	Touch_Events_From_Mouse,
+	Touch_To_Mouse,
+	Mouse_To_Touch,
 }
 
 // Based on Raylib / GLFW
@@ -6726,6 +6727,8 @@ Event_Touch_Cancelled :: struct { id: Touch_Id }
 
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
+
+TOUCH_TO_MOUSE_ID_NONE :: max(Touch_Id) - 1
 
 // Returns true if `r` should be treated as a typed character for text input purposes. Filters out
 // control characters such as Backspace, Enter, Tab, Escape and Delete. Used by the platform

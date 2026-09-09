@@ -232,8 +232,8 @@ get_typed_runes :: proc() -> []rune
 // Returns all touches that were active at any point during this frame, including those that ended
 // this frame (those have `went_up` set).
 //
-// TODO-UPDATE-COMMENT the mouse no longer makes touches by default, `.Touch_Events_From_Mouse` has
-// to be turned on for that.
+// TODO-UPDATE-COMMENT the mouse no longer makes touches by default, `.Mouse_To_Touch` has to be
+// turned on for that.
 // ---
 // Note: Only web reports touches from a real touch screen. On desktop the only touches you get are
 // the ones `set_touch_events_from_mouse` makes from the mouse.
@@ -1857,7 +1857,7 @@ State :: struct {
 	// See `set_mouse_touch_emulation`.
 	mouse_touch_emulation: Mouse_Touch_Emulation,
 
-	mouse_touch_id: Touch_Id,
+	touch_to_mouse_id: Touch_Id,
 
 	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
@@ -1962,7 +1962,8 @@ MAX_TOUCHES :: 11
 // goes down until it goes up. Ids may be reused after that.
 Touch_Id :: distinct u64
 
-// TODO-UPDATE-COMMENT this id is also what `mouse_touch_id` holds while no finger drives the mouse
+// TODO-UPDATE-COMMENT `TOUCH_TO_MOUSE_ID_NONE` reserves the next id down, so the top two ids are
+// both spoken for.
 // ---
 // The id of the touch synthesized by `set_mouse_touch_emulation`. Never collides with a real id.
 EMULATED_TOUCH_ID :: max(Touch_Id)
@@ -1989,8 +1990,8 @@ Touch :: struct {
 
 Mouse_Touch_Emulation :: enum {
 	None,
-	Mouse_Events_From_Touch,
-	Touch_Events_From_Mouse,
+	Touch_To_Mouse,
+	Mouse_To_Touch,
 }
 
 // Based on Raylib / GLFW

@@ -73,7 +73,7 @@ step :: proc() -> bool {
 
 	if k2.key_went_down(.M) {
 		mouse_emulates_touch = !mouse_emulates_touch
-		k2.set_mouse_touch_emulation(mouse_emulates_touch ? .Touch_Events_From_Mouse : .None)
+		k2.set_mouse_touch_emulation(mouse_emulates_touch ? .Mouse_To_Touch : .None)
 	}
 
 	touches := k2.get_touches()
