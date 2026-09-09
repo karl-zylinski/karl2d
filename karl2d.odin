@@ -2455,9 +2455,9 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool
 	audio_buffer_object_ok: bool
 
 	if len(bytes) >= 4 && string(bytes[:4]) == "OggS" {
-		audio_buffer_object, audio_buffer_object_ok = _load_audio_clip_from_bytes_ogg(bytes)
+		audio_buffer_object, audio_buffer_object_ok = _load_audio_buffer_from_ogg(bytes)
 	} else {
-		audio_buffer_object, audio_buffer_object_ok = _load_audio_clip_from_bytes_wav(bytes)
+		audio_buffer_object, audio_buffer_object_ok = _load_audio_buffer_from_wav(bytes)
 	}
 
 	if !audio_buffer_object_ok {
@@ -2476,7 +2476,7 @@ load_audio_clip_from_bytes :: proc(bytes: []u8) -> (_clip: Audio_Clip, _ok: bool
 	return Audio_Clip(audio_buffer), true
 }
 
-_load_audio_clip_from_bytes_ogg :: proc(
+_load_audio_buffer_from_ogg :: proc(
 	bytes: []u8,
 ) -> (
 	_audio_buffer_object: Audio_Buffer_Object,
@@ -2550,7 +2550,7 @@ _load_audio_clip_from_bytes_ogg :: proc(
 	return audio_buffer_object, true
 }
 
-_load_audio_clip_from_bytes_wav :: proc(
+_load_audio_buffer_from_wav :: proc(
 	bytes: []u8,
 ) -> (
 	_audio_buffer_object: Audio_Buffer_Object,
@@ -2726,7 +2726,7 @@ _load_audio_clip_from_bytes_wav :: proc(
 		return
 	}
 
-	return _load_audio_clip_from_bytes_raw(samples, format, sample_rate, channels), true
+	return _load_audio_buffer_from_raw_samples(samples, format, sample_rate, channels), true
 }
 
 // Load an audio clip from some raw audio data. You need to specify the data, format and sample
@@ -2743,7 +2743,7 @@ load_audio_clip_from_bytes_raw :: proc(
 	sample_rate: int,
 	channels: Audio_Channels,
 ) -> (Audio_Clip, bool) #optional_ok {
-	audio_buffer_object := _load_audio_clip_from_bytes_raw(bytes, format, sample_rate, channels)
+	audio_buffer_object := _load_audio_buffer_from_raw_samples(bytes, format, sample_rate, channels)
 
 	sync.mutex_guard(&s.audio_mutex)
 	audio_buffer, audio_buffer_add_error := hm.add(&s.audio_buffers, audio_buffer_object)
@@ -2757,7 +2757,7 @@ load_audio_clip_from_bytes_raw :: proc(
 	return Audio_Clip(audio_buffer), true
 }
 
-_load_audio_clip_from_bytes_raw :: proc(
+_load_audio_buffer_from_raw_samples :: proc(
 	bytes: []u8,
 	format: Raw_Audio_Format,
 	sample_rate: int,
@@ -6168,7 +6168,7 @@ Sound_Object :: struct {
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
-	
+
 	// This is the Audio_Clip or Audio_Stream that was passed to either `play_audio_clip` or
 	// `play_audio_stream`, whichever was used to create this Sound.
 	source: union {
