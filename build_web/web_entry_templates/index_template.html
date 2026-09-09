@@ -13,15 +13,36 @@
 		     it cancelling a gesture Karl2D is in the middle of. The mouse events a browser fires after
 		     a tap are ignored: Karl2D listens for pointer events, which those are not, so a tap cannot
 		     arrive as both a touch and a click. -->
-		<canvas id="webgl-canvas" style="touch-action: none;" oncontextmenu="return false;" onmousedown="event.target.focus()" onkeydown="event.preventDefault()"></canvas>
+		<!-- tabindex is what lets the canvas take the keyboard focus at all, which the mousedown
+		     above asks for; without it the focus stays on the body and the game cannot tell whether
+		     the player is in it. outline: none hides the focus ring the browser would draw round it. -->
+		<canvas id="webgl-canvas" tabindex="0" style="touch-action: none; outline: none;" oncontextmenu="return false;" onmousedown="event.target.focus()"></canvas>
 
 		<script type="text/javascript" src="audio_backend_web_audio.js"></script>
 		<script type="text/javascript" src="odin.js"></script>
 		<script type="text/javascript">
-			if (window.parent !== window) {
-				// This prevents keyboard commands from triggering outside of the iframe.
-				document.getElementById('body').addEventListener('keydown', (ev) => ev.preventDefault());
-			}
+			// The keys the browser has its own use for, taken away from it while the canvas has
+			// the focus: space and the arrows would scroll the page the game sits in, tab would
+			// move the focus out of it. Karl2D reads a typed character from the keydown event, so
+			// cancelling these does not stop a program's text field from working.
+			//
+			// Only while the canvas is focused, so that a page with the game somewhere in it keeps
+			// scrolling normally until the reader clicks into the game. Combinations with ctrl,
+			// meta or alt are left alone, so that reloading and the developer tools still work.
+			// Cancelling a key does not stop it reaching the page around the game: key events go
+			// to the focused element and travel up through this document only, and preventDefault
+			// takes away the browser's own behaviour rather than the event.
+			const keysForTheGame = new Set([
+				" ", "Tab", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+				"PageUp", "PageDown", "Home", "End",
+			]);
+			const keyboardCanvas = document.getElementById("webgl-canvas");
+			window.addEventListener("keydown", (ev) => {
+				if (document.activeElement === keyboardCanvas && !ev.ctrlKey && !ev.metaKey && !ev.altKey
+				    && keysForTheGame.has(ev.key)) {
+					ev.preventDefault();
+				}
+			});
 			async function run() {
 				const wasmMemoryInterface = new odin.WasmMemoryInterface();
 				wasmMemoryInterface.setIntSize(4);
