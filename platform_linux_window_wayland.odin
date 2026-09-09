@@ -725,12 +725,6 @@ pointer_listener := wl.Pointer_Listener {
 			return
 		}
 
-		// TODO-UPDATE-COMMENT the conversion is now a divide by 256 inside wl.fixed_to_f32, not a
-		// bitshift here.
-		// ---
-		// surface_x and surface_y are fixed point 24.8 variables. 
-		// Just bitshift them to remove the decimal part and obtain 
-		// a screen coordinate
 		append(&s.events, Event_Mouse_Move {
 			position = {
 				math.floor(wl.fixed_to_f32(surface_x) * s.scale),
