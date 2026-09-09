@@ -178,8 +178,9 @@ init :: proc(
 	// Note that FontStash is always set up top-down, regardless of the coordinate system. The text
 	// drawing procedures lay glyphs out top-down and place the finished block themselves. That way
 	// the layout is identical in both coordinate systems.
-	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
+	fs.Init(&s.fs, FONT_ATLAS_START_SIZE, FONT_ATLAS_START_SIZE, .TOPLEFT)
 	fs.SetAlignVertical(&s.fs, .TOP)
+	s.fs.callbackResize = _font_atlas_grown
 
 	// Dummy element so font with index 0 means 'no font'.
 	s.fonts = make([dynamic]Font_Data, s.allocator)
@@ -1517,7 +1518,10 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 			return { max_x, f32(lines)*size }
 		}
 
-		return TextBounds(&s.fs, font_object.dynamic_fontstash_handle, font_size, text)
+		render_size := _font_render_size(font_size)
+		_bake_text_glyphs(font_object.dynamic_fontstash_handle, text, render_size)
+		bounds := TextBounds(&s.fs, font_object.dynamic_fontstash_handle, render_size, text)
+		return bounds*(font_size/render_size)
 	}
 
 }
@@ -1698,15 +1702,15 @@ draw_text :: proc(
 		_set_font(font)
 		font_object := &s.fonts[font]
 
-		camera_zoom: f32 = 1
-
-		if cam, cam_ok := s.current_camera.?; cam_ok && cam.zoom > 0.001 {
-			camera_zoom = cam.zoom
-		}
-
+		// TODO-UPDATE-COMMENT the bake size is now rounded to a whole number of pixels, so the
+		// quads come back to world units through font_size/render_size instead of the zoom.
+		// ---
 		// Bake the glyph at font_size*camera_zoom pixels so it is sharp at the current zoom level.
 		// We then divide quad positions back by camera_zoom to recover world-space coordinates.
-		render_size := font_size * camera_zoom
+		render_size := _font_render_size(font_size)
+		world_scale := font_size/render_size
+
+		_bake_text_glyphs(font_object.dynamic_fontstash_handle, text, render_size)
 
 		// FontStash lays the text out top-down starting at (0, 0), so its quads come out as offsets
 		// from the top-left of the text block. This is where that corner goes. With flipped Y
@@ -1740,18 +1744,18 @@ draw_text :: proc(
 				q.s1 - q.s0, q.t1 - q.t0,
 			}
 
-			w := f32(FONT_DEFAULT_ATLAS_SIZE)
-			h := f32(FONT_DEFAULT_ATLAS_SIZE)
+			w := f32(s.fs.width)
+			h := f32(s.fs.height)
 			src.x *= w
 			src.y *= h
 			src.w *= w
 			src.h *= h
 
 			// Unscale quad positions from render-size space back to text-local world units.
-			offset_from_left := q.x0 / camera_zoom
-			offset_from_top := q.y0 / camera_zoom
-			glyph_w := (q.x1 - q.x0) / camera_zoom
-			glyph_h := (q.y1 - q.y0) / camera_zoom
+			offset_from_left := q.x0 * world_scale
+			offset_from_top := q.y0 * world_scale
+			glyph_w := (q.x1 - q.x0) * world_scale
+			glyph_h := (q.y1 - q.y0) * world_scale
 
 			glyph_y := y_up ? block_top - offset_from_top - glyph_h : block_top + offset_from_top
 
@@ -4796,8 +4800,8 @@ load_dynamic_font_from_bytes :: proc(
 	h := Font(len(s.fonts))
 
 	atlas_texture, atlas_texture_ok := rb.create_texture(
-		FONT_DEFAULT_ATLAS_SIZE,
-		FONT_DEFAULT_ATLAS_SIZE,
+		s.fs.width,
+		s.fs.height,
 		.RGBA_8_Norm,
 	)
 
@@ -4809,8 +4813,8 @@ load_dynamic_font_from_bytes :: proc(
 		dynamic_fontstash_handle = fontstash_handle,
 		atlas = {
 			handle = atlas_texture,
-			width = FONT_DEFAULT_ATLAS_SIZE,
-			height = FONT_DEFAULT_ATLAS_SIZE,
+			width = s.fs.width,
+			height = s.fs.height,
 		},
 		type = .Dynamic,
 		options = options,
@@ -7555,8 +7559,61 @@ _camera_flip_y :: proc() -> bool {
 	return false
 }
 
-FONT_DEFAULT_ATLAS_SIZE :: 2048
+FONT_ATLAS_START_SIZE :: 256
 
+_font_render_size :: proc(font_size: f32) -> f32 {
+	camera_zoom: f32 = 1
+
+	if cam, cam_ok := s.current_camera.?; cam_ok && cam.zoom > 0.001 {
+		camera_zoom = cam.zoom
+	}
+
+	return max(1, math.round(font_size*camera_zoom))
+}
+
+_bake_text_glyphs :: proc(fontstash_handle: int, text: string, render_size: f32) {
+	font := fs.__getFont(&s.fs, fontstash_handle)
+	isize := i16(render_size * 10)
+
+	for codepoint in text {
+		if codepoint == '\n' || codepoint == '\r' || codepoint == '\t' {
+			continue
+		}
+
+		fs.__getGlyph(&s.fs, font, codepoint, isize)
+	}
+}
+
+_font_atlas_grown :: proc(data: rawptr, width: int, height: int) {
+	draw_current_batch()
+
+	for &font in s.fonts {
+		if font.type != .Dynamic || font.atlas.handle == TEXTURE_NONE {
+			continue
+		}
+
+		rb.destroy_texture(font.atlas.handle)
+		font.atlas = {}
+		atlas_texture, atlas_texture_ok := rb.create_texture(width, height, .RGBA_8_Norm)
+
+		if !atlas_texture_ok {
+			log.errorf("Failed growing font atlas to %vx%v", width, height)
+			continue
+		}
+
+		font.atlas = {
+			handle = atlas_texture,
+			width = width,
+			height = height,
+		}
+
+		set_texture_filter(font.atlas, font.options.filter)
+	}
+}
+
+// TODO-UPDATE-COMMENT the atlas is no longer a fixed size, so recorded texture coordinates only
+// stay valid as long as it does not grow. `_font_atlas_grown` deals with the growing.
+// ---
 // Gets glyphs that were baked since the last flush onto the GPU. Drawing text with a dynamic font
 // bakes the glyphs it needs into fontstash's atlas as it goes. This has to run before the draw
 // calls that use them. Fontstash only ever puts glyphs in unused parts of the atlas. Texture
@@ -7581,7 +7638,7 @@ _update_font_atlases :: proc() {
 }
 
 _update_font_atlas :: proc(font: Font_Data, font_dirty_rect: [4]f32) {
-	tw := FONT_DEFAULT_ATLAS_SIZE
+	tw := s.fs.width
 	fdr := font_dirty_rect
 
 	r := Rect {
