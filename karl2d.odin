@@ -6025,8 +6025,8 @@ Audio_Stream_Cursor :: struct {
 	// is the 'tail'.
 	buffer_write_pos: int,
 
-	// Where in streamed source we most recently fetched samples. For stereo, left and right count
-	// as one sample each.
+	// Where in the streamed source we most recently fetched samples from. For stereo, left and
+	// right count as one sample each.
 	decode_cursor: int,
 
 	// Used for discarding unwanted samples at the decode cursor. This exists because the vorbis
@@ -6124,10 +6124,10 @@ Sound_Settings :: struct {
 	pitch: f32,
 }
 
-// A `Sound_Object` is what `Sound` handles map to. They represent something currently playing in
+// A `Sound_Object` is what `Sound` handles map to. It represents something currently playing in
 // the mixer. It holds a `buffer` which is where the mixer reads audio samples from. How that buffer
 // gets refilled depends on the `source` field. The source can either be an Audio_Clip or an
-// Audio_Stream. For clips `buffer` is the same as the the clip's buffer. For audio streams the
+// Audio_Stream. For clips `buffer` is the same as the clip's buffer. For audio streams the
 // buffer is a small amount of memory that is continuously being filled with data from the audio
 // stream.
 Sound_Object :: struct {
