@@ -56,16 +56,13 @@ Platform specific code reviewed
 - [ ] Windows
 - [ ] Mac
 - [ ] Web
-- [ ] Linux Wayland
-- [ ] Linux X11
+- [ ] Linux
 
 Tested on:
 - [ ] Windows
 - [ ] Mac
 - [ ] Web
-- [ ] Linux Wayland
-- [ ] Linux Wayland GNOME
-- [ ] Linux X11
+- [ ] Linux
 ```
 
 Cut it down to what the change actually touches. A list full of lines nobody needs to look at makes the ones that matter easy to miss.
