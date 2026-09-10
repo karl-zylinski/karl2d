@@ -19,7 +19,7 @@ Font :: struct {
 	info: stbtt.fontinfo,
 	data: []u8,
 	ascent: f32,
-	scale_per_pixel: f32,
+	height_units: f32,
 	glyphs: map[Glyph_Key]Glyph,
 	kerning: map[[2]i32]i32,
 	pages: [dynamic]Page,
@@ -50,7 +50,7 @@ Page :: struct {
 	dirty_min: [2]int,
 	dirty_max: [2]int,
 	last_used: f64,
-	reset_time: f64,
+	last_reset: f64,
 }
 
 Skyline_Node :: struct {
@@ -60,15 +60,7 @@ Skyline_Node :: struct {
 }
 
 init :: proc(font: ^Font, data: []u8, allocator: runtime.Allocator) -> bool {
-	info: stbtt.fontinfo
-	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), 0)
-
-	if !stbtt.InitFont(&info, raw_data(data), font_offset) {
-		return false
-	}
-
 	font^ = {
-		info = info,
 		data = slice.clone(data, allocator),
 		glyphs = make(map[Glyph_Key]Glyph, allocator),
 		kerning = make(map[[2]i32]i32, allocator),
@@ -76,12 +68,17 @@ init :: proc(font: ^Font, data: []u8, allocator: runtime.Allocator) -> bool {
 		allocator = allocator,
 	}
 
-	font.info.data = raw_data(font.data)
+	font_offset := stbtt.GetFontOffsetForIndex(raw_data(font.data), 0)
+
+	if !stbtt.InitFont(&font.info, raw_data(font.data), font_offset) {
+		destroy(font)
+		return false
+	}
 
 	ascent, descent, line_gap: i32
 	stbtt.GetFontVMetrics(&font.info, &ascent, &descent, &line_gap)
 	font.ascent = f32(ascent) / f32(ascent - descent)
-	font.scale_per_pixel = 1 / f32(ascent - descent)
+	font.height_units = f32(ascent - descent)
 
 	add_page(font)
 	return true
@@ -121,7 +118,7 @@ get_glyph :: proc(
 	}
 
 	index := stbtt.FindGlyphIndex(&font.info, codepoint)
-	scale := stbtt.ScaleForPixelHeight(&font.info, f32(size))
+	scale := f32(size) / font.height_units
 
 	advance, left_side_bearing: i32
 	stbtt.GetGlyphHMetrics(&font.info, index, &advance, &left_side_bearing)
@@ -231,7 +228,7 @@ make_room :: proc(font: ^Font, time: f64) -> bool {
 	oldest := -1
 
 	for page, page_idx in font.pages {
-		if page.reset_time == time {
+		if page.last_reset == time {
 			continue
 		}
 
@@ -259,7 +256,7 @@ make_room :: proc(font: ^Font, time: f64) -> bool {
 	slice.zero(page.pixels)
 	page.dirty_min = { page.width, page.height }
 	page.dirty_max = {}
-	page.reset_time = time
+	page.last_reset = time
 	return true
 }
 
@@ -289,7 +286,7 @@ kern :: proc(font: ^Font, prev_index: i32, index: i32, size: int) -> f32 {
 		font.kerning[pair] = advance
 	}
 
-	return f32(advance) * f32(size) * font.scale_per_pixel
+	return f32(advance) * (f32(size) / font.height_units)
 }
 
 // ---
@@ -396,7 +393,7 @@ measure :: proc(font: ^Font, text: string, size: int, time: f64) -> ([2]f32, boo
 	return { width, it.y + f32(size) }, place_res == .Done
 }
 
-page_add_rect :: proc(page: ^Page, width: int, height: int) -> (int, int, bool) {
+page_add_rect :: proc(page: ^Page, width: int, height: int) -> (x: int, y: int, ok: bool) {
 	best_width := page.width
 	best_height := page.height
 	best_idx := -1
@@ -405,15 +402,16 @@ page_add_rect :: proc(page: ^Page, width: int, height: int) -> (int, int, bool) 
 
 	// Bottom left fit heuristic.
 	for node, node_idx in page.nodes {
-		y := page_rect_fits(page^, node_idx, width, height)
+		fit_y := page_rect_fits(page^, node_idx, width, height)
 
-		if y != -1 {
-			if y + height < best_height || (y + height == best_height && node.width < best_width) {
+		if fit_y != -1 {
+			if fit_y + height < best_height ||
+			   (fit_y + height == best_height && node.width < best_width) {
 				best_idx = node_idx
 				best_width = node.width
-				best_height = y + height
+				best_height = fit_y + height
 				best_x = node.x
-				best_y = y
+				best_y = fit_y
 			}
 		}
 	}
