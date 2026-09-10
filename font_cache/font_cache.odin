@@ -5,7 +5,6 @@
 package karl2d_font_cache
 
 import "base:runtime"
-import "../log"
 import "core:math"
 import "core:slice"
 import "core:unicode/utf8"
@@ -60,16 +59,22 @@ Skyline_Node :: struct {
 	width: int,
 }
 
-init :: proc(font: ^Font, data: []u8, font_index: int, allocator: runtime.Allocator) -> bool {
+Init_Error :: enum {
+	None,
+	Font_Index_Out_Of_Range,
+	Invalid_Font_Data,
+}
+
+init :: proc(
+	font: ^Font,
+	data: []u8,
+	font_index: int,
+	allocator: runtime.Allocator,
+) -> Init_Error {
 	num_fonts := int(stbtt.GetNumberOfFonts(raw_data(data)))
 
 	if num_fonts > 0 && (font_index < 0 || font_index >= num_fonts) {
-		log.errorf(
-			"Cannot load font index %v, the font data contains %v fonts",
-			font_index,
-			num_fonts,
-		)
-		return false
+		return .Font_Index_Out_Of_Range
 	}
 
 	font^ = {
@@ -83,9 +88,8 @@ init :: proc(font: ^Font, data: []u8, font_index: int, allocator: runtime.Alloca
 	font_offset := stbtt.GetFontOffsetForIndex(raw_data(font.data), i32(font_index))
 
 	if !stbtt.InitFont(&font.info, raw_data(font.data), font_offset) {
-		log.error("Failed loading TTF/TTC font")
 		destroy(font)
-		return false
+		return .Invalid_Font_Data
 	}
 
 	ascent, descent, line_gap: i32
@@ -94,7 +98,7 @@ init :: proc(font: ^Font, data: []u8, font_index: int, allocator: runtime.Alloca
 	font.height_units = f32(ascent - descent)
 
 	add_page(font)
-	return true
+	return .None
 }
 
 destroy :: proc(font: ^Font) {

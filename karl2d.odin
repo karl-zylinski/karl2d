@@ -4760,8 +4760,19 @@ load_dynamic_font_from_bytes :: proc(
 	options: Font_Options = {},
 ) -> (Font, bool) #optional_ok {
 	dynamic_font: fc.Font
+	init_err := fc.init(&dynamic_font, data, options.font_index, s.allocator)
 
-	if !fc.init(&dynamic_font, data, options.font_index, s.allocator) {
+	switch init_err {
+	case .None:
+	case .Font_Index_Out_Of_Range:
+		log.errorf(
+			"Cannot load font index %v, the font data contains %v fonts",
+			options.font_index,
+			stbtt.GetNumberOfFonts(raw_data(data)),
+		)
+		return FONT_NONE, false
+	case .Invalid_Font_Data:
+		log.error("Failed loading TTF/TTC font")
 		return FONT_NONE, false
 	}
 
