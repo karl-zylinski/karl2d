@@ -1680,10 +1680,10 @@ draw_text :: proc(
 			block_top += f32(count_text_lines(text))*font_size
 		}
 
-		it := fc.iterator_init(text, render_size, s.time)
+		it := fc.place_text_iterator_init(text, render_size, s.time)
 
 		for {
-			placed, placed_res := fc.iterate(&font_object.dynamic_font, &it)
+			placed, placed_res := fc.place_text_iterate(&font_object.dynamic_font, &it)
 
 			if placed_res == .Done {
 				break
@@ -7533,21 +7533,11 @@ _sync_font_pages :: proc(font: ^Font_Data) {
 			rb.destroy_texture(texture.handle)
 		}
 
-		handle, handle_ok := rb.create_texture(page.width, page.height, .RGBA_8_Norm)
+		texture^ = create_texture(page.width, page.height, .RGBA_8_Norm)
 
-		if !handle_ok {
-			log.errorf("Failed creating %vx%v font atlas texture", page.width, page.height)
-			texture^ = {}
-			continue
+		if texture.handle != TEXTURE_NONE {
+			set_texture_filter(texture^, font.options.filter)
 		}
-
-		texture^ = {
-			handle = handle,
-			width = page.width,
-			height = page.height,
-		}
-
-		set_texture_filter(texture^, font.options.filter)
 	}
 }
 

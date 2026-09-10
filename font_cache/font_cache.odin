@@ -317,7 +317,7 @@ kern :: proc(font: ^Font, prev_index: i32, index: i32, size: int) -> f32 {
 	return f32(advance) * stbtt.ScaleForPixelHeight(&font.info, f32(size))
 }
 
-iterator_init :: proc(text: string, size: int, time: f64) -> Iterator {
+place_text_iterator_init :: proc(text: string, size: int, time: f64) -> Iterator {
 	return {
 		text = text,
 		size = size,
@@ -326,7 +326,7 @@ iterator_init :: proc(text: string, size: int, time: f64) -> Iterator {
 	}
 }
 
-iterate :: proc(font: ^Font, it: ^Iterator) -> (Placed_Glyph, Iterator_Result) {
+place_text_iterate :: proc(font: ^Font, it: ^Iterator) -> (Placed_Glyph, Iterator_Result) {
 	for len(it.text) > 0 {
 		codepoint, codepoint_width := utf8.decode_rune(it.text)
 
@@ -376,13 +376,13 @@ iterate :: proc(font: ^Font, it: ^Iterator) -> (Placed_Glyph, Iterator_Result) {
 }
 
 measure :: proc(font: ^Font, text: string, size: int, time: f64) -> ([2]f32, bool) {
-	it := iterator_init(text, size, time)
+	it := place_text_iterator_init(text, size, time)
 	width: f32
 
 	placed_res := Iterator_Result.Placed
 
 	for placed_res == .Placed {
-		_, placed_res = iterate(font, &it)
+		_, placed_res = place_text_iterate(font, &it)
 		width = max(width, it.x)
 	}
 
