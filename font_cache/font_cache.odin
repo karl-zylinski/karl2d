@@ -15,7 +15,6 @@ PAGE_MAX_SIZE :: 2048
 MAX_PAGES :: 4
 GLYPH_PADDING :: 1
 
-// You have one of these per font.
 Font :: struct {
 	info: stbtt.fontinfo,
 	data: []u8,
@@ -59,27 +58,6 @@ Skyline_Node :: struct {
 	x: int,
 	y: int,
 	width: int,
-}
-
-Iterator :: struct {
-	text: string,
-	size: int,
-	time: f64,
-	x: f32,
-	y: f32,
-	prev_index: i32,
-}
-
-Placed_Glyph :: struct {
-	glyph: Glyph,
-	x: f32,
-	y: f32,
-}
-
-Iterator_Result :: enum {
-	Placed,
-	Done,
-	No_Room,
 }
 
 init :: proc(font: ^Font, data: []u8, allocator: runtime.Allocator) -> bool {
@@ -317,7 +295,32 @@ kern :: proc(font: ^Font, prev_index: i32, index: i32, size: int) -> f32 {
 	return f32(advance) * stbtt.ScaleForPixelHeight(&font.info, f32(size))
 }
 
-place_text_iterator_init :: proc(text: string, size: int, time: f64) -> Iterator {
+// ---
+// ITERATOR FOR PLACING TEXT
+
+Place_Text_Iterator :: struct {
+	text: string,
+	size: int,
+	time: f64,
+	x: f32,
+	y: f32,
+	prev_index: i32,
+}
+
+Place_Text_Iterator_Result :: enum {
+	Placed,
+	Done,
+	No_Room,
+}
+
+// A glyph that has been placed by the iterator. The x and y are moved along as it iterates.
+Placed_Glyph :: struct {
+	glyph: Glyph,
+	x: f32,
+	y: f32,
+}
+
+place_text_iterator_init :: proc(text: string, size: int, time: f64) -> Place_Text_Iterator {
 	return {
 		text = text,
 		size = size,
@@ -326,7 +329,7 @@ place_text_iterator_init :: proc(text: string, size: int, time: f64) -> Iterator
 	}
 }
 
-place_text_iterate :: proc(font: ^Font, it: ^Iterator) -> (Placed_Glyph, Iterator_Result) {
+place_text_iterate :: proc(font: ^Font, it: ^Place_Text_Iterator) -> (Placed_Glyph, Place_Text_Iterator_Result) {
 	for len(it.text) > 0 {
 		codepoint, codepoint_width := utf8.decode_rune(it.text)
 
@@ -379,7 +382,7 @@ measure :: proc(font: ^Font, text: string, size: int, time: f64) -> ([2]f32, boo
 	it := place_text_iterator_init(text, size, time)
 	width: f32
 
-	placed_res := Iterator_Result.Placed
+	placed_res := Place_Text_Iterator_Result.Placed
 
 	for placed_res == .Placed {
 		_, placed_res = place_text_iterate(font, &it)

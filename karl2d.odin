@@ -1683,13 +1683,13 @@ draw_text :: proc(
 		it := fc.place_text_iterator_init(text, render_size, s.time)
 
 		for {
-			placed, placed_res := fc.place_text_iterate(&font_object.dynamic_font, &it)
+			placed, place_res := fc.place_text_iterate(&font_object.dynamic_font, &it)
 
-			if placed_res == .Done {
+			if place_res == .Done {
 				break
 			}
 
-			if placed_res == .No_Room {
+			if place_res == .No_Room {
 				draw_current_batch()
 
 				if !fc.make_room(&font_object.dynamic_font, s.time) {
