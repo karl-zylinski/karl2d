@@ -59,7 +59,7 @@ Skyline_Node :: struct {
 	width: int,
 }
 
-init :: proc(font: ^Font, data: []u8, allocator: runtime.Allocator) -> bool {
+init :: proc(font: ^Font, data: []u8, font_index: int, allocator: runtime.Allocator) -> bool {
 	font^ = {
 		data = slice.clone(data, allocator),
 		glyphs = make(map[Glyph_Key]Glyph, allocator),
@@ -68,7 +68,7 @@ init :: proc(font: ^Font, data: []u8, allocator: runtime.Allocator) -> bool {
 		allocator = allocator,
 	}
 
-	font_offset := stbtt.GetFontOffsetForIndex(raw_data(font.data), 0)
+	font_offset := stbtt.GetFontOffsetForIndex(raw_data(font.data), i32(font_index))
 
 	if !stbtt.InitFont(&font.info, raw_data(font.data), font_offset) {
 		destroy(font)

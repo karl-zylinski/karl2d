@@ -1498,6 +1498,8 @@ Font_Options :: struct {
 
 	// Passed on to font atlas creation.
 	filter: Texture_Filter,
+
+	font_index: int,
 }
 
 // Supported font types:

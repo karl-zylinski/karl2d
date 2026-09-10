@@ -4469,8 +4469,19 @@ load_static_font_from_bytes :: proc(
 	options: Font_Options = {},
 ) -> (_font: Font, _ok: bool) #optional_ok {
 	codepoints := codepoints
+	num_fonts := int(stbtt.GetNumberOfFonts(raw_data(data)))
+
+	if num_fonts > 0 && (options.font_index < 0 || options.font_index >= num_fonts) {
+		log.errorf(
+			"Cannot load font index %v, the font data contains %v fonts",
+			options.font_index,
+			num_fonts,
+		)
+		return
+	}
+
 	font_info: stbtt.fontinfo
-	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), 0)
+	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), i32(options.font_index))
 	init_ok := stbtt.InitFont(&font_info, raw_data(data), font_offset)
 
 	if !init_ok {
@@ -4748,9 +4759,20 @@ load_dynamic_font_from_bytes :: proc(
 	data: []u8,
 	options: Font_Options = {},
 ) -> (Font, bool) #optional_ok {
+	num_fonts := int(stbtt.GetNumberOfFonts(raw_data(data)))
+
+	if num_fonts > 0 && (options.font_index < 0 || options.font_index >= num_fonts) {
+		log.errorf(
+			"Cannot load font index %v, the font data contains %v fonts",
+			options.font_index,
+			num_fonts,
+		)
+		return FONT_NONE, false
+	}
+
 	dynamic_font: fc.Font
 
-	if !fc.init(&dynamic_font, data, s.allocator) {
+	if !fc.init(&dynamic_font, data, options.font_index, s.allocator) {
 		log.error("Failed loading TTF/TTC font")
 		return FONT_NONE, false
 	}
@@ -5839,6 +5861,8 @@ Font_Options :: struct {
 
 	// Passed on to font atlas creation.
 	filter: Texture_Filter,
+
+	font_index: int,
 }
 
 // Supported font types:
