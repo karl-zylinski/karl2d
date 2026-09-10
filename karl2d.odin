@@ -258,13 +258,6 @@ update :: proc() -> bool {
 	calculate_frame_time()
 	update_audio()
 	process_events()
-
-	for &font in s.fonts {
-		if font.type == .Dynamic {
-			fc.new_frame(&font.dynamic_cache)
-		}
-	}
-
 	return !close_window_requested()
 }
 
@@ -1469,16 +1462,16 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 		}
 
 		render_size := _font_render_size(font_size)
-		size, size_ok := fc.measure(&font_object.dynamic_cache, text, render_size)
+		size, size_ok := fc.measure(&font_object.dynamic_cache, text, render_size, s.time)
 
 		for !size_ok {
 			draw_current_batch()
 
-			if !fc.make_room(&font_object.dynamic_cache) {
+			if !fc.make_room(&font_object.dynamic_cache, s.time) {
 				break
 			}
 
-			size, size_ok = fc.measure(&font_object.dynamic_cache, text, render_size)
+			size, size_ok = fc.measure(&font_object.dynamic_cache, text, render_size, s.time)
 		}
 
 		return size * (font_size / f32(render_size))
@@ -1687,7 +1680,7 @@ draw_text :: proc(
 			block_top += f32(count_text_lines(text))*font_size
 		}
 
-		it := fc.text_iterator_init(text, render_size)
+		it := fc.text_iterator_init(text, render_size, s.time)
 
 		for {
 			placed, placed_res := fc.text_iterator_next(&font_object.dynamic_cache, &it)
@@ -1699,7 +1692,7 @@ draw_text :: proc(
 			if placed_res == .No_Room {
 				draw_current_batch()
 
-				if !fc.make_room(&font_object.dynamic_cache) {
+				if !fc.make_room(&font_object.dynamic_cache, s.time) {
 					break
 				}
 

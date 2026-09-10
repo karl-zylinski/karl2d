@@ -23,7 +23,6 @@ Font_Cache :: struct {
 	glyphs: map[Glyph_Key]Glyph,
 	kerning: map[[2]i32]i32,
 	pages: [dynamic]Page,
-	frame: int,
 	allocator: runtime.Allocator,
 }
 
@@ -52,8 +51,8 @@ Page :: struct {
 	glyph_keys: [dynamic]Glyph_Key,
 	dirty_min: [2]int,
 	dirty_max: [2]int,
-	last_used: int,
-	reset_frame: int,
+	last_used: f64,
+	reset_time: f64,
 }
 
 Skyline_Node :: struct {
@@ -65,6 +64,7 @@ Skyline_Node :: struct {
 Text_Iterator :: struct {
 	text: string,
 	size: int,
+	time: f64,
 	x: f32,
 	y: f32,
 	prev_index: i32,
@@ -96,7 +96,6 @@ init :: proc(cache: ^Font_Cache, data: []u8, allocator: runtime.Allocator) -> bo
 		glyphs = make(map[Glyph_Key]Glyph, allocator),
 		kerning = make(map[[2]i32]i32, allocator),
 		pages = make([dynamic]Page, allocator),
-		frame = 1,
 		allocator = allocator,
 	}
 
@@ -124,11 +123,15 @@ destroy :: proc(cache: ^Font_Cache) {
 	cache^ = {}
 }
 
-new_frame :: proc(cache: ^Font_Cache) {
-	cache.frame += 1
-}
-
-get_glyph :: proc(cache: ^Font_Cache, codepoint: rune, size: int) -> (Glyph, bool) {
+get_glyph :: proc(
+	cache: ^Font_Cache,
+	codepoint: rune,
+	size: int,
+	time: f64,
+) -> (
+	Glyph,
+	bool,
+) {
 	key := Glyph_Key {
 		codepoint = codepoint,
 		size = size,
@@ -136,7 +139,7 @@ get_glyph :: proc(cache: ^Font_Cache, codepoint: rune, size: int) -> (Glyph, boo
 
 	if glyph, glyph_ok := cache.glyphs[key]; glyph_ok {
 		if glyph.width > 0 {
-			cache.pages[glyph.page].last_used = cache.frame
+			cache.pages[glyph.page].last_used = time
 		}
 
 		return glyph, true
@@ -200,7 +203,7 @@ get_glyph :: proc(cache: ^Font_Cache, codepoint: rune, size: int) -> (Glyph, boo
 			page.dirty_min.y = min(page.dirty_min.y, y)
 			page.dirty_max.x = max(page.dirty_max.x, x + padded_width)
 			page.dirty_max.y = max(page.dirty_max.y, y + padded_height)
-			page.last_used = cache.frame
+			page.last_used = time
 			append(&page.glyph_keys, key)
 			placed = true
 			break
@@ -215,7 +218,7 @@ get_glyph :: proc(cache: ^Font_Cache, codepoint: rune, size: int) -> (Glyph, boo
 	return glyph, true
 }
 
-make_room :: proc(cache: ^Font_Cache) -> bool {
+make_room :: proc(cache: ^Font_Cache, time: f64) -> bool {
 	newest := &cache.pages[len(cache.pages) - 1]
 
 	if newest.width < PAGE_MAX_SIZE {
@@ -253,7 +256,7 @@ make_room :: proc(cache: ^Font_Cache) -> bool {
 	oldest := -1
 
 	for page, page_idx in cache.pages {
-		if page.reset_frame == cache.frame {
+		if page.reset_time == time {
 			continue
 		}
 
@@ -281,7 +284,7 @@ make_room :: proc(cache: ^Font_Cache) -> bool {
 	slice.zero(page.pixels)
 	page.dirty_min = { page.width, page.height }
 	page.dirty_max = {}
-	page.reset_frame = cache.frame
+	page.reset_time = time
 	return true
 }
 
@@ -314,10 +317,11 @@ kern :: proc(cache: ^Font_Cache, prev_index: i32, index: i32, size: int) -> f32 
 	return f32(advance) * stbtt.ScaleForPixelHeight(&cache.info, f32(size))
 }
 
-text_iterator_init :: proc(text: string, size: int) -> Text_Iterator {
+text_iterator_init :: proc(text: string, size: int, time: f64) -> Text_Iterator {
 	return {
 		text = text,
 		size = size,
+		time = time,
 		prev_index = -1,
 	}
 }
@@ -351,7 +355,7 @@ text_iterator_next :: proc(
 			continue
 		}
 
-		glyph, glyph_ok := get_glyph(cache, codepoint, it.size)
+		glyph, glyph_ok := get_glyph(cache, codepoint, it.size, it.time)
 
 		if !glyph_ok {
 			return {}, .No_Room
@@ -377,8 +381,8 @@ text_iterator_next :: proc(
 	return {}, .Done
 }
 
-measure :: proc(cache: ^Font_Cache, text: string, size: int) -> ([2]f32, bool) {
-	it := text_iterator_init(text, size)
+measure :: proc(cache: ^Font_Cache, text: string, size: int, time: f64) -> ([2]f32, bool) {
+	it := text_iterator_init(text, size, time)
 	width: f32
 
 	placed_res := Text_Iterator_Result.Placed
