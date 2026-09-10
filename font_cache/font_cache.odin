@@ -146,9 +146,9 @@ get_glyph :: proc(
 	glyph := Glyph {
 		offset = {
 			f32(x0 - GLYPH_PADDING),
-			f32(y0 - GLYPH_PADDING) + font.ascent * f32(size),
+			f32(y0 - GLYPH_PADDING) + math.round(font.ascent * f32(size)),
 		},
-		advance = f32(advance) * scale,
+		advance = math.round(f32(advance) * scale),
 		index = index,
 	}
 
@@ -303,7 +303,7 @@ kern :: proc(font: ^Font, prev_index: i32, index: i32, size: int) -> f32 {
 		font.kerning[pair] = advance
 	}
 
-	return f32(advance) * (f32(size) / font.height_units)
+	return math.round(f32(advance) * (f32(size) / font.height_units))
 }
 
 // ---
@@ -384,8 +384,8 @@ place_text_iterate :: proc(
 
 		placed := Placed_Glyph {
 			glyph = glyph,
-			x = math.floor(it.x + glyph.offset.x),
-			y = math.floor(it.y + glyph.offset.y),
+			x = it.x + glyph.offset.x,
+			y = it.y + glyph.offset.y,
 		}
 
 		it.x += glyph.advance
