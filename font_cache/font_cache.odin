@@ -5,6 +5,7 @@
 package karl2d_font_cache
 
 import "base:runtime"
+import "../log"
 import "core:math"
 import "core:slice"
 import "core:unicode/utf8"
@@ -60,6 +61,17 @@ Skyline_Node :: struct {
 }
 
 init :: proc(font: ^Font, data: []u8, font_index: int, allocator: runtime.Allocator) -> bool {
+	num_fonts := int(stbtt.GetNumberOfFonts(raw_data(data)))
+
+	if num_fonts > 0 && (font_index < 0 || font_index >= num_fonts) {
+		log.errorf(
+			"Cannot load font index %v, the font data contains %v fonts",
+			font_index,
+			num_fonts,
+		)
+		return false
+	}
+
 	font^ = {
 		data = slice.clone(data, allocator),
 		glyphs = make(map[Glyph_Key]Glyph, allocator),
@@ -71,6 +83,7 @@ init :: proc(font: ^Font, data: []u8, font_index: int, allocator: runtime.Alloca
 	font_offset := stbtt.GetFontOffsetForIndex(raw_data(font.data), i32(font_index))
 
 	if !stbtt.InitFont(&font.info, raw_data(font.data), font_offset) {
+		log.error("Failed loading TTF/TTC font")
 		destroy(font)
 		return false
 	}
