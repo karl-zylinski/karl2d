@@ -1659,7 +1659,7 @@ draw_text :: proc(
 		}
 
 		// `_font_render_size` will scale the font size by the camera zoom and round it to nearest
-		// pixel size. We'll ue `inv_render_scale` further down to cancel out the scale, since the
+		// pixel size. We'll use `inv_render_scale` further down to cancel out the scale, since the
 		// scaling happens in the camera.
 		render_size := _font_render_size(font_size)
 		inv_render_scale := font_size / f32(render_size)
@@ -1674,7 +1674,6 @@ draw_text :: proc(
 		}
 
 		// The font_cache iterator will go through the text and lay the letters out.
-
 		it := fc.place_text_iterator_init(text, render_size, s.time)
 
 		for {
@@ -7535,10 +7534,10 @@ _sync_font_pages :: proc(font: ^Font_Data) {
 }
 
 // For each dynamic font, this procedure updates the GPU-side atlases based on if the CPU-side
-// atlases have "dirty data". This means that there are areas on the CPU-side atlses that are not on
+// atlases have "dirty data". This means that there are areas on the CPU-side atlases that are not on
 // the GPU yet. This happens when `draw_text` uses previously unused glyphs.
-// 
-// Dynamic fonts use the font_cache. It maintains up to four 2048x2048 CPU-side atlases. This
+//
+// Dynamic fonts use the `font_cache` package. It maintains the CPU-side atlases (pages). This
 // procedure goes through the pages and checks if there are "dirty rects" set for any of them, which
 // means that that region of the GPU texture needs to be updated.
 //

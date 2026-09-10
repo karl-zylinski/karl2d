@@ -1500,12 +1500,10 @@ Font_Options :: struct {
 	filter: Texture_Filter,
 }
 
-// TODO-UPDATE-COMMENT dynamic fonts use the `font_cache` package, not fontstash.
-// ---
 // Supported font types:
 // - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
-// - Dynamic: A font where an atlas is continuously updated as you need need new characters. This
-//            mode current uses fontstash.
+// - Dynamic: A font that is continuously updated as you need new characters. Each font can have up
+//            to four 2048x2048 textures (pages) filled with glyphs. Uses the `font_cache` package.
 //
 // Future types (TODO):
 // - Slug: Upload the character bezier curves to the GPU and render the text on the GPU without the

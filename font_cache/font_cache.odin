@@ -314,7 +314,8 @@ Place_Text_Iterator_Result :: enum {
 	No_Room,
 }
 
-// A glyph that has been placed by the iterator. The x and y are moved along as it iterates.
+// A glyph that has been placed by the iterator. The x and y are the top-left of the glyph, relative
+// to the start of the text.
 Placed_Glyph :: struct {
 	glyph: Glyph,
 	x: f32,
@@ -330,7 +331,13 @@ place_text_iterator_init :: proc(text: string, size: int, time: f64) -> Place_Te
 	}
 }
 
-place_text_iterate :: proc(font: ^Font, it: ^Place_Text_Iterator) -> (Placed_Glyph, Place_Text_Iterator_Result) {
+place_text_iterate :: proc(
+	font: ^Font,
+	it: ^Place_Text_Iterator,
+) -> (
+	Placed_Glyph,
+	Place_Text_Iterator_Result,
+) {
 	for len(it.text) > 0 {
 		codepoint, codepoint_width := utf8.decode_rune(it.text)
 
@@ -383,14 +390,14 @@ measure :: proc(font: ^Font, text: string, size: int, time: f64) -> ([2]f32, boo
 	it := place_text_iterator_init(text, size, time)
 	width: f32
 
-	placed_res := Place_Text_Iterator_Result.Placed
+	place_res := Place_Text_Iterator_Result.Placed
 
-	for placed_res == .Placed {
-		_, placed_res = place_text_iterate(font, &it)
+	for place_res == .Placed {
+		_, place_res = place_text_iterate(font, &it)
 		width = max(width, it.x)
 	}
 
-	return { width, it.y + f32(size) }, placed_res == .Done
+	return { width, it.y + f32(size) }, place_res == .Done
 }
 
 page_add_rect :: proc(page: ^Page, width: int, height: int) -> (int, int, bool) {
