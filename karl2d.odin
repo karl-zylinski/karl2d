@@ -182,9 +182,17 @@ init :: proc(
 	fs.SetAlignVertical(&s.fs, .TOP)
 	s.fs.callbackResize = _font_atlas_grown
 
+	font_atlas, font_atlas_ok := rb.create_texture(s.fs.width, s.fs.height, .RGBA_8_Norm)
+	log.assertf(font_atlas_ok, "Failed creating font atlas texture")
+
+	s.font_atlas = {
+		handle = font_atlas,
+		width = s.fs.width,
+		height = s.fs.height,
+	}
+
 	// Dummy element so font with index 0 means 'no font'.
 	s.fonts = make([dynamic]Font_Data, s.allocator)
-	s.font_atlases = make([dynamic]Font_Atlas, s.allocator)
 	append_nothing(&s.fonts)
 	default_font := load_dynamic_font_from_bytes(DEFAULT_FONT_DATA)
 	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
@@ -309,7 +317,6 @@ shutdown :: proc() {
 
 	fs.Destroy(&s.fs)
 	delete(s.fonts)
-	delete(s.font_atlases)
 
 	delete(s.typed_runes)
 
@@ -717,7 +724,6 @@ draw_current_batch :: proc() {
 	_finish_draw_call()
 
 	if len(s.batch_draw_calls) > 0 {
-		_update_font_atlases()
 		rb.draw(s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used], s.batch_draw_calls[:])
 		runtime.clear(&s.batch_draw_calls)
 	}
@@ -1521,7 +1527,7 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 		}
 
 		render_size := _font_render_size(font_size)
-		_bake_text_glyphs(font_object.dynamic_fontstash_handle, text, render_size)
+		_bake_text_glyphs(font_object, text, render_size)
 		bounds := TextBounds(&s.fs, font_object.dynamic_fontstash_handle, render_size, text)
 		return bounds*(font_size/render_size)
 	}
@@ -1712,8 +1718,7 @@ draw_text :: proc(
 		render_size := _font_render_size(font_size)
 		world_scale := font_size/render_size
 
-		_bake_text_glyphs(font_object.dynamic_fontstash_handle, text, render_size)
-		atlas := s.font_atlases[font_object.dynamic_atlas].texture
+		_bake_text_glyphs(font_object^, text, render_size)
 
 		// FontStash lays the text out top-down starting at (0, 0), so its quads come out as offsets
 		// from the top-left of the text block. This is where that corner goes. With flipped Y
@@ -1769,7 +1774,7 @@ draw_text :: proc(
 			dst := Rect { position.x, position.y, glyph_w, glyph_h }
 			char_origin := origin + position - { glyph_x, glyph_y }
 
-			draw_texture_fit(atlas, src, dst, char_origin, rotation, color)
+			draw_texture_fit(s.font_atlas, src, dst, char_origin, rotation, color)
 		}
 	}
 
@@ -4802,19 +4807,13 @@ load_dynamic_font_from_bytes :: proc(
 	fontstash_handle := fs.AddFontMem(&s.fs, "", slice.clone(data, s.allocator), false)
 	h := Font(len(s.fonts))
 
-	atlas, atlas_ok := _get_font_atlas(options)
-
-	if !atlas_ok {
-		return FONT_NONE, false
-	}
-
 	data := Font_Data {
 		dynamic_fontstash_handle = fontstash_handle,
-		dynamic_atlas = atlas,
 		type = .Dynamic,
 		options = options,
 	}
 
+	set_texture_filter(s.font_atlas, options.filter)
 	append(&s.fonts, data)
 	return h, true
 }
@@ -5892,6 +5891,11 @@ Font_Options :: struct {
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
 
+	// TODO-UPDATE-COMMENT every dynamic font draws from one shared atlas texture, and a filter
+	// belongs to a texture, so for those this sets the filter of that shared texture and the
+	// dynamic font loaded last decides it for all of them. A static font bakes its own atlas, so
+	// there it still means what it says.
+	// ---
 	// Passed on to font atlas creation.
 	filter: Texture_Filter,
 }
@@ -5924,13 +5928,6 @@ Font_Data :: struct {
 
 	// type == .Dynamic
 	dynamic_fontstash_handle: int,
-	dynamic_atlas: int,
-}
-
-Font_Atlas :: struct {
-	texture: Texture,
-	premultiply_alpha: bool,
-	filter: Texture_Filter,
 }
 
 Handle :: hm.Handle64
@@ -6297,7 +6294,7 @@ State :: struct {
 
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
-	font_atlases: [dynamic]Font_Atlas,
+	font_atlas: Texture,
 	shape_drawing_texture: Texture_Handle,
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.
@@ -7576,8 +7573,8 @@ _font_render_size :: proc(font_size: f32) -> f32 {
 	return max(1, math.round(font_size*camera_zoom))
 }
 
-_bake_text_glyphs :: proc(fontstash_handle: int, text: string, render_size: f32) {
-	font := fs.__getFont(&s.fs, fontstash_handle)
+_bake_text_glyphs :: proc(font: Font_Data, text: string, render_size: f32) {
+	fs_font := fs.__getFont(&s.fs, font.dynamic_fontstash_handle)
 	isize := i16(render_size * 10)
 
 	for codepoint in text {
@@ -7585,130 +7582,83 @@ _bake_text_glyphs :: proc(fontstash_handle: int, text: string, render_size: f32)
 			continue
 		}
 
-		fs.__getGlyph(&s.fs, font, codepoint, isize)
+		glyph_count := len(fs_font.glyphs)
+		glyph, glyph_ok := fs.__getGlyph(&s.fs, fs_font, codepoint, isize)
+
+		if glyph_ok && len(fs_font.glyphs) != glyph_count {
+			_upload_glyph(glyph^, font.options.premultiply_alpha)
+		}
 	}
 }
 
-_get_font_atlas :: proc(options: Font_Options) -> (int, bool) {
-	for a, i in s.font_atlases {
-		if a.premultiply_alpha == options.premultiply_alpha && a.filter == options.filter {
-			return i, true
-		}
-	}
-
-	texture, texture_ok := rb.create_texture(s.fs.width, s.fs.height, .RGBA_8_Norm)
-
-	if !texture_ok {
-		log.errorf("Failed creating font atlas of size %vx%v", s.fs.width, s.fs.height)
-		return 0, false
-	}
-
-	append(&s.font_atlases, Font_Atlas {
-		texture = {
-			handle = texture,
-			width = s.fs.width,
-			height = s.fs.height,
-		},
-		premultiply_alpha = options.premultiply_alpha,
-		filter = options.filter,
-	})
-
-	atlas := len(s.font_atlases) - 1
-	set_texture_filter(s.font_atlases[atlas].texture, options.filter)
-	return atlas, true
-}
-
-_font_atlas_grown :: proc(data: rawptr, width: int, height: int) {
-	draw_current_batch()
-
-	for &atlas in s.font_atlases {
-		rb.destroy_texture(atlas.texture.handle)
-		atlas.texture = {}
-		texture, texture_ok := rb.create_texture(width, height, .RGBA_8_Norm)
-
-		if !texture_ok {
-			log.errorf("Failed growing font atlas to %vx%v", width, height)
-			continue
-		}
-
-		atlas.texture = {
-			handle = texture,
-			width = width,
-			height = height,
-		}
-
-		set_texture_filter(atlas.texture, atlas.filter)
-	}
-}
-
-// TODO-UPDATE-COMMENT the atlas is no longer a fixed size, so recorded texture coordinates only
-// stay valid as long as it does not grow. `_font_atlas_grown` deals with the growing. The GPU
-// textures are no longer one per dynamic font either. Fonts that agree about `premultiply_alpha`
-// and `filter` share one, so this walks `s.font_atlases` and not `s.fonts`.
-// ---
-// Gets glyphs that were baked since the last flush onto the GPU. Drawing text with a dynamic font
-// bakes the glyphs it needs into fontstash's atlas as it goes. This has to run before the draw
-// calls that use them. Fontstash only ever puts glyphs in unused parts of the atlas. Texture
-// coordinates already recorded in the vertex buffer therefore stay valid.
-//
-// Every dynamic font shares one fontstash atlas. Each has its own GPU texture mirroring it. They
-// all get the same update.
-_update_font_atlases :: proc() {
-	font_dirty_rect: [4]f32
-
-	if !fs.ValidateTexture(&s.fs, &font_dirty_rect) {
+_upload_glyph :: proc(glyph: fs.Glyph, premultiply_alpha: bool) {
+	if s.font_atlas.handle == TEXTURE_NONE {
 		return
 	}
 
-	for atlas in s.font_atlases {
-		if atlas.texture.handle != TEXTURE_NONE {
-			_update_font_atlas(atlas, font_dirty_rect)
-		}
-	}
-}
-
-_update_font_atlas :: proc(atlas: Font_Atlas, font_dirty_rect: [4]f32) {
 	tw := s.fs.width
-	fdr := font_dirty_rect
+	x := int(glyph.x0)
+	y := int(glyph.y0)
+	w := int(glyph.x1) - x
+	h := int(glyph.y1) - y
 
-	r := Rect {
-		fdr[0],
-		fdr[1],
-		fdr[2] - fdr[0],
-		fdr[3] - fdr[1],
+	if w <= 0 || h <= 0 {
+		return
 	}
 
-	x := int(r.x)
-	y := int(r.y)
-	w := int(fdr[2]) - int(fdr[0])
-	h := int(fdr[3]) - int(fdr[1])
-
-	expanded_pixels := make([]Color, w * h, frame_allocator)
-	start := x + tw * y
+	pixels := make([]Color, w*h, frame_allocator)
 
 	for i in 0..<w*h {
 		px := i%w
 		py := i/w
+		alpha := s.fs.textureData[(x + px) + (y + py)*tw]
 
-		dst_pixel_idx := (px) + (py * w)
-		src_pixel_idx := start + (px) + (py * tw)
+		if premultiply_alpha {
+			alpha_norm := f32(alpha)/255
 
-		src := s.fs.textureData[src_pixel_idx]
-
-		if atlas.premultiply_alpha {
-			a := f32(src) / 255
-			expanded_pixels[dst_pixel_idx] = {
-				u8(f32(src) * a),
-				u8(f32(src) * a),
-				u8(f32(src) * a),
-				src,
+			pixels[i] = {
+				u8(255 * alpha_norm),
+				u8(255 * alpha_norm),
+				u8(255 * alpha_norm),
+				alpha,
 			}
 		} else {
-			expanded_pixels[dst_pixel_idx] = {255,255,255, src}
+			pixels[i] = {255, 255, 255, alpha}
 		}
 	}
 
-	rb.update_texture(atlas.texture.handle, slice.reinterpret([]u8, expanded_pixels), r)
+	r := Rect { f32(x), f32(y), f32(w), f32(h) }
+	rb.update_texture(s.font_atlas.handle, slice.reinterpret([]u8, pixels), r)
+}
+
+_font_atlas_grown :: proc(data: rawptr, width: int, height: int) {
+	draw_current_batch()
+	rb.destroy_texture(s.font_atlas.handle)
+	s.font_atlas = {}
+	texture, texture_ok := rb.create_texture(width, height, .RGBA_8_Norm)
+
+	if !texture_ok {
+		log.errorf("Failed growing font atlas to %vx%v", width, height)
+		return
+	}
+
+	s.font_atlas = {
+		handle = texture,
+		width = width,
+		height = height,
+	}
+
+	for font in s.fonts {
+		if font.type != .Dynamic {
+			continue
+		}
+
+		set_texture_filter(s.font_atlas, font.options.filter)
+
+		for glyph in s.fs.fonts[font.dynamic_fontstash_handle].glyphs {
+			_upload_glyph(glyph, font.options.premultiply_alpha)
+		}
+	}
 }
 
 // Not for direct use. Specify font to `draw_text_ex`

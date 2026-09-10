@@ -1496,6 +1496,11 @@ Font_Options :: struct {
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
 
+	// TODO-UPDATE-COMMENT every dynamic font draws from one shared atlas texture, and a filter
+	// belongs to a texture, so for those this sets the filter of that shared texture and the
+	// dynamic font loaded last decides it for all of them. A static font bakes its own atlas, so
+	// there it still means what it says.
+	// ---
 	// Passed on to font atlas creation.
 	filter: Texture_Filter,
 }
@@ -1528,13 +1533,6 @@ Font_Data :: struct {
 
 	// type == .Dynamic
 	dynamic_fontstash_handle: int,
-	dynamic_atlas: int,
-}
-
-Font_Atlas :: struct {
-	texture: Texture,
-	premultiply_alpha: bool,
-	filter: Texture_Filter,
 }
 
 Handle :: hm.Handle64
@@ -1901,7 +1899,7 @@ State :: struct {
 
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
-	font_atlases: [dynamic]Font_Atlas,
+	font_atlas: Texture,
 	shape_drawing_texture: Texture_Handle,
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.
