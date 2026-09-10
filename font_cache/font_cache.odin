@@ -19,16 +19,14 @@ Font :: struct {
 	info: stbtt.fontinfo,
 	data: []u8,
 	ascent: f32,
+	scale_per_pixel: f32,
 	glyphs: map[Glyph_Key]Glyph,
 	kerning: map[[2]i32]i32,
 	pages: [dynamic]Page,
 	allocator: runtime.Allocator,
 }
 
-Glyph_Key :: struct {
-	codepoint: rune,
-	size: int,
-}
+Glyph_Key :: distinct u64
 
 Glyph :: struct {
 	page: int,
@@ -83,6 +81,7 @@ init :: proc(font: ^Font, data: []u8, allocator: runtime.Allocator) -> bool {
 	ascent, descent, line_gap: i32
 	stbtt.GetFontVMetrics(&font.info, &ascent, &descent, &line_gap)
 	font.ascent = f32(ascent) / f32(ascent - descent)
+	font.scale_per_pixel = 1 / f32(ascent - descent)
 
 	add_page(font)
 	return true
@@ -111,10 +110,7 @@ get_glyph :: proc(
 	Glyph,
 	bool,
 ) {
-	key := Glyph_Key {
-		codepoint = codepoint,
-		size = size,
-	}
+	key := Glyph_Key(u64(codepoint) << 32 | u64(u32(size)))
 
 	if glyph, glyph_ok := font.glyphs[key]; glyph_ok {
 		if glyph.width > 0 {
@@ -293,7 +289,7 @@ kern :: proc(font: ^Font, prev_index: i32, index: i32, size: int) -> f32 {
 		font.kerning[pair] = advance
 	}
 
-	return f32(advance) * stbtt.ScaleForPixelHeight(&font.info, f32(size))
+	return f32(advance) * f32(size) * font.scale_per_pixel
 }
 
 // ---
