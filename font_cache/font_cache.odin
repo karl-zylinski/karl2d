@@ -1,3 +1,5 @@
+// For dynamically building fonts.
+//
 // The skyline rectangle packing in this file is ported from Fontstash by Mikko Mononen. Fontstash
 // is licensed under the zlib license: https://github.com/memononen/fontstash
 package karl2d_font_cache
@@ -9,10 +11,11 @@ import "core:unicode/utf8"
 import stbtt "vendor:stb/truetype"
 
 PAGE_START_SIZE :: 256
-PAGE_MAX_SIZE :: 1024
+PAGE_MAX_SIZE :: 2048
 MAX_PAGES :: 4
 GLYPH_PADDING :: 1
 
+// You have one of these per font.
 Font_Cache :: struct {
 	info: stbtt.fontinfo,
 	data: []u8,
@@ -40,6 +43,7 @@ Glyph :: struct {
 	index: i32,
 }
 
+// A page will usually map to a texture. But the font cache doesn't know about textures.
 Page :: struct {
 	pixels: []u8,
 	width: int,
