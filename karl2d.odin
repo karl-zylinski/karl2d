@@ -14,7 +14,7 @@ import "core:time"
 import "core:sync"
 import "core:encoding/endian"
 
-import fs "vendor:fontstash"
+import fc "font_cache"
 import stbv "vendor:stb/vorbis"
 import stbtt "vendor:stb/truetype"
 import stbrp "vendor:stb/rect_pack"
@@ -173,20 +173,11 @@ init :: proc(
 	s.default_shader = load_shader_from_bytes(rb.default_shader_vertex_source(), rb.default_shader_fragment_source())
 	s.current_shader = s.default_shader
 
-	// FontStash enables us to bake fonts from TTF files on-the-fly.
-	//
-	// Note that FontStash is always set up top-down, regardless of the coordinate system. The text
-	// drawing procedures lay glyphs out top-down and place the finished block themselves. That way
-	// the layout is identical in both coordinate systems.
-	fs.Init(&s.fs, FONT_DEFAULT_ATLAS_SIZE, FONT_DEFAULT_ATLAS_SIZE, .TOPLEFT)
-	fs.SetAlignVertical(&s.fs, .TOP)
-
 	// Dummy element so font with index 0 means 'no font'.
 	s.fonts = make([dynamic]Font_Data, s.allocator)
 	append_nothing(&s.fonts)
 	default_font := load_dynamic_font_from_bytes(DEFAULT_FONT_DATA)
 	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
-	_set_font(FONT_DEFAULT)
 
 	s.events = make([dynamic]Event, s.allocator)
 	s.typed_runes = make([dynamic]rune, s.allocator)
@@ -305,7 +296,6 @@ shutdown :: proc() {
 
 	pf.shutdown()
 
-	fs.Destroy(&s.fs)
 	delete(s.fonts)
 
 	delete(s.typed_runes)
@@ -1465,59 +1455,26 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 			return {}
 		}
 
-		font_object := s.fonts[font]
+		font_object := &s.fonts[font]
 
-		// Temporary until I rewrite the font caching system.
-		_set_font(font)
-
-		// TextBounds from fontstash, but fixed and simplified for my purposes.
-		// The version in there is broken.
-		TextBounds :: proc(
-			ctx:  ^fs.FontContext,
-			font_idx: int,
-			size: f32,
-			text: string,
-		) -> Vec2 {
-			font  := fs.__getFont(ctx, font_idx)
-			isize := i16(size * 10)
-
-			x, y: f32
-			max_x := x
-
-			scale := fs.__getPixelHeightScale(font, f32(isize) / 10)
-			previousGlyphIndex: fs.Glyph_Index = -1
-			quad: fs.Quad
-			lines := 1
-
-			for codepoint in text {
-				if codepoint == '\n' {
-					x = 0
-					lines += 1
-					continue
-				}
-
-				if glyph, ok := fs.__getGlyph(ctx, font, codepoint, isize); ok {
-					if glyph.xadvance > 0 {
-						x += f32(int(f32(glyph.xadvance) / 10 + 0.5))
-					} else {
-						// updates x
-						fs.__getQuad(ctx, font, previousGlyphIndex, glyph, scale, 0, &x, &y, &quad)
-					}
-
-					if x > max_x {
-						max_x = x
-					}
-
-					previousGlyphIndex = glyph.index
-				} else {
-					previousGlyphIndex = -1
-				}
-
-			}
-			return { max_x, f32(lines)*size }
+		if len(font_object.dynamic_font.pages) == 0 {
+			return {}
 		}
 
-		return TextBounds(&s.fs, font_object.dynamic_fontstash_handle, font_size, text)
+		render_size := _font_render_size(font_size)
+		size, size_ok := fc.measure(&font_object.dynamic_font, text, render_size, s.time)
+
+		for !size_ok {
+			draw_current_batch()
+
+			if !fc.make_room(&font_object.dynamic_font, s.time) {
+				break
+			}
+
+			size, size_ok = fc.measure(&font_object.dynamic_font, text, render_size, s.time)
+		}
+
+		return size * (font_size / f32(render_size))
 	}
 
 }
@@ -1653,7 +1610,7 @@ draw_text :: proc(
 				char_origin := origin + position - { glyph_x, glyph_y }
 
 				draw_texture_fit(
-					font_object.atlas,
+					font_object.static_atlas,
 					src,
 					dst,
 					tint = color,
@@ -1695,63 +1652,64 @@ draw_text :: proc(
 			return
 		}
 
-		_set_font(font)
 		font_object := &s.fonts[font]
 
-		camera_zoom: f32 = 1
-
-		if cam, cam_ok := s.current_camera.?; cam_ok && cam.zoom > 0.001 {
-			camera_zoom = cam.zoom
+		if len(font_object.dynamic_font.pages) == 0 {
+			return
 		}
 
-		// Bake the glyph at font_size*camera_zoom pixels so it is sharp at the current zoom level.
-		// We then divide quad positions back by camera_zoom to recover world-space coordinates.
-		render_size := font_size * camera_zoom
+		// `_font_render_size` will scale the font size by the camera zoom and round it to nearest
+		// pixel size. We'll use `inv_render_scale` further down to cancel out the scale, since the
+		// scaling happens in the camera.
+		render_size := _font_render_size(font_size)
+		inv_render_scale := font_size / f32(render_size)
+		_sync_font_pages(font_object)
 
-		// FontStash lays the text out top-down starting at (0, 0), so its quads come out as offsets
-		// from the top-left of the text block. This is where that corner goes. With flipped Y
-		// `position` is the bottom-left corner of the block, so the top is a whole block higher. The
-		// height must agree with what `measure_text_dynamic` reports, which is `lines * font_size`.
 		y_up := _camera_flip_y()
 		block_top := position.y
 
+		// In Y up mode the top of the text block is offset by its total height.
 		if y_up {
 			block_top += f32(count_text_lines(text))*font_size
 		}
 
-		fs.SetSize(&s.fs, render_size)
-		iter := fs.TextIterInit(&s.fs, 0, 0, text)
+		// The font_cache iterator will go through the text and lay the letters out.
+		it := fc.place_text_iterator_init(text, render_size, s.time)
 
-		q: fs.Quad
-		for fs.TextIterNext(&s.fs, &iter, &q) {
-			if iter.codepoint == '\n' {
-				iter.nexty += render_size
-				iter.nextx = 0
+		for {
+			placed, place_res := fc.place_text_iterate(&font_object.dynamic_font, &it)
+
+			if place_res == .Done {
+				break
+			}
+
+			if place_res == .No_Room {
+				draw_current_batch()
+
+				if !fc.make_room(&font_object.dynamic_font, s.time) {
+					break
+				}
+
+				_sync_font_pages(font_object)
 				continue
 			}
 
-			if iter.codepoint == '\t' {
-				iter.nextx += 2*render_size
+			g := placed.glyph
+
+			if g.width == 0 {
 				continue
 			}
 
 			src := Rect {
-				q.s0, q.t0,
-				q.s1 - q.s0, q.t1 - q.t0,
+				f32(g.x), f32(g.y),
+				f32(g.width), f32(g.height),
 			}
 
-			w := f32(FONT_DEFAULT_ATLAS_SIZE)
-			h := f32(FONT_DEFAULT_ATLAS_SIZE)
-			src.x *= w
-			src.y *= h
-			src.w *= w
-			src.h *= h
-
 			// Unscale quad positions from render-size space back to text-local world units.
-			offset_from_left := q.x0 / camera_zoom
-			offset_from_top := q.y0 / camera_zoom
-			glyph_w := (q.x1 - q.x0) / camera_zoom
-			glyph_h := (q.y1 - q.y0) / camera_zoom
+			offset_from_left := placed.x * inv_render_scale
+			offset_from_top := placed.y * inv_render_scale
+			glyph_w := f32(g.width) * inv_render_scale
+			glyph_h := f32(g.height) * inv_render_scale
 
 			glyph_y := y_up ? block_top - offset_from_top - glyph_h : block_top + offset_from_top
 
@@ -1762,7 +1720,14 @@ draw_text :: proc(
 			dst := Rect { position.x, position.y, glyph_w, glyph_h }
 			char_origin := origin + position - { glyph_x, glyph_y }
 
-			draw_texture_fit(font_object.atlas, src, dst, char_origin, rotation, color)
+			draw_texture_fit(
+				font_object.dynamic_pages[g.page],
+				src,
+				dst,
+				char_origin,
+				rotation,
+				color,
+			)
 		}
 	}
 
@@ -4504,8 +4469,19 @@ load_static_font_from_bytes :: proc(
 	options: Font_Options = {},
 ) -> (_font: Font, _ok: bool) #optional_ok {
 	codepoints := codepoints
+	num_fonts := int(stbtt.GetNumberOfFonts(raw_data(data)))
+
+	if num_fonts > 0 && (options.font_index < 0 || options.font_index >= num_fonts) {
+		log.errorf(
+			"Cannot load font index %v, the font data contains %v fonts",
+			options.font_index,
+			num_fonts,
+		)
+		return
+	}
+
 	font_info: stbtt.fontinfo
-	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), 0)
+	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), i32(options.font_index))
 	init_ok := stbtt.InitFont(&font_info, raw_data(data), font_offset)
 
 	if !init_ok {
@@ -4738,9 +4714,9 @@ load_static_font_from_bytes :: proc(
 	set_texture_filter(tex, options.filter)
 
 	font := Font_Data {
-		atlas = tex,
 		type = .Static,
 		options = options,
+		static_atlas = tex,
 		static_glyphs = slice.clone(glyphs[:], s.allocator),
 		static_glyph_ranges = slice.clone(glyph_ranges[:], s.allocator),
 		static_font_size = font_size,
@@ -4783,41 +4759,32 @@ load_dynamic_font_from_bytes :: proc(
 	data: []u8,
 	options: Font_Options = {},
 ) -> (Font, bool) #optional_ok {
-	font_info: stbtt.fontinfo
-	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), 0)
-	init_ok := stbtt.InitFont(&font_info, raw_data(data), font_offset)
+	dynamic_font: fc.Font
+	init_err := fc.init(&dynamic_font, data, options.font_index, s.allocator)
 
-	if !init_ok {
+	switch init_err {
+	case .None:
+	case .Font_Index_Out_Of_Range:
+		log.errorf(
+			"Cannot load font index %v, the font data contains %v fonts",
+			options.font_index,
+			stbtt.GetNumberOfFonts(raw_data(data)),
+		)
+		return FONT_NONE, false
+	case .Invalid_Font_Data:
 		log.error("Failed loading TTF/TTC font")
 		return FONT_NONE, false
 	}
 
-	fontstash_handle := fs.AddFontMem(&s.fs, "", slice.clone(data, s.allocator), false)
 	h := Font(len(s.fonts))
 
-	atlas_texture, atlas_texture_ok := rb.create_texture(
-		FONT_DEFAULT_ATLAS_SIZE,
-		FONT_DEFAULT_ATLAS_SIZE,
-		.RGBA_8_Norm,
-	)
-
-	if !atlas_texture_ok {
-		return FONT_NONE, false
-	}
-
-	data := Font_Data {
-		dynamic_fontstash_handle = fontstash_handle,
-		atlas = {
-			handle = atlas_texture,
-			width = FONT_DEFAULT_ATLAS_SIZE,
-			height = FONT_DEFAULT_ATLAS_SIZE,
-		},
+	append(&s.fonts, Font_Data {
 		type = .Dynamic,
 		options = options,
-	}
+		dynamic_font = dynamic_font,
+		dynamic_pages = make([dynamic]Texture, s.allocator),
+	})
 
-	set_texture_filter(data.atlas, options.filter)
-	append(&s.fonts, data)
 	return h, true
 }
 
@@ -4842,24 +4809,24 @@ destroy_font :: proc(font: Font) {
 
 	f := &s.fonts[font]
 
-	// Recorded draw calls may still be waiting to sample this font's atlas.
-	_flush_if_batch_uses_texture(f.atlas.handle)
-	rb.destroy_texture(f.atlas.handle)
-
-	// So `_update_font_atlases` stops uploading glyphs to a texture that is gone.
-	f.atlas = {}
-
 	switch f.type {
 	case .Static:
+		// Recorded draw calls may still be waiting to sample this font's atlas.
+		_flush_if_batch_uses_texture(f.static_atlas.handle)
+		rb.destroy_texture(f.static_atlas.handle)
+		f.static_atlas = {}
 		delete(f.static_glyphs, s.allocator)
 		delete(f.static_glyph_ranges, s.allocator)
 	case .Dynamic:
-		// TODO fontstash has no "destroy font" proc... I should make my own version of fontstash
-		delete(s.fs.fonts[f.dynamic_fontstash_handle].glyphs)
-		delete(s.fs.fonts[f.dynamic_fontstash_handle].loadedData, s.allocator)
-		s.fs.fonts[f.dynamic_fontstash_handle].glyphs = {}
-	}
+		for page in f.dynamic_pages {
+			_flush_if_batch_uses_texture(page.handle)
+			rb.destroy_texture(page.handle)
+		}
 
+		delete(f.dynamic_pages)
+		f.dynamic_pages = {}
+		fc.destroy(&f.dynamic_font)
+	}
 }
 
 @(deprecated="Use FONT_DEFAULT constant instead")
@@ -5893,12 +5860,16 @@ Font_Options :: struct {
 
 	// Passed on to font atlas creation.
 	filter: Texture_Filter,
+
+	// Font formats like .ttc can contain multiple fonts. Use this parameter to pick one. For fonts
+	// that only contain a single font, leave this at zero.
+	font_index: int,
 }
 
 // Supported font types:
 // - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
-// - Dynamic: A font where an atlas is continuously updated as you need need new characters. This
-//            mode current uses fontstash.
+// - Dynamic: A font that is continuously updated as you need new characters. Each font can have up
+//            to eight 1024x1024 textures (pages) filled with glyphs. Uses the `font_cache` package.
 //
 // Future types (TODO):
 // - Slug: Upload the character bezier curves to the GPU and render the text on the GPU without the
@@ -5910,19 +5881,20 @@ Font_Type :: enum {
 }
 
 Font_Data :: struct {
-	atlas: Texture,
 	options: Font_Options,
 
 	type: Font_Type,
 
 	// type == .Static
+	static_atlas: Texture,
 	static_glyphs: []Font_Baked_Glyph,
 	static_glyph_ranges: []Font_Baked_Glyph_Range,
 	static_font_size: f32,
 	static_line_spacing: f32,
 
 	// type == .Dynamic
-	dynamic_fontstash_handle: int,
+	dynamic_font: fc.Font,
+	dynamic_pages: [dynamic]Texture,
 }
 
 Handle :: hm.Handle64
@@ -6255,8 +6227,6 @@ State :: struct {
 	render_backend: Render_Backend_Interface,
 	render_backend_state: rawptr,
 
-	fs: fs.FontContext,
-	
 	close_window_requested: bool,
 
 	// All events for this frame. Cleared when `process_events` run
@@ -6292,7 +6262,6 @@ State :: struct {
 	shape_drawing_texture: Texture_Handle,
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.
-	current_font: Font,
 	current_camera: Maybe(Camera),
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
@@ -7555,91 +7524,100 @@ _camera_flip_y :: proc() -> bool {
 	return false
 }
 
-FONT_DEFAULT_ATLAS_SIZE :: 2048
+_font_render_size :: proc(font_size: f32) -> int {
+	camera_zoom: f32 = 1
 
-// Gets glyphs that were baked since the last flush onto the GPU. Drawing text with a dynamic font
-// bakes the glyphs it needs into fontstash's atlas as it goes. This has to run before the draw
-// calls that use them. Fontstash only ever puts glyphs in unused parts of the atlas. Texture
-// coordinates already recorded in the vertex buffer therefore stay valid.
+	if cam, cam_ok := s.current_camera.?; cam_ok && cam.zoom > 0.001 {
+		camera_zoom = cam.zoom
+	}
+
+	return max(1, int(math.round(font_size * camera_zoom)))
+}
+
+_sync_font_pages :: proc(font: ^Font_Data) {
+	for page, page_idx in font.dynamic_font.pages {
+		if page_idx == len(font.dynamic_pages) {
+			append(&font.dynamic_pages, Texture {})
+		}
+
+		texture := &font.dynamic_pages[page_idx]
+
+		if texture.width == page.width && texture.height == page.height {
+			continue
+		}
+
+		if texture.handle != TEXTURE_NONE {
+			rb.destroy_texture(texture.handle)
+		}
+
+		texture^ = create_texture(page.width, page.height, .RGBA_8_Norm)
+
+		if texture.handle != TEXTURE_NONE {
+			set_texture_filter(texture^, font.options.filter)
+		}
+	}
+}
+
+// For each dynamic font, this procedure updates the GPU-side atlases based on if the CPU-side
+// atlases have "dirty data". This means that there are areas on the CPU-side atlases that are not on
+// the GPU yet. This happens when `draw_text` uses previously unused glyphs.
 //
-// Every dynamic font shares one fontstash atlas. Each has its own GPU texture mirroring it. They
-// all get the same update.
+// Dynamic fonts use the `font_cache` package. It maintains the CPU-side atlases (pages). This
+// procedure goes through the pages and checks if there are "dirty rects" set for any of them, which
+// means that that region of the GPU texture needs to be updated.
+//
+// This is run before any draw call that depends on these glyphs is submitted.
 _update_font_atlases :: proc() {
-	font_dirty_rect: [4]f32
-
-	if !fs.ValidateTexture(&s.fs, &font_dirty_rect) {
-		return
-	}
-
-	for font in s.fonts {
-		// A static font has a finished atlas of its own, it is not part of fontstash's. A
-		// destroyed font has no atlas left at all.
-		if font.type == .Dynamic && font.atlas.handle != TEXTURE_NONE {
-			_update_font_atlas(font, font_dirty_rect)
+	for &font in s.fonts {
+		if font.type != .Dynamic {
+			continue
 		}
-	}
-}
 
-_update_font_atlas :: proc(font: Font_Data, font_dirty_rect: [4]f32) {
-	tw := FONT_DEFAULT_ATLAS_SIZE
-	fdr := font_dirty_rect
-
-	r := Rect {
-		fdr[0],
-		fdr[1],
-		fdr[2] - fdr[0],
-		fdr[3] - fdr[1],
-	}
-
-	x := int(r.x)
-	y := int(r.y)
-	w := int(fdr[2]) - int(fdr[0])
-	h := int(fdr[3]) - int(fdr[1])
-
-	expanded_pixels := make([]Color, w * h, frame_allocator)
-	start := x + tw * y
-
-	for i in 0..<w*h {
-		px := i%w
-		py := i/w
-
-		dst_pixel_idx := (px) + (py * w)
-		src_pixel_idx := start + (px) + (py * tw)
-
-		src := s.fs.textureData[src_pixel_idx]
-
-		if font.options.premultiply_alpha {
-			a := f32(src) / 255
-			expanded_pixels[dst_pixel_idx] = {
-				u8(f32(src) * a),
-				u8(f32(src) * a),
-				u8(f32(src) * a),
-				src,
+		for &page, page_idx in font.dynamic_font.pages {
+			if page.dirty_max.x <= page.dirty_min.x || page.dirty_max.y <= page.dirty_min.y {
+				continue
 			}
-		} else {
-			expanded_pixels[dst_pixel_idx] = {255,255,255, src}
+
+			if page_idx >= len(font.dynamic_pages) {
+				continue
+			}
+
+			texture := font.dynamic_pages[page_idx]
+
+			if texture.handle == TEXTURE_NONE {
+				continue
+			}
+
+			x := page.dirty_min.x
+			y := page.dirty_min.y
+			w := page.dirty_max.x - x
+			h := page.dirty_max.y - y
+			pixels := make([]Color, w * h, frame_allocator)
+
+			for i in 0..<w*h {
+				px := i%w
+				py := i/w
+				alpha := page.pixels[(x + px) + (y + py) * page.width]
+
+				if font.options.premultiply_alpha {
+					pixels[i] = { alpha, alpha, alpha, alpha }
+				} else {
+					pixels[i] = { 255, 255, 255, alpha }
+				}
+			}
+
+			r := Rect {
+				f32(x),
+				f32(y),
+				f32(w),
+				f32(h),
+			}
+
+			rb.update_texture(texture.handle, slice.reinterpret([]u8, pixels), r)
+			page.dirty_min = { page.width, page.height }
+			page.dirty_max = {}
 		}
 	}
-
-	rb.update_texture(font.atlas.handle, slice.reinterpret([]u8, expanded_pixels), r)
-}
-
-// Not for direct use. Specify font to `draw_text_ex`
-_set_font :: proc(fh: Font) {
-	fh := fh
-
-	if s.current_font == fh {
-		return
-	}
-
-	s.current_font = fh
-
-	if fh == 0 {
-		fh = FONT_DEFAULT
-	}
-
-	font := &s.fonts[fh]
-	fs.SetFont(&s.fs, font.dynamic_fontstash_handle)
 }
 
 _ :: jpeg

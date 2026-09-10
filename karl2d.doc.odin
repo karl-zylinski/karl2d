@@ -1498,12 +1498,16 @@ Font_Options :: struct {
 
 	// Passed on to font atlas creation.
 	filter: Texture_Filter,
+
+	// Font formats like .ttc can contain multiple fonts. Use this parameter to pick one. For fonts
+	// that only contain a single font, leave this at zero.
+	font_index: int,
 }
 
 // Supported font types:
 // - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
-// - Dynamic: A font where an atlas is continuously updated as you need need new characters. This
-//            mode current uses fontstash.
+// - Dynamic: A font that is continuously updated as you need new characters. Each font can have up
+//            to eight 1024x1024 textures (pages) filled with glyphs. Uses the `font_cache` package.
 //
 // Future types (TODO):
 // - Slug: Upload the character bezier curves to the GPU and render the text on the GPU without the
@@ -1515,19 +1519,20 @@ Font_Type :: enum {
 }
 
 Font_Data :: struct {
-	atlas: Texture,
 	options: Font_Options,
 
 	type: Font_Type,
 
 	// type == .Static
+	static_atlas: Texture,
 	static_glyphs: []Font_Baked_Glyph,
 	static_glyph_ranges: []Font_Baked_Glyph_Range,
 	static_font_size: f32,
 	static_line_spacing: f32,
 
 	// type == .Dynamic
-	dynamic_fontstash_handle: int,
+	dynamic_font: fc.Font,
+	dynamic_pages: [dynamic]Texture,
 }
 
 Handle :: hm.Handle64
@@ -1860,8 +1865,6 @@ State :: struct {
 	render_backend: Render_Backend_Interface,
 	render_backend_state: rawptr,
 
-	fs: fs.FontContext,
-	
 	close_window_requested: bool,
 
 	// All events for this frame. Cleared when `process_events` run
@@ -1897,7 +1900,6 @@ State :: struct {
 	shape_drawing_texture: Texture_Handle,
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.
-	current_font: Font,
 	current_camera: Maybe(Camera),
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
