@@ -5862,6 +5862,8 @@ Font_Options :: struct {
 	// Passed on to font atlas creation.
 	filter: Texture_Filter,
 
+	// Font formats like .ttc can contain multiple fonts. Use this parameter to pick one. For fonts
+	// that only contain a single font, leave this at zero.
 	font_index: int,
 }
 
