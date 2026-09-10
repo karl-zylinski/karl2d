@@ -1529,7 +1529,7 @@ Font_Data :: struct {
 	static_line_spacing: f32,
 
 	// type == .Dynamic
-	dynamic_cache: fc.Font_Cache,
+	dynamic_font: fc.Font,
 	dynamic_pages: [dynamic]Texture,
 }
 

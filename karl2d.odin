@@ -1457,21 +1457,21 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 
 		font_object := &s.fonts[font]
 
-		if len(font_object.dynamic_cache.pages) == 0 {
+		if len(font_object.dynamic_font.pages) == 0 {
 			return {}
 		}
 
 		render_size := _font_render_size(font_size)
-		size, size_ok := fc.measure(&font_object.dynamic_cache, text, render_size, s.time)
+		size, size_ok := fc.measure(&font_object.dynamic_font, text, render_size, s.time)
 
 		for !size_ok {
 			draw_current_batch()
 
-			if !fc.make_room(&font_object.dynamic_cache, s.time) {
+			if !fc.make_room(&font_object.dynamic_font, s.time) {
 				break
 			}
 
-			size, size_ok = fc.measure(&font_object.dynamic_cache, text, render_size, s.time)
+			size, size_ok = fc.measure(&font_object.dynamic_font, text, render_size, s.time)
 		}
 
 		return size * (font_size / f32(render_size))
@@ -1654,7 +1654,7 @@ draw_text :: proc(
 
 		font_object := &s.fonts[font]
 
-		if len(font_object.dynamic_cache.pages) == 0 {
+		if len(font_object.dynamic_font.pages) == 0 {
 			return
 		}
 
@@ -1680,10 +1680,10 @@ draw_text :: proc(
 			block_top += f32(count_text_lines(text))*font_size
 		}
 
-		it := fc.text_iterator_init(text, render_size, s.time)
+		it := fc.iterator_init(text, render_size, s.time)
 
 		for {
-			placed, placed_res := fc.text_iterator_next(&font_object.dynamic_cache, &it)
+			placed, placed_res := fc.iterate(&font_object.dynamic_font, &it)
 
 			if placed_res == .Done {
 				break
@@ -1692,7 +1692,7 @@ draw_text :: proc(
 			if placed_res == .No_Room {
 				draw_current_batch()
 
-				if !fc.make_room(&font_object.dynamic_cache, s.time) {
+				if !fc.make_room(&font_object.dynamic_font, s.time) {
 					break
 				}
 
@@ -4754,9 +4754,9 @@ load_dynamic_font_from_bytes :: proc(
 	data: []u8,
 	options: Font_Options = {},
 ) -> (Font, bool) #optional_ok {
-	cache: fc.Font_Cache
+	dynamic_font: fc.Font
 
-	if !fc.init(&cache, data, s.allocator) {
+	if !fc.init(&dynamic_font, data, s.allocator) {
 		log.error("Failed loading TTF/TTC font")
 		return FONT_NONE, false
 	}
@@ -4766,7 +4766,7 @@ load_dynamic_font_from_bytes :: proc(
 	append(&s.fonts, Font_Data {
 		type = .Dynamic,
 		options = options,
-		dynamic_cache = cache,
+		dynamic_font = dynamic_font,
 		dynamic_pages = make([dynamic]Texture, s.allocator),
 	})
 
@@ -4810,7 +4810,7 @@ destroy_font :: proc(font: Font) {
 
 		delete(f.dynamic_pages)
 		f.dynamic_pages = {}
-		fc.destroy(&f.dynamic_cache)
+		fc.destroy(&f.dynamic_font)
 	}
 }
 
@@ -5876,7 +5876,7 @@ Font_Data :: struct {
 	static_line_spacing: f32,
 
 	// type == .Dynamic
-	dynamic_cache: fc.Font_Cache,
+	dynamic_font: fc.Font,
 	dynamic_pages: [dynamic]Texture,
 }
 
@@ -7518,7 +7518,7 @@ _font_render_size :: proc(font_size: f32) -> int {
 }
 
 _sync_font_pages :: proc(font: ^Font_Data) {
-	for page, page_idx in font.dynamic_cache.pages {
+	for page, page_idx in font.dynamic_font.pages {
 		if page_idx == len(font.dynamic_pages) {
 			append(&font.dynamic_pages, Texture {})
 		}
@@ -7567,7 +7567,7 @@ _update_font_atlases :: proc() {
 			continue
 		}
 
-		for &page, page_idx in font.dynamic_cache.pages {
+		for &page, page_idx in font.dynamic_font.pages {
 			if page.dirty_max.x <= page.dirty_min.x || page.dirty_max.y <= page.dirty_min.y {
 				continue
 			}

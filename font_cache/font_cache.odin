@@ -16,7 +16,7 @@ MAX_PAGES :: 4
 GLYPH_PADDING :: 1
 
 // You have one of these per font.
-Font_Cache :: struct {
+Font :: struct {
 	info: stbtt.fontinfo,
 	data: []u8,
 	ascent: f32,
@@ -61,7 +61,7 @@ Skyline_Node :: struct {
 	width: int,
 }
 
-Text_Iterator :: struct {
+Iterator :: struct {
 	text: string,
 	size: int,
 	time: f64,
@@ -76,13 +76,13 @@ Placed_Glyph :: struct {
 	y: f32,
 }
 
-Text_Iterator_Result :: enum {
+Iterator_Result :: enum {
 	Placed,
 	Done,
 	No_Room,
 }
 
-init :: proc(cache: ^Font_Cache, data: []u8, allocator: runtime.Allocator) -> bool {
+init :: proc(font: ^Font, data: []u8, allocator: runtime.Allocator) -> bool {
 	info: stbtt.fontinfo
 	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), 0)
 
@@ -90,7 +90,7 @@ init :: proc(cache: ^Font_Cache, data: []u8, allocator: runtime.Allocator) -> bo
 		return false
 	}
 
-	cache^ = {
+	font^ = {
 		info = info,
 		data = slice.clone(data, allocator),
 		glyphs = make(map[Glyph_Key]Glyph, allocator),
@@ -99,32 +99,32 @@ init :: proc(cache: ^Font_Cache, data: []u8, allocator: runtime.Allocator) -> bo
 		allocator = allocator,
 	}
 
-	cache.info.data = raw_data(cache.data)
+	font.info.data = raw_data(font.data)
 
 	ascent, descent, line_gap: i32
-	stbtt.GetFontVMetrics(&cache.info, &ascent, &descent, &line_gap)
-	cache.ascent = f32(ascent) / f32(ascent - descent)
+	stbtt.GetFontVMetrics(&font.info, &ascent, &descent, &line_gap)
+	font.ascent = f32(ascent) / f32(ascent - descent)
 
-	add_page(cache)
+	add_page(font)
 	return true
 }
 
-destroy :: proc(cache: ^Font_Cache) {
-	for page in cache.pages {
-		delete(page.pixels, cache.allocator)
+destroy :: proc(font: ^Font) {
+	for page in font.pages {
+		delete(page.pixels, font.allocator)
 		delete(page.nodes)
 		delete(page.glyph_keys)
 	}
 
-	delete(cache.pages)
-	delete(cache.glyphs)
-	delete(cache.kerning)
-	delete(cache.data, cache.allocator)
-	cache^ = {}
+	delete(font.pages)
+	delete(font.glyphs)
+	delete(font.kerning)
+	delete(font.data, font.allocator)
+	font^ = {}
 }
 
 get_glyph :: proc(
-	cache: ^Font_Cache,
+	font: ^Font,
 	codepoint: rune,
 	size: int,
 	time: f64,
@@ -137,27 +137,27 @@ get_glyph :: proc(
 		size = size,
 	}
 
-	if glyph, glyph_ok := cache.glyphs[key]; glyph_ok {
+	if glyph, glyph_ok := font.glyphs[key]; glyph_ok {
 		if glyph.width > 0 {
-			cache.pages[glyph.page].last_used = time
+			font.pages[glyph.page].last_used = time
 		}
 
 		return glyph, true
 	}
 
-	index := stbtt.FindGlyphIndex(&cache.info, codepoint)
-	scale := stbtt.ScaleForPixelHeight(&cache.info, f32(size))
+	index := stbtt.FindGlyphIndex(&font.info, codepoint)
+	scale := stbtt.ScaleForPixelHeight(&font.info, f32(size))
 
 	advance, left_side_bearing: i32
-	stbtt.GetGlyphHMetrics(&cache.info, index, &advance, &left_side_bearing)
+	stbtt.GetGlyphHMetrics(&font.info, index, &advance, &left_side_bearing)
 
 	x0, y0, x1, y1: i32
-	stbtt.GetGlyphBitmapBox(&cache.info, index, scale, scale, &x0, &y0, &x1, &y1)
+	stbtt.GetGlyphBitmapBox(&font.info, index, scale, scale, &x0, &y0, &x1, &y1)
 
 	glyph := Glyph {
 		offset = {
 			f32(x0 - GLYPH_PADDING),
-			f32(y0 - GLYPH_PADDING) + cache.ascent * f32(size),
+			f32(y0 - GLYPH_PADDING) + font.ascent * f32(size),
 		},
 		advance = f32(advance) * scale,
 		index = index,
@@ -172,7 +172,7 @@ get_glyph :: proc(
 	   padded_width <= PAGE_MAX_SIZE && padded_height <= PAGE_MAX_SIZE {
 		placed := false
 
-		for &page, page_idx in cache.pages {
+		for &page, page_idx in font.pages {
 			x, y, fits := page_add_rect(&page, padded_width, padded_height)
 
 			if !fits {
@@ -183,7 +183,7 @@ get_glyph :: proc(
 			bitmap_y := y + GLYPH_PADDING
 
 			stbtt.MakeGlyphBitmap(
-				&cache.info,
+				&font.info,
 				raw_data(page.pixels[bitmap_x + bitmap_y * page.width:]),
 				i32(bitmap_width),
 				i32(bitmap_height),
@@ -214,25 +214,25 @@ get_glyph :: proc(
 		}
 	}
 
-	cache.glyphs[key] = glyph
+	font.glyphs[key] = glyph
 	return glyph, true
 }
 
-make_room :: proc(cache: ^Font_Cache, time: f64) -> bool {
-	newest := &cache.pages[len(cache.pages) - 1]
+make_room :: proc(font: ^Font, time: f64) -> bool {
+	newest := &font.pages[len(font.pages) - 1]
 
 	if newest.width < PAGE_MAX_SIZE {
 		old_width := newest.width
 		old_height := newest.height
 		new_width := old_width * 2
 		new_height := old_height * 2
-		new_pixels := make([]u8, new_width * new_height, cache.allocator)
+		new_pixels := make([]u8, new_width * new_height, font.allocator)
 
 		for y in 0..<old_height {
 			copy(new_pixels[y * new_width:], newest.pixels[y * old_width:(y + 1) * old_width])
 		}
 
-		delete(newest.pixels, cache.allocator)
+		delete(newest.pixels, font.allocator)
 		newest.pixels = new_pixels
 		newest.width = new_width
 		newest.height = new_height
@@ -248,19 +248,19 @@ make_room :: proc(cache: ^Font_Cache, time: f64) -> bool {
 		return true
 	}
 
-	if len(cache.pages) < MAX_PAGES {
-		add_page(cache)
+	if len(font.pages) < MAX_PAGES {
+		add_page(font)
 		return true
 	}
 
 	oldest := -1
 
-	for page, page_idx in cache.pages {
+	for page, page_idx in font.pages {
 		if page.reset_time == time {
 			continue
 		}
 
-		if oldest == -1 || page.last_used < cache.pages[oldest].last_used {
+		if oldest == -1 || page.last_used < font.pages[oldest].last_used {
 			oldest = page_idx
 		}
 	}
@@ -269,10 +269,10 @@ make_room :: proc(cache: ^Font_Cache, time: f64) -> bool {
 		return false
 	}
 
-	page := &cache.pages[oldest]
+	page := &font.pages[oldest]
 
 	for key in page.glyph_keys {
-		delete_key(&cache.glyphs, key)
+		delete_key(&font.glyphs, key)
 	}
 
 	clear(&page.glyph_keys)
@@ -288,13 +288,13 @@ make_room :: proc(cache: ^Font_Cache, time: f64) -> bool {
 	return true
 }
 
-add_page :: proc(cache: ^Font_Cache) {
+add_page :: proc(font: ^Font) {
 	page := Page {
-		pixels = make([]u8, PAGE_START_SIZE * PAGE_START_SIZE, cache.allocator),
+		pixels = make([]u8, PAGE_START_SIZE * PAGE_START_SIZE, font.allocator),
 		width = PAGE_START_SIZE,
 		height = PAGE_START_SIZE,
-		nodes = make([dynamic]Skyline_Node, cache.allocator),
-		glyph_keys = make([dynamic]Glyph_Key, cache.allocator),
+		nodes = make([dynamic]Skyline_Node, font.allocator),
+		glyph_keys = make([dynamic]Glyph_Key, font.allocator),
 		dirty_min = { PAGE_START_SIZE, PAGE_START_SIZE },
 	}
 
@@ -302,22 +302,22 @@ add_page :: proc(cache: ^Font_Cache) {
 		width = PAGE_START_SIZE,
 	})
 
-	append(&cache.pages, page)
+	append(&font.pages, page)
 }
 
-kern :: proc(cache: ^Font_Cache, prev_index: i32, index: i32, size: int) -> f32 {
+kern :: proc(font: ^Font, prev_index: i32, index: i32, size: int) -> f32 {
 	pair := [2]i32 { prev_index, index }
-	advance, advance_ok := cache.kerning[pair]
+	advance, advance_ok := font.kerning[pair]
 
 	if !advance_ok {
-		advance = stbtt.GetGlyphKernAdvance(&cache.info, prev_index, index)
-		cache.kerning[pair] = advance
+		advance = stbtt.GetGlyphKernAdvance(&font.info, prev_index, index)
+		font.kerning[pair] = advance
 	}
 
-	return f32(advance) * stbtt.ScaleForPixelHeight(&cache.info, f32(size))
+	return f32(advance) * stbtt.ScaleForPixelHeight(&font.info, f32(size))
 }
 
-text_iterator_init :: proc(text: string, size: int, time: f64) -> Text_Iterator {
+iterator_init :: proc(text: string, size: int, time: f64) -> Iterator {
 	return {
 		text = text,
 		size = size,
@@ -326,13 +326,7 @@ text_iterator_init :: proc(text: string, size: int, time: f64) -> Text_Iterator 
 	}
 }
 
-text_iterator_next :: proc(
-	cache: ^Font_Cache,
-	it: ^Text_Iterator,
-) -> (
-	Placed_Glyph,
-	Text_Iterator_Result,
-) {
+iterate :: proc(font: ^Font, it: ^Iterator) -> (Placed_Glyph, Iterator_Result) {
 	for len(it.text) > 0 {
 		codepoint, codepoint_width := utf8.decode_rune(it.text)
 
@@ -355,7 +349,7 @@ text_iterator_next :: proc(
 			continue
 		}
 
-		glyph, glyph_ok := get_glyph(cache, codepoint, it.size, it.time)
+		glyph, glyph_ok := get_glyph(font, codepoint, it.size, it.time)
 
 		if !glyph_ok {
 			return {}, .No_Room
@@ -364,7 +358,7 @@ text_iterator_next :: proc(
 		it.text = it.text[codepoint_width:]
 
 		if it.prev_index != -1 {
-			it.x += kern(cache, it.prev_index, glyph.index, it.size)
+			it.x += kern(font, it.prev_index, glyph.index, it.size)
 		}
 
 		placed := Placed_Glyph {
@@ -381,14 +375,14 @@ text_iterator_next :: proc(
 	return {}, .Done
 }
 
-measure :: proc(cache: ^Font_Cache, text: string, size: int, time: f64) -> ([2]f32, bool) {
-	it := text_iterator_init(text, size, time)
+measure :: proc(font: ^Font, text: string, size: int, time: f64) -> ([2]f32, bool) {
+	it := iterator_init(text, size, time)
 	width: f32
 
-	placed_res := Text_Iterator_Result.Placed
+	placed_res := Iterator_Result.Placed
 
 	for placed_res == .Placed {
-		_, placed_res = text_iterator_next(cache, &it)
+		_, placed_res = iterate(font, &it)
 		width = max(width, it.x)
 	}
 
