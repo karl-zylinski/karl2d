@@ -41,7 +41,8 @@ Glyph :: struct {
 	index: i32,
 }
 
-// A page will usually map to a texture. But the font cache doesn't know about textures.
+// A page is a CPU-side image into which glyphs have been blitted. Use dirty_min and dirty_max to
+// figure out which rectangle in it you need to upload to the GPU.
 Page :: struct {
 	pixels: []u8,
 	width: int,

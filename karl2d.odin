@@ -1658,27 +1658,22 @@ draw_text :: proc(
 			return
 		}
 
-		// TODO-UPDATE-COMMENT the size is rounded to whole pixels in `_font_render_size`, and the
-		// quads are scaled by `world_scale` instead of divided by the zoom.
-		// ---
-		// Bake the glyph at font_size*camera_zoom pixels so it is sharp at the current zoom level.
-		// We then divide quad positions back by camera_zoom to recover world-space coordinates.
+		// `_font_render_size` will scale the font size by the camera zoom and round it to nearest
+		// pixel size. We'll ue `inv_render_scale` further down to cancel out the scale, since the
+		// scaling happens in the camera.
 		render_size := _font_render_size(font_size)
-		world_scale := font_size / f32(render_size)
+		inv_render_scale := font_size / f32(render_size)
 		_sync_font_pages(font_object)
 
-		// TODO-UPDATE-COMMENT the layout comes from the font cache's text iterator.
-		// ---
-		// FontStash lays the text out top-down starting at (0, 0), so its quads come out as offsets
-		// from the top-left of the text block. This is where that corner goes. With flipped Y
-		// `position` is the bottom-left corner of the block, so the top is a whole block higher. The
-		// height must agree with what `measure_text_dynamic` reports, which is `lines * font_size`.
 		y_up := _camera_flip_y()
 		block_top := position.y
 
+		// In Y up mode the top of the text block is offset by its total height.
 		if y_up {
 			block_top += f32(count_text_lines(text))*font_size
 		}
+
+		// The font_cache iterator will go through the text and lay the letters out.
 
 		it := fc.place_text_iterator_init(text, render_size, s.time)
 
@@ -1712,10 +1707,10 @@ draw_text :: proc(
 			}
 
 			// Unscale quad positions from render-size space back to text-local world units.
-			offset_from_left := placed.x * world_scale
-			offset_from_top := placed.y * world_scale
-			glyph_w := f32(g.width) * world_scale
-			glyph_h := f32(g.height) * world_scale
+			offset_from_left := placed.x * inv_render_scale
+			offset_from_top := placed.y * inv_render_scale
+			glyph_w := f32(g.width) * inv_render_scale
+			glyph_h := f32(g.height) * inv_render_scale
 
 			glyph_y := y_up ? block_top - offset_from_top - glyph_h : block_top + offset_from_top
 
@@ -5847,12 +5842,10 @@ Font_Options :: struct {
 	filter: Texture_Filter,
 }
 
-// TODO-UPDATE-COMMENT dynamic fonts use the `font_cache` package, not fontstash.
-// ---
 // Supported font types:
 // - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
-// - Dynamic: A font where an atlas is continuously updated as you need need new characters. This
-//            mode current uses fontstash.
+// - Dynamic: A font that is continuously updated as you need new characters. Each font can have up
+//            to four 2048x2048 textures (pages) filled with glyphs. Uses the `font_cache` package.
 //
 // Future types (TODO):
 // - Slug: Upload the character bezier curves to the GPU and render the text on the GPU without the
@@ -7541,16 +7534,15 @@ _sync_font_pages :: proc(font: ^Font_Data) {
 	}
 }
 
-// TODO-UPDATE-COMMENT each dynamic font has its own cache with one or more pages, each page has a
-// texture and a dirty rect. A page is only ever wiped after the batch has been flushed.
-// ---
-// Gets glyphs that were baked since the last flush onto the GPU. Drawing text with a dynamic font
-// bakes the glyphs it needs into fontstash's atlas as it goes. This has to run before the draw
-// calls that use them. Fontstash only ever puts glyphs in unused parts of the atlas. Texture
-// coordinates already recorded in the vertex buffer therefore stay valid.
+// For each dynamic font, this procedure updates the GPU-side atlases based on if the CPU-side
+// atlases have "dirty data". This means that there are areas on the CPU-side atlses that are not on
+// the GPU yet. This happens when `draw_text` uses previously unused glyphs.
+// 
+// Dynamic fonts use the font_cache. It maintains up to four 2048x2048 CPU-side atlases. This
+// procedure goes through the pages and checks if there are "dirty rects" set for any of them, which
+// means that that region of the GPU texture needs to be updated.
 //
-// Every dynamic font shares one fontstash atlas. Each has its own GPU texture mirroring it. They
-// all get the same update.
+// This is run before any draw call that depends on these glyphs is submitted.
 _update_font_atlases :: proc() {
 	for &font in s.fonts {
 		if font.type != .Dynamic {
