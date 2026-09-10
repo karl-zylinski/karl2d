@@ -11,8 +11,8 @@ import "core:unicode/utf8"
 import stbtt "vendor:stb/truetype"
 
 PAGE_START_SIZE :: 256
-PAGE_MAX_SIZE :: 2048
-MAX_PAGES :: 4
+PAGE_MAX_SIZE :: 1024
+MAX_PAGES :: 8
 GLYPH_PADDING :: 1
 
 Font :: struct {
