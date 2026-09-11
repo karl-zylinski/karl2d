@@ -140,8 +140,8 @@ step :: proc() -> bool {
 			k2.draw_text(header_text, pos, current_font_size, k2.BLACK, font)
 
 			pos = { LEFT, pos.y + 2*current_font_size }
-			cjkText := "道可道非常道。义、礼、说、选、权吾輩は猫である。다람쥐 헌 쳇바퀴에 타고파."
-			for character in cjkText {
+			cjk_text := "道可道非常道。义、礼、说、选、权吾輩は猫である。다람쥐 헌 쳇바퀴에 타고파."
+			for character in cjk_text {
 				buf, n := utf8.encode_rune(character)
 				text = string(buf[:n])
 				size := k2.measure_text(text, current_font_size, font)
