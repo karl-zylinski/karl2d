@@ -1461,8 +1461,15 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 			return {}
 		}
 
-		render_size := _font_render_size(font_size)
-		size, size_ok := fc.measure(&font_object.dynamic_font, text, render_size, s.time)
+		camera_zoom: f32 = 1
+
+		if cam, cam_ok := s.current_camera.?; cam_ok && cam.zoom > 0.001 {
+			camera_zoom = cam.zoom
+		}
+
+		// See `draw_text_dynamic` for more info.
+		atlas_font_size := max(1, int(math.round(font_size * camera_zoom)))
+		size, size_ok := fc.measure(&font_object.dynamic_font, text, atlas_font_size, s.time)
 
 		for !size_ok {
 			draw_current_batch()
@@ -1471,10 +1478,10 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 				break
 			}
 
-			size, size_ok = fc.measure(&font_object.dynamic_font, text, render_size, s.time)
+			size, size_ok = fc.measure(&font_object.dynamic_font, text, atlas_font_size, s.time)
 		}
 
-		return size * (font_size / f32(render_size))
+		return size * (font_size / f32(atlas_font_size))
 	}
 
 }
@@ -1658,11 +1665,25 @@ draw_text :: proc(
 			return
 		}
 
-		// `_font_render_size` will scale the font size by the camera zoom and round it to nearest
-		// pixel size. We'll use `inv_render_scale` further down to cancel out the scale, since the
-		// scaling happens in the camera.
-		render_size := _font_render_size(font_size)
-		inv_render_scale := font_size / f32(render_size)
+		camera_zoom: f32 = 1
+
+		if cam, cam_ok := s.current_camera.?; cam_ok && cam.zoom > 0.001 {
+			camera_zoom = cam.zoom
+		}
+
+		// Scaling by camera zoom makes the letters crisp. Otherwise they will be blurry because
+		// the textured is upscaled.
+		//
+		// The rounding makes sure we don't flood the atlas with tiny size variants.
+		atlas_font_size := max(1, int(math.round(font_size * camera_zoom)))
+		
+		// The text will be drawn with the camera enabled. This will be used to undo the camera
+		// scale when drawing.
+		//
+		// We could just do `1/camera_zoom`. However, we round the size, this will take that into
+		// account. 
+		inv_camera_zoom := font_size / f32(atlas_font_size)
+		
 		_sync_font_pages(font_object)
 
 		y_up := _camera_flip_y()
@@ -1674,7 +1695,7 @@ draw_text :: proc(
 		}
 
 		// The font_cache iterator will go through the text and lay the letters out.
-		it := fc.place_text_iterator_init(text, render_size, s.time)
+		it := fc.place_text_iterator_init(text, atlas_font_size, s.time)
 
 		for {
 			placed, place_res := fc.place_text_iterate(&font_object.dynamic_font, &it)
@@ -1705,11 +1726,11 @@ draw_text :: proc(
 				f32(g.width), f32(g.height),
 			}
 
-			// Unscale quad positions from render-size space back to text-local world units.
-			offset_from_left := placed.x * inv_render_scale
-			offset_from_top := placed.y * inv_render_scale
-			glyph_w := f32(g.width) * inv_render_scale
-			glyph_h := f32(g.height) * inv_render_scale
+
+			offset_from_left := placed.x * inv_camera_zoom
+			offset_from_top := placed.y * inv_camera_zoom
+			glyph_w := f32(g.width) * inv_camera_zoom
+			glyph_h := f32(g.height) * inv_camera_zoom
 
 			glyph_y := y_up ? block_top - offset_from_top - glyph_h : block_top + offset_from_top
 
@@ -7524,15 +7545,6 @@ _camera_flip_y :: proc() -> bool {
 	return false
 }
 
-_font_render_size :: proc(font_size: f32) -> int {
-	camera_zoom: f32 = 1
-
-	if cam, cam_ok := s.current_camera.?; cam_ok && cam.zoom > 0.001 {
-		camera_zoom = cam.zoom
-	}
-
-	return max(1, int(math.round(font_size * camera_zoom)))
-}
 
 _sync_font_pages :: proc(font: ^Font_Data) {
 	for page, page_idx in font.dynamic_font.pages {
