@@ -51,9 +51,12 @@ init :: proc() {
 	k2.init(1280, 720, "Karl2D Touch Demo", { window_mode = .Windowed_Resizable })
 	camera = { zoom = 1 }
 
+	// TODO-UPDATE-COMMENT the default emulation goes the other way now, so what this turns off is
+	// a tap on a phone also arriving as a mouse click.
+	// ---
 	// This example handles both touches and the mouse itself, so the mouse must not also produce
 	// touches: one drag would pan the camera twice. Press M to turn that back on.
-	k2.set_touch_events_from_mouse(false)
+	k2.set_mouse_touch_emulation(.None)
 }
 
 step :: proc() -> bool {
@@ -70,7 +73,7 @@ step :: proc() -> bool {
 
 	if k2.key_went_down(.M) {
 		mouse_emulates_touch = !mouse_emulates_touch
-		k2.set_touch_events_from_mouse(mouse_emulates_touch)
+		k2.set_mouse_touch_emulation(mouse_emulates_touch ? .Mouse_To_Touch : .None)
 	}
 
 	touches := k2.get_touches()

@@ -117,6 +117,9 @@ process_events :: proc()
 // Note: Gamepad axis movement (analogue sticks and analogue triggers) are _not_ events. Those can
 // only be queried using `k2.get_gamepad_axis`.
 //
+// TODO-UPDATE-COMMENT the emulated events are in here now, at the end of the list, after the ones
+// the platform reported. See `set_mouse_touch_emulation`.
+// ---
 // Note: These are the events the platform reported. The touch that `set_touch_events_from_mouse`
 // makes from the mouse is not one of them, it only shows up in `get_touches`.
 //
@@ -229,6 +232,9 @@ get_typed_runes :: proc() -> []rune
 // Returns all touches that were active at any point during this frame, including those that ended
 // this frame (those have `went_up` set).
 //
+// TODO-UPDATE-COMMENT the mouse no longer makes touches by default, `.Mouse_To_Touch` has to be
+// turned on for that.
+// ---
 // Note: Only web reports touches from a real touch screen. On desktop the only touches you get are
 // the ones `set_touch_events_from_mouse` makes from the mouse.
 //
@@ -238,13 +244,7 @@ get_typed_runes :: proc() -> []rune
 // Warning: The returned slice is only valid during the current frame!
 get_touches :: proc() -> []Touch
 
-// Enabled by default. Holding the left mouse button produces a touch (with id `EMULATED_TOUCH_ID`),
-// so code written for touch also works with a mouse. Turn it off if you handle the mouse yourself,
-// otherwise one drag arrives as both.
-//
-// The touch is built from the mouse state, so it never shows up in `get_events`, only in
-// `get_touches`.
-set_touch_events_from_mouse :: proc(enabled: bool)
+set_mouse_touch_emulation :: proc(emulation: Mouse_Touch_Emulation)
 
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
 // You can check that an exact set of modifiers are held like so:
@@ -1888,8 +1888,10 @@ State :: struct {
 
 	touches: [dynamic; MAX_TOUCHES]Touch,
 
-	// See `set_touch_events_from_mouse`.
-	touch_events_from_mouse: bool,
+	// See `set_mouse_touch_emulation`.
+	mouse_touch_emulation: Mouse_Touch_Emulation,
+
+	touch_to_mouse_id: Touch_Id,
 
 	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
@@ -1986,14 +1988,17 @@ Mouse_Button :: enum {
 }
 
 // The maximum number of touches Karl2D tracks at once. Ten fingers, plus the one
-// `set_touch_events_from_mouse` makes from the mouse.
+// `set_mouse_touch_emulation` makes from the mouse.
 MAX_TOUCHES :: 11
 
 // Identifies one finger for as long as it stays on the screen. Stable from the moment the touch
 // goes down until it goes up. Ids may be reused after that.
 Touch_Id :: distinct u64
 
-// The id of the touch synthesized by `set_touch_events_from_mouse`. Never collides with a real id.
+// TODO-UPDATE-COMMENT `TOUCH_TO_MOUSE_ID_NONE` reserves the next id down, so the top two ids are
+// both spoken for.
+// ---
+// The id of the touch synthesized by `set_mouse_touch_emulation`. Never collides with a real id.
 EMULATED_TOUCH_ID :: max(Touch_Id)
 
 Touch :: struct {
@@ -2014,6 +2019,12 @@ Touch :: struct {
 	// The OS threw the touch away, for example due to palm rejection or the window losing focus.
 	// `went_up` is set as well, so code that doesn't care about the difference still works.
 	cancelled: bool,
+}
+
+Mouse_Touch_Emulation :: enum {
+	None,
+	Touch_To_Mouse,
+	Mouse_To_Touch,
 }
 
 // Based on Raylib / GLFW
