@@ -134,12 +134,12 @@ step :: proc() -> bool {
 		// CJK SECTION
 		{
 			pos = { LEFT, pos.y + size.y + current_font_size }
-			headerText := "CJK characters (Silver only)"
-			headerSize := k2.measure_text(headerText, current_font_size, font)
-			k2.draw_rect_vec(pos, headerSize, k2.LIGHT_RED)
-			k2.draw_text(headerText, pos, current_font_size, k2.BLACK, font)
+			header_text := "CJK characters (Silver only)"
+			header_size := k2.measure_text(header_text, current_font_size, font)
+			k2.draw_rect_vec(pos, header_size, k2.LIGHT_RED)
+			k2.draw_text(header_text, pos, current_font_size, k2.BLACK, font)
 
-			pos = {LEFT, pos.y + 2 * current_font_size}
+			pos = { LEFT, pos.y + 2*current_font_size }
 			cjkText := "道可道非常道。义、礼、说、选、权吾輩は猫である。다람쥐 헌 쳇바퀴에 타고파."
 			for character in cjkText {
 				buf, n := utf8.encode_rune(character)
@@ -149,8 +149,8 @@ step :: proc() -> bool {
 				k2.draw_text(text, pos, current_font_size, k2.BLACK, font)
 
 				pos.x += current_font_size
-				if pos.x + current_font_size > screen_size.x - 40 {
-					pos = { LEFT, pos.y + current_font_size }
+				if pos.x+current_font_size > screen_size.x-40 {
+					pos = { LEFT, pos.y+current_font_size }
 				}
 			}
 		}
