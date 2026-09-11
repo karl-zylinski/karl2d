@@ -1461,7 +1461,7 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 			return {}
 		}
 
-		render_size := _font_render_size(font_size)
+		render_size, _ := _font_render_size(font_size)
 		size, size_ok := fc.measure(&font_object.dynamic_font, text, render_size, s.time)
 
 		for !size_ok {
@@ -1661,8 +1661,9 @@ draw_text :: proc(
 		// `_font_render_size` will scale the font size by the camera zoom and round it to nearest
 		// pixel size. We'll use `inv_render_scale` further down to cancel out the scale, since the
 		// scaling happens in the camera.
-		render_size := _font_render_size(font_size)
+		render_size, screen_size := _font_render_size(font_size)
 		inv_render_scale := font_size / f32(render_size)
+		snap_to_pixels := f32(render_size) == screen_size
 		_sync_font_pages(font_object)
 
 		y_up := _camera_flip_y()
@@ -1705,8 +1706,14 @@ draw_text :: proc(
 				f32(g.width), f32(g.height),
 			}
 
+			placed_x := placed.x
+
+			if snap_to_pixels {
+				placed_x = math.round(placed_x)
+			}
+
 			// Unscale quad positions from render-size space back to text-local world units.
-			offset_from_left := placed.x * inv_render_scale
+			offset_from_left := placed_x * inv_render_scale
 			offset_from_top := placed.y * inv_render_scale
 			glyph_w := f32(g.width) * inv_render_scale
 			glyph_h := f32(g.height) * inv_render_scale
@@ -7524,14 +7531,15 @@ _camera_flip_y :: proc() -> bool {
 	return false
 }
 
-_font_render_size :: proc(font_size: f32) -> int {
+_font_render_size :: proc(font_size: f32) -> (render_size: int, screen_size: f32) {
 	camera_zoom: f32 = 1
 
 	if cam, cam_ok := s.current_camera.?; cam_ok && cam.zoom > 0.001 {
 		camera_zoom = cam.zoom
 	}
 
-	return max(1, int(math.round(font_size * camera_zoom)))
+	scaled_size := font_size * camera_zoom
+	return max(1, int(math.round(scaled_size))), scaled_size
 }
 
 _sync_font_pages :: proc(font: ^Font_Data) {
