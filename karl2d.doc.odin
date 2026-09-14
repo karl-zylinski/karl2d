@@ -15,15 +15,16 @@ package karl2d
 //
 // Karl2D will use `allocator` for all dynamically allocated memory that is needed more than one
 // frame. For single frame allocations the library uses an internal "frame allocator".
+// The frame allocator is cleared when `update()` runs.
 //
 // Call `init` before using Karl2D procedures that depend on runtime state, such as window,
 // drawing, input, audio, texture, font and shader procedures. Pure helper procedures, types and
 // constants can be used before `init`.
 //
 // The return value is a pointer to Karl2D's internal state. You can restore this state later using
-// `set_internal_state()`. This is useful for example when doing game code reload, as the state may
-// get reset when the library is reloaded. You can safely ignore the return value if you have no
-// such needs.
+// `set_internal_state()`. This is useful when doing hot reload, as the internal state pointer gets
+// reset when the library is reloaded. You can safely ignore the return value if you have no such
+// needs.
 //
 // THREAD INFO: The value of `audio_thread_logger` will be stored for later use by the audio thread.
 // Make sure your logger is thread safe (the file/console loggers in Odin are).
@@ -52,8 +53,8 @@ init :: proc(
 //// for {
 ////     k2.reset_frame_allocator()
 ////     k2.calculate_frame_time()
-////     k2.process_events()
 ////     k2.update_audio()
+////     k2.process_events()
 ////     
 ////     k2.clear(k2.BLUE)
 ////     k2.present()
@@ -64,8 +65,8 @@ init :: proc(
 //// }
 update :: proc() -> bool
 
-// Returns true the user has pressed the close button on the window, or used a key stroke such as
-// ALT+F4 on Windows. The application can decide if it wants to shut down or if it wants to show
+// Returns `true` if the user has pressed the close button on the window, or used a key stroke such
+// as ALT+F4 on Windows. The application can decide if it wants to shut down or if it wants to show
 // some kind of confirmation dialogue.
 //
 // Called by `update`, but can be called manually if you need more control.
@@ -85,14 +86,14 @@ clear :: proc(color: Color)
 // Called as part of `update`, but can be called manually if you need more control.
 reset_frame_allocator :: proc()
 
-// Calculates how long the previous frame took and how it has been since the application started.
-// You can fetch the calculated values using `get_frame_time` and `get_time`.
+// Calculates how long the previous frame took and how long it has been since the application
+// started. You can fetch the calculated values using `get_frame_time` and `get_time`.
 //
 // Called as part of `update`, but can be called manually if you need more control.
 calculate_frame_time :: proc()
 
-// Present the drawn stuff to the player. Also known as "flipping the backbuffer": Call at end of
-// frame to make everything you've drawn appear on the screen.
+// Present the graphics drawn on the screen to the player. Also known as "flipping the backbuffer":
+// Call at end of frame to make everything you've drawn appear on the screen.
 //
 // When you draw using for example `draw_texture`, then that stuff is drawn to an invisible texture
 // called a "backbuffer". This makes sure that we don't see half-drawn frames. So when you are happy
@@ -172,14 +173,14 @@ get_window_scale :: proc() -> f32
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode)
 
-// Sets the icon shown in the titlebar and the OS's program switcher bar. By default Karl2D uses an
-// icon that says K2. Load the image using for example `k2.load_image_from_file`.
+// Sets the icon shown in the titlebar and the OS's program switcher bar. Load the image using for
+// example `k2.load_image_from_file`.
 //
 // The data of `image` is copied, so you can destroy it after running this.
 //
 // On web this modifies the icon shown on the tab.
 //
-// Returns `true` if the icon was set. The reason is logged when it wasn't.
+// Returns `true` if the icon was set.
 set_window_icon :: proc(image: Image) -> bool
 
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
@@ -187,9 +188,6 @@ set_window_icon :: proc(image: Image) -> bool
 // call this procedure manually. It is done automatically when `present` or `clear` run. It can also
 // happen when you destroy a resource such as a texture or shader that is used in the current
 // batch.
-//
-// Note that `set_z` never starts a new draw call: the z value is stored in each vertex rather than
-// being part of a draw call's settings, so it's fine to call it before every draw.
 //
 // All the draw calls of a batch share a vertex buffer of VERTEX_BUFFER_MAX bytes. The shader
 // dictates how big a vertex is. The maximum number of vertices in a batch is therefore
@@ -216,24 +214,20 @@ key_went_up :: proc(key: Keyboard_Key) -> bool
 key_is_held :: proc(key: Keyboard_Key) -> bool
 
 // Returns all the Unicode code points that were typed since the last frame, taking the current
-// keyboard layout into account. This is what you want for text input, as opposed to
-// `key_went_down`, which tells you about physical keys rather than the characters they produce.
-//
-// Control characters (Backspace, Enter, Tab, etc) and presses of modifier keys on their own are
-// never included.
+// keyboard layout into account. Commonly used for text input fields.
 //
 // Warning: The returned slice is only valid during the current frame! You can make a clone of it
 // using the `slice.clone` procedure (import `core:slice`).
 get_typed_runes :: proc() -> []rune
 
-// Returns all touches that were active at any point during this frame, including those that ended
-// this frame (those have `went_up` set).
-//
-// Note: Only web reports touches from a real touch screen. On desktop the only touches you get are
-// the ones `set_touch_events_from_mouse` makes from the mouse.
+// Returns all touches that were active during this frame, including those that ended this frame
+// (those have `went_up` set).
 //
 // Note: The order is not stable. When a touch ends, the last one in the list takes its place, so
 // match touches by `id` between frames rather than by where they sit in the slice.
+//
+// Note: Touch is only support for web builds right now. You can simulate them on desktop using
+// `set_touch_events_from_mouse`.
 //
 // Warning: The returned slice is only valid during the current frame!
 get_touches :: proc() -> []Touch
@@ -251,8 +245,8 @@ set_touch_events_from_mouse :: proc(enabled: bool)
 //
 // `if k2.get_held_modifiers() == { .Control, Shift} {}`
 //
-// This will only be true if left/right control are held and left/right shift are held, but it also
-// makes sure that no alt or super (windows) key are held.
+// The above will only be true if left/right control are held and left/right shift are held. It will
+// return false if any of the alt or super keys are held.
 //
 // This is useful for checking for held modifiers for hotkeys in user interfaces. If you want to
 // associate an in-game action with a specific key such as Left Control, then it's better to just do
