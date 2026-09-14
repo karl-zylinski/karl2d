@@ -576,6 +576,8 @@ set_texture_filter_ex :: proc(
 	mip_filter: Texture_Filter,
 )
 
+set_texture_filter_override :: proc(filter: Maybe(Texture_Filter))
+
 //-------//
 // AUDIO //
 //-------//
@@ -1496,6 +1498,9 @@ Font_Options :: struct {
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
 
+	// TODO-UPDATE-COMMENT for dynamic fonts this is now used as the draw call's texture filter
+	// override when drawing text with the font, since all dynamic fonts share one atlas texture.
+	// ---
 	// Passed on to font atlas creation.
 	filter: Texture_Filter,
 
@@ -1504,6 +1509,9 @@ Font_Options :: struct {
 	font_index: int,
 }
 
+// TODO-UPDATE-COMMENT all dynamic fonts now share a single atlas texture that grows up to
+// 4096x4096 and then compacts, keeping the most recently used glyphs.
+// ---
 // Supported font types:
 // - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
 // - Dynamic: A font that is continuously updated as you need new characters. Each font can have up
@@ -1532,7 +1540,6 @@ Font_Data :: struct {
 
 	// type == .Dynamic
 	dynamic_font: fc.Font,
-	dynamic_pages: [dynamic]Texture,
 }
 
 Handle :: hm.Handle64
@@ -1897,6 +1904,8 @@ State :: struct {
 
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
+	font_atlas: fc.Atlas,
+	font_atlas_texture: Texture,
 	shape_drawing_texture: Texture_Handle,
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.
@@ -1904,6 +1913,7 @@ State :: struct {
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
 	current_texture: Texture_Handle,
+	current_texture_filter_override: Maybe(Texture_Filter),
 	current_render_target: Render_Target_Handle,
 
 	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the

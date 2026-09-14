@@ -50,6 +50,7 @@ GL_State :: struct {
 	textures: hm.Dynamic_Handle_Map(GL_Texture, Texture_Handle),
 	render_targets: hm.Dynamic_Handle_Map(GL_Render_Target, Render_Target_Handle),
 	depth_test: bool,
+	override_samplers: [Texture_Filter]u32,
 }
 
 GL_Shader_Constant_Buffer :: struct {
@@ -174,6 +175,13 @@ gl_init :: proc(
 
 gl_shutdown :: proc() {
 	gl.DeleteBuffers(1, &s.vertex_buffer_gpu)
+
+	for &sampler in s.override_samplers {
+		if sampler != 0 {
+			gl.DeleteSamplers(1, &sampler)
+		}
+	}
+
 	hm.dynamic_destroy(&s.shaders)
 	hm.dynamic_destroy(&s.textures)
 	hm.dynamic_destroy(&s.render_targets)
@@ -246,7 +254,7 @@ gl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 		}
 
 		if .Textures in changed {
-			gl_bind_textures(call.textures, gl_shd^)
+			gl_bind_textures(call.textures, call.texture_filter_override, gl_shd^)
 		}
 
 		// Only the render target and scissor setup need the render target. Skipping the lookup
@@ -413,9 +421,29 @@ gl_set_constants :: proc(
 	}
 }
 
-gl_bind_textures :: proc(textures: []Texture_Handle, gl_shd: GL_Shader) {
+gl_bind_textures :: proc(
+	textures: []Texture_Handle,
+	filter_override: Maybe(Texture_Filter),
+	gl_shd: GL_Shader,
+) {
 	if len(textures) != len(gl_shd.texture_bindings) {
 		return
+	}
+
+	override_sampler: u32
+
+	if override, has_override := filter_override.?; has_override {
+		override_sampler = s.override_samplers[override]
+
+		if override_sampler == 0 {
+			gl.GenSamplers(1, &override_sampler)
+			gl_filter: i32 = override == .Point ? gl.NEAREST : gl.LINEAR
+			gl.SamplerParameteri(override_sampler, gl.TEXTURE_MIN_FILTER, gl_filter)
+			gl.SamplerParameteri(override_sampler, gl.TEXTURE_MAG_FILTER, gl_filter)
+			gl.SamplerParameteri(override_sampler, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+			gl.SamplerParameteri(override_sampler, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+			s.override_samplers[override] = override_sampler
+		}
 	}
 
 	for t, t_idx in textures {
@@ -428,6 +456,7 @@ gl_bind_textures :: proc(textures: []Texture_Handle, gl_shd: GL_Shader) {
 			gl.BindTexture(gl.TEXTURE_2D, 0)
 		}
 
+		gl.BindSampler(u32(t_idx), override_sampler)
 		gl.Uniform1i(gl_t.loc, i32(t_idx))
 	}
 }
