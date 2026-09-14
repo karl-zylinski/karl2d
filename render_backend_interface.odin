@@ -57,7 +57,6 @@ Draw_Call :: struct {
 	render_target: Render_Target_Handle,
 	scissor: Maybe(Rect),
 	blend_mode: Blend_Mode,
-	texture_filter_override: Maybe(Texture_Filter),
 
 	// What fields in this draw call changed from the previous one? The backend will look at this
 	// and only change GPU state that actually needs changing.

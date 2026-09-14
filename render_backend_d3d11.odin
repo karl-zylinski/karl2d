@@ -386,27 +386,15 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 		}
 
 		if .Textures in changed {
-			override_sampler: ^d3d11.ISamplerState
-
-			if override, has_override := call.texture_filter_override.?; has_override {
-				f: d3d11.FILTER = override == .Point ? .MIN_MAG_MIP_POINT : .MIN_MAG_MIP_LINEAR
-				override_sampler = create_sampler(f)
-			}
-
 			if len(call.textures) == len(d3d_shd.texture_bindings) {
 				for t, t_idx in call.textures {
 					d3d_t := d3d_shd.texture_bindings[t_idx]
 
 					if t := hm.get(&s.textures, t); t != nil {
-						sampler := override_sampler == nil ? t.sampler : override_sampler
 						dc->PSSetShaderResources(d3d_t.bind_point, 1, &t.view)
-						dc->PSSetSamplers(d3d_t.sampler_bind_point, 1, &sampler)
+						dc->PSSetSamplers(d3d_t.sampler_bind_point, 1, &t.sampler)
 					}
 				}
-			}
-
-			if override_sampler != nil {
-				override_sampler->Release()
 			}
 		}
 

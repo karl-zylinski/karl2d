@@ -50,7 +50,6 @@ WebGL_State :: struct {
 	textures: hm.Dynamic_Handle_Map(WebGL_Texture, Texture_Handle),
 	render_targets: hm.Dynamic_Handle_Map(WebGL_Render_Target, Render_Target_Handle),
 	depth_test: bool,
-	override_samplers: [Texture_Filter]gl.Sampler,
 }
 
 WebGL_Shader_Constant_Buffer :: struct {
@@ -187,13 +186,6 @@ webgl_init :: proc(
 
 webgl_shutdown :: proc() {
 	gl.DeleteBuffer(s.vertex_buffer_gpu)
-
-	for sampler in s.override_samplers {
-		if sampler != 0 {
-			gl.DeleteSampler(sampler)
-		}
-	}
-
 	hm.dynamic_destroy(&s.shaders)
 	hm.dynamic_destroy(&s.textures)
 	hm.dynamic_destroy(&s.render_targets)
@@ -265,7 +257,7 @@ webgl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 		}
 
 		if .Textures in changed {
-			webgl_bind_textures(call.textures, call.texture_filter_override, gl_shd^)
+			webgl_bind_textures(call.textures, gl_shd^)
 		}
 
 		// Only the render target and scissor setup need the render target. Skipping the lookup
@@ -402,29 +394,9 @@ webgl_set_constants :: proc(
 	}
 }
 
-webgl_bind_textures :: proc(
-	textures: []Texture_Handle,
-	filter_override: Maybe(Texture_Filter),
-	gl_shd: WebGL_Shader,
-) {
+webgl_bind_textures :: proc(textures: []Texture_Handle, gl_shd: WebGL_Shader) {
 	if len(textures) != len(gl_shd.texture_bindings) {
 		return
-	}
-
-	override_sampler: gl.Sampler
-
-	if override, has_override := filter_override.?; has_override {
-		override_sampler = s.override_samplers[override]
-
-		if override_sampler == 0 {
-			override_sampler = gl.CreateSampler()
-			gl_filter := override == .Point ? gl.NEAREST : gl.LINEAR
-			gl.SamplerParameteri(override_sampler, gl.TEXTURE_MIN_FILTER, i32(gl_filter))
-			gl.SamplerParameteri(override_sampler, gl.TEXTURE_MAG_FILTER, i32(gl_filter))
-			gl.SamplerParameteri(override_sampler, gl.TEXTURE_WRAP_S, i32(gl.CLAMP_TO_EDGE))
-			gl.SamplerParameteri(override_sampler, gl.TEXTURE_WRAP_T, i32(gl.CLAMP_TO_EDGE))
-			s.override_samplers[override] = override_sampler
-		}
 	}
 
 	for t, t_idx in textures {
@@ -437,7 +409,6 @@ webgl_bind_textures :: proc(
 			gl.BindTexture(gl.TEXTURE_2D, 0)
 		}
 
-		gl.BindSampler(gl.Enum(t_idx), override_sampler)
 		gl.Uniform1i(gl_t.loc, i32(t_idx))
 	}
 }

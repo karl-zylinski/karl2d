@@ -1680,8 +1680,10 @@ draw_text :: proc(
 		inv_render_scale := font_size / f32(render_size)
 		_sync_font_atlas_texture()
 
-		prev_filter_override := s.current_texture_filter_override
-		s.current_texture_filter_override = font_object.options.filter
+		if font_object.options.filter != s.font_atlas_filter {
+			s.font_atlas_filter = font_object.options.filter
+			set_texture_filter(s.font_atlas_texture, s.font_atlas_filter)
+		}
 
 		y_up := _camera_flip_y()
 		block_top := position.y
@@ -1751,8 +1753,6 @@ draw_text :: proc(
 				color,
 			)
 		}
-
-		s.current_texture_filter_override = prev_filter_override
 	}
 
 }
@@ -2047,10 +2047,6 @@ set_texture_filter_ex :: proc(
 	// Recorded draw calls may still be waiting to sample this texture with the old filter.
 	_flush_if_batch_uses_texture(t.handle)
 	rb.set_texture_filter(t.handle, scale_down_filter, scale_up_filter, mip_filter)
-}
-
-set_texture_filter_override :: proc(filter: Maybe(Texture_Filter)) {
-	s.current_texture_filter_override = filter
 }
 
 //-------//
@@ -5885,8 +5881,8 @@ Font_Options :: struct {
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
 
-	// TODO-UPDATE-COMMENT for dynamic fonts this is now used as the draw call's texture filter
-	// override when drawing text with the font, since all dynamic fonts share one atlas texture.
+	// TODO-UPDATE-COMMENT all dynamic fonts share one atlas texture, so `draw_text` sets this
+	// filter on that texture when it differs from the filter of the previously drawn font.
 	// ---
 	// Passed on to font atlas creation.
 	filter: Texture_Filter,
@@ -6293,6 +6289,7 @@ State :: struct {
 	fonts: [dynamic]Font_Data,
 	font_atlas: fc.Atlas,
 	font_atlas_texture: Texture,
+	font_atlas_filter: Texture_Filter,
 	shape_drawing_texture: Texture_Handle,
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.
@@ -6300,7 +6297,6 @@ State :: struct {
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
 	current_texture: Texture_Handle,
-	current_texture_filter_override: Maybe(Texture_Filter),
 	current_render_target: Render_Target_Handle,
 
 	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the
@@ -7117,8 +7113,7 @@ _draw_call_matches_settings :: proc() -> bool {
 	if dc.shader != s.current_shader.handle ||
 	   dc.render_target != s.current_render_target ||
 	   dc.scissor != s.current_scissor ||
-	   dc.blend_mode != s.current_blend_mode ||
-	   dc.texture_filter_override != s.current_texture_filter_override {
+	   dc.blend_mode != s.current_blend_mode {
 		return false
 	}
 
@@ -7200,7 +7195,6 @@ _start_draw_call :: proc() {
 		render_target = s.current_render_target,
 		scissor = scissor,
 		blend_mode = s.current_blend_mode,
-		texture_filter_override = s.current_texture_filter_override,
 	}
 
 	s.current_constants_dirty = false
@@ -7273,8 +7267,7 @@ _draw_call_changes :: proc(
 		changed += { .Constants }
 	}
 
-	if raw_data(prev.textures) != raw_data(next.textures) ||
-	   prev.texture_filter_override != next.texture_filter_override {
+	if raw_data(prev.textures) != raw_data(next.textures) {
 		changed += { .Textures }
 	}
 
@@ -7586,6 +7579,7 @@ _sync_font_atlas_texture :: proc() {
 	}
 
 	texture^ = create_texture(atlas.width, atlas.height, .RGBA_8_Norm)
+	set_texture_filter(texture^, s.font_atlas_filter)
 }
 
 // TODO-UPDATE-COMMENT there is now a single atlas shared by all dynamic fonts, and the pixels in it
