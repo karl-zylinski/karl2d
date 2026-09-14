@@ -34,7 +34,7 @@ pinch_active: bool
 markers: [dynamic]Vec2
 
 // Whether the M key has turned on mouse-to-touch emulation.
-mouse_emulates_touch: bool
+mouse_touch_emulation: k2.Mouse_Touch_Emulation
 
 // Brings an angle into (-pi, pi].
 wrap_angle :: proc(a: f32) -> f32 {
@@ -51,12 +51,10 @@ init :: proc() {
 	k2.init(1280, 720, "Karl2D Touch Demo", { window_mode = .Windowed_Resizable })
 	camera = { zoom = 1 }
 
-	// TODO-UPDATE-COMMENT the default emulation goes the other way now, so what this turns off is
-	// a tap on a phone also arriving as a mouse click.
-	// ---
-	// This example handles both touches and the mouse itself, so the mouse must not also produce
-	// touches: one drag would pan the camera twice. Press M to turn that back on.
-	k2.set_mouse_touch_emulation(.None)
+	// By default, Karl2D turns left mouse button presses into touch events. Since this example is
+	// touch-aware, that emulation is turned off.
+	mouse_touch_emulation = .None
+	k2.set_mouse_touch_emulation(mouse_touch_emulation)
 }
 
 step :: proc() -> bool {
@@ -72,8 +70,13 @@ step :: proc() -> bool {
 	ui_scale := k2.get_window_scale()
 
 	if k2.key_went_down(.M) {
-		mouse_emulates_touch = !mouse_emulates_touch
-		k2.set_mouse_touch_emulation(mouse_emulates_touch ? .Mouse_To_Touch : .None)
+		if mouse_touch_emulation == .None {
+			mouse_touch_emulation = .Mouse_To_Touch
+		} else {
+			mouse_touch_emulation = .None
+		}
+
+		k2.set_mouse_touch_emulation(mouse_touch_emulation)
 	}
 
 	touches := k2.get_touches()
@@ -187,7 +190,7 @@ step :: proc() -> bool {
 	// Touch emulation is off (see `init`), so the mouse drives the camera directly here. Skipped
 	// while M has the mouse producing touches, or the same drag would pan twice.
 
-	if !mouse_emulates_touch {
+	if mouse_touch_emulation == .None {
 		if k2.mouse_button_is_held(.Left) {
 			rotation_matrix := linalg.matrix2_rotate(-camera.rotation)
 			camera.target -= rotation_matrix * (k2.get_mouse_delta() / camera.zoom)
@@ -324,6 +327,7 @@ step :: proc() -> bool {
 	text_pos = draw_stat(rotation_stat, text_pos, font_size)
 	text_pos = draw_stat(fmt.tprintf("markers: %v", len(markers)), text_pos, font_size)
 
+	mouse_emulates_touch := mouse_touch_emulation == .Mouse_To_Touch
 	mouse_emu_color := mouse_emulates_touch ? k2.GREEN : k2.WHITE
 	mouse_emu_text := fmt.tprintf("mouse emulates touch: %v", mouse_emulates_touch)
 
