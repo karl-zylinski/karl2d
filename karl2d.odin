@@ -184,6 +184,7 @@ init :: proc(
 	// Dummy element so font with index 0 means 'no font'.
 	s.fonts = make([dynamic]Font_Data, s.allocator)
 	append_nothing(&s.fonts)
+	fc.init_atlas(&s.font_atlas, s.allocator)
 	default_font := load_dynamic_font_from_bytes(DEFAULT_FONT_DATA)
 	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
 
@@ -296,6 +297,8 @@ shutdown :: proc() {
 
 	delete(s.events)
 	destroy_font(FONT_DEFAULT)
+	rb.destroy_texture(s.font_atlas_texture.handle)
+	fc.destroy_atlas(&s.font_atlas)
 	rb.destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
 	rb.shutdown()
@@ -762,7 +765,7 @@ draw_current_batch :: proc() {
 	_finish_draw_call()
 
 	if len(s.batch_draw_calls) > 0 {
-		_update_font_atlases()
+		_update_font_atlas()
 		rb.draw(s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used], s.batch_draw_calls[:])
 		runtime.clear(&s.batch_draw_calls)
 	}
@@ -1532,21 +1535,33 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 
 		font_object := &s.fonts[font]
 
-		if len(font_object.dynamic_font.pages) == 0 {
+		if len(font_object.dynamic_font.data) == 0 {
 			return {}
 		}
 
 		render_size := _font_render_size(font_size)
-		size, size_ok := fc.measure(&font_object.dynamic_font, text, render_size, s.time)
+		size, size_ok := fc.measure(
+			&s.font_atlas,
+			&font_object.dynamic_font,
+			text,
+			render_size,
+			s.time,
+		)
 
 		for !size_ok {
 			draw_current_batch()
 
-			if !fc.make_room(&font_object.dynamic_font, s.time) {
+			if !fc.make_room(&s.font_atlas, s.time) {
 				break
 			}
 
-			size, size_ok = fc.measure(&font_object.dynamic_font, text, render_size, s.time)
+			size, size_ok = fc.measure(
+				&s.font_atlas,
+				&font_object.dynamic_font,
+				text,
+				render_size,
+				s.time,
+			)
 		}
 
 		return size * (font_size / f32(render_size))
@@ -1729,7 +1744,7 @@ draw_text :: proc(
 
 		font_object := &s.fonts[font]
 
-		if len(font_object.dynamic_font.pages) == 0 {
+		if len(font_object.dynamic_font.data) == 0 {
 			return
 		}
 
@@ -1738,7 +1753,12 @@ draw_text :: proc(
 		// scaling happens in the camera.
 		render_size := _font_render_size(font_size)
 		inv_render_scale := font_size / f32(render_size)
-		_sync_font_pages(font_object)
+		_sync_font_atlas_texture()
+
+		if font_object.options.filter != s.font_atlas_filter {
+			s.font_atlas_filter = font_object.options.filter
+			set_texture_filter(s.font_atlas_texture, s.font_atlas_filter)
+		}
 
 		y_up := _camera_flip_y()
 		block_top := position.y
@@ -1752,7 +1772,11 @@ draw_text :: proc(
 		it := fc.place_text_iterator_init(text, render_size, s.time)
 
 		for {
-			placed, place_res := fc.place_text_iterate(&font_object.dynamic_font, &it)
+			placed, place_res := fc.place_text_iterate(
+				&s.font_atlas,
+				&font_object.dynamic_font,
+				&it,
+			)
 
 			if place_res == .Done {
 				break
@@ -1761,11 +1785,11 @@ draw_text :: proc(
 			if place_res == .No_Room {
 				draw_current_batch()
 
-				if !fc.make_room(&font_object.dynamic_font, s.time) {
+				if !fc.make_room(&s.font_atlas, s.time) {
 					break
 				}
 
-				_sync_font_pages(font_object)
+				_sync_font_atlas_texture()
 				continue
 			}
 
@@ -1796,7 +1820,7 @@ draw_text :: proc(
 			char_origin := origin + position - { glyph_x, glyph_y }
 
 			draw_texture_fit(
-				font_object.dynamic_pages[g.page],
+				s.font_atlas_texture,
 				src,
 				dst,
 				char_origin,
@@ -4834,8 +4858,16 @@ load_dynamic_font_from_bytes :: proc(
 	data: []u8,
 	options: Font_Options = {},
 ) -> (Font, bool) #optional_ok {
+	h := Font(len(s.fonts))
 	dynamic_font: fc.Font
-	init_err := fc.init(&dynamic_font, data, options.font_index, s.allocator)
+	init_err := fc.init_font(
+		&dynamic_font,
+		data,
+		options.font_index,
+		u32(h),
+		options.premultiply_alpha,
+		s.allocator,
+	)
 
 	switch init_err {
 	case .None:
@@ -4851,13 +4883,10 @@ load_dynamic_font_from_bytes :: proc(
 		return FONT_NONE, false
 	}
 
-	h := Font(len(s.fonts))
-
 	append(&s.fonts, Font_Data {
 		type = .Dynamic,
 		options = options,
 		dynamic_font = dynamic_font,
-		dynamic_pages = make([dynamic]Texture, s.allocator),
 	})
 
 	return h, true
@@ -4893,14 +4922,8 @@ destroy_font :: proc(font: Font) {
 		delete(f.static_glyphs, s.allocator)
 		delete(f.static_glyph_ranges, s.allocator)
 	case .Dynamic:
-		for page in f.dynamic_pages {
-			_flush_if_batch_uses_texture(page.handle)
-			rb.destroy_texture(page.handle)
-		}
-
-		delete(f.dynamic_pages)
-		f.dynamic_pages = {}
-		fc.destroy(&f.dynamic_font)
+		fc.remove_font_glyphs(&s.font_atlas, f.dynamic_font.id)
+		fc.destroy_font(&f.dynamic_font)
 	}
 }
 
@@ -5931,6 +5954,9 @@ Font_Options :: struct {
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
 
+	// TODO-UPDATE-COMMENT all dynamic fonts share one atlas texture, so `draw_text` sets this
+	// filter on that texture when it differs from the filter of the previously drawn font.
+	// ---
 	// Passed on to font atlas creation.
 	filter: Texture_Filter,
 
@@ -5939,6 +5965,9 @@ Font_Options :: struct {
 	font_index: int,
 }
 
+// TODO-UPDATE-COMMENT all dynamic fonts now share a single atlas texture that grows up to
+// 4096x4096 and then compacts, keeping the most recently used glyphs.
+// ---
 // Supported font types:
 // - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
 // - Dynamic: A font that is continuously updated as you need new characters. Each font can have up
@@ -5967,7 +5996,6 @@ Font_Data :: struct {
 
 	// type == .Dynamic
 	dynamic_font: fc.Font,
-	dynamic_pages: [dynamic]Texture,
 }
 
 Handle :: hm.Handle64
@@ -6334,6 +6362,9 @@ State :: struct {
 
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
+	font_atlas: fc.Atlas,
+	font_atlas_texture: Texture,
+	font_atlas_filter: Texture_Filter,
 	shape_drawing_texture: Texture_Handle,
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.
@@ -7625,30 +7656,26 @@ _font_render_size :: proc(font_size: f32) -> int {
 	return max(1, int(math.round(font_size * camera_zoom)))
 }
 
-_sync_font_pages :: proc(font: ^Font_Data) {
-	for page, page_idx in font.dynamic_font.pages {
-		if page_idx == len(font.dynamic_pages) {
-			append(&font.dynamic_pages, Texture {})
-		}
+_sync_font_atlas_texture :: proc() {
+	atlas := &s.font_atlas
+	texture := &s.font_atlas_texture
 
-		texture := &font.dynamic_pages[page_idx]
-
-		if texture.width == page.width && texture.height == page.height {
-			continue
-		}
-
-		if texture.handle != TEXTURE_NONE {
-			rb.destroy_texture(texture.handle)
-		}
-
-		texture^ = create_texture(page.width, page.height, .RGBA_8_Norm)
-
-		if texture.handle != TEXTURE_NONE {
-			set_texture_filter(texture^, font.options.filter)
-		}
+	if texture.width == atlas.width && texture.height == atlas.height {
+		return
 	}
+
+	if texture.handle != TEXTURE_NONE {
+		_flush_if_batch_uses_texture(texture.handle)
+		rb.destroy_texture(texture.handle)
+	}
+
+	texture^ = create_texture(atlas.width, atlas.height, .RGBA_8_Norm)
+	set_texture_filter(texture^, s.font_atlas_filter)
 }
 
+// TODO-UPDATE-COMMENT there is now a single atlas shared by all dynamic fonts, and the pixels in it
+// are already expanded to RGBA by the `font_cache` package, so this only copies the dirty rect.
+// ---
 // For each dynamic font, this procedure updates the GPU-side atlases based on if the CPU-side
 // atlases have "dirty data". This means that there are areas on the CPU-side atlases that are not on
 // the GPU yet. This happens when `draw_text` uses previously unused glyphs.
@@ -7658,57 +7685,47 @@ _sync_font_pages :: proc(font: ^Font_Data) {
 // means that that region of the GPU texture needs to be updated.
 //
 // This is run before any draw call that depends on these glyphs is submitted.
-_update_font_atlases :: proc() {
-	for &font in s.fonts {
-		if font.type != .Dynamic {
-			continue
-		}
+_update_font_atlas :: proc() {
+	atlas := &s.font_atlas
+	texture := s.font_atlas_texture
 
-		for &page, page_idx in font.dynamic_font.pages {
-			if page.dirty_max.x <= page.dirty_min.x || page.dirty_max.y <= page.dirty_min.y {
-				continue
-			}
+	if atlas.dirty_max.x <= atlas.dirty_min.x || atlas.dirty_max.y <= atlas.dirty_min.y {
+		return
+	}
 
-			if page_idx >= len(font.dynamic_pages) {
-				continue
-			}
+	if texture.handle == TEXTURE_NONE ||
+	   texture.width != atlas.width ||
+	   texture.height != atlas.height {
+		return
+	}
 
-			texture := font.dynamic_pages[page_idx]
+	x := atlas.dirty_min.x
+	y := atlas.dirty_min.y
+	w := atlas.dirty_max.x - x
+	h := atlas.dirty_max.y - y
+	pixels: [][4]u8
 
-			if texture.handle == TEXTURE_NONE {
-				continue
-			}
+	if w == atlas.width {
+		pixels = atlas.pixels[y * atlas.width:(y + h) * atlas.width]
+	} else {
+		pixels = make([][4]u8, w * h, frame_allocator)
 
-			x := page.dirty_min.x
-			y := page.dirty_min.y
-			w := page.dirty_max.x - x
-			h := page.dirty_max.y - y
-			pixels := make([]Color, w * h, frame_allocator)
-
-			for i in 0..<w*h {
-				px := i%w
-				py := i/w
-				alpha := page.pixels[(x + px) + (y + py) * page.width]
-
-				if font.options.premultiply_alpha {
-					pixels[i] = { alpha, alpha, alpha, alpha }
-				} else {
-					pixels[i] = { 255, 255, 255, alpha }
-				}
-			}
-
-			r := Rect {
-				f32(x),
-				f32(y),
-				f32(w),
-				f32(h),
-			}
-
-			rb.update_texture(texture.handle, slice.reinterpret([]u8, pixels), r)
-			page.dirty_min = { page.width, page.height }
-			page.dirty_max = {}
+		for row in 0..<h {
+			src_start := x + (y + row) * atlas.width
+			copy(pixels[row * w:], atlas.pixels[src_start:src_start + w])
 		}
 	}
+
+	r := Rect {
+		f32(x),
+		f32(y),
+		f32(w),
+		f32(h),
+	}
+
+	rb.update_texture(texture.handle, slice.reinterpret([]u8, pixels), r)
+	atlas.dirty_min = { atlas.width, atlas.height }
+	atlas.dirty_max = {}
 }
 
 _ :: jpeg

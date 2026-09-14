@@ -1487,6 +1487,9 @@ Font_Options :: struct {
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
 
+	// TODO-UPDATE-COMMENT all dynamic fonts share one atlas texture, so `draw_text` sets this
+	// filter on that texture when it differs from the filter of the previously drawn font.
+	// ---
 	// Passed on to font atlas creation.
 	filter: Texture_Filter,
 
@@ -1495,6 +1498,9 @@ Font_Options :: struct {
 	font_index: int,
 }
 
+// TODO-UPDATE-COMMENT all dynamic fonts now share a single atlas texture that grows up to
+// 4096x4096 and then compacts, keeping the most recently used glyphs.
+// ---
 // Supported font types:
 // - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
 // - Dynamic: A font that is continuously updated as you need new characters. Each font can have up
@@ -1523,7 +1529,6 @@ Font_Data :: struct {
 
 	// type == .Dynamic
 	dynamic_font: fc.Font,
-	dynamic_pages: [dynamic]Texture,
 }
 
 Handle :: hm.Handle64
@@ -1890,6 +1895,9 @@ State :: struct {
 
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
+	font_atlas: fc.Atlas,
+	font_atlas_texture: Texture,
+	font_atlas_filter: Texture_Filter,
 	shape_drawing_texture: Texture_Handle,
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.
