@@ -217,21 +217,24 @@ key_is_held :: proc(key: Keyboard_Key) -> bool
 // using the `slice.clone` procedure (import `core:slice`).
 get_typed_runes :: proc() -> []rune
 
-// Returns all touches that were active during this frame, including those that ended this frame
-// (those have `went_up` set).
+// Returns all touches that were active during this frame. Touches that ended this frame are also
+// included: They have `went_up` set to `true`.
 //
-// Note: The order is not stable. When a touch ends, the last one in the list takes its place, so
-// match touches by `id` between frames rather than by where they sit in the slice.
+// Note: The order of touches may vary from frame to frame. Use the `id` of a touch to identify it
+// between frames.
 //
-// By default touches cause left mouse button events to happen as well. Control that behavior using
+// By default, touches cause left mouse button events to happen as well. This way, many mouse-
+// controlled desktop games work on touch as well. Control that behavior using
 // `set_mouse_touch_emulation`.
 //
 // Warning: The returned slice is only valid during the current frame!
 get_touches :: proc() -> []Touch
 
-// Controls if touches should cause mouse events, or if mouse events should cause touches. Or if
-// none of these things should happen. `k2.init` set this to `.Touch_To_Mouse` by default so that
-// desktop games have rudimentary functionality on touch screens.
+// Controls if touches should cause mouse events, or if mouse events should cause touche events. Or
+// if none of these things should happen. `k2.init` sets this to `.Touch_To_Mouse` by default so
+// that desktop games have rudimentary functionality on touch screens.
+//
+// If your handles both touch and mouse input, then you want this set to `.None`.
 set_mouse_touch_emulation :: proc(emulation: Mouse_Touch_Emulation)
 
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
@@ -1983,7 +1986,6 @@ MAX_TOUCHES :: 11
 // goes down until it goes up. Ids may be reused after that.
 Touch_Id :: distinct u64
 
-// The id of the touch synthesized by `set_mouse_touch_emulation`. Never collides with a real id.
 // Touch ID when the mouse is being used to emulate touch.
 EMULATED_TOUCH_ID :: max(Touch_Id)
 
