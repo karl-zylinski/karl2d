@@ -118,9 +118,6 @@ process_events :: proc()
 // Note: Gamepad axis movement (analogue sticks and analogue triggers) are _not_ events. Those can
 // only be queried using `k2.get_gamepad_axis`.
 //
-// Note: These are the events the platform reported. The touch that `set_touch_events_from_mouse`
-// makes from the mouse is not one of them, it only shows up in `get_touches`.
-//
 // Warning: The returned slice is only valid during the current frame! You can make a clone of it
 // using the `slice.clone` procedure (import `core:slice`).
 get_events :: proc() -> []Event
@@ -220,25 +217,25 @@ key_is_held :: proc(key: Keyboard_Key) -> bool
 // using the `slice.clone` procedure (import `core:slice`).
 get_typed_runes :: proc() -> []rune
 
-// Returns all touches that were active during this frame, including those that ended this frame
-// (those have `went_up` set).
+// Returns all touches that were active during this frame. Touches that ended this frame are also
+// included: They have `went_up` set to `true`.
 //
-// Note: The order is not stable. When a touch ends, the last one in the list takes its place, so
-// match touches by `id` between frames rather than by where they sit in the slice.
+// Note: The order of touches may vary from frame to frame. Use the `id` of a touch to identify it
+// between frames.
 //
-// Note: Touch is only support for web builds right now. You can simulate them on desktop using
-// `set_touch_events_from_mouse`.
+// By default, touches cause left mouse button events to happen as well. This way, many mouse-
+// controlled desktop games work on touch as well. Control that behavior using
+// `set_mouse_touch_emulation`.
 //
 // Warning: The returned slice is only valid during the current frame!
 get_touches :: proc() -> []Touch
 
-// Enabled by default. Holding the left mouse button produces a touch (with id `EMULATED_TOUCH_ID`),
-// so code written for touch also works with a mouse. Turn it off if you handle the mouse yourself,
-// otherwise one drag arrives as both.
+// Controls if touches should cause mouse events, or if mouse events should cause touche events. Or
+// if none of these things should happen. `k2.init` sets this to `.Touch_To_Mouse` by default so
+// that desktop games have rudimentary functionality on touch screens.
 //
-// The touch is built from the mouse state, so it never shows up in `get_events`, only in
-// `get_touches`.
-set_touch_events_from_mouse :: proc(enabled: bool)
+// If your handles both touch and mouse input, then you want this set to `.None`.
+set_mouse_touch_emulation :: proc(emulation: Mouse_Touch_Emulation)
 
 // Returns which modifiers are held. The possible values are `Control`, `Alt`, `Shift` and `Super`.
 // You can check that an exact set of modifiers are held like so:
@@ -1882,8 +1879,10 @@ State :: struct {
 
 	touches: [dynamic; MAX_TOUCHES]Touch,
 
-	// See `set_touch_events_from_mouse`.
-	touch_events_from_mouse: bool,
+	// See `set_mouse_touch_emulation`.
+	mouse_touch_emulation: Mouse_Touch_Emulation,
+
+	touch_to_mouse_id: Touch_Id,
 
 	gamepad_button_went_down: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
@@ -1980,15 +1979,19 @@ Mouse_Button :: enum {
 }
 
 // The maximum number of touches Karl2D tracks at once. Ten fingers, plus the one
-// `set_touch_events_from_mouse` makes from the mouse.
+// `set_mouse_touch_emulation` makes from the mouse.
 MAX_TOUCHES :: 11
 
 // Identifies one finger for as long as it stays on the screen. Stable from the moment the touch
 // goes down until it goes up. Ids may be reused after that.
 Touch_Id :: distinct u64
 
-// The id of the touch synthesized by `set_touch_events_from_mouse`. Never collides with a real id.
+// Touch ID when the mouse is being used to emulate touch.
 EMULATED_TOUCH_ID :: max(Touch_Id)
+
+// When emulating mouse events using Mouse_Touch_Emulation.Touch_To_Mouse, then this signifies that
+// a touch event is not associated with the mouse.
+TOUCH_TO_MOUSE_ID_NONE :: max(Touch_Id) - 1
 
 Touch :: struct {
 	id: Touch_Id,
@@ -2008,6 +2011,18 @@ Touch :: struct {
 	// The OS threw the touch away, for example due to palm rejection or the window losing focus.
 	// `went_up` is set as well, so code that doesn't care about the difference still works.
 	cancelled: bool,
+}
+
+Mouse_Touch_Emulation :: enum {
+	// No automatic conversion between touch and mouse events.
+	None,
+
+	// Touch events become left mouse button events. Useful for making a mouse-only game work on
+	// web. This is set by default.
+	Touch_To_Mouse,
+
+	// Mouse events become touch events. Useful for testing basic touch controls on desktop.
+	Mouse_To_Touch,
 }
 
 // Based on Raylib / GLFW
