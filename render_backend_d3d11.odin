@@ -224,12 +224,6 @@ d3d11_shutdown :: proc() {
 	s.blend_state_additive->Release()
 	s.dxgi_adapter->Release()
 
-	for sampler in s.override_samplers {
-		if sampler != nil {
-			sampler->Release()
-		}
-	}
-
 	if s.depth_test {
 		s.depth_buffer->Release()
 		s.depth_buffer_view->Release()
@@ -395,12 +389,8 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 			override_sampler: ^d3d11.ISamplerState
 
 			if override, has_override := call.texture_filter_override.?; has_override {
-				if s.override_samplers[override] == nil {
-					f: d3d11.FILTER = override == .Point ? .MIN_MAG_MIP_POINT : .MIN_MAG_MIP_LINEAR
-					s.override_samplers[override] = create_sampler(f)
-				}
-
-				override_sampler = s.override_samplers[override]
+				f: d3d11.FILTER = override == .Point ? .MIN_MAG_MIP_POINT : .MIN_MAG_MIP_LINEAR
+				override_sampler = create_sampler(f)
 			}
 
 			if len(call.textures) == len(d3d_shd.texture_bindings) {
@@ -413,6 +403,10 @@ d3d11_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 						dc->PSSetSamplers(d3d_t.sampler_bind_point, 1, &sampler)
 					}
 				}
+			}
+
+			if override_sampler != nil {
+				override_sampler->Release()
 			}
 		}
 
@@ -1412,7 +1406,6 @@ D3D11_State :: struct {
 	vertex_buffer_gpu: ^d3d11.IBuffer,
 
 	all_samplers: map[^d3d11.ISamplerState]struct{},
-	override_samplers: [Texture_Filter]^d3d11.ISamplerState,
 
 	// The depth things below are only created when `depth_test` is true.
 	depth_test: bool,
