@@ -5,7 +5,7 @@
 // - Shoot: Space
 // - F2: Level editor
 // 
-// Art by Gerry Mander: https://bsky.app/profile/mandelbaumski.bsky.social
+// Art by Gerry Mander: https://gerry.website
 // Code by Karl Zylinski: https://zylinski.se
 //
 // There is also a level editor, accessible using the F2 key.

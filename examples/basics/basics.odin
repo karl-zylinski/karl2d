@@ -1,5 +1,5 @@
-// A small progarm that shows off some basic stuff you'd need to make a game: Draws shapes, text
-// and textures as well as some basic input handling.
+// The example hows off some basic stuff you'd need to make a game: Draws shapes, text and textures
+// as well as some input handling.
 package karl2d_basics_example
 
 import k2 "../.."

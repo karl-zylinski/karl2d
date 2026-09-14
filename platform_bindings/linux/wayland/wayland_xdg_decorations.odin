@@ -9,11 +9,11 @@ ZXDG_Decoration_Manager_V1 :: struct {
 zxdg_decoration_manager_v1_get_toplevel_decoration :: proc "c" (
 	zxdg_decoration_manager_v1: ^ZXDG_Decoration_Manager_V1,
 	toplevel: ^XDG_Toplevel,
-) -> ^ZXDG_Decoration_Manager_V1 {
-	return (^ZXDG_Decoration_Manager_V1)(
+) -> ^ZXDG_Toplevel_Decoration_V1 {
+	return (^ZXDG_Toplevel_Decoration_V1)(
 		proxy_marshal_flags(
 		zxdg_decoration_manager_v1,
-		1,
+		ZXDG_DECORATION_MANAGER_V1_GET_TOPLEVEL_DECORATION,
 		&zxdg_toplevel_decoration_v1_interface,
 		proxy_get_version(zxdg_decoration_manager_v1),
 		0,
@@ -24,7 +24,7 @@ zxdg_decoration_manager_v1_get_toplevel_decoration :: proc "c" (
 
 zxdg_decoration_manager_v1_interface := Interface {
 	"zxdg_decoration_manager_v1",
-	1,
+	2,
 	2,
 	raw_data([]Message {
 		{"destroy", "", raw_data([]^Interface{})},
@@ -38,16 +38,19 @@ zxdg_decoration_manager_v1_interface := Interface {
 	nil,
 }
 
+ZXDG_DECORATION_MANAGER_V1_DESTROY :: 0
+ZXDG_DECORATION_MANAGER_V1_GET_TOPLEVEL_DECORATION :: 1
+
 ZXDG_Toplevel_Decoration_V1 :: struct {
 	using proxy: Proxy,
 }
 
 zxdg_toplevel_decoration_v1_destroy :: proc "c" (
-	zxdg_toplevel_decoration_v1: ^ZXDG_Decoration_Manager_V1,
+	zxdg_toplevel_decoration_v1: ^ZXDG_Toplevel_Decoration_V1,
 ) {
 	proxy_marshal_flags(
 		zxdg_toplevel_decoration_v1,
-		0,
+		ZXDG_TOPLEVEL_DECORATION_V1_DESTROY,
 		nil,
 		proxy_get_version(zxdg_toplevel_decoration_v1),
 		MARSHAL_FLAG_DESTROY,
@@ -55,12 +58,12 @@ zxdg_toplevel_decoration_v1_destroy :: proc "c" (
 }
 
 zxdg_toplevel_decoration_v1_set_mode :: proc "c" (
-	zxdg_toplevel_decoration_v1: ^ZXDG_Decoration_Manager_V1,
+	zxdg_toplevel_decoration_v1: ^ZXDG_Toplevel_Decoration_V1,
 	mode: c.uint32_t,
 ) {
 	proxy_marshal_flags(
 		zxdg_toplevel_decoration_v1,
-		1,
+		ZXDG_TOPLEVEL_DECORATION_V1_SET_MODE,
 		nil,
 		proxy_get_version(zxdg_toplevel_decoration_v1),
 		0,
@@ -69,11 +72,11 @@ zxdg_toplevel_decoration_v1_set_mode :: proc "c" (
 }
 
 zxdg_toplevel_decoration_v1_unset_mode :: proc "c" (
-	zxdg_toplevel_decoration_v1: ^ZXDG_Decoration_Manager_V1,
+	zxdg_toplevel_decoration_v1: ^ZXDG_Toplevel_Decoration_V1,
 ) {
 	proxy_marshal_flags(
 		zxdg_toplevel_decoration_v1,
-		2,
+		ZXDG_TOPLEVEL_DECORATION_V1_UNSET_MODE,
 		nil,
 		proxy_get_version(zxdg_toplevel_decoration_v1),
 		0,
@@ -82,7 +85,7 @@ zxdg_toplevel_decoration_v1_unset_mode :: proc "c" (
 
 zxdg_toplevel_decoration_v1_interface := Interface {
 	"zxdg_toplevel_decoration_v1",
-	1,
+	2,
 	3,
 	raw_data([]Message {
 		{"destroy", "", raw_data([]^Interface{})},
@@ -94,6 +97,10 @@ zxdg_toplevel_decoration_v1_interface := Interface {
 		{"configure", "u", raw_data([]^Interface{nil})},
 	}),
 }
+
+ZXDG_TOPLEVEL_DECORATION_V1_DESTROY :: 0
+ZXDG_TOPLEVEL_DECORATION_V1_SET_MODE :: 1
+ZXDG_TOPLEVEL_DECORATION_V1_UNSET_MODE :: 2
 
 ZXDG_TOPLEVEL_DECORATION_V1_ERROR_ALREADY_CONSTRUCTED :: 1
 ZXDG_TOPLEVEL_DECORATION_V1_ERROR_UNCONFIGURED_BUFFER :: 0

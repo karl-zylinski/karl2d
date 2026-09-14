@@ -40,6 +40,7 @@ PLATFORM_WEB :: Platform_Interface {
 }
 
 import "core:sys/wasm/js"
+import "core:unicode/utf8"
 import "core:math"
 import "core:encoding/base64"
 import "base:runtime"
@@ -100,7 +101,6 @@ web_init :: proc(
 	add_window_event_listener(.Key_Up, web_event_key_up)
 	add_window_event_listener(.Focus, web_event_focus)
 	add_window_event_listener(.Blur, web_event_blur)
-	add_window_event_listener(.Key_Press, web_event_key_press)
 
 	add_window_event_listener(.Pointer_Lock_Change, _web_event_pointer_lock_change)
 
@@ -112,18 +112,34 @@ web_init :: proc(
 web_event_key_down :: proc(e: js.Event) {
 	key := key_from_js_event(e)
 
-	if key == .None {
-		return
+	if key != .None {
+		if e.key.repeat {
+			append(&s.events, Event_Key_Repeat {
+				key = key,
+			})
+		} else {
+			append(&s.events, Event_Key_Went_Down {
+				key = key,
+			})
+		}
 	}
 
-	if e.key.repeat {
-		append(&s.events, Event_Key_Repeat {
-			key = key,
-		})
-	} else {
-		append(&s.events, Event_Key_Went_Down {
-			key = key,
-		})
+	// A typed character comes from the keydown, not from the deprecated
+	// `keypress` event. That way a page can stop the browser scrolling on
+	// space or moving the focus on tab -- which it has to do by cancelling the
+	// keydown, and cancelling a keydown also cancels the keypress that would
+	// have followed it -- without the character disappearing with it.
+	//
+	// `e.key.key` is what the key produced on the layout in use (`a`, ` `,
+	// `å`, an emoji from a picker) and a name for everything that is not a
+	// character (`Enter`, `ArrowLeft`, `F5`), which is why only a value that
+	// is exactly one rune long is taken. A key Karl2D has no `Keyboard_Key`
+	// for still types its character.
+	if !e.key.ctrl && !e.key.alt && !e.key.meta {
+		r, size := utf8.decode_rune(e.key.key)
+		if size == len(e.key.key) && is_typable_rune(r) {
+			append(&s.events, Event_Typed_Rune { typed = r })
+		}
 	}
 }
 
@@ -132,17 +148,6 @@ web_event_key_up :: proc(e: js.Event) {
 	append(&s.events, Event_Key_Went_Up {
 		key = key,
 	})
-}
-
-// Note: `e.key.char` comes from the deprecated `keypress` DOM event's `charCode`, which is a
-// single UTF-16 code unit. This means characters outside the Basic Multilingual Plane (such as
-// emoji) can't be represented and won't come through here.
-web_event_key_press :: proc(e: js.Event) {
-	r := e.key.char
-
-	if is_typable_rune(r) {
-		append(&s.events, Event_Typed_Rune { typed = r })
-	}
 }
 
 web_event_focus :: proc(e: js.Event) {

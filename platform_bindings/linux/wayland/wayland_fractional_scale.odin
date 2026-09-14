@@ -10,8 +10,12 @@ wp_fractional_scale_manager_v1_interface := Interface {
 	1,
 	2,
 	raw_data([]Message {
-		{"destroy", "", raw_data([]^Interface {nil})},
-		{"get_fractional_scale", "no", raw_data([]^Interface {nil})},
+		{"destroy", "", raw_data([]^Interface{})},
+		{
+			"get_fractional_scale",
+			"no",
+			raw_data([]^Interface{&wp_fractional_scale_v1_interface, &surface_interface}),
+		},
 	}),
 	0,
 	nil,
@@ -43,6 +47,8 @@ WP_FRACTIONAL_SCALE_MANAGER_V1_GET_FRACTIONAL_SCALE       :: 1
 WP_FRACTIONAL_SCALE_MANAGER_V1_DESTROY_SINCE              :: 1
 WP_FRACTIONAL_SCALE_MANAGER_V1_GET_FRACTIONAL_SCALE_SINCE :: 1
 
+WP_FRACTIONAL_SCALE_MANAGER_V1_ERROR_FRACTIONAL_SCALE_EXISTS :: 0
+
 WP_Fractional_Scale_V1 :: struct {
 	using proxy: Proxy,
 }
@@ -59,7 +65,9 @@ wp_fractional_scale_v1_interface := Interface {
 	"wp_fractional_scale_v1",
 	1,
 	1,
-	raw_data([]Message{{"destroy", "", nil}}),
-	1, 
-	raw_data([]Message{{"preferred_scale", "u", nil}}),
+	raw_data([]Message{{"destroy", "", raw_data([]^Interface{})}}),
+	1,
+	raw_data([]Message{{"preferred_scale", "u", raw_data([]^Interface{nil})}}),
 }
+
+WP_FRACTIONAL_SCALE_V1_DESTROY :: 0

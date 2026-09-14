@@ -9,7 +9,7 @@ xdg_toplevel_icon_manager_v1_destroy :: proc "c" (
 ) {
 	proxy_marshal_flags(
 		xdg_toplevel_icon_manager_v1,
-		0,
+		XDG_TOPLEVEL_ICON_MANAGER_V1_DESTROY,
 		nil,
 		proxy_get_version(xdg_toplevel_icon_manager_v1),
 		MARSHAL_FLAG_DESTROY,
@@ -21,7 +21,7 @@ xdg_toplevel_icon_manager_v1_create_icon :: proc "c" (
 ) -> ^XDG_Toplevel_Icon_V1 {
 	return (^XDG_Toplevel_Icon_V1)(proxy_marshal_flags(
 		xdg_toplevel_icon_manager_v1,
-		1,
+		XDG_TOPLEVEL_ICON_MANAGER_V1_CREATE_ICON,
 		&xdg_toplevel_icon_v1_interface,
 		proxy_get_version(xdg_toplevel_icon_manager_v1),
 		0,
@@ -37,7 +37,7 @@ xdg_toplevel_icon_manager_v1_set_icon :: proc "c" (
 ) {
 	proxy_marshal_flags(
 		xdg_toplevel_icon_manager_v1,
-		2,
+		XDG_TOPLEVEL_ICON_MANAGER_V1_SET_ICON,
 		nil,
 		proxy_get_version(xdg_toplevel_icon_manager_v1),
 		0,
@@ -66,6 +66,10 @@ xdg_toplevel_icon_manager_v1_interface := Interface {
 	}),
 }
 
+XDG_TOPLEVEL_ICON_MANAGER_V1_DESTROY :: 0
+XDG_TOPLEVEL_ICON_MANAGER_V1_CREATE_ICON :: 1
+XDG_TOPLEVEL_ICON_MANAGER_V1_SET_ICON :: 2
+
 XDG_Toplevel_Icon_V1 :: struct {
 	using proxy: Proxy,
 }
@@ -73,7 +77,7 @@ XDG_Toplevel_Icon_V1 :: struct {
 xdg_toplevel_icon_v1_destroy :: proc "c" (xdg_toplevel_icon_v1: ^XDG_Toplevel_Icon_V1) {
 	proxy_marshal_flags(
 		xdg_toplevel_icon_v1,
-		0,
+		XDG_TOPLEVEL_ICON_V1_DESTROY,
 		nil,
 		proxy_get_version(xdg_toplevel_icon_v1),
 		MARSHAL_FLAG_DESTROY,
@@ -86,7 +90,7 @@ xdg_toplevel_icon_v1_set_name :: proc "c" (
 ) {
 	proxy_marshal_flags(
 		xdg_toplevel_icon_v1,
-		1,
+		XDG_TOPLEVEL_ICON_V1_SET_NAME,
 		nil,
 		proxy_get_version(xdg_toplevel_icon_v1),
 		0,
@@ -103,7 +107,7 @@ xdg_toplevel_icon_v1_add_buffer :: proc "c" (
 ) {
 	proxy_marshal_flags(
 		xdg_toplevel_icon_v1,
-		2,
+		XDG_TOPLEVEL_ICON_V1_ADD_BUFFER,
 		nil,
 		proxy_get_version(xdg_toplevel_icon_v1),
 		0,
@@ -124,6 +128,10 @@ xdg_toplevel_icon_v1_interface := Interface {
 	0,
 	nil,
 }
+
+XDG_TOPLEVEL_ICON_V1_DESTROY :: 0
+XDG_TOPLEVEL_ICON_V1_SET_NAME :: 1
+XDG_TOPLEVEL_ICON_V1_ADD_BUFFER :: 2
 
 XDG_TOPLEVEL_ICON_V1_ERROR_INVALID_BUFFER :: 1
 XDG_TOPLEVEL_ICON_V1_ERROR_IMMUTABLE :: 2

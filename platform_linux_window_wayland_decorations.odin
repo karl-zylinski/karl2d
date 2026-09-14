@@ -1178,7 +1178,7 @@ wldeco_pointer_button :: proc(
 ) {
 	// The right button asks the compositor for the window menu, which is the one thing on the
 	// frame that Karl2D does not draw itself.
-	if button == wl.POINTER_BTN_RIGHT && state == wl.POINTER_BUTTON_STATE_PRESSED {
+	if button == wl.BTN_RIGHT && state == wl.POINTER_BUTTON_STATE_PRESSED {
 		d := deco.parts[wldeco_pointer_part(deco)]
 
 		// The position is measured from the corner of the window geometry, which is the top left of
@@ -1194,7 +1194,7 @@ wldeco_pointer_button :: proc(
 		return
 	}
 
-	if button != wl.POINTER_BTN_LEFT {
+	if button != wl.BTN_LEFT {
 		return
 	}
 

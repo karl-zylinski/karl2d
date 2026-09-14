@@ -8,7 +8,7 @@ import "core:dynlib"
 
 display_connect: proc "c" (name: cstring) -> ^Display
 
-display_disconnect: proc "c" (display: ^Display) -> bool
+display_disconnect: proc "c" (display: ^Display)
 
 display_dispatch: proc "c" (display: ^Display) -> c.int
 
@@ -68,6 +68,12 @@ egl_window_destroy: proc "c" (window: ^EGL_Window)
 EGL_Window :: struct {}
 
 Fixed :: c.int32_t
+
+FIXED_ONE :: 256
+
+fixed_to_f32 :: proc "contextless" (f: Fixed) -> f32 {
+	return f32(f) / FIXED_ONE
+}
 
 Array :: struct {
 	size:  c.size_t,

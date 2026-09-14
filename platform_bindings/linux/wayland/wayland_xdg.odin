@@ -13,7 +13,7 @@ XDG_WM_Base_Listener :: struct {
 xdg_wm_base_destroy :: proc "c" (xdg_wm_base: ^XDG_WM_Base) {
 	proxy_marshal_flags(
 		xdg_wm_base,
-		0,
+		XDG_WM_BASE_DESTROY,
 		nil,
 		proxy_get_version(xdg_wm_base),
 		MARSHAL_FLAG_DESTROY,
@@ -26,7 +26,7 @@ xdg_wm_base_get_xdg_surface :: proc "c" (
 ) -> ^XDG_Surface {
 	return (^XDG_Surface)(proxy_marshal_flags(
 		xdg_wm_base,
-		2,
+		XDG_WM_BASE_GET_XDG_SURFACE,
 		&xdg_surface_interface,
 		proxy_get_version(xdg_wm_base),
 		0,
@@ -38,7 +38,7 @@ xdg_wm_base_get_xdg_surface :: proc "c" (
 xdg_wm_base_pong :: proc "c" (xdg_wm_base: ^XDG_WM_Base, serial: c.uint32_t) {
 	proxy_marshal_flags(
 		xdg_wm_base,
-		3,
+		XDG_WM_BASE_PONG,
 		nil,
 		proxy_get_version(xdg_wm_base),
 		0,
@@ -64,6 +64,11 @@ xdg_wm_base_interface := Interface {
 	raw_data([]Message{{"ping", "u", raw_data([]^Interface{nil})}}),
 }
 
+XDG_WM_BASE_DESTROY :: 0
+XDG_WM_BASE_CREATE_POSITIONER :: 1
+XDG_WM_BASE_GET_XDG_SURFACE :: 2
+XDG_WM_BASE_PONG :: 3
+
 XDG_WM_BASE_ERROR_INVALID_SURFACE_STATE :: 4
 XDG_WM_BASE_ERROR_DEFUNCT_SURFACES :: 1
 XDG_WM_BASE_ERROR_INVALID_POSITIONER :: 5
@@ -82,7 +87,7 @@ XDG_Surface_Listener :: struct {
 xdg_surface_destroy :: proc "c" (xdg_surface: ^XDG_Surface) {
 	proxy_marshal_flags(
 		xdg_surface,
-		0,
+		XDG_SURFACE_DESTROY,
 		nil,
 		proxy_get_version(xdg_surface),
 		MARSHAL_FLAG_DESTROY,
@@ -92,7 +97,7 @@ xdg_surface_destroy :: proc "c" (xdg_surface: ^XDG_Surface) {
 xdg_surface_get_toplevel :: proc "c" (xdg_surface: ^XDG_Surface) -> ^XDG_Toplevel {
 	return cast(^XDG_Toplevel)(proxy_marshal_flags(
 		xdg_surface,
-		1,
+		XDG_SURFACE_GET_TOPLEVEL,
 		&xdg_toplevel_interface,
 		proxy_get_version(xdg_surface),
 		0,
@@ -109,7 +114,7 @@ xdg_surface_set_window_geometry :: proc "c" (
 ) {
 	proxy_marshal_flags(
 		xdg_surface,
-		3,
+		XDG_SURFACE_SET_WINDOW_GEOMETRY,
 		nil,
 		proxy_get_version(xdg_surface),
 		0,
@@ -123,7 +128,7 @@ xdg_surface_set_window_geometry :: proc "c" (
 xdg_surface_ack_configure :: proc "c" (xdg_surface: ^XDG_Surface, serial: c.uint32_t) {
 	proxy_marshal_flags(
 		xdg_surface,
-		4,
+		XDG_SURFACE_ACK_CONFIGURE,
 		nil,
 		proxy_get_version(xdg_surface),
 		0,
@@ -162,6 +167,12 @@ xdg_surface_interface := Interface {
 	raw_data([]Message{{"configure", "u", raw_data([]^Interface{nil})}}),
 }
 
+XDG_SURFACE_DESTROY :: 0
+XDG_SURFACE_GET_TOPLEVEL :: 1
+XDG_SURFACE_GET_POPUP :: 2
+XDG_SURFACE_SET_WINDOW_GEOMETRY :: 3
+XDG_SURFACE_ACK_CONFIGURE :: 4
+
 XDG_SURFACE_ERROR_ALREADY_CONSTRUCTED :: 2
 XDG_SURFACE_ERROR_INVALID_SIZE :: 5
 XDG_SURFACE_ERROR_UNCONFIGURED_BUFFER :: 3
@@ -198,7 +209,7 @@ XDG_Toplevel_Listener :: struct {
 xdg_toplevel_destroy :: proc "c" (xdg_toplevel: ^XDG_Toplevel) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		0,
+		XDG_TOPLEVEL_DESTROY,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		MARSHAL_FLAG_DESTROY,
@@ -208,7 +219,7 @@ xdg_toplevel_destroy :: proc "c" (xdg_toplevel: ^XDG_Toplevel) {
 xdg_toplevel_set_parent :: proc "c" (xdg_toplevel: ^XDG_Toplevel, parent: ^XDG_Toplevel) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		1,
+		XDG_TOPLEVEL_SET_PARENT,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		0,
@@ -219,7 +230,7 @@ xdg_toplevel_set_parent :: proc "c" (xdg_toplevel: ^XDG_Toplevel, parent: ^XDG_T
 xdg_toplevel_set_title :: proc "c" (xdg_toplevel: ^XDG_Toplevel, title: cstring) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		2,
+		XDG_TOPLEVEL_SET_TITLE,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		0,
@@ -230,7 +241,7 @@ xdg_toplevel_set_title :: proc "c" (xdg_toplevel: ^XDG_Toplevel, title: cstring)
 xdg_toplevel_set_app_id :: proc "c" (xdg_toplevel: ^XDG_Toplevel, app_id: cstring) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		3,
+		XDG_TOPLEVEL_SET_APP_ID,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		0,
@@ -247,7 +258,7 @@ xdg_toplevel_show_window_menu :: proc "c" (
 ) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		4,
+		XDG_TOPLEVEL_SHOW_WINDOW_MENU,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		0,
@@ -261,7 +272,7 @@ xdg_toplevel_show_window_menu :: proc "c" (
 xdg_toplevel_move :: proc "c" (xdg_toplevel: ^XDG_Toplevel, seat: ^Seat, serial: c.uint32_t) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		5,
+		XDG_TOPLEVEL_MOVE,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		0,
@@ -278,7 +289,7 @@ xdg_toplevel_resize :: proc "c" (
 ) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		6,
+		XDG_TOPLEVEL_RESIZE,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		0,
@@ -295,7 +306,7 @@ xdg_toplevel_set_max_size :: proc "c" (
 ) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		7,
+		XDG_TOPLEVEL_SET_MAX_SIZE,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		0,
@@ -311,7 +322,7 @@ xdg_toplevel_set_min_size :: proc "c" (
 ) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		8,
+		XDG_TOPLEVEL_SET_MIN_SIZE,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		0,
@@ -323,7 +334,7 @@ xdg_toplevel_set_min_size :: proc "c" (
 xdg_toplevel_set_maximized :: proc "c" (xdg_toplevel: ^XDG_Toplevel) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		9,
+		XDG_TOPLEVEL_SET_MAXIMIZED,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		0,
@@ -333,7 +344,7 @@ xdg_toplevel_set_maximized :: proc "c" (xdg_toplevel: ^XDG_Toplevel) {
 xdg_toplevel_unset_maximized :: proc "c" (xdg_toplevel: ^XDG_Toplevel) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		10,
+		XDG_TOPLEVEL_UNSET_MAXIMIZED,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		0,
@@ -343,7 +354,7 @@ xdg_toplevel_unset_maximized :: proc "c" (xdg_toplevel: ^XDG_Toplevel) {
 xdg_toplevel_set_fullscreen :: proc "c" (xdg_toplevel: ^XDG_Toplevel, output: ^Output) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		11,
+		XDG_TOPLEVEL_SET_FULLSCREEN,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		0,
@@ -354,7 +365,7 @@ xdg_toplevel_set_fullscreen :: proc "c" (xdg_toplevel: ^XDG_Toplevel, output: ^O
 xdg_toplevel_unset_fullscreen :: proc "c" (xdg_toplevel: ^XDG_Toplevel) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		12,
+		XDG_TOPLEVEL_UNSET_FULLSCREEN,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		0,
@@ -364,7 +375,7 @@ xdg_toplevel_unset_fullscreen :: proc "c" (xdg_toplevel: ^XDG_Toplevel) {
 xdg_toplevel_set_minimized :: proc "c" (xdg_toplevel: ^XDG_Toplevel) {
 	proxy_marshal_flags(
 		xdg_toplevel,
-		13,
+		XDG_TOPLEVEL_SET_MINIMIZED,
 		nil,
 		proxy_get_version(xdg_toplevel),
 		0,
@@ -396,10 +407,25 @@ xdg_toplevel_interface := Interface {
 	raw_data([]Message {
 		{"configure", "iia", raw_data([]^Interface{nil, nil, nil})},
 		{"close", "", raw_data([]^Interface{})},
-		{"configure_bounds", "ii", raw_data([]^Interface{nil, nil})},
-		{"wm_capabilities", "a", raw_data([]^Interface{nil})},
+		{"configure_bounds", "4ii", raw_data([]^Interface{nil, nil})},
+		{"wm_capabilities", "5a", raw_data([]^Interface{nil})},
 	}),
 }
+
+XDG_TOPLEVEL_DESTROY :: 0
+XDG_TOPLEVEL_SET_PARENT :: 1
+XDG_TOPLEVEL_SET_TITLE :: 2
+XDG_TOPLEVEL_SET_APP_ID :: 3
+XDG_TOPLEVEL_SHOW_WINDOW_MENU :: 4
+XDG_TOPLEVEL_MOVE :: 5
+XDG_TOPLEVEL_RESIZE :: 6
+XDG_TOPLEVEL_SET_MAX_SIZE :: 7
+XDG_TOPLEVEL_SET_MIN_SIZE :: 8
+XDG_TOPLEVEL_SET_MAXIMIZED :: 9
+XDG_TOPLEVEL_UNSET_MAXIMIZED :: 10
+XDG_TOPLEVEL_SET_FULLSCREEN :: 11
+XDG_TOPLEVEL_UNSET_FULLSCREEN :: 12
+XDG_TOPLEVEL_SET_MINIMIZED :: 13
 
 XDG_TOPLEVEL_ERROR_INVALID_PARENT :: 1
 XDG_TOPLEVEL_ERROR_INVALID_SIZE :: 2

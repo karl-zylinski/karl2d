@@ -9,12 +9,21 @@ wp_viewporter_interface := Interface {
 	1,
 	2,
 	raw_data([]Message {
-		{ "destroy", "", raw_data([]^Interface { nil }) },
-		{ "get_viewport", "no", raw_data([]^Interface { &wp_viewport_interface, &surface_interface })},	
+		{ "destroy", "", raw_data([]^Interface { }) },
+		{
+			"get_viewport",
+			"no",
+			raw_data([]^Interface { &wp_viewport_interface, &surface_interface }),
+		},
 	}),
 	0,
 	nil,
 }
+
+WP_VIEWPORTER_DESTROY :: 0
+WP_VIEWPORTER_GET_VIEWPORT :: 1
+
+WP_VIEWPORTER_ERROR_VIEWPORT_EXISTS :: 0
 
 wp_viewporter_get_viewport :: proc(
 	wp_viewporter: ^WP_Viewporter,
@@ -22,7 +31,7 @@ wp_viewporter_get_viewport :: proc(
 ) -> ^WP_Viewport {
 	return (^WP_Viewport)(proxy_marshal_flags(
 		wp_viewporter,
-		1,
+		WP_VIEWPORTER_GET_VIEWPORT,
 		&wp_viewport_interface,
 		proxy_get_version(wp_viewporter),
 		0,
@@ -48,10 +57,19 @@ wp_viewport_interface := Interface {
 	nil,
 }
 
+WP_VIEWPORT_DESTROY :: 0
+WP_VIEWPORT_SET_SOURCE :: 1
+WP_VIEWPORT_SET_DESTINATION :: 2
+
+WP_VIEWPORT_ERROR_BAD_VALUE :: 0
+WP_VIEWPORT_ERROR_BAD_SIZE :: 1
+WP_VIEWPORT_ERROR_OUT_OF_BUFFER :: 2
+WP_VIEWPORT_ERROR_NO_SURFACE :: 3
+
 wp_viewport_destroy :: proc (wp_viewport: ^WP_Viewport) {
 	proxy_marshal_flags(
 		wp_viewport,
-		0,
+		WP_VIEWPORT_DESTROY,
 		nil,
 		proxy_get_version(wp_viewport),
 		MARSHAL_FLAG_DESTROY,
@@ -64,7 +82,7 @@ wp_viewport_set_source :: proc (
 ) {
 	proxy_marshal_flags(
 		wp_viewport,
-		1,
+		WP_VIEWPORT_SET_SOURCE,
 		nil,
 		proxy_get_version(wp_viewport),
 		0,
@@ -82,7 +100,7 @@ wp_viewport_set_destination :: proc (
 ) {
 	proxy_marshal_flags(
 		wp_viewport,
-		2,
+		WP_VIEWPORT_SET_DESTINATION,
 		nil,
 		proxy_get_version(wp_viewport),
 		0,
