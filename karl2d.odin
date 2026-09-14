@@ -631,12 +631,6 @@ process_events :: proc() {
 // Note: Gamepad axis movement (analogue sticks and analogue triggers) are _not_ events. Those can
 // only be queried using `k2.get_gamepad_axis`.
 //
-// TODO-UPDATE-COMMENT the emulated events are in here now, at the end of the list, after the ones
-// the platform reported. See `set_mouse_touch_emulation`.
-// ---
-// Note: These are the events the platform reported. The touch that `set_touch_events_from_mouse`
-// makes from the mouse is not one of them, it only shows up in `get_touches`.
-//
 // Warning: The returned slice is only valid during the current frame! You can make a clone of it
 // using the `slice.clone` procedure (import `core:slice`).
 get_events :: proc() -> []Event {
@@ -826,10 +820,7 @@ get_typed_runes :: proc() -> []rune {
 // Note: The order is not stable. When a touch ends, the last one in the list takes its place, so
 // match touches by `id` between frames rather than by where they sit in the slice.
 //
-// TODO-UPDATE-COMMENT the mouse no longer makes touches by default, `.Mouse_To_Touch` has to be
-// turned on for that.
-// ---
-// Note: Touch is only support for web builds right now. You can simulate them on desktop using
+// By default touches cause left mouse button events to happen as well. Control that behavior using
 // `set_mouse_touch_emulation`.
 //
 // Warning: The returned slice is only valid during the current frame!
@@ -838,20 +829,14 @@ get_touches :: proc() -> []Touch {
 	return s.touches[:]
 }
 
+// Controls if touches should cause mouse events, or if mouse events should cause touches. Or if
+// none of these things should happen. `k2.init` set this to `.Touch_To_Mouse` by default so that
+// desktop games have rudimentary functionality on touch screens.
 set_mouse_touch_emulation :: proc(emulation: Mouse_Touch_Emulation) {
 	assert_initialized()
 	s.mouse_touch_emulation = emulation
 }
 
-// TODO-UPDATE-COMMENT this is the deprecated version, and the default is now `.Touch_To_Mouse`. The
-// touch also shows up in `get_events` these days.
-// ---
-// Enabled by default. Holding the left mouse button produces a touch (with id `EMULATED_TOUCH_ID`),
-// so code written for touch also works with a mouse. Turn it off if you handle the mouse yourself,
-// otherwise one drag arrives as both.
-//
-// The touch is built from the mouse state, so it never shows up in `get_events`, only in
-// `get_touches`.
 @(deprecated="Use set_mouse_touch_emulation instead.")
 set_touch_events_from_mouse :: proc(enabled: bool) {
 	set_mouse_touch_emulation(enabled ? .Mouse_To_Touch : .None)
@@ -6418,11 +6403,13 @@ MAX_TOUCHES :: 11
 // goes down until it goes up. Ids may be reused after that.
 Touch_Id :: distinct u64
 
-// TODO-UPDATE-COMMENT `TOUCH_TO_MOUSE_ID_NONE` reserves the next id down, so the top two ids are
-// both spoken for.
-// ---
 // The id of the touch synthesized by `set_mouse_touch_emulation`. Never collides with a real id.
+// Touch ID when the mouse is being used to emulate touch.
 EMULATED_TOUCH_ID :: max(Touch_Id)
+
+// When emulating mouse events using Mouse_Touch_Emulation.Touch_To_Mouse, then this signifies that
+// a touch event is not associated with the mouse.
+TOUCH_TO_MOUSE_ID_NONE :: max(Touch_Id) - 1
 
 Touch :: struct {
 	id: Touch_Id,
@@ -6445,8 +6432,14 @@ Touch :: struct {
 }
 
 Mouse_Touch_Emulation :: enum {
+	// No automatic conversion between touch and mouse events.
 	None,
+
+	// Touch events become left mouse button events. Useful for making a mouse-only game work on
+	// web. This is set by default.
 	Touch_To_Mouse,
+
+	// Mouse events become touch events. Useful for testing basic touch controls on desktop.
 	Mouse_To_Touch,
 }
 
@@ -6736,8 +6729,6 @@ Event_Touch_Cancelled :: struct { id: Touch_Id }
 
 // Used by API builder. Everything after this constant will not be in karl2d.doc.odin
 API_END :: true
-
-TOUCH_TO_MOUSE_ID_NONE :: max(Touch_Id) - 1
 
 // Returns true if `r` should be treated as a typed character for text input purposes. Filters out
 // control characters such as Backspace, Enter, Tab, Escape and Delete. Used by the platform
