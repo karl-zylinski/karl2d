@@ -428,7 +428,7 @@ process_events :: proc() {
 				}
 
 			case Event_Touch_Went_Up:
-				touches_down -= 1
+				touches_down = max(touches_down - 1, 0)
 
 				if e.id == s.touch_to_mouse_id {
 					s.touch_to_mouse_id = TOUCH_TO_MOUSE_ID_NONE
@@ -437,7 +437,7 @@ process_events :: proc() {
 				}
 
 			case Event_Touch_Cancelled:
-				touches_down -= 1
+				touches_down = max(touches_down - 1, 0)
 
 				if e.id == s.touch_to_mouse_id {
 					s.touch_to_mouse_id = TOUCH_TO_MOUSE_ID_NONE
@@ -447,16 +447,26 @@ process_events :: proc() {
 		}
 
 	case .Mouse_To_Touch:
+		Emulated_Touch_State :: enum {
+			Up,
+			Down,
+			Ended_This_Frame,
+		}
+
 		num_platform_events := len(s.events)
 		mouse_position := s.mouse_position
-		touch_is_down := _find_touch(EMULATED_TOUCH_ID) != nil
+		touch_state := Emulated_Touch_State.Up
+
+		if _find_touch(EMULATED_TOUCH_ID) != nil {
+			touch_state = .Down
+		}
 
 		for i in 0..<num_platform_events {
 			#partial switch e in s.events[i] {
 			case Event_Mouse_Move:
 				mouse_position = e.position
 
-				if touch_is_down {
+				if touch_state == .Down {
 					append(&s.events, Event_Touch_Moved {
 						id = EMULATED_TOUCH_ID,
 						position = e.position,
@@ -467,8 +477,8 @@ process_events :: proc() {
 				mouse_position = e.position
 
 			case Event_Mouse_Button_Went_Down:
-				if e.button == .Left && !touch_is_down {
-					touch_is_down = true
+				if e.button == .Left && touch_state == .Up {
+					touch_state = .Down
 					append(&s.events, Event_Touch_Went_Down {
 						id = EMULATED_TOUCH_ID,
 						position = mouse_position,
@@ -476,8 +486,8 @@ process_events :: proc() {
 				}
 
 			case Event_Mouse_Button_Went_Up:
-				if e.button == .Left && touch_is_down {
-					touch_is_down = false
+				if e.button == .Left && touch_state == .Down {
+					touch_state = .Ended_This_Frame
 					append(&s.events, Event_Touch_Went_Up {
 						id = EMULATED_TOUCH_ID,
 						position = mouse_position,
@@ -834,6 +844,31 @@ get_touches :: proc() -> []Touch {
 // desktop games have rudimentary functionality on touch screens.
 set_mouse_touch_emulation :: proc(emulation: Mouse_Touch_Emulation) {
 	assert_initialized()
+
+	if emulation == s.mouse_touch_emulation {
+		return
+	}
+
+	switch s.mouse_touch_emulation {
+	case .None:
+
+	case .Touch_To_Mouse:
+		if s.touch_to_mouse_id != TOUCH_TO_MOUSE_ID_NONE {
+			s.touch_to_mouse_id = TOUCH_TO_MOUSE_ID_NONE
+
+			if s.mouse_button_is_held[.Left] {
+				s.mouse_button_is_held[.Left] = false
+				s.mouse_button_went_up[.Left] = true
+			}
+		}
+
+	case .Mouse_To_Touch:
+		if t := _find_touch(EMULATED_TOUCH_ID); t != nil && !t.went_up {
+			t.went_up = true
+			t.cancelled = true
+		}
+	}
+
 	s.mouse_touch_emulation = emulation
 }
 
