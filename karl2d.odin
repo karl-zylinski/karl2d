@@ -447,26 +447,17 @@ process_events :: proc() {
 		}
 
 	case .Mouse_To_Touch:
-		Emulated_Touch_State :: enum {
-			Up,
-			Down,
-			Ended_This_Frame,
-		}
-
 		num_platform_events := len(s.events)
 		mouse_position := s.mouse_position
-		touch_state := Emulated_Touch_State.Up
-
-		if _find_touch(EMULATED_TOUCH_ID) != nil {
-			touch_state = .Down
-		}
+		touch_is_down := _find_touch(EMULATED_TOUCH_ID) != nil
+		touch_ended_this_frame := false
 
 		for i in 0..<num_platform_events {
 			#partial switch e in s.events[i] {
 			case Event_Mouse_Move:
 				mouse_position = e.position
 
-				if touch_state == .Down {
+				if touch_is_down {
 					append(&s.events, Event_Touch_Moved {
 						id = EMULATED_TOUCH_ID,
 						position = e.position,
@@ -477,8 +468,8 @@ process_events :: proc() {
 				mouse_position = e.position
 
 			case Event_Mouse_Button_Went_Down:
-				if e.button == .Left && touch_state == .Up {
-					touch_state = .Down
+				if e.button == .Left && !touch_is_down && !touch_ended_this_frame {
+					touch_is_down = true
 					append(&s.events, Event_Touch_Went_Down {
 						id = EMULATED_TOUCH_ID,
 						position = mouse_position,
@@ -486,8 +477,9 @@ process_events :: proc() {
 				}
 
 			case Event_Mouse_Button_Went_Up:
-				if e.button == .Left && touch_state == .Down {
-					touch_state = .Ended_This_Frame
+				if e.button == .Left && touch_is_down {
+					touch_is_down = false
+					touch_ended_this_frame = true
 					append(&s.events, Event_Touch_Went_Up {
 						id = EMULATED_TOUCH_ID,
 						position = mouse_position,
