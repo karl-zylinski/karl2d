@@ -841,8 +841,8 @@ get_touches :: proc() -> []Touch {
 }
 
 // Controls if touches should cause mouse events, or if mouse events should cause touche events. Or
-// if none of these things should happen. `k2.init` set this to `.Touch_To_Mouse` by default so that
-// desktop games have rudimentary functionality on touch screens.
+// if none of these things should happen. `k2.init` sets this to `.Touch_To_Mouse` by default so
+// that desktop games have rudimentary functionality on touch screens.
 //
 // If your handles both touch and mouse input, then you want this set to `.None`.
 set_mouse_touch_emulation :: proc(emulation: Mouse_Touch_Emulation) {
