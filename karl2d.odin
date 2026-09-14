@@ -4265,8 +4265,16 @@ create_render_texture :: proc(width: int, height: int) -> (Render_Texture, bool)
 
 // Destroy a Render_Texture previously created using `create_render_texture`.
 destroy_render_texture :: proc(render_texture: Render_Texture) {
-	// Recorded draw calls may still be waiting to draw into this render target, or sample it.
-	_flush_if_batch_uses_render_target(render_texture.render_target)
+	if s.current_draw_call.render_target == render_texture.render_target {
+		draw_current_batch()
+	} else {
+		for dc in s.batch_draw_calls {
+			if dc.render_target == render_texture.render_target {
+				draw_current_batch()
+			}
+		}
+	}
+
 	_flush_if_batch_uses_texture(render_texture.texture.handle)
 	rb.destroy_texture(render_texture.texture.handle)
 	rb.destroy_render_target(render_texture.render_target)
@@ -5108,8 +5116,16 @@ load_shader_from_bytes :: proc(
 
 // Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
 destroy_shader :: proc(shader: Shader) {
-	// Recorded draw calls may still be waiting to draw with this shader.
-	_flush_if_batch_uses_shader(shader.handle)
+	if s.current_draw_call.shader == shader.handle {
+		draw_current_batch()
+	} else {
+		for dc in s.batch_draw_calls {
+			if dc.shader == shader.handle {
+				draw_current_batch()
+			}
+		}
+	}
+
 	rb.destroy_shader(shader.handle)
 
 	a := s.allocator
@@ -7416,44 +7432,6 @@ _flush_if_batch_uses_texture :: proc(texture: Texture_Handle) {
 
 	for dc in s.batch_draw_calls {
 		if uses_texture(dc, texture) {
-			draw_current_batch()
-			return
-		}
-	}
-}
-
-// Same as `_flush_if_batch_uses_texture`. This one is for a shader that is about to go away.
-_flush_if_batch_uses_shader :: proc(shader: Shader_Handle) {
-	if shader == SHADER_NONE {
-		return
-	}
-
-	if s.current_draw_call.shader == shader {
-		draw_current_batch()
-		return
-	}
-
-	for dc in s.batch_draw_calls {
-		if dc.shader == shader {
-			draw_current_batch()
-			return
-		}
-	}
-}
-
-// Same as `_flush_if_batch_uses_texture`. This one is for a render target about to go away.
-_flush_if_batch_uses_render_target :: proc(render_target: Render_Target_Handle) {
-	if render_target == RENDER_TARGET_NONE {
-		return
-	}
-
-	if s.current_draw_call.render_target == render_target {
-		draw_current_batch()
-		return
-	}
-
-	for dc in s.batch_draw_calls {
-		if dc.render_target == render_target {
 			draw_current_batch()
 			return
 		}
