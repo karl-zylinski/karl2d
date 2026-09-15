@@ -7203,7 +7203,21 @@ _start_draw_call :: proc() {
 
 	if !same_shader || s.current_constants_dirty {
 		constants_data = slice.clone(shader.constants_data, s.batch_allocator)
-		_write_builtin_constants(shader, constants_data)
+
+		for mloc, builtin in shader.constant_builtin_locations {
+			constant, constant_ok := mloc.?
+
+			if !constant_ok {
+				continue
+			}
+
+			switch builtin {
+			case .View_Projection_Matrix:
+				if constant.size == size_of(Mat4) {
+					(^Mat4)(&constants_data[constant.offset])^ = s.view_projection
+				}
+			}
+		}
 	}
 
 	textures := prev.textures
@@ -7233,26 +7247,6 @@ _start_draw_call :: proc() {
 	}
 
 	s.current_constants_dirty = false
-}
-
-// Writes the constants that Karl2D itself supplies into a draw call's copy of them. They are ours
-// rather than the shader program's, which is why they go into the copy and not into the shader.
-// The view-projection matrix is the only one right now.
-_write_builtin_constants :: proc(shader: Shader, constants_data: []u8) {
-	for mloc, builtin in shader.constant_builtin_locations {
-		constant, constant_ok := mloc.?
-
-		if !constant_ok {
-			continue
-		}
-
-		switch builtin {
-		case .View_Projection_Matrix:
-			if constant.size == size_of(Mat4) {
-				(^Mat4)(&constants_data[constant.offset])^ = s.view_projection
-			}
-		}
-	}
 }
 
 // Puts the open draw call into the list of recorded ones. Empty ones are left out, which is what a
@@ -7493,7 +7487,6 @@ vec3_from_vec2 :: proc(v: Vec2) -> Vec3 {
 frame_cstring :: proc(str: string, loc := #caller_location) -> cstring {
 	return strings.clone_to_cstring(str, s.frame_allocator, loc)
 }
-
 
 @(require_results)
 matrix_ortho3d_f32 :: proc "contextless" (
