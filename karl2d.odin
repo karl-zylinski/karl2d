@@ -123,14 +123,8 @@ init :: proc(
 		s.depth_range_max = DEPTH_RANGE_DEFAULT_MAX
 	}
 
-	s.proj_matrix = make_projection_matrix(
-		pf.get_screen_width(),
-		pf.get_screen_height(),
-		false,
-	)
-
 	s.view_matrix = 1
-	_update_view_projection()
+	_update_projection_matrix()
 
 	// Boot up the render backend. It will render into our previously created window.
 	rb.init(
@@ -577,17 +571,7 @@ process_events :: proc() {
 			// Recorded draw calls were meant for the old swapchain size.
 			draw_current_batch()
 			rb.resize_swapchain(e.width, e.height)
-
-			// Don't update projection matrix if drawing to render target
-			if s.current_render_target == RENDER_TARGET_NONE {
-				s.proj_matrix = make_projection_matrix(
-					pf.get_screen_width(),
-					pf.get_screen_height(),
-					_camera_flip_y(),
-				)
-				
-				_update_view_projection()
-			}
+			_update_projection_matrix()
 
 		case Event_Window_Focused:			
 
@@ -4302,14 +4286,6 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		s.current_render_target = rt.render_target
 		s.current_render_target_width = rt.texture.width
 		s.current_render_target_height = rt.texture.height
-
-		s.proj_matrix = make_projection_matrix(
-			rt.texture.width,
-			rt.texture.height,
-			_camera_flip_y(),
-		)
-
-		_update_view_projection()
 	} else {
 		if s.current_render_target == RENDER_TARGET_NONE {
 			return
@@ -4318,15 +4294,9 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		s.current_render_target = RENDER_TARGET_NONE
 		s.current_render_target_width = 0
 		s.current_render_target_height = 0
-
-		s.proj_matrix = make_projection_matrix(
-			pf.get_screen_width(),
-			pf.get_screen_height(),
-			_camera_flip_y(),
-		)
-
-		_update_view_projection()
 	}
+
+	_update_projection_matrix()
 }
 
 //-------------//
@@ -5282,23 +5252,7 @@ set_camera :: proc(camera: Maybe(Camera)) {
 		s.view_matrix = 1
 	}
 
-	// The Y axis picks which edge of the surface Y = 0 sits on. So the projection depends on the
-	// camera, not just on the surface size.
-	if s.current_render_target == RENDER_TARGET_NONE {
-		s.proj_matrix = make_projection_matrix(
-			pf.get_screen_width(),
-			pf.get_screen_height(),
-			_camera_flip_y(),
-		)
-	} else {
-		s.proj_matrix = make_projection_matrix(
-			s.current_render_target_width,
-			s.current_render_target_height,
-			_camera_flip_y(),
-		)
-	}
-
-	_update_view_projection()
+	_update_projection_matrix()
 }
 
 // Transform a point `pos` that lives on the screen into the camera's coordinates.
@@ -6387,8 +6341,7 @@ State :: struct {
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
 
-	// `proj_matrix * view_matrix`. Kept around because every draw call needs it. Update it with
-	// `_update_view_projection`.
+	// `proj_matrix * view_matrix`. Set when `_update_projection_matrix` runs.
 	view_projection: Mat4,
 
 	z: f32,
@@ -7444,12 +7397,6 @@ _flush_if_batch_uses_texture :: proc(texture: Texture_Handle) {
 	}
 }
 
-// Run after changing `proj_matrix` or `view_matrix`. Draw calls then pick up the new combination.
-_update_view_projection :: proc() {
-	s.view_projection = s.proj_matrix * s.view_matrix
-	s.current_constants_dirty = true
-}
-
 VERTEX_BUFFER_MAX :: 1000000
 
 // How much room the batch arena starts with. A draw call needs a handful of bytes for its
@@ -7572,22 +7519,35 @@ matrix_ortho3d_f32 :: proc "contextless" (
 	return m
 }
 
-make_projection_matrix :: proc(w, h: int, flip_y: bool) -> matrix[4,4]f32 {
-	clip_z_min, clip_z_max := rb.get_depth_clip_range()
+_update_projection_matrix :: proc() {
+	w, h: int
 
-	if flip_y {
-		return matrix_ortho3d_f32(
+	if s.current_render_target == RENDER_TARGET_NONE {
+		w = pf.get_screen_width()
+		h = pf.get_screen_height()
+	} else {
+		w = s.current_render_target_width
+		h = s.current_render_target_height
+	}
+
+	clip_z_min, clip_z_max := rb.get_depth_clip_range()
+	
+	if _camera_flip_y() {
+		s.proj_matrix = matrix_ortho3d_f32(
 			0, f32(w), 0, f32(h),
+			s.depth_range_min, s.depth_range_max,
+			clip_z_min, clip_z_max,
+		)
+	} else {
+		s.proj_matrix = matrix_ortho3d_f32(
+			0, f32(w), f32(h), 0,
 			s.depth_range_min, s.depth_range_max,
 			clip_z_min, clip_z_max,
 		)
 	}
 
-	return matrix_ortho3d_f32(
-		0, f32(w), f32(h), 0,
-		s.depth_range_min, s.depth_range_max,
-		clip_z_min, clip_z_max,
-	)
+	s.view_projection = s.proj_matrix * s.view_matrix
+	s.current_constants_dirty = true
 }
 
 // Returns true if the currently used camera wants the Y axis to be flipped.

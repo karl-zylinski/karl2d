@@ -1921,8 +1921,7 @@ State :: struct {
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
 
-	// `proj_matrix * view_matrix`. Kept around because every draw call needs it. Update it with
-	// `_update_view_projection`.
+	// `proj_matrix * view_matrix`. Set when `_update_projection_matrix` runs.
 	view_projection: Mat4,
 
 	z: f32,
