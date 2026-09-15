@@ -72,9 +72,10 @@ init :: proc(
 	s.frame_allocator = runtime.arena_allocator(&s.frame_arena)
 	frame_allocator = s.frame_allocator
 
-	// We allocate memory for the windowing backend and pass the blob of memory to it.
 	platform_state_alloc_error: runtime.Allocator_Error
-	
+
+	// `pf` is an alias of PLATFORM. We allocate memory for the windowing backend and pass the blob
+	// of memory to it.
 	s.platform_state, platform_state_alloc_error = mem.alloc(
 		pf.state_size(),
 		allocator = s.allocator,
@@ -88,9 +89,7 @@ init :: proc(
 
 	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
 
-	// The window has an icon from the start this way. A game replaces it with its own by calling
-	// `set_window_icon`. 256 pixels covers every size an OS shows an icon at. The web favicon only
-	// ever shows small, and a smaller image there keeps the PNG data URI it turns into small too.
+	// Web has small icon because it doesn't ever show a bigger one.
 	DEFAULT_ICON_SIZE :: 256 when ODIN_OS != .JS else 64
 	default_icon := make_karl2d_icon(DEFAULT_ICON_SIZE)
 	pf.set_window_icon(default_icon, false)
@@ -102,6 +101,7 @@ init :: proc(
 	// See `render_backend_chooser.odin` for how this is picked.
 	s.render_backend = RENDER_BACKEND
 
+	// short named global, for convenience
 	rb = s.render_backend
 	rb_alloc_error: runtime.Allocator_Error
 	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = s.allocator)
@@ -112,9 +112,6 @@ init :: proc(
 	s.depth_range_max = options.depth_range_max
 
 	if !s.depth_test || (s.depth_range_min == 0 && s.depth_range_max == 0) {
-		// The range only means something when depth testing is on. When it is off, every vertex
-		// gets a z of 0, so we force the default range: a range that does not contain 0 would
-		// make the GPU discard everything, showing nothing at all.
 		s.depth_range_min = DEPTH_RANGE_DEFAULT_MIN
 		s.depth_range_max = DEPTH_RANGE_DEFAULT_MAX
 	} else if s.depth_range_min == s.depth_range_max {
@@ -126,10 +123,10 @@ init :: proc(
 		s.depth_range_max = DEPTH_RANGE_DEFAULT_MAX
 	}
 
-	s.proj_matrix = make_default_projection(
+	s.proj_matrix = make_projection_matrix(
 		pf.get_screen_width(),
 		pf.get_screen_height(),
-		_camera_flip_y(),
+		false,
 	)
 
 	s.view_matrix = 1
@@ -580,8 +577,17 @@ process_events :: proc() {
 			// Recorded draw calls were meant for the old swapchain size.
 			draw_current_batch()
 			rb.resize_swapchain(e.width, e.height)
-			s.proj_matrix = make_default_projection(e.width, e.height, _camera_flip_y())
-			_update_view_projection()
+
+			// Don't update projection matrix if drawing to render target
+			if s.current_render_target == RENDER_TARGET_NONE {
+				s.proj_matrix = make_projection_matrix(
+					pf.get_screen_width(),
+					pf.get_screen_height(),
+					_camera_flip_y(),
+				)
+				
+				_update_view_projection()
+			}
 
 		case Event_Window_Focused:			
 
@@ -4297,7 +4303,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		s.current_render_target_width = rt.texture.width
 		s.current_render_target_height = rt.texture.height
 
-		s.proj_matrix = make_default_projection(
+		s.proj_matrix = make_projection_matrix(
 			rt.texture.width,
 			rt.texture.height,
 			_camera_flip_y(),
@@ -4313,7 +4319,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		s.current_render_target_width = 0
 		s.current_render_target_height = 0
 
-		s.proj_matrix = make_default_projection(
+		s.proj_matrix = make_projection_matrix(
 			pf.get_screen_width(),
 			pf.get_screen_height(),
 			_camera_flip_y(),
@@ -5279,13 +5285,13 @@ set_camera :: proc(camera: Maybe(Camera)) {
 	// The Y axis picks which edge of the surface Y = 0 sits on. So the projection depends on the
 	// camera, not just on the surface size.
 	if s.current_render_target == RENDER_TARGET_NONE {
-		s.proj_matrix = make_default_projection(
+		s.proj_matrix = make_projection_matrix(
 			pf.get_screen_width(),
 			pf.get_screen_height(),
 			_camera_flip_y(),
 		)
 	} else {
-		s.proj_matrix = make_default_projection(
+		s.proj_matrix = make_projection_matrix(
 			s.current_render_target_width,
 			s.current_render_target_height,
 			_camera_flip_y(),
@@ -7566,7 +7572,7 @@ matrix_ortho3d_f32 :: proc "contextless" (
 	return m
 }
 
-make_default_projection :: proc(w, h: int, flip_y: bool) -> matrix[4,4]f32 {
+make_projection_matrix :: proc(w, h: int, flip_y: bool) -> matrix[4,4]f32 {
 	clip_z_min, clip_z_max := rb.get_depth_clip_range()
 
 	if flip_y {
