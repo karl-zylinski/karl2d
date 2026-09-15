@@ -44,6 +44,14 @@ main :: proc() {
 >`sudo apt install libudev-dev`
 >Did you have to install something else on your distro? Let me know!
 
+## Building for release
+
+`odin run .` and `odin build .` compile without optimizations. That is what you want while developing: builds are fast. For anything you hand to a player, or any performance measurement, add `-o:speed`:
+
+`odin build . -o:speed`
+
+The difference is large. Drawing a few hundred thousand shapes per frame runs several times faster with `-o:speed` than without it.
+
 ## Get help
 
 Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
