@@ -7659,3 +7659,13 @@ _ :: jpeg
 _ :: bmp
 _ :: png
 _ :: tga
+
+Color_F32 :: [4]f32
+
+f32_color_from_color :: proc(color: Color) -> Color_F32 {
+	return (Color_F32)(color)/255
+}
+
+color_from_f32_color :: proc(color: Color_F32) -> Color {
+	return (Color)(color*255)
+}
