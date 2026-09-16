@@ -1,15 +1,21 @@
 package karl2d_measure_text_example
 
 // Fonts used:
-// - https://fonts.google.com/specimen/Josefin+Slab
-// - https://fonts.google.com/specimen/Merienda
-// - https://fonts.google.com/specimen/Momo+Trust+Display
-// These fonts are licensed under the SIL Open Font License, Version 1.1
+// 1. https://fonts.google.com/specimen/Josefin+Slab
+// 2. https://fonts.google.com/specimen/Merienda
+// 3. https://fonts.google.com/specimen/Momo+Trust+Display
+// 4. https://poppyworks.itch.io/silver
+// The first 3 fonts are licensed under the SIL Open Font License, Version 1.1
 // - Link: https://openfontlicense.org
 // - File: OFL.txt
+// The last font is licensed under Attribution 4.0 International with an additional commercial
+// production budget threshold
+// - Link: https://creativecommons.org/licenses/by/4.0/
+// - File: Sliver-LICENSE.txt
 
 import k2 "../.."
 import "core:fmt"
+import "core:unicode/utf8"
 
 Vec2 :: k2.Vec2
 
@@ -24,13 +30,14 @@ fonts := [?] Font {
 	{ name="Momo Trust Display", 	bytes=#load("MomoTrustDisplay-Regular.ttf") },
 	{ name="Josefin Slab", 			bytes=#load("JosefinSlab-Bold.ttf") },
 	{ name="Merienda", 				bytes=#load("Merienda-Bold.ttf") },
+	{ name="Silver", 				bytes=#load("Silver.ttf") },
 }
 
 current_font_idx: int
 current_font_size := f32(50)
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Measure Text Example", { window_mode = .Windowed_Resizable })
+	k2.init(1600, 900, "Karl2D Measure Text Example", { window_mode = .Windowed_Resizable })
 
 	for &f in fonts {
 		f.font = f.bytes != nil\
@@ -123,6 +130,30 @@ step :: proc() -> bool {
 		size := k2.measure_text(text, current_font_size, font)
 		k2.draw_rect_vec(pos, size, k2.LIGHT_RED)
 		k2.draw_text(text, pos, current_font_size, k2.BLACK, font)
+
+		// CJK SECTION
+		{
+			pos = { LEFT, pos.y + size.y + current_font_size }
+			header_text := "CJK characters (Silver only)"
+			header_size := k2.measure_text(header_text, current_font_size, font)
+			k2.draw_rect_vec(pos, header_size, k2.LIGHT_RED)
+			k2.draw_text(header_text, pos, current_font_size, k2.BLACK, font)
+
+			pos = { LEFT, pos.y + 2*current_font_size }
+			cjk_text := "道可道非常道。义、礼、说、选、权吾輩は猫である。다람쥐 헌 쳇바퀴에 타고파."
+			for character in cjk_text {
+				buf, n := utf8.encode_rune(character)
+				text = string(buf[:n])
+				size := k2.measure_text(text, current_font_size, font)
+				k2.draw_rect_vec(pos, size, k2.LIGHT_RED)
+				k2.draw_text(text, pos, current_font_size, k2.BLACK, font)
+
+				pos.x += current_font_size
+				if pos.x+current_font_size > screen_size.x-40 {
+					pos = { LEFT, pos.y+current_font_size }
+				}
+			}
+		}
 	}
 
 	// HINTS
