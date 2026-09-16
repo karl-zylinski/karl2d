@@ -1901,6 +1901,7 @@ State :: struct {
 	current_camera: Maybe(Camera),
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
+	// TODO-UPDATE-COMMENT this one is the texture the open draw call draws with, set when it opens.
 	current_texture: Texture_Handle,
 	current_render_target: Render_Target_Handle,
 
@@ -1920,8 +1921,11 @@ State :: struct {
 	batch_arena: runtime.Arena,
 	batch_allocator: runtime.Allocator,
 
+	// TODO-UPDATE-COMMENT the setters add what they changed to this set. The next draw call opens
+	// with it as its `changed`. Empty means the open draw call still matches the settings.
+	// ---
 	// Says that the shader constants may differ from what the open draw call captured.
-	current_constants_dirty: bool,
+	pending_changes: bit_set[Draw_Call_Change],
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
