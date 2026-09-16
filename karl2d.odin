@@ -5883,10 +5883,7 @@ Font_Options :: struct {
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
 
-	// TODO-UPDATE-COMMENT all dynamic fonts share one atlas texture, so `draw_text` sets this
-	// filter on that texture when it differs from the filter of the previously drawn font.
-	// ---
-	// Passed on to font atlas creation.
+	// The texture filter to use when drawing text using this font.
 	filter: Texture_Filter,
 
 	// Font formats like .ttc can contain multiple fonts. Use this parameter to pick one. For fonts
@@ -5899,8 +5896,10 @@ Font_Options :: struct {
 // ---
 // Supported font types:
 // - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
-// - Dynamic: A font that is continuously updated as you need new characters. Each font can have up
-//            to eight 1024x1024 textures (pages) filled with glyphs. Uses the `font_cache` package.
+// - Dynamic: A font that is continuously updated as you need new characters. All fonts shared an
+//            atlas that can grow to a maximum size of 4096x4096. If it hits the maximum size, then
+//            it is compacted, at which point 50% of the glyphs are thrown out. The thrown out ones
+//            are the least recently used ones.
 //
 // Future types (TODO):
 // - Slug: Upload the character bezier curves to the GPU and render the text on the GPU without the
