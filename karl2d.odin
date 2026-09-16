@@ -176,7 +176,7 @@ init :: proc(
 	// Dummy element so font with index 0 means 'no font'.
 	s.fonts = make([dynamic]Font_Data, s.allocator)
 	append_nothing(&s.fonts)
-	fc.init_atlas(&s.font_atlas, s.allocator)
+	fc.init_cache(&s.font_cache, s.allocator)
 	default_font := load_dynamic_font_from_bytes(DEFAULT_FONT_DATA)
 	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
 
@@ -289,7 +289,7 @@ shutdown :: proc() {
 	delete(s.events)
 	destroy_font(FONT_DEFAULT)
 	rb.destroy_texture(s.font_atlas_texture.handle)
-	fc.destroy_atlas(&s.font_atlas)
+	fc.destroy_cache(&s.font_cache)
 	rb.destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
 	rb.shutdown()
@@ -1466,7 +1466,7 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 
 		render_size := _font_render_size(font_size)
 		size, size_ok := fc.measure(
-			&s.font_atlas,
+			&s.font_cache,
 			&font_object.dynamic_font,
 			text,
 			render_size,
@@ -1476,12 +1476,12 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 		for !size_ok {
 			draw_current_batch()
 
-			if !fc.make_room(&s.font_atlas, s.time) {
+			if !fc.make_room(&s.font_cache, s.time) {
 				break
 			}
 
 			size, size_ok = fc.measure(
-				&s.font_atlas,
+				&s.font_cache,
 				&font_object.dynamic_font,
 				text,
 				render_size,
@@ -1698,7 +1698,7 @@ draw_text :: proc(
 
 		for {
 			placed, place_res := fc.place_text_iterate(
-				&s.font_atlas,
+				&s.font_cache,
 				&font_object.dynamic_font,
 				&it,
 			)
@@ -1710,7 +1710,7 @@ draw_text :: proc(
 			if place_res == .No_Room {
 				draw_current_batch()
 
-				if !fc.make_room(&s.font_atlas, s.time) {
+				if !fc.make_room(&s.font_cache, s.time) {
 					break
 				}
 
@@ -4847,7 +4847,7 @@ destroy_font :: proc(font: Font) {
 		delete(f.static_glyphs, s.allocator)
 		delete(f.static_glyph_ranges, s.allocator)
 	case .Dynamic:
-		fc.remove_font_glyphs(&s.font_atlas, f.dynamic_font.id)
+		fc.remove_font_glyphs(&s.font_cache, f.dynamic_font.id)
 		fc.destroy_font(&f.dynamic_font)
 	}
 }
@@ -6287,7 +6287,7 @@ State :: struct {
 
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
-	font_atlas: fc.Atlas,
+	font_cache: fc.Cache,
 	font_atlas_texture: Texture,
 	font_atlas_filter: Texture_Filter,
 	shape_drawing_texture: Texture_Handle,
@@ -7566,10 +7566,10 @@ _font_render_size :: proc(font_size: f32) -> int {
 }
 
 _sync_font_atlas_texture :: proc() {
-	atlas := &s.font_atlas
+	cache := &s.font_cache
 	texture := &s.font_atlas_texture
 
-	if texture.width == atlas.width && texture.height == atlas.height {
+	if texture.width == cache.width && texture.height == cache.height {
 		return
 	}
 
@@ -7578,7 +7578,7 @@ _sync_font_atlas_texture :: proc() {
 		rb.destroy_texture(texture.handle)
 	}
 
-	texture^ = create_texture(atlas.width, atlas.height, .RGBA_8_Norm)
+	texture^ = create_texture(cache.width, cache.height, .RGBA_8_Norm)
 	set_texture_filter(texture^, s.font_atlas_filter)
 }
 
@@ -7590,35 +7590,35 @@ _sync_font_atlas_texture :: proc() {
 // Currently this converts to from `u8` to `[4]u8` per pixel. This may disappear in the future if we
 // make the GPU-side atlas an R8_UNORM texture.
 _update_font_atlas :: proc() {
-	atlas := &s.font_atlas
+	cache := &s.font_cache
 	texture := s.font_atlas_texture
 
-	if atlas.dirty_max.x <= atlas.dirty_min.x || atlas.dirty_max.y <= atlas.dirty_min.y {
+	if cache.dirty_max.x <= cache.dirty_min.x || cache.dirty_max.y <= cache.dirty_min.y {
 		return
 	}
 
 	if (
 		texture.handle == TEXTURE_NONE ||
-		texture.width != atlas.width ||
-		texture.height != atlas.height
+		texture.width != cache.width ||
+		texture.height != cache.height
 	) {
 		return
 	}
 
-	x := atlas.dirty_min.x
-	y := atlas.dirty_min.y
-	w := atlas.dirty_max.x - x
-	h := atlas.dirty_max.y - y
+	x := cache.dirty_min.x
+	y := cache.dirty_min.y
+	w := cache.dirty_max.x - x
+	h := cache.dirty_max.y - y
 	pixels: [][4]u8
 
-	if w == atlas.width {
-		pixels = atlas.pixels[y * atlas.width:(y + h) * atlas.width]
+	if w == cache.width {
+		pixels = cache.pixels[y * cache.width:(y + h) * cache.width]
 	} else {
 		pixels = make([][4]u8, w * h, frame_allocator)
 
 		for row in 0..<h {
-			src_start := x + (y + row) * atlas.width
-			copy(pixels[row * w:], atlas.pixels[src_start:src_start + w])
+			src_start := x + (y + row) * cache.width
+			copy(pixels[row * w:], cache.pixels[src_start:src_start + w])
 		}
 	}
 
@@ -7630,8 +7630,8 @@ _update_font_atlas :: proc() {
 	}
 
 	rb.update_texture(texture.handle, slice.reinterpret([]u8, pixels), r)
-	atlas.dirty_min = { atlas.width, atlas.height }
-	atlas.dirty_max = {}
+	cache.dirty_min = { cache.width, cache.height }
+	cache.dirty_max = {}
 }
 
 _ :: jpeg

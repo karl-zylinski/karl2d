@@ -1902,7 +1902,7 @@ State :: struct {
 
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
-	font_atlas: fc.Atlas,
+	font_cache: fc.Cache,
 	font_atlas_texture: Texture,
 	font_atlas_filter: Texture_Filter,
 	shape_drawing_texture: Texture_Handle,

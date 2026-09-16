@@ -14,7 +14,7 @@ ATLAS_START_SIZE :: 256
 ATLAS_MAX_SIZE :: 4096
 GLYPH_PADDING :: 1
 
-Atlas :: struct {
+Cache :: struct {
 	pixels: [][4]u8,
 	width: int,
 	height: int,
@@ -70,8 +70,8 @@ Init_Error :: enum {
 	Invalid_Font_Data,
 }
 
-init_atlas :: proc(atlas: ^Atlas, allocator: runtime.Allocator) {
-	atlas^ = {
+init_cache :: proc(cache: ^Cache, allocator: runtime.Allocator) {
+	cache^ = {
 		pixels = make([][4]u8, ATLAS_START_SIZE * ATLAS_START_SIZE, allocator),
 		width = ATLAS_START_SIZE,
 		height = ATLAS_START_SIZE,
@@ -81,16 +81,16 @@ init_atlas :: proc(atlas: ^Atlas, allocator: runtime.Allocator) {
 		allocator = allocator,
 	}
 
-	append(&atlas.nodes, Skyline_Node {
+	append(&cache.nodes, Skyline_Node {
 		width = ATLAS_START_SIZE,
 	})
 }
 
-destroy_atlas :: proc(atlas: ^Atlas) {
-	delete(atlas.pixels, atlas.allocator)
-	delete(atlas.nodes)
-	delete(atlas.glyphs)
-	atlas^ = {}
+destroy_cache :: proc(cache: ^Cache) {
+	delete(cache.pixels, cache.allocator)
+	delete(cache.nodes)
+	delete(cache.glyphs)
+	cache^ = {}
 }
 
 init_font :: proc(
@@ -135,24 +135,24 @@ destroy_font :: proc(font: ^Font) {
 	font^ = {}
 }
 
-remove_font_glyphs :: proc(atlas: ^Atlas, font_id: u32) {
-	keys := make([dynamic]Glyph_Key, atlas.allocator)
+remove_font_glyphs :: proc(cache: ^Cache, font_id: u32) {
+	keys := make([dynamic]Glyph_Key, cache.allocator)
 
-	for key in atlas.glyphs {
+	for key in cache.glyphs {
 		if glyph_key_font_id(key) == font_id {
 			append(&keys, key)
 		}
 	}
 
 	for key in keys {
-		delete_key(&atlas.glyphs, key)
+		delete_key(&cache.glyphs, key)
 	}
 
 	delete(keys)
 }
 
 get_glyph :: proc(
-	atlas: ^Atlas,
+	cache: ^Cache,
 	font: ^Font,
 	codepoint: rune,
 	size: int,
@@ -163,7 +163,7 @@ get_glyph :: proc(
 ) {
 	key := glyph_key(font.id, codepoint, size)
 
-	if glyph := &atlas.glyphs[key]; glyph != nil {
+	if glyph := &cache.glyphs[key]; glyph != nil {
 		glyph.last_used = time
 		return glyph^, true
 	}
@@ -194,13 +194,13 @@ get_glyph :: proc(
 
 	if bitmap_width > 0 && bitmap_height > 0 &&
 	   padded_width <= ATLAS_MAX_SIZE && padded_height <= ATLAS_MAX_SIZE {
-		x, y, fits := add_rect(atlas, padded_width, padded_height)
+		x, y, fits := add_rect(cache, padded_width, padded_height)
 
 		if !fits {
 			return glyph, false
 		}
 
-		coverage := make([]u8, bitmap_width * bitmap_height, atlas.allocator)
+		coverage := make([]u8, bitmap_width * bitmap_height, cache.allocator)
 
 		stbtt.MakeGlyphBitmap(
 			&font.info,
@@ -219,7 +219,7 @@ get_glyph :: proc(
 		for py in 0..<bitmap_height {
 			for px in 0..<bitmap_width {
 				a := coverage[px + py * bitmap_width]
-				dst := &atlas.pixels[(bitmap_x + px) + (bitmap_y + py) * atlas.width]
+				dst := &cache.pixels[(bitmap_x + px) + (bitmap_y + py) * cache.width]
 
 				if font.premultiply_alpha {
 					dst^ = { a, a, a, a }
@@ -229,43 +229,43 @@ get_glyph :: proc(
 			}
 		}
 
-		delete(coverage, atlas.allocator)
+		delete(coverage, cache.allocator)
 
 		glyph.x = x
 		glyph.y = y
 		glyph.width = padded_width
 		glyph.height = padded_height
 
-		atlas.dirty_min.x = min(atlas.dirty_min.x, x)
-		atlas.dirty_min.y = min(atlas.dirty_min.y, y)
-		atlas.dirty_max.x = max(atlas.dirty_max.x, x + padded_width)
-		atlas.dirty_max.y = max(atlas.dirty_max.y, y + padded_height)
+		cache.dirty_min.x = min(cache.dirty_min.x, x)
+		cache.dirty_min.y = min(cache.dirty_min.y, y)
+		cache.dirty_max.x = max(cache.dirty_max.x, x + padded_width)
+		cache.dirty_max.y = max(cache.dirty_max.y, y + padded_height)
 	}
 
-	atlas.glyphs[key] = glyph
+	cache.glyphs[key] = glyph
 	return glyph, true
 }
 
-make_room :: proc(atlas: ^Atlas, time: f64) -> bool {
-	if atlas.width < ATLAS_MAX_SIZE {
-		old_width := atlas.width
-		old_height := atlas.height
+make_room :: proc(cache: ^Cache, time: f64) -> bool {
+	if cache.width < ATLAS_MAX_SIZE {
+		old_width := cache.width
+		old_height := cache.height
 		new_width := old_width * 2
 		new_height := old_height * 2
-		new_pixels := make([][4]u8, new_width * new_height, atlas.allocator)
+		new_pixels := make([][4]u8, new_width * new_height, cache.allocator)
 
 		for y in 0..<old_height {
-			copy(new_pixels[y * new_width:], atlas.pixels[y * old_width:(y + 1) * old_width])
+			copy(new_pixels[y * new_width:], cache.pixels[y * old_width:(y + 1) * old_width])
 		}
 
-		delete(atlas.pixels, atlas.allocator)
-		atlas.pixels = new_pixels
-		atlas.width = new_width
-		atlas.height = new_height
-		atlas.dirty_min = {}
-		atlas.dirty_max = { old_width, old_height }
+		delete(cache.pixels, cache.allocator)
+		cache.pixels = new_pixels
+		cache.width = new_width
+		cache.height = new_height
+		cache.dirty_min = {}
+		cache.dirty_max = { old_width, old_height }
 
-		append(&atlas.nodes, Skyline_Node {
+		append(&cache.nodes, Skyline_Node {
 			x = old_width,
 			y = 0,
 			width = new_width - old_width,
@@ -274,7 +274,7 @@ make_room :: proc(atlas: ^Atlas, time: f64) -> bool {
 		return true
 	}
 
-	if atlas.last_compact == time {
+	if cache.last_compact == time {
 		return false
 	}
 
@@ -283,9 +283,9 @@ make_room :: proc(atlas: ^Atlas, time: f64) -> bool {
 		glyph: Glyph,
 	}
 
-	kept := make([dynamic]Kept_Glyph, atlas.allocator)
+	kept := make([dynamic]Kept_Glyph, cache.allocator)
 
-	for key, glyph in atlas.glyphs {
+	for key, glyph in cache.glyphs {
 		if glyph.width > 0 {
 			append(&kept, Kept_Glyph {
 				key = key,
@@ -298,7 +298,7 @@ make_room :: proc(atlas: ^Atlas, time: f64) -> bool {
 		return a.glyph.last_used > b.glyph.last_used
 	})
 
-	area_budget := atlas.width * atlas.height / 2
+	area_budget := cache.width * cache.height / 2
 	area := 0
 	num_kept := 0
 
@@ -314,7 +314,7 @@ make_room :: proc(atlas: ^Atlas, time: f64) -> bool {
 	}
 
 	for k in kept[num_kept:] {
-		delete_key(&atlas.glyphs, k.key)
+		delete_key(&cache.glyphs, k.key)
 	}
 
 	resize(&kept, num_kept)
@@ -323,41 +323,41 @@ make_room :: proc(atlas: ^Atlas, time: f64) -> bool {
 		return a.glyph.height > b.glyph.height
 	})
 
-	old_pixels := atlas.pixels
-	old_width := atlas.width
-	atlas.pixels = make([][4]u8, atlas.width * atlas.height, atlas.allocator)
-	clear(&atlas.nodes)
-	append(&atlas.nodes, Skyline_Node {
-		width = atlas.width,
+	old_pixels := cache.pixels
+	old_width := cache.width
+	cache.pixels = make([][4]u8, cache.width * cache.height, cache.allocator)
+	clear(&cache.nodes)
+	append(&cache.nodes, Skyline_Node {
+		width = cache.width,
 	})
 
 	packed_height := 0
 
 	for k in kept {
-		x, y, fits := add_rect(atlas, k.glyph.width, k.glyph.height)
+		x, y, fits := add_rect(cache, k.glyph.width, k.glyph.height)
 
 		if !fits {
-			delete_key(&atlas.glyphs, k.key)
+			delete_key(&cache.glyphs, k.key)
 			continue
 		}
 
 		for row in 0..<k.glyph.height {
 			src_start := k.glyph.x + (k.glyph.y + row) * old_width
-			dst_start := x + (y + row) * atlas.width
-			copy(atlas.pixels[dst_start:], old_pixels[src_start:src_start + k.glyph.width])
+			dst_start := x + (y + row) * cache.width
+			copy(cache.pixels[dst_start:], old_pixels[src_start:src_start + k.glyph.width])
 		}
 
-		glyph := &atlas.glyphs[k.key]
+		glyph := &cache.glyphs[k.key]
 		glyph.x = x
 		glyph.y = y
 		packed_height = max(packed_height, y + k.glyph.height)
 	}
 
-	delete(old_pixels, atlas.allocator)
+	delete(old_pixels, cache.allocator)
 	delete(kept)
-	atlas.dirty_min = {}
-	atlas.dirty_max = { atlas.width, packed_height }
-	atlas.last_compact = time
+	cache.dirty_min = {}
+	cache.dirty_max = { cache.width, packed_height }
+	cache.last_compact = time
 	return true
 }
 
@@ -409,7 +409,7 @@ place_text_iterator_init :: proc(text: string, size: int, time: f64) -> Place_Te
 }
 
 place_text_iterate :: proc(
-	atlas: ^Atlas,
+	cache: ^Cache,
 	font: ^Font,
 	it: ^Place_Text_Iterator,
 ) -> (
@@ -438,7 +438,7 @@ place_text_iterate :: proc(
 			continue
 		}
 
-		glyph, glyph_ok := get_glyph(atlas, font, codepoint, it.size, it.time)
+		glyph, glyph_ok := get_glyph(cache, font, codepoint, it.size, it.time)
 
 		if !glyph_ok {
 			return {}, .No_Room
@@ -465,7 +465,7 @@ place_text_iterate :: proc(
 }
 
 measure :: proc(
-	atlas: ^Atlas,
+	cache: ^Cache,
 	font: ^Font,
 	text: string,
 	size: int,
@@ -480,23 +480,23 @@ measure :: proc(
 	place_res := Place_Text_Iterator_Result.Placed
 
 	for place_res == .Placed {
-		_, place_res = place_text_iterate(atlas, font, &it)
+		_, place_res = place_text_iterate(cache, font, &it)
 		width = max(width, it.x)
 	}
 
 	return { width, it.y + f32(size) }, place_res == .Done
 }
 
-add_rect :: proc(atlas: ^Atlas, width: int, height: int) -> (x: int, y: int, ok: bool) {
-	best_width := atlas.width
-	best_height := atlas.height
+add_rect :: proc(cache: ^Cache, width: int, height: int) -> (x: int, y: int, ok: bool) {
+	best_width := cache.width
+	best_height := cache.height
 	best_idx := -1
 	best_x := -1
 	best_y := -1
 
 	// Bottom left fit heuristic.
-	for node, node_idx in atlas.nodes {
-		fit_y := rect_fits(atlas^, node_idx, width, height)
+	for node, node_idx in cache.nodes {
+		fit_y := rect_fits(cache^, node_idx, width, height)
 
 		if fit_y != -1 {
 			if fit_y + height < best_height ||
@@ -515,74 +515,74 @@ add_rect :: proc(atlas: ^Atlas, width: int, height: int) -> (x: int, y: int, ok:
 	}
 
 	// Perform the actual packing.
-	add_skyline_level(atlas, best_idx, best_x, best_y, width, height)
+	add_skyline_level(cache, best_idx, best_x, best_y, width, height)
 	return best_x, best_y, true
 }
 
-rect_fits :: proc(atlas: Atlas, idx: int, width: int, height: int) -> int {
+rect_fits :: proc(cache: Cache, idx: int, width: int, height: int) -> int {
 	// Checks if there is enough space at the location of skyline span 'i',
 	// and return the max height of all skyline spans under that at that location,
 	// (think tetris block being dropped at that position). Or -1 if no space found.
 
 	idx := idx
-	x := atlas.nodes[idx].x
-	y := atlas.nodes[idx].y
+	x := cache.nodes[idx].x
+	y := cache.nodes[idx].y
 
-	if x + width > atlas.width {
+	if x + width > cache.width {
 		return -1
 	}
 
 	space_left := width
 
 	for space_left > 0 {
-		if idx == len(atlas.nodes) {
+		if idx == len(cache.nodes) {
 			return -1
 		}
 
-		y = max(y, atlas.nodes[idx].y)
+		y = max(y, cache.nodes[idx].y)
 
-		if y + height > atlas.height {
+		if y + height > cache.height {
 			return -1
 		}
 
-		space_left -= atlas.nodes[idx].width
+		space_left -= cache.nodes[idx].width
 		idx += 1
 	}
 
 	return y
 }
 
-add_skyline_level :: proc(atlas: ^Atlas, idx: int, x: int, y: int, width: int, height: int) {
+add_skyline_level :: proc(cache: ^Cache, idx: int, x: int, y: int, width: int, height: int) {
 	// insert new node
-	inject_at(&atlas.nodes, idx, Skyline_Node {
+	inject_at(&cache.nodes, idx, Skyline_Node {
 		x = x,
 		y = y + height,
 		width = width,
 	})
 
 	// Delete skyline segments that fall under the shadow of the new segment.
-	for i := idx + 1; i < len(atlas.nodes); i += 1 {
-		if atlas.nodes[i].x >= atlas.nodes[i-1].x + atlas.nodes[i-1].width {
+	for i := idx + 1; i < len(cache.nodes); i += 1 {
+		if cache.nodes[i].x >= cache.nodes[i-1].x + cache.nodes[i-1].width {
 			break
 		}
 
-		shrink := atlas.nodes[i-1].x + atlas.nodes[i-1].width - atlas.nodes[i].x
-		atlas.nodes[i].x += shrink
-		atlas.nodes[i].width -= shrink
+		shrink := cache.nodes[i-1].x + cache.nodes[i-1].width - cache.nodes[i].x
+		cache.nodes[i].x += shrink
+		cache.nodes[i].width -= shrink
 
-		if atlas.nodes[i].width > 0 {
+		if cache.nodes[i].width > 0 {
 			break
 		}
 
-		ordered_remove(&atlas.nodes, i)
+		ordered_remove(&cache.nodes, i)
 		i -= 1
 	}
 
 	// Merge same height skyline segments that are next to each other.
-	for i := 0; i < len(atlas.nodes) - 1; /**/ {
-		if atlas.nodes[i].y == atlas.nodes[i+1].y {
-			atlas.nodes[i].width += atlas.nodes[i+1].width
-			ordered_remove(&atlas.nodes, i+1)
+	for i := 0; i < len(cache.nodes) - 1; /**/ {
+		if cache.nodes[i].y == cache.nodes[i+1].y {
+			cache.nodes[i].width += cache.nodes[i+1].width
+			ordered_remove(&cache.nodes, i+1)
 		} else {
 			i += 1
 		}
