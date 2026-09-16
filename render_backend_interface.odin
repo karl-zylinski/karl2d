@@ -93,7 +93,7 @@ Render_Backend_Interface :: struct #all_or_none {
 		height: int,
 		format: Pixel_Format,
 	) -> (Texture_Handle, bool),
-	update_texture: proc(handle: Texture_Handle, data: []u8, rect: Rect) -> bool,
+	update_texture: proc(handle: Texture_Handle, data: []u8, rect: Rect, pitch: int) -> bool,
 	destroy_texture: proc(handle: Texture_Handle),
 	texture_needs_vertical_flip: proc(handle: Texture_Handle) -> bool,
 

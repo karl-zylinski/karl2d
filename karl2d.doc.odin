@@ -552,9 +552,12 @@ destroy_image :: proc(img: Image)
 // (w, h) = (texture_width, texture_height)
 get_texture_rect :: proc(t: Texture) -> Rect
 
+// TODO-UPDATE-COMMENT `pitch` is the number of bytes between the start of two rows in `bytes`. Zero
+// means the rows are tightly packed, so the pitch is the width of `rect` times the pixel size.
+// ---
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
 // `tex` where the new pixels should end up.
-update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect) -> bool
+update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(tex: Texture)

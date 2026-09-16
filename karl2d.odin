@@ -2014,12 +2014,15 @@ get_texture_rect :: proc(t: Texture) -> Rect {
 	}
 }
 
+// TODO-UPDATE-COMMENT `pitch` is the number of bytes between the start of two rows in `bytes`. Zero
+// means the rows are tightly packed, so the pitch is the width of `rect` times the pixel size.
+// ---
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
 // `tex` where the new pixels should end up.
-update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect) -> bool {
+update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool {
 	// Recorded draw calls may still be waiting to use the old pixels.
 	_flush_if_batch_uses_texture(tex.handle)
-	return rb.update_texture(tex.handle, bytes, rect)
+	return rb.update_texture(tex.handle, bytes, rect, pitch)
 }
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
@@ -7607,18 +7610,8 @@ _update_font_atlas :: proc() {
 	y := cache.dirty_min.y
 	w := cache.dirty_max.x - x
 	h := cache.dirty_max.y - y
-	pixels: [][4]u8
-
-	if w == cache.width {
-		pixels = cache.pixels[y * cache.width:(y + h) * cache.width]
-	} else {
-		pixels = make([][4]u8, w * h, frame_allocator)
-
-		for row in 0..<h {
-			src_start := x + (y + row) * cache.width
-			copy(pixels[row * w:], cache.pixels[src_start:src_start + w])
-		}
-	}
+	start := x + y * cache.width
+	pixels := cache.pixels[start:start + (h - 1) * cache.width + w]
 
 	r := Rect {
 		f32(x),
@@ -7627,7 +7620,8 @@ _update_font_atlas :: proc() {
 		f32(h),
 	}
 
-	rb.update_texture(texture.handle, slice.reinterpret([]u8, pixels), r)
+	pitch := cache.width * size_of([4]u8)
+	rb.update_texture(texture.handle, slice.reinterpret([]u8, pixels), r, pitch)
 	cache.dirty_min = { cache.width, cache.height }
 	cache.dirty_max = {}
 }

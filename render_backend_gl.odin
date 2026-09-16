@@ -543,7 +543,7 @@ gl_load_texture :: proc(
 	return tex, true
 }
 
-gl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
+gl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect, pitch: int) -> bool {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil {
@@ -551,7 +551,9 @@ gl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
 	}
 
 	gl.BindTexture(gl.TEXTURE_2D, tex.id)
+	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, i32(pitch / pixel_format_size(tex.format)))
 	gl.TexSubImage2D(gl.TEXTURE_2D, 0, i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
+	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
 	return true
 }
 
