@@ -86,12 +86,6 @@ wl_try_load :: proc(
 	return "", true
 }
 
-// True if user wants us to draw custom window decorations, even when server-side decorations are
-// available.
-wl_custom_decorations_requested :: proc() -> bool {
-	return os.get_env("KARL2D_LINUX_DECORATIONS", frame_allocator) == "custom"
-}
-
 wl_init :: proc(
 	window_state: rawptr,
 	screen_width: int,
@@ -123,7 +117,8 @@ wl_init :: proc(
 
 	// Some systems, like GNOME, don't support the decoration manager (server-side decorations). In
 	// that case we will draw them outselves using the `wldeco_` calls in this file.
-	s.has_deco = s.decoration_manager == nil || wl_custom_decorations_requested()
+	custom_decorations_requested := os.get_env("KARL2D_LINUX_DECORATIONS", frame_allocator) == "custom"
+	s.has_deco = s.decoration_manager == nil || custom_decorations_requested
 
 	// Sets default size that gets used if the compositor doesn't suggest a size.
 	s.last_configure_width = screen_width
