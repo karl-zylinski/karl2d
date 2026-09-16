@@ -27,6 +27,8 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 
 	default_shader_vertex_source = rbnil_default_shader_vertex_source,
 	default_shader_fragment_source = rbnil_default_shader_fragment_source,
+	font_shader_vertex_source = rbnil_default_shader_vertex_source,
+	font_shader_fragment_source = rbnil_default_shader_fragment_source,
 	get_depth_clip_range = rbnil_get_depth_clip_range,
 }
 
@@ -141,6 +143,9 @@ rbnil_set_texture_filter :: proc(
 ) {
 }
 
+// TODO-UPDATE-COMMENT The constants now also include the font shader's `premultiply`, so that
+// `draw_text` finds it when it runs on the nil backend.
+// ---
 // The nil backend does not parse shader source. It reports the same layout the built-in default
 // shader uses, which is what the batching code in karl2d.odin needs in order to lay out vertices.
 // That's enough to run the library headless (tests, benchmarks, dedicated servers). Custom shaders
@@ -166,8 +171,9 @@ rbnil_load_shader :: proc(
 		}
 	}
 
-	constants := make([]Shader_Constant_Desc, 1, desc_allocator)
+	constants := make([]Shader_Constant_Desc, 2, desc_allocator)
 	constants[0] = { name = "view_projection", size = size_of(matrix[4,4]f32) }
+	constants[1] = { name = "premultiply", size = size_of(f32) }
 
 	texture_bindpoints := make([]Shader_Texture_Bindpoint_Desc, 1, desc_allocator)
 	texture_bindpoints[0] = { name = "tex" }

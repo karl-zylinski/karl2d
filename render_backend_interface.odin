@@ -129,6 +129,8 @@ Render_Backend_Interface :: struct #all_or_none {
 
 	default_shader_vertex_source: proc() -> []byte,
 	default_shader_fragment_source: proc() -> []byte,
+	font_shader_vertex_source: proc() -> []byte,
+	font_shader_fragment_source: proc() -> []byte,
 
 	// The z range the backend's clip space uses, so the projection matrix can map the user's
 	// `depth_range_min`/`depth_range_max` onto it. Called before `init`, so this must return a

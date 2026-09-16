@@ -28,6 +28,8 @@ RENDER_BACKEND_D3D11 :: Render_Backend_Interface {
 	destroy_shader = d3d11_destroy_shader,
 	default_shader_vertex_source = d3d11_default_shader_vertex_source,
 	default_shader_fragment_source = d3d11_default_shader_fragment_source,
+	font_shader_vertex_source = d3d11_font_shader_source,
+	font_shader_fragment_source = d3d11_font_shader_source,
 	get_depth_clip_range = d3d11_get_depth_clip_range,
 }
 
@@ -1561,6 +1563,13 @@ d3d11_default_shader_vertex_source :: proc() -> []byte {
 
 d3d11_default_shader_fragment_source :: proc() -> []byte {
 	s := DEFAULT_SHADER_SOURCE
+	return s
+}
+
+FONT_SHADER_SOURCE :: #load("default_shaders/font_shader_d3d11.hlsl")
+
+d3d11_font_shader_source :: proc() -> []byte {
+	s := FONT_SHADER_SOURCE
 	return s
 }
 

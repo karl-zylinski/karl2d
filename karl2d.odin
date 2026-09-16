@@ -171,6 +171,10 @@ init :: proc(
 		rb.default_shader_fragment_source(),
 	)
 	s.current_shader = s.default_shader
+	s.font_shader = load_shader_from_bytes(
+		rb.font_shader_vertex_source(),
+		rb.font_shader_fragment_source(),
+	)
 
 	// Dummy element so font with index 0 means 'no font'.
 	s.fonts = make([dynamic]Font_Data, s.allocator)
@@ -292,6 +296,7 @@ shutdown :: proc() {
 	fc.destroy_cache(&s.font_cache)
 	rb.destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
+	destroy_shader(s.font_shader)
 	rb.shutdown()
 	delete(s.vertex_buffer_cpu, s.allocator)
 	delete(s.batch_draw_calls)
@@ -1752,6 +1757,19 @@ draw_text :: proc(
 			set_texture_filter(s.font_atlas_texture, s.font_atlas_filter)
 		}
 
+		if font_object.options.premultiply_alpha != s.font_shader_premultiply {
+			s.font_shader_premultiply = font_object.options.premultiply_alpha
+			premultiply: f32 = s.font_shader_premultiply ? 1 : 0
+			set_shader_constant(
+				s.font_shader,
+				s.font_shader.constant_lookup["premultiply"],
+				premultiply,
+			)
+		}
+
+		user_shader := s.current_shader
+		s.current_shader = s.font_shader
+
 		y_up := _camera_flip_y()
 		block_top := position.y
 
@@ -1820,6 +1838,8 @@ draw_text :: proc(
 				color,
 			)
 		}
+
+		s.current_shader = user_shader
 	}
 
 }
@@ -4852,7 +4872,6 @@ load_dynamic_font_from_bytes :: proc(
 		data,
 		options.font_index,
 		u32(h),
-		options.premultiply_alpha,
 		s.allocator,
 	)
 
@@ -5929,6 +5948,9 @@ Pixel_Format :: enum {
 }
 
 Font_Options :: struct {
+	// TODO-UPDATE-COMMENT For dynamic fonts the multiply now happens in the font shader when the
+	// text is drawn, not when the font is loaded. Static fonts still do it at load time.
+	// ---
 	// When the font is loaded, the alpha value of each pixel will be multiplied into its RGB values.
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
@@ -6340,6 +6362,8 @@ State :: struct {
 	font_cache: fc.Cache,
 	font_atlas_texture: Texture,
 	font_atlas_filter: Texture_Filter,
+	font_shader: Shader,
+	font_shader_premultiply: bool,
 	shape_drawing_texture: Texture_Handle,
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.
@@ -7605,7 +7629,7 @@ _sync_font_atlas_texture :: proc() {
 		rb.destroy_texture(texture.handle)
 	}
 
-	texture^ = create_texture(cache.width, cache.height, .RGBA_8_Norm)
+	texture^ = create_texture(cache.width, cache.height, .R_8_Norm)
 	set_texture_filter(texture^, s.font_atlas_filter)
 }
 
@@ -7646,8 +7670,7 @@ _update_font_atlas :: proc() {
 		f32(h),
 	}
 
-	pitch := cache.width * size_of([4]u8)
-	rb.update_texture(texture.handle, slice.reinterpret([]u8, pixels), r, pitch)
+	rb.update_texture(texture.handle, pixels, r, cache.width)
 	cache.dirty_min = { cache.width, cache.height }
 	cache.dirty_max = {}
 }

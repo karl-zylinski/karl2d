@@ -28,6 +28,8 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 
 	default_shader_vertex_source = gl_default_shader_vertex_source,
 	default_shader_fragment_source = gl_default_shader_fragment_source,
+	font_shader_vertex_source = gl_default_shader_vertex_source,
+	font_shader_fragment_source = gl_font_shader_fragment_source,
 	get_depth_clip_range = gl_get_depth_clip_range,
 }
 
@@ -481,8 +483,19 @@ create_texture :: proc(
 
 	drain_gl_errors()
 
-	pf := gl_translate_pixel_format(format)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, data)
+	internal_format, upload_format := gl_translate_pixel_format(format)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+	gl.TexImage2D(
+		gl.TEXTURE_2D,
+		0,
+		internal_format,
+		i32(width),
+		i32(height),
+		0,
+		upload_format,
+		gl.UNSIGNED_BYTE,
+		data,
+	)
 
 	// This is where a texture that is too big for the GPU, or one the GPU has no memory left for,
 	// gets caught. Without the check it would become a texture that silently draws nothing.
@@ -550,9 +563,21 @@ gl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect, pitch: int
 		return false
 	}
 
+	_, upload_format := gl_translate_pixel_format(tex.format)
 	gl.BindTexture(gl.TEXTURE_2D, tex.id)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, i32(pitch / pixel_format_size(tex.format)))
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
+	gl.TexSubImage2D(
+		gl.TEXTURE_2D,
+		0,
+		i32(rect.x),
+		i32(rect.y),
+		i32(rect.w),
+		i32(rect.h),
+		upload_format,
+		gl.UNSIGNED_BYTE,
+		raw_data(data),
+	)
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
 	return true
 }
@@ -1061,24 +1086,24 @@ uniform_size :: proc(t: u32) -> int {
 	return sz
 }
 
-gl_translate_pixel_format :: proc(f: Pixel_Format) -> i32 {
+gl_translate_pixel_format :: proc(f: Pixel_Format) -> (internal_format: i32, format: u32) {
 	switch f {
-	case .RGBA_32_Float: return gl.RGBA
-	case .RGB_32_Float: return gl.RGB
-	case .RG_32_Float: return gl.RG
-	case .R_32_Float: return gl.R
+	case .RGBA_32_Float: return gl.RGBA, gl.RGBA
+	case .RGB_32_Float: return gl.RGB, gl.RGB
+	case .RG_32_Float: return gl.RG, gl.RG
+	case .R_32_Float: return gl.R, gl.RED
 
 	// THIS SEEMS WRONG -- Am I putting the 8 bit info in the wrong place?
-	case .RGBA_8_Norm: return gl.RGBA
-	case .RG_8_Norm: return gl.RG
-	case .R_8_Norm: return gl.R
-	case .R_8_UInt: return gl.R
+	case .RGBA_8_Norm: return gl.RGBA, gl.RGBA
+	case .RG_8_Norm: return gl.RG, gl.RG
+	case .R_8_Norm: return gl.R8, gl.RED
+	case .R_8_UInt: return gl.R, gl.RED
 
 	case .Unknown: fallthrough
 	case: log.error("Unhandled pixel format %v", f) 
 	}
 	
-	return 0
+	return 0, 0
 }
 
 
@@ -1121,6 +1146,11 @@ gl_default_shader_vertex_source :: proc() -> []byte {
 
 gl_default_shader_fragment_source :: proc() -> []byte {
 	fragment_source := #load("default_shaders/default_shader_gl_fragment.glsl")
+	return fragment_source
+}
+
+gl_font_shader_fragment_source :: proc() -> []byte {
+	fragment_source := #load("default_shaders/font_shader_gl_fragment.glsl")
 	return fragment_source
 }
 

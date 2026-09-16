@@ -17,7 +17,7 @@ ATLAS_MAX_SIZE :: 4096
 GLYPH_PADDING :: 1
 
 Cache :: struct {
-	pixels: [][4]u8,
+	pixels: []u8,
 	width: int,
 	height: int,
 	nodes: [dynamic]Skyline_Node,
@@ -32,7 +32,6 @@ Font :: struct {
 	info: stbtt.fontinfo,
 	data: []u8,
 	id: u32,
-	premultiply_alpha: bool,
 	ascent: f32,
 	height_units: f32,
 	kerning: map[[2]i32]i32,
@@ -74,7 +73,7 @@ Init_Error :: enum {
 
 init_cache :: proc(cache: ^Cache, allocator: runtime.Allocator) {
 	cache^ = {
-		pixels = make([][4]u8, ATLAS_START_SIZE * ATLAS_START_SIZE, allocator),
+		pixels = make([]u8, ATLAS_START_SIZE * ATLAS_START_SIZE, allocator),
 		width = ATLAS_START_SIZE,
 		height = ATLAS_START_SIZE,
 		nodes = make([dynamic]Skyline_Node, allocator),
@@ -100,7 +99,6 @@ init_font :: proc(
 	data: []u8,
 	font_index: int,
 	id: u32,
-	premultiply_alpha: bool,
 	allocator: runtime.Allocator,
 ) -> Init_Error {
 	num_fonts := int(stbtt.GetNumberOfFonts(raw_data(data)))
@@ -112,7 +110,6 @@ init_font :: proc(
 	font^ = {
 		data = slice.clone(data, allocator),
 		id = id,
-		premultiply_alpha = premultiply_alpha,
 		kerning = make(map[[2]i32]i32, allocator),
 		allocator = allocator,
 	}
@@ -202,36 +199,19 @@ get_glyph :: proc(
 			return glyph, false
 		}
 
-		coverage := make([]u8, bitmap_width * bitmap_height, cache.allocator)
+		bitmap_x := x + GLYPH_PADDING
+		bitmap_y := y + GLYPH_PADDING
 
 		stbtt.MakeGlyphBitmap(
 			&font.info,
-			raw_data(coverage),
+			raw_data(cache.pixels[bitmap_x + bitmap_y * cache.width:]),
 			i32(bitmap_width),
 			i32(bitmap_height),
-			i32(bitmap_width),
+			i32(cache.width),
 			scale,
 			scale,
 			index,
 		)
-
-		bitmap_x := x + GLYPH_PADDING
-		bitmap_y := y + GLYPH_PADDING
-
-		for py in 0..<bitmap_height {
-			for px in 0..<bitmap_width {
-				a := coverage[px + py * bitmap_width]
-				dst := &cache.pixels[(bitmap_x + px) + (bitmap_y + py) * cache.width]
-
-				if font.premultiply_alpha {
-					dst^ = { a, a, a, a }
-				} else {
-					dst^ = { 255, 255, 255, a }
-				}
-			}
-		}
-
-		delete(coverage, cache.allocator)
 
 		glyph.x = x
 		glyph.y = y
@@ -254,7 +234,7 @@ make_room :: proc(cache: ^Cache, time: f64) -> bool {
 		old_height := cache.height
 		new_width := old_width * 2
 		new_height := old_height * 2
-		new_pixels := make([][4]u8, new_width * new_height, cache.allocator)
+		new_pixels := make([]u8, new_width * new_height, cache.allocator)
 
 		for y in 0..<old_height {
 			copy(new_pixels[y * new_width:], cache.pixels[y * old_width:(y + 1) * old_width])
@@ -327,7 +307,7 @@ make_room :: proc(cache: ^Cache, time: f64) -> bool {
 
 	old_pixels := cache.pixels
 	old_width := cache.width
-	cache.pixels = make([][4]u8, cache.width * cache.height, cache.allocator)
+	cache.pixels = make([]u8, cache.width * cache.height, cache.allocator)
 	clear(&cache.nodes)
 	append(&cache.nodes, Skyline_Node {
 		width = cache.width,

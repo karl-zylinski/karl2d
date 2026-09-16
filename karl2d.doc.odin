@@ -1484,6 +1484,9 @@ Pixel_Format :: enum {
 }
 
 Font_Options :: struct {
+	// TODO-UPDATE-COMMENT For dynamic fonts the multiply now happens in the font shader when the
+	// text is drawn, not when the font is loaded. Static fonts still do it at load time.
+	// ---
 	// When the font is loaded, the alpha value of each pixel will be multiplied into its RGB values.
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
@@ -1895,6 +1898,8 @@ State :: struct {
 	font_cache: fc.Cache,
 	font_atlas_texture: Texture,
 	font_atlas_filter: Texture_Filter,
+	font_shader: Shader,
+	font_shader_premultiply: bool,
 	shape_drawing_texture: Texture_Handle,
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.
