@@ -171,7 +171,7 @@ init :: proc(
 		rb.default_shader_fragment_source(),
 	)
 	s.current_shader = s.default_shader
-	s.pending_changes = DRAW_CALL_CHANGE_ALL
+	s.draw_call_changes = DRAW_CALL_CHANGE_ALL
 
 	// Dummy element so font with index 0 means 'no font'.
 	s.fonts = make([dynamic]Font_Data, s.allocator)
@@ -766,7 +766,7 @@ draw_current_batch :: proc() {
 	// The draw calls have data that is allocated using the batch_allocator. It can now be cleared,
 	// since all draw calls have been dispatched.
 	s.current_draw_call = {}
-	s.pending_changes = DRAW_CALL_CHANGE_ALL
+	s.draw_call_changes = DRAW_CALL_CHANGE_ALL
 	s.vertex_buffer_cpu_used = 0
 	free_all(s.batch_allocator)
 }
@@ -4327,7 +4327,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		s.current_render_target_height = 0
 	}
 
-	s.pending_changes += { .Render_Target, .Scissor }
+	s.draw_call_changes += { .Render_Target, .Scissor }
 	_update_projection_matrix()
 }
 
@@ -5183,7 +5183,7 @@ set_shader :: proc(shader: Maybe(Shader)) {
 	}
 
 	s.current_shader = shader.? or_else s.default_shader
-	s.pending_changes += { .Shader, .Constants, .Textures }
+	s.draw_call_changes += { .Shader, .Constants, .Textures }
 }
 
 // Set the value of a constant (also known as uniform in OpenGL). Look up shader constant locations
@@ -5214,7 +5214,7 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 	mem.copy(&shd.constants_data[loc.offset], val.data, sz)
 
 	// Draw calls recorded before this point keep the old value. The next one takes a fresh copy.
-	s.pending_changes += { .Constants }
+	s.draw_call_changes += { .Constants }
 }
 
 // Set a shader to use a specific texture. Look up the bindpoint using the `texture_lookup` field
@@ -5238,7 +5238,7 @@ set_shader_texture :: proc(shd: Shader, bindpoint: int, texture: Texture) {
 	}
 
 	shd.texture_bindpoints[bindpoint] = texture.handle
-	s.pending_changes += { .Textures }
+	s.draw_call_changes += { .Textures }
 }
 
 // Sets the value of a shader input (also known as a shader attribute). There are three default
@@ -5511,14 +5511,14 @@ set_blend_mode :: proc(mode: Blend_Mode) {
 	}
 
 	s.current_blend_mode = mode
-	s.pending_changes += { .Blend_Mode }
+	s.draw_call_changes += { .Blend_Mode }
 }
 
 // Make everything outside of the screen-space rectangle `scissor_rect` not render. Disable the
 // scissor rectangle by running `set_scissor_rect(nil)`.
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 	s.current_scissor = scissor_rect
-	s.pending_changes += { .Scissor }
+	s.draw_call_changes += { .Scissor }
 }
 
 // Set the z used by draws that happen after this call. Only has an effect when `depth_test` was
@@ -6403,7 +6403,7 @@ State :: struct {
 	// with it as its `changed`. Empty means the open draw call still matches the settings.
 	// ---
 	// Says that the shader constants may differ from what the open draw call captured.
-	pending_changes: bit_set[Draw_Call_Change],
+	draw_call_changes: bit_set[Draw_Call_Change],
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
@@ -7200,7 +7200,7 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 		draw_current_batch()
 	}
 
-	changed := s.pending_changes
+	changed := s.draw_call_changes
 
 	if texture != s.current_texture {
 		changed += { .Textures }
@@ -7270,7 +7270,7 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 	}
 
 	s.current_texture = texture
-	s.pending_changes = {}
+	s.draw_call_changes = {}
 }
 
 // Callers must run `_prepare_draw` first. That leaves room in the buffer and a draw call to put
@@ -7497,7 +7497,7 @@ _update_projection_matrix :: proc() {
 	}
 
 	s.view_projection = s.proj_matrix * s.view_matrix
-	s.pending_changes += { .Constants }
+	s.draw_call_changes += { .Constants }
 }
 
 // Returns true if the currently used camera wants the Y axis to be flipped.
