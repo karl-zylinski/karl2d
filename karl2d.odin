@@ -7162,20 +7162,12 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 		draw_current_batch()
 	}
 
-	// Whether the open draw call already draws things the way the current settings say. A zeroed
-	// draw call has no shader. It therefore never matches. That is the state right after a flush.
 	prev := s.current_draw_call
 	same_shader := prev.shader == shader.handle
 
-	// A different shader has its own constant buffers and texture bindpoints. Those have to be
-	// set up again even when the values in them are the same.
-	//
 	// The constants are the one thing we can't compare, see `current_constants_dirty`.
 	same_constants := same_shader && !s.current_constants_dirty
 
-	// Compares the textures the current settings would bind against the ones a draw call captured.
-	// The shader's bindpoints are used as they are. The exception is the one Karl2D fills in with
-	// the texture being drawn.
 	def_tex_idx, has_def_tex_idx := shader.default_texture_index.?
 	same_textures := same_shader && len(prev.textures) == len(shader.texture_bindpoints)
 
@@ -7247,11 +7239,6 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 		}
 	}
 
-	// TODO-UPDATE-COMMENT `next` is the draw call being made here and `prev` the one before it.
-	// ---
-	// Works out what `next` needs the backend to set up that `prev` did not. It is done here so
-	// that each backend does not have to. Things that go together are also decided in one place. A
-	// new render target needs a new scissor rect, for example.
 	changed: bit_set[Draw_Call_Change]
 
 	if len(s.batch_draw_calls) == 0 {
