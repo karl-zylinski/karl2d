@@ -7582,18 +7582,13 @@ _sync_font_atlas_texture :: proc() {
 	set_texture_filter(texture^, s.font_atlas_filter)
 }
 
-// TODO-UPDATE-COMMENT there is now a single atlas shared by all dynamic fonts, and the pixels in it
-// are already expanded to RGBA by the `font_cache` package, so this only copies the dirty rect.
-// ---
-// For each dynamic font, this procedure updates the GPU-side atlases based on if the CPU-side
-// atlases have "dirty data". This means that there are areas on the CPU-side atlases that are not on
-// the GPU yet. This happens when `draw_text` uses previously unused glyphs.
+// Updates GPU-side font atlas with CPU-side changes. The font cache reports the rect that has been
+// modified inside its atlas, so that the GPU-side atlas can update it.
 //
-// Dynamic fonts use the `font_cache` package. It maintains the CPU-side atlases (pages). This
-// procedure goes through the pages and checks if there are "dirty rects" set for any of them, which
-// means that that region of the GPU texture needs to be updated.
+// This proc is run before any draw call that depends on these glyphs is submitted.
 //
-// This is run before any draw call that depends on these glyphs is submitted.
+// Currently this converts to from `u8` to `[4]u8` per pixel. This may disappear in the future if we
+// make the GPU-side atlas an R8_UNORM texture.
 _update_font_atlas :: proc() {
 	atlas := &s.font_atlas
 	texture := s.font_atlas_texture
@@ -7602,9 +7597,11 @@ _update_font_atlas :: proc() {
 		return
 	}
 
-	if texture.handle == TEXTURE_NONE ||
-	   texture.width != atlas.width ||
-	   texture.height != atlas.height {
+	if (
+		texture.handle == TEXTURE_NONE ||
+		texture.width != atlas.width ||
+		texture.height != atlas.height
+	) {
 		return
 	}
 
