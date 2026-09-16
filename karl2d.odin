@@ -7241,6 +7241,9 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 		}
 	}
 
+	// The render backend needs to know what things have actually changed from this to the current
+	// to the next draw call.
+
 	changed: bit_set[Draw_Call_Change]
 
 	if cur.shader == SHADER_NONE {
