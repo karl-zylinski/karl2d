@@ -1,4 +1,6 @@
-// For dynamically building fonts.
+// For dynamically building fonts. The Font Cache maintains one atlas for all fonts. The atlas can
+// grow up to 4096x4096. Instead of growing past 4096x4096 it will compatc the atlas. Compacting
+// means removing the 50% of the glyphs, where those 50% will be the least recently used glyphs.
 //
 // The skyline rectangle packing in this file is ported from Fontstash by Mikko Mononen. Fontstash
 // is licensed under the zlib license: https://github.com/memononen/fontstash
