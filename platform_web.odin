@@ -496,18 +496,10 @@ web_png_data_uri :: proc(image: Image, allocator: runtime.Allocator) -> (string,
 
 // A page has no window icon, so this sets the favicon instead, as a PNG data URI. Needs the
 // `karl2d-favicon` link element that the `build_web` template puts in `index.html`.
-web_set_window_icon :: proc(image: Image, warn_if_unsupported: bool) -> bool {
+web_set_window_icon :: proc(image: Image) -> bool {
 	// Every element that exists has its own id as the value of its `id` property, so a zero length
 	// means there is no such element.
 	if js.get_element_key_string_length(FAVICON_ELEMENT_ID, "id") == 0 {
-		if warn_if_unsupported {
-			log.warnf(
-				"Cannot set the window icon: index.html has no element with the id '%v'. Add " +
-				"<link id=\"%v\" rel=\"icon\" href=\"\"> to its <head>.",
-				FAVICON_ELEMENT_ID, FAVICON_ELEMENT_ID,
-			)
-		}
-
 		return false
 	}
 

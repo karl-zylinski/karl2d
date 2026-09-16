@@ -92,7 +92,7 @@ init :: proc(
 	// Web has small icon because it doesn't ever show a bigger one.
 	DEFAULT_ICON_SIZE :: 256 when ODIN_OS != .JS else 64
 	default_icon := make_karl2d_icon(DEFAULT_ICON_SIZE)
-	pf.set_window_icon(default_icon, false)
+	pf.set_window_icon(default_icon)
 	destroy_image(default_icon)
 
 	// This is an OS-independent handle that we can pass to any rendering backend.
@@ -740,7 +740,7 @@ set_window_icon :: proc(image: Image) -> bool {
 		return false
 	}
 
-	return pf.set_window_icon(image, true)
+	return pf.set_window_icon(image)
 }
 
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This

@@ -546,7 +546,7 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-windows_set_window_icon :: proc(image: Image, _: bool) -> bool {
+windows_set_window_icon :: proc(image: Image) -> bool {
 	hicon := windows_create_hicon(image, {0, 0}, true)
 
 	if hicon == nil {

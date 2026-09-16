@@ -853,7 +853,7 @@ mac_make_ns_image :: proc(
 // macOS windows have no icon of their own, so this sets the application's icon, the one in the
 // Dock. It lasts for as long as the process runs. An app bundle takes its icon from the .icns file
 // inside it until this replaces it.
-mac_set_window_icon :: proc(image: Image, _: bool) -> bool {
+mac_set_window_icon :: proc(image: Image) -> bool {
 	// The NSImage points at these rather than copying them, so a copy of the pixels must stay
 	// alive for as long as it does.
 	pixels := slice.clone(image.pixels, s.allocator)

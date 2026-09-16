@@ -86,12 +86,6 @@ wl_try_load :: proc(
 	return "", true
 }
 
-// True if user wants us to draw custom window decorations, even when server-side decorations are
-// available.
-wl_custom_decorations_requested :: proc() -> bool {
-	return os.get_env("KARL2D_LINUX_DECORATIONS", frame_allocator) == "custom"
-}
-
 wl_init :: proc(
 	window_state: rawptr,
 	screen_width: int,
@@ -123,7 +117,8 @@ wl_init :: proc(
 
 	// Some systems, like GNOME, don't support the decoration manager (server-side decorations). In
 	// that case we will draw them outselves using the `wldeco_` calls in this file.
-	s.has_deco = s.decoration_manager == nil || wl_custom_decorations_requested()
+	custom_decorations_requested := os.get_env("KARL2D_LINUX_DECORATIONS", frame_allocator) == "custom"
+	s.has_deco = s.decoration_manager == nil || custom_decorations_requested
 
 	// Sets default size that gets used if the compositor doesn't suggest a size.
 	s.last_configure_width = screen_width
@@ -1069,30 +1064,17 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-wl_set_window_icon :: proc(image: Image, warn_if_unsupported: bool) -> bool {
-	// The frame Karl2D draws for itself puts the icon in its titlebar. The compositor is told
-	// separately below, for the window list and the switcher, which are its own to draw.
+wl_set_window_icon :: proc(image: Image) -> bool {
 	if s.has_deco {
 		wldeco_set_icon(&s.decorations, image)
+
+		if s.toplevel_icon_manager == nil {
+			return true
+		}
 	}
 
 	if s.toplevel_icon_manager == nil {
-		// `init` passes false for its default icon, which also keeps the warn-once flag intact
-		// for the call the game makes itself.
-		if warn_if_unsupported && !s.warned_about_missing_icon_protocol {
-			log.warn(
-				"Cannot tell the compositor the window icon: it does not implement the " +
-				"xdg-toplevel-icon-v1 protocol. The other way to give a Wayland window an icon " +
-				"is to install a .desktop file in a place such as " +
-				"~/.local/share/applications/, name it after the game's app id and give it an " +
-				"Icon= line. Compositors that lack the protocol use that instead.",
-			)
-
-			s.warned_about_missing_icon_protocol = true
-		}
-
-		// The titlebar Karl2D draws is still an icon on screen, where there is one.
-		return s.has_deco
+		return false
 	}
 
 	// The protocol only takes square buffers. A non-square image goes in the middle of one.

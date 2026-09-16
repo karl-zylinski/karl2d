@@ -62,21 +62,13 @@ linux_init :: proc(
 	assert(platform_state != nil)
 	s = (^Linux_State)(platform_state)
 	s.allocator = allocator
-	// Each `try_load` opens a windowing system's libraries and checks that a server is listening,
-	// so a Wayland session picks Wayland, an X11 session finds no compositor and falls through,
-	// and a machine with only one of the two installed gets the one it has. Nothing here reads the
-	// session type: `display_connect` and `OpenDisplay` already look at the environment variables
-	// that matter, and answering the question by asking the server is more reliable than guessing
-	// from a variable that logind may not have set at all.
-	//
-	// Wayland goes first, the way SDL and GLFW order them. `KARL2D_LINUX_WINDOWING` swaps the
-	// order, for when both work but the preferred one behaves badly.
-	first := LINUX_WINDOW_WAYLAND
-	second := LINUX_WINDOW_X11
+	
+	// We pick windowing system by trying to to actually load it. This means trying to runetime-load
+	// the required shared libraries.
+	first_windowing := LINUX_WINDOW_WAYLAND
+	second_windowing := LINUX_WINDOW_X11
 
-	// Whether the player asked for a particular windowing system. Only then is it worth saying
-	// that the first choice was turned down. The default order falling through to X11 is ordinary
-	// detection on an X11 machine, not something anyone needs to read about.
+	// The player can force Karl2D to try another windowing system first.
 	preference_given := false
 	windowing_preference := os.get_env("KARL2D_LINUX_WINDOWING", frame_allocator)
 
@@ -87,8 +79,8 @@ linux_init :: proc(
 		preference_given = true
 
 	case "x11":
-		first = LINUX_WINDOW_X11
-		second = LINUX_WINDOW_WAYLAND
+		first_windowing = LINUX_WINDOW_X11
+		second_windowing = LINUX_WINDOW_WAYLAND
 		preference_given = true
 
 	case:
@@ -98,26 +90,28 @@ linux_init :: proc(
 		)
 	}
 
-	s.win = first
-	first_failure_reason, first_ok := s.win.try_load(frame_allocator)
+	s.win = first_windowing
+	first_windowing_err, first_windowing_ok := s.win.try_load(frame_allocator)
 
-	if !first_ok {
-		s.win = second
-		second_failure_reason, second_ok := s.win.try_load(frame_allocator)
+	if !first_windowing_ok {
+		s.win = second_windowing
+		second_windowing_err, second_windowing_ok := s.win.try_load(frame_allocator)
 
-		if !second_ok {
+		if !second_windowing_ok {
 			// The reasons go in the panic itself rather than only in the log above it: a game
 			// that raises the log level past info would otherwise be told to read reasons that
 			// were never printed.
 			log.panicf(
 				"Found neither Wayland nor X11. Karl2D needs one of them. %s %s",
-				first_failure_reason,
-				second_failure_reason,
+				first_windowing_err,
+				second_windowing_err,
 			)
 		}
 
+		// The player explicitly wanted the one in `first_windowing`, so we print a warning saying
+		// that it couldn't be loaded. 
 		if preference_given {
-			log.info(first_failure_reason)
+			log.warn("KARL2D_LINUX_WINDOWING was specified, but Karl2D failed to load that windowing system. Error:", first_windowing_err)
 		}
 	}
 
@@ -666,8 +660,8 @@ linux_set_window_mode :: proc(window_mode: Window_Mode) {
 	s.win.set_window_mode(window_mode)
 }
 
-linux_set_window_icon :: proc(image: Image, warn_if_unsupported: bool) -> bool {
-	return s.win.set_window_icon(image, warn_if_unsupported)
+linux_set_window_icon :: proc(image: Image) -> bool {
+	return s.win.set_window_icon(image)
 }
 
 linux_set_cursor_hidden :: proc(hidden: bool) {
@@ -739,9 +733,8 @@ Linux_Window_Interface :: struct #all_or_none {
 	state_size: proc() -> int,
 
 	// Reports whether this windowing system can be used, by loading its shared libraries and
-	// connecting to its server. The connection is thrown away again; what lasts is the libraries,
-	// which stay loaded for `init` to use. Returns false when either step fails, along with a
-	// reason for the caller to log or panic with, and closes the libraries again when it does.
+	// connecting to its server. The connection is thrown away again. But the libraries stay loaded
+	// so that `init` can use them.
 	try_load: proc(
 		failure_reason_allocator: runtime.Allocator,
 	) -> (
@@ -769,7 +762,7 @@ Linux_Window_Interface :: struct #all_or_none {
 	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
-	set_window_icon: proc(image: Image, warn_if_unsupported: bool) -> bool,
+	set_window_icon: proc(image: Image) -> bool,
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
 	set_mouse_locked: proc(locked: bool),

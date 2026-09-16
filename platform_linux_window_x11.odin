@@ -677,7 +677,7 @@ x11_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-x11_set_window_icon :: proc(image: Image, _: bool) -> bool {
+x11_set_window_icon :: proc(image: Image) -> bool {
 	// `_NET_WM_ICON` holds a list of icons, each one its width and height followed by its pixels
 	// in ARGB. We send a single icon and let the window manager scale it to the sizes it wants.
 	//
