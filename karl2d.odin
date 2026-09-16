@@ -7166,37 +7166,41 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 		draw_current_batch()
 	}
 
-	prev := s.current_draw_call
-	same_shader := prev.shader == shader.handle
+	cur := s.current_draw_call
+	same_shader := cur.shader == shader.handle
 
 	// The constants are the one thing we can't compare, see `current_constants_dirty`.
 	same_constants := same_shader && !s.current_constants_dirty
 
 	def_tex_idx, has_def_tex_idx := shader.default_texture_index.?
-	same_textures := same_shader && len(prev.textures) == len(shader.texture_bindpoints)
 
-	if same_textures {
+	// We loop over all texture bindpoints and make sure they match
+	same_textures := true
+
+	if same_shader && len(cur.textures) == len(shader.texture_bindpoints) {
 		for bindpoint, i in shader.texture_bindpoints {
 			wanted := has_def_tex_idx && i == def_tex_idx ? s.current_texture : bindpoint
 
-			if prev.textures[i] != wanted {
+			if cur.textures[i] != wanted {
 				same_textures = false
 				break
 			}
 		}
+	} else {
+		same_textures = false
 	}
 
-	same_render_target := prev.render_target == s.current_render_target
-	same_scissor := prev.scissor == s.current_scissor
-	same_blend_mode := prev.blend_mode == s.current_blend_mode
+	same_render_target := cur.render_target == s.current_render_target
+	same_scissor := cur.scissor == s.current_scissor
+	same_blend_mode := cur.blend_mode == s.current_blend_mode
 
 	if same_constants && same_textures && same_render_target && same_scissor && same_blend_mode {
 		s.current_draw_call.vertex_count += vertices_needed
 		return
 	}
 
-	if prev.vertex_count > 0 {
-		append(&s.batch_draw_calls, prev)
+	if cur.vertex_count > 0 {
+		append(&s.batch_draw_calls, cur)
 	}
 
 	// Vertices for different shaders can share the buffer. Each draw call therefore starts at a
@@ -7205,16 +7209,7 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 		s.vertex_buffer_cpu_used += shader.vertex_size - remainder
 	}
 
-	// TODO-UPDATE-COMMENT the pointer comparison is gone. `changed` is built from the same
-	// `same_constants` and `same_textures` checks that decide the copying.
-	// ---
-	// The shader keeps one copy of its constants and bindpoints. A draw call runs long after it was
-	// recorded, so it needs the values it saw back then. A later `set_shader_constant` or write to
-	// `texture_bindpoints` must not reach back and change it. It therefore gets its own copy.
-	//
-	// Draw calls that would copy the same values share one instead. That saves the copying. It also
-	// lets the backend compare the two pointers to see there is nothing to re-upload.
-	constants_data := prev.constants_data
+	constants_data := cur.constants_data
 
 	if !same_constants {
 		constants_data = slice.clone(shader.constants_data, s.batch_allocator)
@@ -7235,7 +7230,7 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 		}
 	}
 
-	textures := prev.textures
+	textures := cur.textures
 
 	if !same_textures {
 		textures = slice.clone(shader.texture_bindpoints, s.batch_allocator)
@@ -7248,7 +7243,7 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 
 	changed: bit_set[Draw_Call_Change]
 
-	if prev.shader == SHADER_NONE {
+	if cur.shader == SHADER_NONE {
 		changed = DRAW_CALL_CHANGE_ALL
 	}
 
@@ -7277,9 +7272,6 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 		changed += { .Blend_Mode }
 	}
 
-	// Scissor rectangles are screen space, which is what D3D11 and OpenGL take.
-	scissor := s.current_scissor
-
 	s.current_draw_call = {
 		vertex_offset = s.vertex_buffer_cpu_used,
 		vertex_count = vertices_needed,
@@ -7289,7 +7281,7 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 		constants_data = constants_data,
 		textures = textures,
 		render_target = s.current_render_target,
-		scissor = scissor,
+		scissor = s.current_scissor,
 		blend_mode = s.current_blend_mode,
 		changed = changed,
 	}
