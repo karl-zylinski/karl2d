@@ -766,7 +766,7 @@ d3d11_load_texture :: proc(
 	return create_texture(width, height, format, raw_data(data))
 }
 
-d3d11_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
+d3d11_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect, pitch: int) -> bool {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil || tex.tex == nil {
@@ -783,7 +783,12 @@ d3d11_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool
 		front = 0,
 	}
 
-	row_pitch := pixel_format_size(tex.format) * int(rect.w)
+	row_pitch := pitch
+
+	if row_pitch == 0 {
+		row_pitch = pixel_format_size(tex.format) * int(rect.w)
+	}
+
 	s.device_context->UpdateSubresource(tex.tex, 0, &box, raw_data(data), u32(row_pitch), 0)
 	return true
 }

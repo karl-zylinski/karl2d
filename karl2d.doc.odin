@@ -544,8 +544,9 @@ destroy_image :: proc(img: Image)
 get_texture_rect :: proc(t: Texture) -> Rect
 
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
-// `tex` where the new pixels should end up.
-update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect) -> bool
+// `tex` where the new pixels should end up. `pitch` is the number of bytes between the start of two
+// rows, the default of `0` means that the rows are tightly packed.
+update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(tex: Texture)
@@ -1487,7 +1488,7 @@ Font_Options :: struct {
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
 
-	// Passed on to font atlas creation.
+	// The texture filter to use when drawing text using this font.
 	filter: Texture_Filter,
 
 	// Font formats like .ttc can contain multiple fonts. Use this parameter to pick one. For fonts
@@ -1497,8 +1498,10 @@ Font_Options :: struct {
 
 // Supported font types:
 // - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
-// - Dynamic: A font that is continuously updated as you need new characters. Each font can have up
-//            to eight 1024x1024 textures (pages) filled with glyphs. Uses the `font_cache` package.
+// - Dynamic: A font that is continuously updated as you need new characters. All fonts share an
+//            atlas that can grow to a maximum size of 4096x4096. If it hits the maximum size, then
+//            it is compacted, at which point 50% of the glyphs are thrown out. The thrown out ones
+//            are the least recently used ones.
 //
 // Future types (TODO):
 // - Slug: Upload the character bezier curves to the GPU and render the text on the GPU without the
@@ -1523,7 +1526,6 @@ Font_Data :: struct {
 
 	// type == .Dynamic
 	dynamic_font: fc.Font,
-	dynamic_pages: [dynamic]Texture,
 }
 
 Handle :: hm.Handle64
@@ -1890,6 +1892,9 @@ State :: struct {
 
 	// Also see FONT_NONE and FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
+	font_cache: fc.Cache,
+	font_atlas_texture: Texture,
+	font_atlas_filter: Texture_Filter,
 	shape_drawing_texture: Texture_Handle,
 	// The settings the next draw call will be recorded with. Changing one of these does not affect
 	// draw calls that are already recorded.

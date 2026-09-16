@@ -111,7 +111,7 @@ rbnil_load_texture :: proc(
 	return Texture_Handle(rbnil_handle()), true
 }
 
-rbnil_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect) -> bool {
+rbnil_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect, pitch: int) -> bool {
 	return true
 }
 
