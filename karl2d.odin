@@ -1680,6 +1680,8 @@ draw_text :: proc(
 		inv_render_scale := font_size / f32(render_size)
 		_sync_font_atlas_texture()
 
+		// This is a temporary hack that may be removed later if we can put filtering options into
+		// draw calls more easily.
 		if font_object.options.filter != s.font_atlas_filter {
 			s.font_atlas_filter = font_object.options.filter
 			set_texture_filter(s.font_atlas_texture, s.font_atlas_filter)
