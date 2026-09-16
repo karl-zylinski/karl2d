@@ -6399,10 +6399,9 @@ State :: struct {
 	batch_arena: runtime.Arena,
 	batch_allocator: runtime.Allocator,
 
-	// TODO-UPDATE-COMMENT the setters add what they changed to this set. The next draw call opens
-	// with it as its `changed`. Empty means the open draw call still matches the settings.
-	// ---
-	// Says that the shader constants may differ from what the open draw call captured.
+	// Tells you which things that have changed since the current draw call was created. For example
+	// if you use `set_shader` then the `.Shader` bit will be set. This information will be provided
+	// to the rendering backend, so it knows what state to update.
 	draw_call_changes: bit_set[Draw_Call_Change],
 
 	view_matrix: Mat4,
