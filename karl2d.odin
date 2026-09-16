@@ -7605,6 +7605,9 @@ _update_font_atlas :: proc() {
 	y := cache.dirty_min.y
 	w := cache.dirty_max.x - x
 	h := cache.dirty_max.y - y
+
+	// We'll take the block of pixels straight from the atlas, and include the rest of each row. We
+	// skip that extra data using the `pitch` parameter of `update_texture`.
 	start := x + y * cache.width
 	pixels := cache.pixels[start:start + (h - 1) * cache.width + w]
 
