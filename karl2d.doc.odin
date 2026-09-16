@@ -1930,7 +1930,7 @@ State :: struct {
 	// with it as its `changed`. Empty means the open draw call still matches the settings.
 	// ---
 	// Says that the shader constants may differ from what the open draw call captured.
-	pending_changes: bit_set[Draw_Call_Change],
+	draw_call_changes: bit_set[Draw_Call_Change],
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
