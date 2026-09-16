@@ -1051,6 +1051,8 @@ set_shader :: proc(shader: Maybe(Shader))
 // (the kind of value needed for `loc`) by running `loc := shader.constant_lookup["constant_name"]`.
 set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any)
 
+set_shader_texture :: proc(shd: Shader, bindpoint: int, texture: Texture)
+
 // Sets the value of a shader input (also known as a shader attribute). There are three default
 // shader inputs known as position, texcoord and color. If you have shader with additional inputs,
 // then you can use this procedure to set their values. This is a way to feed per-object data into
@@ -1419,6 +1421,9 @@ Shader :: struct {
 
 	texture_bindpoints: []Texture_Handle,
 
+	// TODO-UPDATE-COMMENT `set_shader_texture` is the way to set a bindpoint now. A direct write
+	// into `texture_bindpoints` is only picked up when the next draw call opens.
+	// ---
 	// Used to lookup bindpoints of textures. You can then set the texture by overriding
 	// `shader.texture_bindpoints[shader.texture_lookup["some_tex"]] = some_texture.handle`
 	texture_lookup: map[string]int,

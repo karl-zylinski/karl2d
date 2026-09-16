@@ -5217,6 +5217,25 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 	s.pending_changes += { .Constants }
 }
 
+set_shader_texture :: proc(shd: Shader, bindpoint: int, texture: Texture) {
+	if shd.handle == SHADER_NONE {
+		log.error("Invalid shader")
+		return
+	}
+
+	if bindpoint < 0 || bindpoint >= len(shd.texture_bindpoints) {
+		log.errorf(
+			"Texture bindpoint %v is out of range. Shader has %v texture bindpoints",
+			bindpoint,
+			len(shd.texture_bindpoints),
+		)
+		return
+	}
+
+	shd.texture_bindpoints[bindpoint] = texture.handle
+	s.pending_changes += { .Textures }
+}
+
 // Sets the value of a shader input (also known as a shader attribute). There are three default
 // shader inputs known as position, texcoord and color. If you have shader with additional inputs,
 // then you can use this procedure to set their values. This is a way to feed per-object data into
@@ -5872,6 +5891,9 @@ Shader :: struct {
 
 	texture_bindpoints: []Texture_Handle,
 
+	// TODO-UPDATE-COMMENT `set_shader_texture` is the way to set a bindpoint now. A direct write
+	// into `texture_bindpoints` is only picked up when the next draw call opens.
+	// ---
 	// Used to lookup bindpoints of textures. You can then set the texture by overriding
 	// `shader.texture_bindpoints[shader.texture_lookup["some_tex"]] = some_texture.handle`
 	texture_lookup: map[string]int,
@@ -7181,22 +7203,6 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 		changed += { .Textures }
 	}
 
-	def_tex_idx, has_def_tex_idx := shader.default_texture_index.?
-
-	// We loop over all texture bindpoints and make sure they match
-	if len(shader.texture_bindpoints) > 1 && .Textures not_in changed {
-		for bindpoint, i in shader.texture_bindpoints {
-			if has_def_tex_idx && i == def_tex_idx {
-				continue
-			}
-
-			if s.current_draw_call.textures[i] != bindpoint {
-				changed += { .Textures }
-				break
-			}
-		}
-	}
-
 	if changed == {} {
 		s.current_draw_call.vertex_count += vertices_needed
 		return
@@ -7241,7 +7247,7 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 		textures = slice.clone(shader.texture_bindpoints, s.batch_allocator)
 
 		// The texture being drawn is ours rather than the shader's. It goes into the copy.
-		if has_def_tex_idx {
+		if def_tex_idx, has_def_tex_idx := shader.default_texture_index.?; has_def_tex_idx {
 			textures[def_tex_idx] = texture
 		}
 	}
