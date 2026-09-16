@@ -1051,6 +1051,11 @@ set_shader :: proc(shader: Maybe(Shader))
 // (the kind of value needed for `loc`) by running `loc := shader.constant_lookup["constant_name"]`.
 set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any)
 
+// Set a shader to use a specific texture. Look up the bindpoint using the `texture_lookup` field
+// inside the `Shader` object.
+//
+// You don't need to call this when drawing normal textures, it's for advanced usage where you have
+// multiple textures as inputs to a shader.
 set_shader_texture :: proc(shd: Shader, bindpoint: int, texture: Texture)
 
 // Sets the value of a shader input (also known as a shader attribute). There are three default
@@ -1421,11 +1426,8 @@ Shader :: struct {
 
 	texture_bindpoints: []Texture_Handle,
 
-	// TODO-UPDATE-COMMENT `set_shader_texture` is the way to set a bindpoint now. A direct write
-	// into `texture_bindpoints` is only picked up when the next draw call opens.
-	// ---
-	// Used to lookup bindpoints of textures. You can then set the texture by overriding
-	// `shader.texture_bindpoints[shader.texture_lookup["some_tex"]] = some_texture.handle`
+	// Used to lookup bindpoints of textures. You can then set the texture by calling
+	// `set_shader_texture and supplying it with the bindpoint you looked up.
 	texture_lookup: map[string]int,
 	default_texture_index: Maybe(int),
 
@@ -1901,12 +1903,13 @@ State :: struct {
 	font_atlas_texture: Texture,
 	font_atlas_filter: Texture_Filter,
 	shape_drawing_texture: Texture_Handle,
-	// The settings the next draw call will be recorded with. Changing one of these does not affect
-	// draw calls that are already recorded.
+
+	// These `current_` are set when procs like `set_shader` etc run. When you draw more stuff, then
+	// they are compared against what `current_draw_call` says. If there is a difference, then a new
+	// draw call is set up.
 	current_camera: Maybe(Camera),
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
-	// TODO-UPDATE-COMMENT this one is the texture the open draw call draws with, set when it opens.
 	current_texture: Texture_Handle,
 	current_render_target: Render_Target_Handle,
 
