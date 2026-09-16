@@ -752,6 +752,10 @@ set_window_icon :: proc(image: Image) -> bool {
 // dictates how big a vertex is. The maximum number of vertices in a batch is therefore
 // `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
 draw_current_batch :: proc() {
+	if s.current_draw_call.vertex_count > 0 {
+		append(&s.batch_draw_calls, s.current_draw_call)
+	}
+
 	if len(s.batch_draw_calls) > 0 {
 		_update_font_atlas()
 		rb.draw(s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used], s.batch_draw_calls[:])
@@ -7187,9 +7191,12 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 	same_blend_mode := prev.blend_mode == s.current_blend_mode
 
 	if same_constants && same_textures && same_render_target && same_scissor && same_blend_mode {
-		dc := &s.batch_draw_calls[len(s.batch_draw_calls) - 1]
-		dc.vertex_count += vertices_needed
+		s.current_draw_call.vertex_count += vertices_needed
 		return
+	}
+
+	if prev.vertex_count > 0 {
+		append(&s.batch_draw_calls, prev)
 	}
 
 	// Vertices for different shaders can share the buffer. Each draw call therefore starts at a
@@ -7241,7 +7248,7 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 
 	changed: bit_set[Draw_Call_Change]
 
-	if len(s.batch_draw_calls) == 0 {
+	if prev.shader == SHADER_NONE {
 		changed = DRAW_CALL_CHANGE_ALL
 	}
 
@@ -7287,7 +7294,6 @@ _prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
 		changed = changed,
 	}
 
-	append(&s.batch_draw_calls, s.current_draw_call)
 	s.current_constants_dirty = false
 }
 
