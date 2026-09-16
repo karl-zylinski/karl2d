@@ -7586,9 +7586,6 @@ _sync_font_atlas_texture :: proc() {
 // modified inside its atlas, so that the GPU-side atlas can update it.
 //
 // This proc is run before any draw call that depends on these glyphs is submitted.
-//
-// Currently this converts to from `u8` to `[4]u8` per pixel. This may disappear in the future if we
-// make the GPU-side atlas an R8_UNORM texture.
 _update_font_atlas :: proc() {
 	cache := &s.font_cache
 	texture := s.font_atlas_texture
