@@ -752,10 +752,17 @@ set_window_icon :: proc(image: Image) -> bool {
 // dictates how big a vertex is. The maximum number of vertices in a batch is therefore
 // `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
 draw_current_batch :: proc() {
-	_finish_draw_call()
-
 	if len(s.batch_draw_calls) > 0 {
 		_update_font_atlas()
+
+		for &dc, i in s.batch_draw_calls {
+			if i == 0 {
+				dc.changed = DRAW_CALL_CHANGE_ALL
+			} else {
+				dc.changed = _draw_call_changes(s.batch_draw_calls[i - 1], dc)
+			}
+		}
+
 		rb.draw(s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used], s.batch_draw_calls[:])
 		runtime.clear(&s.batch_draw_calls)
 	}
@@ -7150,6 +7157,10 @@ _seek_audio_stream :: proc(
 // more vertices will not fit in the vertex buffer, which leaves an empty one to put them in. Then
 // starts a new draw call if the settings changed.
 _begin_vertices :: proc(texture: Texture_Handle, vertices_needed: int) {
+	if vertices_needed == 0 {
+		return
+	}
+
 	s.current_texture = texture
 
 	// Starting a draw call can pad the write position by up to one vertex, so ask for one extra.
@@ -7160,9 +7171,10 @@ _begin_vertices :: proc(texture: Texture_Handle, vertices_needed: int) {
 	}
 
 	if !_draw_call_matches_settings() {
-		_finish_draw_call()
 		_start_draw_call()
 	}
+
+	s.batch_draw_calls[len(s.batch_draw_calls) - 1].vertex_count += vertices_needed
 }
 
 // Whether the open draw call already draws things the way the current settings say. A zeroed draw
@@ -7208,6 +7220,8 @@ _textures_match :: proc(recorded: []Texture_Handle) -> bool {
 	return true
 }
 
+// TODO-UPDATE-COMMENT `_finish_draw_call` is gone. The draw call is appended to the batch here.
+// ---
 // Starts the draw call that the following vertices go into. Everything it needs is captured here.
 // The drawing itself happens later, when the batch is flushed. Run `_finish_draw_call` first, or
 // the vertices of the one that is already open are lost.
@@ -7276,35 +7290,8 @@ _start_draw_call :: proc() {
 		blend_mode = s.current_blend_mode,
 	}
 
+	append(&s.batch_draw_calls, s.current_draw_call)
 	s.current_constants_dirty = false
-}
-
-// Puts the open draw call into the list of recorded ones. Empty ones are left out, which is what a
-// run of settings changes leaves behind. What stays open is an empty draw call with the same
-// settings, so running this twice cannot record the same vertices twice.
-_finish_draw_call :: proc() {
-	dc := &s.current_draw_call
-
-	if dc.shader == SHADER_NONE {
-		return
-	}
-
-	dc.vertex_count = (s.vertex_buffer_cpu_used - dc.vertex_offset) / dc.vertex_size
-
-	if dc.vertex_count > 0 {
-		// Compared against the last draw call that made it into the list, because that is the one
-		// the backend will have set up before this one. Dropped draw calls never happened.
-		if len(s.batch_draw_calls) == 0 {
-			dc.changed = DRAW_CALL_CHANGE_ALL
-		} else {
-			dc.changed = _draw_call_changes(s.batch_draw_calls[len(s.batch_draw_calls) - 1], dc^)
-		}
-
-		append(&s.batch_draw_calls, dc^)
-	}
-
-	dc.vertex_offset = s.vertex_buffer_cpu_used
-	dc.vertex_count = 0
 }
 
 // Works out what `next` needs the backend to set up that `prev` did not. It is done here so that
