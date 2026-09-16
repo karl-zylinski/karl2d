@@ -42,7 +42,7 @@ When you report on the checklist, write only the items that made you do somethin
 
 ## Commit messages
 
-Write them like a tweet, max 180 characters. Only simple sentences. Only allowed punctuation is the period. If possible, keep them to 3-4 words. Use more words if really needed.
+Write them like a tweet, max 180 characters. Only simple sentences. Only allowed punctuation is the period. If possible, keep them to 3-4 words. Use more words if really needed. CLAUDE co-authored-by line at the end.
 
 ### The testing and reviewing checklist
 

@@ -171,6 +171,7 @@ init :: proc(
 		rb.default_shader_fragment_source(),
 	)
 	s.current_shader = s.default_shader
+	s.draw_call_changes = DRAW_CALL_CHANGE_ALL
 
 	// Dummy element so font with index 0 means 'no font'.
 	s.fonts = make([dynamic]Font_Data, s.allocator)
@@ -752,7 +753,9 @@ set_window_icon :: proc(image: Image) -> bool {
 // dictates how big a vertex is. The maximum number of vertices in a batch is therefore
 // `VERTEX_BUFFER_MAX / shader.vertex_size`. Running out of room flushes the batch automatically.
 draw_current_batch :: proc() {
-	_finish_draw_call()
+	if s.current_draw_call.vertex_count > 0 {
+		append(&s.batch_draw_calls, s.current_draw_call)
+	}
 
 	if len(s.batch_draw_calls) > 0 {
 		_update_font_atlas()
@@ -763,6 +766,7 @@ draw_current_batch :: proc() {
 	// The draw calls have data that is allocated using the batch_allocator. It can now be cleared,
 	// since all draw calls have been dispatched.
 	s.current_draw_call = {}
+	s.draw_call_changes = DRAW_CALL_CHANGE_ALL
 	s.vertex_buffer_cpu_used = 0
 	free_all(s.batch_allocator)
 }
@@ -1039,7 +1043,7 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
-	_begin_vertices(s.shape_drawing_texture, 6)
+	_prepare_draw(s.shape_drawing_texture, 6)
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
@@ -1153,7 +1157,7 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 // Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
 // perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
-	_begin_vertices(s.shape_drawing_texture, 3*segments)
+	_prepare_draw(s.shape_drawing_texture, 3*segments)
 
 	prev := center + {radius, 0}
 	for s in 1..=segments {
@@ -1197,7 +1201,7 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 // Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
-	_begin_vertices(s.shape_drawing_texture, 3)
+	_prepare_draw(s.shape_drawing_texture, 3)
 
 	batch_vertex(vertices[0], {0, 0}, c)
 	batch_vertex(vertices[1], {1, 1}, c)
@@ -1298,7 +1302,7 @@ draw_texture_fit :: proc(
 		return
 	}
 
-	_begin_vertices(texture.handle, 6)
+	_prepare_draw(texture.handle, 6)
 
 	flip_x: bool
 
@@ -4323,6 +4327,7 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		s.current_render_target_height = 0
 	}
 
+	s.draw_call_changes += { .Render_Target, .Scissor }
 	_update_projection_matrix()
 }
 
@@ -5178,6 +5183,7 @@ set_shader :: proc(shader: Maybe(Shader)) {
 	}
 
 	s.current_shader = shader.? or_else s.default_shader
+	s.draw_call_changes += { .Shader, .Constants, .Textures }
 }
 
 // Set the value of a constant (also known as uniform in OpenGL). Look up shader constant locations
@@ -5208,7 +5214,31 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 	mem.copy(&shd.constants_data[loc.offset], val.data, sz)
 
 	// Draw calls recorded before this point keep the old value. The next one takes a fresh copy.
-	s.current_constants_dirty = true
+	s.draw_call_changes += { .Constants }
+}
+
+// Set a shader to use a specific texture. Look up the bindpoint using the `texture_lookup` field
+// inside the `Shader` object.
+//
+// You don't need to call this when drawing normal textures, it's for advanced usage where you have
+// multiple textures as inputs to a shader.
+set_shader_texture :: proc(shd: Shader, bindpoint: int, texture: Texture) {
+	if shd.handle == SHADER_NONE {
+		log.error("Invalid shader")
+		return
+	}
+
+	if bindpoint < 0 || bindpoint >= len(shd.texture_bindpoints) {
+		log.errorf(
+			"Texture bindpoint %v is out of range. Shader has %v texture bindpoints",
+			bindpoint,
+			len(shd.texture_bindpoints),
+		)
+		return
+	}
+
+	shd.texture_bindpoints[bindpoint] = texture.handle
+	s.draw_call_changes += { .Textures }
 }
 
 // Sets the value of a shader input (also known as a shader attribute). There are three default
@@ -5481,12 +5511,14 @@ set_blend_mode :: proc(mode: Blend_Mode) {
 	}
 
 	s.current_blend_mode = mode
+	s.draw_call_changes += { .Blend_Mode }
 }
 
 // Make everything outside of the screen-space rectangle `scissor_rect` not render. Disable the
 // scissor rectangle by running `set_scissor_rect(nil)`.
 set_scissor_rect :: proc(scissor_rect: Maybe(Rect)) {
 	s.current_scissor = scissor_rect
+	s.draw_call_changes += { .Scissor }
 }
 
 // Set the z used by draws that happen after this call. Only has an effect when `depth_test` was
@@ -5864,8 +5896,8 @@ Shader :: struct {
 
 	texture_bindpoints: []Texture_Handle,
 
-	// Used to lookup bindpoints of textures. You can then set the texture by overriding
-	// `shader.texture_bindpoints[shader.texture_lookup["some_tex"]] = some_texture.handle`
+	// Used to lookup bindpoints of textures. You can then set the texture by calling
+	// `set_shader_texture and supplying it with the bindpoint you looked up.
 	texture_lookup: map[string]int,
 	default_texture_index: Maybe(int),
 
@@ -6341,8 +6373,10 @@ State :: struct {
 	font_atlas_texture: Texture,
 	font_atlas_filter: Texture_Filter,
 	shape_drawing_texture: Texture_Handle,
-	// The settings the next draw call will be recorded with. Changing one of these does not affect
-	// draw calls that are already recorded.
+
+	// These `current_` are set when procs like `set_shader` etc run. When you draw more stuff, then
+	// they are compared against what `current_draw_call` says. If there is a difference, then a new
+	// draw call is set up.
 	current_camera: Maybe(Camera),
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
@@ -6365,8 +6399,10 @@ State :: struct {
 	batch_arena: runtime.Arena,
 	batch_allocator: runtime.Allocator,
 
-	// Says that the shader constants may differ from what the open draw call captured.
-	current_constants_dirty: bool,
+	// Tells you which things that have changed since the current draw call was created. For example
+	// if you use `set_shader` then the `.Shader` bit will be set. This information will be provided
+	// to the rendering backend, so it knows what state to update.
+	draw_call_changes: bit_set[Draw_Call_Change],
 
 	view_matrix: Mat4,
 	proj_matrix: Mat4,
@@ -7149,70 +7185,36 @@ _seek_audio_stream :: proc(
 // Run by the drawing procedures before they add any vertices. Draws the batch if `vertices_needed`
 // more vertices will not fit in the vertex buffer, which leaves an empty one to put them in. Then
 // starts a new draw call if the settings changed.
-_begin_vertices :: proc(texture: Texture_Handle, vertices_needed: int) {
-	s.current_texture = texture
+_prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
+	if vertices_needed == 0 {
+		return
+	}
+
+	shader := s.current_shader
 
 	// Starting a draw call can pad the write position by up to one vertex, so ask for one extra.
-	bytes_needed := s.current_shader.vertex_size*(vertices_needed + 1)
+	bytes_needed := shader.vertex_size*(vertices_needed + 1)
 
 	if s.vertex_buffer_cpu_used + bytes_needed > len(s.vertex_buffer_cpu) {
 		draw_current_batch()
 	}
 
-	if !_draw_call_matches_settings() {
-		_finish_draw_call()
-		_start_draw_call()
-	}
-}
+	changed := s.draw_call_changes
 
-// Whether the open draw call already draws things the way the current settings say. A zeroed draw
-// call has no shader. It therefore never matches. That is the state right after a flush.
-_draw_call_matches_settings :: proc() -> bool {
-	dc := s.current_draw_call
-
-	// The constants are the one thing we can't compare, see `current_constants_dirty`.
-	if s.current_constants_dirty {
-		return false
+	if texture != s.current_texture {
+		changed += { .Textures }
 	}
 
-	if dc.shader != s.current_shader.handle ||
-	   dc.render_target != s.current_render_target ||
-	   dc.scissor != s.current_scissor ||
-	   dc.blend_mode != s.current_blend_mode {
-		return false
+	if changed == {} {
+		s.current_draw_call.vertex_count += vertices_needed
+		return
 	}
 
-	return _textures_match(dc.textures)
-}
+	cur := s.current_draw_call
 
-// Compares the textures the current settings would bind against the ones a draw call captured.
-// The shader's bindpoints are used as they are. The exception is the one Karl2D fills in with the
-// texture being drawn.
-_textures_match :: proc(recorded: []Texture_Handle) -> bool {
-	shader := s.current_shader
-
-	if len(recorded) != len(shader.texture_bindpoints) {
-		return false
+	if cur.vertex_count > 0 {
+		append(&s.batch_draw_calls, cur)
 	}
-
-	def_tex_idx, has_def_tex_idx := shader.default_texture_index.?
-
-	for bindpoint, i in shader.texture_bindpoints {
-		wanted := has_def_tex_idx && i == def_tex_idx ? s.current_texture : bindpoint
-
-		if recorded[i] != wanted {
-			return false
-		}
-	}
-
-	return true
-}
-
-// Starts the draw call that the following vertices go into. Everything it needs is captured here.
-// The drawing itself happens later, when the batch is flushed. Run `_finish_draw_call` first, or
-// the vertices of the one that is already open are lost.
-_start_draw_call :: proc() {
-	shader := s.current_shader
 
 	// Vertices for different shaders can share the buffer. Each draw call therefore starts at a
 	// multiple of its own vertex size. That lets the backends address it as a plain vertex index.
@@ -7220,18 +7222,9 @@ _start_draw_call :: proc() {
 		s.vertex_buffer_cpu_used += shader.vertex_size - remainder
 	}
 
-	// The shader keeps one copy of its constants and bindpoints. A draw call runs long after it was
-	// recorded, so it needs the values it saw back then. A later `set_shader_constant` or write to
-	// `texture_bindpoints` must not reach back and change it. It therefore gets its own copy.
-	//
-	// Draw calls that would copy the same values share one instead. That saves the copying. It also
-	// lets the backend compare the two pointers to see there is nothing to re-upload.
-	prev := s.current_draw_call
-	same_shader := prev.shader == shader.handle
+	constants_data := cur.constants_data
 
-	constants_data := prev.constants_data
-
-	if !same_shader || s.current_constants_dirty {
+	if .Constants in changed {
 		constants_data = slice.clone(shader.constants_data, s.batch_allocator)
 
 		for mloc, builtin in shader.constant_builtin_locations {
@@ -7250,103 +7243,36 @@ _start_draw_call :: proc() {
 		}
 	}
 
-	textures := prev.textures
+	textures := cur.textures
 
-	if !same_shader || !_textures_match(prev.textures) {
+	if .Textures in changed {
 		textures = slice.clone(shader.texture_bindpoints, s.batch_allocator)
 
 		// The texture being drawn is ours rather than the shader's. It goes into the copy.
 		if def_tex_idx, has_def_tex_idx := shader.default_texture_index.?; has_def_tex_idx {
-			textures[def_tex_idx] = s.current_texture
+			textures[def_tex_idx] = texture
 		}
 	}
 
-	// Scissor rectangles are screen space, which is what D3D11 and OpenGL take.
-	scissor := s.current_scissor
-
 	s.current_draw_call = {
 		vertex_offset = s.vertex_buffer_cpu_used,
+		vertex_count = vertices_needed,
 		shader = shader.handle,
 		vertex_size = shader.vertex_size,
 		constants = shader.constants,
 		constants_data = constants_data,
 		textures = textures,
 		render_target = s.current_render_target,
-		scissor = scissor,
+		scissor = s.current_scissor,
 		blend_mode = s.current_blend_mode,
+		changed = changed,
 	}
 
-	s.current_constants_dirty = false
+	s.current_texture = texture
+	s.draw_call_changes = {}
 }
 
-// Puts the open draw call into the list of recorded ones. Empty ones are left out, which is what a
-// run of settings changes leaves behind. What stays open is an empty draw call with the same
-// settings, so running this twice cannot record the same vertices twice.
-_finish_draw_call :: proc() {
-	dc := &s.current_draw_call
-
-	if dc.shader == SHADER_NONE {
-		return
-	}
-
-	dc.vertex_count = (s.vertex_buffer_cpu_used - dc.vertex_offset) / dc.vertex_size
-
-	if dc.vertex_count > 0 {
-		// Compared against the last draw call that made it into the list, because that is the one
-		// the backend will have set up before this one. Dropped draw calls never happened.
-		if len(s.batch_draw_calls) == 0 {
-			dc.changed = DRAW_CALL_CHANGE_ALL
-		} else {
-			dc.changed = _draw_call_changes(s.batch_draw_calls[len(s.batch_draw_calls) - 1], dc^)
-		}
-
-		append(&s.batch_draw_calls, dc^)
-	}
-
-	dc.vertex_offset = s.vertex_buffer_cpu_used
-	dc.vertex_count = 0
-}
-
-// Works out what `next` needs the backend to set up that `prev` did not. It is done here so that
-// each backend does not have to. Things that go together are also decided in one place. A new
-// render target needs a new scissor rect, for example.
-_draw_call_changes :: proc(
-	prev: Draw_Call,
-	next: Draw_Call,
-) -> (changed: bit_set[Draw_Call_Change]) {
-	if prev.shader != next.shader {
-		// A different shader has its own constant buffers and texture bindpoints. Those have to be
-		// set up again even when the values in them are the same.
-		changed += { .Shader, .Constants, .Textures }
-	}
-
-	// Draw calls that hold the same values share one copy of them. The same memory therefore means
-	// there is nothing to re-upload.
-	if raw_data(prev.constants_data) != raw_data(next.constants_data) {
-		changed += { .Constants }
-	}
-
-	if raw_data(prev.textures) != raw_data(next.textures) {
-		changed += { .Textures }
-	}
-
-	if prev.render_target != next.render_target {
-		// A draw call without a scissor rect gets one that covers the whole render target.
-		changed += { .Render_Target, .Scissor }
-	}
-
-	if prev.scissor != next.scissor {
-		changed += { .Scissor }
-	}
-
-	if prev.blend_mode != next.blend_mode {
-		changed += { .Blend_Mode }
-	}
-
-	return
-}
-
-// Callers must run `_begin_vertices` first. That leaves room in the buffer and a draw call to put
+// Callers must run `_prepare_draw` first. That leaves room in the buffer and a draw call to put
 // the vertex in.
 batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
@@ -7570,7 +7496,7 @@ _update_projection_matrix :: proc() {
 	}
 
 	s.view_projection = s.proj_matrix * s.view_matrix
-	s.current_constants_dirty = true
+	s.draw_call_changes += { .Constants }
 }
 
 // Returns true if the currently used camera wants the Y axis to be flipped.

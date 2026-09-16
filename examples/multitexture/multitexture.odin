@@ -31,7 +31,7 @@ init :: proc() {
 	tex1 = k2.load_texture_from_bytes(#load("../basics/sixten.jpg"))
 	tex2 = k2.load_texture_from_bytes(#load("../snake/food.png"))
 
-	shd.texture_bindpoints[shd.texture_lookup["tex2"]] = tex2.handle
+	k2.set_shader_texture(shd, shd.texture_lookup["tex2"], tex2)
 }
 
 step :: proc() -> bool {
@@ -46,7 +46,6 @@ step :: proc() -> bool {
 	k2.draw_rect({20, 20, 40, 40}, k2.BLACK)
 	k2.draw_circle({120, 40}, 30, k2.BLACK)
 	k2.draw_circle({120, 40}, 20, k2.GREEN)
-	k2.draw_text("Hellöpe!", {10, 100}, 64, k2.WHITE)
 	k2.draw_texture_fit(tex1, k2.get_texture_rect(tex1), {10, 200, 900, 500})
 
 	k2.present()
