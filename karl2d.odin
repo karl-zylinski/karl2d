@@ -2014,11 +2014,9 @@ get_texture_rect :: proc(t: Texture) -> Rect {
 	}
 }
 
-// TODO-UPDATE-COMMENT `pitch` is the number of bytes between the start of two rows in `bytes`. Zero
-// means the rows are tightly packed, so the pitch is the width of `rect` times the pixel size.
-// ---
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
-// `tex` where the new pixels should end up.
+// `tex` where the new pixels should end up. `pitch` is the number of bytes between the start of two
+// rows, the default of `0` means that the rows are tightly packed.
 update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool {
 	// Recorded draw calls may still be waiting to use the old pixels.
 	_flush_if_batch_uses_texture(tex.handle)
@@ -5894,12 +5892,9 @@ Font_Options :: struct {
 	font_index: int,
 }
 
-// TODO-UPDATE-COMMENT all dynamic fonts now share a single atlas texture that grows up to
-// 4096x4096 and then compacts, keeping the most recently used glyphs.
-// ---
 // Supported font types:
 // - Static: A pre-baked font where you specify a range of characters that are baked into a texture.
-// - Dynamic: A font that is continuously updated as you need new characters. All fonts shared an
+// - Dynamic: A font that is continuously updated as you need new characters. All fonts share an
 //            atlas that can grow to a maximum size of 4096x4096. If it hits the maximum size, then
 //            it is compacted, at which point 50% of the glyphs are thrown out. The thrown out ones
 //            are the least recently used ones.
