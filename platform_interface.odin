@@ -25,7 +25,6 @@ Platform_Interface :: struct #all_or_none {
 	get_screen_height: proc() -> int,
 	get_window_scale: proc() -> f32,
 	set_window_mode: proc(window_mode: Window_Mode),
-
 	set_window_icon: proc(image: Image) -> bool,
 
 	set_cursor_hidden: proc(hidden: bool),
