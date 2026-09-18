@@ -1417,13 +1417,11 @@ wldeco_canvas_size :: proc(
 		return window_width, window_height
 	}
 
-	height := window_height
-
-	if height != 0 {
-		height = max(1, height - DECORATION_TITLEBAR_HEIGHT)
+	if window_height != 0 {
+		return window_width, max(1, window_height - DECORATION_TITLEBAR_HEIGHT)
 	}
 
-	return window_width, height
+	return window_width, window_height
 }
 
 // The window that a canvas of this size needs, which is the other direction: sizes Karl2D tells
