@@ -157,8 +157,9 @@ wl_init :: proc(
 		)
 
 		// This controls if we get titlebar and buttons. This is important even if using client-side
-		// decorations, because you can use those on systems where you'd normally get server-side
-		// decorations. For example using env var KARL2D_LINUX_DECORATIONS=custom.
+		// decorations. For example, if you force client-side decorations (using environment
+		// variable `KARL2D_LINUX_DECORATIONS=custom`) then the server-side decorations may still
+		// paint its own titlebar and buttons. You'd get two titlebars!
 		mode := u32(wl.ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
 
 		if s.csd != nil {
