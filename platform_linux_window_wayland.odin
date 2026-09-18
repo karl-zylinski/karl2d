@@ -116,7 +116,7 @@ wl_init :: proc(
 	wl.display_roundtrip(s.display)
 
 	// Some systems, like GNOME, don't support the decoration manager (server-side decorations). In
-	// that case we will draw them ourselves using the `wldeco_` calls in this file.
+	// that case we will draw them ourselves using the `wlcsd_` calls in this file.
 	custom_decorations_requested := os.get_env("KARL2D_LINUX_DECORATIONS", frame_allocator) == "custom"
 	use_custom_decorations := s.decoration_manager == nil || custom_decorations_requested
 
@@ -144,7 +144,7 @@ wl_init :: proc(
 	// of that goes through them. The first configure lays them out again around whatever size the
 	// compositor settles on.
 	if use_custom_decorations {
-		s.csd = wldeco_init(s, allocator)
+		s.csd = wlcsd_init(s, allocator)
 	}
 
 	wl_set_title(window_title)
@@ -421,10 +421,10 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 				}
 			}
 
-			wldeco_set_toplevel_state(s.csd, active, maximized)
+			wlcsd_set_toplevel_state(s.csd, active, maximized)
 
 			// w, h is the size of the whole window, this give back just the game screen inside it
-			w, h = wldeco_canvas_size(s.csd, w, h)
+			w, h = wlcsd_canvas_size(s.csd, w, h)
 		}
 
 		new_width: int
@@ -462,7 +462,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 			}
 
 			if s.csd != nil {
-				wldeco_repaint_all(s.csd)
+				wlcsd_repaint_all(s.csd)
 			}
 
 			append(&s.events, Event_Screen_Resize {
@@ -654,10 +654,10 @@ pointer_listener := wl.Pointer_Listener {
 		s.pointer_y = surface_y
 
 		if s.csd != nil {
-			wldeco_set_pointer_surface(s.csd, surface)
+			wlcsd_set_pointer_surface(s.csd, surface)
 
-			if wldeco_pointer_over_frame(s.csd) {
-				wldeco_pointer_moved(
+			if wlcsd_pointer_over_frame(s.csd) {
+				wlcsd_pointer_moved(
 					s.csd,
 					wl.fixed_to_f32(surface_x),
 					wl.fixed_to_f32(surface_y),
@@ -675,11 +675,11 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		if s.csd != nil && wldeco_pointer_over_frame(s.csd) {
-			wldeco_pointer_left(s.csd)
+		if s.csd != nil && wlcsd_pointer_over_frame(s.csd) {
+			wlcsd_pointer_left(s.csd)
 		}
 
-		wldeco_set_pointer_surface(s.csd, nil)
+		wlcsd_set_pointer_surface(s.csd, nil)
 	},
 	motion = proc "c" (
 		data: rawptr,
@@ -693,10 +693,10 @@ pointer_listener := wl.Pointer_Listener {
 		s.pointer_x = surface_x
 		s.pointer_y = surface_y
 
-		if s.csd != nil && wldeco_pointer_over_frame(s.csd) {
+		if s.csd != nil && wlcsd_pointer_over_frame(s.csd) {
 			// Only the cursor changes on the frame, and only when the pointer crosses between the
 			// part that moves the window and the edges that resize it.
-			if wldeco_pointer_moved(
+			if wlcsd_pointer_moved(
 				s.csd,
 				wl.fixed_to_f32(surface_x),
 				wl.fixed_to_f32(surface_y),
@@ -724,8 +724,8 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		if s.csd != nil && wldeco_pointer_over_frame(s.csd) {
-			wldeco_pointer_button(
+		if s.csd != nil && wlcsd_pointer_over_frame(s.csd) {
+			wlcsd_pointer_button(
 				s.csd,
 				u32(button),
 				u32(state),
@@ -765,7 +765,7 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		if s.csd != nil && wldeco_pointer_over_frame(s.csd) {
+		if s.csd != nil && wlcsd_pointer_over_frame(s.csd) {
 			return
 		}
 
@@ -832,7 +832,7 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 
 		// The decoration buffers hold physical pixels, so a new scale means new buffers.
 		if s.csd != nil {
-			wldeco_repaint_all(s.csd)
+			wlcsd_repaint_all(s.csd)
 		}
 
 		// The cursor theme is loaded at a fixed physical size, so it needs reloading whenever
@@ -856,7 +856,7 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 
 wl_shutdown :: proc() {
 	if s.csd != nil {
-		wldeco_destroy(s.csd)
+		wlcsd_destroy(s.csd)
 	}
 
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
@@ -927,7 +927,7 @@ wl_get_events :: proc(events: ^[dynamic]Event) {
 	// Paint the frame here, once, after everything the compositor had to say and before the game
 	// draws its own frame. The frame's commits then ride along with the game's.
 	if s.csd != nil {
-		wldeco_flush(s.csd)
+		wlcsd_flush(s.csd)
 	}
 
 	// Wayland compositors don't send repeat events -- we have to synthesize them ourselves from
@@ -969,7 +969,7 @@ wl_set_title :: proc(title: string) {
 	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(title, frame_allocator))
 
 	if s.csd != nil {
-		wldeco_set_title(s.csd, title)
+		wlcsd_set_title(s.csd, title)
 	}
 }
 
@@ -1008,7 +1008,7 @@ wl_set_screen_size :: proc(w, h: int) {
 	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
 
 	if s.csd != nil {
-		wldeco_repaint_all(s.csd)
+		wlcsd_repaint_all(s.csd)
 	}
 }
 
@@ -1029,7 +1029,7 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 		h := s.last_configure_windowed_height
 
 		if s.csd != nil {
-			w, h = wldeco_window_size(s.csd, w, h)
+			w, h = wlcsd_window_size(s.csd, w, h)
 		}
 
 		wl.xdg_toplevel_set_max_size(s.toplevel, i32(w), i32(h))
@@ -1047,13 +1047,13 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	// The frame comes and goes with fullscreen, and the window is a different size with it than
 	// without it.
 	if s.csd != nil {
-		wldeco_repaint_all(s.csd)
+		wlcsd_repaint_all(s.csd)
 	}
 }
 
 wl_set_window_icon :: proc(image: Image) -> bool {
 	if s.csd != nil {
-		wldeco_set_icon(s.csd, image)
+		wlcsd_set_icon(s.csd, image)
 
 		if s.toplevel_icon_manager == nil {
 			return true
@@ -1232,8 +1232,8 @@ wl_apply_cursor :: proc() {
 
 	// The frame belongs to Karl2D, so the pointer over it shows what the frame wants there rather
 	// than what the game asked for. A game that hides its cursor still gets one on its titlebar.
-	if s.csd != nil && wldeco_pointer_over_frame(s.csd) {
-		standard = wldeco_cursor(s.csd)
+	if s.csd != nil && wlcsd_pointer_over_frame(s.csd) {
+		standard = wlcsd_cursor(s.csd)
 	} else {
 		if s.cursor_hidden {
 			wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
@@ -1555,7 +1555,7 @@ WL_State :: struct {
 	decoration_manager: ^wl.ZXDG_Decoration_Manager_V1,
 
 	// Client Side Decorations: Custom decorations that we paint ourselves on for example GNOME.
-	csd: ^WL_Decorations,
+	csd: ^WLCSD_State,
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
 	xdg_base: ^wl.XDG_WM_Base,
