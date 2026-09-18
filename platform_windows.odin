@@ -120,6 +120,11 @@ windows_init :: proc(
 
 	assert(s.hwnd != nil, "Failed creating window")
 
+	// A window that starts in fullscreen has no previous windowed WM_MOVE/WM_SIZE messages from
+	// which to populate the restore rectangle. But the window was initially created at a requested
+	// size, so remember it before expanding to the monitor.
+	windows_capture_windowed_geometry()
+
 	windows_set_window_mode(options.window_mode)
 	
 	win32.XInputEnable(true)
@@ -328,6 +333,29 @@ windows_get_window_position :: proc() -> Vec2 {
 	return {f32(r.left), f32(r.top)}
 }
 
+windows_capture_windowed_geometry :: proc() {
+	r: win32.RECT
+	if !win32.GetClientRect(s.hwnd, &r) {
+		return
+	}
+
+	client_origin := win32.POINT{r.left, r.top}
+	if !win32.ClientToScreen(s.hwnd, &client_origin) {
+		return
+	}
+
+	width := int(r.right - r.left)
+	height := int(r.bottom - r.top)
+	if width <= 0 || height <= 0 {
+		return
+	}
+
+	s.restore_window_pos_x = int(client_origin.x)
+	s.restore_window_pos_y = int(client_origin.y)
+	s.restore_screen_width = width
+	s.restore_screen_height = height
+}
+
 windows_get_style :: proc(window_mode: Window_Mode) -> win32.DWORD {
 	style: win32.DWORD
 
@@ -505,7 +533,7 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 	switch window_mode {
 	case .Windowed, .Windowed_Resizable:
 		r: win32.RECT
-		set_window_pos_style: win32.DWORD = win32.SWP_NOACTIVATE | win32.SWP_NOZORDER
+		set_window_pos_style: win32.DWORD = win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_FRAMECHANGED
 
 		if old_window_mode == .Borderless_Fullscreen {
 			r.left = i32(s.restore_window_pos_x)
