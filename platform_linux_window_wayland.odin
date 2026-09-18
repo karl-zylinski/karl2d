@@ -694,8 +694,6 @@ pointer_listener := wl.Pointer_Listener {
 		s.pointer_y = surface_y
 
 		if s.csd != nil && wlcsd_pointer_over_frame(s.csd) {
-			// Only the cursor changes on the frame, and only when the pointer crosses between the
-			// part that moves the window and the edges that resize it.
 			if wlcsd_pointer_moved(
 				s.csd,
 				wl.fixed_to_f32(surface_x),
@@ -813,6 +811,8 @@ pointer_listener := wl.Pointer_Listener {
 		direction: c.uint32_t,
 	) {},
 }
+
+// KARL: Continue review from here.
 
 fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 	preferred_scale = proc "c" (
