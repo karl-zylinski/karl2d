@@ -18,6 +18,7 @@ import "core:c"
 import "core:math"
 import "core:strings"
 import "core:sys/linux"
+import "base:runtime"
 import stbtt "vendor:stb/truetype"
 
 import "log"
@@ -180,6 +181,8 @@ WL_Decorations :: struct {
 	parts: [WL_Decoration_Part]WL_Decoration,
 	colors: WL_Decoration_Colors,
 
+	pointer_surface: ^wl.Surface,
+
 	// The window edge under the pointer, as an `xdg_toplevel` resize edge. Zero where the frame
 	// moves the window rather than resizing it, and stale whenever the pointer is not on the frame
 	// at all, which `wldeco_has_pointer` is what answers.
@@ -215,6 +218,9 @@ WL_Decorations :: struct {
 	last_press_time: u32,
 	last_press_x: f32,
 	last_press_y: f32,
+
+	active: bool,
+	maximized: bool,
 }
 
 // Creates the four surfaces that make up the window frame. They are subsurfaces of the surface the
@@ -225,12 +231,18 @@ WL_Decorations :: struct {
 // for the game's next frame and lands with it in one go. Anything else tears the window in half
 // while it resizes, since a subsurface's position always waits for the parent whatever its buffer
 // does.
-wldeco_init :: proc(deco: ^WL_Decorations, win: ^WL_State) {
+wldeco_init :: proc(
+	win: ^WL_State,
+	allocator: runtime.Allocator,
+	loc := #caller_location
+) -> ^WL_Decorations {
+	deco := new(WL_Decorations, allocator, loc)
 	deco.win = win
 
 	if win.subcompositor == nil {
 		log.error("Wayland compositor has no wl_subcompositor. The window gets no frame.")
-		return
+		free(deco, allocator)
+		return nil
 	}
 
 	deco.colors = wldeco_desktop_colors()
@@ -256,6 +268,7 @@ wldeco_init :: proc(deco: ^WL_Decorations, win: ^WL_State) {
 	}
 
 	wldeco_repaint_all(deco)
+	return deco
 }
 
 // Says that the whole frame has to be laid out and painted again, which is what a resize or a scale
@@ -269,6 +282,17 @@ wldeco_repaint_all :: proc(deco: ^WL_Decorations) {
 // pointer is on.
 wldeco_repaint_titlebar :: proc(deco: ^WL_Decorations) {
 	deco.needs_paint += {.Titlebar}
+}
+
+wldeco_set_toplevel_state :: proc(deco: ^WL_Decorations, active: bool, maximized: bool) {
+	changed := active != deco.active || maximized != deco.maximized
+
+	deco.active = active
+	deco.maximized = maximized
+
+	if changed {
+		wldeco_repaint_all(deco)
+	}
 }
 
 // Paints whatever has changed and puts it where it belongs. Called once per game frame, just
@@ -420,7 +444,7 @@ wldeco_paint :: proc(deco: ^WL_Decorations, part: WL_Decoration_Part) {
 	right := int(math.round(f32(w - d.x) * deco.win.scale))
 	bottom := int(math.round(f32(h - d.y) * deco.win.scale))
 
-	shadow := deco.win.active ? DECORATION_SHADOW_FOCUSED : DECORATION_SHADOW_UNFOCUSED
+	shadow := deco.active ? DECORATION_SHADOW_FOCUSED : DECORATION_SHADOW_UNFOCUSED
 	reach := DECORATION_SHADOW_REACH * deco.win.scale
 
 	for y in 0..<buffer_height {
@@ -737,7 +761,7 @@ wldeco_paint_icon :: proc(
 // What the title and the button glyphs are drawn in. Dimmed towards the titlebar itself while the
 // window is not the one being typed into, the way every other window on the desktop dims.
 wldeco_text_color :: proc(deco: ^WL_Decorations) -> u32 {
-	if deco.win.active {
+	if deco.active {
 		return deco.colors.text
 	}
 
@@ -795,7 +819,7 @@ wldeco_paint_button :: proc(
 				}
 
 			case .Maximize:
-				if !deco.win.maximized {
+				if !deco.maximized {
 					to_line = wldeco_square_distance(dx, dy, reach*0.8)
 					break
 				}
@@ -1120,11 +1144,12 @@ wldeco_read_portal_setting :: proc(
 	return scheme, .Value
 }
 
-// True while the pointer is over one of the surfaces that make up the frame Karl2D draws. Pointer
-// events name the surface they happened on, which is what tells a click on the titlebar apart from
-// a click in the game. The game hears about neither the clicks nor the movement.
-wldeco_has_pointer :: proc(deco: ^WL_Decorations) -> bool {
-	return deco.win.pointer_surface != nil && deco.win.pointer_surface != deco.win.surface
+wldeco_pointer_over_frame :: proc(deco: ^WL_Decorations) -> bool {
+	return deco.pointer_surface != nil && deco.pointer_surface != deco.win.surface
+}
+
+wldeco_set_pointer_surface :: proc(deco: ^WL_Decorations, pointer_surface: ^wl.Surface) {
+	deco.pointer_surface = pointer_surface
 }
 
 // Follows the pointer across the frame and works out what is under it: the edge it can resize from
@@ -1265,7 +1290,7 @@ wldeco_button_acted :: proc(deco: ^WL_Decorations, button: WL_Decoration_Button)
 // Fills the screen with the window, or gives it back the size it had. The compositor answers with
 // a configure, which is where the new size and the new state come from.
 wldeco_toggle_maximized :: proc(deco: ^WL_Decorations) {
-	if deco.win.maximized {
+	if deco.maximized {
 		wl.xdg_toplevel_unset_maximized(deco.win.toplevel)
 		return
 	}
@@ -1346,7 +1371,7 @@ wldeco_resize_edge :: proc(deco: ^WL_Decorations, local_x: f32, local_y: f32) ->
 // Which part of the frame the pointer is on. Only meaningful while `wldeco_has_pointer` is true.
 wldeco_pointer_part :: proc(deco: ^WL_Decorations) -> WL_Decoration_Part {
 	for part in WL_Decoration_Part {
-		if deco.parts[part].surface == deco.win.pointer_surface {
+		if deco.parts[part].surface == deco.pointer_surface {
 			return part
 		}
 	}
