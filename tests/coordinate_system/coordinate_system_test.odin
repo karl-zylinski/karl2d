@@ -326,7 +326,7 @@ draw_text_anchors_the_block_like_a_rect :: proc(t: ^testing.T) {
 		draw_text_at_screen_top("Ag", 20, k2.FONT_DEFAULT)
 	})
 
-	expect_bounds(t, got, 12, 99, 102, 121, 120.99)
+	expect_bounds(t, got, 12, 99, 102, 120.79, 120.99)
 }
 
 @(test)
@@ -335,7 +335,7 @@ draw_text_stacks_lines_downwards_on_screen :: proc(t: ^testing.T) {
 		draw_text_at_screen_top("Ag\nBh", 20, k2.FONT_DEFAULT)
 	})
 
-	expect_bounds(t, got, 24, 99, 102, 121, 137.01)
+	expect_bounds(t, got, 24, 99, 102, 120.85, 137.01)
 }
 
 @(test)
@@ -375,9 +375,9 @@ draw_text_is_placed_the_same_under_a_zoomed_camera :: proc(t: ^testing.T) {
 	// the quads are divided back down, so a mistake there shows up as text that drifts or changes
 	// size, in either space.
 	when TEST_Y_UP {
-		expect_bounds(t, got, 12, 199.00, -394.00, 241.00, -359.00)
+		expect_bounds(t, got, 12, 199.00, -394.00, 240.58, -359.00)
 	} else {
-		expect_bounds(t, got, 12, 199.00, 206.00, 241.00, 241.00)
+		expect_bounds(t, got, 12, 199.00, 206.00, 240.58, 241.00)
 	}
 }
 

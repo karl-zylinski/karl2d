@@ -184,7 +184,7 @@ get_glyph :: proc(
 			f32(x0 - GLYPH_PADDING),
 			f32(y0 - GLYPH_PADDING) + math.round(font.ascent * f32(size)),
 		},
-		advance = math.round(f32(advance) * scale),
+		advance = f32(advance) * scale,
 		index = index,
 		last_used = time,
 	}
@@ -372,7 +372,7 @@ kern :: proc(font: ^Font, prev_index: i32, index: i32, size: int) -> f32 {
 		font.kerning[pair] = advance
 	}
 
-	return math.round(f32(advance) * (f32(size) / font.height_units))
+	return f32(advance) * (f32(size) / font.height_units)
 }
 
 // ---
