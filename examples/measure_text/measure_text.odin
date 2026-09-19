@@ -1,11 +1,11 @@
 package karl2d_measure_text_example
 
 // Fonts used:
-// 1. https://fonts.google.com/specimen/Josefin+Slab
-// 2. https://fonts.google.com/specimen/Merienda
-// 3. https://fonts.google.com/specimen/Momo+Trust+Display
-// 4. https://github.com/ACh-K/Cubic-11
-// All fonts are licensed under the SIL Open Font License, Version 1.1
+// - https://fonts.google.com/specimen/Josefin+Slab
+// - https://fonts.google.com/specimen/Merienda
+// - https://fonts.google.com/specimen/Momo+Trust+Display
+// - https://github.com/ACh-K/Cubic-11
+// These fonts are licensed under the SIL Open Font License, Version 1.1
 // - Link: https://openfontlicense.org
 // - File: OFL.txt
 
