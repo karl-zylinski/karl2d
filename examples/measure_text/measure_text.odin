@@ -32,7 +32,7 @@ current_font_idx: int
 current_font_size := f32(50)
 
 init :: proc() {
-	k2.init(1600, 720, "Karl2D Measure Text Example", { window_mode = .Windowed_Resizable })
+	k2.init(1280, 720, "Karl2D Measure Text Example", { window_mode = .Windowed_Resizable })
 
 	for &f in fonts {
 		if f.bytes == nil {
