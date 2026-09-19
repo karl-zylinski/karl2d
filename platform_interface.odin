@@ -17,6 +17,7 @@ Platform_Interface :: struct #all_or_none {
 	shutdown: proc(),
 	get_window_render_glue: proc() -> Window_Render_Glue,
 	get_events: proc(events: ^[dynamic]Event),
+	before_present: proc(),
 	set_window_title: proc(title: string),
 	set_window_position: proc(x: int, y: int),
 	get_window_position: proc() -> Vec2,

@@ -363,6 +363,7 @@ calculate_frame_time :: proc() {
 present :: proc() {
 	assert_initialized()
 	draw_current_batch()
+	pf.before_present()
 	rb.present()
 }
 

@@ -11,6 +11,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	shutdown = windows_shutdown,
 	get_window_render_glue = windows_get_window_render_glue,
 	get_events = windows_get_events,
+	before_present = windows_before_present,
 	set_window_title = windows_set_window_title,
 	get_screen_width = windows_get_screen_width,
 	get_screen_height = windows_get_screen_height,
@@ -157,6 +158,9 @@ windows_shutdown :: proc() {
 
 windows_get_window_render_glue :: proc() -> Window_Render_Glue {
 	return s.window_render_glue
+}
+
+windows_before_present :: proc() {
 }
 
 windows_get_events :: proc(events: ^[dynamic]Event) {

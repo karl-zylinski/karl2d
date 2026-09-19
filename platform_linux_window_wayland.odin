@@ -9,6 +9,7 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
 	get_events = wl_get_events,
+	before_present = wl_before_present,
 	set_title = wl_set_title,
 	get_screen_width = wl_get_screen_width,
 	get_screen_height = wl_get_screen_height,
@@ -463,7 +464,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 			}
 
 			if s.csd != nil {
-				wlcsd_repaint_all(s.csd)
+				wlcsd_needs_repaint_all(s.csd)
 			}
 
 			append(&s.events, Event_Screen_Resize {
@@ -815,8 +816,6 @@ pointer_listener := wl.Pointer_Listener {
 	) {},
 }
 
-// KARL: Continue review from here.
-
 fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 	preferred_scale = proc "c" (
 		data: rawptr,
@@ -833,14 +832,12 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 			wl.egl_window_resize(s.window, i32(s.screen_width), i32(s.screen_height), 0, 0)
 		}
 
-		// The decoration buffers hold physical pixels, so a new scale means new buffers.
 		if s.csd != nil {
-			wlcsd_repaint_all(s.csd)
+			wlcsd_needs_repaint_all(s.csd)
 		}
 
 		// The cursor theme is loaded at a fixed physical size, so it needs reloading whenever
-		// the scale changes. Only relevant without the cursor shape protocol - the compositor
-		// handles its own DPI when we use that instead.
+		// the scale changes.
 		if s.cursor_shape_device == nil {
 			wl_load_cursor_theme()
 		}
@@ -865,20 +862,19 @@ wl_shutdown :: proc() {
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		wl.wp_viewport_destroy(cd.viewport)
 		wl.surface_destroy(cd.surface)
-		wl.buffer_destroy(cd.buffer)
-		linux.munmap(cd.data, uint(cd.data_size))
+		wl_destroy_shared_memory_image(cd.image)
 	}
+	
 	hm.dynamic_destroy(&s.custom_cursors)
 
-	wl_destroy_toplevel_icon()
+	wl_destroy_toplevel_icon(s.toplevel_icon)
+	s.toplevel_icon = {}
 
-	// The icon protocol is optional, so this is nil on compositors that lack it.
 	if s.toplevel_icon_manager != nil {
 		wl.xdg_toplevel_icon_manager_v1_destroy(s.toplevel_icon_manager)
 		s.toplevel_icon_manager = nil
 	}
 
-	// The cursor shape protocol is optional, so these are nil on compositors that lack it.
 	if s.cursor_shape_device != nil {
 		wl.cursor_shape_device_destroy(s.cursor_shape_device)
 		s.cursor_shape_device = nil
@@ -889,7 +885,6 @@ wl_shutdown :: proc() {
 		s.cursor_shape_manager = nil
 	}
 
-	// The theme is only loaded on compositors without the cursor shape protocol.
 	if s.cursor_theme != nil {
 		wl.cursor_theme_destroy(s.cursor_theme)
 		s.cursor_theme = nil
@@ -924,17 +919,17 @@ wl_get_window_render_glue :: proc() -> Window_Render_Glue {
 	return s.window_render_glue
 }
 
+wl_before_present :: proc() {
+	if s.csd != nil {
+		wlcsd_paint(s.csd)
+	}
+}
+
 wl_get_events :: proc(events: ^[dynamic]Event) {
 	wl.display_dispatch_pending(s.display)
 
-	// Paint the frame here, once, after everything the compositor had to say and before the game
-	// draws its own frame. The frame's commits then ride along with the game's.
-	if s.csd != nil {
-		wlcsd_flush(s.csd)
-	}
-
-	// Wayland compositors don't send repeat events -- we have to synthesize them ourselves from
-	// the rate/delay reported by the keyboard's `repeat_info` event.
+	// No key repeat events in wayland, we make them ourselves using timers using info reported by
+	// `repeat_info`.
 	if s.repeat_key != .None && s.repeat_rate > 0 {
 		now := time.tick_now()
 		interval := time.Second / time.Duration(s.repeat_rate)
@@ -943,22 +938,22 @@ wl_get_events :: proc(events: ^[dynamic]Event) {
 		// burst of repeats.
 		REPEATS_PER_FRAME_MAX :: 32
 
-		for _ in 0..<REPEATS_PER_FRAME_MAX {
-			if time.tick_diff(s.repeat_next_tick, now) < 0 {
-				break
-			}
+		repeats := 0
 
+		for time.tick_diff(s.repeat_next_tick, now) >= 0 {
 			append(&s.events, Event_Key_Repeat {
 				key = s.repeat_key,
 			})
+			
 			_wl_append_typed_runes(s.repeat_xkb_keycode)
 			s.repeat_next_tick = time.tick_add(s.repeat_next_tick, interval)
-		}
+			repeats += 1
 
-		// If we hit the cap then we're still behind, so skip the backlog instead of spreading it
-		// out over the coming frames.
-		if time.tick_diff(s.repeat_next_tick, now) >= 0 {
-			s.repeat_next_tick = time.tick_add(now, interval)
+			// Cap hit: Skip remaining repeats instead of spreading them across frames.
+			if repeats == REPEATS_PER_FRAME_MAX {
+				s.repeat_next_tick = time.tick_add(now, interval)
+				break
+			}
 		}
 	}
 
@@ -967,8 +962,7 @@ wl_get_events :: proc(events: ^[dynamic]Event) {
 }
 
 wl_set_title :: proc(title: string) {
-	// The compositor wants a title whoever draws the titlebar: it is the name in the window list
-	// and in the switcher.
+	// Sets title in window list. Sets title on titlebar if using server-side decorations.
 	wl.xdg_toplevel_set_title(s.toplevel, strings.clone_to_cstring(title, frame_allocator))
 
 	if s.csd != nil {
@@ -1011,7 +1005,7 @@ wl_set_screen_size :: proc(w, h: int) {
 	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
 
 	if s.csd != nil {
-		wlcsd_repaint_all(s.csd)
+		wlcsd_needs_repaint_all(s.csd)
 	}
 }
 
@@ -1026,8 +1020,6 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	case .Windowed:
 		wl.xdg_toplevel_unset_fullscreen(s.toplevel)
 
-		// A size limit is about the whole window, so a game that keeps its canvas at a fixed size
-		// asks for the window that canvas needs.
 		w := s.last_configure_windowed_width
 		h := s.last_configure_windowed_height
 
@@ -1050,7 +1042,7 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	// The frame comes and goes with fullscreen, and the window is a different size with it than
 	// without it.
 	if s.csd != nil {
-		wlcsd_repaint_all(s.csd)
+		wlcsd_needs_repaint_all(s.csd)
 	}
 }
 
@@ -1058,6 +1050,8 @@ wl_set_window_icon :: proc(image: Image) -> bool {
 	if s.csd != nil {
 		wlcsd_set_icon(s.csd, image)
 
+		// It's OK to not have a top-level icon manager if we use CSD. But if it does exist then we
+		// can still set the icon on it, which may affect the taskbar etc.
 		if s.toplevel_icon_manager == nil {
 			return true
 		}
@@ -1069,15 +1063,14 @@ wl_set_window_icon :: proc(image: Image) -> bool {
 
 	// The protocol only takes square buffers. A non-square image goes in the middle of one.
 	size := max(image.width, image.height)
-	buffer, data, data_size, buffer_ok := wl_create_shm_buffer("karl2d-icon", size, size)
+	dest, dest_ok := wl_create_shared_memory_image("karl2d-icon", size, size)
 
-	if !buffer_ok {
+	if !dest_ok {
 		return false
 	}
 
 	// Convert to ARGB and premultiply alpha. A fresh shm buffer is all zeroes, so any padding
 	// around a non-square image is already transparent.
-	pixel_data := ([^]u32)(data)
 	offset_x := (size - image.width)/2
 	offset_y := (size - image.height)/2
 
@@ -1088,45 +1081,30 @@ wl_set_window_icon :: proc(image: Image) -> bool {
 			r := u32(col.r) * a / 255
 			g := u32(col.g) * a / 255
 			b := u32(col.b) * a / 255
-			pixel_data[(offset_y + y)*size + offset_x + x] = a << 24 | r << 16 | g << 8 | b
+			dest.pixels[(offset_y + y)*size + offset_x + x] = a << 24 | r << 16 | g << 8 | b
 		}
 	}
 
-	icon := wl.xdg_toplevel_icon_manager_v1_create_icon(s.toplevel_icon_manager)
+	icon := WL_Toplevel_Icon {
+		icon = wl.xdg_toplevel_icon_manager_v1_create_icon(s.toplevel_icon_manager),
+		image = dest,
+	}
 
-	// A scale of 1 says the buffer holds one pixel per logical pixel. The compositor scales it to
-	// each size it wants to show the icon at.
-	wl.xdg_toplevel_icon_v1_add_buffer(icon, buffer, 1)
-	wl.xdg_toplevel_icon_manager_v1_set_icon(s.toplevel_icon_manager, s.toplevel, icon)
+	// Scale 1 means this isn't a HiDPI variant. The compositor scales our one buffer to any size.
+	wl.xdg_toplevel_icon_v1_add_buffer(icon.icon, dest.buffer, 1)
+	wl.xdg_toplevel_icon_manager_v1_set_icon(s.toplevel_icon_manager, s.toplevel, icon.icon)
 
-	// The previous icon is only safe to take apart now that the toplevel points at this one.
-	wl_destroy_toplevel_icon()
-
+	wl_destroy_toplevel_icon(s.toplevel_icon)
 	s.toplevel_icon = icon
-	s.toplevel_icon_buffer = buffer
-	s.toplevel_icon_data = data
-	s.toplevel_icon_data_size = data_size
 	return true
 }
 
-// Takes apart the icon that `wl_set_window_icon` made. Does nothing when there is none. The icon
-// object goes first: the protocol wants its buffer to outlive it.
-wl_destroy_toplevel_icon :: proc() {
-	if s.toplevel_icon != nil {
-		wl.xdg_toplevel_icon_v1_destroy(s.toplevel_icon)
-		s.toplevel_icon = nil
+wl_destroy_toplevel_icon :: proc(icon: WL_Toplevel_Icon) {
+	if icon.icon != nil {
+		wl.xdg_toplevel_icon_v1_destroy(icon.icon)
 	}
 
-	if s.toplevel_icon_buffer != nil {
-		wl.buffer_destroy(s.toplevel_icon_buffer)
-		s.toplevel_icon_buffer = nil
-	}
-
-	if s.toplevel_icon_data != nil {
-		linux.munmap(s.toplevel_icon_data, uint(s.toplevel_icon_data_size))
-		s.toplevel_icon_data = nil
-		s.toplevel_icon_data_size = 0
-	}
+	wl_destroy_shared_memory_image(icon.image)
 }
 
 wl_set_cursor_hidden :: proc(hidden: bool) {
@@ -1147,11 +1125,9 @@ locked_pointer_listener := wl.ZWP_Locked_Pointer_V1_Listener {
 		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
 	},
 	unlocked = proc "c"(data: rawptr, lp: ^wl.ZWP_Locked_Pointer_V1) {
-		context = s.odin_ctx
 		s.locked_pointer = nil
 	},
 }
-
 
 relative_pointer_listener := wl.ZWP_Relative_Pointer_V1_Listener {
 	relative_motion = proc "c" (
@@ -1160,20 +1136,21 @@ relative_pointer_listener := wl.ZWP_Relative_Pointer_V1_Listener {
 		t_hi, t_lo: c.uint32_t,
 		dx, dy, dx_unaccel, dy_unaccel: wl.Fixed,
 	) {
-		// Only used when pointer is locked
+		// Only used when pointer is locked! Makes mouse move events and teleports it back to center
 		if s.locked_pointer == nil {
 			return
 		}
+
 		context = s.odin_ctx
 		cx := f32(s.screen_width / 2)
 		cy := f32(s.screen_height / 2)
 		fdx := wl.fixed_to_f32(dx_unaccel)
 		fdy := wl.fixed_to_f32(dy_unaccel)
-		// Move relative to center, matching the warp-based platforms
+
 		append(&s.events, Event_Mouse_Move {
 			position = {cx + fdx, cy + fdy},
 		})
-		// Teleport back so next delta is also relative to center
+
 		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
 	},
 }
@@ -1188,9 +1165,10 @@ wl_set_mouse_locked :: proc(locked: bool) {
 			s.pointer_constraints, s.surface, s.pointer, nil,
 			wl.ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT,
 		)
+
 		wl.add_listener(s.locked_pointer, &locked_pointer_listener, nil)
 
-		// Synthetic teleport to center, so karl2d has the correct "previous position".
+		// Makes sure we have the correct "previous position".
 		cx := f32(s.screen_width / 2)
 		cy := f32(s.screen_height / 2)
 		append(&s.events, Event_Mouse_Teleported { position = {cx, cy} })
@@ -1208,9 +1186,8 @@ wl_is_mouse_locked :: proc() -> bool {
 	return s.locked_pointer != nil
 }
 
-// Loads the cursor theme sized for the current DPI scale, destroying the previous one if this is
-// a reload. Only used as a fallback for compositors without wp_cursor_shape_manager_v1, since a
-// themed cursor image is a fixed physical size and has to be reloaded whenever the scale changes.
+// Use as a fallback when wp_cursor_shape_manager_v1 is missing. Scales the cursor by the DPI scale.
+// Since the scale is explicitly used, this is re-run when the scale changes.
 wl_load_cursor_theme :: proc() {
 	if s.cursor_theme != nil {
 		wl.cursor_theme_destroy(s.cursor_theme)
@@ -1220,104 +1197,106 @@ wl_load_cursor_theme :: proc() {
 	s.cursor_theme = wl.cursor_theme_load(nil, c.int(theme_size), s.shm)
 }
 
-// Sets the OS cursor from s.cursor_hidden and s.current_cursor. They share the same pointer
-// cursor, so every entry point goes through this instead of setting it independently. The pointer
-// re-entering the window does too, since the compositor forgets the cursor when it leaves.
+// Sets cursor based on both `s.cursor_hidden` and `s.current_cursor`. Re-entering window reruns
+// this proc, since it is forgotten when the cursor leaves the window.
 wl_apply_cursor :: proc() {
-	// The fractional scale listener can fire during wl_init, before the pointer and the cursor
-	// surface exist. Passing a nil surface to the compositor would mean "hide the cursor", and
-	// attaching a buffer to one would dereference a nil proxy inside libwayland.
 	if s.pointer == nil || s.cursor_surface == nil {
 		return
 	}
 
-	standard := Standard_Cursor.Default
+	cursor := s.current_cursor
 
-	// The frame belongs to Karl2D, so the pointer over it shows what the frame wants there rather
-	// than what the game asked for. A game that hides its cursor still gets one on its titlebar.
+	// Let CSD frame dictate cursor if we are over the frame.
 	if s.csd != nil && wlcsd_pointer_over_frame(s.csd) {
-		standard = wlcsd_cursor(s.csd)
+		cursor = wlcsd_cursor(s.csd)
 	} else {
 		if s.cursor_hidden {
 			wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
 			return
 		}
-
-		switch cur in s.current_cursor {
-		case Standard_Cursor:
-			standard = cur
-
-		case Custom_Cursor:
-			if cd := hm.get(&s.custom_cursors, cur); cd != nil {
-				wl_point_at_cursor(cd, s.pointer_enter_serial)
-				return
-			}
-			// Otherwise it was destroyed while on screen; fall through to the default cursor below.
+	}
+	
+	// For showing default cursor when the custom cursor is actually destroyed.
+	if cc, is_custom := cursor.(Custom_Cursor); is_custom {
+		if !hm.is_valid(&s.custom_cursors, cc) {
+			cursor = Standard_Cursor.Default
 		}
 	}
 
-	// A standard cursor. Prefer the cursor shape protocol, which lets the compositor render it at
-	// the correct size and DPI itself; the themed surface below is only a fallback for compositors
-	// that don't support it.
-	if s.cursor_shape_device != nil {
-		wl.cursor_shape_device_set_shape(
-			s.cursor_shape_device,
+	switch cur in cursor {
+	case Custom_Cursor:
+		if cc := hm.get(&s.custom_cursors, cur); cc != nil {
+			// The scale can change while the game runs, for instance when the window is dragged to a
+			// monitor with different DPI settings.
+			if cc.built_for_scale != s.scale {
+				wl_apply_cursor_scale(cc)
+			}
+			
+			wl.pointer_set_cursor(
+				s.pointer,
+				s.pointer_enter_serial,
+				cc.surface,
+				c.int32_t(math.round(f32(cc.hotspot.x) / s.scale)),
+				c.int32_t(math.round(f32(cc.hotspot.y) / s.scale)),
+			)
+		}
+	case Standard_Cursor:
+		if s.cursor_shape_device != nil {
+			wl.cursor_shape_device_set_shape(
+				s.cursor_shape_device,
+				s.pointer_enter_serial,
+				wl_standard_cursor_shape(cur),
+			)
+			break
+		}
+
+		if s.cursor_theme == nil {
+			break
+		}
+
+		name, fallback := linux_standard_cursor_names(cur)
+		theme_cursor := wl.cursor_theme_get_cursor(s.cursor_theme, name)
+
+		if theme_cursor == nil {
+			theme_cursor = wl.cursor_theme_get_cursor(s.cursor_theme, fallback)
+		}
+
+		// The theme has no cursor under either name. Leave the current one.
+		if theme_cursor == nil || theme_cursor.image_count == 0 {
+			break
+		}
+
+		image := theme_cursor.images[0]
+		buf := wl.cursor_image_get_buffer(image)
+
+		wl.pointer_set_cursor(
+			s.pointer,
 			s.pointer_enter_serial,
-			wl_standard_cursor_shape(standard),
+			s.cursor_surface,
+			c.int32_t(math.round(f32(image.hotspot_x) / s.scale)),
+			c.int32_t(math.round(f32(image.hotspot_y) / s.scale)),
 		)
-		return
+
+		wl.surface_attach(s.cursor_surface, buf, 0, 0)
+		wl.surface_commit(s.cursor_surface)
 	}
-
-	if s.cursor_theme == nil {
-		return
-	}
-
-	name, fallback := linux_standard_cursor_names(standard)
-	theme_cursor := wl.cursor_theme_get_cursor(s.cursor_theme, name)
-
-	if theme_cursor == nil {
-		theme_cursor = wl.cursor_theme_get_cursor(s.cursor_theme, fallback)
-	}
-
-	// The theme has no cursor under either name. Leaving whatever is already up is the best we can
-	// do: the pointer keeps the cursor it had rather than blinking out of existence.
-	if theme_cursor == nil || theme_cursor.image_count == 0 {
-		return
-	}
-
-	image := theme_cursor.images[0]
-	buf := wl.cursor_image_get_buffer(image)
-
-	// The theme image is THEME_CURSOR_SIZE*scale physical pixels but the viewport set up in wl_init
-	// maps it down to THEME_CURSOR_SIZE logical pixels, so the hotspot (in the image's own pixels)
-	// has to be scaled down to match.
-	wl.pointer_set_cursor(
-		s.pointer,
-		s.pointer_enter_serial,
-		s.cursor_surface,
-		c.int32_t(math.round(f32(image.hotspot_x) / s.scale)),
-		c.int32_t(math.round(f32(image.hotspot_y) / s.scale)),
-	)
-
-	wl.surface_attach(s.cursor_surface, buf, 0, 0)
-	wl.surface_commit(s.cursor_surface)
 }
 
-// Creates a `width` x `height` ARGB shm buffer for handing pixels to the compositor, along with
-// the memory it reads from, mapped into our address space. The caller fills the pixels through
-// `_data` and owns both: the buffer dies by `wl.buffer_destroy` and the memory by `linux.munmap`
-// with `_data_size`, buffer first. The memory starts out all zeroes.
+WL_Shared_Memory_Image :: struct {
+	buffer: ^wl.Buffer,
+	pixels: []u32,
+}
+
+// Creates a `width` x `height` ARGB buffer that the compositor can use. The compositor is a
+// separate process, so this uses handles and stuff to make it possible to for it to read it.
 //
-// `name` shows up in /proc/.../fd for debugging. Failure is logged with it, and means nothing
-// needs to be cleaned up.
-wl_create_shm_buffer :: proc(
+// `name` shows up in /proc/.../fd for debugging.
+wl_create_shared_memory_image :: proc(
 	name: cstring,
 	width: int,
 	height: int,
 ) -> (
-	_buffer: ^wl.Buffer,
-	_data: rawptr,
-	_data_size: int,
+	_image: WL_Shared_Memory_Image,
 	_ok: bool,
 ) {
 	stride := width*4
@@ -1358,39 +1337,51 @@ wl_create_shm_buffer :: proc(
 	// has been destroyed.
 	wl.shm_pool_destroy(pool)
 
-	return buffer, data, size, true
+	image := WL_Shared_Memory_Image {
+		buffer = buffer,
+		pixels = ([^]u32)(data)[:width*height],
+	}
+
+	return image, true
+}
+
+wl_destroy_shared_memory_image :: proc(image: WL_Shared_Memory_Image) {
+	if image.buffer != nil {
+		wl.buffer_destroy(image.buffer)
+	}
+
+	if image.pixels != nil {
+		linux.munmap(raw_data(image.pixels), uint(len(image.pixels)*size_of(u32)))
+	}
 }
 
 wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
-	buffer, data, data_size, buffer_ok := wl_create_shm_buffer("cursor", image.width, image.height)
+	dest, dest_ok := wl_create_shared_memory_image("cursor", image.width, image.height)
 
-	if !buffer_ok {
+	if !dest_ok {
 		return {}, false
 	}
 
 	// Convert to ARGB and premultiply alpha
-	pixel_data := ([^]u32)(data)
 	for i in 0..<len(image.pixels) {
 		col := image.pixels[i]
 		a := u32(col.a)
 		r := u32(col.r) * a / 255
 		g := u32(col.g) * a / 255
 		b := u32(col.b) * a / 255
-		pixel_data[i] = a << 24 | r << 16 | g << 8 | b
+		dest.pixels[i] = a << 24 | r << 16 | g << 8 | b
 	}
 
 	surface := wl.compositor_create_surface(s.compositor)
-	wl.surface_attach(surface, buffer, 0, 0)
+	wl.surface_attach(surface, dest.buffer, 0, 0)
 
 	cursor := WL_Cursor {
-		surface   = surface,
-		hotspot   = hotspot,
-		width     = image.width,
-		height    = image.height,
-		buffer    = buffer,
-		data      = data,
-		data_size = data_size,
-		viewport  = wl.wp_viewporter_get_viewport(s.viewporter, surface),
+		surface  = surface,
+		hotspot  = hotspot,
+		width    = image.width,
+		height   = image.height,
+		image    = dest,
+		viewport = wl.wp_viewporter_get_viewport(s.viewporter, surface),
 	}
 
 	wl_apply_cursor_scale(&cursor)
@@ -1401,23 +1392,15 @@ wl_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor
 		log.errorf("Failed to create cursor. Error: %v", add_err)
 		wl.wp_viewport_destroy(cursor.viewport)
 		wl.surface_destroy(cursor.surface)
-		wl.buffer_destroy(cursor.buffer)
-		linux.munmap(cursor.data, uint(cursor.data_size))
+		wl_destroy_shared_memory_image(cursor.image)
 		return {}, false
 	}
 
 	return handle, true
 }
 
-// A cursor image is sized in physical pixels, like everything else in Karl2D, but a Wayland surface
-// is sized in logical pixels. Without this a 128x128 cursor would cover 256x256 physical pixels on
-// a 2x display, i.e. twice the size of a 128x128 sprite drawn by the game.
-//
-// The viewport makes the compositor scale the buffer down to the logical size that the image's
-// physical size corresponds to. We use a viewport rather than `wl_surface.set_buffer_scale`
-// because the latter only takes integers, so it cannot express a fractional scale, and because it
-// raises a protocol error unless the buffer size divides evenly by the scale, which would kill the
-// game for something as arbitrary as an odd-sized cursor image.
+// The image used by cursors are scaled the window scale. But the size given to compositor needs to
+// be the unscaled size. So this unscales the cursor and uses a wayland viewport to scale it.
 wl_apply_cursor_scale :: proc(cursor: ^WL_Cursor) {
 	// A destination of zero is a protocol error, so tiny cursors stay at one logical pixel.
 	dest_width := max(1, int(math.round(f32(cursor.width) / s.scale)))
@@ -1427,27 +1410,6 @@ wl_apply_cursor_scale :: proc(cursor: ^WL_Cursor) {
 	wl.surface_commit(cursor.surface)
 
 	cursor.built_for_scale = s.scale
-}
-
-// Puts `cursor` on screen. `serial` must come from the most recent pointer enter event. Used both
-// when the game sets a cursor and when the pointer re-enters the window, which is its own path
-// through the compositor and needs the same scaling applied.
-wl_point_at_cursor :: proc(cursor: ^WL_Cursor, serial: u32) {
-	// The scale can change while the game runs, for instance when the window is dragged to a
-	// monitor with different DPI settings.
-	if cursor.built_for_scale != s.scale {
-		wl_apply_cursor_scale(cursor)
-	}
-
-	// The hotspot is in surface-local (logical) coordinates, but Karl2D takes it in physical
-	// pixels, like the image it belongs to.
-	wl.pointer_set_cursor(
-		s.pointer,
-		serial,
-		cursor.surface,
-		c.int32_t(math.round(f32(cursor.hotspot.x) / s.scale)),
-		c.int32_t(math.round(f32(cursor.hotspot.y) / s.scale)),
-	)
 }
 
 wl_set_cursor :: proc(cursor: Cursor) {
@@ -1496,8 +1458,7 @@ wl_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 	// Detach from the surface before the buffer and its memory go away.
 	wl.wp_viewport_destroy(cd.viewport)
 	wl.surface_destroy(cd.surface)
-	wl.buffer_destroy(cd.buffer)
-	linux.munmap(cd.data, uint(cd.data_size))
+	wl_destroy_shared_memory_image(cd.image)
 	hm.remove(&s.custom_cursors, custom_cursor)
 
 	// Falls back to the default if that was the cursor on screen.
@@ -1507,6 +1468,11 @@ wl_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 wl_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^WL_State)(state)
+}
+
+WL_Toplevel_Icon :: struct {
+	icon: ^wl.XDG_Toplevel_Icon_V1,
+	image: WL_Shared_Memory_Image,
 }
 
 WL_Cursor :: struct {
@@ -1520,9 +1486,7 @@ WL_Cursor :: struct {
 
 	// The compositor may read from the buffer at any point while it is attached to the surface, so
 	// the buffer and its mapping have to stay alive for as long as the cursor does.
-	buffer: ^wl.Buffer,
-	data: rawptr,
-	data_size: int,
+	image: WL_Shared_Memory_Image,
 
 	// Scales the surface down from physical to logical pixels, see `wl_apply_cursor_scale`.
 	viewport: ^wl.WP_Viewport,
@@ -1594,17 +1558,8 @@ WL_State :: struct {
 	cursor_shape_manager: ^wl.WP_Cursor_Shape_Manager_V1,
 	cursor_shape_device:  ^wl.WP_Cursor_Shape_Device_V1,
 
-	// The window icon and the shm buffer it is drawn from. All nil on compositors that don't
-	// implement the icon protocol. See `wl_set_window_icon`.
 	toplevel_icon_manager: ^wl.XDG_Toplevel_Icon_Manager_V1,
-	toplevel_icon: ^wl.XDG_Toplevel_Icon_V1,
-	toplevel_icon_buffer: ^wl.Buffer,
-	toplevel_icon_data: rawptr,
-	toplevel_icon_data_size: int,
-
-	// Keeps the warning in `wl_set_window_icon` down to one. A compositor without the protocol
-	// never gains it while the game runs.
-	warned_about_missing_icon_protocol: bool,
+	toplevel_icon: WL_Toplevel_Icon,
 
 	// True if toplevel_listener.configure has run
 	configured: bool,
@@ -1618,8 +1573,7 @@ WL_State :: struct {
 	xkb_keymap: ^xkb.Keymap,
 	xkb_state: ^xkb.State,
 
-	// Key repeat is synthesized by us -- see `wl_get_events` -- since Wayland compositors don't
-	// send repeat events themselves.
+	// Key repeat is handled manually by our code, see `wl_get_events`.
 	repeat_rate: c.int32_t,
 	repeat_delay: c.int32_t,
 	repeat_key: Keyboard_Key,

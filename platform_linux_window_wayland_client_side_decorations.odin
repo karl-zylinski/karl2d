@@ -14,10 +14,8 @@ package karl2d
 // frame, to lay it out again after a resize, and to hand over the pointer events that landed on
 // it. Nothing in here talks to the compositor about anything but the frame.
 
-import "core:c"
 import "core:math"
 import "core:strings"
-import "core:sys/linux"
 import "base:runtime"
 import stbtt "vendor:stb/truetype"
 
@@ -130,9 +128,7 @@ WLCSD_Part :: struct {
 // until the compositor says it has finished reading it. Destroying a buffer before that leaves the
 // surface with undefined contents, which on screen is the frame vanishing for a frame.
 WLCSD_Buffer :: struct {
-	buffer: ^wl.Buffer,
-	pixels: [^]u32,
-	data_size: int,
+	image: WL_Shared_Memory_Image,
 	width: int,
 	height: int,
 	busy: bool,
@@ -267,20 +263,20 @@ wlcsd_init :: proc(
 		d.viewport = wl.wp_viewporter_get_viewport(win.viewporter, d.surface)
 	}
 
-	wlcsd_repaint_all(csd)
+	wlcsd_needs_repaint_all(csd)
 	return csd
 }
 
 // Says that the whole frame has to be laid out and painted again, which is what a resize or a scale
-// change means. Nothing is drawn here; `wlcsd_flush` does that once, before the next game frame.
-wlcsd_repaint_all :: proc(csd: ^WLCSD_State) {
+// change means. Nothing is drawn here; `wlcsd_paint` does that once, before the next game frame.
+wlcsd_needs_repaint_all :: proc(csd: ^WLCSD_State) {
 	csd.needs_paint = {.Titlebar, .Left, .Right, .Bottom}
 }
 
 // Says that the titlebar alone has to be painted again, for the things that change while the
 // window stays the same size: the title, whether the window has focus, and which button the
 // pointer is on.
-wlcsd_repaint_titlebar :: proc(csd: ^WLCSD_State) {
+wlcsd_needs_repaint_titlebar :: proc(csd: ^WLCSD_State) {
 	csd.needs_paint += {.Titlebar}
 }
 
@@ -291,14 +287,14 @@ wlcsd_set_toplevel_state :: proc(csd: ^WLCSD_State, active: bool, maximized: boo
 	csd.maximized = maximized
 
 	if changed {
-		wlcsd_repaint_all(csd)
+		wlcsd_needs_repaint_all(csd)
 	}
 }
 
 // Paints whatever has changed and puts it where it belongs. Called once per game frame, just
 // before the game draws its own, so that everything the frame commits is picked up by the same
 // commit that shows the game's next frame.
-wlcsd_flush :: proc(csd: ^WLCSD_State) {
+wlcsd_paint :: proc(csd: ^WLCSD_State) {
 	if csd.needs_paint == {} || csd.parts[.Titlebar].surface == nil {
 		return
 	}
@@ -327,7 +323,9 @@ wlcsd_flush :: proc(csd: ^WLCSD_State) {
 	}
 
 	for part in parts {
-		wlcsd_paint(csd, part)
+		if !wlcsd_paint_part(csd, part) {
+			csd.needs_paint += {part}
+		}
 	}
 
 	// The window is the game canvas with the titlebar on top, and neither the shadow nor the grip
@@ -364,7 +362,7 @@ wlcsd_set_title :: proc(csd: ^WLCSD_State, title: string) {
 
 	delete(csd.title, csd.win.allocator)
 	csd.title = strings.clone(title, csd.win.allocator)
-	wlcsd_repaint_titlebar(csd)
+	wlcsd_needs_repaint_titlebar(csd)
 }
 
 // Takes the icon to draw in front of the title. The image belongs to whoever passed it in and may
@@ -380,14 +378,14 @@ wlcsd_set_icon :: proc(csd: ^WLCSD_State, image: Image) {
 		height = image.height,
 	}
 
-	wlcsd_repaint_titlebar(csd)
+	wlcsd_needs_repaint_titlebar(csd)
 }
 
 // Works out where one part of the frame sits for the current window size, paints it and puts it
 // there. Positions are in logical pixels relative to the game canvas, so the titlebar has a
 // negative y since it hangs above the canvas, and every part reaches a shadow's width further out
 // again.
-wlcsd_paint :: proc(csd: ^WLCSD_State, part: WLCSD_Part_Type) {
+wlcsd_paint_part :: proc(csd: ^WLCSD_State, part: WLCSD_Part_Type) -> bool {
 	w := csd.win.last_configure_width
 	h := csd.win.last_configure_height
 	d := &csd.parts[part]
@@ -426,13 +424,13 @@ wlcsd_paint :: proc(csd: ^WLCSD_State, part: WLCSD_Part_Type) {
 	buffer_width := max(1, int(math.round(f32(d.width) * csd.win.scale)))
 	buffer_height := max(1, int(math.round(f32(d.height) * csd.win.scale)))
 
-	slot := wlcsd_take_buffer(csd, d, buffer_width, buffer_height)
+	slot := wlcsd_take_buffer(d, buffer_width, buffer_height)
 
 	if slot == nil {
-		return
+		return false
 	}
 
-	d.pixels = slot.pixels
+	d.pixels = raw_data(slot.image.pixels)
 	d.buffer_width = buffer_width
 	d.buffer_height = buffer_height
 
@@ -484,31 +482,31 @@ wlcsd_paint :: proc(csd: ^WLCSD_State, part: WLCSD_Part_Type) {
 	wlcsd_set_input_region(csd, d)
 	wl.subsurface_set_position(d.subsurface, i32(d.x), i32(d.y))
 	wl.wp_viewport_set_destination(d.viewport, i32(max(1, d.width)), i32(max(1, d.height)))
-	wl.surface_attach(d.surface, slot.buffer, 0, 0)
+	wl.surface_attach(d.surface, slot.image.buffer, 0, 0)
 	wl.surface_damage_buffer(d.surface, 0, 0, i32(buffer_width), i32(buffer_height))
 	wl.surface_commit(d.surface)
 	slot.busy = true
+	return true
 }
 
 // Finds a buffer of this size that the compositor is not reading, making one if none of the part's
 // slots holds it already. Handing back the buffer that is on screen would mean painting over what
 // the compositor is showing, and freeing it would leave the surface with nothing at all.
 wlcsd_take_buffer :: proc(
-	csd: ^WLCSD_State,
 	d: ^WLCSD_Part,
 	width: int,
 	height: int,
 ) -> ^WLCSD_Buffer {
 	for &slot in d.buffers {
-		if !slot.busy && slot.buffer != nil && slot.width == width && slot.height == height {
+		if !slot.busy && slot.image.buffer != nil && slot.width == width && slot.height == height {
 			return &slot
 		}
 	}
 
 	for &slot in d.buffers {
 		if !slot.busy {
-			wlcsd_make_buffer(csd, &slot, width, height)
-			return slot.buffer != nil ? &slot : nil
+			wlcsd_make_buffer(&slot, width, height)
+			return slot.image.buffer != nil ? &slot : nil
 		}
 	}
 
@@ -925,57 +923,23 @@ wlcsd_button_rect :: proc(
 // away first, which is safe because a slot is only ever passed here once the compositor has said
 // it has finished reading it.
 wlcsd_make_buffer :: proc(
-	csd: ^WLCSD_State,
 	slot: ^WLCSD_Buffer,
 	width: int,
 	height: int,
 ) {
-	if slot.buffer != nil {
-		wl.buffer_destroy(slot.buffer)
-		linux.munmap(slot.pixels, uint(slot.data_size))
-		slot^ = {}
-	}
+	wl_destroy_shared_memory_image(slot.image)
+	slot^ = {}
 
-	stride := width * 4
-	size := stride * height
+	image, image_ok := wl_create_shared_memory_image("karl2d-decoration", width, height)
 
-	fd, fd_err := linux.memfd_create("karl2d-decoration", {})
-	if fd_err != .NONE {
-		log.errorf("Failed making a window decoration: memfd failed with %v", fd_err)
+	if !image_ok {
 		return
 	}
 
-	// The compositor dups the fd in shm_create_pool, so we don't have to keep ours around.
-	defer linux.close(fd)
-
-	if trunc_err := linux.ftruncate(fd, i64(size)); trunc_err != .NONE {
-		log.errorf("Failed making a window decoration: ftruncate failed with %v", trunc_err)
-		return
-	}
-
-	data, mmap_err := linux.mmap(0, uint(size), {.READ, .WRITE}, {.SHARED}, fd, 0)
-	if mmap_err != .NONE {
-		log.errorf("Failed making a window decoration: mmap failed with %v", mmap_err)
-		return
-	}
-
-	pool := wl.shm_create_pool(csd.win.shm, c.int32_t(fd), c.int32_t(size))
-
-	slot.buffer = wl.shm_pool_create_buffer(
-		pool, 0,
-		c.int32_t(width), c.int32_t(height), c.int32_t(stride),
-		wl.SHM_FORMAT_ARGB8888,
-	)
-
-	// The pool can go away immediately: the mapping stays alive until every buffer made from it
-	// has been destroyed.
-	wl.shm_pool_destroy(pool)
-
-	slot.pixels = ([^]u32)(data)
-	slot.data_size = size
+	slot.image = image
 	slot.width = width
 	slot.height = height
-	wl.add_listener(slot.buffer, &wlcsd_buffer_listener, slot)
+	wl.add_listener(image.buffer, &wlcsd_buffer_listener, slot)
 }
 
 wlcsd_destroy :: proc(csd: ^WLCSD_State) {
@@ -992,10 +956,7 @@ wlcsd_destroy :: proc(csd: ^WLCSD_State) {
 
 		// The surfaces are gone, so the compositor is reading none of these whatever they say.
 		for &slot in d.buffers {
-			if slot.buffer != nil {
-				wl.buffer_destroy(slot.buffer)
-				linux.munmap(slot.pixels, uint(slot.data_size))
-			}
+			wl_destroy_shared_memory_image(slot.image)
 		}
 
 		d^ = {}
@@ -1164,7 +1125,7 @@ wlcsd_pointer_moved :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> bo
 
 	if button != csd.pointer_button {
 		csd.pointer_button = button
-		wlcsd_repaint_titlebar(csd)
+		wlcsd_needs_repaint_titlebar(csd)
 	}
 
 	if edge == csd.pointer_edge {
@@ -1181,7 +1142,7 @@ wlcsd_pointer_left :: proc(csd: ^WLCSD_State) {
 
 	if csd.pointer_button != .None {
 		csd.pointer_button = .None
-		wlcsd_repaint_titlebar(csd)
+		wlcsd_needs_repaint_titlebar(csd)
 	}
 
 	csd.pointer_edge = wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE

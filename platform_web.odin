@@ -12,6 +12,7 @@ PLATFORM_WEB :: Platform_Interface {
 	shutdown = web_shutdown,
 	get_window_render_glue = web_get_window_render_glue,
 	get_events = web_get_events,
+	before_present = web_before_present,
 	set_window_title = web_set_window_title,
 	set_screen_size = web_set_screen_size,
 	get_screen_width = web_get_screen_width,
@@ -376,6 +377,9 @@ KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
 	.Middle_Face_Left = 8, 
 	.Middle_Face_Middle = -1, 
 	.Middle_Face_Right = 9, 
+}
+
+web_before_present :: proc() {
 }
 
 web_get_events :: proc(events: ^[dynamic]Event) {

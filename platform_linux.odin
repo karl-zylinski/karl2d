@@ -22,6 +22,7 @@ PLATFORM_LINUX :: Platform_Interface {
 	shutdown = linux_shutdown,
 	get_window_render_glue = linux_get_window_render_glue,
 	get_events = linux_get_events,
+	before_present = linux_before_present,
 	set_window_title = linux_set_window_title,
 	set_screen_size = set_screen_size,
 	get_screen_width = linux_get_screen_width,
@@ -162,6 +163,10 @@ linux_shutdown :: proc() {
 
 linux_get_window_render_glue :: proc() -> Window_Render_Glue {
 	return s.win.get_window_render_glue()
+}
+
+linux_before_present :: proc() {
+	s.win.before_present()
 }
 
 linux_get_events :: proc(events: ^[dynamic]Event) {
@@ -754,6 +759,7 @@ Linux_Window_Interface :: struct #all_or_none {
 	shutdown: proc(),
 	get_window_render_glue: proc() -> Window_Render_Glue,
 	get_events: proc(events: ^[dynamic]Event),
+	before_present: proc(),
 	set_title: proc(title: string),
 	set_position: proc(x: int, y: int),
 	get_position: proc() -> Vec2,

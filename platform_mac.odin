@@ -23,6 +23,7 @@ PLATFORM_MAC :: Platform_Interface {
 	shutdown = mac_shutdown,
 	get_window_render_glue = mac_get_window_render_glue,
 	get_events = mac_get_events,
+	before_present = mac_before_present,
 	set_window_title = mac_set_window_title,
 	set_screen_size = mac_set_screen_size,
 	get_screen_width = mac_get_screen_width,
@@ -337,6 +338,9 @@ mac_shutdown :: proc() {
 
 mac_get_window_render_glue :: proc() -> Window_Render_Glue {
 	return s.window_render_glue
+}
+
+mac_before_present :: proc() {
 }
 
 mac_get_events :: proc(events: ^[dynamic]Event) {

@@ -11,6 +11,7 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	shutdown = x11_shutdown,
 	get_window_render_glue = x11_get_window_render_glue,
 	get_events = x11_get_events,
+	before_present = x11_before_present,
 	set_title = x11_set_title,
 	get_screen_width = x11_get_screen_width,
 	get_screen_height = x11_get_screen_height,
@@ -234,6 +235,9 @@ x11_shutdown :: proc() {
 
 x11_get_window_render_glue :: proc() -> Window_Render_Glue {
 	return s.window_render_glue
+}
+
+x11_before_present :: proc() {
 }
 
 x11_get_events :: proc(events: ^[dynamic]Event) {

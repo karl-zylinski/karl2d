@@ -40,7 +40,7 @@ create_gauntlet_cursor :: proc() -> k2.Custom_Cursor {
 }
 
 init :: proc() {
-	k2.init(1280, 720, "Karl2D Cursors Example")
+	k2.init(1280, 720, "Karl2D Cursors Example", { window_mode = .Windowed_Resizable })
 
 	gauntlet = create_gauntlet_cursor()
 	pointing_gauntlet = create_custom_cursor(#load("pointing_gauntlet.png"), {4, 5})
@@ -64,6 +64,10 @@ step :: proc() -> bool {
 
 	if k2.key_went_down(.X) {
 		selected = k2.Standard_Cursor.Default
+	}
+
+	if k2.key_went_down(.H) {
+		k2.set_cursor_hidden(!k2.is_cursor_hidden())
 	}
 
 	// Not every platform has all the standard cursors; some show the closest match.
@@ -109,9 +113,12 @@ step :: proc() -> bool {
 		k2.draw_text("G: gauntlet cursor", {20, 125}, 30, k2.GRAY)
 	}
 
+	hidden := k2.is_cursor_hidden()
+	k2.draw_text(hidden ? "Hidden (H)" : "Not Hidden (H)", {20, 160}, 30, hidden ? k2.RED : k2.GREEN)
+
 	if standard, is_standard := selected.(k2.Standard_Cursor); is_standard {
 		label := fmt.tprintf("Standard_Cursor.%v", standard)
-		k2.draw_text(label, {20, 175}, 40, k2.YELLOW)
+		k2.draw_text(label, {20, 200}, 40, k2.YELLOW)
 	}
 
 	k2.present()
