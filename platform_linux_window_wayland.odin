@@ -676,11 +676,13 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		if s.csd != nil && wlcsd_pointer_over_frame(s.csd) {
-			wlcsd_pointer_left(s.csd)
+		if s.csd != nil {
+			if wlcsd_pointer_over_frame(s.csd) {
+				wlcsd_pointer_left(s.csd)
+			}
+			
+			wlcsd_set_pointer_surface(s.csd, nil)
 		}
-
-		wlcsd_set_pointer_surface(s.csd, nil)
 	},
 	motion = proc "c" (
 		data: rawptr,
@@ -1626,4 +1628,3 @@ WL_State :: struct {
 }
 
 s: ^WL_State
-
