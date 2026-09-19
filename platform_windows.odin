@@ -22,6 +22,10 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	set_window_mode = windows_set_window_mode,
 	set_window_icon = windows_set_window_icon,
 
+	get_monitor_count = windows_get_monitor_count,
+	get_monitor_info = windows_get_monitor_info,
+	get_window_monitor = windows_get_window_monitor,
+
 	set_cursor_hidden = windows_set_cursor_hidden,
 	is_cursor_hidden = windows_is_cursor_hidden,
 	set_mouse_locked = windows_set_mouse_locked,
@@ -586,6 +590,78 @@ windows_set_window_icon :: proc(image: Image) -> bool {
 
 	s.hicon = hicon
 	return true
+}
+
+WINDOWS_MONITOR_COUNT_MAX :: 16
+
+Windows_Monitor_List :: struct {
+	items: [WINDOWS_MONITOR_COUNT_MAX]Monitor_Info,
+	handles: [WINDOWS_MONITOR_COUNT_MAX]win32.HMONITOR,
+	count: int,
+}
+
+windows_collect_monitors :: proc() -> Windows_Monitor_List {
+	list: Windows_Monitor_List
+	win32.EnumDisplayMonitors(nil, nil, windows_monitor_enum_proc, win32.LPARAM(uintptr(&list)))
+	return list
+}
+
+windows_monitor_enum_proc :: proc "system" (
+	hmonitor: win32.HMONITOR,
+	hdc: win32.HDC,
+	rect: win32.LPRECT,
+	lparam: win32.LPARAM,
+) -> win32.BOOL {
+	list := (^Windows_Monitor_List)(uintptr(lparam))
+
+	if list.count >= WINDOWS_MONITOR_COUNT_MAX {
+		return false
+	}
+
+	mi := win32.MONITORINFO { cbSize = size_of(win32.MONITORINFO) }
+
+	if !win32.GetMonitorInfoW(hmonitor, &mi) {
+		return true
+	}
+
+	list.items[list.count] = Monitor_Info {
+		size = {
+			int(mi.rcMonitor.right - mi.rcMonitor.left),
+			int(mi.rcMonitor.bottom - mi.rcMonitor.top),
+		},
+		position = {int(mi.rcMonitor.left), int(mi.rcMonitor.top)},
+	}
+
+	list.handles[list.count] = hmonitor
+	list.count += 1
+	return true
+}
+
+windows_get_monitor_count :: proc() -> int {
+	return windows_collect_monitors().count
+}
+
+windows_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	list := windows_collect_monitors()
+
+	if monitor < 0 || monitor >= list.count {
+		return {}, false
+	}
+
+	return list.items[monitor], true
+}
+
+windows_get_window_monitor :: proc() -> int {
+	hmonitor := win32.MonitorFromWindow(s.hwnd, .MONITOR_DEFAULTTONEAREST)
+	list := windows_collect_monitors()
+
+	for i in 0..<list.count {
+		if list.handles[i] == hmonitor {
+			return i
+		}
+	}
+
+	return 0
 }
 
 windows_set_cursor_hidden :: proc(hidden: bool) {

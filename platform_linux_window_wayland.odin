@@ -19,6 +19,9 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
 	set_window_icon = wl_set_window_icon,
+	get_monitor_count = wl_get_monitor_count,
+	get_monitor_info = wl_get_monitor_info,
+	get_window_monitor = wl_get_window_monitor,
 	set_cursor_hidden = wl_set_cursor_hidden,
 	is_cursor_hidden = wl_is_cursor_hidden,
 	set_mouse_locked = wl_set_mouse_locked,
@@ -140,6 +143,7 @@ wl_init :: proc(
 	s.toplevel = wl.xdg_surface_get_toplevel(s.xdg_surface)
 	wl.add_listener(s.toplevel, &toplevel_listener, nil)
 	wl.add_listener(s.xdg_surface, &window_listener, nil)
+	wl.add_listener(s.surface, &surface_listener, nil)
 
 	// Initialize the custom decorations before anything that draws or sizes the frame, since all
 	// of that goes through them. The first configure lays them out again around whatever size the
@@ -272,6 +276,21 @@ registry_listener := wl.Registry_Listener {
 				version,
 			)
 
+		case wl.output_interface.name:
+			if s.monitor_count < WL_MONITOR_COUNT_MAX {
+				output := wl.registry_bind(
+					wl.Output,
+					registry,
+					name,
+					&wl.output_interface,
+					version,
+				)
+
+				s.monitors[s.monitor_count] = { output = output }
+				s.monitor_count += 1
+				wl.add_listener(output, &output_listener, nil)
+			}
+
 		case wl.zxdg_decoration_manager_v1_interface.name:
 			s.decoration_manager = wl.registry_bind(
 				wl.ZXDG_Decoration_Manager_V1,
@@ -346,6 +365,83 @@ registry_listener := wl.Registry_Listener {
 		}
 	},
 	global_remove = proc "c" (data: rawptr, registry: ^wl.Registry, name: u32) {},
+}
+
+output_listener := wl.Output_Listener {
+	geometry = proc "c" (
+		data: rawptr,
+		output: ^wl.Output,
+		x: c.int32_t,
+		y: c.int32_t,
+		physical_width: c.int32_t,
+		physical_height: c.int32_t,
+		subpixel: c.int32_t,
+		make: cstring,
+		model: cstring,
+		transform: c.int32_t,
+	) {
+		context = s.odin_ctx
+		monitor := wl_find_monitor(output)
+
+		if monitor != nil {
+			monitor.position = {int(x), int(y)}
+		}
+	},
+
+	mode = proc "c" (
+		data: rawptr,
+		output: ^wl.Output,
+		flags: u32,
+		width: c.int32_t,
+		height: c.int32_t,
+		refresh: c.int32_t,
+	) {
+		context = s.odin_ctx
+
+		if (flags & wl.OUTPUT_MODE_CURRENT) == 0 {
+			return
+		}
+
+		monitor := wl_find_monitor(output)
+
+		if monitor != nil {
+			monitor.size = {int(width), int(height)}
+			monitor.got_mode = true
+		}
+	},
+
+	done = proc "c" (data: rawptr, output: ^wl.Output) {},
+	scale = proc "c" (data: rawptr, output: ^wl.Output, factor: c.int32_t) {},
+	name = proc "c" (data: rawptr, output: ^wl.Output, name: cstring) {},
+	description = proc "c" (data: rawptr, output: ^wl.Output, description: cstring) {},
+}
+
+wl_find_monitor :: proc(output: ^wl.Output) -> ^WL_Monitor {
+	for &monitor in s.monitors[:s.monitor_count] {
+		if monitor.output == output {
+			return &monitor
+		}
+	}
+
+	return nil
+}
+
+surface_listener := wl.Surface_Listener {
+	enter = proc "c" (data: rawptr, surface: ^wl.Surface, output: ^wl.Output) {
+		context = s.odin_ctx
+		s.current_output = output
+	},
+
+	leave = proc "c" (data: rawptr, surface: ^wl.Surface, output: ^wl.Output) {
+		context = s.odin_ctx
+
+		if s.current_output == output {
+			s.current_output = nil
+		}
+	},
+
+	preferred_buffer_scale = proc "c" (data: rawptr, surface: ^wl.Surface, factor: c.int32_t) {},
+	preferred_buffer_transform = proc "c" (data: rawptr, surface: ^wl.Surface, transform: u32) {},
 }
 
 seat_listener := wl.Seat_Listener {
@@ -1107,6 +1203,54 @@ wl_destroy_toplevel_icon :: proc(icon: WL_Toplevel_Icon) {
 	wl_destroy_shared_memory_image(icon.image)
 }
 
+wl_get_monitor_count :: proc() -> int {
+	count := 0
+
+	for monitor in s.monitors[:s.monitor_count] {
+		if monitor.got_mode {
+			count += 1
+		}
+	}
+
+	return count
+}
+
+wl_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	seen := 0
+
+	for m in s.monitors[:s.monitor_count] {
+		if !m.got_mode {
+			continue
+		}
+
+		if seen == monitor {
+			return Monitor_Info { size = m.size, position = m.position }, true
+		}
+
+		seen += 1
+	}
+
+	return {}, false
+}
+
+wl_get_window_monitor :: proc() -> int {
+	seen := 0
+
+	for m in s.monitors[:s.monitor_count] {
+		if !m.got_mode {
+			continue
+		}
+
+		if m.output == s.current_output {
+			return seen
+		}
+
+		seen += 1
+	}
+
+	return 0
+}
+
 wl_set_cursor_hidden :: proc(hidden: bool) {
 	s.cursor_hidden = hidden
 	wl_apply_cursor()
@@ -1493,8 +1637,21 @@ WL_Cursor :: struct {
 	built_for_scale: f32,
 }
 
+WL_Monitor :: struct {
+	output: ^wl.Output,
+	position: [2]int,
+	size: [2]int,
+	got_mode: bool,
+}
+
+WL_MONITOR_COUNT_MAX :: 16
+
 WL_State :: struct {
 	allocator: runtime.Allocator,
+
+	monitors: [WL_MONITOR_COUNT_MAX]WL_Monitor,
+	monitor_count: int,
+	current_output: ^wl.Output,
 
 	screen_width: int,
 	screen_height: int,

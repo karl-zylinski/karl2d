@@ -34,6 +34,10 @@ PLATFORM_MAC :: Platform_Interface {
 	set_window_mode = mac_set_window_mode,
 	set_window_icon = mac_set_window_icon,
 
+	get_monitor_count = mac_get_monitor_count,
+	get_monitor_info = mac_get_monitor_info,
+	get_window_monitor = mac_get_window_monitor,
+
 	set_cursor_hidden = mac_set_cursor_hidden,
 	is_cursor_hidden = mac_is_cursor_hidden,
 	set_mouse_locked = mac_set_mouse_locked,
@@ -885,6 +889,40 @@ mac_set_window_icon :: proc(image: Image) -> bool {
 	s.icon = ns_image
 	s.icon_pixels = pixels
 	return true
+}
+
+mac_get_monitor_count :: proc() -> int {
+	return int(NS.Array_count(NS.Screen_screens()))
+}
+
+mac_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	screens := NS.Screen_screens()
+
+	if monitor < 0 || monitor >= int(NS.Array_count(screens)) {
+		return {}, false
+	}
+
+	screen := NS.Array_objectAs(screens, NS.UInteger(monitor), ^NS.Screen)
+	scale := f32(screen->backingScaleFactor())
+	frame := screen->frame()
+
+	return Monitor_Info {
+		size = {int(f32(frame.width) * scale), int(f32(frame.height) * scale)},
+		position = {int(frame.x), int(frame.y)},
+	}, true
+}
+
+mac_get_window_monitor :: proc() -> int {
+	window_screen := s.window->screen()
+	screens := NS.Screen_screens()
+
+	for i in 0..<int(NS.Array_count(screens)) {
+		if NS.Array_objectAs(screens, NS.UInteger(i), ^NS.Screen) == window_screen {
+			return i
+		}
+	}
+
+	return 0
 }
 
 mac_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {

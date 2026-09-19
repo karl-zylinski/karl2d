@@ -28,6 +28,10 @@ Platform_Interface :: struct #all_or_none {
 	set_window_mode: proc(window_mode: Window_Mode),
 	set_window_icon: proc(image: Image) -> bool,
 
+	get_monitor_count: proc() -> int,
+	get_monitor_info: proc(monitor: int) -> (Monitor_Info, bool),
+	get_window_monitor: proc() -> int,
+
 	set_cursor_hidden: proc(hidden: bool),
 	is_cursor_hidden: proc() -> bool,
 	set_mouse_locked: proc(locked: bool),
@@ -43,6 +47,11 @@ Platform_Interface :: struct #all_or_none {
 	open_url: proc(url: string) -> bool,
 
 	set_internal_state: proc(state: rawptr),
+}
+
+Monitor_Info :: struct {
+	size: [2]int,
+	position: [2]int,
 }
 
 Window_Render_Glue_State :: struct {}

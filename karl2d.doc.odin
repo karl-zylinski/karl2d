@@ -180,6 +180,18 @@ set_window_mode :: proc(window_mode: Window_Mode)
 // Returns `true` if the icon was set.
 set_window_icon :: proc(image: Image) -> bool
 
+get_monitor_count :: proc() -> int
+
+get_monitor_width :: proc(monitor: int) -> int
+
+get_monitor_height :: proc(monitor: int) -> int
+
+get_monitor_size :: proc(monitor: int) -> Vec2
+
+get_monitor_position :: proc(monitor: int) -> Vec2
+
+get_window_monitor :: proc() -> int
+
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
 // procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
 // call this procedure manually. It is done automatically when `present` or `clear` run. It can also
