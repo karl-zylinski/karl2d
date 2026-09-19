@@ -7,7 +7,7 @@ Read this before starting and go through it again before saying the work is done
 When you report on the checklist, write only the items that made you do something: the ones that changed the code, or that you had to act on to satisfy. Say nothing about the rest. A report that walks the whole list buries the few lines that matter in lines nobody needs to read.
 
 - Write procedural, imperative code. A long procedure beats splitting the work across small ones.
-- No comment says how the code used to work or what a change improved. The reader has only ever seen the current version.
+- Never write a comment. A comment your change makes wrong gets a `// TODO-UPDATE-COMMENT` marker above it, ending with a `// ---` line.
 - Try to keep the diff small: Don't move and reorder whole procedures for no good reason.
 - No unrelated code touched, no auto-formatter output, no whitespace changed on lines not otherwise being changed.
 - If you need to do breaking changes, then add `@(deprecated)` on old version, if possible.
@@ -16,7 +16,6 @@ When you report on the checklist, write only the items that made you do somethin
 - Handles use the zero value `<TYPE>_NONE`, never `Maybe`. Code that runs every frame guards with `!= <TYPE>_NONE`.
 - Named return values either drive naked returns, in which case they start with `_`, or say what a returned value is. Never assigned to either way.
 - Multi-return results are named `thing_err` and `thing_ok`, never `err_thing`.
-- Boxed section comments appear only in `karl2d.odin`.
 - Tabs for indentation. At most 100 characters per line in `.odin` files. Markdown files should not have hard linebreaks, we'll use wrapping in editor for those.
 - No single line `if` bodies. No spaces in `0..<n` or around the `=` in an attribute.
 - Anything that does not fit on one line is split one item per line, each ending with a comma, closing bracket on its own line. Return value lists split the same way.
@@ -119,20 +118,29 @@ Cut it down to what the change actually touches. A list full of lines nobody nee
 - Log messages follow "Failed <doing> <thing>. Error: %v" or "Cannot <verb>, <thing> does not exist.". In platform backends it is also fine to name the failing OS call: "CreateIconIndirect failed with %v".
 
 ### Comments
-- Use short sentences. Prefer a period over all other forms of punctuation
-- Never write about how something used to work, or about what a change improved. The reader has only ever seen the current version.
-- Don't duplicate information on a procedure and on a struct that the procedure uses. Put it on the procedure if unsure where to put it.
+- Never write a comment. Karl writes every comment in this project himself, because reading the uncommented code and then writing the comments is how he reviews the work. A comment written by an agent takes that review away from him, and it can quietly assert something the code does not do.
+- That covers every kind of comment: explanatory comments, section comments inside a long procedure, doc comments above a procedure, and comments in code you are only modifying rather than writing from scratch.
+- When your change makes a comment that was already there wrong, do not rewrite it. Put a marker block directly above it, saying what is out of date, and end the block with a `// ---` line so it is easy to see where the note stops and the old comment starts:
+
+  ```
+  // TODO-UPDATE-COMMENT this procedure now does blablabla
+  // ---
+  // The old comment that is no longer accurate.
+  ```
+
+  Without the `// ---` line a multi-line marker runs straight into the old comment and the two are hard to tell apart. Karl updates the comment himself as part of reviewing.
+- Merging several procedures into one does not let their old comments come along. Choosing where a comment now lives, and which of its sentences still apply, is writing a comment. A comment that sits on a line that moves unchanged, a comment above an `if` say, stays with that line. A comment whose home is deleted, such as a procedure header, is deleted with it, and Karl writes whatever the merged procedure needs.
+- There is one exception. When a rename makes a comment wrong only because it spells out an identifier that no longer exists, rename the identifier inside the comment text instead of adding a marker block. The claim the comment makes is unchanged, only the name it points at. A marker block is still the right thing whenever the comment now says something the code no longer does.
 
 ### File organization
 - Group related procedures and types together.
-- Separate the groups with section comments as in `karl2d.odin`: a dash line, a centered text line, and another dash line, with the dashes matching the width of the text:
+- `karl2d.odin` separates its groups with boxed section comments: a dash line, a centered text line, and another dash line, with the dashes matching the width of the text:
   ```
   //-------//
   // INPUT //
   //-------//
   ```
-- Those boxed section comments belong to `karl2d.odin` only. They organize the public API documentation. Do not use them in any other file, no matter how long it gets: platform backends, bindings and examples group their declarations without them.
-- Long procedures can be split up with short ALL-CAPS section comments: `// CAMERA PANNING`, `// DRAW WORLD` (see `examples/camera/camera.odin`).
+- They organize the public API documentation and they belong to `karl2d.odin` only. Put a new procedure in the section it belongs to. Do not write new boxed sections, there or in any other file, no matter how long it gets: they are comments, so the Comments section above applies to them too.
 
 ### Handles use a zero value, not `Maybe`
 - Every handle type has a `<TYPE>_NONE` constant that is just its zero value (`TEXTURE_NONE`, `SOUND_NONE`, `CUSTOM_CURSOR_NONE`, ...). Declare one next to the type. Do not wrap handles in `Maybe` to express "none", and do not add a separate `bool` for whether a handle is set.
