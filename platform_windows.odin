@@ -107,6 +107,10 @@ windows_init :: proc(
 
 	win32.AdjustWindowRectExForDpi(&initial_rect, windows_get_style(options.window_mode), false, {}, dpix)
 
+	s.window_mode = options.window_mode
+	s.restore_screen_width = s.screen_width
+	s.restore_screen_height = s.screen_height
+
 	// We create a window with default position and size. We set the correct size in
 	// `windows_set_window_mode`.
 	s.hwnd = win32.CreateWindowW(
@@ -120,6 +124,16 @@ windows_init :: proc(
 	)
 
 	assert(s.hwnd != nil, "Failed creating window")
+	
+	// Get a sensible value for the restore_window_pos even in case we are gonna use fullscreen.
+	// Do this before `windows_set_window_mode`, otherwise the borderless fullscreen mode will move
+	// it to top-left screen position.
+	initial_pos := win32.POINT{0, 0}
+
+	if win32.ClientToScreen(s.hwnd, &initial_pos) {
+		s.restore_window_pos_x = int(initial_pos.x)
+		s.restore_window_pos_y = int(initial_pos.y)
+	}
 
 	windows_set_window_mode(options.window_mode)
 	
@@ -509,7 +523,10 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 	switch window_mode {
 	case .Windowed, .Windowed_Resizable:
 		r: win32.RECT
-		set_window_pos_style: win32.DWORD = win32.SWP_NOACTIVATE | win32.SWP_NOZORDER
+		set_window_pos_style: win32.DWORD =
+			win32.SWP_NOACTIVATE |
+			win32.SWP_NOZORDER |
+			win32.SWP_FRAMECHANGED
 
 		if old_window_mode == .Borderless_Fullscreen {
 			r.left = i32(s.restore_window_pos_x)
