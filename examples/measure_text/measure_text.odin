@@ -4,6 +4,7 @@ package karl2d_measure_text_example
 // - https://fonts.google.com/specimen/Josefin+Slab
 // - https://fonts.google.com/specimen/Merienda
 // - https://fonts.google.com/specimen/Momo+Trust+Display
+// - https://github.com/ACh-K/Cubic-11
 // These fonts are licensed under the SIL Open Font License, Version 1.1
 // - Link: https://openfontlicense.org
 // - File: OFL.txt
@@ -21,9 +22,10 @@ Font :: struct {
 
 fonts := [?] Font {
 	{ name="<Default>" },
-	{ name="Momo Trust Display", 	bytes=#load("MomoTrustDisplay-Regular.ttf") },
-	{ name="Josefin Slab", 			bytes=#load("JosefinSlab-Bold.ttf") },
-	{ name="Merienda", 				bytes=#load("Merienda-Bold.ttf") },
+	{ name="Momo Trust Display", bytes=#load("MomoTrustDisplay-Regular.ttf") },
+	{ name="Josefin Slab",       bytes=#load("JosefinSlab-Bold.ttf") },
+	{ name="Merienda",           bytes=#load("Merienda-Bold.ttf") },
+	{ name="Cubic 11",           bytes=#load("Cubic_11.ttf") },
 }
 
 current_font_idx: int
@@ -33,9 +35,11 @@ init :: proc() {
 	k2.init(1280, 720, "Karl2D Measure Text Example", { window_mode = .Windowed_Resizable })
 
 	for &f in fonts {
-		f.font = f.bytes != nil\
-			? k2.load_dynamic_font_from_bytes(f.bytes)\
-			: k2.FONT_DEFAULT
+		if f.bytes == nil {
+			f.font = k2.FONT_DEFAULT
+		} else {
+			f.font = k2.load_dynamic_font_from_bytes(f.bytes)
+		}
 	}
 }
 
@@ -45,9 +49,7 @@ step :: proc() -> bool {
 	}
 
 	UI_FONT_SIZE :: 30
-	screen_size := Vec2 { f32(k2.get_screen_width()), f32(k2.get_screen_height()) }
-	frame_time := k2.get_frame_time()
-
+	screen_size := k2.get_screen_size()
 	k2.clear(k2.LIGHT_BROWN)
 
 	// FONT SELECTOR
@@ -55,10 +57,10 @@ step :: proc() -> bool {
 		for f, i in fonts {
 			text := fmt.tprintf("%i. %s", i+1, f.name)
 			pos := Vec2 { 40, 30 + f32(i)*UI_FONT_SIZE }
-
 			i_key_n := k2.Keyboard_Key(i + int(k2.Keyboard_Key.N1))
 			i_key_np := k2.Keyboard_Key(i + int(k2.Keyboard_Key.NP_1))
-			if k2.key_went_down(i_key_n) ||k2.key_went_down(i_key_np)  {
+
+			if k2.key_went_down(i_key_n) ||k2.key_went_down(i_key_np) {
 				current_font_idx = i
 			}
 
@@ -78,7 +80,7 @@ step :: proc() -> bool {
 		if k2.key_is_held(.Minus) || k2.key_is_held(.NP_Subtract)	{ sign = -1 }
 		if sign != 0 {
 			FONT_SIZE_CHANGE_SPEED :: 20 // in px/sec
-			current_font_size += sign * FONT_SIZE_CHANGE_SPEED * frame_time
+			current_font_size += sign * FONT_SIZE_CHANGE_SPEED * k2.get_frame_time()
 			current_font_size = clamp(current_font_size, 10, 100)
 		}
 
@@ -105,6 +107,7 @@ step :: proc() -> bool {
 			}
 		}
 
+
 		for text, i in ([?] string {
 			"000,0,000",
 			" 000,1,000 ",
@@ -118,8 +121,16 @@ step :: proc() -> bool {
 			k2.draw_text(text, pos1, current_font_size, k2.BLACK, font)
 		}
 
-		pos = { LEFT+400, pos.y + 2*current_font_size }
-		text := "/*\nHellöpe Karl2D!\nNext line goes here\nAnd one more\n*/"
+		add_chinese_japanese := current_font_idx == 4
+
+		pos = { LEFT+8*current_font_size, pos.y + 2*current_font_size }
+		DEFAULT_TEXT :: "Hellöpe Karl2D!\nNext line goes here\nAnd one more"
+		text := DEFAULT_TEXT
+
+		if add_chinese_japanese {
+			text = DEFAULT_TEXT + "\n道可道非常道。\n义、礼、说、选、权吾輩は猫である。"
+		}
+
 		size := k2.measure_text(text, current_font_size, font)
 		k2.draw_rect_vec(pos, size, k2.LIGHT_RED)
 		k2.draw_text(text, pos, current_font_size, k2.BLACK, font)
