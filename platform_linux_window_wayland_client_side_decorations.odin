@@ -1,18 +1,10 @@
+// This file implements a window decorations: A frame with buttons and a titlebar. It's used on
+// Linux + Wayland when there are no server-side decorations. If you use for example KDE then the
+// Wayland server draws the frame for you. But under GNOME this does not happen. The we instead
+// implement so-called client-side decorations (CSD): The application draws the frame.
+
 #+build linux
 package karl2d
-
-// The window frame Karl2D draws for itself, on Wayland compositors that draw none. GNOME is the
-// one that matters: it has no zxdg_decoration_manager_v1 and expects every window to come with its
-// own titlebar and borders.
-//
-// The frame is four subsurfaces of the surface the game renders into, with shared memory buffers
-// filled on the CPU. Keeping it out of the game's own surface is what lets every render backend
-// carry on knowing nothing about any of this, and it means the compositor moves the frame along
-// with the window for free.
-//
-// `platform_linux_window_wayland.odin` owns the window and the input; it calls in here to make the
-// frame, to lay it out again after a resize, and to hand over the pointer events that landed on
-// it. Nothing in here talks to the compositor about anything but the frame.
 
 import "core:math"
 import "core:strings"
@@ -23,19 +15,11 @@ import "log"
 import "platform_bindings/linux/dbus"
 import wl "platform_bindings/linux/wayland"
 
-// The frame Karl2D draws where the compositor draws none, in logical pixels. There is no border
-// around the game canvas: it runs right to the window's edge on the three sides that have no
-// titlebar, and what sets the window apart from the desktop is the shadow it casts.
+// These measurements are in "logical pixels". They are automatically scaled.
 WLCSD_TITLEBAR_HEIGHT :: 32
-
-// How far the shadow spreads from the window, in logical pixels.
 WLCSD_SHADOW_REACH :: 43
 
-// How dark the shadow is at a given distance from the window: `a*exp(-b*distance) + c`, distance
-// in logical pixels. Adwaita's shadow is a stack of CSS box shadows, which is nothing a CPU
-// rasterizer wants to reproduce, so these are the curve sctk-adwaita fitted to a screenshot of a
-// real Adwaita window and draws its own Wayland decorations with. Straight black, and the same in
-// both color schemes, which is how GNOME does it.
+// How dark the shadow is at a given distance from the window: `a*exp(-b*distance) + c`.
 WLCSD_Shadow :: struct {
 	a: f32,
 	b: f32,
@@ -54,56 +38,46 @@ WLCSD_SHADOW_UNFOCUSED :: WLCSD_Shadow {
 	c = 0.0017697986,
 }
 
-// How far outside the window the pointer can still grab an edge to resize. Well inside the shadow,
-// and the only part of the shadow that takes pointer events at all: the rest lets clicks through
-// to whatever is behind the window. GTK uses the same twelve pixels.
+// How far outside the window the pointer can still grab an edge to resize.
 WLCSD_RESIZE_MARGIN :: 12
 
-// A titlebar button, and how much room it takes, in logical pixels. `glyph` is the box the drawing
-// inside it fits in, `stroke` how wide the lines of that drawing are, and `inset` how far the
-// button keeps away from the edges of its share of the titlebar, so that the lit background under
-// the pointer does not run into the next button along.
 WLCSD_BUTTON_WIDTH :: 32
-WLCSD_BUTTON_GLYPH :: 12
+WLCSD_BUTTON_ICON_SIZE :: 12
 WLCSD_BUTTON_STROKE :: 1.2
 WLCSD_BUTTON_INSET :: 4
 
-// How tall the title is drawn, in logical pixels, and how much room is left either side of it
-// before it is left out entirely.
-WLCSD_TITLE_SIZE :: 15
-WLCSD_TITLE_PADDING :: 8
+WLCSD_TITLE_FONT_SIZE :: 15
+WLCSD_TITLE_HORIZONTAL_MARGIN :: 8
 
-// The window icon, in logical pixels: the box it is drawn in and the gap it keeps to the title it
-// sits in front of. Sixteen pixels is the size a desktop draws a window icon at.
 WLCSD_ICON_SIZE :: 16
-WLCSD_ICON_GAP :: 6
+WLCSD_ICON_HORIZONTAL_MARGIN :: 6
 
-// What the frame is painted with. The fill covers the titlebar, `text` draws the title and the
-// button glyphs, and `hover` lights up the button under the pointer. Premultiplied ARGB, the
-// format the decoration buffers are in.
-WLCSD_Colors :: struct {
+// The colors to paint with. Fill is the background. Text is the text color. Hover if the color that
+// you see when you hover the titlebar buttons.
+WLCSD_Theme :: struct {
 	fill: u32,
 	text: u32,
 	hover: u32,
 }
 
-WLCSD_COLORS_DARK :: WLCSD_Colors {
+WLCSD_THEME_DARK :: WLCSD_Theme {
 	fill = 0xff2e2e2e,
 	text = 0xffdadada,
 	hover = 0xff474747,
 }
 
-WLCSD_COLORS_LIGHT :: WLCSD_Colors {
+WLCSD_THEME_LIGHT :: WLCSD_Theme {
 	fill = 0xfff6f6f6,
 	text = 0xff303030,
 	hover = 0xffe0e0e0,
 }
 
-// One part of the window frame Karl2D draws for itself. Each is a subsurface of the surface the
-// game renders into, with a shared memory buffer that we fill on the CPU.
+// A part of the window frame, such as the titlebar or one of the sides.
 WLCSD_Part :: struct {
 	surface: ^wl.Surface,
 	subsurface: ^wl.Subsurface,
+
+	// Karl: Continue review here.
 
 	// Scales the buffer down from physical to logical pixels, like the one a cursor has.
 	viewport: ^wl.WP_Viewport,
@@ -113,7 +87,7 @@ WLCSD_Part :: struct {
 	buffers: [3]WLCSD_Buffer,
 
 	// The buffer being painted into right now, and its size in physical pixels.
-	pixels: [^]u32,
+	pixels: []u32,
 	buffer_width: int,
 	buffer_height: int,
 
@@ -175,7 +149,7 @@ WLCSD_State :: struct {
 	win: ^WL_State,
 
 	parts: [WLCSD_Part_Type]WLCSD_Part,
-	colors: WLCSD_Colors,
+	colors: WLCSD_Theme,
 
 	pointer_surface: ^wl.Surface,
 
@@ -430,7 +404,7 @@ wlcsd_paint_part :: proc(csd: ^WLCSD_State, part: WLCSD_Part_Type) -> bool {
 		return false
 	}
 
-	d.pixels = raw_data(slot.image.pixels)
+	d.pixels = slot.image.pixels
 	d.buffer_width = buffer_width
 	d.buffer_height = buffer_height
 
@@ -551,14 +525,14 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part) {
 	}
 
 	font := &csd.font
-	scale_factor := stbtt.ScaleForPixelHeight(font, WLCSD_TITLE_SIZE * csd.win.scale)
+	scale_factor := stbtt.ScaleForPixelHeight(font, WLCSD_TITLE_FONT_SIZE * csd.win.scale)
 
 	// Everything below is in the titlebar's own physical pixels. `left` and `right` are as far as
 	// the title may reach: the window's left edge on one side and the first button on the other.
 	buttons := wlcsd_button_rect(csd, max(WLCSD_Button))
-	padding := int(math.round(WLCSD_TITLE_PADDING * csd.win.scale))
-	left := int(math.round(f32(-d.x) * csd.win.scale)) + padding
-	right := int(math.round(f32(buttons.x - d.x) * csd.win.scale)) - padding
+	horizontal_margin := int(math.round(WLCSD_TITLE_HORIZONTAL_MARGIN * csd.win.scale))
+	left := int(math.round(f32(-d.x) * csd.win.scale)) + horizontal_margin
+	right := int(math.round(f32(buttons.x - d.x) * csd.win.scale)) - horizontal_margin
 
 	if right <= left {
 		return
@@ -579,7 +553,7 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part) {
 
 	if len(csd.icon.pixels) > 0 {
 		icon_size = int(math.round(WLCSD_ICON_SIZE * csd.win.scale))
-		icon_room = icon_size + int(math.round(WLCSD_ICON_GAP * csd.win.scale))
+		icon_room = icon_size + int(math.round(WLCSD_ICON_HORIZONTAL_MARGIN * csd.win.scale))
 	}
 
 	// Centered on the window itself rather than on the room beside the buttons, so that it sits
@@ -793,7 +767,7 @@ wlcsd_paint_button :: proc(
 
 	center_x := f32(x0 + x1)/2
 	center_y := f32(y0 + y1)/2
-	reach := WLCSD_BUTTON_GLYPH/2 * csd.win.scale
+	reach := WLCSD_BUTTON_ICON_SIZE/2 * csd.win.scale
 	half_stroke := WLCSD_BUTTON_STROKE/2 * csd.win.scale
 	color := wlcsd_text_color(csd)
 
@@ -975,17 +949,17 @@ wlcsd_destroy :: proc(csd: ^WLCSD_State) {
 //
 // This is read once, while the window is being made. A player who switches their desktop between
 // dark and light while the game runs keeps the frame they started with.
-wlcsd_desktop_colors :: proc() -> WLCSD_Colors {
+wlcsd_desktop_colors :: proc() -> WLCSD_Theme {
 	if missing, load_ok := dbus.load(); !load_ok {
 		log.debugf("Using light window decorations. Could not load %v.", missing)
-		return WLCSD_COLORS_LIGHT
+		return WLCSD_THEME_LIGHT
 	}
 
 	connection := dbus.bus_get_private(.Session, nil)
 
 	if connection == nil {
 		log.debug("Using light window decorations. Could not connect to the session bus.")
-		return WLCSD_COLORS_LIGHT
+		return WLCSD_THEME_LIGHT
 	}
 
 	// Tell libdbus to leave the process alone when the bus goes away. It ends the game itself
@@ -1004,13 +978,13 @@ wlcsd_desktop_colors :: proc() -> WLCSD_Colors {
 	dbus.connection_unref(connection)
 
 	if result != .Value {
-		return WLCSD_COLORS_LIGHT
+		return WLCSD_THEME_LIGHT
 	}
 
 	// 1 asks for dark, 2 asks for light and 0 is a desktop with no opinion. No opinion means light
 	// in practice: GNOME sets the preference to dark when its dark style is picked and back to
 	// nothing when its light one is, so anything but an explicit 1 belongs in the light scheme.
-	return scheme == 1 ? WLCSD_COLORS_DARK : WLCSD_COLORS_LIGHT
+	return scheme == 1 ? WLCSD_THEME_DARK : WLCSD_THEME_LIGHT
 }
 
 WL_Portal_Result :: enum {
