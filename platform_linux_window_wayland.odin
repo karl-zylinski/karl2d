@@ -698,11 +698,11 @@ pointer_listener := wl.Pointer_Listener {
 		s.pointer_y = surface_y
 
 		if s.csd != nil && wlcsd_pointer_over_frame(s.csd) {
-			if wlcsd_pointer_moved(
-				s.csd,
-				wl.fixed_to_f32(surface_x),
-				wl.fixed_to_f32(surface_y),
-			) {
+			local_x := wl.fixed_to_f32(surface_x)
+			local_y := wl.fixed_to_f32(surface_y)
+			wlcsd_pointer_moved(s.csd, local_x, local_y)
+
+			if wlcsd_cursor(s.csd, local_x, local_y) != s.last_csd_cursor {
 				wl_apply_cursor()
 			}
 
@@ -1208,7 +1208,13 @@ wl_apply_cursor :: proc() {
 
 	// Let CSD frame dictate cursor if we are over the frame.
 	if s.csd != nil && wlcsd_pointer_over_frame(s.csd) {
-		cursor = wlcsd_cursor(s.csd)
+		s.last_csd_cursor = wlcsd_cursor(
+			s.csd,
+			wl.fixed_to_f32(s.pointer_x),
+			wl.fixed_to_f32(s.pointer_y),
+		)
+
+		cursor = s.last_csd_cursor
 	} else {
 		if s.cursor_hidden {
 			wl.pointer_set_cursor(s.pointer, s.pointer_enter_serial, nil, 0, 0)
@@ -1285,6 +1291,8 @@ wl_apply_cursor :: proc() {
 WL_Shared_Memory_Image :: struct {
 	buffer: ^wl.Buffer,
 	pixels: []u32,
+	width: int,
+	height: int,
 }
 
 // Creates a `width` x `height` ARGB buffer that the compositor can use. The compositor is a
@@ -1340,6 +1348,8 @@ wl_create_shared_memory_image :: proc(
 	image := WL_Shared_Memory_Image {
 		buffer = buffer,
 		pixels = ([^]u32)(data)[:width*height],
+		width = width,
+		height = height,
 	}
 
 	return image, true
@@ -1523,6 +1533,10 @@ WL_State :: struct {
 
 	// Client Side Decorations: Custom decorations that we paint ourselves on for example GNOME.
 	csd: ^WLCSD_State,
+
+	// If `csd` is not nil, then this stores the most recent cursor that it returned.
+	last_csd_cursor: Standard_Cursor,
+
 	fractional_scale_manager: ^wl.WP_Fractional_Scale_Manager_V1,
 
 	xdg_base: ^wl.XDG_WM_Base,

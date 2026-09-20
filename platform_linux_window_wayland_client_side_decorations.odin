@@ -77,41 +77,35 @@ WLCSD_Part :: struct {
 	surface: ^wl.Surface,
 	subsurface: ^wl.Subsurface,
 
-	// Karl: Continue review here.
-
-	// Scales the buffer down from physical to logical pixels, like the one a cursor has.
+	// Scales the buffer down from physical to logical pixels.
 	viewport: ^wl.WP_Viewport,
 
-	// A part paints into one buffer while the compositor may still be reading the one before it, so
-	// it keeps a few. Two are enough in practice; the third is headroom.
-	buffers: [3]WLCSD_Buffer,
+	// A part of the frame may still be read by compositor when we want to paint a new one. Having
+	// three seems to be enough for making sure that there's always one that isn't currently being
+	// read.
+	buffers: [3]WL_Shared_Memory_Image,
+	buffers_busy: [3]bool,
 
-	// The buffer being painted into right now, and its size in physical pixels.
-	pixels: []u32,
-	buffer_width: int,
-	buffer_height: int,
+	// Index into `buffers` of the currently used buffer.
+	current_buffer: int,
 
-	// Where the part sits and how big it is, in logical pixels relative to the game canvas.
 	x: int,
 	y: int,
 	width: int,
 	height: int,
 }
 
-// One shared memory buffer belonging to a part. `busy` is true from the moment it is attached
-// until the compositor says it has finished reading it. Destroying a buffer before that leaves the
-// surface with undefined contents, which on screen is the frame vanishing for a frame.
-WLCSD_Buffer :: struct {
-	image: WL_Shared_Memory_Image,
-	width: int,
-	height: int,
-	busy: bool,
-}
-
-// The compositor has finished reading a buffer, so it can be painted into or thrown away again.
 wlcsd_buffer_listener := wl.Buffer_Listener {
+	// When the compositor is done with a buffer, we get notifed. We unset the busy flag for that
+	// buffer, so we can reuse it.
 	release = proc "c" (data: rawptr, buffer: ^wl.Buffer) {
-		(^WLCSD_Buffer)(data).busy = false
+		d := (^WLCSD_Part)(data)
+
+		for i in 0..<len(d.buffers) {
+			if d.buffers[i].buffer == buffer {
+				d.buffers_busy[i] = false
+			}
+		}
 	},
 }
 
@@ -122,16 +116,20 @@ WLCSD_Part_Type :: enum {
 	Bottom,
 }
 
-// The buttons in the titlebar, laid out from the right edge of the window inwards in this order.
+// The buttons in the titlebar, laid out from the right edge of the window inwards, in this order.
 WLCSD_Button :: enum {
-	None,
 	Close,
 	Maximize,
 	Minimize,
 }
 
-// A rectangle in logical pixels with the game canvas at the origin, which is how the frame
-// measures everything it draws.
+WLCSD_Edge :: enum {
+	Top,
+	Bottom,
+	Left,
+	Right,
+}
+
 WLCSD_Rect :: struct {
 	x: int,
 	y: int,
@@ -139,29 +137,19 @@ WLCSD_Rect :: struct {
 	height: int,
 }
 
-// Everything the frame keeps track of. `WL_State` holds one of these, so that the state of the
-// window and the state of the frame around it stay apart.
+// The main state of the client-side deocrations. WL_State has one of these.
 WLCSD_State :: struct {
-	// The window the frame is drawn around, handed over by `wlcsd_init`. Everything in this file
-	// reaches the compositor through it, so that none of it goes looking for the Wayland backend's
-	// own state on its own. `WL_State` is allocated once and never moves, and this points back into
-	// the same allocation it lives in.
 	win: ^WL_State,
 
 	parts: [WLCSD_Part_Type]WLCSD_Part,
-	colors: WLCSD_Theme,
+	theme: WLCSD_Theme,
 
 	pointer_surface: ^wl.Surface,
 
-	// The window edge under the pointer, as an `xdg_toplevel` resize edge. Zero where the frame
-	// moves the window rather than resizing it, and stale whenever the pointer is not on the frame
-	// at all, which `wlcsd_has_pointer` is what answers.
-	pointer_edge: u32,
-
 	// The button under the pointer, which is the one that lights up, and the one the button went
 	// down on. A button only acts if the pointer is still on it when the button comes back up.
-	pointer_button: WLCSD_Button,
-	pressed_button: WLCSD_Button,
+	pointer_button: Maybe(WLCSD_Button),
+	pressed_button: Maybe(WLCSD_Button),
 
 	// The window title, kept because the titlebar has to be repainted with it whenever anything
 	// else about the titlebar changes. Owned by the frame, in the allocator Karl2D was given.
@@ -215,7 +203,7 @@ wlcsd_init :: proc(
 		return nil
 	}
 
-	csd.colors = wlcsd_desktop_colors()
+	csd.theme = wlcsd_pick_theme()
 
 	// The title is drawn with the font Karl2D embeds for the game to use. Parsing it is just
 	// reading the table offsets out of the file, and the file is baked into the program.
@@ -245,13 +233,6 @@ wlcsd_init :: proc(
 // change means. Nothing is drawn here; `wlcsd_paint` does that once, before the next game frame.
 wlcsd_needs_repaint_all :: proc(csd: ^WLCSD_State) {
 	csd.needs_paint = {.Titlebar, .Left, .Right, .Bottom}
-}
-
-// Says that the titlebar alone has to be painted again, for the things that change while the
-// window stays the same size: the title, whether the window has focus, and which button the
-// pointer is on.
-wlcsd_needs_repaint_titlebar :: proc(csd: ^WLCSD_State) {
-	csd.needs_paint += {.Titlebar}
 }
 
 wlcsd_set_toplevel_state :: proc(csd: ^WLCSD_State, active: bool, maximized: bool) {
@@ -297,9 +278,238 @@ wlcsd_paint :: proc(csd: ^WLCSD_State) {
 	}
 
 	for part in parts {
-		if !wlcsd_paint_part(csd, part) {
-			csd.needs_paint += {part}
+		w := csd.win.last_configure_width
+		h := csd.win.last_configure_height
+		d := &csd.parts[part]
+
+		// How far a part reaches past the window, which is as far as the shadow goes.
+		out :: WLCSD_SHADOW_REACH
+
+		switch part {
+		case .Titlebar:
+			d.x = -out
+			d.y = -WLCSD_TITLEBAR_HEIGHT - out
+			d.width = w + out*2
+			d.height = WLCSD_TITLEBAR_HEIGHT + out
+
+		case .Left:
+			d.x = -out
+			d.y = 0
+			d.width = out
+			d.height = h
+
+		case .Right:
+			d.x = w
+			d.y = 0
+			d.width = out
+			d.height = h
+
+		case .Bottom:
+			d.x = -out
+			d.y = h
+			d.width = w + out*2
+			d.height = out
 		}
+
+		// The buffer holds physical pixels and a viewport maps it back to the logical size, the way
+		// cursor images are handled.
+		buffer_width := max(1, int(math.round(f32(d.width) * csd.win.scale)))
+		buffer_height := max(1, int(math.round(f32(d.height) * csd.win.scale)))
+
+		current := -1
+
+		for i in 0..<len(d.buffers) {
+			if !d.buffers_busy[i] {
+				current = i
+				break
+			}
+		}
+
+		if current == -1 {
+			// Every slot is still on the compositor's hands. It lets go of them as soon as it shows
+			// something else, so this means it is several frames behind and the frame can wait one
+			// more.
+			log.debug("Every window decoration buffer is still in use. Skipping a repaint.")
+			csd.needs_paint += {part}
+			continue
+		}
+
+		if d.buffers[current].width != buffer_width || d.buffers[current].height != buffer_height {
+			wl_destroy_shared_memory_image(d.buffers[current])
+
+			image, image_ok := wl_create_shared_memory_image(
+				"karl2d-decoration",
+				buffer_width,
+				buffer_height,
+			)
+
+			d.buffers[current] = image
+
+			if !image_ok {
+				csd.needs_paint += {part}
+				continue
+			}
+
+			wl.add_listener(image.buffer, &wlcsd_buffer_listener, d)
+		}
+
+		d.current_buffer = current
+		pixels := d.buffers[current].pixels
+
+		// Where the window is inside this part, in the part's own physical pixels. The titlebar is
+		// the only piece of the window that lands in a decoration surface at all; everything else
+		// in every part is shadow.
+		left := int(math.round(f32(-d.x) * csd.win.scale))
+		top := int(math.round(f32(-WLCSD_TITLEBAR_HEIGHT - d.y) * csd.win.scale))
+		right := int(math.round(f32(w - d.x) * csd.win.scale))
+		bottom := int(math.round(f32(h - d.y) * csd.win.scale))
+
+		shadow := csd.active ? WLCSD_SHADOW_FOCUSED : WLCSD_SHADOW_UNFOCUSED
+		shadow_reach := WLCSD_SHADOW_REACH * csd.win.scale
+
+		for y in 0..<buffer_height {
+			for x in 0..<buffer_width {
+				if x >= left && x < right && y >= top && y < bottom {
+					pixels[y*buffer_width + x] = csd.theme.fill
+					continue
+				}
+
+				// How far this pixel is from the window, which is all the shadow depends on. The
+				// distance is put back into logical pixels because that is what the curve was
+				// fitted against, and the shadow is black, so premultiplying leaves nothing but the
+				// alpha.
+				dx := f32(max(left - x, 0, x - right + 1))
+				dy := f32(max(top - y, 0, y - bottom + 1))
+				distance := math.sqrt(dx*dx + dy*dy)
+				alpha := f32(0)
+
+				if distance < shadow_reach {
+					faded := shadow.a*math.exp(-shadow.b*distance/csd.win.scale) + shadow.c
+					alpha = clamp(faded, 0, 1)
+				}
+
+				pixels[y*buffer_width + x] = u32(alpha*255) << 24
+			}
+		}
+
+		if part == .Titlebar {
+			wlcsd_paint_title(csd, d)
+
+			for button in WLCSD_Button {
+				if !wlcsd_button_shown(csd, button) {
+					continue
+				}
+
+				rect := wlcsd_button_rect(csd, button)
+
+				// The button's corner in the titlebar's own physical pixels.
+				x0 := int(math.round(f32(rect.x - d.x) * csd.win.scale))
+				y0 := int(math.round(f32(rect.y - d.y) * csd.win.scale))
+				x1 := min(
+					buffer_width,
+					int(math.round(f32(rect.x + rect.width - d.x) * csd.win.scale)),
+				)
+
+				y1 := min(
+					buffer_height,
+					int(math.round(f32(rect.y + rect.height - d.y) * csd.win.scale)),
+				)
+
+				if x0 >= x1 || y0 >= y1 {
+					continue
+				}
+
+				background := csd.theme.fill
+
+				if csd.pointer_button == button {
+					background = csd.theme.hover
+				}
+
+				center_x := f32(x0 + x1)/2
+				center_y := f32(y0 + y1)/2
+				reach := WLCSD_BUTTON_ICON_SIZE/2 * csd.win.scale
+				half_stroke := WLCSD_BUTTON_STROKE/2 * csd.win.scale
+				color := wlcsd_text_color(csd)
+
+				for y in y0..<y1 {
+					for x in x0..<x1 {
+						// Every glyph is drawn from how far the pixel is from the lines that make
+						// it up. Turning that distance into coverage costs nothing and keeps the
+						// drawing from looking like a staircase at any scale.
+						dx := f32(x) - center_x + 0.5
+						dy := f32(y) - center_y + 0.5
+						to_line := max(f32)
+
+						switch button {
+						case .Close:
+							if abs(dx) <= reach && abs(dy) <= reach {
+								// The 0.7071 turns a distance along an axis into the distance to a
+								// line at 45 degrees, which is what the two strokes of an X are.
+								to_line = min(abs(dx - dy), abs(dx + dy)) * 0.70710678
+							}
+
+						case .Maximize:
+							if !csd.maximized {
+								to_line = wlcsd_square_distance(dx, dy, reach*0.8)
+								break
+							}
+
+							// Once the window is maximized the button undoes that, and says so as
+							// two windows laid over one another: one at the front, and one behind
+							// it up and to the right showing only the corner the front one does not
+							// cover.
+							window := reach*0.62
+							shift := window*0.45
+							to_line = wlcsd_square_distance(dx + shift, dy - shift, window)
+							front_reach := window + half_stroke + 0.5
+							covered := max(abs(dx + shift), abs(dy - shift)) <= front_reach
+
+							if !covered {
+								to_line = min(
+									to_line,
+									wlcsd_square_distance(dx - shift, dy + shift, window),
+								)
+							}
+
+						case .Minimize:
+							// A line along the bottom of where the other glyphs are.
+							if abs(dx) <= reach*0.8 {
+								to_line = abs(dy - reach*0.6)
+							}
+						}
+
+						coverage := clamp(half_stroke + 0.5 - to_line, 0, 1)
+						pixels[y*buffer_width + x] = wlcsd_blend(background, color, coverage)
+					}
+				}
+			}
+		}
+
+		band_left := -WLCSD_RESIZE_MARGIN
+		band_top := -WLCSD_TITLEBAR_HEIGHT - WLCSD_RESIZE_MARGIN
+		band_right := csd.win.last_configure_width + WLCSD_RESIZE_MARGIN
+		band_bottom := csd.win.last_configure_height + WLCSD_RESIZE_MARGIN
+
+		// Clip the band to this part and put it in the part's own coordinates.
+		x0 := max(d.x, band_left) - d.x
+		y0 := max(d.y, band_top) - d.y
+		x1 := min(d.x + d.width, band_right) - d.x
+		y1 := min(d.y + d.height, band_bottom) - d.y
+
+		region := wl.compositor_create_region(csd.win.compositor)
+
+		if x1 > x0 && y1 > y0 {
+			wl.region_add(region, i32(x0), i32(y0), i32(x1 - x0), i32(y1 - y0))
+		}
+
+		wl.surface_set_input_region(d.surface, region)
+		wl.region_destroy(region)
+		wl.subsurface_set_position(d.subsurface, i32(d.x), i32(d.y))
+		wl.wp_viewport_set_destination(d.viewport, i32(max(1, d.width)), i32(max(1, d.height)))
+		wl.surface_attach(d.surface, d.buffers[current].buffer, 0, 0)
+		wl.surface_damage_buffer(d.surface, 0, 0, i32(buffer_width), i32(buffer_height))
+		wl.surface_commit(d.surface)
+		d.buffers_busy[current] = true
 	}
 
 	// The window is the game canvas with the titlebar on top, and neither the shadow nor the grip
@@ -336,7 +546,7 @@ wlcsd_set_title :: proc(csd: ^WLCSD_State, title: string) {
 
 	delete(csd.title, csd.win.allocator)
 	csd.title = strings.clone(title, csd.win.allocator)
-	wlcsd_needs_repaint_titlebar(csd)
+	csd.needs_paint += {.Titlebar}
 }
 
 // Takes the icon to draw in front of the title. The image belongs to whoever passed it in and may
@@ -352,167 +562,7 @@ wlcsd_set_icon :: proc(csd: ^WLCSD_State, image: Image) {
 		height = image.height,
 	}
 
-	wlcsd_needs_repaint_titlebar(csd)
-}
-
-// Works out where one part of the frame sits for the current window size, paints it and puts it
-// there. Positions are in logical pixels relative to the game canvas, so the titlebar has a
-// negative y since it hangs above the canvas, and every part reaches a shadow's width further out
-// again.
-wlcsd_paint_part :: proc(csd: ^WLCSD_State, part: WLCSD_Part_Type) -> bool {
-	w := csd.win.last_configure_width
-	h := csd.win.last_configure_height
-	d := &csd.parts[part]
-
-	// How far a part reaches past the window, which is as far as the shadow goes.
-	out :: WLCSD_SHADOW_REACH
-
-	switch part {
-	case .Titlebar:
-		d.x = -out
-		d.y = -WLCSD_TITLEBAR_HEIGHT - out
-		d.width = w + out*2
-		d.height = WLCSD_TITLEBAR_HEIGHT + out
-
-	case .Left:
-		d.x = -out
-		d.y = 0
-		d.width = out
-		d.height = h
-
-	case .Right:
-		d.x = w
-		d.y = 0
-		d.width = out
-		d.height = h
-
-	case .Bottom:
-		d.x = -out
-		d.y = h
-		d.width = w + out*2
-		d.height = out
-	}
-
-	// The buffer holds physical pixels and a viewport maps it back to the logical size, the way
-	// cursor images are handled.
-	buffer_width := max(1, int(math.round(f32(d.width) * csd.win.scale)))
-	buffer_height := max(1, int(math.round(f32(d.height) * csd.win.scale)))
-
-	slot := wlcsd_take_buffer(d, buffer_width, buffer_height)
-
-	if slot == nil {
-		return false
-	}
-
-	d.pixels = slot.image.pixels
-	d.buffer_width = buffer_width
-	d.buffer_height = buffer_height
-
-	// Where the window is inside this part, in the part's own physical pixels. The titlebar is the
-	// only piece of the window that lands in a decoration surface at all; everything else in every
-	// part is shadow.
-	left := int(math.round(f32(-d.x) * csd.win.scale))
-	top := int(math.round(f32(-WLCSD_TITLEBAR_HEIGHT - d.y) * csd.win.scale))
-	right := int(math.round(f32(w - d.x) * csd.win.scale))
-	bottom := int(math.round(f32(h - d.y) * csd.win.scale))
-
-	shadow := csd.active ? WLCSD_SHADOW_FOCUSED : WLCSD_SHADOW_UNFOCUSED
-	reach := WLCSD_SHADOW_REACH * csd.win.scale
-
-	for y in 0..<buffer_height {
-		for x in 0..<buffer_width {
-			if x >= left && x < right && y >= top && y < bottom {
-				d.pixels[y*buffer_width + x] = csd.colors.fill
-				continue
-			}
-
-			// How far this pixel is from the window, which is all the shadow depends on. The
-			// distance is put back into logical pixels because that is what the curve was fitted
-			// against, and the shadow is black, so premultiplying leaves nothing but the alpha.
-			dx := f32(max(left - x, 0, x - right + 1))
-			dy := f32(max(top - y, 0, y - bottom + 1))
-			distance := math.sqrt(dx*dx + dy*dy)
-			alpha := f32(0)
-
-			if distance < reach {
-				faded := shadow.a*math.exp(-shadow.b*distance/csd.win.scale) + shadow.c
-				alpha = clamp(faded, 0, 1)
-			}
-
-			d.pixels[y*buffer_width + x] = u32(alpha*255) << 24
-		}
-	}
-
-	if part == .Titlebar {
-		wlcsd_paint_title(csd, d)
-
-		for button in WLCSD_Button {
-			if wlcsd_button_shown(csd, button) {
-				wlcsd_paint_button(csd, d, button)
-			}
-		}
-	}
-
-	wlcsd_set_input_region(csd, d)
-	wl.subsurface_set_position(d.subsurface, i32(d.x), i32(d.y))
-	wl.wp_viewport_set_destination(d.viewport, i32(max(1, d.width)), i32(max(1, d.height)))
-	wl.surface_attach(d.surface, slot.image.buffer, 0, 0)
-	wl.surface_damage_buffer(d.surface, 0, 0, i32(buffer_width), i32(buffer_height))
-	wl.surface_commit(d.surface)
-	slot.busy = true
-	return true
-}
-
-// Finds a buffer of this size that the compositor is not reading, making one if none of the part's
-// slots holds it already. Handing back the buffer that is on screen would mean painting over what
-// the compositor is showing, and freeing it would leave the surface with nothing at all.
-wlcsd_take_buffer :: proc(
-	d: ^WLCSD_Part,
-	width: int,
-	height: int,
-) -> ^WLCSD_Buffer {
-	for &slot in d.buffers {
-		if !slot.busy && slot.image.buffer != nil && slot.width == width && slot.height == height {
-			return &slot
-		}
-	}
-
-	for &slot in d.buffers {
-		if !slot.busy {
-			wlcsd_make_buffer(&slot, width, height)
-			return slot.image.buffer != nil ? &slot : nil
-		}
-	}
-
-	// Every slot is still on the compositor's hands. It lets go of them as soon as it shows
-	// something else, so this means it is several frames behind and the frame can wait one more.
-	log.debug("Every window decoration buffer is still in use. Skipping a repaint.")
-	return nil
-}
-
-// Says which pixels of a part take pointer events: the window itself and a band around it wide
-// enough to grab for resizing. Without this the shadow would swallow every click that landed on it,
-// and a window has a lot of shadow around it.
-wlcsd_set_input_region :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part) {
-	band_left := -WLCSD_RESIZE_MARGIN
-	band_top := -WLCSD_TITLEBAR_HEIGHT - WLCSD_RESIZE_MARGIN
-	band_right := csd.win.last_configure_width + WLCSD_RESIZE_MARGIN
-	band_bottom := csd.win.last_configure_height + WLCSD_RESIZE_MARGIN
-
-	// Clip the band to this part and put it in the part's own coordinates.
-	x0 := max(d.x, band_left) - d.x
-	y0 := max(d.y, band_top) - d.y
-	x1 := min(d.x + d.width, band_right) - d.x
-	y1 := min(d.y + d.height, band_bottom) - d.y
-
-	region := wl.compositor_create_region(csd.win.compositor)
-
-	if x1 > x0 && y1 > y0 {
-		wl.region_add(region, i32(x0), i32(y0), i32(x1 - x0), i32(y1 - y0))
-	}
-
-	wl.surface_set_input_region(d.surface, region)
-	wl.region_destroy(region)
+	csd.needs_paint += {.Titlebar}
 }
 
 // Draws the window title across the middle of the titlebar, with the window icon in front of it,
@@ -525,6 +575,7 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part) {
 	}
 
 	font := &csd.font
+	buf := d.buffers[d.current_buffer]
 	scale_factor := stbtt.ScaleForPixelHeight(font, WLCSD_TITLE_FONT_SIZE * csd.win.scale)
 
 	// Everything below is in the titlebar's own physical pixels. `left` and `right` are as far as
@@ -565,15 +616,68 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part) {
 	bar_height := int(math.round(WLCSD_TITLEBAR_HEIGHT * csd.win.scale))
 
 	if icon_size > 0 {
-		wlcsd_paint_icon(
-			csd,
-			d,
-			pen - icon_room,
-			top + (bar_height - icon_size)/2,
-			icon_size,
-			left,
-			right,
-		)
+		icon := csd.icon
+		icon_x := pen - icon_room
+		icon_y := top + (bar_height - icon_size)/2
+		draw_width := icon_size
+		draw_height := icon_size
+
+		if icon.width > icon.height {
+			draw_height = max(1, icon_size*icon.height/icon.width)
+		} else if icon.height > icon.width {
+			draw_width = max(1, icon_size*icon.width/icon.height)
+		}
+
+		// A picture that does not fill the box sits in the middle of it.
+		box_x := icon_x + (icon_size - draw_width)/2
+		box_y := icon_y + (icon_size - draw_height)/2
+
+		for y in 0..<draw_height {
+			for x in 0..<draw_width {
+				to_x := box_x + x
+				to_y := box_y + y
+
+				if to_x < left || to_x >= right || to_y < 0 || to_y >= buf.height {
+					continue
+				}
+
+				// The source pixels this one covers. Averaging them is the whole of the scaling,
+				// and the color is weighted by alpha so that transparent pixels do not wash the
+				// edges out.
+				from_x0 := x*icon.width/draw_width
+				from_x1 := max(from_x0 + 1, (x + 1)*icon.width/draw_width)
+				from_y0 := y*icon.height/draw_height
+				from_y1 := max(from_y0 + 1, (y + 1)*icon.height/draw_height)
+				total_a := 0
+				total_r := 0
+				total_g := 0
+				total_b := 0
+
+				for from_y in from_y0..<from_y1 {
+					for from_x in from_x0..<from_x1 {
+						col := icon.pixels[from_y*icon.width + from_x]
+						a := int(col.a)
+						total_a += a
+						total_r += int(col.r)*a
+						total_g += int(col.g)*a
+						total_b += int(col.b)*a
+					}
+				}
+
+				if total_a == 0 {
+					continue
+				}
+
+				sampled := (from_x1 - from_x0)*(from_y1 - from_y0)
+				r := u32(total_r/total_a)
+				g := u32(total_g/total_a)
+				b := u32(total_b/total_a)
+				alpha := f32(total_a)/f32(sampled*255)
+				at := to_y*buf.width + to_x
+				icon_color := 0xff000000 | r << 16 | g << 8 | b
+				buf.pixels[at] = wlcsd_blend(buf.pixels[at], icon_color, alpha)
+			}
+		}
 	}
 
 	// The text is centered on the band the capital letters fill, which is what the eye reads as
@@ -603,16 +707,23 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part) {
 		)
 
 		if coverage != nil {
-			wlcsd_blit_glyph(
-				d,
-				coverage[:glyph_width*glyph_height],
-				int(glyph_width),
-				pen + int(glyph_x),
-				baseline + int(glyph_y),
-				left,
-				right,
-				color,
-			)
+			for i in 0..<int(glyph_width*glyph_height) {
+				alpha := coverage[i]
+
+				if alpha == 0 {
+					continue
+				}
+
+				x := pen + int(glyph_x) + i%int(glyph_width)
+				y := baseline + int(glyph_y) + i/int(glyph_width)
+
+				if x < left || x >= right || y < 0 || y >= buf.height {
+					continue
+				}
+
+				at := y*buf.width + x
+				buf.pixels[at] = wlcsd_blend(buf.pixels[at], color, f32(alpha)/255)
+			}
 
 			stbtt.FreeBitmap(coverage, nil)
 		}
@@ -625,200 +736,14 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part) {
 	}
 }
 
-// Blends one rasterized glyph into the titlebar buffer. `coverage` is stbtt's 8 bit alpha, and
-// `clip_left` and `clip_right` keep the title out of the buttons and off the window's edge.
-wlcsd_blit_glyph :: proc(
-	d: ^WLCSD_Part,
-	coverage: []u8,
-	glyph_width: int,
-	at_x: int,
-	at_y: int,
-	clip_left: int,
-	clip_right: int,
-	color: u32,
-) {
-	for i in 0..<len(coverage) {
-		alpha := coverage[i]
-
-		if alpha == 0 {
-			continue
-		}
-
-		x := at_x + i%glyph_width
-		y := at_y + i/glyph_width
-
-		if x < clip_left || x >= clip_right || y < 0 || y >= d.buffer_height {
-			continue
-		}
-
-		at := y*d.buffer_width + x
-		d.pixels[at] = wlcsd_blend(d.pixels[at], color, f32(alpha)/255)
-	}
-}
-
-// Draws the window icon into the titlebar buffer, inside a box `size` physical pixels a side at
-// `at_x`, `at_y`, keeping the proportions the image came in with. Every pixel of it is the average
-// of the source pixels it covers, which is what keeps an icon far larger than the box, and the
-// 256x256 one Karl2D ships is, from coming out ragged. `clip_left` and `clip_right` keep it out of
-// the buttons and off the window's edge, the same as the title.
-wlcsd_paint_icon :: proc(
-	csd: ^WLCSD_State,
-	d: ^WLCSD_Part,
-	at_x: int,
-	at_y: int,
-	size: int,
-	clip_left: int,
-	clip_right: int,
-) {
-	icon := csd.icon
-	draw_width := size
-	draw_height := size
-
-	if icon.width > icon.height {
-		draw_height = max(1, size*icon.height/icon.width)
-	} else if icon.height > icon.width {
-		draw_width = max(1, size*icon.width/icon.height)
-	}
-
-	// A picture that does not fill the box sits in the middle of it.
-	box_x := at_x + (size - draw_width)/2
-	box_y := at_y + (size - draw_height)/2
-
-	for y in 0..<draw_height {
-		for x in 0..<draw_width {
-			to_x := box_x + x
-			to_y := box_y + y
-
-			if to_x < clip_left || to_x >= clip_right || to_y < 0 || to_y >= d.buffer_height {
-				continue
-			}
-
-			// The source pixels this one covers. Averaging them is the whole of the scaling, and
-			// the color is weighted by alpha so that transparent pixels do not wash the edges out.
-			from_x0 := x*icon.width/draw_width
-			from_x1 := max(from_x0 + 1, (x + 1)*icon.width/draw_width)
-			from_y0 := y*icon.height/draw_height
-			from_y1 := max(from_y0 + 1, (y + 1)*icon.height/draw_height)
-			total_a := 0
-			total_r := 0
-			total_g := 0
-			total_b := 0
-
-			for from_y in from_y0..<from_y1 {
-				for from_x in from_x0..<from_x1 {
-					col := icon.pixels[from_y*icon.width + from_x]
-					a := int(col.a)
-					total_a += a
-					total_r += int(col.r)*a
-					total_g += int(col.g)*a
-					total_b += int(col.b)*a
-				}
-			}
-
-			if total_a == 0 {
-				continue
-			}
-
-			sampled := (from_x1 - from_x0)*(from_y1 - from_y0)
-			r := u32(total_r/total_a)
-			g := u32(total_g/total_a)
-			b := u32(total_b/total_a)
-			alpha := f32(total_a)/f32(sampled*255)
-			at := to_y*d.buffer_width + to_x
-			d.pixels[at] = wlcsd_blend(d.pixels[at], 0xff000000 | r << 16 | g << 8 | b, alpha)
-		}
-	}
-}
-
 // What the title and the button glyphs are drawn in. Dimmed towards the titlebar itself while the
 // window is not the one being typed into, the way every other window on the desktop dims.
 wlcsd_text_color :: proc(csd: ^WLCSD_State) -> u32 {
 	if csd.active {
-		return csd.colors.text
+		return csd.theme.text
 	}
 
-	return wlcsd_blend(csd.colors.fill, csd.colors.text, 0.45)
-}
-
-// Draws one button into the titlebar buffer: a lit background while the pointer is on it, and the
-// glyph that says what it does. `d` is the titlebar, whose buffer the button is painted into.
-wlcsd_paint_button :: proc(
-	csd: ^WLCSD_State,
-	d: ^WLCSD_Part,
-	button: WLCSD_Button,
-) {
-	rect := wlcsd_button_rect(csd, button)
-
-	// The button's corner in the titlebar's own physical pixels.
-	x0 := int(math.round(f32(rect.x - d.x) * csd.win.scale))
-	y0 := int(math.round(f32(rect.y - d.y) * csd.win.scale))
-	x1 := min(d.buffer_width, int(math.round(f32(rect.x + rect.width - d.x) * csd.win.scale)))
-	y1 := min(d.buffer_height, int(math.round(f32(rect.y + rect.height - d.y) * csd.win.scale)))
-
-	if x0 >= x1 || y0 >= y1 {
-		return
-	}
-
-	background := csd.colors.fill
-
-	if csd.pointer_button == button {
-		background = csd.colors.hover
-	}
-
-	center_x := f32(x0 + x1)/2
-	center_y := f32(y0 + y1)/2
-	reach := WLCSD_BUTTON_ICON_SIZE/2 * csd.win.scale
-	half_stroke := WLCSD_BUTTON_STROKE/2 * csd.win.scale
-	color := wlcsd_text_color(csd)
-
-	for y in y0..<y1 {
-		for x in x0..<x1 {
-			// Every glyph is drawn from how far the pixel is from the lines that make it up.
-			// Turning that distance into coverage costs nothing and keeps the drawing from
-			// looking like a staircase at any scale.
-			dx := f32(x) - center_x + 0.5
-			dy := f32(y) - center_y + 0.5
-			to_line := max(f32)
-
-			switch button {
-			case .None:
-
-			case .Close:
-				if abs(dx) <= reach && abs(dy) <= reach {
-					// The 0.7071 turns a distance along an axis into the distance to a line at 45
-					// degrees, which is what the two strokes of an X are.
-					to_line = min(abs(dx - dy), abs(dx + dy)) * 0.70710678
-				}
-
-			case .Maximize:
-				if !csd.maximized {
-					to_line = wlcsd_square_distance(dx, dy, reach*0.8)
-					break
-				}
-
-				// Once the window is maximized the button undoes that, and says so as two windows
-				// laid over one another: one at the front, and one behind it up and to the right
-				// showing only the corner the front one does not cover.
-				window := reach*0.62
-				shift := window*0.45
-				to_line = wlcsd_square_distance(dx + shift, dy - shift, window)
-				covered := max(abs(dx + shift), abs(dy - shift)) <= window + half_stroke + 0.5
-
-				if !covered {
-					to_line = min(to_line, wlcsd_square_distance(dx - shift, dy + shift, window))
-				}
-
-			case .Minimize:
-				// A line along the bottom of where the other glyphs are.
-				if abs(dx) <= reach*0.8 {
-					to_line = abs(dy - reach*0.6)
-				}
-			}
-
-			coverage := clamp(half_stroke + 0.5 - to_line, 0, 1)
-			d.pixels[y*d.buffer_width + x] = wlcsd_blend(background, color, coverage)
-		}
-	}
+	return wlcsd_blend(csd.theme.fill, csd.theme.text, 0.45)
 }
 
 // How far a point is from the outline of a square of half width `reach` centered on the origin, so
@@ -854,10 +779,6 @@ wlcsd_blend :: proc(under: u32, over: u32, amount: f32) -> u32 {
 // maximized, and a compositor handed `set_maximized` for one moves it into the corner of the
 // screen at the size it already had, so such a window does not get the button.
 wlcsd_button_shown :: proc(csd: ^WLCSD_State, button: WLCSD_Button) -> bool {
-	if button == .None {
-		return false
-	}
-
 	if button == .Maximize {
 		return csd.win.window_mode == .Windowed_Resizable
 	}
@@ -893,29 +814,6 @@ wlcsd_button_rect :: proc(
 	}
 }
 
-// Fills one of a part's slots with a fresh shared memory buffer. Whatever the slot held is thrown
-// away first, which is safe because a slot is only ever passed here once the compositor has said
-// it has finished reading it.
-wlcsd_make_buffer :: proc(
-	slot: ^WLCSD_Buffer,
-	width: int,
-	height: int,
-) {
-	wl_destroy_shared_memory_image(slot.image)
-	slot^ = {}
-
-	image, image_ok := wl_create_shared_memory_image("karl2d-decoration", width, height)
-
-	if !image_ok {
-		return
-	}
-
-	slot.image = image
-	slot.width = width
-	slot.height = height
-	wl.add_listener(image.buffer, &wlcsd_buffer_listener, slot)
-}
-
 wlcsd_destroy :: proc(csd: ^WLCSD_State) {
 	for part in WLCSD_Part_Type {
 		d := &csd.parts[part]
@@ -929,8 +827,8 @@ wlcsd_destroy :: proc(csd: ^WLCSD_State) {
 		wl.surface_destroy(d.surface)
 
 		// The surfaces are gone, so the compositor is reading none of these whatever they say.
-		for &slot in d.buffers {
-			wl_destroy_shared_memory_image(slot.image)
+		for slot in d.buffers {
+			wl_destroy_shared_memory_image(slot)
 		}
 
 		d^ = {}
@@ -949,7 +847,7 @@ wlcsd_destroy :: proc(csd: ^WLCSD_State) {
 //
 // This is read once, while the window is being made. A player who switches their desktop between
 // dark and light while the game runs keeps the frame they started with.
-wlcsd_desktop_colors :: proc() -> WLCSD_Theme {
+wlcsd_pick_theme :: proc() -> WLCSD_Theme {
 	if missing, load_ok := dbus.load(); !load_ok {
 		log.debugf("Using light window decorations. Could not load %v.", missing)
 		return WLCSD_THEME_LIGHT
@@ -1087,39 +985,50 @@ wlcsd_set_pointer_surface :: proc(csd: ^WLCSD_State, pointer_surface: ^wl.Surfac
 	csd.pointer_surface = pointer_surface
 }
 
-// Follows the pointer across the frame and works out what is under it: the edge it can resize from
-// and the button it is on. Returns true when the cursor has to be set again.
-//
-// Nothing at all happens while the pointer sits still, and a button lighting up repaints the
-// titlebar and nothing else. Repainting the whole frame on every motion event is exactly the
-// mistake that dropped a libdecor window from 90 frames a second to one.
-wlcsd_pointer_moved :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> bool {
-	edge := wlcsd_resize_edge(csd, local_x, local_y)
-	button := wlcsd_button_at(csd, local_x, local_y, edge)
+// Figures out what parts of the frame that are under the pointer.
+wlcsd_pointer_moved :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) {
+	part := wlcsd_pointer_part(csd)
+	d := csd.parts[part]
 
-	if button != csd.pointer_button {
-		csd.pointer_button = button
-		wlcsd_needs_repaint_titlebar(csd)
+	// Where the pointer is with the game canvas at the origin, which is what the window's own
+	// edges are measured against.
+	x := f32(d.x) + local_x
+	y := f32(d.y) + local_y
+
+	edges := wlcsd_resize_edges(csd, local_x, local_y)
+	hovered: Maybe(WLCSD_Button)
+
+	if edges == {} && part == .Titlebar {
+		for button in WLCSD_Button {
+			if !wlcsd_button_shown(csd, button) {
+				continue
+			}
+
+			rect := wlcsd_button_rect(csd, button)
+			inside_x := x >= f32(rect.x) && x < f32(rect.x + rect.width)
+			inside_y := y >= f32(rect.y) && y < f32(rect.y + rect.height)
+
+			if inside_x && inside_y {
+				hovered = button
+				break
+			}
+		}
 	}
 
-	if edge == csd.pointer_edge {
-		return false
+	if hovered != csd.pointer_button {
+		csd.pointer_button = hovered
+		csd.needs_paint += {.Titlebar}
 	}
-
-	csd.pointer_edge = edge
-	return true
 }
 
 // The pointer left the frame, so nothing on it is under the pointer any more.
 wlcsd_pointer_left :: proc(csd: ^WLCSD_State) {
-	csd.pressed_button = .None
+	csd.pressed_button = nil
 
-	if csd.pointer_button != .None {
-		csd.pointer_button = .None
-		wlcsd_needs_repaint_titlebar(csd)
+	if csd.pointer_button != nil {
+		csd.pointer_button = nil
+		csd.needs_paint += {.Titlebar}
 	}
-
-	csd.pointer_edge = wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE
 }
 
 // Acts on a mouse button that changed state over the frame. Pressing near an edge starts a resize
@@ -1159,23 +1068,54 @@ wlcsd_pointer_button :: proc(
 	}
 
 	if state != wl.POINTER_BUTTON_STATE_PRESSED {
-		acted := csd.pressed_button
-		csd.pressed_button = .None
+		acted, acted_ok := csd.pressed_button.?
+		csd.pressed_button = nil
 
-		if acted != .None && acted == csd.pointer_button {
-			wlcsd_button_acted(csd, acted)
+		if acted_ok && acted == csd.pointer_button {
+			switch acted {
+			case .Close:
+				// The same event the compositor's own close button would have sent. What happens
+				// next is the game's business: Karl2D does not close the window by itself.
+				append(&csd.win.events, Event_Close_Window_Requested{})
+
+			case .Maximize:
+				wlcsd_toggle_maximized(csd)
+
+			case .Minimize:
+				wl.xdg_toplevel_set_minimized(csd.win.toplevel)
+			}
 		}
 
 		return
 	}
 
-	if csd.pointer_button != .None {
+	if csd.pointer_button != nil {
 		csd.pressed_button = csd.pointer_button
 		return
 	}
 
-	if csd.pointer_edge != wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE {
-		wl.xdg_toplevel_resize(csd.win.toplevel, csd.win.seat, serial, csd.pointer_edge)
+	edges := wlcsd_resize_edges(csd, local_x, local_y)
+
+	if edges != {} {
+		xdg_edge: u32
+
+		if .Top in edges {
+			xdg_edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_TOP
+		}
+
+		if .Bottom in edges {
+			xdg_edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM
+		}
+
+		if .Left in edges {
+			xdg_edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_LEFT
+		}
+
+		if .Right in edges {
+			xdg_edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_RIGHT
+		}
+
+		wl.xdg_toplevel_resize(csd.win.toplevel, csd.win.seat, serial, xdg_edge)
 		return
 	}
 
@@ -1204,24 +1144,6 @@ wlcsd_pointer_button :: proc(
 	wl.xdg_toplevel_move(csd.win.toplevel, csd.win.seat, serial)
 }
 
-// What a titlebar button does when it is clicked.
-wlcsd_button_acted :: proc(csd: ^WLCSD_State, button: WLCSD_Button) {
-	switch button {
-	case .None:
-
-	case .Close:
-		// The same event the compositor's own close button would have sent. What happens next is
-		// the game's business: Karl2D does not close the window by itself.
-		append(&csd.win.events, Event_Close_Window_Requested{})
-
-	case .Maximize:
-		wlcsd_toggle_maximized(csd)
-
-	case .Minimize:
-		wl.xdg_toplevel_set_minimized(csd.win.toplevel)
-	}
-}
-
 // Fills the screen with the window, or gives it back the size it had. The compositor answers with
 // a configure, which is where the new size and the new state come from.
 wlcsd_toggle_maximized :: proc(csd: ^WLCSD_State) {
@@ -1233,74 +1155,35 @@ wlcsd_toggle_maximized :: proc(csd: ^WLCSD_State) {
 	wl.xdg_toplevel_set_maximized(csd.win.toplevel)
 }
 
-// Which titlebar button is under the pointer, if any. `edge` is the resize edge there, since a
-// grip near the corner of the window resizes rather than pressing the button beneath it.
-wlcsd_button_at :: proc(
-	csd: ^WLCSD_State,
-	local_x: f32,
-	local_y: f32,
-	edge: u32,
-) -> WLCSD_Button {
-	if edge != wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE || wlcsd_pointer_part(csd) != .Titlebar {
-		return .None
-	}
-
-	d := csd.parts[.Titlebar]
-	x := f32(d.x) + local_x
-	y := f32(d.y) + local_y
-
-	for button in WLCSD_Button {
-		if !wlcsd_button_shown(csd, button) {
-			continue
-		}
-
-		rect := wlcsd_button_rect(csd, button)
-		inside_x := x >= f32(rect.x) && x < f32(rect.x + rect.width)
-		inside_y := y >= f32(rect.y) && y < f32(rect.y + rect.height)
-
-		if inside_x && inside_y {
-			return button
-		}
-	}
-
-	return .None
-}
-
-// Which window edge the pointer is over, as an `xdg_toplevel` resize edge. Zero means it is on the
-// frame but not near an edge, which is where dragging moves the window instead. The position is
-// surface-local and in logical pixels, as pointer events give it.
-wlcsd_resize_edge :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> u32 {
+wlcsd_resize_edges :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> bit_set[WLCSD_Edge] {
 	// Only a window the game lets the player resize has edges to grab. A fixed size one, and a
 	// fullscreen one, can only be moved.
 	if csd.win.window_mode != .Windowed_Resizable {
-		return wl.XDG_TOPLEVEL_RESIZE_EDGE_NONE
+		return {}
 	}
 
 	d := csd.parts[wlcsd_pointer_part(csd)]
-
-	// Where the pointer is with the game canvas at the origin, which is what the window's own
-	// edges are measured against.
 	x := f32(d.x) + local_x
 	y := f32(d.y) + local_y
 
 	// The grip reaches from the margin outside the window to the same distance inside it, so a
 	// corner is that much square.
 	grip :: f32(WLCSD_RESIZE_MARGIN)
-	edge: u32
+	edges: bit_set[WLCSD_Edge]
 
 	if y < f32(-WLCSD_TITLEBAR_HEIGHT) + grip {
-		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_TOP
+		edges += {.Top}
 	} else if y >= f32(csd.win.last_configure_height) - grip {
-		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM
+		edges += {.Bottom}
 	}
 
 	if x < grip {
-		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_LEFT
+		edges += {.Left}
 	} else if x >= f32(csd.win.last_configure_width) - grip {
-		edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_RIGHT
+		edges += {.Right}
 	}
 
-	return edge
+	return edges
 }
 
 // Which part of the frame the pointer is on. Only meaningful while `wlcsd_has_pointer` is true.
@@ -1317,18 +1200,18 @@ wlcsd_pointer_part :: proc(csd: ^WLCSD_State) -> WLCSD_Part_Type {
 // The cursor the frame wants under the pointer: the matching double arrow along the edges that
 // resize the window, and the ordinary arrow everywhere else. The game's own cursor stays on the
 // game's own canvas.
-wlcsd_cursor :: proc(csd: ^WLCSD_State) -> Standard_Cursor {
-	switch csd.pointer_edge {
-	case wl.XDG_TOPLEVEL_RESIZE_EDGE_TOP, wl.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM:
+wlcsd_cursor :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> Standard_Cursor {
+	switch wlcsd_resize_edges(csd, local_x, local_y) {
+	case {.Top}, {.Bottom}:
 		return .Resize_NS
 
-	case wl.XDG_TOPLEVEL_RESIZE_EDGE_LEFT, wl.XDG_TOPLEVEL_RESIZE_EDGE_RIGHT:
+	case {.Left}, {.Right}:
 		return .Resize_EW
 
-	case wl.XDG_TOPLEVEL_RESIZE_EDGE_TOP_LEFT, wl.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT:
+	case {.Top, .Left}, {.Bottom, .Right}:
 		return .Resize_NWSE
 
-	case wl.XDG_TOPLEVEL_RESIZE_EDGE_TOP_RIGHT, wl.XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_LEFT:
+	case {.Top, .Right}, {.Bottom, .Left}:
 		return .Resize_NESW
 	}
 
