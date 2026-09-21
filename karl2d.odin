@@ -4487,9 +4487,7 @@ rect_cut_right :: proc(r: ^Rect, w: f32, m: f32) -> Rect {
 	return res
 }
 
-// TODO: Add _right, _top, _bottom variations
-//
-// Split `r` in half horizontally. Split at position `x`, offest by margin `m`. Returns the left and
+// Split `r` in half horizontally. Split at position `x`, offset by margin `m`. Returns the left and
 // right result of the split.
 rect_split_left :: proc(
 	r: Rect,
@@ -4505,6 +4503,60 @@ rect_split_left :: proc(
 	right.x += x + m
 	right.w -= x + m
 	return left, right
+}
+
+// Split `r` in half vertically. Split at position `y`, offset by margin `m`. Returns the top and
+// bottom result of the split.
+rect_split_top :: proc(
+	r: Rect,
+	y: f32,
+	m: f32,
+) -> (
+	top: Rect,
+	bottom: Rect,
+) {
+	top = r
+	bottom = r
+	top.h = y
+	bottom.y += y + m
+	bottom.h -= y + m
+	return top, bottom
+}
+
+// Split `r` in half horizontally. Split at position `x`, offset by margin `m`. Returns the left and
+// right result of the split.
+rect_split_right :: proc(
+	r: Rect,
+	x: f32,
+	m: f32,
+) -> (
+	left: Rect,
+	right: Rect,
+) {
+	left = r
+	right = r
+	right.w = x
+	right.x = (r.x + r.w) - x
+	left.w -= x + m
+	return left, right
+}
+
+// Split `r` in half vertically. Split at position `y`, offset by margin `m`. Returns the top and
+// bottom result of the split.
+rect_split_bottom :: proc(
+	r: Rect,
+	y: f32,
+	m: f32,
+) -> (
+	top: Rect,
+	bottom: Rect,
+) {
+	top = r
+	bottom = r
+	bottom.h = y
+	bottom.y = (r.y + r.h) - y
+	top.h -= y + m
+	return top, bottom
 }
 
 
