@@ -1,3 +1,5 @@
+// Wayland Client-Side Decorations (WLCSD).
+//
 // This file implements window decorations: A frame with buttons and a titlebar. It's used on
 // Linux + Wayland when there are no server-side decorations. If you use for example KDE then the
 // Wayland server draws the frame for you. But under GNOME this does not happen. The we instead
