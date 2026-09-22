@@ -33,13 +33,13 @@ import hm "core:container/handle_map"
 
 // Opens a window, initializes the renderer and starts up the audio systems.
 //
-// `screen_width` and `screen_height` refer to the resolution of the drawable area of the window.
-// The window might be slightly larger due to borders and headers. The true width and height will be
-// scaled up by the scaling setting in the operating system.
+// `canvas_width` and `canvas_height` decide the size of the drawable area of the window. The window
+// might be slightly larger due to borders and headers. In windowed mode, the true width and height
+// will be scaled up by the scaling setting in the operating system.
 //
 // Use the argument `options = { window_mode = .Borderless_Fullscreen }` to start the game in full-
-// screen mode. Note that `screen_width` and `screen_height` don't apply to borderless fullscreen.
-// It will use the full resolution of the desktop.
+// screen mode. When starting in fullscreen, `canvas_width` and `canvas_height` don't apply.
+// Instead, the full resolution of the monitor will be used for the canvas size.
 //
 // Karl2D will use `allocator` for all dynamically allocated memory that is needed more than one
 // frame. For single frame allocations the library uses an internal "frame allocator".
@@ -57,8 +57,8 @@ import hm "core:container/handle_map"
 // THREAD INFO: The value of `audio_thread_logger` will be stored for later use by the audio thread.
 // Make sure your logger is thread safe (the file/console loggers in Odin are).
 init :: proc(
-	screen_width: int,
-	screen_height: int,
+	canvas_width: int,
+	canvas_height: int,
 	window_title: string,
 	options := Init_Options {},
 	allocator := context.allocator,
@@ -91,7 +91,7 @@ init :: proc(
 		platform_state_alloc_error,
 	)
 
-	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
+	pf.init(s.platform_state, canvas_width, canvas_height, window_title, options, s.allocator)
 
 	// Web has small icon because it doesn't ever show a bigger one.
 	DEFAULT_ICON_SIZE :: 256 when ODIN_OS != .JS else 64
@@ -135,8 +135,8 @@ init :: proc(
 	rb.init(
 		s.render_backend_state,
 		window_render_glue,
-		pf.get_screen_width(),
-		pf.get_screen_height(), 
+		pf.get_canvas_width(),
+		pf.get_canvas_height(), 
 		options,
 		s.allocator,
 	)
@@ -578,7 +578,7 @@ process_events :: proc() {
 				s.gamepad_button_is_held[e.gamepad][e.button] = false
 			}
 
-		case Event_Screen_Resize:
+		case Event_Canvas_Resize:
 			// Recorded draw calls were meant for the old swapchain size.
 			draw_current_batch()
 			rb.resize_swapchain(e.width, e.height)
@@ -621,7 +621,7 @@ process_events :: proc() {
 
 		case Event_Window_Scale_Changed:
 			draw_current_batch()
-			rb.resize_swapchain(e.screen_width, e.screen_height)
+			rb.resize_swapchain(e.canvas_width, e.canvas_height)
 		}
 	}
 }
@@ -658,33 +658,53 @@ get_time :: proc() -> f64 {
 	return s.time
 }
 
-// Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
+// Resize the drawing area of the window (the canvas) to a new size. While the user cannot resize
 // windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
-set_screen_size :: proc(width: int, height: int) {
+set_canvas_size :: proc(width: int, height: int) {
 	assert_initialized()
 
 	// Recorded draw calls were meant for the old screen size.
 	draw_current_batch()
-	pf.set_screen_size(width, height)
-	rb.resize_swapchain(pf.get_screen_width(), pf.get_screen_height())
+	pf.set_canvas_size(width, height)
+	rb.resize_swapchain(pf.get_canvas_width(), pf.get_canvas_height())
 }
 
 // Gets the width of the drawing area within the window.
-get_screen_width :: proc() -> int {
+get_canvas_width :: proc() -> int {
 	assert_initialized()
-	return pf.get_screen_width()
+	return pf.get_canvas_width()
 }
 
 // Gets the height of the drawing area within the window.
-get_screen_height :: proc() -> int  {
+get_canvas_height :: proc() -> int  {
 	assert_initialized()
-	return pf.get_screen_height()
+	return pf.get_canvas_height()
 }
 
-// Gets the screen width and height as a 2D vector.
-get_screen_size :: proc() -> Vec2 {
+// Gets the canvas width and height as a 2D vector.
+get_canvas_size :: proc() -> Vec2 {
 	assert_initialized()
-	return { f32(pf.get_screen_width()), f32(pf.get_screen_height()) }
+	return { f32(pf.get_canvas_width()), f32(pf.get_canvas_height()) }
+}
+
+@(deprecated="Use set_canvas_size")
+set_screen_size :: proc(width: int, height: int) {
+	set_canvas_size(width, height)
+}
+
+@(deprecated="Use get_canvas_width")
+get_screen_width :: proc() -> int {
+	return get_canvas_width()
+}
+
+@(deprecated="Use get_canvas_height")
+get_screen_height :: proc() -> int {
+	return get_canvas_height()
+}
+
+@(deprecated="Use get_canvas_size")
+get_screen_size :: proc() -> Vec2 {
+	return get_canvas_size()
 }
 
 // Change the window title.
@@ -5383,7 +5403,7 @@ screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 		surface_height := s.current_render_target_height
 
 		if s.current_render_target == RENDER_TARGET_NONE {
-			surface_height = pf.get_screen_height()
+			surface_height = pf.get_canvas_height()
 		}
 
 		pos.y = f32(surface_height) - pos.y
@@ -5401,7 +5421,7 @@ camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 		surface_height := s.current_render_target_height
 
 		if s.current_render_target == RENDER_TARGET_NONE {
-			surface_height = pf.get_screen_height()
+			surface_height = pf.get_canvas_height()
 		}
 
 		res.y = f32(surface_height) - res.y
@@ -6758,7 +6778,7 @@ Event :: union {
 	Event_Mouse_Teleported,
 	Event_Gamepad_Button_Went_Down,
 	Event_Gamepad_Button_Went_Up,
-	Event_Screen_Resize,
+	Event_Canvas_Resize,
 	Event_Window_Focused,
 	Event_Window_Unfocused,
 	Event_Window_Scale_Changed,
@@ -6830,15 +6850,15 @@ Event_Mouse_Wheel_Horizontal :: struct {
 }
 
 // Reports the new size of the drawable game area
-Event_Screen_Resize :: struct {
+Event_Canvas_Resize :: struct {
 	width, height: int,
 }
 
 // You can also use `k2.get_window_scale()`
 Event_Window_Scale_Changed :: struct {
 	scale: f32,
-	screen_width: int,
-	screen_height: int,
+	canvas_width: int,
+	canvas_height: int,
 }
 
 Event_Window_Focused :: struct {}
@@ -7531,8 +7551,8 @@ _update_projection_matrix :: proc() {
 	w, h: int
 
 	if s.current_render_target == RENDER_TARGET_NONE {
-		w = pf.get_screen_width()
-		h = pf.get_screen_height()
+		w = pf.get_canvas_width()
+		h = pf.get_canvas_height()
 	} else {
 		w = s.current_render_target_width
 		h = s.current_render_target_height

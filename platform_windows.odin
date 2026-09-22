@@ -13,11 +13,11 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	get_events = windows_get_events,
 	before_present = windows_before_present,
 	set_window_title = windows_set_window_title,
-	get_screen_width = windows_get_screen_width,
-	get_screen_height = windows_get_screen_height,
+	get_canvas_width = windows_get_canvas_width,
+	get_canvas_height = windows_get_canvas_height,
 	set_window_position = windows_set_window_position,
 	get_window_position = windows_get_window_position,
-	set_screen_size = windows_set_screen_size,
+	set_canvas_size = windows_set_canvas_size,
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
 	set_window_icon = windows_set_window_icon,
@@ -52,8 +52,8 @@ windows_state_size :: proc() -> int {
 
 windows_init :: proc(
 	platform_state: rawptr,
-	screen_width: int,
-	screen_height: int,
+	canvas_width: int,
+	canvas_height: int,
 	window_title: string,
 	options: Init_Options,
 	allocator: runtime.Allocator,
@@ -85,11 +85,11 @@ windows_init :: proc(
 	s.window_scale = f32(dpix)/96.0
 
 	if options.disable_auto_scale_hint {
-		s.screen_width = screen_width
-		s.screen_height = screen_height
+		s.canvas_width = canvas_width
+		s.canvas_height = canvas_height
 	} else {
-		s.screen_width = int(f32(screen_width) * s.window_scale)
-		s.screen_height = int(f32(screen_height) * s.window_scale)
+		s.canvas_width = int(f32(canvas_width) * s.window_scale)
+		s.canvas_height = int(f32(canvas_height) * s.window_scale)
 	}
 
 	// Since this is the size of the screen we adjust it to become the size of the window. This is
@@ -97,15 +97,15 @@ windows_init :: proc(
 	initial_rect := win32.RECT {
 		0,
 		0,
-		i32(s.screen_width),
-		i32(s.screen_height),
+		i32(s.canvas_width),
+		i32(s.canvas_height),
 	}
 
 	win32.AdjustWindowRectExForDpi(&initial_rect, windows_get_style(options.window_mode), false, {}, dpix)
 
 	s.window_mode = options.window_mode
-	s.restore_screen_width = s.screen_width
-	s.restore_screen_height = s.screen_height
+	s.restore_canvas_width = s.canvas_width
+	s.restore_canvas_height = s.canvas_height
 
 	// We create a window with default position and size. We set the correct size in
 	// `windows_set_window_mode`.
@@ -132,7 +132,7 @@ windows_init :: proc(
 	}
 
 	windows_set_window_mode(options.window_mode)
-	
+
 	win32.XInputEnable(true)
 
 	when RENDER_BACKEND_NAME == "d3d11" {
@@ -284,12 +284,12 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 	runtime.clear(&s.events)
 }
 
-windows_get_screen_width :: proc() -> int {
-	return s.screen_width
+windows_get_canvas_width :: proc() -> int {
+	return s.canvas_width
 }
 
-windows_get_screen_height :: proc() -> int {
-	return s.screen_height
+windows_get_canvas_height :: proc() -> int {
+	return s.canvas_height
 }
 
 windows_set_window_title :: proc(title: string) {
@@ -357,9 +357,9 @@ windows_get_style :: proc(window_mode: Window_Mode) -> win32.DWORD {
 	return style
 }
 
-windows_set_screen_size :: proc(w, h: int) {
-	s.screen_width = w
-	s.screen_height = h
+windows_set_canvas_size :: proc(w, h: int) {
+	s.canvas_width = w
+	s.canvas_height = h
 
 	r: win32.RECT
 	r.left = 0
@@ -452,14 +452,14 @@ Windows_State :: struct {
 	hwnd: win32.HWND,
 	window_mode: Window_Mode,
 
-	screen_width: int,
-	screen_height: int,
+	canvas_width: int,
+	canvas_height: int,
 
 	window_scale: f32,
 
 	in_resize_move_state: bool,
-	screen_width_before_resize_move: int,
-	screen_height_before_resize_move: int,
+	canvas_width_before_resize_move: int,
+	canvas_height_before_resize_move: int,
 
 	minimized: bool,
 
@@ -478,8 +478,8 @@ Windows_State :: struct {
 	// for when returning from fullscreen to window mode
 	restore_window_pos_x: int,
 	restore_window_pos_y: int,
-	restore_screen_width: int,
-	restore_screen_height: int,
+	restore_canvas_width: int,
+	restore_canvas_height: int,
 
 	window_render_glue: Window_Render_Glue,
 
@@ -512,13 +512,13 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 		if old_window_mode == .Borderless_Fullscreen {
 			r.left = i32(s.restore_window_pos_x)
 			r.top = i32(s.restore_window_pos_y)
-			r.right = r.left + i32(s.restore_screen_width)
-			r.bottom = r.top + i32(s.restore_screen_height)
+			r.right = r.left + i32(s.restore_canvas_width)
+			r.bottom = r.top + i32(s.restore_canvas_height)
 		} else {
 			r.left = 0
 			r.top = 0
-			r.right = i32(s.screen_width)
-			r.bottom = i32(s.screen_height)
+			r.right = i32(s.canvas_width)
+			r.bottom = i32(s.canvas_height)
 			set_window_pos_style |= win32.SWP_NOMOVE
 		}
 
@@ -605,8 +605,8 @@ windows_is_mouse_locked :: proc() -> bool {
 }
 
 windows_teleport_cursor_to_center :: proc() {
-	cx := s.screen_width / 2
-	cy := s.screen_height / 2
+	cx := s.canvas_width / 2
+	cy := s.canvas_height / 2
 	pt := win32.POINT{i32(cx), i32(cy)}
 	win32.ClientToScreen(s.hwnd, &pt)
 	win32.SetCursorPos(pt.x, pt.y)
@@ -855,8 +855,8 @@ windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam
 		y := win32.GET_Y_LPARAM(lparam)
 
 		if s.mouse_locked {
-			cx := i32(s.screen_width / 2)
-			cy := i32(s.screen_height / 2)
+			cx := i32(s.canvas_width / 2)
+			cy := i32(s.canvas_height / 2)
 
 			if x != cx || y != cy {
 				append(&s.events, Event_Mouse_Move {
@@ -947,25 +947,25 @@ windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam
 
 		append(&s.events, Event_Window_Scale_Changed {
 			scale = s.window_scale,
-			screen_width = s.screen_width,
-			screen_height = s.screen_height,
+			canvas_width = s.canvas_width,
+			canvas_height = s.canvas_height,
 		})
 
 		return 0
 
 	case win32.WM_ENTERSIZEMOVE:
 		s.in_resize_move_state = true
-		s.screen_width_before_resize_move = s.screen_width
-		s.screen_height_before_resize_move = s.screen_height
+		s.canvas_width_before_resize_move = s.canvas_width
+		s.canvas_height_before_resize_move = s.canvas_height
 
 	case win32.WM_EXITSIZEMOVE:
 		s.in_resize_move_state = false
 
-		if s.screen_width_before_resize_move != s.screen_width ||
-		   s.screen_height_before_resize_move != s.screen_height {
-			append(&s.events, Event_Screen_Resize {
-				width = s.screen_width,
-				height = s.screen_height,
+		if s.canvas_width_before_resize_move != s.canvas_width ||
+		   s.canvas_height_before_resize_move != s.canvas_height {
+			append(&s.events, Event_Canvas_Resize {
+				width = s.canvas_width,
+				height = s.canvas_height,
 			})
 		}
 
@@ -982,20 +982,20 @@ windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam
 		width := win32.LOWORD(lparam)
 		height := win32.HIWORD(lparam)
 
-		s.screen_width = int(width)
-		s.screen_height = int(height)
+		s.canvas_width = int(width)
+		s.canvas_height = int(height)
 
 		if s.window_mode == .Windowed || s.window_mode == .Windowed_Resizable {
-			s.restore_screen_width = s.screen_width
-			s.restore_screen_height = s.screen_height
+			s.restore_canvas_width = s.canvas_width
+			s.restore_canvas_height = s.canvas_height
 		}
 
 		// We are actively resizing or moving the window, we'll save the event for later so it does
 		// not get spammy.
 		if !s.in_resize_move_state {
-			append(&s.events, Event_Screen_Resize {
-				width = s.screen_width,
-				height = s.screen_height,
+			append(&s.events, Event_Canvas_Resize {
+				width = s.canvas_width,
+				height = s.canvas_height,
 			})
 		}
 

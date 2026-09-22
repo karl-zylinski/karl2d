@@ -17,7 +17,7 @@ step :: proc() -> bool {
 		return false
 	}
 	
-	screen_size := Vec2 { f32(k2.get_screen_width()), f32(k2.get_screen_height()) }
+	canvas_size := k2.get_canvas_size()
 	mouse_screen_pos := k2.get_mouse_position()
 	mouse_world_pos := k2.screen_to_camera(k2.get_mouse_position(), camera)
 	frame_time := k2.get_frame_time()
@@ -57,7 +57,7 @@ step :: proc() -> bool {
 	if mouse_wheel_delta < 0 || k2.key_went_down(.NP_Subtract) { camera.zoom -= .3 }
 
 	camera.zoom = clamp(camera.zoom, 1, 4)
-	camera.offset = screen_size / 2
+	camera.offset = canvas_size / 2
 
 	// CAMERA ROTATION
 
@@ -98,7 +98,7 @@ step :: proc() -> bool {
 	k2.draw_text(frame_time_text, text_pos, font_size, text_color)
 	text_pos.y += font_size
 
-	screen_size_text := fmt.tprintf("screen size: %v", screen_size)
+	screen_size_text := fmt.tprintf("screen size: %v", canvas_size)
 	k2.draw_text(screen_size_text, text_pos, font_size, text_color)
 	text_pos.y += font_size
 
@@ -126,7 +126,7 @@ step :: proc() -> bool {
 
 	font_size = 24
 	text_color = k2.YELLOW
-	text_pos = Vec2 { 20, screen_size.y - 20 - font_size }
+	text_pos = Vec2 { 20, canvas_size.y - 20 - font_size }
 
 	k2.draw_text("use R to reset", text_pos, font_size, text_color)
 	text_pos.y -= font_size
@@ -140,8 +140,8 @@ step :: proc() -> bool {
 	k2.draw_text("use arrow keys or the left mouse button to pan", text_pos, font_size, text_color)
 	text_pos.y -= font_size
 
-	screen_rect := k2.rect_from_pos_size({}, k2.get_screen_size())
-	bottom_bar := k2.rect_cut_bottom(&screen_rect, 36, 0)
+	canvas_rect := k2.rect_from_pos_size({}, canvas_size)
+	bottom_bar := k2.rect_cut_bottom(&canvas_rect, 36, 0)
 	bottom_bar = k2.rect_shrink(bottom_bar, 4, 4)
 
 	button_rect :: proc(text: string, r: ^k2.Rect) -> k2.Rect {
