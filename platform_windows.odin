@@ -46,10 +46,6 @@ import "base:runtime"
 import hm "core:container/handle_map"
 @require import "log"
 
-// The two icons WM_SETICON can set. Small is the title bar, big is Alt+Tab and the task bar.
-ICON_SMALL :: win32.WPARAM(0)
-ICON_BIG :: win32.WPARAM(1)
-
 windows_state_size :: proc() -> int {
 	return size_of(Windows_State)
 }
@@ -76,7 +72,7 @@ windows_init :: proc(
 
 	cls := win32.WNDCLASSW {
 		style = win32.CS_OWNDC,
-		lpfnWndProc = _windows_window_proc,
+		lpfnWndProc = windows_window_proc,
 		lpszClassName = CLASS_NAME,
 		hInstance = instance,
 		hCursor = win32.LoadCursorA(nil, win32.IDC_ARROW),
@@ -156,15 +152,12 @@ windows_shutdown :: proc() {
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		win32.DestroyCursor(cd.hcursor)
 	}
-	hm.dynamic_destroy(&s.custom_cursors)
 
+	hm.dynamic_destroy(&s.custom_cursors)
 	win32.DestroyWindow(s.hwnd)
 
-	// The window showed this icon until the line above, and an icon that is in use may not be
-	// destroyed.
 	if s.hicon != nil {
 		win32.DestroyIcon(s.hicon)
-		s.hicon = nil
 	}
 
 	delete(s.events)
@@ -180,17 +173,12 @@ windows_before_present :: proc() {
 windows_get_events :: proc(events: ^[dynamic]Event) {
 	msg: win32.MSG
 
-	// This loop will call `_windows_window_proc` which will add more things to `frame_events`.
 	for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
 		win32.TranslateMessage(&msg)
 		win32.DispatchMessageW(&msg)
 	}
 
-	// While minimized, the DWM stops compositing the window, so IDXGISwapChain::Present no longer
-	// waits for vblank. Without this, the game loop's only throttling (vsync inside Present) goes
-	// away and it spins as fast as the CPU/GPU allow, pegging a core at 100%. Sleeping here caps us
-	// to roughly 100 checks per second instead, while still waking up promptly when the window is
-	// restored.
+	// No vsync happens while minimized, so the CPU/GPU usage could go crazy. Therefore we sleep.
 	if s.minimized {
 		win32.Sleep(10)
 	}
@@ -308,21 +296,17 @@ windows_set_window_title :: proc(title: string) {
 	win32.SetWindowTextW(s.hwnd, win32.utf8_to_wstring(title, frame_allocator))
 }
 
-// Because positions can be offset in Windows: There is an "inivisble border" on Windows. This makes
-// windows end up at slight offset positions. For example, if you set a window to be at (0, 0), then
-// it won't be at (0, 0) unless you add this offset.
-windows_get_window_offset :: proc() -> (x, y: i32) {
+windows_set_window_position :: proc(x: int, y: int) {
+	// There's an invisible border on Windows, so the position won't be correct unless we take it
+	// into account.
 	real_r: win32.RECT
 	win32.DwmGetWindowAttribute(s.hwnd, u32(win32.DWMWINDOWATTRIBUTE.DWMWA_EXTENDED_FRAME_BOUNDS), &real_r, size_of(win32.RECT))
 
 	r: win32.RECT
 	win32.GetWindowRect(s.hwnd, &r)
 
-	return real_r.left - r.left, real_r.top - r.top
-}
-
-windows_set_window_position :: proc(x: int, y: int) {
-	offx, offy := windows_get_window_offset()
+	offx := real_r.left - r.left
+	offy := real_r.top - r.top
 
 	win32.SetWindowPos(
 		s.hwnd,
@@ -489,8 +473,6 @@ Windows_State :: struct {
 
 	custom_cursors: hm.Dynamic_Handle_Map(Windows_Cursor, Custom_Cursor),
 
-	// The cursor most recently passed to windows_set_cursor. The zero value is
-	// Standard_Cursor.Default.
 	current_cursor: Cursor,
 
 	// for when returning from fullscreen to window mode
@@ -501,7 +483,6 @@ Windows_State :: struct {
 
 	window_render_glue: Window_Render_Glue,
 
-	// The icon the window currently shows, owned by us. See `windows_set_window_icon`.
 	hicon: win32.HICON,
 
 	// Half of UTF-16 characters when it is a character when the character is outside the Basic
@@ -568,18 +549,21 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 }
 
 windows_set_window_icon :: proc(image: Image) -> bool {
-	hicon := windows_create_hicon(image, {0, 0}, true)
+	hicon := windows_create_hicon(image, false, {0, 0})
 
 	if hicon == nil {
 		return false
 	}
 
+
+	// SMALL is the title bar, BIG is the task bar.
+	ICON_SMALL :: win32.WPARAM(0)
+	ICON_BIG :: win32.WPARAM(1)
+
 	// Windows scales the bitmap down to the size each of the two icons needs.
 	win32.SendMessageW(s.hwnd, win32.WM_SETICON, ICON_SMALL, win32.LPARAM(uintptr(hicon)))
 	win32.SendMessageW(s.hwnd, win32.WM_SETICON, ICON_BIG, win32.LPARAM(uintptr(hicon)))
 
-	// The window only refers to the icon, so this one has to stay alive until it is replaced, and
-	// the one it was showing is ours to destroy.
 	if s.hicon != nil {
 		win32.DestroyIcon(s.hicon)
 	}
@@ -610,7 +594,7 @@ windows_set_mouse_locked :: proc(locked: bool) {
 		clip := win32.RECT{tl.x, tl.y, br.x, br.y}
 		win32.ClipCursor(&clip)
 		
-		_windows_teleport_cursor_to_center()
+		windows_teleport_cursor_to_center()
 	} else {
 		win32.ClipCursor(nil)
 	}
@@ -620,7 +604,7 @@ windows_is_mouse_locked :: proc() -> bool {
 	return s.mouse_locked
 }
 
-_windows_teleport_cursor_to_center :: proc() {
+windows_teleport_cursor_to_center :: proc() {
 	cx := s.screen_width / 2
 	cy := s.screen_height / 2
 	pt := win32.POINT{i32(cx), i32(cy)}
@@ -632,15 +616,12 @@ _windows_teleport_cursor_to_center :: proc() {
 	})
 }
 
-// Windows makes cursors and icons out of the same kind of object, so this builds both. Pass
-// `is_icon = false` and a hotspot for a cursor, `is_icon = true` and no hotspot for an icon.
+// Makes both icons and cursors. Pass `is_cursor = true` and a hotspot when making an icon. The hot-
+// spot is the offset within the cursor at which it clicks.
 //
-// Returns nil on failure, having logged which call failed. The caller owns the result and must
-// pass it to `DestroyIcon` when done with it. `DestroyCursor` does the same job.
-windows_create_hicon :: proc(image: Image, hotspot: [2]int, is_icon: bool) -> win32.HICON {
-	// CreateBitmap makes a device-dependent bitmap, which is not documented to support a real
-	// alpha channel. A 32-bit cursor with alpha needs a DIB section instead: CreateDIBSection with
-	// a BITMAPV5HEADER and explicit channel masks, which is also what GLFW and SDL do for this.
+// Returns `nil` upon failure.
+windows_create_hicon :: proc(image: Image, is_cursor: bool, cursor_hotspot: [2]int) -> win32.HICON {
+	// The BITMAPV5HEADER and DIBSection stuff let us use a bitmap with alpha.
 	header := win32.BITMAPV5HEADER {
 		bV5Size        = size_of(win32.BITMAPV5HEADER),
 		bV5Width       = i32(image.width),
@@ -674,28 +655,30 @@ windows_create_hicon :: proc(image: Image, hotspot: [2]int, is_icon: bool) -> wi
 		return nil
 	}
 
-	// We receive RGBA but the DIB, like GDI generally, wants BGRA.
+	// Image is RGBA, but DIB is BGRA
 	dib_colors := slice.from_ptr((^Color)(dib_pixels), len(image.pixels))
+
 	for i in 0..<len(image.pixels) {
 		src := image.pixels[i]
 		dib_colors[i] = {src.b, src.g, src.r, src.a}
 	}
 
-	// The AND mask is expected even for a cursor with a real alpha channel, but every bit of it
-	// should be 0 so it doesn't mask out anything the alpha channel already made transparent.
-	// `make` zero-initializes, so there is nothing further to fill in.
+	// Formula from https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapinfoheader
 	mask_stride := ((image.width + 31)/32)*4
+
+	// Even if we have real alpha channel in the pixels, a mask is expected. It will be all zeroes.
 	mask_bits := make([]u8, mask_stride*image.height, frame_allocator)
 
 	h_mask := win32.CreateBitmap(i32(image.width), i32(image.height), 1, 1, raw_data(mask_bits))
 
 	ii := win32.ICONINFO {
-		fIcon    = win32.BOOL(is_icon),
-		xHotspot = u32(hotspot.x),
-		yHotspot = u32(hotspot.y),
+		fIcon    = win32.BOOL(!is_cursor),
+		xHotspot = u32(cursor_hotspot.x),
+		yHotspot = u32(cursor_hotspot.y),
 		hbmColor = h_color,
 		hbmMask  = h_mask,
 	}
+
 	hicon := win32.CreateIconIndirect(&ii)
 
 	// CreateIconIndirect copies both bitmaps, so we own them again whether or not it worked.
@@ -711,7 +694,7 @@ windows_create_hicon :: proc(image: Image, hotspot: [2]int, is_icon: bool) -> wi
 }
 
 windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
-	hcursor := (win32.HCURSOR)(windows_create_hicon(image, hotspot, false))
+	hcursor := (win32.HCURSOR)(windows_create_hicon(image, true, hotspot))
 
 	if hcursor == nil {
 		return {}, false
@@ -733,9 +716,8 @@ windows_set_cursor :: proc(cursor: Cursor) {
 		return
 	}
 
-	// Reject a stale handle, so a programming error leaves the cursor alone.
 	if c, is_custom := cursor.(Custom_Cursor); is_custom {
-		if hm.get(&s.custom_cursors, c) == nil {
+		if !hm.is_valid(&s.custom_cursors, c) {
 			log.errorf("Trying to set invalid cursor %v. It may have been destroyed.", c)
 			return
 		}
@@ -745,16 +727,31 @@ windows_set_cursor :: proc(cursor: Cursor) {
 	windows_apply_cursor()
 }
 
-// Sets the OS cursor from s.current_cursor, falling back to the default arrow when a custom
-// cursor no longer resolves (it was destroyed while on screen).
+// Sets the OS cursor from s.current_cursor. Reverts to default cursor if current cursor is invalid.
 windows_apply_cursor :: proc() {
 	handle: win32.HCURSOR
 
 	switch c in s.current_cursor {
 	case Standard_Cursor:
-		// LoadCursor on a built-in IDC_ hands back a shared cursor owned by the system, so this
-		// must not be destroyed and is cheap enough to look up each time.
-		handle = win32.LoadCursorA(nil, windows_standard_cursor_id(c))
+		id := win32.IDC_ARROW
+
+		switch c {
+		case .Default:     id = win32.IDC_ARROW
+		case .Text:        id = win32.IDC_IBEAM
+		case .Hand:        id = win32.IDC_HAND
+		case .Crosshair:   id = win32.IDC_CROSS
+		case .Wait:        id = win32.IDC_WAIT
+		case .Progress:    id = win32.IDC_APPSTARTING
+		case .Resize_EW:   id = win32.IDC_SIZEWE
+		case .Resize_NS:   id = win32.IDC_SIZENS
+		case .Resize_NESW: id = win32.IDC_SIZENESW
+		case .Resize_NWSE: id = win32.IDC_SIZENWSE
+		case .Move:        id = win32.IDC_SIZEALL
+		case .Not_Allowed: id = win32.IDC_NO
+		case: log.errorf("Invalid cursor %v", c)
+		}
+
+		handle = win32.LoadCursorA(nil, id)
 	case Custom_Cursor:
 		if cd := hm.get(&s.custom_cursors, c); cd != nil {
 			handle = cd.hcursor
@@ -767,25 +764,6 @@ windows_apply_cursor :: proc() {
 
 	win32.SetClassLongPtrW(s.hwnd, win32.GCLP_HCURSOR, (win32.LONG_PTR)(uintptr(handle)))
 	win32.SetCursor(handle)
-}
-
-windows_standard_cursor_id :: proc(cursor: Standard_Cursor) -> cstring {
-	switch cursor {
-	case .Default:     return win32.IDC_ARROW
-	case .Text:        return win32.IDC_IBEAM
-	case .Hand:        return win32.IDC_HAND
-	case .Crosshair:   return win32.IDC_CROSS
-	case .Wait:        return win32.IDC_WAIT
-	case .Progress:    return win32.IDC_APPSTARTING
-	case .Resize_EW:   return win32.IDC_SIZEWE
-	case .Resize_NS:   return win32.IDC_SIZENS
-	case .Resize_NESW: return win32.IDC_SIZENESW
-	case .Resize_NWSE: return win32.IDC_SIZENWSE
-	case .Move:        return win32.IDC_SIZEALL
-	case .Not_Allowed: return win32.IDC_NO
-	}
-
-	return win32.IDC_ARROW
 }
 
 windows_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
@@ -801,14 +779,12 @@ windows_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 
 	win32.DestroyCursor(cd.hcursor)
 	hm.remove(&s.custom_cursors, custom_cursor)
-
-	// Falls back to the default if that was the cursor on screen.
 	windows_apply_cursor()
 }
 
 s: ^Windows_State
 
-_windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
+windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
 	context = s.custom_context
 
 	switch msg {
@@ -848,9 +824,6 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 		}
 
 	case win32.WM_CHAR:
-		// Note: We deliberately don't also handle WM_SYSCHAR here, since that message is sent for
-		// character keys pressed while holding Alt (for example menu mnemonics), which shouldn't
-		// be treated as text input.
 		r := rune(wparam)
 
 		if wparam >= 0xD800 && wparam <= 0xDBFF {
@@ -890,7 +863,7 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 					position = {f32(x), f32(y)},
 				})
 
-				_windows_teleport_cursor_to_center()
+				windows_teleport_cursor_to_center()
 			}
 		} else {
 			append(&s.events, Event_Mouse_Move {
@@ -906,7 +879,6 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 		})
 
 	case win32.WM_MOUSEHWHEEL:
-		// Windows measures the horizontal wheel to the right, which is the direction we want.
 		delta := f32(win32.GET_WHEEL_DELTA_WPARAM(wparam))/win32.WHEEL_DELTA
 
 		append(&s.events, Event_Mouse_Wheel_Horizontal {
@@ -961,11 +933,8 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 	case win32.WM_DPICHANGED:
 		new_dpi := win32.LOWORD(wparam)
 		s.window_scale = f32(new_dpi) / 96.0
-
-		// Windows supplies the outer window rectangle that preserves the window's logical size at
-		// the new DPI. Applying it here is important for apps like AltSnap, where unlike the native
-		// title-bar drag loop, they do not necessarily perform this adjustment on our behalf.
 		suggested_rect := (^win32.RECT)(uintptr(lparam))
+
 		win32.SetWindowPos(
 			hwnd,
 			{},
@@ -1001,9 +970,8 @@ _windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wpara
 		}
 
 	case win32.WM_SIZE:
-		// When the window is minimized, Windows reports the client area as 0x0. Ignore that and
-		// keep reporting the last known screen size, so a 0x0 size never propagates into the
-		// swapchain, the projection matrix or `get_screen_size`.
+		// When minimized we'll get size 0x0. We don't want to set the window to that size, so we
+		// don't do anything further.
 		if wparam == win32.SIZE_MINIMIZED {
 			s.minimized = true
 			return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
