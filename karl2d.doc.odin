@@ -13,6 +13,10 @@ package karl2d
 // The window might be slightly larger due to borders and headers. The true width and height will be
 // scaled up by the scaling setting in the operating system.
 //
+// Use the argument `options = { window_mode = .Borderless_Fullscreen }` to start the game in full-
+// screen mode. Note that `screen_width` and `screen_height` don't apply to borderless fullscreen.
+// It will use the full resolution of the desktop.
+//
 // Karl2D will use `allocator` for all dynamically allocated memory that is needed more than one
 // frame. For single frame allocations the library uses an internal "frame allocator".
 // The frame allocator is cleared when `update()` runs.
@@ -80,8 +84,8 @@ shutdown :: proc()
 // be cleared instead.
 clear :: proc(color: Color)
 
-// The library may do some internal allocations that have the lifetime of a single frame. This
-// procedure empties that Frame Allocator.
+// The library may do some internal allocations that have the lifetime of a single frame. Those
+// allocations go into a Frame Allocator. This procedure empties that Frame Allocator.
 //
 // Called as part of `update`, but can be called manually if you need more control.
 reset_frame_allocator :: proc()

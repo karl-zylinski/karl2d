@@ -37,6 +37,10 @@ import hm "core:container/handle_map"
 // The window might be slightly larger due to borders and headers. The true width and height will be
 // scaled up by the scaling setting in the operating system.
 //
+// Use the argument `options = { window_mode = .Borderless_Fullscreen }` to start the game in full-
+// screen mode. Note that `screen_width` and `screen_height` don't apply to borderless fullscreen.
+// It will use the full resolution of the desktop.
+//
 // Karl2D will use `allocator` for all dynamically allocated memory that is needed more than one
 // frame. For single frame allocations the library uses an internal "frame allocator".
 // The frame allocator is cleared when `update()` runs.
@@ -95,7 +99,8 @@ init :: proc(
 	pf.set_window_icon(default_icon)
 	destroy_image(default_icon)
 
-	// This is an OS-independent handle that we can pass to any rendering backend.
+	// This is an OS-independent handle that we can pass to any rendering backend. It lets the
+	// rendering backend draw into the window.
 	window_render_glue := pf.get_window_render_glue()
 
 	// See `render_backend_chooser.odin` for how this is picked.
@@ -320,8 +325,8 @@ clear :: proc(color: Color) {
 	rb.clear(s.current_render_target, color)
 }
 
-// The library may do some internal allocations that have the lifetime of a single frame. This
-// procedure empties that Frame Allocator.
+// The library may do some internal allocations that have the lifetime of a single frame. Those
+// allocations go into a Frame Allocator. This procedure empties that Frame Allocator.
 //
 // Called as part of `update`, but can be called manually if you need more control.
 reset_frame_allocator :: proc() {
@@ -555,7 +560,8 @@ process_events :: proc() {
 
 		case Event_Touch_Cancelled:
 			if t := _find_touch(e.id); t != nil {
-				// Position and delta are left as they are, see `Event_Touch_Cancelled`.
+				// The position is left as it is. The Touch Cancelled event does not carry it, so we
+				// reuse the position from the last frame.
 				t.went_up = true
 				t.cancelled = true
 			}
