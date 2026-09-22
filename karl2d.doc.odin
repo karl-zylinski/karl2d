@@ -901,15 +901,37 @@ rect_cut_left :: proc(r: ^Rect, w: f32, m: f32) -> Rect
 // `m` is the margin added to the right of the cut part.
 rect_cut_right :: proc(r: ^Rect, w: f32, m: f32) -> Rect
 
-// TODO: Add _right, _top, _bottom variations
-//
-// Split `r` in half horizontally. Split at position `x`, offest by margin `m`. Returns the left and
+// Split `r` in half horizontally. Split at position `x`, offset by margin `m`. Returns the left and
 // right result of the split.
 rect_split_left :: proc(
 	r: Rect,
 	x: f32,
 	m: f32,
 ) -> (left: Rect, right: Rect)
+
+// Split `r` in half vertically. Split at position `y`, offset by margin `m`. Returns the top and
+// bottom result of the split.
+rect_split_top :: proc(
+	r: Rect,
+	y: f32,
+	m: f32,
+) -> (top: Rect, bottom: Rect)
+
+// Split `r` in half horizontally. Split at position `x`, offset by margin `m`. Returns the left and
+// right result of the split.
+rect_split_right :: proc(
+	r: Rect,
+	x: f32,
+	m: f32,
+) -> (left: Rect, right: Rect)
+
+// Split `r` in half vertically. Split at position `y`, offset by margin `m`. Returns the top and
+// bottom result of the split.
+rect_split_bottom :: proc(
+	r: Rect,
+	y: f32,
+	m: f32,
+) -> (top: Rect, bottom: Rect)
 
 // Rotate 2D vector `v` by `angle_radians` radians around the origin (0, 0).
 //
