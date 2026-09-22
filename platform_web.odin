@@ -23,6 +23,10 @@ PLATFORM_WEB :: Platform_Interface {
 	set_window_mode = web_set_window_mode,
 	set_window_icon = web_set_window_icon,
 
+	get_monitor_count = web_get_monitor_count,
+	get_monitor_info = web_get_monitor_info,
+	get_window_monitor = web_get_window_monitor,
+
 	set_cursor_hidden = web_set_cursor_hidden,
 	is_cursor_hidden = web_is_cursor_hidden,
 	set_mouse_locked = web_set_mouse_locked,
@@ -515,6 +519,32 @@ web_set_window_icon :: proc(image: Image) -> bool {
 
 	js.set_element_key_string(FAVICON_ELEMENT_ID, "href", data_uri)
 	return true
+}
+
+web_get_monitor_count :: proc() -> int {
+	return 1
+}
+
+web_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	if monitor != 0 {
+		return {}, false
+	}
+
+	js.evaluate("var karl2d_el = document.getElementById('webgl-canvas'); " +
+		"karl2d_el._screenWidth = window.screen.width; " +
+		"karl2d_el._screenHeight = window.screen.height;")
+
+	scale := js.device_pixel_ratio()
+	width := js.get_element_key_f64(s.canvas_id, "_screenWidth") * scale
+	height := js.get_element_key_f64(s.canvas_id, "_screenHeight") * scale
+
+	return Monitor_Info {
+		size = {int(width), int(height)},
+	}, true
+}
+
+web_get_window_monitor :: proc() -> int {
+	return 0
 }
 
 web_set_cursor_hidden :: proc(hidden: bool) {

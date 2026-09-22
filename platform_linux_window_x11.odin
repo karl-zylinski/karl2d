@@ -21,6 +21,9 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	get_window_scale = x11_get_window_scale,
 	set_window_mode = x11_set_window_mode,
 	set_window_icon = x11_set_window_icon,
+	get_monitor_count = x11_get_monitor_count,
+	get_monitor_info = x11_get_monitor_info,
+	get_window_monitor = x11_get_window_monitor,
 	set_cursor_hidden = x11_set_cursor_hidden,
 	is_cursor_hidden = x11_is_cursor_hidden,
 	set_mouse_locked = x11_set_mouse_locked,
@@ -719,6 +722,26 @@ x11_set_window_icon :: proc(image: Image) -> bool {
 	// The X server reports a rejected property change asynchronously, so true here means the
 	// request was sent, not that the icon reached the screen.
 	return true
+}
+
+x11_get_monitor_count :: proc() -> int {
+	return 1
+}
+
+x11_get_monitor_info :: proc(monitor: int) -> (Monitor_Info, bool) {
+	if monitor != 0 {
+		return {}, false
+	}
+
+	screen := X.DefaultScreen(s.display)
+
+	return Monitor_Info {
+		size = {int(X.DisplayWidth(s.display, screen)), int(X.DisplayHeight(s.display, screen))},
+	}, true
+}
+
+x11_get_window_monitor :: proc() -> int {
+	return 0
 }
 
 x11_set_cursor_hidden :: proc(hidden: bool) {

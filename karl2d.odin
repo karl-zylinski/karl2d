@@ -744,6 +744,64 @@ set_window_icon :: proc(image: Image) -> bool {
 	return pf.set_window_icon(image)
 }
 
+get_monitor_count :: proc() -> int {
+	assert_initialized()
+	return pf.get_monitor_count()
+}
+
+get_monitor_width :: proc(monitor: int) -> int {
+	assert_initialized()
+	info, info_ok := pf.get_monitor_info(monitor)
+
+	if !info_ok {
+		log.errorf("Cannot get monitor width, monitor %v does not exist.", monitor)
+		return 0
+	}
+
+	return info.size.x
+}
+
+get_monitor_height :: proc(monitor: int) -> int {
+	assert_initialized()
+	info, info_ok := pf.get_monitor_info(monitor)
+
+	if !info_ok {
+		log.errorf("Cannot get monitor height, monitor %v does not exist.", monitor)
+		return 0
+	}
+
+	return info.size.y
+}
+
+get_monitor_size :: proc(monitor: int) -> Vec2 {
+	assert_initialized()
+	info, info_ok := pf.get_monitor_info(monitor)
+
+	if !info_ok {
+		log.errorf("Cannot get monitor size, monitor %v does not exist.", monitor)
+		return {}
+	}
+
+	return {f32(info.size.x), f32(info.size.y)}
+}
+
+get_monitor_position :: proc(monitor: int) -> Vec2 {
+	assert_initialized()
+	info, info_ok := pf.get_monitor_info(monitor)
+
+	if !info_ok {
+		log.errorf("Cannot get monitor position, monitor %v does not exist.", monitor)
+		return {}
+	}
+
+	return {f32(info.position.x), f32(info.position.y)}
+}
+
+get_window_monitor :: proc() -> int {
+	assert_initialized()
+	return pf.get_window_monitor()
+}
+
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
 // procedure sends all that off to the rendering backend for drawing. Normally, you do not need to
 // call this procedure manually. It is done automatically when `present` or `clear` run. It can also
