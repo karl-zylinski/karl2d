@@ -17,7 +17,8 @@ Shader_Desc :: struct {
 	inputs: []Shader_Input,
 }
 
-// The things a draw call can need set up. Which ones it actually needs is worked out by karl2d.odin
+// Used by draw calls to keep track of what things changed since the previous draw call. The render
+// backend uses this to figure out what state it needs to set.
 Draw_Call_Change :: enum {
 	Shader,
 	Constants,
@@ -27,30 +28,29 @@ Draw_Call_Change :: enum {
 	Blend_Mode,
 }
 
-// Everything, which is what the first draw call of a `draw` needs: nothing is known about the
-// state the device was left in.
+// The first draw call in a batch uses this. It means that all the state needs to be set up by the
+// render backend.
 DRAW_CALL_CHANGE_ALL :: ~bit_set[Draw_Call_Change]{}
 
-// One chunk of drawing work: a range of the vertex buffer plus the state to draw it with. These
-// are created in karl2d.odin as you draw. When it is time to actually draw, the whole array of draw
-// calls is handed to the rendering backend, so the backend can skip updating state that doesn't
-// change between two draw calls.
+// A chunk of drawing work that shares enough state to be able to draw together. Points out the
+// range in the vertex buffer that the draw call will use.
+//
+// The rendering backend is handed an array of these. See the `draw` proc in
+// `Render_Backend_Interface`. Within that array, each draw call will have the `changed` bit_set
+// filled out so that it clearly states which rendering state that the draw call needs the backend
+// to update.
 Draw_Call :: struct {
-	// Where this draw call's vertices are in the vertex buffer passed to `draw`. The offset is in
-	// bytes, since each shader has its own vertex size. It is always a multiple of `vertex_size`,
-	// so `vertex_offset/vertex_size` is the index of the first vertex.
+	// Says which part of the vertex buffer handed to `Render_Backend_Interface.draw` that this draw
+	// call uess.
 	vertex_offset: int,
 	vertex_count: int,
 
-	// The shader to draw with, and the parts of it the backend needs.
 	shader: Shader_Handle,
 	vertex_size: int,
 	constants: []Shader_Constant_Location,
 
-	// The constant values and textures to draw with. These are the draw call's own copies, not the
-	// shader's: a draw call runs long after it was recorded, and the program can change the
-	// shader's in between. They also hold what Karl2D itself puts in, such as the view-projection
-	// matrix and the texture being drawn.
+	// A clone of the constants data of the shader, snapshotted at the time when the draw call was
+	// created. Additionally, things like the Karl2D view-project-matrix will be filled in here.
 	constants_data: []u8,
 	textures: []Texture_Handle,
 
@@ -62,7 +62,7 @@ Draw_Call :: struct {
 	// and only change GPU state that actually needs changing.
 	//
 	// Note: If the backend "skips" a draw call for whatever reason, then add the `changed` bit_set
-	// to the one in the next draw call. That way nothing is missed.
+	// to the one in the next draw call. That way no state setup is missed.
 	changed: bit_set[Draw_Call_Change],
 }
 
