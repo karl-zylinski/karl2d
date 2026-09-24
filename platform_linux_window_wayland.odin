@@ -145,7 +145,12 @@ wl_init :: proc(
 	// of that goes through them. The first configure lays them out again around whatever size the
 	// compositor settles on.
 	if use_custom_decorations {
-		s.csd = wlcsd_init(s, allocator)
+		s.csd = wlcsd_init(
+			s,
+			s.compositor,
+			s.subcompositor,
+			allocator,
+		)
 	}
 
 	wl_set_title(window_title)

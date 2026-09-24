@@ -141,7 +141,9 @@ WLCSD_Rect :: struct {
 
 // The main state of the client-side deocrations. WL_State has one of these.
 WLCSD_State :: struct {
+	allocator: runtime.Allocator,
 	win: ^WL_State,
+	compositor: ^wl.Compositor,
 
 	parts: [WLCSD_Part_Type]WLCSD_Part,
 	theme: WLCSD_Theme,
@@ -153,28 +155,20 @@ WLCSD_State :: struct {
 	pointer_button: Maybe(WLCSD_Button),
 	pressed_button: Maybe(WLCSD_Button),
 
-	// The window title, kept because the titlebar has to be repainted with it whenever anything
-	// else about the titlebar changes. Owned by the frame, in the allocator Karl2D was given.
+	// The window title. Used when re-painting the titlebar.
 	title: string,
 
-	// The window icon, drawn in front of the title. Empty until `set_window_icon` runs, which
-	// `init` does for every game. A copy in the allocator Karl2D was given, at the size it came in
-	// at, scaled down to the titlebar every time that is painted.
+	// The window icon, drawn next to the title.
 	icon: Image,
 
-	// The embedded font, parsed once. It points into `DEFAULT_FONT_DATA`, which is baked into the
-	// program and outlives everything.
+	// Used for rendering the title.
 	font: stbtt.fontinfo,
 	font_ok: bool,
 
-	// The parts that have changed since the last game frame. The frame is painted at most once per
-	// frame however much happens in between, because a subsurface committed twice before its
-	// parent catches up throws the first buffer away without the compositor ever having read it,
-	// and so without ever saying it is done with it.
+	// Parts that need to be re-painted because some state changed during the frame.
 	needs_paint: bit_set[WLCSD_Part_Type],
 
-	// When and where the last press on the titlebar was, to catch the second one of a double
-	// click. The time is the compositor's, in milliseconds.
+	// For detecting double click on titlebar.
 	last_press_time: u32,
 	last_press_x: f32,
 	last_press_y: f32,
@@ -183,27 +177,23 @@ WLCSD_State :: struct {
 	maximized: bool,
 }
 
-// Creates the four surfaces that make up the window frame. They are subsurfaces of the surface the
-// game renders into, so the compositor keeps them glued to it and no render backend has to know
-// that they exist. `win` is the window they go around, and the frame holds on to it.
-//
-// They are left synchronized, which is how a subsurface starts: everything the frame commits waits
-// for the game's next frame and lands with it in one go. Anything else tears the window in half
-// while it resizes, since a subsurface's position always waits for the parent whatever its buffer
-// does.
+// Sets up the client-side decorations. Creates the four parts that make up the frame.
 wlcsd_init :: proc(
 	win: ^WL_State,
+	compositor: ^wl.Compositor,
+	subcompositor: ^wl.Subcompositor,
 	allocator: runtime.Allocator,
 	loc := #caller_location
 ) -> ^WLCSD_State {
-	csd := new(WLCSD_State, allocator, loc)
-	csd.win = win
-
-	if win.subcompositor == nil {
-		log.error("Wayland compositor has no wl_subcompositor. The window gets no frame.")
-		free(csd, allocator)
+	if subcompositor == nil {
+		log.error("No subcompositor was created. The window gets no frame.")
 		return nil
 	}
+
+	csd := new(WLCSD_State, allocator, loc)
+	csd.win = win
+	csd.compositor = compositor
+	csd.allocator = allocator
 
 	csd.theme = wlcsd_pick_theme()
 
@@ -222,8 +212,8 @@ wlcsd_init :: proc(
 
 	for part in WLCSD_Part_Type {
 		d := &csd.parts[part]
-		d.surface = wl.compositor_create_surface(win.compositor)
-		d.subsurface = wl.subcompositor_get_subsurface(win.subcompositor, d.surface, win.surface)
+		d.surface = wl.compositor_create_surface(compositor)
+		d.subsurface = wl.subcompositor_get_subsurface(subcompositor, d.surface, win.surface)
 		d.viewport = wl.wp_viewporter_get_viewport(win.viewporter, d.surface)
 	}
 
@@ -498,7 +488,7 @@ wlcsd_paint :: proc(csd: ^WLCSD_State) {
 		x1 := min(d.x + d.width, band_right) - d.x
 		y1 := min(d.y + d.height, band_bottom) - d.y
 
-		region := wl.compositor_create_region(csd.win.compositor)
+		region := wl.compositor_create_region(csd.compositor)
 
 		if x1 > x0 && y1 > y0 {
 			wl.region_add(region, i32(x0), i32(y0), i32(x1 - x0), i32(y1 - y0))
