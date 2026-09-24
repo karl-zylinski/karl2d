@@ -142,8 +142,11 @@ WLCSD_Rect :: struct {
 // The main state of the client-side deocrations. WL_State has one of these.
 WLCSD_State :: struct {
 	allocator: runtime.Allocator,
-	win: ^WL_State,
+	surface: ^wl.Surface,
+	xdg_surface: ^wl.XDG_Surface,
+	seat: ^wl.Seat,
 	compositor: ^wl.Compositor,
+	toplevel: ^wl.XDG_Toplevel,
 
 	parts: [WLCSD_Part_Type]WLCSD_Part,
 	theme: WLCSD_Theme,
@@ -175,25 +178,81 @@ WLCSD_State :: struct {
 
 	active: bool,
 	maximized: bool,
+
+	window_width: int,
+	window_height: int,
+	window_mode: Window_Mode,
+}
+
+wlcsd_set_window_size :: proc(csd: ^WLCSD_State, window_width: int, window_height: int) {
+	csd.window_width = window_width
+	csd.window_height = window_height
+}
+
+wlcsd_set_window_mode :: proc(csd: ^WLCSD_State, window_mode: Window_Mode) {
+	csd.window_mode = window_mode
 }
 
 // Sets up the client-side decorations. Creates the four parts that make up the frame.
 wlcsd_init :: proc(
-	win: ^WL_State,
+	surface: ^wl.Surface,
+	xdg_surface: ^wl.XDG_Surface,
+	viewporter: ^wl.WP_Viewporter,
+	seat: ^wl.Seat,
 	compositor: ^wl.Compositor,
 	subcompositor: ^wl.Subcompositor,
+	toplevel: ^wl.XDG_Toplevel,
+	window_width: int,
+	window_height: int,
+	window_mode: Window_Mode,
 	allocator: runtime.Allocator,
 	loc := #caller_location
 ) -> ^WLCSD_State {
+	if surface == nil {
+		log.error("surface is nil. The window gets no frame.", location = loc)
+		return nil
+	}
+
+	if xdg_surface == nil {
+		log.error("xdg_surface is nil. The window gets no frame.", location = loc)
+		return nil
+	}
+
+	if viewporter == nil {
+		log.error("viewporter is nil. The window gets no frame.", location = loc)
+		return nil
+	}
+
+	if seat == nil {
+		log.error("seat is nil. The window gets no frame.", location = loc)
+		return nil
+	}
+
+	if compositor == nil {
+		log.error("compositor is nil. The window gets no frame.", location = loc)
+		return nil
+	}
+
 	if subcompositor == nil {
-		log.error("No subcompositor was created. The window gets no frame.")
+		log.error("subcompositor is nil. The window gets no frame.", location = loc)
+		return nil
+	}
+
+	if toplevel == nil {
+		log.error("toplevel is nil. The window gets no frame.", location = loc)
 		return nil
 	}
 
 	csd := new(WLCSD_State, allocator, loc)
-	csd.win = win
+	csd.surface = surface
+	csd.xdg_surface = xdg_surface
+	csd.seat = seat
 	csd.compositor = compositor
 	csd.allocator = allocator
+	csd.toplevel = toplevel
+	csd.window_width = window_width
+	csd.window_height = window_height
+	csd.window_mode = window_mode
 
 	csd.theme = wlcsd_pick_theme()
 
@@ -213,8 +272,8 @@ wlcsd_init :: proc(
 	for part in WLCSD_Part_Type {
 		d := &csd.parts[part]
 		d.surface = wl.compositor_create_surface(compositor)
-		d.subsurface = wl.subcompositor_get_subsurface(subcompositor, d.surface, win.surface)
-		d.viewport = wl.wp_viewporter_get_viewport(win.viewporter, d.surface)
+		d.subsurface = wl.subcompositor_get_subsurface(subcompositor, d.surface, surface)
+		d.viewport = wl.wp_viewporter_get_viewport(viewporter, d.surface)
 	}
 
 	wlcsd_needs_repaint_all(csd)
@@ -241,17 +300,18 @@ wlcsd_set_toplevel_state :: proc(csd: ^WLCSD_State, active: bool, maximized: boo
 // Paints whatever has changed and puts it where it belongs. Called once per game frame, just
 // before the game draws its own, so that everything the frame commits is picked up by the same
 // commit that shows the game's next frame.
-wlcsd_paint :: proc(csd: ^WLCSD_State) {
-	if csd.needs_paint == {} || csd.parts[.Titlebar].surface == nil {
+wlcsd_paint :: proc(
+	csd: ^WLCSD_State,
+	scale: f32,
+) {
+	if csd.needs_paint == {} {
 		return
 	}
 
 	parts := csd.needs_paint
 	csd.needs_paint = {}
 
-	// In fullscreen the window is the canvas and nothing else, so the parts come off the screen
-	// entirely. Attaching no buffer to a surface is how Wayland says that.
-	if !wlcsd_shown(csd) {
+	if csd.window_mode == .Borderless_Fullscreen {
 		for part in WLCSD_Part_Type {
 			d := &csd.parts[part]
 			wl.surface_attach(d.surface, nil, 0, 0)
@@ -259,19 +319,19 @@ wlcsd_paint :: proc(csd: ^WLCSD_State) {
 		}
 
 		wl.xdg_surface_set_window_geometry(
-			csd.win.xdg_surface,
+			csd.xdg_surface,
 			0,
 			0,
-			i32(csd.win.last_configure_width),
-			i32(csd.win.last_configure_height),
+			i32(csd.window_width),
+			i32(csd.window_height),
 		)
 
 		return
 	}
 
 	for part in parts {
-		w := csd.win.last_configure_width
-		h := csd.win.last_configure_height
+		w := csd.window_width
+		h := csd.window_height
 		d := &csd.parts[part]
 
 		// How far a part reaches past the window, which is as far as the shadow goes.
@@ -305,8 +365,8 @@ wlcsd_paint :: proc(csd: ^WLCSD_State) {
 
 		// The buffer holds physical pixels and a viewport maps it back to the logical size, the way
 		// cursor images are handled.
-		buffer_width := max(1, int(math.round(f32(d.width) * csd.win.scale)))
-		buffer_height := max(1, int(math.round(f32(d.height) * csd.win.scale)))
+		buffer_width := max(1, int(math.round(f32(d.width) * scale)))
+		buffer_height := max(1, int(math.round(f32(d.height) * scale)))
 
 		current := -1
 
@@ -351,13 +411,13 @@ wlcsd_paint :: proc(csd: ^WLCSD_State) {
 		// Where the window is inside this part, in the part's own physical pixels. The titlebar is
 		// the only piece of the window that lands in a decoration surface at all; everything else
 		// in every part is shadow.
-		left := int(math.round(f32(-d.x) * csd.win.scale))
-		top := int(math.round(f32(-WLCSD_TITLEBAR_HEIGHT - d.y) * csd.win.scale))
-		right := int(math.round(f32(w - d.x) * csd.win.scale))
-		bottom := int(math.round(f32(h - d.y) * csd.win.scale))
+		left := int(math.round(f32(-d.x) * scale))
+		top := int(math.round(f32(-WLCSD_TITLEBAR_HEIGHT - d.y) * scale))
+		right := int(math.round(f32(w - d.x) * scale))
+		bottom := int(math.round(f32(h - d.y) * scale))
 
 		shadow := csd.active ? WLCSD_SHADOW_FOCUSED : WLCSD_SHADOW_UNFOCUSED
-		shadow_reach := WLCSD_SHADOW_REACH * csd.win.scale
+		shadow_reach := WLCSD_SHADOW_REACH * scale
 
 		for y in 0..<buffer_height {
 			for x in 0..<buffer_width {
@@ -376,7 +436,7 @@ wlcsd_paint :: proc(csd: ^WLCSD_State) {
 				alpha := f32(0)
 
 				if distance < shadow_reach {
-					faded := shadow.a*math.exp(-shadow.b*distance/csd.win.scale) + shadow.c
+					faded := shadow.a*math.exp(-shadow.b*distance/scale) + shadow.c
 					alpha = clamp(faded, 0, 1)
 				}
 
@@ -385,26 +445,28 @@ wlcsd_paint :: proc(csd: ^WLCSD_State) {
 		}
 
 		if part == .Titlebar {
-			wlcsd_paint_title(csd, d)
+			wlcsd_paint_title(csd, d, scale)
+			button_idx: int
 
 			for button in WLCSD_Button {
-				if !wlcsd_button_shown(csd, button) {
+				if button == .Maximize && csd.window_mode != .Windowed_Resizable {
 					continue
 				}
 
-				rect := wlcsd_button_rect(csd, button)
+				rect := wlcsd_button_rect(csd, button_idx)
+				button_idx += 1
 
 				// The button's corner in the titlebar's own physical pixels.
-				x0 := int(math.round(f32(rect.x - d.x) * csd.win.scale))
-				y0 := int(math.round(f32(rect.y - d.y) * csd.win.scale))
+				x0 := int(math.round(f32(rect.x - d.x) * scale))
+				y0 := int(math.round(f32(rect.y - d.y) * scale))
 				x1 := min(
 					buffer_width,
-					int(math.round(f32(rect.x + rect.width - d.x) * csd.win.scale)),
+					int(math.round(f32(rect.x + rect.width - d.x) * scale)),
 				)
 
 				y1 := min(
 					buffer_height,
-					int(math.round(f32(rect.y + rect.height - d.y) * csd.win.scale)),
+					int(math.round(f32(rect.y + rect.height - d.y) * scale)),
 				)
 
 				if x0 >= x1 || y0 >= y1 {
@@ -419,8 +481,8 @@ wlcsd_paint :: proc(csd: ^WLCSD_State) {
 
 				center_x := f32(x0 + x1)/2
 				center_y := f32(y0 + y1)/2
-				reach := WLCSD_BUTTON_ICON_SIZE/2 * csd.win.scale
-				half_stroke := WLCSD_BUTTON_STROKE/2 * csd.win.scale
+				reach := WLCSD_BUTTON_ICON_SIZE/2 * scale
+				half_stroke := WLCSD_BUTTON_STROKE/2 * scale
 				color := wlcsd_text_color(csd)
 
 				for y in y0..<y1 {
@@ -479,8 +541,8 @@ wlcsd_paint :: proc(csd: ^WLCSD_State) {
 
 		band_left := -WLCSD_RESIZE_MARGIN
 		band_top := -WLCSD_TITLEBAR_HEIGHT - WLCSD_RESIZE_MARGIN
-		band_right := csd.win.last_configure_width + WLCSD_RESIZE_MARGIN
-		band_bottom := csd.win.last_configure_height + WLCSD_RESIZE_MARGIN
+		band_right := csd.window_width + WLCSD_RESIZE_MARGIN
+		band_bottom := csd.window_height + WLCSD_RESIZE_MARGIN
 
 		// Clip the band to this part and put it in the part's own coordinates.
 		x0 := max(d.x, band_left) - d.x
@@ -508,23 +570,12 @@ wlcsd_paint :: proc(csd: ^WLCSD_State) {
 	// around it. Without this the compositor would treat the canvas alone as the window, and a
 	// maximized window would hang off the screen by the height of the titlebar.
 	wl.xdg_surface_set_window_geometry(
-		csd.win.xdg_surface,
+		csd.xdg_surface,
 		0,
 		-WLCSD_TITLEBAR_HEIGHT,
-		i32(csd.win.last_configure_width),
-		i32(csd.win.last_configure_height + WLCSD_TITLEBAR_HEIGHT),
+		i32(csd.window_width),
+		i32(csd.window_height + WLCSD_TITLEBAR_HEIGHT),
 	)
-}
-
-// Whether the frame is on screen. It is not in fullscreen: that mode is for the game covering the
-// screen, and a compositor sizes a fullscreen window to exactly the output with no room for a
-// titlebar above it.
-wlcsd_shown :: proc(csd: ^WLCSD_State) -> bool {
-	if csd.parts[.Titlebar].surface == nil {
-		return false
-	}
-
-	return csd.win.window_mode != .Borderless_Fullscreen
 }
 
 // Takes the title to draw. The compositor is told separately, since it wants one for its window
@@ -536,17 +587,17 @@ wlcsd_set_title :: proc(csd: ^WLCSD_State, title: string) {
 		return
 	}
 
-	delete(csd.title, csd.win.allocator)
-	csd.title = strings.clone(title, csd.win.allocator)
+	delete(csd.title, csd.allocator)
+	csd.title = strings.clone(title, csd.allocator)
 	csd.needs_paint += {.Titlebar}
 }
 
 // Takes the icon to draw in front of the title. The image belongs to whoever passed it in and may
 // be gone by the next repaint, so the frame keeps a copy of the pixels.
 wlcsd_set_icon :: proc(csd: ^WLCSD_State, image: Image) {
-	pixels := make([]Color, len(image.pixels), csd.win.allocator)
+	pixels := make([]Color, len(image.pixels), csd.allocator)
 	copy(pixels, image.pixels)
-	delete(csd.icon.pixels, csd.win.allocator)
+	delete(csd.icon.pixels, csd.allocator)
 
 	csd.icon = {
 		pixels = pixels,
@@ -561,21 +612,24 @@ wlcsd_set_icon :: proc(csd: ^WLCSD_State, image: Image) {
 // in the space the buttons leave. The glyphs are rasterized straight out of the font Karl2D
 // already embeds, one at a time, which is little enough work for something that only happens when
 // the title, the size, the focus or the button under the pointer changes.
-wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part) {
+wlcsd_paint_title :: proc(
+	csd: ^WLCSD_State,
+	d: ^WLCSD_Part,
+	scale: f32,
+) {
 	if !csd.font_ok || csd.title == "" {
 		return
 	}
 
 	font := &csd.font
 	buf := d.buffers[d.current_buffer]
-	scale_factor := stbtt.ScaleForPixelHeight(font, WLCSD_TITLE_FONT_SIZE * csd.win.scale)
+	scale_factor := stbtt.ScaleForPixelHeight(font, WLCSD_TITLE_FONT_SIZE * scale)
 
-	// Everything below is in the titlebar's own physical pixels. `left` and `right` are as far as
-	// the title may reach: the window's left edge on one side and the first button on the other.
-	buttons := wlcsd_button_rect(csd, max(WLCSD_Button))
-	horizontal_margin := int(math.round(WLCSD_TITLE_HORIZONTAL_MARGIN * csd.win.scale))
-	left := int(math.round(f32(-d.x) * csd.win.scale)) + horizontal_margin
-	right := int(math.round(f32(buttons.x - d.x) * csd.win.scale)) - horizontal_margin
+	last_button_idx := csd.window_mode == .Windowed_Resizable ? 2 : 1
+	left_most_button_rect := wlcsd_button_rect(csd, last_button_idx)
+	horizontal_margin := int(math.round(WLCSD_TITLE_HORIZONTAL_MARGIN * scale))
+	left := int(math.round(f32(-d.x) * scale)) + horizontal_margin
+	right := int(math.round(f32(left_most_button_rect.x - d.x) * scale)) - horizontal_margin
 
 	if right <= left {
 		return
@@ -595,17 +649,17 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part) {
 	icon_room := 0
 
 	if len(csd.icon.pixels) > 0 {
-		icon_size = int(math.round(WLCSD_ICON_SIZE * csd.win.scale))
-		icon_room = icon_size + int(math.round(WLCSD_ICON_HORIZONTAL_MARGIN * csd.win.scale))
+		icon_size = int(math.round(WLCSD_ICON_SIZE * scale))
+		icon_room = icon_size + int(math.round(WLCSD_ICON_HORIZONTAL_MARGIN * scale))
 	}
 
 	// Centered on the window itself rather than on the room beside the buttons, so that it sits
 	// where the eye looks for it. A title too long for that room runs into the buttons and is cut
 	// off there instead.
-	center := int(math.round(f32(csd.win.last_configure_width - d.x*2) * csd.win.scale))/2
+	center := int(math.round(f32(csd.window_width - d.x*2) * scale))/2
 	pen := max(left + icon_room, center - width/2)
-	top := int(math.round(f32(-WLCSD_TITLEBAR_HEIGHT - d.y) * csd.win.scale))
-	bar_height := int(math.round(WLCSD_TITLEBAR_HEIGHT * csd.win.scale))
+	top := int(math.round(f32(-WLCSD_TITLEBAR_HEIGHT - d.y) * scale))
+	bar_height := int(math.round(WLCSD_TITLEBAR_HEIGHT * scale))
 
 	if icon_size > 0 {
 		icon := csd.icon
@@ -767,39 +821,12 @@ wlcsd_blend :: proc(under: u32, over: u32, amount: f32) -> u32 {
 	return 0xff000000 | r << 16 | g << 8 | b
 }
 
-// Whether a button is in the titlebar at all. A window the game keeps at a fixed size cannot be
-// maximized, and a compositor handed `set_maximized` for one moves it into the corner of the
-// screen at the size it already had, so such a window does not get the button.
-wlcsd_button_shown :: proc(csd: ^WLCSD_State, button: WLCSD_Button) -> bool {
-	if button == .Maximize {
-		return csd.win.window_mode == .Windowed_Resizable
-	}
-
-	return true
-}
-
-// Where a titlebar button sits, both for drawing it and for deciding whether the pointer is on it.
-// They are laid out from the right edge of the window inwards, in the order of the enum, each in a
-// slot of its own with a little room left around it. A button that is not shown takes up no slot,
-// so the ones inside it move out towards the edge.
 wlcsd_button_rect :: proc(
 	csd: ^WLCSD_State,
-	button: WLCSD_Button,
+	index_from_right: int,
 ) -> WLCSD_Rect {
-	slot := 0
-
-	for b in WLCSD_Button {
-		if b == button {
-			break
-		}
-
-		if wlcsd_button_shown(csd, b) {
-			slot += 1
-		}
-	}
-
 	return {
-		x = csd.win.last_configure_width - (slot + 1)*WLCSD_BUTTON_WIDTH + WLCSD_BUTTON_INSET,
+		x = csd.window_width - (index_from_right + 1)*WLCSD_BUTTON_WIDTH + WLCSD_BUTTON_INSET,
 		y = -WLCSD_TITLEBAR_HEIGHT + WLCSD_BUTTON_INSET,
 		width = WLCSD_BUTTON_WIDTH - WLCSD_BUTTON_INSET*2,
 		height = WLCSD_TITLEBAR_HEIGHT - WLCSD_BUTTON_INSET*2,
@@ -826,9 +853,9 @@ wlcsd_destroy :: proc(csd: ^WLCSD_State) {
 		d^ = {}
 	}
 
-	delete(csd.title, csd.win.allocator)
+	delete(csd.title, csd.allocator)
 	csd.title = ""
-	delete(csd.icon.pixels, csd.win.allocator)
+	delete(csd.icon.pixels, csd.allocator)
 	csd.icon = {}
 }
 
@@ -970,7 +997,7 @@ wlcsd_read_portal_setting :: proc(
 }
 
 wlcsd_pointer_over_frame :: proc(csd: ^WLCSD_State) -> bool {
-	return csd.pointer_surface != nil && csd.pointer_surface != csd.win.surface
+	return csd.pointer_surface != nil && csd.pointer_surface != csd.surface
 }
 
 wlcsd_set_pointer_surface :: proc(csd: ^WLCSD_State, pointer_surface: ^wl.Surface) {
@@ -991,12 +1018,14 @@ wlcsd_pointer_moved :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) {
 	hovered: Maybe(WLCSD_Button)
 
 	if edges == {} && part == .Titlebar {
+		button_idx: int
 		for button in WLCSD_Button {
-			if !wlcsd_button_shown(csd, button) {
+			if csd.window_mode != .Windowed_Resizable && button == .Maximize {
 				continue
 			}
 
-			rect := wlcsd_button_rect(csd, button)
+			rect := wlcsd_button_rect(csd, button_idx)
+			button_idx += 1
 			inside_x := x >= f32(rect.x) && x < f32(rect.x + rect.width)
 			inside_y := y >= f32(rect.y) && y < f32(rect.y + rect.height)
 
@@ -1036,6 +1065,9 @@ wlcsd_pointer_button :: proc(
 	serial: u32,
 	local_x: f32,
 	local_y: f32,
+) -> (
+	_button_pressed_type: WLCSD_Button,
+	_button_pressed: bool,
 ) {
 	// The right button asks the compositor for the window menu, which is the one thing on the
 	// frame that Karl2D does not draw itself.
@@ -1045,8 +1077,8 @@ wlcsd_pointer_button :: proc(
 		// The position is measured from the corner of the window geometry, which is the top left of
 		// the titlebar.
 		wl.xdg_toplevel_show_window_menu(
-			csd.win.toplevel,
-			csd.win.seat,
+			csd.toplevel,
+			csd.seat,
 			serial,
 			i32(f32(d.x) + local_x),
 			i32(f32(d.y + WLCSD_TITLEBAR_HEIGHT) + local_y),
@@ -1064,18 +1096,7 @@ wlcsd_pointer_button :: proc(
 		csd.pressed_button = nil
 
 		if acted_ok && acted == csd.pointer_button {
-			switch acted {
-			case .Close:
-				// The same event the compositor's own close button would have sent. What happens
-				// next is the game's business: Karl2D does not close the window by itself.
-				append(&csd.win.events, Event_Close_Window_Requested{})
-
-			case .Maximize:
-				wlcsd_toggle_maximized(csd)
-
-			case .Minimize:
-				wl.xdg_toplevel_set_minimized(csd.win.toplevel)
-			}
+			return acted, true
 		}
 
 		return
@@ -1107,7 +1128,7 @@ wlcsd_pointer_button :: proc(
 			xdg_edge |= wl.XDG_TOPLEVEL_RESIZE_EDGE_RIGHT
 		}
 
-		wl.xdg_toplevel_resize(csd.win.toplevel, csd.win.seat, serial, xdg_edge)
+		wl.xdg_toplevel_resize(csd.toplevel, csd.seat, serial, xdg_edge)
 		return
 	}
 
@@ -1124,33 +1145,29 @@ wlcsd_pointer_button :: proc(
 	csd.last_press_x = local_x
 	csd.last_press_y = local_y
 
-	resizable := csd.win.window_mode == .Windowed_Resizable
+	resizable := csd.window_mode == .Windowed_Resizable
 
 	if quick && near_x && near_y && resizable && wlcsd_pointer_part(csd) == .Titlebar {
 		// Forget the press, so that a third one is not the start of another double click.
 		csd.last_press_time = 0
-		wlcsd_toggle_maximized(csd)
+
+		if csd.maximized {
+			wl.xdg_toplevel_unset_maximized(csd.toplevel)
+		} else {
+			wl.xdg_toplevel_set_maximized(csd.toplevel)
+		}
+
 		return
 	}
 
-	wl.xdg_toplevel_move(csd.win.toplevel, csd.win.seat, serial)
-}
-
-// Fills the screen with the window, or gives it back the size it had. The compositor answers with
-// a configure, which is where the new size and the new state come from.
-wlcsd_toggle_maximized :: proc(csd: ^WLCSD_State) {
-	if csd.maximized {
-		wl.xdg_toplevel_unset_maximized(csd.win.toplevel)
-		return
-	}
-
-	wl.xdg_toplevel_set_maximized(csd.win.toplevel)
+	wl.xdg_toplevel_move(csd.toplevel, csd.seat, serial)
+	return
 }
 
 wlcsd_resize_edges :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> bit_set[WLCSD_Edge] {
 	// Only a window the game lets the player resize has edges to grab. A fixed size one, and a
 	// fullscreen one, can only be moved.
-	if csd.win.window_mode != .Windowed_Resizable {
+	if csd.window_mode != .Windowed_Resizable {
 		return {}
 	}
 
@@ -1165,13 +1182,13 @@ wlcsd_resize_edges :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> bit
 
 	if y < f32(-WLCSD_TITLEBAR_HEIGHT) + grip {
 		edges += {.Top}
-	} else if y >= f32(csd.win.last_configure_height) - grip {
+	} else if y >= f32(csd.window_height) - grip {
 		edges += {.Bottom}
 	}
 
 	if x < grip {
 		edges += {.Left}
-	} else if x >= f32(csd.win.last_configure_width) - grip {
+	} else if x >= f32(csd.window_width) - grip {
 		edges += {.Right}
 	}
 
@@ -1208,46 +1225,4 @@ wlcsd_cursor :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> Standard_
 	}
 
 	return .Default
-}
-
-// The game canvas that fits inside a window of this size. The compositor sizes the whole window,
-// frame included, while the rest of Karl2D is about the canvas, so every size that arrives in a
-// configure comes through here first.
-//
-// An axis of zero means the compositor is leaving that one to us and stays zero.
-wlcsd_canvas_size :: proc(
-	csd: ^WLCSD_State,
-	window_width: int,
-	window_height: int,
-) -> (
-	canvas_width: int,
-	canvas_height: int,
-) {
-	if !wlcsd_shown(csd) {
-		return window_width, window_height
-	}
-
-	if window_height != 0 {
-		return window_width, max(1, window_height - WLCSD_TITLEBAR_HEIGHT)
-	}
-
-	return window_width, window_height
-}
-
-// The window that a canvas of this size needs, which is the other direction: sizes Karl2D tells
-// the compositor about, like the limits on a window the game keeps at a fixed size, are the
-// window's and not the canvas's.
-wlcsd_window_size :: proc(
-	csd: ^WLCSD_State,
-	canvas_width: int,
-	canvas_height: int,
-) -> (
-	window_width: int,
-	window_height: int,
-) {
-	if !wlcsd_shown(csd) {
-		return canvas_width, canvas_height
-	}
-
-	return canvas_width, canvas_height + WLCSD_TITLEBAR_HEIGHT
 }

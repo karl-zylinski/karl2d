@@ -1,4 +1,5 @@
 #+build linux
+#+private file
 package karl2d
 
 @(private="package")
@@ -146,9 +147,16 @@ wl_init :: proc(
 	// compositor settles on.
 	if use_custom_decorations {
 		s.csd = wlcsd_init(
-			s,
+			s.surface,
+			s.xdg_surface,
+			s.viewporter,
+			s.seat,
 			s.compositor,
 			s.subcompositor,
+			s.toplevel,
+			s.last_configure_width,
+			s.last_configure_height,
+			options.window_mode,
 			allocator,
 		)
 	}
@@ -428,10 +436,12 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 				}
 			}
 
+			s.maximized = maximized
 			wlcsd_set_toplevel_state(s.csd, active, maximized)
 
-			// w, h is the size of the whole window, this give back just the game screen inside it
-			w, h = wlcsd_canvas_size(s.csd, w, h)
+			if h > 0 && s.window_mode != .Borderless_Fullscreen {
+				h = max(1, h - WLCSD_TITLEBAR_HEIGHT)
+			}
 		}
 
 		new_width: int
@@ -469,6 +479,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 			}
 
 			if s.csd != nil {
+				wlcsd_set_window_size(s.csd, s.last_configure_width, s.last_configure_height)
 				wlcsd_needs_repaint_all(s.csd)
 			}
 
@@ -732,7 +743,7 @@ pointer_listener := wl.Pointer_Listener {
 		context = s.odin_ctx
 
 		if s.csd != nil && wlcsd_pointer_over_frame(s.csd) {
-			wlcsd_pointer_button(
+			csd_button, csd_button_pressed := wlcsd_pointer_button(
 				s.csd,
 				u32(button),
 				u32(state),
@@ -741,6 +752,25 @@ pointer_listener := wl.Pointer_Listener {
 				wl.fixed_to_f32(s.pointer_x),
 				wl.fixed_to_f32(s.pointer_y),
 			)
+
+			if csd_button_pressed {
+				switch csd_button {
+				case .Close:
+					append(&s.events, Event_Close_Window_Requested{})
+
+				case .Maximize:
+					if s.maximized {
+						wl.xdg_toplevel_unset_maximized(s.toplevel)
+						s.maximized = false
+					} else {
+						wl.xdg_toplevel_set_maximized(s.toplevel)
+						s.maximized = true
+					}
+
+				case .Minimize:
+					wl.xdg_toplevel_set_minimized(s.toplevel)
+				}
+			}
 
 			return
 		}
@@ -926,7 +956,7 @@ wl_get_window_render_glue :: proc() -> Window_Render_Glue {
 
 wl_before_present :: proc() {
 	if s.csd != nil {
-		wlcsd_paint(s.csd)
+		wlcsd_paint(s.csd, s.scale)
 	}
 }
 
@@ -1010,6 +1040,7 @@ wl_set_screen_size :: proc(w, h: int) {
 	wl.wp_viewport_set_destination(s.viewport, i32(w), i32(h))
 
 	if s.csd != nil {
+		wlcsd_set_window_size(s.csd, s.last_configure_width, s.last_configure_height)
 		wlcsd_needs_repaint_all(s.csd)
 	}
 }
@@ -1029,7 +1060,7 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 		h := s.last_configure_windowed_height
 
 		if s.csd != nil {
-			w, h = wlcsd_window_size(s.csd, w, h)
+			h += WLCSD_TITLEBAR_HEIGHT
 		}
 
 		wl.xdg_toplevel_set_max_size(s.toplevel, i32(w), i32(h))
@@ -1047,6 +1078,7 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	// The frame comes and goes with fullscreen, and the window is a different size with it than
 	// without it.
 	if s.csd != nil {
+		wlcsd_set_window_mode(s.csd, s.window_mode)
 		wlcsd_needs_repaint_all(s.csd)
 	}
 }
@@ -1293,6 +1325,7 @@ wl_apply_cursor :: proc() {
 	}
 }
 
+@(private="package")
 WL_Shared_Memory_Image :: struct {
 	buffer: ^wl.Buffer,
 	pixels: []u32,
@@ -1304,6 +1337,7 @@ WL_Shared_Memory_Image :: struct {
 // separate process, so this uses handles and stuff to make it possible to for it to read it.
 //
 // `name` shows up in /proc/.../fd for debugging.
+@(private="package")
 wl_create_shared_memory_image :: proc(
 	name: cstring,
 	width: int,
@@ -1360,6 +1394,7 @@ wl_create_shared_memory_image :: proc(
 	return image, true
 }
 
+@(private="package")
 wl_destroy_shared_memory_image :: proc(image: WL_Shared_Memory_Image) {
 	if image.buffer != nil {
 		wl.buffer_destroy(image.buffer)
@@ -1582,6 +1617,7 @@ WL_State :: struct {
 
 	// True if toplevel_listener.configure has run
 	configured: bool,
+	maximized: bool,
 
 	window_render_glue: Window_Render_Glue,
 
