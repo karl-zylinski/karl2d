@@ -479,7 +479,7 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 
 			if s.csd != nil {
 				wlcsd_set_window_size(s.csd, s.last_configure_width, s.last_configure_height)
-				wlcsd_needs_repaint_all(s.csd)
+				wlcsd_mark_dirty(s.csd)
 			}
 
 			append(&s.events, Event_Screen_Resize {
@@ -865,7 +865,8 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		}
 
 		if s.csd != nil {
-			wlcsd_needs_repaint_all(s.csd)
+			wlcsd_set_window_scale(s.csd, scl)
+			wlcsd_mark_dirty(s.csd)
 		}
 
 		// The cursor theme is loaded at a fixed physical size, so it needs reloading whenever
@@ -953,7 +954,7 @@ wl_get_window_render_glue :: proc() -> Window_Render_Glue {
 
 wl_before_present :: proc() {
 	if s.csd != nil {
-		wlcsd_paint(s.csd, s.scale)
+		wlcsd_paint(s.csd)
 	}
 }
 
@@ -1038,7 +1039,7 @@ wl_set_screen_size :: proc(w, h: int) {
 
 	if s.csd != nil {
 		wlcsd_set_window_size(s.csd, s.last_configure_width, s.last_configure_height)
-		wlcsd_needs_repaint_all(s.csd)
+		wlcsd_mark_dirty(s.csd)
 	}
 }
 
@@ -1076,7 +1077,7 @@ wl_set_window_mode :: proc(window_mode: Window_Mode) {
 	// without it.
 	if s.csd != nil {
 		wlcsd_set_window_mode(s.csd, s.window_mode)
-		wlcsd_needs_repaint_all(s.csd)
+		wlcsd_mark_dirty(s.csd)
 	}
 }
 
