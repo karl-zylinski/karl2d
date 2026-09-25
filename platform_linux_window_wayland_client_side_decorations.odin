@@ -811,6 +811,7 @@ wlcsd_fill_rect :: proc(buf: WL_Shared_Memory_Image, rect: WLCSD_Rect, color: u3
 		}
 	}
 }
+
 wlcsd_outline_rect :: proc(buf: WL_Shared_Memory_Image, rect: WLCSD_Rect, stroke: int, color: u32) {
 	wlcsd_fill_rect(buf, {rect.x, rect.y, rect.width, stroke}, color)
 	wlcsd_fill_rect(buf, {rect.x, rect.y + rect.height - stroke, rect.width, stroke}, color)
@@ -866,13 +867,7 @@ wlcsd_destroy :: proc(csd: ^WLCSD_State) {
 	delete(csd.icon.pixels, csd.allocator)
 }
 
-// Picks the frame colors from what the desktop is set up for, by asking the desktop portal over
-// D-Bus. That is the one place every desktop answers the question: GNOME, KDE, GTK, Qt and SDL all
-// read the preference from here. A machine with no portal gets the light scheme, the same as one
-// whose desktop has no preference.
-//
-// This is read once, while the window is being made. A player who switches their desktop between
-// dark and light while the game runs keeps the frame they started with.
+// Use dbus to ask which theme to use. If we fail to ask it, then we get light theme.
 wlcsd_pick_theme :: proc() -> WLCSD_Theme {
 	if missing, load_ok := dbus.load(); !load_ok {
 		log.debugf("Using light window decorations. Could not load %v.", missing)
@@ -886,57 +881,12 @@ wlcsd_pick_theme :: proc() -> WLCSD_Theme {
 		return WLCSD_THEME_LIGHT
 	}
 
-	// Tell libdbus to leave the process alone when the bus goes away. It ends the game itself
-	// otherwise.
-	dbus.connection_set_exit_on_disconnect(connection, 0)
-
-	scheme, result := wlcsd_read_portal_setting(connection, "ReadOne")
-
-	// `ReadOne` arrived in xdg-desktop-portal 1.17. An older portal has only `Read`, which is the
-	// same question asked of a portal that answers it with one variant too many.
-	if result == .No_Such_Method {
-		scheme, result = wlcsd_read_portal_setting(connection, "Read")
-	}
-
-	dbus.connection_close(connection)
-	dbus.connection_unref(connection)
-
-	if result != .Value {
-		return WLCSD_THEME_LIGHT
-	}
-
-	// 1 asks for dark, 2 asks for light and 0 is a desktop with no opinion. No opinion means light
-	// in practice: GNOME sets the preference to dark when its dark style is picked and back to
-	// nothing when its light one is, so anything but an explicit 1 belongs in the light scheme.
-	return scheme == 1 ? WLCSD_THEME_DARK : WLCSD_THEME_LIGHT
-}
-
-WL_Portal_Result :: enum {
-	Value,
-	No_Such_Method,
-	Failed,
-}
-
-// Asks the desktop portal for the color scheme with one of its two reading methods. Both take the
-// setting's namespace and key and answer with the value inside one or more variants, which is what
-// the unwrapping at the end is for.
-wlcsd_read_portal_setting :: proc(
-	connection: dbus.Connection,
-	method: cstring,
-) -> (
-	color_scheme: u32,
-	result: WL_Portal_Result,
-) {
 	call := dbus.message_new_method_call(
 		"org.freedesktop.portal.Desktop",
 		"/org/freedesktop/portal/desktop",
 		"org.freedesktop.portal.Settings",
-		method,
+		"Read",
 	)
-
-	if call == nil {
-		return 0, .Failed
-	}
 
 	namespace := cstring("org.freedesktop.appearance")
 	key := cstring("color-scheme")
@@ -949,58 +899,34 @@ wlcsd_read_portal_setting :: proc(
 	// a window because something on the desktop is unwell.
 	PORTAL_TIMEOUT_MS :: 500
 
-	error: dbus.Error
-	dbus.error_init(&error)
-	reply := dbus.connection_send_with_reply_and_block(connection, call, PORTAL_TIMEOUT_MS, &error)
+	reply := dbus.connection_send_with_reply_and_block(connection, call, PORTAL_TIMEOUT_MS, nil)
 	dbus.message_unref(call)
+	dbus.connection_close(connection)
+	dbus.connection_unref(connection)
 
 	if reply == nil {
-		// An old portal answers this way, and is the one failure worth trying something else after.
-		missing := error.name == dbus.ERROR_UNKNOWN_METHOD
-
-		log.debugf(
-			"Desktop portal %v did not answer with a color scheme. Error: %v",
-			method,
-			error.name,
-		)
-
-		dbus.error_free(&error)
-		return 0, missing ? .No_Such_Method : .Failed
-	}
-
-	dbus.error_free(&error)
-
-	// Unwrap variants until the number falls out. Two levels is as deep as either method goes.
-	outer: dbus.Message_Iter
-	inner: dbus.Message_Iter
-	value := &outer
-
-	if dbus.message_iter_init(reply, &outer) == 0 {
-		dbus.message_unref(reply)
-		return 0, .Failed
-	}
-
-	if dbus.message_iter_get_arg_type(value) == dbus.TYPE_VARIANT {
-		dbus.message_iter_recurse(&outer, &inner)
-		value = &inner
-	}
-
-	unwrapped: dbus.Message_Iter
-
-	if dbus.message_iter_get_arg_type(value) == dbus.TYPE_VARIANT {
-		dbus.message_iter_recurse(value, &unwrapped)
-		value = &unwrapped
-	}
-
-	if dbus.message_iter_get_arg_type(value) != dbus.TYPE_UINT32 {
-		dbus.message_unref(reply)
-		return 0, .Failed
+		return WLCSD_THEME_LIGHT
 	}
 
 	scheme: u32
-	dbus.message_iter_get_basic(value, &scheme)
+	outer, inner, value: dbus.Message_Iter
+
+	if dbus.message_iter_init(reply, &outer) != 0 {
+		if dbus.message_iter_get_arg_type(&outer) == dbus.TYPE_VARIANT {
+			dbus.message_iter_recurse(&outer, &inner)
+
+			if dbus.message_iter_get_arg_type(&inner) == dbus.TYPE_VARIANT {
+				dbus.message_iter_recurse(&inner, &value)
+
+				if dbus.message_iter_get_arg_type(&value) == dbus.TYPE_UINT32 {
+					dbus.message_iter_get_basic(&value, &scheme)
+				}
+			}
+		}
+	}
+
 	dbus.message_unref(reply)
-	return scheme, .Value
+	return scheme == 1 ? WLCSD_THEME_DARK : WLCSD_THEME_LIGHT
 }
 
 wlcsd_pointer_over_frame :: proc(csd: ^WLCSD_State) -> bool {
