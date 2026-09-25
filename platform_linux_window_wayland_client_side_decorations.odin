@@ -365,22 +365,6 @@ wlcsd_paint :: proc(csd: ^WLCSD_State, scale: f32) {
 		height = h + WLCSD_TITLEBAR_HEIGHT,
 	}
 
-	button_rects: [WLCSD_Button]WLCSD_Rect
-	button_idx: int
-
-	for button in WLCSD_Button {
-		if button == .Maximize && csd.window_mode != .Windowed_Resizable {
-			continue
-		}
-
-		button_rects[button] = wlcsd_button_rect(csd, button_idx)
-		button_idx += 1
-	}
-
-	reach := f32(WLCSD_BUTTON_ICON_SIZE)/2
-	half_stroke := f32(WLCSD_BUTTON_STROKE)/2
-	color := wlcsd_text_color(csd)
-
 	for part in WLCSD_Part_Type {
 		d := &csd.parts[part]
 
@@ -450,11 +434,6 @@ wlcsd_paint :: proc(csd: ^WLCSD_State, scale: f32) {
 				py := f32(d.rect.y) + (f32(y) + 0.5)*pixel_size
 				at := y*buffer_width + x
 
-				if wlcsd_point_in_rect(window_rect, px, py) {
-					pixels[at] = csd.theme.fill
-					continue
-				}
-
 				// How far this pixel is from the window, which is all the shadow depends on.
 				dx := max(f32(window_rect.x) - px, 0, px - f32(window_rect.x + window_rect.width))
 				dy := max(f32(window_rect.y) - py, 0, py - f32(window_rect.y + window_rect.height))
@@ -471,76 +450,6 @@ wlcsd_paint :: proc(csd: ^WLCSD_State, scale: f32) {
 		}
 
 		if part == .Titlebar {
-			for y in 0..<buffer_height {
-				for x in 0..<buffer_width {
-					px := f32(d.rect.x) + (f32(x) + 0.5)*pixel_size
-					py := f32(d.rect.y) + (f32(y) + 0.5)*pixel_size
-
-					for button in WLCSD_Button {
-						rect := button_rects[button]
-
-						if !wlcsd_point_in_rect(rect, px, py) {
-							continue
-						}
-
-						background := csd.theme.fill
-
-						if csd.pointer_button == button {
-							background = csd.theme.hover
-						}
-
-						// Every glyph is drawn from how far the pixel is from the lines that make
-						// it up. Turning that distance into coverage costs nothing and keeps the
-						// drawing from looking like a staircase at any scale.
-						dx := px - f32(rect.x) - f32(rect.width)/2
-						dy := py - f32(rect.y) - f32(rect.height)/2
-						to_line := max(f32)
-
-						switch button {
-						case .Close:
-							if abs(dx) <= reach && abs(dy) <= reach {
-								// The 0.7071 turns a distance along an axis into the distance to a
-								// line at 45 degrees, which is what the two strokes of an X are.
-								to_line = min(abs(dx - dy), abs(dx + dy)) * 0.70710678
-							}
-
-						case .Maximize:
-							if !csd.maximized {
-								to_line = wlcsd_square_distance(dx, dy, reach*0.8)
-								break
-							}
-
-							// Once the window is maximized the button undoes that, and says so as
-							// two windows laid over one another: one at the front, and one behind
-							// it up and to the right showing only the corner the front one does not
-							// cover.
-							window := reach*0.62
-							shift := window*0.45
-							to_line = wlcsd_square_distance(dx + shift, dy - shift, window)
-							front_reach := window + half_stroke + pixel_size/2
-							covered := max(abs(dx + shift), abs(dy - shift)) <= front_reach
-
-							if !covered {
-								to_line = min(
-									to_line,
-									wlcsd_square_distance(dx - shift, dy + shift, window),
-								)
-							}
-
-						case .Minimize:
-							// A line along the bottom of where the other glyphs are.
-							if abs(dx) <= reach*0.8 {
-								to_line = abs(dy - reach*0.6)
-							}
-						}
-
-						coverage := clamp((half_stroke - to_line)/pixel_size + 0.5, 0, 1)
-						pixels[y*buffer_width + x] = wlcsd_blend(background, color, coverage)
-						break
-					}
-				}
-			}
-
 			wlcsd_paint_title(csd, d, scale)
 		}
 
@@ -578,9 +487,7 @@ wlcsd_paint :: proc(csd: ^WLCSD_State, scale: f32) {
 		wl.surface_commit(csd.scanout_blocker)
 	}
 
-	// The window is the game canvas with the titlebar on top, and neither the shadow nor the grip
-	// around it. Without this the compositor would treat the canvas alone as the window, and a
-	// maximized window would hang off the screen by the height of the titlebar.
+	// Makes sure the titlebar takes its size when maximized and when resizing the window.
 	wl.xdg_surface_set_window_geometry(
 		csd.xdg_surface,
 		0,
@@ -590,11 +497,7 @@ wlcsd_paint :: proc(csd: ^WLCSD_State, scale: f32) {
 	)
 }
 
-// Takes the title to draw. The compositor is told separately, since it wants one for its window
-// list whether or not it draws any of this.
 wlcsd_set_title :: proc(csd: ^WLCSD_State, title: string) {
-	// Games that put their frame rate in the title set it every frame, and repainting the titlebar
-	// for a title that has not changed would be that much work for nothing.
 	if csd.title == title {
 		return
 	}
@@ -604,8 +507,7 @@ wlcsd_set_title :: proc(csd: ^WLCSD_State, title: string) {
 	csd.dirty = true
 }
 
-// Takes the icon to draw in front of the title. The image belongs to whoever passed it in and may
-// be gone by the next repaint, so the frame keeps a copy of the pixels.
+// CSD make a copy of the image, so you don't have to keep it alive.
 wlcsd_set_icon :: proc(csd: ^WLCSD_State, image: Image) {
 	pixels := make([]Color, len(image.pixels), csd.allocator)
 	copy(pixels, image.pixels)
@@ -620,60 +522,173 @@ wlcsd_set_icon :: proc(csd: ^WLCSD_State, image: Image) {
 	csd.dirty = true
 }
 
-// Draws the window title across the middle of the titlebar, with the window icon in front of it,
-// in the space the buttons leave. The glyphs are rasterized straight out of the font Karl2D
-// already embeds, one at a time, which is little enough work for something that only happens when
-// the title, the size, the focus or the button under the pointer changes.
+// Paints the title background, its button, the title text and the icon.
 wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
+	buf := d.buffers[d.current_buffer]
+	pixel_size := 1/scale
+	text_color := wlcsd_text_color(csd)
+
+	titlebar_rect := WLCSD_Rect {
+		x = 0,
+		y = -WLCSD_TITLEBAR_HEIGHT,
+		width = csd.window_width,
+		height = WLCSD_TITLEBAR_HEIGHT,
+	}
+
+	// BACKGROUND
+
+	for y in 0..<buf.height {
+		for x in 0..<buf.width {
+			px := f32(d.rect.x) + (f32(x) + 0.5)*pixel_size
+			py := f32(d.rect.y) + (f32(y) + 0.5)*pixel_size
+
+			if wlcsd_point_in_rect(titlebar_rect, px, py) {
+				buf.pixels[y*buf.width + x] = csd.theme.fill
+			}
+		}
+	}
+
+	// BUTTONS
+
+	button_idx: int
+	glyph_size := int(math.round(WLCSD_BUTTON_ICON_SIZE * scale))
+	glyph_stroke := max(1, int(math.round(WLCSD_BUTTON_STROKE * scale)))
+
+	for button in WLCSD_Button {
+		if button == .Maximize && csd.window_mode != .Windowed_Resizable {
+			continue
+		}
+
+		rect := wlcsd_button_rect(csd, button_idx)
+		button_idx += 1
+
+		pixel_rect := WLCSD_Rect {
+			x = int(math.round(f32(rect.x - d.rect.x) * scale)),
+			y = int(math.round(f32(rect.y - d.rect.y) * scale)),
+			width = int(math.round(f32(rect.width) * scale)),
+			height = int(math.round(f32(rect.height) * scale)),
+		}
+
+		right := pixel_rect.x + pixel_rect.width
+		bottom := pixel_rect.y + pixel_rect.height
+
+		if pixel_rect.x < 0 || pixel_rect.y < 0 {
+			continue
+		}
+
+		if right > buf.width || bottom > buf.height {
+			continue
+		}
+
+		background := csd.theme.fill
+
+		if csd.pointer_button == button {
+			background = csd.theme.hover
+			wlcsd_fill_rect(buf, pixel_rect, background)
+		}
+
+		glyph := WLCSD_Rect {
+			x = pixel_rect.x + (pixel_rect.width - glyph_size)/2,
+			y = pixel_rect.y + (pixel_rect.height - glyph_size)/2,
+			width = glyph_size,
+			height = glyph_size,
+		}
+
+		switch button {
+		case .Close:
+			for y in glyph.y..<glyph.y + glyph.height {
+				for x in glyph.x..<glyph.x + glyph.width {
+					i := x - glyph.x
+					j := y - glyph.y
+
+					if abs(i - j) < glyph_stroke || abs(i + j - (glyph.width - 1)) < glyph_stroke {
+						buf.pixels[y*buf.width + x] = text_color
+					}
+				}
+			}
+
+		case .Maximize:
+			square := WLCSD_Rect {
+				x = glyph.x + glyph_stroke,
+				y = glyph.y + glyph_stroke,
+				width = glyph.width - glyph_stroke*2,
+				height = glyph.height - glyph_stroke*2,
+			}
+
+			if csd.maximized {
+				back := WLCSD_Rect {
+					x = square.x + square.width/4,
+					y = square.y,
+					width = square.width*3/4,
+					height = square.height*3/4,
+				}
+
+				square.y += square.height/4
+				square.width = square.width*3/4
+				square.height = square.height*3/4
+				wlcsd_outline_rect(buf, back, glyph_stroke, text_color)
+				wlcsd_fill_rect(buf, square, background)
+			}
+
+			wlcsd_outline_rect(buf, square, glyph_stroke, text_color)
+
+		case .Minimize:
+			line := WLCSD_Rect {
+				x = glyph.x,
+				y = glyph.y + glyph.height - glyph_stroke,
+				width = glyph.width,
+				height = glyph_stroke,
+			}
+
+			wlcsd_fill_rect(buf, line, text_color)
+		}
+	}
+
+	// ICON AND TITLE TEXT
+
 	if !csd.font_ok || csd.title == "" {
 		return
 	}
 
 	font := &csd.font
-	buf := d.buffers[d.current_buffer]
-	scale_factor := stbtt.ScaleForPixelHeight(font, WLCSD_TITLE_FONT_SIZE * scale)
+	font_scale_factor := stbtt.ScaleForPixelHeight(font, WLCSD_TITLE_FONT_SIZE * scale)
 
-	last_button_idx := csd.window_mode == .Windowed_Resizable ? 2 : 1
-	left_most_button_rect := wlcsd_button_rect(csd, last_button_idx)
-	horizontal_margin := int(math.round(WLCSD_TITLE_HORIZONTAL_MARGIN * scale))
-	left := int(math.round(f32(-d.rect.x) * scale)) + horizontal_margin
-	right := int(math.round(f32(left_most_button_rect.x - d.rect.x) * scale)) -
-		horizontal_margin
+	left_most_button_rect := wlcsd_button_rect(csd, button_idx - 1)
+	title_margin := int(math.round(WLCSD_TITLE_HORIZONTAL_MARGIN * scale))
+	title_area_left := int(math.round(f32(-d.rect.x) * scale)) + title_margin
+	title_area_right := int(math.round(f32(left_most_button_rect.x - d.rect.x) * scale)) -
+		title_margin
 
-	if right <= left {
+	if title_area_right <= title_area_left {
 		return
 	}
 
-	width := 0
+	title_width := 0
 
 	for r in csd.title {
 		advance, left_bearing: i32
 		stbtt.GetCodepointHMetrics(font, r, &advance, &left_bearing)
-		width += int(math.round(f32(advance) * scale_factor))
+		title_width += int(math.round(f32(advance) * font_scale_factor))
 	}
 
-	// The icon stays in front of the title wherever that ends up, so the room it takes comes off
-	// the left of the space the text has.
 	icon_size := 0
-	icon_room := 0
+	icon_space := 0
 
 	if len(csd.icon.pixels) > 0 {
 		icon_size = int(math.round(WLCSD_ICON_SIZE * scale))
-		icon_room = icon_size + int(math.round(WLCSD_ICON_HORIZONTAL_MARGIN * scale))
+		icon_space = icon_size + int(math.round(WLCSD_ICON_HORIZONTAL_MARGIN * scale))
 	}
 
-	// Centered on the window itself rather than on the room beside the buttons, so that it sits
-	// where the eye looks for it. A title too long for that room runs into the buttons and is cut
-	// off there instead.
-	center := int(math.round(f32(csd.window_width - d.rect.x*2) * scale))/2
-	pen := max(left + icon_room, center - width/2)
-	top := int(math.round(f32(-WLCSD_TITLEBAR_HEIGHT - d.rect.y) * scale))
-	bar_height := int(math.round(WLCSD_TITLEBAR_HEIGHT * scale))
+	// Centered on the full window width.
+	title_center_x := int(math.round(f32(csd.window_width - d.rect.x*2) * scale))/2
+	title_pen_x := max(title_area_left + icon_space, title_center_x - title_width/2)
+	titlebar_top := int(math.round(f32(-WLCSD_TITLEBAR_HEIGHT - d.rect.y) * scale))
+	titlebar_height := int(math.round(WLCSD_TITLEBAR_HEIGHT * scale))
 
 	if icon_size > 0 {
 		icon := csd.icon
-		icon_x := pen - icon_room
-		icon_y := top + (bar_height - icon_size)/2
+		icon_x := title_pen_x - icon_space
+		icon_y := titlebar_top + (titlebar_height - icon_size)/2
 		draw_width := icon_size
 		draw_height := icon_size
 
@@ -683,7 +698,7 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 			draw_width = max(1, icon_size*icon.width/icon.height)
 		}
 
-		// A picture that does not fill the box sits in the middle of it.
+		// Center the image within the box
 		box_x := icon_x + (icon_size - draw_width)/2
 		box_y := icon_y + (icon_size - draw_height)/2
 
@@ -692,58 +707,24 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 				to_x := box_x + x
 				to_y := box_y + y
 
-				if to_x < left || to_x >= right || to_y < 0 || to_y >= buf.height {
+				if to_x < title_area_left || to_x >= title_area_right || to_y < 0 || to_y >= buf.height {
 					continue
 				}
 
-				// The source pixels this one covers. Averaging them is the whole of the scaling,
-				// and the color is weighted by alpha so that transparent pixels do not wash the
-				// edges out.
-				from_x0 := x*icon.width/draw_width
-				from_x1 := max(from_x0 + 1, (x + 1)*icon.width/draw_width)
-				from_y0 := y*icon.height/draw_height
-				from_y1 := max(from_y0 + 1, (y + 1)*icon.height/draw_height)
-				total_a := 0
-				total_r := 0
-				total_g := 0
-				total_b := 0
-
-				for from_y in from_y0..<from_y1 {
-					for from_x in from_x0..<from_x1 {
-						col := icon.pixels[from_y*icon.width + from_x]
-						a := int(col.a)
-						total_a += a
-						total_r += int(col.r)*a
-						total_g += int(col.g)*a
-						total_b += int(col.b)*a
-					}
-				}
-
-				if total_a == 0 {
-					continue
-				}
-
-				sampled := (from_x1 - from_x0)*(from_y1 - from_y0)
-				r := u32(total_r/total_a)
-				g := u32(total_g/total_a)
-				b := u32(total_b/total_a)
-				alpha := f32(total_a)/f32(sampled*255)
+				from_x := x*icon.width/draw_width
+				from_y := y*icon.height/draw_height
+				col := icon.pixels[from_y*icon.width + from_x]
+				icon_color := 0xff000000 | u32(col.r) << 16 | u32(col.g) << 8 | u32(col.b)
 				at := to_y*buf.width + to_x
-				icon_color := 0xff000000 | r << 16 | g << 8 | b
-				buf.pixels[at] = wlcsd_blend(buf.pixels[at], icon_color, alpha)
+				buf.pixels[at] = wlcsd_blend(buf.pixels[at], icon_color, f32(col.a)/255)
 			}
 		}
 	}
 
-	// The text is centered on the band the capital letters fill, which is what the eye reads as
-	// the middle of it. Centering on the font's ascent and descent instead sets it too high, since
-	// those leave room for accents and for descenders that a title rarely has. The capital H is
-	// what that band is measured from.
 	cap_x0, cap_y0, cap_x1, cap_y1: i32
 	stbtt.GetCodepointBox(font, 'H', &cap_x0, &cap_y0, &cap_x1, &cap_y1)
-	cap_height := f32(cap_y1) * scale_factor
-	baseline := top + int(math.round((f32(bar_height) + cap_height)/2))
-	color := wlcsd_text_color(csd)
+	cap_height := f32(cap_y1) * font_scale_factor
+	title_baseline_y := titlebar_top + int(math.round((f32(titlebar_height) + cap_height)/2))
 
 	for r in csd.title {
 		advance, left_bearing: i32
@@ -753,7 +734,7 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 		coverage := stbtt.GetCodepointBitmap(
 			font,
 			0,
-			scale_factor,
+			font_scale_factor,
 			r,
 			&glyph_width,
 			&glyph_height,
@@ -769,42 +750,34 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 					continue
 				}
 
-				x := pen + int(glyph_x) + i%int(glyph_width)
-				y := baseline + int(glyph_y) + i/int(glyph_width)
+				x := title_pen_x + int(glyph_x) + i%int(glyph_width)
+				y := title_baseline_y + int(glyph_y) + i/int(glyph_width)
 
-				if x < left || x >= right || y < 0 || y >= buf.height {
+				if x < title_area_left || x >= title_area_right || y < 0 || y >= buf.height {
 					continue
 				}
 
 				at := y*buf.width + x
-				buf.pixels[at] = wlcsd_blend(buf.pixels[at], color, f32(alpha)/255)
+				buf.pixels[at] = wlcsd_blend(buf.pixels[at], text_color, f32(alpha)/255)
 			}
 
 			stbtt.FreeBitmap(coverage, nil)
 		}
 
-		pen += int(math.round(f32(advance) * scale_factor))
+		title_pen_x += int(math.round(f32(advance) * font_scale_factor))
 
-		if pen >= right {
+		if title_pen_x >= title_area_right {
 			break
 		}
 	}
 }
 
-// What the title and the button glyphs are drawn in. Dimmed towards the titlebar itself while the
-// window is not the one being typed into, the way every other window on the desktop dims.
 wlcsd_text_color :: proc(csd: ^WLCSD_State) -> u32 {
 	if csd.active {
 		return csd.theme.text
 	}
 
 	return wlcsd_blend(csd.theme.fill, csd.theme.text, 0.45)
-}
-
-// How far a point is from the outline of a square of half width `reach` centered on the origin, so
-// that a square comes out of the same coverage code as the diagonal strokes of the X.
-wlcsd_square_distance :: proc(dx: f32, dy: f32, reach: f32) -> f32 {
-	return abs(max(abs(dx), abs(dy)) - reach)
 }
 
 // Mixes two opaque colors, `amount` being how much of `over` shows.
@@ -830,10 +803,27 @@ wlcsd_blend :: proc(under: u32, over: u32, amount: f32) -> u32 {
 	return 0xff000000 | r << 16 | g << 8 | b
 }
 
+wlcsd_fill_rect :: proc(buf: WL_Shared_Memory_Image, rect: WLCSD_Rect, color: u32) {
+	for y in rect.y..<rect.y + rect.height {
+		for x in rect.x..<rect.x + rect.width {
+			buf.pixels[y*buf.width + x] = color
+		}
+	}
+}
+wlcsd_outline_rect :: proc(buf: WL_Shared_Memory_Image, rect: WLCSD_Rect, stroke: int, color: u32) {
+	wlcsd_fill_rect(buf, {rect.x, rect.y, rect.width, stroke}, color)
+	wlcsd_fill_rect(buf, {rect.x, rect.y + rect.height - stroke, rect.width, stroke}, color)
+	wlcsd_fill_rect(buf, {rect.x, rect.y, stroke, rect.height}, color)
+	wlcsd_fill_rect(buf, {rect.x + rect.width - stroke, rect.y, stroke, rect.height}, color)
+}
+
 wlcsd_point_in_rect :: proc(rect: WLCSD_Rect, x: f32, y: f32) -> bool {
-	inside_x := x >= f32(rect.x) && x < f32(rect.x + rect.width)
-	inside_y := y >= f32(rect.y) && y < f32(rect.y + rect.height)
-	return inside_x && inside_y
+	return (
+		x >= f32(rect.x) &&
+		x <  f32(rect.x + rect.width) &&
+		y >= f32(rect.y) &&
+		y <  f32(rect.y + rect.height)
+	)
 }
 
 wlcsd_button_rect :: proc(
@@ -860,27 +850,19 @@ wlcsd_destroy :: proc(csd: ^WLCSD_State) {
 		wl.subsurface_destroy(d.subsurface)
 		wl.surface_destroy(d.surface)
 
-		// The surfaces are gone, so the compositor is reading none of these whatever they say.
 		for slot in d.buffers {
 			wl_destroy_shared_memory_image(slot)
 		}
-
-		d^ = {}
 	}
 
 	if csd.scanout_blocker != nil {
 		wl.subsurface_destroy(csd.scanout_blocker_subsurface)
 		wl.surface_destroy(csd.scanout_blocker)
 		wl_destroy_shared_memory_image(csd.scanout_blocker_image)
-		csd.scanout_blocker = nil
-		csd.scanout_blocker_subsurface = nil
-		csd.scanout_blocker_image = {}
 	}
 
 	delete(csd.title, csd.allocator)
-	csd.title = ""
 	delete(csd.icon.pixels, csd.allocator)
-	csd.icon = {}
 }
 
 // Picks the frame colors from what the desktop is set up for, by asking the desktop portal over
