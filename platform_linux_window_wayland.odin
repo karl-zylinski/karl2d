@@ -865,7 +865,6 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		}
 
 		if s.csd != nil {
-			wlcsd_set_window_scale(s.csd, scl)
 			wlcsd_mark_dirty(s.csd)
 		}
 
@@ -954,7 +953,7 @@ wl_get_window_render_glue :: proc() -> Window_Render_Glue {
 
 wl_before_present :: proc() {
 	if s.csd != nil {
-		wlcsd_paint(s.csd)
+		wlcsd_paint(s.csd, s.scale)
 	}
 }
 
