@@ -436,7 +436,6 @@ toplevel_listener := wl.XDG_Toplevel_Listener {
 				}
 			}
 
-			s.maximized = maximized
 			wlcsd_set_toplevel_state(s.csd, active, maximized)
 
 			if h > 0 && s.window_mode != .Borderless_Fullscreen {
@@ -759,12 +758,10 @@ pointer_listener := wl.Pointer_Listener {
 					append(&s.events, Event_Close_Window_Requested{})
 
 				case .Maximize:
-					if s.maximized {
+					if s.csd.maximized {
 						wl.xdg_toplevel_unset_maximized(s.toplevel)
-						s.maximized = false
 					} else {
 						wl.xdg_toplevel_set_maximized(s.toplevel)
-						s.maximized = true
 					}
 
 				case .Minimize:
@@ -1617,7 +1614,6 @@ WL_State :: struct {
 
 	// True if toplevel_listener.configure has run
 	configured: bool,
-	maximized: bool,
 
 	window_render_glue: Window_Render_Glue,
 

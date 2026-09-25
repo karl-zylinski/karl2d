@@ -1092,11 +1092,11 @@ wlcsd_pointer_button :: proc(
 	}
 
 	if state != wl.POINTER_BUTTON_STATE_PRESSED {
-		acted, acted_ok := csd.pressed_button.?
+		pressed, pressed_ok := csd.pressed_button.?
 		csd.pressed_button = nil
 
-		if acted_ok && acted == csd.pointer_button {
-			return acted, true
+		if pressed_ok && pressed == csd.pointer_button {
+			return pressed, true
 		}
 
 		return
@@ -1141,23 +1141,18 @@ wlcsd_pointer_button :: proc(
 	quick := time - csd.last_press_time < DOUBLE_CLICK_MS
 	near_x := abs(local_x - csd.last_press_x) < DOUBLE_CLICK_SLOP
 	near_y := abs(local_y - csd.last_press_y) < DOUBLE_CLICK_SLOP
+	double_click := quick && near_x && near_y
 	csd.last_press_time = time
 	csd.last_press_x = local_x
 	csd.last_press_y = local_y
 
 	resizable := csd.window_mode == .Windowed_Resizable
 
-	if quick && near_x && near_y && resizable && wlcsd_pointer_part(csd) == .Titlebar {
+	if double_click && resizable && wlcsd_pointer_part(csd) == .Titlebar {
 		// Forget the press, so that a third one is not the start of another double click.
 		csd.last_press_time = 0
 
-		if csd.maximized {
-			wl.xdg_toplevel_unset_maximized(csd.toplevel)
-		} else {
-			wl.xdg_toplevel_set_maximized(csd.toplevel)
-		}
-
-		return
+		return .Maximize, true
 	}
 
 	wl.xdg_toplevel_move(csd.toplevel, csd.seat, serial)
