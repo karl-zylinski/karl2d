@@ -673,13 +673,11 @@ pointer_listener := wl.Pointer_Listener {
 		if s.csd != nil {
 			wlcsd_set_pointer_surface(s.csd, surface)
 
-			if wlcsd_pointer_over_frame(s.csd) {
-				wlcsd_pointer_moved(
-					s.csd,
-					wl.fixed_to_f32(surface_x),
-					wl.fixed_to_f32(surface_y),
-				)
-			}
+			wlcsd_pointer_moved(
+				s.csd,
+				wl.fixed_to_f32(surface_x),
+				wl.fixed_to_f32(surface_y),
+			)
 		}
 
 		wl_apply_cursor()
@@ -693,10 +691,6 @@ pointer_listener := wl.Pointer_Listener {
 		context = s.odin_ctx
 
 		if s.csd != nil {
-			if wlcsd_pointer_over_frame(s.csd) {
-				wlcsd_pointer_left(s.csd)
-			}
-			
 			wlcsd_set_pointer_surface(s.csd, nil)
 		}
 	},

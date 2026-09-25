@@ -159,8 +159,7 @@ WLCSD_State :: struct {
 	scanout_blocker_subsurface: ^wl.Subsurface,
 	scanout_blocker_image: WL_Shared_Memory_Image,
 
-	pointer_over_frame: bool,
-	pointer_part: WLCSD_Part_Type,
+	pointer_part: Maybe(WLCSD_Part_Type),
 
 	// The button under the pointer, which is the one that lights up, and the one the button went
 	// down on. A button only acts if the pointer is still on it when the button comes back up.
@@ -930,15 +929,25 @@ wlcsd_pick_theme :: proc() -> WLCSD_Theme {
 }
 
 wlcsd_pointer_over_frame :: proc(csd: ^WLCSD_State) -> bool {
-	return csd.pointer_over_frame
+	return csd.pointer_part != nil
 }
 
 wlcsd_set_pointer_surface :: proc(csd: ^WLCSD_State, pointer_surface: ^wl.Surface) {
-	csd.pointer_over_frame = false
+	csd.pointer_part = nil
+
+	if pointer_surface == nil {
+		csd.pressed_button = nil
+
+		if csd.pointer_button != nil {
+			csd.pointer_button = nil
+			csd.dirty = true
+		}
+
+		return
+	}
 
 	for part in WLCSD_Part_Type {
 		if csd.parts[part].surface == pointer_surface {
-			csd.pointer_over_frame = true
 			csd.pointer_part = part
 		}
 	}
@@ -946,7 +955,12 @@ wlcsd_set_pointer_surface :: proc(csd: ^WLCSD_State, pointer_surface: ^wl.Surfac
 
 // Figures out what parts of the frame that are under the pointer.
 wlcsd_pointer_moved :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) {
-	part := csd.pointer_part
+	part, part_ok := csd.pointer_part.?
+	
+	if !part_ok {
+		return
+	}
+
 	d := csd.parts[part]
 
 	// Where the pointer is with the game canvas at the origin, which is what the window's own
@@ -980,16 +994,6 @@ wlcsd_pointer_moved :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) {
 	}
 }
 
-// The pointer left the frame, so nothing on it is under the pointer any more.
-wlcsd_pointer_left :: proc(csd: ^WLCSD_State) {
-	csd.pressed_button = nil
-
-	if csd.pointer_button != nil {
-		csd.pointer_button = nil
-		csd.dirty = true
-	}
-}
-
 // Acts on a mouse button that changed state over the frame. Pressing near an edge starts a resize
 // and pressing anywhere else that is not a titlebar button starts a move; the compositor runs both
 // itself, grabbing the pointer until the button comes back up, so there is nothing here to follow
@@ -1007,10 +1011,16 @@ wlcsd_pointer_button :: proc(
 	_button_pressed_type: WLCSD_Button,
 	_button_pressed: bool,
 ) {
+	pointer_part, pointer_part_ok := csd.pointer_part.?
+
+	if !pointer_part_ok {
+		return
+	}
+
 	// The right button asks the compositor for the window menu, which is the one thing on the
 	// frame that Karl2D does not draw itself.
 	if button == wl.BTN_RIGHT && state == wl.POINTER_BUTTON_STATE_PRESSED {
-		d := csd.parts[csd.pointer_part]
+		d := csd.parts[pointer_part]
 
 		// The position is measured from the corner of the window geometry, which is the top left of
 		// the titlebar.
@@ -1104,7 +1114,13 @@ wlcsd_resize_edges :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> bit
 		return {}
 	}
 
-	d := csd.parts[csd.pointer_part]
+	pointer_part, pointer_part_ok := csd.pointer_part.?
+
+	if !pointer_part_ok {
+		return {}
+	}
+
+	d := csd.parts[pointer_part]
 	x := f32(d.rect.x) + local_x
 	y := f32(d.rect.y) + local_y
 
