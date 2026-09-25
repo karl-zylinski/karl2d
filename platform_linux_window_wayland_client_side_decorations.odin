@@ -159,7 +159,8 @@ WLCSD_State :: struct {
 	scanout_blocker_subsurface: ^wl.Subsurface,
 	scanout_blocker_image: WL_Shared_Memory_Image,
 
-	pointer_surface: ^wl.Surface,
+	pointer_over_frame: bool,
+	pointer_part: WLCSD_Part_Type,
 
 	// The button under the pointer, which is the one that lights up, and the one the button went
 	// down on. A button only acts if the pointer is still on it when the button comes back up.
@@ -1003,16 +1004,23 @@ wlcsd_read_portal_setting :: proc(
 }
 
 wlcsd_pointer_over_frame :: proc(csd: ^WLCSD_State) -> bool {
-	return csd.pointer_surface != nil && csd.pointer_surface != csd.surface
+	return csd.pointer_over_frame
 }
 
 wlcsd_set_pointer_surface :: proc(csd: ^WLCSD_State, pointer_surface: ^wl.Surface) {
-	csd.pointer_surface = pointer_surface
+	csd.pointer_over_frame = false
+
+	for part in WLCSD_Part_Type {
+		if csd.parts[part].surface == pointer_surface {
+			csd.pointer_over_frame = true
+			csd.pointer_part = part
+		}
+	}
 }
 
 // Figures out what parts of the frame that are under the pointer.
 wlcsd_pointer_moved :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) {
-	part := wlcsd_pointer_part(csd)
+	part := csd.pointer_part
 	d := csd.parts[part]
 
 	// Where the pointer is with the game canvas at the origin, which is what the window's own
@@ -1076,7 +1084,7 @@ wlcsd_pointer_button :: proc(
 	// The right button asks the compositor for the window menu, which is the one thing on the
 	// frame that Karl2D does not draw itself.
 	if button == wl.BTN_RIGHT && state == wl.POINTER_BUTTON_STATE_PRESSED {
-		d := csd.parts[wlcsd_pointer_part(csd)]
+		d := csd.parts[csd.pointer_part]
 
 		// The position is measured from the corner of the window geometry, which is the top left of
 		// the titlebar.
@@ -1152,7 +1160,7 @@ wlcsd_pointer_button :: proc(
 
 	resizable := csd.window_mode == .Windowed_Resizable
 
-	if double_click && resizable && wlcsd_pointer_part(csd) == .Titlebar {
+	if double_click && resizable && csd.pointer_part == .Titlebar {
 		// Forget the press, so that a third one is not the start of another double click.
 		csd.last_press_time = 0
 
@@ -1170,7 +1178,7 @@ wlcsd_resize_edges :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> bit
 		return {}
 	}
 
-	d := csd.parts[wlcsd_pointer_part(csd)]
+	d := csd.parts[csd.pointer_part]
 	x := f32(d.rect.x) + local_x
 	y := f32(d.rect.y) + local_y
 
@@ -1192,17 +1200,6 @@ wlcsd_resize_edges :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> bit
 	}
 
 	return edges
-}
-
-// Which part of the frame the pointer is on. Only meaningful while `wlcsd_has_pointer` is true.
-wlcsd_pointer_part :: proc(csd: ^WLCSD_State) -> WLCSD_Part_Type {
-	for part in WLCSD_Part_Type {
-		if csd.parts[part].surface == csd.pointer_surface {
-			return part
-		}
-	}
-
-	return .Titlebar
 }
 
 // The cursor the frame wants under the pointer: the matching double arrow along the edges that
