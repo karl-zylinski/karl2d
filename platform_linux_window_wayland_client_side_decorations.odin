@@ -6,6 +6,7 @@
 // implement so-called client-side decorations (CSD): The application draws the frame.
 
 #+build linux
+#+private package
 package karl2d
 
 import "core:math"
