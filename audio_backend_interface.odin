@@ -1,10 +1,15 @@
 package karl2d
 
+Audio_Backend_State :: distinct rawptr
+
+// Audio_Backend_State is defined per platform, in for example `audio_linux.odin`.
 Audio_Backend_Interface :: struct {
-	state_size: proc() -> int,
-	init: proc(state: rawptr) -> bool,
-	shutdown: proc(),
-	set_internal_state: proc(state: rawptr),
+	init: proc(
+		allocator: Allocator,
+		loc := #caller_location,
+	) -> (Audio_Backend_State, bool),
+
+	shutdown: proc(s: Audio_Backend_State),
 
 	mix_chunk_size: int,
 
@@ -17,6 +22,6 @@ Audio_Backend_Interface :: struct {
 	has_mixer_thread: bool,
 
 	// These are not required when `has_mixer_thread` is true.
-	push_samples: proc(samples: [][2]Audio_Sample),
-	pushed_samples_remaining: proc() -> int,
+	push_samples: proc(s: Audio_Backend_State, samples: [][2]Audio_Sample),
+	pushed_samples_remaining: proc(s: Audio_Backend_State) -> int,
 }

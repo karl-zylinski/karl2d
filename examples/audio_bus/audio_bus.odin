@@ -62,8 +62,8 @@ init :: proc() {
 	sfx_bus = k2.create_audio_bus()
 
 	blip_clip = make_sine_wave(600, 0.12, 44100)
-	drone_clip = make_sine_wave(80, 1, 44100)
-	tone_clip = make_sine_wave(220, 1, 44100)
+	drone_clip = make_sine_wave(600, 1, 44100)
+	tone_clip = make_sine_wave(1000, 1, 44100)
 
 	// The drone goes on the sfx bus. The tone is left alone, so it plays on the master bus. We
 	// never stop them one by one, and destroying the clips in `shutdown` stops them, so the
