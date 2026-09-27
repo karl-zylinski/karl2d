@@ -667,8 +667,6 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 		s.pointer_enter_serial = u32(serial)
-		s.pointer_x = surface_x
-		s.pointer_y = surface_y
 
 		if s.csd != nil {
 			wlcsd_set_pointer_surface(s.csd, surface)
@@ -703,15 +701,12 @@ pointer_listener := wl.Pointer_Listener {
 	) {
 		context = s.odin_ctx
 
-		s.pointer_x = surface_x
-		s.pointer_y = surface_y
-
 		if s.csd != nil && wlcsd_pointer_over_frame(s.csd) {
 			local_x := wl.fixed_to_f32(surface_x)
 			local_y := wl.fixed_to_f32(surface_y)
 			wlcsd_pointer_moved(s.csd, local_x, local_y)
 
-			if wlcsd_cursor(s.csd, local_x, local_y) != s.last_csd_cursor {
+			if wlcsd_cursor(s.csd) != s.last_csd_cursor {
 				wl_apply_cursor()
 			}
 
@@ -742,8 +737,6 @@ pointer_listener := wl.Pointer_Listener {
 				u32(state),
 				u32(time),
 				u32(serial),
-				wl.fixed_to_f32(s.pointer_x),
-				wl.fixed_to_f32(s.pointer_y),
 			)
 
 			if csd_button_pressed {
@@ -1236,11 +1229,7 @@ wl_apply_cursor :: proc() {
 
 	// Let CSD frame dictate cursor if we are over the frame.
 	if s.csd != nil && wlcsd_pointer_over_frame(s.csd) {
-		s.last_csd_cursor = wlcsd_cursor(
-			s.csd,
-			wl.fixed_to_f32(s.pointer_x),
-			wl.fixed_to_f32(s.pointer_y),
-		)
+		s.last_csd_cursor = wlcsd_cursor(s.csd)
 
 		cursor = s.last_csd_cursor
 	} else {
@@ -1579,8 +1568,6 @@ WL_State :: struct {
 	pointer: ^wl.Pointer,
 	pointer_enter_serial: u32,
 
-	pointer_x: wl.Fixed,
-	pointer_y: wl.Fixed,
 	cursor_hidden: bool,
 	shm: ^wl.SHM,
 	cursor_surface: ^wl.Surface,

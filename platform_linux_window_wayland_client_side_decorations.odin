@@ -184,6 +184,9 @@ WLCSD_State :: struct {
 	last_press_x: f32,
 	last_press_y: f32,
 
+	pointer_x: f32,
+	pointer_y: f32,
+
 	active: bool,
 	maximized: bool,
 
@@ -954,7 +957,7 @@ wlcsd_set_pointer_surface :: proc(csd: ^WLCSD_State, pointer_surface: ^wl.Surfac
 }
 
 // Figures out what parts of the frame that are under the pointer.
-wlcsd_pointer_moved :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) {
+wlcsd_pointer_moved :: proc(csd: ^WLCSD_State, surface_x: f32, surface_y: f32) {
 	part, part_ok := csd.pointer_part.?
 	
 	if !part_ok {
@@ -965,10 +968,10 @@ wlcsd_pointer_moved :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) {
 
 	// Where the pointer is with the game canvas at the origin, which is what the window's own
 	// edges are measured against.
-	x := f32(d.rect.x) + local_x
-	y := f32(d.rect.y) + local_y
+	csd.pointer_x = f32(d.rect.x) + surface_x
+	csd.pointer_y = f32(d.rect.y) + surface_y
 
-	edges := wlcsd_resize_edges(csd, local_x, local_y)
+	edges := wlcsd_resize_edges(csd)
 	hovered: Maybe(WLCSD_Button)
 
 	if edges == {} && part == .Titlebar {
@@ -981,7 +984,7 @@ wlcsd_pointer_moved :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) {
 			rect := wlcsd_button_rect(csd, button_idx)
 			button_idx += 1
 
-			if wlcsd_point_in_rect(rect, x, y) {
+			if wlcsd_point_in_rect(rect, csd.pointer_x, csd.pointer_y) {
 				hovered = button
 				break
 			}
@@ -1002,30 +1005,24 @@ wlcsd_pointer_button :: proc(
 	state: u32,
 	time: u32,
 	serial: u32,
-	local_x: f32,
-	local_y: f32,
 ) -> (
 	_button_pressed_type: WLCSD_Button,
 	_button_pressed: bool,
 ) {
-	pointer_part, pointer_part_ok := csd.pointer_part.?
-
-	if !pointer_part_ok {
+	if csd.pointer_part == nil {
 		return
 	}
 
 	// Show the context menu when pressing right mouse button over titlebar.
 	if button == wl.BTN_RIGHT && state == wl.POINTER_BUTTON_STATE_PRESSED {
-		d := csd.parts[pointer_part]
-
 		// The position is measured from the corner of the window geometry, which is the top left of
 		// the titlebar.
 		wl.xdg_toplevel_show_window_menu(
 			csd.toplevel,
 			csd.seat,
 			serial,
-			i32(f32(d.rect.x) + local_x),
-			i32(f32(d.rect.y + WLCSD_TITLEBAR_HEIGHT) + local_y),
+			i32(csd.pointer_x),
+			i32(csd.pointer_y + WLCSD_TITLEBAR_HEIGHT),
 		)
 
 		return
@@ -1051,7 +1048,7 @@ wlcsd_pointer_button :: proc(
 		return
 	}
 
-	edges := wlcsd_resize_edges(csd, local_x, local_y)
+	edges := wlcsd_resize_edges(csd)
 
 	if edges != {} {
 		xdg_edge: u32
@@ -1083,12 +1080,12 @@ wlcsd_pointer_button :: proc(
 	DOUBLE_CLICK_SLOP :: 6
 
 	quick := time - csd.last_press_time < DOUBLE_CLICK_MS
-	near_x := abs(local_x - csd.last_press_x) < DOUBLE_CLICK_SLOP
-	near_y := abs(local_y - csd.last_press_y) < DOUBLE_CLICK_SLOP
+	near_x := abs(csd.pointer_x - csd.last_press_x) < DOUBLE_CLICK_SLOP
+	near_y := abs(csd.pointer_y - csd.last_press_y) < DOUBLE_CLICK_SLOP
 	double_click := quick && near_x && near_y
 	csd.last_press_time = time
-	csd.last_press_x = local_x
-	csd.last_press_y = local_y
+	csd.last_press_x = csd.pointer_x
+	csd.last_press_y = csd.pointer_y
 
 	resizable := csd.window_mode == .Windowed_Resizable
 
@@ -1103,21 +1100,13 @@ wlcsd_pointer_button :: proc(
 	return
 }
 
-wlcsd_resize_edges :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> bit_set[WLCSD_Edge] {
+wlcsd_resize_edges :: proc(csd: ^WLCSD_State) -> bit_set[WLCSD_Edge] {
 	if csd.window_mode != .Windowed_Resizable {
 		return {}
 	}
 
-	pointer_part, pointer_part_ok := csd.pointer_part.?
-
-	if !pointer_part_ok {
-		return {}
-	}
-
-	d := csd.parts[pointer_part]
-	x := f32(d.rect.x) + local_x
-	y := f32(d.rect.y) + local_y
-
+	x := csd.pointer_x
+	y := csd.pointer_y
 	edges: bit_set[WLCSD_Edge]
 
 	if y < f32(-WLCSD_TITLEBAR_HEIGHT + WLCSD_RESIZE_MARGIN) {
@@ -1135,8 +1124,8 @@ wlcsd_resize_edges :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> bit
 	return edges
 }
 
-wlcsd_cursor :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> Standard_Cursor {
-	switch wlcsd_resize_edges(csd, local_x, local_y) {
+wlcsd_cursor :: proc(csd: ^WLCSD_State) -> Standard_Cursor {
+	switch wlcsd_resize_edges(csd) {
 	case {.Top}, {.Bottom}:
 		return .Resize_NS
 
