@@ -994,11 +994,8 @@ wlcsd_pointer_moved :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) {
 	}
 }
 
-// Acts on a mouse button that changed state over the frame. Pressing near an edge starts a resize
-// and pressing anywhere else that is not a titlebar button starts a move; the compositor runs both
-// itself, grabbing the pointer until the button comes back up, so there is nothing here to follow
-// along with. A titlebar button waits for the release, and only acts if the pointer is still on it,
-// so that pressing one and sliding off changes nothing.
+// Acts on a button press. Should only be called when pointer is over the frame, which means that
+// `wlcsd_pointer_over_frame` is true.
 wlcsd_pointer_button :: proc(
 	csd: ^WLCSD_State,
 	button: u32,
@@ -1017,8 +1014,7 @@ wlcsd_pointer_button :: proc(
 		return
 	}
 
-	// The right button asks the compositor for the window menu, which is the one thing on the
-	// frame that Karl2D does not draw itself.
+	// Show the context menu when pressing right mouse button over titlebar.
 	if button == wl.BTN_RIGHT && state == wl.POINTER_BUTTON_STATE_PRESSED {
 		d := csd.parts[pointer_part]
 
@@ -1108,8 +1104,6 @@ wlcsd_pointer_button :: proc(
 }
 
 wlcsd_resize_edges :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> bit_set[WLCSD_Edge] {
-	// Only a window the game lets the player resize has edges to grab. A fixed size one, and a
-	// fullscreen one, can only be moved.
 	if csd.window_mode != .Windowed_Resizable {
 		return {}
 	}
@@ -1124,29 +1118,23 @@ wlcsd_resize_edges :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> bit
 	x := f32(d.rect.x) + local_x
 	y := f32(d.rect.y) + local_y
 
-	// The grip reaches from the margin outside the window to the same distance inside it, so a
-	// corner is that much square.
-	grip :: f32(WLCSD_RESIZE_MARGIN)
 	edges: bit_set[WLCSD_Edge]
 
-	if y < f32(-WLCSD_TITLEBAR_HEIGHT) + grip {
+	if y < f32(-WLCSD_TITLEBAR_HEIGHT + WLCSD_RESIZE_MARGIN) {
 		edges += {.Top}
-	} else if y >= f32(csd.window_height) - grip {
+	} else if y >= f32(csd.window_height - WLCSD_RESIZE_MARGIN) {
 		edges += {.Bottom}
 	}
 
-	if x < grip {
+	if x < WLCSD_RESIZE_MARGIN {
 		edges += {.Left}
-	} else if x >= f32(csd.window_width) - grip {
+	} else if x >= f32(csd.window_width) - WLCSD_RESIZE_MARGIN {
 		edges += {.Right}
 	}
 
 	return edges
 }
 
-// The cursor the frame wants under the pointer: the matching double arrow along the edges that
-// resize the window, and the ordinary arrow everywhere else. The game's own cursor stays on the
-// game's own canvas.
 wlcsd_cursor :: proc(csd: ^WLCSD_State, local_x: f32, local_y: f32) -> Standard_Cursor {
 	switch wlcsd_resize_edges(csd, local_x, local_y) {
 	case {.Top}, {.Bottom}:
