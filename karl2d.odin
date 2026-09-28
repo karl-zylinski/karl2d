@@ -220,10 +220,24 @@ init :: proc(
 			s.ab = ab
 		}
 
-		if !s.ab.has_mixer_thread {
-			// The chunk is only used when there is no mixer thread. For backends with their own
-			// mixer thread, they will provide `_mix_audio_into_buffer` with a chunk of their own.
-			// That mixer-thread owned chunk then replaces the master bus chunk.
+		if s.ab.has_mixer_thread {
+			assert(
+				s.ab.start_mixer_thread != nil &&
+				s.ab.push_samples == nil &&
+				s.ab.pushed_samples_remaining == nil,
+			)
+
+			s.ab->start_mixer_thread()
+		} else {
+			assert(
+				s.ab.start_mixer_thread == nil &&
+				s.ab.push_samples != nil &&
+				s.ab.pushed_samples_remaining != nil,
+			)
+
+			// The master bus chunk is only used when there is no mixer thread. Backends with their
+			// own mixer thread will provide `_mix_audio_into_buffer` with a slice of samples of
+			// their own. That mixer-thread owned slice then replaces the master bus chunk.
 			assert(s.ab.mix_chunk_size > 0)
 			s.master_bus.chunk = make([][2]Audio_Sample, s.ab.mix_chunk_size, s.allocator)
 		}

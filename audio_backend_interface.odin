@@ -7,15 +7,15 @@ Audio_Backend_Interface :: struct {
 	// How many samples the master bus and all other buses should mix per mixing pass.
 	mix_chunk_size: int,
 
-	// If `false`, then `update_audio` will mix the audio and push it to this backend using
-	// `push_samples`.
+	// If `true` then `start_mixer_thread` must be non-nil.
 	//
-	// If `true` then `update_audio` will not do any mixing and will not push any samples to the
-	// backend. Instead, that backend is assumed to set up a thread that directly calls
-	// `_mix_audio_into_buffer`.
+	// If `false` then `push_samples` and `pushed_samples_remaining` must be non-nil.
 	has_mixer_thread: bool,
 
-	// These are not required when `has_mixer_thread` is true.
+	start_mixer_thread: proc(s: ^Audio_Backend_Interface),
+
+	// For non-threaded mixing. Karl2D will run the mixer as part of `k2.update` and push in the new
+	// samples using these procs.
 	push_samples: proc(s: ^Audio_Backend_Interface, samples: [][2]Audio_Sample),
 	pushed_samples_remaining: proc(s: ^Audio_Backend_Interface) -> int,
 }
