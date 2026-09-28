@@ -12,7 +12,8 @@ Audio_Backend_Interface :: struct {
 	// If `false` then `push_samples` and `pushed_samples_remaining` must be non-nil.
 	has_mixer_thread: bool,
 
-	start_mixer_thread: proc(s: ^Audio_Backend_Interface),
+	// Returns false if the mixer thread failed to start. In that case we must use nil audio backend
+	start_mixer_thread: proc(s: ^Audio_Backend_Interface) -> bool,
 
 	// For non-threaded mixing. Karl2D will run the mixer as part of `k2.update` and push in the new
 	// samples using these procs.

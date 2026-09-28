@@ -207,40 +207,67 @@ init :: proc(
 			current_settings = DEFAULT_AUDIO_BUS_SETTINGS,
 		}
 
-		// We do this before init because the audio thread may start running and use the master bus
-		// before it is created otherwise.
 		ab := create_audio_backend(allocator, loc)
+		ab_ok := false
 
 		if ab != nil {
 			s.ab = ab
-		} else {
-			log.error("Failed initializing audio backend. Sounds will play silently through the 'nil audio backend'")
-			ab = abnil_create(allocator, loc)
-			assert(ab != nil, "Failed initializing nil audio backend state")
-			s.ab = ab
+
+			if s.ab.has_mixer_thread {
+				log.ensure(
+					s.ab.start_mixer_thread != nil &&
+					s.ab.push_samples == nil &&
+					s.ab.pushed_samples_remaining == nil,
+				)
+
+				thread_ok := s.ab->start_mixer_thread()
+
+				if thread_ok {
+					ab_ok = true
+				}
+			} else {
+				log.ensure(
+					s.ab.start_mixer_thread == nil &&
+					s.ab.push_samples != nil &&
+					s.ab.pushed_samples_remaining != nil,
+				)
+
+				// The master bus chunk is only used when there is no mixer thread. Backends with
+				// their own mixer thread will provide `_mix_audio_into_buffer` with a slice of
+				// samples of their own. That mixer-thread owned slice then replaces the master bus
+				// chunk.
+				log.ensure(s.ab.mix_chunk_size > 0)
+				s.master_bus.chunk = make([][2]Audio_Sample, s.ab.mix_chunk_size, s.allocator)
+
+				ab_ok = true
+			}
 		}
 
-		if s.ab.has_mixer_thread {
-			assert(
-				s.ab.start_mixer_thread != nil &&
-				s.ab.push_samples == nil &&
-				s.ab.pushed_samples_remaining == nil,
-			)
+		if !ab_ok {
+			if ab != nil {
+				ab->destroy()
+			}
 
-			s.ab->start_mixer_thread()
-		} else {
-			assert(
+			log.error("Failed initializing audio backend. Sounds will play silently through the 'nil audio backend'")
+			ab = abnil_create(allocator, loc)
+			log.ensure(ab != nil, "Failed initializing nil audio backend state")
+			s.ab = ab
+
+			// Nil audio backend does not have a mixer thread.
+
+			log.ensure(
 				s.ab.start_mixer_thread == nil &&
 				s.ab.push_samples != nil &&
 				s.ab.pushed_samples_remaining != nil,
 			)
 
-			// The master bus chunk is only used when there is no mixer thread. Backends with their
-			// own mixer thread will provide `_mix_audio_into_buffer` with a slice of samples of
-			// their own. That mixer-thread owned slice then replaces the master bus chunk.
-			assert(s.ab.mix_chunk_size > 0)
+			log.ensure(s.ab.mix_chunk_size > 0)
 			s.master_bus.chunk = make([][2]Audio_Sample, s.ab.mix_chunk_size, s.allocator)
+
+			ab_ok = true
 		}
+
+		log.ensure(ab_ok == true)
 	}
 
 	return s

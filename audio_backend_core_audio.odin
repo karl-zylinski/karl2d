@@ -13,6 +13,7 @@ import Audio "platform_bindings/mac/AudioToolbox"
 
 CORE_AUDIO_BACKEND_INTERFACE :: Audio_Backend_Interface {
 	destroy = core_audio_destroy,
+	start_mixer_thread = core_audio_start_mixer_thread,
 	mix_chunk_size = CORE_AUDIO_BUFFER_SAMPLES,
 	has_mixer_thread = true,
 }
@@ -70,12 +71,9 @@ core_audio_create :: proc(
 		return nil
 	}
 
-	s.running = true
-
 	for &buffer in s.buffers {
 		buffer_err := Audio.QueueAllocateBuffer(s.queue, CORE_AUDIO_BUFFER_SIZE, &buffer)
 		if buffer_err != 0 {
-			s.running = false
 			Audio.QueueDispose(s.queue, true)
 			log.errorf("CoreAudio: Audio.QueueAllocateBuffer failed. Error code: %v", buffer_err)
 			free(s, allocator)
@@ -88,16 +86,19 @@ core_audio_create :: proc(
 		Audio.QueueEnqueueBuffer(s.queue, buffer, 0, nil)
 	}
 
+	return s
+}
+
+core_audio_start_mixer_thread :: proc(s: ^Core_Audio_State) -> bool {
+	s.running = true
 	queue_start_err := Audio.QueueStart(s.queue, nil)
 	if queue_start_err != 0 {
 		s.running = false
-		Audio.QueueDispose(s.queue, true)
 		log.errorf("CoreAudio: Audio.QueueStart failed. Error code: %v", queue_start_err)
-		free(s, allocator)
-		return nil
+		return false
 	}
 
-	return s
+	return true
 }
 
 _core_audio_callback :: proc "c" (

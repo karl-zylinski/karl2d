@@ -13,6 +13,7 @@ ALSA_BUFFER_SAMPLES :: 700
 
 ALSA_BACKEND_INTERFACE :: Audio_Backend_Interface {
 	destroy = alsa_destroy,
+	start_mixer_thread = alsa_start_mixer_thread,
 	mix_chunk_size = ALSA_BUFFER_SAMPLES,
 	has_mixer_thread = true,
 }
@@ -79,22 +80,23 @@ alsa_create :: proc(
 		free(s, allocator)
 		return nil
 	}
-
-	// Set the PCM before starting the thread: the thread uses it right away.
+	
 	s.pcm = pcm
+	return s
+}
+
+alsa_start_mixer_thread :: proc(s: ^Alsa_State) -> bool {
 	s.run_mix_thread = true
 	s.mix_thread = thread.create(alsa_thread_proc)
 
 	if s.mix_thread == nil {
 		log.errorf("Failed creating ALSA mixer thread")
-		alsa.pcm_close(pcm)
-		free(s, allocator)
-		return nil
+		return false
 	}
 
 	s.mix_thread.data = s
 	thread.start(s.mix_thread)
-	return s
+	return true
 }
 
 alsa_thread_proc :: proc(t: ^thread.Thread) {
@@ -138,10 +140,12 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 alsa_destroy :: proc(s: ^Alsa_State) {
 	log.debug("Shutdown audio backend alsa")
 
-	sync.atomic_store(&s.run_mix_thread, false)
+	if s.mix_thread != nil {
+		sync.atomic_store(&s.run_mix_thread, false)
+		thread.join(s.mix_thread)
+		thread.destroy(s.mix_thread)
+	}
 
-	thread.join(s.mix_thread)
-	thread.destroy(s.mix_thread)
 	alsa.pcm_close(s.pcm)
 	a := s.allocator
 	free(s, a)
