@@ -66,44 +66,53 @@ Draw_Call :: struct {
 	changed: bit_set[Draw_Call_Change],
 }
 
-Render_Backend_Interface :: struct #all_or_none {
-	state_size: proc() -> int,
+I_Render_Backend :: struct #all_or_none {
+	destroy: proc(s: ^I_Render_Backend),
+	clear: proc(s: ^I_Render_Backend, render_target: Render_Target_Handle, color: Color),
+	present: proc(s: ^I_Render_Backend),
 	
-	init: proc(
-		state: rawptr,
-		glue: ^Window_Render_Glue,
-		swapchain_width: int,
-		swapchain_height: int,
-		options: Init_Options,
-		allocator: runtime.Allocator,
-	),
+	draw: proc(s: ^I_Render_Backend, vertex_buffer: []u8, draw_calls: []Draw_Call),
 
-	shutdown: proc(),
-	clear: proc(render_target: Render_Target_Handle, color: Color),
-	present: proc(),
+	create_texture: proc(
+		s: ^I_Render_Backend,
+		width: int,
+		height: int,
+		format: Pixel_Format,
+	) -> (Texture_Handle, bool),
 	
-	draw: proc(vertex_buffer: []u8, draw_calls: []Draw_Call),
-
-	set_internal_state: proc(state: rawptr),
-
-	create_texture: proc(width: int, height: int, format: Pixel_Format) -> (Texture_Handle, bool),
 	load_texture: proc(
+		s: ^I_Render_Backend,
 		data: []u8,
 		width: int,
 		height: int,
 		format: Pixel_Format,
 	) -> (Texture_Handle, bool),
-	update_texture: proc(handle: Texture_Handle, data: []u8, rect: Rect, pitch: int) -> bool,
-	destroy_texture: proc(handle: Texture_Handle),
-	texture_needs_vertical_flip: proc(handle: Texture_Handle) -> bool,
+
+	update_texture: proc(
+		s: ^I_Render_Backend,
+		handle: Texture_Handle,
+		data: []u8,
+		rect: Rect,
+		pitch: int,
+	) -> bool,
+	
+	destroy_texture: proc(
+		s: ^I_Render_Backend,
+		handle: Texture_Handle,
+	),
+
+	texture_needs_vertical_flip: proc(s: ^I_Render_Backend, handle: Texture_Handle) -> bool,
 
 	create_render_texture: proc(
+		s: ^I_Render_Backend,
 		width: int,
 		height: int,
 	) -> (Texture_Handle, Render_Target_Handle, bool),
-	destroy_render_target: proc(render_texture: Render_Target_Handle),
+
+	destroy_render_target: proc(s: ^I_Render_Backend, render_texture: Render_Target_Handle),
 	
 	set_texture_filter: proc(
+		s: ^I_Render_Backend,
 		handle: Texture_Handle,
 		scale_down_filter: Texture_Filter,
 		scale_up_filter: Texture_Filter,
@@ -111,6 +120,7 @@ Render_Backend_Interface :: struct #all_or_none {
 	),
 
 	load_shader: proc(
+		s: ^I_Render_Backend,
 		vertex_shader_data: []byte,
 		pixel_shader_data: []byte,
 		desc_allocator: runtime.Allocator,
@@ -121,17 +131,17 @@ Render_Backend_Interface :: struct #all_or_none {
 		ok: bool,
 	),
 
-	destroy_shader: proc(shader: Shader_Handle),
+	destroy_shader: proc(s: ^I_Render_Backend, shader: Shader_Handle),
 
-	resize_swapchain: proc(width, height: int),
-	get_swapchain_width: proc() -> int,
-	get_swapchain_height: proc() -> int,
+	resize_swapchain: proc(s: ^I_Render_Backend, width, height: int),
+	get_swapchain_width: proc(s: ^I_Render_Backend) -> int,
+	get_swapchain_height: proc(s: ^I_Render_Backend) -> int,
 
-	default_shader_vertex_source: proc() -> []byte,
-	default_shader_fragment_source: proc() -> []byte,
+	default_shader_vertex_source: proc(s: ^I_Render_Backend) -> []byte,
+	default_shader_fragment_source: proc(s: ^I_Render_Backend) -> []byte,
 
 	// The z range the backend's clip space uses, so the projection matrix can map the user's
 	// `depth_range_min`/`depth_range_max` onto it. Called before `init`, so this must return a
 	// constant and not touch any backend state.
-	get_depth_clip_range: proc() -> (min: f32, max: f32),
+	get_depth_clip_range: proc(s: ^I_Render_Backend) -> (min: f32, max: f32),
 }

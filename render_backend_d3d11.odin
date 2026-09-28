@@ -1,8 +1,46 @@
 #+build windows
 #+vet explicit-allocators
-#+private file
+#+private package
 
 package karl2d
+
+Render_Backend_D3D11 :: struct {
+	using interface: I_Render_Backend,
+	
+	allocator: runtime.Allocator,
+
+	window_handle: dxgi.HWND,
+	width: int,
+	height: int,
+
+	dxgi_adapter: ^dxgi.IAdapter,
+	swapchain: ^dxgi.ISwapChain1,
+	framebuffer_view: ^d3d11.IRenderTargetView,
+	device_context: ^d3d11.IDeviceContext,
+	rasterizer_state: ^d3d11.IRasterizerState,
+	device: ^d3d11.IDevice,
+	framebuffer: ^d3d11.ITexture2D,
+	blend_state_alpha: ^d3d11.IBlendState,
+	blend_state_premultiplied_alpha: ^d3d11.IBlendState,
+	blend_state_additive: ^d3d11.IBlendState,
+	anti_alias: bool,
+
+	textures: hm.Dynamic_Handle_Map(D3D11_Texture, Texture_Handle),
+	render_targets: hm.Dynamic_Handle_Map(D3D11_Render_Target, Render_Target_Handle),
+	shaders: hm.Dynamic_Handle_Map(D3D11_Shader, Shader_Handle),
+
+	info_queue: ^d3d11.IInfoQueue,
+	vertex_buffer_gpu: ^d3d11.IBuffer,
+
+	all_samplers: map[^d3d11.ISamplerState]struct{},
+
+	// The depth things below are only created when `depth_test` is true.
+	depth_test: bool,
+	depth_buffer: ^d3d11.ITexture2D,
+	depth_buffer_view: ^d3d11.IDepthStencilView,
+	depth_stencil_state: ^d3d11.IDepthStencilState,
+}
+
 
 @(private="package")
 RENDER_BACKEND_D3D11 :: Render_Backend_Interface {
@@ -1368,41 +1406,6 @@ D3D11_Shader :: struct {
 	constant_buffers: []D3D11_Shader_Constant_Buffer,
 	constants: []D3D11_Shader_Constant,
 	texture_bindings: []D3D11_Texture_Binding,
-}
-
-D3D11_State :: struct {
-	allocator: runtime.Allocator,
-
-	window_handle: dxgi.HWND,
-	width: int,
-	height: int,
-
-	dxgi_adapter: ^dxgi.IAdapter,
-	swapchain: ^dxgi.ISwapChain1,
-	framebuffer_view: ^d3d11.IRenderTargetView,
-	device_context: ^d3d11.IDeviceContext,
-	rasterizer_state: ^d3d11.IRasterizerState,
-	device: ^d3d11.IDevice,
-	framebuffer: ^d3d11.ITexture2D,
-	blend_state_alpha: ^d3d11.IBlendState,
-	blend_state_premultiplied_alpha: ^d3d11.IBlendState,
-	blend_state_additive: ^d3d11.IBlendState,
-	anti_alias: bool,
-
-	textures: hm.Dynamic_Handle_Map(D3D11_Texture, Texture_Handle),
-	render_targets: hm.Dynamic_Handle_Map(D3D11_Render_Target, Render_Target_Handle),
-	shaders: hm.Dynamic_Handle_Map(D3D11_Shader, Shader_Handle),
-
-	info_queue: ^d3d11.IInfoQueue,
-	vertex_buffer_gpu: ^d3d11.IBuffer,
-
-	all_samplers: map[^d3d11.ISamplerState]struct{},
-
-	// The depth things below are only created when `depth_test` is true.
-	depth_test: bool,
-	depth_buffer: ^d3d11.ITexture2D,
-	depth_buffer_view: ^d3d11.IDepthStencilView,
-	depth_stencil_state: ^d3d11.IDepthStencilState,
 }
 
 create_swapchain :: proc(w, h: int) {
