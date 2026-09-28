@@ -22,11 +22,11 @@ sfx_bus_destroyed: bool
 // Played as one-shots on the sfx bus. Several of these can overlap.
 blip_clip: k2.Audio_Clip
 
-// A looping drone on the sfx bus, so you can hear the bus volume and pan without pressing anything.
-drone_clip: k2.Audio_Clip
-
 // A looping tone that stays on the master bus. It is what the sfx bus volume does NOT affect.
-tone_clip: k2.Audio_Clip
+tone1_clip: k2.Audio_Clip
+
+// A looping tone on the sfx bus, so you can hear the bus volume and pan without pressing anything.
+tone2_clip: k2.Audio_Clip
 
 sfx_volume: f32 = 1
 sfx_pan: f32
@@ -62,14 +62,14 @@ init :: proc() {
 	sfx_bus = k2.create_audio_bus()
 
 	blip_clip = make_sine_wave(600, 0.12, 44100)
-	drone_clip = make_sine_wave(600, 1, 44100)
-	tone_clip = make_sine_wave(1000, 1, 44100)
+	tone1_clip = make_sine_wave(400, 1, 44100)
+	tone2_clip = make_sine_wave(1000, 1, 44100)
 
-	// The drone goes on the sfx bus. The tone is left alone, so it plays on the master bus. We
+	// Tone 2 goes on the sfx bus. Tone 1 is left alone, so it plays on the master bus. We
 	// never stop them one by one, and destroying the clips in `shutdown` stops them, so the
 	// returned sound handles can be discarded.
-	k2.play_audio_clip(drone_clip, volume = 0.3, loop = true, bus = sfx_bus)
-	k2.play_audio_clip(tone_clip, volume = 0.15, loop = true)
+	k2.play_audio_clip(tone1_clip, volume = 0.15, loop = true)
+	k2.play_audio_clip(tone2_clip, volume = 0.3, loop = true, bus = sfx_bus)
 }
 
 // Makes a sine wave that is a whole number of periods long, so that it loops cleanly.
@@ -150,7 +150,7 @@ step :: proc() -> bool {
 	// The master bus is just a bus like the others. This is how you make a master volume slider.
 	k2.set_audio_bus_volume(k2.AUDIO_BUS_MASTER, master_volume)
 
-	// Destroying a bus moves everything on it back to the master bus. The drone keeps playing, it
+	// Destroying a bus moves everything on it back to the master bus. Tone 2 keeps playing, it
 	// just stops listening to the sfx volume. We point our own handle at the master bus afterwards,
 	// since the old one is dead. That keeps the blips playable.
 	if k2.key_went_down(.D) && !sfx_bus_destroyed {
@@ -166,7 +166,7 @@ step :: proc() -> bool {
 
 	k2.clear(k2.WHITE)
 
-	bus_label := "The drone and the blips are on the sfx bus."
+	bus_label := "The 1000 hz tone and the blips are on the sfx bus."
 
 	if sfx_bus_destroyed {
 		bus_label = "The sfx bus is destroyed. Everything is on the master bus now."
@@ -192,7 +192,7 @@ step :: proc() -> bool {
 
 	k2.draw_text("Press Space to play a blip on the sfx bus.", {20, 240}, 36, k2.BLACK)
 	k2.draw_text("Press D to destroy the sfx bus.", {20, 280}, 36, k2.BLACK)
-	k2.draw_text("The 220 hz tone stays on the master bus the whole time.", {20, 320}, 36, k2.BLACK)
+	k2.draw_text("The 400 hz tone stays on the master bus the whole time.", {20, 320}, 36, k2.BLACK)
 	k2.present()
 	free_all(context.temp_allocator)
 
@@ -201,8 +201,8 @@ step :: proc() -> bool {
 
 shutdown :: proc() {
 	k2.destroy_audio_clip(blip_clip)
-	k2.destroy_audio_clip(drone_clip)
-	k2.destroy_audio_clip(tone_clip)
+	k2.destroy_audio_clip(tone1_clip)
+	k2.destroy_audio_clip(tone2_clip)
 
 	if !sfx_bus_destroyed {
 		k2.destroy_audio_bus(sfx_bus)
