@@ -32,7 +32,7 @@ when AUDIO_BACKEND_NAME == "waveout" {
 } else when AUDIO_BACKEND_NAME == "alsa" {
 	create_audio_backend :: alsa_create
 } else when AUDIO_BACKEND_NAME == "core_audio" {
-	create_audio_backend :: AUDIO_BACKEND_CORE_AUDIO
+	create_audio_backend :: core_audio_create
 } else when AUDIO_BACKEND_NAME == "nil" {
 	create_audio_backend :: abnil_create
 } else {
