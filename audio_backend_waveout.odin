@@ -1,17 +1,7 @@
 #+build windows
 #+vet explicit-allocators
-#+private file
+#+private package
 package karl2d
-
-@(private="package")
-AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
-	state_size = waveout_state_size,
-	init = waveout_init,
-	shutdown = waveout_shutdown,
-	set_internal_state = waveout_set_internal_state,
-	mix_chunk_size = WAVEOUT_BUFFER_SAMPLES,
-	has_mixer_thread = true,
-}
 
 import "log"
 import win32 "core:sys/windows"
@@ -20,10 +10,19 @@ import "core:slice"
 import "core:sync"
 import "core:thread"
 
+WAVEOUT_BACKEND_INTERFACE :: Audio_Backend_Interface {
+	destroy = waveout_destroy,
+	start_mixer_thread = waveout_start_mixer_thread,
+	mix_chunk_size = WAVEOUT_BUFFER_SAMPLES,
+	has_mixer_thread = true,
+}
+
 WAVEOUT_BUFFER_SAMPLES :: 700
 WAVEOUT_BUFFER_COUNT :: 4
 
 Waveout_State :: struct {
+	using interface: Audio_Backend_Interface,
+	allocator: Allocator,
 	device: win32.HWAVEOUT,
 	headers: [WAVEOUT_BUFFER_COUNT]win32.WAVEHDR,
 
@@ -34,15 +33,10 @@ Waveout_State :: struct {
 	run_mix_thread: bool,
 }
 
-waveout_state_size :: proc() -> int {
-	return size_of(Waveout_State)
-}
-
-s: ^Waveout_State
-
-waveout_init :: proc(state: rawptr) -> bool {
-	assert(state != nil)
-	s = (^Waveout_State)(state)
+waveout_create :: proc(allocator: Allocator, loc := #caller_location) -> ^Audio_Backend_Interface {
+	s := new(Waveout_State, allocator, loc)
+	s.interface = WAVEOUT_BACKEND_INTERFACE
+	s.allocator = allocator
 	log.debug("Init audio backend waveout")
 
 	// Added constant missing in bindings:
@@ -78,29 +72,37 @@ waveout_init :: proc(state: rawptr) -> bool {
 
 	if open_err != 0 {
 		log.errorf("waveOutOpen failed. Error code: %v", int(open_err))
-		return false
+		free(s, allocator)
+		return nil
 	}
 
-	win32.timeBeginPeriod(1)
+	return s
+}
 
+waveout_start_mixer_thread :: proc(s: ^Waveout_State) -> bool {
+	win32.timeBeginPeriod(1)
 	s.run_mix_thread = true
 	s.mix_thread = thread.create(waveout_thread_proc)
 
 	if s.mix_thread == nil {
 		log.errorf("Failed creating waveout mixer thread")
 		win32.timeEndPeriod(1)
-		win32.waveOutClose(s.device)
 		return false
 	}
 
-	// Don't set `s.mix_thread.init_context` here. We set the parts of the context we need in the thread
-	// proc. `init_context` has too many unpredictable side-effects.
+	s.mix_thread.data = s
+
+	// Don't set `s.mix_thread.init_context` here. We set the parts of the context we need in the
+	// thread proc. `init_context` has too many unpredictable side-effects.
+
 	thread.start(s.mix_thread)
 	return true
 }
 
 waveout_thread_proc :: proc(t: ^thread.Thread) {
 	context = _audio_thread_context()
+
+	s := (^Waveout_State)(t.data)
 
 	thread_loop: for sync.atomic_load(&s.run_mix_thread) {
 		h := &s.headers[s.cur_header]
@@ -139,17 +141,18 @@ waveout_thread_proc :: proc(t: ^thread.Thread) {
 	}
 }
 
-waveout_shutdown :: proc() {
+waveout_destroy :: proc(s: ^Waveout_State) {
 	log.debug("Shutdown audio backend waveout")
-	sync.atomic_store(&s.run_mix_thread, false)
-	thread.join(s.mix_thread)
-	thread.destroy(s.mix_thread)
-	win32.timeEndPeriod(1)
+
+	if s.mix_thread != nil {
+		sync.atomic_store(&s.run_mix_thread, false)
+		thread.join(s.mix_thread)
+		thread.destroy(s.mix_thread)
+		win32.timeEndPeriod(1)
+	}
+
 	win32.waveOutReset(s.device)
 	win32.waveOutClose(s.device)
-}
-
-waveout_set_internal_state :: proc(state: rawptr) {
-	assert(state != nil)
-	s = (^Waveout_State)(state)
+	a := s.allocator
+	free(s, a)
 }

@@ -1627,7 +1627,6 @@ TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
 AUDIO_MIX_SAMPLE_RATE :: 44100
-AUDIO_MIX_CHUNK_SIZE :: AUDIO_BACKEND.mix_chunk_size
 
 // Single channel audio sample. Can have a value between -1 and 1. For stereo sound every other
 // sample in an array of samples will be interpreted as left and right respectively.
@@ -1872,7 +1871,9 @@ Audio_Bus_Object :: struct {
 	// The sounds routed to this bus are mixed in here. The bus effect runs on this. Then this is
 	// mixed into the master bus. Unused for the master bus itself: That one is mixed straight into
 	// `mix_buffer`.
-	chunk: [AUDIO_MIX_CHUNK_SIZE][2]Audio_Sample,
+	//
+	// Will be `s.ab.mix_chunk_size` long.
+	chunk: [][2]Audio_Sample,
 }
 
 DEFAULT_AUDIO_BUS_SETTINGS :: Audio_Bus_Settings {
@@ -1986,8 +1987,9 @@ State :: struct {
 
 	// -----
 	// Audio
-	audio_backend: Audio_Backend_Interface,
-	audio_backend_state: rawptr,
+
+	// Audio Backend. Shortened because we write `s.ab` many times.
+	ab: ^Audio_Backend_Interface,
 
 	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
 	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),
