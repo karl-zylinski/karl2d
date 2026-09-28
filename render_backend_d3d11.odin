@@ -47,7 +47,7 @@ d3d11_state_size :: proc() -> int {
 
 d3d11_init :: proc(
 	state: rawptr,
-	glue: Window_Render_Glue,
+	glue: ^Window_Render_Glue,
 	swapchain_width: int,
 	swapchain_height: int,
 	options: Init_Options,
@@ -69,7 +69,7 @@ d3d11_init :: proc(
 
 	in `platform_windows.odin`
 	*/
-	s.window_handle = dxgi.HWND(glue.state)
+	s.window_handle = dxgi.HWND(glue)
 	
 	s.width = swapchain_width
 	s.height = swapchain_height

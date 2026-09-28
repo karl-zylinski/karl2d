@@ -45,7 +45,7 @@ GL_State :: struct {
 	height: int,
 	allocator: runtime.Allocator,
 	shaders: hm.Dynamic_Handle_Map(GL_Shader, Shader_Handle),
-	glue: Window_Render_Glue,
+	glue: ^Window_Render_Glue,
 	vertex_buffer_gpu: u32,
 	textures: hm.Dynamic_Handle_Map(GL_Texture, Texture_Handle),
 	render_targets: hm.Dynamic_Handle_Map(GL_Render_Target, Render_Target_Handle),
@@ -123,7 +123,7 @@ gl_state_size :: proc() -> int {
 
 gl_init :: proc(
 	state: rawptr,
-	glue: Window_Render_Glue,
+	glue: ^Window_Render_Glue,
 	swapchain_width: int,
 	swapchain_height: int,
 	options: Init_Options,

@@ -15,7 +15,7 @@ Platform_Interface :: struct #all_or_none {
 	),
 
 	shutdown: proc(),
-	get_window_render_glue: proc() -> Window_Render_Glue,
+	get_window_render_glue: proc() -> ^Window_Render_Glue,
 	get_events: proc(events: ^[dynamic]Event),
 	before_present: proc(),
 	set_window_title: proc(title: string),
@@ -45,8 +45,6 @@ Platform_Interface :: struct #all_or_none {
 	set_internal_state: proc(state: rawptr),
 }
 
-Window_Render_Glue_State :: struct {}
-
 // Sometimes referred to as the "render context". This is the stuff that glues together a certain
 // windowing API with a certain rendering API.
 //
@@ -54,12 +52,8 @@ Window_Render_Glue_State :: struct {}
 // window handle in the state pointer and don't implement any of the procs. See Windows + D3D11 for
 // such an example. See Windows + GL or Linux + GL for an example of more complicated setups.
 Window_Render_Glue :: struct {
-	using state: ^Window_Render_Glue_State,
-	make_context: proc(
-		state: ^Window_Render_Glue_State,
-		init_options: Init_Options,
-	) -> bool,
-	present: proc(state: ^Window_Render_Glue_State),
-	destroy: proc(state: ^Window_Render_Glue_State),
-	viewport_resized: proc(state: ^Window_Render_Glue_State),
+	make_context: proc(s: ^Window_Render_Glue, init_options: Init_Options) -> bool,
+	present: proc(s: ^Window_Render_Glue),
+	destroy: proc(s: ^Window_Render_Glue),
+	viewport_resized: proc(s: ^Window_Render_Glue),
 }

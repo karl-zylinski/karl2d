@@ -15,22 +15,25 @@ make_windows_gl_glue :: proc(
 	hwnd: win32.HWND,
 	allocator: runtime.Allocator,
 	loc := #caller_location
-) -> Window_Render_Glue {
+) -> ^Window_Render_Glue {
 	state := new(Windows_GL_Glue_State, allocator, loc)
-	state.hwnd = hwnd
-	state.allocator = allocator
-	return {
-		state = (^Window_Render_Glue_State)(state),
 
-		// these casts just make the proc take a Windows_GL_Glue_State instead of a Window_Render_Glue_State
-		make_context = cast(proc(state: ^Window_Render_Glue_State, init_options: Init_Options) -> bool)(windows_gl_glue_make_context),
-		present = cast(proc(state: ^Window_Render_Glue_State))(windows_gl_glue_present),
-		destroy = cast(proc(state: ^Window_Render_Glue_State))(windows_gl_glue_destroy),
-		viewport_resized = cast(proc(state: ^Window_Render_Glue_State))(windows_gl_glue_viewport_resized),
+	state^ = {
+		hwnd = hwnd,
+		allocator = allocator,
+		interface = {
+			make_context = windows_gl_glue_make_context,
+			present = windows_gl_glue_present,
+			destroy = windows_gl_glue_destroy,
+			viewport_resized = windows_gl_glue_viewport_resized,
+		},
 	}
+
+	return state
 }
 
 Windows_GL_Glue_State :: struct {
+	using interface: Window_Render_Glue,
 	hwnd: win32.HWND,
 	gl_ctx: win32.HGLRC,
 	device_ctx: win32.HDC,
