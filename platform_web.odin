@@ -342,8 +342,8 @@ web_shutdown :: proc() {
 }
 
 web_get_window_render_glue :: proc() -> ^Window_Render_Glue {
-	// We can only use WebGL backend right now, so this is very simple: Just pass canvas ID as
-	// state, the WebGL backend knows to convert it properly.
+	// We can only use WebGL backend right now, so this is very simple: Just pass a pointer to the 
+	// canvas ID string. 
 	return (^Window_Render_Glue)(&s.canvas_id)
 }
 
