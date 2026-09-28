@@ -233,7 +233,7 @@ x11_shutdown :: proc() {
 	X.DestroyWindow(s.display, s.window)
 }
 
-x11_get_window_render_glue :: proc() -> Window_Render_Glue {
+x11_get_window_render_glue :: proc() -> ^Window_Render_Glue {
 	return s.window_render_glue
 }
 
@@ -925,7 +925,7 @@ X11_State :: struct {
 	window: X.Window,
 	delete_msg: X.Atom,
 	window_mode: Window_Mode,
-	window_render_glue: Window_Render_Glue,
+	window_render_glue: ^Window_Render_Glue,
 	blank_cursor: X.Cursor,
 
 	custom_cursors: hm.Dynamic_Handle_Map(X11_Cursor, Custom_Cursor),

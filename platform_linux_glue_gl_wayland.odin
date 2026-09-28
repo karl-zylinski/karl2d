@@ -21,7 +21,7 @@ make_linux_gl_wayland_glue :: proc(
 	window: ^wl.EGL_Window,
 	allocator: runtime.Allocator,
 	loc := #caller_location
-) -> Window_Render_Glue {
+) -> ^Window_Render_Glue {
 	state := new(Linux_GL_Wayland_Glue_State, allocator, loc)
 	state.display = display
 	state.window = window
@@ -33,18 +33,18 @@ make_linux_gl_wayland_glue :: proc(
 	state.frame_surface = (^wl.Surface)(wl.proxy_create_wrapper(surface))
 	wl.proxy_set_queue(state.frame_surface, state.frame_queue)
 
-	return {
-		state = (^Window_Render_Glue_State)(state),
-
-		// these casts just make the proc take a Windows_GL_Glue_State instead of a Window_Render_Glue_State
-		make_context = cast(proc(state: ^Window_Render_Glue_State, options: Init_Options) -> bool)(linux_gl_wayland_glue_make_context),
-		present = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_wayland_glue_present),
-		destroy = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_wayland_glue_destroy),
-		viewport_resized = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_wayland_glue_viewport_resized),
+	state.interface = {
+		make_context = linux_gl_wayland_glue_make_context,
+		present = linux_gl_wayland_glue_present,
+		destroy = linux_gl_wayland_glue_destroy,
+		viewport_resized = linux_gl_wayland_glue_viewport_resized,
 	}
+
+	return state
 }
 
 Linux_GL_Wayland_Glue_State :: struct {
+	using interface: Window_Render_Glue,
 	display: ^wl.Display,
 	frame_queue: ^wl.Event_Queue,
 	frame_surface: ^wl.Surface,
