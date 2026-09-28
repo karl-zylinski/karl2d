@@ -10,8 +10,7 @@ import "core:slice"
 import "core:sync"
 import "core:thread"
 
-Waveout_Backend_Interface :: Audio_Backend_Interface {
-	create = waveout_create,
+WAVEOUT_BACKEND_INTERFACE :: Audio_Backend_Interface {
 	destroy = waveout_destroy,
 	mix_chunk_size = WAVEOUT_BUFFER_SAMPLES,
 	has_mixer_thread = true,
@@ -33,10 +32,9 @@ Waveout_State :: struct {
 	run_mix_thread: bool,
 }
 
-@(private="package")
 waveout_create :: proc(allocator: Allocator, loc := #caller_location) -> ^Audio_Backend_Interface {
 	s := new(Waveout_State, allocator, loc)
-	s.interface = Waveout_Backend_Interface
+	s.interface = WAVEOUT_BACKEND_INTERFACE
 	s.allocator = allocator
 	log.debug("Init audio backend waveout")
 
