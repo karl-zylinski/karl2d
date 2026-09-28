@@ -28,9 +28,9 @@ when CONFIG_AUDIO_BACKEND_NAME == "" {
 when AUDIO_BACKEND_NAME == "waveout" {
 	create_audio_backend :: waveout_create
 } else when AUDIO_BACKEND_NAME == "web_audio" {
-	create_audio_backend :: AUDIO_BACKEND_WEB_AUDIO
+	create_audio_backend :: web_audio_create
 } else when AUDIO_BACKEND_NAME == "alsa" {
-	create_audio_backend :: AUDIO_BACKEND_ALSA
+	create_audio_backend :: alsa_create
 } else when AUDIO_BACKEND_NAME == "core_audio" {
 	create_audio_backend :: AUDIO_BACKEND_CORE_AUDIO
 } else when AUDIO_BACKEND_NAME == "nil" {

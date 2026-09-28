@@ -2,11 +2,6 @@ package karl2d
 
 // Audio_Backend_State is defined per platform, in for example `audio_linux.odin`.
 Audio_Backend_Interface :: struct {
-	// Set up the audio backend. The backend returns the new state pointer and `true` on success. It
-	// can return `nil` for the pointer but still return `true` for the bool, which is useful when
-	// a backend does not have any state.
-	create: proc(allocator: Allocator, loc := #caller_location) -> ^Audio_Backend_Interface,
-
 	destroy: proc(s: ^Audio_Backend_Interface),
 
 	// How many samples the master bus and all other buses should mix per mixing pass.

@@ -5,7 +5,6 @@ package karl2d
 import "core:time"
 
 ABNil_Interface :: Audio_Backend_Interface {
-	create = abnil_create,
 	destroy = abnil_destroy,
 	mix_chunk_size = 700,
 	has_mixer_thread = false,
