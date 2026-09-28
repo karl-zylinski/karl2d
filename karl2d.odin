@@ -202,25 +202,30 @@ init :: proc(
 		hm.dynamic_init(&s.audio_streams, s.allocator)
 		hm.dynamic_init(&s.audio_buses, s.allocator)
 
-		s.ab = AUDIO_BACKEND
+		s.master_bus = {
+			target_settings = DEFAULT_AUDIO_BUS_SETTINGS,
+			current_settings = DEFAULT_AUDIO_BUS_SETTINGS,
+		}
+
 		// We do this before init because the audio thread may start running and use the master bus
 		// before it is created otherwise.
-		s.master_bus = _create_audio_bus_object()
-		abs, abs_ok := s.ab.init(allocator, loc)
+		ab := create_audio_backend(allocator, loc)
 
-		if abs_ok {
-			s.abs = abs
+		if ab != nil {
+			s.ab = ab
 		} else {
 			log.error("Failed initializing audio backend. Sounds will play silently through the 'nil audio backend'")
-			
-			// nil master bus may use different chunk size than the old one, so we re-create it.
-			_destroy_audio_bus_object(s.master_bus)
-			
-			s.ab = AUDIO_BACKEND_NIL
-			s.master_bus = _create_audio_bus_object()
-			abs, abs_ok = s.ab.init(allocator, loc)
-			assert(abs_ok, "Failed initializing nil audio backend state")
-			s.abs = abs
+			ab = abnil_create(allocator, loc)
+			assert(ab != nil, "Failed initializing nil audio backend state")
+			s.ab = ab
+		}
+
+		if !s.ab.has_mixer_thread {
+			// The chunk is only used when there is no mixer thread. For backends with their own
+			// mixer thread, they will provide `_mix_audio_into_buffer` with a chunk of their own.
+			// That mixer-thread owned chunk then replaces the master bus chunk.
+			assert(s.ab.mix_chunk_size > 0)
+			s.master_bus.chunk = make([][2]Audio_Sample, s.ab.mix_chunk_size, s.allocator)
 		}
 	}
 
@@ -277,8 +282,8 @@ shutdown :: proc() {
 
 	// Audio
 	{
-		s.ab.shutdown(s.abs)
-		_destroy_audio_bus_object(s.master_bus)
+		s.ab->destroy()
+		delete(s.master_bus.chunk, s.allocator)
 		hm.dynamic_destroy(&s.audio_streams)
 		hm.dynamic_destroy(&s.sounds)
 		hm.dynamic_destroy(&s.audio_buffers)
@@ -3604,28 +3609,26 @@ play_audio_stream :: proc(
 // A new bus has volume 1, pan 0 and no effect. That makes it a passthrough: Playing a sound on a
 // fresh bus sounds exactly like playing it on the master bus, until you change something.
 create_audio_bus :: proc() -> Audio_Bus {
-	abo := _create_audio_bus_object()
+	assert(s.ab.mix_chunk_size > 0)
+
+	abo := Audio_Bus_Object {
+		target_settings = DEFAULT_AUDIO_BUS_SETTINGS,
+		current_settings = DEFAULT_AUDIO_BUS_SETTINGS,
+		chunk = make([][2]Audio_Sample, s.ab.mix_chunk_size, s.allocator),
+	}
+
 	sync.mutex_guard(&s.audio_mutex)
 	bus, add_err := hm.add(&s.audio_buses, abo)
 
 	if add_err != nil {
 		log.errorf("Failed creating audio bus. Error: %v", add_err)
-		_destroy_audio_bus_object(abo)
+		delete(abo.chunk, s.allocator)
 
 		// The master bus always exists, so anything routed to this handle still plays.
 		return AUDIO_BUS_MASTER
 	}
 
 	return bus
-}
-
-_create_audio_bus_object :: proc() -> Audio_Bus_Object {
-	chunk := make([][2]Audio_Sample, s.ab.mix_chunk_size, s.allocator)
-	return {
-		target_settings = DEFAULT_AUDIO_BUS_SETTINGS,
-		current_settings = DEFAULT_AUDIO_BUS_SETTINGS,
-		chunk = chunk,
-	}
 }
 
 // Destroy an audio bus. Everything routed to it goes back to the master bus, including sounds that
@@ -3654,12 +3657,9 @@ destroy_audio_bus :: proc(bus: Audio_Bus) {
 		}
 	}
 
-	_destroy_audio_bus_object(abo^)
-	hm.remove(&s.audio_buses, bus)
-}
-
-_destroy_audio_bus_object :: proc(abo: Audio_Bus_Object) {
 	delete(abo.chunk, s.allocator)
+
+	hm.remove(&s.audio_buses, bus)
 }
 
 // Set the volume of an audio bus. Range: 0 to 1. Everything mixed into the bus is scaled by this.
@@ -3759,12 +3759,12 @@ update_audio :: proc() {
 			// second. This gives a latency of up to (1.5 * (44100/1400)) = 47 milliseconds.
 			//
 			// Note that s.ab.mix_chunk_size varies from audio backend to audio backend.
-			if s.ab.pushed_samples_remaining(s.abs) > (3 * s.ab.mix_chunk_size)/2 {
+			if s.ab->pushed_samples_remaining() > (3 * s.ab.mix_chunk_size)/2 {
 				break
 			}
 
 			_mix_audio_into_buffer(master_bus_chunk[:])
-			s.ab.push_samples(s.abs, master_bus_chunk[:])
+			s.ab->push_samples(master_bus_chunk[:])
 		}
 	}
 }
@@ -6496,8 +6496,7 @@ State :: struct {
 
 	// -----
 	// Audio
-	ab: Audio_Backend_Interface,
-	abs: Audio_Backend_State,
+	ab: ^Audio_Backend_Interface,
 
 	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
 	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),
