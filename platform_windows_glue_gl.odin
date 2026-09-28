@@ -1,7 +1,7 @@
 // Glues together OpenGL with a Windows window. This is done by making a WGL context and using it
 // to SwapBuffers etc.
 #+build windows
-#+private file
+#+private package
 package karl2d
 
 import win32 "core:sys/windows"
@@ -10,13 +10,12 @@ import "base:runtime"
 import "core:slice"
 import "log"
 
-@(private="package")
-make_windows_gl_glue :: proc(
+create_windows_gl_glue :: proc(
 	hwnd: win32.HWND,
 	allocator: runtime.Allocator,
 	loc := #caller_location
 ) -> ^Window_Render_Glue {
-	state := new(Windows_GL_Glue_State, allocator, loc)
+	state := new(Windows_GL_Glue, allocator, loc)
 
 	state^ = {
 		hwnd = hwnd,
@@ -32,7 +31,7 @@ make_windows_gl_glue :: proc(
 	return state
 }
 
-Windows_GL_Glue_State :: struct {
+Windows_GL_Glue :: struct {
 	using interface: Window_Render_Glue,
 	hwnd: win32.HWND,
 	gl_ctx: win32.HGLRC,
@@ -40,7 +39,7 @@ Windows_GL_Glue_State :: struct {
 	allocator: runtime.Allocator,
 }
 
-windows_gl_glue_make_context :: proc(s: ^Windows_GL_Glue_State, options: Init_Options) -> bool {
+windows_gl_glue_make_context :: proc(s: ^Windows_GL_Glue, options: Init_Options) -> bool {
 	// We make an invisible dummy window and use that to get a dummy context. We need the dummy
 	// context because we can't get the actual context we need without already having a context.
 	DUMMY_CLASS :: "karl2d_wgl_dummy"
@@ -169,16 +168,16 @@ windows_gl_glue_make_context :: proc(s: ^Windows_GL_Glue_State, options: Init_Op
 	return true
 }
 
-windows_gl_glue_present :: proc(s: ^Windows_GL_Glue_State) {
+windows_gl_glue_present :: proc(s: ^Windows_GL_Glue) {
 	win32.SwapBuffers(s.device_ctx)
 }
 
-windows_gl_glue_destroy :: proc(s: ^Windows_GL_Glue_State) {
+windows_gl_glue_destroy :: proc(s: ^Windows_GL_Glue) {
 	win32.ReleaseDC(s.hwnd, s.device_ctx)
 	win32.wglDeleteContext(s.gl_ctx)
 	a := s.allocator
 	free(s, a)
 }
 
-windows_gl_glue_viewport_resized :: proc(s: ^Windows_GL_Glue_State) {
+windows_gl_glue_viewport_resized :: proc(s: ^Windows_GL_Glue) {
 }

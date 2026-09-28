@@ -11,8 +11,7 @@ import "log"
 import "base:runtime"
 import "core:slice"
 
-@(private="package")
-make_linux_gl_x11_glue :: proc(
+create_linux_gl_x11_glue :: proc(
 	display: ^X.Display,
 	window: X.Window,
 	allocator: runtime.Allocator,

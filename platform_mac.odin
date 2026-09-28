@@ -302,7 +302,7 @@ mac_init :: proc(
 	install_cursor_tracker()
 
 	when RENDER_BACKEND_NAME == "gl" {
-		s.window_render_glue = make_mac_gl_glue(s.window, s.allocator)
+		s.window_render_glue = create_mac_gl_glue(s.window, s.allocator)
 	} else when RENDER_BACKEND_NAME == "nil" {
 		s.window_render_glue = {}
 	} else {

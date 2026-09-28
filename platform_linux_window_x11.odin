@@ -199,7 +199,7 @@ x11_init :: proc(
 	}
 	
 	when RENDER_BACKEND_NAME == "gl" {
-		s.window_render_glue = make_linux_gl_x11_glue(s.display, s.window, s.allocator)
+		s.window_render_glue = create_linux_gl_x11_glue(s.display, s.window, s.allocator)
 	} else when RENDER_BACKEND_NAME == "nil" {
 		s.window_render_glue = {}
 	} else {

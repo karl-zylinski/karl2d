@@ -138,7 +138,7 @@ windows_init :: proc(
 	when RENDER_BACKEND_NAME == "d3d11" {
 		s.window_render_glue = (^Window_Render_Glue)(s.hwnd)
 	} else when RENDER_BACKEND_NAME == "gl" {
-		s.window_render_glue = make_windows_gl_glue(s.hwnd, s.allocator)
+		s.window_render_glue = create_windows_gl_glue(s.hwnd, s.allocator)
 	}  else when RENDER_BACKEND_NAME == "nil" {
 		s.window_render_glue = {}
 	} else {

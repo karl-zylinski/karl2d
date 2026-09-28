@@ -14,8 +14,7 @@ import "core:slice"
 import "core:sys/posix"
 import "core:time"
 
-@(private="package")
-make_linux_gl_wayland_glue :: proc(
+create_linux_gl_wayland_glue :: proc(
 	display: ^wl.Display,
 	surface: ^wl.Surface,
 	window: ^wl.EGL_Window,
