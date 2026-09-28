@@ -1,7 +1,7 @@
 // Glues together OpenGL with an X11 window. This is done by making a glX context and using it to
 // SwapBuffers etc.
 #+build linux
-
+#+private package
 package karl2d
 
 import "platform_bindings/linux/glx"
@@ -11,36 +11,38 @@ import "log"
 import "base:runtime"
 import "core:slice"
 
-@(private="package")
-make_linux_gl_x11_glue :: proc(
+create_linux_gl_x11_glue :: proc(
 	display: ^X.Display,
 	window: X.Window,
 	allocator: runtime.Allocator,
 	loc := #caller_location
-) -> Window_Render_Glue {
-	state := new(Linux_GL_X11_Glue_State, allocator, loc)
-	state.display = display
-	state.window = window
-	state.allocator = allocator
-	return {
-		state = (^Window_Render_Glue_State)(state),
+) -> ^Window_Render_Glue {
+	state := new(Linux_GL_X11_Glue, allocator, loc)
 
-		// these casts just make the proc take a Windows_GL_Glue_State instead of a Window_Render_Glue_State
-		make_context = cast(proc(state: ^Window_Render_Glue_State, options: Init_Options) -> bool)(linux_gl_x11_glue_make_context),
-		present = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_x11_glue_present),
-		destroy = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_x11_glue_destroy),
-		viewport_resized = cast(proc(state: ^Window_Render_Glue_State))(linux_gl_x11_glue_viewport_resized),
+	state^ = {
+		display = display,
+		window = window,
+		allocator = allocator,
+		interface = {
+			make_context =  linux_gl_x11_glue_make_context,
+			present = linux_gl_x11_glue_present,
+			destroy = linux_gl_x11_glue_destroy,
+			viewport_resized = linux_gl_x11_glue_viewport_resized,
+		},
 	}
+
+	return state
 }
 
-Linux_GL_X11_Glue_State :: struct {
+Linux_GL_X11_Glue :: struct {
+	using interface: Window_Render_Glue,
 	display: ^X.Display,
 	window: X.Window,
 	gl_ctx: ^glx.Context,
 	allocator: runtime.Allocator,
 }
 
-linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State, options: Init_Options) -> bool {
+linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue, options: Init_Options) -> bool {
 	if missing, ok := glx.load(); !ok {
 		log.errorf("Failed loading GLX. Could not load %v.", missing)
 		return false
@@ -117,15 +119,15 @@ linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue_State, options: Ini
 	return false
 }
 
-linux_gl_x11_glue_present :: proc(s: ^Linux_GL_X11_Glue_State) {
+linux_gl_x11_glue_present :: proc(s: ^Linux_GL_X11_Glue) {
 	glx.SwapBuffers(s.display, s.window)
 }
 
-linux_gl_x11_glue_destroy :: proc(s: ^Linux_GL_X11_Glue_State) {
+linux_gl_x11_glue_destroy :: proc(s: ^Linux_GL_X11_Glue) {
 	glx.DestroyContext(s.display, s.gl_ctx)
 	a := s.allocator
 	free(s, a)
 }
 
-linux_gl_x11_glue_viewport_resized :: proc(s: ^Linux_GL_X11_Glue_State) {
+linux_gl_x11_glue_viewport_resized :: proc(s: ^Linux_GL_X11_Glue) {
 }

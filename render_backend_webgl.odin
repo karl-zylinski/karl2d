@@ -121,7 +121,7 @@ webgl_state_size :: proc() -> int {
 
 webgl_init :: proc(
 	state: rawptr,
-	glue: Window_Render_Glue,
+	glue: ^Window_Render_Glue,
 	swapchain_width: int,
 	swapchain_height: int,
 	options: Init_Options,
@@ -130,7 +130,7 @@ webgl_init :: proc(
 	s = (^WebGL_State)(state)
 
 	// see web_get_window_render_glue
-	canvas_id := (^HTML_Canvas_ID)(glue.state)^
+	canvas_id := (^HTML_Canvas_ID)(glue)^
 	
 	s.canvas_id = strings.clone(canvas_id, allocator)
 	s.width = swapchain_width

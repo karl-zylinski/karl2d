@@ -1,7 +1,7 @@
 // Glues together OpenGL with a macOS window. This is done by making a NSGL context and using it
 // to swap back buffer etc.
 #+build darwin
-#+private file
+#+private package
 package karl2d
 
 import "core:sys/posix"
@@ -12,31 +12,31 @@ import "log"
 import "base:runtime"
 import "core:slice"
 
-@(private="package")
-make_mac_gl_glue :: proc(
+create_mac_gl_glue :: proc(
 	window: ^NS.Window,
 	allocator: runtime.Allocator,
 	loc := #caller_location
-) -> Window_Render_Glue {
-	state := new(Mac_GL_Glue_State, allocator, loc)
+) -> ^Window_Render_Glue {
+	state := new(Mac_GL_Glue, allocator, loc)
 	state.window = window
-	return {
-		state = (^Window_Render_Glue_State)(state),
-
-		// these casts just make the proc take a Mac_GL_Glue_State instead of a Window_Render_Glue_State
-		make_context = cast(proc(state: ^Window_Render_Glue_State, options: Init_Options) -> bool)(mac_gl_glue_make_context),
-		present = cast(proc(state: ^Window_Render_Glue_State))(mac_gl_glue_present),
-		destroy = cast(proc(state: ^Window_Render_Glue_State))(mac_gl_glue_destroy),
-		viewport_resized = cast(proc(state: ^Window_Render_Glue_State))(mac_gl_glue_viewport_resized),
+	
+	state.interface = {
+		make_context = mac_gl_glue_make_context,
+		present = mac_gl_glue_present,
+		destroy = mac_gl_glue_destroy,
+		viewport_resized = mac_gl_glue_viewport_resized,
 	}
+
+	return state
 }
 
-Mac_GL_Glue_State :: struct {
+Mac_GL_Glue :: struct {
+	using interface: Window_Render_Glue,
 	window: ^NS.Window,
 	gl_ctx: ^nsgl.OpenGLContext,
 }
 
-mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue_State, options: Init_Options) -> bool {
+mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue, options: Init_Options) -> bool {
 	// Create pixel format attributes (null-terminated array)
 	attrs := slice.to_dynamic(
 		[]u32 {
@@ -103,15 +103,15 @@ mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue_State, options: Init_Options) -
 	return true
 }
 
-mac_gl_glue_present :: proc(s: ^Mac_GL_Glue_State) {
+mac_gl_glue_present :: proc(s: ^Mac_GL_Glue) {
 	s.gl_ctx->flushBuffer()
 }
 
-mac_gl_glue_destroy :: proc(s: ^Mac_GL_Glue_State) {
+mac_gl_glue_destroy :: proc(s: ^Mac_GL_Glue) {
 	nsgl.OpenGLContext_clearCurrentContext()
 	free(s)
 }
 
-mac_gl_glue_viewport_resized :: proc(s: ^Mac_GL_Glue_State) {
+mac_gl_glue_viewport_resized :: proc(s: ^Mac_GL_Glue) {
 	s.gl_ctx->update()
 }

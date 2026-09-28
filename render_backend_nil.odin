@@ -54,7 +54,7 @@ rbnil_state_size :: proc() -> int {
 
 rbnil_init :: proc(
 	state: rawptr,
-	glue: Window_Render_Glue,
+	glue: ^Window_Render_Glue,
 	swapchain_width,
 	swapchain_height: int, 
 	options: Init_Options,

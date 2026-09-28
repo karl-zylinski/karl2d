@@ -71,7 +71,7 @@ Render_Backend_Interface :: struct #all_or_none {
 	
 	init: proc(
 		state: rawptr,
-		glue: Window_Render_Glue,
+		glue: ^Window_Render_Glue,
 		swapchain_width: int,
 		swapchain_height: int,
 		options: Init_Options,

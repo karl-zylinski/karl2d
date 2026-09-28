@@ -227,7 +227,7 @@ wl_init :: proc(
 	log.ensure(s.window != nil, "Wayland compositor never sent an initial configure")
 
 	when RENDER_BACKEND_NAME == "gl" {
-		s.window_render_glue = make_linux_gl_wayland_glue(s.display, s.surface, s.window, s.allocator)
+		s.window_render_glue = create_linux_gl_wayland_glue(s.display, s.surface, s.window, s.allocator)
 	} else when RENDER_BACKEND_NAME == "nil" {
 		s.window_render_glue = {}
 	} else {
@@ -934,7 +934,7 @@ wl_shutdown :: proc() {
 	}
 }
 
-wl_get_window_render_glue :: proc() -> Window_Render_Glue {
+wl_get_window_render_glue :: proc() -> ^Window_Render_Glue {
 	return s.window_render_glue
 }
 
@@ -1596,7 +1596,7 @@ WL_State :: struct {
 	// True if toplevel_listener.configure has run
 	configured: bool,
 
-	window_render_glue: Window_Render_Glue,
+	window_render_glue: ^Window_Render_Glue,
 
 	// Used to translate key presses into typed text, taking the current keyboard layout into
 	// account. `xkb_keymap`/`xkb_state` are (re)created whenever the compositor sends us a new

@@ -161,7 +161,7 @@ linux_shutdown :: proc() {
 	free(s.win_state, a)
 }
 
-linux_get_window_render_glue :: proc() -> Window_Render_Glue {
+linux_get_window_render_glue :: proc() -> ^Window_Render_Glue {
 	return s.win.get_window_render_glue()
 }
 
@@ -757,7 +757,7 @@ Linux_Window_Interface :: struct #all_or_none {
 	),
 
 	shutdown: proc(),
-	get_window_render_glue: proc() -> Window_Render_Glue,
+	get_window_render_glue: proc() -> ^Window_Render_Glue,
 	get_events: proc(events: ^[dynamic]Event),
 	before_present: proc(),
 	set_title: proc(title: string),

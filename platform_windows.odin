@@ -136,11 +136,9 @@ windows_init :: proc(
 	win32.XInputEnable(true)
 
 	when RENDER_BACKEND_NAME == "d3d11" {
-		s.window_render_glue = {
-			state = (^Window_Render_Glue_State)(s.hwnd),
-		}
+		s.window_render_glue = (^Window_Render_Glue)(s.hwnd)
 	} else when RENDER_BACKEND_NAME == "gl" {
-		s.window_render_glue = make_windows_gl_glue(s.hwnd, s.allocator)
+		s.window_render_glue = create_windows_gl_glue(s.hwnd, s.allocator)
 	}  else when RENDER_BACKEND_NAME == "nil" {
 		s.window_render_glue = {}
 	} else {
@@ -163,7 +161,7 @@ windows_shutdown :: proc() {
 	delete(s.events)
 }
 
-windows_get_window_render_glue :: proc() -> Window_Render_Glue {
+windows_get_window_render_glue :: proc() -> ^Window_Render_Glue {
 	return s.window_render_glue
 }
 
@@ -481,7 +479,7 @@ Windows_State :: struct {
 	restore_screen_width: int,
 	restore_screen_height: int,
 
-	window_render_glue: Window_Render_Glue,
+	window_render_glue: ^Window_Render_Glue,
 
 	hicon: win32.HICON,
 
