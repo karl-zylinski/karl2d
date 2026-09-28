@@ -5,10 +5,8 @@ package karl2d
 
 @(private="package")
 AUDIO_BACKEND_WEB_AUDIO :: Audio_Backend_Interface {
-	state_size = web_audio_state_size,
 	init = web_audio_init,
 	shutdown = web_audio_shutdown,
-	set_internal_state = web_audio_set_internal_state,
 	mix_chunk_size = 1400,
 	has_mixer_thread = false,
 	push_samples = web_audio_push_samples,
@@ -32,28 +30,26 @@ foreign karl2d_web_audio {
 	js_web_audio_pushed_samples_remaining :: proc() -> int ---
 }
 
-web_audio_state_size :: proc() -> int {
-	return 0
-}
-
-web_audio_init :: proc(state: rawptr) -> bool {
+web_audio_init :: proc(
+	allocator: Allocator,
+	loc := #caller_location,
+) -> (
+	Audio_Backend_State,
+	bool,
+) {
 	js_web_audio_init()
-	return true
+	return nil, true
 }
 
-web_audio_shutdown :: proc() {
+web_audio_shutdown :: proc(ab: Audio_Backend_State) {
 	js_web_audio_shutdown()
 }
 
-web_audio_set_internal_state :: proc(state: rawptr) {
-	// No hot reload on web.
-}
-
-web_audio_push_samples :: proc(samples: [][2]Audio_Sample) {
+web_audio_push_samples :: proc(ab: Audio_Backend_State, samples: [][2]Audio_Sample) {
 	// The JS backend just sees an array of f32. But it knows that they are interleaved Left & Right
 	js_web_audio_push_samples(slice.reinterpret([]f32, samples))
 }
 
-web_audio_pushed_samples_remaining :: proc() -> int {
+web_audio_pushed_samples_remaining :: proc(ab: Audio_Backend_State) -> int {
 	return js_web_audio_pushed_samples_remaining()
 }
