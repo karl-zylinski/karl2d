@@ -61,11 +61,9 @@ d3d11_init :: proc(
 	hm.dynamic_init(&s.render_targets, allocator)
 
 	/*
-	This come from
+	This comes from
 	
-	window_render_glue = {
-		state = (^Window_Render_Glue_State)(s.hwnd),
-	}	
+	s.window_render_glue = (^Window_Render_Glue)(s.hwnd)	
 
 	in `platform_windows.odin`
 	*/
