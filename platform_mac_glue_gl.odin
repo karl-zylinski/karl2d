@@ -17,21 +17,22 @@ make_mac_gl_glue :: proc(
 	window: ^NS.Window,
 	allocator: runtime.Allocator,
 	loc := #caller_location
-) -> Window_Render_Glue {
+) -> ^Window_Render_Glue {
 	state := new(Mac_GL_Glue_State, allocator, loc)
 	state.window = window
-	return {
-		state = (^Window_Render_Glue_State)(state),
-
-		// these casts just make the proc take a Mac_GL_Glue_State instead of a Window_Render_Glue_State
-		make_context = cast(proc(state: ^Window_Render_Glue_State, options: Init_Options) -> bool)(mac_gl_glue_make_context),
-		present = cast(proc(state: ^Window_Render_Glue_State))(mac_gl_glue_present),
-		destroy = cast(proc(state: ^Window_Render_Glue_State))(mac_gl_glue_destroy),
-		viewport_resized = cast(proc(state: ^Window_Render_Glue_State))(mac_gl_glue_viewport_resized),
+	
+	state.interface = {
+		make_context = mac_gl_glue_make_context,
+		present = mac_gl_glue_present,
+		destroy = mac_gl_glue_destroy,
+		viewport_resized = mac_gl_glue_viewport_resized,
 	}
+
+	return state
 }
 
 Mac_GL_Glue_State :: struct {
+	using interface: Window_Render_Glue,
 	window: ^NS.Window,
 	gl_ctx: ^nsgl.OpenGLContext,
 }
