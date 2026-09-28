@@ -1,7 +1,7 @@
 // Glues together OpenGL with a Wayland window. This is done by making an EGL context and using
 // it to SwapBuffers etc.
 #+build linux
-
+#+private package
 package karl2d
 
 import gl "vendor:OpenGL"
@@ -22,7 +22,7 @@ make_linux_gl_wayland_glue :: proc(
 	allocator: runtime.Allocator,
 	loc := #caller_location
 ) -> ^Window_Render_Glue {
-	state := new(Linux_GL_Wayland_Glue_State, allocator, loc)
+	state := new(Linux_GL_Wayland_Glue, allocator, loc)
 	state.display = display
 	state.window = window
 	state.allocator = allocator
@@ -43,7 +43,7 @@ make_linux_gl_wayland_glue :: proc(
 	return state
 }
 
-Linux_GL_Wayland_Glue_State :: struct {
+Linux_GL_Wayland_Glue :: struct {
 	using interface: Window_Render_Glue,
 	display: ^wl.Display,
 	frame_queue: ^wl.Event_Queue,
@@ -56,7 +56,7 @@ Linux_GL_Wayland_Glue_State :: struct {
 	allocator: runtime.Allocator,
 }
 
-linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State, options: Init_Options) -> bool {
+linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue, options: Init_Options) -> bool {
 	if missing, ok := egl.load(); !ok {
 		log.errorf("Failed loading EGL. Could not load %v.", missing)
 		return false
@@ -154,7 +154,7 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue_State, opti
 // Max time to wait for a frame to complete.
 FRAME_CALLBACK_TIMEOUT :: 50*time.Millisecond
 
-linux_gl_wayland_glue_present :: proc(s: ^Linux_GL_Wayland_Glue_State) {
+linux_gl_wayland_glue_present :: proc(s: ^Linux_GL_Wayland_Glue) {
 	if s.frame_callback != nil {
 		gl.Flush()
 		wayland_wait_for_frame(s)
@@ -176,13 +176,13 @@ linux_gl_wayland_glue_present :: proc(s: ^Linux_GL_Wayland_Glue_State) {
 linux_gl_wayland_frame_listener := wl.Callback_Listener {
 	proc "c" (data: rawptr, callback: ^wl.Callback, callback_data: u32) {
 		wl.destroy(callback)
-		(^Linux_GL_Wayland_Glue_State)(data).frame_callback = nil
+		(^Linux_GL_Wayland_Glue)(data).frame_callback = nil
 	},
 }
 
 // Wait for frame to finish, which emulates vsync
 @(private="file")
-wayland_wait_for_frame :: proc(s: ^Linux_GL_Wayland_Glue_State) {
+wayland_wait_for_frame :: proc(s: ^Linux_GL_Wayland_Glue) {
 	fd := posix.FD(wl.display_get_fd(s.display))
 	deadline := time.tick_add(time.tick_now(), FRAME_CALLBACK_TIMEOUT)
 
@@ -242,7 +242,7 @@ wayland_wait_for_frame :: proc(s: ^Linux_GL_Wayland_Glue_State) {
 	}
 }
 
-linux_gl_wayland_glue_destroy :: proc(s: ^Linux_GL_Wayland_Glue_State) {
+linux_gl_wayland_glue_destroy :: proc(s: ^Linux_GL_Wayland_Glue) {
 	if s.frame_callback != nil {
 		wl.destroy(s.frame_callback)
 	}
@@ -254,5 +254,5 @@ linux_gl_wayland_glue_destroy :: proc(s: ^Linux_GL_Wayland_Glue_State) {
 	free(s, a)
 }
 
-linux_gl_wayland_glue_viewport_resized :: proc(s: ^Linux_GL_Wayland_Glue_State) {
+linux_gl_wayland_glue_viewport_resized :: proc(s: ^Linux_GL_Wayland_Glue) {
 }
