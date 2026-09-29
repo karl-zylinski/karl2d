@@ -28,12 +28,11 @@ AUDIO_BACKEND_CORE_AUDIO_PROTOTYPE :: Audio_Backend_Core_Audio {
 	interface = {
 		init = core_audio_init,
 		shutdown = core_audio_shutdown,
-		start_mixer_thread = core_audio_start_mixer_thread,
 		mix_chunk_size = CORE_AUDIO_BUFFER_SAMPLES,
 		has_mixer_thread = true,
 		pushed_samples_remaining = nil,
 		push_samples = nil,
-	}
+	},
 }
 
 core_audio_init :: proc(s: ^Audio_Backend_Core_Audio) -> bool {
