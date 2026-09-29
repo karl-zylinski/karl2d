@@ -30,7 +30,7 @@ when AUDIO_BACKEND_NAME == "waveout" {
 } else when AUDIO_BACKEND_NAME == "web_audio" {
 	AUDIO_BACKEND_PROTOTYPE :: AUDIO_BACKEND_WEB_AUDIO_PROTOTYPE
 } else when AUDIO_BACKEND_NAME == "alsa" {
-	AUDIO_BACKEND_PROTOTYPE :: alsa_create
+	AUDIO_BACKEND_PROTOTYPE :: AUDIO_BACKEND_ALSA_PROTOTYPE
 } else when AUDIO_BACKEND_NAME == "core_audio" {
 	AUDIO_BACKEND_PROTOTYPE :: core_audio_create
 } else when AUDIO_BACKEND_NAME == "nil" {
