@@ -6,7 +6,6 @@ import "core:time"
 
 Audio_Backend_Nil :: struct {
 	using interface: I_Audio_Backend,
-	allocator: Allocator,
 	start: time.Tick,
 	pushed: int,
 }
