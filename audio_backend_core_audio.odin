@@ -36,12 +36,8 @@ AUDIO_BACKEND_CORE_AUDIO_PROTOTYPE :: Audio_Backend_Core_Audio {
 }
 
 core_audio_init :: proc(s: ^Audio_Backend_Core_Audio) -> bool {
-	s := new(Audio_Backend_Core_Audio, allocator, loc)
-	s.interface = CORE_AUDIO_BACKEND_INTERFACE
-	s.allocator = allocator
-	s.fill_context = _audio_thread_context()
-
 	log.debug("Init audio backend CoreAudio")
+	s.fill_context = _audio_thread_context()
 
 	descriptor := CA.StreamBasicDescription {
 		mSampleRate = 44100,
@@ -109,17 +105,17 @@ _core_audio_callback :: proc "c" (
 	inAQ: Audio.QueueRef,
 	inBuffer: Audio.QueueBufferRef,
 ) {
-	state := (^Audio_Backend_Core_Audio)(inUserData)
-	sync.mutex_lock(&state.callback_mutex)
+	s := (^Audio_Backend_Core_Audio)(inUserData)
+	context = s.fill_context
+	sync.mutex_lock(&s.callback_mutex)
 
-	if state.running {
-		context = state.fill_context
+	if s.running {
 		samples := ([^][2]Audio_Sample)(inBuffer.mAudioData)[:CORE_AUDIO_BUFFER_SAMPLES]
 		_mix_audio_into_buffer(samples)
 		inBuffer.mAudioDataByteSize = u32(CORE_AUDIO_BUFFER_SIZE)
-		Audio.QueueEnqueueBuffer(state.queue, inBuffer, 0, nil)
-		free_all(context.temp_allocator)
+		Audio.QueueEnqueueBuffer(s.queue, inBuffer, 0, nil)
 	}
 
-	sync.mutex_unlock(&state.callback_mutex)
+	sync.mutex_unlock(&s.callback_mutex)
+	free_all(context.temp_allocator)
 }
