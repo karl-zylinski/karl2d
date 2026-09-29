@@ -13,7 +13,6 @@ ALSA_BUFFER_SAMPLES :: 700
 
 Audio_Backend_ALSA :: struct {
 	using interface: I_Audio_Backend,
-	allocator: Allocator,
 	pcm: alsa.PCM,
 	buf: [ALSA_BUFFER_SAMPLES][2]Audio_Sample,
 	mix_thread: ^thread.Thread,
@@ -138,7 +137,5 @@ alsa_shutdown :: proc(s: ^Audio_Backend_ALSA) {
 	}
 
 	alsa.pcm_close(s.pcm)
-	a := s.allocator
-	free(s, a)
 }
 
