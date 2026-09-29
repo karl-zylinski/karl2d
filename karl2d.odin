@@ -207,67 +207,43 @@ init :: proc(
 			current_settings = DEFAULT_AUDIO_BUS_SETTINGS,
 		}
 
-		ab := create_audio_backend(allocator, loc)
-		ab_ok := false
+		s.ab = new_clone(AUDIO_BACKEND_PROTOTYPE, s.allocator)
+		log.ensure(s.ab.mix_chunk_size > 0)
+		ab_init_ok := s.ab->init()
 
-		if ab != nil {
-			s.ab = ab
-
+		if ab_init_ok {
 			if s.ab.has_mixer_thread {
 				log.ensure(
-					s.ab.start_mixer_thread != nil &&
 					s.ab.push_samples == nil &&
 					s.ab.pushed_samples_remaining == nil,
 				)
-
-				thread_ok := s.ab->start_mixer_thread()
-
-				if thread_ok {
-					ab_ok = true
-				}
 			} else {
 				log.ensure(
-					s.ab.start_mixer_thread == nil &&
 					s.ab.push_samples != nil &&
 					s.ab.pushed_samples_remaining != nil,
 				)
 
-				// The master bus chunk is only used when there is no mixer thread. Backends with
-				// their own mixer thread will provide `_mix_audio_into_buffer` with a slice of
-				// samples of their own. That mixer-thread owned slice then replaces the master bus
-				// chunk.
-				log.ensure(s.ab.mix_chunk_size > 0)
 				s.master_bus.chunk = make([][2]Audio_Sample, s.ab.mix_chunk_size, s.allocator)
-
-				ab_ok = true
 			}
-		}
-
-		if !ab_ok {
-			if ab != nil {
-				ab->destroy()
-			}
-
+		} else {
+			free(s.ab, s.allocator)
 			log.error("Failed initializing audio backend. Sounds will play silently through the 'nil audio backend'")
-			ab = abnil_create(allocator, loc)
-			log.ensure(ab != nil, "Failed initializing nil audio backend state")
-			s.ab = ab
+			s.ab = new_clone(AUDIO_BACKEND_NIL_PROTOTYPE, s.allocator)
+			log.ensure(s.ab.mix_chunk_size > 0)
+			ab_init_ok = s.ab->init()
+			log.ensure(ab_init_ok, "Failed initializing nil audio backend state")
 
 			// Nil audio backend does not have a mixer thread.
 
 			log.ensure(
-				s.ab.start_mixer_thread == nil &&
 				s.ab.push_samples != nil &&
 				s.ab.pushed_samples_remaining != nil,
 			)
 
-			log.ensure(s.ab.mix_chunk_size > 0)
 			s.master_bus.chunk = make([][2]Audio_Sample, s.ab.mix_chunk_size, s.allocator)
-
-			ab_ok = true
 		}
 
-		log.ensure(ab_ok == true)
+		log.ensure(ab_init_ok == true)
 	}
 
 	return s
@@ -323,7 +299,8 @@ shutdown :: proc() {
 
 	// Audio
 	{
-		s.ab->destroy()
+		s.ab->shutdown()
+		free(s.ab, s.allocator)
 		delete(s.master_bus.chunk, s.allocator)
 		hm.dynamic_destroy(&s.audio_streams)
 		hm.dynamic_destroy(&s.sounds)
@@ -6539,7 +6516,7 @@ State :: struct {
 	// Audio
 
 	// Audio Backend. Shortened because we write `s.ab` many times.
-	ab: ^Audio_Backend_Interface,
+	ab: ^I_Audio_Backend,
 
 	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
 	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),

@@ -3,9 +3,9 @@
 #+private package
 package karl2d
 
-@(rodata)
-WEB_AUDIO_BACKEND_INTERFACE := Audio_Backend_Interface {
-	destroy = web_audio_destroy,
+AUDIO_BACKEND_WEB_AUDIO_PROTOTYPE :: I_Audio_Backend {
+	init = web_audio_init,
+	shutdown = web_audio_shutdown,
 	mix_chunk_size = 1400,
 	has_mixer_thread = false,
 	push_samples = web_audio_push_samples,
@@ -29,23 +29,20 @@ foreign karl2d_web_audio {
 	js_web_audio_pushed_samples_remaining :: proc() -> int ---
 }
 
-web_audio_create :: proc(
-	allocator: Allocator,
-	loc := #caller_location,
-) -> ^Audio_Backend_Interface {
+web_audio_init :: proc(s: ^I_Audio_Backend) -> bool {
 	js_web_audio_init()
-	return &WEB_AUDIO_BACKEND_INTERFACE
+	return true
 }
 
-web_audio_destroy :: proc(s: ^Audio_Backend_Interface) {
+web_audio_shutdown :: proc(s: ^I_Audio_Backend) {
 	js_web_audio_shutdown()
 }
 
-web_audio_push_samples :: proc(s: ^Audio_Backend_Interface, samples: [][2]Audio_Sample) {
+web_audio_push_samples :: proc(s: ^I_Audio_Backend, samples: [][2]Audio_Sample) {
 	// The JS backend just sees an array of f32. But it knows that they are interleaved Left & Right
 	js_web_audio_push_samples(slice.reinterpret([]f32, samples))
 }
 
-web_audio_pushed_samples_remaining :: proc(s: ^Audio_Backend_Interface) -> int {
+web_audio_pushed_samples_remaining :: proc(s: ^I_Audio_Backend) -> int {
 	return js_web_audio_pushed_samples_remaining()
 }
