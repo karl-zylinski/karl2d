@@ -4,36 +4,39 @@ package karl2d
 
 import "core:time"
 
-Audio_Backend_Nil :: struct {
-	using interface: I_Audio_Backend,
+ABNil_State :: struct {
+	using base_type: Audio_Backend_State,
 	start: time.Tick,
 	pushed: int,
 }
 
-AUDIO_BACKEND_NIL_PROTOTYPE :: Audio_Backend_Nil {
-	interface = {
-		init = abnil_init,
-		shutdown = abnil_shutdown,
-		mix_chunk_size = 700,
-		has_mixer_thread = false,
-		push_samples = abnil_push_samples,
-		pushed_samples_remaining = abnil_pushed_samples_remaining,
-	},
+AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
+	state_size  = abnil_state_size,
+	init = abnil_init,
+	shutdown = abnil_shutdown,
+	mix_chunk_size = 700,
+	has_mixer_thread = false,
+	push_samples = abnil_push_samples,
+	pushed_samples_remaining = abnil_pushed_samples_remaining,
 }
 
-abnil_init :: proc(s: ^Audio_Backend_Nil) -> bool {
+abnil_state_size :: proc() -> int {
+	return size_of(ABNil_State)
+}
+
+abnil_init :: proc(s: ^ABNil_State) -> bool {
 	s.start = time.tick_now()
 	return true
 }
 
-abnil_shutdown :: proc(s: ^Audio_Backend_Nil) {
+abnil_shutdown :: proc(s: ^ABNil_State) {
 }
 
-abnil_push_samples :: proc(s: ^Audio_Backend_Nil, samples: [][2]Audio_Sample) {
+abnil_push_samples :: proc(s: ^ABNil_State, samples: [][2]Audio_Sample) {
 	s.pushed += len(samples)
 }
 
-abnil_pushed_samples_remaining :: proc(s: ^Audio_Backend_Nil) -> int {
+abnil_pushed_samples_remaining :: proc(s: ^ABNil_State) -> int {
 	elapsed := int(time.duration_seconds(time.tick_since(s.start)) * AUDIO_MIX_SAMPLE_RATE)
 	return max(s.pushed - elapsed, 0)
 }

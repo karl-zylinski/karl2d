@@ -1989,7 +1989,8 @@ State :: struct {
 	// Audio
 
 	// Audio Backend. Shortened because we write `s.ab` many times.
-	ab: ^I_Audio_Backend,
+	ab: Audio_Backend_Interface,
+	ab_state: ^Audio_Backend_State,
 
 	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
 	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),

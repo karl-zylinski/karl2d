@@ -13,8 +13,18 @@ import "core:thread"
 WAVEOUT_BUFFER_SAMPLES :: 700
 WAVEOUT_BUFFER_COUNT :: 4
 
-Audio_Backend_Waveout :: struct {
-	using interface: I_Audio_Backend,
+AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
+	state_size = waveout_state_size,
+	init = waveout_init,
+	shutdown = waveout_shutdown,
+	mix_chunk_size = WAVEOUT_BUFFER_SAMPLES,
+	has_mixer_thread = true,
+	pushed_samples_remaining = nil,
+	push_samples = nil,
+}
+
+Waveout_State :: struct {
+	using base_type: Audio_Backend_State,
 	device: win32.HWAVEOUT,
 	headers: [WAVEOUT_BUFFER_COUNT]win32.WAVEHDR,
 
@@ -25,18 +35,11 @@ Audio_Backend_Waveout :: struct {
 	run_mix_thread: bool,
 }
 
-AUDIO_BACKEND_WAVEOUT_PROTOTYPE :: Audio_Backend_Waveout {
-	interface = {
-		init = waveout_init,
-		shutdown = waveout_shutdown,
-		mix_chunk_size = WAVEOUT_BUFFER_SAMPLES,
-		has_mixer_thread = true,
-		pushed_samples_remaining = nil,
-		push_samples = nil,
-	},
+waveout_state_size :: proc() -> int {
+	return size_of(Waveout_State)
 }
 
-waveout_init :: proc(s: ^Audio_Backend_Waveout) -> bool {
+waveout_init :: proc(s: ^Waveout_State) -> bool {
 	log.debug("Init audio backend waveout")
 
 	// Added constant missing in bindings:
@@ -95,7 +98,7 @@ waveout_init :: proc(s: ^Audio_Backend_Waveout) -> bool {
 	return true
 }
 
-waveout_shutdown :: proc(s: ^Audio_Backend_Waveout) {
+waveout_shutdown :: proc(s: ^Waveout_State) {
 	log.debug("Shutdown audio backend waveout")
 
 	if s.mix_thread != nil {
@@ -112,7 +115,7 @@ waveout_shutdown :: proc(s: ^Audio_Backend_Waveout) {
 waveout_thread_proc :: proc(t: ^thread.Thread) {
 	context = _audio_thread_context()
 
-	s := (^Audio_Backend_Waveout)(t.data)
+	s := (^Waveout_State)(t.data)
 
 	thread_loop: for sync.atomic_load(&s.run_mix_thread) {
 		h := &s.headers[s.cur_header]

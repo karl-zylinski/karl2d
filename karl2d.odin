@@ -3,6 +3,7 @@
 package karl2d
 
 import "base:runtime"
+import "base:intrinsics"
 import "core:mem"
 import "log"
 import "core:math"
@@ -207,11 +208,19 @@ init :: proc(
 			current_settings = DEFAULT_AUDIO_BUS_SETTINGS,
 		}
 
-		s.ab = new_clone(AUDIO_BACKEND_PROTOTYPE, s.allocator)
+		s.ab = AUDIO_BACKEND_INTERFACE
 		log.ensure(s.ab.mix_chunk_size > 0)
-		ab_init_ok := s.ab->init()
+		ab_state_mem, ab_state_mem_err := mem.alloc(s.ab.state_size(), allocator = s.allocator)
+		ab_ok := false
 
-		if ab_init_ok {
+		if ab_state_mem_err != nil {
+			log.errorf("Failed allocating memory for audio backend state. Error: %v", ab_state_mem_err)
+		} else {
+			s.ab_state = (^Audio_Backend_State)(ab_state_mem)
+			ab_ok = s.ab.init(s.ab_state)
+		}
+
+		if ab_ok {
 			if s.ab.has_mixer_thread {
 				log.ensure(
 					s.ab.push_samples == nil &&
@@ -226,12 +235,17 @@ init :: proc(
 				s.master_bus.chunk = make([][2]Audio_Sample, s.ab.mix_chunk_size, s.allocator)
 			}
 		} else {
-			free(s.ab, s.allocator)
+			free(s.ab_state, s.allocator)
 			log.error("Failed initializing audio backend. Sounds will play silently through the 'nil audio backend'")
-			s.ab = new_clone(AUDIO_BACKEND_NIL_PROTOTYPE, s.allocator)
+			s.ab = AUDIO_BACKEND_NIL
 			log.ensure(s.ab.mix_chunk_size > 0)
-			ab_init_ok = s.ab->init()
-			log.ensure(ab_init_ok, "Failed initializing nil audio backend state")
+			ab_state_mem, ab_state_mem_err = mem.alloc(s.ab.state_size(), allocator = s.allocator)
+			ab_ok = false
+
+			log.ensuref(ab_state_mem_err == nil, "Failed allocating memory for audio backend state. Error: %v", ab_state_mem_err)
+			s.ab_state = (^Audio_Backend_State)(ab_state_mem)
+			ab_ok = s.ab.init(s.ab_state)
+			log.ensure(ab_ok, "Failed initializing nil audio backend state")
 
 			// Nil audio backend does not have a mixer thread.
 
@@ -243,7 +257,7 @@ init :: proc(
 			s.master_bus.chunk = make([][2]Audio_Sample, s.ab.mix_chunk_size, s.allocator)
 		}
 
-		log.ensure(ab_init_ok == true)
+		log.ensure(ab_ok == true)
 	}
 
 	return s
@@ -299,8 +313,8 @@ shutdown :: proc() {
 
 	// Audio
 	{
-		s.ab->shutdown()
-		free(s.ab, s.allocator)
+		s.ab.shutdown(s.ab_state)
+		free(s.ab_state, s.allocator)
 		delete(s.master_bus.chunk, s.allocator)
 		hm.dynamic_destroy(&s.audio_streams)
 		hm.dynamic_destroy(&s.sounds)
@@ -3777,12 +3791,12 @@ update_audio :: proc() {
 			// second. This gives a latency of up to (1.5 * (44100/1400)) = 47 milliseconds.
 			//
 			// Note that s.ab.mix_chunk_size varies from audio backend to audio backend.
-			if s.ab->pushed_samples_remaining() > (3 * s.ab.mix_chunk_size)/2 {
+			if s.ab.pushed_samples_remaining(s.ab_state) > (3 * s.ab.mix_chunk_size)/2 {
 				break
 			}
 
 			_mix_audio_into_buffer(master_bus_chunk[:])
-			s.ab->push_samples(master_bus_chunk[:])
+			s.ab.push_samples(s.ab_state, master_bus_chunk[:])
 		}
 	}
 }
@@ -6516,7 +6530,8 @@ State :: struct {
 	// Audio
 
 	// Audio Backend. Shortened because we write `s.ab` many times.
-	ab: ^I_Audio_Backend,
+	ab: Audio_Backend_Interface,
+	ab_state: ^Audio_Backend_State,
 
 	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
 	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),
