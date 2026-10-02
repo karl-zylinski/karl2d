@@ -14,7 +14,7 @@ WAVEOUT_BUFFER_SAMPLES :: 700
 WAVEOUT_BUFFER_COUNT :: 4
 
 AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
-	state_size = waveout_state_size,
+	state_type = Waveout_State,
 	init = waveout_init,
 	shutdown = waveout_shutdown,
 	mix_chunk_size = WAVEOUT_BUFFER_SAMPLES,
@@ -33,10 +33,6 @@ Waveout_State :: struct {
 
 	mix_thread: ^thread.Thread,
 	run_mix_thread: bool,
-}
-
-waveout_state_size :: proc() -> int {
-	return size_of(Waveout_State)
 }
 
 waveout_init :: proc(s: ^Waveout_State) -> bool {

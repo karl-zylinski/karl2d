@@ -11,17 +11,13 @@ ABNil_State :: struct {
 }
 
 AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
-	state_size  = abnil_state_size,
+	state_type = ABNil_State,
 	init = abnil_init,
 	shutdown = abnil_shutdown,
 	mix_chunk_size = 700,
 	has_mixer_thread = false,
 	push_samples = abnil_push_samples,
 	pushed_samples_remaining = abnil_pushed_samples_remaining,
-}
-
-abnil_state_size :: proc() -> int {
-	return size_of(ABNil_State)
 }
 
 abnil_init :: proc(s: ^ABNil_State) -> bool {

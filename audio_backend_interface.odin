@@ -3,7 +3,9 @@ package karl2d
 Audio_Backend_State :: struct {}
 
 Audio_Backend_Interface :: struct #all_or_none {
-	state_size: proc() -> int,
+	// State usually has `using base_type: Audio_Backend_State` as first field.
+	state_type: typeid,
+	
 	init: proc(s: ^Audio_Backend_State) -> bool,
 	shutdown: proc(s: ^Audio_Backend_State),
 

@@ -208,59 +208,61 @@ init :: proc(
 			current_settings = DEFAULT_AUDIO_BUS_SETTINGS,
 		}
 
-		s.ab = AUDIO_BACKEND_INTERFACE
-		log.ensure(s.ab.mix_chunk_size > 0)
-		ab_state_mem, ab_state_mem_err := mem.alloc(s.ab.state_size(), allocator = s.allocator)
-		ab_ok := false
+		ab_ok := _init_audio_backend(AUDIO_BACKEND)
 
-		if ab_state_mem_err != nil {
-			log.errorf("Failed allocating memory for audio backend state. Error: %v", ab_state_mem_err)
-		} else {
-			s.ab_state = (^Audio_Backend_State)(ab_state_mem)
-			ab_ok = s.ab.init(s.ab_state)
-		}
-
-		if ab_ok {
-			if s.ab.has_mixer_thread {
-				log.ensure(
-					s.ab.push_samples == nil &&
-					s.ab.pushed_samples_remaining == nil,
-				)
-			} else {
-				log.ensure(
-					s.ab.push_samples != nil &&
-					s.ab.pushed_samples_remaining != nil,
-				)
-
-				s.master_bus.chunk = make([][2]Audio_Sample, s.ab.mix_chunk_size, s.allocator)
-			}
-		} else {
-			free(s.ab_state, s.allocator)
+		if !ab_ok {
 			log.error("Failed initializing audio backend. Sounds will play silently through the 'nil audio backend'")
-			s.ab = AUDIO_BACKEND_NIL
-			log.ensure(s.ab.mix_chunk_size > 0)
-			ab_state_mem, ab_state_mem_err = mem.alloc(s.ab.state_size(), allocator = s.allocator)
-			ab_ok = false
-
-			log.ensuref(ab_state_mem_err == nil, "Failed allocating memory for audio backend state. Error: %v", ab_state_mem_err)
-			s.ab_state = (^Audio_Backend_State)(ab_state_mem)
-			ab_ok = s.ab.init(s.ab_state)
-			log.ensure(ab_ok, "Failed initializing nil audio backend state")
-
-			// Nil audio backend does not have a mixer thread.
-
-			log.ensure(
-				s.ab.push_samples != nil &&
-				s.ab.pushed_samples_remaining != nil,
-			)
-
-			s.master_bus.chunk = make([][2]Audio_Sample, s.ab.mix_chunk_size, s.allocator)
+			nil_ab_ok := _init_audio_backend(AUDIO_BACKEND_NIL)
+			log.ensure(nil_ab_ok, "Failed initializing nil audio backend state")
 		}
-
-		log.ensure(ab_ok == true)
 	}
 
 	return s
+}
+
+_init_audio_backend :: proc(ab: Audio_Backend_Interface) -> bool {
+	log.ensure(ab.mix_chunk_size > 0)
+	ab_state_type := type_info_of(ab.state_type)
+
+	ab_state_mem, ab_state_mem_err := mem.alloc(
+		ab_state_type.size,
+		ab_state_type.align,
+		s.allocator,
+	)
+
+	if ab_state_mem_err != nil {
+		log.errorf(
+			"Failed allocating memory for audio backend state. Error: %v",
+			ab_state_mem_err,
+		)
+		return false
+	}
+
+	s.ab = ab
+	s.ab_state = (^Audio_Backend_State)(ab_state_mem)
+
+	if !s.ab.init(s.ab_state) {
+		free(s.ab_state, s.allocator)
+		s.ab = {}
+		s.ab_state = nil
+		return false
+	}
+
+	if s.ab.has_mixer_thread {
+		log.ensure(
+			s.ab.push_samples == nil &&
+			s.ab.pushed_samples_remaining == nil,
+		)
+	} else {
+		log.ensure(
+			s.ab.push_samples != nil &&
+			s.ab.pushed_samples_remaining != nil,
+		)
+
+		s.master_bus.chunk = make([][2]Audio_Sample, s.ab.mix_chunk_size, s.allocator)
+	}
+
+	return true
 }
 
 // Updates the internal state of the library. Call this early in the frame to make sure inputs and
