@@ -15,7 +15,7 @@ create_linux_gl_x11_glue :: proc(
 	display: ^X.Display,
 	window: X.Window,
 	allocator: runtime.Allocator,
-	loc := #caller_location
+	loc := #caller_location,
 ) -> ^Window_Render_Glue {
 	state := new(Linux_GL_X11_Glue, allocator, loc)
 

@@ -13,7 +13,7 @@ import "log"
 create_windows_gl_glue :: proc(
 	hwnd: win32.HWND,
 	allocator: runtime.Allocator,
-	loc := #caller_location
+	loc := #caller_location,
 ) -> ^Window_Render_Glue {
 	state := new(Windows_GL_Glue, allocator, loc)
 

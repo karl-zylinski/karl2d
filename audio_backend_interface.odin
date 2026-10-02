@@ -1,8 +1,13 @@
 package karl2d
 
-I_Audio_Backend :: struct #all_or_none {
-	init: proc(s: ^I_Audio_Backend) -> bool,
-	shutdown: proc(s: ^I_Audio_Backend),
+Audio_Backend_State :: struct {}
+
+Audio_Backend_Interface :: struct #all_or_none {
+	// State usually has `using base_type: Audio_Backend_State` as first field.
+	state_type: typeid,
+	
+	init: proc(s: ^Audio_Backend_State) -> bool,
+	shutdown: proc(s: ^Audio_Backend_State),
 
 	// How many samples the master bus and all other buses should mix per mixing pass.
 	mix_chunk_size: int,
@@ -13,6 +18,6 @@ I_Audio_Backend :: struct #all_or_none {
 
 	// For non-threaded mixing. Karl2D will run the mixer as part of `k2.update` and push in the new
 	// samples using these procs.
-	push_samples: proc(s: ^I_Audio_Backend, samples: [][2]Audio_Sample),
-	pushed_samples_remaining: proc(s: ^I_Audio_Backend) -> int,
+	push_samples: proc(s: ^Audio_Backend_State, samples: [][2]Audio_Sample),
+	pushed_samples_remaining: proc(s: ^Audio_Backend_State) -> int,
 }

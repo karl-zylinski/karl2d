@@ -58,7 +58,7 @@ rbnil_init :: proc(
 	swapchain_width,
 	swapchain_height: int, 
 	options: Init_Options,
-	allocator := context.allocator
+	allocator := context.allocator,
 ) {
 	log.info("Render Backend nil init")
 	rbnil_swapchain_width = swapchain_width

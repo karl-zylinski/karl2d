@@ -19,7 +19,7 @@ create_linux_gl_wayland_glue :: proc(
 	surface: ^wl.Surface,
 	window: ^wl.EGL_Window,
 	allocator: runtime.Allocator,
-	loc := #caller_location
+	loc := #caller_location,
 ) -> ^Window_Render_Glue {
 	state := new(Linux_GL_Wayland_Glue, allocator, loc)
 	state.display = display

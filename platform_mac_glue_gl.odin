@@ -15,7 +15,7 @@ import "core:slice"
 create_mac_gl_glue :: proc(
 	window: ^NS.Window,
 	allocator: runtime.Allocator,
-	loc := #caller_location
+	loc := #caller_location,
 ) -> ^Window_Render_Glue {
 	state := new(Mac_GL_Glue, allocator, loc)
 	state.window = window
