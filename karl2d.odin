@@ -1146,7 +1146,7 @@ draw_rect_vec :: proc(
 	size: Vec2,
 	color: Color,
 	origin: Vec2 = {},
-	rotation: f32 = 0
+	rotation: f32 = 0,
 ) {
 	draw_rect(rect_from_pos_size(position, size), color, origin, rotation)
 }
@@ -5106,7 +5106,7 @@ is_cursor_hidden :: proc() -> bool {
 load_shader_from_file :: proc(
 	vertex_filename: string,
 	fragment_filename: string,
-	layout_formats: []Pixel_Format = {}
+	layout_formats: []Pixel_Format = {},
 ) -> (Shader, bool) #optional_ok {
 	vertex_source, vertex_source_ok := read_entire_file(vertex_filename, frame_allocator)
 

@@ -208,7 +208,7 @@ wlcsd_init :: proc(
 	window_height: int,
 	window_mode: Window_Mode,
 	allocator: runtime.Allocator,
-	loc := #caller_location
+	loc := #caller_location,
 ) -> ^WLCSD_State {
 	if surface == nil {
 		log.error("surface is nil. The window gets no frame.", location = loc)
