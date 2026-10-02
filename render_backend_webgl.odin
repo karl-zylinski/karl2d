@@ -125,7 +125,7 @@ webgl_init :: proc(
 	swapchain_width: int,
 	swapchain_height: int,
 	options: Init_Options,
-	allocator := context.allocator
+	allocator := context.allocator,
 ) {
 	s = (^WebGL_State)(state)
 
