@@ -356,7 +356,7 @@ draw_rect_vec :: proc(
 	size: Vec2,
 	color: Color,
 	origin: Vec2 = {},
-	rotation: f32 = 0
+	rotation: f32 = 0,
 )
 
 // Draw the outline of a rectangle with a specific thickness. The outline is drawn using four
@@ -1048,7 +1048,7 @@ is_cursor_hidden :: proc() -> bool
 load_shader_from_file :: proc(
 	vertex_filename: string,
 	fragment_filename: string,
-	layout_formats: []Pixel_Format = {}
+	layout_formats: []Pixel_Format = {},
 ) -> (Shader, bool) #optional_ok
 
 // Load a vertex and fragment shader from a block of memory. See `load_shader_from_file` for what
