@@ -359,7 +359,7 @@ editor_ui_state_selector :: proc(
 	states: []$T,
 	state_names: []string,
 	cur_state: T,
-	label: string = ""
+	label: string = "",
 ) -> (T, bool) {
 	rect := rect
 
