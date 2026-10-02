@@ -222,24 +222,28 @@ init :: proc(
 
 _init_audio_backend :: proc(ab: Audio_Backend_Interface) -> bool {
 	log.ensure(ab.mix_chunk_size > 0)
-	ab_state_type := type_info_of(ab.state_type)
 
-	ab_state_mem, ab_state_mem_err := mem.alloc(
-		ab_state_type.size,
-		ab_state_type.align,
-		s.allocator,
-	)
+	if ab.state_type != nil {
+		ab_state_type := type_info_of(ab.state_type)
 
-	if ab_state_mem_err != nil {
-		log.errorf(
-			"Failed allocating memory for audio backend state. Error: %v",
-			ab_state_mem_err,
+		ab_state_mem, ab_state_mem_err := mem.alloc(
+			ab_state_type.size,
+			ab_state_type.align,
+			s.allocator,
 		)
-		return false
+
+		if ab_state_mem_err != nil {
+			log.errorf(
+				"Failed allocating memory for audio backend state. Error: %v",
+				ab_state_mem_err,
+			)
+			return false
+		}
+
+		s.ab_state = (^Audio_Backend_State)(ab_state_mem)
 	}
 
 	s.ab = ab
-	s.ab_state = (^Audio_Backend_State)(ab_state_mem)
 
 	if !s.ab.init(s.ab_state) {
 		free(s.ab_state, s.allocator)
