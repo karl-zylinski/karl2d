@@ -14,8 +14,18 @@ import Audio "platform_bindings/mac/AudioToolbox"
 CORE_AUDIO_BUFFER_SAMPLES :: 700
 CORE_AUDIO_BUFFER_SIZE :: CORE_AUDIO_BUFFER_SAMPLES * size_of([2]Audio_Sample)
 
-Audio_Backend_Core_Audio :: struct {
-	using interface: I_Audio_Backend,
+AUDIO_BACKEND_CORE_AUDIO :: Audio_Backend_Interface {
+	state_type = Core_Audio_State,
+	init = core_audio_init,
+	shutdown = core_audio_shutdown,
+	mix_chunk_size = CORE_AUDIO_BUFFER_SAMPLES,
+	has_mixer_thread = true,
+	pushed_samples_remaining = nil,
+	push_samples = nil,
+}
+
+Core_Audio_State :: struct {
+	using base: Audio_Backend_State,
 	queue: Audio.QueueRef,
 	buffers: [4]Audio.QueueBufferRef,
 
@@ -24,18 +34,7 @@ Audio_Backend_Core_Audio :: struct {
 	fill_context: runtime.Context,
 }
 
-AUDIO_BACKEND_CORE_AUDIO_PROTOTYPE :: Audio_Backend_Core_Audio {
-	interface = {
-		init = core_audio_init,
-		shutdown = core_audio_shutdown,
-		mix_chunk_size = CORE_AUDIO_BUFFER_SAMPLES,
-		has_mixer_thread = true,
-		pushed_samples_remaining = nil,
-		push_samples = nil,
-	},
-}
-
-core_audio_init :: proc(s: ^Audio_Backend_Core_Audio) -> bool {
+core_audio_init :: proc(s: ^Core_Audio_State) -> bool {
 	log.debug("Init audio backend CoreAudio")
 	s.fill_context = _audio_thread_context()
 
@@ -92,7 +91,7 @@ core_audio_init :: proc(s: ^Audio_Backend_Core_Audio) -> bool {
 	return true
 }
 
-core_audio_shutdown :: proc(s: ^Audio_Backend_Core_Audio) {
+core_audio_shutdown :: proc(s: ^Core_Audio_State) {
 	sync.mutex_lock(&s.callback_mutex)
 	s.running = false
 	sync.mutex_unlock(&s.callback_mutex)
@@ -105,7 +104,7 @@ _core_audio_callback :: proc "c" (
 	inAQ: Audio.QueueRef,
 	inBuffer: Audio.QueueBufferRef,
 ) {
-	s := (^Audio_Backend_Core_Audio)(inUserData)
+	s := (^Core_Audio_State)(inUserData)
 	context = s.fill_context
 	sync.mutex_lock(&s.callback_mutex)
 

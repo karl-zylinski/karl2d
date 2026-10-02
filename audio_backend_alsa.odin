@@ -22,7 +22,7 @@ AUDIO_BACKEND_ALSA :: Audio_Backend_Interface {
 }
 
 Alsa_State :: struct {
-	using interface: I_Audio_Backend,
+	using base: Audio_Backend_State,
 	pcm: alsa.PCM,
 	buf: [ALSA_BUFFER_SAMPLES][2]Audio_Sample,
 	mix_thread: ^thread.Thread,
