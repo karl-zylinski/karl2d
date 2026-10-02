@@ -11,7 +11,17 @@ import "core:sync"
 
 ALSA_BUFFER_SAMPLES :: 700
 
-Audio_Backend_ALSA :: struct {
+AUDIO_BACKEND_ALSA :: Audio_Backend_Interface {
+	state_type = Alsa_State,
+	init = alsa_init,
+	shutdown = alsa_shutdown,
+	mix_chunk_size = ALSA_BUFFER_SAMPLES,
+	has_mixer_thread = true,
+	push_samples = nil,
+	pushed_samples_remaining = nil,
+}
+
+Alsa_State :: struct {
 	using interface: I_Audio_Backend,
 	pcm: alsa.PCM,
 	buf: [ALSA_BUFFER_SAMPLES][2]Audio_Sample,
@@ -19,18 +29,7 @@ Audio_Backend_ALSA :: struct {
 	run_mix_thread: bool,
 }
 
-AUDIO_BACKEND_ALSA_PROTOTYPE :: Audio_Backend_ALSA {
-	interface = {
-		init = alsa_init,
-		shutdown = alsa_shutdown,
-		mix_chunk_size = ALSA_BUFFER_SAMPLES,
-		has_mixer_thread = true,
-		push_samples = nil,
-		pushed_samples_remaining = nil,
-	},
-}
-
-alsa_init :: proc(s: ^Audio_Backend_ALSA) -> bool {
+alsa_init :: proc(s: ^Alsa_State) -> bool {
 	log.debug("Init audio backend alsa")
 
 	missing, load_ok := alsa.load()
@@ -92,12 +91,12 @@ alsa_init :: proc(s: ^Audio_Backend_ALSA) -> bool {
 alsa_thread_proc :: proc(t: ^thread.Thread) {
 	context = _audio_thread_context()
 
-	s := (^Audio_Backend_ALSA)(t.data)
+	s := (^Alsa_State)(t.data)
 
 	for sync.atomic_load(&s.run_mix_thread) {
 		_mix_audio_into_buffer(s.buf[:])
 
-		write :: proc(s: ^Audio_Backend_ALSA, data: [][2]Audio_Sample) {
+		write :: proc(s: ^Alsa_State, data: [][2]Audio_Sample) {
 			remaining := data
 
 			for len(remaining) > 0 {
@@ -127,7 +126,7 @@ alsa_thread_proc :: proc(t: ^thread.Thread) {
 	}
 }
 
-alsa_shutdown :: proc(s: ^Audio_Backend_ALSA) {
+alsa_shutdown :: proc(s: ^Alsa_State) {
 	log.debug("Shutdown audio backend alsa")
 
 	if s.mix_thread != nil {
