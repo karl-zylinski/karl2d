@@ -25,7 +25,7 @@ AUDIO_BACKEND_CORE_AUDIO :: Audio_Backend_Interface {
 }
 
 Core_Audio_State :: struct {
-	using base: Audio_Backend_State,
+	using _: Audio_Backend_State,
 	queue: Audio.QueueRef,
 	buffers: [4]Audio.QueueBufferRef,
 

@@ -24,7 +24,7 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 }
 
 Waveout_State :: struct {
-	using base_type: Audio_Backend_State,
+	using _: Audio_Backend_State,
 	device: win32.HWAVEOUT,
 	headers: [WAVEOUT_BUFFER_COUNT]win32.WAVEHDR,
 
