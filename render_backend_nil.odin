@@ -184,11 +184,11 @@ rbnil_load_shader :: proc(
 rbnil_destroy_shader :: proc(s: ^RBNil_State, h: Shader_Handle) {
 }
 
-rbnil_default_shader_vertex_source :: proc(s: ^RBNil_State) -> []byte {
+rbnil_default_shader_vertex_source :: proc() -> []byte {
 	return {}
 }
 
-rbnil_default_shader_fragment_source :: proc(s: ^RBNil_State) -> []byte {
+rbnil_default_shader_fragment_source :: proc() -> []byte {
 	return {}
 }
 

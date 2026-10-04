@@ -189,8 +189,8 @@ init :: proc(
 	// The default shader will arrive in a different format depending on backend. GLSL for GL,
 	// HLSL for d3d etc.
 	s.default_shader = load_shader_from_bytes(
-		rb.default_shader_vertex_source(s.rb_state),
-		rb.default_shader_fragment_source(s.rb_state),
+		rb.default_shader_vertex_source(),
+		rb.default_shader_fragment_source(),
 	)
 	s.current_shader = s.default_shader
 	s.draw_call_changes = DRAW_CALL_CHANGE_ALL

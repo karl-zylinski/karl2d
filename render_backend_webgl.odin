@@ -1,11 +1,15 @@
 #+build js
-#+private file
-
+#+private package
 package karl2d
 
-@(private="package")
+import "base:runtime"
+import gl "vendor:wasm/WebGL"
+import hm "core:container/handle_map"
+import "log"
+import "core:strings"
+
 RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
-	state_size = webgl_state_size,
+	state_type = WebGL_State,
 	init = webgl_init,
 	shutdown = webgl_shutdown,
 	clear = webgl_clear,
@@ -14,7 +18,6 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 	resize_swapchain = webgl_resize_swapchain,
 	get_swapchain_width = webgl_get_swapchain_width,
 	get_swapchain_height = webgl_get_swapchain_height,
-	set_internal_state = webgl_set_internal_state,
 	create_texture = webgl_create_texture,
 	load_texture = webgl_load_texture,
 	update_texture = webgl_update_texture,
@@ -31,16 +34,8 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 	get_depth_clip_range = webgl_get_depth_clip_range,
 }
 
-import "base:runtime"
-import gl "vendor:wasm/WebGL"
-import hm "core:container/handle_map"
-import "log"
-import "core:strings"
-import la "core:math/linalg"
-
-_ :: la
-
 WebGL_State :: struct {
+	using _: Render_Backend_State,
 	canvas_id: string,
 	width: int,
 	height: int,
@@ -113,22 +108,14 @@ WebGL_Shader :: struct {
 	texture_bindings: []WebGL_Texture_Binding, 
 }
 
-s: ^WebGL_State
-
-webgl_state_size :: proc() -> int {
-	return size_of(WebGL_State)
-}
-
 webgl_init :: proc(
-	state: rawptr,
+	s: ^WebGL_State,
 	glue: ^Window_Render_Glue,
 	swapchain_width: int,
 	swapchain_height: int,
 	options: Init_Options,
 	allocator := context.allocator,
 ) {
-	s = (^WebGL_State)(state)
-
 	// see web_get_window_render_glue
 	canvas_id := (^HTML_Canvas_ID)(glue)^
 	
@@ -184,7 +171,7 @@ webgl_init :: proc(
 	gl.Viewport(0, 0, i32(s.width), i32(s.height))
 }
 
-webgl_shutdown :: proc() {
+webgl_shutdown :: proc(s: ^WebGL_State) {
 	gl.DeleteBuffer(s.vertex_buffer_gpu)
 	hm.dynamic_destroy(&s.shaders)
 	hm.dynamic_destroy(&s.textures)
@@ -192,7 +179,7 @@ webgl_shutdown :: proc() {
 	delete_string(s.canvas_id)
 }
 
-webgl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
+webgl_clear :: proc(s: ^WebGL_State, render_target: Render_Target_Handle, color: Color) {
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer)
 		gl.Viewport(0, 0, i32(rt.width), i32(rt.height))
@@ -216,11 +203,11 @@ webgl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 	gl.Clear(clear_mask)
 }
 
-webgl_present :: proc() {
+webgl_present :: proc(s: ^WebGL_State) {
 	// The browser flips the backbuffer for you when 'step' ends
 }
 
-webgl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
+webgl_draw :: proc(s: ^WebGL_State, vertex_buffer: []u8, draw_calls: []Draw_Call) {
 	if len(vertex_buffer) == 0 || len(draw_calls) == 0 {
 		return
 	}
@@ -257,7 +244,7 @@ webgl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 		}
 
 		if .Textures in changed {
-			webgl_bind_textures(call.textures, gl_shd^)
+			webgl_bind_textures(s, call.textures, gl_shd^)
 		}
 
 		// Only the render target and scissor setup need the render target. Skipping the lookup
@@ -394,7 +381,7 @@ webgl_set_constants :: proc(
 	}
 }
 
-webgl_bind_textures :: proc(textures: []Texture_Handle, gl_shd: WebGL_Shader) {
+webgl_bind_textures :: proc(s: ^WebGL_State, textures: []Texture_Handle, gl_shd: WebGL_Shader) {
 	if len(textures) != len(gl_shd.texture_bindings) {
 		return
 	}
@@ -413,22 +400,18 @@ webgl_bind_textures :: proc(textures: []Texture_Handle, gl_shd: WebGL_Shader) {
 	}
 }
 
-webgl_resize_swapchain :: proc(w, h: int) {
+webgl_resize_swapchain :: proc(s: ^WebGL_State, w, h: int) {
 	s.width = w
 	s.height = h
 	gl.Viewport(0, 0, i32(w), i32(h))
 }
 
-webgl_get_swapchain_width :: proc() -> int {
+webgl_get_swapchain_width :: proc(s: ^WebGL_State) -> int {
 	return s.width
 }
 
-webgl_get_swapchain_height :: proc() -> int {
+webgl_get_swapchain_height :: proc(s: ^WebGL_State) -> int {
 	return s.height
-}
-
-webgl_set_internal_state :: proc(state: rawptr) {
-	s = (^WebGL_State)(state)
 }
 
 // WebGL hands out errors through a queue instead of return values, and nothing else in this backend
@@ -436,7 +419,7 @@ webgl_set_internal_state :: proc(state: rawptr) {
 // after a call only sees what that call did. The bound stops a lost context spinning here forever.
 GL_ERROR_QUEUE_DRAIN_LIMIT :: 32
 
-drain_gl_errors :: proc() {
+webgl_drain_errors :: proc() {
 	for _ in 0..<GL_ERROR_QUEUE_DRAIN_LIMIT {
 		if gl.GetError() == gl.NO_ERROR {
 			return
@@ -444,7 +427,7 @@ drain_gl_errors :: proc() {
 	}
 }
 
-create_texture :: proc(
+_webgl_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
@@ -460,7 +443,7 @@ create_texture :: proc(
 
 	pf := gl_translate_pixel_format(format)
 
-	drain_gl_errors()
+	webgl_drain_errors()
 
 	data_size := width*height*pixel_format_size(format)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, data_size, data)
@@ -480,11 +463,12 @@ create_texture :: proc(
 }
 
 webgl_create_texture :: proc(
+	s: ^WebGL_State,
 	width: int,
 	height: int,
 	format: Pixel_Format,
 ) -> (Texture_Handle, bool) {
-	texture, texture_ok := create_texture(width, height, format, nil)
+	texture, texture_ok := _webgl_create_texture(width, height, format, nil)
 
 	if !texture_ok {
 		return TEXTURE_NONE, false
@@ -502,12 +486,13 @@ webgl_create_texture :: proc(
 }
 
 webgl_load_texture :: proc(
+	s: ^WebGL_State,
 	data: []u8,
 	width: int,
 	height: int,
 	format: Pixel_Format,
 ) -> (Texture_Handle, bool) {
-	texture, texture_ok := create_texture(width, height, format, raw_data(data))
+	texture, texture_ok := _webgl_create_texture(width, height, format, raw_data(data))
 
 	if !texture_ok {
 		return TEXTURE_NONE, false
@@ -524,7 +509,13 @@ webgl_load_texture :: proc(
 	return texture_handle, true
 }
 
-webgl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect, pitch: int) -> bool {
+webgl_update_texture :: proc(
+	s: ^WebGL_State,
+	th: Texture_Handle,
+	data: []u8,
+	rect: Rect,
+	pitch: int,
+) -> bool {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil {
@@ -538,7 +529,7 @@ webgl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect, pitch: 
 	return true
 }
 
-webgl_destroy_texture :: proc(th: Texture_Handle) {
+webgl_destroy_texture :: proc(s: ^WebGL_State, th: Texture_Handle) {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil {
@@ -549,7 +540,7 @@ webgl_destroy_texture :: proc(th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 }
 
-webgl_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
+webgl_texture_needs_vertical_flip :: proc(s: ^WebGL_State, th: Texture_Handle) -> bool {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil {
@@ -560,10 +551,11 @@ webgl_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
 }
 
 webgl_create_render_texture :: proc(
+	s: ^WebGL_State,
 	width: int,
 	height: int,
 ) -> (Texture_Handle, Render_Target_Handle, bool) {
-	texture, texture_ok := create_texture(width, height, .RGBA_32_Float, nil)
+	texture, texture_ok := _webgl_create_texture(width, height, .RGBA_32_Float, nil)
 
 	if !texture_ok {
 		return TEXTURE_NONE, RENDER_TARGET_NONE, false
@@ -645,7 +637,7 @@ webgl_create_render_texture :: proc(
 	return texture_handle, render_target_handle, true
 }
 
-webgl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
+webgl_destroy_render_target :: proc(s: ^WebGL_State, render_target: Render_Target_Handle) {
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		gl.DeleteFramebuffer(rt.framebuffer)
 
@@ -656,6 +648,7 @@ webgl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
 }
 
 webgl_set_texture_filter :: proc(
+	s: ^WebGL_State,
 	th: Texture_Handle,
 	scale_down_filter: Texture_Filter,
 	scale_up_filter: Texture_Filter,
@@ -720,6 +713,7 @@ link_shader :: proc(vs_shader: gl.Shader, fs_shader: gl.Shader, err_buf: []u8, e
 }
 
 webgl_load_shader :: proc(
+	s: ^WebGL_State,
 	vs_source: []byte,
 	fs_source: []byte,
 	desc_allocator := frame_allocator,
@@ -1025,7 +1019,7 @@ gl_describe_pixel_format :: proc(f: Pixel_Format) -> (format: gl.Enum, num_compo
 	return 0, 0, false
 }
 
-webgl_destroy_shader :: proc(h: Shader_Handle) {
+webgl_destroy_shader :: proc(s: ^WebGL_State, h: Shader_Handle) {
 	shd := hm.get(&s.shaders, h)
 
 	if shd == nil {

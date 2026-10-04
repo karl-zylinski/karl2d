@@ -1109,12 +1109,12 @@ gl_destroy_shader :: proc(s: ^GL_State, h: Shader_Handle) {
 	delete(shd.texture_bindings, s.allocator)
 }
 
-gl_default_shader_vertex_source :: proc(s: ^GL_State) -> []byte {
+gl_default_shader_vertex_source :: proc() -> []byte {
 	vertex_source := #load("default_shaders/default_shader_gl_vertex.glsl")
 	return vertex_source
 }
 
-gl_default_shader_fragment_source :: proc(s: ^GL_State) -> []byte {
+gl_default_shader_fragment_source :: proc() -> []byte {
 	fragment_source := #load("default_shaders/default_shader_gl_fragment.glsl")
 	return fragment_source
 }
