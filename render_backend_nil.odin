@@ -1,4 +1,5 @@
 #+private package
+#+vet explicit-allocators
 package karl2d
 
 import "log"
