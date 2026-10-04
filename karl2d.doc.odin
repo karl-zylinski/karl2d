@@ -1888,7 +1888,8 @@ State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
-	platform_state: rawptr,
+	pf: Platform_Interface,
+	pf_state: ^Platform_State,
 	render_backend: Render_Backend_Interface,
 	render_backend_state: rawptr,
 

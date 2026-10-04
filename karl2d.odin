@@ -77,32 +77,45 @@ init :: proc(
 	s.frame_allocator = runtime.arena_allocator(&s.frame_arena)
 	frame_allocator = s.frame_allocator
 
-	platform_state_alloc_error: runtime.Allocator_Error
+	when ODIN_OS == .Windows {
+		s.pf = PLATFORM_WINDOWS
+	} else when ODIN_OS == .JS {
+		s.pf = PLATFORM_WEB
+	} else when ODIN_OS == .Linux {
+		s.pf = PLATFORM_LINUX
+	} else when ODIN_OS == .Darwin {
+		s.pf = PLATFORM_MAC
+	} else {
+		#panic("Unsupported platform")
+	}
 
-	// `pf` is an alias of PLATFORM. We allocate memory for the windowing backend and pass the blob
-	// of memory to it.
-	s.platform_state, platform_state_alloc_error = mem.alloc(
-		pf.state_size(),
-		allocator = s.allocator,
+	pf_state_type := type_info_of(s.pf.state_type)
+
+	pf_state_mem, pf_state_mem_err := mem.alloc(
+		pf_state_type.size,
+		pf_state_type.align,
+		s.allocator,
 	)
 
 	log.assertf(
-		platform_state_alloc_error == nil,
+		pf_state_mem_err == nil,
 		"Failed allocating memory for platform state: %v",
-		platform_state_alloc_error,
+		pf_state_mem_err,
 	)
 
-	pf.init(s.platform_state, screen_width, screen_height, window_title, options, s.allocator)
+	s.pf_state = (^Platform_State)(pf_state_mem)
+
+	s.pf.init(s.pf_state, screen_width, screen_height, window_title, options, s.allocator)
 
 	// Web has small icon because it doesn't ever show a bigger one.
 	DEFAULT_ICON_SIZE :: 256 when ODIN_OS != .JS else 64
 	default_icon := make_karl2d_icon(DEFAULT_ICON_SIZE)
-	pf.set_window_icon(default_icon)
+	s.pf.set_window_icon(s.pf_state, default_icon)
 	destroy_image(default_icon)
 
 	// This is an OS-independent handle that we can pass to any rendering backend. It lets the
 	// rendering backend draw into the window.
-	window_render_glue := pf.get_window_render_glue()
+	window_render_glue := s.pf.get_window_render_glue(s.pf_state)
 
 	// See `render_backend_chooser.odin` for how this is picked.
 	s.render_backend = RENDER_BACKEND
@@ -136,8 +149,8 @@ init :: proc(
 	rb.init(
 		s.render_backend_state,
 		window_render_glue,
-		pf.get_screen_width(),
-		pf.get_screen_height(), 
+		s.pf.get_screen_width(s.pf_state),
+		s.pf.get_screen_height(s.pf_state), 
 		options,
 		s.allocator,
 	)
@@ -339,14 +352,14 @@ shutdown :: proc() {
 	delete(s.batch_draw_calls)
 	runtime.arena_destroy(&s.batch_arena)
 
-	pf.shutdown()
+	s.pf.shutdown(s.pf_state)
 
 	delete(s.fonts)
 
 	delete(s.typed_runes)
 
 	a := s.allocator
-	free(s.platform_state, a)
+	free(s.pf_state, a)
 	free(s.render_backend_state, a)
 	free(s, a)
 	s = nil
@@ -404,7 +417,7 @@ calculate_frame_time :: proc() {
 present :: proc() {
 	assert_initialized()
 	draw_current_batch()
-	pf.before_present()
+	s.pf.before_present(s.pf_state)
 	rb.present()
 }
 
@@ -439,7 +452,7 @@ process_events :: proc() {
 
 	runtime.clear(&s.events)
 	runtime.clear(&s.typed_runes)
-	pf.get_events(&s.events)
+	s.pf.get_events(s.pf_state, &s.events)
 
 	switch s.mouse_touch_emulation {
 	case .None:
@@ -701,32 +714,38 @@ set_screen_size :: proc(width: int, height: int) {
 
 	// Recorded draw calls were meant for the old screen size.
 	draw_current_batch()
-	pf.set_screen_size(width, height)
-	rb.resize_swapchain(pf.get_screen_width(), pf.get_screen_height())
+	s.pf.set_screen_size(s.pf_state, width, height)
+	rb.resize_swapchain(
+		s.pf.get_screen_width(s.pf_state),
+		s.pf.get_screen_height(s.pf_state),
+	)
 }
 
 // Gets the width of the drawing area within the window.
 get_screen_width :: proc() -> int {
 	assert_initialized()
-	return pf.get_screen_width()
+	return s.pf.get_screen_width(s.pf_state)
 }
 
 // Gets the height of the drawing area within the window.
 get_screen_height :: proc() -> int  {
 	assert_initialized()
-	return pf.get_screen_height()
+	return s.pf.get_screen_height(s.pf_state)
 }
 
 // Gets the screen width and height as a 2D vector.
 get_screen_size :: proc() -> Vec2 {
 	assert_initialized()
-	return { f32(pf.get_screen_width()), f32(pf.get_screen_height()) }
+	return {
+		f32(s.pf.get_screen_width(s.pf_state)),
+		f32(s.pf.get_screen_height(s.pf_state)),
+	}
 }
 
 // Change the window title.
 set_window_title :: proc(title: string) {
 	assert_initialized()
-	pf.set_window_title(title)
+	s.pf.set_window_title(s.pf_state, title)
 }
 
 // Moves the window.
@@ -734,7 +753,7 @@ set_window_title :: proc(title: string) {
 // This does nothing for web builds.
 set_window_position :: proc(x: int, y: int) {
 	assert_initialized()
-	pf.set_window_position(x, y)
+	s.pf.set_window_position(s.pf_state, x, y)
 }
 
 // Gets the window position in the same coordinate system used by `set_window_position`.
@@ -742,7 +761,7 @@ set_window_position :: proc(x: int, y: int) {
 // This returns {} for web and Wayland builds.
 get_window_position :: proc() -> Vec2 {
 	assert_initialized()
-	return pf.get_window_position()
+	return s.pf.get_window_position(s.pf_state)
 }
 
 // Fetch the scale of the window. This usually comes from some DPI scaling setting in the OS.
@@ -753,13 +772,13 @@ get_window_position :: proc() -> Vec2 {
 // the zoom to the window scale in order to make things the same percieved size.
 get_window_scale :: proc() -> f32 {
 	assert_initialized()
-	return pf.get_window_scale()
+	return s.pf.get_window_scale(s.pf_state)
 }
 
 // Use to change between windowed mode, resizable windowed mode and fullscreen
 set_window_mode :: proc(window_mode: Window_Mode) {
 	assert_initialized()
-	pf.set_window_mode(window_mode)
+	s.pf.set_window_mode(s.pf_state, window_mode)
 }
 
 // Sets the icon shown in the titlebar and the OS's program switcher bar. Load the image using for
@@ -783,7 +802,7 @@ set_window_icon :: proc(image: Image) -> bool {
 		return false
 	}
 
-	return pf.set_window_icon(image)
+	return s.pf.set_window_icon(s.pf_state, image)
 }
 
 // Flushes the current batch. A batch consists of a number of draw calls and a vertex buffer. This
@@ -1003,14 +1022,14 @@ get_mouse_delta :: proc() -> Vec2 {
 // If the window loses focus, then the mouse may get unlocked. You can query the current lock
 // status using `is_mouse_locked`, which should take into account if the OS has unlocked it for you
 set_mouse_locked :: proc(locked: bool) {
-	pf.set_mouse_locked(locked)
+	s.pf.set_mouse_locked(s.pf_state, locked)
 }
 
 // Returns true if the mouse is currently locked. Note that the mouse can get unlocked by the OS,
 // even though you previously called `set_mouse_locked(true)`. Therefore, it's best to check the
 // current status using this procedure and then lock the mouse if needed.
 is_mouse_locked :: proc() -> bool {
-	return pf.is_mouse_locked()
+	return s.pf.is_mouse_locked(s.pf_state)
 }
 
 @(deprecated="Use set_mouse_locked instead")
@@ -1026,7 +1045,7 @@ is_cursor_locked :: proc() -> bool {
 // Returns true if a gamepad with the supplied index is connected. The parameter should be a value
 // between 0 and MAX_GAMEPADS.
 is_gamepad_active :: proc(gamepad: Gamepad_Index) -> bool {
-	return pf.is_gamepad_active(gamepad)
+	return s.pf.is_gamepad_active(s.pf_state, gamepad)
 }
 
 // Returns true if a gamepad button went down between the previous and the current frame.
@@ -1063,14 +1082,14 @@ gamepad_button_is_held :: proc(gamepad: Gamepad_Index, button: Gamepad_Button) -
 // Returns the value of analogue gamepad axes such as the thumbsticks and trigger buttons. The value
 // is in the range -1 to 1 for sticks and 0 to 1 for trigger buttons.
 get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32 {
-	return pf.get_gamepad_axis(gamepad, axis)
+	return s.pf.get_gamepad_axis(s.pf_state, gamepad, axis)
 }
 
 // Set the left and right vibration motor speed. The range of left and right is 0 to 1. Note that on
 // most gamepads, the left motor is "low frequency" and the right motor is "high frequency". They do
 // not vibrate with the same speed.
 set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
-	pf.set_gamepad_vibration(gamepad, left, right)
+	s.pf.set_gamepad_vibration(s.pf_state, gamepad, left, right)
 }
 
 //---------//
@@ -5036,7 +5055,7 @@ get_default_font :: proc() -> Font {
 // Sets the cursor, either to one the operating system provides or to one made with
 // `create_custom_cursor`. `set_cursor(.Default)` goes back to the normal OS cursor.
 set_cursor :: proc(cursor: Cursor) {
-	pf.set_cursor(cursor)
+	s.pf.set_cursor(s.pf_state, cursor)
 }
 
 // Create a cursor from an image. `hotspot` is the position within the image that points at things,
@@ -5058,7 +5077,7 @@ create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, b
 		return CUSTOM_CURSOR_NONE, false
 	}
 
-	cursor, cursor_ok := pf.create_custom_cursor(image, hotspot)
+	cursor, cursor_ok := s.pf.create_custom_cursor(s.pf_state, image, hotspot)
 
 	if !cursor_ok {
 		return CUSTOM_CURSOR_NONE, false
@@ -5070,7 +5089,7 @@ create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, b
 // Destroy a cursor previously created using `create_custom_cursor`. If it is the cursor currently
 // on screen then Karl2D will restore the default OS cursor.
 destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
-	pf.destroy_custom_cursor(custom_cursor)
+	s.pf.destroy_custom_cursor(s.pf_state, custom_cursor)
 }
 
 // Hide or show the mouse cursor. The cursor may get shown again if the window loses focus.
@@ -5080,14 +5099,14 @@ destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 // This call does not lock the mouse within the window, do that using a separate call to
 // `set_mouse_locked`.
 set_cursor_hidden :: proc(hidden: bool) {
-	pf.set_cursor_hidden(hidden)
+	s.pf.set_cursor_hidden(s.pf_state, hidden)
 }
 
 // Returns true if the cursor is hidden. The cursor may get re-shown by the OS, for example when the
 // window loses focus. Therefore, this procedure may return false even though you've hidden the
 // cursor previously. It should always reflect the true hide-state of the cursor.
 is_cursor_hidden :: proc() -> bool {
-	return pf.is_cursor_hidden()
+	return s.pf.is_cursor_hidden(s.pf_state)
 }
 
 //---------//
@@ -5429,7 +5448,7 @@ screen_to_camera :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 		surface_height := s.current_render_target_height
 
 		if s.current_render_target == RENDER_TARGET_NONE {
-			surface_height = pf.get_screen_height()
+			surface_height = s.pf.get_screen_height(s.pf_state)
 		}
 
 		pos.y = f32(surface_height) - pos.y
@@ -5447,7 +5466,7 @@ camera_to_screen :: proc(pos: Vec2, camera: Camera) -> Vec2 {
 		surface_height := s.current_render_target_height
 
 		if s.current_render_target == RENDER_TARGET_NONE {
-			surface_height = pf.get_screen_height()
+			surface_height = s.pf.get_screen_height(s.pf_state)
 		}
 
 		res.y = f32(surface_height) - res.y
@@ -5645,7 +5664,6 @@ set_internal_state :: proc(state: ^State) {
 	s = state
 	frame_allocator = s.frame_allocator
 	rb = s.render_backend
-	pf.set_internal_state(s.platform_state)
 	rb.set_internal_state(s.render_backend_state)
 }
 
@@ -5680,7 +5698,7 @@ open_url :: proc(url: string) -> Open_URL_Error {
 		return .Invalid_URL
 	}
 
-	platform_call_ok := pf.open_url(url)
+	platform_call_ok := s.pf.open_url(s.pf_state, url)
 
 	if !platform_call_ok {
 		return .Failed_To_Open
@@ -6435,7 +6453,8 @@ State :: struct {
 	allocator: runtime.Allocator,
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
-	platform_state: rawptr,
+	pf: Platform_Interface,
+	pf_state: ^Platform_State,
 	render_backend: Render_Backend_Interface,
 	render_backend_state: rawptr,
 
@@ -7463,21 +7482,6 @@ BATCH_ARENA_BLOCK_SIZE :: 64*1024
 @(private="file")
 s: ^State
 
-when ODIN_OS == .Windows {
-	PLATFORM :: PLATFORM_WINDOWS
-} else when ODIN_OS == .JS {
-	PLATFORM :: PLATFORM_WEB
-} else when ODIN_OS == .Linux {
-	PLATFORM :: PLATFORM_LINUX
-} else when ODIN_OS == .Darwin {
-	PLATFORM :: PLATFORM_MAC
-} else {
-	#panic("Unsupported platform")
-}
-
-@(private="file")
-pf :: PLATFORM
-
 @(private="file")
 rb: Render_Backend_Interface
 
@@ -7575,8 +7579,8 @@ _update_projection_matrix :: proc() {
 	w, h: int
 
 	if s.current_render_target == RENDER_TARGET_NONE {
-		w = pf.get_screen_width()
-		h = pf.get_screen_height()
+		w = s.pf.get_screen_width(s.pf_state)
+		h = s.pf.get_screen_height(s.pf_state)
 	} else {
 		w = s.current_render_target_width
 		h = s.current_render_target_height
