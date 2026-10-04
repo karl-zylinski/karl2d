@@ -119,7 +119,11 @@ the_static_font: k2.Font
 
 // Stand-in for the render backend's `draw`, so the tests see exactly the geometry and scissor
 // rectangle a real backend would have received rather than poking at internals.
-capture_draw :: proc(vertex_buffer: []u8, draw_calls: []k2.Draw_Call) {
+capture_draw :: proc(
+	s: ^k2.Render_Backend_State,
+	vertex_buffer: []u8,
+	draw_calls: []k2.Draw_Call,
+) {
 	pos_offset := state.current_shader.default_input_offsets[.Position]
 
 	if pos_offset < 0 {
@@ -158,7 +162,7 @@ setup :: proc() {
 		state = k2.init(1280, 720, "karl2d coordinate system tests", allocator = stable)
 
 		// `set_internal_state` makes the library pick up the swapped-in `draw`.
-		state.render_backend.draw = capture_draw
+		state.rb.draw = capture_draw
 		k2.set_internal_state(state)
 
 		rt := k2.create_render_texture(SURFACE_W, SURFACE_H)

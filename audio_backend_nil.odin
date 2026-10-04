@@ -5,7 +5,7 @@ package karl2d
 import "core:time"
 
 ABNil_State :: struct {
-	using base_type: Audio_Backend_State,
+	using _: Audio_Backend_State,
 	start: time.Tick,
 	pushed: int,
 }

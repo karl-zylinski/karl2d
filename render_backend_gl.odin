@@ -1,11 +1,15 @@
 #+build windows, darwin, linux
-#+private file
-
+#+private package
 package karl2d
 
-@(private="package")
+import "base:runtime"
+import gl "vendor:OpenGL"
+import hm "core:container/handle_map"
+import "log"
+import "core:strings"
+
 RENDER_BACKEND_GL :: Render_Backend_Interface {
-	state_size = gl_state_size,
+	state_type = GL_State,
 	init = gl_init,
 	shutdown = gl_shutdown,
 	clear = gl_clear,
@@ -14,7 +18,6 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	resize_swapchain = gl_resize_swapchain,
 	get_swapchain_width = gl_get_swapchain_width,
 	get_swapchain_height = gl_get_swapchain_height,
-	set_internal_state = gl_set_internal_state,
 	create_texture = gl_create_texture,
 	load_texture = gl_load_texture,
 	update_texture = gl_update_texture,
@@ -31,16 +34,8 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	get_depth_clip_range = gl_get_depth_clip_range,
 }
 
-import "base:runtime"
-import gl "vendor:OpenGL"
-import hm "core:container/handle_map"
-import "log"
-import "core:strings"
-import la "core:math/linalg"
-
-_ :: la
-
 GL_State :: struct {
+	using _: Render_Backend_State,
 	width: int,
 	height: int,
 	allocator: runtime.Allocator,
@@ -115,21 +110,14 @@ GL_Shader :: struct {
 	texture_bindings: []GL_Texture_Binding, 
 }
 
-s: ^GL_State
-
-gl_state_size :: proc() -> int {
-	return size_of(GL_State)
-}
-
 gl_init :: proc(
-	state: rawptr,
+	s: ^GL_State,
 	glue: ^Window_Render_Glue,
 	swapchain_width: int,
 	swapchain_height: int,
 	options: Init_Options,
 	allocator := context.allocator,
 ) {
-	s = (^GL_State)(state)
 	s.glue = glue
 	s.width = swapchain_width
 	s.height = swapchain_height
@@ -172,7 +160,7 @@ gl_init :: proc(
 	}
 }
 
-gl_shutdown :: proc() {
+gl_shutdown :: proc(s: ^GL_State) {
 	gl.DeleteBuffers(1, &s.vertex_buffer_gpu)
 	hm.dynamic_destroy(&s.shaders)
 	hm.dynamic_destroy(&s.textures)
@@ -180,7 +168,7 @@ gl_shutdown :: proc() {
 	s.glue->destroy()
 }
 
-gl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
+gl_clear :: proc(s: ^GL_State, render_target: Render_Target_Handle, color: Color) {
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.framebuffer)
 		gl.Viewport(0, 0, i32(rt.width), i32(rt.height))
@@ -204,11 +192,11 @@ gl_clear :: proc(render_target: Render_Target_Handle, color: Color) {
 	gl.Clear(clear_mask)
 }
 
-gl_present :: proc() {
+gl_present :: proc(s: ^GL_State) {
 	s.glue->present()
 }
 
-gl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
+gl_draw :: proc(s: ^GL_State, vertex_buffer: []u8, draw_calls: []Draw_Call) {
 	if len(vertex_buffer) == 0 || len(draw_calls) == 0 {
 		return
 	}
@@ -246,7 +234,7 @@ gl_draw :: proc(vertex_buffer: []u8, draw_calls: []Draw_Call) {
 		}
 
 		if .Textures in changed {
-			gl_bind_textures(call.textures, gl_shd^)
+			gl_bind_textures(s, call.textures, gl_shd^)
 		}
 
 		// Only the render target and scissor setup need the render target. Skipping the lookup
@@ -413,7 +401,7 @@ gl_set_constants :: proc(
 	}
 }
 
-gl_bind_textures :: proc(textures: []Texture_Handle, gl_shd: GL_Shader) {
+gl_bind_textures :: proc(s: ^GL_State, textures: []Texture_Handle, gl_shd: GL_Shader) {
 	if len(textures) != len(gl_shd.texture_bindings) {
 		return
 	}
@@ -432,23 +420,19 @@ gl_bind_textures :: proc(textures: []Texture_Handle, gl_shd: GL_Shader) {
 	}
 }
 
-gl_resize_swapchain :: proc(w, h: int) {
+gl_resize_swapchain :: proc(s: ^GL_State, w, h: int) {
 	s.width = w
 	s.height = h
 	gl.Viewport(0, 0, i32(w), i32(h))
 	s.glue->viewport_resized()
 }
 
-gl_get_swapchain_width :: proc() -> int {
+gl_get_swapchain_width :: proc(s: ^GL_State) -> int {
 	return s.width
 }
 
-gl_get_swapchain_height :: proc() -> int {
+gl_get_swapchain_height :: proc(s: ^GL_State) -> int {
 	return s.height
-}
-
-gl_set_internal_state :: proc(state: rawptr) {
-	s = (^GL_State)(state)
 }
 
 // GL hands out errors through a queue instead of return values, and nothing else in this backend
@@ -456,7 +440,7 @@ gl_set_internal_state :: proc(state: rawptr) {
 // after a call only sees what that call did. The bound stops a lost context spinning here forever.
 GL_ERROR_QUEUE_DRAIN_LIMIT :: 32
 
-drain_gl_errors :: proc() {
+gl_drain_errors :: proc() {
 	for _ in 0..<GL_ERROR_QUEUE_DRAIN_LIMIT {
 		if gl.GetError() == gl.NO_ERROR {
 			return
@@ -464,7 +448,7 @@ drain_gl_errors :: proc() {
 	}
 }
 
-create_texture :: proc(
+_gl_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
@@ -479,7 +463,7 @@ create_texture :: proc(
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 
-	drain_gl_errors()
+	gl_drain_errors()
 
 	pf := gl_translate_pixel_format(format)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, data)
@@ -499,11 +483,12 @@ create_texture :: proc(
 }
 
 gl_create_texture :: proc(
+	s: ^GL_State,
 	width: int,
 	height: int,
 	format: Pixel_Format,
 ) -> (Texture_Handle, bool) {
-	gl_tex, gl_tex_ok := create_texture(width, height, format, nil)
+	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, nil)
 
 	if !gl_tex_ok {
 		return {}, false
@@ -521,12 +506,13 @@ gl_create_texture :: proc(
 }
 
 gl_load_texture :: proc(
+	s: ^GL_State,
 	data: []u8,
 	width: int,
 	height: int,
 	format: Pixel_Format,
 ) -> (Texture_Handle, bool) {
-	gl_tex, gl_tex_ok := create_texture(width, height, format, raw_data(data))
+	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, raw_data(data))
 
 	if !gl_tex_ok {
 		return {}, false
@@ -543,7 +529,13 @@ gl_load_texture :: proc(
 	return tex, true
 }
 
-gl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect, pitch: int) -> bool {
+gl_update_texture :: proc(
+	s: ^GL_State,
+	th: Texture_Handle,
+	data: []u8,
+	rect: Rect,
+	pitch: int,
+) -> bool {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil {
@@ -557,7 +549,7 @@ gl_update_texture :: proc(th: Texture_Handle, data: []u8, rect: Rect, pitch: int
 	return true
 }
 
-gl_destroy_texture :: proc(th: Texture_Handle) {
+gl_destroy_texture :: proc(s: ^GL_State, th: Texture_Handle) {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil {
@@ -568,7 +560,7 @@ gl_destroy_texture :: proc(th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 }
 
-gl_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
+gl_texture_needs_vertical_flip :: proc(s: ^GL_State, th: Texture_Handle) -> bool {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil {
@@ -579,10 +571,11 @@ gl_texture_needs_vertical_flip :: proc(th: Texture_Handle) -> bool {
 }
 
 gl_create_render_texture :: proc(
+	s: ^GL_State,
 	width: int,
 	height: int,
 ) -> (Texture_Handle, Render_Target_Handle, bool) {
-	texture, texture_ok := create_texture(width, height, .RGBA_32_Float, nil)
+	texture, texture_ok := _gl_create_texture(width, height, .RGBA_32_Float, nil)
 
 	if !texture_ok {
 		return {}, {}, false
@@ -665,7 +658,7 @@ gl_create_render_texture :: proc(
 	return tex_handle, rt_handle, true
 }
 
-gl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
+gl_destroy_render_target :: proc(s: ^GL_State, render_target: Render_Target_Handle) {
 	if rt := hm.get(&s.render_targets, render_target); rt != nil {
 		gl.DeleteFramebuffers(1, &rt.framebuffer)
 
@@ -676,6 +669,7 @@ gl_destroy_render_target :: proc(render_target: Render_Target_Handle) {
 }
 
 gl_set_texture_filter :: proc(
+	s: ^GL_State,
 	th: Texture_Handle,
 	scale_down_filter: Texture_Filter,
 	scale_up_filter: Texture_Filter,
@@ -748,6 +742,7 @@ link_shader :: proc(vs_shader: u32, fs_shader: u32, err_buf: []u8, err_msg: ^str
 }
 
 gl_load_shader :: proc(
+	s: ^GL_State,
 	vs_source: []byte,
 	fs_source: []byte,
 	desc_allocator := frame_allocator,
@@ -902,7 +897,7 @@ gl_load_shader :: proc(
 			} else {
 				append(&constant_descs, Shader_Constant_Desc {
 					name = strings.clone(name, desc_allocator),
-					size = uniform_size(type),
+					size = gl_uniform_size(type),
 				})
 
 				append(&gl_constants, GL_Shader_Constant {
@@ -976,7 +971,7 @@ gl_load_shader :: proc(
 
 				append(&constant_descs, Shader_Constant_Desc {
 					name = strings.clone(string(uniform_name_buf[:variable_name_len]), desc_allocator),
-					size = uniform_size(uniform_type),
+					size = gl_uniform_size(uniform_type),
 				})
 
 				append(&gl_constants, GL_Shader_Constant {
@@ -1004,7 +999,7 @@ gl_load_shader :: proc(
 }
 
 // I might have missed something. But it doesn't seem like GL gives you this information.
-uniform_size :: proc(t: u32) -> int {
+gl_uniform_size :: proc(t: u32) -> int {
 	sz: int
 	switch t {
 	case gl.FLOAT:        sz = 4*1
@@ -1101,7 +1096,7 @@ gl_describe_pixel_format :: proc(f: Pixel_Format) -> (format: u32, num_component
 	return 0, 0, false
 }
 
-gl_destroy_shader :: proc(h: Shader_Handle) {
+gl_destroy_shader :: proc(s: ^GL_State, h: Shader_Handle) {
 	shd := hm.get(&s.shaders, h)
 
 	if shd == nil {
@@ -1114,12 +1109,12 @@ gl_destroy_shader :: proc(h: Shader_Handle) {
 	delete(shd.texture_bindings, s.allocator)
 }
 
-gl_default_shader_vertex_source :: proc() -> []byte {
+gl_default_shader_vertex_source :: proc(s: ^GL_State) -> []byte {
 	vertex_source := #load("default_shaders/default_shader_gl_vertex.glsl")
 	return vertex_source
 }
 
-gl_default_shader_fragment_source :: proc() -> []byte {
+gl_default_shader_fragment_source :: proc(s: ^GL_State) -> []byte {
 	fragment_source := #load("default_shaders/default_shader_gl_fragment.glsl")
 	return fragment_source
 }

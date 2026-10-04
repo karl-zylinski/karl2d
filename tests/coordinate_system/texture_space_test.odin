@@ -21,7 +21,11 @@ UV_Vertex :: struct {
 
 captured_uvs: [dynamic]UV_Vertex
 
-capture_uv_draw :: proc(vertex_buffer: []u8, draw_calls: []k2.Draw_Call) {
+capture_uv_draw :: proc(
+	s: ^k2.Render_Backend_State,
+	vertex_buffer: []u8,
+	draw_calls: []k2.Draw_Call,
+) {
 	pos_offset := state.current_shader.default_input_offsets[.Position]
 	uv_offset := state.current_shader.default_input_offsets[.UV]
 
@@ -67,12 +71,12 @@ top_and_bottom_v_with_camera :: proc(
 	sync.mutex_lock(&draw_mutex)
 	defer sync.mutex_unlock(&draw_mutex)
 
-	real_draw := state.render_backend.draw
-	state.render_backend.draw = capture_uv_draw
+	real_draw := state.rb.draw
+	state.rb.draw = capture_uv_draw
 	k2.set_internal_state(state)
 
 	defer {
-		state.render_backend.draw = real_draw
+		state.rb.draw = real_draw
 		k2.set_internal_state(state)
 		k2.set_camera(nil)
 	}
