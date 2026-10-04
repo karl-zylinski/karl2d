@@ -1889,8 +1889,10 @@ State :: struct {
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
 	platform_state: rawptr,
-	render_backend: Render_Backend_Interface,
-	render_backend_state: rawptr,
+
+	// rb == Render Backend
+	rb: Render_Backend_Interface,
+	rb_state: ^Render_Backend_State,
 
 	close_window_requested: bool,
 
@@ -1988,7 +1990,7 @@ State :: struct {
 	// -----
 	// Audio
 
-	// Audio Backend. Shortened because we write `s.ab` many times.
+	// ab == Audio Backend
 	ab: Audio_Backend_Interface,
 	ab_state: ^Audio_Backend_State,
 

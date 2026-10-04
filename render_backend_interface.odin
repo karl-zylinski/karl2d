@@ -66,11 +66,13 @@ Draw_Call :: struct {
 	changed: bit_set[Draw_Call_Change],
 }
 
+Render_Backend_State :: struct {}
+
 Render_Backend_Interface :: struct #all_or_none {
-	state_size: proc() -> int,
+	state_type: typeid,
 	
 	init: proc(
-		state: rawptr,
+		s: ^Render_Backend_State,
 		glue: ^Window_Render_Glue,
 		swapchain_width: int,
 		swapchain_height: int,
@@ -78,32 +80,51 @@ Render_Backend_Interface :: struct #all_or_none {
 		allocator: runtime.Allocator,
 	),
 
-	shutdown: proc(),
-	clear: proc(render_target: Render_Target_Handle, color: Color),
-	present: proc(),
+	shutdown: proc(s: ^Render_Backend_State),
+	clear: proc(s: ^Render_Backend_State, render_target: Render_Target_Handle, color: Color),
+	present: proc(s: ^Render_Backend_State),
 	
-	draw: proc(vertex_buffer: []u8, draw_calls: []Draw_Call),
+	draw: proc(s: ^Render_Backend_State, vertex_buffer: []u8, draw_calls: []Draw_Call),
 
-	set_internal_state: proc(state: rawptr),
+	create_texture: proc(
+		s: ^Render_Backend_State,
+		width: int,
+		height: int,
+		format: Pixel_Format,
+	) -> (
+		Texture_Handle,
+		bool,
+	),
 
-	create_texture: proc(width: int, height: int, format: Pixel_Format) -> (Texture_Handle, bool),
 	load_texture: proc(
+		s: ^Render_Backend_State,
 		data: []u8,
 		width: int,
 		height: int,
 		format: Pixel_Format,
 	) -> (Texture_Handle, bool),
-	update_texture: proc(handle: Texture_Handle, data: []u8, rect: Rect, pitch: int) -> bool,
-	destroy_texture: proc(handle: Texture_Handle),
-	texture_needs_vertical_flip: proc(handle: Texture_Handle) -> bool,
+
+	update_texture: proc(
+		s: ^Render_Backend_State,
+		handle: Texture_Handle,
+		data: []u8,
+		rect: Rect,
+		pitch: int,
+	) -> bool,
+
+	destroy_texture: proc(s: ^Render_Backend_State, handle: Texture_Handle),
+	texture_needs_vertical_flip: proc(s: ^Render_Backend_State, handle: Texture_Handle) -> bool,
 
 	create_render_texture: proc(
+		s: ^Render_Backend_State,
 		width: int,
 		height: int,
 	) -> (Texture_Handle, Render_Target_Handle, bool),
-	destroy_render_target: proc(render_texture: Render_Target_Handle),
+	
+	destroy_render_target: proc(s: ^Render_Backend_State, render_texture: Render_Target_Handle),
 	
 	set_texture_filter: proc(
+		s: ^Render_Backend_State,
 		handle: Texture_Handle,
 		scale_down_filter: Texture_Filter,
 		scale_up_filter: Texture_Filter,
@@ -111,6 +132,7 @@ Render_Backend_Interface :: struct #all_or_none {
 	),
 
 	load_shader: proc(
+		s: ^Render_Backend_State,
 		vertex_shader_data: []byte,
 		pixel_shader_data: []byte,
 		desc_allocator: runtime.Allocator,
@@ -121,11 +143,11 @@ Render_Backend_Interface :: struct #all_or_none {
 		ok: bool,
 	),
 
-	destroy_shader: proc(shader: Shader_Handle),
+	destroy_shader: proc(s: ^Render_Backend_State, shader: Shader_Handle),
 
-	resize_swapchain: proc(width, height: int),
-	get_swapchain_width: proc() -> int,
-	get_swapchain_height: proc() -> int,
+	resize_swapchain: proc(s: ^Render_Backend_State, width, height: int),
+	get_swapchain_width: proc(s: ^Render_Backend_State) -> int,
+	get_swapchain_height: proc(s: ^Render_Backend_State) -> int,
 
 	default_shader_vertex_source: proc() -> []byte,
 	default_shader_fragment_source: proc() -> []byte,

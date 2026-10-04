@@ -21,7 +21,10 @@ RT_H :: 96
 flipped_texture: k2.Texture
 
 // Stands in for a GL render texture: the same handle a real backend would flag.
-pretend_texture_needs_vertical_flip :: proc(handle: k2.Texture_Handle) -> bool {
+pretend_texture_needs_vertical_flip :: proc(
+	s: ^k2.Render_Backend_State,
+	handle: k2.Texture_Handle,
+) -> bool {
 	return handle == flipped_texture.handle
 }
 
@@ -29,12 +32,12 @@ pretend_texture_needs_vertical_flip :: proc(handle: k2.Texture_Handle) -> bool {
 top_and_bottom_v_flipped :: proc(draw: proc()) -> (top_v, bottom_v: f32, ok: bool) {
 	setup()
 
-	real_flip := state.render_backend.texture_needs_vertical_flip
-	state.render_backend.texture_needs_vertical_flip = pretend_texture_needs_vertical_flip
+	real_flip := state.rb.texture_needs_vertical_flip
+	state.rb.texture_needs_vertical_flip = pretend_texture_needs_vertical_flip
 	k2.set_internal_state(state)
 
 	defer {
-		state.render_backend.texture_needs_vertical_flip = real_flip
+		state.rb.texture_needs_vertical_flip = real_flip
 		k2.set_internal_state(state)
 	}
 

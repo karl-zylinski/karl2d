@@ -105,13 +105,28 @@ init :: proc(
 	window_render_glue := pf.get_window_render_glue()
 
 	// See `render_backend_chooser.odin` for how this is picked.
-	s.render_backend = RENDER_BACKEND
+	s.rb = RENDER_BACKEND
 
 	// short named global, for convenience
-	rb = s.render_backend
-	rb_alloc_error: runtime.Allocator_Error
-	s.render_backend_state, rb_alloc_error = mem.alloc(rb.state_size(), allocator = s.allocator)
-	log.assertf(rb_alloc_error == nil, "Failed allocating memory for rendering backend: %v", rb_alloc_error)
+	rb = s.rb
+
+	if rb.state_type != nil {
+		rb_state_type := type_info_of(rb.state_type)
+
+		rb_state_mem, rb_state_mem_err := mem.alloc(
+			rb_state_type.size,
+			rb_state_type.align,
+			s.allocator,
+		)
+
+		log.assertf(
+			rb_state_mem_err == nil,
+			"Failed allocating memory for rendering backend: %v",
+			rb_state_mem_err,
+		)
+
+		s.rb_state = (^Render_Backend_State)(rb_state_mem)
+	}
 
 	s.depth_test = options.depth_test
 	s.depth_range_min = options.depth_range_min
@@ -134,7 +149,7 @@ init :: proc(
 
 	// Boot up the render backend. It will render into our previously created window.
 	rb.init(
-		s.render_backend_state,
+		s.rb_state,
 		window_render_glue,
 		pf.get_screen_width(),
 		pf.get_screen_height(), 
@@ -162,6 +177,7 @@ init :: proc(
 	white_rect: [16*16*4]u8
 	slice.fill(white_rect[:], 255)
 	shape_drawing_texture, shape_drawing_texture_ok := rb.load_texture(
+		s.rb_state,
 		white_rect[:],
 		16,
 		16,
@@ -330,11 +346,11 @@ shutdown :: proc() {
 
 	delete(s.events)
 	destroy_font(FONT_DEFAULT)
-	rb.destroy_texture(s.font_atlas_texture.handle)
+	rb.destroy_texture(s.rb_state, s.font_atlas_texture.handle)
 	fc.destroy_cache(&s.font_cache)
-	rb.destroy_texture(s.shape_drawing_texture)
+	rb.destroy_texture(s.rb_state, s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
-	rb.shutdown()
+	rb.shutdown(s.rb_state)
 	delete(s.vertex_buffer_cpu, s.allocator)
 	delete(s.batch_draw_calls)
 	runtime.arena_destroy(&s.batch_arena)
@@ -347,7 +363,7 @@ shutdown :: proc() {
 
 	a := s.allocator
 	free(s.platform_state, a)
-	free(s.render_backend_state, a)
+	free(s.rb_state, a)
 	free(s, a)
 	s = nil
 }
@@ -358,7 +374,7 @@ shutdown :: proc() {
 clear :: proc(color: Color) {
 	assert_initialized()
 	draw_current_batch()
-	rb.clear(s.current_render_target, color)
+	rb.clear(s.rb_state, s.current_render_target, color)
 }
 
 // The library may do some internal allocations that have the lifetime of a single frame. Those
@@ -405,7 +421,7 @@ present :: proc() {
 	assert_initialized()
 	draw_current_batch()
 	pf.before_present()
-	rb.present()
+	rb.present(s.rb_state)
 }
 
 // Process all events that have arrived from the platform APIs. This includes keyboard, mouse,
@@ -617,7 +633,7 @@ process_events :: proc() {
 		case Event_Screen_Resize:
 			// Recorded draw calls were meant for the old swapchain size.
 			draw_current_batch()
-			rb.resize_swapchain(e.width, e.height)
+			rb.resize_swapchain(s.rb_state, e.width, e.height)
 			_update_projection_matrix()
 
 		case Event_Window_Focused:			
@@ -657,7 +673,7 @@ process_events :: proc() {
 
 		case Event_Window_Scale_Changed:
 			draw_current_batch()
-			rb.resize_swapchain(e.screen_width, e.screen_height)
+			rb.resize_swapchain(s.rb_state, e.screen_width, e.screen_height)
 		}
 	}
 }
@@ -702,7 +718,7 @@ set_screen_size :: proc(width: int, height: int) {
 	// Recorded draw calls were meant for the old screen size.
 	draw_current_batch()
 	pf.set_screen_size(width, height)
-	rb.resize_swapchain(pf.get_screen_width(), pf.get_screen_height())
+	rb.resize_swapchain(s.rb_state, pf.get_screen_width(), pf.get_screen_height())
 }
 
 // Gets the width of the drawing area within the window.
@@ -802,7 +818,11 @@ draw_current_batch :: proc() {
 
 	if len(s.batch_draw_calls) > 0 {
 		_update_font_atlas()
-		rb.draw(s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used], s.batch_draw_calls[:])
+		rb.draw(
+			s.rb_state,
+			s.vertex_buffer_cpu[:s.vertex_buffer_cpu_used],
+			s.batch_draw_calls[:],
+		)
 		runtime.clear(&s.batch_draw_calls)
 	}
 
@@ -1371,7 +1391,7 @@ draw_texture_fit :: proc(
 	//
 	// Could we do something with the projection matrix while drawing into those render textures
 	// instead? I tried that, but couldn't get it to work.
-	if rb.texture_needs_vertical_flip(texture.handle) {
+	if rb.texture_needs_vertical_flip(s.rb_state, texture.handle) {
 		flip_y = !flip_y
 
 		if source.h != f32(texture.height) {
@@ -1890,7 +1910,7 @@ create_texture :: proc(
 	height: int,
 	format: Pixel_Format,
 ) -> (Texture, bool) #optional_ok {
-	h, h_ok := rb.create_texture(width, height, format)
+	h, h_ok := rb.create_texture(s.rb_state, width, height, format)
 
 	if !h_ok {
 		log.errorf(
@@ -1990,7 +2010,13 @@ load_texture_from_bytes_raw :: proc(
 	height: int,
 	format: Pixel_Format,
 ) -> (Texture, bool) #optional_ok {
-	backend_tex, backend_tex_ok := rb.load_texture(bytes[:], width, height, format)
+	backend_tex, backend_tex_ok := rb.load_texture(
+		s.rb_state,
+		bytes[:],
+		width,
+		height,
+		format,
+	)
 
 	if !backend_tex_ok {
 		log.errorf(
@@ -2028,6 +2054,7 @@ load_texture_from_image :: proc(image: Image) -> (Texture, bool) #optional_ok {
 	}
 
 	backend_tex, backend_tex_ok := rb.load_texture(
+		s.rb_state,
 		slice.reinterpret([]u8, image.pixels[:]),
 		image.width,
 		image.height,
@@ -2132,13 +2159,13 @@ get_texture_rect :: proc(t: Texture) -> Rect {
 update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool {
 	// Recorded draw calls may still be waiting to use the old pixels.
 	_flush_if_batch_uses_texture(tex.handle)
-	return rb.update_texture(tex.handle, bytes, rect, pitch)
+	return rb.update_texture(s.rb_state, tex.handle, bytes, rect, pitch)
 }
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(tex: Texture) {
 	_flush_if_batch_uses_texture(tex.handle)
-	rb.destroy_texture(tex.handle)
+	rb.destroy_texture(s.rb_state, tex.handle)
 }
 
 // Controls how a texture should be filtered. You can choose "point" or "linear" filtering. Which
@@ -2161,7 +2188,13 @@ set_texture_filter_ex :: proc(
 ) {
 	// Recorded draw calls may still be waiting to sample this texture with the old filter.
 	_flush_if_batch_uses_texture(t.handle)
-	rb.set_texture_filter(t.handle, scale_down_filter, scale_up_filter, mip_filter)
+	rb.set_texture_filter(
+		s.rb_state,
+		t.handle,
+		scale_down_filter,
+		scale_up_filter,
+		mip_filter,
+	)
 }
 
 //-------//
@@ -4320,7 +4353,11 @@ _audio_thread_context :: proc() -> runtime.Context {
 // handle this error, it will also be logged. In case of failure, the returned `Render_Texture`
 // will still be possible to use, but setting it does nothing, so drawing stays where it was.
 create_render_texture :: proc(width: int, height: int) -> (Render_Texture, bool) #optional_ok {
-	texture, render_target, render_texture_ok := rb.create_render_texture(width, height)
+	texture, render_target, render_texture_ok := rb.create_render_texture(
+		s.rb_state,
+		width,
+		height,
+	)
 
 	if !render_texture_ok {
 		log.errorf("Failed creating render texture with dimensions %v x %v", width, height)
@@ -4350,8 +4387,8 @@ destroy_render_texture :: proc(render_texture: Render_Texture) {
 	}
 
 	_flush_if_batch_uses_texture(render_texture.texture.handle)
-	rb.destroy_texture(render_texture.texture.handle)
-	rb.destroy_render_target(render_texture.render_target)
+	rb.destroy_texture(s.rb_state, render_texture.texture.handle)
+	rb.destroy_render_target(s.rb_state, render_texture.render_target)
 }
 
 // Make all rendering go into a texture instead of onto the screen. Create the render texture using
@@ -5014,7 +5051,7 @@ destroy_font :: proc(font: Font) {
 	case .Static:
 		// Recorded draw calls may still be waiting to sample this font's atlas.
 		_flush_if_batch_uses_texture(f.static_atlas.handle)
-		rb.destroy_texture(f.static_atlas.handle)
+		rb.destroy_texture(s.rb_state, f.static_atlas.handle)
 		f.static_atlas = {}
 		delete(f.static_glyphs, s.allocator)
 		delete(f.static_glyph_ranges, s.allocator)
@@ -5144,6 +5181,7 @@ load_shader_from_bytes :: proc(
 	layout_formats: []Pixel_Format = {},
 ) -> (Shader, bool) #optional_ok {
 	handle, desc, shader_ok := rb.load_shader(
+		s.rb_state,
 		vertex_shader_bytes,
 		fragment_shader_bytes,
 		s.frame_allocator,
@@ -5238,7 +5276,7 @@ destroy_shader :: proc(shader: Shader) {
 		}
 	}
 
-	rb.destroy_shader(shader.handle)
+	rb.destroy_shader(s.rb_state, shader.handle)
 
 	a := s.allocator
 
@@ -5644,9 +5682,8 @@ get_z :: proc() -> f32 {
 set_internal_state :: proc(state: ^State) {
 	s = state
 	frame_allocator = s.frame_allocator
-	rb = s.render_backend
+	rb = s.rb
 	pf.set_internal_state(s.platform_state)
-	rb.set_internal_state(s.render_backend_state)
 }
 
 Open_URL_Error :: enum {
@@ -6436,8 +6473,10 @@ State :: struct {
 	frame_arena: runtime.Arena,
 	frame_allocator: runtime.Allocator,
 	platform_state: rawptr,
-	render_backend: Render_Backend_Interface,
-	render_backend_state: rawptr,
+
+	// rb == Render Backend
+	rb: Render_Backend_Interface,
+	rb_state: ^Render_Backend_State,
 
 	close_window_requested: bool,
 
@@ -6535,7 +6574,7 @@ State :: struct {
 	// -----
 	// Audio
 
-	// Audio Backend. Shortened because we write `s.ab` many times.
+	// ab == Audio Backend
 	ab: Audio_Backend_Interface,
 	ab_state: ^Audio_Backend_State,
 
@@ -7631,7 +7670,7 @@ _sync_font_atlas_texture :: proc() {
 
 	if texture.handle != TEXTURE_NONE {
 		_flush_if_batch_uses_texture(texture.handle)
-		rb.destroy_texture(texture.handle)
+		rb.destroy_texture(s.rb_state, texture.handle)
 	}
 
 	texture^ = create_texture(cache.width, cache.height, .RGBA_8_Norm)
@@ -7676,7 +7715,13 @@ _update_font_atlas :: proc() {
 	}
 
 	pitch := cache.width * size_of([4]u8)
-	rb.update_texture(texture.handle, slice.reinterpret([]u8, pixels), r, pitch)
+	rb.update_texture(
+		s.rb_state,
+		texture.handle,
+		slice.reinterpret([]u8, pixels),
+		r,
+		pitch,
+	)
 	cache.dirty_min = { cache.width, cache.height }
 	cache.dirty_max = {}
 }
