@@ -66,8 +66,8 @@ linux_init :: proc(
 	
 	// We pick windowing system by trying to to actually load it. This means trying to runetime-load
 	// the required shared libraries.
-	first_windowing := LINUX_WINDOW_WAYLAND
-	second_windowing := LINUX_WINDOW_X11
+	windowing_1 := LINUX_WINDOW_WAYLAND
+	windowing_2 := LINUX_WINDOW_X11
 
 	// The player can force Karl2D to try another windowing system first.
 	preference_given := false
@@ -80,8 +80,8 @@ linux_init :: proc(
 		preference_given = true
 
 	case "x11":
-		first_windowing = LINUX_WINDOW_X11
-		second_windowing = LINUX_WINDOW_WAYLAND
+		windowing_1 = LINUX_WINDOW_X11
+		windowing_2 = LINUX_WINDOW_WAYLAND
 		preference_given = true
 
 	case:
@@ -91,28 +91,28 @@ linux_init :: proc(
 		)
 	}
 
-	s.win = first_windowing
-	first_windowing_err, first_windowing_ok := s.win.try_load(frame_allocator)
+	s.win = windowing_1
+	windowing_1_err, windowing_1_available := s.win.is_available()
 
-	if !first_windowing_ok {
-		s.win = second_windowing
-		second_windowing_err, second_windowing_ok := s.win.try_load(frame_allocator)
+	if !windowing_1_available {
+		s.win = windowing_2
+		windowing_2_err, windowing_2_available := s.win.is_available()
 
-		if !second_windowing_ok {
+		if !windowing_2_available {
 			// The reasons go in the panic itself rather than only in the log above it: a game
 			// that raises the log level past info would otherwise be told to read reasons that
 			// were never printed.
 			log.panicf(
 				"Found neither Wayland nor X11. Karl2D needs one of them. %s %s",
-				first_windowing_err,
-				second_windowing_err,
+				windowing_1_err,
+				windowing_2_err,
 			)
 		}
 
-		// The player explicitly wanted the one in `first_windowing`, so we print a warning saying
+		// The player explicitly wanted the one in `windowing_1`, so we print a warning saying
 		// that it couldn't be loaded. 
 		if preference_given {
-			log.warn("KARL2D_LINUX_WINDOWING was specified, but Karl2D failed to load that windowing system. Error:", first_windowing_err)
+			log.warn("KARL2D_LINUX_WINDOWING was specified, but Karl2D failed to load that windowing system. Error:", windowing_1_err)
 		}
 	}
 
@@ -740,12 +740,7 @@ Linux_Window_Interface :: struct #all_or_none {
 	// Reports whether this windowing system can be used, by loading its shared libraries and
 	// connecting to its server. The connection is thrown away again. But the libraries stay loaded
 	// so that `init` can use them.
-	try_load: proc(
-		failure_reason_allocator: runtime.Allocator,
-	) -> (
-		failure_reason: string,
-		ok: bool,
-	),
+	is_available: proc() -> (failure_reason: string, ok: bool),
 
 	init: proc(
 		window_state: rawptr,

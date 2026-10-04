@@ -5,7 +5,7 @@ package karl2d
 @(private="package")
 LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	state_size = wl_state_size,
-	try_load = wl_try_load,
+	is_available = wl_is_available,
 	init = wl_init,
 	shutdown = wl_shutdown,
 	get_window_render_glue = wl_get_window_render_glue,
@@ -57,16 +57,16 @@ wl_state_size :: proc() -> int {
 	return size_of(WL_State)
 }
 
-wl_try_load :: proc(
-	failure_reason_allocator: runtime.Allocator,
-) -> (
-	failure_reason: string,
-	ok: bool,
-) {
+wl_is_available :: proc() -> (_failure_reason: string, _ok: bool) {
 	// Load the wayland shared library
 	if missing, load_ok := wl.load(); !load_ok {
-		return fmt.aprintf("Not using Wayland. Could not load %v.", missing,
-			allocator = failure_reason_allocator), false
+		failure_reason := fmt.aprintf(
+			"Not using Wayland. Could not load %v.",
+			missing,
+			allocator = frame_allocator,
+		)
+
+		return failure_reason, false
 	}
 
 	// The wayland library being installed does not mean there is a compositor to talk to. Connect
@@ -82,8 +82,14 @@ wl_try_load :: proc(
 
 	if missing, load_ok := xkb.load(); !load_ok {
 		wl.unload()
-		return fmt.aprintf("Not using Wayland. Could not load %v.", missing,
-			allocator = failure_reason_allocator), false
+
+		failure_reason := fmt.aprintf(
+			"Not using Wayland. Could not load %v.",
+			missing,
+			allocator = frame_allocator,
+		)
+
+		return failure_reason, false
 	}
 
 	return "", true
