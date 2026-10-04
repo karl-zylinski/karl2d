@@ -692,16 +692,7 @@ gl_set_texture_filter :: proc(
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, mag_filter)
 }
 
-Shader_Compile_Result_OK :: struct {}
-
-Shader_Compile_Result_Error :: string
-
-Shader_Compile_Result :: union #no_nil {
-	Shader_Compile_Result_OK,
-	Shader_Compile_Result_Error,
-}
-
-compile_shader_from_source :: proc(shader_data: []byte, shader_type: gl.Shader_Type, err_buf: []u8, err_msg: ^string) -> (shader_id: u32, ok: bool) {
+gl_compile_shader_from_source :: proc(shader_data: []byte, shader_type: gl.Shader_Type, err_buf: []u8, err_msg: ^string) -> (shader_id: u32, ok: bool) {
 	shader_id = gl.CreateShader(u32(shader_type))
 	length := i32(len(shader_data))
 	shader_cstr := cstring(raw_data(shader_data))
@@ -722,7 +713,7 @@ compile_shader_from_source :: proc(shader_data: []byte, shader_type: gl.Shader_T
 	return shader_id, true
 }
 
-link_shader :: proc(vs_shader: u32, fs_shader: u32, err_buf: []u8, err_msg: ^string) -> (program_id: u32, ok: bool) {
+gl_link_shader :: proc(vs_shader: u32, fs_shader: u32, err_buf: []u8, err_msg: ^string) -> (program_id: u32, ok: bool) {
 	program_id = gl.CreateProgram()
 	gl.AttachShader(program_id, vs_shader)
 	gl.AttachShader(program_id, fs_shader)
@@ -760,21 +751,21 @@ gl_load_shader :: proc(
 
 	@static err: [1024]u8
 	err_msg: string
-	vs_shader, vs_shader_ok := compile_shader_from_source(vs_source, gl.Shader_Type.VERTEX_SHADER, err[:], &err_msg)
+	vs_shader, vs_shader_ok := gl_compile_shader_from_source(vs_source, gl.Shader_Type.VERTEX_SHADER, err[:], &err_msg)
 
 	if !vs_shader_ok  {
 		log.error(err_msg)
 		return
 	}
 	
-	fs_shader, fs_shader_ok := compile_shader_from_source(fs_source, gl.Shader_Type.FRAGMENT_SHADER, err[:], &err_msg)
+	fs_shader, fs_shader_ok := gl_compile_shader_from_source(fs_source, gl.Shader_Type.FRAGMENT_SHADER, err[:], &err_msg)
 
 	if !fs_shader_ok {
 		log.error(err_msg)
 		return
 	}
 
-	program, program_ok := link_shader(vs_shader, fs_shader, err[:], &err_msg)
+	program, program_ok := gl_link_shader(vs_shader, fs_shader, err[:], &err_msg)
 
 	if !program_ok {
 		log.error(err_msg)

@@ -177,7 +177,7 @@ webgl_shutdown :: proc(s: ^WebGL_State) {
 	hm.dynamic_destroy(&s.shaders)
 	hm.dynamic_destroy(&s.textures)
 	hm.dynamic_destroy(&s.render_targets)
-	delete_string(s.canvas_id)
+	delete_string(s.canvas_id, s.allocator)
 }
 
 webgl_clear :: proc(s: ^WebGL_State, render_target: Render_Target_Handle, color: Color) {
@@ -418,10 +418,10 @@ webgl_get_swapchain_height :: proc(s: ^WebGL_State) -> int {
 // WebGL hands out errors through a queue instead of return values, and nothing else in this backend
 // reads it, so it can hold something an earlier call left behind. Empty it, so that a check right
 // after a call only sees what that call did. The bound stops a lost context spinning here forever.
-GL_ERROR_QUEUE_DRAIN_LIMIT :: 32
+WEBGL_ERROR_QUEUE_DRAIN_LIMIT :: 32
 
 webgl_drain_errors :: proc() {
-	for _ in 0..<GL_ERROR_QUEUE_DRAIN_LIMIT {
+	for _ in 0..<WEBGL_ERROR_QUEUE_DRAIN_LIMIT {
 		if gl.GetError() == gl.NO_ERROR {
 			return
 		}
@@ -442,7 +442,7 @@ _webgl_create_texture :: proc(
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, i32(gl.NEAREST))
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, i32(gl.NEAREST))
 
-	pf := gl_translate_pixel_format(format)
+	pf := webgl_translate_pixel_format(format)
 
 	webgl_drain_errors()
 
@@ -671,16 +671,7 @@ webgl_set_texture_filter :: proc(
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, i32(mag_filter))
 }
 
-Shader_Compile_Result_OK :: struct {}
-
-Shader_Compile_Result_Error :: string
-
-Shader_Compile_Result :: union #no_nil {
-	Shader_Compile_Result_OK,
-	Shader_Compile_Result_Error,
-}
-
-compile_shader_from_source :: proc(shader_data: []byte, shader_type: gl.Enum, err_buf: []u8, err_msg: ^string) -> (shader_id: gl.Shader, ok: bool) {
+webgl_compile_shader_from_source :: proc(shader_data: []byte, shader_type: gl.Enum, err_buf: []u8, err_msg: ^string) -> (shader_id: gl.Shader, ok: bool) {
 	shader_id = gl.CreateShader(shader_type)
 	gl.ShaderSource(shader_id, { string(shader_data) })
 	gl.CompileShader(shader_id)
@@ -696,7 +687,7 @@ compile_shader_from_source :: proc(shader_data: []byte, shader_type: gl.Enum, er
 	return shader_id, true
 }
 
-link_shader :: proc(vs_shader: gl.Shader, fs_shader: gl.Shader, err_buf: []u8, err_msg: ^string) -> (program_id: gl.Program, ok: bool) {
+webgl_link_shader :: proc(vs_shader: gl.Shader, fs_shader: gl.Shader, err_buf: []u8, err_msg: ^string) -> (program_id: gl.Program, ok: bool) {
 	program_id = gl.CreateProgram()
 	gl.AttachShader(program_id, vs_shader)
 	gl.AttachShader(program_id, fs_shader)
@@ -731,21 +722,21 @@ webgl_load_shader :: proc(
 
 	@static err: [1024]u8
 	err_msg: string
-	vs_shader, vs_shader_ok := compile_shader_from_source(vs_source, gl.VERTEX_SHADER, err[:], &err_msg)
+	vs_shader, vs_shader_ok := webgl_compile_shader_from_source(vs_source, gl.VERTEX_SHADER, err[:], &err_msg)
 
 	if !vs_shader_ok  {
 		log.error(err_msg)
 		return
 	}
 	
-	fs_shader, fs_shader_ok := compile_shader_from_source(fs_source, gl.FRAGMENT_SHADER, err[:], &err_msg)
+	fs_shader, fs_shader_ok := webgl_compile_shader_from_source(fs_source, gl.FRAGMENT_SHADER, err[:], &err_msg)
 
 	if !fs_shader_ok {
 		log.error(err_msg)
 		return
 	}
 
-	program, program_ok := link_shader(vs_shader, fs_shader, err[:], &err_msg)
+	program, program_ok := webgl_link_shader(vs_shader, fs_shader, err[:], &err_msg)
 
 	if !program_ok {
 		log.error(err_msg)
@@ -815,7 +806,7 @@ webgl_load_shader :: proc(
 		input := desc.inputs[idx]
 		format_size := pixel_format_size(input.format)
 		gl.EnableVertexAttribArray(i32(input.register))	
-		format, num_components, norm := gl_describe_pixel_format(input.format)
+		format, num_components, norm := webgl_describe_pixel_format(input.format)
 		gl.VertexAttribPointer(i32(input.register), num_components, format, norm, stride, uintptr(offset))
 		offset += format_size
 	}
@@ -845,7 +836,7 @@ webgl_load_shader :: proc(
 			} else {
 				append(&constant_descs, Shader_Constant_Desc {
 					name = strings.clone(uniform_info.name, desc_allocator),
-					size = uniform_size(uniform_info.type),
+					size = webgl_uniform_size(uniform_info.type),
 				})
 
 				append(&gl_constants, WebGL_Shader_Constant {
@@ -907,7 +898,7 @@ webgl_load_shader :: proc(
 
 				append(&constant_descs, Shader_Constant_Desc {
 					name = uniform_info.name,
-					size = uniform_size(uniform_info.type),
+					size = webgl_uniform_size(uniform_info.type),
 				})
 
 				append(&gl_constants, WebGL_Shader_Constant {
@@ -939,7 +930,7 @@ webgl_load_shader :: proc(
 }
 
 // I might have missed something. But it doesn't seem like GL gives you this information.
-uniform_size :: proc(t: gl.Enum) -> int {
+webgl_uniform_size :: proc(t: gl.Enum) -> int {
 	sz: int
 	switch t {
 	case gl.FLOAT:        sz = 4*1
@@ -979,7 +970,7 @@ uniform_size :: proc(t: gl.Enum) -> int {
 	return sz
 }
 
-gl_translate_pixel_format :: proc(f: Pixel_Format) -> gl.Enum {
+webgl_translate_pixel_format :: proc(f: Pixel_Format) -> gl.Enum {
 	switch f {
 	case .RGBA_32_Float: return gl.RGBA
 	case .RGB_32_Float: return gl.RGB
@@ -1001,7 +992,7 @@ gl_translate_pixel_format :: proc(f: Pixel_Format) -> gl.Enum {
 }
 
 
-gl_describe_pixel_format :: proc(f: Pixel_Format) -> (format: gl.Enum, num_components: int, normalized: bool) {
+webgl_describe_pixel_format :: proc(f: Pixel_Format) -> (format: gl.Enum, num_components: int, normalized: bool) {
 	switch f {
 	case .RGBA_32_Float: return gl.FLOAT, 4, false
 	case .RGB_32_Float: return gl.FLOAT, 3, false
