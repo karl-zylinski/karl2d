@@ -116,16 +116,20 @@ linux_init :: proc(
 		}
 	}
 
-	win_state_alloc_error: runtime.Allocator_Error
-	s.win_state, win_state_alloc_error = mem.alloc(
-		s.win.state_size(),
-		allocator = allocator,
+	win_state_type := type_info_of(s.win.state_type)
+
+	win_state_mem, win_state_mem_err := mem.alloc(
+		win_state_type.size,
+		win_state_type.align,
+		allocator,
 	)
 
-	log.assertf(win_state_alloc_error == nil,
+	log.assertf(win_state_mem_err == nil,
 		"Failed allocating memory for Linux windowing: %v",
-		win_state_alloc_error,
+		win_state_mem_err,
 	)
+
+	s.win_state = (^Linux_Window_State)(win_state_mem)
 
 	s.win.init(
 		s.win_state,
@@ -156,21 +160,21 @@ linux_shutdown :: proc() {
 	udev.monitor_unref(s.udev_mon)
 	udev.unref(s.udev_ptr)
 
-	s.win.shutdown()
+	s.win.shutdown(s.win_state)
 	a := s.allocator
 	free(s.win_state, a)
 }
 
 linux_get_window_render_glue :: proc() -> ^Window_Render_Glue {
-	return s.win.get_window_render_glue()
+	return s.win.get_window_render_glue(s.win_state)
 }
 
 linux_before_present :: proc() {
-	s.win.before_present()
+	s.win.before_present(s.win_state)
 }
 
 linux_get_events :: proc(events: ^[dynamic]Event) {
-	s.win.get_events(events)
+	s.win.get_events(s.win_state, events)
 	linux_poll_for_new_gamepads()
 	linux_get_gamepad_events(events)
 }
@@ -214,31 +218,31 @@ linux_poll_for_new_gamepads :: proc() {
 }
 
 linux_get_screen_width :: proc() -> int {
-	return s.win.get_screen_width()
+	return s.win.get_screen_width(s.win_state)
 }
 
 linux_get_screen_height :: proc() -> int {
-	return s.win.get_screen_height()
+	return s.win.get_screen_height(s.win_state)
 }
 
 linux_set_window_title :: proc(title: string) {
-	s.win.set_title(title)
+	s.win.set_title(s.win_state, title)
 }
 
 linux_set_window_position :: proc(x: int, y: int) {
-	s.win.set_position(x, y)
+	s.win.set_position(s.win_state, x, y)
 }
 
 linux_get_window_position :: proc() -> Vec2 {
-	return s.win.get_position()
+	return s.win.get_position(s.win_state)
 }
 
 set_screen_size :: proc(w, h: int) {
-	s.win.set_screen_size(w, h)
+	s.win.set_screen_size(s.win_state, w, h)
 }
 
 linux_get_window_scale :: proc() -> f32 {
-	return s.win.get_window_scale()
+	return s.win.get_window_scale(s.win_state)
 }
 
 linux_create_connected_gamepads :: proc() {
@@ -658,39 +662,38 @@ linux_open_url :: proc(url: string) -> bool {
 linux_set_internal_state :: proc(state: rawptr) {
 	assert(state != nil)
 	s = (^Linux_State)(state)
-	s.win.set_internal_state(s.win_state)
 }
 
 linux_set_window_mode :: proc(window_mode: Window_Mode) {
-	s.win.set_window_mode(window_mode)
+	s.win.set_window_mode(s.win_state, window_mode)
 }
 
 linux_set_window_icon :: proc(image: Image) -> bool {
-	return s.win.set_window_icon(image)
+	return s.win.set_window_icon(s.win_state, image)
 }
 
 linux_set_cursor_hidden :: proc(hidden: bool) {
-	s.win.set_cursor_hidden(hidden)
+	s.win.set_cursor_hidden(s.win_state, hidden)
 }
 
 linux_is_cursor_hidden :: proc() -> bool {
-	return s.win.is_cursor_hidden()
+	return s.win.is_cursor_hidden(s.win_state)
 }
 
 linux_set_mouse_locked :: proc(locked: bool) {
-	s.win.set_mouse_locked(locked)
+	s.win.set_mouse_locked(s.win_state, locked)
 }
 
 linux_is_mouse_locked :: proc() -> bool {
-	return s.win.is_mouse_locked()
+	return s.win.is_mouse_locked(s.win_state)
 }
 
 linux_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
-	return s.win.create_custom_cursor(image, hotspot)
+	return s.win.create_custom_cursor(s.win_state, image, hotspot)
 }
 
 linux_set_cursor :: proc(cursor: Cursor) {
-	s.win.set_cursor(cursor)
+	s.win.set_cursor(s.win_state, cursor)
 }
 
 // Cursor theme names for a standard cursor. Both X11 and Wayland load cursors out of the user's
@@ -720,60 +723,17 @@ linux_standard_cursor_names :: proc(cursor: Standard_Cursor) -> (name: cstring, 
 }
 
 linux_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
-	s.win.destroy_custom_cursor(custom_cursor)
+	s.win.destroy_custom_cursor(s.win_state, custom_cursor)
 }
 
 Linux_State :: struct {
 	win: Linux_Window_Interface,
-	win_state: rawptr,
+	win_state: ^Linux_Window_State,
 	allocator: runtime.Allocator,
 
 	gamepads: [MAX_GAMEPADS]Linux_Gamepad,
 	udev_ptr: ^udev.udev,
 	udev_mon: ^udev.monitor,
-}
-
-@(private="package")
-Linux_Window_Interface :: struct #all_or_none {
-	state_size: proc() -> int,
-
-	// Reports whether this windowing system can be used, by loading its shared libraries and
-	// connecting to its server. The connection is thrown away again. But the libraries stay loaded
-	// so that `init` can use them.
-	is_available: proc() -> (failure_reason: string, ok: bool),
-
-	init: proc(
-		window_state: rawptr,
-		screen_width: int,
-		screen_height: int,
-		window_title: string,
-		init_options: Init_Options,
-		allocator: runtime.Allocator,
-	),
-
-	shutdown: proc(),
-	get_window_render_glue: proc() -> ^Window_Render_Glue,
-	get_events: proc(events: ^[dynamic]Event),
-	before_present: proc(),
-	set_title: proc(title: string),
-	set_position: proc(x: int, y: int),
-	get_position: proc() -> Vec2,
-	set_screen_size: proc(w, h: int),
-	get_screen_width: proc() -> int,
-	get_screen_height: proc() -> int,
-	get_window_scale: proc() -> f32,
-	set_window_mode: proc(window_mode: Window_Mode),
-	set_window_icon: proc(image: Image) -> bool,
-	set_cursor_hidden: proc(hidden: bool),
-	is_cursor_hidden: proc() -> bool,
-	set_mouse_locked: proc(locked: bool),
-	is_mouse_locked: proc() -> bool,
-
-	create_custom_cursor: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool),
-	set_cursor: proc(cursor: Cursor),
-	destroy_custom_cursor: proc(custom_cursor: Custom_Cursor),
-
-	set_internal_state: proc(state: rawptr),
 }
 
 Linux_Gamepad_Axis_Info :: struct {

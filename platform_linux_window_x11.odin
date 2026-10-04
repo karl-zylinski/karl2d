@@ -1,11 +1,10 @@
 #+build linux
-#+private file
+#+private package
 
 package karl2d
 
-@(private="package")
 LINUX_WINDOW_X11 :: Linux_Window_Interface {
-	state_size = x11_state_size,
+	state_type = X11_State,
 	is_available = x11_is_available,
 	init = x11_init,
 	shutdown = x11_shutdown,
@@ -28,7 +27,6 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	create_custom_cursor = x11_create_custom_cursor,
 	set_cursor = x11_set_cursor,
 	destroy_custom_cursor = x11_destroy_custom_cursor,
-	set_internal_state = x11_set_internal_state,
 }
 
 import X "platform_bindings/linux/x11"
@@ -48,10 +46,6 @@ BUTTON_WHEEL_RIGHT :: X.MouseButton(7)
 
 // The DPI that X11 and every toolkit on it treat as 100% scale.
 DEFAULT_DPI :: 96
-
-x11_state_size :: proc() -> int {
-	return size_of(X11_State)
-}
 
 x11_is_available :: proc() -> (_failure_reason: string, _ok: bool) {
 	missing, load_ok := X.load()
@@ -80,14 +74,13 @@ x11_is_available :: proc() -> (_failure_reason: string, _ok: bool) {
 }
 
 x11_init :: proc(
-	window_state: rawptr,
+	s: ^X11_State,
 	screen_width: int,
 	screen_height: int,
 	window_title: string,
 	init_options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
-	s = (^X11_State)(window_state)
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
 	hm.dynamic_init(&s.custom_cursors, allocator)
@@ -99,7 +92,7 @@ x11_init :: proc(
 	// The resource database, holding the DPI setting among other things, lives in this property on
 	// the root window. See x11_fetch_window_scale.
 	s.resource_manager = X.InternAtom(s.display, "RESOURCE_MANAGER", false)
-	s.window_scale = x11_fetch_window_scale()
+	s.window_scale = x11_fetch_window_scale(s)
 
 	if init_options.disable_auto_scale_hint {
 		s.screen_width = screen_width
@@ -134,7 +127,7 @@ x11_init :: proc(
 	// The window manager reads the size hints when it first decorates the window and keeps the
 	// titlebar layout it picks from them. Set after the window is mapped they still stop it being
 	// resized, but the titlebar keeps an empty slot where the maximize button would have gone.
-	x11_apply_size_hints(init_options.window_mode)
+	x11_apply_size_hints(s, init_options.window_mode)
 
 	X.MapWindow(s.display, s.window)
 
@@ -179,7 +172,7 @@ x11_init :: proc(
 
 	// Borderless fullscreen is a request to the window manager about a window it already has on
 	// screen, so that part of the window mode has to wait until after the window is mapped.
-	x11_set_window_mode(init_options.window_mode)
+	x11_set_window_mode(s, init_options.window_mode)
 
 	// blank cursor for hiding it
 	{
@@ -207,7 +200,7 @@ x11_init :: proc(
 	}
 }
 
-x11_shutdown :: proc() {
+x11_shutdown :: proc(s: ^X11_State) {
 	delete(s.events)
 
 	if s.xic != nil {
@@ -233,14 +226,14 @@ x11_shutdown :: proc() {
 	X.DestroyWindow(s.display, s.window)
 }
 
-x11_get_window_render_glue :: proc() -> ^Window_Render_Glue {
+x11_get_window_render_glue :: proc(s: ^X11_State) -> ^Window_Render_Glue {
 	return s.window_render_glue
 }
 
-x11_before_present :: proc() {
+x11_before_present :: proc(s: ^X11_State) {
 }
 
-x11_get_events :: proc(events: ^[dynamic]Event) {
+x11_get_events :: proc(s: ^X11_State, events: ^[dynamic]Event) {
 	for X.Pending(s.display) > 0 {
 		event: X.XEvent
 		X.NextEvent(s.display, &event)
@@ -277,7 +270,7 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 				}
 			}
 
-			_x11_append_typed_runes(events, &event.xkey)
+			_x11_append_typed_runes(s, events, &event.xkey)
 
 		case .KeyRelease:
 			key := key_from_xkeycode(event.xkey.keycode)
@@ -357,7 +350,7 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 					append(events, Event_Mouse_Move {
 						position = {f32(event.xmotion.x), f32(event.xmotion.y)},
 					})
-					_x11_teleport_cursor_to_center()
+					_x11_teleport_cursor_to_center(s)
 				}
 			} else {
 				append(events, Event_Mouse_Move {
@@ -393,7 +386,7 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 				event.xproperty.atom == s.resource_manager
 
 			if is_resource_manager {
-				new_scale := x11_fetch_window_scale()
+				new_scale := x11_fetch_window_scale(s)
 
 				if new_scale != s.window_scale {
 					s.window_scale = new_scale
@@ -434,7 +427,11 @@ x11_get_events :: proc(events: ^[dynamic]Event) {
 	runtime.clear(&s.events)
 }
 
-_x11_append_typed_runes :: proc(events: ^[dynamic]Event, key_event: ^X.XKeyPressedEvent) {
+_x11_append_typed_runes :: proc(
+	s: ^X11_State,
+	events: ^[dynamic]Event,
+	key_event: ^X.XKeyPressedEvent,
+) {
 	buf: [32]u8
 	keysym: X.KeySym
 
@@ -477,23 +474,23 @@ _x11_append_typed_runes :: proc(events: ^[dynamic]Event, key_event: ^X.XKeyPress
 	}
 }
 
-x11_set_title :: proc(title: string) {
+x11_set_title :: proc(s: ^X11_State, title: string) {
 	X.StoreName(s.display, s.window, frame_cstring(title))
 }
 
-x11_get_screen_width :: proc() -> int {
+x11_get_screen_width :: proc(s: ^X11_State) -> int {
 	return s.screen_width
 }
 
-x11_get_screen_height :: proc() -> int {
+x11_get_screen_height :: proc(s: ^X11_State) -> int {
 	return s.screen_height
 }
 
-x11_set_position :: proc(x: int, y: int) {
+x11_set_position :: proc(s: ^X11_State, x: int, y: int) {
 	X.MoveWindow(s.display, s.window, i32(x), i32(y))
 }
 
-x11_get_position :: proc() -> Vec2 {
+x11_get_position :: proc(s: ^X11_State) -> Vec2 {
 	x, y: i32
 	child: X.Window
 	X.TranslateCoordinates(
@@ -509,11 +506,11 @@ x11_get_position :: proc() -> Vec2 {
 	return {f32(x), f32(y)}
 }
 
-x11_set_screen_size :: proc(w, h: int) {
+x11_set_screen_size :: proc(s: ^X11_State, w, h: int) {
 	X.ResizeWindow(s.display, s.window, u32(w), u32(h))
 }
 
-x11_get_window_scale :: proc() -> f32 {
+x11_get_window_scale :: proc(s: ^X11_State) -> f32 {
 	return s.window_scale
 }
 
@@ -525,7 +522,7 @@ x11_get_window_scale :: proc() -> f32 {
 // We fetch the root window property ourselves instead of calling XResourceManagerString. That one
 // returns the copy Xlib took when the display connection was opened, so it never reflects a change
 // made while the game is running.
-x11_fetch_window_scale :: proc() -> f32 {
+x11_fetch_window_scale :: proc(s: ^X11_State) -> f32 {
 	// A length in 32-bit units. The server sends only what is actually there, so this just has to
 	// be bigger than any real resource database.
 	MAX_RESOURCE_WORDS :: 1024 * 1024
@@ -582,7 +579,7 @@ x11_fetch_window_scale :: proc() -> f32 {
 	return scale
 }
 
-enter_borderless_fullscreen :: proc() {
+enter_borderless_fullscreen :: proc(s: ^X11_State) {
 	wm_state := X.InternAtom(s.display, "_NET_WM_STATE", true)
 	wm_fullscreen := X.InternAtom(s.display, "_NET_WM_STATE_FULLSCREEN", true)
 
@@ -607,7 +604,7 @@ enter_borderless_fullscreen :: proc() {
 	X.SendEvent(s.display, X.DefaultRootWindow(s.display), false, {.SubstructureNotify, .SubstructureRedirect}, &go_to_fullscreen)
 }
 
-leave_borderless_fullscreen :: proc() {
+leave_borderless_fullscreen :: proc(s: ^X11_State) {
 	X.ResizeWindow(
 		s.display,
 		s.window,
@@ -644,7 +641,7 @@ leave_borderless_fullscreen :: proc() {
 // Tells the window manager what sizes the window will accept. A window the game keeps at a fixed
 // size pins its minimum and maximum to the size it has, which is what makes the window manager
 // leave out the resize handles and the maximize button.
-x11_apply_size_hints :: proc(window_mode: Window_Mode) {
+x11_apply_size_hints :: proc(s: ^X11_State, window_mode: Window_Mode) {
 	hints: X.XSizeHints
 
 	if window_mode == .Windowed {
@@ -664,24 +661,24 @@ x11_apply_size_hints :: proc(window_mode: Window_Mode) {
 	X.SetWMNormalHints(s.display, s.window, &hints)
 }
 
-x11_set_window_mode :: proc(window_mode: Window_Mode) {
+x11_set_window_mode :: proc(s: ^X11_State, window_mode: Window_Mode) {
 	old_window_mode := s.window_mode
 	s.window_mode = window_mode
 
 	switch window_mode {
 	case .Windowed, .Windowed_Resizable:
 		if old_window_mode == .Borderless_Fullscreen {
-			leave_borderless_fullscreen()
+			leave_borderless_fullscreen(s)
 		}
 
-		x11_apply_size_hints(window_mode)
+		x11_apply_size_hints(s, window_mode)
 
 	case .Borderless_Fullscreen:
-		enter_borderless_fullscreen()
+		enter_borderless_fullscreen(s)
 	}
 }
 
-x11_set_window_icon :: proc(image: Image) -> bool {
+x11_set_window_icon :: proc(s: ^X11_State, image: Image) -> bool {
 	// `_NET_WM_ICON` holds a list of icons, each one its width and height followed by its pixels
 	// in ARGB. We send a single icon and let the window manager scale it to the sizes it wants.
 	//
@@ -721,14 +718,14 @@ x11_set_window_icon :: proc(image: Image) -> bool {
 	return true
 }
 
-x11_set_cursor_hidden :: proc(hidden: bool) {
+x11_set_cursor_hidden :: proc(s: ^X11_State, hidden: bool) {
 	s.cursor_hidden = hidden
-	x11_apply_cursor()
+	x11_apply_cursor(s)
 }
 
 // Applies s.cursor_hidden and s.current_cursor to the window. They share the window's one cursor
 // (whatever DefineCursor last set), so every entry point goes through this.
-x11_apply_cursor :: proc() {
+x11_apply_cursor :: proc(s: ^X11_State) {
 	switch {
 	case s.cursor_hidden:
 		X.DefineCursor(s.display, s.window, s.blank_cursor)
@@ -750,7 +747,7 @@ x11_apply_cursor :: proc() {
 				standard = sc
 			}
 
-			if theme_cursor := x11_standard_cursor(standard); theme_cursor != 0 {
+			if theme_cursor := x11_standard_cursor(s, standard); theme_cursor != 0 {
 				X.DefineCursor(s.display, s.window, theme_cursor)
 			} else {
 				// The theme has no cursor under either name, so let the window inherit whatever
@@ -765,7 +762,7 @@ x11_apply_cursor :: proc() {
 
 // Loads a standard cursor from the user's cursor theme, or 0 if the theme has none for it. Cached:
 // each one is a server-side resource we have to free, and games set cursors every frame.
-x11_standard_cursor :: proc(standard: Standard_Cursor) -> X.Cursor {
+x11_standard_cursor :: proc(s: ^X11_State, standard: Standard_Cursor) -> X.Cursor {
 	if cached, ok := s.standard_cursors[standard].?; ok {
 		return cached
 	}
@@ -782,11 +779,11 @@ x11_standard_cursor :: proc(standard: Standard_Cursor) -> X.Cursor {
 	return cursor
 }
 
-x11_is_cursor_hidden :: proc() -> bool {
+x11_is_cursor_hidden :: proc(s: ^X11_State) -> bool {
 	return s.cursor_hidden	
 }
 
-x11_set_mouse_locked :: proc(locked: bool) {
+x11_set_mouse_locked :: proc(s: ^X11_State, locked: bool) {
 	s.mouse_locked = locked
 
 	if locked {
@@ -803,18 +800,18 @@ x11_set_mouse_locked :: proc(locked: bool) {
 			X.CurrentTime,
 		)
 
-		_x11_teleport_cursor_to_center()
+		_x11_teleport_cursor_to_center(s)
 	} else {
 		X.UngrabPointer(s.display, X.CurrentTime)
 		X.Flush(s.display)
 	}
 }
 
-x11_is_mouse_locked :: proc() -> bool {
+x11_is_mouse_locked :: proc(s: ^X11_State) -> bool {
 	return s.mouse_locked
 }
 
-_x11_teleport_cursor_to_center :: proc() {
+_x11_teleport_cursor_to_center :: proc(s: ^X11_State) {
 	cx := s.screen_width / 2
 	cy := s.screen_height / 2
 	X.WarpPointer(s.display, 0, s.window, 0, 0, 0, 0, i32(cx), i32(cy))
@@ -824,7 +821,14 @@ _x11_teleport_cursor_to_center :: proc() {
 	})
 }
 
-x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
+x11_create_custom_cursor :: proc(
+	s: ^X11_State,
+	image: Image,
+	hotspot: [2]int,
+) -> (
+	Custom_Cursor,
+	bool,
+) {
 	img := X.cursorImageCreate(i32(image.width), i32(image.height))
 
 	if img == nil {
@@ -868,7 +872,7 @@ x11_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Curso
 	return handle, true
 }
 
-x11_set_cursor :: proc(cursor: Cursor) {
+x11_set_cursor :: proc(s: ^X11_State, cursor: Cursor) {
 	// Reject a stale handle, so a programming error leaves the cursor alone.
 	if c, is_custom := cursor.(Custom_Cursor); is_custom {
 		if hm.get(&s.custom_cursors, c) == nil {
@@ -878,10 +882,10 @@ x11_set_cursor :: proc(cursor: Cursor) {
 	}
 
 	s.current_cursor = cursor
-	x11_apply_cursor()
+	x11_apply_cursor(s)
 }
 
-x11_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+x11_destroy_custom_cursor :: proc(s: ^X11_State, custom_cursor: Custom_Cursor) {
 	cd := hm.get(&s.custom_cursors, custom_cursor)
 
 	if cd == nil {
@@ -896,15 +900,11 @@ x11_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 	hm.remove(&s.custom_cursors, custom_cursor)
 
 	// Falls back to the default if that was the cursor on screen.
-	x11_apply_cursor()
-}
-
-x11_set_internal_state :: proc(state: rawptr) {
-	assert(state != nil)
-	s = (^X11_State)(state)
+	x11_apply_cursor(s)
 }
 
 X11_State :: struct {
+	using _: Linux_Window_State,
 	allocator: runtime.Allocator,
 	
 	screen_width: int,
@@ -953,6 +953,4 @@ X11_Cursor :: struct {
 	handle: Custom_Cursor,
 	cursor: X.Cursor,
 }
-
-s: ^X11_State
 

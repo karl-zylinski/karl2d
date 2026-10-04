@@ -150,6 +150,7 @@ WLCSD_State :: struct {
 	xdg_surface: ^wl.XDG_Surface,
 	seat: ^wl.Seat,
 	compositor: ^wl.Compositor,
+	shm: ^wl.SHM,
 	toplevel: ^wl.XDG_Toplevel,
 
 	parts: [WLCSD_Part_Type]WLCSD_Part,
@@ -203,6 +204,7 @@ wlcsd_init :: proc(
 	seat: ^wl.Seat,
 	compositor: ^wl.Compositor,
 	subcompositor: ^wl.Subcompositor,
+	shm: ^wl.SHM,
 	toplevel: ^wl.XDG_Toplevel,
 	window_width: int,
 	window_height: int,
@@ -240,6 +242,11 @@ wlcsd_init :: proc(
 		return nil
 	}
 
+	if shm == nil {
+		log.error("shm is nil. The window gets no frame.", location = loc)
+		return nil
+	}
+
 	if toplevel == nil {
 		log.error("toplevel is nil. The window gets no frame.", location = loc)
 		return nil
@@ -250,6 +257,7 @@ wlcsd_init :: proc(
 	csd.xdg_surface = xdg_surface
 	csd.seat = seat
 	csd.compositor = compositor
+	csd.shm = shm
 	csd.allocator = allocator
 	csd.toplevel = toplevel
 	csd.window_width = window_width
@@ -288,7 +296,12 @@ wlcsd_init :: proc(
 	wl.surface_set_input_region(csd.scanout_blocker, blocker_region)
 	wl.region_destroy(blocker_region)
 
-	blocker_image, blocker_image_ok := wl_create_shared_memory_image("karl2d-scanout-blocker", 1, 1)
+	blocker_image, blocker_image_ok := wl_create_shared_memory_image(
+		shm,
+		"karl2d-scanout-blocker",
+		1,
+		1,
+	)
 
 	if blocker_image_ok {
 		blocker_image.pixels[0] = 0
@@ -411,6 +424,7 @@ wlcsd_paint :: proc(csd: ^WLCSD_State, scale: f32) {
 			wl_destroy_shared_memory_image(d.buffers[current])
 
 			image, image_ok := wl_create_shared_memory_image(
+				csd.shm,
 				"karl2d-decoration",
 				buffer_width,
 				buffer_height,
