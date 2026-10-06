@@ -17,7 +17,6 @@ import hm "core:container/handle_map"
 import "log"
 
 PLATFORM_MAC :: Platform_Interface {
-	state_type = Mac_State,
 	init = mac_init,
 	shutdown = mac_shutdown,
 	get_window_render_glue = mac_get_window_render_glue,

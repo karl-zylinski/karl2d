@@ -5,8 +5,6 @@ import "base:runtime"
 Platform_State :: struct {}
 
 Platform_Interface :: struct #all_or_none {
-	state_type: typeid,
-
 	init: proc(
 		s: ^Platform_State,
 		window_width: int,

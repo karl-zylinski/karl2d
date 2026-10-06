@@ -5,7 +5,6 @@
 package karl2d
 
 PLATFORM_WINDOWS :: Platform_Interface {
-	state_type = Windows_State,
 	init = windows_init,
 	shutdown = windows_shutdown,
 	get_window_render_glue = windows_get_window_render_glue,

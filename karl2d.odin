@@ -77,23 +77,17 @@ init :: proc(
 	s.frame_allocator = runtime.arena_allocator(&s.frame_arena)
 	frame_allocator = s.frame_allocator
 
-	pf_state_type := type_info_of(pf.state_type)
-
 	// `pf` is a global constant that contains the platform interface. We create the state some of
 	// its procedures need here.
-	pf_state_mem, pf_state_mem_err := mem.alloc(
-		pf_state_type.size,
-		pf_state_type.align,
-		s.allocator,
-	)
+	pf_state, pf_state_err := new(Platform_State_Type, s.allocator)
 
 	log.assertf(
-		pf_state_mem_err == nil,
+		pf_state_err == nil,
 		"Failed allocating memory for platform state: %v",
-		pf_state_mem_err,
+		pf_state_err,
 	)
 
-	s.pf_state = (^Platform_State)(pf_state_mem)
+	s.pf_state = pf_state
 	pf.init(s.pf_state, screen_width, screen_height, window_title, options, s.allocator)
 
 	// Web has small icon because it doesn't ever show a bigger one.
@@ -7508,12 +7502,16 @@ s: ^State
 
 when ODIN_OS == .Windows {
 	PLATFORM :: PLATFORM_WINDOWS
+	Platform_State_Type :: Windows_State
 } else when ODIN_OS == .JS {
 	PLATFORM :: PLATFORM_WEB
+	Platform_State_Type :: Web_State
 } else when ODIN_OS == .Linux {
 	PLATFORM :: PLATFORM_LINUX
+	Platform_State_Type :: Linux_State
 } else when ODIN_OS == .Darwin {
 	PLATFORM :: PLATFORM_MAC
+	Platform_State_Type :: Mac_State
 } else {
 	#panic("Unsupported platform")
 }

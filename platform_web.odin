@@ -6,7 +6,6 @@
 package karl2d
 
 PLATFORM_WEB :: Platform_Interface {
-	state_type = Web_State,
 	init = web_init,
 	shutdown = web_shutdown,
 	get_window_render_glue = web_get_window_render_glue,

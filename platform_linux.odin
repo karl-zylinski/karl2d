@@ -16,7 +16,6 @@ import "platform_bindings/linux/evdev"
 import "core:time"
 
 PLATFORM_LINUX :: Platform_Interface {
-	state_type = Linux_State,
 	init = linux_init,
 	shutdown = linux_shutdown,
 	get_window_render_glue = linux_get_window_render_glue,
