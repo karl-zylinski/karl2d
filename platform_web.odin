@@ -365,7 +365,7 @@ web_get_window_render_glue :: proc(s: ^Web_State) -> ^Window_Render_Glue {
 // This works for XBox controller -- does it work for PlayStation?
 //
 // The magic numbers are from https://gamepad-tester.net/
-WEB_GAMEPAD_BUTTON_TO_K2 :: [Gamepad_Button]int {
+WEB_GAMEPAD_BUTTON_IDX_LOOKUP :: [Gamepad_Button]int {
 	.None = 0,
 	
 	.Left_Face_Up = 12,
@@ -414,7 +414,7 @@ web_get_events :: proc(s: ^Web_State, events: ^[dynamic]Event) {
 		ps := s.gamepad_state[gamepad_idx]
 
 		// We check if any button changed from pressed to not pressed and the other way around.
-		for js_idx, button in WEB_GAMEPAD_BUTTON_TO_K2 {
+		for js_idx, button in WEB_GAMEPAD_BUTTON_IDX_LOOKUP {
 			if js_idx == -1 {
 				continue
 			}
@@ -747,11 +747,11 @@ web_get_gamepad_axis :: proc(s: ^Web_State, gamepad: int, axis: Gamepad_Axis) ->
 	}
 
 	if axis == .Left_Trigger {
-		return f32(s.gamepad_state[gamepad].buttons[WEB_GAMEPAD_BUTTON_TO_K2[.Left_Trigger]].value)
+		return f32(s.gamepad_state[gamepad].buttons[WEB_GAMEPAD_BUTTON_IDX_LOOKUP[.Left_Trigger]].value)
 	}
 
 	if axis == .Right_Trigger {
-		return f32(s.gamepad_state[gamepad].buttons[WEB_GAMEPAD_BUTTON_TO_K2[.Right_Trigger]].value)
+		return f32(s.gamepad_state[gamepad].buttons[WEB_GAMEPAD_BUTTON_IDX_LOOKUP[.Right_Trigger]].value)
 	}
 
 	js_axis: int
