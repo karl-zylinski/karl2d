@@ -1,11 +1,10 @@
 #+build js
 #+vet explicit-allocators
 #+feature dynamic-literals
-#+private file
+#+private package
 
 package karl2d
 
-@(private="package")
 PLATFORM_WEB :: Platform_Interface {
 	state_type = Web_State,
 	init = web_init,
@@ -48,7 +47,7 @@ import "log"
 import "core:fmt"
 
 // The link element in index.html that `web_set_window_icon` writes the favicon into.
-FAVICON_ELEMENT_ID :: "karl2d-favicon"
+WEB_FAVICON_ELEMENT_ID :: "karl2d-favicon"
 
 web_init :: proc(
 	s: ^Web_State,
@@ -78,25 +77,25 @@ web_init :: proc(
 
 	s.window_mode = init_options.window_mode
 
-	add_window_event_listener(s, .Resize, web_event_window_resize)
+	web_add_window_listener(s, .Resize, web_event_window_resize)
 
 	// One pointer model for mouse, pen and touch. Up sits on the window because a mouse pointer
 	// gets no implicit capture: a drag that ends outside the canvas still has to release. Touch
 	// pointers do get capture, and their events bubble to the window anyway.
-	add_canvas_event_listener(s, .Pointer_Down, web_event_pointer_down)
-	add_canvas_event_listener(s, .Pointer_Move, web_event_pointer_move)
-	add_window_event_listener(s, .Pointer_Up, web_event_pointer_up)
-	add_canvas_event_listener(s, .Pointer_Cancel, web_event_pointer_cancel)
+	web_add_canvas_listener(s, .Pointer_Down, web_event_pointer_down)
+	web_add_canvas_listener(s, .Pointer_Move, web_event_pointer_move)
+	web_add_window_listener(s, .Pointer_Up, web_event_pointer_up)
+	web_add_canvas_listener(s, .Pointer_Cancel, web_event_pointer_cancel)
 
 	// Not a pointer event, so the wheel keeps its own listener.
-	add_canvas_event_listener(s, .Wheel, web_event_mouse_wheel)
+	web_add_canvas_listener(s, .Wheel, web_event_mouse_wheel)
 
-	add_window_event_listener(s, .Key_Down, web_event_key_down)
-	add_window_event_listener(s, .Key_Up, web_event_key_up)
-	add_window_event_listener(s, .Focus, web_event_focus)
-	add_window_event_listener(s, .Blur, web_event_blur)
+	web_add_window_listener(s, .Key_Down, web_event_key_down)
+	web_add_window_listener(s, .Key_Up, web_event_key_up)
+	web_add_window_listener(s, .Focus, web_event_focus)
+	web_add_window_listener(s, .Blur, web_event_blur)
 
-	add_window_event_listener(s, .Pointer_Lock_Change, _web_event_pointer_lock_change)
+	web_add_window_listener(s, .Pointer_Lock_Change, web_event_pointer_lock_change)
 
 	if init_options.disable_auto_scale_hint {
 		log.warn("disable_auto_scale_hint not supported on web")
@@ -106,7 +105,7 @@ web_init :: proc(
 web_event_key_down :: proc(e: js.Event) {
 	s := (^Web_State)(e.user_data)
 
-	key := key_from_js_event(s, e)
+	key := web_key_from_js_event(s, e)
 
 	if key != .None {
 		if e.key.repeat {
@@ -142,7 +141,7 @@ web_event_key_down :: proc(e: js.Event) {
 web_event_key_up :: proc(e: js.Event) {
 	s := (^Web_State)(e.user_data)
 
-	key := key_from_js_event(s, e)
+	key := web_key_from_js_event(s, e)
 	append(&s.events, Event_Key_Went_Up {
 		key = key,
 	})
@@ -305,7 +304,7 @@ web_touch_position :: proc(e: js.Event) -> Vec2 {
 	}
 }
 
-add_canvas_event_listener :: proc(
+web_add_canvas_listener :: proc(
 	s: ^Web_State,
 	evt: js.Event_Kind,
 	callback: proc(e: js.Event),
@@ -319,7 +318,7 @@ add_canvas_event_listener :: proc(
 	)
 }
 
-add_window_event_listener :: proc(
+web_add_window_listener :: proc(
 	s: ^Web_State,
 	evt: js.Event_Kind,
 	callback: proc(e: js.Event),
@@ -327,7 +326,7 @@ add_window_event_listener :: proc(
 	js.add_window_event_listener(evt, s, callback, true)
 }
 
-web_set_screen_size_to_window_size :: proc(s: ^Web_State, canvas_id: HTML_Canvas_ID) {
+web_set_screen_size_to_window_size :: proc(s: ^Web_State, canvas_id: Web_HTML_Canvas_ID) {
 	rect := js.get_bounding_client_rect("body")
 	
 	scale := web_get_window_scale(s)
@@ -367,7 +366,7 @@ web_get_window_render_glue :: proc(s: ^Web_State) -> ^Window_Render_Glue {
 // This works for XBox controller -- does it work for PlayStation?
 //
 // The magic numbers are from https://gamepad-tester.net/
-KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
+WEB_KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
 	.None = 0,
 	
 	.Left_Face_Up = 12,
@@ -416,7 +415,7 @@ web_get_events :: proc(s: ^Web_State, events: ^[dynamic]Event) {
 		ps := s.gamepad_state[gamepad_idx]
 
 		// We check if any button changed from pressed to not pressed and the other way around.
-		for js_idx, button in KARL2D_GAMEPAD_BUTTON_FROM_JS {
+		for js_idx, button in WEB_KARL2D_GAMEPAD_BUTTON_FROM_JS {
 			if js_idx == -1 {
 				continue
 			}
@@ -514,7 +513,7 @@ web_png_data_uri :: proc(image: Image, allocator: runtime.Allocator) -> (string,
 web_set_window_icon :: proc(s: ^Web_State, image: Image) -> bool {
 	// Every element that exists has its own id as the value of its `id` property, so a zero length
 	// means there is no such element.
-	if js.get_element_key_string_length(FAVICON_ELEMENT_ID, "id") == 0 {
+	if js.get_element_key_string_length(WEB_FAVICON_ELEMENT_ID, "id") == 0 {
 		return false
 	}
 
@@ -524,7 +523,7 @@ web_set_window_icon :: proc(s: ^Web_State, image: Image) -> bool {
 		return false
 	}
 
-	js.set_element_key_string(FAVICON_ELEMENT_ID, "href", data_uri)
+	js.set_element_key_string(WEB_FAVICON_ELEMENT_ID, "href", data_uri)
 	return true
 }
 
@@ -537,7 +536,7 @@ web_is_cursor_hidden :: proc(s: ^Web_State) -> bool {
 	return s.cursor_hidden
 }
 
-_web_event_pointer_lock_change :: proc(e: js.Event) {
+web_event_pointer_lock_change :: proc(e: js.Event) {
 	s := (^Web_State)(e.user_data)
 
 	js.evaluate("document.getElementById('webgl-canvas')._pointerLocked = document.pointerLockElement !== null ? 1 : 0")
@@ -554,7 +553,7 @@ web_set_mouse_locked :: proc(s: ^Web_State, locked: bool) {
 		js.evaluate("document.exitPointerLock()")
 	}
 
-	// s.mouse_locked set by _web_event_pointer_lock_change
+	// s.mouse_locked set by web_event_pointer_lock_change
 }
 
 web_is_mouse_locked :: proc(s: ^Web_State) -> bool {
@@ -749,11 +748,11 @@ web_get_gamepad_axis :: proc(s: ^Web_State, gamepad: int, axis: Gamepad_Axis) ->
 	}
 
 	if axis == .Left_Trigger {
-		return f32(s.gamepad_state[gamepad].buttons[KARL2D_GAMEPAD_BUTTON_FROM_JS[.Left_Trigger]].value)
+		return f32(s.gamepad_state[gamepad].buttons[WEB_KARL2D_GAMEPAD_BUTTON_FROM_JS[.Left_Trigger]].value)
 	}
 
 	if axis == .Right_Trigger {
-		return f32(s.gamepad_state[gamepad].buttons[KARL2D_GAMEPAD_BUTTON_FROM_JS[.Right_Trigger]].value)
+		return f32(s.gamepad_state[gamepad].buttons[WEB_KARL2D_GAMEPAD_BUTTON_FROM_JS[.Right_Trigger]].value)
 	}
 
 	js_axis: int
@@ -782,13 +781,12 @@ web_open_url :: proc(s: ^Web_State, url: string) -> bool {
 	return true
 }
 
-@(private="package")
-HTML_Canvas_ID :: string
+Web_HTML_Canvas_ID :: string
 
 Web_State :: struct {
 	using _: Platform_State,
 	allocator: runtime.Allocator,
-	canvas_id: HTML_Canvas_ID,
+	canvas_id: Web_HTML_Canvas_ID,
 	width: int,
 	height: int,
 	prev_scale: f32,
@@ -823,7 +821,7 @@ Web_Cursor :: struct {
 	built_for_scale: f32,
 }
 
-key_from_js_event :: proc(s: ^Web_State, e: js.Event) -> Keyboard_Key {
+web_key_from_js_event :: proc(s: ^Web_State, e: js.Event) -> Keyboard_Key {
 	if len(s.key_from_js_event_key_code) == 0 {
 		context.allocator = s.allocator
 		s.key_from_js_event_key_code = {

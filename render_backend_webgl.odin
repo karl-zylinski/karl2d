@@ -118,7 +118,7 @@ webgl_init :: proc(
 	allocator := context.allocator,
 ) {
 	// see web_get_window_render_glue
-	canvas_id := (^HTML_Canvas_ID)(glue)^
+	canvas_id := (^Web_HTML_Canvas_ID)(glue)^
 	
 	s.canvas_id = strings.clone(canvas_id, allocator)
 	s.width = swapchain_width
