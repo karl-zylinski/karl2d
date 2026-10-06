@@ -140,7 +140,7 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue, options: I
 	if egl.MakeCurrent(s.egl_display, s.egl_surface, s.egl_surface, s.egl_context) {
 		gl.load_up_to(3, 3, egl.gl_set_proc_address)
 
-		// No vsync on wayland. We implement it ourselves using `wayland_wait_for_frame`. This is
+		// No vsync on wayland. We implement it ourselves using `linux_gl_wayland_wait_for_frame`. This is
 		// because windows that are unfocused tend to block forever otherwise.
 		egl.SwapInterval(s.egl_display, interval=0)
 
@@ -150,17 +150,14 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue, options: I
 	return false
 }
 
-// Max time to wait for a frame to complete.
-FRAME_CALLBACK_TIMEOUT :: 50*time.Millisecond
-
 linux_gl_wayland_glue_present :: proc(s: ^Linux_GL_Wayland_Glue) {
 	if s.frame_callback != nil {
 		gl.Flush()
-		wayland_wait_for_frame(s)
+		linux_gl_wayland_wait_for_frame(s)
 	}
 
 	// The frame_callback may never have existed, or may have been cleared inside
-	// `wayland_wait_for_frame`, so we create it now.
+	// `linux_gl_wayland_wait_for_frame`, so we create it now.
 	if s.frame_callback == nil {
 		s.frame_callback = wl.surface_frame(s.frame_surface)
 		wl.add_listener(s.frame_callback, &linux_gl_wayland_frame_listener, s)
@@ -180,8 +177,12 @@ linux_gl_wayland_frame_listener := wl.Callback_Listener {
 }
 
 // Wait for frame to finish, which emulates vsync
-wayland_wait_for_frame :: proc(s: ^Linux_GL_Wayland_Glue) {
+linux_gl_wayland_wait_for_frame :: proc(s: ^Linux_GL_Wayland_Glue) {
 	fd := posix.FD(wl.display_get_fd(s.display))
+
+	// Max time to wait for a frame to complete.
+	FRAME_CALLBACK_TIMEOUT :: 50*time.Millisecond
+
 	deadline := time.tick_add(time.tick_now(), FRAME_CALLBACK_TIMEOUT)
 
 	for s.frame_callback != nil {
