@@ -1,6 +1,6 @@
 #+build darwin
 #+vet explicit-allocators
-#+private file
+#+private package
 
 package karl2d
 
@@ -16,7 +16,6 @@ import "core:slice"
 import hm "core:container/handle_map"
 import "log"
 
-@(private="package")
 PLATFORM_MAC :: Platform_Interface {
 	state_type = Mac_State,
 	init = mac_init,
@@ -48,8 +47,8 @@ PLATFORM_MAC :: Platform_Interface {
 	open_url = mac_open_url,
 }
 
-HAPTICS_SHARPNESS_LEFT  :: 0.1
-HAPTICS_SHARPNESS_RIGHT :: 0.9
+MAC_HAPTICS_SHARPNESS_LEFT  :: 0.1
+MAC_HAPTICS_SHARPNESS_RIGHT :: 0.9
 
 Mac_State :: struct {
 	using _: Platform_State,
@@ -61,7 +60,7 @@ Mac_State :: struct {
 	window_mode:      Window_Mode,
 
 	// Cursor visibility (the user's intent). The OS cursor is only actually hidden while
-	// the cursor is inside the content area of a key window — see `apply_cursor_state`.
+	// the cursor is inside the content area of a key window — see `mac_apply_cursor_state`.
 	cursor_hidden:       bool,
 	cursor_hidden_by_us: bool,
 	cursor_tracker:      NS.id,
@@ -93,7 +92,7 @@ Mac_State :: struct {
 	icon:        ^NS.Image,
 	icon_pixels: []Color,
 
-	gamepads:           [MAX_GAMEPADS]Gamepad,
+	gamepads:           [MAX_GAMEPADS]Mac_Gamepad,
 	gc_connect_blk:     ^NS.Block,
 	gc_disconnect_blk:  ^NS.Block,
 }
@@ -116,7 +115,7 @@ Mac_Cursor :: struct {
 	pixels: []Color,
 }
 
-Gamepad :: struct {
+Mac_Gamepad :: struct {
 	controller:               ^gc.Controller,
 	extended_gamepad:         ^gc.ExtendedGamepad,
 	button_inputs:            [Gamepad_Button]^gc.ControllerButtonInput,
@@ -185,7 +184,7 @@ mac_init :: proc(
 	s.app->finishLaunching()
 
 	// Add already connected controllers
-	poll_for_new_controllers(s)
+	mac_poll_for_new_controllers(s)
 
 	// Setup listeners for connected/disconnected controllers
 	notificationCenter := NS.NotificationCenter_defaultCenter()
@@ -193,7 +192,7 @@ mac_init :: proc(
 	s.gc_connect_blk = NS.Block_createGlobalWithParam(s, proc "c" (s: rawptr, n: ^NS.Notification) {
 		context = (^Mac_State)(s).odin_ctx
 
-		poll_for_new_controllers((^Mac_State)(s))
+		mac_poll_for_new_controllers((^Mac_State)(s))
 	}, s.allocator)
 	notificationCenter->addObserverForName(gc.DidConnectNotification, nil, nil, s.gc_connect_blk)
 
@@ -262,7 +261,7 @@ mac_init :: proc(
 			windowDidBecomeKey = proc(_: ^NS.Notification) {
 				s := (^Mac_State)(context.user_ptr)
 
-				apply_cursor_state(s)
+				mac_apply_cursor_state(s)
 				append(&s.events, Event_Window_Focused{})
 			},
 
@@ -271,7 +270,7 @@ mac_init :: proc(
 
 				// Tracking is NSTrackingActiveInKeyWindow, so mouseExited won't fire on focus
 				// loss. Restore the OS cursor so it stays visible in other apps / the menu bar.
-				unhide_cursor_now(s)
+				mac_unhide_cursor_now(s)
 				append(&s.events, Event_Window_Unfocused{})
 				s.modifier_key_is_held = {}
 			},
@@ -308,7 +307,7 @@ mac_init :: proc(
 
 	s.window->setDelegate(window_delegates)
 
-	install_cursor_tracker(s)
+	mac_install_cursor_tracker(s)
 
 	when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = create_mac_gl_glue(s.window, s.allocator)
@@ -370,7 +369,7 @@ mac_get_events :: proc(s: ^Mac_State, events: ^[dynamic]Event) {
 
 		#partial switch event_type {
 		case .KeyDown:
-			key := key_from_macos_keycode(event->keyCode())
+			key := mac_keycode_to_k2key(event->keyCode())
 
 			if key != .None {
 				if event->isARepeat() {
@@ -393,13 +392,13 @@ mac_get_events :: proc(s: ^Mac_State, events: ^[dynamic]Event) {
 			}
 
 		case .KeyUp:
-			key := key_from_macos_keycode(event->keyCode())
+			key := mac_keycode_to_k2key(event->keyCode())
 			if key != .None {
 				append(&s.events, Event_Key_Went_Up{key = key})
 			}
 
 		case .FlagsChanged:
-			key := key_from_macos_keycode(event->keyCode())
+			key := mac_keycode_to_k2key(event->keyCode())
 			flags := event->modifierFlags()
 			is_held := false
 			is_modifier := true
@@ -578,7 +577,7 @@ mac_get_window_scale :: proc(s: ^Mac_State) -> f32 {
 
 mac_set_cursor_hidden :: proc(s: ^Mac_State, hidden: bool) {
 	s.cursor_hidden = hidden
-	apply_cursor_state(s)
+	mac_apply_cursor_state(s)
 }
 
 mac_is_cursor_hidden :: proc(s: ^Mac_State) -> bool {
@@ -591,7 +590,7 @@ mac_set_mouse_locked :: proc(s: ^Mac_State, locked: bool) {
 	if locked {
 		s.mouse_ignore_next_move = true
 		ce.CGAssociateMouseAndMouseCursorPosition(false)
-		_mac_teleport_cursor_to_center(s)
+		mac_teleport_cursor_to_center(s)
 	} else {
 		ce.CGAssociateMouseAndMouseCursorPosition(true)
 	}
@@ -601,7 +600,7 @@ mac_is_mouse_locked :: proc(s: ^Mac_State) -> bool {
 	return s.mouse_locked
 }
 
-_mac_teleport_cursor_to_center :: proc(s: ^Mac_State) {
+mac_teleport_cursor_to_center :: proc(s: ^Mac_State) {
 	cx := s.screen_width/2
 	cy := s.screen_height/2
 	scale := mac_get_window_scale(s)
@@ -617,36 +616,36 @@ _mac_teleport_cursor_to_center :: proc(s: ^Mac_State) {
 
 // NSCursor.hide/unhide are reference counted. These helpers ensure each hide is paired
 // with exactly one unhide so the counter never drifts.
-hide_cursor_now :: proc(s: ^Mac_State) {
+mac_hide_cursor_now :: proc(s: ^Mac_State) {
 	if !s.cursor_hidden_by_us {
 		NS.Cursor.hide()
 		s.cursor_hidden_by_us = true
 	}
 }
 
-unhide_cursor_now :: proc(s: ^Mac_State) {
+mac_unhide_cursor_now :: proc(s: ^Mac_State) {
 	if s.cursor_hidden_by_us {
 		NS.Cursor.unhide()
 		s.cursor_hidden_by_us = false
 	}
 }
 
-cursor_in_content_area :: proc(s: ^Mac_State) -> bool {
+mac_cursor_in_content_area :: proc(s: ^Mac_State) -> bool {
 	view := s.window->contentView()
 	if view == nil do return false
 	pos := ce.Window_mouseLocationOutsideOfEventStream(s.window)
 	return bool(ce.View_mouse_inRect(view, pos, ce.View_frame(view)))
 }
 
-apply_cursor_state :: proc(s: ^Mac_State) {
-	if s.cursor_hidden && cursor_in_content_area(s) {
-		hide_cursor_now(s)
+mac_apply_cursor_state :: proc(s: ^Mac_State) {
+	if s.cursor_hidden && mac_cursor_in_content_area(s) {
+		mac_hide_cursor_now(s)
 	} else {
-		unhide_cursor_now(s)
+		mac_unhide_cursor_now(s)
 	}
 }
 
-install_cursor_tracker :: proc(s: ^Mac_State) {
+mac_install_cursor_tracker :: proc(s: ^Mac_State) {
 	view := s.window->contentView()
 	if view == nil do return
 
@@ -654,8 +653,23 @@ install_cursor_tracker :: proc(s: ^Mac_State) {
 	class := NS.objc_lookUpClass(class_name)
 	if class == nil {
 		class = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), class_name, 0)
-		NS.class_addMethod(class, intrinsics.objc_find_selector("mouseEntered:"), auto_cast cursor_tracker_mouse_entered, "v@:@")
-		NS.class_addMethod(class, intrinsics.objc_find_selector("mouseExited:"),  auto_cast cursor_tracker_mouse_exited,  "v@:@")
+
+		mouse_entered :: proc "c" (self: NS.id, cmd: NS.SEL, event: NS.id) {
+			s := (^^Mac_State)(NS.object_getIndexedIvars(self))^
+			context = s.odin_ctx
+			if s.cursor_hidden {
+				mac_hide_cursor_now(s)
+			}
+		}
+
+		mouse_exited :: proc "c" (self: NS.id, cmd: NS.SEL, event: NS.id) {
+			s := (^^Mac_State)(NS.object_getIndexedIvars(self))^
+			context = s.odin_ctx
+			mac_unhide_cursor_now(s)
+		}
+
+		NS.class_addMethod(class, intrinsics.objc_find_selector("mouseEntered:"), auto_cast mouse_entered, "v@:@")
+		NS.class_addMethod(class, intrinsics.objc_find_selector("mouseExited:"),  auto_cast mouse_exited,  "v@:@")
 		NS.objc_registerClassPair(class)
 	}
 
@@ -669,20 +683,6 @@ install_cursor_tracker :: proc(s: ^Mac_State) {
 	area := ce.TrackingArea_alloc()
 	area  = ce.TrackingArea_initWithRect(area, ce.View_frame(view), options, s.cursor_tracker, nil)
 	ce.View_addTrackingArea(view, area)
-}
-
-cursor_tracker_mouse_entered :: proc "c" (self: NS.id, cmd: NS.SEL, event: NS.id) {
-	s := (^^Mac_State)(NS.object_getIndexedIvars(self))^
-	context = s.odin_ctx
-	if s.cursor_hidden {
-		hide_cursor_now(s)
-	}
-}
-
-cursor_tracker_mouse_exited :: proc "c" (self: NS.id, cmd: NS.SEL, event: NS.id) {
-	s := (^^Mac_State)(NS.object_getIndexedIvars(self))^
-	context = s.odin_ctx
-	unhide_cursor_now(s)
 }
 
 mac_is_gamepad_active :: proc(s: ^Mac_State, gamepad: int) -> bool {
@@ -1052,7 +1052,7 @@ mac_is_function_key_rune :: proc(r: rune) -> bool {
 }
 
 // Key code mapping from macOS virtual key codes to Keyboard_Key
-key_from_macos_keycode :: proc(keycode: u16) -> Keyboard_Key {
+mac_keycode_to_k2key :: proc(keycode: u16) -> Keyboard_Key {
 	// macOS uses Carbon virtual key codes (kVK)
 	#partial switch NS.kVK(keycode) {
 	case .ANSI_A: return .A
@@ -1149,11 +1149,7 @@ key_from_macos_keycode :: proc(keycode: u16) -> Keyboard_Key {
 	}
 }
 
-//--------------------//
-// CONTROLLER SUPPORT //
-//--------------------//
-
-poll_for_new_controllers :: proc(s: ^Mac_State) {
+mac_poll_for_new_controllers :: proc(s: ^Mac_State) {
 	controllers := gc.Controller_controllers()
 	controller_count := controllers != nil ? int(controllers->count()) : 0
 
@@ -1191,7 +1187,28 @@ poll_for_new_controllers :: proc(s: ^Mac_State) {
 		
 		s.gamepads[available_slot].controller = controller
 		s.gamepads[available_slot].extended_gamepad = extended_gamepad
-		s.gamepads[available_slot].button_inputs = make_button_inputs(extended_gamepad)
+
+		egp := extended_gamepad
+		s.gamepads[available_slot].button_inputs = {
+			.None               = nil,
+			.Right_Face_Down    = egp->buttonA(),
+			.Right_Face_Right   = egp->buttonB(),
+			.Right_Face_Left    = egp->buttonX(),
+			.Right_Face_Up      = egp->buttonY(),
+			.Left_Shoulder      = egp->leftShoulder(),
+			.Right_Shoulder     = egp->rightShoulder(),
+			.Left_Trigger       = egp->leftTrigger(),
+			.Right_Trigger      = egp->rightTrigger(),
+			.Middle_Face_Right  = egp->buttonMenu(),
+			.Middle_Face_Middle = nil,
+			.Middle_Face_Left   = egp->buttonOptions(),
+			.Left_Stick_Press   = egp->leftThumbstickButton(),
+			.Right_Stick_Press  = egp->rightThumbstickButton(),
+			.Left_Face_Up       = egp->dpad()->up(),
+			.Left_Face_Down     = egp->dpad()->down(),
+			.Left_Face_Left     = egp->dpad()->left(),
+			.Left_Face_Right    = egp->dpad()->right(),
+		}
 	}
 }
 
@@ -1253,31 +1270,6 @@ remove_controller :: proc(s: ^Mac_State, controller: ^gc.Controller) {
 	}
 }
 
-// Store pointers to the buttons (these won't change until the controller changes,
-// and then we'll make a new one)
-make_button_inputs :: proc(egp: ^gc.ExtendedGamepad) -> [Gamepad_Button]^gc.ControllerButtonInput {
-	return {
-		.None               = nil,
-		.Right_Face_Down    = egp->buttonA(),
-		.Right_Face_Right   = egp->buttonB(),
-		.Right_Face_Left    = egp->buttonX(),
-		.Right_Face_Up      = egp->buttonY(),
-		.Left_Shoulder      = egp->leftShoulder(),
-		.Right_Shoulder     = egp->rightShoulder(),
-		.Left_Trigger       = egp->leftTrigger(),
-		.Right_Trigger      = egp->rightTrigger(),
-		.Middle_Face_Right  = egp->buttonMenu(),
-		.Middle_Face_Middle = nil,
-		.Middle_Face_Left   = egp->buttonOptions(),
-		.Left_Stick_Press   = egp->leftThumbstickButton(),
-		.Right_Stick_Press  = egp->rightThumbstickButton(),
-		.Left_Face_Up       = egp->dpad()->up(),
-		.Left_Face_Down     = egp->dpad()->down(),
-		.Left_Face_Left     = egp->dpad()->left(),
-		.Left_Face_Right    = egp->dpad()->right(),
-	}
-}
-
 when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 	stop_haptic_player :: proc(player: ^^gc.HapticPatternPlayer) {
 		if player^ == nil do return
@@ -1290,7 +1282,7 @@ when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 	init_haptic_engine :: proc(
 		engine: ^^gc.HapticEngine,
 		locality: gc.HapticsLocality,
-		gamepad: ^Gamepad,
+		gamepad: ^Mac_Gamepad,
 	) -> bool {
 		if engine^ != nil do return true
 
@@ -1303,13 +1295,13 @@ when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 		return success
 	}
 
-	create_haptic_player :: proc(left_right: int, intensity: f32, gamepad: ^Gamepad) {
+	create_haptic_player :: proc(left_right: int, intensity: f32, gamepad: ^Mac_Gamepad) {
 		pattern: ^gc.HapticPattern
 
 		{
 			NS.scoped_autoreleasepool()
 
-			sharpness : f32 = left_right == 0 ? HAPTICS_SHARPNESS_LEFT : HAPTICS_SHARPNESS_RIGHT
+			sharpness : f32 = left_right == 0 ? MAC_HAPTICS_SHARPNESS_LEFT : MAC_HAPTICS_SHARPNESS_RIGHT
 
 			sharpness_param := gc.HapticEventParameter_alloc()->
 				initWithParameterID(gc.HapticSharpness, sharpness)

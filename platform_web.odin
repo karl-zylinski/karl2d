@@ -105,7 +105,7 @@ web_init :: proc(
 web_event_key_down :: proc(e: js.Event) {
 	s := (^Web_State)(e.user_data)
 
-	key := web_key_from_js_event(s, e)
+	key := web_event_key_to_k2key(s, e)
 
 	if key != .None {
 		if e.key.repeat {
@@ -141,7 +141,7 @@ web_event_key_down :: proc(e: js.Event) {
 web_event_key_up :: proc(e: js.Event) {
 	s := (^Web_State)(e.user_data)
 
-	key := web_key_from_js_event(s, e)
+	key := web_event_key_to_k2key(s, e)
 	append(&s.events, Event_Key_Went_Up {
 		key = key,
 	})
@@ -821,7 +821,7 @@ Web_Cursor :: struct {
 	built_for_scale: f32,
 }
 
-web_key_from_js_event :: proc(s: ^Web_State, e: js.Event) -> Keyboard_Key {
+web_event_key_to_k2key :: proc(s: ^Web_State, e: js.Event) -> Keyboard_Key {
 	if len(s.key_from_js_event_key_code) == 0 {
 		context.allocator = s.allocator
 		s.key_from_js_event_key_code = {

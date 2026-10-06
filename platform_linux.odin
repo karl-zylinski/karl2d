@@ -766,7 +766,7 @@ Linux_Gamepad :: struct {
 	rumble_effect_id: u32,
 }
 
-linux_key_from_xkeycode :: proc(kc: u32) -> Keyboard_Key {
+linux_xkeycode_to_k2key :: proc(kc: u32) -> Keyboard_Key {
 	if kc >= 255 {
 		return .None
 	}

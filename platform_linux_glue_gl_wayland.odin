@@ -180,7 +180,6 @@ linux_gl_wayland_frame_listener := wl.Callback_Listener {
 }
 
 // Wait for frame to finish, which emulates vsync
-@(private="file")
 wayland_wait_for_frame :: proc(s: ^Linux_GL_Wayland_Glue) {
 	fd := posix.FD(wl.display_get_fd(s.display))
 	deadline := time.tick_add(time.tick_now(), FRAME_CALLBACK_TIMEOUT)

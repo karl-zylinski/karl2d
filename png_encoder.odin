@@ -1,4 +1,5 @@
 #+vet explicit-allocators
+#+private package
 
 package karl2d
 
@@ -15,7 +16,6 @@ import "core:slice"
 //
 // The files produced are much larger than a real PNG encoder would make (there is no
 // compression), but every browser decodes them fine, which is the only thing this needs to do.
-@(private="package")
 encode_png :: proc(img: Image, allocator: runtime.Allocator) -> (data: []u8, ok: bool) {
 	if img.width <= 0 || img.height <= 0 {
 		return nil, false
