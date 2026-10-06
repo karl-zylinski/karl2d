@@ -1,10 +1,9 @@
 #+vet explicit-allocators
 #+build windows
-#+private file
+#+private package
 
 package karl2d
 
-@(private="package")
 PLATFORM_WINDOWS :: Platform_Interface {
 	state_type = Windows_State,
 	init = windows_init,
@@ -809,7 +808,7 @@ windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam
 
 	case win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN:
 		repeat := bool(lparam & (1 << 30))
-		key := key_from_event_params(wparam, lparam)
+		key := windows_key_from_event_params(wparam, lparam)
 
 		if key != .None {
 			if repeat {
@@ -824,7 +823,7 @@ windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam
 		}
 
 	case win32.WM_SYSKEYUP, win32.WM_KEYUP:
-		key := key_from_event_params(wparam, lparam)
+		key := windows_key_from_event_params(wparam, lparam)
 		if key != .None {
 			append(&s.events, Event_Key_Went_Up {
 				key = key,
@@ -1022,7 +1021,7 @@ windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam
 	return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
-key_from_event_params :: proc(wparam: win32.WPARAM, lparam: win32.LPARAM) -> Keyboard_Key{
+windows_key_from_event_params :: proc(wparam: win32.WPARAM, lparam: win32.LPARAM) -> Keyboard_Key{
 	switch wparam {
 	case win32.VK_SHIFT:
 		scancode := (lparam & 0x00ff0000) >> 16
@@ -1135,7 +1134,7 @@ WIN32_VK_MAP := [255]Keyboard_Key {
 	win32.VK_F11 = .F11,
 	win32.VK_F12 = .F12,
 
-	// Alt, shift and control are handled in key_from_event_params
+	// Alt, shift and control are handled in windows_key_from_event_params
 	win32.VK_LWIN     = .Left_Super,
 	win32.VK_RWIN     = .Right_Super,
 	win32.VK_APPS     = .Menu,
