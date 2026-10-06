@@ -200,7 +200,7 @@ mac_init :: proc(
 		context = (^Mac_State)(s).odin_ctx
 
 		controller := (^gc.Controller)(n->object())
-		remove_controller((^Mac_State)(s), controller)
+		mac_remove_controller((^Mac_State)(s), controller)
 	}, s.allocator)
 	notificationCenter->addObserverForName(gc.DidDisconnectNotification, nil, nil, s.gc_disconnect_blk)
 
@@ -719,10 +719,10 @@ mac_set_gamepad_vibration :: proc(s: ^Mac_State, gamepad_index: int, left: f32, 
 
 		// early stop so we shutoff player even if delta isn't past the threshold
 		if left < 0.01 {
-			stop_haptic_player(&gamepad.haptic_player_left_right[0])
+			mac_stop_haptic_player(&gamepad.haptic_player_left_right[0])
 		}
 		if right < 0.01 {
-			stop_haptic_player(&gamepad.haptic_player_left_right[1])
+			mac_stop_haptic_player(&gamepad.haptic_player_left_right[1])
 		}
 
 		// activation threshold, so we don't thrash needlessly (we can tweak this)
@@ -736,16 +736,16 @@ mac_set_gamepad_vibration :: proc(s: ^Mac_State, gamepad_index: int, left: f32, 
 
 		// prep for new player
 		for &player in gamepad.haptic_player_left_right {
-			stop_haptic_player(&player)
+			mac_stop_haptic_player(&player)
 		}
 
 		// Lazy-init haptic engine
-		left_initted := init_haptic_engine(
+		left_initted := mac_init_haptic_engine(
 			&gamepad.haptic_engine_left_right[0],
 			gc.LeftHandle,
 			gamepad,
 		)
-		right_initted := init_haptic_engine(
+		right_initted := mac_init_haptic_engine(
 			&gamepad.haptic_engine_left_right[1],
 			gc.RightHandle,
 			gamepad,
@@ -753,8 +753,8 @@ mac_set_gamepad_vibration :: proc(s: ^Mac_State, gamepad_index: int, left: f32, 
 
 		if !left_initted && !right_initted do return
 
-		create_haptic_player(0, left, gamepad)
-		create_haptic_player(1, right, gamepad)
+		mac_create_haptic_player(0, left, gamepad)
+		mac_create_haptic_player(1, right, gamepad)
 	}
 }
 
@@ -1158,7 +1158,7 @@ mac_poll_for_new_controllers :: proc(s: ^Mac_State) {
 	// - If we have MAX_GAMEPADS registered, and they're still connected, don't add new controllers.
 	// - Connect new controllers.
 
-	remove_no_longer_connected_controllers(s, controllers, controller_count)
+	mac_remove_no_longer_connected_controllers(s, controllers, controller_count)
 
 	connected_count := 0
 	for gamepad in s.gamepads {
@@ -1175,7 +1175,7 @@ mac_poll_for_new_controllers :: proc(s: ^Mac_State) {
 		extended_gamepad := controller->extendedGamepad()
 		if extended_gamepad == nil do continue
 
-		if controller_is_registered(s, controller) do continue
+		if mac_controller_is_registered(s, controller) do continue
 
 		available_slot := 0
 		for gamepad, gamepad_index in s.gamepads {
@@ -1212,7 +1212,7 @@ mac_poll_for_new_controllers :: proc(s: ^Mac_State) {
 	}
 }
 
-remove_no_longer_connected_controllers :: proc(
+mac_remove_no_longer_connected_controllers :: proc(
 	s: ^Mac_State,
 	controllers: ^gc.ControllerArray,
 	count: int,
@@ -1232,12 +1232,12 @@ remove_no_longer_connected_controllers :: proc(
 
 	for gamepad, gamepad_index in s.gamepads {
 		if gamepad.controller != nil && !found[gamepad_index] {
-			remove_controller(s, gamepad.controller)
+			mac_remove_controller(s, gamepad.controller)
 		}
 	}
 }
 
-controller_is_registered :: proc(s: ^Mac_State, controller: ^gc.Controller) -> bool {
+mac_controller_is_registered :: proc(s: ^Mac_State, controller: ^gc.Controller) -> bool {
 	for gamepad in s.gamepads {
 		if gamepad.controller == controller {
 			return true
@@ -1246,7 +1246,7 @@ controller_is_registered :: proc(s: ^Mac_State, controller: ^gc.Controller) -> b
 	return false
 }
 
-remove_controller :: proc(s: ^Mac_State, controller: ^gc.Controller) {
+mac_remove_controller :: proc(s: ^Mac_State, controller: ^gc.Controller) {
 	for &gamepad in s.gamepads {
 		if gamepad.controller == controller {
 			// haptic support is only available in 11.0.0
@@ -1258,7 +1258,7 @@ remove_controller :: proc(s: ^Mac_State, controller: ^gc.Controller) {
 					}
 				}
 				for &player in gamepad.haptic_player_left_right {
-					stop_haptic_player(&player)
+					mac_stop_haptic_player(&player)
 				}
 			}
 			
@@ -1271,7 +1271,7 @@ remove_controller :: proc(s: ^Mac_State, controller: ^gc.Controller) {
 }
 
 when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
-	stop_haptic_player :: proc(player: ^^gc.HapticPatternPlayer) {
+	mac_stop_haptic_player :: proc(player: ^^gc.HapticPatternPlayer) {
 		if player^ == nil do return
 
 		player^->stopAtTime(gc.TimeImmediate, nil)
@@ -1279,7 +1279,7 @@ when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 		player^ = nil
 	}
 
-	init_haptic_engine :: proc(
+	mac_init_haptic_engine :: proc(
 		engine: ^^gc.HapticEngine,
 		locality: gc.HapticsLocality,
 		gamepad: ^Mac_Gamepad,
@@ -1295,7 +1295,7 @@ when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 		return success
 	}
 
-	create_haptic_player :: proc(left_right: int, intensity: f32, gamepad: ^Mac_Gamepad) {
+	mac_create_haptic_player :: proc(left_right: int, intensity: f32, gamepad: ^Mac_Gamepad) {
 		pattern: ^gc.HapticPattern
 
 		{
