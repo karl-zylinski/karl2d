@@ -611,7 +611,7 @@ key_handler :: proc "c" (
 
 	switch state {
 	case wl.KEYBOARD_KEY_STATE_RELEASED:
-		key := key_from_xkeycode(keycode)
+		key := linux_key_from_xkeycode(keycode)
 
 		if s.repeat_xkb_keycode == keycode {
 			s.repeat_key = .None
@@ -624,7 +624,7 @@ key_handler :: proc "c" (
 		}
 
 	case wl.KEYBOARD_KEY_STATE_PRESSED:
-		key := key_from_xkeycode(keycode)
+		key := linux_key_from_xkeycode(keycode)
 
 		if key != .None {
 			append(&s.events, Event_Key_Went_Down {

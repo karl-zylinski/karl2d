@@ -1,5 +1,5 @@
 #+build linux
-#+private file
+#+private package
 #+vet explicit-allocators
 
 package karl2d
@@ -15,7 +15,6 @@ import "platform_bindings/linux/udev"
 import "platform_bindings/linux/evdev"
 import "core:time"
 
-@(private="package")
 PLATFORM_LINUX :: Platform_Interface {
 	state_type = Linux_State,
 	init = linux_init,
@@ -24,7 +23,7 @@ PLATFORM_LINUX :: Platform_Interface {
 	get_events = linux_get_events,
 	before_present = linux_before_present,
 	set_window_title = linux_set_window_title,
-	set_screen_size = set_screen_size,
+	set_screen_size = linux_set_screen_size,
 	get_screen_width = linux_get_screen_width,
 	get_screen_height = linux_get_screen_height,
 	set_window_position = linux_set_window_position,
@@ -228,7 +227,7 @@ linux_get_window_position :: proc(s: ^Linux_State) -> Vec2 {
 	return s.win.get_position(s.win_state)
 }
 
-set_screen_size :: proc(s: ^Linux_State, w, h: int) {
+linux_set_screen_size :: proc(s: ^Linux_State, w, h: int) {
 	s.win.set_screen_size(s.win_state, w, h)
 }
 
@@ -324,7 +323,7 @@ linux_create_gamepad :: proc(s: ^Linux_State, device_path: string) -> (Linux_Gam
 				continue
 			}
 
-			axis := gamepad_axis_from_evdev_axis(i)
+			axis := linux_gamepad_axis_from_evdev_axis(i)
 
 			if axis != .None {
 				absinfo: evdev.input_absinfo
@@ -357,7 +356,7 @@ linux_create_gamepad :: proc(s: ^Linux_State, device_path: string) -> (Linux_Gam
 	return gamepad, true
 }
 
-gamepad_axis_from_evdev_axis :: proc(evdev_axis: evdev.Axis) -> Gamepad_Axis {
+linux_gamepad_axis_from_evdev_axis :: proc(evdev_axis: evdev.Axis) -> Gamepad_Axis {
 	#partial switch evdev_axis {
 		case .X:  return .Left_Stick_X
 		case .Y:  return .Left_Stick_Y
@@ -384,62 +383,63 @@ linux_is_gamepad_active :: proc(s: ^Linux_State, gamepad: int) -> bool {
 	return s.gamepads[gamepad].active
 }
 
-microsoft_button_from_evdev_button :: proc(b: evdev.Button) -> Gamepad_Button {
-	#partial switch b {
-	case .DPAD_UP: return .Left_Face_Right
-	case .DPAD_DOWN: return .Left_Face_Down
-	case .DPAD_LEFT: return .Left_Face_Left
-	case .DPAD_RIGHT: return .Left_Face_Up
-
-	case .A: return .Right_Face_Down
-	case .B: return .Right_Face_Right
-	case .X: return .Right_Face_Left
-	case .Y: return .Right_Face_Up
-
-	case .TL: return .Left_Shoulder
-	case .TL2: return .Left_Trigger
-	case .TR: return .Right_Shoulder
-	case .TR2: return .Right_Trigger
-
-	case .SELECT: return .Middle_Face_Left
-	case .MODE: return .Middle_Face_Middle
-	case .START: return .Middle_Face_Right
-	case .THUMBL: return .Left_Stick_Press
-	case .THUMBR: return .Right_Stick_Press
-	}
-
-	return .None
-}
-
-sony_button_from_evdev_button :: proc(b: evdev.Button) -> Gamepad_Button {
-	#partial switch b {
-	case .DPAD_UP: return .Left_Face_Right
-	case .DPAD_DOWN: return .Left_Face_Down
-	case .DPAD_LEFT: return .Left_Face_Left
-	case .DPAD_RIGHT: return .Left_Face_Up
-
-	case .A: return .Right_Face_Down
-	case .B: return .Right_Face_Right
-	case .X: return .Right_Face_Up
-	case .Y: return .Right_Face_Left
-
-	case .TL: return .Left_Shoulder
-	case .TL2: return .Left_Trigger
-	case .TR: return .Right_Shoulder
-	case .TR2: return .Right_Trigger
-
-	case .SELECT: return .Middle_Face_Left
-	case .MODE: return .Middle_Face_Middle
-	case .START: return .Middle_Face_Right
-	case .THUMBL: return .Left_Stick_Press
-	case .THUMBR: return .Right_Stick_Press
-	}
-
-	return .None
-}
-
 linux_get_gamepad_events :: proc(s: ^Linux_State, events: ^[dynamic]Event) {
 	event: evdev.input_event
+
+	microsoft_button_from_evdev_button :: proc(b: evdev.Button) -> Gamepad_Button {
+		#partial switch b {
+		case .DPAD_UP: return .Left_Face_Right
+		case .DPAD_DOWN: return .Left_Face_Down
+		case .DPAD_LEFT: return .Left_Face_Left
+		case .DPAD_RIGHT: return .Left_Face_Up
+
+		case .A: return .Right_Face_Down
+		case .B: return .Right_Face_Right
+		case .X: return .Right_Face_Left
+		case .Y: return .Right_Face_Up
+
+		case .TL: return .Left_Shoulder
+		case .TL2: return .Left_Trigger
+		case .TR: return .Right_Shoulder
+		case .TR2: return .Right_Trigger
+
+		case .SELECT: return .Middle_Face_Left
+		case .MODE: return .Middle_Face_Middle
+		case .START: return .Middle_Face_Right
+		case .THUMBL: return .Left_Stick_Press
+		case .THUMBR: return .Right_Stick_Press
+		}
+
+		return .None
+	}
+
+	sony_button_from_evdev_button :: proc(b: evdev.Button) -> Gamepad_Button {
+		#partial switch b {
+		case .DPAD_UP: return .Left_Face_Right
+		case .DPAD_DOWN: return .Left_Face_Down
+		case .DPAD_LEFT: return .Left_Face_Left
+		case .DPAD_RIGHT: return .Left_Face_Up
+
+		case .A: return .Right_Face_Down
+		case .B: return .Right_Face_Right
+		case .X: return .Right_Face_Up
+		case .Y: return .Right_Face_Left
+
+		case .TL: return .Left_Shoulder
+		case .TL2: return .Left_Trigger
+		case .TR: return .Right_Shoulder
+		case .TR2: return .Right_Trigger
+
+		case .SELECT: return .Middle_Face_Left
+		case .MODE: return .Middle_Face_Middle
+		case .START: return .Middle_Face_Right
+		case .THUMBL: return .Left_Stick_Press
+		case .THUMBR: return .Right_Stick_Press
+		}
+
+		return .None
+	}
+
 
 	for &gp, idx in s.gamepads {
 		if !gp.active {
@@ -494,7 +494,7 @@ linux_get_gamepad_events :: proc(s: ^Linux_State, events: ^[dynamic]Event) {
 
 				if evdev_axis == .Z || evdev_axis == .RZ {
 					// ^ triggers, goes between 0 an 1
-					axis := gamepad_axis_from_evdev_axis(evdev_axis)
+					axis := linux_gamepad_axis_from_evdev_axis(evdev_axis)
 					value := f32(event.value) / f32(gp.axes[axis].event_max)
 
 					// MS gamepads don't have trigger button event, so we fake it
@@ -554,7 +554,7 @@ linux_get_gamepad_events :: proc(s: ^Linux_State, events: ^[dynamic]Event) {
 					// -1 and 1. These often have a big min and max value. This code normalizes
 					// that integer value range into a float range of -1 to 1.
 
-					axis := gamepad_axis_from_evdev_axis(evdev_axis)
+					axis := linux_gamepad_axis_from_evdev_axis(evdev_axis)
 
 					if axis != .None {
 						min := f32(gp.axes[axis].event_min)
@@ -700,7 +700,6 @@ linux_set_cursor :: proc(s: ^Linux_State, cursor: Cursor) {
 // `name` is the freedesktop name, which is what current themes ship. `fallback` is the older X11
 // name for the same cursor: plenty of themes still only have those, and some have both. Neither is
 // guaranteed to exist, so callers have to handle a theme that has no cursor for it at all.
-@(private="package")
 linux_standard_cursor_names :: proc(cursor: Standard_Cursor) -> (name: cstring, fallback: cstring) {
 	switch cursor {
 	case .Default:     return "default", "left_ptr"
@@ -767,17 +766,15 @@ Linux_Gamepad :: struct {
 	rumble_effect_id: u32,
 }
 
-@(private="package")
-key_from_xkeycode :: proc(kc: u32) -> Keyboard_Key {
+linux_key_from_xkeycode :: proc(kc: u32) -> Keyboard_Key {
 	if kc >= 255 {
 		return .None
 	}
 
-	return KEY_FROM_XKEYCODE[u8(kc)]
+	return LINUX_KEY_FROM_XKEYCODE[u8(kc)]
 }
 
-@(private="package")
-KEY_FROM_XKEYCODE := [255]Keyboard_Key {
+LINUX_KEY_FROM_XKEYCODE := [255]Keyboard_Key {
 	8 = .Space,
 	9 = .Escape,
 	10 = .N1,
