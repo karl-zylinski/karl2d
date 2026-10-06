@@ -6,7 +6,7 @@ package karl2d
 
 @(private="package")
 PLATFORM_WINDOWS :: Platform_Interface {
-	state_size = windows_state_size,
+	state_type = Windows_State,
 	init = windows_init,
 	shutdown = windows_shutdown,
 	get_window_render_glue = windows_get_window_render_glue,
@@ -35,8 +35,6 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	set_gamepad_vibration = windows_set_gamepad_vibration,
 
 	open_url = windows_open_url,
-
-	set_internal_state = windows_set_internal_state,
 }
 
 import win32 "core:sys/windows"
@@ -46,20 +44,14 @@ import "base:runtime"
 import hm "core:container/handle_map"
 @require import "log"
 
-windows_state_size :: proc() -> int {
-	return size_of(Windows_State)
-}
-
 windows_init :: proc(
-	platform_state: rawptr,
+	s: ^Windows_State,
 	screen_width: int,
 	screen_height: int,
 	window_title: string,
 	options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
-	assert(platform_state != nil)
-	s = (^Windows_State)(platform_state)
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator = allocator)
 	s.custom_context = context
@@ -116,7 +108,7 @@ windows_init :: proc(
 		win32.CW_USEDEFAULT, win32.CW_USEDEFAULT,
 		i32(initial_rect.right - initial_rect.left),
 		i32(initial_rect.bottom - initial_rect.top),
-		nil, nil, instance, nil,
+		nil, nil, instance, s,
 	)
 
 	assert(s.hwnd != nil, "Failed creating window")
@@ -131,7 +123,7 @@ windows_init :: proc(
 		s.restore_window_pos_y = int(initial_pos.y)
 	}
 
-	windows_set_window_mode(options.window_mode)
+	windows_set_window_mode(s, options.window_mode)
 	
 	win32.XInputEnable(true)
 
@@ -146,7 +138,7 @@ windows_init :: proc(
 	}
 }
 
-windows_shutdown :: proc() {
+windows_shutdown :: proc(s: ^Windows_State) {
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		win32.DestroyCursor(cd.hcursor)
 	}
@@ -161,14 +153,14 @@ windows_shutdown :: proc() {
 	delete(s.events)
 }
 
-windows_get_window_render_glue :: proc() -> ^Window_Render_Glue {
+windows_get_window_render_glue :: proc(s: ^Windows_State) -> ^Window_Render_Glue {
 	return s.window_render_glue
 }
 
-windows_before_present :: proc() {
+windows_before_present :: proc(s: ^Windows_State) {
 }
 
-windows_get_events :: proc(events: ^[dynamic]Event) {
+windows_get_events :: proc(s: ^Windows_State, events: ^[dynamic]Event) {
 	msg: win32.MSG
 
 	for win32.PeekMessageW(&msg, nil, 0, 0, win32.PM_REMOVE) {
@@ -282,19 +274,19 @@ windows_get_events :: proc(events: ^[dynamic]Event) {
 	runtime.clear(&s.events)
 }
 
-windows_get_screen_width :: proc() -> int {
+windows_get_screen_width :: proc(s: ^Windows_State) -> int {
 	return s.screen_width
 }
 
-windows_get_screen_height :: proc() -> int {
+windows_get_screen_height :: proc(s: ^Windows_State) -> int {
 	return s.screen_height
 }
 
-windows_set_window_title :: proc(title: string) {
+windows_set_window_title :: proc(s: ^Windows_State, title: string) {
 	win32.SetWindowTextW(s.hwnd, win32.utf8_to_wstring(title, frame_allocator))
 }
 
-windows_set_window_position :: proc(x: int, y: int) {
+windows_set_window_position :: proc(s: ^Windows_State, x: int, y: int) {
 	// There's an invisible border on Windows, so the position won't be correct unless we take it
 	// into account.
 	real_r: win32.RECT
@@ -317,7 +309,7 @@ windows_set_window_position :: proc(x: int, y: int) {
 	)
 }
 
-windows_get_window_position :: proc() -> Vec2 {
+windows_get_window_position :: proc(s: ^Windows_State) -> Vec2 {
 	r: win32.RECT
 	win32.DwmGetWindowAttribute(
 		s.hwnd,
@@ -355,7 +347,7 @@ windows_get_style :: proc(window_mode: Window_Mode) -> win32.DWORD {
 	return style
 }
 
-windows_set_screen_size :: proc(w, h: int) {
+windows_set_screen_size :: proc(s: ^Windows_State, w, h: int) {
 	s.screen_width = w
 	s.screen_height = h
 
@@ -377,11 +369,11 @@ windows_set_screen_size :: proc(w, h: int) {
 	)
 }
 
-windows_get_window_scale :: proc() -> f32 {
+windows_get_window_scale :: proc(s: ^Windows_State) -> f32 {
 	return s.window_scale
 }
 
-windows_is_gamepad_active :: proc(gamepad: int) -> bool {
+windows_is_gamepad_active :: proc(s: ^Windows_State, gamepad: int) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
 	}
@@ -390,7 +382,7 @@ windows_is_gamepad_active :: proc(gamepad: int) -> bool {
 	return win32.XInputGetState(win32.XUSER(gamepad), &gp_state) == .SUCCESS
 }
 
-windows_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
+windows_get_gamepad_axis :: proc(s: ^Windows_State, gamepad: int, axis: Gamepad_Axis) -> f32 {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return 0
 	}
@@ -417,7 +409,7 @@ windows_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	return 0
 }
 
-windows_open_url :: proc(url: string) -> bool {
+windows_open_url :: proc(s: ^Windows_State, url: string) -> bool {
 	cmd := win32.utf8_to_wstring(url, frame_allocator)
 	res := win32.ShellExecuteW(s.hwnd, "open", cmd, nil, nil, win32.SW_NORMAL)
 
@@ -426,7 +418,7 @@ windows_open_url :: proc(url: string) -> bool {
 	return uintptr(res) > 32
 }
 
-windows_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
+windows_set_gamepad_vibration :: proc(s: ^Windows_State, gamepad: int, left: f32, right: f32) {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return
 	}
@@ -439,12 +431,8 @@ windows_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
 	win32.XInputSetState(win32.XUSER(gamepad), &vib)
 }
 
-windows_set_internal_state :: proc(state: rawptr) {
-	assert(state != nil)
-	s = (^Windows_State)(state)
-}
-
 Windows_State :: struct {
+	using _: Platform_State,
 	allocator: runtime.Allocator,
 	custom_context: runtime.Context,
 	hwnd: win32.HWND,
@@ -493,7 +481,7 @@ Windows_Cursor :: struct {
 	hcursor: win32.HCURSOR,
 }
 
-windows_set_window_mode :: proc(window_mode: Window_Mode) {
+windows_set_window_mode :: proc(s: ^Windows_State, window_mode: Window_Mode) {
 	old_window_mode := s.window_mode
 	s.window_mode = window_mode
 	style := windows_get_style(window_mode)
@@ -546,8 +534,8 @@ windows_set_window_mode :: proc(window_mode: Window_Mode) {
 	}
 }
 
-windows_set_window_icon :: proc(image: Image) -> bool {
-	hicon := windows_create_hicon(image, false, {0, 0})
+windows_set_window_icon :: proc(s: ^Windows_State, image: Image) -> bool {
+	hicon := windows_create_hicon(s, image, false, {0, 0})
 
 	if hicon == nil {
 		return false
@@ -570,16 +558,16 @@ windows_set_window_icon :: proc(image: Image) -> bool {
 	return true
 }
 
-windows_set_cursor_hidden :: proc(hidden: bool) {
+windows_set_cursor_hidden :: proc(s: ^Windows_State, hidden: bool) {
 	win32.ShowCursor(win32.BOOL(!hidden))
 	s.cursor_hidden = hidden
 }
 
-windows_is_cursor_hidden :: proc() -> bool {
+windows_is_cursor_hidden :: proc(s: ^Windows_State) -> bool {
 	return s.cursor_hidden
 }
 
-windows_set_mouse_locked :: proc(locked: bool) {
+windows_set_mouse_locked :: proc(s: ^Windows_State, locked: bool) {
 	s.mouse_locked = locked
 
 	if locked {
@@ -592,17 +580,17 @@ windows_set_mouse_locked :: proc(locked: bool) {
 		clip := win32.RECT{tl.x, tl.y, br.x, br.y}
 		win32.ClipCursor(&clip)
 		
-		windows_teleport_cursor_to_center()
+		windows_teleport_cursor_to_center(s)
 	} else {
 		win32.ClipCursor(nil)
 	}
 }
 
-windows_is_mouse_locked :: proc() -> bool {
+windows_is_mouse_locked :: proc(s: ^Windows_State) -> bool {
 	return s.mouse_locked
 }
 
-windows_teleport_cursor_to_center :: proc() {
+windows_teleport_cursor_to_center :: proc(s: ^Windows_State) {
 	cx := s.screen_width / 2
 	cy := s.screen_height / 2
 	pt := win32.POINT{i32(cx), i32(cy)}
@@ -618,7 +606,12 @@ windows_teleport_cursor_to_center :: proc() {
 // spot is the offset within the cursor at which it clicks.
 //
 // Returns `nil` upon failure.
-windows_create_hicon :: proc(image: Image, is_cursor: bool, cursor_hotspot: [2]int) -> win32.HICON {
+windows_create_hicon :: proc(
+	s: ^Windows_State,
+	image: Image,
+	is_cursor: bool,
+	cursor_hotspot: [2]int,
+) -> win32.HICON {
 	// The BITMAPV5HEADER and DIBSection stuff let us use a bitmap with alpha.
 	header := win32.BITMAPV5HEADER {
 		bV5Size        = size_of(win32.BITMAPV5HEADER),
@@ -691,8 +684,15 @@ windows_create_hicon :: proc(image: Image, is_cursor: bool, cursor_hotspot: [2]i
 	return hicon
 }
 
-windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
-	hcursor := (win32.HCURSOR)(windows_create_hicon(image, true, hotspot))
+windows_create_custom_cursor :: proc(
+	s: ^Windows_State,
+	image: Image,
+	hotspot: [2]int,
+) -> (
+	Custom_Cursor,
+	bool,
+) {
+	hcursor := (win32.HCURSOR)(windows_create_hicon(s, image, true, hotspot))
 
 	if hcursor == nil {
 		return {}, false
@@ -709,7 +709,7 @@ windows_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_C
 	return handle, true
 }
 
-windows_set_cursor :: proc(cursor: Cursor) {
+windows_set_cursor :: proc(s: ^Windows_State, cursor: Cursor) {
 	if cursor == s.current_cursor {
 		return
 	}
@@ -722,11 +722,11 @@ windows_set_cursor :: proc(cursor: Cursor) {
 	}
 
 	s.current_cursor = cursor
-	windows_apply_cursor()
+	windows_apply_cursor(s)
 }
 
 // Sets the OS cursor from s.current_cursor. Reverts to default cursor if current cursor is invalid.
-windows_apply_cursor :: proc() {
+windows_apply_cursor :: proc(s: ^Windows_State) {
 	handle: win32.HCURSOR
 
 	switch c in s.current_cursor {
@@ -764,7 +764,7 @@ windows_apply_cursor :: proc() {
 	win32.SetCursor(handle)
 }
 
-windows_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+windows_destroy_custom_cursor :: proc(s: ^Windows_State, custom_cursor: Custom_Cursor) {
 	cd := hm.get(&s.custom_cursors, custom_cursor)
 
 	if cd == nil {
@@ -777,12 +777,22 @@ windows_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 
 	win32.DestroyCursor(cd.hcursor)
 	hm.remove(&s.custom_cursors, custom_cursor)
-	windows_apply_cursor()
+	windows_apply_cursor(s)
 }
 
-s: ^Windows_State
-
 windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
+	if msg == win32.WM_NCCREATE {
+		create_struct := (^win32.CREATESTRUCTW)(uintptr(lparam))
+		create_params := win32.LONG_PTR(uintptr(create_struct.lpCreateParams))
+		win32.SetWindowLongPtrW(hwnd, win32.GWLP_USERDATA, create_params)
+	}
+
+	s := (^Windows_State)(uintptr(win32.GetWindowLongPtrW(hwnd, win32.GWLP_USERDATA)))
+
+	if s == nil {
+		return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
+	}
+
 	context = s.custom_context
 
 	switch msg {
@@ -861,7 +871,7 @@ windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam
 					position = {f32(x), f32(y)},
 				})
 
-				windows_teleport_cursor_to_center()
+				windows_teleport_cursor_to_center(s)
 			}
 		} else {
 			append(&s.events, Event_Mouse_Move {
