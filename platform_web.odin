@@ -69,7 +69,7 @@ web_init :: proc(
 	case .Windowed:
 		web_set_screen_size(s, window_width, window_height)
 	case .Windowed_Resizable:
-		web_set_screen_size_to_window_size(s, s.canvas_id)
+		web_set_screen_size_to_window_size(s)
 	case .Borderless_Fullscreen:
 		log.error("Borderless_Fullscreen not implemented on web, but you can make it happen by using Window_Mode.Windowed_Resizable and putting the game in a fullscreen iframe.")
 	}
@@ -177,7 +177,7 @@ web_event_window_resize :: proc(e: js.Event) {
 	}
 
 	if s.window_mode == .Windowed_Resizable {
-		web_set_screen_size_to_window_size(s, s.canvas_id)
+		web_set_screen_size_to_window_size(s)
 	}
 }
 
@@ -325,18 +325,18 @@ web_add_window_listener :: proc(
 	js.add_window_event_listener(evt, s, callback, true)
 }
 
-web_set_screen_size_to_window_size :: proc(s: ^Web_State, canvas_id: Web_HTML_Canvas_ID) {
+web_set_screen_size_to_window_size :: proc(s: ^Web_State) {
 	rect := js.get_bounding_client_rect("body")
 	
 	scale := web_get_window_scale(s)
 	s.width = int(f32(rect.width) * scale)
 	s.height = int(f32(rect.height) * scale)
 
-	js.set_element_key_f64(canvas_id, "width", f64(s.width))
-	js.set_element_key_f64(canvas_id, "height", f64(s.height))
+	js.set_element_key_f64(s.canvas_id, "width", f64(s.width))
+	js.set_element_key_f64(s.canvas_id, "height", f64(s.height))
 
-	js.set_element_style(canvas_id, "width", fmt.tprintf("%fpx", f64(rect.width)))
-	js.set_element_style(canvas_id, "height", fmt.tprintf("%fpx", f64(rect.height)))
+	js.set_element_style(s.canvas_id, "width", fmt.tprintf("%fpx", f64(rect.width)))
+	js.set_element_style(s.canvas_id, "height", fmt.tprintf("%fpx", f64(rect.height)))
 
 	append(&s.events, Event_Screen_Resize {
 		width = s.width,
@@ -365,7 +365,7 @@ web_get_window_render_glue :: proc(s: ^Web_State) -> ^Window_Render_Glue {
 // This works for XBox controller -- does it work for PlayStation?
 //
 // The magic numbers are from https://gamepad-tester.net/
-WEB_KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
+WEB_GAMEPAD_BUTTON_TO_K2 :: [Gamepad_Button]int {
 	.None = 0,
 	
 	.Left_Face_Up = 12,
@@ -414,7 +414,7 @@ web_get_events :: proc(s: ^Web_State, events: ^[dynamic]Event) {
 		ps := s.gamepad_state[gamepad_idx]
 
 		// We check if any button changed from pressed to not pressed and the other way around.
-		for js_idx, button in WEB_KARL2D_GAMEPAD_BUTTON_FROM_JS {
+		for js_idx, button in WEB_GAMEPAD_BUTTON_TO_K2 {
 			if js_idx == -1 {
 				continue
 			}
@@ -485,7 +485,7 @@ web_set_window_mode :: proc(s: ^Web_State, new_mode: Window_Mode) {
 	s.window_mode = new_mode
 
 	if new_mode == .Windowed_Resizable && old_mode == .Windowed {
-		web_set_screen_size_to_window_size(s, s.canvas_id)
+		web_set_screen_size_to_window_size(s)
 	} else if new_mode == .Windowed && old_mode == .Windowed_Resizable {
 		web_set_screen_size(s, s.width, s.height)
 	}
@@ -747,11 +747,11 @@ web_get_gamepad_axis :: proc(s: ^Web_State, gamepad: int, axis: Gamepad_Axis) ->
 	}
 
 	if axis == .Left_Trigger {
-		return f32(s.gamepad_state[gamepad].buttons[WEB_KARL2D_GAMEPAD_BUTTON_FROM_JS[.Left_Trigger]].value)
+		return f32(s.gamepad_state[gamepad].buttons[WEB_GAMEPAD_BUTTON_TO_K2[.Left_Trigger]].value)
 	}
 
 	if axis == .Right_Trigger {
-		return f32(s.gamepad_state[gamepad].buttons[WEB_KARL2D_GAMEPAD_BUTTON_FROM_JS[.Right_Trigger]].value)
+		return f32(s.gamepad_state[gamepad].buttons[WEB_GAMEPAD_BUTTON_TO_K2[.Right_Trigger]].value)
 	}
 
 	js_axis: int
