@@ -1,5 +1,5 @@
 #+build linux
-#+private file
+#+private package
 #+vet explicit-allocators
 
 package karl2d
@@ -15,16 +15,14 @@ import "platform_bindings/linux/udev"
 import "platform_bindings/linux/evdev"
 import "core:time"
 
-@(private="package")
 PLATFORM_LINUX :: Platform_Interface {
-	state_size = linux_state_size,
 	init = linux_init,
 	shutdown = linux_shutdown,
 	get_window_render_glue = linux_get_window_render_glue,
 	get_events = linux_get_events,
 	before_present = linux_before_present,
 	set_window_title = linux_set_window_title,
-	set_screen_size = set_screen_size,
+	set_screen_size = linux_set_screen_size,
 	get_screen_width = linux_get_screen_width,
 	get_screen_height = linux_get_screen_height,
 	set_window_position = linux_set_window_position,
@@ -43,25 +41,16 @@ PLATFORM_LINUX :: Platform_Interface {
 	get_gamepad_axis = linux_get_gamepad_axis,
 	set_gamepad_vibration = linux_set_gamepad_vibration,
 	open_url = linux_open_url,
-	set_internal_state = linux_set_internal_state,
-}
-
-s: ^Linux_State
-
-linux_state_size :: proc() -> int {
-	return size_of(Linux_State)
 }
 
 linux_init :: proc(
-	platform_state: rawptr,
+	s: ^Linux_State,
 	screen_width: int,
 	screen_height: int,
 	window_title: string,
 	options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
-	assert(platform_state != nil)
-	s = (^Linux_State)(platform_state)
 	s.allocator = allocator
 	
 	// We pick windowing system by trying to to actually load it. This means trying to runetime-load
@@ -140,7 +129,7 @@ linux_init :: proc(
 		allocator,
 	)
 
-	linux_create_connected_gamepads()
+	linux_create_connected_gamepads(s)
 
 	// Set up monitoring for new gamepads. This uses udev. It looks for `input` devices being added.
 	// The monitor is polled in `linux_get_events`.
@@ -152,9 +141,9 @@ linux_init :: proc(
 	}
 }
 
-linux_shutdown :: proc() {
+linux_shutdown :: proc(s: ^Linux_State) {
 	for &g in s.gamepads {
-		linux_destroy_gamepad(&g)
+		linux_destroy_gamepad(s, &g)
 	}
 
 	udev.monitor_unref(s.udev_mon)
@@ -165,21 +154,21 @@ linux_shutdown :: proc() {
 	free(s.win_state, a)
 }
 
-linux_get_window_render_glue :: proc() -> ^Window_Render_Glue {
+linux_get_window_render_glue :: proc(s: ^Linux_State) -> ^Window_Render_Glue {
 	return s.win.get_window_render_glue(s.win_state)
 }
 
-linux_before_present :: proc() {
+linux_before_present :: proc(s: ^Linux_State) {
 	s.win.before_present(s.win_state)
 }
 
-linux_get_events :: proc(events: ^[dynamic]Event) {
+linux_get_events :: proc(s: ^Linux_State, events: ^[dynamic]Event) {
 	s.win.get_events(s.win_state, events)
-	linux_poll_for_new_gamepads()
-	linux_get_gamepad_events(events)
+	linux_poll_for_new_gamepads(s)
+	linux_get_gamepad_events(s, events)
 }
 
-linux_poll_for_new_gamepads :: proc() {
+linux_poll_for_new_gamepads :: proc(s: ^Linux_State) {
 	pfd := posix.pollfd {
 		fd = posix.FD(udev.monitor_get_fd(s.udev_mon)),
 		events = {posix.Poll_Event_Bits.IN},
@@ -210,42 +199,42 @@ linux_poll_for_new_gamepads :: proc() {
 		}
 
 		if idx != -1 {
-			if gp, gp_ok := linux_create_gamepad(path); gp_ok {
+			if gp, gp_ok := linux_create_gamepad(s, path); gp_ok {
 				s.gamepads[idx] = gp
 			}
 		}
 	}
 }
 
-linux_get_screen_width :: proc() -> int {
+linux_get_screen_width :: proc(s: ^Linux_State) -> int {
 	return s.win.get_screen_width(s.win_state)
 }
 
-linux_get_screen_height :: proc() -> int {
+linux_get_screen_height :: proc(s: ^Linux_State) -> int {
 	return s.win.get_screen_height(s.win_state)
 }
 
-linux_set_window_title :: proc(title: string) {
+linux_set_window_title :: proc(s: ^Linux_State, title: string) {
 	s.win.set_title(s.win_state, title)
 }
 
-linux_set_window_position :: proc(x: int, y: int) {
+linux_set_window_position :: proc(s: ^Linux_State, x: int, y: int) {
 	s.win.set_position(s.win_state, x, y)
 }
 
-linux_get_window_position :: proc() -> Vec2 {
+linux_get_window_position :: proc(s: ^Linux_State) -> Vec2 {
 	return s.win.get_position(s.win_state)
 }
 
-set_screen_size :: proc(w, h: int) {
+linux_set_screen_size :: proc(s: ^Linux_State, w, h: int) {
 	s.win.set_screen_size(s.win_state, w, h)
 }
 
-linux_get_window_scale :: proc() -> f32 {
+linux_get_window_scale :: proc(s: ^Linux_State) -> f32 {
 	return s.win.get_window_scale(s.win_state)
 }
 
-linux_create_connected_gamepads :: proc() {
+linux_create_connected_gamepads :: proc(s: ^Linux_State) {
 	// Gamepads are described by device files at path `/dev/input/eventXX`
 	devices_handle, devices_handle_ok := os.open("/dev/input") 
 
@@ -277,14 +266,14 @@ linux_create_connected_gamepads :: proc() {
 			break					
 		}
 
-		if gamepad, gamepad_ok := linux_create_gamepad(fi.fullpath); gamepad_ok {
+		if gamepad, gamepad_ok := linux_create_gamepad(s, fi.fullpath); gamepad_ok {
 			s.gamepads[gamepad_idx] = gamepad
 			gamepad_idx += 1
 		}
 	}
 }
 
-linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
+linux_create_gamepad :: proc(s: ^Linux_State, device_path: string) -> (Linux_Gamepad, bool) {
 	fd, err := os.open(device_path, { .Read, .Write, .Non_Blocking })
 
 	if err != nil {
@@ -333,7 +322,7 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 				continue
 			}
 
-			axis := gamepad_axis_from_evdev_axis(i)
+			axis := linux_gamepad_axis_from_evdev_axis(i)
 
 			if axis != .None {
 				absinfo: evdev.input_absinfo
@@ -366,7 +355,7 @@ linux_create_gamepad :: proc(device_path: string) -> (Linux_Gamepad, bool) {
 	return gamepad, true
 }
 
-gamepad_axis_from_evdev_axis :: proc(evdev_axis: evdev.Axis) -> Gamepad_Axis {
+linux_gamepad_axis_from_evdev_axis :: proc(evdev_axis: evdev.Axis) -> Gamepad_Axis {
 	#partial switch evdev_axis {
 		case .X:  return .Left_Stick_X
 		case .Y:  return .Left_Stick_Y
@@ -379,13 +368,13 @@ gamepad_axis_from_evdev_axis :: proc(evdev_axis: evdev.Axis) -> Gamepad_Axis {
 	return .None
 }
 
-linux_destroy_gamepad :: proc(gamepad: ^Linux_Gamepad) {
+linux_destroy_gamepad :: proc(s: ^Linux_State, gamepad: ^Linux_Gamepad) {
 	os.close(gamepad.fd)
 	delete(gamepad.name, s.allocator)
 	gamepad.active = false
 }
 
-linux_is_gamepad_active :: proc(gamepad: int) -> bool {
+linux_is_gamepad_active :: proc(s: ^Linux_State, gamepad: int) -> bool {
 	if gamepad < 0 || gamepad > len(s.gamepads) - 1 || gamepad > MAX_GAMEPADS {
 		return false
 	}
@@ -393,62 +382,63 @@ linux_is_gamepad_active :: proc(gamepad: int) -> bool {
 	return s.gamepads[gamepad].active
 }
 
-microsoft_button_from_evdev_button :: proc(b: evdev.Button) -> Gamepad_Button {
-	#partial switch b {
-	case .DPAD_UP: return .Left_Face_Right
-	case .DPAD_DOWN: return .Left_Face_Down
-	case .DPAD_LEFT: return .Left_Face_Left
-	case .DPAD_RIGHT: return .Left_Face_Up
-
-	case .A: return .Right_Face_Down
-	case .B: return .Right_Face_Right
-	case .X: return .Right_Face_Left
-	case .Y: return .Right_Face_Up
-
-	case .TL: return .Left_Shoulder
-	case .TL2: return .Left_Trigger
-	case .TR: return .Right_Shoulder
-	case .TR2: return .Right_Trigger
-
-	case .SELECT: return .Middle_Face_Left
-	case .MODE: return .Middle_Face_Middle
-	case .START: return .Middle_Face_Right
-	case .THUMBL: return .Left_Stick_Press
-	case .THUMBR: return .Right_Stick_Press
-	}
-
-	return .None
-}
-
-sony_button_from_evdev_button :: proc(b: evdev.Button) -> Gamepad_Button {
-	#partial switch b {
-	case .DPAD_UP: return .Left_Face_Right
-	case .DPAD_DOWN: return .Left_Face_Down
-	case .DPAD_LEFT: return .Left_Face_Left
-	case .DPAD_RIGHT: return .Left_Face_Up
-
-	case .A: return .Right_Face_Down
-	case .B: return .Right_Face_Right
-	case .X: return .Right_Face_Up
-	case .Y: return .Right_Face_Left
-
-	case .TL: return .Left_Shoulder
-	case .TL2: return .Left_Trigger
-	case .TR: return .Right_Shoulder
-	case .TR2: return .Right_Trigger
-
-	case .SELECT: return .Middle_Face_Left
-	case .MODE: return .Middle_Face_Middle
-	case .START: return .Middle_Face_Right
-	case .THUMBL: return .Left_Stick_Press
-	case .THUMBR: return .Right_Stick_Press
-	}
-
-	return .None
-}
-
-linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
+linux_get_gamepad_events :: proc(s: ^Linux_State, events: ^[dynamic]Event) {
 	event: evdev.input_event
+
+	microsoft_button_from_evdev_button :: proc(b: evdev.Button) -> Gamepad_Button {
+		#partial switch b {
+		case .DPAD_UP: return .Left_Face_Right
+		case .DPAD_DOWN: return .Left_Face_Down
+		case .DPAD_LEFT: return .Left_Face_Left
+		case .DPAD_RIGHT: return .Left_Face_Up
+
+		case .A: return .Right_Face_Down
+		case .B: return .Right_Face_Right
+		case .X: return .Right_Face_Left
+		case .Y: return .Right_Face_Up
+
+		case .TL: return .Left_Shoulder
+		case .TL2: return .Left_Trigger
+		case .TR: return .Right_Shoulder
+		case .TR2: return .Right_Trigger
+
+		case .SELECT: return .Middle_Face_Left
+		case .MODE: return .Middle_Face_Middle
+		case .START: return .Middle_Face_Right
+		case .THUMBL: return .Left_Stick_Press
+		case .THUMBR: return .Right_Stick_Press
+		}
+
+		return .None
+	}
+
+	sony_button_from_evdev_button :: proc(b: evdev.Button) -> Gamepad_Button {
+		#partial switch b {
+		case .DPAD_UP: return .Left_Face_Right
+		case .DPAD_DOWN: return .Left_Face_Down
+		case .DPAD_LEFT: return .Left_Face_Left
+		case .DPAD_RIGHT: return .Left_Face_Up
+
+		case .A: return .Right_Face_Down
+		case .B: return .Right_Face_Right
+		case .X: return .Right_Face_Up
+		case .Y: return .Right_Face_Left
+
+		case .TL: return .Left_Shoulder
+		case .TL2: return .Left_Trigger
+		case .TR: return .Right_Shoulder
+		case .TR2: return .Right_Trigger
+
+		case .SELECT: return .Middle_Face_Left
+		case .MODE: return .Middle_Face_Middle
+		case .START: return .Middle_Face_Right
+		case .THUMBL: return .Left_Stick_Press
+		case .THUMBR: return .Right_Stick_Press
+		}
+
+		return .None
+	}
+
 
 	for &gp, idx in s.gamepads {
 		if !gp.active {
@@ -460,7 +450,7 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 
 			if event_read_err != nil && event_read_err != .EAGAIN {
 				log.debugf("Gamepad %v disconnected", idx)
-				linux_destroy_gamepad(&gp)
+				linux_destroy_gamepad(s, &gp)
 				break
 			}
 
@@ -503,7 +493,7 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 
 				if evdev_axis == .Z || evdev_axis == .RZ {
 					// ^ triggers, goes between 0 an 1
-					axis := gamepad_axis_from_evdev_axis(evdev_axis)
+					axis := linux_gamepad_axis_from_evdev_axis(evdev_axis)
 					value := f32(event.value) / f32(gp.axes[axis].event_max)
 
 					// MS gamepads don't have trigger button event, so we fake it
@@ -563,7 +553,7 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 					// -1 and 1. These often have a big min and max value. This code normalizes
 					// that integer value range into a float range of -1 to 1.
 
-					axis := gamepad_axis_from_evdev_axis(evdev_axis)
+					axis := linux_gamepad_axis_from_evdev_axis(evdev_axis)
 
 					if axis != .None {
 						min := f32(gp.axes[axis].event_min)
@@ -577,7 +567,7 @@ linux_get_gamepad_events :: proc(events: ^[dynamic]Event) {
 	}
 }
 
-linux_get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32 {
+linux_get_gamepad_axis :: proc(s: ^Linux_State, gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f32 {
 	if axis < min(Gamepad_Axis) || axis > max(Gamepad_Axis) {
 		return 0
 	}
@@ -589,7 +579,12 @@ linux_get_gamepad_axis :: proc(gamepad: Gamepad_Index, axis: Gamepad_Axis) -> f3
 	return s.gamepads[gamepad].axes[axis].value
 }
 
-linux_set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
+linux_set_gamepad_vibration :: proc(
+	s: ^Linux_State,
+	gamepad: Gamepad_Index,
+	left: f32,
+	right: f32,
+) {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return
 	}
@@ -635,7 +630,7 @@ linux_set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f3
 	os.write(gp.fd, mem.any_to_bytes(syn_event))
 }
 
-linux_open_url :: proc(url: string) -> bool {
+linux_open_url :: proc(s: ^Linux_State, url: string) -> bool {
 	process, process_err := os.process_start(
 		{
 			command = {
@@ -659,40 +654,42 @@ linux_open_url :: proc(url: string) -> bool {
 	return process_state.exit_code == 0
 }
 
-linux_set_internal_state :: proc(state: rawptr) {
-	assert(state != nil)
-	s = (^Linux_State)(state)
-}
-
-linux_set_window_mode :: proc(window_mode: Window_Mode) {
+linux_set_window_mode :: proc(s: ^Linux_State, window_mode: Window_Mode) {
 	s.win.set_window_mode(s.win_state, window_mode)
 }
 
-linux_set_window_icon :: proc(image: Image) -> bool {
+linux_set_window_icon :: proc(s: ^Linux_State, image: Image) -> bool {
 	return s.win.set_window_icon(s.win_state, image)
 }
 
-linux_set_cursor_hidden :: proc(hidden: bool) {
+linux_set_cursor_hidden :: proc(s: ^Linux_State, hidden: bool) {
 	s.win.set_cursor_hidden(s.win_state, hidden)
 }
 
-linux_is_cursor_hidden :: proc() -> bool {
+linux_is_cursor_hidden :: proc(s: ^Linux_State) -> bool {
 	return s.win.is_cursor_hidden(s.win_state)
 }
 
-linux_set_mouse_locked :: proc(locked: bool) {
+linux_set_mouse_locked :: proc(s: ^Linux_State, locked: bool) {
 	s.win.set_mouse_locked(s.win_state, locked)
 }
 
-linux_is_mouse_locked :: proc() -> bool {
+linux_is_mouse_locked :: proc(s: ^Linux_State) -> bool {
 	return s.win.is_mouse_locked(s.win_state)
 }
 
-linux_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
+linux_create_custom_cursor :: proc(
+	s: ^Linux_State,
+	image: Image,
+	hotspot: [2]int,
+) -> (
+	Custom_Cursor,
+	bool,
+) {
 	return s.win.create_custom_cursor(s.win_state, image, hotspot)
 }
 
-linux_set_cursor :: proc(cursor: Cursor) {
+linux_set_cursor :: proc(s: ^Linux_State, cursor: Cursor) {
 	s.win.set_cursor(s.win_state, cursor)
 }
 
@@ -702,7 +699,6 @@ linux_set_cursor :: proc(cursor: Cursor) {
 // `name` is the freedesktop name, which is what current themes ship. `fallback` is the older X11
 // name for the same cursor: plenty of themes still only have those, and some have both. Neither is
 // guaranteed to exist, so callers have to handle a theme that has no cursor for it at all.
-@(private="package")
 linux_standard_cursor_names :: proc(cursor: Standard_Cursor) -> (name: cstring, fallback: cstring) {
 	switch cursor {
 	case .Default:     return "default", "left_ptr"
@@ -722,11 +718,12 @@ linux_standard_cursor_names :: proc(cursor: Standard_Cursor) -> (name: cstring, 
 	return "default", "left_ptr"
 }
 
-linux_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+linux_destroy_custom_cursor :: proc(s: ^Linux_State, custom_cursor: Custom_Cursor) {
 	s.win.destroy_custom_cursor(s.win_state, custom_cursor)
 }
 
 Linux_State :: struct {
+	using _: Platform_State,
 	win: Linux_Window_Interface,
 	win_state: ^Linux_Window_State,
 	allocator: runtime.Allocator,
@@ -768,17 +765,15 @@ Linux_Gamepad :: struct {
 	rumble_effect_id: u32,
 }
 
-@(private="package")
-key_from_xkeycode :: proc(kc: u32) -> Keyboard_Key {
+linux_xkeycode_to_k2key :: proc(kc: u32) -> Keyboard_Key {
 	if kc >= 255 {
 		return .None
 	}
 
-	return KEY_FROM_XKEYCODE[u8(kc)]
+	return LINUX_KEY_FROM_XKEYCODE[u8(kc)]
 }
 
-@(private="package")
-KEY_FROM_XKEYCODE := [255]Keyboard_Key {
+LINUX_KEY_FROM_XKEYCODE := [255]Keyboard_Key {
 	8 = .Space,
 	9 = .Escape,
 	10 = .N1,

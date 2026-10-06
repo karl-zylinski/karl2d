@@ -2,11 +2,11 @@ package karl2d
 
 import "base:runtime"
 
-Platform_Interface :: struct #all_or_none {
-	state_size: proc() -> int,
+Platform_State :: struct {}
 
+Platform_Interface :: struct #all_or_none {
 	init: proc(
-		platform_state: rawptr,
+		s: ^Platform_State,
 		window_width: int,
 		window_height: int,
 		window_title: string,
@@ -14,35 +14,40 @@ Platform_Interface :: struct #all_or_none {
 		allocator: runtime.Allocator,
 	),
 
-	shutdown: proc(),
-	get_window_render_glue: proc() -> ^Window_Render_Glue,
-	get_events: proc(events: ^[dynamic]Event),
-	before_present: proc(),
-	set_window_title: proc(title: string),
-	set_window_position: proc(x: int, y: int),
-	get_window_position: proc() -> Vec2,
-	set_screen_size: proc(w, h: int),
-	get_screen_width: proc() -> int,
-	get_screen_height: proc() -> int,
-	get_window_scale: proc() -> f32,
-	set_window_mode: proc(window_mode: Window_Mode),
-	set_window_icon: proc(image: Image) -> bool,
+	shutdown: proc(s: ^Platform_State),
+	get_window_render_glue: proc(s: ^Platform_State) -> ^Window_Render_Glue,
+	get_events: proc(s: ^Platform_State, events: ^[dynamic]Event),
+	before_present: proc(s: ^Platform_State),
+	set_window_title: proc(s: ^Platform_State, title: string),
+	set_window_position: proc(s: ^Platform_State, x: int, y: int),
+	get_window_position: proc(s: ^Platform_State) -> Vec2,
+	set_screen_size: proc(s: ^Platform_State, w, h: int),
+	get_screen_width: proc(s: ^Platform_State) -> int,
+	get_screen_height: proc(s: ^Platform_State) -> int,
+	get_window_scale: proc(s: ^Platform_State) -> f32,
+	set_window_mode: proc(s: ^Platform_State, window_mode: Window_Mode),
+	set_window_icon: proc(s: ^Platform_State, image: Image) -> bool,
 
-	set_cursor_hidden: proc(hidden: bool),
-	is_cursor_hidden: proc() -> bool,
-	set_mouse_locked: proc(locked: bool),
-	is_mouse_locked: proc() -> bool,
-	create_custom_cursor: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool),
-	set_cursor: proc(cursor: Cursor),
-	destroy_custom_cursor: proc(custom_cursor: Custom_Cursor),
+	set_cursor_hidden: proc(s: ^Platform_State, hidden: bool),
+	is_cursor_hidden: proc(s: ^Platform_State) -> bool,
+	set_mouse_locked: proc(s: ^Platform_State, locked: bool),
+	is_mouse_locked: proc(s: ^Platform_State) -> bool,
+	create_custom_cursor: proc(
+		s: ^Platform_State,
+		image: Image,
+		hotspot: [2]int,
+	) -> (
+		Custom_Cursor,
+		bool,
+	),
+	set_cursor: proc(s: ^Platform_State, cursor: Cursor),
+	destroy_custom_cursor: proc(s: ^Platform_State, custom_cursor: Custom_Cursor),
 
-	is_gamepad_active: proc(gamepad: int) -> bool,
-	get_gamepad_axis: proc(gamepad: int, axis: Gamepad_Axis) -> f32,
-	set_gamepad_vibration: proc(gamepad: int, left: f32, right: f32),
+	is_gamepad_active: proc(s: ^Platform_State, gamepad: int) -> bool,
+	get_gamepad_axis: proc(s: ^Platform_State, gamepad: int, axis: Gamepad_Axis) -> f32,
+	set_gamepad_vibration: proc(s: ^Platform_State, gamepad: int, left: f32, right: f32),
 
-	open_url: proc(url: string) -> bool,
-
-	set_internal_state: proc(state: rawptr),
+	open_url: proc(s: ^Platform_State, url: string) -> bool,
 }
 
 // Sometimes referred to as the "render context". This is the stuff that glues together a certain

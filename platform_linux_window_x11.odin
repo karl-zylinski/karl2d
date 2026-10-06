@@ -254,7 +254,7 @@ x11_get_events :: proc(s: ^X11_State, events: ^[dynamic]Event) {
 				append(events, Event_Close_Window_Requested{})
 			}
 		case .KeyPress:
-			key := key_from_xkeycode(event.xkey.keycode)
+			key := linux_xkeycode_to_k2key(event.xkey.keycode)
 			kc := u8(min(event.xkey.keycode, 255))
 
 			if key != .None {
@@ -273,7 +273,7 @@ x11_get_events :: proc(s: ^X11_State, events: ^[dynamic]Event) {
 			_x11_append_typed_runes(s, events, &event.xkey)
 
 		case .KeyRelease:
-			key := key_from_xkeycode(event.xkey.keycode)
+			key := linux_xkeycode_to_k2key(event.xkey.keycode)
 			kc := u8(min(event.xkey.keycode, 255))
 
 			if !s.detectable_autorepeat && X.Pending(s.display) > 0 {
