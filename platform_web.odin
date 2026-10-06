@@ -7,7 +7,7 @@ package karl2d
 
 @(private="package")
 PLATFORM_WEB :: Platform_Interface {
-	state_size = web_state_size,
+	state_type = Web_State,
 	init = web_init,
 	shutdown = web_shutdown,
 	get_window_render_glue = web_get_window_render_glue,
@@ -36,8 +36,6 @@ PLATFORM_WEB :: Platform_Interface {
 	set_gamepad_vibration = web_set_gamepad_vibration,
 
 	open_url = web_open_url,
-
-	set_internal_state = web_set_internal_state,
 }
 
 import "core:sys/wasm/js"
@@ -52,19 +50,14 @@ import "core:fmt"
 // The link element in index.html that `web_set_window_icon` writes the favicon into.
 FAVICON_ELEMENT_ID :: "karl2d-favicon"
 
-web_state_size :: proc() -> int {
-	return size_of(Web_State)
-}
-
 web_init :: proc(
-	window_state: rawptr,
+	s: ^Web_State,
 	window_width: int,
 	window_height: int,
 	window_title: string,
 	init_options: Init_Options,
 	allocator: runtime.Allocator,
 ) {
-	s = (^Web_State)(window_state)
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
 	s.key_from_js_event_key_code = make(map[string]Keyboard_Key, allocator)
@@ -76,34 +69,34 @@ web_init :: proc(
 	// The browser window probably has some other size than what was sent in.
 	switch init_options.window_mode {
 	case .Windowed:
-		web_set_screen_size(window_width, window_height)
+		web_set_screen_size(s, window_width, window_height)
 	case .Windowed_Resizable:
-		web_set_screen_size_to_window_size(s.canvas_id)
+		web_set_screen_size_to_window_size(s, s.canvas_id)
 	case .Borderless_Fullscreen:
 		log.error("Borderless_Fullscreen not implemented on web, but you can make it happen by using Window_Mode.Windowed_Resizable and putting the game in a fullscreen iframe.")
 	}
 
 	s.window_mode = init_options.window_mode
 
-	add_window_event_listener(.Resize, web_event_window_resize)
+	add_window_event_listener(s, .Resize, web_event_window_resize)
 
 	// One pointer model for mouse, pen and touch. Up sits on the window because a mouse pointer
 	// gets no implicit capture: a drag that ends outside the canvas still has to release. Touch
 	// pointers do get capture, and their events bubble to the window anyway.
-	add_canvas_event_listener(.Pointer_Down, web_event_pointer_down)
-	add_canvas_event_listener(.Pointer_Move, web_event_pointer_move)
-	add_window_event_listener(.Pointer_Up, web_event_pointer_up)
-	add_canvas_event_listener(.Pointer_Cancel, web_event_pointer_cancel)
+	add_canvas_event_listener(s, .Pointer_Down, web_event_pointer_down)
+	add_canvas_event_listener(s, .Pointer_Move, web_event_pointer_move)
+	add_window_event_listener(s, .Pointer_Up, web_event_pointer_up)
+	add_canvas_event_listener(s, .Pointer_Cancel, web_event_pointer_cancel)
 
 	// Not a pointer event, so the wheel keeps its own listener.
-	add_canvas_event_listener(.Wheel, web_event_mouse_wheel)
+	add_canvas_event_listener(s, .Wheel, web_event_mouse_wheel)
 
-	add_window_event_listener(.Key_Down, web_event_key_down)
-	add_window_event_listener(.Key_Up, web_event_key_up)
-	add_window_event_listener(.Focus, web_event_focus)
-	add_window_event_listener(.Blur, web_event_blur)
+	add_window_event_listener(s, .Key_Down, web_event_key_down)
+	add_window_event_listener(s, .Key_Up, web_event_key_up)
+	add_window_event_listener(s, .Focus, web_event_focus)
+	add_window_event_listener(s, .Blur, web_event_blur)
 
-	add_window_event_listener(.Pointer_Lock_Change, _web_event_pointer_lock_change)
+	add_window_event_listener(s, .Pointer_Lock_Change, _web_event_pointer_lock_change)
 
 	if init_options.disable_auto_scale_hint {
 		log.warn("disable_auto_scale_hint not supported on web")
@@ -111,7 +104,9 @@ web_init :: proc(
 }
 
 web_event_key_down :: proc(e: js.Event) {
-	key := key_from_js_event(e)
+	s := (^Web_State)(e.user_data)
+
+	key := key_from_js_event(s, e)
 
 	if key != .None {
 		if e.key.repeat {
@@ -145,29 +140,37 @@ web_event_key_down :: proc(e: js.Event) {
 }
 
 web_event_key_up :: proc(e: js.Event) {
-	key := key_from_js_event(e)
+	s := (^Web_State)(e.user_data)
+
+	key := key_from_js_event(s, e)
 	append(&s.events, Event_Key_Went_Up {
 		key = key,
 	})
 }
 
 web_event_focus :: proc(e: js.Event) {
+	s := (^Web_State)(e.user_data)
+
 	append(&s.events, Event_Window_Focused {})
 }
 
 web_event_blur :: proc(e: js.Event) {
+	s := (^Web_State)(e.user_data)
+
 	s.mouse_locked = false
 	append(&s.events, Event_Window_Unfocused {})
 }
 
 web_event_window_resize :: proc(e: js.Event) {
+	s := (^Web_State)(e.user_data)
+
 	new_scale := f32(js.device_pixel_ratio())
 
 	// We get a window resize event on DPI scale change. Therefore we can piggyback on this to do
 	// send the event about the DPI changing.
 	if new_scale != s.prev_scale {
 		s.prev_scale = new_scale
-		web_set_screen_size(s.width, s.height)
+		web_set_screen_size(s, s.width, s.height)
 		append(&s.events, Event_Window_Scale_Changed {
 			scale = new_scale,
 			screen_width = s.width,
@@ -176,12 +179,14 @@ web_event_window_resize :: proc(e: js.Event) {
 	}
 
 	if s.window_mode == .Windowed_Resizable {
-		web_set_screen_size_to_window_size(s.canvas_id)
+		web_set_screen_size_to_window_size(s, s.canvas_id)
 	}
 }
 
 
 web_event_mouse_wheel :: proc(e: js.Event) {
+	s := (^Web_State)(e.user_data)
+
 	// Not the best way, but how would we know what the wheel deltaMode really represents? If it is
 	// in pixels, how much "scroll" does that equal to? So we keep the direction and call it one
 	// click. The browser measures down and right as positive, so the vertical axis is flipped.
@@ -203,6 +208,8 @@ web_event_mouse_wheel :: proc(e: js.Event) {
 // mouse. The browser's own post-tap mouse events are not pointer events, so they never reach us
 // and a tap cannot arrive twice.
 web_event_pointer_down :: proc(e: js.Event) {
+	s := (^Web_State)(e.user_data)
+
 	if e.mouse.pointer.pointer_type == .Touch {
 		append(&s.events, Event_Touch_Went_Down {
 			id = Touch_Id(e.mouse.pointer.pointer_id),
@@ -227,6 +234,8 @@ web_event_pointer_down :: proc(e: js.Event) {
 }
 
 web_event_pointer_move :: proc(e: js.Event) {
+	s := (^Web_State)(e.user_data)
+
 	if e.mouse.pointer.pointer_type == .Touch {
 		append(&s.events, Event_Touch_Moved {
 			id = Touch_Id(e.mouse.pointer.pointer_id),
@@ -253,6 +262,8 @@ web_event_pointer_move :: proc(e: js.Event) {
 }
 
 web_event_pointer_up :: proc(e: js.Event) {
+	s := (^Web_State)(e.user_data)
+
 	if e.mouse.pointer.pointer_type == .Touch {
 		append(&s.events, Event_Touch_Went_Up {
 			id = Touch_Id(e.mouse.pointer.pointer_id),
@@ -278,6 +289,8 @@ web_event_pointer_up :: proc(e: js.Event) {
 
 // Only touch is cancelled in practice. A mouse that somehow gets here has no button to release.
 web_event_pointer_cancel :: proc(e: js.Event) {
+	s := (^Web_State)(e.user_data)
+
 	if e.mouse.pointer.pointer_type != .Touch {
 		return
 	}
@@ -292,28 +305,32 @@ web_touch_position :: proc(e: js.Event) -> Vec2 {
 	}
 }
 
-add_canvas_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
+add_canvas_event_listener :: proc(
+	s: ^Web_State,
+	evt: js.Event_Kind,
+	callback: proc(e: js.Event),
+) {
 	js.add_event_listener(
 		s.canvas_id, 
 		evt, 
-		nil, 
+		s,
 		callback,
 		true,
 	)
 }
 
-add_window_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
-	js.add_window_event_listener(evt, nil, callback, true)
+add_window_event_listener :: proc(
+	s: ^Web_State,
+	evt: js.Event_Kind,
+	callback: proc(e: js.Event),
+) {
+	js.add_window_event_listener(evt, s, callback, true)
 }
 
-remove_window_event_listener :: proc(evt: js.Event_Kind, callback: proc(e: js.Event)) {
-	js.remove_window_event_listener(evt, nil, callback, true)
-}
-
-web_set_screen_size_to_window_size :: proc(canvas_id: HTML_Canvas_ID) {
+web_set_screen_size_to_window_size :: proc(s: ^Web_State, canvas_id: HTML_Canvas_ID) {
 	rect := js.get_bounding_client_rect("body")
 	
-	scale := web_get_window_scale()
+	scale := web_get_window_scale(s)
 	s.width = int(f32(rect.width) * scale)
 	s.height = int(f32(rect.height) * scale)
 
@@ -329,7 +346,7 @@ web_set_screen_size_to_window_size :: proc(canvas_id: HTML_Canvas_ID) {
 	})
 }
 
-web_shutdown :: proc() {
+web_shutdown :: proc(s: ^Web_State) {
 	for it := hm.dynamic_iterator_make(&s.custom_cursors); cd, _ in hm.dynamic_iterate(&it) {
 		delete(cd.data_uri, s.allocator)
 		delete(cd.style_value, s.allocator)
@@ -341,7 +358,7 @@ web_shutdown :: proc() {
 	delete(s.key_from_js_event_key_code)
 }
 
-web_get_window_render_glue :: proc() -> ^Window_Render_Glue {
+web_get_window_render_glue :: proc(s: ^Web_State) -> ^Window_Render_Glue {
 	// We can only use WebGL backend right now, so this is very simple: Just pass a pointer to the 
 	// canvas ID string. 
 	return (^Window_Render_Glue)(&s.canvas_id)
@@ -377,10 +394,10 @@ KARL2D_GAMEPAD_BUTTON_FROM_JS :: [Gamepad_Button]int {
 	.Middle_Face_Right = 9, 
 }
 
-web_before_present :: proc() {
+web_before_present :: proc(s: ^Web_State) {
 }
 
-web_get_events :: proc(events: ^[dynamic]Event) {
+web_get_events :: proc(s: ^Web_State, events: ^[dynamic]Event) {
 	append(events, ..s.events[:])
 	runtime.clear(&s.events)
 
@@ -423,33 +440,29 @@ web_get_events :: proc(events: ^[dynamic]Event) {
 	}
 }
 
-web_get_screen_width :: proc() -> int {
+web_get_screen_width :: proc(s: ^Web_State) -> int {
 	return s.width
 }
 
-web_get_screen_height :: proc() -> int {
+web_get_screen_height :: proc(s: ^Web_State) -> int {
 	return s.height
 }
 
-web_clear_events :: proc() {
-	runtime.clear(&s.events)
-}
-
-web_set_window_title :: proc(title: string) {
+web_set_window_title :: proc(s: ^Web_State, title: string) {
 	js.set_document_title(title)
 }
 
-web_set_position :: proc(x: int, y: int) {
+web_set_position :: proc(s: ^Web_State, x: int, y: int) {
 	log.warn("set_window_position not implemented on web")
 }
 
-web_get_position :: proc() -> Vec2 {
+web_get_position :: proc(s: ^Web_State) -> Vec2 {
 	log.warn("get_window_position not implemented on web")
 	return {}
 }
 
-web_set_screen_size :: proc(w, h: int) {
-	scale := web_get_window_scale()
+web_set_screen_size :: proc(s: ^Web_State, w, h: int) {
+	scale := web_get_window_scale(s)
 	s.width = int(f32(w) * scale)
 	s.height = int(f32(h) * scale)
 
@@ -460,11 +473,11 @@ web_set_screen_size :: proc(w, h: int) {
 	js.set_element_style(s.canvas_id, "height", fmt.tprintf("%fpx", f64(h)))
 }
 
-web_get_window_scale :: proc() -> f32 {
+web_get_window_scale :: proc(s: ^Web_State) -> f32 {
 	return f32(js.device_pixel_ratio())
 }
 
-web_set_window_mode :: proc(new_mode: Window_Mode) {
+web_set_window_mode :: proc(s: ^Web_State, new_mode: Window_Mode) {
 	if new_mode == .Borderless_Fullscreen {
 		log.error("Borderless_Fullscreen not implemented on web, but you can make it happen by using Window_Mode.Windowed_Resizable and putting the game in a fullscreen iframe.")
 		return
@@ -474,9 +487,9 @@ web_set_window_mode :: proc(new_mode: Window_Mode) {
 	s.window_mode = new_mode
 
 	if new_mode == .Windowed_Resizable && old_mode == .Windowed {
-		web_set_screen_size_to_window_size(s.canvas_id)
+		web_set_screen_size_to_window_size(s, s.canvas_id)
 	} else if new_mode == .Windowed && old_mode == .Windowed_Resizable {
-		web_set_screen_size(s.width, s.height)
+		web_set_screen_size(s, s.width, s.height)
 	}
 }
 
@@ -498,7 +511,7 @@ web_png_data_uri :: proc(image: Image, allocator: runtime.Allocator) -> (string,
 
 // A page has no window icon, so this sets the favicon instead, as a PNG data URI. Needs the
 // `karl2d-favicon` link element that the `build_web` template puts in `index.html`.
-web_set_window_icon :: proc(image: Image) -> bool {
+web_set_window_icon :: proc(s: ^Web_State, image: Image) -> bool {
 	// Every element that exists has its own id as the value of its `id` property, so a zero length
 	// means there is no such element.
 	if js.get_element_key_string_length(FAVICON_ELEMENT_ID, "id") == 0 {
@@ -515,21 +528,23 @@ web_set_window_icon :: proc(image: Image) -> bool {
 	return true
 }
 
-web_set_cursor_hidden :: proc(hidden: bool) {
+web_set_cursor_hidden :: proc(s: ^Web_State, hidden: bool) {
 	s.cursor_hidden = hidden
-	web_apply_cursor()
+	web_apply_cursor(s)
 }
 
-web_is_cursor_hidden :: proc() -> bool {
+web_is_cursor_hidden :: proc(s: ^Web_State) -> bool {
 	return s.cursor_hidden
 }
 
 _web_event_pointer_lock_change :: proc(e: js.Event) {
+	s := (^Web_State)(e.user_data)
+
 	js.evaluate("document.getElementById('webgl-canvas')._pointerLocked = document.pointerLockElement !== null ? 1 : 0")
 	s.mouse_locked = js.get_element_key_f64("webgl-canvas", "_pointerLocked") != 0
 }
 
-web_set_mouse_locked :: proc(locked: bool) {
+web_set_mouse_locked :: proc(s: ^Web_State, locked: bool) {
 	if locked {
 		js.evaluate("document.getElementById('webgl-canvas').requestPointerLock()")
 		cx := f32(s.width / 2)
@@ -542,11 +557,18 @@ web_set_mouse_locked :: proc(locked: bool) {
 	// s.mouse_locked set by _web_event_pointer_lock_change
 }
 
-web_is_mouse_locked :: proc() -> bool {
+web_is_mouse_locked :: proc(s: ^Web_State) -> bool {
 	return s.mouse_locked
 }
 
-web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Cursor, bool) {
+web_create_custom_cursor :: proc(
+	s: ^Web_State,
+	image: Image,
+	hotspot: [2]int,
+) -> (
+	Custom_Cursor,
+	bool,
+) {
 	// There is no hardware cursor API on the web, so we hand the browser a PNG as a data URI and
 	// let CSS do the work.
 	data_uri, data_uri_ok := web_png_data_uri(image, s.allocator)
@@ -556,7 +578,7 @@ web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Curso
 
 	// Browsers cap `cursor` images at 128 CSS pixels; anything bigger is either clamped or, in
 	// Firefox, ignored entirely and silently replaced with the default cursor.
-	scale := web_get_window_scale()
+	scale := web_get_window_scale(s)
 	if f32(image.width)/scale > 128 || f32(image.height)/scale > 128 {
 		log.warnf(
 			"Cursor image is %vx%v physical pixels, which is %.0fx%.0f CSS pixels at the current " +
@@ -570,7 +592,7 @@ web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Curso
 
 	cursor := Web_Cursor{hotspot = hotspot}
 	cursor.data_uri = data_uri
-	web_build_cursor_style(&cursor)
+	web_build_cursor_style(s, &cursor)
 
 	handle, add_err := hm.add(&s.custom_cursors, cursor)
 
@@ -592,11 +614,11 @@ web_create_custom_cursor :: proc(image: Image, hotspot: [2]int) -> (Custom_Curso
 // `image-set` fixes that by telling the browser the image has `scale` device pixels per CSS pixel,
 // which both scales it down and keeps it crisp. The hotspot is in CSS pixels too, so it is scaled
 // to match. We keep the plain `url` value around as a fallback, see `web_set_cursor`.
-web_build_cursor_style :: proc(cursor: ^Web_Cursor) {
+web_build_cursor_style :: proc(s: ^Web_State, cursor: ^Web_Cursor) {
 	delete(cursor.style_value, s.allocator)
 	delete(cursor.style_value_scaled, s.allocator)
 
-	scale := web_get_window_scale()
+	scale := web_get_window_scale(s)
 
 	cursor.style_value = fmt.aprintf(
 		"url(%v) %v %v, auto",
@@ -615,7 +637,7 @@ web_build_cursor_style :: proc(cursor: ^Web_Cursor) {
 	cursor.built_for_scale = scale
 }
 
-web_set_cursor :: proc(cursor: Cursor) {
+web_set_cursor :: proc(s: ^Web_State, cursor: Cursor) {
 	// Reject a stale handle, so a programming error leaves the cursor alone.
 	if c, is_custom := cursor.(Custom_Cursor); is_custom {
 		if hm.get(&s.custom_cursors, c) == nil {
@@ -625,7 +647,7 @@ web_set_cursor :: proc(cursor: Cursor) {
 	}
 
 	s.current_cursor = cursor
-	web_apply_cursor()
+	web_apply_cursor(s)
 }
 
 web_standard_cursor_keyword :: proc(cursor: Standard_Cursor) -> string {
@@ -649,7 +671,7 @@ web_standard_cursor_keyword :: proc(cursor: Standard_Cursor) -> string {
 
 // Applies s.cursor_hidden and s.current_cursor to the canvas. The two share the same CSS `cursor`
 // property, so every entry point goes through this.
-web_apply_cursor :: proc() {
+web_apply_cursor :: proc(s: ^Web_State) {
 	if s.cursor_hidden {
 		js.set_element_style(s.canvas_id, "cursor", "none")
 		s.applied_cursor = nil
@@ -671,10 +693,10 @@ web_apply_cursor :: proc() {
 			return
 		}
 
-		scale := web_get_window_scale()
+		scale := web_get_window_scale(s)
 
 		if cd.built_for_scale != scale {
-			web_build_cursor_style(cd)
+			web_build_cursor_style(s, cd)
 		}
 
 		// The data URI is tens of kilobytes and games tend to set the cursor every frame, so don't
@@ -693,7 +715,7 @@ web_apply_cursor :: proc() {
 	}
 }
 
-web_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
+web_destroy_custom_cursor :: proc(s: ^Web_State, custom_cursor: Custom_Cursor) {
 	cd := hm.get(&s.custom_cursors, custom_cursor)
 
 	if cd == nil {
@@ -710,10 +732,10 @@ web_destroy_custom_cursor :: proc(custom_cursor: Custom_Cursor) {
 	hm.remove(&s.custom_cursors, custom_cursor)
 
 	// Falls back to the default if that was the cursor on screen.
-	web_apply_cursor()
+	web_apply_cursor(s)
 }
 
-web_is_gamepad_active :: proc(gamepad: int) -> bool {
+web_is_gamepad_active :: proc(s: ^Web_State, gamepad: int) -> bool {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return false
 	}
@@ -721,7 +743,7 @@ web_is_gamepad_active :: proc(gamepad: int) -> bool {
 	return s.gamepad_state[gamepad].connected
 }
 
-web_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
+web_get_gamepad_axis :: proc(s: ^Web_State, gamepad: int, axis: Gamepad_Axis) -> f32 {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return 0
 	}
@@ -749,26 +771,22 @@ web_get_gamepad_axis :: proc(gamepad: int, axis: Gamepad_Axis) -> f32 {
 	return f32(s.gamepad_state[gamepad].axes[js_axis])
 }
 
-web_set_gamepad_vibration :: proc(gamepad: int, left: f32, right: f32) {
+web_set_gamepad_vibration :: proc(s: ^Web_State, gamepad: int, left: f32, right: f32) {
 	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
 		return
 	}
 }
 
-web_open_url :: proc(url: string) -> bool {
+web_open_url :: proc(s: ^Web_State, url: string) -> bool {
 	js.open(url)
 	return true
-}
-
-web_set_internal_state :: proc(state: rawptr) {
-	assert(state != nil)
-	s = (^Web_State)(state)
 }
 
 @(private="package")
 HTML_Canvas_ID :: string
 
 Web_State :: struct {
+	using _: Platform_State,
 	allocator: runtime.Allocator,
 	canvas_id: HTML_Canvas_ID,
 	width: int,
@@ -805,9 +823,7 @@ Web_Cursor :: struct {
 	built_for_scale: f32,
 }
 
-s: ^Web_State
-
-key_from_js_event :: proc(e: js.Event) -> Keyboard_Key {
+key_from_js_event :: proc(s: ^Web_State, e: js.Event) -> Keyboard_Key {
 	if len(s.key_from_js_event_key_code) == 0 {
 		context.allocator = s.allocator
 		s.key_from_js_event_key_code = {
