@@ -79,8 +79,8 @@ init :: proc(
 
 	pf_state_type := type_info_of(pf.state_type)
 
-	// `pf` is an alias of PLATFORM. We allocate memory for the windowing backend and pass the blob
-	// of memory to it.
+	// `pf` is a global constant that contains the platform interface. We create the state some of
+	// its procedures need here.
 	pf_state_mem, pf_state_mem_err := mem.alloc(
 		pf_state_type.size,
 		pf_state_type.align,
