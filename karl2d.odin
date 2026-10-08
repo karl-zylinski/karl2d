@@ -3599,15 +3599,7 @@ play_audio_stream :: proc(
 		return SOUND_NONE
 	}
 
-	// A stream can only feed one sound, and that sound is already playing, so there is nothing to
-	// start. Hand back the sound that is already going. Unpause it though: This procedure is how
-	// you play a stream, so it should be playing when we are done.
-	if existing := hm.get(&s.sounds, sd.sound); existing != nil && !existing.remove {
-		existing.paused = false
-		sync.mutex_unlock(&s.audio_mutex)
-		return sd.sound
-	}
-
+	hm.remove(&s.sounds, sd.sound)
 	ab := hm.get(&s.audio_buffers, sd.buffer)
 
 	if ab == nil {

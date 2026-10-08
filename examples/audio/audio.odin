@@ -19,11 +19,10 @@ music_sound: k2.Sound
 sweep_clip: k2.Audio_Clip
 sweep_sound: k2.Sound
 
+// Represents a rectangle that you can click and drag in to move a playing sound to a new time.
 Seek_Bar :: struct {
-	// Where the seek bar is drawn. Clicking anywhere in it jumps to that spot in the song.
 	rect: k2.Rect,
 
-	// True while the left mouse button is dragging the seek bar.
 	dragging: bool,
 
 	// How far along the seek bar the drag currently is, from 0 to 1.
@@ -86,6 +85,7 @@ make_sine_wave :: proc(freq: int, min_length: f32, sample_rate: int) -> k2.Audio
 	return k2.load_audio_clip_from_bytes_raw(slice.reinterpret([]u8, sine_data), .Float32, sample_rate, .Mono)
 }
 
+// Makes a sine wave that increases in frequency over time.
 make_sine_sweep :: proc(
 	start_freq: f32,
 	end_freq: f32,
@@ -121,9 +121,15 @@ seek_bar :: proc(bar: ^Seek_Bar, sound: k2.Sound) {
 	}
 
 	length := k2.get_sound_length(sound)
+	fraction: f32
+
+	if length > 0 {
+		fraction = clamp(k2.get_sound_time(sound)/length, 0, 1)
+	}
 
 	if bar.dragging {
 		bar.fraction = clamp((k2.get_mouse_position().x - bar.rect.x) / bar.rect.w, 0, 1)
+		fraction = bar.fraction
 
 		if !k2.mouse_button_is_held(.Left) {
 			bar.dragging = false
@@ -134,23 +140,11 @@ seek_bar :: proc(bar: ^Seek_Bar, sound: k2.Sound) {
 		}
 	}
 
-	fraction: f32
-
-	if length > 0 {
-		fraction = clamp(k2.get_sound_time(sound)/length, 0, 1)
-	}
-
-	// While dragging, the bar follows the mouse instead of the music. The music catches up
-	// when the button is released.
-	if bar.dragging {
-		fraction = bar.fraction
-	}
-
 	k2.draw_rect(bar.rect, k2.LIGHT_GRAY)
 
-	played := bar.rect
-	played.w = bar.rect.w * fraction
-	k2.draw_rect(played, bar.dragging ? k2.LIGHT_BLUE : k2.DARK_GRAY)
+	played_rect := bar.rect
+	played_rect.w = bar.rect.w * fraction
+	k2.draw_rect(played_rect, bar.dragging ? k2.LIGHT_BLUE : k2.DARK_GRAY)
 	k2.draw_rect_outline(bar.rect, 1, k2.BLACK)
 
 	k2.draw_text(
