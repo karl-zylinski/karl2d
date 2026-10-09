@@ -1,78 +1,152 @@
+// Displays some texts and draws rectangles by measuring the size of the text. Lets you switch
+// between four different fonts.
 package karl2d_fonts_example
+
+// Fonts used:
+// - https://fonts.google.com/specimen/Josefin+Slab
+// - https://fonts.google.com/specimen/Merienda
+// - https://fonts.google.com/specimen/Momo+Trust+Display
+// - https://github.com/ACh-K/Cubic-11
+// These fonts are licensed under the SIL Open Font License, Version 1.1
+// - Link: https://openfontlicense.org
+// - File: OFL.txt
 
 import k2 "../.."
 import "core:fmt"
-import "core:unicode/utf8"
-import "core:mem"
 
-main :: proc() {
-	track: mem.Tracking_Allocator
-	mem.tracking_allocator_init(&track, context.allocator)
-	context.allocator = mem.tracking_allocator(&track)
+Vec2 :: k2.Vec2
 
-	init()
-	for step() {}
-	shutdown()
-
-	if len(track.allocation_map) > 0 {
-		fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
-		for _, entry in track.allocation_map {
-			fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
-		}
-	}
-	mem.tracking_allocator_destroy(&track)
+Font :: struct {
+	name: string,
+	bytes: []u8,
+	font: k2.Font,
 }
 
-cat_and_onion_font: k2.Font
+fonts := [?]Font {
+	{ name="<Default>" },
+	{ name="Momo Trust Display", bytes=#load("MomoTrustDisplay-Regular.ttf") },
+	{ name="Josefin Slab",       bytes=#load("JosefinSlab-Bold.ttf") },
+	{ name="Merienda",           bytes=#load("Merienda-Bold.ttf") },
+
+	// This one gets special treatment in the code because it supports japanese and chinese. We show
+	// some text in those languages when this font is selected.
+	{ name="Cubic 11",           bytes=#load("Cubic_11.ttf") },
+}
+
+current_font_idx: int
+current_font_size := f32(50)
 
 init :: proc() {
-	k2.init(1080, 1080, "Karl2D Fonts Example")
+	k2.init(1280, 720, "Karl2D: Fonts", { window_mode = .Windowed_Resizable })
 
-	font_codepoints := utf8.string_to_runes(
-		"abcdefghiklmnopqrstuvwxyzåäöABCDEFGHIKLMNOPQRSTUVWXYZÅÄÖ!()1234567890., :",
-		context.temp_allocator,
-	)
-
-	cat_and_onion_font = k2.load_static_font_from_bytes(
-		#load("cat_and_onion_dialogue_font.ttf"),
-		48,
-		font_codepoints,
-	)
+	for &f in fonts {
+		if f.bytes == nil {
+			f.font = k2.FONT_DEFAULT
+		} else {
+			f.font = k2.load_dynamic_font_from_bytes(f.bytes)
+		}
+	}
 }
 
 step :: proc() -> bool {
 	if !k2.update() {
 		return false
 	}
-	
-	k2.clear(k2.BLUE)
 
-	font := k2.FONT_DEFAULT
+	UI_FONT_SIZE :: 30
+	screen_size := k2.get_screen_size()
+	k2.clear(k2.LIGHT_BROWN)
 
-	if k2.key_is_held(.K) {
-		font = cat_and_onion_font
+	// FONT SELECTOR
+	{
+		for f, i in fonts {
+			text := fmt.tprintf("%i. %s", i+1, f.name)
+			pos := Vec2 { 40, 30 + f32(i)*UI_FONT_SIZE }
+			i_key_n := k2.Keyboard_Key(i + int(k2.Keyboard_Key.N1))
+			i_key_np := k2.Keyboard_Key(i + int(k2.Keyboard_Key.NP_1))
+
+			if k2.key_went_down(i_key_n) ||k2.key_went_down(i_key_np) {
+				current_font_idx = i
+			}
+
+			if i == current_font_idx {
+				size := k2.measure_text(text, UI_FONT_SIZE)
+				k2.draw_rect_vec(pos, size, k2.LIGHT_YELLOW)
+			}
+
+			k2.draw_text(text, pos, UI_FONT_SIZE, k2.BLACK)
+		}
 	}
 
-	msg := "Hellöpe! Hold K to swap font.\nLine breaks work too!"
-	k2.draw_text(msg, {20, 20}, 64, k2.WHITE, font)
+	// CURRENT FONT SIZE
+	{
+		sign: f32
+		if k2.key_is_held(.Equal) || k2.key_is_held(.NP_Add) 		{ sign = +1 }
+		if k2.key_is_held(.Minus) || k2.key_is_held(.NP_Subtract)	{ sign = -1 }
+		if sign != 0 {
+			FONT_SIZE_CHANGE_SPEED :: 20 // in px/sec
+			current_font_size += sign * FONT_SIZE_CHANGE_SPEED * k2.get_frame_time()
+			current_font_size = clamp(current_font_size, 10, 100)
+		}
 
-	size := k2.measure_text(msg, 64, font)
-	size_msg := fmt.tprintf("The text above uses %.1f x %.1f pixels of space", size.x, size.y)
-	k2.draw_text(size_msg, {20, 200}, 32, k2.BLACK)
+		text := fmt.tprintf("[+/-] Font size: %.1f", current_font_size)
+		pos := Vec2 { 40, 30 + (len(fonts)+1)*UI_FONT_SIZE }
+		k2.draw_text(text, pos, UI_FONT_SIZE, k2.BLACK)
+	}
 
-	ROTATING_TEXT :: "rotating text!"
-	ROTATING_TEXT_SIZE :: 50
+	// CURRENT FONT FACE
+	{
+		LEFT, TOP :: 400, 30
+		font := fonts[current_font_idx].font
 
-	rotating_text_origin := k2.measure_text(ROTATING_TEXT, ROTATING_TEXT_SIZE, font) * 0.5
-	k2.draw_text(
-		ROTATING_TEXT,
-		{400, 400},
-		ROTATING_TEXT_SIZE,
-		k2.YELLOW,
-		font,
-		rotating_text_origin,
-		f32(k2.get_time()),
-	)
+		pos := Vec2 { LEFT, TOP }
+		for char in ' '..='~' {
+			text := string([]u8 { u8(char) })
+			size := k2.measure_text(text, current_font_size, font)
+			k2.draw_rect_vec(pos, size, k2.LIGHT_RED)
+			k2.draw_text(text, pos, current_font_size, k2.BLACK, font)
+
+			pos.x += current_font_size
+			if pos.x+current_font_size > screen_size.x-40 {
+				pos = { LEFT, pos.y+current_font_size }
+			}
+		}
+
+
+		for text, i in ([?] string {
+			"000,0,000",
+			" 000,1,000 ",
+			"  000,2,000  ",
+			"   000,3,000   ",
+			"    000,4,000    ",
+		}) {
+			pos1 := Vec2 { LEFT, pos.y + f32(i+2)*current_font_size }
+			size := k2.measure_text(text, current_font_size, font)
+			k2.draw_rect_vec(pos1, size, k2.LIGHT_RED)
+			k2.draw_text(text, pos1, current_font_size, k2.BLACK, font)
+		}
+
+		add_chinese_japanese := current_font_idx == 4
+
+		pos = { LEFT+8*current_font_size, pos.y + 2*current_font_size }
+		DEFAULT_TEXT :: "Hellöpe Karl2D!\nNext line goes here\nAnd one more"
+		text := DEFAULT_TEXT
+
+		if add_chinese_japanese {
+			text = DEFAULT_TEXT + "\n道可道非常道。\n义、礼、说、选、权吾輩は猫である。"
+		}
+
+		size := k2.measure_text(text, current_font_size, font)
+		k2.draw_rect_vec(pos, size, k2.LIGHT_RED)
+		k2.draw_text(text, pos, current_font_size, k2.BLACK, font)
+	}
+
+	// HINTS
+	{
+		hits_text := fmt.tprintf("Press 1..%i to change font\nPress +/- to change size", len(fonts))
+		hits_pos := Vec2 { 40, screen_size.y-30-2*UI_FONT_SIZE }
+		k2.draw_text(hits_text, hits_pos, UI_FONT_SIZE, k2.BLACK)
+	}
 
 	k2.present()
 	free_all(context.temp_allocator)
@@ -80,6 +154,16 @@ step :: proc() -> bool {
 }
 
 shutdown :: proc() {
-	k2.destroy_font(cat_and_onion_font)
+	for f in fonts {
+		if f.bytes != nil {
+			k2.destroy_font(f.font)
+		}
+	}
 	k2.shutdown()
+}
+
+main :: proc() {
+	init()
+	for step() {}
+	shutdown()
 }
