@@ -28,16 +28,16 @@ buses: [dynamic]Bus
 main :: proc() {
 	k2.init(1280, 720, "Audio")
 
-	append(&playable_sounds, {
+	append(&playable_sounds, Playable_Sound {
 		source = k2.load_audio_stream_from_file("../audio/brahms.ogg"),
 	})
 
-	append(&playable_sounds, {
+	append(&playable_sounds, Playable_Sound {
 		source = k2.load_audio_clip_from_file("../audio/chord.ogg"),
 	})
 
-	append(&buses, { volume = 1, bus = k2.AUDIO_BUS_MASTER })
-	append(&buses, { volume = 1, bus = k2.create_audio_bus() })
+	append(&buses, Bus { volume = 1, bus = k2.AUDIO_BUS_MASTER })
+	append(&buses, Bus { volume = 1, bus = k2.create_audio_bus() })
 
 	for k2.update() {
 		ui_cam := k2.Camera {
@@ -68,7 +68,7 @@ main :: proc() {
 
 			bus_sounds_lookup[b.bus] = len(bus_sounds)
 
-			append(&bus_sounds, {
+			append(&bus_sounds, Bus_Sounds {
 				bus = b.bus,
 			})
 
