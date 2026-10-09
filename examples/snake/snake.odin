@@ -10,7 +10,7 @@ import "core:mem"
 
 _ :: mem
 
-WINDOW_SIZE :: 1000
+WINDOW_SIZE :: 500
 GRID_WIDTH :: 20
 CELL_SIZE :: 16
 CANVAS_SIZE :: GRID_WIDTH*CELL_SIZE
