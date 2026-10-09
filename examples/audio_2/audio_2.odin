@@ -3,6 +3,7 @@
 package karl2d_audio_example
 
 import k2 "../.."
+import "core:math"
 
 Playable_Sound :: struct {
 	bus: k2.Audio_Bus,
@@ -50,13 +51,14 @@ step :: proc() -> bool {
 	if !k2.update() {
 		return false
 	}
+
 	ui_cam := k2.Camera {
 		zoom = k2.get_window_scale(),
 	}
 
 	mp := k2.screen_to_camera(k2.get_mouse_position(), ui_cam)
 	k2.set_camera(ui_cam)
-	k2.clear(k2.DARK_GRAY)
+	k2.clear(k2.BLACK)
 
 	Bus_Sounds :: struct {
 		bus: k2.Audio_Bus,
@@ -68,12 +70,12 @@ step :: proc() -> bool {
 
 	make_bus_rect :: proc(idx: int) -> k2.Rect {
 		return {
-			10 + 310*f32(idx), 200,
+			10 + 320*f32(idx), 200,
 			300, 80,
 		}
 	}
 
-	for b, b_idx in buses {
+	for &b, b_idx in buses {
 		k2.set_audio_bus_volume(b.bus, b.volume)
 
 		bus_sounds_lookup[b.bus] = len(bus_sounds)
@@ -82,7 +84,35 @@ step :: proc() -> bool {
 			bus = b.bus,
 		})
 
-		k2.draw_rect(make_bus_rect(b_idx), k2.LIGHT_PURPLE)
+		bus_rect := make_bus_rect(b_idx)
+
+		k2.draw_rect(bus_rect, k2.DARK_GRAY)
+
+		bus_volume_rect := k2.Rect {
+			bus_rect.x + bus_rect.w + 2, bus_rect.y,
+			5, bus_rect.h,
+		}
+
+		volume_rect_color := k2.GREEN
+
+		if k2.point_in_rect(mp, bus_volume_rect) {
+			volume_rect_color = k2.YELLOW
+
+			if k2.mouse_button_is_held(.Left) {
+				v := 1-math.remap_clamped(mp.y, bus_rect.y, bus_rect.y + bus_rect.h, 0, 1)
+
+				b.volume = v 
+			}
+		}
+
+		k2.draw_rect(bus_volume_rect, k2.GRAY)
+
+		bus_volume_setting_rect := k2.Rect {
+			bus_rect.x + bus_rect.w + 2, bus_rect.y + math.remap(1-b.volume, 0, 1, 0, bus_rect.h),
+			5, math.remap(b.volume, 0, 1, 0, bus_rect.h),
+		}
+
+		k2.draw_rect(bus_volume_setting_rect, volume_rect_color)
 	}
 
 	for ps, ps_idx in playable_sounds {
