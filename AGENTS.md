@@ -1,0 +1,4 @@
+- Keep replies very short.
+- Only write imperative, procedural code.
+- Never write any comments in any code. The human will review the code and write comments. One exception: If you change some code that invalidates an existing comment, then prefix the invalid comment with `// TODO-UPDATE-COMMENT: Reason the comment is wrong.\n//---`.
+- Never commit and push unless the explicitly told to do so.
