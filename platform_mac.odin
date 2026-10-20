@@ -14,6 +14,7 @@ import "base:intrinsics"
 import "base:runtime"
 import "core:time"
 import "core:slice"
+import "core:strings"
 import hm "core:container/handle_map"
 import "log"
 
@@ -173,6 +174,28 @@ mac_init :: proc(
 	s.window->setTitle(title_str)
 
 	s.window->center()
+
+	if init_options.monitor != MONITOR_NONE {
+		monitor_screen := mac_find_screen(init_options.monitor)
+
+		if monitor_screen == nil {
+			log.errorf(
+				"Cannot use monitor %v, it does not exist. Using the default monitor.",
+				init_options.monitor,
+			)
+		} else {
+			monitor_visible_frame := monitor_screen->visibleFrame()
+			window_frame := s.window->frame()
+
+			s.window->setFrameOrigin({
+				monitor_visible_frame.origin.x +
+				(monitor_visible_frame.size.width - window_frame.size.width)/2,
+				monitor_visible_frame.origin.y +
+				(monitor_visible_frame.size.height - window_frame.size.height)/2,
+			})
+		}
+	}
+
 	s.window->setAcceptsMouseMovedEvents(true)
 	s.window->makeKeyAndOrderFront(nil)
 
@@ -576,14 +599,134 @@ mac_get_window_scale :: proc(s: ^Mac_State) -> f32 {
 }
 
 mac_get_monitors :: proc(s: ^Mac_State, allocator: runtime.Allocator) -> []Monitor_Info {
-	return nil
+	NS.scoped_autoreleasepool()
+
+	if s == nil {
+		NS.Application_sharedApplication()
+	}
+
+	screens := NS.Screen.screens()
+	monitors := make([dynamic]Monitor_Info, 0, int(screens->count()), allocator)
+	main_display := CG.MainDisplayID()
+
+	for screen_idx in 0..<screens->count() {
+		screen := (^NS.Screen)(screens->objectAtIndex(screen_idx))
+		display := CG.DirectDisplayID(mac_screen_monitor_id(screen))
+		scale := f32(screen->backingScaleFactor())
+		frame := screen->frame()
+		bounds := CG.DisplayBounds(display)
+		physical_size_mm := CG.DisplayScreenSize(display)
+
+		size := [2]int {
+			int(f32(frame.size.width) * scale),
+			int(f32(frame.size.height) * scale),
+		}
+
+		physical_size := [2]int {
+			int(physical_size_mm.width + 0.5),
+			int(physical_size_mm.height + 0.5),
+		}
+
+		if (size.x > size.y && physical_size.x < physical_size.y) ||
+		   (size.x < size.y && physical_size.x > physical_size.y) {
+			physical_size = {physical_size.y, physical_size.x}
+		}
+
+		name, name_err := strings.clone(screen->localizedName()->odinString(), allocator)
+
+		if name_err != nil {
+			log.errorf("Failed listing monitors: Copying the name failed with %v", name_err)
+
+			for m in monitors {
+				delete(m.name, allocator)
+			}
+
+			delete(monitors)
+			return nil
+		}
+
+		append(&monitors, Monitor_Info {
+			id = Monitor_Id(display),
+			name = name,
+			position = {int(bounds.origin.x), int(bounds.origin.y)},
+			size = size,
+			physical_size = physical_size,
+			scale = scale,
+			primary = display == main_display,
+		})
+	}
+
+	return monitors[:]
 }
 
 mac_get_window_monitor :: proc(s: ^Mac_State) -> Monitor_Id {
-	return MONITOR_NONE
+	NS.scoped_autoreleasepool()
+	screen := s.window->screen()
+
+	if screen == nil {
+		return MONITOR_NONE
+	}
+
+	return mac_screen_monitor_id(screen)
 }
 
 mac_set_window_monitor :: proc(s: ^Mac_State, monitor: Monitor_Id) {
+	NS.scoped_autoreleasepool()
+	screen := mac_find_screen(monitor)
+
+	if screen == nil {
+		log.errorf("Cannot move window to monitor %v, it does not exist.", monitor)
+		return
+	}
+
+	visible_frame := screen->visibleFrame()
+
+	if s.window_mode == .Borderless_Fullscreen {
+		s.windowed_rect.origin = {
+			visible_frame.origin.x + (visible_frame.size.width - s.windowed_rect.size.width)/2,
+			visible_frame.origin.y + (visible_frame.size.height - s.windowed_rect.size.height)/2,
+		}
+
+		s.window->setFrame(screen->frame(), true)
+
+		content_rect := s.window->contentLayoutRect()
+		scale := mac_get_window_scale(s)
+		s.screen_width = int(f32(content_rect.size.width) * scale)
+		s.screen_height = int(f32(content_rect.size.height) * scale)
+		return
+	}
+
+	frame := s.window->frame()
+
+	s.window->setFrameOrigin({
+		visible_frame.origin.x + (visible_frame.size.width - frame.size.width)/2,
+		visible_frame.origin.y + (visible_frame.size.height - frame.size.height)/2,
+	})
+}
+
+mac_screen_monitor_id :: proc(screen: ^NS.Screen) -> Monitor_Id {
+	device_description := screen->deviceDescription()
+	screen_number := (^NS.Number)(device_description->objectForKey(NS.AT("NSScreenNumber")))
+
+	if screen_number == nil {
+		return MONITOR_NONE
+	}
+
+	return Monitor_Id(screen_number->unsignedIntValue())
+}
+
+mac_find_screen :: proc(monitor: Monitor_Id) -> ^NS.Screen {
+	screens := NS.Screen.screens()
+
+	for screen_idx in 0..<screens->count() {
+		screen := (^NS.Screen)(screens->objectAtIndex(screen_idx))
+
+		if mac_screen_monitor_id(screen) == monitor {
+			return screen
+		}
+	}
+
+	return nil
 }
 
 mac_set_cursor_hidden :: proc(s: ^Mac_State, hidden: bool) {
@@ -818,7 +961,13 @@ mac_set_window_mode :: proc(s: ^Mac_State, window_mode: Window_Mode) {
 	case .Borderless_Fullscreen:
 		s.windowed_rect = s.window->frame()
 		s.window->setStyleMask({})
-		screen_frame := NS.Screen.mainScreen()->frame()
+		window_screen := s.window->screen()
+
+		if window_screen == nil {
+			window_screen = NS.Screen.mainScreen()
+		}
+
+		screen_frame := window_screen->frame()
 		s.window->setFrame(screen_frame, true)
 		s.window->setLevel(NS.NormalWindowLevel)
 		s.app->setPresentationOptions({.HideMenuBar, .HideDock})
