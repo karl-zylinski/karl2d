@@ -81,7 +81,7 @@ step :: proc() -> bool {
 	draw_pos.y += 25
 
 	for m in monitors {
-		r := k2.rect_from_pos_size(draw_pos, {300, 20})
+		r := k2.rect_from_pos_size(draw_pos, {400, 20})
 		
 		if k2.ui_button(r, m.name) {
 			k2.set_window_monitor(m.id)
@@ -98,7 +98,7 @@ step :: proc() -> bool {
 	is_fullscreen := k2.get_window_mode() == .Borderless_Fullscreen
 
 	if k2.ui_button(
-		k2.rect_from_pos_size(draw_pos, {300, 20}),
+		k2.rect_from_pos_size(draw_pos, {400, 20}),
 		is_fullscreen ? "Windowed" : "Fullscreen",
 	) {
 		k2.set_window_mode(is_fullscreen ? .Windowed : .Borderless_Fullscreen)

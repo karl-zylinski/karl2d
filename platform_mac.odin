@@ -575,7 +575,7 @@ mac_get_window_scale :: proc(s: ^Mac_State) -> f32 {
 	return f32(s.window->backingScaleFactor())
 }
 
-mac_get_monitors :: proc(allocator: runtime.Allocator) -> []Monitor_Info {
+mac_get_monitors :: proc(s: ^Mac_State, allocator: runtime.Allocator) -> []Monitor_Info {
 	return nil
 }
 

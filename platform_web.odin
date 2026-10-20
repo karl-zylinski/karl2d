@@ -673,7 +673,7 @@ web_set_window_icon :: proc(s: ^Web_State, image: Image) -> bool {
 
 WEB_MONITOR_ID :: Monitor_Id(1)
 
-web_get_monitors :: proc(allocator: runtime.Allocator) -> []Monitor_Info {
+web_get_monitors :: proc(_: ^Web_State, allocator: runtime.Allocator) -> []Monitor_Info {
 	js.evaluate(
 		"var karl2d_el = document.getElementById('webgl-canvas'); " +
 		"karl2d_el._screenWidth = window.screen.width; " +

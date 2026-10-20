@@ -594,7 +594,7 @@ windows_set_window_icon :: proc(s: ^Windows_State, image: Image) -> bool {
 	return true
 }
 
-windows_get_monitors :: proc(allocator: runtime.Allocator) -> []Monitor_Info {
+windows_get_monitors :: proc(_: ^Windows_State, allocator: runtime.Allocator) -> []Monitor_Info {
 	Monitor_Enum_State :: struct {
 		ctx: runtime.Context,
 		allocator: runtime.Allocator,

@@ -217,6 +217,13 @@ Surface :: struct {
 	using proxy: Proxy,
 }
 
+Surface_Listener :: struct {
+	enter: proc "c" (data: rawptr, surface: ^Surface, output: ^Output),
+	leave: proc "c" (data: rawptr, surface: ^Surface, output: ^Output),
+	preferred_buffer_scale: proc "c" (data: rawptr, surface: ^Surface, factor: c.int32_t),
+	preferred_buffer_transform: proc "c" (data: rawptr, surface: ^Surface, transform: u32),
+}
+
 surface_destroy :: proc "c" (surface: ^Surface) {
 	proxy_marshal_flags(
 		surface,
@@ -714,6 +721,52 @@ touch_interface := Interface {
 Output :: struct {
 	using proxy: Proxy,
 }
+
+Output_Listener :: struct {
+	geometry: proc "c" (
+		data: rawptr,
+		output: ^Output,
+		x: c.int32_t,
+		y: c.int32_t,
+		physical_width: c.int32_t,
+		physical_height: c.int32_t,
+		subpixel: c.int32_t,
+		make: cstring,
+		model: cstring,
+		transform: c.int32_t,
+	),
+	mode: proc "c" (
+		data: rawptr,
+		output: ^Output,
+		flags: u32,
+		width: c.int32_t,
+		height: c.int32_t,
+		refresh: c.int32_t,
+	),
+	done: proc "c" (data: rawptr, output: ^Output),
+	scale: proc "c" (data: rawptr, output: ^Output, factor: c.int32_t),
+	name: proc "c" (data: rawptr, output: ^Output, name: cstring),
+	description: proc "c" (data: rawptr, output: ^Output, description: cstring),
+}
+
+OUTPUT_RELEASE :: 0
+
+output_release :: proc "c" (output: ^Output) {
+	proxy_marshal_flags(
+		output,
+		OUTPUT_RELEASE,
+		nil,
+		proxy_get_version(output),
+		MARSHAL_FLAG_DESTROY,
+	)
+}
+
+OUTPUT_MODE_CURRENT :: u32(0x1)
+
+OUTPUT_TRANSFORM_90 :: c.int32_t(1)
+OUTPUT_TRANSFORM_270 :: c.int32_t(3)
+OUTPUT_TRANSFORM_FLIPPED_90 :: c.int32_t(5)
+OUTPUT_TRANSFORM_FLIPPED_270 :: c.int32_t(7)
 
 output_interface := Interface {
 	"wl_output",

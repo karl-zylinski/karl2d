@@ -792,7 +792,7 @@ get_window_mode :: proc() -> Window_Mode {
 // Note the allocator parameter: The returned slice is allocated and also contains `name` fields
 // that are allocated.
 get_monitors :: proc(allocator := context.allocator) -> []Monitor_Info {
-	return pf.get_monitors(allocator)
+	return pf.get_monitors(s != nil ? s.pf_state : nil, allocator)
 }
 
 // Get the ID of the monitor that the game is currently displayed on. If the window spans several

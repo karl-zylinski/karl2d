@@ -21,6 +21,9 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	set_window_mode = wl_set_window_mode,
 	get_window_mode = wl_get_window_mode,
 	set_window_icon = wl_set_window_icon,
+	get_monitors = wl_get_monitors,
+	get_window_monitor = wl_get_window_monitor,
+	set_window_monitor = wl_set_window_monitor,
 	set_cursor_hidden = wl_set_cursor_hidden,
 	is_cursor_hidden = wl_is_cursor_hidden,
 	set_mouse_locked = wl_set_mouse_locked,
@@ -101,6 +104,12 @@ wl_init :: proc(
 	s.scale = 1
 	s.odin_ctx = context
 	hm.dynamic_init(&s.custom_cursors, allocator)
+	s.outputs = make([dynamic]^WL_Output, allocator)
+	s.outputs_showing_window = make([dynamic]^wl.Output, allocator)
+	s.output_order = {
+		ctx = context,
+		allocator = allocator,
+	}
 
 	s.xkb_context = xkb.context_new(.No_Flags)
 
@@ -130,6 +139,7 @@ wl_init :: proc(
 
 	s.surface = wl.compositor_create_surface(s.compositor)
 	log.ensure(s.surface != nil, "Error creating Wayland surface")
+	wl.add_listener(s.surface, &surface_listener, s)
 	
 	// Makes sure the window does "pings" that keeps it alive.
 	wl.add_listener(s.xdg_base, &wm_base_listener, nil)
@@ -163,6 +173,25 @@ wl_init :: proc(
 
 	wl_set_title(s, window_title)
 	wl_set_window_mode(s, options.window_mode)
+
+	if options.monitor != MONITOR_NONE {
+		monitor_output := wl_find_output(s, options.monitor)
+
+		if monitor_output == nil {
+			log.errorf(
+				"Cannot use monitor %v, it does not exist. Using the default monitor.",
+				options.monitor,
+			)
+		} else if options.window_mode == .Borderless_Fullscreen {
+			wl.xdg_toplevel_set_fullscreen(s.toplevel, monitor_output)
+		} else {
+			log.warnf(
+				"Cannot open a non-fullscreen window on monitor %v when using Wayland. %s",
+				options.monitor,
+				"Using the default monitor.",
+			)
+		}
+	}
 
 	if s.decoration_manager != nil {
 		decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
@@ -357,9 +386,68 @@ registry_listener := wl.Registry_Listener {
 				&wl.xdg_toplevel_icon_manager_v1_interface,
 				version,
 			)
+
+		case wl.output_interface.name:
+			o := wl_bind_output(registry, name, version, s.xdg_output_manager, s.allocator)
+			append(&s.outputs, o)
+
+		case wl.zxdg_output_manager_v1_interface.name:
+			s.xdg_output_manager = wl.registry_bind(
+				wl.ZXDG_Output_Manager_V1,
+				registry,
+				name,
+				&wl.zxdg_output_manager_v1_interface,
+				version,
+			)
+
+			for o in s.outputs {
+				wl_add_xdg_output(o, s.xdg_output_manager)
+			}
+
+		case wl.kde_output_order_v1_interface.name:
+			wl_bind_output_order(&s.output_order, registry, name, version)
 		}
 	},
-	global_remove = proc "c" (data: rawptr, registry: ^wl.Registry, name: u32) {},
+	global_remove = proc "c" (data: rawptr, registry: ^wl.Registry, name: u32) {
+		s := (^WL_State)(data)
+		context = s.odin_ctx
+
+		for o, i in s.outputs {
+			if o.registry_name != name {
+				continue
+			}
+
+			#reverse for showing_output, showing_output_idx in s.outputs_showing_window {
+				if showing_output == o.output {
+					ordered_remove(&s.outputs_showing_window, showing_output_idx)
+				}
+			}
+
+			wl_destroy_output(o)
+			ordered_remove(&s.outputs, i)
+			break
+		}
+	},
+}
+
+surface_listener := wl.Surface_Listener {
+	enter = proc "c" (data: rawptr, surface: ^wl.Surface, output: ^wl.Output) {
+		s := (^WL_State)(data)
+		context = s.odin_ctx
+		append(&s.outputs_showing_window, output)
+	},
+	leave = proc "c" (data: rawptr, surface: ^wl.Surface, output: ^wl.Output) {
+		s := (^WL_State)(data)
+		context = s.odin_ctx
+
+		#reverse for showing_output, showing_output_idx in s.outputs_showing_window {
+			if showing_output == output {
+				ordered_remove(&s.outputs_showing_window, showing_output_idx)
+			}
+		}
+	},
+	preferred_buffer_scale = proc "c" (data: rawptr, surface: ^wl.Surface, factor: c.int32_t) {},
+	preferred_buffer_transform = proc "c" (data: rawptr, surface: ^wl.Surface, transform: u32) {},
 }
 
 seat_listener := wl.Seat_Listener {
@@ -936,6 +1024,23 @@ wl_shutdown :: proc(s: ^WL_State) {
 
 	delete(s.events)
 
+	for o in s.outputs {
+		wl_destroy_output(o)
+	}
+
+	delete(s.outputs)
+	delete(s.outputs_showing_window)
+
+	if s.xdg_output_manager != nil {
+		wl.zxdg_output_manager_v1_destroy(s.xdg_output_manager)
+	}
+
+	if s.output_order.output_order != nil {
+		wl.kde_output_order_v1_destroy(s.output_order.output_order)
+	}
+
+	delete(s.output_order.first_output, s.output_order.allocator)
+
 	if s.xkb_state != nil {
 		xkb.state_unref(s.xkb_state)
 	}
@@ -1084,6 +1189,455 @@ wl_set_window_mode :: proc(s: ^WL_State, window_mode: Window_Mode) {
 		wlcsd_set_window_mode(s.csd, s.window_mode)
 		wlcsd_mark_dirty(s.csd)
 	}
+}
+
+wl_get_monitors :: proc(s: ^WL_State, allocator: runtime.Allocator) -> []Monitor_Info {
+	if s != nil {
+		return wl_monitors_from_outputs(s.outputs[:], s.output_order.first_output, allocator)
+	}
+
+	// The remainder is valid when this is called before `init` runs.
+
+	Query :: struct {
+		ctx: runtime.Context,
+		temp_allocator: runtime.Allocator,
+		outputs: [dynamic]^WL_Output,
+		xdg_output_manager: ^wl.ZXDG_Output_Manager_V1,
+		output_order: WL_Output_Order,
+	}
+
+	query_registry_listener := wl.Registry_Listener {
+		global = proc "c" (
+			data: rawptr,
+			registry: ^wl.Registry,
+			name: u32,
+			interface: cstring,
+			version: u32,
+		) {
+			q := (^Query)(data)
+			context = q.ctx
+
+			switch interface {
+			case wl.output_interface.name:
+				o := wl_bind_output(registry, name, version, q.xdg_output_manager, q.temp_allocator)
+				append(&q.outputs, o)
+
+			case wl.zxdg_output_manager_v1_interface.name:
+				q.xdg_output_manager = wl.registry_bind(
+					wl.ZXDG_Output_Manager_V1,
+					registry,
+					name,
+					&wl.zxdg_output_manager_v1_interface,
+					version,
+				)
+
+				for o in q.outputs {
+					wl_add_xdg_output(o, q.xdg_output_manager)
+				}
+
+			case wl.kde_output_order_v1_interface.name:
+				wl_bind_output_order(&q.output_order, registry, name, version)
+			}
+		},
+		global_remove = proc "c" (data: rawptr, registry: ^wl.Registry, name: u32) {},
+	}
+
+	display := wl.display_connect(nil)
+
+	if display == nil {
+		log.error("Failed listing monitors: Could not connect to the Wayland compositor.")
+		return nil
+	}
+
+	defer wl.display_disconnect(display)
+
+	temp_arena: runtime.Arena
+	defer runtime.arena_destroy(&temp_arena)
+	temp_allocator := runtime.arena_allocator(&temp_arena)
+
+	q := Query {
+		ctx = context,
+		temp_allocator = temp_allocator,
+		outputs = make([dynamic]^WL_Output, temp_allocator),
+		output_order = {
+			ctx = context,
+			allocator = temp_allocator,
+		},
+	}
+
+	registry := wl.display_get_registry(display)
+	wl.add_listener(registry, &query_registry_listener, &q)
+
+	wl.display_roundtrip(display)
+	wl.display_roundtrip(display)
+
+	monitors := wl_monitors_from_outputs(q.outputs[:], q.output_order.first_output, allocator)
+
+	for o in q.outputs {
+		wl_destroy_output(o)
+	}
+
+	if q.xdg_output_manager != nil {
+		wl.zxdg_output_manager_v1_destroy(q.xdg_output_manager)
+	}
+
+	if q.output_order.output_order != nil {
+		wl.kde_output_order_v1_destroy(q.output_order.output_order)
+	}
+
+	wl.destroy(registry)
+	return monitors
+}
+
+wl_monitors_from_outputs :: proc(
+	outputs: []^WL_Output,
+	primary_connector: string,
+	allocator: runtime.Allocator,
+) -> []Monitor_Info {
+	monitors := make([dynamic]Monitor_Info, 0, len(outputs), allocator)
+	has_primary := false
+
+	for o in outputs {
+		rotated :=
+			o.transform == wl.OUTPUT_TRANSFORM_90 ||
+			o.transform == wl.OUTPUT_TRANSFORM_270 ||
+			o.transform == wl.OUTPUT_TRANSFORM_FLIPPED_90 ||
+			o.transform == wl.OUTPUT_TRANSFORM_FLIPPED_270
+
+		size := o.mode_size
+		physical_size := o.physical_size
+
+		if rotated {
+			size = {size.y, size.x}
+			physical_size = {physical_size.y, physical_size.x}
+		}
+
+		position := o.geometry_position
+		scale := f32(o.integer_scale)
+
+		if o.xdg_output != nil && o.logical_size.x > 0 {
+			position = o.logical_position
+			scale = math.round(f32(size.x) / f32(o.logical_size.x) * 120) / 120
+		}
+
+		name := o.description
+
+		if name == "" {
+			name = o.xdg_description
+		}
+
+		if name == "" {
+			name = o.connector
+		}
+
+		if name == "" {
+			name = o.make_and_model
+		}
+
+		name_clone, name_clone_err := strings.clone(name, allocator)
+
+		if name_clone_err != nil {
+			log.errorf("Failed listing monitors: Copying the name failed with %v", name_clone_err)
+
+			for m in monitors {
+				delete(m.name, allocator)
+			}
+
+			delete(monitors)
+			return nil
+		}
+
+		primary := primary_connector != "" && o.connector == primary_connector
+
+		if primary {
+			has_primary = true
+		}
+
+		append(&monitors, Monitor_Info {
+			id = Monitor_Id(o.registry_name),
+			name = name_clone,
+			position = position,
+			size = size,
+			physical_size = physical_size,
+			scale = scale,
+			primary = primary,
+		})
+	}
+
+	if !has_primary && len(monitors) > 0 {
+		closest_to_origin_idx := 0
+
+		for m, i in monitors {
+			closest_to_origin := monitors[closest_to_origin_idx].position
+			closest_to_origin_dist := closest_to_origin.x*closest_to_origin.x + closest_to_origin.y*closest_to_origin.y
+			origin_dist := m.position.x*m.position.x + m.position.y*m.position.y
+
+			if origin_dist < closest_to_origin_dist {
+				closest_to_origin_idx = i
+			}
+		}
+
+		monitors[closest_to_origin_idx].primary = true
+	}
+
+	return monitors[:]
+}
+
+WL_Output :: struct {
+	ctx: runtime.Context,
+	allocator: runtime.Allocator,
+	registry_name: u32,
+	output: ^wl.Output,
+	xdg_output: ^wl.ZXDG_Output_V1,
+	geometry_position: [2]int,
+	physical_size: [2]int,
+	transform: c.int32_t,
+	mode_size: [2]int,
+	integer_scale: int,
+	logical_position: [2]int,
+	logical_size: [2]int,
+	connector: string,
+	description: string,
+	xdg_description: string,
+	make_and_model: string,
+}
+
+wl_bind_output :: proc(
+	registry: ^wl.Registry,
+	name: u32,
+	version: u32,
+	xdg_output_manager: ^wl.ZXDG_Output_Manager_V1,
+	allocator: runtime.Allocator,
+) -> ^WL_Output {
+	o := new(WL_Output, allocator)
+	o.ctx = context
+	o.allocator = allocator
+	o.registry_name = name
+	o.integer_scale = 1
+	o.output = wl.registry_bind(wl.Output, registry, name, &wl.output_interface, version)
+	wl.add_listener(o.output, &wl_output_listener, o)
+
+	if xdg_output_manager != nil {
+		wl_add_xdg_output(o, xdg_output_manager)
+	}
+
+	return o
+}
+
+wl_add_xdg_output :: proc(o: ^WL_Output, xdg_output_manager: ^wl.ZXDG_Output_Manager_V1) {
+	if o.xdg_output != nil {
+		return
+	}
+
+	o.xdg_output = wl.zxdg_output_manager_v1_get_xdg_output(xdg_output_manager, o.output)
+	wl.add_listener(o.xdg_output, &wl_xdg_output_listener, o)
+}
+
+wl_destroy_output :: proc(o: ^WL_Output) {
+	if o.xdg_output != nil {
+		wl.zxdg_output_v1_destroy(o.xdg_output)
+	}
+
+	if wl.proxy_get_version(o.output) >= 3 {
+		wl.output_release(o.output)
+	} else {
+		wl.destroy(o.output)
+	}
+
+	delete(o.connector, o.allocator)
+	delete(o.description, o.allocator)
+	delete(o.xdg_description, o.allocator)
+	delete(o.make_and_model, o.allocator)
+	free(o, o.allocator)
+}
+
+wl_output_listener := wl.Output_Listener {
+	geometry = proc "c" (
+		data: rawptr,
+		output: ^wl.Output,
+		x: c.int32_t,
+		y: c.int32_t,
+		physical_width: c.int32_t,
+		physical_height: c.int32_t,
+		subpixel: c.int32_t,
+		make: cstring,
+		model: cstring,
+		transform: c.int32_t,
+	) {
+		o := (^WL_Output)(data)
+		context = o.ctx
+		o.geometry_position = {int(x), int(y)}
+		o.physical_size = {int(physical_width), int(physical_height)}
+		o.transform = transform
+		delete(o.make_and_model, o.allocator)
+		o.make_and_model = fmt.aprintf("%s %s", make, model, allocator = o.allocator)
+	},
+	mode = proc "c" (
+		data: rawptr,
+		output: ^wl.Output,
+		flags: u32,
+		width: c.int32_t,
+		height: c.int32_t,
+		refresh: c.int32_t,
+	) {
+		o := (^WL_Output)(data)
+
+		if flags & wl.OUTPUT_MODE_CURRENT != 0 {
+			o.mode_size = {int(width), int(height)}
+		}
+	},
+	done = proc "c" (data: rawptr, output: ^wl.Output) {},
+	scale = proc "c" (data: rawptr, output: ^wl.Output, factor: c.int32_t) {
+		o := (^WL_Output)(data)
+		o.integer_scale = int(factor)
+	},
+	name = proc "c" (data: rawptr, output: ^wl.Output, name: cstring) {
+		o := (^WL_Output)(data)
+		context = o.ctx
+		delete(o.connector, o.allocator)
+		o.connector = strings.clone_from_cstring(name, o.allocator)
+	},
+	description = proc "c" (data: rawptr, output: ^wl.Output, description: cstring) {
+		o := (^WL_Output)(data)
+		context = o.ctx
+		delete(o.description, o.allocator)
+		o.description = strings.clone_from_cstring(description, o.allocator)
+	},
+}
+
+wl_xdg_output_listener := wl.ZXDG_Output_V1_Listener {
+	logical_position = proc "c" (
+		data: rawptr,
+		self: ^wl.ZXDG_Output_V1,
+		x: c.int32_t,
+		y: c.int32_t,
+	) {
+		o := (^WL_Output)(data)
+		o.logical_position = {int(x), int(y)}
+	},
+	logical_size = proc "c" (
+		data: rawptr,
+		self: ^wl.ZXDG_Output_V1,
+		width: c.int32_t,
+		height: c.int32_t,
+	) {
+		o := (^WL_Output)(data)
+		o.logical_size = {int(width), int(height)}
+	},
+	done = proc "c" (data: rawptr, self: ^wl.ZXDG_Output_V1) {},
+	name = proc "c" (data: rawptr, self: ^wl.ZXDG_Output_V1, name: cstring) {
+		o := (^WL_Output)(data)
+		context = o.ctx
+
+		if o.connector == "" {
+			o.connector = strings.clone_from_cstring(name, o.allocator)
+		}
+	},
+	description = proc "c" (data: rawptr, self: ^wl.ZXDG_Output_V1, description: cstring) {
+		o := (^WL_Output)(data)
+		context = o.ctx
+		delete(o.xdg_description, o.allocator)
+		o.xdg_description = strings.clone_from_cstring(description, o.allocator)
+	},
+}
+
+WL_Output_Order :: struct {
+	ctx: runtime.Context,
+	allocator: runtime.Allocator,
+	output_order: ^wl.KDE_Output_Order_V1,
+	first_output: string,
+	receiving: bool,
+}
+
+wl_bind_output_order :: proc(
+	order: ^WL_Output_Order,
+	registry: ^wl.Registry,
+	name: u32,
+	version: u32,
+) {
+	order.output_order = wl.registry_bind(
+		wl.KDE_Output_Order_V1,
+		registry,
+		name,
+		&wl.kde_output_order_v1_interface,
+		version,
+	)
+
+	wl.add_listener(order.output_order, &wl_output_order_listener, order)
+}
+
+wl_output_order_listener := wl.KDE_Output_Order_V1_Listener {
+	output = proc "c" (data: rawptr, self: ^wl.KDE_Output_Order_V1, output_name: cstring) {
+		order := (^WL_Output_Order)(data)
+		context = order.ctx
+
+		if !order.receiving {
+			delete(order.first_output, order.allocator)
+			order.first_output = strings.clone_from_cstring(output_name, order.allocator)
+			order.receiving = true
+		}
+	},
+	done = proc "c" (data: rawptr, self: ^wl.KDE_Output_Order_V1) {
+		order := (^WL_Output_Order)(data)
+		order.receiving = false
+	},
+}
+
+wl_get_window_monitor :: proc(s: ^WL_State) -> Monitor_Id {
+	if len(s.outputs_showing_window) == 0 {
+		return MONITOR_NONE
+	}
+
+	window_output := s.outputs_showing_window[0]
+
+	if s.window_mode == .Borderless_Fullscreen {
+		window_size := [2]int{s.last_configure_width, s.last_configure_height}
+
+		for showing_output in s.outputs_showing_window {
+			for o in s.outputs {
+				// The extra logical size check is here because the "showing_output" check sometimes
+				// is true when it shouldn't be.
+				if o.output == showing_output && o.logical_size == window_size {
+					window_output = showing_output
+				}
+			}
+		}
+	}
+
+	for o in s.outputs {
+		if o.output == window_output {
+			return Monitor_Id(o.registry_name)
+		}
+	}
+
+	return MONITOR_NONE
+}
+
+wl_set_window_monitor :: proc(s: ^WL_State, monitor: Monitor_Id) {
+	output := wl_find_output(s, monitor)
+
+	if output == nil {
+		log.errorf("Cannot move window to monitor %v, it does not exist.", monitor)
+		return
+	}
+
+	if s.window_mode != .Borderless_Fullscreen {
+		log.error("Cannot move a non-fullscreen window to another monitor when using Wayland.")
+		return
+	}
+
+	wl.xdg_toplevel_unset_fullscreen(s.toplevel)
+	wl.xdg_toplevel_set_fullscreen(s.toplevel, output)
+}
+
+wl_find_output :: proc(s: ^WL_State, monitor: Monitor_Id) -> ^wl.Output {
+	for o in s.outputs {
+		if Monitor_Id(o.registry_name) == monitor {
+			return o.output
+		}
+	}
+
+	return nil
 }
 
 wl_set_window_icon :: proc(s: ^WL_State, image: Image) -> bool {
@@ -1615,6 +2169,11 @@ WL_State :: struct {
 
 	toplevel_icon_manager: ^wl.XDG_Toplevel_Icon_Manager_V1,
 	toplevel_icon: WL_Toplevel_Icon,
+
+	outputs: [dynamic]^WL_Output,
+	outputs_showing_window: [dynamic]^wl.Output,
+	xdg_output_manager: ^wl.ZXDG_Output_Manager_V1,
+	output_order: WL_Output_Order,
 
 	// True if toplevel_listener.configure has run
 	configured: bool,

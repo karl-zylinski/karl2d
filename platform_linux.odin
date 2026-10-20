@@ -6,6 +6,7 @@ package karl2d
 
 import "base:runtime"
 import "log"
+import "core:fmt"
 import "core:mem"
 import "core:os"
 import "core:sys/linux"
@@ -57,58 +58,13 @@ linux_init :: proc(
 ) {
 	s.allocator = allocator
 	
-	// We pick windowing system by trying to to actually load it. This means trying to runetime-load
-	// the required shared libraries.
-	windowing_1 := LINUX_WINDOW_WAYLAND
-	windowing_2 := LINUX_WINDOW_X11
+	win, win_failure_reason, win_ok := linux_choose_windowing(frame_allocator)
 
-	// The player can force Karl2D to try another windowing system first.
-	preference_given := false
-	windowing_preference := os.get_env("KARL2D_LINUX_WINDOWING", frame_allocator)
-
-	switch windowing_preference {
-	case "":
-
-	case "wayland":
-		preference_given = true
-
-	case "x11":
-		windowing_1 = LINUX_WINDOW_X11
-		windowing_2 = LINUX_WINDOW_WAYLAND
-		preference_given = true
-
-	case:
-		log.warnf(
-			"Ignoring KARL2D_LINUX_WINDOWING=%v. It has to be \"wayland\" or \"x11\".",
-			windowing_preference,
-		)
+	if !win_ok {
+		log.panic(win_failure_reason)
 	}
 
-	s.win = windowing_1
-	windowing_1_err, windowing_1_available := s.win.is_available()
-
-	if !windowing_1_available {
-		s.win = windowing_2
-		windowing_2_err, windowing_2_available := s.win.is_available()
-
-		if !windowing_2_available {
-			// The reasons go in the panic itself rather than only in the log above it: a game
-			// that raises the log level past info would otherwise be told to read reasons that
-			// were never printed.
-			log.panicf(
-				"Found neither Wayland nor X11. Karl2D needs one of them. %s %s",
-				windowing_1_err,
-				windowing_2_err,
-			)
-		}
-
-		// The player explicitly wanted the one in `windowing_1`, so we print a warning saying
-		// that it couldn't be loaded. 
-		if preference_given {
-			log.warn("KARL2D_LINUX_WINDOWING was specified, but Karl2D failed to load that windowing system. Error:", windowing_1_err)
-		}
-	}
-
+	s.win = win
 	win_state_type := type_info_of(s.win.state_type)
 
 	win_state_mem, win_state_mem_err := mem.alloc(
@@ -147,6 +103,69 @@ linux_init :: proc(
 	} else {
 		log.errorf("No gamepad hotplugging. Could not load %v.", udev_missing)
 	}
+}
+
+linux_choose_windowing :: proc(temp_allocator: runtime.Allocator) -> (
+	_win: Linux_Window_Interface,
+	_failure_reason: string,
+	_ok: bool,
+) {
+	// We pick windowing system by trying to to actually load it. This means trying to runetime-load
+	// the required shared libraries.
+	windowing_1 := LINUX_WINDOW_WAYLAND
+	windowing_2 := LINUX_WINDOW_X11
+
+	// The player can force Karl2D to try another windowing system first.
+	preference_given := false
+	windowing_preference := os.get_env("KARL2D_LINUX_WINDOWING", temp_allocator)
+
+	switch windowing_preference {
+	case "":
+
+	case "wayland":
+		preference_given = true
+
+	case "x11":
+		windowing_1 = LINUX_WINDOW_X11
+		windowing_2 = LINUX_WINDOW_WAYLAND
+		preference_given = true
+
+	case:
+		log.warnf(
+			"Ignoring KARL2D_LINUX_WINDOWING=%v. It has to be \"wayland\" or \"x11\".",
+			windowing_preference,
+		)
+	}
+
+	windowing_1_err, windowing_1_available := windowing_1.is_available()
+
+	if !windowing_1_available {
+		windowing_2_err, windowing_2_available := windowing_2.is_available()
+
+		if !windowing_2_available {
+			// The reasons go in the panic itself rather than only in the log above it: a game
+			// that raises the log level past info would otherwise be told to read reasons that
+			// were never printed.
+			failure_reason := fmt.aprintf(
+				"Found neither Wayland nor X11. Karl2D needs one of them. %s %s",
+				windowing_1_err,
+				windowing_2_err,
+				allocator = temp_allocator,
+			)
+
+			return {}, failure_reason, false
+		}
+
+		// The player explicitly wanted the one in `windowing_1`, so we print a warning saying
+		// that it couldn't be loaded. 
+		if preference_given {
+			log.warn("KARL2D_LINUX_WINDOWING was specified, but Karl2D failed to load that windowing system. Error:", windowing_1_err)
+		}
+
+		return windowing_2, "", true
+	}
+
+	return windowing_1, "", true
 }
 
 linux_shutdown :: proc(s: ^Linux_State) {
@@ -683,15 +702,33 @@ linux_set_window_icon :: proc(s: ^Linux_State, image: Image) -> bool {
 	return s.win.set_window_icon(s.win_state, image)
 }
 
-linux_get_monitors :: proc(allocator: runtime.Allocator) -> []Monitor_Info {
-	return nil
+linux_get_monitors :: proc(s: ^Linux_State, allocator: runtime.Allocator) -> []Monitor_Info {
+	if s != nil {
+		return s.win.get_monitors(s.win_state, allocator)
+	}
+
+	// get_monitors is OK to call with `nil` state, because it can be used before `k2.init` has been
+	// called. Threfore we need to pick the windowing solution here. This is slow (5-9 ms), but no
+	// frames have started pumping yet so it should be OK.
+
+	temp_arena: runtime.Arena
+	defer runtime.arena_destroy(&temp_arena)
+	win, win_failure_reason, win_ok := linux_choose_windowing(runtime.arena_allocator(&temp_arena))
+
+	if !win_ok {
+		log.error(win_failure_reason)
+		return nil
+	}
+
+	return win.get_monitors(nil, allocator)
 }
 
 linux_get_window_monitor :: proc(s: ^Linux_State) -> Monitor_Id {
-	return MONITOR_NONE
+	return s.win.get_window_monitor(s.win_state)
 }
 
 linux_set_window_monitor :: proc(s: ^Linux_State, monitor: Monitor_Id) {
+	s.win.set_window_monitor(s.win_state, monitor)
 }
 
 linux_set_cursor_hidden :: proc(s: ^Linux_State, hidden: bool) {

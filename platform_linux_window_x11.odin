@@ -21,6 +21,9 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_window_mode = x11_set_window_mode,
 	get_window_mode = x11_get_window_mode,
 	set_window_icon = x11_set_window_icon,
+	get_monitors = x11_get_monitors,
+	get_window_monitor = x11_get_window_monitor,
+	set_window_monitor = x11_set_window_monitor,
 	set_cursor_hidden = x11_set_cursor_hidden,
 	is_cursor_hidden = x11_is_cursor_hidden,
 	set_mouse_locked = x11_set_mouse_locked,
@@ -681,6 +684,17 @@ x11_set_window_mode :: proc(s: ^X11_State, window_mode: Window_Mode) {
 	case .Borderless_Fullscreen:
 		enter_borderless_fullscreen(s)
 	}
+}
+
+x11_get_monitors :: proc(s: ^X11_State, allocator: runtime.Allocator) -> []Monitor_Info {
+	return nil
+}
+
+x11_get_window_monitor :: proc(s: ^X11_State) -> Monitor_Id {
+	return MONITOR_NONE
+}
+
+x11_set_window_monitor :: proc(s: ^X11_State, monitor: Monitor_Id) {
 }
 
 x11_set_window_icon :: proc(s: ^X11_State, image: Image) -> bool {
