@@ -194,6 +194,37 @@ wl_init :: proc(
 		}
 	}
 
+	// `get_window_monitor` needs `s.fullscreen_output` to be set for finding the monitor of a
+	// fullscreen window. But it doesn't happen until stuff is shown in the window. Therefore we
+	// pre-figure it out here, so that proc always works.
+	if options.window_mode == .Borderless_Fullscreen && s.fullscreen_output == nil {
+		closest_to_origin_dist := max(int)
+
+		for o in s.outputs {
+			if s.output_order.first_output != "" && o.connector == s.output_order.first_output {
+				s.fullscreen_output = o.output
+				break
+			}
+
+			position := o.geometry_position
+
+			if o.xdg_output != nil && o.logical_size.x > 0 {
+				position = o.logical_position
+			}
+
+			origin_dist := position.x*position.x + position.y*position.y
+
+			if origin_dist < closest_to_origin_dist {
+				closest_to_origin_dist = origin_dist
+				s.fullscreen_output = o.output
+			}
+		}
+
+		if s.fullscreen_output != nil {
+			wl.xdg_toplevel_set_fullscreen(s.toplevel, s.fullscreen_output)
+		}
+	}
+
 	if s.decoration_manager != nil {
 		decoration := wl.zxdg_decoration_manager_v1_get_toplevel_decoration(
 			s.decoration_manager,
