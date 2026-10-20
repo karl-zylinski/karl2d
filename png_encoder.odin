@@ -1,3 +1,4 @@
+// For encoding uncompressed PNG. Used to create cursors for web builds from `Image` structs.
 #+vet explicit-allocators
 #+private package
 
@@ -8,38 +9,23 @@ import "core:encoding/endian"
 import "core:hash"
 import "core:slice"
 
-// Encodes an image as an uncompressed PNG, i.e. one whose deflate stream is made up entirely of
-// "stored" (no compression) blocks. core:image/png can only decode PNGs, not encode them, and
-// core:compress only implements inflate, not deflate, so there is no PNG encoder available in
-// Odin's core library. This exists to give the web backend something to hand the browser's
-// `cursor` CSS property as a data URI.
-//
-// The files produced are much larger than a real PNG encoder would make (there is no
-// compression), but every browser decodes them fine, which is the only thing this needs to do.
-encode_png :: proc(img: Image, allocator: runtime.Allocator) -> (data: []u8, ok: bool) {
+encode_png :: proc(img: Image, allocator: runtime.Allocator) -> (res_data: []u8, res_ok: bool) {
 	if img.width <= 0 || img.height <= 0 {
-		return nil, false
+		return
 	}
 
 	if len(img.pixels) != img.width*img.height {
-		return nil, false
+		return
 	}
 
-	stride := img.width*4
-
-	// A PNG scanline is one filter-type byte followed by that row's pixel bytes.
-	row_size := 1 + stride
+	stride := img.width*4 // 4 bytes per pixel
+	row_size := 1 + stride  // 1 byte extra for PNG filter. Filter is always 0, but must be there.
 	raw_size := img.height*row_size
-
 	STORED_BLOCK_MAX :: 65535
-
-	// Each stored block holds whole scanlines. That puts the block boundaries on row boundaries, so
-	// we can write rows straight into the output with no scratch buffer.
 	rows_per_block := STORED_BLOCK_MAX/row_size
 
 	if rows_per_block == 0 {
-		// A single scanline does not fit in a stored block, so it would have to be split across
-		// blocks. Only images wider than 16383 pixels hit this, which no cursor is.
+		// This only happens for images wider than 16383 pixels, which no cursor will be.
 		return nil, false
 	}
 
@@ -62,7 +48,7 @@ encode_png :: proc(img: Image, allocator: runtime.Allocator) -> (data: []u8, ok:
 	copy(out[pos:], []u8{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A})
 	pos += SIGNATURE_LEN
 
-	// IHDR
+	// IHDR (header)
 	{
 		endian.put_u32(out[pos:], .Big, 13)
 		pos += 4
@@ -91,7 +77,7 @@ encode_png :: proc(img: Image, allocator: runtime.Allocator) -> (data: []u8, ok:
 		pos += 4
 	}
 
-	// IDAT
+	// IDAT (data)
 	{
 		endian.put_u32(out[pos:], .Big, u32(idat_data_len))
 		pos += 4
@@ -106,9 +92,6 @@ encode_png :: proc(img: Image, allocator: runtime.Allocator) -> (data: []u8, ok:
 		out[pos + 1] = 0x01
 		pos += 2
 
-		// Adler-32 is over the scanline data, which is not contiguous in `out` because a block
-		// header sits between each run of rows. It is chained a block at a time instead: the seed
-		// is the running state, so feeding the blocks in order matches hashing the whole thing.
 		adler := u32(1)
 		row := 0
 
