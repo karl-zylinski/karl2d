@@ -398,7 +398,7 @@ registry_listener := wl.Registry_Listener {
 				registry,
 				name,
 				&wl.zxdg_output_manager_v1_interface,
-				min(version, u32(wl.zxdg_output_manager_v1_interface.version)),
+				version,
 			)
 
 			for o in s.outputs {
@@ -1243,7 +1243,7 @@ wl_get_monitors :: proc(s: ^WL_State, allocator: runtime.Allocator) -> []Monitor
 					registry,
 					name,
 					&wl.zxdg_output_manager_v1_interface,
-					min(version, u32(wl.zxdg_output_manager_v1_interface.version)),
+					version,
 				)
 
 				for o in q.outputs {
@@ -1431,7 +1431,7 @@ wl_bind_output :: proc(
 		registry,
 		name,
 		&wl.output_interface,
-		min(version, u32(wl.output_interface.version)),
+		version,
 	)
 	wl.add_listener(o.output, &wl_output_listener, o)
 
@@ -1578,7 +1578,7 @@ wl_bind_output_order :: proc(
 		registry,
 		name,
 		&wl.kde_output_order_v1_interface,
-		min(version, u32(wl.kde_output_order_v1_interface.version)),
+		version,
 	)
 
 	wl.add_listener(order.output_order, &wl_output_order_listener, order)

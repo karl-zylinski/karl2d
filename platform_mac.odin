@@ -614,7 +614,6 @@ mac_get_monitors :: proc(s: ^Mac_State, allocator: runtime.Allocator) -> []Monit
 		display := CG.DirectDisplayID(mac_screen_monitor_id(screen))
 		scale := f32(screen->backingScaleFactor())
 		frame := screen->frame()
-		bounds := CG.DisplayBounds(display)
 		physical_size_mm := CG.DisplayScreenSize(display)
 
 		size := [2]int {
@@ -648,7 +647,7 @@ mac_get_monitors :: proc(s: ^Mac_State, allocator: runtime.Allocator) -> []Monit
 		append(&monitors, Monitor_Info {
 			id = Monitor_Id(display),
 			name = name,
-			position = {int(bounds.origin.x), int(bounds.origin.y)},
+			position = {int(frame.origin.x), int(frame.origin.y)},
 			size = size,
 			physical_size = physical_size,
 			scale = scale,

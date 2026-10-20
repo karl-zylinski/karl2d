@@ -958,6 +958,12 @@ x11_set_window_monitor :: proc(s: ^X11_State, monitor: Monitor_Id) {
 
 x11_get_xrandr_monitors :: proc(display: ^X.Display) -> ([]X.XRRMonitorInfo, bool) {
 	@(static) error_logged: bool
+	@(static) xrandr_load_failed: bool
+
+	if xrandr_load_failed {
+		return nil, false
+	}
+
 	xrandr_missing, xrandr_ok := X.load_xrandr()
 
 	if !xrandr_ok {
@@ -966,6 +972,7 @@ x11_get_xrandr_monitors :: proc(display: ^X.Display) -> ([]X.XRRMonitorInfo, boo
 			error_logged = true
 		}
 
+		xrandr_load_failed = true
 		return nil, false
 	}
 
