@@ -72,15 +72,15 @@ XComposeStatus :: struct {
 SizeHints :: bit_set[SizeHintsBits; int]
 
 SizeHintsBits :: enum {
-	USPosition = 0,
-	USSize = 1,
-	PPosition = 2,
-	PSize = 3,
-	PMinSize = 4,
-	PMaxSize = 5,
-	PResizeInc = 6,
-	PAspect = 7,
-	PBaseSize = 8,
+	USPosition  = 0,
+	USSize      = 1,
+	PPosition   = 2,
+	PSize       = 3,
+	PMinSize    = 4,
+	PMaxSize    = 5,
+	PResizeInc  = 6,
+	PAspect     = 7,
+	PBaseSize   = 8,
 	PWinGravity = 9,
 }
 
@@ -235,94 +235,94 @@ InputMaskBits :: enum {
 }
 
 XAnyEvent :: struct {
-	type:       EventType,
-	serial:     uint,
+	type: EventType,
+	serial: uint,
 	send_event: b32,
-	display:    ^Display,
-	window:     Window,
+	display: ^Display,
+	window: Window,
 }
 
 XKeyEvent :: struct {
-	type:        EventType,
-	serial:      uint,
-	send_event:  b32,
-	display:     ^Display,
-	window:      Window,
-	root:        Window,
-	subwindow:   Window,
-	time:        Time,
-	x:           i32,
-	y:           i32,
-	x_root:      i32,
-	y_root:      i32,
-	state:       InputMask,
-	keycode:     u32,
+	type: EventType,
+	serial: uint,
+	send_event: b32,
+	display: ^Display,
+	window: Window,
+	root: Window,
+	subwindow: Window,
+	time: Time,
+	x: i32,
+	y: i32,
+	x_root: i32,
+	y_root: i32,
+	state: InputMask,
+	keycode: u32,
 	same_screen: b32,
 }
 
 XKeyPressedEvent :: XKeyEvent
 
 XButtonEvent :: struct {
-	type:        EventType,
-	serial:      uint,
-	send_event:  b32,
-	display:     ^Display,
-	window:      Window,
-	root:        Window,
-	subwindow:   Window,
-	time:        Time,
-	x:           i32,
-	y:           i32,
-	x_root:      i32,
-	y_root:      i32,
-	state:       InputMask,
-	button:      MouseButton,
+	type: EventType,
+	serial: uint,
+	send_event: b32,
+	display: ^Display,
+	window: Window,
+	root: Window,
+	subwindow: Window,
+	time: Time,
+	x: i32,
+	y: i32,
+	x_root: i32,
+	y_root: i32,
+	state: InputMask,
+	button: MouseButton,
 	same_screen: b32,
 }
 
 XMotionEvent :: struct {
-	type:        EventType,
-	serial:      uint,
-	send_event:  b32,
-	display:     ^Display,
-	window:      Window,
-	root:        Window,
-	subwindow:   Window,
-	time:        Time,
-	x:           i32,
-	y:           i32,
-	x_root:      i32,
-	y_root:      i32,
-	state:       InputMask,
-	is_hint:     b8,
+	type: EventType,
+	serial: uint,
+	send_event: b32,
+	display: ^Display,
+	window: Window,
+	root: Window,
+	subwindow: Window,
+	time: Time,
+	x: i32,
+	y: i32,
+	x_root: i32,
+	y_root: i32,
+	state: InputMask,
+	is_hint: b8,
 	same_screen: b32,
 }
 
 XConfigureEvent :: struct {
-	type:              EventType,
-	serial:            uint,
-	send_event:        b32,
-	display:           ^Display,
-	event:             Window,
-	window:            Window,
-	x:                 i32,
-	y:                 i32,
-	width:             i32,
-	height:            i32,
-	border_width:      i32,
-	above:             Window,
+	type: EventType,
+	serial: uint,
+	send_event: b32,
+	display: ^Display,
+	event: Window,
+	window: Window,
+	x: i32,
+	y: i32,
+	width: i32,
+	height: i32,
+	border_width: i32,
+	above: Window,
 	override_redirect: b32,
 }
 
 XPropertyEvent :: struct {
-	type:       EventType,
-	serial:     uint,
+	type: EventType,
+	serial: uint,
 	send_event: b32,
-	display:    ^Display,
-	window:     Window,
-	atom:       Atom,
-	time:       Time,
-	state:      PropertyState,
+	display: ^Display,
+	window: Window,
+	atom: Atom,
+	time: Time,
+	state: PropertyState,
 }
 
 PropertyState :: enum i32 {
@@ -331,13 +331,13 @@ PropertyState :: enum i32 {
 }
 
 XClientMessageEvent :: struct {
-	type:         EventType,
-	serial:       uint,
-	send_event:   b32,
-	display:      ^Display,
-	window:       Window,
+	type: EventType,
+	serial: uint,
+	send_event: b32,
+	display: ^Display,
+	window: Window,
 	message_type: Atom,
-	format:       i32,
+	format: i32,
 	data: struct #raw_union {
 		b: [20]i8,
 		s: [10]i16,
@@ -348,15 +348,15 @@ XClientMessageEvent :: struct {
 // Only the events Karl2D reads are named. The trailing padding is what fixes the size of the
 // union, so `NextEvent` writing any of the events that are not named here stays in bounds.
 XEvent :: struct #raw_union {
-	type:       EventType,
-	xany:       XAnyEvent,
-	xkey:       XKeyEvent,
-	xbutton:    XButtonEvent,
-	xmotion:    XMotionEvent,
+	type: EventType,
+	xany: XAnyEvent,
+	xkey: XKeyEvent,
+	xbutton: XButtonEvent,
+	xmotion: XMotionEvent,
 	xconfigure: XConfigureEvent,
-	xclient:    XClientMessageEvent,
-	xproperty:  XPropertyEvent,
-	_:          [24]int,
+	xclient: XClientMessageEvent,
+	xproperty: XPropertyEvent,
+	_: [24]int,
 }
 
 // Input method and input context, for turning key presses into typed text.
@@ -377,29 +377,29 @@ XrmValue :: struct {
 Colormap :: XID
 
 XWindowAttributes :: struct {
-	x:                     i32,
-	y:                     i32,
-	width:                 i32,
-	height:                i32,
-	border_width:          i32,
-	depth:                 i32,
-	visual:                rawptr,
-	root:                  Window,
-	class:                 i32,
-	bit_gravity:           i32,
-	win_gravity:           i32,
-	backing_store:         i32,
-	backing_planes:        uint,
-	backing_pixel:         uint,
-	save_under:            b32,
-	colormap:              Colormap,
-	map_installed:         b32,
-	map_state:             i32,
-	all_event_masks:       EventMask,
-	your_event_mask:       EventMask,
+	x: i32,
+	y: i32,
+	width: i32,
+	height: i32,
+	border_width: i32,
+	depth: i32,
+	visual: rawptr,
+	root: Window,
+	class: i32,
+	bit_gravity: i32,
+	win_gravity: i32,
+	backing_store: i32,
+	backing_planes: uint,
+	backing_pixel: uint,
+	save_under: b32,
+	colormap: Colormap,
+	map_installed: b32,
+	map_state: i32,
+	all_event_masks: EventMask,
+	your_event_mask: EventMask,
 	do_not_propagate_mask: EventMask,
-	override_redirect:     b32,
-	screen:                rawptr,
+	override_redirect: b32,
+	screen: rawptr,
 }
 
 // Passed to GetWindowProperty to accept whatever type the property already has.
@@ -426,13 +426,13 @@ CursorPixel :: u32
 
 CursorImage :: struct {
 	version: CursorDim,
-	size:    CursorDim,
-	width:   CursorDim,
-	height:  CursorDim,
-	xhot:    CursorDim,
-	yhot:    CursorDim,
-	delay:   CursorUInt,
-	pixels:  ^CursorPixel, // ARGB
+	size: CursorDim,
+	width: CursorDim,
+	height: CursorDim,
+	xhot: CursorDim,
+	yhot: CursorDim,
+	delay: CursorUInt,
+	pixels: ^CursorPixel, // ARGB
 }
 
 OpenDisplay: proc "c" (name: cstring) -> ^Display
@@ -444,15 +444,15 @@ DefaultScreen: proc "c" (display: ^Display) -> i32
 DefaultRootWindow: proc "c" (display: ^Display) -> Window
 
 CreateSimpleWindow: proc "c" (
-	display:  ^Display,
-	parent:   Window,
-	x:        i32,
-	y:        i32,
-	width:    u32,
-	height:   u32,
+	display: ^Display,
+	parent: Window,
+	x: i32,
+	y: i32,
+	width: u32,
+	height: u32,
 	bordersz: u32,
-	border:   uint,
-	bg:       uint,
+	border: uint,
+	bg: uint,
 ) -> Window
 
 DestroyWindow: proc "c" (display: ^Display, window: Window)
@@ -466,36 +466,36 @@ SelectInput: proc "c" (display: ^Display, window: Window, mask: EventMask)
 InternAtom: proc "c" (display: ^Display, name: cstring, existing: b32) -> Atom
 
 GetWindowAttributes: proc "c" (
-	display:    ^Display,
-	window:     Window,
+	display: ^Display,
+	window: Window,
 	attributes: ^XWindowAttributes,
 ) -> Status
 
 GetWindowProperty: proc "c" (
-	display:       ^Display,
-	window:        Window,
-	property:      Atom,
-	long_offset:   int,
-	long_length:   int,
-	delete:        b32,
-	req_type:      Atom,
-	actual_type:   ^Atom,
+	display: ^Display,
+	window: Window,
+	property: Atom,
+	long_offset: int,
+	long_length: int,
+	delete: b32,
+	req_type: Atom,
+	actual_type: ^Atom,
 	actual_format: ^i32,
-	num_items:     ^uint,
-	bytes_after:   ^uint,
-	prop:          ^rawptr,
+	num_items: ^uint,
+	bytes_after: ^uint,
+	prop: ^rawptr,
 ) -> Status
 
 // `format` is 8, 16 or 32, and says how wide one element of `data` is. Note that a format of 32
 // means an array of C `long`, which is 64 bits on 64-bit Linux, not an array of 32-bit values.
 ChangeProperty: proc "c" (
-	display:   ^Display,
-	window:    Window,
-	property:  Atom,
-	type:      Atom,
-	format:    i32,
-	mode:      i32,
-	data:      rawptr,
+	display: ^Display,
+	window: Window,
+	property: Atom,
+	type: Atom,
+	format: i32,
+	mode: i32,
+	data: rawptr,
 	num_items: i32,
 ) -> i32
 
@@ -506,20 +506,20 @@ XrmInitialize: proc "c" ()
 XrmGetStringDatabase: proc "c" (data: cstring) -> XrmDatabase
 
 XrmGetResource: proc "c" (
-	db:    XrmDatabase,
-	name:  cstring,
+	db: XrmDatabase,
+	name: cstring,
 	class: cstring,
-	type:  ^cstring,
+	type: ^cstring,
 	value: ^XrmValue,
 ) -> b32
 
 XrmDestroyDatabase: proc "c" (db: XrmDatabase)
 
 SetWMProtocols: proc "c" (
-	display:   ^Display,
-	window:    Window,
+	display: ^Display,
+	window: Window,
 	protocols: [^]Atom,
-	count:     i32,
+	count: i32,
 ) -> Status
 
 SetWMNormalHints: proc "c" (display: ^Display, window: Window, hints: ^XSizeHints)
@@ -533,11 +533,11 @@ PeekEvent: proc "c" (display: ^Display, event: ^XEvent)
 Pending: proc "c" (display: ^Display) -> i32
 
 SendEvent: proc "c" (
-	display:   ^Display,
-	window:    Window,
+	display: ^Display,
+	window: Window,
 	propagate: b32,
-	mask:      EventMask,
-	event:     ^XEvent,
+	mask: EventMask,
+	event: ^XEvent,
 ) -> Status
 
 MoveWindow: proc "c" (display: ^Display, window: Window, x: i32, y: i32)
@@ -545,38 +545,38 @@ MoveWindow: proc "c" (display: ^Display, window: Window, x: i32, y: i32)
 ResizeWindow: proc "c" (display: ^Display, window: Window, width: u32, height: u32)
 
 TranslateCoordinates: proc "c" (
-	display:    ^Display,
+	display: ^Display,
 	src_window: Window,
 	dst_window: Window,
-	src_x:      i32,
-	src_y:      i32,
-	dst_x:      ^i32,
-	dst_y:      ^i32,
-	dst_child:  ^Window,
+	src_x: i32,
+	src_y: i32,
+	dst_x: ^i32,
+	dst_y: ^i32,
+	dst_child: ^Window,
 ) -> b32
 
 WarpPointer: proc "c" (
-	display:    ^Display,
+	display: ^Display,
 	src_window: Window,
 	dst_window: Window,
-	src_x:      i32,
-	src_y:      i32,
-	src_width:  u32,
+	src_x: i32,
+	src_y: i32,
+	src_width: u32,
 	src_height: u32,
-	dst_x:      i32,
-	dst_y:      i32,
+	dst_x: i32,
+	dst_y: i32,
 )
 
 GrabPointer: proc "c" (
-	display:       ^Display,
-	grab_window:   Window,
-	owner_events:  b32,
-	mask:          EventMask,
-	pointer_mode:  GrabMode,
+	display: ^Display,
+	grab_window: Window,
+	owner_events: b32,
+	mask: EventMask,
+	pointer_mode: GrabMode,
 	keyboard_mode: GrabMode,
-	confine_to:    Window,
-	cursor:        Cursor,
-	time:          Time,
+	confine_to: Window,
+	cursor: Cursor,
+	time: Time,
 ) -> i32
 
 UngrabPointer: proc "c" (display: ^Display, time: Time) -> i32
@@ -588,29 +588,29 @@ UndefineCursor: proc "c" (display: ^Display, window: Window) -> i32
 FreeCursor: proc "c" (display: ^Display, cursor: Cursor)
 
 CreatePixmap: proc "c" (
-	display:  ^Display,
+	display: ^Display,
 	drawable: Drawable,
-	width:    u32,
-	height:   u32,
-	depth:    u32,
+	width: u32,
+	height: u32,
+	depth: u32,
 ) -> Pixmap
 
 CreatePixmapCursor: proc "c" (
 	display: ^Display,
-	source:  Pixmap,
-	mask:    Pixmap,
-	fg:      ^XColor,
-	bg:      ^XColor,
-	x:       u32,
-	y:       u32,
+	source: Pixmap,
+	mask: Pixmap,
+	fg: ^XColor,
+	bg: ^XColor,
+	x: u32,
+	y: u32,
 ) -> Cursor
 
 FreePixmap: proc "c" (display: ^Display, pixmap: Pixmap)
 
 LookupString: proc "c" (
-	event:  ^XKeyEvent,
+	event: ^XKeyEvent,
 	buffer: [^]u8,
-	count:  i32,
+	count: i32,
 	keysym: ^KeySym,
 	status: ^XComposeStatus,
 ) -> i32
@@ -618,9 +618,9 @@ LookupString: proc "c" (
 FilterEvent: proc "c" (event: ^XEvent, window: Window) -> b32
 
 OpenIM: proc "c" (
-	display:   ^Display,
-	rdb:       XrmHashBucket,
-	res_name:  cstring,
+	display: ^Display,
+	rdb: XrmHashBucket,
+	res_name: cstring,
 	res_class: cstring,
 ) -> XIM
 
@@ -640,16 +640,16 @@ SetICFocus: proc "c" (ic: XIC)
 UnsetICFocus: proc "c" (ic: XIC)
 
 XkbSetDetectableAutoRepeat: proc "c" (
-	display:    ^Display,
+	display: ^Display,
 	detectable: b32,
-	supported:  ^b32,
+	supported: ^b32,
 ) -> b32
 
 Xutf8LookupString: proc "c" (
-	ic:            XIC,
-	event:         ^XKeyPressedEvent,
+	ic: XIC,
+	event: ^XKeyPressedEvent,
 	buffer_return: cstring,
-	bytes_buffer:  i32,
+	bytes_buffer: i32,
 	keysym_return: ^KeySym,
 	status_return: ^LookupStringStatus,
 ) -> i32
@@ -667,7 +667,7 @@ LIB_XCURSOR :: "libXcursor.so.1"
 
 Symbol :: struct {
 	name: string,
-	ptr:  rawptr,
+	ptr: rawptr,
 }
 
 @(private)
