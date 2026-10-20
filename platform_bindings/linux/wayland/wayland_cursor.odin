@@ -1,4 +1,4 @@
-package wayland
+package karl2d_wayland
 
 import "core:c"
 
@@ -21,7 +21,6 @@ shm_interface := Interface {
 }
 
 SHM_CREATE_POOL :: 0
-SHM_RELEASE :: 1
 
 // libwayland-cursor types and bindings
 

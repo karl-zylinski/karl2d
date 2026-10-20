@@ -1,4 +1,4 @@
-package udev
+package karl2d_udev
 
 import "core:c"
 import "core:dynlib"
@@ -28,9 +28,6 @@ monitor_unref: proc "c" (mon: ^monitor) -> ^monitor
 
 LIB_UDEV :: "libudev.so.1"
 
-@(private)
-lib: dynlib.Library
-
 load :: proc() -> (missing: string, ok: bool) {
 	symbols := [?]struct {
 		name: string,
@@ -49,11 +46,9 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"udev_monitor_unref", &monitor_unref},
 	}
 
-	lib_ok: bool
-	lib, lib_ok = dynlib.load_library(LIB_UDEV)
+	lib, lib_ok := dynlib.load_library(LIB_UDEV)
 
 	if !lib_ok {
-		lib = nil
 		return LIB_UDEV, false
 	}
 
@@ -61,7 +56,7 @@ load :: proc() -> (missing: string, ok: bool) {
 		addr, addr_ok := dynlib.symbol_address(lib, s.name)
 
 		if !addr_ok {
-			unload()
+			dynlib.unload_library(lib)
 			return s.name, false
 		}
 
@@ -69,11 +64,4 @@ load :: proc() -> (missing: string, ok: bool) {
 	}
 
 	return "", true
-}
-
-unload :: proc() {
-	if lib != nil {
-		dynlib.unload_library(lib)
-		lib = nil
-	}
 }

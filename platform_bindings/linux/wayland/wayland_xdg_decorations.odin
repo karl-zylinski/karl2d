@@ -1,4 +1,4 @@
-package wayland
+package karl2d_wayland
 
 import "core:c"
 
@@ -38,23 +38,10 @@ zxdg_decoration_manager_v1_interface := Interface {
 	nil,
 }
 
-ZXDG_DECORATION_MANAGER_V1_DESTROY :: 0
 ZXDG_DECORATION_MANAGER_V1_GET_TOPLEVEL_DECORATION :: 1
 
 ZXDG_Toplevel_Decoration_V1 :: struct {
 	using proxy: Proxy,
-}
-
-zxdg_toplevel_decoration_v1_destroy :: proc "c" (
-	zxdg_toplevel_decoration_v1: ^ZXDG_Toplevel_Decoration_V1,
-) {
-	proxy_marshal_flags(
-		zxdg_toplevel_decoration_v1,
-		ZXDG_TOPLEVEL_DECORATION_V1_DESTROY,
-		nil,
-		proxy_get_version(zxdg_toplevel_decoration_v1),
-		MARSHAL_FLAG_DESTROY,
-	)
 }
 
 zxdg_toplevel_decoration_v1_set_mode :: proc "c" (
@@ -68,18 +55,6 @@ zxdg_toplevel_decoration_v1_set_mode :: proc "c" (
 		proxy_get_version(zxdg_toplevel_decoration_v1),
 		0,
 		mode,
-	)
-}
-
-zxdg_toplevel_decoration_v1_unset_mode :: proc "c" (
-	zxdg_toplevel_decoration_v1: ^ZXDG_Toplevel_Decoration_V1,
-) {
-	proxy_marshal_flags(
-		zxdg_toplevel_decoration_v1,
-		ZXDG_TOPLEVEL_DECORATION_V1_UNSET_MODE,
-		nil,
-		proxy_get_version(zxdg_toplevel_decoration_v1),
-		0,
 	)
 }
 
@@ -98,13 +73,7 @@ zxdg_toplevel_decoration_v1_interface := Interface {
 	}),
 }
 
-ZXDG_TOPLEVEL_DECORATION_V1_DESTROY :: 0
 ZXDG_TOPLEVEL_DECORATION_V1_SET_MODE :: 1
-ZXDG_TOPLEVEL_DECORATION_V1_UNSET_MODE :: 2
 
-ZXDG_TOPLEVEL_DECORATION_V1_ERROR_ALREADY_CONSTRUCTED :: 1
-ZXDG_TOPLEVEL_DECORATION_V1_ERROR_UNCONFIGURED_BUFFER :: 0
-ZXDG_TOPLEVEL_DECORATION_V1_ERROR_ORPHANED :: 2
-ZXDG_TOPLEVEL_DECORATION_V1_ERROR_INVALID_MODE :: 3
 ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE :: 1
 ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE :: 2

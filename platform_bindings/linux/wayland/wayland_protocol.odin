@@ -1,4 +1,4 @@
-package wayland
+package karl2d_wayland
 
 import "core:c"
 
@@ -41,9 +41,6 @@ Registry_Listener :: struct {
 
 REGISTRY_BIND :: 0
 
-// Bound at the version these bindings implement at most. Binding at whatever the
-// compositor advertises tells it we understand events we don't, and an event past the
-// end of our event table makes libwayland abort the process.
 registry_bind :: proc(
 	$T: typeid,
 	registry: ^Registry,
@@ -106,8 +103,6 @@ callback_interface := Interface {
 Compositor :: struct {
 	using proxy: Proxy,
 }
-
-Compositor_Listener :: struct {}
 
 compositor_create_surface :: proc "c" (compositor: ^Compositor) -> ^Surface {
 	return (^Surface)(proxy_marshal_flags(
@@ -186,7 +181,6 @@ region_interface := Interface {
 
 REGION_DESTROY :: 0
 REGION_ADD :: 1
-REGION_SUBTRACT :: 2
 
 
 Buffer :: struct {
@@ -223,29 +217,6 @@ Surface :: struct {
 	using proxy: Proxy,
 }
 
-Surface_Listener :: struct {
-	enter: proc "c" (
-		data: rawptr,
-		surface: ^Surface,
-		output: ^Output,
-	),
-	leave: proc "c" (
-		data: rawptr,
-		surface: ^Surface,
-		output: ^Output,
-	),
-	preferred_buffer_scale: proc "c" (
-		data: rawptr,
-		surface: ^Surface,
-		factor: c.int32_t,
-	),
-	preferred_buffer_transform: proc "c" (
-		data: rawptr,
-		surface: ^Surface,
-		transform: u32,
-	),
-}
-
 surface_destroy :: proc "c" (surface: ^Surface) {
 	proxy_marshal_flags(
 		surface,
@@ -269,8 +240,6 @@ surface_attach :: proc "c" (surface: ^Surface, buffer: ^Buffer, x: c.int32_t, y:
 	)
 }
 
-// Marks a rectangle of the attached buffer as changed, in buffer pixels. A compositor is free to
-// leave everything else as it was, so a new buffer only shows up once its area has been damaged.
 surface_damage_buffer :: proc "c" (
 	surface: ^Surface,
 	x: c.int32_t,
@@ -291,8 +260,6 @@ surface_damage_buffer :: proc "c" (
 	)
 }
 
-// Which part of a surface takes pointer events. A surface with no region set takes them
-// everywhere it reaches, transparent pixels included.
 surface_set_input_region :: proc "c" (surface: ^Surface, region: ^Region) {
 	proxy_marshal_flags(
 		surface,
@@ -356,21 +323,10 @@ surface_interface := Interface {
 
 SURFACE_DESTROY :: 0
 SURFACE_ATTACH :: 1
-SURFACE_DAMAGE :: 2
 SURFACE_FRAME :: 3
-SURFACE_SET_OPAQUE_REGION :: 4
 SURFACE_SET_INPUT_REGION :: 5
 SURFACE_COMMIT :: 6
-SURFACE_SET_BUFFER_TRANSFORM :: 7
-SURFACE_SET_BUFFER_SCALE :: 8
 SURFACE_DAMAGE_BUFFER :: 9
-SURFACE_OFFSET :: 10
-
-SURFACE_ERROR_INVALID_SCALE :: 0
-SURFACE_ERROR_INVALID_TRANSFORM :: 1
-SURFACE_ERROR_INVALID_SIZE :: 2
-SURFACE_ERROR_INVALID_OFFSET :: 3
-SURFACE_ERROR_DEFUNCT_ROLE_OBJECT :: 4
 
 Subcompositor :: struct {
 	using proxy: Proxy,
@@ -408,11 +364,7 @@ subcompositor_interface := Interface {
 	nil,
 }
 
-SUBCOMPOSITOR_DESTROY :: 0
 SUBCOMPOSITOR_GET_SUBSURFACE :: 1
-
-SUBCOMPOSITOR_ERROR_BAD_SURFACE :: 0
-SUBCOMPOSITOR_ERROR_BAD_PARENT :: 1
 
 
 Subsurface :: struct {
@@ -459,12 +411,6 @@ subsurface_interface := Interface {
 
 SUBSURFACE_DESTROY :: 0
 SUBSURFACE_SET_POSITION :: 1
-SUBSURFACE_PLACE_ABOVE :: 2
-SUBSURFACE_PLACE_BELOW :: 3
-SUBSURFACE_SET_SYNC :: 4
-SUBSURFACE_SET_DESYNC :: 5
-
-SUBSURFACE_ERROR_BAD_SURFACE :: 0
 
 Seat :: struct {
 	using proxy: Proxy,
@@ -497,27 +443,6 @@ seat_get_keyboard :: proc "c" (seat: ^Seat) -> ^Keyboard {
 	))
 }
 
-seat_get_touch :: proc "c" (seat: ^Seat) -> ^Touch {
-	return (^Touch)(proxy_marshal_flags(
-		seat,
-		SEAT_GET_TOUCH,
-		&touch_interface,
-		proxy_get_version(seat),
-		0,
-		nil,
-	))
-}
-
-seat_release :: proc "c" (seat: ^Seat) {
-	proxy_marshal_flags(
-		seat,
-		SEAT_RELEASE,
-		nil,
-		proxy_get_version(seat),
-		MARSHAL_FLAG_DESTROY,
-	)
-}
-
 seat_interface := Interface {
 	"wl_seat",
 	9,
@@ -537,10 +462,6 @@ seat_interface := Interface {
 
 SEAT_GET_POINTER :: 0
 SEAT_GET_KEYBOARD :: 1
-SEAT_GET_TOUCH :: 2
-SEAT_RELEASE :: 3
-
-SEAT_ERROR_MISSING_CAPABILITY :: 0
 
 Seat_Capability :: enum u32 {
 	Pointer,
@@ -681,26 +602,14 @@ pointer_interface := Interface {
 POINTER_SET_CURSOR :: 0
 POINTER_RELEASE :: 1
 
-POINTER_ERROR_ROLE :: 0
 POINTER_BUTTON_STATE_PRESSED :: 1
 POINTER_BUTTON_STATE_RELEASED :: 0
 POINTER_AXIS_VERTICAL_SCROLL :: 0
 POINTER_AXIS_HORIZONTAL_SCROLL :: 1
-POINTER_AXIS_SOURCE_CONTINUOUS :: 2
-POINTER_AXIS_SOURCE_WHEEL_TILT :: 3
-POINTER_AXIS_SOURCE_WHEEL :: 0
-POINTER_AXIS_SOURCE_FINGER :: 1
-POINTER_AXIS_RELATIVE_DIRECTION_IDENTICAL :: 0
-POINTER_AXIS_RELATIVE_DIRECTION_INVERTED :: 1
 
 BTN_LEFT :: 0x110
 BTN_RIGHT :: 0x111
 BTN_MIDDLE :: 0x112
-BTN_SIDE :: 0x113
-BTN_EXTRA :: 0x114
-BTN_FORWARD :: 0x115
-BTN_BACK :: 0x116
-BTN_TASK :: 0x117
 
 Keyboard :: struct {
 	using proxy: Proxy,
@@ -780,69 +689,10 @@ keyboard_interface := Interface {
 
 KEYBOARD_RELEASE :: 0
 
-KEYBOARD_KEYMAP_FORMAT_NO_KEYMAP :: 0
 KEYBOARD_KEYMAP_FORMAT_XKB_V1 :: 1
 KEYBOARD_KEY_STATE_RELEASED :: 0
 KEYBOARD_KEY_STATE_PRESSED :: 1
-KEYBOARD_KEY_STATE_REPEATED :: 2
 
-
-Touch :: struct {
-	using proxy: Proxy,
-}
-
-Touch_Listener :: struct {
-	down: proc "c" (
-		data: rawptr,
-		touch: ^Touch,
-		serial: u32,
-		time: u32,
-		surface: ^Surface,
-		id: c.int32_t,
-		x: Fixed,
-		y: Fixed,
-	),
-	up: proc "c" (
-		data: rawptr,
-		touch: ^Touch,
-		serial: u32,
-		time: u32,
-		id: c.int32_t,
-	),
-	motion: proc "c" (
-		data: rawptr,
-		touch: ^Touch,
-		time: u32,
-		id: c.int32_t,
-		x: Fixed,
-		y: Fixed,
-	),
-	frame: proc "c" (data: rawptr, touch: ^Touch),
-	cancel: proc "c" (data: rawptr, touch: ^Touch),
-	shape: proc "c" (
-		data: rawptr,
-		touch: ^Touch,
-		id: c.int32_t,
-		major: Fixed,
-		minor: Fixed,
-	),
-	orientation: proc "c" (
-		data: rawptr,
-		touch: ^Touch,
-		id: c.int32_t,
-		orientation: Fixed,
-	),
-}
-
-touch_release :: proc "c" (touch: ^Touch) {
-	proxy_marshal_flags(
-		touch,
-		TOUCH_RELEASE,
-		nil,
-		proxy_get_version(touch),
-		MARSHAL_FLAG_DESTROY,
-	)
-}
 
 touch_interface := Interface {
 	"wl_touch",
@@ -861,47 +711,8 @@ touch_interface := Interface {
 	}),
 }
 
-TOUCH_RELEASE :: 0
-
 Output :: struct {
 	using proxy: Proxy,
-}
-
-Output_Listener :: struct {
-	geometry: proc "c" (
-		data: rawptr,
-		output: ^Output,
-		x: c.int32_t,
-		y: c.int32_t,
-		physical_width: c.int32_t,
-		physical_height: c.int32_t,
-		subpixel: c.int32_t,
-		make: cstring,
-		model: cstring,
-		transform: c.int32_t,
-	),
-	mode: proc "c" (
-		data: rawptr,
-		output: ^Output,
-		flags: u32,
-		width: c.int32_t,
-		height: c.int32_t,
-		refresh: c.int32_t,
-	),
-	done: proc "c" (data: rawptr, output: ^Output),
-	scale: proc "c" (data: rawptr, output: ^Output, factor: c.int32_t),
-	name: proc "c" (data: rawptr, output: ^Output, name: cstring),
-	description: proc "c" (data: rawptr, output: ^Output, description: cstring),
-}
-
-output_release :: proc "c" (output: ^Output) {
-	proxy_marshal_flags(
-		output,
-		OUTPUT_RELEASE,
-		nil,
-		proxy_get_version(output),
-		MARSHAL_FLAG_DESTROY,
-	)
 }
 
 output_interface := Interface {
@@ -920,35 +731,11 @@ output_interface := Interface {
 	}),
 }
 
-OUTPUT_RELEASE :: 0
-
-OUTPUT_SUBPIXEL_NONE :: 1
-OUTPUT_SUBPIXEL_HORIZONTAL_RGB :: 2
-OUTPUT_SUBPIXEL_HORIZONTAL_BGR :: 3
-OUTPUT_SUBPIXEL_VERTICAL_RGB :: 4
-OUTPUT_SUBPIXEL_VERTICAL_BGR :: 5
-OUTPUT_SUBPIXEL_UNKNOWN :: 0
-OUTPUT_TRANSFORM_FLIPPED_270 :: 7
-OUTPUT_TRANSFORM_180 :: 2
-OUTPUT_TRANSFORM_FLIPPED_180 :: 6
-OUTPUT_TRANSFORM_FLIPPED_90 :: 5
-OUTPUT_TRANSFORM_270 :: 3
-OUTPUT_TRANSFORM_NORMAL :: 0
-OUTPUT_TRANSFORM_FLIPPED :: 4
-OUTPUT_TRANSFORM_90 :: 1
-OUTPUT_MODE_CURRENT :: 0x1
-OUTPUT_MODE_PREFERRED :: 0x2
-
 SHM_Pool :: struct {
 	using proxy: Proxy,
 }
 
-SHM_ERROR_INVALID_FORMAT :: 0
-SHM_ERROR_INVALID_STRIDE :: 1
-SHM_ERROR_INVALID_FD :: 2
-
 SHM_FORMAT_ARGB8888 :: u32(0)
-SHM_FORMAT_XRGB8888 :: u32(1)
 
 shm_create_pool :: proc "c" (shm: ^SHM, fd: c.int32_t, size: c.int32_t) -> ^SHM_Pool {
 	return (^SHM_Pool)(proxy_marshal_flags(
@@ -981,7 +768,6 @@ shm_pool_interface := Interface {
 
 SHM_POOL_CREATE_BUFFER :: 0
 SHM_POOL_DESTROY :: 1
-SHM_POOL_RESIZE :: 2
 
 shm_pool_create_buffer :: proc "c" (
 	pool: ^SHM_Pool,
@@ -1112,8 +898,6 @@ cursor_shape_device_interface := Interface {
 
 WP_CURSOR_SHAPE_DEVICE_V1_DESTROY :: 0
 WP_CURSOR_SHAPE_DEVICE_V1_SET_SHAPE :: 1
-
-WP_CURSOR_SHAPE_DEVICE_V1_ERROR_INVALID_SHAPE :: 1
 
 cursor_shape_device_set_shape :: proc "c" (
 	device: ^WP_Cursor_Shape_Device_V1,

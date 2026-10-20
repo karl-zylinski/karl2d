@@ -1,8 +1,6 @@
-// Partial EGL bindings. Just enough for the Wayland GL glue to make a context. Loaded with dlopen
-// instead of a static foreign import. Karl2D compiles in both the X11 and the Wayland backend and
-// only one of them runs, so linking libEGL unconditionally would require every machine to have it
-// installed.
-package karl2d_egl_bindings
+// Partial EGL bindings. Just enough for the Wayland GL glue to make a context. The library is
+// loaded at runtime, so that machines that only have X11 do not need it installed.
+package karl2d_egl
 
 import "core:dynlib"
 
@@ -73,15 +71,12 @@ DestroyContext: proc "c" (display: Display, ctx: Context) -> Boolean
 
 GetProcAddress: proc "c" (name: cstring) -> rawptr
 
-// Wraps `GetProcAddress` to match `gl.Set_Proc_Address_Type`, which uses the default calling
-// convention rather than "c".
 gl_set_proc_address :: proc(p: rawptr, name: cstring) {
 	(^rawptr)(p)^ = GetProcAddress(name)
 }
 
 LIB_EGL :: "libEGL.so.1"
 
-// Loads libEGL. On failure `missing` names the library or the symbol that was not found.
 load :: proc() -> (missing: string, ok: bool) {
 	symbols := [?]struct {
 		name: string,

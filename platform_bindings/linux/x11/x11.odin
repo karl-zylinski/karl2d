@@ -1,8 +1,13 @@
 // Partial Xlib and Xcursor bindings. Just enough to open a window, read its events and set a
-// cursor. Loaded with dlopen instead of a static foreign import. Karl2D compiles in both the X11
-// and the Wayland backend and only one of them runs, so linking libX11 unconditionally would
-// require every machine to have it installed.
-package x11
+// cursor. The libraries are loaded at runtime, so that machines that only have Wayland do not need
+// them installed.
+//
+// `XEvent` only names the events Karl2D reads. Its trailing padding gives the union the same size
+// as in Xlib, so that `NextEvent` can write any event into it.
+//
+// `ChangeProperty` with a `format` of 32 expects an array of C `long`, which is 64 bits on 64-bit
+// Linux.
+package karl2d_x11
 
 import "core:dynlib"
 
@@ -13,47 +18,12 @@ Cursor :: XID
 Drawable :: XID
 
 Atom :: distinct uint
-VisualID :: distinct uint
 Time :: distinct uint
-
-// A keysym is an XID naming a symbol on a key, such as "a" or "Left". Karl2D reads keys from the
-// keycode instead and only ever passes a keysym back out to Xlib, so the names are not bound.
 KeySym :: distinct uint
 
 CurrentTime :: 0
 
 Display :: distinct struct {}
-
-XExtData :: struct {
-	number: i32,
-	next: ^XExtData,
-	free_private: #type proc "c" (extension: ^XExtData) -> Status,
-	private_data: rawptr,
-}
-
-Visual :: struct {
-	ext_data: ^XExtData,
-	visualid: VisualID,
-	class: i32,
-	red_mask: uint,
-	green_mask: uint,
-	blue_mask: uint,
-	bits_per_rgb: i32,
-	map_entries: i32,
-}
-
-XVisualInfo :: struct {
-	visual: ^Visual,
-	visualid: VisualID,
-	screen: i32,
-	depth: i32,
-	class: i32,
-	red_mask: uint,
-	green_mask: uint,
-	blue_mask: uint,
-	colormap_size: i32,
-	bits_per_rgb: i32,
-}
 
 XColor :: struct {
 	pixel: uint,
@@ -139,7 +109,6 @@ LookupStringStatus :: enum i32 {
 	LookupBoth     = 4,
 }
 
-// Xlib itself stops naming buttons at 5. The horizontal wheel reports 6 and 7.
 MouseButton :: enum i32 {
 	Button1 = 1,
 	Button2 = 2,
@@ -345,8 +314,6 @@ XClientMessageEvent :: struct {
 	},
 }
 
-// Only the events Karl2D reads are named. The trailing padding is what fixes the size of the
-// union, so `NextEvent` writing any of the events that are not named here stays in bounds.
 XEvent :: struct #raw_union {
 	type: EventType,
 	xany: XAnyEvent,
@@ -359,14 +326,11 @@ XEvent :: struct #raw_union {
 	_: [24]int,
 }
 
-// Input method and input context, for turning key presses into typed text.
 XIM :: distinct rawptr
 XIC :: distinct rawptr
 
 XrmHashBucket :: distinct rawptr
 
-// The X resource database. It holds the desktop's settings, `Xft.dpi` among them, as a string on
-// the root window.
 XrmDatabase :: distinct rawptr
 
 XrmValue :: struct {
@@ -402,16 +366,11 @@ XWindowAttributes :: struct {
 	screen: rawptr,
 }
 
-// Passed to GetWindowProperty to accept whatever type the property already has.
 AnyPropertyType :: Atom(0)
 
-// One of the atoms the X server predefines, so it needs no InternAtom call.
 XA_CARDINAL :: Atom(6)
 
-// The `mode` of ChangeProperty. Replace throws away whatever the property held before.
 PropModeReplace :: i32(0)
-PropModePrepend :: i32(1)
-PropModeAppend :: i32(2)
 
 XNInputStyle: cstring : "inputStyle"
 XNClientWindow: cstring : "clientWindow"
@@ -486,8 +445,6 @@ GetWindowProperty: proc "c" (
 	prop: ^rawptr,
 ) -> Status
 
-// `format` is 8, 16 or 32, and says how wide one element of `data` is. Note that a format of 32
-// means an array of C `long`, which is 64 bits on 64-bit Linux, not an array of 32-bit values.
 ChangeProperty: proc "c" (
 	display: ^Display,
 	window: Window,
@@ -676,8 +633,6 @@ lib_x11: dynlib.Library
 @(private)
 lib_xcursor: dynlib.Library
 
-// Loads `library_name` and fills in every symbol in `symbols`. On failure `missing` names the
-// library or the symbol that was not found, and the library is closed again.
 @(private)
 load_symbols :: proc(
 	library_name: string,
@@ -704,8 +659,6 @@ load_symbols :: proc(
 	return lib, "", true
 }
 
-// Loads libX11 and libXcursor. On failure `missing` names the library or symbol that was not
-// found, which is how a machine without X11 installed is detected.
 load :: proc() -> (missing: string, ok: bool) {
 	x11_symbols := []Symbol {
 		{"XOpenDisplay", &OpenDisplay},
@@ -781,7 +734,6 @@ load :: proc() -> (missing: string, ok: bool) {
 	return "", true
 }
 
-// Closes the libraries again, for when X11 turns out to be unusable after all.
 unload :: proc() {
 	if lib_xcursor != nil {
 		dynlib.unload_library(lib_xcursor)

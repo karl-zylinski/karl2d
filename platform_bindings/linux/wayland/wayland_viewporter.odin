@@ -1,4 +1,4 @@
-package wayland
+package karl2d_wayland
 
 WP_Viewporter :: struct {
 	using proxy: Proxy,
@@ -20,10 +20,7 @@ wp_viewporter_interface := Interface {
 	nil,
 }
 
-WP_VIEWPORTER_DESTROY :: 0
 WP_VIEWPORTER_GET_VIEWPORT :: 1
-
-WP_VIEWPORTER_ERROR_VIEWPORT_EXISTS :: 0
 
 wp_viewporter_get_viewport :: proc(
 	wp_viewporter: ^WP_Viewporter,
@@ -58,13 +55,7 @@ wp_viewport_interface := Interface {
 }
 
 WP_VIEWPORT_DESTROY :: 0
-WP_VIEWPORT_SET_SOURCE :: 1
 WP_VIEWPORT_SET_DESTINATION :: 2
-
-WP_VIEWPORT_ERROR_BAD_VALUE :: 0
-WP_VIEWPORT_ERROR_BAD_SIZE :: 1
-WP_VIEWPORT_ERROR_OUT_OF_BUFFER :: 2
-WP_VIEWPORT_ERROR_NO_SURFACE :: 3
 
 wp_viewport_destroy :: proc (wp_viewport: ^WP_Viewport) {
 	proxy_marshal_flags(
@@ -73,23 +64,6 @@ wp_viewport_destroy :: proc (wp_viewport: ^WP_Viewport) {
 		nil,
 		proxy_get_version(wp_viewport),
 		MARSHAL_FLAG_DESTROY,
-	)
-}
-
-wp_viewport_set_source :: proc (
-	wp_viewport: ^WP_Viewport,
-	x, y, width, height: Fixed,
-) {
-	proxy_marshal_flags(
-		wp_viewport,
-		WP_VIEWPORT_SET_SOURCE,
-		nil,
-		proxy_get_version(wp_viewport),
-		0,
-		x,
-		y,
-		width,
-		height,
 	)
 }
 
