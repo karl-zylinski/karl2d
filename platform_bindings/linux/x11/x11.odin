@@ -368,6 +368,7 @@ XWindowAttributes :: struct {
 
 AnyPropertyType :: Atom(0)
 
+XA_ATOM :: Atom(4)
 XA_CARDINAL :: Atom(6)
 
 PropModeReplace :: i32(0)

@@ -112,36 +112,62 @@ x11_init :: proc(
 
 	window_x: i32
 	window_y: i32
-	window_on_monitor := false
+	requested_monitor_found := false
+	window_position_set := false
+	fullscreen_wanted := init_options.window_mode == .Borderless_Fullscreen
 
-	if init_options.monitor != MONITOR_NONE {
+	if init_options.monitor != MONITOR_NONE || fullscreen_wanted {
 		xrandr_monitors, xrandr_monitors_ok := x11_get_xrandr_monitors(s.display)
 
-		if xrandr_monitors_ok {
-			for m in xrandr_monitors {
-				if x11_monitor_id(m) == init_options.monitor {
+		if xrandr_monitors_ok && len(xrandr_monitors) > 0 {
+			target_monitor_index := -1
+			primary_monitor_index := 0
+
+			for m, i in xrandr_monitors {
+				if init_options.monitor != MONITOR_NONE && x11_monitor_id(m) == init_options.monitor {
+					target_monitor_index = i
+					requested_monitor_found = true
+				}
+
+				if m.primary {
+					primary_monitor_index = i
+				}
+			}
+
+			if target_monitor_index == -1 && fullscreen_wanted {
+				target_monitor_index = primary_monitor_index
+			}
+
+			if target_monitor_index != -1 {
+				m := xrandr_monitors[target_monitor_index]
+				window_position_set = true
+
+				if fullscreen_wanted {
+					window_x = m.x
+					window_y = m.y
+					s.screen_width = int(m.width)
+					s.screen_height = int(m.height)
+				} else {
 					window_x = m.x + i32((int(m.width) - s.screen_width)/2)
 					window_y = m.y + i32((int(m.height) - s.screen_height)/2)
-					window_on_monitor = true
-					break
 				}
 			}
 
 			X.XRRFreeMonitors(raw_data(xrandr_monitors))
 		}
 
-		if window_on_monitor && init_options.window_mode != .Borderless_Fullscreen {
+		if requested_monitor_found && init_options.window_mode != .Borderless_Fullscreen {
 			s.monitor_after_map = init_options.monitor
 		}
 
-		if xrandr_monitors_ok && !window_on_monitor {
+		if init_options.monitor != MONITOR_NONE && xrandr_monitors_ok && !requested_monitor_found {
 			log.errorf(
 				"Cannot use monitor %v, it does not exist. Using the default monitor.",
 				init_options.monitor,
 			)
 		}
 
-		if !xrandr_monitors_ok {
+		if init_options.monitor != MONITOR_NONE && !xrandr_monitors_ok {
 			log.errorf(
 				"Cannot use monitor %v, monitors could not be listed. Using the default monitor.",
 				init_options.monitor,
@@ -170,11 +196,23 @@ x11_init :: proc(
 		.StructureNotify,
 		.FocusChange,
 	})
+	
+	x11_apply_size_hints(s, init_options.window_mode, window_position_set)
 
-	// The window manager reads the size hints when it first decorates the window and keeps the
-	// titlebar layout it picks from them. Set after the window is mapped they still stop it being
-	// resized, but the titlebar keeps an empty slot where the maximize button would have gone.
-	x11_apply_size_hints(s, init_options.window_mode, window_on_monitor)
+	if fullscreen_wanted {
+		wm_fullscreen := X.InternAtom(s.display, "_NET_WM_STATE_FULLSCREEN", false)
+
+		X.ChangeProperty(
+			s.display,
+			s.window,
+			X.InternAtom(s.display, "_NET_WM_STATE", false),
+			X.XA_ATOM,
+			32,
+			X.PropModeReplace,
+			&wm_fullscreen,
+			1,
+		)
+	}
 
 	X.MapWindow(s.display, s.window)
 
@@ -216,10 +254,7 @@ x11_init :: proc(
 	root_attribs: X.XWindowAttributes
 	X.GetWindowAttributes(s.display, root, &root_attribs)
 	X.SelectInput(s.display, root, root_attribs.your_event_mask | {.PropertyChange})
-
-	// Borderless fullscreen is a request to the window manager about a window it already has on
-	// screen, so that part of the window mode has to wait until after the window is mapped.
-	x11_set_window_mode(s, init_options.window_mode)
+	s.window_mode = init_options.window_mode
 
 	// blank cursor for hiding it
 	{
