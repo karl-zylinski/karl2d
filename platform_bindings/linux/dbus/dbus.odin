@@ -25,9 +25,9 @@ TYPE_VARIANT :: c.int('v')
 // "org.freedesktop.DBus.Error.UnknownMethod", and is nil when nothing went wrong. This is
 // `DBusError` from dbus-errors.h, whose five one-bit fields are the `bits` below.
 Error :: struct {
-	name:     cstring,
-	message:  cstring,
-	bits:     u32,
+	name: cstring,
+	message: cstring,
+	bits: u32,
 	_padding: u32,
 	padding1: rawptr,
 }
@@ -37,20 +37,20 @@ ERROR_UNKNOWN_METHOD :: "org.freedesktop.DBus.Error.UnknownMethod"
 // Opaque to us, but the caller has to provide the storage, so the size has to be right. This is
 // `DBusMessageIter` from dbus-message.h with its fields spelled out.
 Message_Iter :: struct {
-	dummy1:  rawptr,
-	dummy2:  rawptr,
-	dummy3:  u32,
-	dummy4:  c.int,
-	dummy5:  c.int,
-	dummy6:  c.int,
-	dummy7:  c.int,
-	dummy8:  c.int,
-	dummy9:  c.int,
+	dummy1: rawptr,
+	dummy2: rawptr,
+	dummy3: u32,
+	dummy4: c.int,
+	dummy5: c.int,
+	dummy6: c.int,
+	dummy7: c.int,
+	dummy8: c.int,
+	dummy9: c.int,
 	dummy10: c.int,
 	dummy11: c.int,
-	pad1:    c.int,
-	pad2:    rawptr,
-	pad3:    rawptr,
+	pad1: c.int,
+	pad2: rawptr,
+	pad3: rawptr,
 }
 
 error_init: proc "c" (error: ^Error)
@@ -110,7 +110,7 @@ lib: dynlib.Library
 load :: proc() -> (missing: string, ok: bool) {
 	symbols := [?]struct {
 		name: string,
-		ptr:  rawptr,
+		ptr: rawptr,
 	} {
 		{"dbus_error_init", &error_init},
 		{"dbus_error_free", &error_free},

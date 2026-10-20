@@ -34,7 +34,7 @@ lib: dynlib.Library
 load :: proc() -> (missing: string, ok: bool) {
 	symbols := [?]struct {
 		name: string,
-		ptr:  rawptr,
+		ptr: rawptr,
 	} {
 		{"udev_new", &new},
 		{"udev_unref", &unref},

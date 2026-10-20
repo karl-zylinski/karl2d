@@ -25,80 +25,80 @@ CurrentTime :: 0
 Display :: distinct struct {}
 
 XExtData :: struct {
-	number:       i32,
-	next:         ^XExtData,
+	number: i32,
+	next: ^XExtData,
 	free_private: #type proc "c" (extension: ^XExtData) -> Status,
 	private_data: rawptr,
 }
 
 Visual :: struct {
-	ext_data:     ^XExtData,
-	visualid:     VisualID,
-	class:        i32,
-	red_mask:     uint,
-	green_mask:   uint,
-	blue_mask:    uint,
+	ext_data: ^XExtData,
+	visualid: VisualID,
+	class: i32,
+	red_mask: uint,
+	green_mask: uint,
+	blue_mask: uint,
 	bits_per_rgb: i32,
-	map_entries:  i32,
+	map_entries: i32,
 }
 
 XVisualInfo :: struct {
-	visual:        ^Visual,
-	visualid:      VisualID,
-	screen:        i32,
-	depth:         i32,
-	class:         i32,
-	red_mask:      uint,
-	green_mask:    uint,
-	blue_mask:     uint,
+	visual: ^Visual,
+	visualid: VisualID,
+	screen: i32,
+	depth: i32,
+	class: i32,
+	red_mask: uint,
+	green_mask: uint,
+	blue_mask: uint,
 	colormap_size: i32,
-	bits_per_rgb:  i32,
+	bits_per_rgb: i32,
 }
 
 XColor :: struct {
 	pixel: uint,
-	red:   u16,
+	red: u16,
 	green: u16,
-	blue:  u16,
+	blue: u16,
 	flags: u8,
-	pad:   u8,
+	pad: u8,
 }
 
 XComposeStatus :: struct {
-	compose_ptr:   rawptr,
+	compose_ptr: rawptr,
 	chars_matched: i32,
 }
 
 SizeHints :: bit_set[SizeHintsBits; int]
 
 SizeHintsBits :: enum {
-	USPosition  = 0,
-	USSize      = 1,
-	PPosition   = 2,
-	PSize       = 3,
-	PMinSize    = 4,
-	PMaxSize    = 5,
-	PResizeInc  = 6,
-	PAspect     = 7,
-	PBaseSize   = 8,
+	USPosition = 0,
+	USSize = 1,
+	PPosition = 2,
+	PSize = 3,
+	PMinSize = 4,
+	PMaxSize = 5,
+	PResizeInc = 6,
+	PAspect = 7,
+	PBaseSize = 8,
 	PWinGravity = 9,
 }
 
 XSizeHints :: struct {
-	flags:       SizeHints,
-	x:           i32,
-	y:           i32,
-	width:       i32,
-	height:      i32,
-	min_width:   i32,
-	min_height:  i32,
-	max_width:   i32,
-	max_height:  i32,
-	width_inc:   i32,
-	height_inc:  i32,
-	min_aspect:  struct {x, y: i32},
-	max_aspect:  struct {x, y: i32},
-	base_width:  i32,
+	flags: SizeHints,
+	x: i32,
+	y: i32,
+	width: i32,
+	height: i32,
+	min_width: i32,
+	min_height: i32,
+	max_width: i32,
+	max_height: i32,
+	width_inc: i32,
+	height_inc: i32,
+	min_aspect: struct {x, y: i32},
+	max_aspect: struct {x, y: i32},
+	base_width: i32,
 	base_height: i32,
 	win_gravity: i32,
 }

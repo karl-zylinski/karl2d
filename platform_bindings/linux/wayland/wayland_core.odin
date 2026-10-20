@@ -31,11 +31,11 @@ display_read_events: proc "c" (display: ^Display) -> c.int
 display_cancel_read: proc "c" (display: ^Display)
 
 proxy_marshal_flags: proc "c" (
-	proxy:     ^Proxy,
-	opcode:    u32,
+	proxy: ^Proxy,
+	opcode: u32,
 	interface: ^Interface,
-	version:   u32,
-	flags:     u32,
+	version: u32,
+	flags: u32,
 	#c_vararg _: ..any,
 ) -> ^Proxy
 
@@ -57,10 +57,10 @@ egl_window_create: proc "c" (surface: ^Surface, width: c.int, height: c.int) -> 
 
 egl_window_resize: proc "c" (
 	window: ^EGL_Window,
-	width:  c.int,
+	width: c.int,
 	height: c.int,
-	dx:     c.int,
-	dy:     c.int,
+	dx: c.int,
+	dy: c.int,
 )
 
 egl_window_destroy: proc "c" (window: ^EGL_Window)
@@ -76,24 +76,24 @@ fixed_to_f32 :: proc "contextless" (f: Fixed) -> f32 {
 }
 
 Array :: struct {
-	size:  c.size_t,
+	size: c.size_t,
 	alloc: c.size_t,
-	data:  rawptr,
+	data: rawptr,
 }
 
 Message :: struct {
-	name:      cstring,
+	name: cstring,
 	signature: cstring,
-	types:     [^]^Interface,
+	types: [^]^Interface,
 }
 
 Interface :: struct {
-	name:         cstring,
-	version:      c.int,
+	name: cstring,
+	version: c.int,
 	method_count: c.int,
-	methods:      ^Message,
-	event_count:  c.int,
-	events:       ^Message,
+	methods: ^Message,
+	event_count: c.int,
+	events: ^Message,
 }
 
 Proxy :: struct {}
@@ -112,7 +112,7 @@ LIB_WAYLAND_CURSOR :: "libwayland-cursor.so.0"
 
 Symbol :: struct {
 	name: string,
-	ptr:  rawptr,
+	ptr: rawptr,
 }
 
 @(private)

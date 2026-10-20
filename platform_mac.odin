@@ -54,17 +54,17 @@ MAC_HAPTICS_TIME_IMMEDIATE  :: 0
 Mac_State :: struct {
 	using _: Platform_State,
 
-	odin_ctx:         runtime.Context,
-	allocator:        runtime.Allocator,
-	app:              ^NS.Application,
-	window:           ^NS.Window,
-	window_mode:      Window_Mode,
+	odin_ctx: runtime.Context,
+	allocator: runtime.Allocator,
+	app: ^NS.Application,
+	window: ^NS.Window,
+	window_mode: Window_Mode,
 
 	// Cursor visibility (the user's intent). The OS cursor is only actually hidden while
 	// the cursor is inside the content area of a key window — see `mac_apply_cursor_state`.
-	cursor_hidden:       bool,
+	cursor_hidden: bool,
 	cursor_hidden_by_us: bool,
-	cursor_tracker:      NS.id,
+	cursor_tracker: NS.id,
 
 	custom_cursors: hm.Dynamic_Handle_Map(Mac_Cursor, Custom_Cursor),
 
@@ -74,13 +74,13 @@ Mac_State :: struct {
 	mouse_locked: bool,
 	mouse_ignore_next_move: bool,
 
-	screen_width:     int,
-	screen_height:    int,
-	windowed_rect:    NS.Rect,
-	events:           [dynamic]Event,
+	screen_width: int,
+	screen_height: int,
+	windowed_rect: NS.Rect,
+	events: [dynamic]Event,
 
 	// for emitting mouse up events after a live resize
-	left_mouse_held:  bool,
+	left_mouse_held: bool,
 
 	// macOS reports modifier keys as flag changes, not key up/down. Tracks which ones we've
 	// already reported as held so we can tell a press from a release. See `.FlagsChanged`.
@@ -90,10 +90,10 @@ Mac_State :: struct {
 
 	// The application icon and the pixels it was built from. Both nil until
 	// `mac_set_window_icon` runs.
-	icon:        ^NS.Image,
+	icon: ^NS.Image,
 	icon_pixels: []Color,
 
-	gamepads:           [MAX_GAMEPADS]Mac_Gamepad,
+	gamepads: [MAX_GAMEPADS]Mac_Gamepad,
 }
 
 Mac_Cursor :: struct {
@@ -115,10 +115,10 @@ Mac_Cursor :: struct {
 }
 
 Mac_Gamepad :: struct {
-	controller:               ^gc.Controller,
-	extended_gamepad:         ^gc.ExtendedGamepad,
-	button_inputs:            [Gamepad_Button]^gc.ControllerButtonInput,
-	button_was_pressed:       [Gamepad_Button]bool,
+	controller: ^gc.Controller,
+	extended_gamepad: ^gc.ExtendedGamepad,
+	button_inputs: [Gamepad_Button]^gc.ControllerButtonInput,
+	button_was_pressed: [Gamepad_Button]bool,
 	haptic_engine_left_right: [2]^CH.HapticEngine,
 	haptic_player_left_right: [2]^CH.HapticPatternPlayer,
 	old_intensity_left_right: [2]f32,

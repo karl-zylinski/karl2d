@@ -26,17 +26,17 @@ SHM_RELEASE :: 1
 // libwayland-cursor types and bindings
 
 Cursor_Image :: struct {
-	width:     u32,
-	height:    u32,
+	width: u32,
+	height: u32,
 	hotspot_x: u32,
 	hotspot_y: u32,
-	delay:     u32,
+	delay: u32,
 }
 
 Cursor :: struct {
 	image_count: u32,
-	images:      [^]^Cursor_Image,
-	name:        cstring,
+	images: [^]^Cursor_Image,
+	name: cstring,
 }
 
 Cursor_Theme :: struct {}

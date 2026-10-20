@@ -40,27 +40,27 @@ GetDisplay: proc "c" (display: NativeDisplayType) -> Display
 Initialize: proc "c" (display: Display, major: ^i32, minor: ^i32) -> Boolean
 
 ChooseConfig: proc "c" (
-	display:     Display,
+	display: Display,
 	attrib_list: ^i32,
-	configs:     [^]Config,
+	configs: [^]Config,
 	config_size: i32,
-	num_config:  ^i32,
+	num_config: ^i32,
 ) -> Boolean
 
 CreateWindowSurface: proc "c" (
-	display:       Display,
-	config:        Config,
+	display: Display,
+	config: Config,
 	native_window: NativeWindowType,
-	attrib_list:   ^i32,
+	attrib_list: ^i32,
 ) -> Surface
 
 BindAPI: proc "c" (api: u32) -> Boolean
 
 CreateContext: proc "c" (
-	display:       Display,
-	config:        Config,
+	display: Display,
+	config: Config,
 	share_context: Context,
-	attrib_list:   ^i32,
+	attrib_list: ^i32,
 ) -> Context
 
 MakeCurrent: proc "c" (display: Display, draw: Surface, read: Surface, ctx: Context) -> Boolean
@@ -85,7 +85,7 @@ LIB_EGL :: "libEGL.so.1"
 load :: proc() -> (missing: string, ok: bool) {
 	symbols := [?]struct {
 		name: string,
-		ptr:  rawptr,
+		ptr: rawptr,
 	} {
 		{"eglGetDisplay", &GetDisplay},
 		{"eglInitialize", &Initialize},

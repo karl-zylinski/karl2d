@@ -35,10 +35,10 @@ context_new: proc "c" (flags: Context_Flags) -> ^Context
 context_unref: proc "c" (ctx: ^Context)
 
 keymap_new_from_string: proc "c" (
-	ctx:    ^Context,
-	str:    cstring,
+	ctx: ^Context,
+	str: cstring,
 	format: Keymap_Format,
-	flags:  Keymap_Compile_Flags,
+	flags: Keymap_Compile_Flags,
 ) -> ^Keymap
 
 keymap_unref: proc "c" (keymap: ^Keymap)
@@ -48,13 +48,13 @@ state_new: proc "c" (keymap: ^Keymap) -> ^State
 state_unref: proc "c" (state: ^State)
 
 state_update_mask: proc "c" (
-	state:             ^State,
-	depressed_mods:    u32,
-	latched_mods:      u32,
-	locked_mods:       u32,
-	depressed_layout:  u32,
-	latched_layout:    u32,
-	locked_layout:     u32,
+	state: ^State,
+	depressed_mods: u32,
+	latched_mods: u32,
+	locked_mods: u32,
+	depressed_layout: u32,
+	latched_layout: u32,
+	locked_layout: u32,
 ) -> State_Component
 
 // Returns the UTF-8 encoding of the text produced by `key` in the current state, written into
@@ -62,10 +62,10 @@ state_update_mask: proc "c" (
 // been written (excluding the null terminator), like `snprintf`. `key` uses the "XKB keycode"
 // convention, which is the Linux evdev keycode plus 8.
 state_key_get_utf8: proc "c" (
-	state:  ^State,
-	key:    Keycode,
+	state: ^State,
+	key: Keycode,
 	buffer: [^]u8,
-	size:   c.size_t,
+	size: c.size_t,
 ) -> c.int
 
 LIB_XKBCOMMON :: "libxkbcommon.so.0"
@@ -77,7 +77,7 @@ lib: dynlib.Library
 load :: proc() -> (missing: string, ok: bool) {
 	symbols := [?]struct {
 		name: string,
-		ptr:  rawptr,
+		ptr: rawptr,
 	} {
 		{"xkb_context_new", &context_new},
 		{"xkb_context_unref", &context_unref},

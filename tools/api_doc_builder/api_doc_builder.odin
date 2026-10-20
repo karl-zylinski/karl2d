@@ -92,7 +92,7 @@ proc_type_text :: proc(f: ^ast.File, type: ^ast.Proc_Type) -> string {
 
 // A declaration and the comment groups standing on their own above it.
 Doc_Entry :: struct {
-	decl:     ^ast.Value_Decl,
+	decl: ^ast.Value_Decl,
 	comments: []^ast.Comment_Group,
 }
 

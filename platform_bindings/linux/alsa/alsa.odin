@@ -31,13 +31,13 @@ pcm_open: proc "c" (pcm: ^PCM, name: cstring, stream: PCM_Stream, mode: c.int) -
 pcm_close: proc "c" (pcm: PCM) -> c.int
 
 pcm_set_params: proc "c" (
-	pcm:           PCM,
-	format:        PCM_Format,
-	access:        PCM_Access,
-	channels:      c.uint,
-	rate:          c.uint,
+	pcm: PCM,
+	format: PCM_Format,
+	access: PCM_Access,
+	channels: c.uint,
+	rate: c.uint,
 	soft_resample: c.int,
-	latency:       c.ulong,
+	latency: c.ulong,
 ) -> c.int
 
 pcm_prepare: proc "c" (pcm: PCM) -> c.int
@@ -59,7 +59,7 @@ lib: dynlib.Library
 load :: proc() -> (missing: string, ok: bool) {
 	symbols := [?]struct {
 		name: string,
-		ptr:  rawptr,
+		ptr: rawptr,
 	} {
 		{"snd_pcm_open", &pcm_open},
 		{"snd_pcm_close", &pcm_close},

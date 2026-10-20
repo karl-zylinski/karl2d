@@ -31,10 +31,10 @@ FBConfig :: struct {}
 Drawable :: x11.XID
 
 CreateContext: proc "c" (
-	dpy:       ^x11.Display,
-	vis:       ^x11.XVisualInfo,
+	dpy: ^x11.Display,
+	vis: ^x11.XVisualInfo,
 	shareList: ^Context,
-	direct:    b32,
+	direct: b32,
 ) -> ^Context
 
 DestroyContext: proc "c" (dpy: ^x11.Display, ctx: ^Context)
@@ -46,10 +46,10 @@ GetProcAddress: proc "c" (procName: cstring) -> rawptr
 SwapBuffers: proc "c" (dpy: ^x11.Display, drawable: Drawable)
 
 ChooseFBConfig: proc "c" (
-	dpy:        ^x11.Display,
-	screen:     i32,
+	dpy: ^x11.Display,
+	screen: i32,
 	attribList: [^]i32,
-	nelements:  ^i32,
+	nelements: ^i32,
 ) -> [^]^FBConfig
 
 CreateContextAttribsARBProc :: proc(
@@ -76,7 +76,7 @@ LIB_GL :: "libGL.so.1"
 load :: proc() -> (missing: string, ok: bool) {
 	symbols := [?]struct {
 		name: string,
-		ptr:  rawptr,
+		ptr: rawptr,
 	} {
 		{"glXCreateContext", &CreateContext},
 		{"glXDestroyContext", &DestroyContext},

@@ -224,17 +224,17 @@ Surface :: struct {
 }
 
 Surface_Listener :: struct {
-	enter:                      proc "c" (
+	enter: proc "c" (
 		data: rawptr,
 		surface: ^Surface,
 		output: ^Output,
 	),
-	leave:                      proc "c" (
+	leave: proc "c" (
 		data: rawptr,
 		surface: ^Surface,
 		output: ^Output,
 	),
-	preferred_buffer_scale:     proc "c" (
+	preferred_buffer_scale: proc "c" (
 		data: rawptr,
 		surface: ^Surface,
 		factor: c.int32_t,
@@ -472,7 +472,7 @@ Seat :: struct {
 
 Seat_Listener :: struct {
 	capabilities: proc "c" (data: rawptr, seat: ^Seat, capabilities: Seat_Capabilities),
-	name:         proc "c" (data: rawptr, seat: ^Seat, name: cstring),
+	name: proc "c" (data: rawptr, seat: ^Seat, name: cstring),
 }
 
 seat_get_pointer :: proc "c" (seat: ^Seat) -> ^Pointer {
@@ -868,7 +868,7 @@ Output :: struct {
 }
 
 Output_Listener :: struct {
-	geometry:    proc "c" (
+	geometry: proc "c" (
 		data: rawptr,
 		output: ^Output,
 		x: c.int32_t,
@@ -880,7 +880,7 @@ Output_Listener :: struct {
 		model: cstring,
 		transform: c.int32_t,
 	),
-	mode:        proc "c" (
+	mode: proc "c" (
 		data: rawptr,
 		output: ^Output,
 		flags: u32,
@@ -888,9 +888,9 @@ Output_Listener :: struct {
 		height: c.int32_t,
 		refresh: c.int32_t,
 	),
-	done:        proc "c" (data: rawptr, output: ^Output),
-	scale:       proc "c" (data: rawptr, output: ^Output, factor: c.int32_t),
-	name:        proc "c" (data: rawptr, output: ^Output, name: cstring),
+	done: proc "c" (data: rawptr, output: ^Output),
+	scale: proc "c" (data: rawptr, output: ^Output, factor: c.int32_t),
+	name: proc "c" (data: rawptr, output: ^Output, name: cstring),
 	description: proc "c" (data: rawptr, output: ^Output, description: cstring),
 }
 

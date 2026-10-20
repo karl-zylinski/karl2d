@@ -1606,7 +1606,7 @@ WL_State :: struct {
 	current_cursor: Cursor,
 
 	cursor_shape_manager: ^wl.WP_Cursor_Shape_Manager_V1,
-	cursor_shape_device:  ^wl.WP_Cursor_Shape_Device_V1,
+	cursor_shape_device: ^wl.WP_Cursor_Shape_Device_V1,
 
 	toplevel_icon_manager: ^wl.XDG_Toplevel_Icon_Manager_V1,
 	toplevel_icon: WL_Toplevel_Icon,
