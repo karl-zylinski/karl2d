@@ -1426,6 +1426,9 @@ Monitor_Info :: struct {
 	// Allocated by `get_monitors`.
 	name: string,
 
+	// The window position. Uses the same coordinate space as `get_window_position`. On most
+	// platforms this means top-left corner is {0, 0} and Y grows downwards. But on mac the window
+	// has its position it the bottom-left corner and Y grows upwards.
 	position: [2]int,
 
 	// Pixel resolution.
