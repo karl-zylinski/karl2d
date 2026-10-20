@@ -39,6 +39,7 @@ import "log"
 import "core:fmt"
 import "core:slice"
 import "core:strconv"
+import "core:strings"
 import hm "core:container/handle_map"
 
 _ :: log
@@ -106,10 +107,45 @@ x11_init :: proc(
 		s.screen_height = int(f32(screen_height) * s.window_scale)
 	}
 
+	s.last_configure_windowed_width = s.screen_width
+	s.last_configure_windowed_height = s.screen_height
+
+	window_x: i32
+	window_y: i32
+	window_on_monitor := false
+
+	if init_options.monitor != MONITOR_NONE {
+		xrandr_monitors, xrandr_monitors_ok := x11_get_xrandr_monitors(s.display)
+
+		if xrandr_monitors_ok {
+			for m in xrandr_monitors {
+				if x11_monitor_id(m) == init_options.monitor {
+					window_x = m.x + i32((int(m.width) - s.screen_width)/2)
+					window_y = m.y + i32((int(m.height) - s.screen_height)/2)
+					window_on_monitor = true
+					break
+				}
+			}
+
+			X.XRRFreeMonitors(raw_data(xrandr_monitors))
+		}
+
+		if window_on_monitor && init_options.window_mode != .Borderless_Fullscreen {
+			s.monitor_after_map = init_options.monitor
+		}
+
+		if !window_on_monitor {
+			log.errorf(
+				"Cannot use monitor %v, it does not exist. Using the default monitor.",
+				init_options.monitor,
+			)
+		}
+	}
+
 	s.window = X.CreateSimpleWindow(
 		s.display,
 		X.DefaultRootWindow(s.display),
-		0, 0,
+		window_x, window_y,
 		u32(s.screen_width), u32(s.screen_height),
 		0,
 		0,
@@ -131,7 +167,7 @@ x11_init :: proc(
 	// The window manager reads the size hints when it first decorates the window and keeps the
 	// titlebar layout it picks from them. Set after the window is mapped they still stop it being
 	// resized, but the titlebar keeps an empty slot where the maximize button would have gone.
-	x11_apply_size_hints(s, init_options.window_mode)
+	x11_apply_size_hints(s, init_options.window_mode, window_on_monitor)
 
 	X.MapWindow(s.display, s.window)
 
@@ -360,6 +396,12 @@ x11_get_events :: proc(s: ^X11_State, events: ^[dynamic]Event) {
 				append(events, Event_Mouse_Move {
 					position = {f32(event.xmotion.x), f32(event.xmotion.y)},
 				})
+			}
+
+		case .MapNotify:
+			if s.monitor_after_map != MONITOR_NONE {
+				x11_set_window_monitor(s, s.monitor_after_map)
+				s.monitor_after_map = MONITOR_NONE
 			}
 
 		case .ConfigureNotify:
@@ -645,7 +687,7 @@ leave_borderless_fullscreen :: proc(s: ^X11_State) {
 // Tells the window manager what sizes the window will accept. A window the game keeps at a fixed
 // size pins its minimum and maximum to the size it has, which is what makes the window manager
 // leave out the resize handles and the maximize button.
-x11_apply_size_hints :: proc(s: ^X11_State, window_mode: Window_Mode) {
+x11_apply_size_hints :: proc(s: ^X11_State, window_mode: Window_Mode, user_position: bool) {
 	hints: X.XSizeHints
 
 	if window_mode == .Windowed {
@@ -660,6 +702,10 @@ x11_apply_size_hints :: proc(s: ^X11_State, window_mode: Window_Mode) {
 		hints = {
 			flags = {.USSize},
 		}
+	}
+
+	if user_position {
+		hints.flags += {.USPosition}
 	}
 
 	X.SetWMNormalHints(s.display, s.window, &hints)
@@ -679,22 +725,357 @@ x11_set_window_mode :: proc(s: ^X11_State, window_mode: Window_Mode) {
 			leave_borderless_fullscreen(s)
 		}
 
-		x11_apply_size_hints(s, window_mode)
+		x11_apply_size_hints(s, window_mode, false)
 
 	case .Borderless_Fullscreen:
+		x11_apply_size_hints(s, window_mode, false)
 		enter_borderless_fullscreen(s)
 	}
 }
 
 x11_get_monitors :: proc(s: ^X11_State, allocator: runtime.Allocator) -> []Monitor_Info {
-	return nil
+	display: ^X.Display
+	window_scale: f32
+
+	if s != nil {
+		display = s.display
+		window_scale = s.window_scale
+	} else {
+		X.XrmInitialize()
+		display = X.OpenDisplay(nil)
+
+		if display == nil {
+			log.error("Failed listing monitors: Could not open an X11 display.")
+			return nil
+		}
+
+		scale_state := X11_State {
+			display = display,
+			resource_manager = X.InternAtom(display, "RESOURCE_MANAGER", false),
+		}
+
+		window_scale = x11_fetch_window_scale(&scale_state)
+	}
+
+	defer if s == nil {
+		X.CloseDisplay(display)
+	}
+
+	xrandr_monitors, xrandr_monitors_ok := x11_get_xrandr_monitors(display)
+
+	if !xrandr_monitors_ok {
+		return nil
+	}
+
+	defer X.XRRFreeMonitors(raw_data(xrandr_monitors))
+
+	temp_arena: runtime.Arena
+	defer runtime.arena_destroy(&temp_arena)
+	temp_allocator := runtime.arena_allocator(&temp_arena)
+
+	edid_atom := X.InternAtom(display, "EDID", true)
+	monitors := make([dynamic]Monitor_Info, 0, len(xrandr_monitors), allocator)
+	has_primary := false
+
+	for m in xrandr_monitors {
+		size := [2]int{int(m.width), int(m.height)}
+		physical_size := [2]int{int(m.mwidth), int(m.mheight)}
+
+		// Flip physical size if this appears to be a "portrait" monitor.
+		if (size.x > size.y && physical_size.x < physical_size.y) ||
+		   (size.x < size.y && physical_size.x > physical_size.y) {
+			physical_size = {physical_size.y, physical_size.x}
+		}
+
+		connector_cstring := X.GetAtomName(display, m.name)
+		connector := string(connector_cstring)
+		name: string
+
+		if edid_atom != 0 && m.noutput > 0 {
+			name = x11_edid_monitor_name(display, m.outputs[0], edid_atom, temp_allocator)
+		}
+
+		if name == "" {
+			built_in :=
+				strings.has_prefix(connector, "eDP") ||
+				strings.has_prefix(connector, "LVDS") ||
+				strings.has_prefix(connector, "DSI")
+
+			name = built_in ? "Built-in Display" : connector
+		}
+
+		name_clone, name_clone_err := strings.clone(name, allocator)
+
+		if connector_cstring != nil {
+			X.Free(rawptr(connector_cstring))
+		}
+
+		if name_clone_err != nil {
+			log.errorf("Failed listing monitors: Copying the name failed with %v", name_clone_err)
+
+			for monitor in monitors {
+				delete(monitor.name, allocator)
+			}
+
+			delete(monitors)
+			return nil
+		}
+
+		primary := bool(m.primary)
+
+		if primary {
+			has_primary = true
+		}
+
+		append(&monitors, Monitor_Info {
+			id = x11_monitor_id(m),
+			name = name_clone,
+			position = {int(m.x), int(m.y)},
+			size = size,
+			physical_size = physical_size,
+			scale = window_scale,
+			primary = primary,
+		})
+	}
+
+	if !has_primary && len(monitors) > 0 {
+		closest_to_origin_idx := 0
+
+		for m, i in monitors {
+			closest_to_origin := monitors[closest_to_origin_idx].position
+			closest_to_origin_dist :=
+				closest_to_origin.x*closest_to_origin.x + closest_to_origin.y*closest_to_origin.y
+			origin_dist := m.position.x*m.position.x + m.position.y*m.position.y
+
+			if origin_dist < closest_to_origin_dist {
+				closest_to_origin_idx = i
+			}
+		}
+
+		monitors[closest_to_origin_idx].primary = true
+	}
+
+	return monitors[:]
 }
 
 x11_get_window_monitor :: proc(s: ^X11_State) -> Monitor_Id {
-	return MONITOR_NONE
+	xrandr_monitors, xrandr_monitors_ok := x11_get_xrandr_monitors(s.display)
+
+	if !xrandr_monitors_ok {
+		return MONITOR_NONE
+	}
+
+	window_left, window_top: i32
+	child: X.Window
+
+	X.TranslateCoordinates(
+		s.display,
+		s.window,
+		X.DefaultRootWindow(s.display),
+		0,
+		0,
+		&window_left,
+		&window_top,
+		&child,
+	)
+
+	window_right := int(window_left) + s.screen_width
+	window_bottom := int(window_top) + s.screen_height
+	window_monitor := MONITOR_NONE
+	window_monitor_overlap := 0
+
+	for m in xrandr_monitors {
+		overlap_width := min(window_right, int(m.x + m.width)) - max(int(window_left), int(m.x))
+		overlap_height := min(window_bottom, int(m.y + m.height)) - max(int(window_top), int(m.y))
+
+		if overlap_width <= 0 || overlap_height <= 0 {
+			continue
+		}
+
+		if overlap_width*overlap_height > window_monitor_overlap {
+			window_monitor = x11_monitor_id(m)
+			window_monitor_overlap = overlap_width*overlap_height
+		}
+	}
+
+	X.XRRFreeMonitors(raw_data(xrandr_monitors))
+	return window_monitor
 }
 
 x11_set_window_monitor :: proc(s: ^X11_State, monitor: Monitor_Id) {
+	xrandr_monitors, xrandr_monitors_ok := x11_get_xrandr_monitors(s.display)
+
+	if !xrandr_monitors_ok {
+		return
+	}
+
+	defer X.XRRFreeMonitors(raw_data(xrandr_monitors))
+
+	monitor_info: X.XRRMonitorInfo
+	monitor_found := false
+
+	for m in xrandr_monitors {
+		if x11_monitor_id(m) == monitor {
+			monitor_info = m
+			monitor_found = true
+			break
+		}
+	}
+
+	if !monitor_found {
+		log.errorf("Cannot move window to monitor %v, it does not exist.", monitor)
+		return
+	}
+
+	fullscreen := s.window_mode == .Borderless_Fullscreen
+
+	if fullscreen {
+		leave_borderless_fullscreen(s)
+	}
+
+	frame_extents := x11_get_frame_extents(s)
+	frame_width := s.screen_width + frame_extents[0] + frame_extents[1]
+	frame_height := s.screen_height + frame_extents[2] + frame_extents[3]
+
+	X.MoveWindow(
+		s.display,
+		s.window,
+		monitor_info.x + i32((int(monitor_info.width) - frame_width)/2),
+		monitor_info.y + i32((int(monitor_info.height) - frame_height)/2),
+	)
+
+	if fullscreen {
+		enter_borderless_fullscreen(s)
+	}
+}
+
+x11_get_xrandr_monitors :: proc(display: ^X.Display) -> ([]X.XRRMonitorInfo, bool) {
+	xrandr_missing, xrandr_ok := X.load_xrandr()
+
+	if !xrandr_ok {
+		log.errorf("Cannot use monitors. Could not load %v.", xrandr_missing)
+		return nil, false
+	}
+
+	major, minor: i32
+
+	if !X.XRRQueryVersion(display, &major, &minor) || (major == 1 && minor < 5) {
+		log.error("Cannot use monitors. The X server does not support RandR 1.5.")
+		return nil, false
+	}
+
+	num_monitors: i32
+	monitors := X.XRRGetMonitors(display, X.DefaultRootWindow(display), true, &num_monitors)
+
+	if monitors == nil {
+		log.error("Cannot use monitors. XRRGetMonitors failed.")
+		return nil, false
+	}
+
+	return monitors[:num_monitors], true
+}
+
+x11_monitor_id :: proc(m: X.XRRMonitorInfo) -> Monitor_Id {
+	if m.noutput > 0 {
+		return Monitor_Id(m.outputs[0])
+	}
+
+	return Monitor_Id(m.name)
+}
+
+x11_edid_monitor_name :: proc(
+	display: ^X.Display,
+	output: X.RROutput,
+	edid_atom: X.Atom,
+	allocator: runtime.Allocator,
+) -> string {
+	actual_type: X.Atom
+	actual_format: i32
+	num_items: uint
+	bytes_after: uint
+	edid_data: [^]u8
+
+	X.XRRGetOutputProperty(
+		display,
+		output,
+		edid_atom,
+		0,
+		128,
+		false,
+		false,
+		X.AnyPropertyType,
+		&actual_type,
+		&actual_format,
+		&num_items,
+		&bytes_after,
+		&edid_data,
+	)
+
+	if edid_data == nil {
+		return ""
+	}
+
+	defer X.Free(edid_data)
+
+	if actual_format != 8 || num_items < 128 {
+		return ""
+	}
+
+	edid := edid_data[:num_items]
+
+	for descriptor_idx in 0..<4 {
+		descriptor := edid[54 + descriptor_idx*18:][:18]
+
+		if descriptor[0] != 0 || descriptor[1] != 0 || descriptor[2] != 0 || descriptor[3] != 0xFC {
+			continue
+		}
+
+		name := string(descriptor[5:18])
+
+		if newline_idx := strings.index_byte(name, '\n'); newline_idx != -1 {
+			name = name[:newline_idx]
+		}
+
+		return strings.clone(strings.trim_space(name), allocator)
+	}
+
+	return ""
+}
+
+x11_get_frame_extents :: proc(s: ^X11_State) -> [4]int {
+	actual_type: X.Atom
+	actual_format: i32
+	num_items: uint
+	bytes_after: uint
+	prop: rawptr
+
+	X.GetWindowProperty(
+		s.display,
+		s.window,
+		X.InternAtom(s.display, "_NET_FRAME_EXTENTS", false),
+		0,
+		4,
+		false,
+		X.AnyPropertyType,
+		&actual_type,
+		&actual_format,
+		&num_items,
+		&bytes_after,
+		&prop,
+	)
+
+	if prop == nil {
+		return {}
+	}
+
+	defer X.Free(prop)
+
+	if actual_format != 32 || num_items != 4 {
+		return {}
+	}
+
+	extents := ([^]int)(prop)
+	return {extents[0], extents[1], extents[2], extents[3]}
 }
 
 x11_set_window_icon :: proc(s: ^X11_State, image: Image) -> bool {
@@ -944,6 +1325,7 @@ X11_State :: struct {
 	window: X.Window,
 	delete_msg: X.Atom,
 	window_mode: Window_Mode,
+	monitor_after_map: Monitor_Id,
 	window_render_glue: ^Window_Render_Glue,
 	blank_cursor: X.Cursor,
 

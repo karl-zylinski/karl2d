@@ -1249,10 +1249,7 @@ wl_get_monitors :: proc(s: ^WL_State, allocator: runtime.Allocator) -> []Monitor
 		return nil
 	}
 
-	defer wl.display_disconnect(display)
-
 	temp_arena: runtime.Arena
-	defer runtime.arena_destroy(&temp_arena)
 	temp_allocator := runtime.arena_allocator(&temp_arena)
 
 	q := Query {
@@ -1286,6 +1283,8 @@ wl_get_monitors :: proc(s: ^WL_State, allocator: runtime.Allocator) -> []Monitor
 	}
 
 	wl.destroy(registry)
+	wl.display_disconnect(display)
+	runtime.arena_destroy(&temp_arena)
 	return monitors
 }
 
