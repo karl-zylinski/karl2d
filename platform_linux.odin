@@ -711,16 +711,26 @@ linux_get_monitors :: proc(s: ^Linux_State, allocator: runtime.Allocator) -> []M
 	// called. Threfore we need to pick the windowing solution here. This is slow (5-9 ms), but no
 	// frames have started pumping yet so it should be OK.
 
-	temp_arena: runtime.Arena
-	defer runtime.arena_destroy(&temp_arena)
-	win, win_failure_reason, win_ok := linux_choose_windowing(runtime.arena_allocator(&temp_arena))
+	@(static) pre_init_win: Linux_Window_Interface
+	@(static) pre_init_win_chosen: bool
 
-	if !win_ok {
-		log.error(win_failure_reason)
-		return nil
+	if !pre_init_win_chosen {
+		temp_arena: runtime.Arena
+		temp_allocator := runtime.arena_allocator(&temp_arena)
+		win, win_failure_reason, win_ok := linux_choose_windowing(temp_allocator)
+
+		if !win_ok {
+			log.error(win_failure_reason)
+			runtime.arena_destroy(&temp_arena)
+			return nil
+		}
+
+		runtime.arena_destroy(&temp_arena)
+		pre_init_win = win
+		pre_init_win_chosen = true
 	}
 
-	return win.get_monitors(nil, allocator)
+	return pre_init_win.get_monitors(nil, allocator)
 }
 
 linux_get_window_monitor :: proc(s: ^Linux_State) -> Monitor_Id {

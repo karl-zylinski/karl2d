@@ -184,6 +184,7 @@ wl_init :: proc(
 			)
 		} else if options.window_mode == .Borderless_Fullscreen {
 			wl.xdg_toplevel_set_fullscreen(s.toplevel, monitor_output)
+			s.fullscreen_output = monitor_output
 		} else {
 			log.warnf(
 				"Cannot open a non-fullscreen window on monitor %v when using Wayland. %s",
@@ -397,7 +398,7 @@ registry_listener := wl.Registry_Listener {
 				registry,
 				name,
 				&wl.zxdg_output_manager_v1_interface,
-				version,
+				min(version, u32(wl.zxdg_output_manager_v1_interface.version)),
 			)
 
 			for o in s.outputs {
@@ -423,8 +424,17 @@ registry_listener := wl.Registry_Listener {
 				}
 			}
 
+			if s.scale_output == o.output {
+				s.scale_output = nil
+			}
+
+			if s.fullscreen_output == o.output {
+				s.fullscreen_output = nil
+			}
+
 			wl_destroy_output(o)
 			ordered_remove(&s.outputs, i)
+			wl_update_scale_output(s)
 			break
 		}
 	},
@@ -435,6 +445,7 @@ surface_listener := wl.Surface_Listener {
 		s := (^WL_State)(data)
 		context = s.odin_ctx
 		append(&s.outputs_showing_window, output)
+		wl_update_scale_output(s)
 	},
 	leave = proc "c" (data: rawptr, surface: ^wl.Surface, output: ^wl.Output) {
 		s := (^WL_State)(data)
@@ -445,6 +456,8 @@ surface_listener := wl.Surface_Listener {
 				ordered_remove(&s.outputs_showing_window, showing_output_idx)
 			}
 		}
+
+		wl_update_scale_output(s)
 	},
 	preferred_buffer_scale = proc "c" (data: rawptr, surface: ^wl.Surface, factor: c.int32_t) {},
 	preferred_buffer_transform = proc "c" (data: rawptr, surface: ^wl.Surface, transform: u32) {},
@@ -947,6 +960,7 @@ fractional_scale_listener := wl.WP_Fractional_Scale_V1_Listener {
 		context = s.odin_ctx
 		scl := f32(scale)/120
 		s.scale = scl
+		wl_update_scale_output(s)
 		s.screen_width = int(f32(s.last_configure_width) * s.scale)
 		s.screen_height = int(f32(s.last_configure_height) * s.scale)
 
@@ -1159,6 +1173,7 @@ wl_get_window_mode :: proc(s: ^WL_State) -> Window_Mode {
 
 wl_set_window_mode :: proc(s: ^WL_State, window_mode: Window_Mode) {
 	s.window_mode = window_mode
+	s.fullscreen_output = nil
 	 
 	switch window_mode {
 	case .Windowed:
@@ -1228,7 +1243,7 @@ wl_get_monitors :: proc(s: ^WL_State, allocator: runtime.Allocator) -> []Monitor
 					registry,
 					name,
 					&wl.zxdg_output_manager_v1_interface,
-					version,
+					min(version, u32(wl.zxdg_output_manager_v1_interface.version)),
 				)
 
 				for o in q.outputs {
@@ -1312,11 +1327,9 @@ wl_monitors_from_outputs :: proc(
 		}
 
 		position := o.geometry_position
-		scale := f32(o.integer_scale)
 
 		if o.xdg_output != nil && o.logical_size.x > 0 {
 			position = o.logical_position
-			scale = math.round(f32(size.x) / f32(o.logical_size.x) * 120) / 120
 		}
 
 		name := o.description
@@ -1358,7 +1371,7 @@ wl_monitors_from_outputs :: proc(
 			position = position,
 			size = size,
 			physical_size = physical_size,
-			scale = scale,
+			scale = wl_output_scale(o),
 			primary = primary,
 		})
 	}
@@ -1413,7 +1426,13 @@ wl_bind_output :: proc(
 	o.allocator = allocator
 	o.registry_name = name
 	o.integer_scale = 1
-	o.output = wl.registry_bind(wl.Output, registry, name, &wl.output_interface, version)
+	o.output = wl.registry_bind(
+		wl.Output,
+		registry,
+		name,
+		&wl.output_interface,
+		min(version, u32(wl.output_interface.version)),
+	)
 	wl.add_listener(o.output, &wl_output_listener, o)
 
 	if xdg_output_manager != nil {
@@ -1559,7 +1578,7 @@ wl_bind_output_order :: proc(
 		registry,
 		name,
 		&wl.kde_output_order_v1_interface,
-		version,
+		min(version, u32(wl.kde_output_order_v1_interface.version)),
 	)
 
 	wl.add_listener(order.output_order, &wl_output_order_listener, order)
@@ -1582,14 +1601,75 @@ wl_output_order_listener := wl.KDE_Output_Order_V1_Listener {
 	},
 }
 
-wl_get_window_monitor :: proc(s: ^WL_State) -> Monitor_Id {
-	if len(s.outputs_showing_window) == 0 {
-		return MONITOR_NONE
+wl_output_scale :: proc(o: ^WL_Output) -> f32 {
+	if o.xdg_output == nil || o.logical_size.x <= 0 {
+		return f32(o.integer_scale)
 	}
 
-	window_output := s.outputs_showing_window[0]
+	rotated :=
+		o.transform == wl.OUTPUT_TRANSFORM_90 ||
+		o.transform == wl.OUTPUT_TRANSFORM_270 ||
+		o.transform == wl.OUTPUT_TRANSFORM_FLIPPED_90 ||
+		o.transform == wl.OUTPUT_TRANSFORM_FLIPPED_270
 
-	if s.window_mode == .Borderless_Fullscreen {
+	width := rotated ? o.mode_size.y : o.mode_size.x
+	return math.round(f32(width) / f32(o.logical_size.x) * 120) / 120
+}
+
+wl_update_scale_output :: proc(s: ^WL_State) {
+	current_showing := false
+	current_scale_matches := false
+	last_matching: ^wl.Output
+	highest_scale_output: ^wl.Output
+	highest_scale: f32
+
+	for showing_output in s.outputs_showing_window {
+		for o in s.outputs {
+			if o.output != showing_output {
+				continue
+			}
+
+			output_scale := wl_output_scale(o)
+			scale_matches := output_scale == s.scale
+
+			if showing_output == s.scale_output {
+				current_showing = true
+				current_scale_matches = scale_matches
+			}
+
+			if scale_matches {
+				last_matching = showing_output
+			}
+
+			if highest_scale_output == nil || output_scale > highest_scale {
+				highest_scale_output = showing_output
+				highest_scale = output_scale
+			}
+		}
+	}
+
+	if current_showing && current_scale_matches {
+		return
+	}
+
+	if last_matching != nil {
+		s.scale_output = last_matching
+		return
+	}
+
+	if highest_scale_output != nil {
+		s.scale_output = highest_scale_output
+	}
+}
+
+wl_get_window_monitor :: proc(s: ^WL_State) -> Monitor_Id {
+	window_output := s.scale_output
+
+	if s.window_mode == .Borderless_Fullscreen && s.fullscreen_output != nil {
+		window_output = s.fullscreen_output
+	}
+
+	if s.window_mode == .Borderless_Fullscreen && s.fullscreen_output == nil {
 		window_size := [2]int{s.last_configure_width, s.last_configure_height}
 
 		for showing_output in s.outputs_showing_window {
@@ -1627,6 +1707,7 @@ wl_set_window_monitor :: proc(s: ^WL_State, monitor: Monitor_Id) {
 
 	wl.xdg_toplevel_unset_fullscreen(s.toplevel)
 	wl.xdg_toplevel_set_fullscreen(s.toplevel, output)
+	s.fullscreen_output = output
 }
 
 wl_find_output :: proc(s: ^WL_State, monitor: Monitor_Id) -> ^wl.Output {
@@ -2171,6 +2252,8 @@ WL_State :: struct {
 
 	outputs: [dynamic]^WL_Output,
 	outputs_showing_window: [dynamic]^wl.Output,
+	scale_output: ^wl.Output,
+	fullscreen_output: ^wl.Output,
 	xdg_output_manager: ^wl.ZXDG_Output_Manager_V1,
 	output_order: WL_Output_Order,
 

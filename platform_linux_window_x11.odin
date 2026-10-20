@@ -134,9 +134,16 @@ x11_init :: proc(
 			s.monitor_after_map = init_options.monitor
 		}
 
-		if !window_on_monitor {
+		if xrandr_monitors_ok && !window_on_monitor {
 			log.errorf(
 				"Cannot use monitor %v, it does not exist. Using the default monitor.",
+				init_options.monitor,
+			)
+		}
+
+		if !xrandr_monitors_ok {
+			log.errorf(
+				"Cannot use monitor %v, monitors could not be listed. Using the default monitor.",
 				init_options.monitor,
 			)
 		}
@@ -950,17 +957,26 @@ x11_set_window_monitor :: proc(s: ^X11_State, monitor: Monitor_Id) {
 }
 
 x11_get_xrandr_monitors :: proc(display: ^X.Display) -> ([]X.XRRMonitorInfo, bool) {
+	@(static) error_logged: bool
 	xrandr_missing, xrandr_ok := X.load_xrandr()
 
 	if !xrandr_ok {
-		log.errorf("Cannot use monitors. Could not load %v.", xrandr_missing)
+		if !error_logged {
+			log.errorf("Cannot use monitors. Could not load %v.", xrandr_missing)
+			error_logged = true
+		}
+
 		return nil, false
 	}
 
 	major, minor: i32
 
 	if !X.XRRQueryVersion(display, &major, &minor) || (major == 1 && minor < 5) {
-		log.error("Cannot use monitors. The X server does not support RandR 1.5.")
+		if !error_logged {
+			log.error("Cannot use monitors. The X server does not support RandR 1.5.")
+			error_logged = true
+		}
+
 		return nil, false
 	}
 
@@ -968,7 +984,11 @@ x11_get_xrandr_monitors :: proc(display: ^X.Display) -> ([]X.XRRMonitorInfo, boo
 	monitors := X.XRRGetMonitors(display, X.DefaultRootWindow(display), true, &num_monitors)
 
 	if monitors == nil {
-		log.error("Cannot use monitors. XRRGetMonitors failed.")
+		if !error_logged {
+			log.error("Cannot use monitors. XRRGetMonitors failed.")
+			error_logged = true
+		}
+
 		return nil, false
 	}
 
