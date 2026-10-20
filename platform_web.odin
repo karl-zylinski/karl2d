@@ -48,6 +48,7 @@ import "base:runtime"
 import hm "core:container/handle_map"
 import "log"
 import "core:fmt"
+import "core:strings"
 
 // The link element in index.html that `web_set_window_icon` writes the favicon into.
 WEB_FAVICON_ELEMENT_ID :: "karl2d-favicon"
@@ -537,15 +538,39 @@ web_set_window_icon :: proc(s: ^Web_State, image: Image) -> bool {
 	return true
 }
 
+WEB_MONITOR_ID :: Monitor_Id(1)
+
 web_get_monitors :: proc(allocator: runtime.Allocator) -> []Monitor_Info {
-	return nil
+	js.evaluate(
+		"var karl2d_el = document.getElementById('webgl-canvas'); " +
+		"karl2d_el._screenWidth = window.screen.width; " +
+		"karl2d_el._screenHeight = window.screen.height;",
+	)
+
+	scale := js.device_pixel_ratio()
+	width := js.get_element_key_f64("webgl-canvas", "_screenWidth") * scale
+	height := js.get_element_key_f64("webgl-canvas", "_screenHeight") * scale
+	monitors := make([]Monitor_Info, 1, allocator)
+
+	monitors[0] = {
+		id = WEB_MONITOR_ID,
+		name = strings.clone("Browser Screen", allocator),
+		size = {int(width), int(height)},
+		scale = f32(scale),
+		primary = true,
+	}
+
+	return monitors
 }
 
 web_get_window_monitor :: proc(s: ^Web_State) -> Monitor_Id {
-	return MONITOR_NONE
+	return WEB_MONITOR_ID
 }
 
 web_set_window_monitor :: proc(s: ^Web_State, monitor: Monitor_Id) {
+	if monitor != WEB_MONITOR_ID {
+		log.errorf("Cannot move window to monitor %v, it does not exist.", monitor)
+	}
 }
 
 web_set_cursor_hidden :: proc(s: ^Web_State, hidden: bool) {
