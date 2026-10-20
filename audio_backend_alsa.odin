@@ -41,10 +41,22 @@ alsa_init :: proc(s: ^Alsa_State) -> bool {
 
 	alsa_err: c.int
 	pcm: alsa.PCM
-	alsa_err = alsa.pcm_open(&pcm, "default", .PLAYBACK, 0)
+	device_names := [?]cstring{"default", "pipewire", "pulse"}
+	device_opened := false
 
-	if alsa_err < 0 {
-		log.errorf("pcm_open failed for 'default': %s", alsa.strerror(alsa_err))
+	for device_name in device_names {
+		alsa_err = alsa.pcm_open(&pcm, device_name, .PLAYBACK, 0)
+
+		if alsa_err >= 0 {
+			device_opened = true
+			break
+		}
+
+		log.errorf("pcm_open failed for '%s': %s", device_name, alsa.strerror(alsa_err))
+	}
+
+	if !device_opened {
+		log.error("Could not open any ALSA device. If you use PipeWire, then make sure that 'pipewire-alsa' is installed.")
 		return false
 	}
 
