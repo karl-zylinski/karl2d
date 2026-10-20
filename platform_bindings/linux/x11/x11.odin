@@ -424,6 +424,8 @@ SelectInput: proc "c" (display: ^Display, window: Window, mask: EventMask)
 
 InternAtom: proc "c" (display: ^Display, name: cstring, existing: b32) -> Atom
 
+GetAtomName: proc "c" (display: ^Display, atom: Atom) -> cstring
+
 GetWindowAttributes: proc "c" (
 	display: ^Display,
 	window: Window,
@@ -619,8 +621,52 @@ cursorImageLoadCursor: proc "c" (display: ^Display, img: ^CursorImage) -> Cursor
 
 cursorLibraryLoadCursor: proc "c" (display: ^Display, name: cstring) -> Cursor
 
+RROutput :: XID
+
+XRRMonitorInfo :: struct {
+	name: Atom,
+	primary: b32,
+	automatic: b32,
+	noutput: i32,
+	x: i32,
+	y: i32,
+	width: i32,
+	height: i32,
+	mwidth: i32,
+	mheight: i32,
+	outputs: [^]RROutput,
+}
+
+XRRQueryVersion: proc "c" (display: ^Display, major: ^i32, minor: ^i32) -> b32
+
+XRRGetMonitors: proc "c" (
+	display: ^Display,
+	window: Window,
+	get_active: b32,
+	num_monitors: ^i32,
+) -> [^]XRRMonitorInfo
+
+XRRFreeMonitors: proc "c" (monitors: [^]XRRMonitorInfo)
+
+XRRGetOutputProperty: proc "c" (
+	display: ^Display,
+	output: RROutput,
+	property: Atom,
+	offset: int,
+	length: int,
+	delete: b32,
+	pending: b32,
+	req_type: Atom,
+	actual_type: ^Atom,
+	actual_format: ^i32,
+	num_items: ^uint,
+	bytes_after: ^uint,
+	prop: ^[^]u8,
+) -> i32
+
 LIB_X11 :: "libX11.so.6"
 LIB_XCURSOR :: "libXcursor.so.1"
+LIB_XRANDR :: "libXrandr.so.2"
 
 Symbol :: struct {
 	name: string,
@@ -632,6 +678,9 @@ lib_x11: dynlib.Library
 
 @(private)
 lib_xcursor: dynlib.Library
+
+@(private)
+lib_xrandr: dynlib.Library
 
 @(private)
 load_symbols :: proc(
@@ -671,6 +720,7 @@ load :: proc() -> (missing: string, ok: bool) {
 		{"XStoreName", &StoreName},
 		{"XSelectInput", &SelectInput},
 		{"XInternAtom", &InternAtom},
+		{"XGetAtomName", &GetAtomName},
 		{"XGetWindowAttributes", &GetWindowAttributes},
 		{"XGetWindowProperty", &GetWindowProperty},
 		{"XChangeProperty", &ChangeProperty},
@@ -734,7 +784,28 @@ load :: proc() -> (missing: string, ok: bool) {
 	return "", true
 }
 
+load_xrandr :: proc() -> (missing: string, ok: bool) {
+	if lib_xrandr != nil {
+		return "", true
+	}
+
+	xrandr_symbols := []Symbol {
+		{"XRRQueryVersion", &XRRQueryVersion},
+		{"XRRGetMonitors", &XRRGetMonitors},
+		{"XRRFreeMonitors", &XRRFreeMonitors},
+		{"XRRGetOutputProperty", &XRRGetOutputProperty},
+	}
+
+	lib_xrandr, missing, ok = load_symbols(LIB_XRANDR, xrandr_symbols)
+	return
+}
+
 unload :: proc() {
+	if lib_xrandr != nil {
+		dynlib.unload_library(lib_xrandr)
+		lib_xrandr = nil
+	}
+
 	if lib_xcursor != nil {
 		dynlib.unload_library(lib_xcursor)
 		lib_xcursor = nil
