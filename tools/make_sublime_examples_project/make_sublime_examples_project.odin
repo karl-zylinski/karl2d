@@ -47,10 +47,26 @@ main :: proc() {
 	folders: [dynamic]string
 	append(&folders, "..")
 
+	odin_root_state, odin_root_stdout, odin_root_stderr, odin_root_err := os.process_exec(
+		{ command = { "odin", "root" } },
+		context.allocator,
+	)
+
+	if odin_root_err != nil || !odin_root_state.success {
+		fmt.eprintfln("Failed to run `odin root`, skipping core and base folders: %v %s", odin_root_err, odin_root_stderr)
+	} else {
+		odin_root := strings.trim_space(string(odin_root_stdout))
+		odin_root, _ = strings.replace_all(odin_root, "\\", "/")
+		odin_root = strings.trim_right(odin_root, "/")
+		append(&folders, fmt.tprintf("%s/core", odin_root))
+		append(&folders, fmt.tprintf("%s/base", odin_root))
+	}
+
 	folders_builder := strings.builder_make()
 
 	for f in folders {
-		entry := fmt.tprintf(`		{{ "path": "%s" }},`, f)
+		entry := fmt.tprintf(`		{{ "path": "%s" }},
+`, f)
 		strings.write_string(&folders_builder, entry)
 	}
 
