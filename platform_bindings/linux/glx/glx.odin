@@ -1,7 +1,6 @@
-// Partial glX bindings. Just enough to make a context. Loaded with dlopen instead of a static
-// foreign import. Karl2D compiles in both the X11 and the Wayland backend and only one of them
-// runs, so linking libGL unconditionally would require every machine to have it installed.
-package karl2d_glx_bindings
+// Partial glX bindings. Just enough to make a context. The library is loaded at runtime, so that
+// machines that only have Wayland do not need it installed.
+package karl2d_glx
 
 import x11 "../x11"
 import "core:dynlib"
@@ -30,13 +29,6 @@ Context :: struct {}
 FBConfig :: struct {}
 Drawable :: x11.XID
 
-CreateContext: proc "c" (
-	dpy:       ^x11.Display,
-	vis:       ^x11.XVisualInfo,
-	shareList: ^Context,
-	direct:    b32,
-) -> ^Context
-
 DestroyContext: proc "c" (dpy: ^x11.Display, ctx: ^Context)
 
 MakeCurrent: proc "c" (dpy: ^x11.Display, drawable: Drawable, ctx: ^Context) -> b32
@@ -46,10 +38,10 @@ GetProcAddress: proc "c" (procName: cstring) -> rawptr
 SwapBuffers: proc "c" (dpy: ^x11.Display, drawable: Drawable)
 
 ChooseFBConfig: proc "c" (
-	dpy:        ^x11.Display,
-	screen:     i32,
+	dpy: ^x11.Display,
+	screen: i32,
 	attribList: [^]i32,
-	nelements:  ^i32,
+	nelements: ^i32,
 ) -> [^]^FBConfig
 
 CreateContextAttribsARBProc :: proc(
@@ -72,13 +64,11 @@ SetProcAddress :: proc(p: rawptr, name: cstring) {
 
 LIB_GL :: "libGL.so.1"
 
-// Loads libGL. On failure `missing` names the library or the symbol that was not found.
 load :: proc() -> (missing: string, ok: bool) {
 	symbols := [?]struct {
 		name: string,
-		ptr:  rawptr,
+		ptr: rawptr,
 	} {
-		{"glXCreateContext", &CreateContext},
 		{"glXDestroyContext", &DestroyContext},
 		{"glXMakeCurrent", &MakeCurrent},
 		{"glXGetProcAddress", &GetProcAddress},

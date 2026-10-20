@@ -1,4 +1,4 @@
-package evdev
+package karl2d_evdev
 
 import "core:c"
 import "core:os"
@@ -47,29 +47,16 @@ EVIOCSFF :: proc() -> u32 {
 	return _IOC(_IOC_WRITE, 'E', 0x80, size_of(ff_effect))
 } /* send a force effect to a force feedback device */
 
-EVIOCRMFF :: proc(id: u32) -> u32 {
-	return _IOC(_IOC_WRITE, 'E', 0x80, size_of(c.int))
-} /* Erase a force effect */
-
 
 // Event types
 EV_SYN :: 0x00
 EV_KEY :: 0x01
 EV_REL :: 0x02
 EV_ABS :: 0x03
-EV_MSC :: 0x04
-EV_SW :: 0x05
-EV_LED :: 0x11
-EV_SND :: 0x12
-EV_REP :: 0x14
 EV_FF :: 0x15
-EV_PWR :: 0x16
-EV_FF_STATUS :: 0x17
 EV_MAX :: 0x1f
-EV_CNT :: (EV_MAX + 1)
 
 KEY_MAX :: 0x2ff
-ABS_MAX :: 0x3f
 FF_MAX :: 0x7f
 
 // This is the first and base button

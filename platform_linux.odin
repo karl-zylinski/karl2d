@@ -137,11 +137,15 @@ linux_init :: proc(
 
 	// Set up monitoring for new gamepads. This uses udev. It looks for `input` devices being added.
 	// The monitor is polled in `linux_get_events`.
-	{
+	udev_missing, udev_ok := udev.load()
+
+	if udev_ok {
 		s.udev_ptr = udev.new()
 		s.udev_mon = udev.monitor_new_from_netlink(s.udev_ptr, "udev")
 		udev.monitor_filter_add_match_subsystem_devtype(s.udev_mon, "input", nil)
 		udev.monitor_enable_receiving(s.udev_mon)
+	} else {
+		log.errorf("No gamepad hotplugging. Could not load %v.", udev_missing)
 	}
 }
 
@@ -150,8 +154,13 @@ linux_shutdown :: proc(s: ^Linux_State) {
 		linux_destroy_gamepad(s, &g)
 	}
 
-	udev.monitor_unref(s.udev_mon)
-	udev.unref(s.udev_ptr)
+	if s.udev_mon != nil {
+		udev.monitor_unref(s.udev_mon)
+	}
+
+	if s.udev_ptr != nil {
+		udev.unref(s.udev_ptr)
+	}
 
 	s.win.shutdown(s.win_state)
 	a := s.allocator
@@ -173,6 +182,10 @@ linux_get_events :: proc(s: ^Linux_State, events: ^[dynamic]Event) {
 }
 
 linux_poll_for_new_gamepads :: proc(s: ^Linux_State) {
+	if s.udev_mon == nil {
+		return
+	}
+
 	pfd := posix.pollfd {
 		fd = posix.FD(udev.monitor_get_fd(s.udev_mon)),
 		events = {posix.Poll_Event_Bits.IN},

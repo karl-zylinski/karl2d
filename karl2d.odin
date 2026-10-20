@@ -7587,22 +7587,6 @@ get_shader_input_default_type :: proc(name: string, type: Shader_Input_Type) -> 
 	return .Unknown
 }
 
-get_shader_format_num_components :: proc(format: Pixel_Format) -> int {
-	switch format {
-	case .Unknown: return 0 
-	case .RGBA_32_Float: return 4
-	case .RGB_32_Float: return 3
-	case .RG_32_Float: return 2
-	case .R_32_Float: return 1
-	case .RGBA_8_Norm: return 4
-	case .RG_8_Norm: return 2
-	case .R_8_Norm: return 1
-	case .R_8_UInt: return 1
-	}
-
-	return 0
-}
-
 get_shader_input_format :: proc(name: string, type: Shader_Input_Type) -> Pixel_Format {
 	default_type := get_shader_input_default_type(name, type)
 

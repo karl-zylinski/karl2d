@@ -1,7 +1,10 @@
-// Loaded with dlopen instead of a static foreign import. Karl2D compiles in both the X11 and the
-// Wayland backend and only one of them runs, so linking these libraries unconditionally would
-// require every machine to have them installed.
-package wayland
+// Partial Wayland bindings. The libraries are loaded at runtime, so that machines that only have
+// X11 do not need them installed.
+//
+// Each interface is bound at a version no higher than what these bindings implement. Binding at a
+// higher version makes the compositor send events that are not in our event tables, which makes
+// libwayland abort the process.
+package karl2d_wayland
 
 import "core:c"
 import "core:dynlib"
@@ -31,11 +34,11 @@ display_read_events: proc "c" (display: ^Display) -> c.int
 display_cancel_read: proc "c" (display: ^Display)
 
 proxy_marshal_flags: proc "c" (
-	proxy:     ^Proxy,
-	opcode:    u32,
+	proxy: ^Proxy,
+	opcode: u32,
 	interface: ^Interface,
-	version:   u32,
-	flags:     u32,
+	version: u32,
+	flags: u32,
 	#c_vararg _: ..any,
 ) -> ^Proxy
 
@@ -57,13 +60,11 @@ egl_window_create: proc "c" (surface: ^Surface, width: c.int, height: c.int) -> 
 
 egl_window_resize: proc "c" (
 	window: ^EGL_Window,
-	width:  c.int,
+	width: c.int,
 	height: c.int,
-	dx:     c.int,
-	dy:     c.int,
+	dx: c.int,
+	dy: c.int,
 )
-
-egl_window_destroy: proc "c" (window: ^EGL_Window)
 
 EGL_Window :: struct {}
 
@@ -76,24 +77,24 @@ fixed_to_f32 :: proc "contextless" (f: Fixed) -> f32 {
 }
 
 Array :: struct {
-	size:  c.size_t,
+	size: c.size_t,
 	alloc: c.size_t,
-	data:  rawptr,
+	data: rawptr,
 }
 
 Message :: struct {
-	name:      cstring,
+	name: cstring,
 	signature: cstring,
-	types:     [^]^Interface,
+	types: [^]^Interface,
 }
 
 Interface :: struct {
-	name:         cstring,
-	version:      c.int,
+	name: cstring,
+	version: c.int,
 	method_count: c.int,
-	methods:      ^Message,
-	event_count:  c.int,
-	events:       ^Message,
+	methods: ^Message,
+	event_count: c.int,
+	events: ^Message,
 }
 
 Proxy :: struct {}
@@ -112,7 +113,7 @@ LIB_WAYLAND_CURSOR :: "libwayland-cursor.so.0"
 
 Symbol :: struct {
 	name: string,
-	ptr:  rawptr,
+	ptr: rawptr,
 }
 
 @(private)
@@ -124,8 +125,6 @@ lib_egl: dynlib.Library
 @(private)
 lib_cursor: dynlib.Library
 
-// Loads `library_name` and fills in every symbol in `symbols`. On failure `missing` names the
-// library or the symbol that was not found, and the library is closed again.
 @(private)
 load_symbols :: proc(
 	library_name: string,
@@ -152,8 +151,6 @@ load_symbols :: proc(
 	return lib, "", true
 }
 
-// Loads the three Wayland libraries. On failure `missing` names the library or symbol that was not
-// found, which is how a machine without Wayland installed is detected.
 load :: proc() -> (missing: string, ok: bool) {
 	client_symbols := []Symbol {
 		{"wl_display_connect", &display_connect},
@@ -187,7 +184,6 @@ load :: proc() -> (missing: string, ok: bool) {
 	egl_symbols := []Symbol {
 		{"wl_egl_window_create", &egl_window_create},
 		{"wl_egl_window_resize", &egl_window_resize},
-		{"wl_egl_window_destroy", &egl_window_destroy},
 	}
 
 	lib_egl, missing, ok = load_symbols(LIB_WAYLAND_EGL, egl_symbols)
@@ -214,7 +210,6 @@ load :: proc() -> (missing: string, ok: bool) {
 	return "", true
 }
 
-// Closes the libraries again, for when Wayland turns out to be unusable after all.
 unload :: proc() {
 	if lib_cursor != nil {
 		dynlib.unload_library(lib_cursor)

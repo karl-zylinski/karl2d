@@ -1,4 +1,4 @@
-package wayland
+package karl2d_wayland
 
 ZWP_Relative_Pointer_Manager_V1 :: struct {
 	using proxy: Proxy,
@@ -56,20 +56,7 @@ zwp_relative_pointer_v1_interface := Interface {
 	}),
 }
 
-ZWP_RELATIVE_POINTER_MANAGER_V1_DESTROY :: 0
 ZWP_RELATIVE_POINTER_MANAGER_V1_GET_RELATIVE_POINTER :: 1
-
-ZWP_RELATIVE_POINTER_V1_DESTROY :: 0
-
-zwp_relative_pointer_manager_v1_destroy :: proc(self: ^ZWP_Relative_Pointer_Manager_V1) {
-	proxy_marshal_flags(
-		self,
-		ZWP_RELATIVE_POINTER_MANAGER_V1_DESTROY,
-		nil,
-		proxy_get_version(self),
-		MARSHAL_FLAG_DESTROY,
-	)
-}
 
 zwp_relative_pointer_manager_v1_get_relative_pointer :: proc(
 	self: ^ZWP_Relative_Pointer_Manager_V1,

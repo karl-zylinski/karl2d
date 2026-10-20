@@ -1,4 +1,4 @@
-package wayland
+package karl2d_wayland
 
 import "core:c"
 
@@ -8,16 +8,6 @@ XDG_WM_Base :: struct {
 
 XDG_WM_Base_Listener :: struct {
 	ping: proc "c" (data: rawptr, xdg_wm_base: ^XDG_WM_Base, serial: c.uint32_t),
-}
-
-xdg_wm_base_destroy :: proc "c" (xdg_wm_base: ^XDG_WM_Base) {
-	proxy_marshal_flags(
-		xdg_wm_base,
-		XDG_WM_BASE_DESTROY,
-		nil,
-		proxy_get_version(xdg_wm_base),
-		MARSHAL_FLAG_DESTROY,
-	)
 }
 
 xdg_wm_base_get_xdg_surface :: proc "c" (
@@ -64,34 +54,14 @@ xdg_wm_base_interface := Interface {
 	raw_data([]Message{{"ping", "u", raw_data([]^Interface{nil})}}),
 }
 
-XDG_WM_BASE_DESTROY :: 0
-XDG_WM_BASE_CREATE_POSITIONER :: 1
 XDG_WM_BASE_GET_XDG_SURFACE :: 2
 XDG_WM_BASE_PONG :: 3
-
-XDG_WM_BASE_ERROR_INVALID_SURFACE_STATE :: 4
-XDG_WM_BASE_ERROR_DEFUNCT_SURFACES :: 1
-XDG_WM_BASE_ERROR_INVALID_POSITIONER :: 5
-XDG_WM_BASE_ERROR_NOT_THE_TOPMOST_POPUP :: 2
-XDG_WM_BASE_ERROR_UNRESPONSIVE :: 6
-XDG_WM_BASE_ERROR_ROLE :: 0
-XDG_WM_BASE_ERROR_INVALID_POPUP_PARENT :: 3
 
 XDG_Surface :: struct {
 	using proxy: Proxy,
 }
 XDG_Surface_Listener :: struct {
 	configure: proc "c" (data: rawptr, xdg_surface: ^XDG_Surface, serial: c.uint32_t),
-}
-
-xdg_surface_destroy :: proc "c" (xdg_surface: ^XDG_Surface) {
-	proxy_marshal_flags(
-		xdg_surface,
-		XDG_SURFACE_DESTROY,
-		nil,
-		proxy_get_version(xdg_surface),
-		MARSHAL_FLAG_DESTROY,
-	)
 }
 
 xdg_surface_get_toplevel :: proc "c" (xdg_surface: ^XDG_Surface) -> ^XDG_Toplevel {
@@ -167,18 +137,9 @@ xdg_surface_interface := Interface {
 	raw_data([]Message{{"configure", "u", raw_data([]^Interface{nil})}}),
 }
 
-XDG_SURFACE_DESTROY :: 0
 XDG_SURFACE_GET_TOPLEVEL :: 1
-XDG_SURFACE_GET_POPUP :: 2
 XDG_SURFACE_SET_WINDOW_GEOMETRY :: 3
 XDG_SURFACE_ACK_CONFIGURE :: 4
-
-XDG_SURFACE_ERROR_ALREADY_CONSTRUCTED :: 2
-XDG_SURFACE_ERROR_INVALID_SIZE :: 5
-XDG_SURFACE_ERROR_UNCONFIGURED_BUFFER :: 3
-XDG_SURFACE_ERROR_NOT_CONSTRUCTED :: 1
-XDG_SURFACE_ERROR_DEFUNCT_ROLE_OBJECT :: 6
-XDG_SURFACE_ERROR_INVALID_SERIAL :: 4
 
 XDG_Toplevel :: struct {
 	using proxy: Proxy,
@@ -206,27 +167,6 @@ XDG_Toplevel_Listener :: struct {
 	),
 }
 
-xdg_toplevel_destroy :: proc "c" (xdg_toplevel: ^XDG_Toplevel) {
-	proxy_marshal_flags(
-		xdg_toplevel,
-		XDG_TOPLEVEL_DESTROY,
-		nil,
-		proxy_get_version(xdg_toplevel),
-		MARSHAL_FLAG_DESTROY,
-	)
-}
-
-xdg_toplevel_set_parent :: proc "c" (xdg_toplevel: ^XDG_Toplevel, parent: ^XDG_Toplevel) {
-	proxy_marshal_flags(
-		xdg_toplevel,
-		XDG_TOPLEVEL_SET_PARENT,
-		nil,
-		proxy_get_version(xdg_toplevel),
-		0,
-		parent,
-	)
-}
-
 xdg_toplevel_set_title :: proc "c" (xdg_toplevel: ^XDG_Toplevel, title: cstring) {
 	proxy_marshal_flags(
 		xdg_toplevel,
@@ -235,17 +175,6 @@ xdg_toplevel_set_title :: proc "c" (xdg_toplevel: ^XDG_Toplevel, title: cstring)
 		proxy_get_version(xdg_toplevel),
 		0,
 		title,
-	)
-}
-
-xdg_toplevel_set_app_id :: proc "c" (xdg_toplevel: ^XDG_Toplevel, app_id: cstring) {
-	proxy_marshal_flags(
-		xdg_toplevel,
-		XDG_TOPLEVEL_SET_APP_ID,
-		nil,
-		proxy_get_version(xdg_toplevel),
-		0,
-		app_id,
 	)
 }
 
@@ -412,10 +341,7 @@ xdg_toplevel_interface := Interface {
 	}),
 }
 
-XDG_TOPLEVEL_DESTROY :: 0
-XDG_TOPLEVEL_SET_PARENT :: 1
 XDG_TOPLEVEL_SET_TITLE :: 2
-XDG_TOPLEVEL_SET_APP_ID :: 3
 XDG_TOPLEVEL_SHOW_WINDOW_MENU :: 4
 XDG_TOPLEVEL_MOVE :: 5
 XDG_TOPLEVEL_RESIZE :: 6
@@ -427,28 +353,9 @@ XDG_TOPLEVEL_SET_FULLSCREEN :: 11
 XDG_TOPLEVEL_UNSET_FULLSCREEN :: 12
 XDG_TOPLEVEL_SET_MINIMIZED :: 13
 
-XDG_TOPLEVEL_ERROR_INVALID_PARENT :: 1
-XDG_TOPLEVEL_ERROR_INVALID_SIZE :: 2
-XDG_TOPLEVEL_ERROR_INVALID_RESIZE_EDGE :: 0
 XDG_TOPLEVEL_RESIZE_EDGE_LEFT :: 4
 XDG_TOPLEVEL_RESIZE_EDGE_TOP :: 1
-XDG_TOPLEVEL_RESIZE_EDGE_TOP_RIGHT :: 9
 XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM :: 2
-XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT :: 10
-XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_LEFT :: 6
-XDG_TOPLEVEL_RESIZE_EDGE_NONE :: 0
-XDG_TOPLEVEL_RESIZE_EDGE_TOP_LEFT :: 5
 XDG_TOPLEVEL_RESIZE_EDGE_RIGHT :: 8
 XDG_TOPLEVEL_STATE_MAXIMIZED :: 1
-XDG_TOPLEVEL_STATE_RESIZING :: 3
-XDG_TOPLEVEL_STATE_SUSPENDED :: 9
-XDG_TOPLEVEL_STATE_TILED_TOP :: 7
-XDG_TOPLEVEL_STATE_FULLSCREEN :: 2
-XDG_TOPLEVEL_STATE_TILED_LEFT :: 5
-XDG_TOPLEVEL_STATE_TILED_RIGHT :: 6
-XDG_TOPLEVEL_STATE_TILED_BOTTOM :: 8
 XDG_TOPLEVEL_STATE_ACTIVATED :: 4
-XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE :: 4
-XDG_TOPLEVEL_WM_CAPABILITIES_FULLSCREEN :: 3
-XDG_TOPLEVEL_WM_CAPABILITIES_MAXIMIZE :: 2
-XDG_TOPLEVEL_WM_CAPABILITIES_WINDOW_MENU :: 1

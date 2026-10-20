@@ -1,4 +1,4 @@
-package wayland
+package karl2d_wayland
 
 WP_Fractional_Scale_Manager_V1 :: struct {
 	using proxy: Proxy,
@@ -42,12 +42,7 @@ wp_fractional_scale_manager_get_fractional_scale :: proc(
 }
 
 
-WP_FRACTIONAL_SCALE_MANAGER_V1_DESTROY                    :: 0
-WP_FRACTIONAL_SCALE_MANAGER_V1_GET_FRACTIONAL_SCALE       :: 1
-WP_FRACTIONAL_SCALE_MANAGER_V1_DESTROY_SINCE              :: 1
-WP_FRACTIONAL_SCALE_MANAGER_V1_GET_FRACTIONAL_SCALE_SINCE :: 1
-
-WP_FRACTIONAL_SCALE_MANAGER_V1_ERROR_FRACTIONAL_SCALE_EXISTS :: 0
+WP_FRACTIONAL_SCALE_MANAGER_V1_GET_FRACTIONAL_SCALE :: 1
 
 WP_Fractional_Scale_V1 :: struct {
 	using proxy: Proxy,
@@ -69,5 +64,3 @@ wp_fractional_scale_v1_interface := Interface {
 	1,
 	raw_data([]Message{{"preferred_scale", "u", raw_data([]^Interface{nil})}}),
 }
-
-WP_FRACTIONAL_SCALE_V1_DESTROY :: 0

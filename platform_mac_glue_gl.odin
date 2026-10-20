@@ -6,8 +6,8 @@ package karl2d
 
 import "core:sys/posix"
 import gl "vendor:OpenGL"
-import "platform_bindings/mac/nsgl"
-import NS "core:sys/darwin/Foundation"
+import NS "vendor:darwin/AppKit"
+import CA "vendor:darwin/QuartzCore"
 import "log"
 import "base:runtime"
 import "core:slice"
@@ -33,33 +33,33 @@ create_mac_gl_glue :: proc(
 Mac_GL_Glue :: struct {
 	using interface: Window_Render_Glue,
 	window: ^NS.Window,
-	gl_ctx: ^nsgl.OpenGLContext,
+	gl_ctx: ^NS.OpenGLContext,
 }
 
 mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue, options: Init_Options) -> bool {
 	// Create pixel format attributes (null-terminated array)
 	attrs := slice.to_dynamic(
-		[]u32 {
-			nsgl.OpenGLPFADoubleBuffer,
-			nsgl.OpenGLPFAColorSize, 24,
-			nsgl.OpenGLPFAAlphaSize, 8,
-			nsgl.OpenGLPFADepthSize, 24,
-			nsgl.OpenGLPFAAccelerated,
-			nsgl.OpenGLPFANoRecovery,
-			nsgl.OpenGLPFAOpenGLProfile, nsgl.OpenGLProfileVersion3_2Core,
+		[]NS.OpenGLPixelFormatAttribute {
+			NS.OpenGLPFADoubleBuffer,
+			NS.OpenGLPFAColorSize, 24,
+			NS.OpenGLPFAAlphaSize, 8,
+			NS.OpenGLPFADepthSize, 24,
+			NS.OpenGLPFAAccelerated,
+			NS.OpenGLPFANoRecovery,
+			NS.OpenGLPFAOpenGLProfile, NS.OpenGLProfileVersion3_2Core,
 		},
 		frame_allocator,
 	)
 
 	if options.anti_alias {
-		append(&attrs, nsgl.OpenGLPFASampleBuffers, 1)
-		append(&attrs, nsgl.OpenGLPFASamples, 4)
+		append(&attrs, NS.OpenGLPFASampleBuffers, 1)
+		append(&attrs, NS.OpenGLPFASamples, 4)
 	}
 
-	append(&attrs, 0)	
+	append(&attrs, 0)
 
 	// Create pixel format
-	pixel_format := nsgl.OpenGLPixelFormat_alloc()
+	pixel_format := NS.OpenGLPixelFormat.alloc()
 	pixel_format = pixel_format->initWithAttributes(raw_data(attrs[:]))
 
 	if pixel_format == nil {
@@ -68,7 +68,7 @@ mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue, options: Init_Options) -> bool
 	}
 
 	// Create OpenGL context
-	s.gl_ctx = nsgl.OpenGLContext_alloc()
+	s.gl_ctx = NS.OpenGLContext.alloc()
 
 	if s.gl_ctx == nil {
 		log.error("Failed to alloc NSOpenGLContext")
@@ -88,8 +88,8 @@ mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue, options: Init_Options) -> bool
 	s.gl_ctx->makeCurrentContext()
 
 	// Enable vsync
-	swap_interval := [1]i32{1}
-	s.gl_ctx->setValues(raw_data(swap_interval[:]), nsgl.OpenGLContextParameterSwapInterval)
+	swap_interval: CA.GLint = 1
+	s.gl_ctx->setValues(&swap_interval, .SwapInterval)
 
 	// the OpenGL shared library is loaded from OpenGL.framework when we initialize it in _gl_get_context
 	macos_gl_set_proc_address :: proc(p: rawptr, name: cstring) {
@@ -108,7 +108,7 @@ mac_gl_glue_present :: proc(s: ^Mac_GL_Glue) {
 }
 
 mac_gl_glue_destroy :: proc(s: ^Mac_GL_Glue) {
-	nsgl.OpenGLContext_clearCurrentContext()
+	NS.OpenGLContext.clearCurrentContext()
 	free(s)
 }
 

@@ -1,4 +1,4 @@
-package wayland
+package karl2d_wayland
 
 ZWP_Pointer_Constraints_V1 :: struct {
 	using proxy: Proxy,
@@ -13,10 +13,7 @@ ZWP_Pointer_Constraints_V1_Lifetime :: enum u32 {
 	Persistent = 2,
 }
 
-ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_ONESHOT    :: ZWP_Pointer_Constraints_V1_Lifetime.Oneshot
 ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT :: ZWP_Pointer_Constraints_V1_Lifetime.Persistent
-
-ZWP_POINTER_CONSTRAINTS_V1_ERROR_ALREADY_CONSTRAINED :: 1
 
 ZWP_Locked_Pointer_V1_Listener :: struct {
 	locked: proc "c" (
@@ -47,7 +44,6 @@ zwp_pointer_constraints_v1_interface := Interface {
 	nil,
 }
 
-ZWP_POINTER_CONSTRAINTS_V1_DESTROY :: 0
 ZWP_POINTER_CONSTRAINTS_V1_LOCK_POINTER :: 1
 
 zwp_locked_pointer_v1_interface := Interface {
@@ -67,18 +63,6 @@ zwp_locked_pointer_v1_interface := Interface {
 }
 
 ZWP_LOCKED_POINTER_V1_DESTROY :: 0
-ZWP_LOCKED_POINTER_V1_SET_CURSOR_POSITION_HINT :: 1
-ZWP_LOCKED_POINTER_V1_SET_REGION :: 2
-
-zwp_pointer_constraints_v1_destroy :: proc(self: ^ZWP_Pointer_Constraints_V1) {
-	proxy_marshal_flags(
-		self,
-		ZWP_POINTER_CONSTRAINTS_V1_DESTROY,
-		nil,
-		proxy_get_version(self),
-		MARSHAL_FLAG_DESTROY,
-	)
-}
 
 zwp_pointer_constraints_v1_lock_pointer :: proc(
 	self: ^ZWP_Pointer_Constraints_V1,
@@ -108,32 +92,5 @@ zwp_locked_pointer_v1_destroy :: proc(self: ^ZWP_Locked_Pointer_V1) {
 		nil,
 		proxy_get_version(self),
 		MARSHAL_FLAG_DESTROY,
-	)
-}
-
-zwp_locked_pointer_v1_set_cursor_position_hint :: proc(
-	self: ^ZWP_Locked_Pointer_V1,
-	surface_x: Fixed,
-	surface_y: Fixed,
-) {
-	proxy_marshal_flags(
-		self,
-		ZWP_LOCKED_POINTER_V1_SET_CURSOR_POSITION_HINT,
-		nil,
-		proxy_get_version(self),
-		0,
-		surface_x,
-		surface_y,
-	)
-}
-
-zwp_locked_pointer_v1_set_region :: proc(self: ^ZWP_Locked_Pointer_V1, region: ^Region) {
-	proxy_marshal_flags(
-		self,
-		ZWP_LOCKED_POINTER_V1_SET_REGION,
-		nil,
-		proxy_get_version(self),
-		0,
-		region,
 	)
 }
