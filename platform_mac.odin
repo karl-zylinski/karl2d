@@ -4,10 +4,11 @@
 
 package karl2d
 
-import NS "core:sys/darwin/Foundation"
-import CF "core:sys/darwin/CoreFoundation"
-import ce "platform_bindings/mac/cocoa_extras"
-import gc "platform_bindings/mac/gamecontroller"
+import NS "vendor:darwin/AppKit"
+import CG "core:sys/darwin/CoreGraphics"
+import ObjC "core:sys/darwin/ObjectiveC"
+import gc "vendor:darwin/GameController"
+import CH "vendor:darwin/CoreHaptics"
 import "core:os"
 import "base:intrinsics"
 import "base:runtime"
@@ -48,6 +49,7 @@ PLATFORM_MAC :: Platform_Interface {
 
 MAC_HAPTICS_SHARPNESS_LEFT  :: 0.1
 MAC_HAPTICS_SHARPNESS_RIGHT :: 0.9
+MAC_HAPTICS_TIME_IMMEDIATE  :: 0
 
 Mac_State :: struct {
 	using _: Platform_State,
@@ -92,8 +94,6 @@ Mac_State :: struct {
 	icon_pixels: []Color,
 
 	gamepads:           [MAX_GAMEPADS]Mac_Gamepad,
-	gc_connect_blk:     ^NS.Block,
-	gc_disconnect_blk:  ^NS.Block,
 }
 
 Mac_Cursor :: struct {
@@ -119,8 +119,8 @@ Mac_Gamepad :: struct {
 	extended_gamepad:         ^gc.ExtendedGamepad,
 	button_inputs:            [Gamepad_Button]^gc.ControllerButtonInput,
 	button_was_pressed:       [Gamepad_Button]bool,
-	haptic_engine_left_right: [2]^gc.HapticEngine,
-	haptic_player_left_right: [2]^gc.HapticPatternPlayer,
+	haptic_engine_left_right: [2]^CH.HapticEngine,
+	haptic_player_left_right: [2]^CH.HapticPatternPlayer,
 	old_intensity_left_right: [2]f32,
 }
 
@@ -144,28 +144,28 @@ mac_init :: proc(
 	NS.scoped_autoreleasepool()
 
 	// Menu bar, needed for manually quitting
-	menu_bar := NS.Menu_alloc()->init()
+	menu_bar := NS.Menu.alloc()->init()
 	s.app->setMainMenu(menu_bar)
 	app_menu_item := menu_bar->addItemWithTitle(NS.AT(""), nil, NS.AT(""))
 
-	app_menu := NS.Menu_alloc()->init()
-	app_menu->addItemWithTitle(NS.AT("Quit"), NS.sel_registerName(cstring("terminate:")), NS.AT("q"))
+	app_menu := NS.Menu.alloc()->init()
+	app_menu->addItemWithTitle(NS.AT("Quit"), ObjC.sel_registerName("terminate:"), NS.AT("q"))
 	app_menu_item->setSubmenu(app_menu)
-	s.app->setAppleMenu(app_menu)
+	intrinsics.objc_send(nil, s.app, "setAppleMenu:", app_menu)
 
 	// Create the window
 	rect := NS.Rect {
 		origin = {0, 0},
 		size = {NS.Float(screen_width), NS.Float(screen_height)},
 	}
-	s.window = NS.Window_alloc()
+	s.window = NS.Window.alloc()
 
-	style := NS.WindowStyleMaskTitled | NS.WindowStyleMaskClosable | NS.WindowStyleMaskMiniaturizable
+	style := NS.WindowStyleMask{.Titled, .Closable, .Miniaturizable}
 	s.window = s.window->initWithContentRect(rect, style, .Buffered, false)
 	s.windowed_rect = rect
 
 
-	title_str := NS.String_alloc()->initWithOdinString(window_title)
+	title_str := NS.String.alloc()->initWithOdinString(window_title)
 	s.window->setTitle(title_str)
 
 	s.window->center()
@@ -186,22 +186,22 @@ mac_init :: proc(
 	mac_poll_for_new_controllers(s)
 
 	// Setup listeners for connected/disconnected controllers
-	notificationCenter := NS.NotificationCenter_defaultCenter()
+	notificationCenter := NS.NotificationCenter.defaultCenter()
 
-	s.gc_connect_blk = NS.Block_createGlobalWithParam(s, proc "c" (s: rawptr, n: ^NS.Notification) {
-		context = (^Mac_State)(s).odin_ctx
+	gc_connect_blk := intrinsics.objc_block(s, proc "c" (n: ^NS.Notification, s: ^Mac_State) {
+		context = s.odin_ctx
 
-		mac_poll_for_new_controllers((^Mac_State)(s))
-	}, s.allocator)
-	notificationCenter->addObserverForName(gc.DidConnectNotification, nil, nil, s.gc_connect_blk)
+		mac_poll_for_new_controllers(s)
+	})
+	notificationCenter->addObserverForName(gc.ControllerDidConnectNotification, nil, nil, gc_connect_blk)
 
-	s.gc_disconnect_blk = NS.Block_createGlobalWithParam(s, proc "c" (s: rawptr, n: ^NS.Notification) {
-		context = (^Mac_State)(s).odin_ctx
+	gc_disconnect_blk := intrinsics.objc_block(s, proc "c" (n: ^NS.Notification, s: ^Mac_State) {
+		context = s.odin_ctx
 
 		controller := (^gc.Controller)(n->object())
-		mac_remove_controller((^Mac_State)(s), controller)
-	}, s.allocator)
-	notificationCenter->addObserverForName(gc.DidDisconnectNotification, nil, nil, s.gc_disconnect_blk)
+		mac_remove_controller(s, controller)
+	})
+	notificationCenter->addObserverForName(gc.ControllerDidDisconnectNotification, nil, nil, gc_disconnect_blk)
 
 	delegate_context := context
 	delegate_context.user_ptr = s
@@ -212,7 +212,7 @@ mac_init :: proc(
 				s := (^Mac_State)(context.user_ptr)
 
 				append(&s.events, Event_Close_Window_Requested{})
-				return .TerminateCancel
+				return .Cancel
 			},
 		},
 		"Karl2DApplicationDelegate",
@@ -277,7 +277,7 @@ mac_init :: proc(
 			windowDidEndLiveResize = proc(_: ^NS.Notification) {
 				s := (^Mac_State)(context.user_ptr)
 
-				pressed := ce.Event_pressedMouseButtons()
+				pressed := NS.Event.pressedMouseButtons()
 
 				if s.left_mouse_held && (pressed & 1) == 0 {
 					append(&s.events, Event_Mouse_Button_Went_Up{button = .Left})
@@ -338,9 +338,6 @@ mac_shutdown :: proc(s: ^Mac_State) {
 		s.window->close()
 	}
 	delete(s.events)
-	a := s.allocator
-	free(s.gc_connect_blk, a)
-	free(s.gc_disconnect_blk, a)
 }
 
 mac_get_window_render_glue :: proc(s: ^Mac_State) -> ^Window_Render_Glue {
@@ -474,8 +471,8 @@ mac_get_events :: proc(s: ^Mac_State, events: ^[dynamic]Event) {
 			py := NS.Float(s.screen_height) - loc.y * scale
 			
 			if s.mouse_locked {
-				dx := f32(ce.Event_deltaX(event)) * f32(s.window->backingScaleFactor())
-				dy := f32(ce.Event_deltaY(event)) * f32(s.window->backingScaleFactor())
+				dx := f32(event->deltaX()) * f32(s.window->backingScaleFactor())
+				dy := f32(event->deltaY()) * f32(s.window->backingScaleFactor())
 				cx := f32(s.screen_width/2)
 				cy := f32(s.screen_height/2)
 				append(&s.events, Event_Mouse_Move { position = { cx + dx, cy + dy}})
@@ -547,7 +544,7 @@ mac_get_screen_height :: proc(s: ^Mac_State) -> int {
 }
 
 mac_set_window_title :: proc(s: ^Mac_State, title: string) {
-	title_str := NS.String_alloc()->initWithOdinString(title)
+	title_str := NS.String.alloc()->initWithOdinString(title)
 	s.window->setTitle(title_str)
 }
 
@@ -567,7 +564,7 @@ mac_set_screen_size :: proc(s: ^Mac_State, w, h: int) {
 	scale := mac_get_window_scale(s)
 	s.screen_width = int(f32(w) * scale)
 	s.screen_height = int(f32(h) * scale)
-	ce.Window_setContentSize(s.window, {NS.Float(w), NS.Float(h)})
+	s.window->setContentSize({NS.Float(w), NS.Float(h)})
 }
 
 mac_get_window_scale :: proc(s: ^Mac_State) -> f32 {
@@ -588,10 +585,10 @@ mac_set_mouse_locked :: proc(s: ^Mac_State, locked: bool) {
 
 	if locked {
 		s.mouse_ignore_next_move = true
-		ce.CGAssociateMouseAndMouseCursorPosition(false)
+		CG.AssociateMouseAndMouseCursorPosition(false)
 		mac_teleport_cursor_to_center(s)
 	} else {
-		ce.CGAssociateMouseAndMouseCursorPosition(true)
+		CG.AssociateMouseAndMouseCursorPosition(true)
 	}
 }
 
@@ -606,7 +603,7 @@ mac_teleport_cursor_to_center :: proc(s: ^Mac_State) {
 	frame := s.window->frame()
 	x := f64(frame.origin.x) + f64(cx)/f64(scale)
 	y := f64(frame.origin.y) + f64(s.screen_height)/f64(scale) - f64(cy)/f64(scale)
-	ce.CGWarpMouseCursorPosition({x, y})
+	CG.WarpMouseCursorPosition({CG.Float(x), CG.Float(y)})
 
 	append(&s.events, Event_Mouse_Teleported {
 		position = {f32(cx), f32(cy)},
@@ -632,8 +629,8 @@ mac_unhide_cursor_now :: proc(s: ^Mac_State) {
 mac_cursor_in_content_area :: proc(s: ^Mac_State) -> bool {
 	view := s.window->contentView()
 	if view == nil do return false
-	pos := ce.Window_mouseLocationOutsideOfEventStream(s.window)
-	return bool(ce.View_mouse_inRect(view, pos, ce.View_frame(view)))
+	pos := s.window->mouseLocationOutsideOfEventStream()
+	return view->mouse(pos, view->frame())
 }
 
 mac_apply_cursor_state :: proc(s: ^Mac_State) {
@@ -649,12 +646,12 @@ mac_install_cursor_tracker :: proc(s: ^Mac_State) {
 	if view == nil do return
 
 	class_name := cstring("Karl2DCursorTracker")
-	class := NS.objc_lookUpClass(class_name)
+	class := ObjC.objc_lookUpClass(class_name)
 	if class == nil {
-		class = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), class_name, 0)
+		class = ObjC.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), class_name, 0)
 
 		mouse_entered :: proc "c" (self: NS.id, cmd: NS.SEL, event: NS.id) {
-			s := (^^Mac_State)(NS.object_getIndexedIvars(self))^
+			s := (^^Mac_State)(ObjC.object_getIndexedIvars(self))^
 			context = s.odin_ctx
 			if s.cursor_hidden {
 				mac_hide_cursor_now(s)
@@ -662,26 +659,22 @@ mac_install_cursor_tracker :: proc(s: ^Mac_State) {
 		}
 
 		mouse_exited :: proc "c" (self: NS.id, cmd: NS.SEL, event: NS.id) {
-			s := (^^Mac_State)(NS.object_getIndexedIvars(self))^
+			s := (^^Mac_State)(ObjC.object_getIndexedIvars(self))^
 			context = s.odin_ctx
 			mac_unhide_cursor_now(s)
 		}
 
-		NS.class_addMethod(class, intrinsics.objc_find_selector("mouseEntered:"), auto_cast mouse_entered, "v@:@")
-		NS.class_addMethod(class, intrinsics.objc_find_selector("mouseExited:"),  auto_cast mouse_exited,  "v@:@")
-		NS.objc_registerClassPair(class)
+		ObjC.class_addMethod(class, intrinsics.objc_find_selector("mouseEntered:"), auto_cast mouse_entered, "v@:@")
+		ObjC.class_addMethod(class, intrinsics.objc_find_selector("mouseExited:"),  auto_cast mouse_exited,  "v@:@")
+		ObjC.objc_registerClassPair(class)
 	}
 
-	s.cursor_tracker = NS.class_createInstance(class, size_of(^Mac_State))
-	(^^Mac_State)(NS.object_getIndexedIvars(s.cursor_tracker))^ = s
+	s.cursor_tracker = ObjC.class_createInstance(class, size_of(^Mac_State))
+	(^^Mac_State)(ObjC.object_getIndexedIvars(s.cursor_tracker))^ = s
 
-	options := ce.TRACKING_MOUSE_ENTERED_AND_EXITED |
-	           ce.TRACKING_ACTIVE_IN_KEY_WINDOW |
-	           ce.TRACKING_IN_VISIBLE_RECT |
-	           ce.TRACKING_ASSUME_INSIDE
-	area := ce.TrackingArea_alloc()
-	area  = ce.TrackingArea_initWithRect(area, ce.View_frame(view), options, s.cursor_tracker, nil)
-	ce.View_addTrackingArea(view, area)
+	options := NS.TrackingAreaOptions{.MouseEnteredAndExited, .ActiveInKeyWindow, .InVisibleRect, .AssumeInside}
+	area := NS.TrackingArea.alloc()->initWithRect(view->frame(), options, s.cursor_tracker, nil)
+	view->addTrackingArea(area)
 }
 
 mac_is_gamepad_active :: proc(s: ^Mac_State, gamepad: int) -> bool {
@@ -741,12 +734,12 @@ mac_set_gamepad_vibration :: proc(s: ^Mac_State, gamepad_index: int, left: f32, 
 		// Lazy-init haptic engine
 		left_initted := mac_init_haptic_engine(
 			&gamepad.haptic_engine_left_right[0],
-			gc.LeftHandle,
+			gc.HapticsLocalityLeftHandle,
 			gamepad,
 		)
 		right_initted := mac_init_haptic_engine(
 			&gamepad.haptic_engine_left_right[1],
-			gc.RightHandle,
+			gc.HapticsLocalityRightHandle,
 			gamepad,
 		)
 
@@ -788,35 +781,35 @@ mac_set_window_mode :: proc(s: ^Mac_State, window_mode: Window_Mode) {
 
 	old_mode := s.window_mode
 	s.window_mode = window_mode
-	style := NS.WindowStyleMaskTitled | NS.WindowStyleMaskClosable | NS.WindowStyleMaskMiniaturizable
+	style := NS.WindowStyleMask{.Titled, .Closable, .Miniaturizable}
 
 	switch window_mode {
 	case .Windowed_Resizable:
-		style |= NS.WindowStyleMaskResizable
+		style += {.Resizable}
 		fallthrough
 
 	case .Windowed:
 		s.window->setStyleMask(style)
 		if old_mode == .Borderless_Fullscreen {
-			s.window->setLevel(.Normal)
+			s.window->setLevel(NS.NormalWindowLevel)
 			s.window->setFrame(s.windowed_rect, true)
-			ce.Application_setPresentationOptions(s.app, {})
+			s.app->setPresentationOptions({})
 		}
 
 	case .Borderless_Fullscreen:
 		s.windowed_rect = s.window->frame()
 		s.window->setStyleMask({})
-		screen_frame := NS.Screen_mainScreen()->frame()
+		screen_frame := NS.Screen.mainScreen()->frame()
 		s.window->setFrame(screen_frame, true)
-		s.window->setLevel(.Normal)
-		ce.Application_setPresentationOptions(s.app, {.HideMenuBar, .HideDock})
+		s.window->setLevel(NS.NormalWindowLevel)
+		s.app->setPresentationOptions({.HideMenuBar, .HideDock})
 
 		// same as frame() b/c no decorations, but semantically more correct
 		content_rect := s.window->contentLayoutRect()
 
 		scale := mac_get_window_scale(s)
-		s.screen_width  = int(f32(content_rect.width) * scale)
-		s.screen_height = int(f32(content_rect.height) * scale)
+		s.screen_width  = int(f32(content_rect.size.width) * scale)
+		s.screen_height = int(f32(content_rect.size.height) * scale)
 	}
 }
 
@@ -832,7 +825,7 @@ mac_make_ns_image :: proc(
 ) -> ^NS.Image {
 	planes := [?]^u8 {(^u8)(raw_data(pixels))}
 
-	rep := NS.BitmapImageRep_alloc()->initWithBitmapDataPlanes(
+	rep := NS.BitmapImageRep.alloc()->initWithBitmapDataPlanes(
 		&planes[0],
 		NS.Integer(width),
 		NS.Integer(height),
@@ -841,7 +834,7 @@ mac_make_ns_image :: proc(
 		true,
 		false,
 		NS.DeviceRGBColorSpace,
-		NS.BitmapFormatFlags{.AlphaNonpremultiplied},
+		NS.BitmapFormat{.AlphaNonpremultiplied},
 		NS.Integer(width * 4),
 		32,
 	)
@@ -851,7 +844,7 @@ mac_make_ns_image :: proc(
 		return nil
 	}
 
-	ns_image := NS.Image_alloc()->initWithSize(point_size)
+	ns_image := NS.Image.alloc()->initWithSize(point_size)
 	ns_image->addRepresentation((^NS.ImageRep)(rep))
 
 	// The image retains the representation, so that can go now.
@@ -871,8 +864,8 @@ mac_set_window_icon :: proc(s: ^Mac_State, image: Image) -> bool {
 	// The Dock decides how big to draw the icon, so the size in points only has to carry the
 	// aspect ratio of the pixels.
 	ns_image := mac_make_ns_image(pixels, image.width, image.height, {
-		CF.CGFloat(image.width),
-		CF.CGFloat(image.height),
+		CG.Float(image.width),
+		CG.Float(image.height),
 	})
 
 	if ns_image == nil {
@@ -880,7 +873,7 @@ mac_set_window_icon :: proc(s: ^Mac_State, image: Image) -> bool {
 		return false
 	}
 
-	ce.Application_setApplicationIconImage(s.app, ns_image)
+	s.app->setApplicationIconImage(ns_image)
 
 	// The icon that was in the Dock is only safe to release now that this one has replaced it.
 	if s.icon != nil {
@@ -940,8 +933,8 @@ mac_build_cursor :: proc(s: ^Mac_State, cursor: ^Mac_Cursor) {
 	scale := mac_get_window_scale(s)
 
 	ns_image := mac_make_ns_image(cursor.pixels, cursor.width, cursor.height, {
-		CF.CGFloat(f32(cursor.width) / scale),
-		CF.CGFloat(f32(cursor.height) / scale),
+		CG.Float(f32(cursor.width) / scale),
+		CG.Float(f32(cursor.height) / scale),
 	})
 
 	// Whatever cursor was there stays on.
@@ -950,9 +943,9 @@ mac_build_cursor :: proc(s: ^Mac_State, cursor: ^Mac_Cursor) {
 	}
 
 	// The hotspot is in the image's coordinate system, so it is in points too.
-	cursor.cursor = NS.Cursor_alloc()->initWithImage(ns_image, {
-		CF.CGFloat(f32(cursor.hotspot.x) / scale),
-		CF.CGFloat(f32(cursor.hotspot.y) / scale),
+	cursor.cursor = NS.Cursor.alloc()->initWithImage(ns_image, {
+		CG.Float(f32(cursor.hotspot.x) / scale),
+		CG.Float(f32(cursor.hotspot.y) / scale),
 	})
 
 	// The NSCursor retains the image, so it can go now.
@@ -1006,22 +999,22 @@ mac_apply_cursor :: proc(s: ^Mac_State) {
 // The returned cursor is a shared one owned by AppKit, so it must not be released.
 mac_standard_cursor :: proc(cursor: Standard_Cursor) -> ^NS.Cursor {
 	switch cursor {
-	case .Default:     return NS.Cursor_arrowCursor()
-	case .Text:        return NS.Cursor_IBeamCursor()
-	case .Hand:        return NS.Cursor_pointingHandCursor()
-	case .Crosshair:   return ce.Cursor_crosshairCursor()
-	case .Move:        return ce.Cursor_closedHandCursor()
-	case .Resize_EW:   return ce.Cursor_resizeLeftRightCursor()
-	case .Resize_NS:   return ce.Cursor_resizeUpDownCursor()
-	case .Not_Allowed: return ce.Cursor_operationNotAllowedCursor()
+	case .Default:     return NS.Cursor.arrowCursor()
+	case .Text:        return NS.Cursor.IBeamCursor()
+	case .Hand:        return NS.Cursor.pointingHandCursor()
+	case .Crosshair:   return NS.Cursor.crosshairCursor()
+	case .Move:        return NS.Cursor.closedHandCursor()
+	case .Resize_EW:   return NS.Cursor.resizeLeftRightCursor()
+	case .Resize_NS:   return NS.Cursor.resizeUpDownCursor()
+	case .Not_Allowed: return NS.Cursor.operationNotAllowedCursor()
 
 	// AppKit has no public busy cursor and no public diagonal resize cursors. The private
 	// selectors that do exist aren't worth shipping in a library, so these show the arrow.
 	case .Wait, .Progress, .Resize_NESW, .Resize_NWSE:
-		return NS.Cursor_arrowCursor()
+		return NS.Cursor.arrowCursor()
 	}
 
-	return NS.Cursor_arrowCursor()
+	return NS.Cursor.arrowCursor()
 }
 
 mac_destroy_custom_cursor :: proc(s: ^Mac_State, custom_cursor: Custom_Cursor) {
@@ -1149,7 +1142,7 @@ mac_keycode_to_k2key :: proc(keycode: u16) -> Keyboard_Key {
 }
 
 mac_poll_for_new_controllers :: proc(s: ^Mac_State) {
-	controllers := gc.Controller_controllers()
+	controllers := gc.Controller.controllers()
 	controller_count := controllers != nil ? int(controllers->count()) : 0
 
 	// Simple algorithm:
@@ -1168,7 +1161,7 @@ mac_poll_for_new_controllers :: proc(s: ^Mac_State) {
 	if connected_count >= MAX_GAMEPADS do return
 
 	for i in 0..<controller_count {
-		controller := controllers->object(NS.UInteger(i))
+		controller := (^gc.Controller)(controllers->object(NS.UInteger(i)))
 		if controller == nil do continue
 
 		extended_gamepad := controller->extendedGamepad()
@@ -1213,13 +1206,13 @@ mac_poll_for_new_controllers :: proc(s: ^Mac_State) {
 
 mac_remove_no_longer_connected_controllers :: proc(
 	s: ^Mac_State,
-	controllers: ^gc.ControllerArray,
+	controllers: ^NS.Array,
 	count: int,
 ) {
 	found: [MAX_GAMEPADS]bool
 
 	for i in 0..<count {
-		controller := controllers->object(NS.UInteger(i))
+		controller := (^gc.Controller)(controllers->object(NS.UInteger(i)))
 		if controller == nil do continue
 
 		for gamepad, gamepad_index in s.gamepads {
@@ -1270,17 +1263,17 @@ mac_remove_controller :: proc(s: ^Mac_State, controller: ^gc.Controller) {
 }
 
 when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
-	mac_stop_haptic_player :: proc(player: ^^gc.HapticPatternPlayer) {
+	mac_stop_haptic_player :: proc(player: ^^CH.HapticPatternPlayer) {
 		if player^ == nil do return
 
-		player^->stopAtTime(gc.TimeImmediate, nil)
+		player^->stopAtTime(MAC_HAPTICS_TIME_IMMEDIATE)
 		player^->release()
 		player^ = nil
 	}
 
 	mac_init_haptic_engine :: proc(
-		engine: ^^gc.HapticEngine,
-		locality: gc.HapticsLocality,
+		engine: ^^CH.HapticEngine,
+		locality: ^NS.String,
 		gamepad: ^Mac_Gamepad,
 	) -> bool {
 		if engine^ != nil do return true
@@ -1288,44 +1281,45 @@ when ODIN_MINIMUM_OS_VERSION >= 11_00_00 {
 		haptics := gamepad.controller->haptics()
 		if haptics == nil do return false
 
-		engine^ = haptics->createEngineWithLocality(locality)
-		success := engine^ != nil && engine^->startAndReturnError(nil)
+		engine^ = (^CH.HapticEngine)(haptics->createEngineWithLocality(locality))
+		if engine^ == nil do return false
 
+		success, _ := engine^->startAndReturnError()
 		return success
 	}
 
 	mac_create_haptic_player :: proc(left_right: int, intensity: f32, gamepad: ^Mac_Gamepad) {
-		pattern: ^gc.HapticPattern
+		pattern: ^CH.HapticPattern
 
 		{
 			NS.scoped_autoreleasepool()
 
 			sharpness : f32 = left_right == 0 ? MAC_HAPTICS_SHARPNESS_LEFT : MAC_HAPTICS_SHARPNESS_RIGHT
 
-			sharpness_param := gc.HapticEventParameter_alloc()->
-				initWithParameterID(gc.HapticSharpness, sharpness)
-			intensity_param := gc.HapticEventParameter_alloc()->
-				initWithParameterID(gc.HapticIntensity, intensity)
-			params := [2]^NS.Object{intensity_param, sharpness_param}
-			params_array := NS.Array_alloc()->initWithObjects(raw_data(&params), 2)
+			sharpness_param := CH.HapticEventParameter.alloc()->
+				initWithParameterID(CH.HapticEventParameterIDHapticSharpness, sharpness)
+			intensity_param := CH.HapticEventParameter.alloc()->
+				initWithParameterID(CH.HapticEventParameterIDHapticIntensity, intensity)
+			params := [2]NS.id{intensity_param, sharpness_param}
+			params_array := NS.Array.alloc()->initWithObjects(&params[0], len(params))
 
-			event := gc.HapticEvent_alloc()->initWithEventType(
-				gc.HapticContinuous,
+			event := CH.HapticEvent.alloc()->initWithEventType(
+				CH.HapticEventTypeHapticContinuous,
 				params_array,
 				0,
-				gc.HapticDurationInfinite,
+				NS.TimeInterval(gc.HapticDurationInfinite),
 			)
-			events := [1]^NS.Object{event}
-			events_array := NS.Array_alloc()->initWithObjects(raw_data(&events), 1)
+			events := [1]NS.id{event}
+			events_array := NS.Array.alloc()->initWithObjects(&events[0], len(events))
 
-			pattern = gc.HapticPattern_alloc()->initWithEvents(events_array, nil, nil)
+			pattern = CH.HapticPattern.alloc()->initWithEvents_parameters_error(events_array, nil, nil)
 			if pattern == nil do return
 		}
 
-		gamepad.haptic_player_left_right[left_right] = gamepad.haptic_engine_left_right[left_right]->
-			createPlayerWithPattern(pattern, nil)
+		gamepad.haptic_player_left_right[left_right], _ = gamepad.haptic_engine_left_right[left_right]->
+			createPlayerWithPattern(pattern)
 		if gamepad.haptic_player_left_right[left_right] != nil {
-			gamepad.haptic_player_left_right[left_right]->startAtTime(gc.TimeImmediate, nil)
+			gamepad.haptic_player_left_right[left_right]->startAtTime(MAC_HAPTICS_TIME_IMMEDIATE)
 		}
 
 	}

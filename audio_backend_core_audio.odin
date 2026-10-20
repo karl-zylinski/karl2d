@@ -8,8 +8,7 @@ import "core:slice"
 import "core:sync"
 
 import "log"
-import CA "platform_bindings/mac/CoreAudio"
-import Audio "platform_bindings/mac/AudioToolbox"
+import Audio "vendor:darwin/AudioToolbox"
 
 CORE_AUDIO_BUFFER_SAMPLES :: 700
 CORE_AUDIO_BUFFER_SIZE :: CORE_AUDIO_BUFFER_SAMPLES * size_of([2]Audio_Sample)
@@ -38,10 +37,10 @@ core_audio_init :: proc(s: ^Core_Audio_State) -> bool {
 	log.debug("Init audio backend CoreAudio")
 	s.fill_context = _audio_thread_context()
 
-	descriptor := CA.StreamBasicDescription {
+	descriptor := Audio.StreamBasicDescription {
 		mSampleRate = 44100,
 		mFormatID = .LinearPCM,
-		mFormatFlags = {.IsFloat, .IsPacked},
+		mFormatFlags = .NativeFloatPacked,
 		mFramesPerPacket = 1,
 		mChannelsPerFrame = 2,
 		mBitsPerChannel = size_of(f32) * 8,
