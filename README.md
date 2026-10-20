@@ -39,11 +39,6 @@ main :: proc() {
 >such as window size, input, drawing, audio, textures, fonts or shaders. Pure helper
 >procedures, types and constants can be used before `k2.init`.
 
->[!NOTE]
->On *Linux*, you may run into build errors due to missing dependencies. Exactly what you need to install may vary from distribution to distribution. On Ubuntu / Debian, something like this may help:
->`sudo apt install libudev-dev`
->Did you have to install something else on your distro? Let me know!
-
 ## Get help
 
 Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
