@@ -19,6 +19,7 @@ LINUX_WINDOW_X11 :: Linux_Window_Interface {
 	set_screen_size = x11_set_screen_size,
 	get_window_scale = x11_get_window_scale,
 	set_window_mode = x11_set_window_mode,
+	get_window_mode = x11_get_window_mode,
 	set_window_icon = x11_set_window_icon,
 	set_cursor_hidden = x11_set_cursor_hidden,
 	is_cursor_hidden = x11_is_cursor_hidden,
@@ -659,6 +660,10 @@ x11_apply_size_hints :: proc(s: ^X11_State, window_mode: Window_Mode) {
 	}
 
 	X.SetWMNormalHints(s.display, s.window, &hints)
+}
+
+x11_get_window_mode :: proc(s: ^X11_State) -> Window_Mode {
+	return s.window_mode
 }
 
 x11_set_window_mode :: proc(s: ^X11_State, window_mode: Window_Mode) {

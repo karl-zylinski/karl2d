@@ -19,6 +19,7 @@ LINUX_WINDOW_WAYLAND :: Linux_Window_Interface {
 	set_screen_size = wl_set_screen_size,
 	get_window_scale = wl_get_window_scale,
 	set_window_mode = wl_set_window_mode,
+	get_window_mode = wl_get_window_mode,
 	set_window_icon = wl_set_window_icon,
 	set_cursor_hidden = wl_set_cursor_hidden,
 	is_cursor_hidden = wl_is_cursor_hidden,
@@ -1045,6 +1046,10 @@ wl_set_screen_size :: proc(s: ^WL_State, w, h: int) {
 
 wl_get_window_scale :: proc(s: ^WL_State) -> f32 {
 	return s.scale
+}
+
+wl_get_window_mode :: proc(s: ^WL_State) -> Window_Mode {
+	return s.window_mode
 }
 
 wl_set_window_mode :: proc(s: ^WL_State, window_mode: Window_Mode) {

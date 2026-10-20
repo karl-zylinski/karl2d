@@ -18,7 +18,11 @@ PLATFORM_WINDOWS :: Platform_Interface {
 	set_screen_size = windows_set_screen_size,
 	get_window_scale = windows_get_window_scale,
 	set_window_mode = windows_set_window_mode,
+	get_window_mode = windows_get_window_mode,
 	set_window_icon = windows_set_window_icon,
+	get_monitors = windows_get_monitors,
+	get_window_monitor = windows_get_window_monitor,
+	set_window_monitor = windows_set_window_monitor,
 
 	set_cursor_hidden = windows_set_cursor_hidden,
 	is_cursor_hidden = windows_is_cursor_hidden,
@@ -40,6 +44,7 @@ import "core:unicode/utf16"
 import "core:slice"
 import "base:runtime"
 import hm "core:container/handle_map"
+import win32_ex "platform_bindings/windows/win32_extra"
 @require import "log"
 
 windows_init :: proc(
@@ -70,8 +75,25 @@ windows_init :: proc(
 
 	win32.RegisterClassW(&cls)
 
+	monitor := win32.MonitorFromWindow(nil, .MONITOR_DEFAULTTOPRIMARY)
+	requested_monitor: win32.HMONITOR
+	requested_monitor_info: win32.MONITORINFOEXW
+
+	if options.monitor != MONITOR_NONE {
+		requested_monitor, requested_monitor_info = windows_find_monitor(options.monitor)
+
+		if requested_monitor == nil {
+			log.errorf(
+				"Cannot use monitor %v, it does not exist. Using the default monitor.",
+				options.monitor,
+			)
+		} else {
+			monitor = requested_monitor
+		}
+	}
+
 	dpix, dpiy: win32.UINT
-	win32.GetDpiForMonitor(win32.MonitorFromWindow(nil, .MONITOR_DEFAULTTOPRIMARY), {}, &dpix, &dpiy)
+	win32.GetDpiForMonitor(monitor, {}, &dpix, &dpiy)
 	s.window_scale = f32(dpix)/96.0
 
 	if options.disable_auto_scale_hint {
@@ -97,15 +119,27 @@ windows_init :: proc(
 	s.restore_screen_width = s.screen_width
 	s.restore_screen_height = s.screen_height
 
+	window_width := initial_rect.right - initial_rect.left
+	window_height := initial_rect.bottom - initial_rect.top
+	window_x := win32.CW_USEDEFAULT
+	window_y := win32.CW_USEDEFAULT
+
+	if requested_monitor != nil {
+		work_area := requested_monitor_info.rcWork
+		window_x = work_area.left + (work_area.right - work_area.left - window_width) / 2
+		window_y = work_area.top + (work_area.bottom - work_area.top - window_height) / 2
+	}
+
 	// We create a window with default position and size. We set the correct size in
-	// `windows_set_window_mode`.
+	// `windows_set_window_mode`. If `options.monitor` is set, then the window will end up in the
+	// center of that monitor, given that a windowed mode is used.
 	s.hwnd = win32.CreateWindowW(
 		CLASS_NAME,
 		win32.utf8_to_wstring(window_title, frame_allocator),
 		win32.WS_VISIBLE,
-		win32.CW_USEDEFAULT, win32.CW_USEDEFAULT,
-		i32(initial_rect.right - initial_rect.left),
-		i32(initial_rect.bottom - initial_rect.top),
+		window_x, window_y,
+		i32(window_width),
+		i32(window_height),
 		nil, nil, instance, s,
 	)
 
@@ -479,6 +513,10 @@ Windows_Cursor :: struct {
 	hcursor: win32.HCURSOR,
 }
 
+windows_get_window_mode :: proc(s: ^Windows_State) -> Window_Mode {
+	return s.window_mode
+}
+
 windows_set_window_mode :: proc(s: ^Windows_State, window_mode: Window_Mode) {
 	old_window_mode := s.window_mode
 	s.window_mode = window_mode
@@ -554,6 +592,357 @@ windows_set_window_icon :: proc(s: ^Windows_State, image: Image) -> bool {
 
 	s.hicon = hicon
 	return true
+}
+
+windows_get_monitors :: proc(allocator: runtime.Allocator) -> []Monitor_Info {
+	Monitor_Enum_State :: struct {
+		ctx: runtime.Context,
+		allocator: runtime.Allocator,
+		paths: []win32_ex.DISPLAYCONFIG_PATH_INFO,
+		monitors: [dynamic]Monitor_Info,
+		ok: bool,
+	}
+
+	enum_proc :: proc "system" (
+		hmonitor: win32.HMONITOR,
+		hdc: win32.HDC,
+		rect: win32.LPRECT,
+		data: win32.LPARAM,
+	) -> win32.BOOL {
+		e := (^Monitor_Enum_State)(uintptr(data))
+		context = e.ctx
+		mi := win32.MONITORINFOEXW { cbSize = size_of(win32.MONITORINFOEXW) }
+
+		if !win32.GetMonitorInfoW(hmonitor, &mi) {
+			log.errorf("GetMonitorInfoW failed with %v", win32.GetLastError())
+			e.ok = false
+			return false
+		}
+
+		dpi_x, dpi_y: win32.UINT
+		win32.GetDpiForMonitor(hmonitor, .MDT_EFFECTIVE_DPI, &dpi_x, &dpi_y)
+
+		name := cstring16(raw_data(&mi.szDevice))
+		target_name: win32_ex.DISPLAYCONFIG_TARGET_DEVICE_NAME
+
+		for path in e.paths {
+			source_name := win32_ex.DISPLAYCONFIG_SOURCE_DEVICE_NAME {
+				header = {
+					type = .GET_SOURCE_NAME,
+					size = size_of(win32_ex.DISPLAYCONFIG_SOURCE_DEVICE_NAME),
+					adapterId = path.sourceInfo.adapterId,
+					id = path.sourceInfo.id,
+				},
+			}
+
+			if win32_ex.DisplayConfigGetDeviceInfo(&source_name.header) != 0 {
+				continue
+			}
+
+			gdi_name := cstring16(raw_data(&source_name.viewGdiDeviceName))
+
+			if gdi_name != cstring16(raw_data(&mi.szDevice)) {
+				continue
+			}
+
+			target_name = {
+				header = {
+					type = .GET_TARGET_NAME,
+					size = size_of(win32_ex.DISPLAYCONFIG_TARGET_DEVICE_NAME),
+					adapterId = path.targetInfo.adapterId,
+					id = path.targetInfo.id,
+				},
+			}
+
+			target_name_res := win32_ex.DisplayConfigGetDeviceInfo(&target_name.header)
+			output_technology := target_name.outputTechnology
+
+			internal :=
+				output_technology == .INTERNAL ||
+				output_technology == .DISPLAYPORT_EMBEDDED ||
+				output_technology == .UDI_EMBEDDED
+
+			if target_name_res == 0 {
+				if target_name.monitorFriendlyDeviceName[0] != 0 {
+					name = cstring16(raw_data(&target_name.monitorFriendlyDeviceName))
+				} else if internal {
+					name = win32.L("Built-in Display")
+				}
+			}
+
+			break
+		}
+
+		name_utf8, name_utf8_err := win32.wstring_to_utf8(name, -1, e.allocator)
+
+		if name_utf8_err != nil {
+			log.errorf("Failed converting monitor name. Error: %v", name_utf8_err)
+			e.ok = false
+			return false
+		}
+
+		physical_size: [2]int
+
+		monitor_dc := win32_ex.CreateDCW(
+			"DISPLAY",
+			cstring16(raw_data(&mi.szDevice)),
+			nil,
+			nil,
+		)
+
+		if monitor_dc != nil {
+			physical_size = {
+				int(win32.GetDeviceCaps(monitor_dc, win32_ex.HORZSIZE)),
+				int(win32.GetDeviceCaps(monitor_dc, win32_ex.VERTSIZE)),
+			}
+
+			win32.DeleteDC(monitor_dc)
+		}
+
+		append(&e.monitors, Monitor_Info {
+			id = windows_monitor_id(mi.szDevice),
+			name = name_utf8,
+			position = {int(mi.rcMonitor.left), int(mi.rcMonitor.top)},
+			size = {
+				int(mi.rcMonitor.right - mi.rcMonitor.left),
+				int(mi.rcMonitor.bottom - mi.rcMonitor.top),
+			},
+			physical_size = physical_size,
+			scale = f32(dpi_x) / 96.0,
+			primary = mi.dwFlags & win32_ex.MONITORINFOF_PRIMARY != 0,
+		})
+
+		return true
+	}
+
+	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+
+	paths: []win32_ex.DISPLAYCONFIG_PATH_INFO
+
+	for _ in 0..<5 {
+		path_count: u32
+		mode_count: u32
+
+		sizes_res := win32_ex.GetDisplayConfigBufferSizes(
+			win32_ex.QDC_ONLY_ACTIVE_PATHS,
+			&path_count,
+			&mode_count,
+		)
+
+		if sizes_res != 0 {
+			log.errorf("GetDisplayConfigBufferSizes failed with %v", sizes_res)
+			break
+		}
+
+		query_paths := make([]win32_ex.DISPLAYCONFIG_PATH_INFO, path_count, allocator)
+		query_modes := make([]win32_ex.DISPLAYCONFIG_MODE_INFO, mode_count, allocator)
+
+		query_res := win32_ex.QueryDisplayConfig(
+			win32_ex.QDC_ONLY_ACTIVE_PATHS,
+			&path_count,
+			raw_data(query_paths),
+			&mode_count,
+			raw_data(query_modes),
+			nil,
+		)
+
+		delete(query_modes, allocator)
+
+		if query_res != 0 {
+			delete(query_paths, allocator)
+
+			if query_res == win32.LONG(win32.ERROR_INSUFFICIENT_BUFFER) {
+				continue
+			}
+
+			log.errorf("QueryDisplayConfig failed with %v", query_res)
+			break
+		}
+
+		paths = query_paths[:path_count]
+		break
+	}
+
+	e := Monitor_Enum_State {
+		ctx = context,
+		allocator = allocator,
+		paths = paths,
+		monitors = make([dynamic]Monitor_Info, allocator),
+		ok = true,
+	}
+
+	enum_ok := win32.EnumDisplayMonitors(
+		nil,
+		nil,
+		enum_proc,
+		win32.LPARAM(uintptr(&e)),
+	)
+
+	delete(paths, allocator)
+
+	if !enum_ok || !e.ok {
+		log.error("Failed enumerating monitors.")
+
+		for m in e.monitors {
+			delete(m.name, allocator)
+		}
+
+		delete(e.monitors)
+		return nil
+	}
+
+	return e.monitors[:]
+}
+
+windows_monitor_id :: proc "contextless" (device_name: [win32.CCHDEVICENAME]u16) -> Monitor_Id {
+	id: Monitor_Id
+
+	for c in device_name {
+		if c == 0 {
+			break
+		}
+
+		if c >= '0' && c <= '9' {
+			id = id * 10 + Monitor_Id(c - '0')
+		}
+	}
+
+	return id
+}
+
+windows_find_monitor :: proc(monitor: Monitor_Id) -> (win32.HMONITOR, win32.MONITORINFOEXW) {
+	Find_Monitor :: struct {
+		id: Monitor_Id,
+		hmonitor: win32.HMONITOR,
+		mi: win32.MONITORINFOEXW,
+	}
+
+	enum_proc :: proc "system" (
+		hmonitor: win32.HMONITOR,
+		hdc: win32.HDC,
+		rect: win32.LPRECT,
+		data: win32.LPARAM,
+	) -> win32.BOOL {
+		f := (^Find_Monitor)(uintptr(data))
+		mi := win32.MONITORINFOEXW { cbSize = size_of(win32.MONITORINFOEXW) }
+
+		if !win32.GetMonitorInfoW(hmonitor, &mi) {
+			return true
+		}
+
+		if windows_monitor_id(mi.szDevice) == f.id {
+			f.hmonitor = hmonitor
+			f.mi = mi
+			return false
+		}
+
+		return true
+	}
+
+	f := Find_Monitor { id = monitor }
+
+	win32.EnumDisplayMonitors(
+		nil,
+		nil,
+		enum_proc,
+		win32.LPARAM(uintptr(&f)),
+	)
+
+	return f.hmonitor, f.mi
+}
+
+windows_set_window_monitor :: proc(s: ^Windows_State, monitor: Monitor_Id) {
+	hmonitor, mi := windows_find_monitor(monitor)
+
+	if hmonitor == nil {
+		log.errorf("Cannot move window to monitor %v, it does not exist.", monitor)
+		return
+	}
+
+	work_area := mi.rcWork
+	work_area_width := work_area.right - work_area.left
+	work_area_height := work_area.bottom - work_area.top
+
+	if s.window_mode == .Borderless_Fullscreen {
+		dpi_x, dpi_y: win32.UINT
+		win32.GetDpiForMonitor(hmonitor, .MDT_EFFECTIVE_DPI, &dpi_x, &dpi_y)
+		scale_change := (f32(dpi_x) / 96.0) / s.window_scale
+		s.restore_screen_width = int(f32(s.restore_screen_width) * scale_change)
+		s.restore_screen_height = int(f32(s.restore_screen_height) * scale_change)
+
+		restore_rect := win32.RECT {
+			0,
+			0,
+			i32(s.restore_screen_width),
+			i32(s.restore_screen_height),
+		}
+
+		win32.AdjustWindowRectExForDpi(
+			&restore_rect,
+			windows_get_style(.Windowed),
+			false,
+			0,
+			dpi_x,
+		)
+
+		restore_width := restore_rect.right - restore_rect.left
+		restore_height := restore_rect.bottom - restore_rect.top
+		restore_x := work_area.left + (work_area_width - restore_width) / 2 - restore_rect.left
+		restore_y := work_area.top + (work_area_height - restore_height) / 2 - restore_rect.top
+		s.restore_window_pos_x = int(restore_x)
+		s.restore_window_pos_y = int(restore_y)
+
+		win32.SetWindowPos(
+			s.hwnd,
+			win32.HWND_TOP,
+			mi.rcMonitor.left,
+			mi.rcMonitor.top,
+			mi.rcMonitor.right - mi.rcMonitor.left,
+			mi.rcMonitor.bottom - mi.rcMonitor.top,
+			win32.SWP_NOOWNERZORDER | win32.SWP_FRAMECHANGED,
+		)
+
+		return
+	}
+
+	win32.SetWindowPos(
+		s.hwnd,
+		{},
+		work_area.left,
+		work_area.top,
+		0,
+		0,
+		win32.SWP_NOACTIVATE | win32.SWP_NOZORDER | win32.SWP_NOSIZE,
+	)
+
+	frame: win32.RECT
+
+	win32.DwmGetWindowAttribute(
+		s.hwnd,
+		u32(win32.DWMWINDOWATTRIBUTE.DWMWA_EXTENDED_FRAME_BOUNDS),
+		&frame,
+		size_of(win32.RECT),
+	)
+
+	frame_width := frame.right - frame.left
+	frame_height := frame.bottom - frame.top
+
+	windows_set_window_position(
+		s,
+		int(work_area.left + (work_area_width - frame_width) / 2),
+		int(work_area.top + (work_area_height - frame_height) / 2),
+	)
+}
+
+windows_get_window_monitor :: proc(s: ^Windows_State) -> Monitor_Id {
+	hmonitor := win32.MonitorFromWindow(s.hwnd, .MONITOR_DEFAULTTONEAREST)
+	mi := win32.MONITORINFOEXW { cbSize = size_of(win32.MONITORINFOEXW) }
+
+	if !win32.GetMonitorInfoW(hmonitor, &mi) {
+		return MONITOR_NONE
+	}
+
+	return windows_monitor_id(mi.szDevice)
 }
 
 windows_set_cursor_hidden :: proc(s: ^Windows_State, hidden: bool) {

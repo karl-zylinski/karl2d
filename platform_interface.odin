@@ -26,7 +26,11 @@ Platform_Interface :: struct #all_or_none {
 	get_screen_height: proc(s: ^Platform_State) -> int,
 	get_window_scale: proc(s: ^Platform_State) -> f32,
 	set_window_mode: proc(s: ^Platform_State, window_mode: Window_Mode),
+	get_window_mode: proc(s: ^Platform_State) -> Window_Mode,
 	set_window_icon: proc(s: ^Platform_State, image: Image) -> bool,
+	get_monitors: proc(allocator: runtime.Allocator) -> []Monitor_Info,
+	get_window_monitor: proc(s: ^Platform_State) -> Monitor_Id,
+	set_window_monitor: proc(s: ^Platform_State, monitor: Monitor_Id),
 
 	set_cursor_hidden: proc(s: ^Platform_State, hidden: bool),
 	is_cursor_hidden: proc(s: ^Platform_State) -> bool,

@@ -19,7 +19,11 @@ PLATFORM_WEB :: Platform_Interface {
 	get_window_position = web_get_position,
 	get_window_scale = web_get_window_scale,
 	set_window_mode = web_set_window_mode,
+	get_window_mode = web_get_window_mode,
 	set_window_icon = web_set_window_icon,
+	get_monitors = web_get_monitors,
+	get_window_monitor = web_get_window_monitor,
+	set_window_monitor = web_set_window_monitor,
 
 	set_cursor_hidden = web_set_cursor_hidden,
 	is_cursor_hidden = web_is_cursor_hidden,
@@ -72,9 +76,12 @@ web_init :: proc(
 		web_set_screen_size_to_window_size(s)
 	case .Borderless_Fullscreen:
 		log.error("Borderless_Fullscreen not implemented on web, but you can make it happen by using Window_Mode.Windowed_Resizable and putting the game in a fullscreen iframe.")
+		web_set_screen_size(s, window_width, window_height)
 	}
 
-	s.window_mode = init_options.window_mode
+	if init_options.window_mode != .Borderless_Fullscreen {
+		s.window_mode = init_options.window_mode
+	}
 
 	web_add_window_listener(s, .Resize, web_event_window_resize)
 
@@ -475,6 +482,10 @@ web_get_window_scale :: proc(s: ^Web_State) -> f32 {
 	return f32(js.device_pixel_ratio())
 }
 
+web_get_window_mode :: proc(s: ^Web_State) -> Window_Mode {
+	return s.window_mode
+}
+
 web_set_window_mode :: proc(s: ^Web_State, new_mode: Window_Mode) {
 	if new_mode == .Borderless_Fullscreen {
 		log.error("Borderless_Fullscreen not implemented on web, but you can make it happen by using Window_Mode.Windowed_Resizable and putting the game in a fullscreen iframe.")
@@ -524,6 +535,17 @@ web_set_window_icon :: proc(s: ^Web_State, image: Image) -> bool {
 
 	js.set_element_key_string(WEB_FAVICON_ELEMENT_ID, "href", data_uri)
 	return true
+}
+
+web_get_monitors :: proc(allocator: runtime.Allocator) -> []Monitor_Info {
+	return nil
+}
+
+web_get_window_monitor :: proc(s: ^Web_State) -> Monitor_Id {
+	return MONITOR_NONE
+}
+
+web_set_window_monitor :: proc(s: ^Web_State, monitor: Monitor_Id) {
 }
 
 web_set_cursor_hidden :: proc(s: ^Web_State, hidden: bool) {

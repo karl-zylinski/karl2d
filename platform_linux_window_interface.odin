@@ -33,6 +33,7 @@ Linux_Window_Interface :: struct #all_or_none {
 	get_screen_height: proc(s: ^Linux_Window_State) -> int,
 	get_window_scale: proc(s: ^Linux_Window_State) -> f32,
 	set_window_mode: proc(s: ^Linux_Window_State, window_mode: Window_Mode),
+	get_window_mode: proc(s: ^Linux_Window_State) -> Window_Mode,
 	set_window_icon: proc(s: ^Linux_Window_State, image: Image) -> bool,
 	set_cursor_hidden: proc(s: ^Linux_Window_State, hidden: bool),
 	is_cursor_hidden: proc(s: ^Linux_Window_State) -> bool,

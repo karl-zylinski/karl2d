@@ -46,10 +46,6 @@ import hm "core:container/handle_map"
 // frame. For single frame allocations the library uses an internal "frame allocator".
 // The frame allocator is cleared when `update()` runs.
 //
-// Call `init` before using Karl2D procedures that depend on runtime state, such as window,
-// drawing, input, audio, texture, font and shader procedures. Pure helper procedures, types and
-// constants can be used before `init`.
-//
 // The return value is a pointer to Karl2D's internal state. You can restore this state later using
 // `set_internal_state()`. This is useful when doing hot reload, as the internal state pointer gets
 // reset when the library is reloaded. You can safely ignore the return value if you have no such
@@ -57,6 +53,10 @@ import hm "core:container/handle_map"
 //
 // THREAD INFO: The value of `audio_thread_logger` will be stored for later use by the audio thread.
 // Make sure your logger is thread safe (the file/console loggers in Odin are).
+//
+// WARNING: Many procedures in Karl2D assume that this procedure has already been run. To be on the
+// safe side, don't use any Karl2D procedures before running `init`. The only exception is
+// `get_monitors`: It is guaranteed to be possible to call ahead of `init`.
 init :: proc(
 	screen_width: int,
 	screen_height: int,
@@ -776,6 +776,39 @@ get_window_scale :: proc() -> f32 {
 set_window_mode :: proc(window_mode: Window_Mode) {
 	assert_initialized()
 	pf.set_window_mode(s.pf_state, window_mode)
+}
+
+// Fetch the most recent window mode, set by either `init` or `set_window_mode`.
+get_window_mode :: proc() -> Window_Mode {
+	assert_initialized()
+	return pf.get_window_mode(s.pf_state)
+}
+
+// SPECIAL PROC: Can be used before `k2.init` has been executed.
+//
+// Get a list of all currently connected monitors. The `id` on each `Monitor_Info` can be used with
+// `set_window_monitor`.
+//
+// Note the allocator parameter: The returned slice is allocated and also contains `name` fields
+// that are allocated.
+get_monitors :: proc(allocator := context.allocator) -> []Monitor_Info {
+	return pf.get_monitors(allocator)
+}
+
+// Get the ID of the monitor that the game is currently displayed on. If the window spans several
+// monitors, then the one it overlaps the most is used.
+get_window_monitor :: proc() -> Monitor_Id {
+	assert_initialized()
+	return pf.get_window_monitor(s.pf_state)
+}
+
+// Move the window to some monitor. If the game is running in fullscreen, then the fullscreen window
+// will be moved and properly resized.
+//
+// Get a list of all monitors using `get_monitors`.
+set_window_monitor :: proc(monitor: Monitor_Id) {
+	assert_initialized()
+	pf.set_window_monitor(s.pf_state, monitor)
 }
 
 // Sets the icon shown in the titlebar and the OS's program switcher bar. Load the image using for
@@ -5968,8 +6001,35 @@ Window_Mode :: enum {
 	Borderless_Fullscreen,
 }
 
+Monitor_Id :: distinct u64
+
+MONITOR_NONE :: Monitor_Id(0)
+
+Monitor_Info :: struct {
+	id: Monitor_Id,
+
+	// Allocated by `get_monitors`.
+	name: string,
+
+	position: [2]int,
+
+	// Pixel resolution.
+	size: [2]int,
+
+	// Measured in millimeters.
+	physical_size: [2]int,
+
+	scale: f32,
+	primary: bool,
+}
+
 Init_Options :: struct {
 	window_mode: Window_Mode,
+
+	// The game will start on this monitor. If `window_mode` is non-fullscreen, then the center of
+	// the provided monitor will be used. If left zero-initialized, then the default monitor will be
+	// used, with the default positioning.
+	monitor: Monitor_Id,
 
 	// Enable to request anti-alias. On most systems this means 4x Multi Sample Anti Alias
 	anti_alias: bool,

@@ -30,7 +30,11 @@ PLATFORM_MAC :: Platform_Interface {
 	get_window_position = mac_get_window_position,
 	get_window_scale = mac_get_window_scale,
 	set_window_mode = mac_set_window_mode,
+	get_window_mode = mac_get_window_mode,
 	set_window_icon = mac_set_window_icon,
+	get_monitors = mac_get_monitors,
+	get_window_monitor = mac_get_window_monitor,
+	set_window_monitor = mac_set_window_monitor,
 
 	set_cursor_hidden = mac_set_cursor_hidden,
 	is_cursor_hidden = mac_is_cursor_hidden,
@@ -574,6 +578,17 @@ mac_get_window_scale :: proc(s: ^Mac_State) -> f32 {
 	return f32(s.window->backingScaleFactor())
 }
 
+mac_get_monitors :: proc(allocator: runtime.Allocator) -> []Monitor_Info {
+	return nil
+}
+
+mac_get_window_monitor :: proc(s: ^Mac_State) -> Monitor_Id {
+	return MONITOR_NONE
+}
+
+mac_set_window_monitor :: proc(s: ^Mac_State, monitor: Monitor_Id) {
+}
+
 mac_set_cursor_hidden :: proc(s: ^Mac_State, hidden: bool) {
 	s.cursor_hidden = hidden
 	mac_apply_cursor_state(s)
@@ -779,6 +794,10 @@ mac_open_url :: proc(s: ^Mac_State, url: string) -> bool {
 	}
 
 	return process_state.exit_code == 0
+}
+
+mac_get_window_mode :: proc(s: ^Mac_State) -> Window_Mode {
+	return s.window_mode
 }
 
 mac_set_window_mode :: proc(s: ^Mac_State, window_mode: Window_Mode) {

@@ -29,7 +29,11 @@ PLATFORM_LINUX :: Platform_Interface {
 	get_window_position = linux_get_window_position,
 	get_window_scale = linux_get_window_scale,
 	set_window_mode = linux_set_window_mode,
+	get_window_mode = linux_get_window_mode,
 	set_window_icon = linux_set_window_icon,
+	get_monitors = linux_get_monitors,
+	get_window_monitor = linux_get_window_monitor,
+	set_window_monitor = linux_set_window_monitor,
 	set_cursor_hidden = linux_set_cursor_hidden,
 	is_cursor_hidden = linux_is_cursor_hidden,
 	set_mouse_locked = linux_set_mouse_locked,
@@ -654,12 +658,27 @@ linux_open_url :: proc(s: ^Linux_State, url: string) -> bool {
 	return process_state.exit_code == 0
 }
 
+linux_get_window_mode :: proc(s: ^Linux_State) -> Window_Mode {
+	return s.win.get_window_mode(s.win_state)
+}
+
 linux_set_window_mode :: proc(s: ^Linux_State, window_mode: Window_Mode) {
 	s.win.set_window_mode(s.win_state, window_mode)
 }
 
 linux_set_window_icon :: proc(s: ^Linux_State, image: Image) -> bool {
 	return s.win.set_window_icon(s.win_state, image)
+}
+
+linux_get_monitors :: proc(allocator: runtime.Allocator) -> []Monitor_Info {
+	return nil
+}
+
+linux_get_window_monitor :: proc(s: ^Linux_State) -> Monitor_Id {
+	return MONITOR_NONE
+}
+
+linux_set_window_monitor :: proc(s: ^Linux_State, monitor: Monitor_Id) {
 }
 
 linux_set_cursor_hidden :: proc(s: ^Linux_State, hidden: bool) {
