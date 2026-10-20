@@ -1,4 +1,3 @@
-raylib/
 bin/
 *.pdb
 *.exe
@@ -19,10 +18,8 @@ karl2d.doc.compare.odin
 .sublime
 scrap/
 .DS_Store
-.claude/worktrees/
-# Odin names a build after the folder it was built from, so an example's binary has no file
-# extension for a pattern to match. They are listed one by one instead. A new example needs a line
-# here, and until it has one its binary turns up in `git status`.
+.claude
+
 examples/audio/audio
 examples/audio_bus/audio_bus
 examples/basics/basics
@@ -54,7 +51,6 @@ examples/space_cat/space_cat
 examples/touch/touch
 examples/ui/ui
 
-# The tools are run with `odin run`, which leaves their binaries in the folder it was run from.
 /api_doc_builder
 /api_verifier
 /make_sublime_project
