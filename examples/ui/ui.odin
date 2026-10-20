@@ -282,7 +282,7 @@ ui_text_box :: proc(r: k2.Rect, initial_text: string) -> (string, bool) {
 		}
 
 		if text == "" {
-			text = "Type..."
+			text = "Click and type..."
 		}
 	}
 
