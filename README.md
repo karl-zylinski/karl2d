@@ -34,11 +34,6 @@ main :: proc() {
 7. Enjoy!
 8. If you want to make a web build of your game, continue to the [Making a web build](#making-a-web-build) section below.
 
->[!NOTE]
->Call `k2.init` before using Karl2D procedures that query or modify runtime state,
->such as window size, input, drawing, audio, textures, fonts or shaders. Pure helper
->procedures, types and constants can be used before `k2.init`.
-
 ## Get help
 
 Discuss and get help in the #karl2d channel [on my Discord server](https://discord.gg/4FsHgtBmFK).
