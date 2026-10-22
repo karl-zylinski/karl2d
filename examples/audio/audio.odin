@@ -14,7 +14,6 @@ sine_clip_700: k2.Audio_Clip
 chord_clip: k2.Audio_Clip
 
 music: k2.Audio_Stream
-music_sound: k2.Sound
 
 sweep_clip: k2.Audio_Clip
 sweep_sound: k2.Sound
@@ -63,7 +62,8 @@ init :: proc() {
 		} else {
 			music = k2.load_audio_stream_from_file(MUSIC_FILE)
 		}
-		music_sound = k2.play_audio_stream(music, loop = true)
+		k2.set_audio_stream_loop(music, true)
+		k2.play_audio_stream(music)
 	} else {
 		sine_sound = k2.play_audio_clip(sine_clip_200, loop = true)
 	}
@@ -115,16 +115,17 @@ make_sine_sweep :: proc(
 	)
 }
 
-seek_bar :: proc(bar: ^Seek_Bar, sound: k2.Sound) {
+seek_bar :: proc(bar: ^Seek_Bar, time: f32, length: f32) -> (f32, bool) {
 	if k2.mouse_button_went_down(.Left) && k2.point_in_rect(k2.get_mouse_position(), bar.rect) {
 		bar.dragging = true
 	}
 
-	length := k2.get_sound_length(sound)
 	fraction: f32
+	seek_to: f32
+	seek: bool
 
 	if length > 0 {
-		fraction = clamp(k2.get_sound_time(sound)/length, 0, 1)
+		fraction = clamp(time/length, 0, 1)
 	}
 
 	if bar.dragging {
@@ -135,7 +136,8 @@ seek_bar :: proc(bar: ^Seek_Bar, sound: k2.Sound) {
 			bar.dragging = false
 
 			if length > 0 {
-				k2.set_sound_time(sound, bar.fraction * length)
+				seek_to = bar.fraction * length
+				seek = true
 			}
 		}
 	}
@@ -153,6 +155,8 @@ seek_bar :: proc(bar: ^Seek_Bar, sound: k2.Sound) {
 		30,
 		k2.BLACK,
 	)
+
+	return seek_to, seek
 }
 
 step :: proc() -> bool {
@@ -221,26 +225,24 @@ step :: proc() -> bool {
 		// Home starts the music. End stops it, which also rewinds the stream. P pauses and
 		// resumes, keeping its place in the song.
 		if k2.key_went_down(.Home) {
-			music_sound = k2.play_audio_stream(
-				music,
-				volume = snd_volume,
-				pan = snd_pan,
-				pitch = snd_pitch,
-				loop = true,
-			)
+			k2.play_audio_stream(music)
 		}
 
 		if k2.key_went_down(.End) {
-			k2.stop_sound(music_sound)
+			k2.stop_audio_stream(music)
 		}
 
 		if k2.key_went_down(.P) {
-			k2.set_sound_paused(music_sound, k2.sound_is_playing(music_sound))
+			if k2.audio_stream_is_playing(music) {
+				k2.pause_audio_stream(music)
+			} else if k2.audio_stream_is_paused(music) {
+				k2.play_audio_stream(music)
+			}
 		}
 
-		k2.set_sound_pitch(music_sound, snd_pitch)
-		k2.set_sound_pan(music_sound, snd_pan)
-		k2.set_sound_volume(music_sound, snd_volume)
+		k2.set_audio_stream_pitch(music, snd_pitch)
+		k2.set_audio_stream_pan(music, snd_pan)
+		k2.set_audio_stream_volume(music, snd_volume)
 	} else {
 		k2.set_sound_volume(sine_sound, snd_volume)
 		k2.set_sound_pan(sine_sound, snd_pan)
@@ -278,7 +280,12 @@ step :: proc() -> bool {
 			k2.BLACK,
 		)
 
-		seek_bar(&music_seek_bar, music_sound)
+		music_time := k2.get_audio_stream_time(music)
+		music_duration := k2.get_audio_stream_duration(music)
+
+		if seek_to, seek := seek_bar(&music_seek_bar, music_time, music_duration); seek {
+			k2.set_audio_stream_time(music, seek_to)
+		}
 	}
 
 	k2.draw_text(
@@ -288,7 +295,12 @@ step :: proc() -> bool {
 		k2.BLACK,
 	)
 
-	seek_bar(&sweep_seek_bar, sweep_sound)
+	sweep_time := k2.get_sound_time(sweep_sound)
+	sweep_length := k2.get_sound_length(sweep_sound)
+
+	if seek_to, seek := seek_bar(&sweep_seek_bar, sweep_time, sweep_length); seek {
+		k2.set_sound_time(sweep_sound, seek_to)
+	}
 
 	k2.present()
 	free_all(context.temp_allocator)

@@ -619,6 +619,8 @@ play_audio_clip :: proc(
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound
 
+// TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `stop_audio_stream`.
+//---
 // Stops the sound, which destroys its playback state in the mixer. For a `Sound` started using
 // `play_audio_stream`, this also rewinds the stream to the start. Use `set_sound_paused` to pause
 // the Sound instead, which won't lose the current playback position and settings.
@@ -645,6 +647,8 @@ set_sound_pan :: proc(sound: Sound, pan: f32)
 // play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
+// TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `set_audio_stream_time`.
+//---
 // Move the sound to another spot in its audio. `seconds` is measured from the start of the audio.
 // Use `get_sound_length` to find out how long the sound is.
 //
@@ -660,6 +664,8 @@ get_sound_time :: proc(sound: Sound) -> f32
 // how far into a song you are. Returns 0 if the sound doesn't exist or if the length is unknown.
 get_sound_length :: proc(sound: Sound) -> f32
 
+// TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `set_audio_stream_loop`.
+//---
 // Make a sound loop when it reaches the end.
 //
 // Technical note: This also works for sounds started using `play_audio_stream`, but then it
@@ -775,6 +781,8 @@ destroy_audio_stream :: proc(stream: Audio_Stream)
 // is immune to both in-game stalls and external stalls, such as the window being moved.
 update_audio_stream :: proc(stream: Audio_Stream)
 
+// TODO-UPDATE-COMMENT: No longer returns a `Sound` or takes settings, use the `xxx_audio_stream` procs. Playing a paused stream resumes it, playing a playing stream restarts it.
+//---
 // Start playing an audio stream. Returns a `Sound`, which you can control using
 // `set_sound_volume`, `stop_sound` etc. The playback starts from wherever the stream last was,
 // which is the beginning if the stream was just loaded, was stopped using `stop_sound` or has
@@ -786,15 +794,34 @@ update_audio_stream :: proc(stream: Audio_Stream)
 // beginning. A paused sound starts playing again.
 //
 // Don't forget to call `update_audio_stream` every frame in order to stream in new data.
-play_audio_stream :: proc(
-	stream: Audio_Stream,
-	volume: f32 = 1,
-	pan: f32 = 0,
-	pitch: f32 = 1,
-	loop := false,
-	bus: Audio_Bus = AUDIO_BUS_MASTER,
-) -> Sound
+play_audio_stream :: proc(stream: Audio_Stream)
 
+pause_audio_stream :: proc(stream: Audio_Stream)
+
+stop_audio_stream :: proc(stream: Audio_Stream)
+
+audio_stream_is_playing :: proc(stream: Audio_Stream) -> bool
+
+audio_stream_is_paused :: proc(stream: Audio_Stream) -> bool
+
+set_audio_stream_volume :: proc(stream: Audio_Stream, volume: f32)
+
+set_audio_stream_pan :: proc(stream: Audio_Stream, pan: f32)
+
+set_audio_stream_pitch :: proc(stream: Audio_Stream, pitch: f32)
+
+set_audio_stream_loop :: proc(stream: Audio_Stream, loop: bool)
+
+set_audio_stream_bus :: proc(stream: Audio_Stream, bus: Audio_Bus)
+
+set_audio_stream_time :: proc(stream: Audio_Stream, seconds: f32)
+
+get_audio_stream_time :: proc(stream: Audio_Stream) -> f32
+
+get_audio_stream_duration :: proc(stream: Audio_Stream) -> f32
+
+// TODO-UPDATE-COMMENT: `play_audio_stream` has no `bus` parameter anymore, use `set_audio_stream_bus`.
+//---
 // Create an audio bus: A group of sounds that are mixed together before they reach the master bus.
 // Route sounds into it using `set_sound_bus`, or the `bus` parameter of `play_audio_clip` or
 // `play_audio_stream`.
@@ -1684,6 +1711,8 @@ AUDIO_MIX_SAMPLE_RATE :: 44100
 // sample in an array of samples will be interpreted as left and right respectively.
 Audio_Sample :: f32
 
+// TODO-UPDATE-COMMENT: `play_audio_stream` no longer returns a `Sound`.
+//---
 // Represents something that is currently playing in the audio mixer. Created using
 // `play_audio_clip` and `play_audio_stream`. A sound is automatically destroyed when it finishes
 // playing. It is safe to keep using the handle after that: The procedures that take a `Sound` will
@@ -1752,6 +1781,8 @@ Audio_Stream_Data :: struct {
 	vorbis: ^stbv.vorbis,
 	vorbis_buffer: stbv.vorbis_alloc,
 	sound: Sound,
+	bus: Audio_Bus,
+	settings: Sound_Settings,
 	buffer: Audio_Buffer,
 
 	cursor: Audio_Stream_Cursor,

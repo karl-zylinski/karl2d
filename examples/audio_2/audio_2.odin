@@ -129,10 +129,8 @@ step :: proc() -> bool {
 		for psi, psi_idx in &bs.playable_sounds {
 			ps := &playable_sounds[psi]
 			
-			if k2.sound_is_playing(ps.playing_sound) {
-				if as, is_as := ps.source.(k2.Audio_Stream); is_as {
-					k2.update_audio_stream(as)
-				}
+			if as, is_as := ps.source.(k2.Audio_Stream); is_as {
+				k2.update_audio_stream(as)
 			}
 
 			psr := next_psr
@@ -155,7 +153,13 @@ step :: proc() -> bool {
 							ordered_remove(&bs.playable_sounds, psi_idx)
 							append(&bs_check.playable_sounds, psi)
 							ps.bus = bs_check.bus
-							k2.set_sound_bus(ps.playing_sound, ps.bus)
+
+							switch s in ps.source {
+							case k2.Audio_Clip:
+								k2.set_sound_bus(ps.playing_sound, ps.bus)
+							case k2.Audio_Stream:
+								k2.set_audio_stream_bus(s, ps.bus)
+							}
 						}
 					}
 				}
@@ -182,13 +186,20 @@ step :: proc() -> bool {
 					case k2.Audio_Clip:
 						ps.playing_sound = k2.play_audio_clip(s)
 					case k2.Audio_Stream:
-						ps.playing_sound = k2.play_audio_stream(s)
+						k2.play_audio_stream(s)
 					}
 				}
 			}
 
-			if k2.sound_is_playing(ps.playing_sound) {
-				play_button_color = k2.GREEN
+			switch s in ps.source {
+			case k2.Audio_Clip:
+				if k2.sound_is_playing(ps.playing_sound) {
+					play_button_color = k2.GREEN
+				}
+			case k2.Audio_Stream:
+				if k2.audio_stream_is_playing(s) {
+					play_button_color = k2.GREEN
+				}
 			}
 
 			if hover_in_psr {
