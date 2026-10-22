@@ -2289,6 +2289,8 @@ play_audio_clip :: proc(
 	}
 }
 
+// Returns how many seconds long this audio clip is. Returns `0` if the audio clip has been
+// destroyed.
 get_audio_clip_duration :: proc(clip: Audio_Clip) -> f32 {
 	sync.mutex_guard(&s.audio_mutex)
 	ab := hm.get(&s.audio_buffers, Audio_Buffer(clip))
