@@ -207,7 +207,7 @@ init :: proc(
 			s.audio_thread_temp_allocator_buffer[:],
 		)
 
-		hm.dynamic_init(&s.sounds, s.allocator)
+		hm.dynamic_init(&s.audio_voices, s.allocator)
 		hm.dynamic_init(&s.audio_buffers, s.allocator)
 		hm.dynamic_init(&s.audio_streams, s.allocator)
 		hm.dynamic_init(&s.audio_buses, s.allocator)
@@ -332,7 +332,7 @@ shutdown :: proc() {
 		free(s.ab_state, s.allocator)
 		delete(s.master_bus.chunk, s.allocator)
 		hm.dynamic_destroy(&s.audio_streams)
-		hm.dynamic_destroy(&s.sounds)
+		hm.dynamic_destroy(&s.audio_voices)
 		hm.dynamic_destroy(&s.audio_buffers)
 		hm.dynamic_destroy(&s.audio_buses)
 	}
@@ -2268,13 +2268,13 @@ play_audio_clip :: proc(
 		return SOUND_NONE
 	}
 
-	playback_settings := Sound_Settings {
+	playback_settings := Audio_Voice_Settings {
 		volume = clamp(volume, 0, 1),
 		pan = clamp(pan, -1, 1),
 		pitch = max(pitch, 0.01),
 	}
 
-	sound_object := Sound_Object {
+	audio_voice_object := Audio_Voice_Object {
 		buffer = Audio_Buffer(clip),
 		source = clip,
 		target_settings = playback_settings,
@@ -2283,14 +2283,14 @@ play_audio_clip :: proc(
 		bus = bus,
 	}
 
-	sound, add_err := hm.add(&s.sounds, sound_object)
+	voice, add_err := hm.add(&s.audio_voices, audio_voice_object)
 
 	if add_err != nil {
 		log.errorf("Failed playing audio clip. Error: %v", add_err)
 		return SOUND_NONE
 	}
 
-	return sound
+	return Sound(voice)
 }
 
 // TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `stop_audio_stream`.
@@ -2300,78 +2300,78 @@ play_audio_clip :: proc(
 // the Sound instead, which won't lose the current playback position and settings.
 stop_sound :: proc(sound: Sound) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
 
-	if sound_object == nil {
+	if audio_voice_object == nil {
 		return
 	}
 
-	hm.remove(&s.sounds, sound)
+	hm.remove(&s.audio_voices, Audio_Voice(sound))
 }
 
 // Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
 // or stopped.
 set_sound_paused :: proc(sound: Sound, paused: bool) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
 
-	if sound_object == nil {
+	if audio_voice_object == nil {
 		return
 	}
 
-	sound_object.paused = paused
+	audio_voice_object.paused = paused
 }
 
 // Returns true if the sound exists and is not paused.
 sound_is_playing :: proc(sound: Sound) -> bool {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
-	return sound_object != nil && !sound_object.remove && !sound_object.paused
+	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
+	return audio_voice_object != nil && !audio_voice_object.remove && !audio_voice_object.paused
 }
 
 // Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
 // stopped sound is not.
 sound_is_valid :: proc(sound: Sound) -> bool {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
-	return sound_object != nil && !sound_object.remove
+	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
+	return audio_voice_object != nil && !audio_voice_object.remove
 }
 
 // Set the volume of a sound. Range: 0 to 1.
 set_sound_volume :: proc(sound: Sound, volume: f32) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
 
-	if sound_object == nil {
+	if audio_voice_object == nil {
 		return
 	}
 
-	sound_object.target_settings.volume = clamp(volume, 0, 1)
+	audio_voice_object.target_settings.volume = clamp(volume, 0, 1)
 }
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
 set_sound_pan :: proc(sound: Sound, pan: f32) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
 
-	if sound_object == nil {
+	if audio_voice_object == nil {
 		return
 	}
 
-	sound_object.target_settings.pan = clamp(pan, -1, 1)
+	audio_voice_object.target_settings.pan = clamp(pan, -1, 1)
 }
 
 // Set the pitch of a sound. Range: 0.01 and up, where 1 is the default. Pitch 2 makes the sound
 // play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
 
-	if sound_object == nil {
+	if audio_voice_object == nil {
 		return
 	}
 
-	sound_object.target_settings.pitch = max(pitch, 0.01)
+	audio_voice_object.target_settings.pitch = max(pitch, 0.01)
 }
 
 // TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `set_audio_stream_time`.
@@ -2383,31 +2383,31 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 // based Sound can be a bit slower. The stream has to seek, perhaps fetching data from disk.
 set_sound_time :: proc(sound: Sound, seconds: f32) {
 	sync.mutex_guard(&s.audio_mutex)
-	_set_sound_time(sound, seconds)
+	_set_audio_voice_time(Audio_Voice(sound), seconds)
 }
 
-_set_sound_time :: proc(sound: Sound, seconds: f32) {
-	sound_object := hm.get(&s.sounds, sound)
+_set_audio_voice_time :: proc(voice: Audio_Voice, seconds: f32) {
+	audio_voice_object := hm.get(&s.audio_voices, voice)
 
-	if sound_object == nil {
+	if audio_voice_object == nil {
 		return
 	}
 
 	wanted_seconds := max(seconds, 0)
-	length := _get_sound_length(sound)
+	length := _get_audio_voice_length(voice)
 
 	if length > 0 {
 		wanted_seconds = min(wanted_seconds, length)
 	}
 
 	// Jumping to another spot in the audio makes the waveform jump, which is heard as a click. So
-	// we don't jump right away: The mixer fades the sound out first, then jumps, then fades it
+	// we don't jump right away: The mixer fades the voice out first, then jumps, then fades it
 	// back in.
 
-	if sound_object.paused {
-		// A paused sound may have its volume at non-zero. We set it to zero here so that nothing
+	if audio_voice_object.paused {
+		// A paused voice may have its volume at non-zero. We set it to zero here so that nothing
 		// has to wait for the volume to be ramped down.
-		sound_object.current_settings.volume = 0
+		audio_voice_object.current_settings.volume = 0
 	}
 
 	// Note that we do this a bit differently for audio streams and clips. For clips we set the
@@ -2417,10 +2417,10 @@ _set_sound_time :: proc(sound: Sound, seconds: f32) {
 	// For a stream the seeking happens in `update_audio_stream` using state that lives on the
 	// audio stream object.
 
-	switch src in sound_object.source {
+	switch src in audio_voice_object.source {
 	case Audio_Clip:
-		sound_object.clip_has_pending_seek = true
-		sound_object.clip_pending_seek_seconds = wanted_seconds
+		audio_voice_object.clip_has_pending_seek = true
+		audio_voice_object.clip_pending_seek_seconds = wanted_seconds
 
 	case Audio_Stream:
 		sd := hm.get(&s.audio_streams, src)
@@ -2430,7 +2430,7 @@ _set_sound_time :: proc(sound: Sound, seconds: f32) {
 		}
 
 		sd.seek_seconds = wanted_seconds
-		sd.seek_state = sound_object.paused ? .Ready : .Fading_Out
+		sd.seek_state = audio_voice_object.paused ? .Ready : .Fading_Out
 	}
 }
 
@@ -2438,17 +2438,17 @@ _set_sound_time :: proc(sound: Sound, seconds: f32) {
 // each time it starts over. Returns 0 if the sound doesn't exist.
 get_sound_time :: proc(sound: Sound) -> f32 {
 	sync.mutex_guard(&s.audio_mutex)
-	return _get_sound_time(sound)
+	return _get_audio_voice_time(Audio_Voice(sound))
 }
 
-_get_sound_time :: proc(sound: Sound) -> f32 {
-	sound_object := hm.get(&s.sounds, sound)
+_get_audio_voice_time :: proc(voice: Audio_Voice) -> f32 {
+	audio_voice_object := hm.get(&s.audio_voices, voice)
 
-	if sound_object == nil {
+	if audio_voice_object == nil {
 		return 0
 	}
 
-	ab := hm.get(&s.audio_buffers, sound_object.buffer)
+	ab := hm.get(&s.audio_buffers, audio_voice_object.buffer)
 
 	if ab == nil {
 		return 0
@@ -2459,15 +2459,15 @@ _get_sound_time :: proc(sound: Sound) -> f32 {
 		channels = 2
 	}
 
-	switch src in sound_object.source {
+	switch src in audio_voice_object.source {
 	case Audio_Clip:
-		// A seek that is still fading out hasn't moved the sound yet, but it is on its way there.
+		// A seek that is still fading out hasn't moved the voice yet, but it is on its way there.
 		// Report where it is going, so that things like a seek bar don't jump backwards for a moment.
-		if sound_object.clip_has_pending_seek {
-			return sound_object.clip_pending_seek_seconds
+		if audio_voice_object.clip_has_pending_seek {
+			return audio_voice_object.clip_pending_seek_seconds
 		}
 
-		return f32(sound_object.offset / channels) / f32(ab.sample_rate)
+		return f32(audio_voice_object.offset / channels) / f32(ab.sample_rate)
 
 	case Audio_Stream:
 		sd := hm.get(&s.audio_streams, src)
@@ -2482,10 +2482,10 @@ _get_sound_time :: proc(sound: Sound) -> f32 {
 		}
 
 		// How many decoded samples are still sitting unplayed in the circular staging buffer.
-		remaining := sd.cursor.buffer_write_pos - sound_object.offset
+		remaining := sd.cursor.buffer_write_pos - audio_voice_object.offset
 
 		if remaining < 0 {
-			remaining = len(ab.samples) - sound_object.offset + sd.cursor.buffer_write_pos
+			remaining = len(ab.samples) - audio_voice_object.offset + sd.cursor.buffer_write_pos
 		}
 
 		position := sd.cursor.decode_cursor - remaining
@@ -2508,17 +2508,17 @@ _get_sound_time :: proc(sound: Sound) -> f32 {
 // how far into a song you are. Returns 0 if the sound doesn't exist or if the length is unknown.
 get_sound_length :: proc(sound: Sound) -> f32 {
 	sync.mutex_guard(&s.audio_mutex)
-	return _get_sound_length(sound)
+	return _get_audio_voice_length(Audio_Voice(sound))
 }
 
-_get_sound_length :: proc(sound: Sound) -> f32 {
-	sound_object := hm.get(&s.sounds, sound)
+_get_audio_voice_length :: proc(voice: Audio_Voice) -> f32 {
+	audio_voice_object := hm.get(&s.audio_voices, voice)
 
-	if sound_object == nil {
+	if audio_voice_object == nil {
 		return 0
 	}
 
-	ab := hm.get(&s.audio_buffers, sound_object.buffer)
+	ab := hm.get(&s.audio_buffers, audio_voice_object.buffer)
 
 	if ab == nil {
 		return 0
@@ -2529,7 +2529,7 @@ _get_sound_length :: proc(sound: Sound) -> f32 {
 		channels = 2
 	}
 
-	switch src in sound_object.source {
+	switch src in audio_voice_object.source {
 	case Audio_Clip:
 		return f32(len(ab.samples) / channels) / f32(ab.sample_rate)
 
@@ -2555,18 +2555,18 @@ _get_sound_length :: proc(sound: Sound) -> f32 {
 // plays a short buffer that the decoder keeps filling, so that sound always loops.
 set_sound_loop :: proc(sound: Sound, loop: bool) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
 
-	if sound_object == nil {
+	if audio_voice_object == nil {
 		return
 	}
 
-	switch src in sound_object.source {
+	switch src in audio_voice_object.source {
 	case Audio_Clip:
-		sound_object.loop = loop
+		audio_voice_object.loop = loop
 
 	case Audio_Stream:
-		// The Sound the stream uses always loops. It's just a short buffer that it feeds its data
+		// The voice the stream uses always loops. It's just a short buffer that it feeds its data
 		// into. The real looping flag is on the audio stream object itself. That's what is used
 		// when the stream ends.
 		if sd := hm.get(&s.audio_streams, src); sd != nil {
@@ -2578,9 +2578,9 @@ set_sound_loop :: proc(sound: Sound, loop: bool) {
 // Route a sound into an audio bus. Pass `AUDIO_BUS_MASTER` for the master bus.
 set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
 
-	if sound_object == nil {
+	if audio_voice_object == nil {
 		return
 	}
 
@@ -2589,7 +2589,7 @@ set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 		return
 	}
 
-	sound_object.bus = bus
+	audio_voice_object.bus = bus
 }
 
 // How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
@@ -2598,8 +2598,8 @@ get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
 	sync.mutex_guard(&s.audio_mutex)
 	count: int
 
-	for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
-		if sound_object.source == clip && !sound_object.remove {
+	for it := hm.dynamic_iterator_make(&s.audio_voices); audio_voice_object, _ in hm.dynamic_iterate(&it) {
+		if audio_voice_object.source == clip && !audio_voice_object.remove {
 			count += 1
 		}
 	}
@@ -3020,9 +3020,9 @@ destroy_audio_clip :: proc(clip: Audio_Clip)  {
 		return
 	}
 
-	for it := hm.dynamic_iterator_make(&s.sounds); snd, snd_handle in hm.dynamic_iterate(&it) {
-		if snd.source == clip {
-			hm.remove(&s.sounds, snd_handle)
+	for it := hm.dynamic_iterator_make(&s.audio_voices); vo, vo_handle in hm.dynamic_iterate(&it) {
+		if vo.source == clip {
+			hm.remove(&s.audio_voices, vo_handle)
 		}
 	}
 
@@ -3323,8 +3323,8 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 
 	sync.mutex_lock(&sd.decode_mutex)
 
-	if playing := hm.get(&s.sounds, sd.sound); playing != nil {
-		hm.remove(&s.sounds, sd.sound)
+	if playing := hm.get(&s.audio_voices, sd.voice); playing != nil {
+		hm.remove(&s.audio_voices, sd.voice)
 	}
 
 	if ab := hm.get(&s.audio_buffers, sd.buffer); ab != nil {
@@ -3360,10 +3360,10 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	sound := sd.sound
-	so := hm.get(&s.sounds, sound)
+	voice := sd.voice
+	vo := hm.get(&s.audio_voices, voice)
 
-	if so == nil {
+	if vo == nil {
 		sync.mutex_unlock(&s.audio_mutex)
 		return
 	}
@@ -3371,14 +3371,14 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	abo := hm.get(&s.audio_buffers, sd.buffer)
 
 	if abo == nil {
-		hm.remove(&s.sounds, sound)
+		hm.remove(&s.audio_voices, voice)
 		sync.mutex_unlock(&s.audio_mutex)
 		log.error("Trying to update audio stream with destroyed buffer")
 		return
 	}
 
 	// We fetch this while guarded by audio_mutex, we'll use them during the seeking & decode.
-	play_offset := so.offset
+	play_offset := vo.offset
 	loop := sd.loop
 	seek := sd.seek_state == .Ready
 	seek_seconds := sd.seek_seconds
@@ -3406,7 +3406,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	sync.mutex_lock(&s.audio_mutex)
 
 	if !decode_ok {
-		hm.remove(&s.sounds, sound)
+		hm.remove(&s.audio_voices, voice)
 		sync.mutex_unlock(&s.audio_mutex)
 		return
 	}
@@ -3637,13 +3637,13 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	if so := hm.get(&s.sounds, sd.sound); so != nil && !so.remove && so.paused {
-		so.paused = false
+	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil && !vo.remove && vo.paused {
+		vo.paused = false
 		sync.mutex_unlock(&s.audio_mutex)
 		return
 	}
 
-	hm.remove(&s.sounds, sd.sound)
+	hm.remove(&s.audio_voices, sd.voice)
 	ab := hm.get(&s.audio_buffers, sd.buffer)
 
 	if ab == nil {
@@ -3679,7 +3679,7 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 	sync.mutex_guard(&s.audio_mutex)
 	sd.cursor = post_decode_cursor
 
-	sound_object := Sound_Object {
+	audio_voice_object := Audio_Voice_Object {
 		buffer = sd.buffer,
 		target_settings = sd.settings,
 		current_settings = sd.settings,
@@ -3693,7 +3693,7 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 	}
 
 	add_err: runtime.Allocator_Error
-	sd.sound, add_err = hm.add(&s.sounds, sound_object)
+	sd.voice, add_err = hm.add(&s.audio_voices, audio_voice_object)
 
 	if add_err != nil {
 		log.errorf("Failed playing audio stream. Error: %v", add_err)
@@ -3708,8 +3708,8 @@ pause_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	if so := hm.get(&s.sounds, sd.sound); so != nil {
-		so.paused = true
+	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil {
+		vo.paused = true
 	}
 }
 
@@ -3721,7 +3721,7 @@ stop_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	hm.remove(&s.sounds, sd.sound)
+	hm.remove(&s.audio_voices, sd.voice)
 }
 
 audio_stream_is_playing :: proc(stream: Audio_Stream) -> bool {
@@ -3732,8 +3732,8 @@ audio_stream_is_playing :: proc(stream: Audio_Stream) -> bool {
 		return false
 	}
 
-	so := hm.get(&s.sounds, sd.sound)
-	return so != nil && !so.remove && !so.paused
+	vo := hm.get(&s.audio_voices, sd.voice)
+	return vo != nil && !vo.remove && !vo.paused
 }
 
 audio_stream_is_paused :: proc(stream: Audio_Stream) -> bool {
@@ -3744,8 +3744,8 @@ audio_stream_is_paused :: proc(stream: Audio_Stream) -> bool {
 		return false
 	}
 
-	so := hm.get(&s.sounds, sd.sound)
-	return so != nil && !so.remove && so.paused
+	vo := hm.get(&s.audio_voices, sd.voice)
+	return vo != nil && !vo.remove && vo.paused
 }
 
 set_audio_stream_volume :: proc(stream: Audio_Stream, volume: f32) {
@@ -3758,8 +3758,8 @@ set_audio_stream_volume :: proc(stream: Audio_Stream, volume: f32) {
 
 	sd.settings.volume = clamp(volume, 0, 1)
 
-	if so := hm.get(&s.sounds, sd.sound); so != nil {
-		so.target_settings.volume = sd.settings.volume
+	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil {
+		vo.target_settings.volume = sd.settings.volume
 	}
 }
 
@@ -3773,8 +3773,8 @@ set_audio_stream_pan :: proc(stream: Audio_Stream, pan: f32) {
 
 	sd.settings.pan = clamp(pan, -1, 1)
 
-	if so := hm.get(&s.sounds, sd.sound); so != nil {
-		so.target_settings.pan = sd.settings.pan
+	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil {
+		vo.target_settings.pan = sd.settings.pan
 	}
 }
 
@@ -3788,8 +3788,8 @@ set_audio_stream_pitch :: proc(stream: Audio_Stream, pitch: f32) {
 
 	sd.settings.pitch = max(pitch, 0.01)
 
-	if so := hm.get(&s.sounds, sd.sound); so != nil {
-		so.target_settings.pitch = sd.settings.pitch
+	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil {
+		vo.target_settings.pitch = sd.settings.pitch
 	}
 }
 
@@ -3819,8 +3819,9 @@ set_audio_stream_bus :: proc(stream: Audio_Stream, bus: Audio_Bus) {
 
 	sd.bus = bus
 
-	if so := hm.get(&s.sounds, sd.sound); so != nil {
-		so.bus = bus
+	// TODO: When we change the bus of something, do we need to lerp from the settings of the source bus to the target bus to avoid clicks?
+	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil {
+		vo.bus = bus
 	}
 }
 
@@ -3832,7 +3833,7 @@ set_audio_stream_time :: proc(stream: Audio_Stream, seconds: f32) {
 		return
 	}
 
-	_set_sound_time(sd.sound, seconds)
+	_set_audio_voice_time(sd.voice, seconds)
 }
 
 get_audio_stream_time :: proc(stream: Audio_Stream) -> f32 {
@@ -3843,7 +3844,7 @@ get_audio_stream_time :: proc(stream: Audio_Stream) -> f32 {
 		return 0
 	}
 
-	return _get_sound_time(sd.sound)
+	return _get_audio_voice_time(sd.voice)
 }
 
 get_audio_stream_duration :: proc(stream: Audio_Stream) -> f32 {
@@ -3919,9 +3920,9 @@ destroy_audio_bus :: proc(bus: Audio_Bus) {
 	// letting the mixer notice that the bus is gone, so that the mixer never has to deal with a bus
 	// handle that doesn't resolve.
 
-	for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
-		if sound_object.bus == bus {
-			sound_object.bus = AUDIO_BUS_MASTER
+	for it := hm.dynamic_iterator_make(&s.audio_voices); audio_voice_object, _ in hm.dynamic_iterate(&it) {
+		if audio_voice_object.bus == bus {
+			audio_voice_object.bus = AUDIO_BUS_MASTER
 		}
 	}
 
@@ -4005,10 +4006,10 @@ update_audio_mixer :: proc() {
 // removes sounds that have been declared dead by the audio thread. 
 update_audio :: proc() {
 	if sync.mutex_guard(&s.audio_mutex) {
-		ps_iter := hm.dynamic_iterator_make(&s.sounds)
-		for ps, ps_handle in hm.dynamic_iterate(&ps_iter) {
-			if ps.remove {
-				hm.remove(&s.sounds, ps_handle)
+		voices_iter := hm.dynamic_iterator_make(&s.audio_voices)
+		for vo, vo_handle in hm.dynamic_iterate(&voices_iter) {
+			if vo.remove {
+				hm.remove(&s.audio_voices, vo_handle)
 			}
 		}
 	}
@@ -4069,7 +4070,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	// The chunk may contain old mixed data, so clear it.
 	slice.zero(master_bus_chunk)
 
-	// The buses have a chunk each, which the sounds routed to that bus are mixed into. Those hold
+	// The buses have a chunk each, which the voices routed to that bus are mixed into. Those hold
 	// the previous chunk's mix, so they need zeroing too.
 	for it := hm.dynamic_iterator_make(&s.audio_buses); bus, _ in hm.dynamic_iterate(&it) {
 		slice.zero(bus.chunk[:])
@@ -4210,7 +4211,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		return 0
 	}
 
-	// Used for the smooth adjustment of volume, pan and pitch, both for the playing sounds below
+	// Used for the smooth adjustment of volume, pan and pitch, both for the playing voices below
 	// and for the buses further down.
 
 	calc_adjust_parameter_delta :: proc(chunk_size: int, sample_rate: int, pitch: f32) -> f32 {
@@ -4230,29 +4231,29 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 	mix_chunk_size := s.ab.mix_chunk_size
 
-	for ps_iter := hm.dynamic_iterator_make(&s.sounds); ps, _ in hm.dynamic_iterate(&ps_iter) {
-		if ps.remove {
+	for voices_iter := hm.dynamic_iterator_make(&s.audio_voices); vo, _ in hm.dynamic_iterate(&voices_iter) {
+		if vo.remove {
 			continue
 		}
 
-		data := hm.get(&s.audio_buffers, ps.buffer)
+		data := hm.get(&s.audio_buffers, vo.buffer)
 
 		if data == nil {
 			log.error("Trying to play sound with destroyed data")
-			ps.remove = true
+			vo.remove = true
 			continue
 		}
 
-		// A paused sound stays in the list but is not mixed.
-		if ps.paused {
+		// A paused voice stays in the list but is not mixed.
+		if vo.paused {
 			continue
 		}
 
 		// The slice of samples to write into. `buffer` is used for the master bus.
 		dest := master_bus_chunk
 
-		if ps.bus != AUDIO_BUS_MASTER {
-			if bus := hm.get(&s.audio_buses, ps.bus); bus != nil {
+		if vo.bus != AUDIO_BUS_MASTER {
+			if bus := hm.get(&s.audio_buses, vo.bus); bus != nil {
 				dest = bus.chunk[:]
 			}
 		}
@@ -4263,8 +4264,8 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		// value, it happens because there is a sudden change in the waveform. Bigger change, bigger
 		// sound.
 
-		settings := &ps.current_settings
-		target_settings := &ps.target_settings
+		settings := &vo.current_settings
+		target_settings := &vo.target_settings
 
 		// We get the delta twice because we first need to move the pitch towards its target.
 		adjust_parameter_delta := calc_adjust_parameter_delta(mix_chunk_size, data.sample_rate, max(settings.pitch, 0.01))
@@ -4272,17 +4273,17 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		pitch := settings.pitch
 		adjust_parameter_delta = calc_adjust_parameter_delta(mix_chunk_size, data.sample_rate, pitch)
 
-		// `set_sound_time` doesn't seek the sound itself, it just says where the sound should go.
-		// For sounds based on audio clips we seek it here (after fading it out, so it doesn't
+		// `_set_audio_voice_time` doesn't seek the voice itself, it just says where the voice should go.
+		// For voices based on audio clips we seek it here (after fading it out, so it doesn't
 		// click). For audio streams the seeking happens in update_audio_stream, but we still fade
-		// the sound here. When it has finished fading, then update_audio_stream will do the actual
+		// the voice here. When it has finished fading, then update_audio_stream will do the actual
 		// seeking.
 
 		volume_target := target_settings.volume
 
-		switch src in ps.source {
+		switch src in vo.source {
 		case Audio_Clip:
-			if ps.clip_has_pending_seek {
+			if vo.clip_has_pending_seek {
 				volume_target = 0
 
 				if settings.volume == 0 {
@@ -4292,10 +4293,10 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 					}
 
 					total_frames := len(data.samples) / channels
-					target_frame := int(ps.clip_pending_seek_seconds * f32(data.sample_rate))
-					ps.offset = clamp(target_frame, 0, total_frames) * channels
-					ps.offset_fraction = 0
-					ps.clip_has_pending_seek = false
+					target_frame := int(vo.clip_pending_seek_seconds * f32(data.sample_rate))
+					vo.offset = clamp(target_frame, 0, total_frames) * channels
+					vo.offset_fraction = 0
+					vo.clip_has_pending_seek = false
 					volume_target = target_settings.volume
 				}
 			}
@@ -4361,12 +4362,12 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		num_mixed := audio_mix(
 			dest,
-			data.samples[ps.offset:],
+			data.samples[vo.offset:],
 			data.channels,
 			interpolate,
 			source_dest_ratio,
 			s.ab.mix_chunk_size,
-			ps.offset_fraction,
+			vo.offset_fraction,
 			volume_start,
 			volume_end,
 			pan_stereo_start,
@@ -4375,26 +4376,26 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		
 		if interpolate {
 			num_mixed_f32 := f32(num_mixed) * source_dest_ratio
-			fraction_advance := ps.offset_fraction + num_mixed_f32
+			fraction_advance := vo.offset_fraction + num_mixed_f32
 
 			// The fraction advance may become larger than 1, in which case the offset needs to eat
 			// the integer part.
-			ps.offset += int(fraction_advance) * source_channels
-			ps.offset = min(ps.offset, len(data.samples))
-			ps.offset_fraction = linalg.fract(fraction_advance)
+			vo.offset += int(fraction_advance) * source_channels
+			vo.offset = min(vo.offset, len(data.samples))
+			vo.offset_fraction = linalg.fract(fraction_advance)
 		} else {
-			ps.offset += num_mixed * source_channels
-			ps.offset_fraction = 0
+			vo.offset += num_mixed * source_channels
+			vo.offset_fraction = 0
 		}
 
 		// We didn't mix all the samples! This means that we reached the end of the sound.
 		if num_mixed < mix_chunk_size {
-			if ps.loop {
-				ps.offset = 0
-				ps.offset_fraction = 0
+			if vo.loop {
+				vo.offset = 0
+				vo.offset_fraction = 0
 
-				// The sound looped. Make sure to mix in the remaining samples from the start of the
-				// sound!
+				// The voice looped. Make sure to mix in the remaining samples from the start of the
+				// voice!
 				mixed_before_loop := num_mixed
 				overflow := mix_chunk_size - mixed_before_loop
 
@@ -4407,12 +4408,12 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 				num_mixed = audio_mix(
 					dest[mixed_before_loop:],
-					data.samples[ps.offset:],
+					data.samples[vo.offset:],
 					data.channels,
 					interpolate,
 					source_dest_ratio,
 					overflow,
-					ps.offset_fraction,
+					vo.offset_fraction,
 					volume_split,
 					volume_end,
 					pan_stereo_split,
@@ -4421,19 +4422,19 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 				
 				if interpolate {
 					num_mixed_f32 := f32(num_mixed) * source_dest_ratio
-					fraction_advance := ps.offset_fraction + num_mixed_f32
+					fraction_advance := vo.offset_fraction + num_mixed_f32
 
 					// The fraction advance may become larger than 1, in which case the offset needs to eat
 					// the integer part.
-					ps.offset += int(fraction_advance) * source_channels
-					ps.offset = min(ps.offset, len(data.samples))
-					ps.offset_fraction = linalg.fract(fraction_advance)
+					vo.offset += int(fraction_advance) * source_channels
+					vo.offset = min(vo.offset, len(data.samples))
+					vo.offset_fraction = linalg.fract(fraction_advance)
 				} else {
-					ps.offset += num_mixed * source_channels
-					ps.offset_fraction = 0
+					vo.offset += num_mixed * source_channels
+					vo.offset_fraction = 0
 				}
 			} else {
-				ps.remove = true
+				vo.remove = true
 				continue
 			}
 		}
@@ -4441,7 +4442,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 	// BUSES
 	//
-	// The sounds routed to a bus have been mixed into that bus's chunk. Now run the effect of each
+	// The voices routed to a bus have been mixed into that bus's chunk. Now run the effect of each
 	// bus on its chunk and mix the chunk into the master bus, which is the `out` slice.
 
 	// The buses run at the mixer's sample rate and are never pitched, so the ramp is the same for
@@ -4468,7 +4469,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			continue
 		}
 
-		// The pan of a bus is a balance: It turns the opposite side down. The playing sounds use a
+		// The pan of a bus is a balance: It turns the opposite side down. The playing voices use a
 		// constant-power curve instead, but that curve scales both channels by 0.707 in the middle.
 		// A bus that has not been touched has to leave the mix exactly as it is.
 		gain_start := [2]f32 {
@@ -6447,13 +6448,15 @@ AUDIO_MIX_SAMPLE_RATE :: 44100
 // sample in an array of samples will be interpreted as left and right respectively.
 Audio_Sample :: f32
 
+Audio_Voice :: distinct Handle
+
 // TODO-UPDATE-COMMENT: `play_audio_stream` no longer returns a `Sound`.
 //---
 // Represents something that is currently playing in the audio mixer. Created using
 // `play_audio_clip` and `play_audio_stream`. A sound is automatically destroyed when it finishes
 // playing. It is safe to keep using the handle after that: The procedures that take a `Sound` will
 // then just do nothing.
-Sound :: distinct Handle
+Sound :: distinct Audio_Voice
 
 SOUND_NONE :: Sound {}
 
@@ -6494,8 +6497,8 @@ VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
 Audio_Stream_Cursor :: struct {
 	// Where in `Audio_Stream_Data.buffer` we have most recently written samples. Together with
-	// `Sound_Object.offset`, this forms a circular buffer. This field is the 'head' and the offset
-	// is the 'tail'.
+	// `Audio_Voice_Object.offset`, this forms a circular buffer. This field is the 'head' and the
+	// offset is the 'tail'.
 	buffer_write_pos: int,
 
 	// Where in the streamed source we most recently fetched samples from. For stereo, left and
@@ -6516,9 +6519,9 @@ Audio_Stream_Data :: struct {
 	
 	vorbis: ^stbv.vorbis,
 	vorbis_buffer: stbv.vorbis_alloc,
-	sound: Sound,
+	voice: Audio_Voice,
 	bus: Audio_Bus,
-	settings: Sound_Settings,
+	settings: Audio_Voice_Settings,
 	buffer: Audio_Buffer,
 
 	cursor: Audio_Stream_Cursor,
@@ -6529,8 +6532,8 @@ Audio_Stream_Data :: struct {
 	// when the stream is loaded. Zero if it could not be worked out.
 	total_samples: int,
 
-	// Different from `loop` in `Sound_Object`. This says if the whole stream should loop
-	// when it reaches end-of-file. The `loop` in `Sound_Object` just says to loop the
+	// Different from `loop` in `Audio_Voice_Object`. This says if the whole stream should loop
+	// when it reaches end-of-file. The `loop` in `Audio_Voice_Object` just says to loop the
 	// buffer itself. That's something you always want for a stream: We are continously writing
 	// data from a file into a small buffer that is a few seconds long.
 	loop: bool,
@@ -6593,42 +6596,46 @@ Audio_Buffer_Object :: struct {
 	channels: Audio_Channels,
 }
 
-Sound_Settings :: struct {
+Audio_Voice_Settings :: struct {
 	volume: f32,
 	pan: f32,
 	pitch: f32,
 }
 
-// A `Sound_Object` is what `Sound` handles map to. It represents something currently playing in
-// the mixer. It holds a `buffer` which is where the mixer reads audio samples from. How that buffer
-// gets refilled depends on the `source` field. The source can either be an Audio_Clip or an
-// Audio_Stream. For clips `buffer` is the same as the clip's buffer. For audio streams the
+// An `Audio_Voice_Object` is what `Audio_Voice` handles map to. It represents something currently
+// playing in the mixer. It holds a `buffer` which is where the mixer reads audio samples from. How
+// that buffer gets refilled depends on the `source` field. The source can either be an Audio_Clip
+// or an Audio_Stream. For clips `buffer` is the same as the clip's buffer. For audio streams the
 // buffer is a small amount of memory that is continuously being filled with data from the audio
 // stream.
-Sound_Object :: struct {
-	handle: Sound,
+Audio_Voice_Object :: struct {
+	handle: Audio_Voice,
 	buffer: Audio_Buffer,
-	target_settings: Sound_Settings,
-	current_settings: Sound_Settings,
+	target_settings: Audio_Voice_Settings,
+	current_settings: Audio_Voice_Settings,
 
 	// Where in `buffer` should we play samples from next?
 	offset: int,
 
-	// Only used when playing sounds that have pitch != 1 or when the sound has a sample rate that
+	// Only used when playing voices that have pitch != 1 or when the voice has a sample rate that
 	// does not match the mixer's sample rate. In those cases we may get "fractional samples"
 	// because we may be in samples that are in-between two samples in the original sound.
 	offset_fraction: f32,
 
+	// TODO-UPDATE-COMMENT: Streams set their loop flag using `set_audio_stream_loop`, `set_sound_loop` no longer reaches stream voices.
+	//---
 	// If source is Audio_Clip: Set this flag using `set_sound_loop`.
 	// If source is Audio_Stream: Always true (the stream has its own loop flag internally and just
 	// refills the buffer with data, which continuously plays it). `set_sound_loop` will set the
 	// loop flag inside the Audio_Stream source data.
 	loop: bool,
 
-	// Set using `set_sound_paused`. The mixer skips paused sounds.
+	// TODO-UPDATE-COMMENT: Stream voices are paused using `pause_audio_stream`.
+	//---
+	// Set using `set_sound_paused`. The mixer skips paused voices.
 	paused: bool,
 
-	// If true, then this Sound will be deleted next time `update_audio` runs. We don't remove
+	// If true, then this voice will be deleted next time `update_audio` runs. We don't remove
 	// directly when mixing because we don't want to touch memory allocations there. This is because
 	// the mixing may happen on a thread. It may look like `hm.remove` is thread safe. But the
 	// handle map uses an XAR array. The XAR array may internally append to a dynamically allocated
@@ -6638,7 +6645,7 @@ Sound_Object :: struct {
 	// For seeking audio clips. The mixer does the seeking since it needs to fade out, move the
 	// playback position and then fade in again. This avoids clicks when seeking.
 	//
-	// For Audio_Stream-based sounds, the seeking state is inside Audio_Stream_Data.
+	// For Audio_Stream-based voices, the seeking state is inside Audio_Stream_Data.
 	clip_has_pending_seek: bool,
 	clip_pending_seek_seconds: f32,
 
@@ -6646,7 +6653,7 @@ Sound_Object :: struct {
 	bus: Audio_Bus,
 
 	// This is the Audio_Clip or Audio_Stream that was passed to either `play_audio_clip` or
-	// `play_audio_stream`, whichever was used to create this Sound.
+	// `play_audio_stream`, whichever was used to create this voice.
 	source: union #no_nil {
 		Audio_Clip,
 		Audio_Stream,
@@ -6679,7 +6686,7 @@ Audio_Bus_Settings :: struct {
 Audio_Bus_Object :: struct {
 	handle: Audio_Bus,
 
-	// Same idea as in `Sound_Object`: The current settings move towards the target
+	// Same idea as in `Audio_Voice_Object`: The current settings move towards the target
 	// settings a bit at a time, so that changing the volume of a bus doesn't click.
 	target_settings: Audio_Bus_Settings,
 	current_settings: Audio_Bus_Settings,
@@ -6687,7 +6694,7 @@ Audio_Bus_Object :: struct {
 	effect: Audio_Effect_Proc,
 	effect_user_data: rawptr,
 
-	// The sounds routed to this bus are mixed in here. The bus effect runs on this. Then this is
+	// The voices routed to this bus are mixed in here. The bus effect runs on this. Then this is
 	// mixed into the master bus. Unused for the master bus itself: That one is mixed straight into
 	// `mix_buffer`.
 	//
@@ -6814,7 +6821,7 @@ State :: struct {
 	ab_state: ^Audio_Backend_State,
 
 	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
-	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),
+	audio_voices: hm.Dynamic_Handle_Map(Audio_Voice_Object, Audio_Voice),
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
 

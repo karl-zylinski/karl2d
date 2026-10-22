@@ -1711,13 +1711,15 @@ AUDIO_MIX_SAMPLE_RATE :: 44100
 // sample in an array of samples will be interpreted as left and right respectively.
 Audio_Sample :: f32
 
+Audio_Voice :: distinct Handle
+
 // TODO-UPDATE-COMMENT: `play_audio_stream` no longer returns a `Sound`.
 //---
 // Represents something that is currently playing in the audio mixer. Created using
 // `play_audio_clip` and `play_audio_stream`. A sound is automatically destroyed when it finishes
 // playing. It is safe to keep using the handle after that: The procedures that take a `Sound` will
 // then just do nothing.
-Sound :: distinct Handle
+Sound :: distinct Audio_Voice
 
 SOUND_NONE :: Sound {}
 
@@ -1758,8 +1760,8 @@ VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
 Audio_Stream_Cursor :: struct {
 	// Where in `Audio_Stream_Data.buffer` we have most recently written samples. Together with
-	// `Sound_Object.offset`, this forms a circular buffer. This field is the 'head' and the offset
-	// is the 'tail'.
+	// `Audio_Voice_Object.offset`, this forms a circular buffer. This field is the 'head' and the
+	// offset is the 'tail'.
 	buffer_write_pos: int,
 
 	// Where in the streamed source we most recently fetched samples from. For stereo, left and
@@ -1780,9 +1782,9 @@ Audio_Stream_Data :: struct {
 	
 	vorbis: ^stbv.vorbis,
 	vorbis_buffer: stbv.vorbis_alloc,
-	sound: Sound,
+	voice: Audio_Voice,
 	bus: Audio_Bus,
-	settings: Sound_Settings,
+	settings: Audio_Voice_Settings,
 	buffer: Audio_Buffer,
 
 	cursor: Audio_Stream_Cursor,
@@ -1793,8 +1795,8 @@ Audio_Stream_Data :: struct {
 	// when the stream is loaded. Zero if it could not be worked out.
 	total_samples: int,
 
-	// Different from `loop` in `Sound_Object`. This says if the whole stream should loop
-	// when it reaches end-of-file. The `loop` in `Sound_Object` just says to loop the
+	// Different from `loop` in `Audio_Voice_Object`. This says if the whole stream should loop
+	// when it reaches end-of-file. The `loop` in `Audio_Voice_Object` just says to loop the
 	// buffer itself. That's something you always want for a stream: We are continously writing
 	// data from a file into a small buffer that is a few seconds long.
 	loop: bool,
@@ -1857,42 +1859,46 @@ Audio_Buffer_Object :: struct {
 	channels: Audio_Channels,
 }
 
-Sound_Settings :: struct {
+Audio_Voice_Settings :: struct {
 	volume: f32,
 	pan: f32,
 	pitch: f32,
 }
 
-// A `Sound_Object` is what `Sound` handles map to. It represents something currently playing in
-// the mixer. It holds a `buffer` which is where the mixer reads audio samples from. How that buffer
-// gets refilled depends on the `source` field. The source can either be an Audio_Clip or an
-// Audio_Stream. For clips `buffer` is the same as the clip's buffer. For audio streams the
+// An `Audio_Voice_Object` is what `Audio_Voice` handles map to. It represents something currently
+// playing in the mixer. It holds a `buffer` which is where the mixer reads audio samples from. How
+// that buffer gets refilled depends on the `source` field. The source can either be an Audio_Clip
+// or an Audio_Stream. For clips `buffer` is the same as the clip's buffer. For audio streams the
 // buffer is a small amount of memory that is continuously being filled with data from the audio
 // stream.
-Sound_Object :: struct {
-	handle: Sound,
+Audio_Voice_Object :: struct {
+	handle: Audio_Voice,
 	buffer: Audio_Buffer,
-	target_settings: Sound_Settings,
-	current_settings: Sound_Settings,
+	target_settings: Audio_Voice_Settings,
+	current_settings: Audio_Voice_Settings,
 
 	// Where in `buffer` should we play samples from next?
 	offset: int,
 
-	// Only used when playing sounds that have pitch != 1 or when the sound has a sample rate that
+	// Only used when playing voices that have pitch != 1 or when the voice has a sample rate that
 	// does not match the mixer's sample rate. In those cases we may get "fractional samples"
 	// because we may be in samples that are in-between two samples in the original sound.
 	offset_fraction: f32,
 
+	// TODO-UPDATE-COMMENT: Streams set their loop flag using `set_audio_stream_loop`, `set_sound_loop` no longer reaches stream voices.
+	//---
 	// If source is Audio_Clip: Set this flag using `set_sound_loop`.
 	// If source is Audio_Stream: Always true (the stream has its own loop flag internally and just
 	// refills the buffer with data, which continuously plays it). `set_sound_loop` will set the
 	// loop flag inside the Audio_Stream source data.
 	loop: bool,
 
-	// Set using `set_sound_paused`. The mixer skips paused sounds.
+	// TODO-UPDATE-COMMENT: Stream voices are paused using `pause_audio_stream`.
+	//---
+	// Set using `set_sound_paused`. The mixer skips paused voices.
 	paused: bool,
 
-	// If true, then this Sound will be deleted next time `update_audio` runs. We don't remove
+	// If true, then this voice will be deleted next time `update_audio` runs. We don't remove
 	// directly when mixing because we don't want to touch memory allocations there. This is because
 	// the mixing may happen on a thread. It may look like `hm.remove` is thread safe. But the
 	// handle map uses an XAR array. The XAR array may internally append to a dynamically allocated
@@ -1902,7 +1908,7 @@ Sound_Object :: struct {
 	// For seeking audio clips. The mixer does the seeking since it needs to fade out, move the
 	// playback position and then fade in again. This avoids clicks when seeking.
 	//
-	// For Audio_Stream-based sounds, the seeking state is inside Audio_Stream_Data.
+	// For Audio_Stream-based voices, the seeking state is inside Audio_Stream_Data.
 	clip_has_pending_seek: bool,
 	clip_pending_seek_seconds: f32,
 
@@ -1910,7 +1916,7 @@ Sound_Object :: struct {
 	bus: Audio_Bus,
 
 	// This is the Audio_Clip or Audio_Stream that was passed to either `play_audio_clip` or
-	// `play_audio_stream`, whichever was used to create this Sound.
+	// `play_audio_stream`, whichever was used to create this voice.
 	source: union #no_nil {
 		Audio_Clip,
 		Audio_Stream,
@@ -1943,7 +1949,7 @@ Audio_Bus_Settings :: struct {
 Audio_Bus_Object :: struct {
 	handle: Audio_Bus,
 
-	// Same idea as in `Sound_Object`: The current settings move towards the target
+	// Same idea as in `Audio_Voice_Object`: The current settings move towards the target
 	// settings a bit at a time, so that changing the volume of a bus doesn't click.
 	target_settings: Audio_Bus_Settings,
 	current_settings: Audio_Bus_Settings,
@@ -1951,7 +1957,7 @@ Audio_Bus_Object :: struct {
 	effect: Audio_Effect_Proc,
 	effect_user_data: rawptr,
 
-	// The sounds routed to this bus are mixed in here. The bus effect runs on this. Then this is
+	// The voices routed to this bus are mixed in here. The bus effect runs on this. Then this is
 	// mixed into the master bus. Unused for the master bus itself: That one is mixed straight into
 	// `mix_buffer`.
 	//
@@ -2078,7 +2084,7 @@ State :: struct {
 	ab_state: ^Audio_Backend_State,
 
 	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
-	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),
+	audio_voices: hm.Dynamic_Handle_Map(Audio_Voice_Object, Audio_Voice),
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
 
