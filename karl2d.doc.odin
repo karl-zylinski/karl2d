@@ -913,8 +913,8 @@ set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_dat
 //
 // This procedure is run automatically by `update`. You normally don't have to call it.
 //
-// Note that you should always call this once a frame, be it through `update` or manually. It
-// removes sounds that have been declared dead by the audio thread. 
+// Note that you should always call this once a frame, be it through `update` or manually. It is
+// responsible for removing sounds that have finished playing.
 update_audio :: proc()
 
 //-----------------//
@@ -1853,13 +1853,11 @@ Audio_Stream_Data :: struct {
 	// data from a file into a small buffer that is a few seconds long.
 	loop: bool,
 
-	// TODO-UPDATE-COMMENT: Lives on the stream now, and nothing fades. The mixer keeps playing while a seek is pending. `update_audio_stream` seeks, rewrites the buffer from the voice's position and clears the flag, unless a seek to a different time was requested during the decode.
-	//---
-	// Used to coordinate seeking. Seeking needs to first fade out the sound, then seek and then
-	// fade it back in. For `Sound`s the seeking is done in the mixer itself. For `Audio_Stream`s
-	// the mixer just fades it out, but the actual seeking happens in `update_audio_stream`.
+	// Used to seek when `update_audio_stream` runs.
 	seek_requested: bool,
 	seek_seconds: f32,
+
+	end_reached: bool,
 
 	mode: Audio_Stream_Mode,
 
@@ -1951,11 +1949,6 @@ Audio_Voice_Object :: struct {
 	loop: bool,
 
 	paused: bool,
-
-	// If true, then this voice will be removed when `update_audio` runs. We need this because we
-	// can't remove the voices on the mixer thread. This is because that could cause allocations of
-	// the freelist in the handle map.
-	remove: bool,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,

@@ -2311,7 +2311,7 @@ count_audio_clip_active_plays :: proc(clip: Audio_Clip) -> int {
 	count: int
 
 	for it := hm.dynamic_iterator_make(&s.audio_voices); vo, _ in hm.dynamic_iterate(&it) {
-		if vo.buffer == Audio_Buffer(clip) && !vo.remove {
+		if vo.buffer == Audio_Buffer(clip) {
 			count += 1
 		}
 	}
@@ -2395,7 +2395,7 @@ play_sound :: proc(sound: Sound) {
 
 	vo := hm.get(&s.audio_voices, so.voice)
 
-	if vo != nil && !vo.remove && vo.paused {
+	if vo != nil && vo.paused {
 		vo.paused = false
 		return
 	}
@@ -2464,7 +2464,7 @@ sound_is_playing :: proc(sound: Sound) -> bool {
 	}
 
 	vo := hm.get(&s.audio_voices, so.voice)
-	return vo != nil && !vo.remove && !vo.paused
+	return vo != nil && !vo.paused
 }
 
 // Returns true if the sound is currently playing, but it is in a paused state.
@@ -2477,7 +2477,7 @@ sound_is_paused :: proc(sound: Sound) -> bool {
 	}
 
 	vo := hm.get(&s.audio_voices, so.voice)
-	return vo != nil && !vo.remove && vo.paused
+	return vo != nil && vo.paused
 }
 
 // Set the volume of a sound. Range: 0 to 1.
@@ -2666,8 +2666,6 @@ set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 	}
 
 	so.bus = bus
-
-	// TODO: Does this make the sound click?
 
 	if vo := hm.get(&s.audio_voices, so.voice); vo != nil {
 		vo.bus = bus
@@ -3467,13 +3465,21 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 	// We fetch this while guarded by audio_mutex, we'll use them during the seeking & decode.
 	play_offset := vo.offset % len(abo.samples)
+	available := _audio_stream_buffered_samples(sd, vo, len(abo.samples))
 	loop := sd.loop
 	seek_requested := sd.seek_requested
 	seek_seconds := sd.seek_seconds
 	cursor := sd.cursor
 
+	if sd.end_reached && !seek_requested {
+		sync.mutex_unlock(&s.audio_mutex)
+		return
+	}
+
 	sync.mutex_lock(&sd.decode_mutex)
 	sync.mutex_unlock(&s.audio_mutex)
+
+	seeked := false
 
 	if seek_requested {
 		post_seek_cursor, seek_ok := _seek_audio_stream(sd, abo^, cursor, seek_seconds)
@@ -3482,10 +3488,18 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 			cursor = post_seek_cursor
 			slice.zero(abo.samples)
 			cursor.buffer_write_pos = play_offset
+			seeked = true
 		}
 	}
 
-	post_decode_cursor, decode_ok := _decode_audio_stream(sd, abo, cursor, play_offset, loop)
+	decode_available := seeked ? 0 : available
+	post_decode_cursor, end_reached, decode_ok := _decode_audio_stream(
+		sd,
+		abo,
+		cursor,
+		decode_available,
+		loop,
+	)
 	sync.mutex_unlock(&sd.decode_mutex)
 	sync.mutex_lock(&s.audio_mutex)
 
@@ -3495,8 +3509,9 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	if sd = hm.get(&s.audio_streams, stream); sd != nil {
+	if sd = hm.get(&s.audio_streams, stream); sd != nil && sd.voice == voice {
 		sd.cursor = post_decode_cursor
+		sd.end_reached = (sd.end_reached && !seeked) || end_reached
 
 		// We check if the seek_seconds is still the same, in case someone has read this value.
 		if seek_requested && sd.seek_seconds == seek_seconds {
@@ -3511,31 +3526,19 @@ _decode_audio_stream :: proc(
 	sd: ^Audio_Stream_Data,
 	ab: ^Audio_Buffer_Object,
 	cursor: Audio_Stream_Cursor,
-	play_offset: int,
+	available: int,
 	loop: bool,
 ) -> (
 	_post_decode_cursor: Audio_Stream_Cursor,
+	_end_reached: bool,
 	_ok: bool,
 ) {
 	cursor := cursor
-
-	audio_stream_remaining :: proc(
-		cursor: Audio_Stream_Cursor,
-		ab: ^Audio_Buffer_Object,
-		play_offset: int,
-	) -> int {
-		remaining := cursor.buffer_write_pos - play_offset
-
-		if remaining < 0 {
-			remaining = len(ab.samples) - play_offset + cursor.buffer_write_pos
-		}
-
-		return remaining
-	}
+	decoded := 0
 
 	switch sd.mode {
 	case .From_File:
-		for audio_stream_remaining(cursor, ab, play_offset) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+		for available + decoded < AUDIO_STREAM_BUFFER_SIZE / 2 {
 			channels: i32
 			samples: i32
 			output: [^]^f32
@@ -3593,7 +3596,7 @@ _decode_audio_stream :: proc(
 
 							continue
 						} else {
-							return
+							return cursor, true, true
 						}
 					} else {
 						log.errorf("Failed reading from audio stream file. Error: %v", read_err)
@@ -3617,6 +3620,7 @@ _decode_audio_stream :: proc(
 						} else {
 							ab.samples[cursor.buffer_write_pos] = mono[samp_idx]
 							cursor.buffer_write_pos = (cursor.buffer_write_pos + 1) % len(ab.samples)
+							decoded += 1
 						}
 
 						cursor.decode_cursor += 1
@@ -3632,6 +3636,7 @@ _decode_audio_stream :: proc(
 							ab.samples[cursor.buffer_write_pos] = left[samp_idx]
 							ab.samples[cursor.buffer_write_pos + 1] = right[samp_idx]
 							cursor.buffer_write_pos = (cursor.buffer_write_pos + 2) % len(ab.samples)
+							decoded += 2
 						}
 
 						cursor.decode_cursor += 2
@@ -3650,7 +3655,7 @@ _decode_audio_stream :: proc(
 		channels: i32
 		output: [^]^f32
 
-		for audio_stream_remaining(cursor, ab, play_offset) < AUDIO_STREAM_BUFFER_SIZE / 2 {
+		for available + decoded < AUDIO_STREAM_BUFFER_SIZE / 2 {
 			samples := stbv.get_frame_float(sd.vorbis, &channels, &output)
 
 			if samples == 0 {
@@ -3663,10 +3668,9 @@ _decode_audio_stream :: proc(
 
 					continue
 				} else {
-					// TODO: Stopping here is bad as the samples haven't been mixed in yet. Perhaps
-					// we should remove the stream but push the final samples into the buffer and
-					// destroy that one when it finishes playing in the mixer.
-					return
+					// The third `true` means that the end of the stream was reached and that we are
+					// not going to loop again.
+					return cursor, true, true
 				}
 			}
 
@@ -3677,6 +3681,7 @@ _decode_audio_stream :: proc(
 					ab.samples[cursor.buffer_write_pos] = mono[samp_idx]
 					cursor.buffer_write_pos = (cursor.buffer_write_pos + 1) % len(ab.samples)
 					cursor.decode_cursor += 1
+					decoded += 1
 				}
 			} else if channels == 2 {
 				left: [^]f32 = output[0]
@@ -3687,6 +3692,7 @@ _decode_audio_stream :: proc(
 					ab.samples[cursor.buffer_write_pos + 1] = right[samp_idx]
 					cursor.buffer_write_pos = (cursor.buffer_write_pos + 2) % len(ab.samples)
 					cursor.decode_cursor += 2
+					decoded += 2
 				}
 			} else {
 				log.error("Invalid num channels")
@@ -3695,7 +3701,15 @@ _decode_audio_stream :: proc(
 		}
 	}
 
-	return cursor, true
+	return cursor, false, true
+}
+
+_audio_stream_buffered_samples :: proc(
+	sd: ^Audio_Stream_Data,
+	vo: ^Audio_Voice_Object,
+	buffer_len: int,
+) -> int {
+	return (sd.cursor.buffer_write_pos - vo.offset % buffer_len + buffer_len) % buffer_len
 }
 
 // Start playing an audio stream. If the stream is already playing, then it is restarted. If it is
@@ -3717,7 +3731,7 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 
 	vo := hm.get(&s.audio_voices, sd.voice)
 
-	if vo != nil && !vo.remove && vo.paused {
+	if vo != nil && vo.paused {
 		vo.paused = false
 		sync.mutex_unlock(&s.audio_mutex)
 		return
@@ -3749,7 +3763,7 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 	}
 
 	// Decode into the buffer before returning, so that there is something to play right away.
-	post_decode_cursor, decode_ok := _decode_audio_stream(sd, ab, {}, 0, loop)
+	post_decode_cursor, end_reached, decode_ok := _decode_audio_stream(sd, ab, {}, 0, loop)
 	sync.mutex_unlock(&sd.decode_mutex)
 
 	if !decode_ok {
@@ -3758,6 +3772,7 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 
 	sync.mutex_guard(&s.audio_mutex)
 	sd.cursor = post_decode_cursor
+	sd.end_reached = end_reached
 
 	audio_voice_object := Audio_Voice_Object {
 		buffer = sd.buffer,
@@ -3821,7 +3836,7 @@ audio_stream_is_playing :: proc(stream: Audio_Stream) -> bool {
 	}
 
 	vo := hm.get(&s.audio_voices, sd.voice)
-	return vo != nil && !vo.remove && !vo.paused
+	return vo != nil && !vo.paused
 }
 
 // Returns true if the audio stream is paused. A stopped audio stream is not paused.
@@ -3834,7 +3849,7 @@ audio_stream_is_paused :: proc(stream: Audio_Stream) -> bool {
 	}
 
 	vo := hm.get(&s.audio_voices, sd.voice)
-	return vo != nil && !vo.remove && vo.paused
+	return vo != nil && vo.paused
 }
 
 // Set the volume of an audio stream. Range: [0, 1].
@@ -3924,7 +3939,6 @@ set_audio_stream_bus :: proc(stream: Audio_Stream, bus: Audio_Bus) {
 
 	sd.bus = bus
 
-	// TODO: When we change the bus of something, do we need to lerp from the settings of the source bus to the target bus to avoid clicks?
 	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil {
 		vo.bus = bus
 	}
@@ -4004,13 +4018,7 @@ get_audio_stream_time :: proc(stream: Audio_Stream) -> f32 {
 	}
 
 	// How many decoded samples are still sitting unplayed in the circular staging buffer.
-	remaining := sd.cursor.buffer_write_pos - vo.offset
-
-	if remaining < 0 {
-		remaining = len(ab.samples) - vo.offset + sd.cursor.buffer_write_pos
-	}
-
-	position := sd.cursor.decode_cursor - remaining
+	position := sd.cursor.decode_cursor - _audio_stream_buffered_samples(sd, vo, len(ab.samples))
 
 	// A looping stream starts decoding the beginning of the file again before the listener has
 	// heard the end of it, since the end is still sitting in the buffer. Count back into the
@@ -4182,13 +4190,29 @@ update_audio_mixer :: proc() {
 //
 // This procedure is run automatically by `update`. You normally don't have to call it.
 //
-// Note that you should always call this once a frame, be it through `update` or manually. It
-// removes sounds that have been declared dead by the audio thread. 
+// Note that you should always call this once a frame, be it through `update` or manually. It is
+// responsible for removing sounds that have finished playing.
 update_audio :: proc() {
 	if sync.mutex_guard(&s.audio_mutex) {
 		voices_iter := hm.dynamic_iterator_make(&s.audio_voices)
 		for vo, vo_handle in hm.dynamic_iterate(&voices_iter) {
-			if vo.remove {
+			ab := hm.get(&s.audio_buffers, vo.buffer)
+			finished := ab == nil
+
+			if ab != nil {
+				if stream, is_stream := vo.source.(Audio_Stream); is_stream {
+					if sd := hm.get(&s.audio_streams, stream); sd == nil {
+						finished = true
+					} else {
+						buffered := _audio_stream_buffered_samples(sd, vo, len(ab.samples))
+						finished = sd.end_reached && buffered == 0
+					}
+				} else {
+					finished = !vo.loop && vo.offset >= len(ab.samples)
+				}
+			}
+
+			if finished {
 				hm.remove(&s.audio_voices, vo_handle)
 			}
 		}
@@ -4412,21 +4436,33 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	mix_chunk_size := s.ab.mix_chunk_size
 
 	for voices_iter := hm.dynamic_iterator_make(&s.audio_voices); vo, _ in hm.dynamic_iterate(&voices_iter) {
-		if vo.remove {
-			continue
-		}
-
 		data := hm.get(&s.audio_buffers, vo.buffer)
 
 		if data == nil {
-			log.error("Trying to play sound with destroyed data")
-			vo.remove = true
 			continue
 		}
 
 		// A paused voice stays in the list but is not mixed.
 		if vo.paused {
 			continue
+		}
+
+		is_stream := false
+		stream_buffered: int
+
+		if stream, ok := vo.source.(Audio_Stream); ok {
+			sd := hm.get(&s.audio_streams, stream)
+
+			if sd == nil {
+				continue
+			}
+
+			is_stream = true
+			stream_buffered = _audio_stream_buffered_samples(sd, vo, len(data.samples))
+
+			if stream_buffered == 0 {
+				continue
+			}
 		}
 
 		// The slice of samples to write into. `buffer` is used for the master bus.
@@ -4494,9 +4530,17 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			source_channels = 2
 		}
 
+		source_end := len(data.samples)
+
+		if is_stream {
+			source_end = min(source_end, vo.offset + stream_buffered)
+		}
+
+		offset_before_mix := vo.offset
+
 		num_mixed := audio_mix(
 			dest,
-			data.samples[vo.offset:],
+			data.samples[vo.offset:source_end],
 			data.channels,
 			interpolate,
 			source_dest_ratio,
@@ -4522,8 +4566,17 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			vo.offset_fraction = 0
 		}
 
-		// We didn't mix all the samples! This means that we reached the end of the sound.
+		vo.offset = min(vo.offset, source_end)
+		consumed := vo.offset - offset_before_mix
+
+		// We didn't mix all the samples! This means that we reached the end of the buffer. For
+		// audio streams it can mean that we've caught up with the decoded data, in that case
+		// `update_audio_stream` will refill it.
 		if num_mixed < mix_chunk_size {
+			if source_end < len(data.samples) {
+				continue
+			}
+
 			if vo.loop {
 				vo.offset = 0
 				vo.offset_fraction = 0
@@ -4540,9 +4593,15 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 				volume_split := math.lerp(volume_start, volume_end, split)
 				pan_stereo_split := linalg.lerp(pan_stereo_start, pan_stereo_end, split)
 
+				source_end = len(data.samples)
+
+				if is_stream {
+					source_end = min(source_end, stream_buffered - consumed)
+				}
+
 				num_mixed = audio_mix(
 					dest[mixed_before_loop:],
-					data.samples[vo.offset:],
+					data.samples[vo.offset:source_end],
 					data.channels,
 					interpolate,
 					source_dest_ratio,
@@ -4567,9 +4626,8 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 					vo.offset += num_mixed * source_channels
 					vo.offset_fraction = 0
 				}
-			} else {
-				vo.remove = true
-				continue
+
+				vo.offset = min(vo.offset, source_end)
 			}
 		}
 	}
@@ -6678,6 +6736,8 @@ Audio_Stream_Data :: struct {
 	seek_requested: bool,
 	seek_seconds: f32,
 
+	end_reached: bool,
+
 	mode: Audio_Stream_Mode,
 
 	// use if mode = .From_File
@@ -6768,11 +6828,6 @@ Audio_Voice_Object :: struct {
 	loop: bool,
 
 	paused: bool,
-
-	// If true, then this voice will be removed when `update_audio` runs. We need this because we
-	// can't remove the voices on the mixer thread. This is because that could cause allocations of
-	// the freelist in the handle map.
-	remove: bool,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
