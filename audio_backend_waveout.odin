@@ -10,8 +10,8 @@ import "core:slice"
 import "core:sync"
 import "core:thread"
 
-WAVEOUT_BUFFER_SAMPLES :: 700
-WAVEOUT_BUFFER_COUNT :: 4
+WAVEOUT_BUFFER_SAMPLES :: 441
+WAVEOUT_BUFFER_COUNT :: 6
 
 AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 	state_type = Waveout_State,
