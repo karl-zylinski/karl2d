@@ -2244,6 +2244,9 @@ set_texture_filter_ex :: proc(
 // This is for "fire-and-forget" type of sounds that you do not need to control after they have
 // started. The audio clip will play until it ends. If you need control as a the clip plays, then
 // use `create_sound`, `play_sound` and the other `set_sound_xxx` procedures to control it.
+//
+// You cannot loop audio clips using this procedure, since you would have no way to stop them. For
+// looping audio clips, use a Sound.
 play_audio_clip :: proc(
 	clip: Audio_Clip,
 	volume: f32 = 1,
@@ -2286,6 +2289,44 @@ play_audio_clip :: proc(
 	}
 }
 
+get_audio_clip_duration :: proc(clip: Audio_Clip) -> f32 {
+	sync.mutex_guard(&s.audio_mutex)
+	ab := hm.get(&s.audio_buffers, Audio_Buffer(clip))
+
+	if ab == nil {
+		return 0
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	return f32(len(ab.samples) / channels) / f32(ab.sample_rate)
+}
+
+// How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
+// start from the same clip.
+count_audio_clip_active_plays :: proc(clip: Audio_Clip) -> int {
+	sync.mutex_guard(&s.audio_mutex)
+	count: int
+
+	for it := hm.dynamic_iterator_make(&s.audio_voices); audio_voice_object, _ in hm.dynamic_iterate(&it) {
+		if audio_voice_object.source == clip && !audio_voice_object.remove {
+			count += 1
+		}
+	}
+
+	return count
+}
+
+// Create a `Sound` from an `Audio_Clip` using supplied settings. A Sound is a persistent thing that
+// can be used to modify the playback settings of an audio clip as it is playing. It can also be
+// used to loop audio clips. Sounds remember the settings you set on them, both when playing and not
+// playing.
+//
+// Start playing the Sound using `play_sound`. Destroy the Sound using `destroy_sound` when you no
+// longer need it. There are procedures named `set_sound_xxx` to control the settings of the sound.
 create_sound :: proc(
 	clip: Audio_Clip,
 	volume: f32 = 1,
@@ -2306,7 +2347,7 @@ create_sound :: proc(
 		return SOUND_NONE
 	}
 
-	sound_object := Sound_Object {
+	so := Sound_Object {
 		clip = clip,
 		settings = {
 			volume = clamp(volume, 0, 1),
@@ -2317,7 +2358,7 @@ create_sound :: proc(
 		bus = bus,
 	}
 
-	sound, add_err := hm.add(&s.sounds, sound_object)
+	sound, add_err := hm.add(&s.sounds, so)
 
 	if add_err != nil {
 		log.errorf("Failed creating sound. Error: %v", add_err)
@@ -2327,183 +2368,184 @@ create_sound :: proc(
 	return sound
 }
 
+// Destroy a Sound previously created using `create_sound`. This does not destroy the Audio_Clip
+// that was used to create the Sound.
+//
+// Note: Running `destroy_audio_clip` will destroy all sounds that reference that audio clip.
 destroy_sound :: proc(sound: Sound) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return
 	}
 
-	hm.remove(&s.audio_voices, sound_object.voice)
+	hm.remove(&s.audio_voices, so.voice)
 	hm.remove(&s.sounds, sound)
 }
 
+// Play a Sound. It will be played with the settings of the sound. The settings come from both 
+// `create_sound` as well as any changes that come from `set_sound_xxx`.
+//
+// A Sound that is already playing will restart.
 play_sound :: proc(sound: Sound) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return
 	}
 
-	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil && !vo.remove && vo.paused {
+	if vo := hm.get(&s.audio_voices, so.voice); vo != nil && !vo.remove && vo.paused {
 		vo.paused = false
 		return
 	}
 
-	hm.remove(&s.audio_voices, sound_object.voice)
+	hm.remove(&s.audio_voices, so.voice)
 
-	if hm.get(&s.audio_buffers, Audio_Buffer(sound_object.clip)) == nil {
+	if hm.get(&s.audio_buffers, Audio_Buffer(so.clip)) == nil {
 		return
 	}
 
 	audio_voice_object := Audio_Voice_Object {
-		buffer = Audio_Buffer(sound_object.clip),
-		source = sound_object.clip,
-		target_settings = sound_object.settings,
-		current_settings = sound_object.settings,
-		loop = sound_object.loop,
-		bus = sound_object.bus,
+		buffer = Audio_Buffer(so.clip),
+		source = so.clip,
+		target_settings = so.settings,
+		current_settings = so.settings,
+		loop = so.loop,
+		bus = so.bus,
 	}
 
 	add_err: runtime.Allocator_Error
-	sound_object.voice, add_err = hm.add(&s.audio_voices, audio_voice_object)
+	so.voice, add_err = hm.add(&s.audio_voices, audio_voice_object)
 
 	if add_err != nil {
 		log.errorf("Failed playing sound. Error: %v", add_err)
 	}
 }
 
-// TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `stop_audio_stream`. A stopped `Sound` stays valid and keeps its settings, use `pause_sound` to pause.
-//---
-// Stops the sound, which destroys its playback state in the mixer. For a `Sound` started using
-// `play_audio_stream`, this also rewinds the stream to the start. Use `set_sound_paused` to pause
-// the Sound instead, which won't lose the current playback position and settings.
+// Stop a playing Sound. This will remove its playback state from the mixer. It'll remember the last
+// settings it was played with for when `play_sound` runs again.
 stop_sound :: proc(sound: Sound) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return
 	}
 
-	hm.remove(&s.audio_voices, sound_object.voice)
+	hm.remove(&s.audio_voices, so.voice)
 }
 
-// TODO-UPDATE-COMMENT: Only pauses now. Use `play_sound` to resume.
-//---
-// Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
-// or stopped.
+// Pauses a playing sound. Use `play_sound` to resume. You can check the paused state using
+// `sound_is_paused`, or check if a sound is playing and non-paused using `sound_is_playing`.
 pause_sound :: proc(sound: Sound) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return
 	}
 
-	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil {
+	if vo := hm.get(&s.audio_voices, so.voice); vo != nil {
 		vo.paused = true
 	}
 }
 
-// TODO-UPDATE-COMMENT: A `Sound` always exists until `destroy_sound`. This says if it is currently playing and not paused.
-//---
-// Returns true if the sound exists and is not paused.
+// Returns true if the sound is playing. Returns false if the sound is paused.
 sound_is_playing :: proc(sound: Sound) -> bool {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return false
 	}
 
-	vo := hm.get(&s.audio_voices, sound_object.voice)
+	vo := hm.get(&s.audio_voices, so.voice)
 	return vo != nil && !vo.remove && !vo.paused
 }
 
-// TODO-UPDATE-COMMENT: Replaced `sound_is_valid`. Says if the sound is paused.
-//---
-// Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
-// stopped sound is not.
+// Returns true if the sound is currently playing, but it is in a paused state.
 sound_is_paused :: proc(sound: Sound) -> bool {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return false
 	}
 
-	vo := hm.get(&s.audio_voices, sound_object.voice)
+	vo := hm.get(&s.audio_voices, so.voice)
 	return vo != nil && !vo.remove && vo.paused
 }
 
 // Set the volume of a sound. Range: 0 to 1.
+//
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_volume :: proc(sound: Sound, volume: f32) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return
 	}
 
-	sound_object.settings.volume = clamp(volume, 0, 1)
+	so.settings.volume = clamp(volume, 0, 1)
 
-	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil {
-		vo.target_settings.volume = sound_object.settings.volume
+	if vo := hm.get(&s.audio_voices, so.voice); vo != nil {
+		vo.target_settings.volume = so.settings.volume
 	}
 }
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
+//
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_pan :: proc(sound: Sound, pan: f32) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return
 	}
 
-	sound_object.settings.pan = clamp(pan, -1, 1)
+	so.settings.pan = clamp(pan, -1, 1)
 
-	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil {
-		vo.target_settings.pan = sound_object.settings.pan
+	if vo := hm.get(&s.audio_voices, so.voice); vo != nil {
+		vo.target_settings.pan = so.settings.pan
 	}
 }
 
 // Set the pitch of a sound. Range: 0.01 and up, where 1 is the default. Pitch 2 makes the sound
 // play twice as fast, which also makes it sound higher pitched.
+//
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return
 	}
 
-	sound_object.settings.pitch = max(pitch, 0.01)
+	so.settings.pitch = max(pitch, 0.01)
 
-	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil {
-		vo.target_settings.pitch = sound_object.settings.pitch
+	if vo := hm.get(&s.audio_voices, so.voice); vo != nil {
+		vo.target_settings.pitch = so.settings.pitch
 	}
 }
 
-// TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `set_audio_stream_time`.
-//---
 // Move the sound to another spot in its audio. `seconds` is measured from the start of the audio.
-// Use `get_sound_length` to find out how long the sound is.
+// Use `get_sound_duration` to find out how long the sound is.
 //
-// Note that calling this for an Audio_Clip-based sound is fast. But calling it for an Audio_Stream-
-// based Sound can be a bit slower. The stream has to seek, perhaps fetching data from disk.
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_time :: proc(sound: Sound, seconds: f32) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return
 	}
 
-	vo := hm.get(&s.audio_voices, sound_object.voice)
+	vo := hm.get(&s.audio_voices, so.voice)
 
 	if vo == nil {
 		return
@@ -2527,6 +2569,9 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 		wanted_seconds = min(wanted_seconds, length)
 	}
 
+	// TODO: Would it not be better to start another clip and crossfade the two? If the seek is
+	// short enough we can just jump directly.
+
 	// Jumping to another spot in the audio makes the waveform jump, which is heard as a click. So
 	// we don't jump right away: The mixer fades the voice out first, then jumps, then fades it
 	// back in.
@@ -2537,15 +2582,6 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 		vo.current_settings.volume = 0
 	}
 
-	// TODO-UPDATE-COMMENT: Streams are now seeked in `set_audio_stream_time`, only the clip part happens here.
-	//---
-	// Note that we do this a bit differently for audio streams and clips. For clips we set the
-	// `clip_has_pending_seek` state. The mixer will ramp down the volume and then move it to the
-	// correct position in the buffer. It will then ramp it up again.
-	//
-	// For a stream the seeking happens in `update_audio_stream` using state that lives on the
-	// audio stream object.
-
 	vo.clip_has_pending_seek = true
 	vo.clip_pending_seek_seconds = wanted_seconds
 }
@@ -2554,13 +2590,13 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 // each time it starts over. Returns 0 if the sound doesn't exist.
 get_sound_time :: proc(sound: Sound) -> f32 {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return 0
 	}
 
-	vo := hm.get(&s.audio_voices, sound_object.voice)
+	vo := hm.get(&s.audio_voices, so.voice)
 
 	if vo == nil {
 		return 0
@@ -2586,17 +2622,17 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 	return f32(vo.offset / channels) / f32(ab.sample_rate)
 }
 
-// Get the length of the sound's audio, in seconds. Use it together with `get_sound_time` to show
-// how far into a song you are. Returns 0 if the sound doesn't exist or if the length is unknown.
-get_sound_length :: proc(sound: Sound) -> f32 {
+// Get the duration of the sound's audio, in seconds. Use it together with `get_sound_time` to show
+// how far into a sound you are. Returns 0 if the sound doesn't exist.
+get_sound_duration :: proc(sound: Sound) -> f32 {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return 0
 	}
 
-	ab := hm.get(&s.audio_buffers, Audio_Buffer(sound_object.clip))
+	ab := hm.get(&s.audio_buffers, Audio_Buffer(so.clip))
 
 	if ab == nil {
 		return 0
@@ -2610,34 +2646,32 @@ get_sound_length :: proc(sound: Sound) -> f32 {
 	return f32(len(ab.samples) / channels) / f32(ab.sample_rate)
 }
 
-// TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `set_audio_stream_loop`.
-//---
 // Make a sound loop when it reaches the end.
 //
-// Technical note: This also works for sounds started using `play_audio_stream`, but then it
-// reaches into the streaming decoder and tells that one to loop. A `Sound` started from a stream
-// plays a short buffer that the decoder keeps filling, so that sound always loops.
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_loop :: proc(sound: Sound, loop: bool) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return
 	}
 
-	sound_object.loop = loop
+	so.loop = loop
 
-	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil {
+	if vo := hm.get(&s.audio_voices, so.voice); vo != nil {
 		vo.loop = loop
 	}
 }
 
 // Route a sound into an audio bus. Pass `AUDIO_BUS_MASTER` for the master bus.
+//
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 	sync.mutex_guard(&s.audio_mutex)
-	sound_object := hm.get(&s.sounds, sound)
+	so := hm.get(&s.sounds, sound)
 
-	if sound_object == nil {
+	if so == nil {
 		return
 	}
 
@@ -2646,34 +2680,22 @@ set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 		return
 	}
 
-	sound_object.bus = bus
+	so.bus = bus
 
-	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil {
+	// TODO: Does this make the sound click?
+
+	if vo := hm.get(&s.audio_voices, so.voice); vo != nil {
 		vo.bus = bus
 	}
 }
 
-// How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
-// start from the same clip.
-count_audio_clip_active_plays :: proc(clip: Audio_Clip) -> int {
-	sync.mutex_guard(&s.audio_mutex)
-	count: int
-
-	for it := hm.dynamic_iterator_make(&s.audio_voices); audio_voice_object, _ in hm.dynamic_iterate(&it) {
-		if audio_voice_object.source == clip && !audio_voice_object.remove {
-			count += 1
-		}
-	}
-
-	return count
-}
-
+// Returns how many `Sound` objects there are the refer to the same audio clip.
 count_sounds_from_clip :: proc(clip: Audio_Clip) -> int {
 	sync.mutex_guard(&s.audio_mutex)
 	count: int
 
-	for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
-		if sound_object.clip == clip {
+	for it := hm.dynamic_iterator_make(&s.sounds); so, _ in hm.dynamic_iterate(&it) {
+		if so.clip == clip {
 			count += 1
 		}
 	}
@@ -2826,8 +2848,6 @@ _load_audio_buffer_from_wav :: proc(
 		return
 	}
 
-	// This size can only fail to read if there are less than four bytes left, which the check above
-	// rules out. Same thing for the reads of the chunk headers further down.
 	riff_size, _ := endian.get_u32(bytes[4:8], .Little)
 
 	if string(bytes[8:12]) != "WAVE" {
@@ -2852,15 +2872,18 @@ _load_audio_buffer_from_wav :: proc(
 	has_fmt: bool
 	has_data: bool
 
-	// Each chunk is a four character id, the size of its content as a u32, and then the content
-	// itself. We only look at "fmt " and "data". The others carry things such as metadata and loop
+	// Each chunk contains:
+	// - A four character id
+	// - The size of its content
+	// - The content itself.
+	//
+	// We only look at "fmt " and "data". Chunks of other ID carry things such as metadata and loop
 	// points, which we don't use.
 	for len(chunks) >= 8 {
 		chunk_id := string(chunks[:4])
 		chunk_size, _ := endian.get_u32(chunks[4:8], .Little)
 		content := chunks[8:]
 
-		// Truncated file, or a program that wrote a too big size: Use what is actually there.
 		if u64(chunk_size) < u64(len(content)) {
 			content = content[:chunk_size]
 		}
@@ -3082,8 +3105,8 @@ _load_audio_buffer_from_raw_samples :: proc(
 	return audio_buffer_object
 }
 
-// Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Also stops sounds
-// playing this clip.
+// Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Stops any currently
+// playing instances of this clip. Destroys `Sound`s created using `create_sound` that use this clip
 destroy_audio_clip :: proc(clip: Audio_Clip)  {
 	sync.mutex_guard(&s.audio_mutex)
 	buffer := Audio_Buffer(clip)
@@ -3097,6 +3120,12 @@ destroy_audio_clip :: proc(clip: Audio_Clip)  {
 	for it := hm.dynamic_iterator_make(&s.audio_voices); vo, vo_handle in hm.dynamic_iterate(&it) {
 		if vo.source == clip {
 			hm.remove(&s.audio_voices, vo_handle)
+		}
+	}
+
+	for it := hm.dynamic_iterator_make(&s.sounds); so, so_handle in hm.dynamic_iterate(&it) {
+		if so.clip == clip {
+			hm.remove(&s.sounds, so_handle)
 		}
 	}
 
@@ -3397,9 +3426,7 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 
 	sync.mutex_lock(&sd.decode_mutex)
 
-	if playing := hm.get(&s.audio_voices, sd.voice); playing != nil {
-		hm.remove(&s.audio_voices, sd.voice)
-	}
+	hm.remove(&s.audio_voices, sd.voice)
 
 	if ab := hm.get(&s.audio_buffers, sd.buffer); ab != nil {
 		delete(ab.samples, s.allocator)
@@ -3687,17 +3714,10 @@ _decode_audio_stream :: proc(
 	return cursor, true
 }
 
-// TODO-UPDATE-COMMENT: No longer returns a `Sound` or takes settings, use the `xxx_audio_stream` procs. Playing a paused stream resumes it, playing a playing stream restarts it.
-//---
-// Start playing an audio stream. Returns a `Sound`, which you can control using
-// `set_sound_volume`, `stop_sound` etc. The playback starts from wherever the stream last was,
-// which is the beginning if the stream was just loaded, was stopped using `stop_sound` or has
-// finished playing.
+// Start playing an audio stream. If the stream is already playing, then it is restarted. If it is
+// paused, then it continues playing.
 //
-// A stream can only play one sound at a time. If it is already playing, then this hands back the
-// sound that is already playing and ignores the settings you pass in. Use the `set_sound_xxx`
-// procedures to change how it plays. Use `stop_sound` first if you want to start over from the
-// beginning. A paused sound starts playing again.
+// An audio stream can only be played once at a time, since the stream contains the decoder state.
 //
 // Don't forget to call `update_audio_stream` every frame in order to stream in new data.
 play_audio_stream :: proc(stream: Audio_Stream) {
@@ -3774,6 +3794,8 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 	}
 }
 
+// Pause an audio stream previously started using `play_audio_stream`. Resume it using
+// `play_audio_stream`.
 pause_audio_stream :: proc(stream: Audio_Stream) {
 	sync.mutex_guard(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -3787,6 +3809,8 @@ pause_audio_stream :: proc(stream: Audio_Stream) {
 	}
 }
 
+// Stop an audio stream previously started using `play_audio_stream`. This will rewind the audio
+// stream to the start. Stopping a paused stream silently rewinds it to the start.
 stop_audio_stream :: proc(stream: Audio_Stream) {
 	sync.mutex_guard(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -3795,9 +3819,11 @@ stop_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
+	// TODO: This clicks
 	hm.remove(&s.audio_voices, sd.voice)
 }
 
+// Returns true if the audio stream is currently playing. Returns false if it is paused.
 audio_stream_is_playing :: proc(stream: Audio_Stream) -> bool {
 	sync.mutex_guard(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -3810,6 +3836,7 @@ audio_stream_is_playing :: proc(stream: Audio_Stream) -> bool {
 	return vo != nil && !vo.remove && !vo.paused
 }
 
+// Returns true if the audio stream is paused. A stopped audio stream is not paused.
 audio_stream_is_paused :: proc(stream: Audio_Stream) -> bool {
 	sync.mutex_guard(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -3822,6 +3849,9 @@ audio_stream_is_paused :: proc(stream: Audio_Stream) -> bool {
 	return vo != nil && !vo.remove && vo.paused
 }
 
+// Set the volume of an audio stream. Range: [0, 1].
+//
+// Affects a playing stream and is remembered for future playback.
 set_audio_stream_volume :: proc(stream: Audio_Stream, volume: f32) {
 	sync.mutex_guard(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -3837,6 +3867,9 @@ set_audio_stream_volume :: proc(stream: Audio_Stream, volume: f32) {
 	}
 }
 
+// Set the pan of an audio stream. Range [-1, 1].
+//
+// Affects a playing stream and is remembered for future playback.
 set_audio_stream_pan :: proc(stream: Audio_Stream, pan: f32) {
 	sync.mutex_guard(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -3852,6 +3885,9 @@ set_audio_stream_pan :: proc(stream: Audio_Stream, pan: f32) {
 	}
 }
 
+// Set the pitch of an audio stream. Range is `[0.01, inf)`.
+//
+// Affects a playing stream and is remembered for future playback.
 set_audio_stream_pitch :: proc(stream: Audio_Stream, pitch: f32) {
 	sync.mutex_guard(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -3867,6 +3903,9 @@ set_audio_stream_pitch :: proc(stream: Audio_Stream, pitch: f32) {
 	}
 }
 
+// Sets a stream to loop back to the start when it finishes playing.
+//
+// Affects a playing stream and is remembered for future playback.
 set_audio_stream_loop :: proc(stream: Audio_Stream, loop: bool) {
 	sync.mutex_guard(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -3878,6 +3917,10 @@ set_audio_stream_loop :: proc(stream: Audio_Stream, loop: bool) {
 	sd.loop = loop
 }
 
+// Move the stream to some other bus. The bus may have playback settings of its own that are then
+// applied to the stream.
+//
+// Affects a playing stream and is remembered for future playback.
 set_audio_stream_bus :: proc(stream: Audio_Stream, bus: Audio_Bus) {
 	sync.mutex_guard(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -3899,6 +3942,10 @@ set_audio_stream_bus :: proc(stream: Audio_Stream, bus: Audio_Bus) {
 	}
 }
 
+// Move the stream to another spot in its audio. `seconds` is measured from the start of the
+// streamed file. Use `get_audio_stream_duration` to find out how long the sound is.
+//
+// Affects a playing stream and is remembered for future playback.
 set_audio_stream_time :: proc(stream: Audio_Stream, seconds: f32) {
 	sync.mutex_guard(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -3939,6 +3986,9 @@ set_audio_stream_time :: proc(stream: Audio_Stream, seconds: f32) {
 	sd.seek_state = vo.paused ? .Ready : .Fading_Out
 }
 
+// Get how far into the streamed file the stream currently is playing from, in seconds. A looping
+// stream goes back to 0 each time it starts over. Returns 0 if the stream isn't playing or doesn't
+// exist.
 get_audio_stream_time :: proc(stream: Audio_Stream) -> f32 {
 	sync.mutex_guard(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -3989,6 +4039,7 @@ get_audio_stream_time :: proc(stream: Audio_Stream) -> f32 {
 	return f32(max(position, 0) / channels) / f32(ab.sample_rate)
 }
 
+// Returns how many seconds long the streamed file is.
 get_audio_stream_duration :: proc(stream: Audio_Stream) -> f32 {
 	sync.mutex_guard(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -4011,11 +4062,9 @@ get_audio_stream_duration :: proc(stream: Audio_Stream) -> f32 {
 	return f32(sd.total_samples / channels) / f32(ab.sample_rate)
 }
 
-// TODO-UPDATE-COMMENT: `play_audio_stream` has no `bus` parameter anymore, use `set_audio_stream_bus`.
-//---
 // Create an audio bus: A group of sounds that are mixed together before they reach the master bus.
 // Route sounds into it using `set_sound_bus`, or the `bus` parameter of `play_audio_clip` or
-// `play_audio_stream`.
+// `set_audio_stream_bus`.
 //
 // A new bus has volume 1, pan 0 and no effect. That makes it a passthrough: Playing a sound on a
 // fresh bus sounds exactly like playing it on the master bus, until you change something.
@@ -4042,8 +4091,7 @@ create_audio_bus :: proc() -> Audio_Bus {
 	return bus
 }
 
-// Destroy an audio bus. Everything routed to it goes back to the master bus, including sounds that
-// are playing right now.
+// Destroy an audio bus. Everything playing on this bus will start playing on the master bus.
 destroy_audio_bus :: proc(bus: Audio_Bus) {
 	sync.mutex_guard(&s.audio_mutex)
 	if bus == AUDIO_BUS_MASTER {
@@ -4074,9 +4122,9 @@ destroy_audio_bus :: proc(bus: Audio_Bus) {
 		}
 	}
 
-	for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
-		if sound_object.bus == bus {
-			sound_object.bus = AUDIO_BUS_MASTER
+	for it := hm.dynamic_iterator_make(&s.sounds); so, _ in hm.dynamic_iterate(&it) {
+		if so.bus == bus {
+			so.bus = AUDIO_BUS_MASTER
 		}
 	}
 

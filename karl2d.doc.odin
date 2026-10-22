@@ -598,20 +598,17 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
-// TODO-UPDATE-COMMENT: Returns nothing and has no `loop` parameter anymore. Use `create_sound` to get a `Sound` that can be controlled and looped.
-//---
-// Play an audio clip with the supplied initial settings. The return value is a `Sound`, which means
-// something that is currently playing in the audio mixer. You can use the returned `Sound` with
-// `set_sound_volume`, `stop_sound` etc in order to control the playback. Ignore the return value
-// if you just want to start the sound and never touch it again.
-//
-// Audio clips are loaded using `load_audio_clip_from_file`, `load_audio_clip_from_bytes` and
-// `load_audio_clip_from_bytes_raw`.
+// Play an audio clip with the supplied settings. Audio clips are loaded using
+// `load_audio_clip_from_file`, `load_audio_clip_from_bytes` and `load_audio_clip_from_bytes_raw`.
 //
 // Pass `bus` to play the sound on an audio bus. It plays on the master bus by default.
 //
-// Warning: If you pass `loop = true` and don't save the return value anywhere, then you've started
-// a sound you cannot stop.
+// This is for "fire-and-forget" type of sounds that you do not need to control after they have
+// started. The audio clip will play until it ends. If you need control as a the clip plays, then
+// use `create_sound`, `play_sound` and the other `set_sound_xxx` procedures to control it.
+//
+// You cannot loop audio clips using this procedure, since you would have no way to stop them. For
+// looping audio clips, use a Sound.
 play_audio_clip :: proc(
 	clip: Audio_Clip,
 	volume: f32 = 1,
@@ -620,6 +617,19 @@ play_audio_clip :: proc(
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 )
 
+get_audio_clip_duration :: proc(clip: Audio_Clip) -> f32
+
+// How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
+// start from the same clip.
+count_audio_clip_active_plays :: proc(clip: Audio_Clip) -> int
+
+// Create a `Sound` from an `Audio_Clip` using supplied settings. A Sound is a persistent thing that
+// can be used to modify the playback settings of an audio clip as it is playing. It can also be
+// used to loop audio clips. Sounds remember the settings you set on them, both when playing and not
+// playing.
+//
+// Start playing the Sound using `play_sound`. Destroy the Sound using `destroy_sound` when you no
+// longer need it. There are procedures named `set_sound_xxx` to control the settings of the sound.
 create_sound :: proc(
 	clip: Audio_Clip,
 	volume: f32 = 1,
@@ -629,77 +639,73 @@ create_sound :: proc(
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound
 
+// Destroy a Sound previously created using `create_sound`. This does not destroy the Audio_Clip
+// that was used to create the Sound.
+//
+// Note: Running `destroy_audio_clip` will destroy all sounds that reference that audio clip.
 destroy_sound :: proc(sound: Sound)
 
+// Play a Sound. It will be played with the settings of the sound. The settings come from both 
+// `create_sound` as well as any changes that come from `set_sound_xxx`.
+//
+// A Sound that is already playing will restart.
 play_sound :: proc(sound: Sound)
 
-// TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `stop_audio_stream`. A stopped `Sound` stays valid and keeps its settings, use `pause_sound` to pause.
-//---
-// Stops the sound, which destroys its playback state in the mixer. For a `Sound` started using
-// `play_audio_stream`, this also rewinds the stream to the start. Use `set_sound_paused` to pause
-// the Sound instead, which won't lose the current playback position and settings.
+// Stop a playing Sound. This will remove its playback state from the mixer. It'll remember the last
+// settings it was played with for when `play_sound` runs again.
 stop_sound :: proc(sound: Sound)
 
-// TODO-UPDATE-COMMENT: Only pauses now. Use `play_sound` to resume.
-//---
-// Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
-// or stopped.
+// Pauses a playing sound. Use `play_sound` to resume. You can check the paused state using
+// `sound_is_paused`, or check if a sound is playing and non-paused using `sound_is_playing`.
 pause_sound :: proc(sound: Sound)
 
-// TODO-UPDATE-COMMENT: A `Sound` always exists until `destroy_sound`. This says if it is currently playing and not paused.
-//---
-// Returns true if the sound exists and is not paused.
+// Returns true if the sound is playing. Returns false if the sound is paused.
 sound_is_playing :: proc(sound: Sound) -> bool
 
-// TODO-UPDATE-COMMENT: Replaced `sound_is_valid`. Says if the sound is paused.
-//---
-// Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
-// stopped sound is not.
+// Returns true if the sound is currently playing, but it is in a paused state.
 sound_is_paused :: proc(sound: Sound) -> bool
 
 // Set the volume of a sound. Range: 0 to 1.
+//
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_volume :: proc(sound: Sound, volume: f32)
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
+//
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_pan :: proc(sound: Sound, pan: f32)
 
 // Set the pitch of a sound. Range: 0.01 and up, where 1 is the default. Pitch 2 makes the sound
 // play twice as fast, which also makes it sound higher pitched.
+//
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
-// TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `set_audio_stream_time`.
-//---
 // Move the sound to another spot in its audio. `seconds` is measured from the start of the audio.
-// Use `get_sound_length` to find out how long the sound is.
+// Use `get_sound_duration` to find out how long the sound is.
 //
-// Note that calling this for an Audio_Clip-based sound is fast. But calling it for an Audio_Stream-
-// based Sound can be a bit slower. The stream has to seek, perhaps fetching data from disk.
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_time :: proc(sound: Sound, seconds: f32)
 
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
 // each time it starts over. Returns 0 if the sound doesn't exist.
 get_sound_time :: proc(sound: Sound) -> f32
 
-// Get the length of the sound's audio, in seconds. Use it together with `get_sound_time` to show
-// how far into a song you are. Returns 0 if the sound doesn't exist or if the length is unknown.
-get_sound_length :: proc(sound: Sound) -> f32
+// Get the duration of the sound's audio, in seconds. Use it together with `get_sound_time` to show
+// how far into a sound you are. Returns 0 if the sound doesn't exist.
+get_sound_duration :: proc(sound: Sound) -> f32
 
-// TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `set_audio_stream_loop`.
-//---
 // Make a sound loop when it reaches the end.
 //
-// Technical note: This also works for sounds started using `play_audio_stream`, but then it
-// reaches into the streaming decoder and tells that one to loop. A `Sound` started from a stream
-// plays a short buffer that the decoder keeps filling, so that sound always loops.
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_loop :: proc(sound: Sound, loop: bool)
 
 // Route a sound into an audio bus. Pass `AUDIO_BUS_MASTER` for the master bus.
+//
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_bus :: proc(sound: Sound, bus: Audio_Bus)
 
-// How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
-// start from the same clip.
-count_audio_clip_active_plays :: proc(clip: Audio_Clip) -> int
-
+// Returns how many `Sound` objects there are the refer to the same audio clip.
 count_sounds_from_clip :: proc(clip: Audio_Clip) -> int
 
 // Load a audio file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`.
@@ -738,8 +744,10 @@ load_audio_clip_from_bytes_raw :: proc(
 	channels: Audio_Channels,
 ) -> (Audio_Clip, bool) #optional_ok
 
-// Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Also stops sounds
-// playing this clip.
+// TODO-UPDATE-COMMENT: Also destroys all `Sound`s created from this clip.
+//---
+// Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Stops any currently
+// playing instances of this clip.
 destroy_audio_clip :: proc(clip: Audio_Clip)
 
 // Load an audio stream from a file on disk. This is often used for playing music. An audio stream

@@ -297,9 +297,9 @@ step :: proc() -> bool {
 	)
 
 	sweep_time := k2.get_sound_time(sweep_sound)
-	sweep_length := k2.get_sound_length(sweep_sound)
+	sweep_duration := k2.get_sound_duration(sweep_sound)
 
-	if seek_to, seek := seek_bar(&sweep_seek_bar, sweep_time, sweep_length); seek {
+	if seek_to, seek := seek_bar(&sweep_seek_bar, sweep_time, sweep_duration); seek {
 		k2.set_sound_time(sweep_sound, seek_to)
 	}
 
