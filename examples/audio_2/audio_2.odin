@@ -10,10 +10,9 @@ Playable_Sound :: struct {
 
 	source: union {
 		k2.Audio_Stream,
-		k2.Audio_Clip,
+		k2.Sound,
 	},
 
-	playing_sound: k2.Sound,
 	dragging: bool,
 }
 
@@ -40,7 +39,7 @@ init :: proc() {
 	})
 
 	append(&playable_sounds, {
-		source = k2.load_audio_clip_from_file("../audio/chord.ogg"),
+		source = k2.create_sound(k2.load_audio_clip_from_file("../audio/chord.ogg")),
 	})
 
 	append(&buses, { volume = 1, bus = k2.AUDIO_BUS_MASTER })
@@ -155,8 +154,8 @@ step :: proc() -> bool {
 							ps.bus = bs_check.bus
 
 							switch s in ps.source {
-							case k2.Audio_Clip:
-								k2.set_sound_bus(ps.playing_sound, ps.bus)
+							case k2.Sound:
+								k2.set_sound_bus(s, ps.bus)
 							case k2.Audio_Stream:
 								k2.set_audio_stream_bus(s, ps.bus)
 							}
@@ -183,8 +182,8 @@ step :: proc() -> bool {
 
 				if k2.mouse_button_went_down(.Left) {
 					switch s in ps.source {
-					case k2.Audio_Clip:
-						ps.playing_sound = k2.play_audio_clip(s)
+					case k2.Sound:
+						k2.play_sound(s)
 					case k2.Audio_Stream:
 						k2.play_audio_stream(s)
 					}
@@ -192,8 +191,8 @@ step :: proc() -> bool {
 			}
 
 			switch s in ps.source {
-			case k2.Audio_Clip:
-				if k2.sound_is_playing(ps.playing_sound) {
+			case k2.Sound:
+				if k2.sound_is_playing(s) {
 					play_button_color = k2.GREEN
 				}
 			case k2.Audio_Stream:

@@ -208,6 +208,7 @@ init :: proc(
 		)
 
 		hm.dynamic_init(&s.audio_voices, s.allocator)
+		hm.dynamic_init(&s.sounds, s.allocator)
 		hm.dynamic_init(&s.audio_buffers, s.allocator)
 		hm.dynamic_init(&s.audio_streams, s.allocator)
 		hm.dynamic_init(&s.audio_buses, s.allocator)
@@ -333,6 +334,7 @@ shutdown :: proc() {
 		delete(s.master_bus.chunk, s.allocator)
 		hm.dynamic_destroy(&s.audio_streams)
 		hm.dynamic_destroy(&s.audio_voices)
+		hm.dynamic_destroy(&s.sounds)
 		hm.dynamic_destroy(&s.audio_buffers)
 		hm.dynamic_destroy(&s.audio_buses)
 	}
@@ -2234,6 +2236,8 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
+// TODO-UPDATE-COMMENT: Returns nothing and has no `loop` parameter anymore. Use `create_sound` to get a `Sound` that can be controlled and looped.
+//---
 // Play an audio clip with the supplied initial settings. The return value is a `Sound`, which means
 // something that is currently playing in the audio mixer. You can use the returned `Sound` with
 // `set_sound_volume`, `stop_sound` etc in order to control the playback. Ignore the return value
@@ -2251,21 +2255,20 @@ play_audio_clip :: proc(
 	volume: f32 = 1,
 	pan: f32 = 0,
 	pitch: f32 = 1,
-	loop := false,
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
-) -> Sound {
+) {
 	sync.mutex_guard(&s.audio_mutex)
 
 	audio_buffer_object := hm.get(&s.audio_buffers, Audio_Buffer(clip))
 
 	if audio_buffer_object == nil {
 		log.error("Cannot play audio clip, audio clip does not exist.")
-		return SOUND_NONE
+		return
 	}
 
 	if bus != AUDIO_BUS_MASTER && hm.get(&s.audio_buses, bus) == nil {
 		log.error("Cannot play audio clip, audio bus does not exist.")
-		return SOUND_NONE
+		return
 	}
 
 	playback_settings := Audio_Voice_Settings {
@@ -2279,99 +2282,216 @@ play_audio_clip :: proc(
 		source = clip,
 		target_settings = playback_settings,
 		current_settings = playback_settings,
+		bus = bus,
+	}
+
+	_, add_err := hm.add(&s.audio_voices, audio_voice_object)
+
+	if add_err != nil {
+		log.errorf("Failed playing audio clip. Error: %v", add_err)
+	}
+}
+
+create_sound :: proc(
+	clip: Audio_Clip,
+	volume: f32 = 1,
+	pan: f32 = 0,
+	pitch: f32 = 1,
+	loop := false,
+	bus: Audio_Bus = AUDIO_BUS_MASTER,
+) -> Sound {
+	sync.mutex_guard(&s.audio_mutex)
+
+	if hm.get(&s.audio_buffers, Audio_Buffer(clip)) == nil {
+		log.error("Cannot create sound, audio clip does not exist.")
+		return SOUND_NONE
+	}
+
+	if bus != AUDIO_BUS_MASTER && hm.get(&s.audio_buses, bus) == nil {
+		log.error("Cannot create sound, audio bus does not exist.")
+		return SOUND_NONE
+	}
+
+	sound_object := Sound_Object {
+		clip = clip,
+		settings = {
+			volume = clamp(volume, 0, 1),
+			pan = clamp(pan, -1, 1),
+			pitch = max(pitch, 0.01),
+		},
 		loop = loop,
 		bus = bus,
 	}
 
-	voice, add_err := hm.add(&s.audio_voices, audio_voice_object)
+	sound, add_err := hm.add(&s.sounds, sound_object)
 
 	if add_err != nil {
-		log.errorf("Failed playing audio clip. Error: %v", add_err)
+		log.errorf("Failed creating sound. Error: %v", add_err)
 		return SOUND_NONE
 	}
 
-	return Sound(voice)
+	return sound
 }
 
-// TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `stop_audio_stream`.
+destroy_sound :: proc(sound: Sound) {
+	sync.mutex_guard(&s.audio_mutex)
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return
+	}
+
+	hm.remove(&s.audio_voices, sound_object.voice)
+	hm.remove(&s.sounds, sound)
+}
+
+play_sound :: proc(sound: Sound) {
+	sync.mutex_guard(&s.audio_mutex)
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return
+	}
+
+	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil && !vo.remove && vo.paused {
+		vo.paused = false
+		return
+	}
+
+	hm.remove(&s.audio_voices, sound_object.voice)
+
+	if hm.get(&s.audio_buffers, Audio_Buffer(sound_object.clip)) == nil {
+		return
+	}
+
+	audio_voice_object := Audio_Voice_Object {
+		buffer = Audio_Buffer(sound_object.clip),
+		source = sound_object.clip,
+		target_settings = sound_object.settings,
+		current_settings = sound_object.settings,
+		loop = sound_object.loop,
+		bus = sound_object.bus,
+	}
+
+	add_err: runtime.Allocator_Error
+	sound_object.voice, add_err = hm.add(&s.audio_voices, audio_voice_object)
+
+	if add_err != nil {
+		log.errorf("Failed playing sound. Error: %v", add_err)
+	}
+}
+
+// TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `stop_audio_stream`. A stopped `Sound` stays valid and keeps its settings, use `pause_sound` to pause.
 //---
 // Stops the sound, which destroys its playback state in the mixer. For a `Sound` started using
 // `play_audio_stream`, this also rewinds the stream to the start. Use `set_sound_paused` to pause
 // the Sound instead, which won't lose the current playback position and settings.
 stop_sound :: proc(sound: Sound) {
 	sync.mutex_guard(&s.audio_mutex)
-	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
+	sound_object := hm.get(&s.sounds, sound)
 
-	if audio_voice_object == nil {
+	if sound_object == nil {
 		return
 	}
 
-	hm.remove(&s.audio_voices, Audio_Voice(sound))
+	hm.remove(&s.audio_voices, sound_object.voice)
 }
 
+// TODO-UPDATE-COMMENT: Only pauses now. Use `play_sound` to resume.
+//---
 // Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
 // or stopped.
-set_sound_paused :: proc(sound: Sound, paused: bool) {
+pause_sound :: proc(sound: Sound) {
 	sync.mutex_guard(&s.audio_mutex)
-	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
+	sound_object := hm.get(&s.sounds, sound)
 
-	if audio_voice_object == nil {
+	if sound_object == nil {
 		return
 	}
 
-	audio_voice_object.paused = paused
+	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil {
+		vo.paused = true
+	}
 }
 
+// TODO-UPDATE-COMMENT: A `Sound` always exists until `destroy_sound`. This says if it is currently playing and not paused.
+//---
 // Returns true if the sound exists and is not paused.
 sound_is_playing :: proc(sound: Sound) -> bool {
 	sync.mutex_guard(&s.audio_mutex)
-	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
-	return audio_voice_object != nil && !audio_voice_object.remove && !audio_voice_object.paused
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return false
+	}
+
+	vo := hm.get(&s.audio_voices, sound_object.voice)
+	return vo != nil && !vo.remove && !vo.paused
 }
 
+// TODO-UPDATE-COMMENT: Replaced `sound_is_valid`. Says if the sound is paused.
+//---
 // Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
 // stopped sound is not.
-sound_is_valid :: proc(sound: Sound) -> bool {
+sound_is_paused :: proc(sound: Sound) -> bool {
 	sync.mutex_guard(&s.audio_mutex)
-	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
-	return audio_voice_object != nil && !audio_voice_object.remove
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return false
+	}
+
+	vo := hm.get(&s.audio_voices, sound_object.voice)
+	return vo != nil && !vo.remove && vo.paused
 }
 
 // Set the volume of a sound. Range: 0 to 1.
 set_sound_volume :: proc(sound: Sound, volume: f32) {
 	sync.mutex_guard(&s.audio_mutex)
-	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
+	sound_object := hm.get(&s.sounds, sound)
 
-	if audio_voice_object == nil {
+	if sound_object == nil {
 		return
 	}
 
-	audio_voice_object.target_settings.volume = clamp(volume, 0, 1)
+	sound_object.settings.volume = clamp(volume, 0, 1)
+
+	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil {
+		vo.target_settings.volume = sound_object.settings.volume
+	}
 }
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
 set_sound_pan :: proc(sound: Sound, pan: f32) {
 	sync.mutex_guard(&s.audio_mutex)
-	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
+	sound_object := hm.get(&s.sounds, sound)
 
-	if audio_voice_object == nil {
+	if sound_object == nil {
 		return
 	}
 
-	audio_voice_object.target_settings.pan = clamp(pan, -1, 1)
+	sound_object.settings.pan = clamp(pan, -1, 1)
+
+	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil {
+		vo.target_settings.pan = sound_object.settings.pan
+	}
 }
 
 // Set the pitch of a sound. Range: 0.01 and up, where 1 is the default. Pitch 2 makes the sound
 // play twice as fast, which also makes it sound higher pitched.
 set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 	sync.mutex_guard(&s.audio_mutex)
-	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
+	sound_object := hm.get(&s.sounds, sound)
 
-	if audio_voice_object == nil {
+	if sound_object == nil {
 		return
 	}
 
-	audio_voice_object.target_settings.pitch = max(pitch, 0.01)
+	sound_object.settings.pitch = max(pitch, 0.01)
+
+	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil {
+		vo.target_settings.pitch = sound_object.settings.pitch
+	}
 }
 
 // TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `set_audio_stream_time`.
@@ -2383,7 +2503,13 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 // based Sound can be a bit slower. The stream has to seek, perhaps fetching data from disk.
 set_sound_time :: proc(sound: Sound, seconds: f32) {
 	sync.mutex_guard(&s.audio_mutex)
-	_set_audio_voice_time(Audio_Voice(sound), seconds)
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return
+	}
+
+	_set_audio_voice_time(sound_object.voice, seconds)
 }
 
 _set_audio_voice_time :: proc(voice: Audio_Voice, seconds: f32) {
@@ -2438,7 +2564,13 @@ _set_audio_voice_time :: proc(voice: Audio_Voice, seconds: f32) {
 // each time it starts over. Returns 0 if the sound doesn't exist.
 get_sound_time :: proc(sound: Sound) -> f32 {
 	sync.mutex_guard(&s.audio_mutex)
-	return _get_audio_voice_time(Audio_Voice(sound))
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return 0
+	}
+
+	return _get_audio_voice_time(sound_object.voice)
 }
 
 _get_audio_voice_time :: proc(voice: Audio_Voice) -> f32 {
@@ -2508,7 +2640,24 @@ _get_audio_voice_time :: proc(voice: Audio_Voice) -> f32 {
 // how far into a song you are. Returns 0 if the sound doesn't exist or if the length is unknown.
 get_sound_length :: proc(sound: Sound) -> f32 {
 	sync.mutex_guard(&s.audio_mutex)
-	return _get_audio_voice_length(Audio_Voice(sound))
+	sound_object := hm.get(&s.sounds, sound)
+
+	if sound_object == nil {
+		return 0
+	}
+
+	ab := hm.get(&s.audio_buffers, Audio_Buffer(sound_object.clip))
+
+	if ab == nil {
+		return 0
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	return f32(len(ab.samples) / channels) / f32(ab.sample_rate)
 }
 
 _get_audio_voice_length :: proc(voice: Audio_Voice) -> f32 {
@@ -2555,32 +2704,25 @@ _get_audio_voice_length :: proc(voice: Audio_Voice) -> f32 {
 // plays a short buffer that the decoder keeps filling, so that sound always loops.
 set_sound_loop :: proc(sound: Sound, loop: bool) {
 	sync.mutex_guard(&s.audio_mutex)
-	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
+	sound_object := hm.get(&s.sounds, sound)
 
-	if audio_voice_object == nil {
+	if sound_object == nil {
 		return
 	}
 
-	switch src in audio_voice_object.source {
-	case Audio_Clip:
-		audio_voice_object.loop = loop
+	sound_object.loop = loop
 
-	case Audio_Stream:
-		// The voice the stream uses always loops. It's just a short buffer that it feeds its data
-		// into. The real looping flag is on the audio stream object itself. That's what is used
-		// when the stream ends.
-		if sd := hm.get(&s.audio_streams, src); sd != nil {
-			sd.loop = loop
-		}
+	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil {
+		vo.loop = loop
 	}
 }
 
 // Route a sound into an audio bus. Pass `AUDIO_BUS_MASTER` for the master bus.
 set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 	sync.mutex_guard(&s.audio_mutex)
-	audio_voice_object := hm.get(&s.audio_voices, Audio_Voice(sound))
+	sound_object := hm.get(&s.sounds, sound)
 
-	if audio_voice_object == nil {
+	if sound_object == nil {
 		return
 	}
 
@@ -2589,17 +2731,34 @@ set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 		return
 	}
 
-	audio_voice_object.bus = bus
+	sound_object.bus = bus
+
+	if vo := hm.get(&s.audio_voices, sound_object.voice); vo != nil {
+		vo.bus = bus
+	}
 }
 
 // How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
 // start from the same clip.
-get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
+count_audio_clip_active_plays :: proc(clip: Audio_Clip) -> int {
 	sync.mutex_guard(&s.audio_mutex)
 	count: int
 
 	for it := hm.dynamic_iterator_make(&s.audio_voices); audio_voice_object, _ in hm.dynamic_iterate(&it) {
 		if audio_voice_object.source == clip && !audio_voice_object.remove {
+			count += 1
+		}
+	}
+
+	return count
+}
+
+count_sounds_from_clip :: proc(clip: Audio_Clip) -> int {
+	sync.mutex_guard(&s.audio_mutex)
+	count: int
+
+	for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
+		if sound_object.clip == clip {
 			count += 1
 		}
 	}
@@ -3929,6 +4088,12 @@ destroy_audio_bus :: proc(bus: Audio_Bus) {
 	for it := hm.dynamic_iterator_make(&s.audio_streams); sd, _ in hm.dynamic_iterate(&it) {
 		if sd.bus == bus {
 			sd.bus = AUDIO_BUS_MASTER
+		}
+	}
+
+	for it := hm.dynamic_iterator_make(&s.sounds); sound_object, _ in hm.dynamic_iterate(&it) {
+		if sound_object.bus == bus {
+			sound_object.bus = AUDIO_BUS_MASTER
 		}
 	}
 
@@ -6450,15 +6615,24 @@ Audio_Sample :: f32
 
 Audio_Voice :: distinct Handle
 
-// TODO-UPDATE-COMMENT: `play_audio_stream` no longer returns a `Sound`.
+// TODO-UPDATE-COMMENT: `play_audio_stream` no longer returns a `Sound`. A `Sound` is now made using `create_sound`, keeps its settings and lives until `destroy_sound`.
 //---
 // Represents something that is currently playing in the audio mixer. Created using
 // `play_audio_clip` and `play_audio_stream`. A sound is automatically destroyed when it finishes
 // playing. It is safe to keep using the handle after that: The procedures that take a `Sound` will
 // then just do nothing.
-Sound :: distinct Audio_Voice
+Sound :: distinct Handle
 
 SOUND_NONE :: Sound {}
+
+Sound_Object :: struct {
+	handle: Sound,
+	clip: Audio_Clip,
+	voice: Audio_Voice,
+	settings: Audio_Voice_Settings,
+	bus: Audio_Bus,
+	loop: bool,
+}
 
 // Plays an ogg file by decoding it a little bit at a time, instead of loading all of the audio
 // data up front like an `Audio_Clip` does. Good for music, which would otherwise use a lot of
@@ -6822,6 +6996,7 @@ State :: struct {
 
 	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
 	audio_voices: hm.Dynamic_Handle_Map(Audio_Voice_Object, Audio_Voice),
+	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
 

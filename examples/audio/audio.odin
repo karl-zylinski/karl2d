@@ -53,6 +53,7 @@ init :: proc() {
 	sine_clip_700 = make_sine_wave(700, 1, 22050)
 	chord_clip = k2.load_audio_clip_from_bytes(#load("chord.ogg"))
 	sweep_clip = make_sine_sweep(200, 800, 10, 44100)
+	sweep_sound = k2.create_sound(sweep_clip, loop = true)
 
 	when HAS_MUSIC {
 		when ODIN_OS == .JS {
@@ -65,7 +66,8 @@ init :: proc() {
 		k2.set_audio_stream_loop(music, true)
 		k2.play_audio_stream(music)
 	} else {
-		sine_sound = k2.play_audio_clip(sine_clip_200, loop = true)
+		sine_sound = k2.create_sound(sine_clip_200, loop = true)
+		k2.play_sound(sine_sound)
 	}
 }
 
@@ -207,12 +209,11 @@ step :: proc() -> bool {
 	}
 	
 	if k2.key_went_down(.L) {
-		k2.stop_sound(sweep_sound)
-		sweep_sound = k2.play_audio_clip(sweep_clip, loop = true)
-	}
-
-	if k2.key_went_down(.K) {
-		k2.set_sound_paused(sweep_sound, k2.sound_is_playing(sweep_sound))
+		if k2.sound_is_playing(sweep_sound) {
+			k2.pause_sound(sweep_sound)
+		} else {
+			k2.play_sound(sweep_sound)
+		}
 	}
 
 	snd_pan = clamp(snd_pan, -1, 1)
@@ -289,7 +290,7 @@ step :: proc() -> bool {
 	}
 
 	k2.draw_text(
-		"L plays a looping 10 second sine sweep, K pauses. Drag the bar to seek.",
+		"L: play/pause a 10 second sine sweep. Drag the bar to seek.",
 		{20, 410},
 		40,
 		k2.BLACK,
@@ -309,6 +310,8 @@ step :: proc() -> bool {
 }
 
 shutdown :: proc() {
+	k2.destroy_sound(sine_sound)
+	k2.destroy_sound(sweep_sound)
 	k2.destroy_audio_clip(sine_clip_200)
 	k2.destroy_audio_clip(sine_clip_440)
 	k2.destroy_audio_clip(sine_clip_700)

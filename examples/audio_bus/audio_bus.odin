@@ -28,6 +28,9 @@ tone1_clip: k2.Audio_Clip
 // A looping tone on the sfx bus, so you can hear the bus volume and pan without pressing anything.
 tone2_clip: k2.Audio_Clip
 
+tone1_sound: k2.Sound
+tone2_sound: k2.Sound
+
 sfx_volume: f32 = 1
 sfx_pan: f32
 master_volume: f32 = 1
@@ -65,11 +68,16 @@ init :: proc() {
 	tone1_clip = make_sine_wave(400, 1, 44100)
 	tone2_clip = make_sine_wave(1000, 1, 44100)
 
+	// TODO-UPDATE-COMMENT: `play_audio_clip` no longer loops or returns a handle. The tones are `Sound`s made using `create_sound`, which are destroyed in `shutdown`.
+	//---
 	// Tone 2 goes on the sfx bus. Tone 1 is left alone, so it plays on the master bus. We
 	// never stop them one by one, and destroying the clips in `shutdown` stops them, so the
 	// returned sound handles can be discarded.
-	k2.play_audio_clip(tone1_clip, volume = 0.15, loop = true)
-	k2.play_audio_clip(tone2_clip, volume = 0.3, loop = true, bus = sfx_bus)
+	tone1_sound = k2.create_sound(tone1_clip, volume = 0.15, loop = true)
+	k2.play_sound(tone1_sound)
+
+	tone2_sound = k2.create_sound(tone2_clip, volume = 0.3, loop = true, bus = sfx_bus)
+	k2.play_sound(tone2_sound)
 }
 
 // Makes a sine wave that is a whole number of periods long, so that it loops cleanly.
@@ -200,6 +208,8 @@ step :: proc() -> bool {
 }
 
 shutdown :: proc() {
+	k2.destroy_sound(tone1_sound)
+	k2.destroy_sound(tone2_sound)
 	k2.destroy_audio_clip(blip_clip)
 	k2.destroy_audio_clip(tone1_clip)
 	k2.destroy_audio_clip(tone2_clip)

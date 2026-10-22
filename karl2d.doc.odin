@@ -598,6 +598,8 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
+// TODO-UPDATE-COMMENT: Returns nothing and has no `loop` parameter anymore. Use `create_sound` to get a `Sound` that can be controlled and looped.
+//---
 // Play an audio clip with the supplied initial settings. The return value is a `Sound`, which means
 // something that is currently playing in the audio mixer. You can use the returned `Sound` with
 // `set_sound_volume`, `stop_sound` etc in order to control the playback. Ignore the return value
@@ -615,27 +617,45 @@ play_audio_clip :: proc(
 	volume: f32 = 1,
 	pan: f32 = 0,
 	pitch: f32 = 1,
+	bus: Audio_Bus = AUDIO_BUS_MASTER,
+)
+
+create_sound :: proc(
+	clip: Audio_Clip,
+	volume: f32 = 1,
+	pan: f32 = 0,
+	pitch: f32 = 1,
 	loop := false,
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound
 
-// TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `stop_audio_stream`.
+destroy_sound :: proc(sound: Sound)
+
+play_sound :: proc(sound: Sound)
+
+// TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `stop_audio_stream`. A stopped `Sound` stays valid and keeps its settings, use `pause_sound` to pause.
 //---
 // Stops the sound, which destroys its playback state in the mixer. For a `Sound` started using
 // `play_audio_stream`, this also rewinds the stream to the start. Use `set_sound_paused` to pause
 // the Sound instead, which won't lose the current playback position and settings.
 stop_sound :: proc(sound: Sound)
 
+// TODO-UPDATE-COMMENT: Only pauses now. Use `play_sound` to resume.
+//---
 // Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
 // or stopped.
-set_sound_paused :: proc(sound: Sound, paused: bool)
+pause_sound :: proc(sound: Sound)
 
+// TODO-UPDATE-COMMENT: A `Sound` always exists until `destroy_sound`. This says if it is currently playing and not paused.
+//---
 // Returns true if the sound exists and is not paused.
 sound_is_playing :: proc(sound: Sound) -> bool
 
+// TODO-UPDATE-COMMENT: Replaced `sound_is_valid`. Says if the sound is paused.
+//---
 // Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
 // stopped sound is not.
-sound_is_valid :: proc(sound: Sound) -> bool
+sound_is_paused :: proc(sound: Sound) -> bool
 
 // Set the volume of a sound. Range: 0 to 1.
 set_sound_volume :: proc(sound: Sound, volume: f32)
@@ -678,7 +698,9 @@ set_sound_bus :: proc(sound: Sound, bus: Audio_Bus)
 
 // How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
 // start from the same clip.
-get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int
+count_audio_clip_active_plays :: proc(clip: Audio_Clip) -> int
+
+count_sounds_from_clip :: proc(clip: Audio_Clip) -> int
 
 // Load a audio file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`.
 //
@@ -1713,15 +1735,24 @@ Audio_Sample :: f32
 
 Audio_Voice :: distinct Handle
 
-// TODO-UPDATE-COMMENT: `play_audio_stream` no longer returns a `Sound`.
+// TODO-UPDATE-COMMENT: `play_audio_stream` no longer returns a `Sound`. A `Sound` is now made using `create_sound`, keeps its settings and lives until `destroy_sound`.
 //---
 // Represents something that is currently playing in the audio mixer. Created using
 // `play_audio_clip` and `play_audio_stream`. A sound is automatically destroyed when it finishes
 // playing. It is safe to keep using the handle after that: The procedures that take a `Sound` will
 // then just do nothing.
-Sound :: distinct Audio_Voice
+Sound :: distinct Handle
 
 SOUND_NONE :: Sound {}
+
+Sound_Object :: struct {
+	handle: Sound,
+	clip: Audio_Clip,
+	voice: Audio_Voice,
+	settings: Audio_Voice_Settings,
+	bus: Audio_Bus,
+	loop: bool,
+}
 
 // Plays an ogg file by decoding it a little bit at a time, instead of loading all of the audio
 // data up front like an `Audio_Clip` does. Good for music, which would otherwise use a lot of
@@ -2085,6 +2116,7 @@ State :: struct {
 
 	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
 	audio_voices: hm.Dynamic_Handle_Map(Audio_Voice_Object, Audio_Voice),
+	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),
 
