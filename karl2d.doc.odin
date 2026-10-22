@@ -1773,7 +1773,9 @@ Sound_Object :: struct {
 	handle: Sound,
 	clip: Audio_Clip,
 	voice: Audio_Voice,
-	settings: Audio_Voice_Settings,
+	volume: f32,
+	pan: f32,
+	pitch: f32,
 	bus: Audio_Bus,
 	loop: bool,
 }
@@ -1801,21 +1803,6 @@ Audio_Channels :: enum {
 Audio_Stream_Mode :: enum {
 	From_File,
 	From_Bytes,
-}
-
-Audio_Voice_Seek_State :: enum {
-	None,
-	Fading_Out,
-	Ready,
-	Seeking,
-}
-
-Audio_Voice_Play_State :: enum {
-	Playing,
-	Pausing, // Will fade the volume to 0 and then change to Paused.
-	Paused,
-	Stopping, // Will fade the volume to 0 and then change to Stopped.
-	Stopped, // The voice will get removed on the next call to `_mix_audio_into_buffer`.
 }
 
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
@@ -1847,7 +1834,9 @@ Audio_Stream_Data :: struct {
 	vorbis_buffer: stbv.vorbis_alloc,
 	voice: Audio_Voice,
 	bus: Audio_Bus,
-	settings: Audio_Voice_Settings,
+	volume: f32,
+	pan: f32,
+	pitch: f32,
 	buffer: Audio_Buffer,
 
 	cursor: Audio_Stream_Cursor,
@@ -1863,6 +1852,14 @@ Audio_Stream_Data :: struct {
 	// buffer itself. That's something you always want for a stream: We are continously writing
 	// data from a file into a small buffer that is a few seconds long.
 	loop: bool,
+
+	// TODO-UPDATE-COMMENT: Lives on the stream now, and nothing fades. The mixer keeps playing while a seek is pending. `update_audio_stream` seeks, rewrites the buffer from the voice's position and clears the flag, unless a seek to a different time was requested during the decode.
+	//---
+	// Used to coordinate seeking. Seeking needs to first fade out the sound, then seek and then
+	// fade it back in. For `Sound`s the seeking is done in the mixer itself. For `Audio_Stream`s
+	// the mixer just fades it out, but the actual seeking happens in `update_audio_stream`.
+	seek_requested: bool,
+	seek_seconds: f32,
 
 	mode: Audio_Stream_Mode,
 
@@ -1919,12 +1916,6 @@ Audio_Buffer_Object :: struct {
 	channels: Audio_Channels,
 }
 
-Audio_Voice_Settings :: struct {
-	volume: f32,
-	pan: f32,
-	pitch: f32,
-}
-
 // An `Audio_Voice_Object` is what `Audio_Voice` handles map to. It represents something currently
 // playing in the mixer. It holds a `buffer` which is where the mixer reads audio samples from. How
 // that buffer gets refilled depends on the `source` field. The source can either be an Audio_Clip
@@ -1934,8 +1925,11 @@ Audio_Voice_Settings :: struct {
 Audio_Voice_Object :: struct {
 	handle: Audio_Voice,
 	buffer: Audio_Buffer,
-	target_settings: Audio_Voice_Settings,
-	current_settings: Audio_Voice_Settings,
+	volume: f32,
+	target_volume: f32,
+	pan: f32,
+	target_pan: f32,
+	pitch: f32,
 
 	// Where in `buffer` should we play samples from next?
 	offset: int,
@@ -1956,15 +1950,12 @@ Audio_Voice_Object :: struct {
 	//   buffer.
 	loop: bool,
 
-	// Used for pausing and stopping the voice. When pausing and stopping, we fade out the voice.
-	// This avoids clicks. When it is faded out, then the Paused or Stopped state will be set.
-	play_state: Audio_Voice_Play_State,
+	paused: bool,
 
-	// Used to coordinate seeking. Seeking needs to first fade out the sound, then seek and then
-	// fade it back in. For `Sound`s the seeking is done in the mixer itself. For `Audio_Stream`s
-	// the mixer just fades it out, but the actual seeking happens in `update_audio_stream`.
-	seek_state: Audio_Voice_Seek_State,
-	seek_seconds: f32,
+	// If true, then this voice will be removed when `update_audio` runs. We need this because we
+	// can't remove the voices on the mixer thread. This is because that could cause allocations of
+	// the freelist in the handle map.
+	remove: bool,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
@@ -1997,18 +1988,15 @@ AUDIO_BUS_MASTER :: Audio_Bus {}
 // `user_data` is the user data you passed to `set_audio_bus_effect`.
 Audio_Effect_Proc :: proc(samples: [][2]Audio_Sample, user_data: rawptr)
 
-Audio_Bus_Settings :: struct {
-	volume: f32,
-	pan: f32,
-}
-
 Audio_Bus_Object :: struct {
 	handle: Audio_Bus,
 
 	// Same idea as in `Audio_Voice_Object`: The current settings move towards the target
 	// settings a bit at a time, so that changing the volume of a bus doesn't click.
-	target_settings: Audio_Bus_Settings,
-	current_settings: Audio_Bus_Settings,
+	volume: f32,
+	target_volume: f32,
+	pan: f32,
+	target_pan: f32,
 
 	effect: Audio_Effect_Proc,
 	effect_user_data: rawptr,
@@ -2019,11 +2007,6 @@ Audio_Bus_Object :: struct {
 	//
 	// Will be `s.ab.mix_chunk_size` long.
 	chunk: [][2]Audio_Sample,
-}
-
-DEFAULT_AUDIO_BUS_SETTINGS :: Audio_Bus_Settings {
-	volume = 1,
-	pan = 0,
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
