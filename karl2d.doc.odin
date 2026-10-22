@@ -617,6 +617,8 @@ play_audio_clip :: proc(
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 )
 
+// Returns how many seconds long this audio clip is. Returns `0` if the audio clip has been
+// destroyed.
 get_audio_clip_duration :: proc(clip: Audio_Clip) -> f32
 
 // How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
@@ -1812,6 +1814,14 @@ Audio_Voice_Seek_State :: enum {
 	Seeking,
 }
 
+Audio_Voice_Play_State :: enum {
+	Playing,
+	Pausing,
+	Paused,
+	Stopping,
+	Stopped,
+}
+
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
@@ -1947,17 +1957,16 @@ Audio_Voice_Object :: struct {
 	// loop flag inside the Audio_Stream source data.
 	loop: bool,
 
-	// TODO-UPDATE-COMMENT: Stream voices are paused using `pause_audio_stream`.
+	// TODO-UPDATE-COMMENT: `paused` and `remove` are now the `.Paused` and `.Stopped` values of `play_state`. `.Pausing` and `.Stopping` fade the voice out first. Pausing is done using `pause_sound` and `pause_audio_stream`.
 	//---
 	// Set using `set_sound_paused`. The mixer skips paused voices.
-	paused: bool,
-
+	//
 	// If true, then this voice will be deleted next time `update_audio` runs. We don't remove
 	// directly when mixing because we don't want to touch memory allocations there. This is because
 	// the mixing may happen on a thread. It may look like `hm.remove` is thread safe. But the
 	// handle map uses an XAR array. The XAR array may internally append to a dynamically allocated
 	// freelist, which can cause allocations to happen.
-	remove: bool,
+	play_state: Audio_Voice_Play_State,
 
 	// TODO-UPDATE-COMMENT: Both clip-based and stream-based voices keep their seek state here now. For streams the mixer only fades, `update_audio_stream` does the seek.
 	//---
@@ -1965,16 +1974,21 @@ Audio_Voice_Object :: struct {
 	// playback position and then fade in again. This avoids clicks when seeking.
 	//
 	// For Audio_Stream-based voices, the seeking state is inside Audio_Stream_Data.
+	//
+	// For seeking Sounds and Audio_Streams. The mixer will fade out the audio so the seeking does
+	// not cause clicks. If `source` is a sound then the moving of the playback position will happen
+	// in the mixer. If `source` is a stream, then the moving of the playback position will be done
+	// in `update_audio_stream`. If `source` is an audio clip, then seeking cannot happen as
+	// `play_audio_clip` is fire-and-forget.
 	seek_state: Audio_Voice_Seek_State,
 	seek_seconds: f32,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
 
-	// TODO-UPDATE-COMMENT: The source is now what owns the voice: an `Audio_Clip` for `play_audio_clip`, a `Sound` for `play_sound` and an `Audio_Stream` for `play_audio_stream`.
-	//---
-	// This is the Audio_Clip or Audio_Stream that was passed to either `play_audio_clip` or
-	// `play_audio_stream`, whichever was used to create this voice.
+	// Has different values depending on how this voice was started: Via `play_audio_clip`,
+	// `play_sound` or `play_audio_stream`. Used for seeking as well as some other book keeping
+	// tasks.
 	source: union #no_nil {
 		Audio_Clip,
 		Sound,

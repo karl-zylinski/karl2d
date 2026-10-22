@@ -2314,7 +2314,7 @@ count_audio_clip_active_plays :: proc(clip: Audio_Clip) -> int {
 	count: int
 
 	for it := hm.dynamic_iterator_make(&s.audio_voices); vo, _ in hm.dynamic_iterate(&it) {
-		if vo.buffer == Audio_Buffer(clip) && !vo.remove {
+		if vo.buffer == Audio_Buffer(clip) && vo.play_state != .Stopped {
 			count += 1
 		}
 	}
@@ -2382,7 +2382,7 @@ destroy_sound :: proc(sound: Sound) {
 		return
 	}
 
-	hm.remove(&s.audio_voices, so.voice)
+	_stop_audio_voice(so.voice)
 	hm.remove(&s.sounds, sound)
 }
 
@@ -2398,12 +2398,14 @@ play_sound :: proc(sound: Sound) {
 		return
 	}
 
-	if vo := hm.get(&s.audio_voices, so.voice); vo != nil && !vo.remove && vo.paused {
-		vo.paused = false
+	vo := hm.get(&s.audio_voices, so.voice)
+
+	if vo != nil && (vo.play_state == .Pausing || vo.play_state == .Paused) {
+		vo.play_state = .Playing
 		return
 	}
 
-	hm.remove(&s.audio_voices, so.voice)
+	_stop_audio_voice(so.voice)
 
 	if hm.get(&s.audio_buffers, Audio_Buffer(so.clip)) == nil {
 		return
@@ -2436,7 +2438,21 @@ stop_sound :: proc(sound: Sound) {
 		return
 	}
 
-	hm.remove(&s.audio_voices, so.voice)
+	_stop_audio_voice(so.voice)
+}
+
+_stop_audio_voice :: proc(voice: Audio_Voice) {
+	vo := hm.get(&s.audio_voices, voice)
+
+	if vo == nil {
+		return
+	}
+
+	if vo.play_state == .Paused {
+		vo.play_state = .Stopped
+	} else if vo.play_state != .Stopped {
+		vo.play_state = .Stopping
+	}
 }
 
 // Pauses a playing sound. Use `play_sound` to resume. You can check the paused state using
@@ -2449,8 +2465,8 @@ pause_sound :: proc(sound: Sound) {
 		return
 	}
 
-	if vo := hm.get(&s.audio_voices, so.voice); vo != nil {
-		vo.paused = true
+	if vo := hm.get(&s.audio_voices, so.voice); vo != nil && vo.play_state == .Playing {
+		vo.play_state = .Pausing
 	}
 }
 
@@ -2464,7 +2480,7 @@ sound_is_playing :: proc(sound: Sound) -> bool {
 	}
 
 	vo := hm.get(&s.audio_voices, so.voice)
-	return vo != nil && !vo.remove && !vo.paused
+	return vo != nil && vo.play_state == .Playing
 }
 
 // Returns true if the sound is currently playing, but it is in a paused state.
@@ -2477,7 +2493,7 @@ sound_is_paused :: proc(sound: Sound) -> bool {
 	}
 
 	vo := hm.get(&s.audio_voices, so.voice)
-	return vo != nil && !vo.remove && vo.paused
+	return vo != nil && (vo.play_state == .Pausing || vo.play_state == .Paused)
 }
 
 // Set the volume of a sound. Range: 0 to 1.
@@ -2578,14 +2594,8 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 	// we don't jump right away: The mixer fades the voice out first, then jumps, then fades it
 	// back in.
 
-	if vo.paused {
-		// A paused voice may have its volume at non-zero. We set it to zero here so that nothing
-		// has to wait for the volume to be ramped down.
-		vo.current_settings.volume = 0
-	}
-
 	vo.seek_seconds = wanted_seconds
-	vo.seek_state = vo.paused ? .Ready : .Fading_Out
+	vo.seek_state = vo.play_state == .Paused ? .Ready : .Fading_Out
 }
 
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
@@ -3733,8 +3743,10 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil && !vo.remove && vo.paused {
-		vo.paused = false
+	vo := hm.get(&s.audio_voices, sd.voice)
+
+	if vo != nil && (vo.play_state == .Pausing || vo.play_state == .Paused) {
+		vo.play_state = .Playing
 		sync.mutex_unlock(&s.audio_mutex)
 		return
 	}
@@ -3805,8 +3817,8 @@ pause_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil {
-		vo.paused = true
+	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil && vo.play_state == .Playing {
+		vo.play_state = .Pausing
 	}
 }
 
@@ -3820,8 +3832,7 @@ stop_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	// TODO: This clicks
-	hm.remove(&s.audio_voices, sd.voice)
+	_stop_audio_voice(sd.voice)
 }
 
 // Returns true if the audio stream is currently playing. Returns false if it is paused.
@@ -3834,7 +3845,7 @@ audio_stream_is_playing :: proc(stream: Audio_Stream) -> bool {
 	}
 
 	vo := hm.get(&s.audio_voices, sd.voice)
-	return vo != nil && !vo.remove && !vo.paused
+	return vo != nil && vo.play_state == .Playing
 }
 
 // Returns true if the audio stream is paused. A stopped audio stream is not paused.
@@ -3847,7 +3858,7 @@ audio_stream_is_paused :: proc(stream: Audio_Stream) -> bool {
 	}
 
 	vo := hm.get(&s.audio_voices, sd.voice)
-	return vo != nil && !vo.remove && vo.paused
+	return vo != nil && (vo.play_state == .Pausing || vo.play_state == .Paused)
 }
 
 // Set the volume of an audio stream. Range: [0, 1].
@@ -3979,12 +3990,8 @@ set_audio_stream_time :: proc(stream: Audio_Stream, seconds: f32) {
 		wanted_seconds = min(wanted_seconds, duration)
 	}
 
-	if vo.paused {
-		vo.current_settings.volume = 0
-	}
-
 	vo.seek_seconds = wanted_seconds
-	vo.seek_state = vo.paused ? .Ready : .Fading_Out
+	vo.seek_state = vo.play_state == .Paused ? .Ready : .Fading_Out
 }
 
 // Get how far into the streamed file the stream currently is playing from, in seconds. A looping
@@ -4205,7 +4212,7 @@ update_audio :: proc() {
 	if sync.mutex_guard(&s.audio_mutex) {
 		voices_iter := hm.dynamic_iterator_make(&s.audio_voices)
 		for vo, vo_handle in hm.dynamic_iterate(&voices_iter) {
-			if vo.remove {
+			if vo.play_state == .Stopped {
 				hm.remove(&s.audio_voices, vo_handle)
 			}
 		}
@@ -4429,7 +4436,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	mix_chunk_size := s.ab.mix_chunk_size
 
 	for voices_iter := hm.dynamic_iterator_make(&s.audio_voices); vo, _ in hm.dynamic_iterate(&voices_iter) {
-		if vo.remove {
+		if vo.play_state == .Stopped {
 			continue
 		}
 
@@ -4437,12 +4444,12 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		if data == nil {
 			log.error("Trying to play sound with destroyed data")
-			vo.remove = true
+			vo.play_state = .Stopped
 			continue
 		}
 
 		// A paused voice stays in the list but is not mixed.
-		if vo.paused {
+		if vo.play_state == .Paused {
 			continue
 		}
 
@@ -4506,6 +4513,15 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		if vo.seek_state == .Ready || vo.seek_state == .Seeking {
 			continue
+		}
+
+		if vo.play_state == .Pausing || vo.play_state == .Stopping {
+			volume_target = 0
+
+			if settings.volume == 0 {
+				vo.play_state = vo.play_state == .Pausing ? .Paused : .Stopped
+				continue
+			}
 		}
 
 		// We can't just use the `volume_end` value for the volume. We are going to mix in
@@ -4624,7 +4640,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 					vo.offset_fraction = 0
 				}
 			} else {
-				vo.remove = true
+				vo.play_state = .Stopped
 				continue
 			}
 		}
@@ -6691,6 +6707,14 @@ Audio_Voice_Seek_State :: enum {
 	Seeking,
 }
 
+Audio_Voice_Play_State :: enum {
+	Playing,
+	Pausing, // Will fade the volume to 0 and then change to Paused.
+	Paused,
+	Stopping, // Will fade the volume to 0 and then change to Stopped.
+	Stopped, // The voice will get removed on the next call to `_mix_audio_into_buffer`.
+}
+
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
@@ -6818,38 +6842,24 @@ Audio_Voice_Object :: struct {
 	// because we may be in samples that are in-between two samples in the original sound.
 	offset_fraction: f32,
 
-	// TODO-UPDATE-COMMENT: Streams set their loop flag using `set_audio_stream_loop`, `set_sound_loop` no longer reaches stream voices.
-	//---
-	// If source is Audio_Clip: Set this flag using `set_sound_loop`.
-	// If source is Audio_Stream: Always true (the stream has its own loop flag internally and just
-	// refills the buffer with data, which continuously plays it). `set_sound_loop` will set the
-	// loop flag inside the Audio_Stream source data.
+	// If true, then this voice will loop when the end of the buffer is reached.
+	//
+	// Behaves differently depending on how the voice was created, which the field `source` tells:
+	// - Audio_Clip: Always `false`.
+	// - Sound: Controlled by `set_sound_loop`.
+	// - Audio_Stream: Always `true`. Streams use a short buffer that data is streamed into. That
+	//   buffer is always looping. `set_audio_stream_loop` does not touch this flag, the stream has
+	//   its own `loop` flag that is used while decoding the stream and adding new samples into the
+	//   buffer.
 	loop: bool,
 
-	// TODO-UPDATE-COMMENT: Stream voices are paused using `pause_audio_stream`.
-	//---
-	// Set using `set_sound_paused`. The mixer skips paused voices.
-	paused: bool,
+	// Used for pausing and stopping the voice. When pausing and stopping, we fade out the voice.
+	// This avoids clicks. When it is faded out, then the Paused or Stopped state will be set.
+	play_state: Audio_Voice_Play_State,
 
-	// If true, then this voice will be deleted next time `update_audio` runs. We don't remove
-	// directly when mixing because we don't want to touch memory allocations there. This is because
-	// the mixing may happen on a thread. It may look like `hm.remove` is thread safe. But the
-	// handle map uses an XAR array. The XAR array may internally append to a dynamically allocated
-	// freelist, which can cause allocations to happen.
-	remove: bool,
-
-	// TODO-UPDATE-COMMENT: Both clip-based and stream-based voices keep their seek state here now. For streams the mixer only fades, `update_audio_stream` does the seek.
-	//---
-	// For seeking audio clips. The mixer does the seeking since it needs to fade out, move the
-	// playback position and then fade in again. This avoids clicks when seeking.
-	//
-	// For Audio_Stream-based voices, the seeking state is inside Audio_Stream_Data.
-	//
-	// For seeking Sounds and Audio_Streams. The mixer will fade out the audio so the seeking does
-	// not cause clicks. If `source` is a sound then the moving of the playback position will happen
-	// in the mixer. If `source` is a stream, then the moving of the playback position will be done
-	// in `update_audio_stream`. If `source` is an audio clip, then seeking cannot happen as
-	// `play_audio_clip` is fire-and-forget.
+	// Used to coordinate seeking. Seeking needs to first fade out the sound, then seek and then
+	// fade it back in. For `Sound`s the seeking is done in the mixer itself. For `Audio_Stream`s
+	// the mixer just fades it out, but the actual seeking happens in `update_audio_stream`.
 	seek_state: Audio_Voice_Seek_State,
 	seek_seconds: f32,
 
