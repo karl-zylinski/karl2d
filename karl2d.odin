@@ -2236,20 +2236,14 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
-// TODO-UPDATE-COMMENT: Returns nothing and has no `loop` parameter anymore. Use `create_sound` to get a `Sound` that can be controlled and looped.
-//---
-// Play an audio clip with the supplied initial settings. The return value is a `Sound`, which means
-// something that is currently playing in the audio mixer. You can use the returned `Sound` with
-// `set_sound_volume`, `stop_sound` etc in order to control the playback. Ignore the return value
-// if you just want to start the sound and never touch it again.
-//
-// Audio clips are loaded using `load_audio_clip_from_file`, `load_audio_clip_from_bytes` and
-// `load_audio_clip_from_bytes_raw`.
+// Play an audio clip with the supplied settings. Audio clips are loaded using
+// `load_audio_clip_from_file`, `load_audio_clip_from_bytes` and `load_audio_clip_from_bytes_raw`.
 //
 // Pass `bus` to play the sound on an audio bus. It plays on the master bus by default.
 //
-// Warning: If you pass `loop = true` and don't save the return value anywhere, then you've started
-// a sound you cannot stop.
+// This is for "fire-and-forget" type of sounds that you do not need to control after they have
+// started. The audio clip will play until it ends. If you need control as a the clip plays, then
+// use `create_sound`, `play_sound` and the other `set_sound_xxx` procedures to control it.
 play_audio_clip :: proc(
 	clip: Audio_Clip,
 	volume: f32 = 1,
