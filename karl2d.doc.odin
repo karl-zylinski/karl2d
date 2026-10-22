@@ -1911,11 +1911,12 @@ Audio_Buffer_Object :: struct {
 }
 
 // An `Audio_Voice_Object` is what `Audio_Voice` handles map to. It represents something currently
-// playing in the mixer. It holds a `buffer` which is where the mixer reads audio samples from. How
-// that buffer gets refilled depends on the `source` field. The source can either be an Audio_Clip
-// or an Audio_Stream. For clips `buffer` is the same as the clip's buffer. For audio streams the
-// buffer is a small amount of memory that is continuously being filled with data from the audio
-// stream.
+// playing in the mixer. It holds a `buffer` which is where the mixer reads audio samples from.
+//
+// The `buffer` will get filled in a few different ways. When playing audio using `play_audio_clip`
+// or `play_sound` then the buffer is the whole clip. When playing audio using `play_audio_stream`
+// the `update_audio_stream` will fill `buffer` with more data. In the stream case the buffer is
+// just a short buffer that is continuously looped and refilled.
 Audio_Voice_Object :: struct {
 	handle: Audio_Voice,
 	buffer: Audio_Buffer,
@@ -1935,13 +1936,13 @@ Audio_Voice_Object :: struct {
 
 	// If true, then this voice will loop when the end of the buffer is reached.
 	//
-	// Behaves differently depending on how the voice was created, which the field `source` tells:
-	// - Audio_Clip: Always `false`.
-	// - Sound: Controlled by `set_sound_loop`.
-	// - Audio_Stream: Always `true`. Streams use a short buffer that data is streamed into. That
-	//   buffer is always looping. `set_audio_stream_loop` does not touch this flag, the stream has
-	//   its own `loop` flag that is used while decoding the stream and adding new samples into the
-	//   buffer.
+	// Behaves differently depending on how the voice was created.
+	// - Using `play_audio_clip`: Always `false`.
+	// - Using `play_sound`: Controlled by `set_sound_loop`.
+	// - using `play_audio_stream`: Always `true`. Streams use a short buffer that data is streamed
+	//   into. That buffer is always looping. `set_audio_stream_loop` does not touch this flag, the
+	//   stream has its own `loop` flag that is used while decoding the stream and adding new
+	//   samples into the buffer.
 	loop: bool,
 
 	paused: bool,
@@ -1949,14 +1950,7 @@ Audio_Voice_Object :: struct {
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
 
-	// Has different values depending on how this voice was started: Via `play_audio_clip`,
-	// `play_sound` or `play_audio_stream`. Used for seeking as well as some other book keeping
-	// tasks.
-	source: union #no_nil {
-		Audio_Clip,
-		Sound,
-		Audio_Stream,
-	},
+	stream: Audio_Stream,
 }
 
 // A bus is a group of sounds that are mixed together before they reach the master bus. You can set

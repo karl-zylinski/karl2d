@@ -2270,7 +2270,6 @@ play_audio_clip :: proc(
 
 	audio_voice_object := Audio_Voice_Object {
 		buffer = Audio_Buffer(clip),
-		source = clip,
 		volume = clamp(volume, 0, 1),
 		target_volume = clamp(volume, 0, 1),
 		pan = clamp(pan, -1, 1),
@@ -2402,13 +2401,8 @@ play_sound :: proc(sound: Sound) {
 
 	hm.remove(&s.audio_voices, so.voice)
 
-	if hm.get(&s.audio_buffers, Audio_Buffer(so.clip)) == nil {
-		return
-	}
-
 	audio_voice_object := Audio_Voice_Object {
 		buffer = Audio_Buffer(so.clip),
-		source = sound,
 		volume = so.volume,
 		target_volume = so.volume,
 		pan = so.pan,
@@ -3501,7 +3495,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 			target := target_frame * channels
 
 			// A short step forwards is cheapest to do by decoding the samples in between and
-			// throwing them away, which is what `seek_discard` makes `update_audio_stream` do.
+			// throwing them away, which is what `seek_discard` makes `_decode_audio_stream` do.
 			if target >= cursor.decode_cursor &&
 			   target - cursor.decode_cursor <= 2 * abo.sample_rate * channels {
 				cursor.seek_discard = target - cursor.decode_cursor
@@ -3596,6 +3590,7 @@ _decode_audio_stream :: proc(
 	cursor := cursor
 	buffered := (cursor.buffer_write_pos - play_offset + len(ab.samples)) % len(ab.samples)
 	decoded := 0
+	decoded_at_last_rewind := -1
 
 	switch sd.mode {
 	case .From_File:
@@ -3639,6 +3634,12 @@ _decode_audio_stream :: proc(
 				if read_err != nil {
 					if read_err == .EOF {
 						if loop {
+							if decoded == decoded_at_last_rewind {
+								log.error("Audio stream contains no audio samples. Stopping it.")
+								return
+							}
+
+							decoded_at_last_rewind = decoded
 							_, seek_err := file_seek(sd.file, 0, .Start)
 
 							if seek_err != nil {
@@ -3721,6 +3722,12 @@ _decode_audio_stream :: proc(
 
 			if samples == 0 {
 				if loop {
+					if decoded == decoded_at_last_rewind {
+						log.error("Audio stream contains no audio samples. Stopping it.")
+						return
+					}
+
+					decoded_at_last_rewind = decoded
 					stbv.seek_start(sd.vorbis)
 					cursor.decode_cursor = 0
 
@@ -3843,7 +3850,7 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 		target_pan = sd.pan,
 		pitch = sd.pitch,
 		bus = sd.bus,
-		source = stream,
+		stream = stream,
 
 		// This means that we are looping the buffer itself. We will use this buffer as a circular
 		// buffer, filling it with samples as we stream in more. Thus it needs to be looped to not
@@ -4263,8 +4270,8 @@ update_audio :: proc() {
 			finished := ab == nil
 
 			if ab != nil {
-				if stream, is_stream := vo.source.(Audio_Stream); is_stream {
-					if sd := hm.get(&s.audio_streams, stream); sd == nil {
+				if vo.stream != AUDIO_STREAM_NONE {
+					if sd := hm.get(&s.audio_streams, vo.stream); sd == nil {
 						finished = true
 					} else {
 						buffered := _audio_stream_buffered_samples(sd, vo, len(ab.samples))
@@ -4510,17 +4517,16 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			continue
 		}
 
-		is_stream := false
+		is_stream := vo.stream != AUDIO_STREAM_NONE
 		stream_buffered: int
 
-		if stream, ok := vo.source.(Audio_Stream); ok {
-			sd := hm.get(&s.audio_streams, stream)
+		if is_stream {
+			sd := hm.get(&s.audio_streams, vo.stream)
 
 			if sd == nil {
 				continue
 			}
 
-			is_stream = true
 			stream_buffered = _audio_stream_buffered_samples(sd, vo, len(data.samples))
 
 			if stream_buffered == 0 {
@@ -6853,11 +6859,12 @@ Audio_Buffer_Object :: struct {
 }
 
 // An `Audio_Voice_Object` is what `Audio_Voice` handles map to. It represents something currently
-// playing in the mixer. It holds a `buffer` which is where the mixer reads audio samples from. How
-// that buffer gets refilled depends on the `source` field. The source can either be an Audio_Clip
-// or an Audio_Stream. For clips `buffer` is the same as the clip's buffer. For audio streams the
-// buffer is a small amount of memory that is continuously being filled with data from the audio
-// stream.
+// playing in the mixer. It holds a `buffer` which is where the mixer reads audio samples from.
+//
+// The `buffer` will get filled in a few different ways. When playing audio using `play_audio_clip`
+// or `play_sound` then the buffer is the whole clip. When playing audio using `play_audio_stream`
+// the `update_audio_stream` will fill `buffer` with more data. In the stream case the buffer is
+// just a short buffer that is continuously looped and refilled.
 Audio_Voice_Object :: struct {
 	handle: Audio_Voice,
 	buffer: Audio_Buffer,
@@ -6877,13 +6884,13 @@ Audio_Voice_Object :: struct {
 
 	// If true, then this voice will loop when the end of the buffer is reached.
 	//
-	// Behaves differently depending on how the voice was created, which the field `source` tells:
-	// - Audio_Clip: Always `false`.
-	// - Sound: Controlled by `set_sound_loop`.
-	// - Audio_Stream: Always `true`. Streams use a short buffer that data is streamed into. That
-	//   buffer is always looping. `set_audio_stream_loop` does not touch this flag, the stream has
-	//   its own `loop` flag that is used while decoding the stream and adding new samples into the
-	//   buffer.
+	// Behaves differently depending on how the voice was created.
+	// - Using `play_audio_clip`: Always `false`.
+	// - Using `play_sound`: Controlled by `set_sound_loop`.
+	// - using `play_audio_stream`: Always `true`. Streams use a short buffer that data is streamed
+	//   into. That buffer is always looping. `set_audio_stream_loop` does not touch this flag, the
+	//   stream has its own `loop` flag that is used while decoding the stream and adding new
+	//   samples into the buffer.
 	loop: bool,
 
 	paused: bool,
@@ -6891,14 +6898,7 @@ Audio_Voice_Object :: struct {
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
 
-	// Has different values depending on how this voice was started: Via `play_audio_clip`,
-	// `play_sound` or `play_audio_stream`. Used for seeking as well as some other book keeping
-	// tasks.
-	source: union #no_nil {
-		Audio_Clip,
-		Sound,
-		Audio_Stream,
-	},
+	stream: Audio_Stream,
 }
 
 // A bus is a group of sounds that are mixed together before they reach the master bus. You can set
