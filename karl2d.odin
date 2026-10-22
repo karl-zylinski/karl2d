@@ -2509,18 +2509,25 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 		return
 	}
 
-	_set_audio_voice_time(sound_object.voice, seconds)
-}
+	vo := hm.get(&s.audio_voices, sound_object.voice)
 
-_set_audio_voice_time :: proc(voice: Audio_Voice, seconds: f32) {
-	audio_voice_object := hm.get(&s.audio_voices, voice)
-
-	if audio_voice_object == nil {
+	if vo == nil {
 		return
 	}
 
+	ab := hm.get(&s.audio_buffers, vo.buffer)
+
+	if ab == nil {
+		return
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
 	wanted_seconds := max(seconds, 0)
-	length := _get_audio_voice_length(voice)
+	length := f32(len(ab.samples) / channels) / f32(ab.sample_rate)
 
 	if length > 0 {
 		wanted_seconds = min(wanted_seconds, length)
@@ -2530,12 +2537,14 @@ _set_audio_voice_time :: proc(voice: Audio_Voice, seconds: f32) {
 	// we don't jump right away: The mixer fades the voice out first, then jumps, then fades it
 	// back in.
 
-	if audio_voice_object.paused {
+	if vo.paused {
 		// A paused voice may have its volume at non-zero. We set it to zero here so that nothing
 		// has to wait for the volume to be ramped down.
-		audio_voice_object.current_settings.volume = 0
+		vo.current_settings.volume = 0
 	}
 
+	// TODO-UPDATE-COMMENT: Streams are now seeked in `set_audio_stream_time`, only the clip part happens here.
+	//---
 	// Note that we do this a bit differently for audio streams and clips. For clips we set the
 	// `clip_has_pending_seek` state. The mixer will ramp down the volume and then move it to the
 	// correct position in the buffer. It will then ramp it up again.
@@ -2543,21 +2552,8 @@ _set_audio_voice_time :: proc(voice: Audio_Voice, seconds: f32) {
 	// For a stream the seeking happens in `update_audio_stream` using state that lives on the
 	// audio stream object.
 
-	switch src in audio_voice_object.source {
-	case Audio_Clip:
-		audio_voice_object.clip_has_pending_seek = true
-		audio_voice_object.clip_pending_seek_seconds = wanted_seconds
-
-	case Audio_Stream:
-		sd := hm.get(&s.audio_streams, src)
-
-		if sd == nil {
-			return
-		}
-
-		sd.seek_seconds = wanted_seconds
-		sd.seek_state = audio_voice_object.paused ? .Ready : .Fading_Out
-	}
+	vo.clip_has_pending_seek = true
+	vo.clip_pending_seek_seconds = wanted_seconds
 }
 
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
@@ -2570,17 +2566,13 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 		return 0
 	}
 
-	return _get_audio_voice_time(sound_object.voice)
-}
+	vo := hm.get(&s.audio_voices, sound_object.voice)
 
-_get_audio_voice_time :: proc(voice: Audio_Voice) -> f32 {
-	audio_voice_object := hm.get(&s.audio_voices, voice)
-
-	if audio_voice_object == nil {
+	if vo == nil {
 		return 0
 	}
 
-	ab := hm.get(&s.audio_buffers, audio_voice_object.buffer)
+	ab := hm.get(&s.audio_buffers, vo.buffer)
 
 	if ab == nil {
 		return 0
@@ -2591,49 +2583,13 @@ _get_audio_voice_time :: proc(voice: Audio_Voice) -> f32 {
 		channels = 2
 	}
 
-	switch src in audio_voice_object.source {
-	case Audio_Clip:
-		// A seek that is still fading out hasn't moved the voice yet, but it is on its way there.
-		// Report where it is going, so that things like a seek bar don't jump backwards for a moment.
-		if audio_voice_object.clip_has_pending_seek {
-			return audio_voice_object.clip_pending_seek_seconds
-		}
-
-		return f32(audio_voice_object.offset / channels) / f32(ab.sample_rate)
-
-	case Audio_Stream:
-		sd := hm.get(&s.audio_streams, src)
-
-		if sd == nil {
-			return 0
-		}
-
-		// A seek is pending, just return where it is going.
-		if sd.seek_state != .None {
-			return sd.seek_seconds
-		}
-
-		// How many decoded samples are still sitting unplayed in the circular staging buffer.
-		remaining := sd.cursor.buffer_write_pos - audio_voice_object.offset
-
-		if remaining < 0 {
-			remaining = len(ab.samples) - audio_voice_object.offset + sd.cursor.buffer_write_pos
-		}
-
-		position := sd.cursor.decode_cursor - remaining
-
-		// A looping stream starts decoding the beginning of the file again before the listener has
-		// heard the end of it, since the end is still sitting in the buffer. Count back into the
-		// previous time round, so that the last bit of the audio is reported instead of jumping to
-		// the start early.
-		for position < 0 && sd.total_samples > 0 {
-			position += sd.total_samples
-		}
-
-		return f32(max(position, 0) / channels) / f32(ab.sample_rate)
+	// A seek that is still fading out hasn't moved the voice yet, but it is on its way there.
+	// Report where it is going, so that things like a seek bar don't jump backwards for a moment.
+	if vo.clip_has_pending_seek {
+		return vo.clip_pending_seek_seconds
 	}
 
-	return 0
+	return f32(vo.offset / channels) / f32(ab.sample_rate)
 }
 
 // Get the length of the sound's audio, in seconds. Use it together with `get_sound_time` to show
@@ -2658,41 +2614,6 @@ get_sound_length :: proc(sound: Sound) -> f32 {
 	}
 
 	return f32(len(ab.samples) / channels) / f32(ab.sample_rate)
-}
-
-_get_audio_voice_length :: proc(voice: Audio_Voice) -> f32 {
-	audio_voice_object := hm.get(&s.audio_voices, voice)
-
-	if audio_voice_object == nil {
-		return 0
-	}
-
-	ab := hm.get(&s.audio_buffers, audio_voice_object.buffer)
-
-	if ab == nil {
-		return 0
-	}
-
-	channels := 1
-	if ab.channels == .Stereo {
-		channels = 2
-	}
-
-	switch src in audio_voice_object.source {
-	case Audio_Clip:
-		return f32(len(ab.samples) / channels) / f32(ab.sample_rate)
-
-	case Audio_Stream:
-		sd := hm.get(&s.audio_streams, src)
-
-		if sd == nil {
-			return 0
-		}
-
-		return f32(sd.total_samples / channels) / f32(ab.sample_rate)
-	}
-
-	return 0
 }
 
 // TODO-UPDATE-COMMENT: Streams no longer hand out a `Sound`, they use `set_audio_stream_loop`.
@@ -3992,7 +3913,36 @@ set_audio_stream_time :: proc(stream: Audio_Stream, seconds: f32) {
 		return
 	}
 
-	_set_audio_voice_time(sd.voice, seconds)
+	vo := hm.get(&s.audio_voices, sd.voice)
+
+	if vo == nil {
+		return
+	}
+
+	ab := hm.get(&s.audio_buffers, sd.buffer)
+
+	if ab == nil {
+		return
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	wanted_seconds := max(seconds, 0)
+	duration := f32(sd.total_samples / channels) / f32(ab.sample_rate)
+
+	if duration > 0 {
+		wanted_seconds = min(wanted_seconds, duration)
+	}
+
+	if vo.paused {
+		vo.current_settings.volume = 0
+	}
+
+	sd.seek_seconds = wanted_seconds
+	sd.seek_state = vo.paused ? .Ready : .Fading_Out
 }
 
 get_audio_stream_time :: proc(stream: Audio_Stream) -> f32 {
@@ -4003,7 +3953,46 @@ get_audio_stream_time :: proc(stream: Audio_Stream) -> f32 {
 		return 0
 	}
 
-	return _get_audio_voice_time(sd.voice)
+	vo := hm.get(&s.audio_voices, sd.voice)
+
+	if vo == nil {
+		return 0
+	}
+
+	ab := hm.get(&s.audio_buffers, sd.buffer)
+
+	if ab == nil {
+		return 0
+	}
+
+	channels := 1
+	if ab.channels == .Stereo {
+		channels = 2
+	}
+
+	// A seek is pending, just return where it is going.
+	if sd.seek_state != .None {
+		return sd.seek_seconds
+	}
+
+	// How many decoded samples are still sitting unplayed in the circular staging buffer.
+	remaining := sd.cursor.buffer_write_pos - vo.offset
+
+	if remaining < 0 {
+		remaining = len(ab.samples) - vo.offset + sd.cursor.buffer_write_pos
+	}
+
+	position := sd.cursor.decode_cursor - remaining
+
+	// A looping stream starts decoding the beginning of the file again before the listener has
+	// heard the end of it, since the end is still sitting in the buffer. Count back into the
+	// previous time round, so that the last bit of the audio is reported instead of jumping to
+	// the start early.
+	for position < 0 && sd.total_samples > 0 {
+		position += sd.total_samples
+	}
+
+	return f32(max(position, 0) / channels) / f32(ab.sample_rate)
 }
 
 get_audio_stream_duration :: proc(stream: Audio_Stream) -> f32 {
@@ -4438,11 +4427,11 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		pitch := settings.pitch
 		adjust_parameter_delta = calc_adjust_parameter_delta(mix_chunk_size, data.sample_rate, pitch)
 
-		// `_set_audio_voice_time` doesn't seek the voice itself, it just says where the voice should go.
-		// For voices based on audio clips we seek it here (after fading it out, so it doesn't
-		// click). For audio streams the seeking happens in update_audio_stream, but we still fade
-		// the voice here. When it has finished fading, then update_audio_stream will do the actual
-		// seeking.
+		// `set_sound_time` and `set_audio_stream_time` don't seek the voice itself, they just say
+		// where the voice should go. For voices based on audio clips we seek it here (after fading
+		// it out, so it doesn't click). For audio streams the seeking happens in
+		// update_audio_stream, but we still fade the voice here. When it has finished fading, then
+		// update_audio_stream will do the actual seeking.
 
 		volume_target := target_settings.volume
 
