@@ -1763,12 +1763,8 @@ Audio_Sample :: f32
 
 Audio_Voice :: distinct Handle
 
-// TODO-UPDATE-COMMENT: `play_audio_stream` no longer returns a `Sound`. A `Sound` is now made using `create_sound`, keeps its settings and lives until `destroy_sound`.
-//---
-// Represents something that is currently playing in the audio mixer. Created using
-// `play_audio_clip` and `play_audio_stream`. A sound is automatically destroyed when it finishes
-// playing. It is safe to keep using the handle after that: The procedures that take a `Sound` will
-// then just do nothing.
+// Created using `create_sound` from an Audio_Clip. Keeps track of an Audio_Clips playback state and
+// lets you control its playback settings.
 Sound :: distinct Handle
 
 SOUND_NONE :: Sound {}
@@ -1816,10 +1812,10 @@ Audio_Voice_Seek_State :: enum {
 
 Audio_Voice_Play_State :: enum {
 	Playing,
-	Pausing,
+	Pausing, // Will fade the volume to 0 and then change to Paused.
 	Paused,
-	Stopping,
-	Stopped,
+	Stopping, // Will fade the volume to 0 and then change to Stopped.
+	Stopped, // The voice will get removed on the next call to `_mix_audio_into_buffer`.
 }
 
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
@@ -1949,37 +1945,24 @@ Audio_Voice_Object :: struct {
 	// because we may be in samples that are in-between two samples in the original sound.
 	offset_fraction: f32,
 
-	// TODO-UPDATE-COMMENT: Streams set their loop flag using `set_audio_stream_loop`, `set_sound_loop` no longer reaches stream voices.
-	//---
-	// If source is Audio_Clip: Set this flag using `set_sound_loop`.
-	// If source is Audio_Stream: Always true (the stream has its own loop flag internally and just
-	// refills the buffer with data, which continuously plays it). `set_sound_loop` will set the
-	// loop flag inside the Audio_Stream source data.
+	// If true, then this voice will loop when the end of the buffer is reached.
+	//
+	// Behaves differently depending on how the voice was created, which the field `source` tells:
+	// - Audio_Clip: Always `false`.
+	// - Sound: Controlled by `set_sound_loop`.
+	// - Audio_Stream: Always `true`. Streams use a short buffer that data is streamed into. That
+	//   buffer is always looping. `set_audio_stream_loop` does not touch this flag, the stream has
+	//   its own `loop` flag that is used while decoding the stream and adding new samples into the
+	//   buffer.
 	loop: bool,
 
-	// TODO-UPDATE-COMMENT: `paused` and `remove` are now the `.Paused` and `.Stopped` values of `play_state`. `.Pausing` and `.Stopping` fade the voice out first. Pausing is done using `pause_sound` and `pause_audio_stream`.
-	//---
-	// Set using `set_sound_paused`. The mixer skips paused voices.
-	//
-	// If true, then this voice will be deleted next time `update_audio` runs. We don't remove
-	// directly when mixing because we don't want to touch memory allocations there. This is because
-	// the mixing may happen on a thread. It may look like `hm.remove` is thread safe. But the
-	// handle map uses an XAR array. The XAR array may internally append to a dynamically allocated
-	// freelist, which can cause allocations to happen.
+	// Used for pausing and stopping the voice. When pausing and stopping, we fade out the voice.
+	// This avoids clicks. When it is faded out, then the Paused or Stopped state will be set.
 	play_state: Audio_Voice_Play_State,
 
-	// TODO-UPDATE-COMMENT: Both clip-based and stream-based voices keep their seek state here now. For streams the mixer only fades, `update_audio_stream` does the seek.
-	//---
-	// For seeking audio clips. The mixer does the seeking since it needs to fade out, move the
-	// playback position and then fade in again. This avoids clicks when seeking.
-	//
-	// For Audio_Stream-based voices, the seeking state is inside Audio_Stream_Data.
-	//
-	// For seeking Sounds and Audio_Streams. The mixer will fade out the audio so the seeking does
-	// not cause clicks. If `source` is a sound then the moving of the playback position will happen
-	// in the mixer. If `source` is a stream, then the moving of the playback position will be done
-	// in `update_audio_stream`. If `source` is an audio clip, then seeking cannot happen as
-	// `play_audio_clip` is fire-and-forget.
+	// Used to coordinate seeking. Seeking needs to first fade out the sound, then seek and then
+	// fade it back in. For `Sound`s the seeking is done in the mixer itself. For `Audio_Stream`s
+	// the mixer just fades it out, but the actual seeking happens in `update_audio_stream`.
 	seek_state: Audio_Voice_Seek_State,
 	seek_seconds: f32,
 

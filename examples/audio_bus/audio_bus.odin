@@ -68,11 +68,6 @@ init :: proc() {
 	tone1_clip = make_sine_wave(400, 1, 44100)
 	tone2_clip = make_sine_wave(1000, 1, 44100)
 
-	// TODO-UPDATE-COMMENT: `play_audio_clip` no longer loops or returns a handle. The tones are `Sound`s made using `create_sound`, which are destroyed in `shutdown`.
-	//---
-	// Tone 2 goes on the sfx bus. Tone 1 is left alone, so it plays on the master bus. We
-	// never stop them one by one, and destroying the clips in `shutdown` stops them, so the
-	// returned sound handles can be discarded.
 	tone1_sound = k2.create_sound(tone1_clip, volume = 0.15, loop = true)
 	k2.play_sound(tone1_sound)
 

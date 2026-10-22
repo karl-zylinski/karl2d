@@ -6656,12 +6656,8 @@ Audio_Sample :: f32
 
 Audio_Voice :: distinct Handle
 
-// TODO-UPDATE-COMMENT: `play_audio_stream` no longer returns a `Sound`. A `Sound` is now made using `create_sound`, keeps its settings and lives until `destroy_sound`.
-//---
-// Represents something that is currently playing in the audio mixer. Created using
-// `play_audio_clip` and `play_audio_stream`. A sound is automatically destroyed when it finishes
-// playing. It is safe to keep using the handle after that: The procedures that take a `Sound` will
-// then just do nothing.
+// Created using `create_sound` from an Audio_Clip. Keeps track of an Audio_Clips playback state and
+// lets you control its playback settings.
 Sound :: distinct Handle
 
 SOUND_NONE :: Sound {}
