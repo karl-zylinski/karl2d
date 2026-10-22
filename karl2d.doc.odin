@@ -604,8 +604,8 @@ set_texture_filter_ex :: proc(
 // Pass `bus` to play the sound on an audio bus. It plays on the master bus by default.
 //
 // This is for "fire-and-forget" type of sounds that you do not need to control after they have
-// started. The audio clip will play until it ends. If you need control as a the clip plays, then
-// use `create_sound`, `play_sound` and the other `set_sound_xxx` procedures to control it.
+// started. The audio clip will play until it ends. If you need control as the clip plays, then use
+// `create_sound`, `play_sound` and the other `set_sound_xxx` procedures to control it.
 //
 // You cannot loop audio clips using this procedure, since you would have no way to stop them. For
 // looping audio clips, use a Sound.
@@ -685,8 +685,6 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
 // Move the sound to another spot in its audio. `seconds` is measured from the start of the audio.
 // Use `get_sound_duration` to find out how long the sound is.
-//
-// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_time :: proc(sound: Sound, seconds: f32)
 
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
@@ -707,7 +705,7 @@ set_sound_loop :: proc(sound: Sound, loop: bool)
 // Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_bus :: proc(sound: Sound, bus: Audio_Bus)
 
-// Returns how many `Sound` objects there are the refer to the same audio clip.
+// Returns how many `Sound` objects there are that refer to the same audio clip.
 count_sounds_from_clip :: proc(clip: Audio_Clip) -> int
 
 // Load a audio file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`.
@@ -861,8 +859,6 @@ set_audio_stream_bus :: proc(stream: Audio_Stream, bus: Audio_Bus)
 
 // Move the stream to another spot in its audio. `seconds` is measured from the start of the
 // streamed file. Use `get_audio_stream_duration` to find out how long the sound is.
-//
-// Affects a playing stream and is remembered for future playback.
 set_audio_stream_time :: proc(stream: Audio_Stream, seconds: f32)
 
 // Get how far into the streamed file the stream currently is playing from, in seconds. A looping

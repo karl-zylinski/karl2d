@@ -2242,8 +2242,8 @@ set_texture_filter_ex :: proc(
 // Pass `bus` to play the sound on an audio bus. It plays on the master bus by default.
 //
 // This is for "fire-and-forget" type of sounds that you do not need to control after they have
-// started. The audio clip will play until it ends. If you need control as a the clip plays, then
-// use `create_sound`, `play_sound` and the other `set_sound_xxx` procedures to control it.
+// started. The audio clip will play until it ends. If you need control as the clip plays, then use
+// `create_sound`, `play_sound` and the other `set_sound_xxx` procedures to control it.
 //
 // You cannot loop audio clips using this procedure, since you would have no way to stop them. For
 // looping audio clips, use a Sound.
@@ -2537,8 +2537,6 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 
 // Move the sound to another spot in its audio. `seconds` is measured from the start of the audio.
 // Use `get_sound_duration` to find out how long the sound is.
-//
-// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_time :: proc(sound: Sound, seconds: f32) {
 	sync.mutex_guard(&s.audio_mutex)
 	so := hm.get(&s.sounds, sound)
@@ -2672,7 +2670,7 @@ set_sound_bus :: proc(sound: Sound, bus: Audio_Bus) {
 	}
 }
 
-// Returns how many `Sound` objects there are the refer to the same audio clip.
+// Returns how many `Sound` objects there are that refer to the same audio clip.
 count_sounds_from_clip :: proc(clip: Audio_Clip) -> int {
 	sync.mutex_guard(&s.audio_mutex)
 	count: int
@@ -3465,13 +3463,12 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 	// We fetch this while guarded by audio_mutex, we'll use them during the seeking & decode.
 	play_offset := vo.offset % len(abo.samples)
-	available := _audio_stream_buffered_samples(sd, vo, len(abo.samples))
 	loop := sd.loop
-	seek_requested := sd.seek_requested
+	seeking := sd.seek_requested
 	seek_seconds := sd.seek_seconds
 	cursor := sd.cursor
 
-	if sd.end_reached && !seek_requested {
+	if sd.end_reached && !seeking {
 		sync.mutex_unlock(&s.audio_mutex)
 		return
 	}
@@ -3479,42 +3476,105 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	sync.mutex_lock(&sd.decode_mutex)
 	sync.mutex_unlock(&s.audio_mutex)
 
-	seeked := false
+	stream_ok := true
 
-	if seek_requested {
-		post_seek_cursor, seek_ok := _seek_audio_stream(sd, abo^, cursor, seek_seconds)
-
-		if seek_ok {
-			cursor = post_seek_cursor
-			slice.zero(abo.samples)
-			cursor.buffer_write_pos = play_offset
-			seeked = true
+	if seeking {
+		channels := 1
+		if abo.channels == .Stereo {
+			channels = 2
 		}
+
+		target_frame := int(seek_seconds * f32(abo.sample_rate))
+
+		switch sd.mode {
+		case .From_Bytes:
+			if stbv.seek(sd.vorbis, u32(target_frame)) == 0 {
+				log.error("Failed seeking in audio stream. Stopping it.")
+				stream_ok = false
+				break
+			}
+
+			cursor.decode_cursor = target_frame * channels
+			cursor.seek_discard = 0
+
+		case .From_File:
+			target := target_frame * channels
+
+			// A short step forwards is cheapest to do by decoding the samples in between and
+			// throwing them away, which is what `seek_discard` makes `update_audio_stream` do.
+			if target >= cursor.decode_cursor &&
+			   target - cursor.decode_cursor <= 2 * abo.sample_rate * channels {
+				cursor.seek_discard = target - cursor.decode_cursor
+				break
+			}
+
+			// Anything longer is done by seeking the file itself.
+			if landed := _seek_file_stream(sd, abo^, target_frame); landed >= 0 {
+				cursor.decode_cursor = landed * channels
+				cursor.seek_discard = target - cursor.decode_cursor
+				break
+			}
+
+			// The file could not be searched, so go back to the start and decode from there.
+			if _, seek_err := file_seek(sd.file, 0, .Start); seek_err != nil {
+				log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
+				stream_ok = false
+				break
+			}
+
+			sd.file_read_buf_len = 0
+			sd.file_read_buf_offset = 0
+			stbv.flush_pushdata(sd.vorbis)
+			cursor.decode_cursor = 0
+			cursor.seek_discard = target
+		}
+
+		slice.zero(abo.samples)
+		cursor.buffer_write_pos = play_offset
 	}
 
-	decode_available := seeked ? 0 : available
-	post_decode_cursor, end_reached, decode_ok := _decode_audio_stream(
-		sd,
-		abo,
-		cursor,
-		decode_available,
-		loop,
-	)
+	post_decode_cursor: Audio_Stream_Cursor
+	end_reached: bool
+
+	if stream_ok {
+		post_decode_cursor, end_reached, stream_ok = _decode_audio_stream(
+			sd,
+			abo,
+			cursor,
+			play_offset,
+			loop,
+		)
+	}
+
 	sync.mutex_unlock(&sd.decode_mutex)
 	sync.mutex_lock(&s.audio_mutex)
 
-	if !decode_ok {
+	if !stream_ok {
 		hm.remove(&s.audio_voices, voice)
 		sync.mutex_unlock(&s.audio_mutex)
 		return
 	}
 
+	// Refetch `sd` since it may have changed since last audio_mutex lock.
 	if sd = hm.get(&s.audio_streams, stream); sd != nil && sd.voice == voice {
 		sd.cursor = post_decode_cursor
-		sd.end_reached = (sd.end_reached && !seeked) || end_reached
 
-		// We check if the seek_seconds is still the same, in case someone has read this value.
-		if seek_requested && sd.seek_seconds == seek_seconds {
+		if seeking {
+			sd.end_reached = false
+
+			if vo = hm.get(&s.audio_voices, voice); vo != nil {
+				vo.offset = play_offset
+				vo.offset_fraction = 0
+			}
+		}
+
+		if end_reached && !sd.loop {
+			sd.end_reached = true
+		}
+
+		// We check if the seek_seconds is still the same, in case someone has put in a new seek.
+		// Remember, this proc _can_ run on a thread.
+		if seeking && sd.seek_seconds == seek_seconds {
 			sd.seek_requested = false
 		}
 	}
@@ -3526,7 +3586,7 @@ _decode_audio_stream :: proc(
 	sd: ^Audio_Stream_Data,
 	ab: ^Audio_Buffer_Object,
 	cursor: Audio_Stream_Cursor,
-	available: int,
+	play_offset: int,
 	loop: bool,
 ) -> (
 	_post_decode_cursor: Audio_Stream_Cursor,
@@ -3534,11 +3594,12 @@ _decode_audio_stream :: proc(
 	_ok: bool,
 ) {
 	cursor := cursor
+	buffered := (cursor.buffer_write_pos - play_offset + len(ab.samples)) % len(ab.samples)
 	decoded := 0
 
 	switch sd.mode {
 	case .From_File:
-		for available + decoded < AUDIO_STREAM_BUFFER_SIZE / 2 {
+		for buffered + decoded < AUDIO_STREAM_BUFFER_SIZE / 2 {
 			channels: i32
 			samples: i32
 			output: [^]^f32
@@ -3655,7 +3716,7 @@ _decode_audio_stream :: proc(
 		channels: i32
 		output: [^]^f32
 
-		for available + decoded < AUDIO_STREAM_BUFFER_SIZE / 2 {
+		for buffered + decoded < AUDIO_STREAM_BUFFER_SIZE / 2 {
 			samples := stbv.get_frame_float(sd.vorbis, &channels, &output)
 
 			if samples == 0 {
@@ -3918,6 +3979,10 @@ set_audio_stream_loop :: proc(stream: Audio_Stream, loop: bool) {
 	}
 
 	sd.loop = loop
+
+	if loop {
+		sd.end_reached = false
+	}
 }
 
 // Move the stream to some other bus. The bus may have playback settings of its own that are then
@@ -3946,8 +4011,6 @@ set_audio_stream_bus :: proc(stream: Audio_Stream, bus: Audio_Bus) {
 
 // Move the stream to another spot in its audio. `seconds` is measured from the start of the
 // streamed file. Use `get_audio_stream_duration` to find out how long the sound is.
-//
-// Affects a playing stream and is remembered for future playback.
 set_audio_stream_time :: proc(stream: Audio_Stream, seconds: f32) {
 	sync.mutex_guard(&s.audio_mutex)
 	sd := hm.get(&s.audio_streams, stream)
@@ -4497,10 +4560,6 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		)
 
 		vo.volume = volume_end
-
-		if volume_start == volume_end && volume_end == 0 {
-			continue
-		}
 		
 		pan_start := clamp(vo.pan, -1, 1)
 		pan_end := clamp(move_towards(vo.pan, vo.target_pan, adjust_parameter_delta), -1, 1)
@@ -7678,70 +7737,6 @@ _ogg_file_total_frames :: proc(f: ^File) -> int {
 	}
 
 	return 0
-}
-
-// The caller must hold sd.decode_mutex
-_seek_audio_stream :: proc(
-	sd: ^Audio_Stream_Data,
-	ab: Audio_Buffer_Object,
-	cursor: Audio_Stream_Cursor,
-	seconds: f32,
-) -> (
-	_post_seek_cursor: Audio_Stream_Cursor,
-	_ok: bool,
-) {
-	cursor := cursor
-
-	channels := 1
-	if ab.channels == .Stereo {
-		channels = 2
-	}
-
-	target_frame := int(seconds * f32(ab.sample_rate))
-
-	// Don't go past the end of the audio when we know where that is.
-	if sd.total_samples > 0 {
-		target_frame = min(target_frame, sd.total_samples / channels)
-	}
-
-	switch sd.mode {
-	case .From_Bytes:
-		if stbv.seek(sd.vorbis, u32(target_frame)) == 0 {
-			log.error("Cannot set sound position, seeking in the audio stream failed.")
-			return
-		}
-
-		cursor.decode_cursor = target_frame * channels
-		cursor.seek_discard = 0
-
-	case .From_File:
-		target := target_frame * channels
-
-		// A short step forwards is cheapest to do by decoding the samples in between and throwing
-		// them away, which is what `seek_discard` makes `update_audio_stream` do.
-		if target >= cursor.decode_cursor &&
-		   target - cursor.decode_cursor <= 2 * ab.sample_rate * channels {
-			cursor.seek_discard = target - cursor.decode_cursor
-			break
-		}
-
-		// Anything longer is done by seeking the file itself.
-		if landed := _seek_file_stream(sd, ab, target_frame); landed >= 0 {
-			cursor.decode_cursor = landed * channels
-			cursor.seek_discard = target - cursor.decode_cursor
-			break
-		}
-
-		// The file could not be searched, so go back to the start and decode from there.
-		file_seek(sd.file, 0, .Start)
-		sd.file_read_buf_len = 0
-		sd.file_read_buf_offset = 0
-		stbv.flush_pushdata(sd.vorbis)
-		cursor.decode_cursor = 0
-		cursor.seek_discard = target
-	}
-
-	return cursor, true
 }
 
 // Run by the drawing procedures before they add any vertices. Draws the batch if `vertices_needed`
