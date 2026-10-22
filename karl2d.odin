@@ -2311,8 +2311,8 @@ count_audio_clip_active_plays :: proc(clip: Audio_Clip) -> int {
 	sync.mutex_guard(&s.audio_mutex)
 	count: int
 
-	for it := hm.dynamic_iterator_make(&s.audio_voices); audio_voice_object, _ in hm.dynamic_iterate(&it) {
-		if audio_voice_object.source == clip && !audio_voice_object.remove {
+	for it := hm.dynamic_iterator_make(&s.audio_voices); vo, _ in hm.dynamic_iterate(&it) {
+		if vo.buffer == Audio_Buffer(clip) && !vo.remove {
 			count += 1
 		}
 	}
@@ -2409,7 +2409,7 @@ play_sound :: proc(sound: Sound) {
 
 	audio_voice_object := Audio_Voice_Object {
 		buffer = Audio_Buffer(so.clip),
-		source = so.clip,
+		source = sound,
 		target_settings = so.settings,
 		current_settings = so.settings,
 		loop = so.loop,
@@ -2582,8 +2582,8 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 		vo.current_settings.volume = 0
 	}
 
-	vo.clip_has_pending_seek = true
-	vo.clip_pending_seek_seconds = wanted_seconds
+	vo.seek_seconds = wanted_seconds
+	vo.seek_state = vo.paused ? .Ready : .Fading_Out
 }
 
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
@@ -2615,8 +2615,8 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 
 	// A seek that is still fading out hasn't moved the voice yet, but it is on its way there.
 	// Report where it is going, so that things like a seek bar don't jump backwards for a moment.
-	if vo.clip_has_pending_seek {
-		return vo.clip_pending_seek_seconds
+	if vo.seek_state != .None {
+		return vo.seek_seconds
 	}
 
 	return f32(vo.offset / channels) / f32(ab.sample_rate)
@@ -3118,7 +3118,7 @@ destroy_audio_clip :: proc(clip: Audio_Clip)  {
 	}
 
 	for it := hm.dynamic_iterator_make(&s.audio_voices); vo, vo_handle in hm.dynamic_iterate(&it) {
-		if vo.source == clip {
+		if vo.buffer == buffer {
 			hm.remove(&s.audio_voices, vo_handle)
 		}
 	}
@@ -3481,12 +3481,12 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	// We fetch this while guarded by audio_mutex, we'll use them during the seeking & decode.
 	play_offset := vo.offset
 	loop := sd.loop
-	seek := sd.seek_state == .Ready
-	seek_seconds := sd.seek_seconds
+	seek := vo.seek_state == .Ready
+	seek_seconds := vo.seek_seconds
 	cursor := sd.cursor
 
 	if seek {
-		sd.seek_state = .Seeking
+		vo.seek_state = .Seeking
 	}
 
 	sync.mutex_lock(&sd.decode_mutex)
@@ -3514,10 +3514,10 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 	if sd = hm.get(&s.audio_streams, stream); sd != nil {
 		sd.cursor = post_decode_cursor
+	}
 
-		if sd.seek_state == .Seeking {
-			sd.seek_state = .None
-		}
+	if vo = hm.get(&s.audio_voices, voice); vo != nil && vo.seek_state == .Seeking {
+		vo.seek_state = .None
 	}
 
 	sync.mutex_unlock(&s.audio_mutex)
@@ -3747,7 +3747,6 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 	}
 
 	loop := sd.loop
-	sd.seek_state = .None
 	sync.mutex_lock(&sd.decode_mutex)
 	sync.mutex_unlock(&s.audio_mutex)
 
@@ -3982,8 +3981,8 @@ set_audio_stream_time :: proc(stream: Audio_Stream, seconds: f32) {
 		vo.current_settings.volume = 0
 	}
 
-	sd.seek_seconds = wanted_seconds
-	sd.seek_state = vo.paused ? .Ready : .Fading_Out
+	vo.seek_seconds = wanted_seconds
+	vo.seek_state = vo.paused ? .Ready : .Fading_Out
 }
 
 // Get how far into the streamed file the stream currently is playing from, in seconds. A looping
@@ -4015,8 +4014,8 @@ get_audio_stream_time :: proc(stream: Audio_Stream) -> f32 {
 	}
 
 	// A seek is pending, just return where it is going.
-	if sd.seek_state != .None {
-		return sd.seek_seconds
+	if vo.seek_state != .None {
+		return vo.seek_seconds
 	}
 
 	// How many decoded samples are still sitting unplayed in the circular staging buffer.
@@ -4477,41 +4476,34 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		volume_target := target_settings.volume
 
-		switch src in vo.source {
-		case Audio_Clip:
-			if vo.clip_has_pending_seek {
-				volume_target = 0
+		if vo.seek_state == .Fading_Out {
+			volume_target = 0
 
-				if settings.volume == 0 {
-					channels := 1
-					if data.channels == .Stereo {
-						channels = 2
-					}
-
-					total_frames := len(data.samples) / channels
-					target_frame := int(vo.clip_pending_seek_seconds * f32(data.sample_rate))
-					vo.offset = clamp(target_frame, 0, total_frames) * channels
-					vo.offset_fraction = 0
-					vo.clip_has_pending_seek = false
-					volume_target = target_settings.volume
-				}
+			if settings.volume == 0 {
+				vo.seek_state = .Ready
 			}
+		}
 
-		case Audio_Stream:
-			if sd := hm.get(&s.audio_streams, src); sd != nil {
-				switch sd.seek_state {
-				case .None:
-				case .Fading_Out:
-					volume_target = 0
+		if vo.seek_state == .Ready {
+			// For audio streams the actual seeking happens in `update_audio_stream`.
+			if _, is_sound := vo.source.(Sound); is_sound {
+				channels := 1
 
-					if settings.volume == 0 {
-						sd.seek_state = .Ready
-						continue
-					}
-				case .Ready, .Seeking:
-					continue
+				if data.channels == .Stereo {
+					channels = 2
 				}
+
+				total_frames := len(data.samples) / channels
+				target_frame := int(vo.seek_seconds * f32(data.sample_rate))
+				vo.offset = clamp(target_frame, 0, total_frames) * channels
+				vo.offset_fraction = 0
+				vo.seek_state = .None
+				volume_target = target_settings.volume
 			}
+		}
+
+		if vo.seek_state == .Ready || vo.seek_state == .Seeking {
+			continue
 		}
 
 		// We can't just use the `volume_end` value for the volume. We are going to mix in
@@ -6690,7 +6682,7 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
-Audio_Stream_Seek_State :: enum {
+Audio_Voice_Seek_State :: enum {
 	None,
 	Fading_Out,
 	Ready,
@@ -6742,9 +6734,6 @@ Audio_Stream_Data :: struct {
 	// buffer itself. That's something you always want for a stream: We are continously writing
 	// data from a file into a small buffer that is a few seconds long.
 	loop: bool,
-
-	seek_state: Audio_Stream_Seek_State,
-	seek_seconds: f32,
 
 	mode: Audio_Stream_Mode,
 
@@ -6847,20 +6836,30 @@ Audio_Voice_Object :: struct {
 	// freelist, which can cause allocations to happen.
 	remove: bool,
 
+	// TODO-UPDATE-COMMENT: Both clip-based and stream-based voices keep their seek state here now. For streams the mixer only fades, `update_audio_stream` does the seek.
+	//---
 	// For seeking audio clips. The mixer does the seeking since it needs to fade out, move the
 	// playback position and then fade in again. This avoids clicks when seeking.
 	//
 	// For Audio_Stream-based voices, the seeking state is inside Audio_Stream_Data.
-	clip_has_pending_seek: bool,
-	clip_pending_seek_seconds: f32,
+	//
+	// For seeking Sounds and Audio_Streams. The mixer will fade out the audio so the seeking does
+	// not cause clicks. If `source` is a sound then the moving of the playback position will happen
+	// in the mixer. If `source` is a stream, then the moving of the playback position will be done
+	// in `update_audio_stream`. If `source` is an audio clip, then seeking cannot happen as
+	// `play_audio_clip` is fire-and-forget.
+	seek_state: Audio_Voice_Seek_State,
+	seek_seconds: f32,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
 
-	// This is the Audio_Clip or Audio_Stream that was passed to either `play_audio_clip` or
-	// `play_audio_stream`, whichever was used to create this voice.
+	// Has different values depending on how this voice was started: Via `play_audio_clip`,
+	// `play_sound` or `play_audio_stream`. Used for seeking as well as some other book keeping
+	// tasks.
 	source: union #no_nil {
 		Audio_Clip,
+		Sound,
 		Audio_Stream,
 	},
 }
