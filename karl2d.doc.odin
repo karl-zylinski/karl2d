@@ -1939,7 +1939,7 @@ Audio_Voice_Object :: struct {
 	// Behaves differently depending on how the voice was created.
 	// - Using `play_audio_clip`: Always `false`.
 	// - Using `play_sound`: Controlled by `set_sound_loop`.
-	// - using `play_audio_stream`: Always `true`. Streams use a short buffer that data is streamed
+	// - Using `play_audio_stream`: Always `true`. Streams use a short buffer that data is streamed
 	//   into. That buffer is always looping. `set_audio_stream_loop` does not touch this flag, the
 	//   stream has its own `loop` flag that is used while decoding the stream and adding new
 	//   samples into the buffer.
