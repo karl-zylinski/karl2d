@@ -2298,8 +2298,9 @@ get_audio_clip_duration :: proc(clip: Audio_Clip) -> f32 {
 	return f32(len(ab.samples) / ab.channels) / f32(ab.sample_rate)
 }
 
-// How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
-// start from the same clip.
+// How many playing instances there are of this clip. Useful for limiting how many overlapping
+// sounds you start from the same clip. This counts playback started both using `play_audio_clip`
+// and `play_sound`.
 count_audio_clip_active_plays :: proc(clip: Audio_Clip) -> int {
 	sync.mutex_guard(&s.audio_mutex)
 	count: int
@@ -3697,7 +3698,7 @@ _decode_audio_stream :: proc(
 
 					continue
 				} else {
-					// The third `true` means that the end of the stream was reached and that we are
+					// The second `true` means that the end of the stream was reached and that we are
 					// not going to loop again.
 					return cursor, true, true
 				}
@@ -4207,7 +4208,8 @@ update_audio_mixer :: proc() {
 // This procedure is run automatically by `update`. You normally don't have to call it.
 //
 // Note that you should always call this once a frame, be it through `update` or manually. It is
-// responsible for removing sounds that have finished playing.
+// responsible for removing voices (the playback state of clips, sounds and streams) that have
+// finished playing.
 update_audio :: proc() {
 	if sync.mutex_guard(&s.audio_mutex) {
 		voices_iter := hm.dynamic_iterator_make(&s.audio_voices)
@@ -4500,10 +4502,10 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		volume_start := clamp(vo.volume, 0, 1)
 		
 		// We can't just use the `volume_end` value for the volume. We are going to mix in
-		// `mix_chunk_size` number of samples. We'd still get clicks in the sound if we hopped
+		// `mix_chunk_size` number of samples. We'd still get clicks in the audio if we hopped
 		// to the ending volume. Instead, we calculate what the first sample should use and what
-		// the last one should use. Then we feed those into the `add`/`add_interpolate` procedures.
-		// It will lerp across the range as it is mixing in the samples.
+		// the last one should use. Then we feed those into the `audio_mix` procedure. It will lerp
+		// across the range as it is mixing in the samples.
 
 		volume_end := clamp(
 			move_towards(vo.volume, vo.target_volume, adjust_parameter_delta),
@@ -4517,8 +4519,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		pan_end := clamp(move_towards(vo.pan, vo.target_pan, adjust_parameter_delta), -1, 1)
 		vo.pan = pan_end
 		
-		// Use cos/sine to get a constant-power audio curve. This means that the sound won't get
-		// quieter in the middle, but will instead just pan.
+		// Use cos/sine to get a constant-power audio curve.
 		pan_stereo_start := [2]f32 {
 			math.cos((pan_start + 1) * math.PI / 4),
 			math.sin((pan_start + 1) * math.PI / 4),
@@ -7397,21 +7398,8 @@ _find_touch :: proc(id: Touch_Id) -> ^Touch {
 }
 
 // Moves the decoder of a stream that reads from a file to `target_frame`, or to a little before
-// it. Returns the frame it landed on, or -1 if it could not get there.
-//
-// We can't ask the decoder to jump, because it only ever sees the small pieces of the file we hand
-// it. But we can seek the file ourselves and tell the decoder to resynchronize: It then looks for
-// an ogg page it trusts, and once it has decoded a frame it can say how far into the audio that
-// page was.
-//
-// So we look for the right spot in the file. We keep two known points, one before the wanted spot
-// and one after it, and narrow the gap between them. The first couple of tries assume the bytes
-// are spread evenly over the audio, which lands close on most files. A file that spends very
-// different numbers of bytes on different parts of the audio ruins that assumption, so after that
-// we cut the remaining range in half instead, which always gets there.
-//
-// Landing a little before the wanted spot is fine: `update_audio_stream` decodes the bit in
-// between and throws it away, which is quick. Landing after it is no good at all.
+// it. Returns the frame it landed on, or -1 if it could not get there. Uses two points to zero-in
+// on the correct spot in the stream, narrowing the location down.
 _seek_file_stream :: proc(
 	sd: ^Audio_Stream_Data,
 	ab: Audio_Buffer_Object,
@@ -7586,13 +7574,6 @@ _seek_file_stream :: proc(
 }
 
 // Works out how many audio frames an ogg file holds by looking at the last page in it.
-//
-// An ogg file is a sequence of pages. Each page starts with "OggS" and stores a granule position:
-// The number of frames that have been decoded once that page has been played. The granule position
-// of the last page is therefore the length of the whole file. We do it this way because the
-// decoder cannot tell us the length of a file we feed to it a small piece at a time.
-//
-// The file position is restored before returning. Returns 0 if no length could be found.
 _ogg_file_total_frames :: proc(f: ^File) -> int {
 	// The biggest an ogg page can be. Reading this many bytes from the end of the file means we
 	// are certain to see the start of the last page.
