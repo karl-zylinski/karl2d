@@ -689,7 +689,7 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32)
 // Use `get_sound_duration` to find out how long the sound is.
 //
 // The seek will happen during the next mixing pass. It happens by quickly fading out the sound,
-// moving to the new position and the fading it back in. This avoids any pops in the sound due to
+// moving to the new position and then fading it back in. This avoids any pops in the sound due to
 // audio wave discontinuities.
 //
 // If you set the time for a non-playing or paused sound, then they will start from there when
@@ -717,7 +717,7 @@ set_sound_bus :: proc(sound: Sound, bus: Audio_Bus)
 // Returns how many `Sound` objects there are that refer to the same audio clip.
 count_sounds_from_clip :: proc(clip: Audio_Clip) -> int
 
-// Load a audio file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`.
+// Load an audio file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`
 //
 // Supports WAV and OGG files.
 //
