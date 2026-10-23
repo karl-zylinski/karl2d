@@ -4435,12 +4435,6 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	// Used for the smooth adjustment of volume and pan, both for the playing voices below and for
 	// the buses further down.
 
-	calc_adjust_parameter_delta :: proc(chunk_size: int, sample_rate: int, pitch: f32) -> f32 {
-		RAMP_TIME :: 0.03
-		ramp_samples := RAMP_TIME * f32(sample_rate) * pitch
-		return f32(chunk_size) / ramp_samples
-	}
-
 	move_towards :: proc(current: f32, target: f32, delta: f32) -> f32 {
 		if abs(target - current) < delta {
 			return target
@@ -4451,6 +4445,9 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	}
 
 	mix_chunk_size := s.ab.mix_chunk_size
+
+	RAMP_TIME :: 0.03
+	adjust_parameter_delta := f32(mix_chunk_size) / (RAMP_TIME * AUDIO_MIX_SAMPLE_RATE)
 
 	for voices_iter := hm.iterator_make(&s.audio_voices); vo, _ in hm.iterate(&voices_iter) {
 		if vo.play_state == .Stopped || vo.play_state == .Paused {
@@ -4516,7 +4513,6 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		}
 
 		pitch := max(vo.pitch, 0.01)
-		adjust_parameter_delta := calc_adjust_parameter_delta(mix_chunk_size, data.sample_rate, pitch)
 
 		// Before we get to the mixing we smoothly adjust volume and pan. We do this to avoid clicks
 		// in the audio. The clicks happen because abrupt changes cause discontinuities in the audio
@@ -4670,10 +4666,6 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	// The voices routed to a bus have been mixed into that bus's chunk. Now run the effect of each
 	// bus on its chunk and mix the chunk into the master bus, which is the `out` slice.
 
-	// The buses run at the mixer's sample rate and are never pitched, so the ramp is the same for
-	// all of them.
-	bus_adjust_delta := calc_adjust_parameter_delta(mix_chunk_size, AUDIO_MIX_SAMPLE_RATE, 1)
-
 	for it := hm.dynamic_iterator_make(&s.audio_buses); bus, _ in hm.dynamic_iterate(&it) {
 		// The effect runs even when the bus is silent. Effects tend to keep state, such as a filter
 		// or an echo. Skipping them while silent would leave that state behind, and it would jump
@@ -4683,11 +4675,11 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		}
 
 		volume_start := bus.volume
-		volume_end := move_towards(volume_start, bus.target_volume, bus_adjust_delta)
+		volume_end := move_towards(volume_start, bus.target_volume, adjust_parameter_delta)
 		bus.volume = volume_end
 
 		pan_start := bus.pan
-		pan_end := move_towards(pan_start, bus.target_pan, bus_adjust_delta)
+		pan_end := move_towards(pan_start, bus.target_pan, adjust_parameter_delta)
 		bus.pan = pan_end
 
 		if volume_start == 0 && volume_end == 0 {
@@ -4724,11 +4716,11 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	}
 
 	volume_start := master.volume
-	volume_end := move_towards(volume_start, master.target_volume, bus_adjust_delta)
+	volume_end := move_towards(volume_start, master.target_volume, adjust_parameter_delta)
 	master.volume = volume_end
 
 	pan_start := master.pan
-	pan_end := move_towards(pan_start, master.target_pan, bus_adjust_delta)
+	pan_end := move_towards(pan_start, master.target_pan, adjust_parameter_delta)
 	master.pan = pan_end
 
 	// A game that never touches the master bus shouldn't pay for it.
