@@ -1885,11 +1885,8 @@ Audio_Buffer :: distinct Handle
 AUDIO_BUFFER_NONE :: Audio_Buffer {}
 
 // A piece of audio that has been completely loaded into memory. Play it using `play_audio_clip`.
-//
 // This is actually just an `Audio_Buffer`, but under a distinct name that is given special
-// treatment. When `play_audio_clip` runs, then a `Sound` is created. The `Sound` tracks where in
-// the `Audio_Clip` it is playing audio from. That way, many `Sound` instances can play audio from
-// the same `Audio_Clip` data.
+// treatment.
 Audio_Clip :: distinct Audio_Buffer
 
 AUDIO_CLIP_NONE :: Audio_Clip{}
@@ -1955,8 +1952,7 @@ Audio_Voice_Object :: struct {
 
 // A bus is a group of sounds that are mixed together before they reach the master bus. You can set
 // the volume and the pan of the whole group, and you can run an effect on it. Create one using
-// `create_audio_bus` and route sounds into it using `set_sound_bus`, or the `bus` parameter of
-// `play_audio_clip` or `play_audio_stream`.
+// `create_audio_bus` and route audio into it using `set_sound_bus` and `set_audio_stream_bus`.
 Audio_Bus :: distinct Handle
 
 // All other buses are mixed into the master bus, as well as sounds that play directly on the master
