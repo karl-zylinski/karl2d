@@ -2575,15 +2575,8 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 		return
 	}
 
-	wanted_seconds := max(seconds, 0)
-	length := f32(len(ab.samples) / ab.channels) / f32(ab.sample_rate)
-
-	if length > 0 {
-		wanted_seconds = min(wanted_seconds, length)
-	}
-
 	total_frames := len(ab.samples) / ab.channels
-	target_frame := int(wanted_seconds * f32(ab.sample_rate))
+	target_frame := int(seconds * f32(ab.sample_rate))
 	so.seek_requested = true
 	so.seek_offset = clamp(target_frame, 0, total_frames) * ab.channels
 }
@@ -3237,6 +3230,7 @@ load_audio_stream_from_file :: proc(
 		channels = int(info.channels),
 	}
 
+	total_samples := _ogg_file_total_frames(f) * int(info.channels)
 	sync.mutex_guard(&s.audio_mutex)
 
 	audio_buffer_handle, audio_buffer_handle_add_err := hm.add(&s.audio_buffers, audio_buffer)
@@ -3259,7 +3253,7 @@ load_audio_stream_from_file :: proc(
 		vorbis = vorbis_res,
 		vorbis_buffer = vorbis_buffer,
 		buffer = audio_buffer_handle,
-		total_samples = _ogg_file_total_frames(f) * int(info.channels),
+		total_samples = total_samples,
 		file_read_buf = make([]u8, AUDIO_STREAM_READ_BUF_SIZE, s.allocator),
 		volume = 1,
 		pitch = 1,
@@ -3723,7 +3717,12 @@ _decode_audio_stream :: proc(
 					}
 
 					decoded_at_last_rewind = decoded
-					stbv.seek_start(sd.vorbis)
+
+					if stbv.seek_start(sd.vorbis) == 0 {
+						log.error("Failed seeking in audio stream. Stopping it.")
+						return
+					}
+
 					cursor.decode_cursor = 0
 
 					// A discard larger than the file would otherwise spin forever.
@@ -3810,6 +3809,18 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
+	if vo != nil && (vo.play_state == .Playing || vo.play_state == .Stopping) {
+		vo.play_state = .Playing
+
+		if !sd.seek_requested {
+			sd.seek_requested = true
+			sd.seek_seconds = 0
+		}
+
+		sync.mutex_unlock(&s.audio_mutex)
+		return
+	}
+
 	hm.remove(&s.audio_voices, sd.voice)
 	ab := hm.get(&s.audio_buffers, sd.buffer)
 
@@ -3824,30 +3835,39 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 	sync.mutex_lock(&sd.decode_mutex)
 	sync.mutex_unlock(&s.audio_mutex)
 
+	stream_ok := true
+
 	switch sd.mode {
 	case .From_File:
-		file_seek(sd.file, 0, .Start)
+		if _, seek_err := file_seek(sd.file, 0, .Start); seek_err != nil {
+			log.errorf("Failed seeking in audio stream file. Cannot play it. Error: %v", seek_err)
+			stream_ok = false
+			break
+		}
+
 		sd.file_read_buf_len = 0
 		sd.file_read_buf_offset = 0
 		stbv.flush_pushdata(sd.vorbis)
 
 	case .From_Bytes:
-		stbv.seek_start(sd.vorbis)
+		if stbv.seek_start(sd.vorbis) == 0 {
+			log.error("Failed seeking in audio stream. Cannot play it.")
+			stream_ok = false
+		}
 	}
 
 	post_decode_cursor: Audio_Stream_Cursor
 	end_reached: bool
-	decode_ok := true
 
 	// Decode into the buffer before returning, so that there is something to play right away. Do
 	// not do this if we are seeking, as new stuff will be decoded when we've seeked anyways.
-	if !seeking {
-		post_decode_cursor, end_reached, decode_ok = _decode_audio_stream(sd, ab, {}, 0, loop)
+	if stream_ok && !seeking {
+		post_decode_cursor, end_reached, stream_ok = _decode_audio_stream(sd, ab, {}, 0, loop)
 	}
 
 	sync.mutex_unlock(&sd.decode_mutex)
 
-	if !decode_ok {
+	if !stream_ok {
 		return
 	}
 
