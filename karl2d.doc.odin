@@ -598,19 +598,43 @@ set_texture_filter_ex :: proc(
 // AUDIO //
 //-------//
 
-// Play an audio clip with the supplied initial settings. The return value is a `Sound`, which means
-// something that is currently playing in the audio mixer. You can use the returned `Sound` with
-// `set_sound_volume`, `stop_sound` etc in order to control the playback. Ignore the return value
-// if you just want to start the sound and never touch it again.
-//
-// Audio clips are loaded using `load_audio_clip_from_file`, `load_audio_clip_from_bytes` and
-// `load_audio_clip_from_bytes_raw`.
+// Play an audio clip with the supplied settings. Audio clips are loaded using
+// `load_audio_clip_from_file`, `load_audio_clip_from_bytes` and `load_audio_clip_from_bytes_raw`.
 //
 // Pass `bus` to play the sound on an audio bus. It plays on the master bus by default.
 //
-// Warning: If you pass `loop = true` and don't save the return value anywhere, then you've started
-// a sound you cannot stop.
+// This is for "fire-and-forget" type of sounds that you do not need to control after they have
+// started. The audio clip will play until it ends. If you need control as the clip plays, then use
+// `create_sound`, `play_sound` and the other `set_sound_xxx` procedures to control it.
+//
+// You cannot loop audio clips using this procedure, since you would have no way to stop them. For
+// looping audio clips, use a Sound.
 play_audio_clip :: proc(
+	clip: Audio_Clip,
+	volume: f32 = 1,
+	pan: f32 = 0,
+	pitch: f32 = 1,
+	bus: Audio_Bus = AUDIO_BUS_MASTER,
+)
+
+// Returns how many seconds long this audio clip is. Returns `0` if the audio clip has been
+// destroyed.
+get_audio_clip_duration :: proc(clip: Audio_Clip) -> f32
+
+// How many playing instances there are of this clip. Useful for limiting how many overlapping
+// sounds you start from the same clip. This counts playback started both using `play_audio_clip`
+// and `play_sound`. Paused sounds are also included, this procedures counts how many times an audio
+// clip is referenced in the mixer.
+count_audio_clip_instances :: proc(clip: Audio_Clip) -> int
+
+// Create a `Sound` from an `Audio_Clip` using supplied settings. A Sound is a persistent thing that
+// can be used to modify the playback settings of an audio clip as it is playing. It can also be
+// used to loop audio clips. Sounds remember the settings you set on them, both when playing and not
+// playing.
+//
+// Start playing the Sound using `play_sound`. Destroy the Sound using `destroy_sound` when you no
+// longer need it. There are procedures named `set_sound_xxx` to control the settings of the sound.
+create_sound :: proc(
 	clip: Audio_Clip,
 	volume: f32 = 1,
 	pan: f32 = 0,
@@ -619,60 +643,79 @@ play_audio_clip :: proc(
 	bus: Audio_Bus = AUDIO_BUS_MASTER,
 ) -> Sound
 
-// Stops the sound, which destroys its playback state in the mixer. For a `Sound` started using
-// `play_audio_stream`, this also rewinds the stream to the start. Use `set_sound_paused` to pause
-// the Sound instead, which won't lose the current playback position and settings.
+// Destroy a Sound previously created using `create_sound`. This does not destroy the Audio_Clip
+// that was used to create the Sound.
+//
+// Note: Running `destroy_audio_clip` will destroy all sounds that reference that audio clip.
+destroy_sound :: proc(sound: Sound)
+
+// Play a Sound. It will be played with the settings of the sound. The settings come from both 
+// `create_sound` as well as any changes that come from `set_sound_xxx`.
+//
+// A Sound that is already playing will restart.
+play_sound :: proc(sound: Sound)
+
+// Stop a playing Sound. This will remove its playback state from the mixer. It'll remember the last
+// settings it was played with for when `play_sound` runs again.
 stop_sound :: proc(sound: Sound)
 
-// Pause or unpause a sound. A paused sound keeps its position and stays valid until it is unpaused
-// or stopped.
-set_sound_paused :: proc(sound: Sound, paused: bool)
+// Pauses a playing sound. Use `play_sound` to resume. You can check the paused state using
+// `sound_is_paused`, or check if a sound is playing and non-paused using `sound_is_playing`.
+pause_sound :: proc(sound: Sound)
 
-// Returns true if the sound exists and is not paused.
+// Returns true if the sound is playing. Returns false if the sound is paused.
 sound_is_playing :: proc(sound: Sound) -> bool
 
-// Returns true if the sound still exists. Both playing and paused sounds are valid. A finished or
-// stopped sound is not.
-sound_is_valid :: proc(sound: Sound) -> bool
+// Returns true if the sound is currently playing, but it is in a paused state.
+sound_is_paused :: proc(sound: Sound) -> bool
 
 // Set the volume of a sound. Range: 0 to 1.
+//
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_volume :: proc(sound: Sound, volume: f32)
 
 // Set the pan of a sound. Range: -1 to 1, where -1 is full left, 0 is center and 1 is full right.
+//
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_pan :: proc(sound: Sound, pan: f32)
 
 // Set the pitch of a sound. Range: 0.01 and up, where 1 is the default. Pitch 2 makes the sound
 // play twice as fast, which also makes it sound higher pitched.
+//
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
 // Move the sound to another spot in its audio. `seconds` is measured from the start of the audio.
-// Use `get_sound_length` to find out how long the sound is.
+// Use `get_sound_duration` to find out how long the sound is.
 //
-// Note that calling this for an Audio_Clip-based sound is fast. But calling it for an Audio_Stream-
-// based Sound can be a bit slower. The stream has to seek, perhaps fetching data from disk.
+// The seek will happen during the next mixing pass. It happens by quickly fading out the sound,
+// moving to the new position and the fading it back in. This avoids any pops in the sound due to
+// audio wave discontinuities.
+//
+// If you set the time for a non-playing or paused sound, then they will start from there when
+// played.
 set_sound_time :: proc(sound: Sound, seconds: f32)
 
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
 // each time it starts over. Returns 0 if the sound doesn't exist.
 get_sound_time :: proc(sound: Sound) -> f32
 
-// Get the length of the sound's audio, in seconds. Use it together with `get_sound_time` to show
-// how far into a song you are. Returns 0 if the sound doesn't exist or if the length is unknown.
-get_sound_length :: proc(sound: Sound) -> f32
+// Get the duration of the sound's audio, in seconds. Use it together with `get_sound_time` to show
+// how far into a sound you are. Returns 0 if the sound doesn't exist.
+get_sound_duration :: proc(sound: Sound) -> f32
 
 // Make a sound loop when it reaches the end.
 //
-// Technical note: This also works for sounds started using `play_audio_stream`, but then it
-// reaches into the streaming decoder and tells that one to loop. A `Sound` started from a stream
-// plays a short buffer that the decoder keeps filling, so that sound always loops.
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_loop :: proc(sound: Sound, loop: bool)
 
 // Route a sound into an audio bus. Pass `AUDIO_BUS_MASTER` for the master bus.
+//
+// Affects a playing Sound, but is also remembered for the next time the sound is played.
 set_sound_bus :: proc(sound: Sound, bus: Audio_Bus)
 
-// How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
-// start from the same clip.
-get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int
+// Returns how many `Sound` objects there are that refer to the same audio clip.
+count_sounds_from_clip :: proc(clip: Audio_Clip) -> int
 
 // Load a audio file from disk. Returns an `Audio_Clip` which can be played using `play_audio_clip`.
 //
@@ -710,8 +753,8 @@ load_audio_clip_from_bytes_raw :: proc(
 	channels: Audio_Channels,
 ) -> (Audio_Clip, bool) #optional_ok
 
-// Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Also stops sounds
-// playing this clip.
+// Destroy an audio clip previously loaded using `load_audio_clip_from_xxx`. Stops any currently
+// playing instances of this clip. Destroys `Sound`s created using `create_sound` that use this clip
 destroy_audio_clip :: proc(clip: Audio_Clip)
 
 // Load an audio stream from a file on disk. This is often used for playing music. An audio stream
@@ -775,36 +818,80 @@ destroy_audio_stream :: proc(stream: Audio_Stream)
 // is immune to both in-game stalls and external stalls, such as the window being moved.
 update_audio_stream :: proc(stream: Audio_Stream)
 
-// Start playing an audio stream. Returns a `Sound`, which you can control using
-// `set_sound_volume`, `stop_sound` etc. The playback starts from wherever the stream last was,
-// which is the beginning if the stream was just loaded, was stopped using `stop_sound` or has
-// finished playing.
+// Start playing an audio stream. If the stream is already playing, then it is restarted. If it is
+// paused, then it continues playing.
 //
-// A stream can only play one sound at a time. If it is already playing, then this hands back the
-// sound that is already playing and ignores the settings you pass in. Use the `set_sound_xxx`
-// procedures to change how it plays. Use `stop_sound` first if you want to start over from the
-// beginning. A paused sound starts playing again.
+// An audio stream can only be played once at a time, since the stream contains the decoder state.
 //
 // Don't forget to call `update_audio_stream` every frame in order to stream in new data.
-play_audio_stream :: proc(
-	stream: Audio_Stream,
-	volume: f32 = 1,
-	pan: f32 = 0,
-	pitch: f32 = 1,
-	loop := false,
-	bus: Audio_Bus = AUDIO_BUS_MASTER,
-) -> Sound
+play_audio_stream :: proc(stream: Audio_Stream)
+
+// Pause an audio stream previously started using `play_audio_stream`. Resume it using
+// `play_audio_stream`.
+pause_audio_stream :: proc(stream: Audio_Stream)
+
+// Stop an audio stream previously started using `play_audio_stream`. This will rewind the audio
+// stream to the start. Stopping a paused stream silently rewinds it to the start.
+stop_audio_stream :: proc(stream: Audio_Stream)
+
+// Returns true if the audio stream is currently playing. Returns false if it is paused.
+audio_stream_is_playing :: proc(stream: Audio_Stream) -> bool
+
+// Returns true if the audio stream is paused. A stopped audio stream is not paused.
+audio_stream_is_paused :: proc(stream: Audio_Stream) -> bool
+
+// Set the volume of an audio stream. Range: [0, 1].
+//
+// Affects a playing stream and is remembered for future playback.
+set_audio_stream_volume :: proc(stream: Audio_Stream, volume: f32)
+
+// Set the pan of an audio stream. Range [-1, 1].
+//
+// Affects a playing stream and is remembered for future playback.
+set_audio_stream_pan :: proc(stream: Audio_Stream, pan: f32)
+
+// Set the pitch of an audio stream. Range is `[0.01, inf)`.
+//
+// Affects a playing stream and is remembered for future playback.
+set_audio_stream_pitch :: proc(stream: Audio_Stream, pitch: f32)
+
+// Sets a stream to loop back to the start when it finishes playing.
+//
+// Affects a playing stream and is remembered for future playback.
+set_audio_stream_loop :: proc(stream: Audio_Stream, loop: bool)
+
+// Move the stream to some other bus. The bus may have playback settings of its own that are then
+// applied to the stream.
+//
+// Affects a playing stream and is remembered for future playback.
+set_audio_stream_bus :: proc(stream: Audio_Stream, bus: Audio_Bus)
+
+// Move the stream to another spot in its audio. `seconds` is measured from the start of the
+// streamed file. Use `get_audio_stream_duration` to find out how long the sound is.
+//
+// If you set the time while a stream is paused or stopped, then it will start from that time when
+// played.
+set_audio_stream_time :: proc(stream: Audio_Stream, seconds: f32)
+
+// Get how far into the streamed file the stream currently is playing from, in seconds. A looping
+// stream goes back to 0 each time it starts over.
+//
+// If you use `set_audio_stream_time` but the audio streaming system hasn't had time to seek to that
+// time yet, then that time will still be reported as the "current" time.
+get_audio_stream_time :: proc(stream: Audio_Stream) -> f32
+
+// Returns how many seconds long the streamed file is.
+get_audio_stream_duration :: proc(stream: Audio_Stream) -> f32
 
 // Create an audio bus: A group of sounds that are mixed together before they reach the master bus.
 // Route sounds into it using `set_sound_bus`, or the `bus` parameter of `play_audio_clip` or
-// `play_audio_stream`.
+// `set_audio_stream_bus`.
 //
 // A new bus has volume 1, pan 0 and no effect. That makes it a passthrough: Playing a sound on a
 // fresh bus sounds exactly like playing it on the master bus, until you change something.
 create_audio_bus :: proc() -> Audio_Bus
 
-// Destroy an audio bus. Everything routed to it goes back to the master bus, including sounds that
-// are playing right now.
+// Destroy an audio bus. Everything playing on this bus will start playing on the master bus.
 destroy_audio_bus :: proc(bus: Audio_Bus)
 
 // Set the volume of an audio bus. Range: 0 to 1. Everything mixed into the bus is scaled by this.
@@ -836,8 +923,9 @@ set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_dat
 //
 // This procedure is run automatically by `update`. You normally don't have to call it.
 //
-// Note that you should always call this once a frame, be it through `update` or manually. It
-// removes sounds that have been declared dead by the audio thread. 
+// Note that you should always call this once a frame, be it through `update` or manually. It is
+// responsible for removing voices (the playback state of clips, sounds and streams) that have
+// finished playing.
 update_audio :: proc()
 
 //-----------------//
@@ -1684,13 +1772,26 @@ AUDIO_MIX_SAMPLE_RATE :: 44100
 // sample in an array of samples will be interpreted as left and right respectively.
 Audio_Sample :: f32
 
-// Represents something that is currently playing in the audio mixer. Created using
-// `play_audio_clip` and `play_audio_stream`. A sound is automatically destroyed when it finishes
-// playing. It is safe to keep using the handle after that: The procedures that take a `Sound` will
-// then just do nothing.
+Audio_Voice :: distinct Handle
+
+// Created using `create_sound` from an Audio_Clip. Keeps track of an Audio_Clips playback state and
+// lets you control its playback settings.
 Sound :: distinct Handle
 
 SOUND_NONE :: Sound {}
+
+Sound_Object :: struct {
+	handle: Sound,
+	clip: Audio_Clip,
+	voice: Audio_Voice,
+	volume: f32,
+	pan: f32,
+	pitch: f32,
+	bus: Audio_Bus,
+	loop: bool,
+	seek_requested: bool,
+	seek_offset: int,
+}
 
 // Plays an ogg file by decoding it a little bit at a time, instead of loading all of the audio
 // data up front like an `Audio_Clip` does. Good for music, which would otherwise use a lot of
@@ -1717,29 +1818,22 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
-Audio_Stream_Seek_State :: enum {
-	None,
-	Fading_Out,
-	Ready,
-	Seeking,
-}
-
 // From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
 VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
 
 Audio_Stream_Cursor :: struct {
 	// Where in `Audio_Stream_Data.buffer` we have most recently written samples. Together with
-	// `Sound_Object.offset`, this forms a circular buffer. This field is the 'head' and the offset
-	// is the 'tail'.
+	// `Audio_Voice_Object.offset`, this forms a circular buffer. This field is the 'head' and the
+	// offset is the 'tail'.
 	buffer_write_pos: int,
 
 	// Where in the streamed source we most recently fetched samples from. For stereo, left and
 	// right count as one sample each.
 	decode_cursor: int,
 
-	// Used for discarding unwanted samples at the decode cursor. This exists because the vorbis
-	// pushdata API can't position the decoding exactly. When seeking we land the decoder at or
-	// before the wanted spot and store how many samples to skip from there.
+	// Used for discarding unwanted samples at the decode cursor. This exists because vorbis can't
+	// position the decoding exactly. When seeking, we land the decoder at or before the wanted spot
+	// and store how many samples to skip from there.
 	//
 	// Also used for short forward seeks, which don't move the file at all and just decode past the
 	// samples in between.
@@ -1751,7 +1845,11 @@ Audio_Stream_Data :: struct {
 	
 	vorbis: ^stbv.vorbis,
 	vorbis_buffer: stbv.vorbis_alloc,
-	sound: Sound,
+	voice: Audio_Voice,
+	bus: Audio_Bus,
+	volume: f32,
+	pan: f32,
+	pitch: f32,
 	buffer: Audio_Buffer,
 
 	cursor: Audio_Stream_Cursor,
@@ -1762,14 +1860,18 @@ Audio_Stream_Data :: struct {
 	// when the stream is loaded. Zero if it could not be worked out.
 	total_samples: int,
 
-	// Different from `loop` in `Sound_Object`. This says if the whole stream should loop
-	// when it reaches end-of-file. The `loop` in `Sound_Object` just says to loop the
+	// Different from `loop` in `Audio_Voice_Object`. This says if the whole stream should loop
+	// when it reaches end-of-file. The `loop` in `Audio_Voice_Object` just says to loop the
 	// buffer itself. That's something you always want for a stream: We are continously writing
 	// data from a file into a small buffer that is a few seconds long.
 	loop: bool,
 
-	seek_state: Audio_Stream_Seek_State,
+	// Used by mixer and `update_audio_stream`. The mixer fades the stream down to zero very
+	// quickly when a seek is requested. Then `update_audio_stream` seeks.
+	seek_requested: bool,
 	seek_seconds: f32,
+
+	end_reached: bool,
 
 	mode: Audio_Stream_Mode,
 
@@ -1801,11 +1903,8 @@ Audio_Buffer :: distinct Handle
 AUDIO_BUFFER_NONE :: Audio_Buffer {}
 
 // A piece of audio that has been completely loaded into memory. Play it using `play_audio_clip`.
-//
 // This is actually just an `Audio_Buffer`, but under a distinct name that is given special
-// treatment. When `play_audio_clip` runs, then a `Sound` is created. The `Sound` tracks where in
-// the `Audio_Clip` it is playing audio from. That way, many `Sound` instances can play audio from
-// the same `Audio_Clip` data.
+// treatment.
 Audio_Clip :: distinct Audio_Buffer
 
 AUDIO_CLIP_NONE :: Audio_Clip{}
@@ -1822,74 +1921,69 @@ Audio_Buffer_Object :: struct {
 	// interpolation will happen during mixing.
 	sample_rate: int,
 
-	// If this is Stereo, then the left and right samples are interleaved in `samples`.
-	channels: Audio_Channels,
+	// `1` means mono, `2` means stereo. For stereo, the left and right samples are interleaved in 
+	// `samples`.
+	channels: int,
 }
 
-Sound_Settings :: struct {
-	volume: f32,
-	pan: f32,
-	pitch: f32,
-}
-
-// A `Sound_Object` is what `Sound` handles map to. It represents something currently playing in
-// the mixer. It holds a `buffer` which is where the mixer reads audio samples from. How that buffer
-// gets refilled depends on the `source` field. The source can either be an Audio_Clip or an
-// Audio_Stream. For clips `buffer` is the same as the clip's buffer. For audio streams the
-// buffer is a small amount of memory that is continuously being filled with data from the audio
-// stream.
-Sound_Object :: struct {
-	handle: Sound,
+// An `Audio_Voice_Object` is what `Audio_Voice` handles map to. It represents something currently
+// playing in the mixer. It holds a `buffer` which is where the mixer reads audio samples from.
+//
+// The `buffer` will get filled in a few different ways. When playing audio using `play_audio_clip`
+// or `play_sound` then the buffer is the whole clip. When playing audio using `play_audio_stream`
+// the `update_audio_stream` will fill `buffer` with more data. In the stream case the buffer is
+// just a short buffer that is continuously looped and refilled.
+Audio_Voice_Object :: struct {
+	handle: Audio_Voice,
 	buffer: Audio_Buffer,
-	target_settings: Sound_Settings,
-	current_settings: Sound_Settings,
+	volume: f32,
+	target_volume: f32,
+	pan: f32,
+	target_pan: f32,
+	pitch: f32,
 
 	// Where in `buffer` should we play samples from next?
 	offset: int,
 
-	// Only used when playing sounds that have pitch != 1 or when the sound has a sample rate that
+	// Only used when playing voices that have pitch != 1 or when the voice has a sample rate that
 	// does not match the mixer's sample rate. In those cases we may get "fractional samples"
 	// because we may be in samples that are in-between two samples in the original sound.
 	offset_fraction: f32,
 
-	// If source is Audio_Clip: Set this flag using `set_sound_loop`.
-	// If source is Audio_Stream: Always true (the stream has its own loop flag internally and just
-	// refills the buffer with data, which continuously plays it). `set_sound_loop` will set the
-	// loop flag inside the Audio_Stream source data.
+	// If true, then this voice will loop when the end of the buffer is reached.
+	//
+	// Behaves differently depending on how the voice was created.
+	// - Using `play_audio_clip`: Always `false`.
+	// - Using `play_sound`: Controlled by `set_sound_loop`.
+	// - Using `play_audio_stream`: Always `true`. Streams use a short buffer that data is streamed
+	//   into. That buffer is always looping. `set_audio_stream_loop` does not touch this flag, the
+	//   stream has its own `loop` flag that is used while decoding the stream and adding new
+	//   samples into the buffer.
 	loop: bool,
 
-	// Set using `set_sound_paused`. The mixer skips paused sounds.
-	paused: bool,
-
-	// If true, then this Sound will be deleted next time `update_audio` runs. We don't remove
-	// directly when mixing because we don't want to touch memory allocations there. This is because
-	// the mixing may happen on a thread. It may look like `hm.remove` is thread safe. But the
-	// handle map uses an XAR array. The XAR array may internally append to a dynamically allocated
-	// freelist, which can cause allocations to happen.
-	remove: bool,
-
-	// For seeking audio clips. The mixer does the seeking since it needs to fade out, move the
-	// playback position and then fade in again. This avoids clicks when seeking.
-	//
-	// For Audio_Stream-based sounds, the seeking state is inside Audio_Stream_Data.
-	clip_has_pending_seek: bool,
-	clip_pending_seek_seconds: f32,
+	play_state: Audio_Voice_Play_State,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
 
-	// This is the Audio_Clip or Audio_Stream that was passed to either `play_audio_clip` or
-	// `play_audio_stream`, whichever was used to create this Sound.
-	source: union #no_nil {
+	source: union {
 		Audio_Clip,
+		Sound,
 		Audio_Stream,
 	},
 }
 
+Audio_Voice_Play_State :: enum {
+	Playing,
+	Pausing,
+	Paused,
+	Stopping,
+	Stopped,
+}
+
 // A bus is a group of sounds that are mixed together before they reach the master bus. You can set
 // the volume and the pan of the whole group, and you can run an effect on it. Create one using
-// `create_audio_bus` and route sounds into it using `set_sound_bus`, or the `bus` parameter of
-// `play_audio_clip` or `play_audio_stream`.
+// `create_audio_bus` and route audio into it using `set_sound_bus` and `set_audio_stream_bus`.
 Audio_Bus :: distinct Handle
 
 // All other buses are mixed into the master bus, as well as sounds that play directly on the master
@@ -1904,33 +1998,25 @@ AUDIO_BUS_MASTER :: Audio_Bus {}
 // `user_data` is the user data you passed to `set_audio_bus_effect`.
 Audio_Effect_Proc :: proc(samples: [][2]Audio_Sample, user_data: rawptr)
 
-Audio_Bus_Settings :: struct {
-	volume: f32,
-	pan: f32,
-}
-
 Audio_Bus_Object :: struct {
 	handle: Audio_Bus,
 
-	// Same idea as in `Sound_Object`: The current settings move towards the target
+	// Same idea as in `Audio_Voice_Object`: The current settings move towards the target
 	// settings a bit at a time, so that changing the volume of a bus doesn't click.
-	target_settings: Audio_Bus_Settings,
-	current_settings: Audio_Bus_Settings,
+	volume: f32,
+	target_volume: f32,
+	pan: f32,
+	target_pan: f32,
 
 	effect: Audio_Effect_Proc,
 	effect_user_data: rawptr,
 
-	// The sounds routed to this bus are mixed in here. The bus effect runs on this. Then this is
+	// The voices routed to this bus are mixed in here. The bus effect runs on this. Then this is
 	// mixed into the master bus. Unused for the master bus itself: That one is mixed straight into
 	// `mix_buffer`.
 	//
 	// Will be `s.ab.mix_chunk_size` long.
 	chunk: [][2]Audio_Sample,
-}
-
-DEFAULT_AUDIO_BUS_SETTINGS :: Audio_Bus_Settings {
-	volume = 1,
-	pan = 0,
 }
 
 // This keeps track of the internal state of the library. Usually, you do not need to poke at it.
@@ -2047,6 +2133,7 @@ State :: struct {
 	ab_state: ^Audio_Backend_State,
 
 	audio_buffers: hm.Dynamic_Handle_Map(Audio_Buffer_Object, Audio_Buffer),
+	audio_voices: hm.Dynamic_Handle_Map(Audio_Voice_Object, Audio_Voice),
 	sounds: hm.Dynamic_Handle_Map(Sound_Object, Sound),
 
 	audio_streams: hm.Dynamic_Handle_Map(Audio_Stream_Data, Audio_Stream),

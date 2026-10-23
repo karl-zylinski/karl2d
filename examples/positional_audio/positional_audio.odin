@@ -28,6 +28,12 @@ update_audio_source :: proc(as: ^Audio_Source) {
 	k2.set_sound_volume(as.sound, intensity)
 }
 
+create_looping_sound :: proc(pitch: f32) -> k2.Sound {
+	sound := k2.create_sound(sine_wave, pitch = pitch, loop = true)
+	k2.play_sound(sound)
+	return sound
+}
+
 draw_audio_source :: proc(as: Audio_Source) {
 	r := k2.Rect {
 		as.pos.x - 10,
@@ -44,29 +50,29 @@ init :: proc() {
 	player_pos = {200, 200}
 
 	spinning_audio_source = {
-		sound = k2.play_audio_clip(sine_wave, loop = true),
+		sound = create_looping_sound(1),
 	}
 
 	stationary_1 := Audio_Source {
-		sound = k2.play_audio_clip(sine_wave, pitch = 0.5, loop = true),
+		sound = create_looping_sound(0.5),
 		pos = {50, 50},
 	}
 	append(&stationary_audio_sources, stationary_1)
 
 	stationary_2 := Audio_Source {
-		sound = k2.play_audio_clip(sine_wave, pitch = 0.45, loop = true),
+		sound = create_looping_sound(0.45),
 		pos = {450, 50},
 	}
 	append(&stationary_audio_sources, stationary_2)
 
 	stationary_3 := Audio_Source {
-		sound = k2.play_audio_clip(sine_wave, pitch = 0.55, loop = true),
+		sound = create_looping_sound(0.55),
 		pos = {450, 450},
 	}
 	append(&stationary_audio_sources, stationary_3)
 
 	stationary_4 := Audio_Source {
-		sound = k2.play_audio_clip(sine_wave, pitch = 0.6, loop = true),
+		sound = create_looping_sound(0.6),
 		pos = {50, 450},
 	}
 	append(&stationary_audio_sources, stationary_4)
@@ -141,6 +147,12 @@ step :: proc() -> bool {
 }
 
 shutdown :: proc() {
+	k2.destroy_sound(spinning_audio_source.sound)
+
+	for as in stationary_audio_sources {
+		k2.destroy_sound(as.sound)
+	}
+
 	delete(stationary_audio_sources)
 	k2.destroy_audio_clip(sine_wave)
 	k2.shutdown()
