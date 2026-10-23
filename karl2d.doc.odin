@@ -621,9 +621,11 @@ play_audio_clip :: proc(
 // destroyed.
 get_audio_clip_duration :: proc(clip: Audio_Clip) -> f32
 
-// How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
-// start from the same clip.
-count_audio_clip_active_plays :: proc(clip: Audio_Clip) -> int
+// How many playing instances there are of this clip. Useful for limiting how many overlapping
+// sounds you start from the same clip. This counts playback started both using `play_audio_clip`
+// and `play_sound`. Paused sounds are also included, this procedures counts how many times an audio
+// clip is referenced in the mixer.
+count_audio_clip_instances :: proc(clip: Audio_Clip) -> int
 
 // Create a `Sound` from an `Audio_Clip` using supplied settings. A Sound is a persistent thing that
 // can be used to modify the playback settings of an audio clip as it is playing. It can also be
@@ -910,7 +912,8 @@ set_audio_bus_effect :: proc(bus: Audio_Bus, effect: Audio_Effect_Proc, user_dat
 // This procedure is run automatically by `update`. You normally don't have to call it.
 //
 // Note that you should always call this once a frame, be it through `update` or manually. It is
-// responsible for removing sounds that have finished playing.
+// responsible for removing voices (the playback state of clips, sounds and streams) that have
+// finished playing.
 update_audio :: proc()
 
 //-----------------//
@@ -1943,12 +1946,19 @@ Audio_Voice_Object :: struct {
 	//   samples into the buffer.
 	loop: bool,
 
-	paused: bool,
+	play_state: Audio_Voice_Play_State,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
 
 	stream: Audio_Stream,
+}
+
+Audio_Voice_Play_State :: enum {
+	Playing,
+	Pausing,
+	Paused,
+	Stopping,
 }
 
 // A bus is a group of sounds that are mixed together before they reach the master bus. You can set

@@ -2300,8 +2300,9 @@ get_audio_clip_duration :: proc(clip: Audio_Clip) -> f32 {
 
 // How many playing instances there are of this clip. Useful for limiting how many overlapping
 // sounds you start from the same clip. This counts playback started both using `play_audio_clip`
-// and `play_sound`.
-count_audio_clip_active_plays :: proc(clip: Audio_Clip) -> int {
+// and `play_sound`. Paused sounds are also included, this procedures counts how many times an audio
+// clip is referenced in the mixer.
+count_audio_clip_instances :: proc(clip: Audio_Clip) -> int {
 	sync.mutex_guard(&s.audio_mutex)
 	count: int
 
@@ -2390,12 +2391,14 @@ play_sound :: proc(sound: Sound) {
 
 	vo := hm.get(&s.audio_voices, so.voice)
 
-	if vo != nil && vo.paused {
-		vo.paused = false
+	if vo != nil && (vo.play_state == .Paused || vo.play_state == .Pausing) {
+		vo.play_state = .Playing
 		return
 	}
 
-	hm.remove(&s.audio_voices, so.voice)
+	if vo != nil {
+		vo.play_state = .Stopping
+	}
 
 	audio_voice_object := Audio_Voice_Object {
 		buffer = Audio_Buffer(so.clip),
@@ -2426,7 +2429,13 @@ stop_sound :: proc(sound: Sound) {
 		return
 	}
 
-	hm.remove(&s.audio_voices, so.voice)
+	if vo := hm.get(&s.audio_voices, so.voice); vo != nil {
+		if vo.play_state == .Paused {
+			hm.remove(&s.audio_voices, so.voice)
+		} else {
+			vo.play_state = .Stopping
+		}
+	}
 }
 
 // Pauses a playing sound. Use `play_sound` to resume. You can check the paused state using
@@ -2439,8 +2448,8 @@ pause_sound :: proc(sound: Sound) {
 		return
 	}
 
-	if vo := hm.get(&s.audio_voices, so.voice); vo != nil {
-		vo.paused = true
+	if vo := hm.get(&s.audio_voices, so.voice); vo != nil && vo.play_state == .Playing {
+		vo.play_state = .Pausing
 	}
 }
 
@@ -2454,7 +2463,7 @@ sound_is_playing :: proc(sound: Sound) -> bool {
 	}
 
 	vo := hm.get(&s.audio_voices, so.voice)
-	return vo != nil && !vo.paused
+	return vo != nil && vo.play_state == .Playing
 }
 
 // Returns true if the sound is currently playing, but it is in a paused state.
@@ -2467,7 +2476,7 @@ sound_is_paused :: proc(sound: Sound) -> bool {
 	}
 
 	vo := hm.get(&s.audio_voices, so.voice)
-	return vo != nil && vo.paused
+	return vo != nil && (vo.play_state == .Paused || vo.play_state == .Pausing)
 }
 
 // Set the volume of a sound. Range: 0 to 1.
@@ -3761,8 +3770,8 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 
 	vo := hm.get(&s.audio_voices, sd.voice)
 
-	if vo != nil && vo.paused {
-		vo.paused = false
+	if vo != nil && (vo.play_state == .Paused || vo.play_state == .Pausing) {
+		vo.play_state = .Playing
 		sync.mutex_unlock(&s.audio_mutex)
 		return
 	}
@@ -3838,8 +3847,8 @@ pause_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil {
-		vo.paused = true
+	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil && vo.play_state == .Playing {
+		vo.play_state = .Pausing
 	}
 }
 
@@ -3853,7 +3862,13 @@ stop_audio_stream :: proc(stream: Audio_Stream) {
 		return
 	}
 
-	hm.remove(&s.audio_voices, sd.voice)
+	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil {
+		if vo.play_state == .Paused {
+			hm.remove(&s.audio_voices, sd.voice)
+		} else {
+			vo.play_state = .Stopping
+		}
+	}
 }
 
 // Returns true if the audio stream is currently playing. Returns false if it is paused.
@@ -3866,7 +3881,7 @@ audio_stream_is_playing :: proc(stream: Audio_Stream) -> bool {
 	}
 
 	vo := hm.get(&s.audio_voices, sd.voice)
-	return vo != nil && !vo.paused
+	return vo != nil && vo.play_state == .Playing
 }
 
 // Returns true if the audio stream is paused. A stopped audio stream is not paused.
@@ -3879,7 +3894,7 @@ audio_stream_is_paused :: proc(stream: Audio_Stream) -> bool {
 	}
 
 	vo := hm.get(&s.audio_voices, sd.voice)
-	return vo != nil && vo.paused
+	return vo != nil && (vo.play_state == .Paused || vo.play_state == .Pausing)
 }
 
 // Set the volume of an audio stream. Range: [0, 1].
@@ -4230,6 +4245,10 @@ update_audio :: proc() {
 				}
 			}
 
+			if vo.play_state == .Stopping && vo.volume == 0 {
+				finished = true
+			}
+
 			if finished {
 				hm.remove(&s.audio_voices, vo_handle)
 			}
@@ -4461,8 +4480,22 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		}
 
 		// A paused voice stays in the list but is not mixed.
-		if vo.paused {
+		if vo.play_state == .Paused {
 			continue
+		}
+
+		volume_target := vo.target_volume
+
+		if vo.play_state == .Pausing || vo.play_state == .Stopping {
+			volume_target = 0
+
+			if vo.volume == 0 {
+				if vo.play_state == .Pausing {
+					vo.play_state = .Paused
+				}
+
+				continue
+			}
 		}
 
 		is_stream := vo.stream != AUDIO_STREAM_NONE
@@ -4508,7 +4541,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 		// across the range as it is mixing in the samples.
 
 		volume_end := clamp(
-			move_towards(vo.volume, vo.target_volume, adjust_parameter_delta),
+			move_towards(vo.volume, volume_target, adjust_parameter_delta),
 			0,
 			1,
 		)
@@ -6833,12 +6866,19 @@ Audio_Voice_Object :: struct {
 	//   samples into the buffer.
 	loop: bool,
 
-	paused: bool,
+	play_state: Audio_Voice_Play_State,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
 
 	stream: Audio_Stream,
+}
+
+Audio_Voice_Play_State :: enum {
+	Playing,
+	Pausing,
+	Paused,
+	Stopping,
 }
 
 // A bus is a group of sounds that are mixed together before they reach the master bus. You can set
