@@ -2295,12 +2295,7 @@ get_audio_clip_duration :: proc(clip: Audio_Clip) -> f32 {
 		return 0
 	}
 
-	channels := 1
-	if ab.channels == .Stereo {
-		channels = 2
-	}
-
-	return f32(len(ab.samples) / channels) / f32(ab.sample_rate)
+	return f32(len(ab.samples) / ab.channels) / f32(ab.sample_rate)
 }
 
 // How many sounds currently play this clip. Useful for limiting how many overlapping sounds you
@@ -2551,21 +2546,16 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 		return
 	}
 
-	channels := 1
-	if ab.channels == .Stereo {
-		channels = 2
-	}
-
 	wanted_seconds := max(seconds, 0)
-	length := f32(len(ab.samples) / channels) / f32(ab.sample_rate)
+	length := f32(len(ab.samples) / ab.channels) / f32(ab.sample_rate)
 
 	if length > 0 {
 		wanted_seconds = min(wanted_seconds, length)
 	}
 
-	total_frames := len(ab.samples) / channels
+	total_frames := len(ab.samples) / ab.channels
 	target_frame := int(wanted_seconds * f32(ab.sample_rate))
-	vo.offset = clamp(target_frame, 0, total_frames) * channels
+	vo.offset = clamp(target_frame, 0, total_frames) * ab.channels
 	vo.offset_fraction = 0
 }
 
@@ -2591,12 +2581,7 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 		return 0
 	}
 
-	channels := 1
-	if ab.channels == .Stereo {
-		channels = 2
-	}
-
-	return f32(vo.offset / channels) / f32(ab.sample_rate)
+	return f32(vo.offset / ab.channels) / f32(ab.sample_rate)
 }
 
 // Get the duration of the sound's audio, in seconds. Use it together with `get_sound_time` to show
@@ -2615,12 +2600,7 @@ get_sound_duration :: proc(sound: Sound) -> f32 {
 		return 0
 	}
 
-	channels := 1
-	if ab.channels == .Stereo {
-		channels = 2
-	}
-
-	return f32(len(ab.samples) / channels) / f32(ab.sample_rate)
+	return f32(len(ab.samples) / ab.channels) / f32(ab.sample_rate)
 }
 
 // Make a sound loop when it reaches the end.
@@ -2757,13 +2737,8 @@ _load_audio_buffer_from_ogg :: proc(
 	}
 
 	info := stbv.get_info(vorbis)
-	channels: Audio_Channels
 
-	if info.channels == 1 {
-		channels = .Mono
-	} else if info.channels == 2 {
-		channels = .Stereo
-	} else {
+	if info.channels != 1 && info.channels != 2 {
 		log.errorf("Unsupported number of channels in ogg data: %v", info.channels)
 		stbv.close(vorbis)
 		return
@@ -2800,7 +2775,7 @@ _load_audio_buffer_from_ogg :: proc(
 	audio_buffer_object := Audio_Buffer_Object {
 		sample_rate = int(info.sample_rate),
 		samples = samples,
-		channels = channels,
+		channels = int(info.channels),
 	}
 
 	return audio_buffer_object, true
@@ -3074,7 +3049,7 @@ _load_audio_buffer_from_raw_samples :: proc(
 	audio_buffer_object := Audio_Buffer_Object {
 		sample_rate = sample_rate,
 		samples = samples,
-		channels = channels,
+		channels = channels == .Stereo ? 2 : 1,
 	}
 
 	return audio_buffer_object
@@ -3211,13 +3186,8 @@ load_audio_stream_from_file :: proc(
 	}
 
 	info := stbv.get_info(vorbis_res)
-	channels: Audio_Channels
 
-	if info.channels == 1 {
-		channels = Audio_Channels.Mono
-	} else if info.channels == 2 {
-		channels = Audio_Channels.Stereo
-	} else{
+	if info.channels != 1 && info.channels != 2 {
 		log.errorf("Unsupported number of channels: %v", info.channels)
 
 		if close_err := file_close(f); close_err != nil {
@@ -3231,7 +3201,7 @@ load_audio_stream_from_file :: proc(
 	audio_buffer := Audio_Buffer_Object {
 		sample_rate = int(info.sample_rate),
 		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
-		channels = channels,
+		channels = int(info.channels),
 	}
 
 	sync.mutex_guard(&s.audio_mutex)
@@ -3333,13 +3303,8 @@ load_audio_stream_from_bytes :: proc(
 	}
 
 	info := stbv.get_info(vorbis_res)
-	channels: Audio_Channels
 
-	if info.channels == 1 {
-		channels = Audio_Channels.Mono
-	} else if info.channels == 2 {
-		channels = Audio_Channels.Stereo
-	} else{
+	if info.channels != 1 && info.channels != 2 {
 		log.errorf("Unsupported number of channels: %v", info.channels)
 		free(vorbis_buffer.alloc_buffer, s.allocator)
 		return
@@ -3348,7 +3313,7 @@ load_audio_stream_from_bytes :: proc(
 	audio_buffer := Audio_Buffer_Object {
 		sample_rate = int(info.sample_rate),
 		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
-		channels = channels,
+		channels = int(info.channels),
 	}
 
 	sync.mutex_guard(&s.audio_mutex)
@@ -3473,10 +3438,6 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	stream_ok := true
 
 	if seeking {
-		channels := 1
-		if abo.channels == .Stereo {
-			channels = 2
-		}
 
 		target_frame := int(seek_seconds * f32(abo.sample_rate))
 
@@ -3488,23 +3449,23 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 				break
 			}
 
-			cursor.decode_cursor = target_frame * channels
+			cursor.decode_cursor = target_frame * abo.channels
 			cursor.seek_discard = 0
 
 		case .From_File:
-			target := target_frame * channels
+			target := target_frame * abo.channels
 
 			// A short step forwards is cheapest to do by decoding the samples in between and
 			// throwing them away, which is what `seek_discard` makes `_decode_audio_stream` do.
 			if target >= cursor.decode_cursor &&
-			   target - cursor.decode_cursor <= 2 * abo.sample_rate * channels {
+			   target - cursor.decode_cursor <= 2 * abo.sample_rate * abo.channels {
 				cursor.seek_discard = target - cursor.decode_cursor
 				break
 			}
 
 			// Anything longer is done by seeking the file itself.
 			if landed := _seek_file_stream(sd, abo^, target_frame); landed >= 0 {
-				cursor.decode_cursor = landed * channels
+				cursor.decode_cursor = landed * abo.channels
 				cursor.seek_discard = target - cursor.decode_cursor
 				break
 			}
@@ -4038,13 +3999,8 @@ set_audio_stream_time :: proc(stream: Audio_Stream, seconds: f32) {
 		return
 	}
 
-	channels := 1
-	if ab.channels == .Stereo {
-		channels = 2
-	}
-
 	wanted_seconds := max(seconds, 0)
-	duration := f32(sd.total_samples / channels) / f32(ab.sample_rate)
+	duration := f32(sd.total_samples / ab.channels) / f32(ab.sample_rate)
 
 	if duration > 0 {
 		wanted_seconds = min(wanted_seconds, duration)
@@ -4077,11 +4033,6 @@ get_audio_stream_time :: proc(stream: Audio_Stream) -> f32 {
 		return 0
 	}
 
-	channels := 1
-	if ab.channels == .Stereo {
-		channels = 2
-	}
-
 	// A seek is pending, just return where it is going.
 	if sd.seek_requested {
 		return sd.seek_seconds
@@ -4098,7 +4049,7 @@ get_audio_stream_time :: proc(stream: Audio_Stream) -> f32 {
 		position += sd.total_samples
 	}
 
-	return f32(max(position, 0) / channels) / f32(ab.sample_rate)
+	return f32(max(position, 0) / ab.channels) / f32(ab.sample_rate)
 }
 
 // Returns how many seconds long the streamed file is.
@@ -4116,12 +4067,7 @@ get_audio_stream_duration :: proc(stream: Audio_Stream) -> f32 {
 		return 0
 	}
 
-	channels := 1
-	if ab.channels == .Stereo {
-		channels = 2
-	}
-
-	return f32(sd.total_samples / channels) / f32(ab.sample_rate)
+	return f32(sd.total_samples / ab.channels) / f32(ab.sample_rate)
 }
 
 // Create an audio bus: A group of sounds that are mixed together before they reach the master bus.
@@ -4353,7 +4299,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	audio_mix :: proc(
 		dest: [][2]Audio_Sample,
 		source: []Audio_Sample,
-		source_channels: Audio_Channels,
+		source_channels: int,
 		interpolate: bool,
 		dest_source_ratio: f32,
 		dest_num_to_write: int,
@@ -4372,13 +4318,13 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		kind: Audio_Mix_Kind
 
-		if source_channels == .Mono && !interpolate {
+		if source_channels == 1 && !interpolate {
 			kind = .Mono
-		} else if source_channels == .Stereo && !interpolate {
+		} else if source_channels == 2 && !interpolate {
 			kind = .Stereo
-		} else if source_channels == .Mono && interpolate {
+		} else if source_channels == 1 && interpolate {
 			kind = .Mono_Interpolate
-		} else if source_channels == .Stereo && interpolate {
+		} else if source_channels == 2 && interpolate {
 			kind = .Stereo_Interpolate
 		} else {
 			log.error("Invalid combination of source channels and interpolate in add procedure")
@@ -4590,11 +4536,6 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			source_dest_ratio = (pitch * f32(data.sample_rate)) / f32(AUDIO_MIX_SAMPLE_RATE)
 		}
 
-		source_channels := 1
-		if data.channels == .Stereo {
-			source_channels = 2
-		}
-
 		source_end := len(data.samples)
 
 		if is_stream {
@@ -4623,11 +4564,11 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 			// The fraction advance may become larger than 1, in which case the offset needs to eat
 			// the integer part.
-			vo.offset += int(fraction_advance) * source_channels
+			vo.offset += int(fraction_advance) * data.channels
 			vo.offset = min(vo.offset, len(data.samples))
 			vo.offset_fraction = linalg.fract(fraction_advance)
 		} else {
-			vo.offset += num_mixed * source_channels
+			vo.offset += num_mixed * data.channels
 			vo.offset_fraction = 0
 		}
 
@@ -4684,11 +4625,11 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 					// The fraction advance may become larger than 1, in which case the offset needs to eat
 					// the integer part.
-					vo.offset += int(fraction_advance) * source_channels
+					vo.offset += int(fraction_advance) * data.channels
 					vo.offset = min(vo.offset, len(data.samples))
 					vo.offset_fraction = linalg.fract(fraction_advance)
 				} else {
-					vo.offset += num_mixed * source_channels
+					vo.offset += num_mixed * data.channels
 					vo.offset_fraction = 0
 				}
 
@@ -6851,8 +6792,9 @@ Audio_Buffer_Object :: struct {
 	// interpolation will happen during mixing.
 	sample_rate: int,
 
-	// If this is Stereo, then the left and right samples are interleaved in `samples`.
-	channels: Audio_Channels,
+	// `1` means mono, `2` means stereo. For stereo, the left and right samples are interleaved in 
+	// `samples`.
+	channels: int,
 }
 
 // An `Audio_Voice_Object` is what `Audio_Voice` handles map to. It represents something currently
@@ -7479,12 +7421,7 @@ _seek_file_stream :: proc(
 		return -1
 	}
 
-	channels := 1
-	if ab.channels == .Stereo {
-		channels = 2
-	}
-
-	total_frames := sd.total_samples / channels
+	total_frames := sd.total_samples / ab.channels
 
 	if total_frames <= 0 {
 		return -1

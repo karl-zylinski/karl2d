@@ -1903,8 +1903,9 @@ Audio_Buffer_Object :: struct {
 	// interpolation will happen during mixing.
 	sample_rate: int,
 
-	// If this is Stereo, then the left and right samples are interleaved in `samples`.
-	channels: Audio_Channels,
+	// `1` means mono, `2` means stereo. For stereo, the left and right samples are interleaved in 
+	// `samples`.
+	channels: int,
 }
 
 // An `Audio_Voice_Object` is what `Audio_Voice` handles map to. It represents something currently
