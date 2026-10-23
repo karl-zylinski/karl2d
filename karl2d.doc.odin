@@ -1959,6 +1959,7 @@ Audio_Voice_Play_State :: enum {
 	Pausing,
 	Paused,
 	Stopping,
+	Stopped,
 }
 
 // A bus is a group of sounds that are mixed together before they reach the master bus. You can set

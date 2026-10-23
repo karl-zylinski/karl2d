@@ -2307,7 +2307,7 @@ count_audio_clip_instances :: proc(clip: Audio_Clip) -> int {
 	count: int
 
 	for it := hm.dynamic_iterator_make(&s.audio_voices); vo, _ in hm.dynamic_iterate(&it) {
-		if vo.buffer == Audio_Buffer(clip) {
+		if vo.buffer == Audio_Buffer(clip) && vo.play_state != .Stopped {
 			count += 1
 		}
 	}
@@ -2396,7 +2396,7 @@ play_sound :: proc(sound: Sound) {
 		return
 	}
 
-	if vo != nil {
+	if vo != nil && vo.play_state != .Stopped {
 		vo.play_state = .Stopping
 	}
 
@@ -2431,8 +2431,8 @@ stop_sound :: proc(sound: Sound) {
 
 	if vo := hm.get(&s.audio_voices, so.voice); vo != nil {
 		if vo.play_state == .Paused {
-			hm.remove(&s.audio_voices, so.voice)
-		} else {
+			vo.play_state = .Stopped
+		} else if vo.play_state != .Stopped {
 			vo.play_state = .Stopping
 		}
 	}
@@ -3416,7 +3416,7 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 	voice := sd.voice
 	vo := hm.get(&s.audio_voices, voice)
 
-	if vo == nil {
+	if vo == nil || vo.play_state == .Stopped {
 		sync.mutex_unlock(&s.audio_mutex)
 		return
 	}
@@ -3864,8 +3864,8 @@ stop_audio_stream :: proc(stream: Audio_Stream) {
 
 	if vo := hm.get(&s.audio_voices, sd.voice); vo != nil {
 		if vo.play_state == .Paused {
-			hm.remove(&s.audio_voices, sd.voice)
-		} else {
+			vo.play_state = .Stopped
+		} else if vo.play_state != .Stopped {
 			vo.play_state = .Stopping
 		}
 	}
@@ -4229,27 +4229,7 @@ update_audio :: proc() {
 	if sync.mutex_guard(&s.audio_mutex) {
 		voices_iter := hm.dynamic_iterator_make(&s.audio_voices)
 		for vo, vo_handle in hm.dynamic_iterate(&voices_iter) {
-			ab := hm.get(&s.audio_buffers, vo.buffer)
-			finished := ab == nil
-
-			if ab != nil {
-				if vo.stream != AUDIO_STREAM_NONE {
-					if sd := hm.get(&s.audio_streams, vo.stream); sd == nil {
-						finished = true
-					} else {
-						buffered := _audio_stream_buffered_samples(sd, vo, len(ab.samples))
-						finished = sd.end_reached && !sd.seek_requested && buffered == 0
-					}
-				} else {
-					finished = !vo.loop && vo.offset >= len(ab.samples)
-				}
-			}
-
-			if vo.play_state == .Stopping && vo.volume == 0 {
-				finished = true
-			}
-
-			if finished {
+			if vo.play_state == .Stopped {
 				hm.remove(&s.audio_voices, vo_handle)
 			}
 		}
@@ -4473,27 +4453,33 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 	mix_chunk_size := s.ab.mix_chunk_size
 
 	for voices_iter := hm.iterator_make(&s.audio_voices); vo, _ in hm.iterate(&voices_iter) {
-		data := hm.get(&s.audio_buffers, vo.buffer)
-
-		if data == nil {
+		if vo.play_state == .Stopped || vo.play_state == .Paused {
 			continue
 		}
 
-		// A paused voice stays in the list but is not mixed.
-		if vo.play_state == .Paused {
+		data := hm.get(&s.audio_buffers, vo.buffer)
+
+		if data == nil {
+			vo.play_state = .Stopped
 			continue
 		}
 
 		volume_target := vo.target_volume
 
-		if vo.play_state == .Pausing || vo.play_state == .Stopping {
+		if vo.play_state == .Pausing {
 			volume_target = 0
 
 			if vo.volume == 0 {
-				if vo.play_state == .Pausing {
-					vo.play_state = .Paused
-				}
+				vo.play_state = .Paused
+				continue
+			}
+		}
 
+		if vo.play_state == .Stopping {
+			volume_target = 0
+
+			if vo.volume == 0 {
+				vo.play_state = .Stopped
 				continue
 			}
 		}
@@ -4505,12 +4491,17 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 			sd := hm.get(&s.audio_streams, vo.stream)
 
 			if sd == nil {
+				vo.play_state = .Stopped
 				continue
 			}
 
 			stream_buffered = _audio_stream_buffered_samples(sd, vo, len(data.samples))
 
 			if stream_buffered == 0 {
+				if sd.end_reached && !sd.seek_requested {
+					vo.play_state = .Stopped
+				}
+
 				continue
 			}
 		}
@@ -4668,6 +4659,8 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 				}
 
 				vo.offset = min(vo.offset, source_end)
+			} else {
+				vo.play_state = .Stopped
 			}
 		}
 	}
@@ -6879,6 +6872,7 @@ Audio_Voice_Play_State :: enum {
 	Pausing,
 	Paused,
 	Stopping,
+	Stopped,
 }
 
 // A bus is a group of sounds that are mixed together before they reach the master bus. You can set
