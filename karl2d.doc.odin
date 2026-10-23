@@ -687,6 +687,13 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32)
 
 // Move the sound to another spot in its audio. `seconds` is measured from the start of the audio.
 // Use `get_sound_duration` to find out how long the sound is.
+//
+// The seek will happen during the next mixing pass. It happens by quickly fading out the sound,
+// moving to the new position and the fading it back in. This avoids any pops in the sound due to
+// audio wave discontinuities.
+//
+// If you set the time for a non-playing or paused sound, then they will start from there when
+// played.
 set_sound_time :: proc(sound: Sound, seconds: f32)
 
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
@@ -861,11 +868,16 @@ set_audio_stream_bus :: proc(stream: Audio_Stream, bus: Audio_Bus)
 
 // Move the stream to another spot in its audio. `seconds` is measured from the start of the
 // streamed file. Use `get_audio_stream_duration` to find out how long the sound is.
+//
+// If you set the time while a stream is paused or stopped, then it will start from that time when
+// played.
 set_audio_stream_time :: proc(stream: Audio_Stream, seconds: f32)
 
 // Get how far into the streamed file the stream currently is playing from, in seconds. A looping
-// stream goes back to 0 each time it starts over. Returns 0 if the stream isn't playing or doesn't
-// exist.
+// stream goes back to 0 each time it starts over.
+//
+// If you use `set_audio_stream_time` but the audio streaming system hasn't had time to seek to that
+// time yet, then that time will still be reported as the "current" time.
 get_audio_stream_time :: proc(stream: Audio_Stream) -> f32
 
 // Returns how many seconds long the streamed file is.
@@ -1777,6 +1789,8 @@ Sound_Object :: struct {
 	pitch: f32,
 	bus: Audio_Bus,
 	loop: bool,
+	seek_requested: bool,
+	seek_offset: int,
 }
 
 // Plays an ogg file by decoding it a little bit at a time, instead of loading all of the audio
@@ -1948,13 +1962,14 @@ Audio_Voice_Object :: struct {
 
 	play_state: Audio_Voice_Play_State,
 
-	seek_requested: bool,
-	seek_offset: int,
-
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
 
-	stream: Audio_Stream,
+	source: union {
+		Audio_Clip,
+		Sound,
+		Audio_Stream,
+	},
 }
 
 Audio_Voice_Play_State :: enum {
