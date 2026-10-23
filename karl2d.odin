@@ -2316,6 +2316,11 @@ count_audio_clip_instances :: proc(clip: Audio_Clip) -> int {
 	return count
 }
 
+@(deprecated="Use count_audio_clip_instances instead")
+get_num_sounds_playing_clip :: proc(clip: Audio_Clip) -> int {
+	return count_audio_clip_instances(clip)
+}
+
 // Create a `Sound` from an `Audio_Clip` using supplied settings. A Sound is a persistent thing that
 // can be used to modify the playback settings of an audio clip as it is playing. It can also be
 // used to loop audio clips. Sounds remember the settings you set on them, both when playing and not
@@ -2468,6 +2473,15 @@ pause_sound :: proc(sound: Sound) {
 
 	if vo := hm.get(&s.audio_voices, so.voice); vo != nil && vo.play_state == .Playing {
 		vo.play_state = .Pausing
+	}
+}
+
+@(deprecated="Use pause_sound and play_sound instead")
+set_sound_paused :: proc(sound: Sound, paused: bool) {
+	if paused {
+		pause_sound(sound)
+	} else if sound_is_paused(sound) {
+		play_sound(sound)
 	}
 }
 
@@ -2627,6 +2641,11 @@ get_sound_duration :: proc(sound: Sound) -> f32 {
 	}
 
 	return f32(len(ab.samples) / ab.channels) / f32(ab.sample_rate)
+}
+
+@(deprecated="Use get_sound_duration instead")
+get_sound_length :: proc(sound: Sound) -> f32 {
+	return get_sound_duration(sound)
 }
 
 // Make a sound loop when it reaches the end.
@@ -6810,9 +6829,9 @@ Audio_Stream_Cursor :: struct {
 	// right count as one sample each.
 	decode_cursor: int,
 
-	// Used for discarding unwanted samples at the decode cursor. This exists because the vorbis
-	// pushdata API can't position the decoding exactly. When seeking we land the decoder at or
-	// before the wanted spot and store how many samples to skip from there.
+	// Used for discarding unwanted samples at the decode cursor. This exists because vorbis can't
+	// position the decoding exactly. When seeking, we land the decoder at or before the wanted spot
+	// and store how many samples to skip from there.
 	//
 	// Also used for short forward seeks, which don't move the file at all and just decode past the
 	// samples in between.
@@ -6845,7 +6864,8 @@ Audio_Stream_Data :: struct {
 	// data from a file into a small buffer that is a few seconds long.
 	loop: bool,
 
-	// Used to seek when `update_audio_stream` runs.
+	// Used by mixer and `update_audio_stream`. The mixer fades the stream down to zero very
+	// quickly when a seek is requested. Then `update_audio_stream` seeks.
 	seek_requested: bool,
 	seek_seconds: f32,
 

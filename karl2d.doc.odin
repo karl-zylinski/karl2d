@@ -1831,9 +1831,9 @@ Audio_Stream_Cursor :: struct {
 	// right count as one sample each.
 	decode_cursor: int,
 
-	// Used for discarding unwanted samples at the decode cursor. This exists because the vorbis
-	// pushdata API can't position the decoding exactly. When seeking we land the decoder at or
-	// before the wanted spot and store how many samples to skip from there.
+	// Used for discarding unwanted samples at the decode cursor. This exists because vorbis can't
+	// position the decoding exactly. When seeking, we land the decoder at or before the wanted spot
+	// and store how many samples to skip from there.
 	//
 	// Also used for short forward seeks, which don't move the file at all and just decode past the
 	// samples in between.
@@ -1866,7 +1866,8 @@ Audio_Stream_Data :: struct {
 	// data from a file into a small buffer that is a few seconds long.
 	loop: bool,
 
-	// Used to seek when `update_audio_stream` runs.
+	// Used by mixer and `update_audio_stream`. The mixer fades the stream down to zero very
+	// quickly when a seek is requested. Then `update_audio_stream` seeks.
 	seek_requested: bool,
 	seek_seconds: f32,
 
