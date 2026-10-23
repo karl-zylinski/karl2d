@@ -1948,6 +1948,9 @@ Audio_Voice_Object :: struct {
 
 	play_state: Audio_Voice_Play_State,
 
+	seek_requested: bool,
+	seek_offset: int,
+
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
 

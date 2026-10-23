@@ -2536,6 +2536,10 @@ set_sound_pitch :: proc(sound: Sound, pitch: f32) {
 
 // Move the sound to another spot in its audio. `seconds` is measured from the start of the audio.
 // Use `get_sound_duration` to find out how long the sound is.
+//
+// The seek will happen during the next mixing pass. It happens by quickly fading out the sound,
+// moving to the new position and the fading it back in. This avoids any pops in the sound due to
+// audio wave discontinuities.
 set_sound_time :: proc(sound: Sound, seconds: f32) {
 	sync.mutex_guard(&s.audio_mutex)
 	so := hm.get(&s.sounds, sound)
@@ -2565,8 +2569,17 @@ set_sound_time :: proc(sound: Sound, seconds: f32) {
 
 	total_frames := len(ab.samples) / ab.channels
 	target_frame := int(wanted_seconds * f32(ab.sample_rate))
-	vo.offset = clamp(target_frame, 0, total_frames) * ab.channels
-	vo.offset_fraction = 0
+	offset := clamp(target_frame, 0, total_frames) * ab.channels
+
+	switch vo.play_state {
+	case .Paused:
+		vo.offset = offset
+		vo.offset_fraction = 0
+	case .Playing, .Pausing:
+		vo.seek_requested = true
+		vo.seek_offset = offset
+	case .Stopping, .Stopped:
+	}
 }
 
 // Get how far into its audio the sound currently is, in seconds. A looping sound goes back to 0
@@ -2591,7 +2604,8 @@ get_sound_time :: proc(sound: Sound) -> f32 {
 		return 0
 	}
 
-	return f32(vo.offset / ab.channels) / f32(ab.sample_rate)
+	offset := vo.seek_requested ? vo.seek_offset : vo.offset
+	return f32(offset / ab.channels) / f32(ab.sample_rate)
 }
 
 // Get the duration of the sound's audio, in seconds. Use it together with `get_sound_time` to show
@@ -4463,6 +4477,17 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 
 		volume_target := vo.target_volume
 
+		if vo.seek_requested {
+			volume_target = 0
+
+			if vo.volume == 0 {
+				vo.offset = vo.seek_offset
+				vo.offset_fraction = 0
+				vo.seek_requested = false
+				volume_target = vo.target_volume
+			}
+		}
+
 		if vo.play_state == .Pausing {
 			volume_target = 0
 
@@ -4655,7 +4680,7 @@ _mix_audio_into_buffer :: proc(buffer: [][2]Audio_Sample) {
 				}
 
 				vo.offset = min(vo.offset, source_end)
-			} else {
+			} else if !vo.seek_requested {
 				vo.play_state = .Stopped
 			}
 		}
@@ -6852,6 +6877,9 @@ Audio_Voice_Object :: struct {
 	loop: bool,
 
 	play_state: Audio_Voice_Play_State,
+
+	seek_requested: bool,
+	seek_offset: int,
 
 	// The bus this is mixed into. The zero value is the master bus.
 	bus: Audio_Bus,
