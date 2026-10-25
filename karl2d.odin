@@ -121,9 +121,9 @@ init :: proc(
 		s.rb_state = (^Render_Backend_State)(rb_state_mem)
 	}
 
-	if options.max_fps > 0 {
+	if options.fps_limit > 0 {
 		when FPS_LIMIT_SUPPORTED {
-			s.max_fps_frame_duration = time.Second / time.Duration(options.max_fps)
+			s.fps_limit_frame_duration = time.Second / time.Duration(options.fps_limit)
 		} else {
 			log.warn("Limiting the FPS is not supported on this platform.")
 		}
@@ -427,8 +427,8 @@ present :: proc() {
 	s.rb.present(s.rb_state)
 
 	when FPS_LIMIT_SUPPORTED {
-		if s.max_fps_frame_duration > 0 {
-			next_present_tick := time.tick_add(s.last_present_tick, s.max_fps_frame_duration)
+		if s.fps_limit_frame_duration > 0 {
+			next_present_tick := time.tick_add(s.last_present_tick, s.fps_limit_frame_duration)
 
 			for {
 				remaining := time.tick_diff(time.tick_now(), next_present_tick)
@@ -452,7 +452,7 @@ set_vsync :: proc(enabled: bool) {
 	s.rb.set_vsync(s.rb_state, enabled)
 }
 
-set_max_fps :: proc(fps: int) {
+set_fps_limit :: proc(fps: int) {
 	assert_initialized()
 
 	when !FPS_LIMIT_SUPPORTED {
@@ -461,7 +461,7 @@ set_max_fps :: proc(fps: int) {
 	}
 
 	if fps > 0 {
-		s.max_fps_frame_duration = time.Second / time.Duration(fps)
+		s.fps_limit_frame_duration = time.Second / time.Duration(fps)
 	}
 }
 
@@ -6595,7 +6595,7 @@ Init_Options :: struct {
 
 	disable_vsync: bool,
 
-	max_fps: int,
+	fps_limit: int,
 
 	// Enable depth testing. Draws are then sorted by the z value set with `set_z`: higher z ends up
 	// in front. Things drawn at the same z use the drawing order, like when depth testing is off.
@@ -7168,7 +7168,7 @@ State :: struct {
 	start_time: time.Time,
 	prev_frame_tick: time.Tick,
 	last_present_tick: time.Tick,
-	max_fps_frame_duration: time.Duration,
+	fps_limit_frame_duration: time.Duration,
 
 	// "dt"
 	frame_time: f32,
