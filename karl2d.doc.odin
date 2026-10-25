@@ -2147,7 +2147,7 @@ State :: struct {
 	default_shader: Shader,
 
 	// Time when the first call to `new_frame` happened
-	start_time: time.Time,
+	start_time: time.Tick,
 	prev_frame_tick: time.Tick,
 	last_present_tick: time.Tick,
 	fps_limit_frame_duration: time.Duration,
