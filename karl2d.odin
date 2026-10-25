@@ -418,6 +418,9 @@ calculate_frame_time :: proc() {
 // called a "backbuffer". This makes sure that we don't see half-drawn frames. So when you are happy
 // with a frame and want to show it to the player, call this procedure.
 //
+// The FPS limit set using `set_fps_limit` is implemented in this procedure. It will use a
+// combination of sleeps and busy looping to get to the target framerate. 
+//
 // WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
 // make sure that all rendering has been sent off to the GPU (as it calls `draw_current_batch()`).
 present :: proc() {
@@ -429,18 +432,15 @@ present :: proc() {
 	when FPS_LIMIT_SUPPORTED {
 		if s.fps_limit_frame_duration > 0 {
 			next_present_tick := time.tick_add(s.last_present_tick, s.fps_limit_frame_duration)
+			remaining := time.tick_diff(time.tick_now(), next_present_tick)
 
-			for {
-				remaining := time.tick_diff(time.tick_now(), next_present_tick)
-
-				if remaining <= 0 {
-					break
-				}
-
-				if remaining > 2*time.Millisecond {
-					time.sleep(remaining - 2*time.Millisecond)
-				}
+			// Sleep up to 2 ms within the target time.
+			if remaining > 2*time.Millisecond {
+				time.sleep(remaining - 2*time.Millisecond)
 			}
+
+			// Spin the last 2 ms, so we get good precision in the waiting.
+			for time.tick_diff(time.tick_now(), next_present_tick) > 0 {}
 		}
 	}
 

@@ -103,6 +103,9 @@ calculate_frame_time :: proc()
 // called a "backbuffer". This makes sure that we don't see half-drawn frames. So when you are happy
 // with a frame and want to show it to the player, call this procedure.
 //
+// The FPS limit set using `set_fps_limit` is implemented in this procedure. It will use a
+// combination of sleeps and busy looping to get to the target framerate. 
+//
 // WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
 // make sure that all rendering has been sent off to the GPU (as it calls `draw_current_batch()`).
 present :: proc()
