@@ -6613,7 +6613,7 @@ Init_Options :: struct {
 	// Disables vertical sync, see `set_vsync` for more information.
 	disable_vsync: bool,
 
-	// Limits the Frames Per Second (FPS). `0` means not limit. See `set_fps_limit` for more
+	// Limits the Frames Per Second (FPS). `0` means no limit. See `set_fps_limit` for more
 	// information.
 	fps_limit: int,
 
