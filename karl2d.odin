@@ -762,9 +762,7 @@ set_fps_limit :: proc(fps: int) {
 		return
 	}
 
-	if fps > 0 {
-		s.fps_limit_frame_duration = time.Second / time.Duration(fps)
-	}
+	s.fps_limit_frame_duration = fps > 0 ? time.Second / time.Duration(fps) : 0
 }
 
 // Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
