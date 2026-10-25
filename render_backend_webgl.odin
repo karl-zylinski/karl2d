@@ -171,6 +171,10 @@ webgl_init :: proc(
 	}
 
 	gl.Viewport(0, 0, i32(s.width), i32(s.height))
+
+	if options.disable_vsync {
+		log.warn("Disabling vsync on the web is not supported.")
+	}
 }
 
 webgl_shutdown :: proc(s: ^WebGL_State) {
@@ -210,6 +214,9 @@ webgl_present :: proc(s: ^WebGL_State) {
 }
 
 webgl_set_vsync :: proc(s: ^WebGL_State, enabled: bool) {
+	if enabled == false {
+		log.warn("Disabling vsync on the web is not supported.")
+	}
 }
 
 webgl_draw :: proc(s: ^WebGL_State, vertex_buffer: []u8, draw_calls: []Draw_Call) {
