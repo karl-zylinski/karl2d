@@ -753,6 +753,9 @@ set_vsync :: proc(enabled: bool) {
 // The FPS limit is implemented by sleeping inside `k2.present()`. Since sleeps are not exact, it
 // will sleep within 2 milliseconds of the target time and then "busy loop" the last 2 milliseconds.
 //
+// Note that having vsync enabled (see `set_vsync`) gives you an FPS limit of your screen's
+// refresh rate.
+//
 // WEB: FPS limit is not available.
 set_fps_limit :: proc(fps: int) {
 	assert_initialized()
@@ -6607,8 +6610,11 @@ Init_Options :: struct {
 	// windows.
 	disable_auto_scale_hint: bool,
 
+	// Disables vertical sync, see `set_vsync` for more information.
 	disable_vsync: bool,
 
+	// Limits the Frames Per Second (FPS). `0` means not limit. See `set_fps_limit` for more
+	// information.
 	fps_limit: int,
 
 	// Enable depth testing. Draws are then sorted by the z value set with `set_z`: higher z ends up
