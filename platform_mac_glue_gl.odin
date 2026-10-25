@@ -88,8 +88,8 @@ mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue, options: Init_Options) -> bool
 	s.gl_ctx->setView(view)
 	s.gl_ctx->makeCurrentContext()
 
-	// Enable vsync
-	swap_interval: CA.GLint = 1
+	// Set vsync
+	swap_interval: CA.GLint = options.disable_vsync ? 0 : 1
 	s.gl_ctx->setValues(&swap_interval, .SwapInterval)
 
 	// the OpenGL shared library is loaded from OpenGL.framework when we initialize it in _gl_get_context
@@ -105,6 +105,8 @@ mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue, options: Init_Options) -> bool
 }
 
 mac_gl_glue_set_vsync :: proc(s: ^Mac_GL_Glue, enabled: bool) {
+	swap_interval: CA.GLint = enabled ? 1 : 0
+	s.gl_ctx->setValues(&swap_interval, .SwapInterval)
 }
 
 mac_gl_glue_present :: proc(s: ^Mac_GL_Glue) {
