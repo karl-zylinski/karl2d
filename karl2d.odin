@@ -121,6 +121,14 @@ init :: proc(
 		s.rb_state = (^Render_Backend_State)(rb_state_mem)
 	}
 
+	if options.max_fps > 0 {
+		when FPS_LIMIT_SUPPORTED {
+			s.max_fps_frame_duration = time.Second / time.Duration(options.max_fps)
+		} else {
+			log.warn("Limiting the FPS is not supported on this platform.")
+		}
+	}
+
 	s.depth_test = options.depth_test
 	s.depth_range_min = options.depth_range_min
 	s.depth_range_max = options.depth_range_max
@@ -387,14 +395,14 @@ reset_frame_allocator :: proc() {
 // Called as part of `update`, but can be called manually if you need more control.
 calculate_frame_time :: proc() {
 	assert_initialized()
-	now := time.now()
+	now := time.tick_now()
 
-	if s.prev_frame_time != {} {
-		since := time.diff(s.prev_frame_time, now)
+	if s.prev_frame_tick != {} {
+		since := time.tick_diff(s.prev_frame_tick, now)
 		s.frame_time = f32(time.duration_seconds(since))
 	}
 
-	s.prev_frame_time = now
+	s.prev_frame_tick = now
 
 	if s.start_time == {} {
 		s.start_time = time.now()
@@ -417,11 +425,44 @@ present :: proc() {
 	draw_current_batch()
 	pf.before_present(s.pf_state)
 	s.rb.present(s.rb_state)
+
+	when FPS_LIMIT_SUPPORTED {
+		if s.max_fps_frame_duration > 0 {
+			next_present_tick := time.tick_add(s.last_present_tick, s.max_fps_frame_duration)
+
+			for {
+				remaining := time.tick_diff(time.tick_now(), next_present_tick)
+
+				if remaining <= 0 {
+					break
+				}
+
+				if remaining > 2*time.Millisecond {
+					time.sleep(remaining - 2*time.Millisecond)
+				}
+			}
+		}
+	}
+
+	s.last_present_tick = time.tick_now()
 }
 
 set_vsync :: proc(enabled: bool) {
 	assert_initialized()
 	s.rb.set_vsync(s.rb_state, enabled)
+}
+
+set_max_fps :: proc(fps: int) {
+	assert_initialized()
+
+	when !FPS_LIMIT_SUPPORTED {
+		log.warn("Limiting the FPS is not supported on this platform.")
+		return
+	}
+
+	if fps > 0 {
+		s.max_fps_frame_duration = time.Second / time.Duration(fps)
+	}
 }
 
 // Process all events that have arrived from the platform APIs. This includes keyboard, mouse,
@@ -6554,6 +6595,8 @@ Init_Options :: struct {
 
 	disable_vsync: bool,
 
+	max_fps: int,
+
 	// Enable depth testing. Draws are then sorted by the z value set with `set_z`: higher z ends up
 	// in front. Things drawn at the same z use the drawing order, like when depth testing is off.
 	depth_test: bool,
@@ -7123,7 +7166,9 @@ State :: struct {
 
 	// Time when the first call to `new_frame` happened
 	start_time: time.Time,
-	prev_frame_time: time.Time,
+	prev_frame_tick: time.Tick,
+	last_present_tick: time.Tick,
+	max_fps_frame_duration: time.Duration,
 
 	// "dt"
 	frame_time: f32,
@@ -8198,3 +8243,5 @@ color_from_f32_color :: proc(color: Color_F32) -> Color {
 }
 
 Allocator :: runtime.Allocator
+
+FPS_LIMIT_SUPPORTED :: ODIN_OS != .JS

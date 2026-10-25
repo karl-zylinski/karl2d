@@ -62,6 +62,7 @@ windows_init :: proc(
 
 	win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 	win32.SetProcessDPIAware()
+	win32.timeBeginPeriod(1)
 	CLASS_NAME :: "karl2d"
 	instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
 
@@ -181,6 +182,8 @@ windows_shutdown :: proc(s: ^Windows_State) {
 	if s.hicon != nil {
 		win32.DestroyIcon(s.hicon)
 	}
+
+	win32.timeEndPeriod(1)
 
 	delete(s.events)
 }
