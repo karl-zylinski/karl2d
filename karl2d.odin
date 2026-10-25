@@ -447,24 +447,6 @@ present :: proc() {
 	s.last_present_tick = time.tick_now()
 }
 
-set_vsync :: proc(enabled: bool) {
-	assert_initialized()
-	s.rb.set_vsync(s.rb_state, enabled)
-}
-
-set_fps_limit :: proc(fps: int) {
-	assert_initialized()
-
-	when !FPS_LIMIT_SUPPORTED {
-		log.warn("Limiting the FPS is not supported on this platform.")
-		return
-	}
-
-	if fps > 0 {
-		s.fps_limit_frame_duration = time.Second / time.Duration(fps)
-	}
-}
-
 // Process all events that have arrived from the platform APIs. This includes keyboard, mouse,
 // gamepad and window events. This procedure processes and stores the information that procs like
 // `key_went_down` need.
@@ -749,6 +731,40 @@ get_frame_time :: proc() -> f32 {
 get_time :: proc() -> f64 {
 	assert_initialized()
 	return s.time
+}
+
+// Enable or disable vertical sync. When `present` runs, vertical sync makes the game wait until the
+// screen has refreshed. This avoids any "tearing" where you see two frames at once. Vertical sync
+// effectively limits the framerate of your game to the refresh rate of your monitor.
+//
+// Vertical sync is enabled by default. It can be disabled when `init` is called using
+// `options.disable_vsync = true`.
+//
+// WEB: Vertical sync is not possible to disable.
+set_vsync :: proc(enabled: bool) {
+	assert_initialized()
+	s.rb.set_vsync(s.rb_state, enabled)
+}
+
+// Limit the game to not running any faster than a certain number of frames per second. Set `0` to
+// disable FPS limit. The FPS limit is disabled by default. It can be set during `init` using
+// `options.fps_limit`.
+//
+// The FPS limit is implemented by sleeping inside `k2.present()`. Since sleeps are not exact, it
+// will sleep within 2 milliseconds of the target time and then "busy loop" the last 2 milliseconds.
+//
+// WEB: FPS limit is not available.
+set_fps_limit :: proc(fps: int) {
+	assert_initialized()
+
+	when !FPS_LIMIT_SUPPORTED {
+		log.warn("Limiting the FPS is not supported on this platform.")
+		return
+	}
+
+	if fps > 0 {
+		s.fps_limit_frame_duration = time.Second / time.Duration(fps)
+	}
 }
 
 // Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
