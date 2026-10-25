@@ -49,6 +49,7 @@ Linux_GL_Wayland_Glue :: struct {
 	frame_queue: ^wl.Event_Queue,
 	frame_surface: ^wl.Surface,
 	frame_callback: ^wl.Callback,
+	vsync: bool,
 	window: ^wl.EGL_Window,
 	egl_context: egl.Context,
 	egl_display: egl.Display,
@@ -61,6 +62,8 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue, options: I
 		log.errorf("Failed loading EGL. Could not load %v.", missing)
 		return false
 	}
+
+	s.vsync = !options.disable_vsync
 
 	// Get a valid EGL configuration based on some attribute guidelines
 	// Create a context based on a "chosen" configuration
@@ -152,19 +155,22 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue, options: I
 }
 
 linux_gl_wayland_glue_set_vsync :: proc(s: ^Linux_GL_Wayland_Glue, enabled: bool) {
+	s.vsync = enabled
 }
 
 linux_gl_wayland_glue_present :: proc(s: ^Linux_GL_Wayland_Glue) {
-	if s.frame_callback != nil {
-		gl.Flush()
-		linux_gl_wayland_wait_for_frame(s)
-	}
+	if s.vsync {
+		if s.frame_callback != nil {
+			gl.Flush()
+			linux_gl_wayland_wait_for_frame(s)
+		}
 
-	// The frame_callback may never have existed, or may have been cleared inside
-	// `linux_gl_wayland_wait_for_frame`, so we create it now.
-	if s.frame_callback == nil {
-		s.frame_callback = wl.surface_frame(s.frame_surface)
-		wl.add_listener(s.frame_callback, &linux_gl_wayland_frame_listener, s)
+		// The frame_callback may never have existed, or may have been cleared inside
+		// `linux_gl_wayland_wait_for_frame`, so we create it now.
+		if s.frame_callback == nil {
+			s.frame_callback = wl.surface_frame(s.frame_surface)
+			wl.add_listener(s.frame_callback, &linux_gl_wayland_frame_listener, s)
+		}
 	}
 
 	// Non-blocking swap (egl.SwapInterval is 0). It commits the surface, which is what carries
