@@ -15,6 +15,7 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	shutdown = gl_shutdown,
 	clear = gl_clear,
 	present = gl_present,
+	set_vsync = gl_set_vsync,
 	draw = gl_draw,
 	resize_swapchain = gl_resize_swapchain,
 	get_swapchain_width = gl_get_swapchain_width,
@@ -195,6 +196,10 @@ gl_clear :: proc(s: ^GL_State, render_target: Render_Target_Handle, color: Color
 
 gl_present :: proc(s: ^GL_State) {
 	s.glue->present()
+}
+
+gl_set_vsync :: proc(s: ^GL_State, enabled: bool) {
+	s.glue->set_vsync(enabled)
 }
 
 gl_draw :: proc(s: ^GL_State, vertex_buffer: []u8, draw_calls: []Draw_Call) {

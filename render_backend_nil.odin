@@ -10,6 +10,7 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	shutdown = rbnil_shutdown,
 	clear = rbnil_clear,
 	present = rbnil_present,
+	set_vsync = rbnil_set_vsync,
 	draw = rbnil_draw,
 	resize_swapchain = rbnil_resize_swapchain,
 	get_swapchain_width = rbnil_get_swapchain_width,
@@ -68,6 +69,9 @@ rbnil_clear :: proc(s: ^RBNil_State, render_texture: Render_Target_Handle, color
 }
 
 rbnil_present :: proc(s: ^RBNil_State) {
+}
+
+rbnil_set_vsync :: proc(s: ^RBNil_State, enabled: bool) {
 }
 
 rbnil_draw :: proc(s: ^RBNil_State, vertex_buffer: []u8, draw_calls: []Draw_Call) {

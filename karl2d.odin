@@ -419,6 +419,11 @@ present :: proc() {
 	s.rb.present(s.rb_state)
 }
 
+set_vsync :: proc(enabled: bool) {
+	assert_initialized()
+	s.rb.set_vsync(s.rb_state, enabled)
+}
+
 // Process all events that have arrived from the platform APIs. This includes keyboard, mouse,
 // gamepad and window events. This procedure processes and stores the information that procs like
 // `key_went_down` need.
@@ -6546,6 +6551,8 @@ Init_Options :: struct {
 	// platforms, such as Linux+Wayland, it does not work, because Wayland always auto scales all
 	// windows.
 	disable_auto_scale_hint: bool,
+
+	disable_vsync: bool,
 
 	// Enable depth testing. Draws are then sorted by the z value set with `set_z`: higher z ends up
 	// in front. Things drawn at the same z use the drawing order, like when depth testing is off.

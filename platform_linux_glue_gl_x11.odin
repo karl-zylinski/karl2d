@@ -26,6 +26,7 @@ create_linux_gl_x11_glue :: proc(
 		interface = {
 			make_context =  linux_gl_x11_glue_make_context,
 			present = linux_gl_x11_glue_present,
+			set_vsync = linux_gl_x11_glue_set_vsync,
 			destroy = linux_gl_x11_glue_destroy,
 			viewport_resized = linux_gl_x11_glue_viewport_resized,
 		},
@@ -117,6 +118,9 @@ linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue, options: Init_Opti
 	}
 
 	return false
+}
+
+linux_gl_x11_glue_set_vsync :: proc(s: ^Linux_GL_X11_Glue, enabled: bool) {
 }
 
 linux_gl_x11_glue_present :: proc(s: ^Linux_GL_X11_Glue) {

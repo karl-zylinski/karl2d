@@ -19,6 +19,7 @@ RENDER_BACKEND_D3D11 :: Render_Backend_Interface {
 	shutdown = d3d11_shutdown,
 	clear = d3d11_clear,
 	present = d3d11_present,
+	set_vsync = d3d11_set_vsync,
 	draw = d3d11_draw,
 	resize_swapchain = d3d11_resize_swapchain,
 	get_swapchain_width = d3d11_get_swapchain_width,
@@ -150,6 +151,7 @@ d3d11_init :: proc(
 	err = dxgi_device->GetAdapter(&s.dxgi_adapter)
 	d3d11_check(s, err)
 	s.anti_alias = options.anti_alias
+	s.vsync = !options.disable_vsync
 	s.depth_test = options.depth_test
 
 	d3d11_create_swapchain(s, swapchain_width, swapchain_height)
@@ -360,8 +362,12 @@ d3d11_clear :: proc(s: ^D3D11_State, render_target: Render_Target_Handle, color:
 }
 
 d3d11_present :: proc(s: ^D3D11_State) {
-	err := s.swapchain->Present(1, {})
+	err := s.swapchain->Present(s.vsync ? 1 : 0, {})
 	d3d11_check(s, err)
+}
+
+d3d11_set_vsync :: proc(s: ^D3D11_State, enabled: bool) {
+	s.vsync = enabled
 }
 
 d3d11_draw :: proc(s: ^D3D11_State, vertex_buffer: []u8, draw_calls: []Draw_Call) {
@@ -1485,6 +1491,7 @@ D3D11_State :: struct {
 	blend_state_premultiplied_alpha: ^d3d11.IBlendState,
 	blend_state_additive: ^d3d11.IBlendState,
 	anti_alias: bool,
+	vsync: bool,
 
 	textures: hm.Dynamic_Handle_Map(D3D11_Texture, Texture_Handle),
 	render_targets: hm.Dynamic_Handle_Map(D3D11_Render_Target, Render_Target_Handle),

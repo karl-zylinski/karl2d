@@ -15,6 +15,7 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 	shutdown = webgl_shutdown,
 	clear = webgl_clear,
 	present = webgl_present,
+	set_vsync = webgl_set_vsync,
 	draw = webgl_draw,
 	resize_swapchain = webgl_resize_swapchain,
 	get_swapchain_width = webgl_get_swapchain_width,
@@ -206,6 +207,9 @@ webgl_clear :: proc(s: ^WebGL_State, render_target: Render_Target_Handle, color:
 
 webgl_present :: proc(s: ^WebGL_State) {
 	// The browser flips the backbuffer for you when 'step' ends
+}
+
+webgl_set_vsync :: proc(s: ^WebGL_State, enabled: bool) {
 }
 
 webgl_draw :: proc(s: ^WebGL_State, vertex_buffer: []u8, draw_calls: []Draw_Call) {

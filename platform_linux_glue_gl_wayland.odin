@@ -35,6 +35,7 @@ create_linux_gl_wayland_glue :: proc(
 	state.interface = {
 		make_context = linux_gl_wayland_glue_make_context,
 		present = linux_gl_wayland_glue_present,
+		set_vsync = linux_gl_wayland_glue_set_vsync,
 		destroy = linux_gl_wayland_glue_destroy,
 		viewport_resized = linux_gl_wayland_glue_viewport_resized,
 	}
@@ -148,6 +149,9 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue, options: I
 	}
 
 	return false
+}
+
+linux_gl_wayland_glue_set_vsync :: proc(s: ^Linux_GL_Wayland_Glue, enabled: bool) {
 }
 
 linux_gl_wayland_glue_present :: proc(s: ^Linux_GL_Wayland_Glue) {

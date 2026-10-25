@@ -67,6 +67,7 @@ Platform_Interface :: struct #all_or_none {
 Window_Render_Glue :: struct {
 	make_context: proc(s: ^Window_Render_Glue, init_options: Init_Options) -> bool,
 	present: proc(s: ^Window_Render_Glue),
+	set_vsync: proc(s: ^Window_Render_Glue, enabled: bool),
 	destroy: proc(s: ^Window_Render_Glue),
 	viewport_resized: proc(s: ^Window_Render_Glue),
 }

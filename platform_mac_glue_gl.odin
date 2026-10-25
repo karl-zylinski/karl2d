@@ -23,6 +23,7 @@ create_mac_gl_glue :: proc(
 	state.interface = {
 		make_context = mac_gl_glue_make_context,
 		present = mac_gl_glue_present,
+		set_vsync = mac_gl_glue_set_vsync,
 		destroy = mac_gl_glue_destroy,
 		viewport_resized = mac_gl_glue_viewport_resized,
 	}
@@ -101,6 +102,9 @@ mac_gl_glue_make_context :: proc(s: ^Mac_GL_Glue, options: Init_Options) -> bool
 	gl.load_up_to(3, 3, macos_gl_set_proc_address)
 
 	return true
+}
+
+mac_gl_glue_set_vsync :: proc(s: ^Mac_GL_Glue, enabled: bool) {
 }
 
 mac_gl_glue_present :: proc(s: ^Mac_GL_Glue) {
