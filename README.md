@@ -6,6 +6,16 @@ See [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d
 
 Support the project by becoming a sponsor here on [GitHub](https://github.com/sponsors/karl-zylinski) or on [Patreon](https://patreon.com/karl_zylinski).
 
+## Features
+
+- Load and draw textures
+- Draw geometric shapes
+- Cameras for moving, rotating and scaling the view
+- Audio playback of audio clips and music
+- Support for mouse, keyboard and gamepad
+- Platforms: Windows, Linux, Mac, Web
+- Touch support on web
+
 ## Getting started
 
 1. Install the Odin compiler using the instructions on [odin-lang.org](https://odin-lang.org)
