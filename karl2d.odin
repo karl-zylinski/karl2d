@@ -5809,8 +5809,12 @@ load_shader_from_bytes :: proc(
 			size = constant_desc.size,
 		}
 
-		shd.constants[cidx] = loc 
+		shd.constants[cidx] = loc
 		constant_offset += constant_desc.size
+
+		if len(constant_desc.default_value) == constant_desc.size {
+			copy(shd.constants_data[loc.offset:], constant_desc.default_value)
+		}
 
 		if constant_desc.name != "" {
 			shd.constant_lookup[strings.clone(constant_desc.name, s.allocator)] = loc
