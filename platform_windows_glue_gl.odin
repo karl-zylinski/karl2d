@@ -23,6 +23,7 @@ create_windows_gl_glue :: proc(
 		interface = {
 			make_context = windows_gl_glue_make_context,
 			present = windows_gl_glue_present,
+			set_vsync = windows_gl_glue_set_vsync,
 			destroy = windows_gl_glue_destroy,
 			viewport_resized = windows_gl_glue_viewport_resized,
 		},
@@ -161,7 +162,7 @@ windows_gl_glue_make_context :: proc(s: ^Windows_GL_Glue, options: Init_Options)
 	win32.wglMakeCurrent(s.device_ctx, s.gl_ctx)
 
 	// vsync
-	win32.wglSwapIntervalEXT(1)
+	win32.wglSwapIntervalEXT(options.disable_vsync ? 0 : 1)
 	
 	gl.load_up_to(3, 3, win32.gl_set_proc_address)
 
@@ -170,6 +171,10 @@ windows_gl_glue_make_context :: proc(s: ^Windows_GL_Glue, options: Init_Options)
 
 windows_gl_glue_present :: proc(s: ^Windows_GL_Glue) {
 	win32.SwapBuffers(s.device_ctx)
+}
+
+windows_gl_glue_set_vsync :: proc(s: ^Windows_GL_Glue, enabled: bool) {
+	win32.wglSwapIntervalEXT(enabled ? 1 : 0)
 }
 
 windows_gl_glue_destroy :: proc(s: ^Windows_GL_Glue) {

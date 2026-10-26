@@ -83,6 +83,7 @@ Render_Backend_Interface :: struct #all_or_none {
 	shutdown: proc(s: ^Render_Backend_State),
 	clear: proc(s: ^Render_Backend_State, render_target: Render_Target_Handle, color: Color),
 	present: proc(s: ^Render_Backend_State),
+	set_vsync: proc(s: ^Render_Backend_State, enabled: bool),
 	
 	draw: proc(s: ^Render_Backend_State, vertex_buffer: []u8, draw_calls: []Draw_Call),
 

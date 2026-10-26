@@ -103,6 +103,9 @@ calculate_frame_time :: proc()
 // called a "backbuffer". This makes sure that we don't see half-drawn frames. So when you are happy
 // with a frame and want to show it to the player, call this procedure.
 //
+// The FPS limit set using `set_fps_limit` is implemented in this procedure. It will use a
+// combination of sleeps and busy looping to get to the target framerate. 
+//
 // WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
 // make sure that all rendering has been sent off to the GPU (as it calls `draw_current_batch()`).
 present :: proc()
@@ -136,6 +139,26 @@ get_frame_time :: proc() -> f32
 //
 // This value is updated when `calculate_frame_time()` runs (which is also called by `update()`).
 get_time :: proc() -> f64
+
+// Enable or disable vertical sync. When `present` runs, vertical sync makes the game wait until the
+// screen has refreshed. This avoids any "tearing" where you see two frames at once. Vertical sync
+// effectively limits the framerate of your game to the refresh rate of your monitor.
+//
+// Vertical sync is enabled by default. It can be disabled when `init` is called using
+// `options.disable_vsync = true`.
+//
+// WEB: Vertical sync is not possible to disable.
+set_vsync :: proc(enabled: bool)
+
+// Limit the game to not running any faster than a certain number of frames per second. Set `0` to
+// disable FPS limit. The FPS limit is disabled by default. It can be set during `init` using
+// `options.fps_limit`.
+//
+// The FPS limit is implemented by sleeping inside `k2.present()`. Since sleeps are not exact, it
+// will sleep within 2 milliseconds of the target time and then "busy loop" the last 2 milliseconds.
+//
+// WEB: FPS limit is not available.
+set_fps_limit :: proc(fps: int)
 
 // Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
 // windows with `window_mode == .Windowed_Resizable`, this procedure is able to resize such windows.
@@ -1549,6 +1572,13 @@ Init_Options :: struct {
 	// windows.
 	disable_auto_scale_hint: bool,
 
+	// Disables vertical sync, see `set_vsync` for more information.
+	disable_vsync: bool,
+
+	// Limits the Frames Per Second (FPS). `0` means no limit. See `set_fps_limit` for more
+	// information.
+	fps_limit: int,
+
 	// Enable depth testing. Draws are then sorted by the z value set with `set_z`: higher z ends up
 	// in front. Things drawn at the same z use the drawing order, like when depth testing is off.
 	depth_test: bool,
@@ -2117,8 +2147,10 @@ State :: struct {
 	default_shader: Shader,
 
 	// Time when the first call to `new_frame` happened
-	start_time: time.Time,
-	prev_frame_time: time.Time,
+	start_time: time.Tick,
+	prev_frame_tick: time.Tick,
+	last_present_tick: time.Tick,
+	fps_limit_frame_duration: time.Duration,
 
 	// "dt"
 	frame_time: f32,

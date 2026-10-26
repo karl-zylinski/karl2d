@@ -121,6 +121,14 @@ init :: proc(
 		s.rb_state = (^Render_Backend_State)(rb_state_mem)
 	}
 
+	if options.fps_limit > 0 {
+		when FPS_LIMIT_SUPPORTED {
+			s.fps_limit_frame_duration = time.Second / time.Duration(options.fps_limit)
+		} else {
+			log.warn("Limiting the FPS is not supported on this platform.")
+		}
+	}
+
 	s.depth_test = options.depth_test
 	s.depth_range_min = options.depth_range_min
 	s.depth_range_max = options.depth_range_max
@@ -387,20 +395,20 @@ reset_frame_allocator :: proc() {
 // Called as part of `update`, but can be called manually if you need more control.
 calculate_frame_time :: proc() {
 	assert_initialized()
-	now := time.now()
+	now := time.tick_now()
 
-	if s.prev_frame_time != {} {
-		since := time.diff(s.prev_frame_time, now)
+	if s.prev_frame_tick != {} {
+		since := time.tick_diff(s.prev_frame_tick, now)
 		s.frame_time = f32(time.duration_seconds(since))
 	}
 
-	s.prev_frame_time = now
+	s.prev_frame_tick = now
 
 	if s.start_time == {} {
-		s.start_time = time.now()
+		s.start_time = time.tick_now()
 	}
 
-	s.time = time.duration_seconds(time.since(s.start_time))
+	s.time = time.duration_seconds(time.tick_since(s.start_time))
 }
 
 // Present the graphics drawn on the screen to the player. Also known as "flipping the backbuffer":
@@ -410,6 +418,9 @@ calculate_frame_time :: proc() {
 // called a "backbuffer". This makes sure that we don't see half-drawn frames. So when you are happy
 // with a frame and want to show it to the player, call this procedure.
 //
+// The FPS limit set using `set_fps_limit` is implemented in this procedure. It will use a
+// combination of sleeps and busy looping to get to the target framerate. 
+//
 // WebGL note: WebGL does the backbuffer flipping automatically. But you should still call this to
 // make sure that all rendering has been sent off to the GPU (as it calls `draw_current_batch()`).
 present :: proc() {
@@ -417,6 +428,23 @@ present :: proc() {
 	draw_current_batch()
 	pf.before_present(s.pf_state)
 	s.rb.present(s.rb_state)
+
+	when FPS_LIMIT_SUPPORTED {
+		if s.fps_limit_frame_duration > 0 {
+			next_present_tick := time.tick_add(s.last_present_tick, s.fps_limit_frame_duration)
+			remaining := time.tick_diff(time.tick_now(), next_present_tick)
+
+			// Sleep up to 2 ms within the target time.
+			if remaining > 2*time.Millisecond {
+				time.sleep(remaining - 2*time.Millisecond)
+			}
+
+			// Spin the last 2 ms, so we get good precision in the waiting.
+			for time.tick_diff(time.tick_now(), next_present_tick) > 0 {}
+		}
+	}
+
+	s.last_present_tick = time.tick_now()
 }
 
 // Process all events that have arrived from the platform APIs. This includes keyboard, mouse,
@@ -703,6 +731,38 @@ get_frame_time :: proc() -> f32 {
 get_time :: proc() -> f64 {
 	assert_initialized()
 	return s.time
+}
+
+// Enable or disable vertical sync. When `present` runs, vertical sync makes the game wait until the
+// screen has refreshed. This avoids any "tearing" where you see two frames at once. Vertical sync
+// effectively limits the framerate of your game to the refresh rate of your monitor.
+//
+// Vertical sync is enabled by default. It can be disabled when `init` is called using
+// `options.disable_vsync = true`.
+//
+// WEB: Vertical sync is not possible to disable.
+set_vsync :: proc(enabled: bool) {
+	assert_initialized()
+	s.rb.set_vsync(s.rb_state, enabled)
+}
+
+// Limit the game to not running any faster than a certain number of frames per second. Set `0` to
+// disable FPS limit. The FPS limit is disabled by default. It can be set during `init` using
+// `options.fps_limit`.
+//
+// The FPS limit is implemented by sleeping inside `k2.present()`. Since sleeps are not exact, it
+// will sleep within 2 milliseconds of the target time and then "busy loop" the last 2 milliseconds.
+//
+// WEB: FPS limit is not available.
+set_fps_limit :: proc(fps: int) {
+	assert_initialized()
+
+	when !FPS_LIMIT_SUPPORTED {
+		log.warn("Limiting the FPS is not supported on this platform.")
+		return
+	}
+
+	s.fps_limit_frame_duration = fps > 0 ? time.Second / time.Duration(fps) : 0
 }
 
 // Resize the drawing area of the window (the screen) to a new size. While the user cannot resize
@@ -6547,6 +6607,13 @@ Init_Options :: struct {
 	// windows.
 	disable_auto_scale_hint: bool,
 
+	// Disables vertical sync, see `set_vsync` for more information.
+	disable_vsync: bool,
+
+	// Limits the Frames Per Second (FPS). `0` means no limit. See `set_fps_limit` for more
+	// information.
+	fps_limit: int,
+
 	// Enable depth testing. Draws are then sorted by the z value set with `set_z`: higher z ends up
 	// in front. Things drawn at the same z use the drawing order, like when depth testing is off.
 	depth_test: bool,
@@ -7115,8 +7182,10 @@ State :: struct {
 	default_shader: Shader,
 
 	// Time when the first call to `new_frame` happened
-	start_time: time.Time,
-	prev_frame_time: time.Time,
+	start_time: time.Tick,
+	prev_frame_tick: time.Tick,
+	last_present_tick: time.Tick,
+	fps_limit_frame_duration: time.Duration,
 
 	// "dt"
 	frame_time: f32,
@@ -8191,3 +8260,5 @@ color_from_f32_color :: proc(color: Color_F32) -> Color {
 }
 
 Allocator :: runtime.Allocator
+
+FPS_LIMIT_SUPPORTED :: ODIN_OS != .JS

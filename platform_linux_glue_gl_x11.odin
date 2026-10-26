@@ -26,6 +26,7 @@ create_linux_gl_x11_glue :: proc(
 		interface = {
 			make_context =  linux_gl_x11_glue_make_context,
 			present = linux_gl_x11_glue_present,
+			set_vsync = linux_gl_x11_glue_set_vsync,
 			destroy = linux_gl_x11_glue_destroy,
 			viewport_resized = linux_gl_x11_glue_viewport_resized,
 		},
@@ -39,6 +40,7 @@ Linux_GL_X11_Glue :: struct {
 	display: ^X.Display,
 	window: X.Window,
 	gl_ctx: ^glx.Context,
+	swap_interval_ext: glx.SwapIntervalEXT,
 	allocator: runtime.Allocator,
 }
 
@@ -90,10 +92,9 @@ linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue, options: Init_Opti
 		return false
 	}
 
-	glXSwapIntervalEXT: glx.SwapIntervalEXT
-	glx.SetProcAddress((rawptr)(&glXSwapIntervalEXT), "glXSwapIntervalEXT")
+	glx.SetProcAddress((rawptr)(&s.swap_interval_ext), "glXSwapIntervalEXT")
 
-	if glXSwapIntervalEXT == {} {
+	if s.swap_interval_ext == nil {
 		log.error("Failed fetching glXSwapIntervalEXT")
 		return false
 	}
@@ -111,12 +112,16 @@ linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue, options: Init_Opti
 		gl.load_up_to(3, 3, glx.SetProcAddress)
 
 		// vsync
-		glXSwapIntervalEXT(s.display, s.window, 1)
+		s.swap_interval_ext(s.display, s.window, options.disable_vsync ? 0 : 1)
 
 		return true
 	}
 
 	return false
+}
+
+linux_gl_x11_glue_set_vsync :: proc(s: ^Linux_GL_X11_Glue, enabled: bool) {
+	s.swap_interval_ext(s.display, s.window, enabled ? 1 : 0)
 }
 
 linux_gl_x11_glue_present :: proc(s: ^Linux_GL_X11_Glue) {
