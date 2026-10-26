@@ -196,9 +196,7 @@ init :: proc(
 	s.current_shader = s.default_shader
 	s.draw_call_changes = DRAW_CALL_CHANGE_ALL
 
-	// Dummy element so font with index 0 means 'no font'.
 	s.fonts = make([dynamic]Font_Data, s.allocator)
-	append_nothing(&s.fonts)
 	fc.init_cache(&s.font_cache, s.allocator)
 	default_font := load_dynamic_font_from_bytes(DEFAULT_FONT_DATA)
 	log.assertf(default_font == FONT_DEFAULT, "Default font must be at index %i", FONT_DEFAULT)
@@ -1623,7 +1621,7 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 		w: f32
 		line_w: f32
 
-		if int(font) >= len(s.fonts) {
+		if font < 0 || int(font) >= len(s.fonts) {
 			return {}
 		}
 
@@ -1743,7 +1741,7 @@ draw_text :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 ) {
-	if int(font) >= len(s.fonts) {
+	if font < 0 || int(font) >= len(s.fonts) {
 		return
 	}
 
@@ -1786,7 +1784,7 @@ draw_text :: proc(
 	) {
 		// TODO: Add kerning.
 
-		if int(font) >= len(s.fonts) {
+		if font < 0 || int(font) >= len(s.fonts) {
 			return
 		}
 
@@ -1890,7 +1888,7 @@ draw_text :: proc(
 		origin: Vec2 = {},
 		rotation: f32 = 0,
 	) {
-		if int(font) >= len(s.fonts) {
+		if font < 0 || int(font) >= len(s.fonts) {
 			return
 		}
 
@@ -5268,7 +5266,7 @@ load_static_font_from_file :: proc(
 
 	if !data_ok {
 		log.errorf("Failed loading font %s", filename)
-		return FONT_NONE, false
+		return FONT_DEFAULT, false
 	}
 
 	return load_static_font_from_bytes(data, font_size, codepoints, options)
@@ -5562,7 +5560,7 @@ load_dynamic_font_from_file :: proc(
 
 	if !data_ok {
 		log.errorf("Failed loading font %s", filename)
-		return FONT_NONE, false
+		return FONT_DEFAULT, false
 	}
 
 	return load_dynamic_font_from_bytes(data, options)
@@ -5597,10 +5595,10 @@ load_dynamic_font_from_bytes :: proc(
 			options.font_index,
 			stbtt.GetNumberOfFonts(raw_data(data)),
 		)
-		return FONT_NONE, false
+		return FONT_DEFAULT, false
 	case .Invalid_Font_Data:
 		log.error("Failed loading TTF/TTC font")
-		return FONT_NONE, false
+		return FONT_DEFAULT, false
 	}
 
 	append(&s.fonts, Font_Data {
@@ -5627,7 +5625,7 @@ load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> (Font, b
 
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
 destroy_font :: proc(font: Font) {
-	if int(font) >= len(s.fonts) {
+	if font <= FONT_DEFAULT || int(font) >= len(s.fonts) {
 		return
 	}
 
@@ -6826,11 +6824,10 @@ Font_Baked_Glyph :: struct {
 	advance: f32,
 }
 
-FONT_NONE :: Font(0)
-
 // The default font. It's a font called "roboto". It is loaded from `DEFAULT_FONT_DATA` on Karl2D is
-// initialized.
-FONT_DEFAULT :: Font(1) 
+// initialized. It is the zero value, which means that any zero-initialized `Font` variable will be
+// the default font.
+FONT_DEFAULT :: Font(0)
 
 TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
@@ -7133,7 +7130,7 @@ State :: struct {
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 
-	// Also see FONT_NONE and FONT_DEFAULT
+	// Also see FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
 	font_cache: fc.Cache,
 	font_atlas_texture: Texture,
