@@ -167,7 +167,7 @@ Some kind of gameplay code hot reload is planned as part of the library. Current
 
 Karl2D is currently is currently in beta. If you find _any_ issues, then please create an issue here on GitHub!
 
-For the roadmap of future releases, please see to the [milestones](https://github.com/karl-zylinski/karl2d/milestones)/
+For the roadmap of future releases, please see to the [milestones](https://github.com/karl-zylinski/karl2d/milestones)
 
 ## Architecture notes
 
