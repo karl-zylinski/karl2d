@@ -157,9 +157,6 @@ set_vsync :: proc(enabled: bool)
 // The FPS limit is implemented by sleeping inside `k2.present()`. Since sleeps are not exact, it
 // will sleep within 2 milliseconds of the target time and then "busy loop" the last 2 milliseconds.
 //
-// Note that having vsync enabled (see `set_vsync`) gives you an FPS limit of your screen's
-// refresh rate.
-//
 // WEB: FPS limit is not available.
 set_fps_limit :: proc(fps: int)
 
