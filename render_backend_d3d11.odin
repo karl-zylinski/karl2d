@@ -1373,9 +1373,16 @@ d3d11_reflect_shader_constants :: proc(
 				var_info->GetDesc(&var_desc)
 
 				if var_desc.Name != "" {
+					default_value: []u8
+
+					if var_desc.DefaultValue != nil {
+						default_value = slice.clone(slice.bytes_from_ptr(var_desc.DefaultValue, int(var_desc.Size)), desc_allocator)
+					}
+
 					append(constant_descs, Shader_Constant_Desc {
 						name = strings.clone_from_cstring(var_desc.Name, desc_allocator),
 						size = int(var_desc.Size),
+						default_value = default_value,
 					})
 
 					append(d3d_constants, D3D11_Shader_Constant {
