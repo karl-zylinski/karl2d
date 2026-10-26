@@ -42,6 +42,7 @@ PLATFORM_WINDOWS :: Platform_Interface {
 import win32 "core:sys/windows"
 import "core:unicode/utf16"
 import "core:slice"
+import "core:time"
 import "base:runtime"
 import hm "core:container/handle_map"
 import win32_ex "platform_bindings/windows/win32_extra"
@@ -160,6 +161,20 @@ windows_init :: proc(
 	
 	win32.XInputEnable(true)
 
+	hid_filter := win32_ex.DEV_BROADCAST_DEVICEINTERFACE_W {
+		dbcc_size = size_of(win32_ex.DEV_BROADCAST_DEVICEINTERFACE_W),
+		dbcc_devicetype = win32_ex.DBT_DEVTYP_DEVICEINTERFACE,
+		dbcc_classguid = win32_ex.GUID_DEVINTERFACE_HID,
+	}
+
+	s.device_notification = win32_ex.RegisterDeviceNotificationW(
+		win32.HANDLE(s.hwnd),
+		&hid_filter,
+		win32_ex.DEVICE_NOTIFY_WINDOW_HANDLE,
+	)
+
+	s.gamepad_quick_rescan_tick = time.tick_now()
+
 	when RENDER_BACKEND_NAME == "d3d11" {
 		s.window_render_glue = (^Window_Render_Glue)(s.hwnd)
 	} else when RENDER_BACKEND_NAME == "gl" {
@@ -177,6 +192,11 @@ windows_shutdown :: proc(s: ^Windows_State) {
 	}
 
 	hm.dynamic_destroy(&s.custom_cursors)
+
+	if s.device_notification != nil {
+		win32_ex.UnregisterDeviceNotification(s.device_notification)
+	}
+
 	win32.DestroyWindow(s.hwnd)
 
 	if s.hicon != nil {
@@ -208,8 +228,38 @@ windows_get_events :: proc(s: ^Windows_State, events: ^[dynamic]Event) {
 		win32.Sleep(10)
 	}
 
+	// When one of teh `rescan_tick`s are non-zero, then it means we should do a rescan of all game-
+	// pads. This comes from a connected event. We have two timers: One fast and one slower. Some-
+	// times the fast one fails because XInput isn't ready yet, then we use the slower fallback one.
+	//
+	// We don't rescan every frame because XInput is a bit slow when it comes to scanning unused
+	// slots.
+	rescan_all_gamepad_slots := false
+	tick_now := time.tick_now()
+
+	if s.gamepad_quick_rescan_tick != {} && time.tick_diff(s.gamepad_quick_rescan_tick, tick_now) >= 0 {
+		rescan_all_gamepad_slots = true
+		s.gamepad_quick_rescan_tick = {}
+	}
+
+	if s.gamepad_fallback_rescan_tick != {} && time.tick_diff(s.gamepad_fallback_rescan_tick, tick_now) >= 0 {
+		rescan_all_gamepad_slots = true
+		s.gamepad_fallback_rescan_tick = {}
+	}
+
 	// 4 is the limit set by microsoft, not by us. So I'm not using MAX_GAMEPADS here.
 	for gamepad in 0..<4 {
+		if !s.gamepad_connected[gamepad] && !rescan_all_gamepad_slots {
+			continue
+		}
+
+		connected_state: win32.XINPUT_STATE
+		s.gamepad_connected[gamepad] = win32.XInputGetState(win32.XUSER(gamepad), &connected_state) == .SUCCESS
+
+		if !s.gamepad_connected[gamepad] {
+			continue
+		}
+
 		gp_event: win32.XINPUT_KEYSTROKE
 
 		for win32.XInputGetKeystroke(win32.XUSER(gamepad), 0, &gp_event) == .SUCCESS {
@@ -409,7 +459,7 @@ windows_get_window_scale :: proc(s: ^Windows_State) -> f32 {
 }
 
 windows_is_gamepad_active :: proc(s: ^Windows_State, gamepad: int) -> bool {
-	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
+	if gamepad < 0 || gamepad >= MAX_GAMEPADS || !s.gamepad_connected[gamepad] {
 		return false
 	}
 
@@ -418,7 +468,7 @@ windows_is_gamepad_active :: proc(s: ^Windows_State, gamepad: int) -> bool {
 }
 
 windows_get_gamepad_axis :: proc(s: ^Windows_State, gamepad: int, axis: Gamepad_Axis) -> f32 {
-	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
+	if gamepad < 0 || gamepad >= MAX_GAMEPADS || !s.gamepad_connected[gamepad] {
 		return 0
 	}
 
@@ -487,6 +537,11 @@ Windows_State :: struct {
 	// left and right values for the triggers of each gamepad. We use this to known if a trigger has
 	// been pressed/released like a button.
 	previous_gamepad_triggers: [MAX_GAMEPADS][2]win32.BYTE,
+
+	gamepad_connected: [MAX_GAMEPADS]bool,
+	gamepad_quick_rescan_tick: time.Tick,
+	gamepad_fallback_rescan_tick: time.Tick,
+	device_notification: win32_ex.HDEVNOTIFY,
 
 	events: [dynamic]Event,
 	mouse_locked: bool,
@@ -1395,6 +1450,17 @@ windows_window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam
 				width = s.screen_width,
 				height = s.screen_height,
 			})
+		}
+
+	case win32.WM_DEVICECHANGE:
+		if wparam == win32_ex.DBT_DEVICEARRIVAL || wparam == win32_ex.DBT_DEVICEREMOVECOMPLETE {
+			hdr := (^win32_ex.DEV_BROADCAST_HDR)(uintptr(lparam))
+
+			if hdr != nil && hdr.dbch_devicetype == win32_ex.DBT_DEVTYP_DEVICEINTERFACE {
+				now := time.tick_now()
+				s.gamepad_quick_rescan_tick = time.tick_add(now, 300*time.Millisecond)
+				s.gamepad_fallback_rescan_tick = time.tick_add(now, 2*time.Second)
+			}
 		}
 
 	case win32.WM_SETFOCUS:

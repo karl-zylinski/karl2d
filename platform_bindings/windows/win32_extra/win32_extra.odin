@@ -190,7 +190,43 @@ foreign user32 {
 	DisplayConfigGetDeviceInfo :: proc(
 		requestPacket: ^DISPLAYCONFIG_DEVICE_INFO_HEADER,
 	) -> win32.LONG ---
+
+	RegisterDeviceNotificationW :: proc(
+		hRecipient: win32.HANDLE,
+		NotificationFilter: rawptr,
+		Flags: win32.DWORD,
+	) -> HDEVNOTIFY ---
+
+	UnregisterDeviceNotification :: proc(
+		Handle: HDEVNOTIFY,
+	) -> win32.BOOL ---
 }
+
+HDEVNOTIFY :: distinct rawptr
+
+DEVICE_NOTIFY_WINDOW_HANDLE :: 0x00000000
+
+DBT_DEVICEARRIVAL :: 0x8000
+DBT_DEVICEREMOVECOMPLETE :: 0x8004
+DBT_DEVTYP_DEVICEINTERFACE :: 0x00000005
+
+GUID_DEVINTERFACE_HID :: win32.GUID{0x4D1E55B2, 0xF16F, 0x11CF, {0x88, 0xCB, 0x00, 0x11, 0x11, 0x00, 0x00, 0x30}}
+
+DEV_BROADCAST_HDR :: struct {
+	dbch_size: win32.DWORD,
+	dbch_devicetype: win32.DWORD,
+	dbch_reserved: win32.DWORD,
+}
+
+DEV_BROADCAST_DEVICEINTERFACE_W :: struct {
+	dbcc_size: win32.DWORD,
+	dbcc_devicetype: win32.DWORD,
+	dbcc_reserved: win32.DWORD,
+	dbcc_classguid: win32.GUID,
+	dbcc_name: [1]win32.WCHAR,
+}
+
+#assert(size_of(DEV_BROADCAST_DEVICEINTERFACE_W) == 32)
 
 @(default_calling_convention="system")
 foreign gdi32 {
