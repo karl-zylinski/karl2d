@@ -346,7 +346,7 @@ shutdown :: proc() {
 	}
 
 	delete(s.events)
-	destroy_font(FONT_DEFAULT)
+	_destroy_font(FONT_DEFAULT)
 	s.rb.destroy_texture(s.rb_state, s.font_atlas_texture.handle)
 	fc.destroy_cache(&s.font_cache)
 	s.rb.destroy_texture(s.rb_state, s.shape_drawing_texture)
@@ -5625,10 +5625,16 @@ load_font_from_bytes :: proc(data: []u8, options: Font_Options = {}) -> (Font, b
 
 // Destroy a font previously loaded using `load_font_from_file` or `load_font_from_bytes`.
 destroy_font :: proc(font: Font) {
-	if font <= FONT_DEFAULT || int(font) >= len(s.fonts) {
+	// FONT_DEFAULT == 0... We don't want people to destroy that one. So we do the check including
+	// `0`. The default font is destroyed using `_destroy_font` directly, which is unguarded.
+	if font <= 0 || int(font) >= len(s.fonts) {
 		return
 	}
 
+	_destroy_font(font)
+}
+
+_destroy_font :: proc(font: Font) {
 	f := &s.fonts[font]
 
 	switch f.type {
