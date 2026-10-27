@@ -443,6 +443,7 @@ draw_texture :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
+	sampler := s.default_sampler,
 )
 
 // Draw a texture at a position, but only draw the region specified by the `source` rectangle. The
@@ -460,6 +461,7 @@ draw_texture_rect :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
+	sampler := s.default_sampler,
 )
 
 // Draw a texture by selecting a `source` rectangle and fitting it into a `dest` (destination)
@@ -477,6 +479,7 @@ draw_texture_fit :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
+	sampler := s.default_sampler,
 )
 
 // Measures how much space some text of a certain size will use on the screen. Will use the default
@@ -600,22 +603,9 @@ update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect, pitch := 0) -> boo
 // Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(tex: Texture)
 
-// Controls how a texture should be filtered. You can choose "point" or "linear" filtering. Which
-// means "pixly" or "smooth". This filter will be used for up and down-scaling as well as for
-// mipmap sampling. Use `set_texture_filter_ex` if you need to control these settings separately.
-set_texture_filter :: proc(t: Texture, filter: Texture_Filter)
+set_default_sampler :: proc(sampler: Sampler)
 
-// Controls how a texture should be filtered. `scale_down_filter` and `scale_up_filter` controls how
-// the texture is filtered when we render the texture at a smaller or larger size.
-// `mip_filter` controls how the texture is filtered when it is sampled using _mipmapping_.
-//
-// TODO: Add mipmapping generation controls for texture and refer to it from here.
-set_texture_filter_ex :: proc(
-	t: Texture,
-	scale_down_filter: Texture_Filter,
-	scale_up_filter: Texture_Filter,
-	mip_filter: Texture_Filter,
-)
+get_default_sampler :: proc() -> Sampler
 
 //-------//
 // AUDIO //
@@ -1215,7 +1205,12 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 //
 // You don't need to call this when drawing normal textures, it's for advanced usage where you have
 // multiple textures as inputs to a shader.
-set_shader_texture :: proc(shd: Shader, bindpoint: int, texture: Texture)
+set_shader_texture :: proc(
+	shd: Shader,
+	bindpoint: int,
+	texture: Texture,
+	sampler := s.default_sampler,
+)
 
 // Sets the value of a shader input (also known as a shader attribute). There are three default
 // shader inputs known as position, texcoord and color. If you have shader with additional inputs,
@@ -1474,6 +1469,28 @@ Texture_Filter :: enum {
 	Linear, // Smoothed texture scaling.
 }
 
+Texture_Wrap :: enum {
+	Clamp,
+	Repeat,
+	Mirrored_Repeat,
+	Border,
+}
+
+Texture_Border_Color :: enum {
+	Transparent_Black,
+	Black,
+	White,
+}
+
+Sampler :: struct {
+	scale_down_filter: Texture_Filter,
+	scale_up_filter: Texture_Filter,
+	mip_filter: Texture_Filter,
+	wrap_u: Texture_Wrap,
+	wrap_v: Texture_Wrap,
+	border_color: Texture_Border_Color,
+}
+
 // An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order
 // to transport it to the GPU.
 Image :: struct {
@@ -1620,7 +1637,7 @@ Shader :: struct {
 	// Maps built in constant types such as "model view projection matrix" to a location.
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
 
-	texture_bindpoints: []Texture_Handle,
+	texture_bindpoints: []Draw_Call_Texture,
 
 	// Used to lookup bindpoints of textures. You can then set the texture by calling
 	// `set_shader_texture and supplying it with the bindpoint you looked up.
@@ -2098,7 +2115,6 @@ State :: struct {
 	fonts: [dynamic]Font_Data,
 	font_cache: fc.Cache,
 	font_atlas_texture: Texture,
-	font_atlas_filter: Texture_Filter,
 	shape_drawing_texture: Texture_Handle,
 
 	// These `current_` are set when procs like `set_shader` etc run. When you draw more stuff, then
@@ -2107,7 +2123,8 @@ State :: struct {
 	current_camera: Maybe(Camera),
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
-	current_texture: Texture_Handle,
+	current_texture: Draw_Call_Texture,
+	default_sampler: Sampler,
 	current_render_target: Render_Target_Handle,
 
 	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the

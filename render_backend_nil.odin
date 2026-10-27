@@ -22,7 +22,6 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	texture_needs_vertical_flip = rbnil_texture_needs_vertical_flip,
 	create_render_texture = rbnil_create_render_texture,
 	destroy_render_target = rbnil_destroy_render_target,
-	set_texture_filter = rbnil_set_texture_filter,
 	load_shader = rbnil_load_shader,
 	destroy_shader = rbnil_destroy_shader,
 
@@ -136,15 +135,6 @@ rbnil_create_render_texture :: proc(
 
 rbnil_destroy_render_target :: proc(s: ^RBNil_State, render_target: Render_Target_Handle) {
 	
-}
-
-rbnil_set_texture_filter :: proc(
-	s: ^RBNil_State,
-	th: Texture_Handle,
-	scale_down_filter: Texture_Filter,
-	scale_up_filter: Texture_Filter,
-	mip_filter: Texture_Filter,
-) {
 }
 
 // The nil backend does not parse shader source. It reports the same layout the built-in default

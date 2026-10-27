@@ -27,7 +27,6 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	texture_needs_vertical_flip = gl_texture_needs_vertical_flip,
 	create_render_texture = gl_create_render_texture,
 	destroy_render_target = gl_destroy_render_target,
-	set_texture_filter = gl_set_texture_filter,
 	load_shader = gl_load_shader,
 	destroy_shader = gl_destroy_shader,
 
@@ -47,6 +46,7 @@ GL_State :: struct {
 	textures: hm.Dynamic_Handle_Map(GL_Texture, Texture_Handle),
 	render_targets: hm.Dynamic_Handle_Map(GL_Render_Target, Render_Target_Handle),
 	depth_test: bool,
+	samplers: map[Sampler]u32,
 }
 
 GL_Shader_Constant_Buffer :: struct {
@@ -125,6 +125,7 @@ gl_init :: proc(
 	s.height = swapchain_height
 	s.allocator = allocator
 	s.depth_test = options.depth_test
+	s.samplers = make(map[Sampler]u32, allocator)
 
 	hm.dynamic_init(&s.shaders, allocator)
 	hm.dynamic_init(&s.textures, allocator)
@@ -164,6 +165,12 @@ gl_init :: proc(
 
 gl_shutdown :: proc(s: ^GL_State) {
 	gl.DeleteBuffers(1, &s.vertex_buffer_gpu)
+
+	for _, &smp in s.samplers {
+		gl.DeleteSamplers(1, &smp)
+	}
+
+	delete(s.samplers)
 	hm.dynamic_destroy(&s.shaders)
 	hm.dynamic_destroy(&s.textures)
 	hm.dynamic_destroy(&s.render_targets)
@@ -407,7 +414,7 @@ gl_set_constants :: proc(
 	}
 }
 
-gl_bind_textures :: proc(s: ^GL_State, textures: []Texture_Handle, gl_shd: GL_Shader) {
+gl_bind_textures :: proc(s: ^GL_State, textures: []Draw_Call_Texture, gl_shd: GL_Shader) {
 	if len(textures) != len(gl_shd.texture_bindings) {
 		return
 	}
@@ -416,8 +423,10 @@ gl_bind_textures :: proc(s: ^GL_State, textures: []Texture_Handle, gl_shd: GL_Sh
 		gl_t := gl_shd.texture_bindings[t_idx]
 		gl.ActiveTexture(gl.TEXTURE0 + u32(t_idx))
 
-		if t := hm.get(&s.textures, t); t != nil {
-			gl.BindTexture(gl.TEXTURE_2D, t.id)
+		gl.BindSampler(u32(t_idx), gl_get_sampler(s, t.sampler))
+
+		if tex := hm.get(&s.textures, t.handle); tex != nil {
+			gl.BindTexture(gl.TEXTURE_2D, tex.id)
 		} else {
 			gl.BindTexture(gl.TEXTURE_2D, 0)
 		}
@@ -674,27 +683,48 @@ gl_destroy_render_target :: proc(s: ^GL_State, render_target: Render_Target_Hand
 	}
 }
 
-gl_set_texture_filter :: proc(
-	s: ^GL_State,
-	th: Texture_Handle,
-	scale_down_filter: Texture_Filter,
-	scale_up_filter: Texture_Filter,
-	mip_filter: Texture_Filter,
-) {
-	t := hm.get(&s.textures, th)
-
-	if t == nil {
-		log.error("Trying to set texture filter for invalid texture %v", th)
-		return
+gl_translate_texture_border_color :: proc(c: Texture_Border_Color) -> [4]f32 {
+	switch c {
+	case .Transparent_Black: return { 0, 0, 0, 0 }
+	case .Black: return { 0, 0, 0, 1 }
+	case .White: return { 1, 1, 1, 1 }
 	}
 
-	gl.BindTexture(gl.TEXTURE_2D, t.id)
+	return { 0, 0, 0, 0 }
+}
 
-	min_filter: i32 = scale_down_filter == .Point ? gl.NEAREST : gl.LINEAR
-	mag_filter: i32 = scale_up_filter == .Point ? gl.NEAREST : gl.LINEAR
+gl_get_sampler :: proc(s: ^GL_State, sampler: Sampler) -> u32 {
+	if smp, has_smp := s.samplers[sampler]; has_smp {
+		return smp
+	}
 
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, min_filter)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, mag_filter)
+	smp: u32
+	gl.GenSamplers(1, &smp)
+
+	min_filter: i32 = sampler.scale_down_filter == .Point ? gl.NEAREST : gl.LINEAR
+	mag_filter: i32 = sampler.scale_up_filter == .Point ? gl.NEAREST : gl.LINEAR
+
+	border_color := gl_translate_texture_border_color(sampler.border_color)
+
+	gl.SamplerParameteri(smp, gl.TEXTURE_MIN_FILTER, min_filter)
+	gl.SamplerParameteri(smp, gl.TEXTURE_MAG_FILTER, mag_filter)
+	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_S, gl_translate_texture_wrap(sampler.wrap_u))
+	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_T, gl_translate_texture_wrap(sampler.wrap_v))
+	gl.SamplerParameterfv(smp, gl.TEXTURE_BORDER_COLOR, &border_color[0])
+
+	s.samplers[sampler] = smp
+	return smp
+}
+
+gl_translate_texture_wrap :: proc(wrap: Texture_Wrap) -> i32 {
+	switch wrap {
+	case .Clamp: return gl.CLAMP_TO_EDGE
+	case .Repeat: return gl.REPEAT
+	case .Mirrored_Repeat: return gl.MIRRORED_REPEAT
+	case .Border: return gl.CLAMP_TO_BORDER
+	}
+
+	return gl.CLAMP_TO_EDGE
 }
 
 gl_compile_shader_from_source :: proc(shader_data: []byte, shader_type: gl.Shader_Type, err_buf: []u8, err_msg: ^string) -> (shader_id: u32, ok: bool) {

@@ -1201,7 +1201,7 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
-	_prepare_draw(s.shape_drawing_texture, 6)
+	_prepare_draw({ handle = s.shape_drawing_texture }, 6)
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
@@ -1315,7 +1315,7 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 // Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
 // perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
-	_prepare_draw(s.shape_drawing_texture, 3*segments)
+	_prepare_draw({ handle = s.shape_drawing_texture }, 3*segments)
 
 	prev := center + {radius, 0}
 	for s in 1..=segments {
@@ -1359,7 +1359,7 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 // Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
-	_prepare_draw(s.shape_drawing_texture, 3)
+	_prepare_draw({ handle = s.shape_drawing_texture }, 3)
 
 	batch_vertex(vertices[0], {0, 0}, c)
 	batch_vertex(vertices[1], {1, 1}, c)
@@ -1387,6 +1387,7 @@ draw_texture :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
+	sampler := s.default_sampler,
 ) {
 	if texture.handle == TEXTURE_NONE || texture.width == 0 || texture.height == 0 {
 		return
@@ -1406,6 +1407,7 @@ draw_texture :: proc(
 		origin,
 		rotation,
 		tint,
+		sampler,
 	)
 }
 
@@ -1424,6 +1426,7 @@ draw_texture_rect :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
+	sampler := s.default_sampler,
 ) {
 	dest := Rect {
 		position.x, position.y,
@@ -1437,6 +1440,7 @@ draw_texture_rect :: proc(
 		origin,
 		rotation,
 		tint,
+		sampler,
 	)
 }
 
@@ -1455,12 +1459,13 @@ draw_texture_fit :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
+	sampler := s.default_sampler,
 ) {
 	if texture.handle == TEXTURE_NONE || texture.width == 0 || texture.height == 0 {
 		return
 	}
 
-	_prepare_draw(texture.handle, 6)
+	_prepare_draw({ handle = texture.handle, sampler = sampler }, 6)
 
 	flip_x: bool
 
@@ -1858,6 +1863,7 @@ draw_text :: proc(
 					tint = color,
 					origin = char_origin,
 					rotation = rotation,
+					sampler = _font_sampler(font_object.options.filter),
 				)
 
 				char_offset.x += g.advance*scl
@@ -1906,13 +1912,6 @@ draw_text :: proc(
 		render_size := _font_render_size(font_size)
 		inv_render_scale := font_size / f32(render_size)
 		_sync_font_atlas_texture()
-
-		// This is a temporary hack that may be removed later if we can put filtering options into
-		// draw calls more easily.
-		if font_object.options.filter != s.font_atlas_filter {
-			s.font_atlas_filter = font_object.options.filter
-			set_texture_filter(s.font_atlas_texture, s.font_atlas_filter)
-		}
 
 		y_up := _camera_flip_y()
 		block_top := position.y
@@ -1980,6 +1979,7 @@ draw_text :: proc(
 				char_origin,
 				rotation,
 				color,
+				_font_sampler(font_object.options.filter),
 			)
 		}
 	}
@@ -2263,33 +2263,27 @@ destroy_texture :: proc(tex: Texture) {
 	s.rb.destroy_texture(s.rb_state, tex.handle)
 }
 
-// Controls how a texture should be filtered. You can choose "point" or "linear" filtering. Which
-// means "pixly" or "smooth". This filter will be used for up and down-scaling as well as for
-// mipmap sampling. Use `set_texture_filter_ex` if you need to control these settings separately.
-set_texture_filter :: proc(t: Texture, filter: Texture_Filter) {
-	set_texture_filter_ex(t, filter, filter, filter)
+set_default_sampler :: proc(sampler: Sampler) {
+	s.default_sampler = sampler
 }
 
-// Controls how a texture should be filtered. `scale_down_filter` and `scale_up_filter` controls how
-// the texture is filtered when we render the texture at a smaller or larger size.
-// `mip_filter` controls how the texture is filtered when it is sampled using _mipmapping_.
-//
-// TODO: Add mipmapping generation controls for texture and refer to it from here.
+get_default_sampler :: proc() -> Sampler {
+	return s.default_sampler
+}
+
+@(deprecated="Textures no longer have a filter. Pass a Sampler to the draw procs instead, or use set_default_sampler")
+set_texture_filter :: proc(t: Texture, filter: Texture_Filter) {
+	panic("set_texture_filter has been removed. Textures no longer have a filter. Pass a Sampler to the draw procs instead, or use set_default_sampler.")
+}
+
+@(deprecated="Textures no longer have a filter. Pass a Sampler to the draw procs instead, or use set_default_sampler")
 set_texture_filter_ex :: proc(
 	t: Texture,
 	scale_down_filter: Texture_Filter,
 	scale_up_filter: Texture_Filter,
 	mip_filter: Texture_Filter,
 ) {
-	// Recorded draw calls may still be waiting to sample this texture with the old filter.
-	_flush_if_batch_uses_texture(t.handle)
-	s.rb.set_texture_filter(
-		s.rb_state,
-		t.handle,
-		scale_down_filter,
-		scale_up_filter,
-		mip_filter,
-	)
+	panic("set_texture_filter_ex has been removed. Textures no longer have a filter. Pass a Sampler to the draw procs instead, or use set_default_sampler.")
 }
 
 //-------//
@@ -5530,7 +5524,6 @@ load_static_font_from_bytes :: proc(
 	}
 
 	tex := load_texture_from_image(img)
-	set_texture_filter(tex, options.filter)
 
 	font := Font_Data {
 		type = .Static,
@@ -5791,7 +5784,7 @@ load_shader_from_bytes :: proc(
 		constant_lookup = make(map[string]Shader_Constant_Location, s.allocator),
 		inputs = slice.clone(desc.inputs, s.allocator),
 		input_overrides = make([]Shader_Input_Value_Override, len(desc.inputs), s.allocator),
-		texture_bindpoints = make([]Texture_Handle, len(desc.texture_bindpoints), s.allocator),
+		texture_bindpoints = make([]Draw_Call_Texture, len(desc.texture_bindpoints), s.allocator),
 		texture_lookup = make(map[string]int, s.allocator),
 	}
 
@@ -5951,7 +5944,12 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 //
 // You don't need to call this when drawing normal textures, it's for advanced usage where you have
 // multiple textures as inputs to a shader.
-set_shader_texture :: proc(shd: Shader, bindpoint: int, texture: Texture) {
+set_shader_texture :: proc(
+	shd: Shader,
+	bindpoint: int,
+	texture: Texture,
+	sampler := s.default_sampler,
+) {
 	if shd.handle == SHADER_NONE {
 		log.error("Invalid shader")
 		return
@@ -5966,7 +5964,7 @@ set_shader_texture :: proc(shd: Shader, bindpoint: int, texture: Texture) {
 		return
 	}
 
-	shd.texture_bindpoints[bindpoint] = texture.handle
+	shd.texture_bindpoints[bindpoint] = { handle = texture.handle, sampler = sampler }
 	s.draw_call_changes += { .Textures }
 }
 
@@ -6509,6 +6507,28 @@ Texture_Filter :: enum {
 	Linear, // Smoothed texture scaling.
 }
 
+Texture_Wrap :: enum {
+	Clamp,
+	Repeat,
+	Mirrored_Repeat,
+	Border,
+}
+
+Texture_Border_Color :: enum {
+	Transparent_Black,
+	Black,
+	White,
+}
+
+Sampler :: struct {
+	scale_down_filter: Texture_Filter,
+	scale_up_filter: Texture_Filter,
+	mip_filter: Texture_Filter,
+	wrap_u: Texture_Wrap,
+	wrap_v: Texture_Wrap,
+	border_color: Texture_Border_Color,
+}
+
 // An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order
 // to transport it to the GPU.
 Image :: struct {
@@ -6655,7 +6675,7 @@ Shader :: struct {
 	// Maps built in constant types such as "model view projection matrix" to a location.
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
 
-	texture_bindpoints: []Texture_Handle,
+	texture_bindpoints: []Draw_Call_Texture,
 
 	// Used to lookup bindpoints of textures. You can then set the texture by calling
 	// `set_shader_texture and supplying it with the bindpoint you looked up.
@@ -7133,7 +7153,6 @@ State :: struct {
 	fonts: [dynamic]Font_Data,
 	font_cache: fc.Cache,
 	font_atlas_texture: Texture,
-	font_atlas_filter: Texture_Filter,
 	shape_drawing_texture: Texture_Handle,
 
 	// These `current_` are set when procs like `set_shader` etc run. When you draw more stuff, then
@@ -7142,7 +7161,8 @@ State :: struct {
 	current_camera: Maybe(Camera),
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
-	current_texture: Texture_Handle,
+	current_texture: Draw_Call_Texture,
+	default_sampler: Sampler,
 	current_render_target: Render_Target_Handle,
 
 	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the
@@ -7863,7 +7883,7 @@ _ogg_file_total_frames :: proc(f: ^File) -> int {
 // Run by the drawing procedures before they add any vertices. Draws the batch if `vertices_needed`
 // more vertices will not fit in the vertex buffer, which leaves an empty one to put them in. Then
 // starts a new draw call if the settings changed.
-_prepare_draw :: proc(texture: Texture_Handle, vertices_needed: int) {
+_prepare_draw :: proc(texture: Draw_Call_Texture, vertices_needed: int) {
 	if vertices_needed == 0 {
 		return
 	}
@@ -8004,7 +8024,7 @@ _flush_if_batch_uses_texture :: proc(texture: Texture_Handle) {
 
 	uses_texture :: proc(dc: Draw_Call, texture: Texture_Handle) -> bool {
 		for t in dc.textures {
-			if t == texture {
+			if t.handle == texture {
 				return true
 			}
 		}
@@ -8192,7 +8212,14 @@ _sync_font_atlas_texture :: proc() {
 	}
 
 	texture^ = create_texture(cache.width, cache.height, .RGBA_8_Norm)
-	set_texture_filter(texture^, s.font_atlas_filter)
+}
+
+_font_sampler :: proc(filter: Texture_Filter) -> Sampler {
+	return {
+		scale_down_filter = filter,
+		scale_up_filter = filter,
+		mip_filter = filter,
+	}
 }
 
 // Updates GPU-side font atlas with CPU-side changes. The font cache reports the rect that has been
