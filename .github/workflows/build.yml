@@ -49,6 +49,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: odin test tests/coordinate_system -define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1
 
+      - name: memory_leak tests
+        if: matrix.os == 'windows-latest'
+        run: odin test tests/memory_leak -define:KARL2D_RENDER_BACKEND=nil -define:KARL2D_AUDIO_BACKEND=nil -define:ODIN_TEST_THREADS=1
+
       - name: raylib_ports/shaders_texture_waves
         run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style
 
