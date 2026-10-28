@@ -887,7 +887,7 @@ d3d11_texture_needs_vertical_flip :: proc(s: ^D3D11_State, th: Texture_Handle) -
 	return false
 }
 
-d3d11_translate_texture_border_color :: proc(c: Texture_Border_Color) -> [4]f32 {
+d3d11_translate_texture_wrap_border_color :: proc(c: Texture_Wrap_Border_Color) -> [4]f32 {
 	switch c {
 	case .Transparent_Black: return { 0, 0, 0, 0 }
 	case .Black: return { 0, 0, 0, 1 }
@@ -931,7 +931,7 @@ d3d11_get_sampler :: proc(s: ^D3D11_State, sampler: Sampler) -> ^d3d11.ISamplerS
 		AddressV = d3d11_translate_texture_wrap(sampler.wrap_v),
 		AddressW = .CLAMP,
 		ComparisonFunc = .NEVER,
-		BorderColor = d3d11_translate_texture_border_color(sampler.border_color),
+		BorderColor = d3d11_translate_texture_wrap_border_color(sampler.wrap_border_color),
 	}
 
 	smp: ^d3d11.ISamplerState

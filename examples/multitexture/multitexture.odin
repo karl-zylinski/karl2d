@@ -31,7 +31,7 @@ init :: proc() {
 	tex1 = k2.load_texture_from_bytes(#load("../basics/sixten.jpg"))
 	tex2 = k2.load_texture_from_bytes(#load("../snake/food.png"))
 
-	k2.set_shader_texture(shd, shd.texture_lookup["tex2"], tex2)
+	k2.set_shader_texture(shd, shd.texture_lookup["tex2"], tex2, k2.DEFAULT_SAMPLER)
 }
 
 step :: proc() -> bool {

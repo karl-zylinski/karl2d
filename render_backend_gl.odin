@@ -683,7 +683,7 @@ gl_destroy_render_target :: proc(s: ^GL_State, render_target: Render_Target_Hand
 	}
 }
 
-gl_translate_texture_border_color :: proc(c: Texture_Border_Color) -> [4]f32 {
+gl_translate_texture_wrap_border_color :: proc(c: Texture_Wrap_Border_Color) -> [4]f32 {
 	switch c {
 	case .Transparent_Black: return { 0, 0, 0, 0 }
 	case .Black: return { 0, 0, 0, 1 }
@@ -704,13 +704,13 @@ gl_get_sampler :: proc(s: ^GL_State, sampler: Sampler) -> u32 {
 	min_filter: i32 = sampler.scale_down_filter == .Point ? gl.NEAREST : gl.LINEAR
 	mag_filter: i32 = sampler.scale_up_filter == .Point ? gl.NEAREST : gl.LINEAR
 
-	border_color := gl_translate_texture_border_color(sampler.border_color)
+	wrap_border_color := gl_translate_texture_wrap_border_color(sampler.wrap_border_color)
 
 	gl.SamplerParameteri(smp, gl.TEXTURE_MIN_FILTER, min_filter)
 	gl.SamplerParameteri(smp, gl.TEXTURE_MAG_FILTER, mag_filter)
 	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_S, gl_translate_texture_wrap(sampler.wrap_u))
 	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_T, gl_translate_texture_wrap(sampler.wrap_v))
-	gl.SamplerParameterfv(smp, gl.TEXTURE_BORDER_COLOR, &border_color[0])
+	gl.SamplerParameterfv(smp, gl.TEXTURE_BORDER_COLOR, &wrap_border_color[0])
 
 	s.samplers[sampler] = smp
 	return smp

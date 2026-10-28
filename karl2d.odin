@@ -1387,7 +1387,6 @@ draw_texture :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
-	sampler := s.default_sampler,
 ) {
 	if texture.handle == TEXTURE_NONE || texture.width == 0 || texture.height == 0 {
 		return
@@ -1407,7 +1406,6 @@ draw_texture :: proc(
 		origin,
 		rotation,
 		tint,
-		sampler,
 	)
 }
 
@@ -1426,7 +1424,6 @@ draw_texture_rect :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
-	sampler := s.default_sampler,
 ) {
 	dest := Rect {
 		position.x, position.y,
@@ -1440,7 +1437,6 @@ draw_texture_rect :: proc(
 		origin,
 		rotation,
 		tint,
-		sampler,
 	)
 }
 
@@ -1459,13 +1455,12 @@ draw_texture_fit :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
-	sampler := s.default_sampler,
 ) {
 	if texture.handle == TEXTURE_NONE || texture.width == 0 || texture.height == 0 {
 		return
 	}
 
-	_prepare_draw({ handle = texture.handle, sampler = sampler }, 6)
+	_prepare_draw({ handle = texture.handle, sampler = s.current_sampler }, 6)
 
 	flip_x: bool
 
@@ -1863,7 +1858,6 @@ draw_text :: proc(
 					tint = color,
 					origin = char_origin,
 					rotation = rotation,
-					sampler = _font_sampler(font_object.options.filter),
 				)
 
 				char_offset.x += g.advance*scl
@@ -1979,7 +1973,6 @@ draw_text :: proc(
 				char_origin,
 				rotation,
 				color,
-				_font_sampler(font_object.options.filter),
 			)
 		}
 	}
@@ -2263,27 +2256,31 @@ destroy_texture :: proc(tex: Texture) {
 	s.rb.destroy_texture(s.rb_state, tex.handle)
 }
 
-set_default_sampler :: proc(sampler: Sampler) {
-	s.default_sampler = sampler
+set_sampler :: proc(sampler: Sampler) {
+	s.current_sampler = sampler
 }
 
-get_default_sampler :: proc() -> Sampler {
-	return s.default_sampler
+get_sampler :: proc() -> Sampler {
+	return s.current_sampler
 }
 
-@(deprecated="Textures no longer have a filter. Pass a Sampler to the draw procs instead, or use set_default_sampler")
+@(deprecated="Textures no longer have a filter. This sets the filter of the current sampler instead, which affects everything drawn afterwards. Use set_sampler instead")
 set_texture_filter :: proc(t: Texture, filter: Texture_Filter) {
-	panic("set_texture_filter has been removed. Textures no longer have a filter. Pass a Sampler to the draw procs instead, or use set_default_sampler.")
+	s.current_sampler.scale_down_filter = filter
+	s.current_sampler.scale_up_filter = filter
+	s.current_sampler.mip_filter = filter
 }
 
-@(deprecated="Textures no longer have a filter. Pass a Sampler to the draw procs instead, or use set_default_sampler")
+@(deprecated="Textures no longer have a filter. This sets the filter of the current sampler instead, which affects everything drawn afterwards. Use set_sampler instead")
 set_texture_filter_ex :: proc(
 	t: Texture,
 	scale_down_filter: Texture_Filter,
 	scale_up_filter: Texture_Filter,
 	mip_filter: Texture_Filter,
 ) {
-	panic("set_texture_filter_ex has been removed. Textures no longer have a filter. Pass a Sampler to the draw procs instead, or use set_default_sampler.")
+	s.current_sampler.scale_down_filter = scale_down_filter
+	s.current_sampler.scale_up_filter = scale_up_filter
+	s.current_sampler.mip_filter = mip_filter
 }
 
 //-------//
@@ -5948,7 +5945,7 @@ set_shader_texture :: proc(
 	shd: Shader,
 	bindpoint: int,
 	texture: Texture,
-	sampler := s.default_sampler,
+	sampler: Sampler,
 ) {
 	if shd.handle == SHADER_NONE {
 		log.error("Invalid shader")
@@ -6514,7 +6511,7 @@ Texture_Wrap :: enum {
 	Border,
 }
 
-Texture_Border_Color :: enum {
+Texture_Wrap_Border_Color :: enum {
 	Transparent_Black,
 	Black,
 	White,
@@ -6526,7 +6523,7 @@ Sampler :: struct {
 	mip_filter: Texture_Filter,
 	wrap_u: Texture_Wrap,
 	wrap_v: Texture_Wrap,
-	border_color: Texture_Border_Color,
+	wrap_border_color: Texture_Wrap_Border_Color,
 }
 
 // An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order
@@ -6746,9 +6743,6 @@ Font_Options :: struct {
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
 
-	// The texture filter to use when drawing text using this font.
-	filter: Texture_Filter,
-
 	// Font formats like .ttc can contain multiple fonts. Use this parameter to pick one. For fonts
 	// that only contain a single font, leave this at zero.
 	font_index: int,
@@ -6848,6 +6842,7 @@ FONT_NONE :: Font(0)
 // initialized.
 FONT_DEFAULT :: Font(1) 
 
+DEFAULT_SAMPLER :: Sampler {}
 TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
@@ -7162,7 +7157,7 @@ State :: struct {
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
 	current_texture: Draw_Call_Texture,
-	default_sampler: Sampler,
+	current_sampler: Sampler,
 	current_render_target: Render_Target_Handle,
 
 	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the
@@ -8212,14 +8207,6 @@ _sync_font_atlas_texture :: proc() {
 	}
 
 	texture^ = create_texture(cache.width, cache.height, .RGBA_8_Norm)
-}
-
-_font_sampler :: proc(filter: Texture_Filter) -> Sampler {
-	return {
-		scale_down_filter = filter,
-		scale_up_filter = filter,
-		mip_filter = filter,
-	}
 }
 
 // Updates GPU-side font atlas with CPU-side changes. The font cache reports the rect that has been

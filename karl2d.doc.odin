@@ -443,7 +443,6 @@ draw_texture :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
-	sampler := s.default_sampler,
 )
 
 // Draw a texture at a position, but only draw the region specified by the `source` rectangle. The
@@ -461,7 +460,6 @@ draw_texture_rect :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
-	sampler := s.default_sampler,
 )
 
 // Draw a texture by selecting a `source` rectangle and fitting it into a `dest` (destination)
@@ -479,7 +477,6 @@ draw_texture_fit :: proc(
 	origin: Vec2 = {},
 	rotation: f32 = 0,
 	tint := WHITE,
-	sampler := s.default_sampler,
 )
 
 // Measures how much space some text of a certain size will use on the screen. Will use the default
@@ -603,9 +600,9 @@ update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect, pitch := 0) -> boo
 // Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(tex: Texture)
 
-set_default_sampler :: proc(sampler: Sampler)
+set_sampler :: proc(sampler: Sampler)
 
-get_default_sampler :: proc() -> Sampler
+get_sampler :: proc() -> Sampler
 
 //-------//
 // AUDIO //
@@ -1209,7 +1206,7 @@ set_shader_texture :: proc(
 	shd: Shader,
 	bindpoint: int,
 	texture: Texture,
-	sampler := s.default_sampler,
+	sampler: Sampler,
 )
 
 // Sets the value of a shader input (also known as a shader attribute). There are three default
@@ -1476,7 +1473,7 @@ Texture_Wrap :: enum {
 	Border,
 }
 
-Texture_Border_Color :: enum {
+Texture_Wrap_Border_Color :: enum {
 	Transparent_Black,
 	Black,
 	White,
@@ -1488,7 +1485,7 @@ Sampler :: struct {
 	mip_filter: Texture_Filter,
 	wrap_u: Texture_Wrap,
 	wrap_v: Texture_Wrap,
-	border_color: Texture_Border_Color,
+	wrap_border_color: Texture_Wrap_Border_Color,
 }
 
 // An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order
@@ -1708,9 +1705,6 @@ Font_Options :: struct {
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
 
-	// The texture filter to use when drawing text using this font.
-	filter: Texture_Filter,
-
 	// Font formats like .ttc can contain multiple fonts. Use this parameter to pick one. For fonts
 	// that only contain a single font, leave this at zero.
 	font_index: int,
@@ -1810,6 +1804,7 @@ FONT_NONE :: Font(0)
 // initialized.
 FONT_DEFAULT :: Font(1)
 
+DEFAULT_SAMPLER :: Sampler {}
 TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
@@ -2124,7 +2119,7 @@ State :: struct {
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
 	current_texture: Draw_Call_Texture,
-	default_sampler: Sampler,
+	current_sampler: Sampler,
 	current_render_target: Render_Target_Handle,
 
 	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the
