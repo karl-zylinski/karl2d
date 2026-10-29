@@ -5942,8 +5942,8 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 // Set a shader to use a specific texture. Look up the bindpoint using the `texture_lookup` field
 // inside the `Shader` object.
 //
-// You don't need to call this when drawing normal textures, it's for advanced usage where you have
-// multiple textures as inputs to a shader.
+// You don't need to call this when drawing normal textures. it's for advanced usage where you have
+// multiple textures as inputs to a shader. For normal texture drawing, use `draw_texture_*`.
 set_shader_texture :: proc(
 	shd: Shader,
 	bindpoint: int,
