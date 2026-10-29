@@ -98,7 +98,7 @@ step :: proc() -> bool {
 		}
 
 		circle := b2.Circle { radius = BALL_RADIUS }
-		_ = b2.CreateCircleShape(body_id, shape_def, &circle)
+		_ = b2.CreateCircleShape(body_id, shape_def, circle)
 		b2.Body_SetLinearVelocity(body_id, { aim_dir.x*BALL_SPEED, aim_dir.y*BALL_SPEED })
 
 		balls[next_ball] = body_id
@@ -270,7 +270,7 @@ build_stack :: proc() {
 
 			// `MakeBox` takes half extents, measured from the centre of the body.
 			box := b2.MakeBox(BOX_SIZE/2, BOX_SIZE/2)
-			_ = b2.CreatePolygonShape(body_id, shape_def, &box)
+			_ = b2.CreatePolygonShape(body_id, shape_def, box)
 
 			append(&boxes, body_id)
 		}
@@ -286,7 +286,7 @@ create_static_box :: proc(r: k2.Rect) {
 	shape_def.material.friction = 0.6
 
 	box := b2.MakeBox(r.w/2, r.h/2)
-	_ = b2.CreatePolygonShape(body_id, shape_def, &box)
+	_ = b2.CreatePolygonShape(body_id, shape_def, box)
 }
 
 shutdown :: proc() {

@@ -6,6 +6,16 @@ See [karl2d.doc.odin](https://github.com/karl-zylinski/karl2d/blob/master/karl2d
 
 Support the project by becoming a sponsor here on [GitHub](https://github.com/sponsors/karl-zylinski) or on [Patreon](https://patreon.com/karl_zylinski).
 
+## Features
+
+- Load and draw textures
+- Draw geometric shapes
+- Cameras for moving, rotating and scaling the view
+- Audio playback of audio clips and music
+- Support for mouse, keyboard and gamepad
+- Platforms: Windows, Linux, Mac, Web
+- Touch support on web
+
 ## Getting started
 
 1. Install the Odin compiler using the instructions on [odin-lang.org](https://odin-lang.org)
@@ -163,26 +173,11 @@ The `$` in front of the `name` parameter ensures that you're passing a compile-t
 ## Hot reload
 Some kind of gameplay code hot reload is planned as part of the library. Currently, there is an experimental implementation of this in a separate repository: https://github.com/karl-zylinski/karl2d-hot-reload-template
 
-## Beta 3
+## Beta status and roadmap
 
-Karl2D is currently in its THIRD BETA period. If you find _any_ issues, then please create an issue here on GitHub!
+Karl2D is currently is currently in beta. If you find _any_ issues, then please create an issue here on GitHub!
 
-Beta 3 has these features:
-- Rendering of shapes, textures and text with automatic batching
-- Audio playback using custom software mixer
-- Support for shaders and cameras
-- Windows support (D3D11 and OpenGL)
-- Mac support (OpenGL)
-- Linux support (OpenGL)
-- Web support (WebGL, no emscripten needed!)
-- Input: Mouse, keyboard, gamepad
-
-## Roadmap
-
-- [Beta 4: Rendering improvements](https://github.com/karl-zylinski/karl2d/milestone/3)
-- [Beta 5: Metal backend](https://github.com/karl-zylinski/karl2d/milestone/4)
-- [Beta 6: Cross-API shader compiler](https://github.com/karl-zylinski/karl2d/milestone/5)
-- 1.0
+For the roadmap of future releases, please see to the [milestones](https://github.com/karl-zylinski/karl2d/milestones)
 
 ## Architecture notes
 

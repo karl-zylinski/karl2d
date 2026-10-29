@@ -922,9 +922,33 @@ gl_load_shader :: proc(
 					loc = loc,
 				})
 			} else {
+				size := gl_uniform_size(type)
+				default_value := make([]u8, size, desc_allocator)
+
+				if size > 0 && loc != -1 {
+					switch type {
+					case gl.DOUBLE, gl.DOUBLE_VEC2, gl.DOUBLE_VEC3, gl.DOUBLE_VEC4,
+						gl.DOUBLE_MAT2, gl.DOUBLE_MAT2x3, gl.DOUBLE_MAT2x4,
+						gl.DOUBLE_MAT3x2, gl.DOUBLE_MAT3, gl.DOUBLE_MAT3x4,
+						gl.DOUBLE_MAT4x2, gl.DOUBLE_MAT4x3, gl.DOUBLE_MAT4:
+						gl.GetUniformdv(program, loc, ([^]f64)(raw_data(default_value)))
+
+					case gl.BOOL, gl.BOOL_VEC2, gl.BOOL_VEC3, gl.BOOL_VEC4,
+						gl.INT, gl.INT_VEC2, gl.INT_VEC3, gl.INT_VEC4:
+						gl.GetUniformiv(program, loc, ([^]i32)(raw_data(default_value)))
+
+					case gl.UNSIGNED_INT, gl.UNSIGNED_INT_VEC2, gl.UNSIGNED_INT_VEC3, gl.UNSIGNED_INT_VEC4:
+						gl.GetUniformuiv(program, loc, ([^]u32)(raw_data(default_value)))
+
+					case:
+						gl.GetUniformfv(program, loc, ([^]f32)(raw_data(default_value)))
+					}
+				}
+
 				append(&constant_descs, Shader_Constant_Desc {
 					name = strings.clone(name, desc_allocator),
-					size = gl_uniform_size(type),
+					size = size,
+					default_value = default_value,
 				})
 
 				append(&gl_constants, GL_Shader_Constant {

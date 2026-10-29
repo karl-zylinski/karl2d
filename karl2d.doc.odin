@@ -1825,11 +1825,10 @@ Font_Baked_Glyph :: struct {
 	advance: f32,
 }
 
-FONT_NONE :: Font(0)
-
 // The default font. It's a font called "roboto". It is loaded from `DEFAULT_FONT_DATA` on Karl2D is
-// initialized.
-FONT_DEFAULT :: Font(1)
+// initialized. It is the zero value, which means that any zero-initialized `Font` variable will be
+// the default font.
+FONT_DEFAULT :: Font(0)
 
 DEFAULT_TEXTURE_SAMPLER :: Texture_Sampler {}
 TEXTURE_NONE :: Texture_Handle {}
@@ -2133,7 +2132,7 @@ State :: struct {
 	gamepad_button_went_up: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 	gamepad_button_is_held: [MAX_GAMEPADS]#sparse [Gamepad_Button]bool,
 
-	// Also see FONT_NONE and FONT_DEFAULT
+	// Also see FONT_DEFAULT
 	fonts: [dynamic]Font_Data,
 	font_cache: fc.Cache,
 	font_atlas_texture: Texture,

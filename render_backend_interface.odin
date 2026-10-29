@@ -5,6 +5,7 @@ import "base:runtime"
 Shader_Constant_Desc :: struct {
 	name: string,
 	size: int,
+	default_value: []u8,
 }
 
 Shader_Texture_Bindpoint_Desc :: struct {
