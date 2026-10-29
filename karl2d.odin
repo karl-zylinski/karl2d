@@ -2268,7 +2268,6 @@ get_sampler :: proc() -> Sampler {
 set_texture_filter :: proc(t: Texture, filter: Texture_Filter) {
 	s.current_sampler.scale_down_filter = filter
 	s.current_sampler.scale_up_filter = filter
-	s.current_sampler.mip_filter = filter
 }
 
 @(deprecated="Textures no longer have a filter. This sets the filter of the current sampler instead, which affects everything drawn afterwards. Use set_sampler instead")
@@ -2280,7 +2279,6 @@ set_texture_filter_ex :: proc(
 ) {
 	s.current_sampler.scale_down_filter = scale_down_filter
 	s.current_sampler.scale_up_filter = scale_up_filter
-	s.current_sampler.mip_filter = mip_filter
 }
 
 //-------//
@@ -6520,7 +6518,6 @@ Texture_Wrap_Border_Color :: enum {
 Sampler :: struct {
 	scale_down_filter: Texture_Filter,
 	scale_up_filter: Texture_Filter,
-	mip_filter: Texture_Filter,
 	wrap_u: Texture_Wrap,
 	wrap_v: Texture_Wrap,
 	wrap_border_color: Texture_Wrap_Border_Color,

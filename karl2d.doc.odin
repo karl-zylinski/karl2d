@@ -1482,7 +1482,6 @@ Texture_Wrap_Border_Color :: enum {
 Sampler :: struct {
 	scale_down_filter: Texture_Filter,
 	scale_up_filter: Texture_Filter,
-	mip_filter: Texture_Filter,
 	wrap_u: Texture_Wrap,
 	wrap_v: Texture_Wrap,
 	wrap_border_color: Texture_Wrap_Border_Color,

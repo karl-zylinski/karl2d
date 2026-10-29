@@ -904,24 +904,15 @@ d3d11_get_sampler :: proc(s: ^D3D11_State, sampler: Sampler) -> ^d3d11.ISamplerS
 
 	d := sampler.scale_down_filter
 	u := sampler.scale_up_filter
-	m := sampler.mip_filter
 	f: d3d11.FILTER
 
-	if d == .Point && u == .Point && m == .Point {
+	if d == .Point && u == .Point {
 		f = .MIN_MAG_MIP_POINT
-	} else if d == .Linear && u == .Linear && m == .Linear {
-		f = .MIN_MAG_MIP_LINEAR
-	} else if d == .Point && u == .Point && m == .Linear {
-		f = .MIN_MAG_POINT_MIP_LINEAR
-	} else if d == .Point && u == .Linear && m == .Linear {
-		f = .MIN_POINT_MAG_MIP_LINEAR
-	} else if d == .Linear && u == .Linear && m == .Point {
+	} else if d == .Linear && u == .Linear {
 		f = .MIN_MAG_LINEAR_MIP_POINT
-	} else if d == .Linear && u == .Point && m == .Point {
+	} else if d == .Linear && u == .Point {
 		f = .MIN_LINEAR_MAG_MIP_POINT
-	} else if d == .Linear && u == .Point && m == .Linear {
-		f = .MIN_LINEAR_MAG_POINT_MIP_LINEAR
-	} else if d == .Point && u == .Linear && m == .Point {
+	} else if d == .Point && u == .Linear {
 		f = .MIN_POINT_MAG_LINEAR_MIP_POINT
 	}
 
