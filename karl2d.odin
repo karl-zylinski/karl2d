@@ -2264,13 +2264,13 @@ get_sampler :: proc() -> Sampler {
 	return s.current_sampler
 }
 
-@(deprecated="Textures no longer have a filter. This sets the filter of the current sampler instead, which affects everything drawn afterwards. Use set_sampler instead")
+@(deprecated="Textures no longer have a filter. Use set_sampler instead")
 set_texture_filter :: proc(t: Texture, filter: Texture_Filter) {
 	s.current_sampler.scale_down_filter = filter
 	s.current_sampler.scale_up_filter = filter
 }
 
-@(deprecated="Textures no longer have a filter. This sets the filter of the current sampler instead, which affects everything drawn afterwards. Use set_sampler instead")
+@(deprecated="Textures no longer have a filter. Use set_sampler instead")
 set_texture_filter_ex :: proc(
 	t: Texture,
 	scale_down_filter: Texture_Filter,
