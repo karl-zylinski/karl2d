@@ -600,9 +600,16 @@ update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect, pitch := 0) -> boo
 // Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(tex: Texture)
 
-set_sampler :: proc(sampler: Sampler)
+// Set the current texture sampler. This affects how textures are rendered. See `Texture_Sampler`
+// for more information on what settings that are available.
+//
+// The current texture sampler will be in effect until you run `set_texture_sampler` with some other
+// value. The default texture sampler is `k2.DEFAULT_TEXTURE_SAMPLER`.
+set_texture_sampler :: proc(sampler: Texture_Sampler)
 
-get_sampler :: proc() -> Sampler
+// Get the current texture sampler. If you have done no calls to `set_texture_sampler` then this
+// procedure returns `k2.DEFAULT_TEXTURE_SAMPLER`.
+get_texture_sampler :: proc() -> Texture_Sampler
 
 //-------//
 // AUDIO //
@@ -1206,7 +1213,7 @@ set_shader_texture :: proc(
 	shd: Shader,
 	bindpoint: int,
 	texture: Texture,
-	sampler: Sampler,
+	sampler: Texture_Sampler,
 )
 
 // Sets the value of a shader input (also known as a shader attribute). There are three default
@@ -1462,28 +1469,49 @@ Render_Texture :: struct {
 }
 
 Texture_Filter :: enum {
-	Point,  // Similar to "nearest neighbor". Pixly texture scaling.
+	Point, // Similar to "nearest neighbor". Pixly texture scaling.
 	Linear, // Smoothed texture scaling.
 }
 
+// Controls what happens when the `source` rect of `draw_texture_rect` and `draw_texture_fit`
+// contains pixel coordinates that extend outside the texture.
 Texture_Wrap :: enum {
+	// The color at the border is repeated.
 	Clamp,
+
+	// The texture is repeated, or "wraps around".
 	Repeat,
-	Mirrored_Repeat,
+
+	// The texture is repeated, but the repeated image is flipped.
+	Mirrored_Repeat, 
+
+	// A color is drawn for all pixels that fall outside the texture. The color is decided by
+	// `wrap_border_color: Texture_Wrap_Border_Color` of `Texture_Sampler`.
 	Border,
 }
 
+// The color to use when `wrap_x/y` of `Texture_Sampler` has the `Border` value.
 Texture_Wrap_Border_Color :: enum {
-	Transparent_Black,
-	Black,
-	White,
+	Transparent_Black, // Color {0, 0, 0, 0}
+	Black, // Color {0, 0, 0, 255}
+	White, // Color {255, 255, 255, 255}
 }
 
-Sampler :: struct {
+// Settings for how textures are sampled, which affects how they are rendered.
+Texture_Sampler :: struct {
+	// How the texture is filtered when it is scaled down.
 	scale_down_filter: Texture_Filter,
+
+	// How the texture is filtered when it is scaled up.
 	scale_up_filter: Texture_Filter,
-	wrap_u: Texture_Wrap,
-	wrap_v: Texture_Wrap,
+
+	// The warpping mode along the horizontal axis of the texture.
+	wrap_x: Texture_Wrap,
+
+	// The wrapping mode along the vertical axis of the texture.
+	wrap_y: Texture_Wrap,
+
+	// The color to use when `wrap_x` or `wrap_y` is `Border`.
 	wrap_border_color: Texture_Wrap_Border_Color,
 }
 
@@ -1803,7 +1831,7 @@ FONT_NONE :: Font(0)
 // initialized.
 FONT_DEFAULT :: Font(1)
 
-DEFAULT_SAMPLER :: Sampler {}
+DEFAULT_TEXTURE_SAMPLER :: Texture_Sampler {}
 TEXTURE_NONE :: Texture_Handle {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
@@ -2118,7 +2146,7 @@ State :: struct {
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
 	current_texture: Draw_Call_Texture,
-	current_sampler: Sampler,
+	current_texture_sampler: Texture_Sampler,
 	current_render_target: Render_Target_Handle,
 
 	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the

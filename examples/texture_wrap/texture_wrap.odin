@@ -25,22 +25,22 @@ step :: proc() -> bool {
 
 	k2.clear(k2.DARK_GRAY)
 
-	draw_panel(0, "Repeat", { wrap_u = .Repeat, wrap_v = .Repeat })
-	draw_panel(1, "Mirrored_Repeat, Clamp", { wrap_u = .Mirrored_Repeat, wrap_v = .Clamp })
-	draw_panel(2, "Border", { wrap_u = .Border, wrap_v = .Border, wrap_border_color = .White })
+	draw_panel(0, "Repeat", { wrap_x = .Repeat, wrap_y = .Repeat })
+	draw_panel(1, "Mirrored_Repeat, Clamp", { wrap_x = .Mirrored_Repeat, wrap_y = .Clamp })
+	draw_panel(2, "Border", { wrap_x = .Border, wrap_y = .Border, wrap_border_color = .White })
 
 	k2.present()
 	free_all(context.temp_allocator)
 	return true
 }
 
-draw_panel :: proc(idx: int, label: string, sampler: k2.Sampler) {
+draw_panel :: proc(idx: int, label: string, sampler: k2.Texture_Sampler) {
 	x := f32(PAD + idx*(PANEL_SIZE + PAD))
 	w := f32(tex.width)
 	h := f32(tex.height)
-	k2.set_sampler(sampler)
+	k2.set_texture_sampler(sampler)
 	k2.draw_texture_fit(tex, {-w, -h, w*3, h*3}, {x, PAD, PANEL_SIZE, PANEL_SIZE})
-	k2.set_sampler(k2.DEFAULT_SAMPLER)
+	k2.set_texture_sampler(k2.DEFAULT_TEXTURE_SAMPLER)
 	k2.draw_text(label, {x, PAD*2 + PANEL_SIZE}, 20, k2.WHITE)
 }
 

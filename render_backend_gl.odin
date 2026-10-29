@@ -46,7 +46,7 @@ GL_State :: struct {
 	textures: hm.Dynamic_Handle_Map(GL_Texture, Texture_Handle),
 	render_targets: hm.Dynamic_Handle_Map(GL_Render_Target, Render_Target_Handle),
 	depth_test: bool,
-	samplers: map[Sampler]u32,
+	texture_samplers: map[Texture_Sampler]u32,
 }
 
 GL_Shader_Constant_Buffer :: struct {
@@ -125,7 +125,7 @@ gl_init :: proc(
 	s.height = swapchain_height
 	s.allocator = allocator
 	s.depth_test = options.depth_test
-	s.samplers = make(map[Sampler]u32, allocator)
+	s.texture_samplers = make(map[Texture_Sampler]u32, allocator)
 
 	hm.dynamic_init(&s.shaders, allocator)
 	hm.dynamic_init(&s.textures, allocator)
@@ -166,11 +166,11 @@ gl_init :: proc(
 gl_shutdown :: proc(s: ^GL_State) {
 	gl.DeleteBuffers(1, &s.vertex_buffer_gpu)
 
-	for _, &smp in s.samplers {
+	for _, &smp in s.texture_samplers {
 		gl.DeleteSamplers(1, &smp)
 	}
 
-	delete(s.samplers)
+	delete(s.texture_samplers)
 	hm.dynamic_destroy(&s.shaders)
 	hm.dynamic_destroy(&s.textures)
 	hm.dynamic_destroy(&s.render_targets)
@@ -423,7 +423,7 @@ gl_bind_textures :: proc(s: ^GL_State, textures: []Draw_Call_Texture, gl_shd: GL
 		gl_t := gl_shd.texture_bindings[t_idx]
 		gl.ActiveTexture(gl.TEXTURE0 + u32(t_idx))
 
-		gl.BindSampler(u32(t_idx), gl_get_sampler(s, t.sampler))
+		gl.BindSampler(u32(t_idx), gl_get_texture_sampler(s, t.sampler))
 
 		if tex := hm.get(&s.textures, t.handle); tex != nil {
 			gl.BindTexture(gl.TEXTURE_2D, tex.id)
@@ -693,8 +693,8 @@ gl_translate_texture_wrap_border_color :: proc(c: Texture_Wrap_Border_Color) -> 
 	return { 0, 0, 0, 0 }
 }
 
-gl_get_sampler :: proc(s: ^GL_State, sampler: Sampler) -> u32 {
-	if smp, has_smp := s.samplers[sampler]; has_smp {
+gl_get_texture_sampler :: proc(s: ^GL_State, sampler: Texture_Sampler) -> u32 {
+	if smp, has_smp := s.texture_samplers[sampler]; has_smp {
 		return smp
 	}
 
@@ -708,11 +708,11 @@ gl_get_sampler :: proc(s: ^GL_State, sampler: Sampler) -> u32 {
 
 	gl.SamplerParameteri(smp, gl.TEXTURE_MIN_FILTER, min_filter)
 	gl.SamplerParameteri(smp, gl.TEXTURE_MAG_FILTER, mag_filter)
-	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_S, gl_translate_texture_wrap(sampler.wrap_u))
-	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_T, gl_translate_texture_wrap(sampler.wrap_v))
+	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_S, gl_translate_texture_wrap(sampler.wrap_x))
+	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_T, gl_translate_texture_wrap(sampler.wrap_y))
 	gl.SamplerParameterfv(smp, gl.TEXTURE_BORDER_COLOR, &wrap_border_color[0])
 
-	s.samplers[sampler] = smp
+	s.texture_samplers[sampler] = smp
 	return smp
 }
 

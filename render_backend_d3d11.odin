@@ -51,7 +51,7 @@ d3d11_init :: proc(
 	hm.dynamic_init(&s.shaders, allocator)
 	hm.dynamic_init(&s.textures, allocator)
 	hm.dynamic_init(&s.render_targets, allocator)
-	s.samplers = make(map[Sampler]^d3d11.ISamplerState, allocator)
+	s.texture_samplers = make(map[Texture_Sampler]^d3d11.ISamplerState, allocator)
 
 	/*
 	This comes from
@@ -258,11 +258,11 @@ d3d11_shutdown :: proc(s: ^D3D11_State) {
 	s.blend_state_additive->Release()
 	s.dxgi_adapter->Release()
 
-	for _, smp in s.samplers {
+	for _, smp in s.texture_samplers {
 		smp->Release()
 	}
 
-	delete(s.samplers)
+	delete(s.texture_samplers)
 
 	if s.depth_test {
 		s.depth_buffer->Release()
@@ -444,7 +444,7 @@ d3d11_draw :: proc(s: ^D3D11_State, vertex_buffer: []u8, draw_calls: []Draw_Call
 					d3d_t := d3d_shd.texture_bindings[t_idx]
 
 					if tex := hm.get(&s.textures, t.handle); tex != nil {
-						smp := d3d11_get_sampler(s, t.sampler)
+						smp := d3d11_get_texture_sampler(s, t.sampler)
 						dc->PSSetShaderResources(d3d_t.bind_point, 1, &tex.view)
 						dc->PSSetSamplers(d3d_t.sampler_bind_point, 1, &smp)
 					}
@@ -897,8 +897,8 @@ d3d11_translate_texture_wrap_border_color :: proc(c: Texture_Wrap_Border_Color) 
 	return { 0, 0, 0, 0 }
 }
 
-d3d11_get_sampler :: proc(s: ^D3D11_State, sampler: Sampler) -> ^d3d11.ISamplerState {
-	if smp, has_smp := s.samplers[sampler]; has_smp {
+d3d11_get_texture_sampler :: proc(s: ^D3D11_State, sampler: Texture_Sampler) -> ^d3d11.ISamplerState {
+	if smp, has_smp := s.texture_samplers[sampler]; has_smp {
 		return smp
 	}
 
@@ -918,8 +918,8 @@ d3d11_get_sampler :: proc(s: ^D3D11_State, sampler: Sampler) -> ^d3d11.ISamplerS
 
 	sampler_desc := d3d11.SAMPLER_DESC {
 		Filter = f,
-		AddressU = d3d11_translate_texture_wrap(sampler.wrap_u),
-		AddressV = d3d11_translate_texture_wrap(sampler.wrap_v),
+		AddressU = d3d11_translate_texture_wrap(sampler.wrap_x),
+		AddressV = d3d11_translate_texture_wrap(sampler.wrap_y),
 		AddressW = .CLAMP,
 		ComparisonFunc = .NEVER,
 		BorderColor = d3d11_translate_texture_wrap_border_color(sampler.wrap_border_color),
@@ -932,7 +932,7 @@ d3d11_get_sampler :: proc(s: ^D3D11_State, sampler: Sampler) -> ^d3d11.ISamplerS
 		return nil
 	}
 
-	s.samplers[sampler] = smp
+	s.texture_samplers[sampler] = smp
 	return smp
 }
 
@@ -1500,7 +1500,7 @@ D3D11_State :: struct {
 	info_queue: ^d3d11.IInfoQueue,
 	vertex_buffer_gpu: ^d3d11.IBuffer,
 
-	samplers: map[Sampler]^d3d11.ISamplerState,
+	texture_samplers: map[Texture_Sampler]^d3d11.ISamplerState,
 
 	// The depth things below are only created when `depth_test` is true.
 	depth_test: bool,

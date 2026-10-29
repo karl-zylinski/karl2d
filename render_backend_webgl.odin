@@ -47,7 +47,7 @@ WebGL_State :: struct {
 	render_targets: hm.Dynamic_Handle_Map(WebGL_Render_Target, Render_Target_Handle),
 	depth_test: bool,
 	border_wrap_warning_shown: bool,
-	samplers: map[Sampler]gl.Sampler,
+	texture_samplers: map[Texture_Sampler]gl.Sampler,
 }
 
 WebGL_Shader_Constant_Buffer :: struct {
@@ -126,7 +126,7 @@ webgl_init :: proc(
 	s.width = swapchain_width
 	s.height = swapchain_height
 	s.allocator = allocator
-	s.samplers = make(map[Sampler]gl.Sampler, allocator)
+	s.texture_samplers = make(map[Texture_Sampler]gl.Sampler, allocator)
 	s.depth_test = options.depth_test
 
 	hm.dynamic_init(&s.shaders, allocator)
@@ -181,11 +181,11 @@ webgl_init :: proc(
 
 webgl_shutdown :: proc(s: ^WebGL_State) {
 	gl.DeleteBuffer(s.vertex_buffer_gpu)
-	for _, smp in s.samplers {
+	for _, smp in s.texture_samplers {
 		gl.DeleteSampler(smp)
 	}
 
-	delete(s.samplers)
+	delete(s.texture_samplers)
 	hm.dynamic_destroy(&s.shaders)
 	hm.dynamic_destroy(&s.textures)
 	hm.dynamic_destroy(&s.render_targets)
@@ -409,7 +409,7 @@ webgl_bind_textures :: proc(s: ^WebGL_State, textures: []Draw_Call_Texture, gl_s
 		gl_t := gl_shd.texture_bindings[t_idx]
 		gl.ActiveTexture(gl.TEXTURE0 + gl.Enum(t_idx))
 
-		gl.BindSampler(gl.Enum(t_idx), webgl_get_sampler(s, t.sampler))
+		gl.BindSampler(gl.Enum(t_idx), webgl_get_texture_sampler(s, t.sampler))
 
 		if tex := hm.get(&s.textures, t.handle); tex != nil {
 			gl.BindTexture(gl.TEXTURE_2D, tex.id)
@@ -668,12 +668,12 @@ webgl_destroy_render_target :: proc(s: ^WebGL_State, render_target: Render_Targe
 	}
 }
 
-webgl_get_sampler :: proc(s: ^WebGL_State, sampler: Sampler) -> gl.Sampler {
-	if smp, has_smp := s.samplers[sampler]; has_smp {
+webgl_get_texture_sampler :: proc(s: ^WebGL_State, sampler: Texture_Sampler) -> gl.Sampler {
+	if smp, has_smp := s.texture_samplers[sampler]; has_smp {
 		return smp
 	}
 
-	if (sampler.wrap_u == .Border || sampler.wrap_v == .Border) && !s.border_wrap_warning_shown {
+	if (sampler.wrap_x == .Border || sampler.wrap_y == .Border) && !s.border_wrap_warning_shown {
 		log.warn("WebGL does not support the Border texture wrap mode. Using Clamp instead.")
 		s.border_wrap_warning_shown = true
 	}
@@ -685,10 +685,10 @@ webgl_get_sampler :: proc(s: ^WebGL_State, sampler: Sampler) -> gl.Sampler {
 
 	gl.SamplerParameteri(smp, gl.TEXTURE_MIN_FILTER, i32(min_filter))
 	gl.SamplerParameteri(smp, gl.TEXTURE_MAG_FILTER, i32(mag_filter))
-	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_S, webgl_translate_texture_wrap(sampler.wrap_u))
-	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_T, webgl_translate_texture_wrap(sampler.wrap_v))
+	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_S, webgl_translate_texture_wrap(sampler.wrap_x))
+	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_T, webgl_translate_texture_wrap(sampler.wrap_y))
 
-	s.samplers[sampler] = smp
+	s.texture_samplers[sampler] = smp
 	return smp
 }
 
