@@ -1496,7 +1496,7 @@ draw_texture_fit :: proc(
 		source.h = -source.h
 	}
 	
-	if to.needs_vertical_flip {
+	if to.flip_y {
 		flip_y = !flip_y
 
 		if source.h != f32(to.height) {
@@ -5093,7 +5093,7 @@ create_render_texture :: proc(width: int, height: int) -> (Render_Texture, bool)
 		rb_texture = rb_texture,
 		width = width,
 		height = height,
-		needs_vertical_flip = s.rb.flip_render_textures,
+		flip_y = s.rb.flip_render_textures,
 	})
 
 	if add_err != nil {
@@ -6703,7 +6703,7 @@ Texture_Object :: struct {
 	rb_texture: Render_Backend_Texture,
 	width: int,
 	height: int,
-	needs_vertical_flip: bool,
+	flip_y: bool,
 	sampler: Maybe(Texture_Sampler),
 }
 
