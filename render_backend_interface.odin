@@ -33,11 +33,6 @@ Draw_Call_Change :: enum {
 // render backend.
 DRAW_CALL_CHANGE_ALL :: ~bit_set[Draw_Call_Change]{}
 
-Draw_Call_Texture :: struct {
-	handle: Texture_Handle,
-	sampler: Texture_Sampler,
-}
-
 // A chunk of drawing work that shares enough state to be able to draw together. Points out the
 // range in the vertex buffer that the draw call will use.
 //

@@ -1396,11 +1396,8 @@ d3d11_reflect_shader_constants :: proc(
 		}
 	}
 
-	// Make sure each texture has a sampler. In GL samplers are associated with textures. In D3D11
-	// several textures can use a single sampler. We don't want this as we want to be able to
-	// configure filters etc on a per-texture level. Since two textures can arrive at a draw call
-	// with different filters set, if they use the same sampler, then it will be impossible to set
-	// that filtering up.
+	// The way Karl2D is built, we need one sampler per texture. In GL this is how it always works,
+	// for D3D we use this loop to ensure it.
 	for &t, t_idx in d3d_texture_bindings {
 		found := false
 

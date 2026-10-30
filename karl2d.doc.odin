@@ -491,6 +491,9 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 // - font: The font to use, uses a default font if none is specified.
 // - origin: The origin relative to the top-left position of the text. Used when rotating the text.
 // - rotation: Rotating to apply to the text, measured in radians.
+//
+// Use `set_texture_sampler` to modify how the text is scaled. For example, if you can use a filter
+// with `.Linear` scaling mode instead of `.Point`.
 draw_text :: proc(
 	text: string,
 	position: Vec2,
@@ -602,6 +605,8 @@ destroy_texture :: proc(tex: Texture)
 
 // Set the current texture sampler. This affects how textures are rendered. See `Texture_Sampler`
 // for more information on what settings that are available.
+//
+// Text is also drawn using a texture (an atlas), so the current sampler affects those too.
 //
 // The current texture sampler will be in effect until you run `set_texture_sampler` with some other
 // value. The default texture sampler is `k2.DEFAULT_TEXTURE_SAMPLER`.
@@ -1207,7 +1212,7 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 // Set a shader to use a specific texture. Look up the bindpoint using the `texture_lookup` field
 // inside the `Shader` object.
 //
-// You don't need to call this when drawing normal textures. it's for advanced usage where you have
+// You don't need to call this when drawing normal textures. It's for advanced usage where you have
 // multiple textures as inputs to a shader. For normal texture drawing, use `draw_texture_*`.
 set_shader_texture :: proc(
 	shd: Shader,
@@ -1483,10 +1488,12 @@ Texture_Wrap :: enum {
 	Repeat,
 
 	// The texture is repeated, but the repeated image is flipped.
-	Mirrored_Repeat, 
+	Mirrored_Repeat,
 
 	// A color is drawn for all pixels that fall outside the texture. The color is decided by
 	// `wrap_border_color: Texture_Wrap_Border_Color` of `Texture_Sampler`.
+	//
+	// WEB: Not supported. If you use this on web then Clamp is used instead.
 	Border,
 }
 
@@ -1505,7 +1512,7 @@ Texture_Sampler :: struct {
 	// How the texture is filtered when it is scaled up.
 	scale_up_filter: Texture_Filter,
 
-	// The warpping mode along the horizontal axis of the texture.
+	// The wrapping mode along the horizontal axis of the texture.
 	wrap_x: Texture_Wrap,
 
 	// The wrapping mode along the vertical axis of the texture.
@@ -1513,6 +1520,11 @@ Texture_Sampler :: struct {
 
 	// The color to use when `wrap_x` or `wrap_y` is `Border`.
 	wrap_border_color: Texture_Wrap_Border_Color,
+}
+
+Draw_Call_Texture :: struct {
+	handle: Texture_Handle,
+	sampler: Texture_Sampler,
 }
 
 // An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order
