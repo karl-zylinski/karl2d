@@ -259,7 +259,9 @@ d3d11_shutdown :: proc(s: ^D3D11_State) {
 	s.dxgi_adapter->Release()
 
 	for _, smp in s.texture_samplers {
-		smp->Release()
+		if smp != nil {
+			smp->Release()
+		}
 	}
 
 	delete(s.texture_samplers)
@@ -666,7 +668,7 @@ _d3d11_create_texture :: proc(
 		log.errorf("Failed to add texture. Error: %v", tex_add_err)
 		texture_view->Release()
 		texture->Release()
-		return {}, false
+		return TEXTURE_NONE, false
 	}
 
 	return tex_handle, true
@@ -702,7 +704,7 @@ d3d11_create_render_texture :: proc(
 	err := s.device->CreateTexture2D(&texture_desc, nil, &texture)
 
 	if !d3d11_check(s, err) {
-		return {}, RENDER_TARGET_NONE, false
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	texture_view: ^d3d11.IShaderResourceView
@@ -711,7 +713,7 @@ d3d11_create_render_texture :: proc(
 
 	if !d3d11_check(s, err) {
 		texture->Release()
-		return {}, RENDER_TARGET_NONE, false
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	render_target_view_desc := d3d11.RENDER_TARGET_VIEW_DESC {
@@ -728,7 +730,7 @@ d3d11_create_render_texture :: proc(
 	if !d3d11_check(s, err) {
 		texture_view->Release()
 		texture->Release()
-		return {}, RENDER_TARGET_NONE, false
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	d3d11_texture := D3D11_Texture {
@@ -765,7 +767,7 @@ d3d11_create_render_texture :: proc(
 			render_target_view->Release()
 			texture_view->Release()
 			texture->Release()
-			return {}, RENDER_TARGET_NONE, false
+			return TEXTURE_NONE, RENDER_TARGET_NONE, false
 		}
 
 		err = s.device->CreateDepthStencilView(
@@ -779,7 +781,7 @@ d3d11_create_render_texture :: proc(
 			render_target_view->Release()
 			texture_view->Release()
 			texture->Release()
-			return {}, RENDER_TARGET_NONE, false
+			return TEXTURE_NONE, RENDER_TARGET_NONE, false
 		}
 	}
 
@@ -796,7 +798,7 @@ d3d11_create_render_texture :: proc(
 		render_target_view->Release()
 		texture_view->Release()
 		texture->Release()
-		return {}, RENDER_TARGET_NONE, false
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	rt_handle, rt_add_err := hm.add(&s.render_targets, d3d11_render_target)
@@ -812,7 +814,7 @@ d3d11_create_render_texture :: proc(
 		render_target_view->Release()
 		texture_view->Release()
 		texture->Release()
-		return {}, RENDER_TARGET_NONE, false
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	return tex_handle, rt_handle, true
@@ -928,7 +930,10 @@ d3d11_get_texture_sampler :: proc(s: ^D3D11_State, sampler: Texture_Sampler) -> 
 	smp: ^d3d11.ISamplerState
 	err := s.device->CreateSamplerState(&sampler_desc, &smp)
 
+	// We store nil for a failed sampler so that it isn't re-created on each try. That would spam
+	// the log etc.
 	if !d3d11_check(s, err) {
+		s.texture_samplers[sampler] = nil
 		return nil
 	}
 

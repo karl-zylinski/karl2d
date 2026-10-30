@@ -492,7 +492,7 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 // - origin: The origin relative to the top-left position of the text. Used when rotating the text.
 // - rotation: Rotating to apply to the text, measured in radians.
 //
-// Use `set_texture_sampler` to modify how the text is scaled. For example, if you can use a filter
+// Use `set_texture_sampler` to modify how the text is scaled. For example, you can use a filter
 // with `.Linear` scaling mode instead of `.Point`.
 draw_text :: proc(
 	text: string,

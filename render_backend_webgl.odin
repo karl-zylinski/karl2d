@@ -487,7 +487,7 @@ webgl_create_texture :: proc(
 	texture, texture_ok := _webgl_create_texture(width, height, format, nil)
 
 	if !texture_ok {
-		return {}, false
+		return TEXTURE_NONE, false
 	}
 
 	texture_handle, texture_handle_err := hm.add(&s.textures, texture)
@@ -495,7 +495,7 @@ webgl_create_texture :: proc(
 	if texture_handle_err != nil {
 		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
 		gl.DeleteTexture(texture.id)
-		return {}, false
+		return TEXTURE_NONE, false
 	}
 
 	return texture_handle, true
@@ -511,7 +511,7 @@ webgl_load_texture :: proc(
 	texture, texture_ok := _webgl_create_texture(width, height, format, raw_data(data))
 
 	if !texture_ok {
-		return {}, false
+		return TEXTURE_NONE, false
 	}
 
 	texture_handle, texture_handle_err := hm.add(&s.textures, texture)
@@ -519,7 +519,7 @@ webgl_load_texture :: proc(
 	if texture_handle_err != nil {
 		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
 		gl.DeleteTexture(texture.id)
-		return {}, false
+		return TEXTURE_NONE, false
 	}
 
 	return texture_handle, true
@@ -574,7 +574,7 @@ webgl_create_render_texture :: proc(
 	texture, texture_ok := _webgl_create_texture(width, height, .RGBA_32_Float, nil)
 
 	if !texture_ok {
-		return {}, RENDER_TARGET_NONE, false
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	texture.needs_vertical_flip = true
@@ -608,7 +608,7 @@ webgl_create_render_texture :: proc(
 			gl.DeleteRenderbuffer(depth_renderbuffer)
 		}
 
-		return {}, RENDER_TARGET_NONE, false
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
@@ -632,7 +632,7 @@ webgl_create_render_texture :: proc(
 			gl.DeleteRenderbuffer(depth_renderbuffer)
 		}
 
-		return {}, RENDER_TARGET_NONE, false
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	render_target_handle, render_target_handle_err := hm.add(&s.render_targets, rt)
@@ -647,7 +647,7 @@ webgl_create_render_texture :: proc(
 			gl.DeleteRenderbuffer(depth_renderbuffer)
 		}
 
-		return {}, RENDER_TARGET_NONE, false
+		return TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	return texture_handle, render_target_handle, true
