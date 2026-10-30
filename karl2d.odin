@@ -147,6 +147,8 @@ init :: proc(
 
 	s.view_matrix = 1
 	_update_projection_matrix()
+	
+	hm.dynamic_init(&s.textures, s.allocator)
 
 	// Boot up the render backend. It will render into our previously created window.
 	s.rb.init(
@@ -177,14 +179,17 @@ init :: proc(
 	// shader for textured drawing and shape drawing. It's just a white box.
 	white_rect: [16*16*4]u8
 	slice.fill(white_rect[:], 255)
-	shape_drawing_texture, shape_drawing_texture_ok := s.rb.load_texture(
-		s.rb_state,
+	shape_drawing_texture, shape_drawing_texture_ok := load_texture_from_bytes_raw(
 		white_rect[:],
 		16,
 		16,
 		.RGBA_8_Norm,
 	)
 	log.assertf(shape_drawing_texture_ok, "Failed loading shape drawing texture")
+	set_texture_sampler(
+		shape_drawing_texture,
+		{ scale_up_filter = .Point, scale_down_filter = .Point },
+	) 
 	s.shape_drawing_texture = shape_drawing_texture
 
 	// The default shader will arrive in a different format depending on backend. GLSL for GL,
@@ -347,9 +352,9 @@ shutdown :: proc() {
 
 	delete(s.events)
 	_destroy_font(FONT_DEFAULT)
-	s.rb.destroy_texture(s.rb_state, s.font_atlas_texture.handle)
+	destroy_texture(s.font_atlas_texture)
 	fc.destroy_cache(&s.font_cache)
-	s.rb.destroy_texture(s.rb_state, s.shape_drawing_texture)
+	destroy_texture(s.shape_drawing_texture)
 	destroy_shader(s.default_shader)
 	s.rb.shutdown(s.rb_state)
 	delete(s.vertex_buffer_cpu, s.allocator)
@@ -361,6 +366,7 @@ shutdown :: proc() {
 	delete(s.fonts)
 
 	delete(s.typed_runes)
+	hm.dynamic_destroy(&s.textures)
 
 	a := s.allocator
 	free(s.pf_state, a)
@@ -1199,7 +1205,12 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
-	_prepare_draw({ handle = s.shape_drawing_texture }, 6)
+	to := _prepare_draw(s.shape_drawing_texture, 6)
+
+	if to == nil {
+		return
+	}
+
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
@@ -1313,7 +1324,10 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 // Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
 // perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
-	_prepare_draw({ handle = s.shape_drawing_texture }, 3*segments)
+	to := _prepare_draw(s.shape_drawing_texture, 3*segments)
+	if to == nil {
+		return
+	}
 
 	prev := center + {radius, 0}
 	for s in 1..=segments {
@@ -1357,7 +1371,10 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 // Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
-	_prepare_draw({ handle = s.shape_drawing_texture }, 3)
+	to := _prepare_draw(s.shape_drawing_texture, 3)
+	if to == nil {
+		return
+	}
 
 	batch_vertex(vertices[0], {0, 0}, c)
 	batch_vertex(vertices[1], {1, 1}, c)
@@ -1386,11 +1403,11 @@ draw_texture :: proc(
 	rotation: f32 = 0,
 	tint := WHITE,
 ) {
-	if texture.handle == TEXTURE_NONE || texture.width == 0 || texture.height == 0 {
+	source := get_texture_rect(texture)
+
+	if source.w == 0 || source.h == 0 {
 		return
 	}
-
-	source := get_texture_rect(texture)
 
 	dest := Rect {
 		position.x, position.y,
@@ -1454,11 +1471,11 @@ draw_texture_fit :: proc(
 	rotation: f32 = 0,
 	tint := WHITE,
 ) {
-	if texture.handle == TEXTURE_NONE || texture.width == 0 || texture.height == 0 {
+	to := _prepare_draw(texture, 6)
+
+	if to == nil {
 		return
 	}
-
-	_prepare_draw({ handle = texture.handle, sampler = s.current_texture_sampler }, 6)
 
 	flip_x: bool
 
@@ -1484,11 +1501,11 @@ draw_texture_fit :: proc(
 	//
 	// Could we do something with the projection matrix while drawing into those render textures
 	// instead? I tried that, but couldn't get it to work.
-	if s.rb.texture_needs_vertical_flip(s.rb_state, texture.handle) {
+	if s.rb.texture_needs_vertical_flip(s.rb_state, to.rb_texture) {
 		flip_y = !flip_y
 
-		if source.h != f32(texture.height) {
-			source.y = f32(texture.height) - source.h - source.y
+		if source.h != f32(to.height) {
+			source.y = f32(to.height) - source.h - source.y
 		}
 	}
 
@@ -1539,7 +1556,7 @@ draw_texture_fit :: proc(
 		}
 	}
 	
-	ts := Vec2{f32(texture.width), f32(texture.height)}
+	ts := Vec2{f32(to.width), f32(to.height)}
 
 	up := Vec2{source.x, source.y} / ts
 	us := Vec2{source.w, source.h} / ts
@@ -1732,9 +1749,6 @@ measure_text_ex :: proc(font_handle: Font, text: string, font_size: f32) -> Vec2
 // - font: The font to use, uses a default font if none is specified.
 // - origin: The origin relative to the top-left position of the text. Used when rotating the text.
 // - rotation: Rotating to apply to the text, measured in radians.
-//
-// Use `set_texture_sampler` to modify how the text is scaled. For example, you can use a filter
-// with `.Linear` scaling mode instead of `.Point`.
 draw_text :: proc(
 	text: string,
 	position: Vec2,
@@ -1907,6 +1921,7 @@ draw_text :: proc(
 		render_size := _font_render_size(font_size)
 		inv_render_scale := font_size / f32(render_size)
 		_sync_font_atlas_texture()
+		set_texture_filter(s.font_atlas_texture, font_object.options.filter)
 
 		y_up := _camera_flip_y()
 		block_top := position.y
@@ -2012,11 +2027,19 @@ create_texture :: proc(
 		return {}, false
 	}
 
-	return {
-		handle = h,
+	texture, add_err := hm.add(&s.textures, {
+		rb_texture = h,
 		width = width,
 		height = height,
-	}, true
+	})
+
+	if add_err != nil {
+		log.errorf("Failed creating texture. Error: %v", add_err)
+		s.rb.destroy_texture(s.rb_state, h)
+		return {}, false
+	}
+
+	return texture, true
 }
 
 // Load a texture from disk and upload it to the GPU so you can draw it to the screen.
@@ -2118,11 +2141,19 @@ load_texture_from_bytes_raw :: proc(
 		return {}, false
 	}
 
-	return {
-		handle = backend_tex,
+	texture, add_err := hm.add(&s.textures, {
+		rb_texture = backend_tex,
 		width = width,
 		height = height,
-	}, true
+	})
+
+	if add_err != nil {
+		log.errorf("Failed loading texture. Error: %v", add_err)
+		s.rb.destroy_texture(s.rb_state, backend_tex)
+		return {}, false
+	}
+
+	return texture, true
 }
 
 // Create a GPU texture from an image stored in RAM. There are currently no procedures to manipulate
@@ -2154,11 +2185,19 @@ load_texture_from_image :: proc(image: Image) -> (Texture, bool) #optional_ok {
 		return {}, false
 	}
 
-	return {
-		handle = backend_tex,
+	texture, add_err := hm.add(&s.textures, {
+		rb_texture = backend_tex,
 		width = image.width,
 		height = image.height,
-	}, true
+	})
+
+	if add_err != nil {
+		log.errorf("Failed loading texture. Error: %v", add_err)
+		s.rb.destroy_texture(s.rb_state, backend_tex)
+		return {}, false
+	}
+
+	return texture, true
 }
 
 // Load an image from disk into RAM. Supports the same formats as `load_texture_from_file`. The
@@ -2236,57 +2275,165 @@ destroy_image :: proc(img: Image) {
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
 // (w, h) = (texture_width, texture_height)
 get_texture_rect :: proc(t: Texture) -> Rect {
+	to := hm.get(&s.textures, t)
+
+	if to == nil {
+		return {}
+	}
+
 	return {
 		0, 0,
-		f32(t.width), f32(t.height),
+		f32(to.width), f32(to.height),
 	}
+}
+
+// Get the pixel width of a texture.
+get_texture_width :: proc(t: Texture) -> int {
+	to := hm.get(&s.textures, t)
+
+	if to == nil {
+		return 0
+	}
+
+	return to.width
+}
+
+// Get the pixel height of a texture.
+get_texture_height :: proc(t: Texture) -> int {
+	to := hm.get(&s.textures, t)
+
+	if to == nil {
+		return 0
+	}
+
+	return to.height
+}
+
+// Get the (width, height) of a texture, as a Vec2.
+//
+// Note that while `get_texture_width/height` returns `int`, this effectively return `[2]f32`
+get_texture_size :: proc(t: Texture) -> Vec2 {
+	to := hm.get(&s.textures, t)
+
+	if to == nil {
+		return {}
+	}
+
+	return { f32(to.width), f32(to.height) }
 }
 
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
 // `tex` where the new pixels should end up. `pitch` is the number of bytes between the start of two
 // rows, the default of `0` means that the rows are tightly packed.
 update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool {
+	to := hm.get(&s.textures, tex)
+
+	if to == nil {
+		return false
+	}
+
 	// Recorded draw calls may still be waiting to use the old pixels.
-	_flush_if_batch_uses_texture(tex.handle)
-	return s.rb.update_texture(s.rb_state, tex.handle, bytes, rect, pitch)
+	_flush_if_batch_uses_texture(to.rb_texture)
+	return s.rb.update_texture(s.rb_state, to.rb_texture, bytes, rect, pitch)
 }
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(tex: Texture) {
-	_flush_if_batch_uses_texture(tex.handle)
-	s.rb.destroy_texture(s.rb_state, tex.handle)
+	to := hm.get(&s.textures, tex)
+
+	if to == nil {
+		return
+	}
+
+	_flush_if_batch_uses_texture(to.rb_texture)
+	s.rb.destroy_texture(s.rb_state, to.rb_texture)
+	hm.remove(&s.textures, tex)
 }
 
-// Set the current texture sampler. This affects how textures are rendered. See `Texture_Sampler`
-// for more information on what settings that are available.
-//
-// Text is also drawn using a texture (an atlas), so the current sampler affects those too.
-//
-// The current texture sampler will be in effect until you run `set_texture_sampler` with some other
-// value. The default texture sampler is `k2.DEFAULT_TEXTURE_SAMPLER`.
-set_texture_sampler :: proc(sampler: Texture_Sampler) {
-	s.current_texture_sampler = sampler
-}
-
-// Get the current texture sampler. If you have done no calls to `set_texture_sampler` then this
-// procedure returns `k2.DEFAULT_TEXTURE_SAMPLER`.
-get_texture_sampler :: proc() -> Texture_Sampler {
-	return s.current_texture_sampler
-}
-
-@(deprecated="Textures no longer have a filter. Use set_texture_sampler instead")
 set_texture_filter :: proc(t: Texture, filter: Texture_Filter) {
-	log.panic("Use `set_texture_sampler` instead of `set_texture_filter`")
+	to := hm.get(&s.textures, t)
+
+	if to == nil {
+		return
+	}
+
+	smp := to.sampler.? or_else s.default_texture_sampler
+	smp.scale_up_filter = filter
+	smp.scale_down_filter = filter
+
+	if smp != to.sampler {
+		to.sampler = smp
+		s.draw_call_changes += { .Textures }
+	}
 }
 
-@(deprecated="Textures no longer have a filter. Use set_texture_sampler instead")
+@(deprecated="Use set_texture_sampler instead")
 set_texture_filter_ex :: proc(
 	t: Texture,
 	scale_down_filter: Texture_Filter,
 	scale_up_filter: Texture_Filter,
 	mip_filter: Texture_Filter,
 ) {
-	log.panic("Use `set_texture_sampler` instead of `set_texture_filter_ex`")
+	to := hm.get(&s.textures, t)
+
+	if to == nil {
+		return
+	}
+
+	smp := to.sampler.? or_else s.default_texture_sampler
+	smp.scale_down_filter = scale_down_filter
+	smp.scale_up_filter = scale_up_filter
+
+	if smp != to.sampler {
+		to.sampler = smp
+		s.draw_call_changes += { .Textures }
+	}
+}
+
+set_texture_wrap :: proc(t: Texture, wrap: Texture_Wrap) {
+	to := hm.get(&s.textures, t)
+
+	if to == nil {
+		return
+	}
+
+	smp := to.sampler.? or_else s.default_texture_sampler
+	smp.wrap_x = wrap
+	smp.wrap_y = wrap
+
+	if smp != to.sampler {
+		to.sampler = smp
+		s.draw_call_changes += { .Textures }
+	}
+}
+
+set_default_texture_sampler :: proc(sampler: Texture_Sampler) {
+	if sampler != s.default_texture_sampler {
+		s.default_texture_sampler = sampler
+		s.draw_call_changes += { .Textures }
+	}
+}
+
+// Set the sampler to use for this texture. The sampler contains information about how to filter and
+// wrap the texture. Any `draw_texture_*` calls after this will use these settings. You can change
+// the settings after a `draw_texture_*` call, the sampler is copied into the queued draw call.
+//
+// This is an "advanced" version of `set_texture_filter` and `set_texture_wrap`. Using it you can
+// set wrap settings in x and y direction separately. You can also set filtering options for both
+// scaling up and scaling down.
+//
+// Pass `nil` to make the texture use the default sampler, see `set_default_texture_sampler`.
+set_texture_sampler :: proc(t: Texture, sampler: Maybe(Texture_Sampler)) {
+	to := hm.get(&s.textures, t)
+
+	if to == nil {
+		return
+	}
+
+	if sampler != to.sampler {
+		to.sampler = sampler
+		s.draw_call_changes += { .Textures }
+	}
 }
 
 //-------//
@@ -4936,7 +5083,7 @@ _audio_thread_context :: proc() -> runtime.Context {
 // handle this error, it will also be logged. In case of failure, the returned `Render_Texture`
 // will still be possible to use, but setting it does nothing, so drawing stays where it was.
 create_render_texture :: proc(width: int, height: int) -> (Render_Texture, bool) #optional_ok {
-	texture, render_target, render_texture_ok := s.rb.create_render_texture(
+	rb_texture, render_target, render_texture_ok := s.rb.create_render_texture(
 		s.rb_state,
 		width,
 		height,
@@ -4947,12 +5094,21 @@ create_render_texture :: proc(width: int, height: int) -> (Render_Texture, bool)
 		return {}, false
 	}
 
+	texture, add_err := hm.add(&s.textures, {
+		rb_texture = rb_texture,
+		width = width,
+		height = height,
+	})
+
+	if add_err != nil {
+		log.errorf("Failed creating render texture. Error: %v", add_err)
+		s.rb.destroy_texture(s.rb_state, rb_texture)
+		s.rb.destroy_render_target(s.rb_state, render_target)
+		return {}, false
+	}
+
 	return {
-		texture = { 
-			handle = texture,
-			width = width,
-			height = height,
-		},
+		texture = texture,
 		render_target = render_target,
 	}, true
 }
@@ -4969,8 +5125,7 @@ destroy_render_texture :: proc(render_texture: Render_Texture) {
 		}
 	}
 
-	_flush_if_batch_uses_texture(render_texture.texture.handle)
-	s.rb.destroy_texture(s.rb_state, render_texture.texture.handle)
+	destroy_texture(render_texture.texture)
 	s.rb.destroy_render_target(s.rb_state, render_texture.render_target)
 }
 
@@ -4988,8 +5143,8 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 		}
 
 		s.current_render_target = rt.render_target
-		s.current_render_target_width = rt.texture.width
-		s.current_render_target_height = rt.texture.height
+		s.current_render_target_width = get_texture_width(rt.texture)
+		s.current_render_target_height = get_texture_height(rt.texture)
 	} else {
 		if s.current_render_target == RENDER_TARGET_NONE {
 			return
@@ -5527,6 +5682,7 @@ load_static_font_from_bytes :: proc(
 	}
 
 	tex := load_texture_from_image(img)
+	set_texture_filter(tex, options.filter)
 
 	font := Font_Data {
 		type = .Static,
@@ -5637,9 +5793,7 @@ _destroy_font :: proc(font: Font) {
 
 	switch f.type {
 	case .Static:
-		// Recorded draw calls may still be waiting to sample this font's atlas.
-		_flush_if_batch_uses_texture(f.static_atlas.handle)
-		s.rb.destroy_texture(s.rb_state, f.static_atlas.handle)
+		destroy_texture(f.static_atlas)
 		f.static_atlas = {}
 		delete(f.static_glyphs, s.allocator)
 		delete(f.static_glyph_ranges, s.allocator)
@@ -5793,7 +5947,7 @@ load_shader_from_bytes :: proc(
 		constant_lookup = make(map[string]Shader_Constant_Location, s.allocator),
 		inputs = slice.clone(desc.inputs, s.allocator),
 		input_overrides = make([]Shader_Input_Value_Override, len(desc.inputs), s.allocator),
-		texture_bindpoints = make([]Draw_Call_Texture, len(desc.texture_bindpoints), s.allocator),
+		texture_bindpoints = make([]Texture, len(desc.texture_bindpoints), s.allocator),
 		texture_lookup = make(map[string]int, s.allocator),
 	}
 
@@ -5957,12 +6111,7 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 //
 // You don't need to call this when drawing normal textures. It's for advanced usage where you have
 // multiple textures as inputs to a shader. For normal texture drawing, use `draw_texture_*`.
-set_shader_texture :: proc(
-	shd: Shader,
-	bindpoint: int,
-	texture: Texture,
-	sampler: Texture_Sampler,
-) {
+set_shader_texture :: proc(shd: Shader, bindpoint: int, texture: Texture) {
 	if shd.handle == SHADER_NONE {
 		log.error("Invalid shader")
 		return
@@ -5977,10 +6126,7 @@ set_shader_texture :: proc(
 		return
 	}
 
-	shd.texture_bindpoints[bindpoint] = {
-		handle = texture.handle,
-		sampler = sampler,
-	}
+	shd.texture_bindpoints[bindpoint] = texture
 	s.draw_call_changes += { .Textures }
 }
 
@@ -6476,17 +6622,6 @@ color_alpha :: proc(c: Color, a: u8) -> Color {
 	return {c.r, c.g, c.b, a}
 }
 
-Texture :: struct {
-	// The render-backend specific texture identifier.
-	handle: Texture_Handle,
-
-	// The horizontal size of the texture, measured in pixels.
-	width: int,
-
-	// The vertical size of the texture, measure in pixels.
-	height: int,
-}
-
 Load_Texture_Option :: enum {
 	// Will multiply the alpha value of the each pixel into the its RGB values. Useful if you want
 	// to use `set_blend_mode(.Premultiplied_Alpha)`
@@ -6567,9 +6702,12 @@ Texture_Sampler :: struct {
 	wrap_border_color: Texture_Wrap_Border_Color,
 }
 
-Draw_Call_Texture :: struct {
-	handle: Texture_Handle,
-	sampler: Texture_Sampler,
+Texture_Object :: struct {
+	handle: Texture,
+	rb_texture: Render_Backend_Texture,
+	width: int,
+	height: int,
+	sampler: Maybe(Texture_Sampler),
 }
 
 // An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order
@@ -6718,7 +6856,7 @@ Shader :: struct {
 	// Maps built in constant types such as "model view projection matrix" to a location.
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
 
-	texture_bindpoints: []Draw_Call_Texture,
+	texture_bindpoints: []Texture,
 
 	// Used to lookup bindpoints of textures. You can then set the texture by calling
 	// `set_shader_texture and supplying it with the bindpoint you looked up.
@@ -6789,6 +6927,9 @@ Font_Options :: struct {
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
 
+	// The texture filter to use when drawing text using this font.
+	filter: Texture_Filter,
+
 	// Font formats like .ttc can contain multiple fonts. Use this parameter to pick one. For fonts
 	// that only contain a single font, leave this at zero.
 	font_index: int,
@@ -6827,7 +6968,8 @@ Font_Data :: struct {
 }
 
 Handle :: hm.Handle64
-Texture_Handle :: distinct Handle
+Texture :: distinct Handle
+Render_Backend_Texture :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
@@ -6888,7 +7030,8 @@ Font_Baked_Glyph :: struct {
 FONT_DEFAULT :: Font(0)
 
 DEFAULT_TEXTURE_SAMPLER :: Texture_Sampler {}
-TEXTURE_NONE :: Texture_Handle {}
+TEXTURE_NONE :: Texture {}
+RENDER_BACKEND_TEXTURE_NONE :: Render_Backend_Texture {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
 AUDIO_MIX_SAMPLE_RATE :: 44100
@@ -7193,7 +7336,7 @@ State :: struct {
 	fonts: [dynamic]Font_Data,
 	font_cache: fc.Cache,
 	font_atlas_texture: Texture,
-	shape_drawing_texture: Texture_Handle,
+	shape_drawing_texture: Texture,
 
 	// These `current_` are set when procs like `set_shader` etc run. When you draw more stuff, then
 	// they are compared against what `current_draw_call` says. If there is a difference, then a new
@@ -7201,8 +7344,9 @@ State :: struct {
 	current_camera: Maybe(Camera),
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
-	current_texture: Draw_Call_Texture,
-	current_texture_sampler: Texture_Sampler,
+	current_texture: Texture,
+	textures: hm.Dynamic_Handle_Map(Texture_Object, Texture),
+	default_texture_sampler: Texture_Sampler,
 	current_render_target: Render_Target_Handle,
 
 	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the
@@ -7923,9 +8067,15 @@ _ogg_file_total_frames :: proc(f: ^File) -> int {
 // Run by the drawing procedures before they add any vertices. Draws the batch if `vertices_needed`
 // more vertices will not fit in the vertex buffer, which leaves an empty one to put them in. Then
 // starts a new draw call if the settings changed.
-_prepare_draw :: proc(texture: Draw_Call_Texture, vertices_needed: int) {
+_prepare_draw :: proc(texture: Texture, vertices_needed: int) -> ^Texture_Object {
+	to := hm.get(&s.textures, texture)
+
+	if to == nil || to.width == 0 || to.height == 0 {
+		return nil
+	}
+
 	if vertices_needed == 0 {
-		return
+		return nil
 	}
 
 	shader := s.current_shader
@@ -7945,7 +8095,7 @@ _prepare_draw :: proc(texture: Draw_Call_Texture, vertices_needed: int) {
 
 	if changed == {} {
 		s.current_draw_call.vertex_count += vertices_needed
-		return
+		return to
 	}
 
 	cur := s.current_draw_call
@@ -7984,11 +8134,25 @@ _prepare_draw :: proc(texture: Draw_Call_Texture, vertices_needed: int) {
 	textures := cur.textures
 
 	if .Textures in changed {
-		textures = slice.clone(shader.texture_bindpoints, s.batch_allocator)
+		textures = make([]Draw_Call_Texture, len(shader.texture_bindpoints), s.batch_allocator)
+
+		for bindpoint_handle, bindpoint_idx in shader.texture_bindpoints {
+			bindpoint_texture_object := hm.get(&s.textures, bindpoint_handle)
+
+			if bindpoint_texture_object != nil {
+				textures[bindpoint_idx] = {
+					handle = bindpoint_texture_object.rb_texture,
+					sampler = bindpoint_texture_object.sampler.? or_else s.default_texture_sampler,
+				}
+			}
+		}
 
 		// The texture being drawn is ours rather than the shader's. It goes into the copy.
 		if def_tex_idx, has_def_tex_idx := shader.default_texture_index.?; has_def_tex_idx {
-			textures[def_tex_idx] = texture
+			textures[def_tex_idx] = {
+				handle = to.rb_texture,
+				sampler = to.sampler.? or_else s.default_texture_sampler,
+			}
 		}
 	}
 
@@ -8008,6 +8172,7 @@ _prepare_draw :: proc(texture: Draw_Call_Texture, vertices_needed: int) {
 
 	s.current_texture = texture
 	s.draw_call_changes = {}
+	return to
 }
 
 // Callers must run `_prepare_draw` first. That leaves room in the buffer and a draw call to put
@@ -8057,12 +8222,12 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 // Draws the batch if any recorded draw call still samples `texture`. Those draw calls have to
 // happen before the texture changes or goes away. Nothing has usually been drawn with it yet, in
 // which case there is nothing to wait for.
-_flush_if_batch_uses_texture :: proc(texture: Texture_Handle) {
-	if texture == TEXTURE_NONE {
+_flush_if_batch_uses_texture :: proc(texture: Render_Backend_Texture) {
+	if texture == RENDER_BACKEND_TEXTURE_NONE {
 		return
 	}
 
-	uses_texture :: proc(dc: Draw_Call, texture: Texture_Handle) -> bool {
+	uses_texture :: proc(dc: Draw_Call, texture: Render_Backend_Texture) -> bool {
 		for t in dc.textures {
 			if t.handle == texture {
 				return true
@@ -8240,18 +8405,38 @@ _font_render_size :: proc(font_size: f32) -> int {
 
 _sync_font_atlas_texture :: proc() {
 	cache := &s.font_cache
-	texture := &s.font_atlas_texture
+	to := hm.get(&s.textures, s.font_atlas_texture)
 
-	if texture.width == cache.width && texture.height == cache.height {
+	if to == nil {
+		s.font_atlas_texture = create_texture(cache.width, cache.height, .RGBA_8_Norm)
 		return
 	}
 
-	if texture.handle != TEXTURE_NONE {
-		_flush_if_batch_uses_texture(texture.handle)
-		s.rb.destroy_texture(s.rb_state, texture.handle)
+	if to.width == cache.width && to.height == cache.height {
+		return
 	}
 
-	texture^ = create_texture(cache.width, cache.height, .RGBA_8_Norm)
+	_flush_if_batch_uses_texture(to.rb_texture)
+	s.rb.destroy_texture(s.rb_state, to.rb_texture)
+
+	rb_texture, rb_texture_ok := s.rb.create_texture(
+		s.rb_state,
+		cache.width,
+		cache.height,
+		.RGBA_8_Norm,
+	)
+
+	if !rb_texture_ok {
+		log.errorf(
+			"Failed creating font atlas texture with dimensions %v x %v",
+			cache.width,
+			cache.height,
+		)
+	}
+
+	to.rb_texture = rb_texture
+	to.width = cache.width
+	to.height = cache.height
 }
 
 // Updates GPU-side font atlas with CPU-side changes. The font cache reports the rect that has been
@@ -8260,17 +8445,14 @@ _sync_font_atlas_texture :: proc() {
 // This proc is run before any draw call that depends on these glyphs is submitted.
 _update_font_atlas :: proc() {
 	cache := &s.font_cache
-	texture := s.font_atlas_texture
 
 	if cache.dirty_max.x <= cache.dirty_min.x || cache.dirty_max.y <= cache.dirty_min.y {
 		return
 	}
 
-	if (
-		texture.handle == TEXTURE_NONE ||
-		texture.width != cache.width ||
-		texture.height != cache.height
-	) {
+	to := hm.get(&s.textures, s.font_atlas_texture)
+
+	if to == nil || to.width != cache.width || to.height != cache.height {
 		return
 	}
 
@@ -8294,7 +8476,7 @@ _update_font_atlas :: proc() {
 	pitch := cache.width * size_of([4]u8)
 	s.rb.update_texture(
 		s.rb_state,
-		texture.handle,
+		to.rb_texture,
 		slice.reinterpret([]u8, pixels),
 		r,
 		pitch,

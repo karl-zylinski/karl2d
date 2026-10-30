@@ -5,7 +5,7 @@ package karl2d_coordinate_system_test
 import k2 "../.."
 import "core:testing"
 
-pretend_texture_needs_vertical_flip :: proc(s: ^k2.Render_Backend_State, handle: k2.Texture_Handle) -> bool {
+pretend_texture_needs_vertical_flip :: proc(s: ^k2.Render_Backend_State, handle: k2.Render_Backend_Texture) -> bool {
 	return true
 }
 

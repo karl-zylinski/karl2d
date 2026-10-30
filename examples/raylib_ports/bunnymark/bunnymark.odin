@@ -72,10 +72,7 @@ step :: proc() -> bool {
 
 	k2.clear(k2.RL_WHITE)
 
-	src := k2.Rect {
-		0, 0,
-		f32(tex_bunny.width), f32(tex_bunny.height),
-	}
+	src := k2.get_texture_rect(tex_bunny)
 
 	for &b in bunnies {
 		dest := src

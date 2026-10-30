@@ -611,7 +611,7 @@ _d3d11_create_texture :: proc(
 	format: Pixel_Format,
 	data: rawptr,
 ) -> (
-	Texture_Handle,
+	Render_Backend_Texture,
 	bool,
 ) {
 	texture_desc := d3d11.TEXTURE2D_DESC{
@@ -668,7 +668,7 @@ _d3d11_create_texture :: proc(
 		log.errorf("Failed to add texture. Error: %v", tex_add_err)
 		texture_view->Release()
 		texture->Release()
-		return TEXTURE_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, false
 	}
 
 	return tex_handle, true
@@ -679,7 +679,7 @@ d3d11_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-) -> (Texture_Handle, bool) {
+) -> (Render_Backend_Texture, bool) {
 	return _d3d11_create_texture(s, width, height, format, nil)
 }
 
@@ -687,7 +687,7 @@ d3d11_create_render_texture :: proc(
 	s: ^D3D11_State,
 	width: int,
 	height: int,
-) -> (Texture_Handle, Render_Target_Handle, bool) {
+) -> (Render_Backend_Texture, Render_Target_Handle, bool) {
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
 		Height     = u32(height),
@@ -704,7 +704,7 @@ d3d11_create_render_texture :: proc(
 	err := s.device->CreateTexture2D(&texture_desc, nil, &texture)
 
 	if !d3d11_check(s, err) {
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	texture_view: ^d3d11.IShaderResourceView
@@ -713,7 +713,7 @@ d3d11_create_render_texture :: proc(
 
 	if !d3d11_check(s, err) {
 		texture->Release()
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	render_target_view_desc := d3d11.RENDER_TARGET_VIEW_DESC {
@@ -730,7 +730,7 @@ d3d11_create_render_texture :: proc(
 	if !d3d11_check(s, err) {
 		texture_view->Release()
 		texture->Release()
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	d3d11_texture := D3D11_Texture {
@@ -767,7 +767,7 @@ d3d11_create_render_texture :: proc(
 			render_target_view->Release()
 			texture_view->Release()
 			texture->Release()
-			return TEXTURE_NONE, RENDER_TARGET_NONE, false
+			return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 		}
 
 		err = s.device->CreateDepthStencilView(
@@ -781,7 +781,7 @@ d3d11_create_render_texture :: proc(
 			render_target_view->Release()
 			texture_view->Release()
 			texture->Release()
-			return TEXTURE_NONE, RENDER_TARGET_NONE, false
+			return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 		}
 	}
 
@@ -798,7 +798,7 @@ d3d11_create_render_texture :: proc(
 		render_target_view->Release()
 		texture_view->Release()
 		texture->Release()
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	rt_handle, rt_add_err := hm.add(&s.render_targets, d3d11_render_target)
@@ -814,7 +814,7 @@ d3d11_create_render_texture :: proc(
 		render_target_view->Release()
 		texture_view->Release()
 		texture->Release()
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	return tex_handle, rt_handle, true
@@ -839,13 +839,13 @@ d3d11_load_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-) -> (Texture_Handle, bool) {
+) -> (Render_Backend_Texture, bool) {
 	return _d3d11_create_texture(s, width, height, format, raw_data(data))
 }
 
 d3d11_update_texture :: proc(
 	s: ^D3D11_State,
-	th: Texture_Handle,
+	th: Render_Backend_Texture,
 	data: []u8,
 	rect: Rect,
 	pitch: int,
@@ -876,7 +876,7 @@ d3d11_update_texture :: proc(
 	return true
 }
 
-d3d11_destroy_texture :: proc(s: ^D3D11_State, th: Texture_Handle) {
+d3d11_destroy_texture :: proc(s: ^D3D11_State, th: Render_Backend_Texture) {
 	if t := hm.get(&s.textures, th); t != nil {
 		t.tex->Release()
 		t.view->Release()
@@ -885,7 +885,7 @@ d3d11_destroy_texture :: proc(s: ^D3D11_State, th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 }
 
-d3d11_texture_needs_vertical_flip :: proc(s: ^D3D11_State, th: Texture_Handle) -> bool {
+d3d11_texture_needs_vertical_flip :: proc(s: ^D3D11_State, th: Render_Backend_Texture) -> bool {
 	return false
 }
 
@@ -1502,7 +1502,7 @@ D3D11_State :: struct {
 	anti_alias: bool,
 	vsync: bool,
 
-	textures: hm.Dynamic_Handle_Map(D3D11_Texture, Texture_Handle),
+	textures: hm.Dynamic_Handle_Map(D3D11_Texture, Render_Backend_Texture),
 	render_targets: hm.Dynamic_Handle_Map(D3D11_Render_Target, Render_Target_Handle),
 	shaders: hm.Dynamic_Handle_Map(D3D11_Shader, Shader_Handle),
 
@@ -1585,7 +1585,7 @@ d3d11_create_swapchain :: proc(s: ^D3D11_State, w, h: int) {
 }
 
 D3D11_Texture :: struct {
-	handle: Texture_Handle,
+	handle: Render_Backend_Texture,
 	tex: ^d3d11.ITexture2D,
 	view: ^d3d11.IShaderResourceView,
 	format: Pixel_Format,

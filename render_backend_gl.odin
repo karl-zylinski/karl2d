@@ -43,7 +43,7 @@ GL_State :: struct {
 	shaders: hm.Dynamic_Handle_Map(GL_Shader, Shader_Handle),
 	glue: ^Window_Render_Glue,
 	vertex_buffer_gpu: u32,
-	textures: hm.Dynamic_Handle_Map(GL_Texture, Texture_Handle),
+	textures: hm.Dynamic_Handle_Map(GL_Texture, Render_Backend_Texture),
 	render_targets: hm.Dynamic_Handle_Map(GL_Render_Target, Render_Target_Handle),
 	depth_test: bool,
 	texture_samplers: map[Texture_Sampler]u32,
@@ -77,7 +77,7 @@ GL_Shader_Constant :: struct {
 }
 
 GL_Texture :: struct {
-	handle: Texture_Handle,
+	handle: Render_Backend_Texture,
 	id: u32,
 	format: Pixel_Format,
 
@@ -497,7 +497,7 @@ gl_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-) -> (Texture_Handle, bool) {
+) -> (Render_Backend_Texture, bool) {
 	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, nil)
 
 	if !gl_tex_ok {
@@ -521,7 +521,7 @@ gl_load_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-) -> (Texture_Handle, bool) {
+) -> (Render_Backend_Texture, bool) {
 	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, raw_data(data))
 
 	if !gl_tex_ok {
@@ -541,7 +541,7 @@ gl_load_texture :: proc(
 
 gl_update_texture :: proc(
 	s: ^GL_State,
-	th: Texture_Handle,
+	th: Render_Backend_Texture,
 	data: []u8,
 	rect: Rect,
 	pitch: int,
@@ -559,7 +559,7 @@ gl_update_texture :: proc(
 	return true
 }
 
-gl_destroy_texture :: proc(s: ^GL_State, th: Texture_Handle) {
+gl_destroy_texture :: proc(s: ^GL_State, th: Render_Backend_Texture) {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil {
@@ -570,7 +570,7 @@ gl_destroy_texture :: proc(s: ^GL_State, th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 }
 
-gl_texture_needs_vertical_flip :: proc(s: ^GL_State, th: Texture_Handle) -> bool {
+gl_texture_needs_vertical_flip :: proc(s: ^GL_State, th: Render_Backend_Texture) -> bool {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil {
@@ -584,7 +584,7 @@ gl_create_render_texture :: proc(
 	s: ^GL_State,
 	width: int,
 	height: int,
-) -> (Texture_Handle, Render_Target_Handle, bool) {
+) -> (Render_Backend_Texture, Render_Target_Handle, bool) {
 	texture, texture_ok := _gl_create_texture(width, height, .RGBA_32_Float, nil)
 
 	if !texture_ok {

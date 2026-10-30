@@ -837,10 +837,12 @@ draw :: proc() {
 		player_tex = player.tex_down
 	}
 
+	player_tex_size := k2.get_texture_size(player_tex)
+
 	append(&sorted_draws, Sorted_Draw {
 		tex = player_tex,
 		pos = player.pos,
-		origin = {f32(player_tex.width/2), f32(player_tex.height)},
+		origin = {player_tex_size.x/2, player_tex_size.y},
 		flip_x = flip_x,
 	})
 

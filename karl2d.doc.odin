@@ -491,9 +491,6 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 // - font: The font to use, uses a default font if none is specified.
 // - origin: The origin relative to the top-left position of the text. Used when rotating the text.
 // - rotation: Rotating to apply to the text, measured in radians.
-//
-// Use `set_texture_sampler` to modify how the text is scaled. For example, you can use a filter
-// with `.Linear` scaling mode instead of `.Point`.
 draw_text :: proc(
 	text: string,
 	position: Vec2,
@@ -595,6 +592,17 @@ destroy_image :: proc(img: Image)
 // (w, h) = (texture_width, texture_height)
 get_texture_rect :: proc(t: Texture) -> Rect
 
+// Get the pixel width of a texture.
+get_texture_width :: proc(t: Texture) -> int
+
+// Get the pixel height of a texture.
+get_texture_height :: proc(t: Texture) -> int
+
+// Get the (width, height) of a texture, as a Vec2.
+//
+// Note that while `get_texture_width/height` returns `int`, this effectively return `[2]f32`
+get_texture_size :: proc(t: Texture) -> Vec2
+
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
 // `tex` where the new pixels should end up. `pitch` is the number of bytes between the start of two
 // rows, the default of `0` means that the rows are tightly packed.
@@ -603,18 +611,22 @@ update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect, pitch := 0) -> boo
 // Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(tex: Texture)
 
-// Set the current texture sampler. This affects how textures are rendered. See `Texture_Sampler`
-// for more information on what settings that are available.
-//
-// Text is also drawn using a texture (an atlas), so the current sampler affects those too.
-//
-// The current texture sampler will be in effect until you run `set_texture_sampler` with some other
-// value. The default texture sampler is `k2.DEFAULT_TEXTURE_SAMPLER`.
-set_texture_sampler :: proc(sampler: Texture_Sampler)
+set_texture_filter :: proc(t: Texture, filter: Texture_Filter)
 
-// Get the current texture sampler. If you have done no calls to `set_texture_sampler` then this
-// procedure returns `k2.DEFAULT_TEXTURE_SAMPLER`.
-get_texture_sampler :: proc() -> Texture_Sampler
+set_texture_wrap :: proc(t: Texture, wrap: Texture_Wrap)
+
+set_default_texture_sampler :: proc(sampler: Texture_Sampler)
+
+// Set the sampler to use for this texture. The sampler contains information about how to filter and
+// wrap the texture. Any `draw_texture_*` calls after this will use these settings. You can change
+// the settings after a `draw_texture_*` call, the sampler is copied into the queued draw call.
+//
+// This is an "advanced" version of `set_texture_filter` and `set_texture_wrap`. Using it you can
+// set wrap settings in x and y direction separately. You can also set filtering options for both
+// scaling up and scaling down.
+//
+// Pass `nil` to make the texture use the default sampler, see `set_default_texture_sampler`.
+set_texture_sampler :: proc(t: Texture, sampler: Maybe(Texture_Sampler))
 
 //-------//
 // AUDIO //
@@ -1214,12 +1226,7 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 //
 // You don't need to call this when drawing normal textures. It's for advanced usage where you have
 // multiple textures as inputs to a shader. For normal texture drawing, use `draw_texture_*`.
-set_shader_texture :: proc(
-	shd: Shader,
-	bindpoint: int,
-	texture: Texture,
-	sampler: Texture_Sampler,
-)
+set_shader_texture :: proc(shd: Shader, bindpoint: int, texture: Texture)
 
 // Sets the value of a shader input (also known as a shader attribute). There are three default
 // shader inputs known as position, texcoord and color. If you have shader with additional inputs,
@@ -1431,17 +1438,6 @@ RL_RAYWHITE   :: Color { 245, 245, 245, 255 }
 
 color_alpha :: proc(c: Color, a: u8) -> Color
 
-Texture :: struct {
-	// The render-backend specific texture identifier.
-	handle: Texture_Handle,
-
-	// The horizontal size of the texture, measured in pixels.
-	width: int,
-
-	// The vertical size of the texture, measure in pixels.
-	height: int,
-}
-
 Load_Texture_Option :: enum {
 	// Will multiply the alpha value of the each pixel into the its RGB values. Useful if you want
 	// to use `set_blend_mode(.Premultiplied_Alpha)`
@@ -1522,9 +1518,12 @@ Texture_Sampler :: struct {
 	wrap_border_color: Texture_Wrap_Border_Color,
 }
 
-Draw_Call_Texture :: struct {
-	handle: Texture_Handle,
-	sampler: Texture_Sampler,
+Texture_Object :: struct {
+	handle: Texture,
+	rb_texture: Render_Backend_Texture,
+	width: int,
+	height: int,
+	sampler: Maybe(Texture_Sampler),
 }
 
 // An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order
@@ -1673,7 +1672,7 @@ Shader :: struct {
 	// Maps built in constant types such as "model view projection matrix" to a location.
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
 
-	texture_bindpoints: []Draw_Call_Texture,
+	texture_bindpoints: []Texture,
 
 	// Used to lookup bindpoints of textures. You can then set the texture by calling
 	// `set_shader_texture and supplying it with the bindpoint you looked up.
@@ -1744,6 +1743,9 @@ Font_Options :: struct {
 	// This is useful if you want to use `set_blend_mode(.Premultiplied_Alpha)` when drawing text.
 	premultiply_alpha: bool,
 
+	// The texture filter to use when drawing text using this font.
+	filter: Texture_Filter,
+
 	// Font formats like .ttc can contain multiple fonts. Use this parameter to pick one. For fonts
 	// that only contain a single font, leave this at zero.
 	font_index: int,
@@ -1782,7 +1784,8 @@ Font_Data :: struct {
 }
 
 Handle :: hm.Handle64
-Texture_Handle :: distinct Handle
+Texture :: distinct Handle
+Render_Backend_Texture :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
@@ -1843,7 +1846,8 @@ Font_Baked_Glyph :: struct {
 FONT_DEFAULT :: Font(0)
 
 DEFAULT_TEXTURE_SAMPLER :: Texture_Sampler {}
-TEXTURE_NONE :: Texture_Handle {}
+TEXTURE_NONE :: Texture {}
+RENDER_BACKEND_TEXTURE_NONE :: Render_Backend_Texture {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
 AUDIO_MIX_SAMPLE_RATE :: 44100
@@ -2148,7 +2152,7 @@ State :: struct {
 	fonts: [dynamic]Font_Data,
 	font_cache: fc.Cache,
 	font_atlas_texture: Texture,
-	shape_drawing_texture: Texture_Handle,
+	shape_drawing_texture: Texture,
 
 	// These `current_` are set when procs like `set_shader` etc run. When you draw more stuff, then
 	// they are compared against what `current_draw_call` says. If there is a difference, then a new
@@ -2156,8 +2160,9 @@ State :: struct {
 	current_camera: Maybe(Camera),
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
-	current_texture: Draw_Call_Texture,
-	current_texture_sampler: Texture_Sampler,
+	current_texture: Texture,
+	textures: hm.Dynamic_Handle_Map(Texture_Object, Texture),
+	default_texture_sampler: Texture_Sampler,
 	current_render_target: Render_Target_Handle,
 
 	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the

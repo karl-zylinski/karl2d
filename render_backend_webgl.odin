@@ -43,7 +43,7 @@ WebGL_State :: struct {
 	allocator: runtime.Allocator,
 	shaders: hm.Dynamic_Handle_Map(WebGL_Shader, Shader_Handle),
 	vertex_buffer_gpu: gl.Buffer,
-	textures: hm.Dynamic_Handle_Map(WebGL_Texture, Texture_Handle),
+	textures: hm.Dynamic_Handle_Map(WebGL_Texture, Render_Backend_Texture),
 	render_targets: hm.Dynamic_Handle_Map(WebGL_Render_Target, Render_Target_Handle),
 	depth_test: bool,
 	border_wrap_warning_shown: bool,
@@ -78,7 +78,7 @@ WebGL_Shader_Constant :: struct {
 }
 
 WebGL_Texture :: struct {
-	handle: Texture_Handle,
+	handle: Render_Backend_Texture,
 	id: gl.Texture,
 	format: Pixel_Format,
 	needs_vertical_flip: bool,
@@ -483,11 +483,11 @@ webgl_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-) -> (Texture_Handle, bool) {
+) -> (Render_Backend_Texture, bool) {
 	texture, texture_ok := _webgl_create_texture(width, height, format, nil)
 
 	if !texture_ok {
-		return TEXTURE_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, false
 	}
 
 	texture_handle, texture_handle_err := hm.add(&s.textures, texture)
@@ -495,7 +495,7 @@ webgl_create_texture :: proc(
 	if texture_handle_err != nil {
 		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
 		gl.DeleteTexture(texture.id)
-		return TEXTURE_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, false
 	}
 
 	return texture_handle, true
@@ -507,11 +507,11 @@ webgl_load_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-) -> (Texture_Handle, bool) {
+) -> (Render_Backend_Texture, bool) {
 	texture, texture_ok := _webgl_create_texture(width, height, format, raw_data(data))
 
 	if !texture_ok {
-		return TEXTURE_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, false
 	}
 
 	texture_handle, texture_handle_err := hm.add(&s.textures, texture)
@@ -519,7 +519,7 @@ webgl_load_texture :: proc(
 	if texture_handle_err != nil {
 		log.errorf("Failed adding texture to handle map: %v", texture_handle_err)
 		gl.DeleteTexture(texture.id)
-		return TEXTURE_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, false
 	}
 
 	return texture_handle, true
@@ -527,7 +527,7 @@ webgl_load_texture :: proc(
 
 webgl_update_texture :: proc(
 	s: ^WebGL_State,
-	th: Texture_Handle,
+	th: Render_Backend_Texture,
 	data: []u8,
 	rect: Rect,
 	pitch: int,
@@ -545,7 +545,7 @@ webgl_update_texture :: proc(
 	return true
 }
 
-webgl_destroy_texture :: proc(s: ^WebGL_State, th: Texture_Handle) {
+webgl_destroy_texture :: proc(s: ^WebGL_State, th: Render_Backend_Texture) {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil {
@@ -556,7 +556,7 @@ webgl_destroy_texture :: proc(s: ^WebGL_State, th: Texture_Handle) {
 	hm.remove(&s.textures, th)
 }
 
-webgl_texture_needs_vertical_flip :: proc(s: ^WebGL_State, th: Texture_Handle) -> bool {
+webgl_texture_needs_vertical_flip :: proc(s: ^WebGL_State, th: Render_Backend_Texture) -> bool {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil {
@@ -570,11 +570,11 @@ webgl_create_render_texture :: proc(
 	s: ^WebGL_State,
 	width: int,
 	height: int,
-) -> (Texture_Handle, Render_Target_Handle, bool) {
+) -> (Render_Backend_Texture, Render_Target_Handle, bool) {
 	texture, texture_ok := _webgl_create_texture(width, height, .RGBA_32_Float, nil)
 
 	if !texture_ok {
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	texture.needs_vertical_flip = true
@@ -608,7 +608,7 @@ webgl_create_render_texture :: proc(
 			gl.DeleteRenderbuffer(depth_renderbuffer)
 		}
 
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
@@ -632,7 +632,7 @@ webgl_create_render_texture :: proc(
 			gl.DeleteRenderbuffer(depth_renderbuffer)
 		}
 
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	render_target_handle, render_target_handle_err := hm.add(&s.render_targets, rt)
@@ -647,7 +647,7 @@ webgl_create_render_texture :: proc(
 			gl.DeleteRenderbuffer(depth_renderbuffer)
 		}
 
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	return texture_handle, render_target_handle, true
