@@ -19,7 +19,7 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	load_texture = rbnil_load_texture,
 	update_texture = rbnil_update_texture,
 	destroy_texture = rbnil_destroy_texture,
-	texture_needs_vertical_flip = rbnil_texture_needs_vertical_flip,
+	flip_render_textures = false,
 	create_render_texture = rbnil_create_render_texture,
 	destroy_render_target = rbnil_destroy_render_target,
 	load_shader = rbnil_load_shader,
@@ -119,10 +119,6 @@ rbnil_update_texture :: proc(
 }
 
 rbnil_destroy_texture :: proc(s: ^RBNil_State, th: Render_Backend_Texture) {
-}
-
-rbnil_texture_needs_vertical_flip :: proc(s: ^RBNil_State, th: Render_Backend_Texture) -> bool {
-	return false
 }
 
 rbnil_create_render_texture :: proc(

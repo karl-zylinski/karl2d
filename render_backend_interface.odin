@@ -120,7 +120,7 @@ Render_Backend_Interface :: struct #all_or_none {
 	) -> bool,
 
 	destroy_texture: proc(s: ^Render_Backend_State, handle: Render_Backend_Texture),
-	texture_needs_vertical_flip: proc(s: ^Render_Backend_State, handle: Render_Backend_Texture) -> bool,
+	flip_render_textures: bool,
 
 	create_render_texture: proc(
 		s: ^Render_Backend_State,

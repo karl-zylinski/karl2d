@@ -24,7 +24,7 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	load_texture = gl_load_texture,
 	update_texture = gl_update_texture,
 	destroy_texture = gl_destroy_texture,
-	texture_needs_vertical_flip = gl_texture_needs_vertical_flip,
+	flip_render_textures = true,
 	create_render_texture = gl_create_render_texture,
 	destroy_render_target = gl_destroy_render_target,
 	load_shader = gl_load_shader,
@@ -80,9 +80,6 @@ GL_Texture :: struct {
 	handle: Render_Backend_Texture,
 	id: u32,
 	format: Pixel_Format,
-
-	// Because render targets are up-side-down
-	needs_vertical_flip: bool,
 }
 
 GL_Texture_Binding :: struct {
@@ -570,16 +567,6 @@ gl_destroy_texture :: proc(s: ^GL_State, th: Render_Backend_Texture) {
 	hm.remove(&s.textures, th)
 }
 
-gl_texture_needs_vertical_flip :: proc(s: ^GL_State, th: Render_Backend_Texture) -> bool {
-	tex := hm.get(&s.textures, th)
-
-	if tex == nil {
-		return false
-	}
-
-	return tex.needs_vertical_flip
-}
-
 gl_create_render_texture :: proc(
 	s: ^GL_State,
 	width: int,
@@ -591,8 +578,6 @@ gl_create_render_texture :: proc(
 		return {}, {}, false
 	}
 
-	texture.needs_vertical_flip = true
-	
 	framebuffer: u32
 	gl.GenFramebuffers(1, &framebuffer)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, framebuffer)

@@ -1523,6 +1523,7 @@ Texture_Object :: struct {
 	rb_texture: Render_Backend_Texture,
 	width: int,
 	height: int,
+	needs_vertical_flip: bool,
 	sampler: Maybe(Texture_Sampler),
 }
 

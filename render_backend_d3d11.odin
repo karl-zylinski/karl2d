@@ -28,7 +28,7 @@ RENDER_BACKEND_D3D11 :: Render_Backend_Interface {
 	load_texture = d3d11_load_texture,
 	update_texture = d3d11_update_texture,
 	destroy_texture = d3d11_destroy_texture,
-	texture_needs_vertical_flip = d3d11_texture_needs_vertical_flip,
+	flip_render_textures = false,
 	create_render_texture = d3d11_create_render_texture,
 	destroy_render_target = d3d11_destroy_render_target,
 	load_shader = d3d11_load_shader,
@@ -883,10 +883,6 @@ d3d11_destroy_texture :: proc(s: ^D3D11_State, th: Render_Backend_Texture) {
 	}
 
 	hm.remove(&s.textures, th)
-}
-
-d3d11_texture_needs_vertical_flip :: proc(s: ^D3D11_State, th: Render_Backend_Texture) -> bool {
-	return false
 }
 
 d3d11_translate_texture_wrap_border_color :: proc(c: Texture_Wrap_Border_Color) -> [4]f32 {

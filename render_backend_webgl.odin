@@ -24,7 +24,7 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 	load_texture = webgl_load_texture,
 	update_texture = webgl_update_texture,
 	destroy_texture = webgl_destroy_texture,
-	texture_needs_vertical_flip = webgl_texture_needs_vertical_flip,
+	flip_render_textures = true,
 	create_render_texture = webgl_create_render_texture,
 	destroy_render_target = webgl_destroy_render_target,
 	load_shader = webgl_load_shader,
@@ -81,7 +81,6 @@ WebGL_Texture :: struct {
 	handle: Render_Backend_Texture,
 	id: gl.Texture,
 	format: Pixel_Format,
-	needs_vertical_flip: bool,
 }
 
 WebGL_Texture_Binding :: struct {
@@ -556,16 +555,6 @@ webgl_destroy_texture :: proc(s: ^WebGL_State, th: Render_Backend_Texture) {
 	hm.remove(&s.textures, th)
 }
 
-webgl_texture_needs_vertical_flip :: proc(s: ^WebGL_State, th: Render_Backend_Texture) -> bool {
-	tex := hm.get(&s.textures, th)
-
-	if tex == nil {
-		return false
-	}
-
-	return tex.needs_vertical_flip
-}
-
 webgl_create_render_texture :: proc(
 	s: ^WebGL_State,
 	width: int,
@@ -577,8 +566,6 @@ webgl_create_render_texture :: proc(
 		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
-	texture.needs_vertical_flip = true
-	
 	framebuffer := gl.CreateFramebuffer()
 	gl.BindFramebuffer(gl.FRAMEBUFFER, framebuffer)
 

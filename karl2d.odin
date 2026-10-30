@@ -1495,13 +1495,8 @@ draw_texture_fit :: proc(
 		flip_y = !flip_y
 		source.h = -source.h
 	}
-
-	// HACK: We ask the render backend if this texture needs flipping. The idea is that GL will
-	// flip render textures, so we need to automatically unflip them.
-	//
-	// Could we do something with the projection matrix while drawing into those render textures
-	// instead? I tried that, but couldn't get it to work.
-	if s.rb.texture_needs_vertical_flip(s.rb_state, to.rb_texture) {
+	
+	if to.needs_vertical_flip {
 		flip_y = !flip_y
 
 		if source.h != f32(to.height) {
@@ -5098,6 +5093,7 @@ create_render_texture :: proc(width: int, height: int) -> (Render_Texture, bool)
 		rb_texture = rb_texture,
 		width = width,
 		height = height,
+		needs_vertical_flip = s.rb.flip_render_textures,
 	})
 
 	if add_err != nil {
@@ -6707,6 +6703,7 @@ Texture_Object :: struct {
 	rb_texture: Render_Backend_Texture,
 	width: int,
 	height: int,
+	needs_vertical_flip: bool,
 	sampler: Maybe(Texture_Sampler),
 }
 
