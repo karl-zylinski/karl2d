@@ -23,6 +23,10 @@ step :: proc() -> bool {
 		return false
 	}
 
+	k2.set_camera({
+		zoom = k2.get_window_scale(),
+	})
+
 	k2.clear(k2.DARK_GRAY)
 
 	draw_panel(0, "Repeat", { wrap_x = .Repeat, wrap_y = .Repeat })
