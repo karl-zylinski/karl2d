@@ -66,7 +66,7 @@ step :: proc() -> bool {
 
 	k2.draw_texture_fit(
 		tex,
-		{0, 0, f32(tex.width), f32(tex.height)},
+		k2.get_texture_rect(tex),
 		{400, 450, 900, 500},
 		{450, 250},
 		rot,

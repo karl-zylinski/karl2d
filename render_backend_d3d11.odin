@@ -28,10 +28,9 @@ RENDER_BACKEND_D3D11 :: Render_Backend_Interface {
 	load_texture = d3d11_load_texture,
 	update_texture = d3d11_update_texture,
 	destroy_texture = d3d11_destroy_texture,
-	texture_needs_vertical_flip = d3d11_texture_needs_vertical_flip,
+	flip_render_textures = false,
 	create_render_texture = d3d11_create_render_texture,
 	destroy_render_target = d3d11_destroy_render_target,
-	set_texture_filter = d3d11_set_texture_filter,
 	load_shader = d3d11_load_shader,
 	destroy_shader = d3d11_destroy_shader,
 	default_shader_vertex_source = d3d11_default_shader_vertex_source,
@@ -52,6 +51,7 @@ d3d11_init :: proc(
 	hm.dynamic_init(&s.shaders, allocator)
 	hm.dynamic_init(&s.textures, allocator)
 	hm.dynamic_init(&s.render_targets, allocator)
+	s.texture_samplers = make(map[Texture_Sampler]^d3d11.ISamplerState, allocator)
 
 	/*
 	This comes from
@@ -258,6 +258,14 @@ d3d11_shutdown :: proc(s: ^D3D11_State) {
 	s.blend_state_additive->Release()
 	s.dxgi_adapter->Release()
 
+	for _, smp in s.texture_samplers {
+		if smp != nil {
+			smp->Release()
+		}
+	}
+
+	delete(s.texture_samplers)
+
 	if s.depth_test {
 		s.depth_buffer->Release()
 		s.depth_buffer_view->Release()
@@ -437,9 +445,10 @@ d3d11_draw :: proc(s: ^D3D11_State, vertex_buffer: []u8, draw_calls: []Draw_Call
 				for t, t_idx in call.textures {
 					d3d_t := d3d_shd.texture_bindings[t_idx]
 
-					if t := hm.get(&s.textures, t); t != nil {
-						dc->PSSetShaderResources(d3d_t.bind_point, 1, &t.view)
-						dc->PSSetSamplers(d3d_t.sampler_bind_point, 1, &t.sampler)
+					if tex := hm.get(&s.textures, t.handle); tex != nil {
+						smp := d3d11_get_texture_sampler(s, t.sampler)
+						dc->PSSetShaderResources(d3d_t.bind_point, 1, &tex.view)
+						dc->PSSetSamplers(d3d_t.sampler_bind_point, 1, &smp)
 					}
 				}
 			}
@@ -602,7 +611,7 @@ _d3d11_create_texture :: proc(
 	format: Pixel_Format,
 	data: rawptr,
 ) -> (
-	Texture_Handle,
+	Render_Backend_Texture,
 	bool,
 ) {
 	texture_desc := d3d11.TEXTURE2D_DESC{
@@ -651,7 +660,6 @@ _d3d11_create_texture :: proc(
 		tex = texture,
 		format = format,
 		view = texture_view,
-		sampler = d3d11_create_sampler(s, .MIN_MAG_MIP_POINT),
 	}
 
 	tex_handle, tex_add_err := hm.add(&s.textures, tex)
@@ -660,7 +668,7 @@ _d3d11_create_texture :: proc(
 		log.errorf("Failed to add texture. Error: %v", tex_add_err)
 		texture_view->Release()
 		texture->Release()
-		return TEXTURE_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, false
 	}
 
 	return tex_handle, true
@@ -671,7 +679,7 @@ d3d11_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-) -> (Texture_Handle, bool) {
+) -> (Render_Backend_Texture, bool) {
 	return _d3d11_create_texture(s, width, height, format, nil)
 }
 
@@ -679,7 +687,7 @@ d3d11_create_render_texture :: proc(
 	s: ^D3D11_State,
 	width: int,
 	height: int,
-) -> (Texture_Handle, Render_Target_Handle, bool) {
+) -> (Render_Backend_Texture, Render_Target_Handle, bool) {
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
 		Height     = u32(height),
@@ -696,7 +704,7 @@ d3d11_create_render_texture :: proc(
 	err := s.device->CreateTexture2D(&texture_desc, nil, &texture)
 
 	if !d3d11_check(s, err) {
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	texture_view: ^d3d11.IShaderResourceView
@@ -705,7 +713,7 @@ d3d11_create_render_texture :: proc(
 
 	if !d3d11_check(s, err) {
 		texture->Release()
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	render_target_view_desc := d3d11.RENDER_TARGET_VIEW_DESC {
@@ -722,14 +730,13 @@ d3d11_create_render_texture :: proc(
 	if !d3d11_check(s, err) {
 		texture_view->Release()
 		texture->Release()
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	d3d11_texture := D3D11_Texture {
 		tex = texture,
 		view = texture_view,
 		format = .RGBA_32_Float,
-		sampler = d3d11_create_sampler(s, .MIN_MAG_MIP_POINT),
 	}
 
 	d3d11_render_target := D3D11_Render_Target {
@@ -760,7 +767,7 @@ d3d11_create_render_texture :: proc(
 			render_target_view->Release()
 			texture_view->Release()
 			texture->Release()
-			return TEXTURE_NONE, RENDER_TARGET_NONE, false
+			return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 		}
 
 		err = s.device->CreateDepthStencilView(
@@ -774,7 +781,7 @@ d3d11_create_render_texture :: proc(
 			render_target_view->Release()
 			texture_view->Release()
 			texture->Release()
-			return TEXTURE_NONE, RENDER_TARGET_NONE, false
+			return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 		}
 	}
 
@@ -791,7 +798,7 @@ d3d11_create_render_texture :: proc(
 		render_target_view->Release()
 		texture_view->Release()
 		texture->Release()
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	rt_handle, rt_add_err := hm.add(&s.render_targets, d3d11_render_target)
@@ -807,7 +814,7 @@ d3d11_create_render_texture :: proc(
 		render_target_view->Release()
 		texture_view->Release()
 		texture->Release()
-		return TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
 	}
 
 	return tex_handle, rt_handle, true
@@ -832,13 +839,13 @@ d3d11_load_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-) -> (Texture_Handle, bool) {
+) -> (Render_Backend_Texture, bool) {
 	return _d3d11_create_texture(s, width, height, format, raw_data(data))
 }
 
 d3d11_update_texture :: proc(
 	s: ^D3D11_State,
-	th: Texture_Handle,
+	th: Render_Backend_Texture,
 	data: []u8,
 	rect: Rect,
 	pitch: int,
@@ -869,82 +876,76 @@ d3d11_update_texture :: proc(
 	return true
 }
 
-d3d11_destroy_texture :: proc(s: ^D3D11_State, th: Texture_Handle) {
+d3d11_destroy_texture :: proc(s: ^D3D11_State, th: Render_Backend_Texture) {
 	if t := hm.get(&s.textures, th); t != nil {
 		t.tex->Release()
-		t.view->Release()	
-
-		if t.sampler != nil {
-			t.sampler->Release()
-		}
+		t.view->Release()
 	}
 
 	hm.remove(&s.textures, th)
 }
 
-d3d11_texture_needs_vertical_flip :: proc(s: ^D3D11_State, th: Texture_Handle) -> bool {
-	return false
-}
-
-d3d11_set_texture_filter :: proc(
-	s: ^D3D11_State,
-	th: Texture_Handle,
-	scale_down_filter: Texture_Filter,
-	scale_up_filter: Texture_Filter,
-	mip_filter: Texture_Filter,
-) {
-	t := hm.get(&s.textures, th)
-
-	if t == nil {
-		log.error("Trying to set texture filter for invalid texture %v", th)
-		return
+d3d11_translate_texture_wrap_border_color :: proc(c: Texture_Wrap_Border_Color) -> [4]f32 {
+	switch c {
+	case .Transparent_Black: return { 0, 0, 0, 0 }
+	case .Black: return { 0, 0, 0, 1 }
+	case .White: return { 1, 1, 1, 1 }
 	}
 
-	d := scale_down_filter
-	u := scale_up_filter
-	m := mip_filter
+	return { 0, 0, 0, 0 }
+}
+
+d3d11_get_texture_sampler :: proc(s: ^D3D11_State, sampler: Texture_Sampler) -> ^d3d11.ISamplerState {
+	if smp, has_smp := s.texture_samplers[sampler]; has_smp {
+		return smp
+	}
+
+	d := sampler.scale_down_filter
+	u := sampler.scale_up_filter
 	f: d3d11.FILTER
 
-	if d == .Point && u == .Point && m == .Point {
+	if d == .Point && u == .Point {
 		f = .MIN_MAG_MIP_POINT
-	} else if d == .Linear && u == .Linear && m == .Linear {
-		f = .MIN_MAG_MIP_LINEAR
-	} else if d == .Point && u == .Point && m == .Linear {
-		f = .MIN_MAG_POINT_MIP_LINEAR
-	} else if d == .Point && u == .Linear && m == .Linear {
-		f = .MIN_POINT_MAG_MIP_LINEAR
-	} else if d == .Linear && u == .Linear && m == .Linear {
-		f = .MIN_MAG_MIP_LINEAR
-	} else if d == .Linear && u == .Linear && m == .Point {
+	} else if d == .Linear && u == .Linear {
 		f = .MIN_MAG_LINEAR_MIP_POINT
-	} else if d == .Linear && u == .Point && m == .Point {
+	} else if d == .Linear && u == .Point {
 		f = .MIN_LINEAR_MAG_MIP_POINT
-	} else if d == .Linear && u == .Point && m == .Linear {
-		f = .MIN_LINEAR_MAG_POINT_MIP_LINEAR
-	} else if d == .Point && u == .Linear && m == .Point {
+	} else if d == .Point && u == .Linear {
 		f = .MIN_POINT_MAG_LINEAR_MIP_POINT
 	}
 
-	if t.sampler != nil {
-		t.sampler->Release()
-	}
-
-	t.sampler = d3d11_create_sampler(s, f)
-}
-
-d3d11_create_sampler :: proc(s: ^D3D11_State, filter: d3d11.FILTER) -> ^d3d11.ISamplerState {
-	sampler_desc := d3d11.SAMPLER_DESC{
-		Filter = filter,
-		AddressU = .CLAMP,
-		AddressV = .CLAMP,
+	sampler_desc := d3d11.SAMPLER_DESC {
+		Filter = f,
+		AddressU = d3d11_translate_texture_wrap(sampler.wrap_x),
+		AddressV = d3d11_translate_texture_wrap(sampler.wrap_y),
 		AddressW = .CLAMP,
 		ComparisonFunc = .NEVER,
+		BorderColor = d3d11_translate_texture_wrap_border_color(sampler.wrap_border_color),
 	}
 
 	smp: ^d3d11.ISamplerState
 	err := s.device->CreateSamplerState(&sampler_desc, &smp)
-	d3d11_check(s, err)
+
+	// We store nil for a failed sampler so that it isn't re-created on each try. That would spam
+	// the log etc.
+	if !d3d11_check(s, err) {
+		s.texture_samplers[sampler] = nil
+		return nil
+	}
+
+	s.texture_samplers[sampler] = smp
 	return smp
+}
+
+d3d11_translate_texture_wrap :: proc(wrap: Texture_Wrap) -> d3d11.TEXTURE_ADDRESS_MODE {
+	switch wrap {
+	case .Clamp: return .CLAMP
+	case .Repeat: return .WRAP
+	case .Mirrored_Repeat: return .MIRROR
+	case .Border: return .BORDER
+	}
+
+	return .CLAMP
 }
 
 d3d11_load_shader :: proc(
@@ -1396,11 +1397,8 @@ d3d11_reflect_shader_constants :: proc(
 		}
 	}
 
-	// Make sure each texture has a sampler. In GL samplers are associated with textures. In D3D11
-	// several textures can use a single sampler. We don't want this as we want to be able to
-	// configure filters etc on a per-texture level. Since two textures can arrive at a draw call
-	// with different filters set, if they use the same sampler, then it will be impossible to set
-	// that filtering up.
+	// The way Karl2D is built, we need one sampler per texture. In GL this is how it always works,
+	// for D3D we use this loop to ensure it.
 	for &t, t_idx in d3d_texture_bindings {
 		found := false
 
@@ -1500,14 +1498,14 @@ D3D11_State :: struct {
 	anti_alias: bool,
 	vsync: bool,
 
-	textures: hm.Dynamic_Handle_Map(D3D11_Texture, Texture_Handle),
+	textures: hm.Dynamic_Handle_Map(D3D11_Texture, Render_Backend_Texture),
 	render_targets: hm.Dynamic_Handle_Map(D3D11_Render_Target, Render_Target_Handle),
 	shaders: hm.Dynamic_Handle_Map(D3D11_Shader, Shader_Handle),
 
 	info_queue: ^d3d11.IInfoQueue,
 	vertex_buffer_gpu: ^d3d11.IBuffer,
 
-	all_samplers: map[^d3d11.ISamplerState]struct{},
+	texture_samplers: map[Texture_Sampler]^d3d11.ISamplerState,
 
 	// The depth things below are only created when `depth_test` is true.
 	depth_test: bool,
@@ -1583,19 +1581,10 @@ d3d11_create_swapchain :: proc(s: ^D3D11_State, w, h: int) {
 }
 
 D3D11_Texture :: struct {
-	handle: Texture_Handle,
+	handle: Render_Backend_Texture,
 	tex: ^d3d11.ITexture2D,
 	view: ^d3d11.IShaderResourceView,
 	format: Pixel_Format,
-
-	// It may seem strange that we have a sampler here. But samplers are reused if you recreate them
-	// with the same options. D3D11 will return the same object. So each time we set the filter
-	// mode or the UV wrapping settings, then we just ask D3D11 for the sampler state for those
-	// settings.
-	//
-	// Moreover, in order to make D3D11 behave a bit like GL (or rather, to make them behave more
-	// similarly), we require that each texture in the HLSL shaders have a dedicated sampler.
-	sampler: ^d3d11.ISamplerState,
 }
 
 D3D11_Render_Target :: struct {
