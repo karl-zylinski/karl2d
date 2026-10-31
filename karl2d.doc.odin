@@ -590,27 +590,30 @@ destroy_image :: proc(img: Image)
 
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
 // (w, h) = (texture_width, texture_height)
-get_texture_rect :: proc(t: Texture) -> Rect
+get_texture_rect :: proc(texture: Texture) -> Rect
 
 // Get the pixel width of a texture.
-get_texture_width :: proc(t: Texture) -> int
+get_texture_width :: proc(texture: Texture) -> int
 
 // Get the pixel height of a texture.
-get_texture_height :: proc(t: Texture) -> int
+get_texture_height :: proc(texture: Texture) -> int
 
 // Get the (width, height) of a texture, as a Vec2.
 //
 // Note that while `get_texture_width/height` returns `int`, this effectively return `[2]f32`
-get_texture_size :: proc(t: Texture) -> Vec2
+get_texture_size :: proc(texture: Texture) -> Vec2
 
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
-// `tex` where the new pixels should end up. `pitch` is the number of bytes between the start of two
-// rows, the default of `0` means that the rows are tightly packed.
-update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool
+// `texture` where the new pixels should end up. `pitch` is the number of bytes between the start of
+// two rows, the default of `0` means that the rows are tightly packed.
+update_texture :: proc(texture: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
-destroy_texture :: proc(tex: Texture)
+destroy_texture :: proc(texture: Texture)
 
+// Controls how a texture should be filtered. You can choose "point" or "linear" filtering. Which
+// means "pixly" or "smooth". This filter will be used for up and down-scaling. If you want to
+// control up and down-scaling separately, then use `set_texture_sampler`.
 set_texture_filter :: proc(t: Texture, filter: Texture_Filter)
 
 set_texture_wrap :: proc(t: Texture, wrap: Texture_Wrap)
@@ -1524,7 +1527,16 @@ Texture_Object :: struct {
 	width: int,
 	height: int,
 	flip_y: bool,
-	sampler: Maybe(Texture_Sampler),
+	sampler: Texture_Sampler,
+	sampler_overrides: bit_set[Texture_Sampler_Field],
+}
+
+Texture_Sampler_Field :: enum {
+	Scale_Down_Filter,
+	Scale_Up_Filter,
+	Wrap_X,
+	Wrap_Y,
+	Wrap_Border_Color,
 }
 
 // An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order

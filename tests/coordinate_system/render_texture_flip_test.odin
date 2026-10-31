@@ -10,12 +10,12 @@ draw_and_measure_flipped_texture :: proc(draw: proc()) -> Bounds {
 	setup()
 
 	uv_texture_object := hm.get(&state.textures, uv_texture)
-	real_flip := uv_texture_object.needs_vertical_flip
-	uv_texture_object.needs_vertical_flip = true
+	real_flip := uv_texture_object.flip_y
+	uv_texture_object.flip_y = true
 
 	res := draw_and_measure(draw)
 
-	uv_texture_object.needs_vertical_flip = real_flip
+	uv_texture_object.flip_y = real_flip
 	return res
 }
 

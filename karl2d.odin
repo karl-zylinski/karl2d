@@ -147,7 +147,6 @@ init :: proc(
 
 	s.view_matrix = 1
 	_update_projection_matrix()
-	
 	hm.dynamic_init(&s.textures, s.allocator)
 
 	// Boot up the render backend. It will render into our previously created window.
@@ -1205,12 +1204,7 @@ set_gamepad_vibration :: proc(gamepad: Gamepad_Index, left: f32, right: f32) {
 //   `(rect.w/2, rect.h/2)` then the rectangle rotates around its center.
 // - rotation: The rotation to apply, in radians
 draw_rect :: proc(rect: Rect, color: Color, origin: Vec2 = {}, rotation: f32 = 0) {
-	to := _prepare_draw(s.shape_drawing_texture, 6)
-
-	if to == nil {
-		return
-	}
-
+	_begin_textured_draw(hm.get(&s.textures, s.shape_drawing_texture), 6)
 	tl, tr, bl, br: Vec2
 
 	// Rotation adapted from Raylib's "DrawTexturePro"
@@ -1324,10 +1318,7 @@ draw_rect_outline :: proc(r: Rect, thickness: f32, color: Color) {
 // Draw a circle with a certain center and radius. Note the `segments` parameter: This circle is not
 // perfect! It is drawn using a number of "cake segments".
 draw_circle :: proc(center: Vec2, radius: f32, color: Color, segments := 16) {
-	to := _prepare_draw(s.shape_drawing_texture, 3*segments)
-	if to == nil {
-		return
-	}
+	_begin_textured_draw(hm.get(&s.textures, s.shape_drawing_texture), 3*segments)
 
 	prev := center + {radius, 0}
 	for s in 1..=segments {
@@ -1371,11 +1362,7 @@ draw_line :: proc(start: Vec2, end: Vec2, thickness: f32, color: Color) {
 // Draws a triangle using three vertices. The order of the vertices does not matter: Clockwise and
 // counter-clockwise triangles will give the same result.
 draw_triangle :: proc(vertices: [3]Vec2, c: Color) {
-	to := _prepare_draw(s.shape_drawing_texture, 3)
-	if to == nil {
-		return
-	}
-
+	_begin_textured_draw(hm.get(&s.textures, s.shape_drawing_texture), 3)
 	batch_vertex(vertices[0], {0, 0}, c)
 	batch_vertex(vertices[1], {1, 1}, c)
 	batch_vertex(vertices[2], {0, 1}, c)
@@ -1403,10 +1390,15 @@ draw_texture :: proc(
 	rotation: f32 = 0,
 	tint := WHITE,
 ) {
-	source := get_texture_rect(texture)
+	tex := hm.get(&s.textures, texture)
 
-	if source.w == 0 || source.h == 0 {
+	if tex == nil {
 		return
+	}
+
+	source := Rect {
+		0, 0,
+		f32(tex.width), f32(tex.height),
 	}
 
 	dest := Rect {
@@ -1414,8 +1406,8 @@ draw_texture :: proc(
 		source.w, source.h,
 	}
 
-	draw_texture_fit(
-		texture,
+	_draw_texture_fit(
+		tex,
 		source,
 		dest,
 		origin,
@@ -1445,8 +1437,8 @@ draw_texture_rect :: proc(
 		source.w, source.h,
 	}
 
-	draw_texture_fit(
-		texture,
+	_draw_texture_fit(
+		hm.get(&s.textures, texture),
 		source,
 		dest,
 		origin,
@@ -1471,9 +1463,18 @@ draw_texture_fit :: proc(
 	rotation: f32 = 0,
 	tint := WHITE,
 ) {
-	to := _prepare_draw(texture, 6)
+	_draw_texture_fit(hm.get(&s.textures, texture), source, dest, origin, rotation, tint)
+}
 
-	if to == nil {
+_draw_texture_fit :: proc(
+	tex: ^Texture_Object,
+	source: Rect,
+	dest: Rect,
+	origin: Vec2,
+	rotation: f32,
+	tint: Color,
+) {
+	if !_begin_textured_draw(tex, 6) {
 		return
 	}
 
@@ -1496,11 +1497,11 @@ draw_texture_fit :: proc(
 		source.h = -source.h
 	}
 	
-	if to.flip_y {
+	if tex.flip_y {
 		flip_y = !flip_y
 
-		if source.h != f32(to.height) {
-			source.y = f32(to.height) - source.h - source.y
+		if source.h != f32(tex.height) {
+			source.y = f32(tex.height) - source.h - source.y
 		}
 	}
 
@@ -1551,7 +1552,7 @@ draw_texture_fit :: proc(
 		}
 	}
 	
-	ts := Vec2{f32(to.width), f32(to.height)}
+	ts := Vec2{f32(tex.width), f32(tex.height)}
 
 	up := Vec2{source.x, source.y} / ts
 	us := Vec2{source.w, source.h} / ts
@@ -1865,9 +1866,9 @@ draw_text :: proc(
 					font_object.static_atlas,
 					src,
 					dst,
-					tint = color,
-					origin = char_origin,
-					rotation = rotation,
+					char_origin,
+					rotation,
+					color,
 				)
 
 				char_offset.x += g.advance*scl
@@ -2269,95 +2270,105 @@ destroy_image :: proc(img: Image) {
 
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
 // (w, h) = (texture_width, texture_height)
-get_texture_rect :: proc(t: Texture) -> Rect {
-	to := hm.get(&s.textures, t)
+get_texture_rect :: proc(texture: Texture) -> Rect {
+	tex := hm.get(&s.textures, texture)
 
-	if to == nil {
+	if tex == nil {
 		return {}
 	}
 
 	return {
 		0, 0,
-		f32(to.width), f32(to.height),
+		f32(tex.width), f32(tex.height),
 	}
 }
 
 // Get the pixel width of a texture.
-get_texture_width :: proc(t: Texture) -> int {
-	to := hm.get(&s.textures, t)
+get_texture_width :: proc(texture: Texture) -> int {
+	tex := hm.get(&s.textures, texture)
 
-	if to == nil {
+	if tex == nil {
 		return 0
 	}
 
-	return to.width
+	return tex.width
 }
 
 // Get the pixel height of a texture.
-get_texture_height :: proc(t: Texture) -> int {
-	to := hm.get(&s.textures, t)
+get_texture_height :: proc(texture: Texture) -> int {
+	tex := hm.get(&s.textures, texture)
 
-	if to == nil {
+	if tex == nil {
 		return 0
 	}
 
-	return to.height
+	return tex.height
 }
 
 // Get the (width, height) of a texture, as a Vec2.
 //
 // Note that while `get_texture_width/height` returns `int`, this effectively return `[2]f32`
-get_texture_size :: proc(t: Texture) -> Vec2 {
-	to := hm.get(&s.textures, t)
+get_texture_size :: proc(texture: Texture) -> Vec2 {
+	tex := hm.get(&s.textures, texture)
 
-	if to == nil {
+	if tex == nil {
 		return {}
 	}
 
-	return { f32(to.width), f32(to.height) }
+	return { f32(tex.width), f32(tex.height) }
 }
 
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
-// `tex` where the new pixels should end up. `pitch` is the number of bytes between the start of two
-// rows, the default of `0` means that the rows are tightly packed.
-update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool {
-	to := hm.get(&s.textures, tex)
+// `texture` where the new pixels should end up. `pitch` is the number of bytes between the start of
+// two rows, the default of `0` means that the rows are tightly packed.
+update_texture :: proc(texture: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool {
+	tex := hm.get(&s.textures, texture)
 
-	if to == nil {
+	if tex == nil {
 		return false
 	}
 
 	// Recorded draw calls may still be waiting to use the old pixels.
-	_flush_if_batch_uses_texture(to.rb_texture)
-	return s.rb.update_texture(s.rb_state, to.rb_texture, bytes, rect, pitch)
+	if _is_texture_used_in_batch(tex) {
+		draw_current_batch()
+	}
+
+	return s.rb.update_texture(s.rb_state, tex.rb_texture, bytes, rect, pitch)
 }
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
-destroy_texture :: proc(tex: Texture) {
-	to := hm.get(&s.textures, tex)
+destroy_texture :: proc(texture: Texture) {
+	tex := hm.get(&s.textures, texture)
 
-	if to == nil {
+	if tex == nil {
 		return
 	}
 
-	_flush_if_batch_uses_texture(to.rb_texture)
-	s.rb.destroy_texture(s.rb_state, to.rb_texture)
-	hm.remove(&s.textures, tex)
+	if _is_texture_used_in_batch(tex) {
+		draw_current_batch()
+	}
+
+	s.rb.destroy_texture(s.rb_state, tex.rb_texture)
+	hm.remove(&s.textures, texture)
 }
 
+// Controls how a texture should be filtered. You can choose "point" or "linear" filtering. Which
+// means "pixly" or "smooth". This filter will be used for up and down-scaling. If you want to
+// control up and down-scaling separately, then use `set_texture_sampler`.
 set_texture_filter :: proc(t: Texture, filter: Texture_Filter) {
-	to := hm.get(&s.textures, t)
+	tex := hm.get(&s.textures, t)
 
-	if to == nil {
+	if tex == nil {
 		return
 	}
 
-	smp := to.sampler.? or_else s.default_texture_sampler
-	smp.scale_up_filter = filter
-	smp.scale_down_filter = filter
+	prev_sampler := tex.sampler
+	prev_sampler_overrides := tex.sampler_overrides
+	tex.sampler.scale_up_filter = filter
+	tex.sampler.scale_down_filter = filter
+	tex.sampler_overrides += { .Scale_Up_Filter, .Scale_Down_Filter }
 
-	if smp != to.sampler {
-		to.sampler = smp
+	if tex.sampler != prev_sampler || tex.sampler_overrides != prev_sampler_overrides {
 		s.draw_call_changes += { .Textures }
 	}
 }
@@ -2369,35 +2380,37 @@ set_texture_filter_ex :: proc(
 	scale_up_filter: Texture_Filter,
 	mip_filter: Texture_Filter,
 ) {
-	to := hm.get(&s.textures, t)
+	tex := hm.get(&s.textures, t)
 
-	if to == nil {
+	if tex == nil {
 		return
 	}
 
-	smp := to.sampler.? or_else s.default_texture_sampler
-	smp.scale_down_filter = scale_down_filter
-	smp.scale_up_filter = scale_up_filter
+	prev_sampler := tex.sampler
+	prev_sampler_overrides := tex.sampler_overrides
+	tex.sampler.scale_down_filter = scale_down_filter
+	tex.sampler.scale_up_filter = scale_up_filter
+	tex.sampler_overrides += { .Scale_Down_Filter, .Scale_Up_Filter }
 
-	if smp != to.sampler {
-		to.sampler = smp
+	if tex.sampler != prev_sampler || tex.sampler_overrides != prev_sampler_overrides {
 		s.draw_call_changes += { .Textures }
 	}
 }
 
 set_texture_wrap :: proc(t: Texture, wrap: Texture_Wrap) {
-	to := hm.get(&s.textures, t)
+	tex := hm.get(&s.textures, t)
 
-	if to == nil {
+	if tex == nil {
 		return
 	}
 
-	smp := to.sampler.? or_else s.default_texture_sampler
-	smp.wrap_x = wrap
-	smp.wrap_y = wrap
+	prev_sampler := tex.sampler
+	prev_sampler_overrides := tex.sampler_overrides
+	tex.sampler.wrap_x = wrap
+	tex.sampler.wrap_y = wrap
+	tex.sampler_overrides += { .Wrap_X, .Wrap_Y }
 
-	if smp != to.sampler {
-		to.sampler = smp
+	if tex.sampler != prev_sampler || tex.sampler_overrides != prev_sampler_overrides {
 		s.draw_call_changes += { .Textures }
 	}
 }
@@ -2419,14 +2432,30 @@ set_default_texture_sampler :: proc(sampler: Texture_Sampler) {
 //
 // Pass `nil` to make the texture use the default sampler, see `set_default_texture_sampler`.
 set_texture_sampler :: proc(t: Texture, sampler: Maybe(Texture_Sampler)) {
-	to := hm.get(&s.textures, t)
+	tex := hm.get(&s.textures, t)
 
-	if to == nil {
+	if tex == nil {
 		return
 	}
 
-	if sampler != to.sampler {
-		to.sampler = sampler
+	prev_sampler := tex.sampler
+	prev_sampler_overrides := tex.sampler_overrides
+
+	if smp, smp_ok := sampler.?; smp_ok {
+		tex.sampler = smp
+		tex.sampler_overrides = {
+			.Scale_Down_Filter,
+			.Scale_Up_Filter,
+			.Wrap_X,
+			.Wrap_Y,
+			.Wrap_Border_Color,
+		}
+	} else {
+		tex.sampler = {}
+		tex.sampler_overrides = {}
+	}
+
+	if tex.sampler != prev_sampler || tex.sampler_overrides != prev_sampler_overrides {
 		s.draw_call_changes += { .Textures }
 	}
 }
@@ -6704,7 +6733,16 @@ Texture_Object :: struct {
 	width: int,
 	height: int,
 	flip_y: bool,
-	sampler: Maybe(Texture_Sampler),
+	sampler: Texture_Sampler,
+	sampler_overrides: bit_set[Texture_Sampler_Field],
+}
+
+Texture_Sampler_Field :: enum {
+	Scale_Down_Filter,
+	Scale_Up_Filter,
+	Wrap_X,
+	Wrap_Y,
+	Wrap_Border_Color,
 }
 
 // An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order
@@ -8061,18 +8099,22 @@ _ogg_file_total_frames :: proc(f: ^File) -> int {
 	return 0
 }
 
-// Run by the drawing procedures before they add any vertices. Draws the batch if `vertices_needed`
-// more vertices will not fit in the vertex buffer, which leaves an empty one to put them in. Then
-// starts a new draw call if the settings changed.
-_prepare_draw :: proc(texture: Texture, vertices_needed: int) -> ^Texture_Object {
-	to := hm.get(&s.textures, texture)
-
-	if to == nil || to.width == 0 || to.height == 0 {
-		return nil
+// Run at the start of any drawing procedure that uses a texture. You say wha texture you are going
+// to draw using, and how many vertices are needed on the vertex buffer. If `vertices_needed` won't
+// fit in the vertex buffer, then the batch is drawn.
+//
+// If the texture is different from the one previously used, then a new draw call is started. This
+// is not a separate batch, but a draw call within the batch.
+//
+// Most drawing procs use this, even "shapes", because they are drawn using a "shape drawing
+// texture".
+_begin_textured_draw :: proc(tex: ^Texture_Object, vertices_needed: int) -> bool {
+	if tex == nil || tex.width == 0 || tex.height == 0 {
+		return false
 	}
 
 	if vertices_needed == 0 {
-		return nil
+		return false
 	}
 
 	shader := s.current_shader
@@ -8086,13 +8128,13 @@ _prepare_draw :: proc(texture: Texture, vertices_needed: int) -> ^Texture_Object
 
 	changed := s.draw_call_changes
 
-	if texture != s.current_texture {
+	if tex.handle != s.current_texture {
 		changed += { .Textures }
 	}
 
 	if changed == {} {
 		s.current_draw_call.vertex_count += vertices_needed
-		return to
+		return true
 	}
 
 	cur := s.current_draw_call
@@ -8133,22 +8175,48 @@ _prepare_draw :: proc(texture: Texture, vertices_needed: int) -> ^Texture_Object
 	if .Textures in changed {
 		textures = make([]Draw_Call_Texture, len(shader.texture_bindpoints), s.batch_allocator)
 
+		def_tex_idx, has_def_tex_idx := shader.default_texture_index.?
+
 		for bindpoint_handle, bindpoint_idx in shader.texture_bindpoints {
-			bindpoint_texture_object := hm.get(&s.textures, bindpoint_handle)
+			bindpoint_tex: ^Texture_Object
 
-			if bindpoint_texture_object != nil {
-				textures[bindpoint_idx] = {
-					handle = bindpoint_texture_object.rb_texture,
-					sampler = bindpoint_texture_object.sampler.? or_else s.default_texture_sampler,
-				}
+			// The texture being drawn is ours rather than the shader's. It goes into the copy.
+			if has_def_tex_idx && bindpoint_idx == def_tex_idx {
+				bindpoint_tex = tex
+			} else {
+				bindpoint_tex = hm.get(&s.textures, bindpoint_handle)
 			}
-		}
 
-		// The texture being drawn is ours rather than the shader's. It goes into the copy.
-		if def_tex_idx, has_def_tex_idx := shader.default_texture_index.?; has_def_tex_idx {
-			textures[def_tex_idx] = {
-				handle = to.rb_texture,
-				sampler = to.sampler.? or_else s.default_texture_sampler,
+			if bindpoint_tex == nil {
+				continue
+			}
+
+			bindpoint_sampler := s.default_texture_sampler
+			bindpoint_overrides := bindpoint_tex.sampler_overrides
+
+			if .Scale_Down_Filter in bindpoint_overrides {
+				bindpoint_sampler.scale_down_filter = bindpoint_tex.sampler.scale_down_filter
+			}
+
+			if .Scale_Up_Filter in bindpoint_overrides {
+				bindpoint_sampler.scale_up_filter = bindpoint_tex.sampler.scale_up_filter
+			}
+
+			if .Wrap_X in bindpoint_overrides {
+				bindpoint_sampler.wrap_x = bindpoint_tex.sampler.wrap_x
+			}
+
+			if .Wrap_Y in bindpoint_overrides {
+				bindpoint_sampler.wrap_y = bindpoint_tex.sampler.wrap_y
+			}
+
+			if .Wrap_Border_Color in bindpoint_overrides {
+				bindpoint_sampler.wrap_border_color = bindpoint_tex.sampler.wrap_border_color
+			}
+
+			textures[bindpoint_idx] = {
+				handle = bindpoint_tex.rb_texture,
+				sampler = bindpoint_sampler,
 			}
 		}
 	}
@@ -8167,12 +8235,12 @@ _prepare_draw :: proc(texture: Texture, vertices_needed: int) -> ^Texture_Object
 		changed = changed,
 	}
 
-	s.current_texture = texture
+	s.current_texture = tex.handle
 	s.draw_call_changes = {}
-	return to
+	return true
 }
 
-// Callers must run `_prepare_draw` first. That leaves room in the buffer and a draw call to put
+// Callers must run `_begin_textured_draw` first. That leaves room in the buffer and a draw call to put
 // the vertex in.
 batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	v := v
@@ -8216,35 +8284,26 @@ batch_vertex :: proc(v: Vec2, uv: Vec2, color: Color) {
 	s.vertex_buffer_cpu_used += shd.vertex_size
 }
 
-// Draws the batch if any recorded draw call still samples `texture`. Those draw calls have to
-// happen before the texture changes or goes away. Nothing has usually been drawn with it yet, in
-// which case there is nothing to wait for.
-_flush_if_batch_uses_texture :: proc(texture: Render_Backend_Texture) {
-	if texture == RENDER_BACKEND_TEXTURE_NONE {
-		return
-	}
-
-	uses_texture :: proc(dc: Draw_Call, texture: Render_Backend_Texture) -> bool {
-		for t in dc.textures {
-			if t.handle == texture {
-				return true
-			}
-		}
-
+_is_texture_used_in_batch :: proc(texture: ^Texture_Object) -> bool {
+	if texture == nil {
 		return false
 	}
 
-	if uses_texture(s.current_draw_call, texture) {
-		draw_current_batch()
-		return
-	}
-
-	for dc in s.batch_draw_calls {
-		if uses_texture(dc, texture) {
-			draw_current_batch()
-			return
+	for &t in s.current_draw_call.textures {
+		if t.handle == texture.rb_texture {
+			return true
 		}
 	}
+
+	for &dc in s.batch_draw_calls {
+		for &t in dc.textures {
+			if t.handle == texture.rb_texture {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 VERTEX_BUFFER_MAX :: 1000000
@@ -8402,19 +8461,22 @@ _font_render_size :: proc(font_size: f32) -> int {
 
 _sync_font_atlas_texture :: proc() {
 	cache := &s.font_cache
-	to := hm.get(&s.textures, s.font_atlas_texture)
+	tex := hm.get(&s.textures, s.font_atlas_texture)
 
-	if to == nil {
+	if tex == nil {
 		s.font_atlas_texture = create_texture(cache.width, cache.height, .RGBA_8_Norm)
 		return
 	}
 
-	if to.width == cache.width && to.height == cache.height {
+	if tex.width == cache.width && tex.height == cache.height {
 		return
 	}
 
-	_flush_if_batch_uses_texture(to.rb_texture)
-	s.rb.destroy_texture(s.rb_state, to.rb_texture)
+	if _is_texture_used_in_batch(tex) {
+		draw_current_batch()
+	}
+
+	s.rb.destroy_texture(s.rb_state, tex.rb_texture)
 
 	rb_texture, rb_texture_ok := s.rb.create_texture(
 		s.rb_state,
@@ -8431,9 +8493,9 @@ _sync_font_atlas_texture :: proc() {
 		)
 	}
 
-	to.rb_texture = rb_texture
-	to.width = cache.width
-	to.height = cache.height
+	tex.rb_texture = rb_texture
+	tex.width = cache.width
+	tex.height = cache.height
 }
 
 // Updates GPU-side font atlas with CPU-side changes. The font cache reports the rect that has been
@@ -8447,9 +8509,9 @@ _update_font_atlas :: proc() {
 		return
 	}
 
-	to := hm.get(&s.textures, s.font_atlas_texture)
+	tex := hm.get(&s.textures, s.font_atlas_texture)
 
-	if to == nil || to.width != cache.width || to.height != cache.height {
+	if tex == nil || tex.width != cache.width || tex.height != cache.height {
 		return
 	}
 
@@ -8473,7 +8535,7 @@ _update_font_atlas :: proc() {
 	pitch := cache.width * size_of([4]u8)
 	s.rb.update_texture(
 		s.rb_state,
-		to.rb_texture,
+		tex.rb_texture,
 		slice.reinterpret([]u8, pixels),
 		r,
 		pitch,
