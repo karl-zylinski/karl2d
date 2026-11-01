@@ -6766,6 +6766,8 @@ color_alpha :: proc(c: Color, a: u8) -> Color {
 	return {c.r, c.g, c.b, a}
 }
 
+Texture :: distinct Handle
+
 Load_Texture_Option :: enum {
 	// Will multiply the alpha value of the each pixel into the its RGB values. Useful if you want
 	// to use `set_blend_mode(.Premultiplied_Alpha)`
@@ -7122,7 +7124,6 @@ Font_Data :: struct {
 }
 
 Handle :: hm.Handle64
-Texture :: distinct Handle
 Render_Backend_Texture :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
