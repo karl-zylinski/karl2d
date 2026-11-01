@@ -588,6 +588,10 @@ load_image_from_bytes :: proc(bytes: []u8) -> (Image, bool) #optional_ok
 // Destroy an image previously loaded using `load_image_from_file` or `load_image_from_bytes`.
 destroy_image :: proc(img: Image)
 
+// Returns true if the texture is alive and possible to use. TEXTURE_NONE or a destroyed texture
+// will return `false`.
+is_texture_valid :: proc(texture: Texture) -> bool
+
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
 // (w, h) = (texture_width, texture_height)
 get_texture_rect :: proc(texture: Texture) -> Rect
@@ -616,7 +620,7 @@ destroy_texture :: proc(texture: Texture)
 // control up and down-scaling separately, then use `set_texture_sampler`.
 set_texture_filter :: proc(t: Texture, filter: Texture_Filter)
 
-set_texture_wrap :: proc(t: Texture, wrap: Texture_Wrap)
+set_texture_wrap :: proc(texture: Texture, wrap: Texture_Wrap)
 
 set_default_texture_sampler :: proc(sampler: Texture_Sampler)
 
@@ -629,7 +633,7 @@ set_default_texture_sampler :: proc(sampler: Texture_Sampler)
 // scaling up and scaling down.
 //
 // Pass `nil` to make the texture use the default sampler, see `set_default_texture_sampler`.
-set_texture_sampler :: proc(t: Texture, sampler: Maybe(Texture_Sampler))
+set_texture_sampler :: proc(texture: Texture, sampler: Maybe(Texture_Sampler))
 
 //-------//
 // AUDIO //

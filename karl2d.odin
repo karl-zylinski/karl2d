@@ -1390,7 +1390,11 @@ draw_texture :: proc(
 	rotation: f32 = 0,
 	tint := WHITE,
 ) {
-	tex := hm.get(&s.textures, texture)
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to draw invalid texture with handle %v",
+		texture,
+	)
 
 	if tex == nil {
 		return
@@ -1432,13 +1436,23 @@ draw_texture_rect :: proc(
 	rotation: f32 = 0,
 	tint := WHITE,
 ) {
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to draw invalid texture with handle %v",
+		texture,
+	)
+
+	if tex == nil {
+		return
+	}
+
 	dest := Rect {
 		position.x, position.y,
 		source.w, source.h,
 	}
 
 	_draw_texture_fit(
-		hm.get(&s.textures, texture),
+		tex,
 		source,
 		dest,
 		origin,
@@ -1463,7 +1477,17 @@ draw_texture_fit :: proc(
 	rotation: f32 = 0,
 	tint := WHITE,
 ) {
-	_draw_texture_fit(hm.get(&s.textures, texture), source, dest, origin, rotation, tint)
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to draw invalid texture with handle %v",
+		texture,
+	)
+
+	if tex == nil {
+		return
+	}
+
+	_draw_texture_fit(tex, source, dest, origin, rotation, tint)
 }
 
 _draw_texture_fit :: proc(
@@ -1474,6 +1498,10 @@ _draw_texture_fit :: proc(
 	rotation: f32,
 	tint: Color,
 ) {
+	if tex == nil {
+		return
+	}
+
 	if !_begin_textured_draw(tex, 6) {
 		return
 	}
@@ -2020,7 +2048,7 @@ create_texture :: proc(
 			format,
 		)
 
-		return {}, false
+		return TEXTURE_NONE, false
 	}
 
 	texture, add_err := hm.add(&s.textures, {
@@ -2032,7 +2060,7 @@ create_texture :: proc(
 	if add_err != nil {
 		log.errorf("Failed creating texture. Error: %v", add_err)
 		s.rb.destroy_texture(s.rb_state, h)
-		return {}, false
+		return TEXTURE_NONE, false
 	}
 
 	return texture, true
@@ -2134,7 +2162,7 @@ load_texture_from_bytes_raw :: proc(
 			format,
 		)
 
-		return {}, false
+		return TEXTURE_NONE, false
 	}
 
 	texture, add_err := hm.add(&s.textures, {
@@ -2146,7 +2174,7 @@ load_texture_from_bytes_raw :: proc(
 	if add_err != nil {
 		log.errorf("Failed loading texture. Error: %v", add_err)
 		s.rb.destroy_texture(s.rb_state, backend_tex)
-		return {}, false
+		return TEXTURE_NONE, false
 	}
 
 	return texture, true
@@ -2166,7 +2194,7 @@ load_texture_from_image :: proc(image: Image) -> (Texture, bool) #optional_ok {
 
 	if len(image.pixels) != (image.width*image.height) {
 		log.error("Invalid image: the pixels array is not of size image.width*image.height")
-		return {}, false
+		return TEXTURE_NONE, false
 	}
 
 	backend_tex, backend_tex_ok := s.rb.load_texture(
@@ -2178,7 +2206,7 @@ load_texture_from_image :: proc(image: Image) -> (Texture, bool) #optional_ok {
 	)
 
 	if !backend_tex_ok {
-		return {}, false
+		return TEXTURE_NONE, false
 	}
 
 	texture, add_err := hm.add(&s.textures, {
@@ -2190,7 +2218,7 @@ load_texture_from_image :: proc(image: Image) -> (Texture, bool) #optional_ok {
 	if add_err != nil {
 		log.errorf("Failed loading texture. Error: %v", add_err)
 		s.rb.destroy_texture(s.rb_state, backend_tex)
-		return {}, false
+		return TEXTURE_NONE, false
 	}
 
 	return texture, true
@@ -2268,10 +2296,20 @@ destroy_image :: proc(img: Image) {
 	delete(img.pixels, s.allocator)
 }
 
+// Returns true if the texture is alive and possible to use. TEXTURE_NONE or a destroyed texture
+// will return `false`.
+is_texture_valid :: proc(texture: Texture) -> bool {
+	return hm.is_valid(&s.textures, texture)
+}
+
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
 // (w, h) = (texture_width, texture_height)
 get_texture_rect :: proc(texture: Texture) -> Rect {
-	tex := hm.get(&s.textures, texture)
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to fetch rect of invalid texture with handle %v",
+		texture,
+	)
 
 	if tex == nil {
 		return {}
@@ -2285,7 +2323,11 @@ get_texture_rect :: proc(texture: Texture) -> Rect {
 
 // Get the pixel width of a texture.
 get_texture_width :: proc(texture: Texture) -> int {
-	tex := hm.get(&s.textures, texture)
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to fetch width of invalid texture with handle %v",
+		texture,
+	)
 
 	if tex == nil {
 		return 0
@@ -2296,7 +2338,11 @@ get_texture_width :: proc(texture: Texture) -> int {
 
 // Get the pixel height of a texture.
 get_texture_height :: proc(texture: Texture) -> int {
-	tex := hm.get(&s.textures, texture)
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to fetch height of invalid texture with handle %v",
+		texture,
+	)
 
 	if tex == nil {
 		return 0
@@ -2309,7 +2355,11 @@ get_texture_height :: proc(texture: Texture) -> int {
 //
 // Note that while `get_texture_width/height` returns `int`, this effectively return `[2]f32`
 get_texture_size :: proc(texture: Texture) -> Vec2 {
-	tex := hm.get(&s.textures, texture)
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to fetch size of invalid texture with handle %v",
+		texture,
+	)
 
 	if tex == nil {
 		return {}
@@ -2322,7 +2372,11 @@ get_texture_size :: proc(texture: Texture) -> Vec2 {
 // `texture` where the new pixels should end up. `pitch` is the number of bytes between the start of
 // two rows, the default of `0` means that the rows are tightly packed.
 update_texture :: proc(texture: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool {
-	tex := hm.get(&s.textures, texture)
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to update invalid texture with handle %v",
+		texture,
+	)
 
 	if tex == nil {
 		return false
@@ -2338,7 +2392,11 @@ update_texture :: proc(texture: Texture, bytes: []u8, rect: Rect, pitch := 0) ->
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(texture: Texture) {
-	tex := hm.get(&s.textures, texture)
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to destroy invalid texture with handle %v",
+		texture,
+	)
 
 	if tex == nil {
 		return
@@ -2356,7 +2414,11 @@ destroy_texture :: proc(texture: Texture) {
 // means "pixly" or "smooth". This filter will be used for up and down-scaling. If you want to
 // control up and down-scaling separately, then use `set_texture_sampler`.
 set_texture_filter :: proc(t: Texture, filter: Texture_Filter) {
-	tex := hm.get(&s.textures, t)
+	tex := _get_texture_or_error(
+		t,
+		"Trying to set filter of invalid texture with handle %v",
+		t,
+	)
 
 	if tex == nil {
 		return
@@ -2375,12 +2437,16 @@ set_texture_filter :: proc(t: Texture, filter: Texture_Filter) {
 
 @(deprecated="Use set_texture_sampler instead")
 set_texture_filter_ex :: proc(
-	t: Texture,
+	texture: Texture,
 	scale_down_filter: Texture_Filter,
 	scale_up_filter: Texture_Filter,
 	mip_filter: Texture_Filter,
 ) {
-	tex := hm.get(&s.textures, t)
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to set filter of invalid texture with handle %v",
+		texture,
+	)
 
 	if tex == nil {
 		return
@@ -2397,8 +2463,12 @@ set_texture_filter_ex :: proc(
 	}
 }
 
-set_texture_wrap :: proc(t: Texture, wrap: Texture_Wrap) {
-	tex := hm.get(&s.textures, t)
+set_texture_wrap :: proc(texture: Texture, wrap: Texture_Wrap) {
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to set wrap of invalid texture with handle %v",
+		texture,
+	)
 
 	if tex == nil {
 		return
@@ -2431,8 +2501,12 @@ set_default_texture_sampler :: proc(sampler: Texture_Sampler) {
 // scaling up and scaling down.
 //
 // Pass `nil` to make the texture use the default sampler, see `set_default_texture_sampler`.
-set_texture_sampler :: proc(t: Texture, sampler: Maybe(Texture_Sampler)) {
-	tex := hm.get(&s.textures, t)
+set_texture_sampler :: proc(texture: Texture, sampler: Maybe(Texture_Sampler)) {
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to set sampler of invalid texture with handle %v",
+		texture,
+	)
 
 	if tex == nil {
 		return
@@ -2458,6 +2532,24 @@ set_texture_sampler :: proc(t: Texture, sampler: Maybe(Texture_Sampler)) {
 	if tex.sampler != prev_sampler || tex.sampler_overrides != prev_sampler_overrides {
 		s.draw_call_changes += { .Textures }
 	}
+}
+
+_get_texture_or_error :: proc(
+	texture: Texture,
+	$error_fmt: string,
+	error_args: ..any,
+) -> ^Texture_Object {
+	tex := hm.get(&s.textures, texture)
+
+	if tex == nil {
+		if texture != TEXTURE_NONE {
+			log.errorf(error_fmt, ..error_args)
+		}
+
+		return nil
+	}
+
+	return tex
 }
 
 //-------//
@@ -5158,8 +5250,13 @@ destroy_render_texture :: proc(render_texture: Render_Texture) {
 // `create_render_texture`. Pass `nil` to resume drawing onto the screen.
 set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 	if rt, rt_ok := render_texture.?; rt_ok {
+		if rt.texture == TEXTURE_NONE {
+			log.errorf("Invalid texture: %v", rt.texture)
+			return
+		}
+
 		if rt.render_target == RENDER_TARGET_NONE {
-			log.errorf("Invalid render texture: %v", rt)
+			log.errorf("Invalid render target: %v", rt)
 			return
 		}
 
@@ -5167,9 +5264,19 @@ set_render_texture :: proc(render_texture: Maybe(Render_Texture)) {
 			return
 		}
 
+		tex := _get_texture_or_error(
+			rt.texture,
+			"Trying to set render texture that has an invalid texture with handle %v",
+			rt.texture,
+		)
+
+		if tex == nil {
+			return
+		}
+
 		s.current_render_target = rt.render_target
-		s.current_render_target_width = get_texture_width(rt.texture)
-		s.current_render_target_height = get_texture_height(rt.texture)
+		s.current_render_target_width = tex.width
+		s.current_render_target_height = tex.height
 	} else {
 		if s.current_render_target == RENDER_TARGET_NONE {
 			return
@@ -8099,7 +8206,7 @@ _ogg_file_total_frames :: proc(f: ^File) -> int {
 	return 0
 }
 
-// Run at the start of any drawing procedure that uses a texture. You say wha texture you are going
+// Run at the start of any drawing procedure that uses a texture. You say what texture you are going
 // to draw using, and how many vertices are needed on the vertex buffer. If `vertices_needed` won't
 // fit in the vertex buffer, then the batch is drawn.
 //
@@ -8174,7 +8281,6 @@ _begin_textured_draw :: proc(tex: ^Texture_Object, vertices_needed: int) -> bool
 
 	if .Textures in changed {
 		textures = make([]Draw_Call_Texture, len(shader.texture_bindpoints), s.batch_allocator)
-
 		def_tex_idx, has_def_tex_idx := shader.default_texture_index.?
 
 		for bindpoint_handle, bindpoint_idx in shader.texture_bindpoints {
