@@ -920,7 +920,7 @@ d3d11_get_texture_sampler :: proc(s: ^D3D11_State, sampler: Texture_Sampler) -> 
 	}
 
 	wrap_color: [4]f32
-	switch c {
+	switch sampler.wrap_border_color {
 	case .Transparent_Black: wrap_color = { 0, 0, 0, 0 }
 	case .Black: wrap_color = { 0, 0, 0, 1 }
 	case .White: wrap_color = { 1, 1, 1, 1 }

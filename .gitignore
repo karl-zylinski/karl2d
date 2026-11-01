@@ -50,6 +50,7 @@ examples/snake/snake
 examples/space_cat/space_cat
 examples/touch/touch
 examples/ui/ui
+examples/texture_wrap/texture_wrap
 
 /api_doc_builder
 /api_verifier

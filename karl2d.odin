@@ -1527,10 +1527,7 @@ _draw_texture_fit :: proc(
 	
 	if tex.flip_y {
 		flip_y = !flip_y
-
-		if source.h != f32(tex.height) {
-			source.y = f32(tex.height) - source.h - source.y
-		}
+		source.y = f32(tex.height) - source.h - source.y
 	}
 
 	if dest.w < 0 {
@@ -2550,12 +2547,13 @@ _get_texture_or_error :: proc(
 	texture: Texture,
 	$error_fmt: string,
 	error_args: ..any,
+	loc := #caller_location,
 ) -> ^Texture_Object {
 	tex := hm.get(&s.textures, texture)
 
 	if tex == nil {
 		if texture != TEXTURE_NONE {
-			log.errorf(error_fmt, ..error_args)
+			log.errorf(error_fmt, ..error_args, location = loc)
 		}
 
 		return nil
@@ -8596,8 +8594,6 @@ _sync_font_atlas_texture :: proc() {
 		draw_current_batch()
 	}
 
-	s.rb.destroy_texture(s.rb_state, tex.rb_texture)
-
 	rb_texture, rb_texture_ok := s.rb.create_texture(
 		s.rb_state,
 		cache.width,
@@ -8611,8 +8607,10 @@ _sync_font_atlas_texture :: proc() {
 			cache.width,
 			cache.height,
 		)
+		return
 	}
 
+	s.rb.destroy_texture(s.rb_state, tex.rb_texture)
 	tex.rb_texture = rb_texture
 	tex.width = cache.width
 	tex.height = cache.height
