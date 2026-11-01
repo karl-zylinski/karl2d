@@ -588,23 +588,35 @@ load_image_from_bytes :: proc(bytes: []u8) -> (Image, bool) #optional_ok
 // Destroy an image previously loaded using `load_image_from_file` or `load_image_from_bytes`.
 destroy_image :: proc(img: Image)
 
-// Returns true if the texture is alive and possible to use. TEXTURE_NONE or a destroyed texture
+// Returns true if the texture is alive and possible to use. `TEXTURE_NONE` or a destroyed texture
 // will return `false`.
 is_texture_valid :: proc(texture: Texture) -> bool
 
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
-// (w, h) = (texture_width, texture_height)
+// (w, h) = (texture_width, texture_height).
+//
+// Returns a zeroed rect for invalid textures. For invalid textures that are not TEXTURE_NONE, an
+// error is logged.
 get_texture_rect :: proc(texture: Texture) -> Rect
 
 // Get the pixel width of a texture.
+//
+// Returns a zero width for invalid textures. For invalid textures that are not TEXTURE_NONE, an
+// error is logged.
 get_texture_width :: proc(texture: Texture) -> int
 
 // Get the pixel height of a texture.
+//
+// Returns a zero height for invalid textures. For invalid textures that are not TEXTURE_NONE, an
+// error is logged.
 get_texture_height :: proc(texture: Texture) -> int
 
 // Get the (width, height) of a texture, as a Vec2.
 //
 // Note that while `get_texture_width/height` returns `int`, this effectively return `[2]f32`
+//
+// Returns a zero Vec2 for invalid textures. For invalid textures that are not TEXTURE_NONE, an
+// error is logged.
 get_texture_size :: proc(texture: Texture) -> Vec2
 
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
