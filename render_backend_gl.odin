@@ -663,16 +663,6 @@ gl_destroy_render_target :: proc(s: ^GL_State, render_target: Render_Target_Hand
 	}
 }
 
-gl_translate_texture_wrap_border_color :: proc(c: Texture_Wrap_Border_Color) -> [4]f32 {
-	switch c {
-	case .Transparent_Black: return { 0, 0, 0, 0 }
-	case .Black: return { 0, 0, 0, 1 }
-	case .White: return { 1, 1, 1, 1 }
-	}
-
-	return { 0, 0, 0, 0 }
-}
-
 gl_get_texture_sampler :: proc(s: ^GL_State, sampler: Texture_Sampler) -> u32 {
 	if smp, has_smp := s.texture_samplers[sampler]; has_smp {
 		return smp
@@ -684,27 +674,34 @@ gl_get_texture_sampler :: proc(s: ^GL_State, sampler: Texture_Sampler) -> u32 {
 	min_filter: i32 = sampler.scale_down_filter == .Point ? gl.NEAREST : gl.LINEAR
 	mag_filter: i32 = sampler.scale_up_filter == .Point ? gl.NEAREST : gl.LINEAR
 
-	wrap_border_color := gl_translate_texture_wrap_border_color(sampler.wrap_border_color)
+	wrap_border_color: [4]f32
+
+	switch sampler.wrap_border_color {
+	case .Transparent_Black: wrap_border_color = { 0, 0, 0, 0 }
+	case .Black: wrap_border_color = { 0, 0, 0, 1 }
+	case .White: wrap_border_color = { 1, 1, 1, 1 }
+	}
 
 	gl.SamplerParameteri(smp, gl.TEXTURE_MIN_FILTER, min_filter)
 	gl.SamplerParameteri(smp, gl.TEXTURE_MAG_FILTER, mag_filter)
+
+	gl_translate_texture_wrap :: proc(wrap: Texture_Wrap) -> i32 {
+		switch wrap {
+		case .Clamp: return gl.CLAMP_TO_EDGE
+		case .Repeat: return gl.REPEAT
+		case .Mirrored_Repeat: return gl.MIRRORED_REPEAT
+		case .Border: return gl.CLAMP_TO_BORDER
+		}
+
+		return gl.CLAMP_TO_EDGE
+	}
+
 	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_S, gl_translate_texture_wrap(sampler.wrap_x))
 	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_T, gl_translate_texture_wrap(sampler.wrap_y))
 	gl.SamplerParameterfv(smp, gl.TEXTURE_BORDER_COLOR, &wrap_border_color[0])
 
 	s.texture_samplers[sampler] = smp
 	return smp
-}
-
-gl_translate_texture_wrap :: proc(wrap: Texture_Wrap) -> i32 {
-	switch wrap {
-	case .Clamp: return gl.CLAMP_TO_EDGE
-	case .Repeat: return gl.REPEAT
-	case .Mirrored_Repeat: return gl.MIRRORED_REPEAT
-	case .Border: return gl.CLAMP_TO_BORDER
-	}
-
-	return gl.CLAMP_TO_EDGE
 }
 
 gl_compile_shader_from_source :: proc(shader_data: []byte, shader_type: gl.Shader_Type, err_buf: []u8, err_msg: ^string) -> (shader_id: u32, ok: bool) {

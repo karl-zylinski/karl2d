@@ -667,22 +667,23 @@ webgl_get_texture_sampler :: proc(s: ^WebGL_State, sampler: Texture_Sampler) -> 
 
 	gl.SamplerParameteri(smp, gl.TEXTURE_MIN_FILTER, i32(min_filter))
 	gl.SamplerParameteri(smp, gl.TEXTURE_MAG_FILTER, i32(mag_filter))
+
+	webgl_translate_texture_wrap :: proc(wrap: Texture_Wrap) -> i32 {
+		switch wrap {
+		case .Clamp: return i32(gl.CLAMP_TO_EDGE)
+		case .Repeat: return i32(gl.REPEAT)
+		case .Mirrored_Repeat: return i32(gl.MIRRORED_REPEAT)
+		case .Border: return i32(gl.CLAMP_TO_EDGE)
+		}
+
+		return i32(gl.CLAMP_TO_EDGE)
+	}
+
 	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_S, webgl_translate_texture_wrap(sampler.wrap_x))
 	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_T, webgl_translate_texture_wrap(sampler.wrap_y))
 
 	s.texture_samplers[sampler] = smp
 	return smp
-}
-
-webgl_translate_texture_wrap :: proc(wrap: Texture_Wrap) -> i32 {
-	switch wrap {
-	case .Clamp: return i32(gl.CLAMP_TO_EDGE)
-	case .Repeat: return i32(gl.REPEAT)
-	case .Mirrored_Repeat: return i32(gl.MIRRORED_REPEAT)
-	case .Border: return i32(gl.CLAMP_TO_EDGE)
-	}
-
-	return i32(gl.CLAMP_TO_EDGE)
 }
 
 webgl_compile_shader_from_source :: proc(shader_data: []byte, shader_type: gl.Enum, err_buf: []u8, err_msg: ^string) -> (shader_id: gl.Shader, ok: bool) {

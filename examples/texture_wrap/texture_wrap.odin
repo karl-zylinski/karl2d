@@ -46,7 +46,14 @@ step :: proc() -> bool {
 	x2 := f32(PAD*3 + PANEL_SIZE*2)
 	k2.set_texture_sampler(tex, { wrap_x = .Border, wrap_y = .Border, wrap_border_color = .White })
 	k2.draw_texture_fit(tex, src, {x2, PAD, PANEL_SIZE, PANEL_SIZE})
-	k2.draw_text("Border", {x2, label_y}, 20, k2.WHITE)
+
+	when ODIN_OS == .JS {
+		BORDER_TEXT :: "Border (not supported on web)"
+	} else {
+		BORDER_TEXT :: "Border"
+	}
+
+	k2.draw_text(BORDER_TEXT, {x2, label_y}, 20, k2.WHITE)
 
 	k2.present()
 	free_all(context.temp_allocator)

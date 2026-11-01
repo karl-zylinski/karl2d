@@ -687,7 +687,11 @@ d3d11_create_render_texture :: proc(
 	s: ^D3D11_State,
 	width: int,
 	height: int,
-) -> (Render_Backend_Texture, Render_Target_Handle, bool) {
+) -> (
+	_rt_texture: Render_Backend_Texture,
+	_rt: Render_Target_Handle,
+	_ok: bool,
+) {
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
 		Height     = u32(height),
@@ -704,7 +708,7 @@ d3d11_create_render_texture :: proc(
 	err := s.device->CreateTexture2D(&texture_desc, nil, &texture)
 
 	if !d3d11_check(s, err) {
-		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return
 	}
 
 	texture_view: ^d3d11.IShaderResourceView
@@ -713,7 +717,7 @@ d3d11_create_render_texture :: proc(
 
 	if !d3d11_check(s, err) {
 		texture->Release()
-		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return
 	}
 
 	render_target_view_desc := d3d11.RENDER_TARGET_VIEW_DESC {
@@ -730,7 +734,7 @@ d3d11_create_render_texture :: proc(
 	if !d3d11_check(s, err) {
 		texture_view->Release()
 		texture->Release()
-		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return
 	}
 
 	d3d11_texture := D3D11_Texture {
@@ -767,7 +771,7 @@ d3d11_create_render_texture :: proc(
 			render_target_view->Release()
 			texture_view->Release()
 			texture->Release()
-			return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
+			return
 		}
 
 		err = s.device->CreateDepthStencilView(
@@ -781,7 +785,7 @@ d3d11_create_render_texture :: proc(
 			render_target_view->Release()
 			texture_view->Release()
 			texture->Release()
-			return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
+			return
 		}
 	}
 
@@ -798,7 +802,7 @@ d3d11_create_render_texture :: proc(
 		render_target_view->Release()
 		texture_view->Release()
 		texture->Release()
-		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return
 	}
 
 	rt_handle, rt_add_err := hm.add(&s.render_targets, d3d11_render_target)
@@ -814,7 +818,7 @@ d3d11_create_render_texture :: proc(
 		render_target_view->Release()
 		texture_view->Release()
 		texture->Release()
-		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
+		return
 	}
 
 	return tex_handle, rt_handle, true
@@ -885,16 +889,6 @@ d3d11_destroy_texture :: proc(s: ^D3D11_State, th: Render_Backend_Texture) {
 	hm.remove(&s.textures, th)
 }
 
-d3d11_translate_texture_wrap_border_color :: proc(c: Texture_Wrap_Border_Color) -> [4]f32 {
-	switch c {
-	case .Transparent_Black: return { 0, 0, 0, 0 }
-	case .Black: return { 0, 0, 0, 1 }
-	case .White: return { 1, 1, 1, 1 }
-	}
-
-	return { 0, 0, 0, 0 }
-}
-
 d3d11_get_texture_sampler :: proc(s: ^D3D11_State, sampler: Texture_Sampler) -> ^d3d11.ISamplerState {
 	if smp, has_smp := s.texture_samplers[sampler]; has_smp {
 		return smp
@@ -914,13 +908,31 @@ d3d11_get_texture_sampler :: proc(s: ^D3D11_State, sampler: Texture_Sampler) -> 
 		f = .MIN_POINT_MAG_LINEAR_MIP_POINT
 	}
 
+	d3d11_translate_texture_wrap :: proc(wrap: Texture_Wrap) -> d3d11.TEXTURE_ADDRESS_MODE {
+		switch wrap {
+		case .Clamp: return .CLAMP
+		case .Repeat: return .WRAP
+		case .Mirrored_Repeat: return .MIRROR
+		case .Border: return .BORDER
+		}
+
+		return .CLAMP
+	}
+
+	wrap_color: [4]f32
+	switch c {
+	case .Transparent_Black: wrap_color = { 0, 0, 0, 0 }
+	case .Black: wrap_color = { 0, 0, 0, 1 }
+	case .White: wrap_color = { 1, 1, 1, 1 }
+	}
+
 	sampler_desc := d3d11.SAMPLER_DESC {
 		Filter = f,
 		AddressU = d3d11_translate_texture_wrap(sampler.wrap_x),
 		AddressV = d3d11_translate_texture_wrap(sampler.wrap_y),
 		AddressW = .CLAMP,
 		ComparisonFunc = .NEVER,
-		BorderColor = d3d11_translate_texture_wrap_border_color(sampler.wrap_border_color),
+		BorderColor = wrap_color,
 	}
 
 	smp: ^d3d11.ISamplerState
@@ -935,17 +947,6 @@ d3d11_get_texture_sampler :: proc(s: ^D3D11_State, sampler: Texture_Sampler) -> 
 
 	s.texture_samplers[sampler] = smp
 	return smp
-}
-
-d3d11_translate_texture_wrap :: proc(wrap: Texture_Wrap) -> d3d11.TEXTURE_ADDRESS_MODE {
-	switch wrap {
-	case .Clamp: return .CLAMP
-	case .Repeat: return .WRAP
-	case .Mirrored_Repeat: return .MIRROR
-	case .Border: return .BORDER
-	}
-
-	return .CLAMP
 }
 
 d3d11_load_shader :: proc(
