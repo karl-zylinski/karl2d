@@ -3,23 +3,19 @@
 package karl2d_coordinate_system_test
 
 import k2 "../.."
+import hm "core:container/handle_map"
 import "core:testing"
-
-pretend_texture_needs_vertical_flip :: proc(s: ^k2.Render_Backend_State, handle: k2.Texture_Handle) -> bool {
-	return true
-}
 
 draw_and_measure_flipped_texture :: proc(draw: proc()) -> Bounds {
 	setup()
 
-	real_flip := state.rb.texture_needs_vertical_flip
-	state.rb.texture_needs_vertical_flip = pretend_texture_needs_vertical_flip
-	k2.set_internal_state(state)
+	uv_texture_object := hm.get(&state.textures, uv_texture)
+	real_flip := uv_texture_object.flip_y
+	uv_texture_object.flip_y = true
 
 	res := draw_and_measure(draw)
 
-	state.rb.texture_needs_vertical_flip = real_flip
-	k2.set_internal_state(state)
+	uv_texture_object.flip_y = real_flip
 	return res
 }
 

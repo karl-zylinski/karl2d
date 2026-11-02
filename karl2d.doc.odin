@@ -588,34 +588,83 @@ load_image_from_bytes :: proc(bytes: []u8) -> (Image, bool) #optional_ok
 // Destroy an image previously loaded using `load_image_from_file` or `load_image_from_bytes`.
 destroy_image :: proc(img: Image)
 
+// Returns true if the texture is alive and possible to use. `TEXTURE_NONE` or a destroyed texture
+// will return `false`.
+is_texture_valid :: proc(texture: Texture) -> bool
+
 // Get a rectangle that spans the whole texture. Coordinates will be (x, y) = (0, 0) and size
-// (w, h) = (texture_width, texture_height)
-get_texture_rect :: proc(t: Texture) -> Rect
+// (w, h) = (texture_width, texture_height).
+//
+// Returns a zeroed rect for invalid textures. For invalid textures that are not TEXTURE_NONE, an
+// error is logged.
+get_texture_rect :: proc(texture: Texture) -> Rect
+
+// Get the pixel width of a texture.
+//
+// Returns a zero width for invalid textures. For invalid textures that are not TEXTURE_NONE, an
+// error is logged.
+get_texture_width :: proc(texture: Texture) -> int
+
+// Get the pixel height of a texture.
+//
+// Returns a zero height for invalid textures. For invalid textures that are not TEXTURE_NONE, an
+// error is logged.
+get_texture_height :: proc(texture: Texture) -> int
+
+// Get the (width, height) of a texture, as a Vec2.
+//
+// Note that while `get_texture_width/height` returns `int`, while this procedure returns `Vec2`,
+// which is `[2]f32`. In other words, this procedure gives floats instead of ints.
+//
+// Returns a zero Vec2 for invalid textures. For invalid textures that are not TEXTURE_NONE, an
+// error is logged.
+get_texture_size :: proc(texture: Texture) -> Vec2
 
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
-// `tex` where the new pixels should end up. `pitch` is the number of bytes between the start of two
-// rows, the default of `0` means that the rows are tightly packed.
-update_texture :: proc(tex: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool
+// `texture` where the new pixels should end up. `pitch` is the number of bytes between the start of
+// two rows, the default of `0` means that the rows are tightly packed.
+update_texture :: proc(texture: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
-destroy_texture :: proc(tex: Texture)
+destroy_texture :: proc(texture: Texture)
 
 // Controls how a texture should be filtered. You can choose "point" or "linear" filtering. Which
-// means "pixly" or "smooth". This filter will be used for up and down-scaling as well as for
-// mipmap sampling. Use `set_texture_filter_ex` if you need to control these settings separately.
+// means "pixly" or "smooth". This filter will be used for up and down-scaling. If you want to
+// control up and down-scaling separately, then use `set_texture_sampler`.
 set_texture_filter :: proc(t: Texture, filter: Texture_Filter)
 
-// Controls how a texture should be filtered. `scale_down_filter` and `scale_up_filter` controls how
-// the texture is filtered when we render the texture at a smaller or larger size.
-// `mip_filter` controls how the texture is filtered when it is sampled using _mipmapping_.
+// The the texture wrap mode of the texture. This controls what happens if you try to draw pixels
+// from an area that falls outside the texture. For example, if you supply a `source` rect to the
+// `draw_texture_rect` procedure that is bigger than the texture, then the wrapping mode decides how
+// that is handled.
 //
-// TODO: Add mipmapping generation controls for texture and refer to it from here.
-set_texture_filter_ex :: proc(
-	t: Texture,
-	scale_down_filter: Texture_Filter,
-	scale_up_filter: Texture_Filter,
-	mip_filter: Texture_Filter,
-)
+// This sets the same texture wrap mode in both the X and Y direction of the texture. If you use the
+// more advanced `set_texture_sampler` procedure, then you can control the directions separately.
+set_texture_wrap :: proc(texture: Texture, wrap: Texture_Wrap)
+
+// Set the sampler to use for this texture. The sampler contains information about how to filter and
+// wrap the texture. Any `draw_texture_*` calls after this will use these settings. You can change
+// the settings after a `draw_texture_*` call, the sampler is copied into the queued draw call.
+//
+// This is an "advanced" version of `set_texture_filter` and `set_texture_wrap`. Using it you can
+// set wrap settings in x and y direction separately. You can also set filtering options for both
+// scaling up and scaling down.
+//
+// Pass `nil` to make the texture use the default sampler, see `set_default_texture_sampler`.
+set_texture_sampler :: proc(texture: Texture, sampler: Maybe(Texture_Sampler))
+
+// Returns the sampler of the sampler the texture would use if it was drawn right now.
+get_texture_sampler :: proc(texture: Texture) -> Texture_Sampler
+
+// Set the texture sampler that is used when the sampler of a texture hasn't been overridden using
+// `set_texture_filter`, `set_texture_wrap` or `set_texture_sampler`.
+//
+// If you run `set_texture_sampler(tex, nil)`, then the texture will use this sampler.
+set_default_texture_sampler :: proc(sampler: Texture_Sampler)
+
+// Return the default texture sampler. It gets a default value during `init`, but may after that
+// have been changed using `set_default_texture_sampler`.
+get_default_texture_sampler :: proc() -> Texture_Sampler
 
 //-------//
 // AUDIO //
@@ -1213,8 +1262,8 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 // Set a shader to use a specific texture. Look up the bindpoint using the `texture_lookup` field
 // inside the `Shader` object.
 //
-// You don't need to call this when drawing normal textures, it's for advanced usage where you have
-// multiple textures as inputs to a shader.
+// You don't need to call this when drawing normal textures. It's for advanced usage where you have
+// multiple textures as inputs to a shader. For normal texture drawing, use `draw_texture_*`.
 set_shader_texture :: proc(shd: Shader, bindpoint: int, texture: Texture)
 
 // Sets the value of a shader input (also known as a shader attribute). There are three default
@@ -1427,16 +1476,7 @@ RL_RAYWHITE   :: Color { 245, 245, 245, 255 }
 
 color_alpha :: proc(c: Color, a: u8) -> Color
 
-Texture :: struct {
-	// The render-backend specific texture identifier.
-	handle: Texture_Handle,
-
-	// The horizontal size of the texture, measured in pixels.
-	width: int,
-
-	// The vertical size of the texture, measure in pixels.
-	height: int,
-}
+Texture :: distinct Handle
 
 Load_Texture_Option :: enum {
 	// Will multiply the alpha value of the each pixel into the its RGB values. Useful if you want
@@ -1470,8 +1510,70 @@ Render_Texture :: struct {
 }
 
 Texture_Filter :: enum {
-	Point,  // Similar to "nearest neighbor". Pixly texture scaling.
+	Point, // Similar to "nearest neighbor". Pixly texture scaling.
 	Linear, // Smoothed texture scaling.
+}
+
+// Controls what happens when the `source` rect of `draw_texture_rect` and `draw_texture_fit`
+// contains pixel coordinates that extend outside the texture.
+Texture_Wrap :: enum {
+	// The color at the border is repeated.
+	Clamp,
+
+	// The texture is repeated, or "wraps around".
+	Repeat,
+
+	// The texture is repeated, but the repeated image is flipped.
+	Mirrored_Repeat,
+
+	// A color is drawn for all pixels that fall outside the texture. The color is decided by
+	// `wrap_border_color: Texture_Wrap_Border_Color` of `Texture_Sampler`.
+	//
+	// WEB: Not supported. If you use this on web then Clamp is used instead.
+	Border,
+}
+
+// The color to use when `wrap_x/y` of `Texture_Sampler` has the `Border` value.
+Texture_Wrap_Border_Color :: enum {
+	Transparent_Black, // Color {0, 0, 0, 0}
+	Black, // Color {0, 0, 0, 255}
+	White, // Color {255, 255, 255, 255}
+}
+
+// Settings for how textures are sampled, which affects how they are rendered.
+Texture_Sampler :: struct {
+	// How the texture is filtered when it is scaled down.
+	scale_down_filter: Texture_Filter,
+
+	// How the texture is filtered when it is scaled up.
+	scale_up_filter: Texture_Filter,
+
+	// The wrapping mode along the horizontal axis of the texture.
+	wrap_x: Texture_Wrap,
+
+	// The wrapping mode along the vertical axis of the texture.
+	wrap_y: Texture_Wrap,
+
+	// The color to use when `wrap_x` or `wrap_y` is `Border`.
+	wrap_border_color: Texture_Wrap_Border_Color,
+}
+
+Texture_Object :: struct {
+	handle: Texture,
+	rb_texture: Render_Backend_Texture,
+	width: int,
+	height: int,
+	flip_y: bool,
+	sampler: Texture_Sampler,
+	sampler_overrides: bit_set[Texture_Sampler_Field],
+}
+
+Texture_Sampler_Field :: enum {
+	Scale_Down_Filter,
+	Scale_Up_Filter,
+	Wrap_X,
+	Wrap_Y,
+	Wrap_Border_Color,
 }
 
 // An image kept in RAM, you can fill this out and pass it to `load_texture_from_image` in order
@@ -1620,7 +1722,7 @@ Shader :: struct {
 	// Maps built in constant types such as "model view projection matrix" to a location.
 	constant_builtin_locations: [Shader_Builtin_Constant]Maybe(Shader_Constant_Location),
 
-	texture_bindpoints: []Texture_Handle,
+	texture_bindpoints: []Texture,
 
 	// Used to lookup bindpoints of textures. You can then set the texture by calling
 	// `set_shader_texture and supplying it with the bindpoint you looked up.
@@ -1732,7 +1834,7 @@ Font_Data :: struct {
 }
 
 Handle :: hm.Handle64
-Texture_Handle :: distinct Handle
+Render_Backend_Texture :: distinct Handle
 Render_Target_Handle :: distinct Handle
 Font :: distinct int
 DEFAULT_FONT_DATA :: #load("default_fonts/roboto.ttf")
@@ -1792,7 +1894,8 @@ Font_Baked_Glyph :: struct {
 // the default font.
 FONT_DEFAULT :: Font(0)
 
-TEXTURE_NONE :: Texture_Handle {}
+TEXTURE_NONE :: Texture {}
+RENDER_BACKEND_TEXTURE_NONE :: Render_Backend_Texture {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
 
 AUDIO_MIX_SAMPLE_RATE :: 44100
@@ -2097,8 +2200,7 @@ State :: struct {
 	fonts: [dynamic]Font_Data,
 	font_cache: fc.Cache,
 	font_atlas_texture: Texture,
-	font_atlas_filter: Texture_Filter,
-	shape_drawing_texture: Texture_Handle,
+	shape_drawing_texture: Texture,
 
 	// These `current_` are set when procs like `set_shader` etc run. When you draw more stuff, then
 	// they are compared against what `current_draw_call` says. If there is a difference, then a new
@@ -2106,7 +2208,9 @@ State :: struct {
 	current_camera: Maybe(Camera),
 	current_shader: Shader,
 	current_scissor: Maybe(Rect),
-	current_texture: Texture_Handle,
+	current_texture: Texture,
+	textures: hm.Dynamic_Handle_Map(Texture_Object, Texture),
+	default_texture_sampler: Texture_Sampler,
 	current_render_target: Render_Target_Handle,
 
 	// Size of `current_render_target`, or 0 when drawing to the window. Needed to build the

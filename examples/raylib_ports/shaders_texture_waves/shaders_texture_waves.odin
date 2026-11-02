@@ -44,7 +44,7 @@ main :: proc() {
 		k2.set_shader(shader)
 
 		k2.draw_texture(texture, {0, 0})
-		k2.draw_texture(texture, {f32(texture.width), 0})
+		k2.draw_texture(texture, {f32(k2.get_texture_width(texture)), 0})
 
 		k2.set_shader(nil)
 		k2.present()

@@ -19,10 +19,9 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	load_texture = rbnil_load_texture,
 	update_texture = rbnil_update_texture,
 	destroy_texture = rbnil_destroy_texture,
-	texture_needs_vertical_flip = rbnil_texture_needs_vertical_flip,
+	flip_render_textures = false,
 	create_render_texture = rbnil_create_render_texture,
 	destroy_render_target = rbnil_destroy_render_target,
-	set_texture_filter = rbnil_set_texture_filter,
 	load_shader = rbnil_load_shader,
 	destroy_shader = rbnil_destroy_shader,
 
@@ -95,8 +94,8 @@ rbnil_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-) -> (Texture_Handle, bool) {
-	return Texture_Handle(rbnil_handle(s)), true
+) -> (Render_Backend_Texture, bool) {
+	return Render_Backend_Texture(rbnil_handle(s)), true
 }
 
 rbnil_load_texture :: proc(
@@ -105,13 +104,13 @@ rbnil_load_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-) -> (Texture_Handle, bool) {
-	return Texture_Handle(rbnil_handle(s)), true
+) -> (Render_Backend_Texture, bool) {
+	return Render_Backend_Texture(rbnil_handle(s)), true
 }
 
 rbnil_update_texture :: proc(
 	s: ^RBNil_State,
-	th: Texture_Handle,
+	th: Render_Backend_Texture,
 	data: []u8,
 	rect: Rect,
 	pitch: int,
@@ -119,32 +118,19 @@ rbnil_update_texture :: proc(
 	return true
 }
 
-rbnil_destroy_texture :: proc(s: ^RBNil_State, th: Texture_Handle) {
-}
-
-rbnil_texture_needs_vertical_flip :: proc(s: ^RBNil_State, th: Texture_Handle) -> bool {
-	return false
+rbnil_destroy_texture :: proc(s: ^RBNil_State, th: Render_Backend_Texture) {
 }
 
 rbnil_create_render_texture :: proc(
 	s: ^RBNil_State,
 	width: int,
 	height: int,
-) -> (Texture_Handle, Render_Target_Handle, bool) {
-	return Texture_Handle(rbnil_handle(s)), Render_Target_Handle(rbnil_handle(s)), true
+) -> (Render_Backend_Texture, Render_Target_Handle, bool) {
+	return Render_Backend_Texture(rbnil_handle(s)), Render_Target_Handle(rbnil_handle(s)), true
 }
 
 rbnil_destroy_render_target :: proc(s: ^RBNil_State, render_target: Render_Target_Handle) {
 	
-}
-
-rbnil_set_texture_filter :: proc(
-	s: ^RBNil_State,
-	th: Texture_Handle,
-	scale_down_filter: Texture_Filter,
-	scale_up_filter: Texture_Filter,
-	mip_filter: Texture_Filter,
-) {
 }
 
 // The nil backend does not parse shader source. It reports the same layout the built-in default

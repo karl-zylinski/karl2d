@@ -33,6 +33,11 @@ Draw_Call_Change :: enum {
 // render backend.
 DRAW_CALL_CHANGE_ALL :: ~bit_set[Draw_Call_Change]{}
 
+Draw_Call_Texture :: struct {
+	handle: Render_Backend_Texture,
+	sampler: Texture_Sampler,
+}
+
 // A chunk of drawing work that shares enough state to be able to draw together. Points out the
 // range in the vertex buffer that the draw call will use.
 //
@@ -53,7 +58,7 @@ Draw_Call :: struct {
 	// A clone of the constants data of the shader, snapshotted at the time when the draw call was
 	// created. Additionally, things like the Karl2D view-project-matrix will be filled in here.
 	constants_data: []u8,
-	textures: []Texture_Handle,
+	textures: []Draw_Call_Texture,
 
 	render_target: Render_Target_Handle,
 	scissor: Maybe(Rect),
@@ -94,7 +99,7 @@ Render_Backend_Interface :: struct #all_or_none {
 		height: int,
 		format: Pixel_Format,
 	) -> (
-		Texture_Handle,
+		Render_Backend_Texture,
 		bool,
 	),
 
@@ -104,35 +109,27 @@ Render_Backend_Interface :: struct #all_or_none {
 		width: int,
 		height: int,
 		format: Pixel_Format,
-	) -> (Texture_Handle, bool),
+	) -> (Render_Backend_Texture, bool),
 
 	update_texture: proc(
 		s: ^Render_Backend_State,
-		handle: Texture_Handle,
+		handle: Render_Backend_Texture,
 		data: []u8,
 		rect: Rect,
 		pitch: int,
 	) -> bool,
 
-	destroy_texture: proc(s: ^Render_Backend_State, handle: Texture_Handle),
-	texture_needs_vertical_flip: proc(s: ^Render_Backend_State, handle: Texture_Handle) -> bool,
+	destroy_texture: proc(s: ^Render_Backend_State, handle: Render_Backend_Texture),
+	flip_render_textures: bool,
 
 	create_render_texture: proc(
 		s: ^Render_Backend_State,
 		width: int,
 		height: int,
-	) -> (Texture_Handle, Render_Target_Handle, bool),
+	) -> (Render_Backend_Texture, Render_Target_Handle, bool),
 	
 	destroy_render_target: proc(s: ^Render_Backend_State, render_texture: Render_Target_Handle),
 	
-	set_texture_filter: proc(
-		s: ^Render_Backend_State,
-		handle: Texture_Handle,
-		scale_down_filter: Texture_Filter,
-		scale_up_filter: Texture_Filter,
-		mip_filter: Texture_Filter,
-	),
-
 	load_shader: proc(
 		s: ^Render_Backend_State,
 		vertex_shader_data: []byte,
