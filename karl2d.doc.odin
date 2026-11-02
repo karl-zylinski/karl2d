@@ -653,11 +653,11 @@ set_texture_wrap :: proc(texture: Texture, wrap: Texture_Wrap)
 // Pass `nil` to make the texture use the default sampler, see `set_default_texture_sampler`.
 set_texture_sampler :: proc(texture: Texture, sampler: Maybe(Texture_Sampler))
 
-// Returns the sampler of the sampler the texture would use if it was drawn right now.
+// Returns the sampler a texture would use if it was drawn right now.
 get_texture_sampler :: proc(texture: Texture) -> Texture_Sampler
 
-// Set the texture sampler that is used when the sampler of a texture hasn't been overridden using
-// `set_texture_filter`, `set_texture_wrap` or `set_texture_sampler`.
+// Set the default texture sampler that is used when the sampler of a texture hasn't been overridden
+// using `set_texture_filter`, `set_texture_wrap` or `set_texture_sampler`.
 //
 // If you run `set_texture_sampler(tex, nil)`, then the texture will use this sampler.
 set_default_texture_sampler :: proc(sampler: Texture_Sampler)
