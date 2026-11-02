@@ -2097,7 +2097,7 @@ load_texture_from_file :: proc(
 		return {}, false
 	}
 
-	return load_texture_from_bytes_raw(img.pixels.buf[:], img.width, img.height, .RGBA_8_Norm)
+	return load_texture_from_bytes_raw(img.pixels[:], img.width, img.height, .RGBA_8_Norm)
 }
 
 // Load a texture from a byte slice and upload it to the GPU so you can draw it to the screen.
@@ -2127,7 +2127,7 @@ load_texture_from_bytes :: proc(
 		return {}, false
 	}
 
-	return load_texture_from_bytes_raw(img.pixels.buf[:], img.width, img.height, .RGBA_8_Norm)
+	return load_texture_from_bytes_raw(img.pixels[:], img.width, img.height, .RGBA_8_Norm)
 }
 
 // Load raw texture data. You need to specify the data, size and format of the texture yourself.
@@ -2271,7 +2271,7 @@ load_image_from_bytes :: proc(bytes: []u8) -> (Image, bool) #optional_ok {
 	}
 
 	pixels := make([]Color, img.width*img.height, s.allocator)
-	copy(pixels, slice.reinterpret([]Color, img.pixels.buf[:]))
+	copy(pixels, slice.reinterpret([]Color, img.pixels[:]))
 
 	res := Image {
 		pixels = pixels,
