@@ -2359,7 +2359,8 @@ get_texture_height :: proc(texture: Texture) -> int {
 
 // Get the (width, height) of a texture, as a Vec2.
 //
-// Note that while `get_texture_width/height` returns `int`, this effectively return `[2]f32`
+// Note that while `get_texture_width/height` returns `int`, while this procedure returns `Vec2`,
+// which is `[2]f32`. In other words, this procedure gives floats instead of ints.
 //
 // Returns a zero Vec2 for invalid textures. For invalid textures that are not TEXTURE_NONE, an
 // error is logged.
@@ -2472,6 +2473,13 @@ set_texture_filter_ex :: proc(
 	}
 }
 
+// The the texture wrap mode of the texture. This controls what happens if you try to draw pixels
+// from an area that falls outside the texture. For example, if you supply a `source` rect to the
+// `draw_texture_rect` procedure that is bigger than the texture, then the wrapping mode decides how
+// that is handled.
+//
+// This sets the same texture wrap mode in both the X and Y direction of the texture. If you use the
+// more advanced `set_texture_sampler` procedure, then you can control the directions separately.
 set_texture_wrap :: proc(texture: Texture, wrap: Texture_Wrap) {
 	tex := _get_texture_or_error(
 		texture,
@@ -2490,13 +2498,6 @@ set_texture_wrap :: proc(texture: Texture, wrap: Texture_Wrap) {
 	tex.sampler_overrides += { .Wrap_X, .Wrap_Y }
 
 	if tex.sampler != prev_sampler || tex.sampler_overrides != prev_sampler_overrides {
-		s.draw_call_changes += { .Textures }
-	}
-}
-
-set_default_texture_sampler :: proc(sampler: Texture_Sampler) {
-	if sampler != s.default_texture_sampler {
-		s.default_texture_sampler = sampler
 		s.draw_call_changes += { .Textures }
 	}
 }
@@ -2541,6 +2542,64 @@ set_texture_sampler :: proc(texture: Texture, sampler: Maybe(Texture_Sampler)) {
 	if tex.sampler != prev_sampler || tex.sampler_overrides != prev_sampler_overrides {
 		s.draw_call_changes += { .Textures }
 	}
+}
+
+// Returns the sampler of the sampler the texture would use if it was drawn right now.
+get_texture_sampler :: proc(texture: Texture) -> Texture_Sampler {
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to get sampler of invalid texture with handle %v",
+		texture,
+	)
+
+	if tex == nil {
+		return s.default_texture_sampler
+	}
+
+	return _get_texture_sampler(tex)
+}
+
+_get_texture_sampler :: proc(tex: ^Texture_Object) -> Texture_Sampler {
+	sampler := s.default_texture_sampler
+
+	if .Scale_Down_Filter in tex.sampler_overrides {
+		sampler.scale_down_filter = tex.sampler.scale_down_filter
+	}
+
+	if .Scale_Up_Filter in tex.sampler_overrides {
+		sampler.scale_up_filter = tex.sampler.scale_up_filter
+	}
+
+	if .Wrap_X in tex.sampler_overrides {
+		sampler.wrap_x = tex.sampler.wrap_x
+	}
+
+	if .Wrap_Y in tex.sampler_overrides {
+		sampler.wrap_y = tex.sampler.wrap_y
+	}
+
+	if .Wrap_Border_Color in tex.sampler_overrides {
+		sampler.wrap_border_color = tex.sampler.wrap_border_color
+	}
+
+	return sampler
+}
+
+// Set the texture sampler that is used when the sampler of a texture hasn't been overridden using
+// `set_texture_filter`, `set_texture_wrap` or `set_texture_sampler`.
+//
+// If you run `set_texture_sampler(tex, nil)`, then the texture will use this sampler.
+set_default_texture_sampler :: proc(sampler: Texture_Sampler) {
+	if sampler != s.default_texture_sampler {
+		s.default_texture_sampler = sampler
+		s.draw_call_changes += { .Textures }
+	}
+}
+
+// Return the default texture sampler. It gets a default value during `init`, but may after that
+// have been changed using `set_default_texture_sampler`.
+get_default_texture_sampler :: proc() -> Texture_Sampler {
+	return s.default_texture_sampler
 }
 
 _get_texture_or_error :: proc(
@@ -7182,7 +7241,6 @@ Font_Baked_Glyph :: struct {
 // the default font.
 FONT_DEFAULT :: Font(0)
 
-DEFAULT_TEXTURE_SAMPLER :: Texture_Sampler {}
 TEXTURE_NONE :: Texture {}
 RENDER_BACKEND_TEXTURE_NONE :: Render_Backend_Texture {}
 RENDER_TARGET_NONE :: Render_Target_Handle {}
@@ -8309,32 +8367,9 @@ _begin_textured_draw :: proc(tex: ^Texture_Object, vertices_needed: int) -> bool
 				continue
 			}
 
-			bindpoint_sampler := s.default_texture_sampler
-			bindpoint_overrides := bindpoint_tex.sampler_overrides
-
-			if .Scale_Down_Filter in bindpoint_overrides {
-				bindpoint_sampler.scale_down_filter = bindpoint_tex.sampler.scale_down_filter
-			}
-
-			if .Scale_Up_Filter in bindpoint_overrides {
-				bindpoint_sampler.scale_up_filter = bindpoint_tex.sampler.scale_up_filter
-			}
-
-			if .Wrap_X in bindpoint_overrides {
-				bindpoint_sampler.wrap_x = bindpoint_tex.sampler.wrap_x
-			}
-
-			if .Wrap_Y in bindpoint_overrides {
-				bindpoint_sampler.wrap_y = bindpoint_tex.sampler.wrap_y
-			}
-
-			if .Wrap_Border_Color in bindpoint_overrides {
-				bindpoint_sampler.wrap_border_color = bindpoint_tex.sampler.wrap_border_color
-			}
-
 			textures[bindpoint_idx] = {
 				handle = bindpoint_tex.rb_texture,
-				sampler = bindpoint_sampler,
+				sampler = _get_texture_sampler(bindpoint_tex),
 			}
 		}
 	}
