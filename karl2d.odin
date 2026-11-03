@@ -2027,7 +2027,10 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 
 // Create a blank texture of some size. `format` is the format the texture will have on the GPU.
 //
-// `mip_levels` must be in the range between `1` and `get_max_mip_levels(width, height)`
+// `mip_levels` must be in the range between `1` and `get_max_mip_levels(width, height)`. Each mip
+// level is a smaller and smaller version of the texture. It helps with avoiding artifacts when
+// drawing the texture scaled down. `mip_levlels := 1` means that no extra levels except the "full
+// size texture" is created.
 //
 // The second return value is `true` if the texture was created correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -5634,6 +5637,11 @@ _audio_thread_context :: proc() -> runtime.Context {
 // Create a texture that you can render into. Meaning that you can draw into it instead of drawing
 // onto the screen. Use `set_render_texture` to enable this Render Texture for drawing.
 //
+// `mip_levels` must be in the range between `1` and `get_max_mip_levels(width, height)`. Each mip
+// level is a smaller and smaller version of the texture. It helps with avoiding artifacts when
+// drawing the texture scaled down. `mip_levlels := 1` means that no extra levels except the "full
+// size texture" is created.
+//
 // The second return value is `true` if the render texture was created correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Render_Texture`
 // will still be possible to use, but setting it does nothing, so drawing stays where it was.
@@ -7227,7 +7235,8 @@ Load_Texture_Options :: struct {
 	premultiply_alpha: bool,
 
 	// If true, then a mipmap will be generated (a chain of smaller versions for scaling down the
-	// texture in a nicer way). A full mipmap chain will be generated if `mip_levels` is `0`.
+	// texture in a nicer way). A full mipmap chain will be generated if this is `true` and
+	// `mip_levels` is `0`.
 	generate_mipmap: bool,
 
 	// Only to be used when `generate_mipmap` is true. If zero, then a full mipmap chain will be
@@ -7298,6 +7307,8 @@ Texture_Sampler :: struct {
 	// How the texture is filtered when it is scaled up.
 	scale_up_filter: Texture_Filter,
 
+	// Decides how to pick between mip levels. `Point` uses the nearest mip level. `Linear` blends
+	// between two nearest mip levels.
 	mip_filter: Texture_Filter,
 
 	// The wrapping mode along the horizontal axis of the texture.
