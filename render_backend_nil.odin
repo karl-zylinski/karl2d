@@ -18,6 +18,7 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	create_texture = rbnil_create_texture,
 	load_texture = rbnil_load_texture,
 	update_texture = rbnil_update_texture,
+	generate_mipmaps = rbnil_generate_mipmaps,
 	destroy_texture = rbnil_destroy_texture,
 	flip_render_textures = false,
 	create_render_texture = rbnil_create_render_texture,
@@ -94,13 +95,14 @@ rbnil_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
+	mip_levels: int,
 ) -> (Render_Backend_Texture, bool) {
 	return Render_Backend_Texture(rbnil_handle(s)), true
 }
 
 rbnil_load_texture :: proc(
 	s: ^RBNil_State,
-	data: []u8,
+	data: [][]u8,
 	width: int,
 	height: int,
 	format: Pixel_Format,
@@ -114,7 +116,12 @@ rbnil_update_texture :: proc(
 	data: []u8,
 	rect: Rect,
 	pitch: int,
+	mip_level: int,
 ) -> bool {
+	return true
+}
+
+rbnil_generate_mipmaps :: proc(s: ^RBNil_State, th: Render_Backend_Texture) -> bool {
 	return true
 }
 
@@ -125,6 +132,7 @@ rbnil_create_render_texture :: proc(
 	s: ^RBNil_State,
 	width: int,
 	height: int,
+	mip_levels: int,
 ) -> (Render_Backend_Texture, Render_Target_Handle, bool) {
 	return Render_Backend_Texture(rbnil_handle(s)), Render_Target_Handle(rbnil_handle(s)), true
 }

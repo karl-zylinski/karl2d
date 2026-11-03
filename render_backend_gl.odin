@@ -23,6 +23,7 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	create_texture = gl_create_texture,
 	load_texture = gl_load_texture,
 	update_texture = gl_update_texture,
+	generate_mipmaps = gl_generate_mipmaps,
 	destroy_texture = gl_destroy_texture,
 	flip_render_textures = true,
 	create_render_texture = gl_create_render_texture,
@@ -464,7 +465,7 @@ _gl_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-	data: rawptr,
+	data: [][]u8,
 ) -> (GL_Texture, bool) {
 	id: u32
 	gl.GenTextures(1, &id)
@@ -473,7 +474,17 @@ _gl_create_texture :: proc(
 	gl_drain_errors()
 
 	pf := gl_translate_pixel_format(format)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, data)
+	level_width := width
+	level_height := height
+
+	for level_data, level in data {
+		level_data_ptr := len(level_data) > 0 ? raw_data(level_data) : nil
+		gl.TexImage2D(gl.TEXTURE_2D, i32(level), pf, i32(level_width), i32(level_height), 0, gl.RGBA, gl.UNSIGNED_BYTE, level_data_ptr)
+		level_width = max(level_width / 2, 1)
+		level_height = max(level_height / 2, 1)
+	}
+
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, i32(len(data) - 1))
 
 	// This is where a texture that is too big for the GPU, or one the GPU has no memory left for,
 	// gets caught. Without the check it would become a texture that silently draws nothing.
@@ -494,8 +505,10 @@ gl_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
+	mip_levels: int,
 ) -> (Render_Backend_Texture, bool) {
-	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, nil)
+	@(static, rodata) empty_data: [MAX_MIP_LEVELS][]u8
+	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, empty_data[:mip_levels])
 
 	if !gl_tex_ok {
 		return {}, false
@@ -514,12 +527,12 @@ gl_create_texture :: proc(
 
 gl_load_texture :: proc(
 	s: ^GL_State,
-	data: []u8,
+	data: [][]u8,
 	width: int,
 	height: int,
 	format: Pixel_Format,
 ) -> (Render_Backend_Texture, bool) {
-	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, raw_data(data))
+	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, data)
 
 	if !gl_tex_ok {
 		return {}, false
@@ -542,6 +555,7 @@ gl_update_texture :: proc(
 	data: []u8,
 	rect: Rect,
 	pitch: int,
+	mip_level: int,
 ) -> bool {
 	tex := hm.get(&s.textures, th)
 
@@ -551,8 +565,28 @@ gl_update_texture :: proc(
 
 	gl.BindTexture(gl.TEXTURE_2D, tex.id)
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, i32(pitch / pixel_format_size(tex.format)))
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
+	gl.TexSubImage2D(gl.TEXTURE_2D, i32(mip_level), i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
+	return true
+}
+
+gl_generate_mipmaps :: proc(s: ^GL_State, th: Render_Backend_Texture) -> bool {
+	tex := hm.get(&s.textures, th)
+
+	if tex == nil {
+		log.errorf("Trying to generate mipmaps for texture %v, but it is invalid.", th)
+		return false
+	}
+
+	gl.BindTexture(gl.TEXTURE_2D, tex.id)
+	gl_drain_errors()
+	gl.GenerateMipmap(gl.TEXTURE_2D)
+
+	if err := gl.GetError(); err != gl.NO_ERROR {
+		log.errorf("Failed generating mipmaps. GL error: 0x%x", err)
+		return false
+	}
+
 	return true
 }
 
@@ -571,8 +605,10 @@ gl_create_render_texture :: proc(
 	s: ^GL_State,
 	width: int,
 	height: int,
+	mip_levels: int,
 ) -> (Render_Backend_Texture, Render_Target_Handle, bool) {
-	texture, texture_ok := _gl_create_texture(width, height, .RGBA_32_Float, nil)
+	@(static, rodata) empty_data: [MAX_MIP_LEVELS][]u8
+	texture, texture_ok := _gl_create_texture(width, height, .RGBA_32_Float, empty_data[:mip_levels])
 
 	if !texture_ok {
 		return {}, {}, false
@@ -671,7 +707,13 @@ gl_get_texture_sampler :: proc(s: ^GL_State, sampler: Texture_Sampler) -> u32 {
 	smp: u32
 	gl.GenSamplers(1, &smp)
 
-	min_filter: i32 = sampler.scale_down_filter == .Point ? gl.NEAREST : gl.LINEAR
+	min_filter: i32
+
+	switch sampler.scale_down_filter {
+	case .Point: min_filter = sampler.mip_filter == .Point ? gl.NEAREST_MIPMAP_NEAREST : gl.NEAREST_MIPMAP_LINEAR
+	case .Linear: min_filter = sampler.mip_filter == .Point ? gl.LINEAR_MIPMAP_NEAREST : gl.LINEAR_MIPMAP_LINEAR
+	}
+
 	mag_filter: i32 = sampler.scale_up_filter == .Point ? gl.NEAREST : gl.LINEAR
 
 	wrap_border_color: [4]f32

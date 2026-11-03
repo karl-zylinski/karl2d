@@ -98,6 +98,7 @@ Render_Backend_Interface :: struct #all_or_none {
 		width: int,
 		height: int,
 		format: Pixel_Format,
+		mip_levels: int,
 	) -> (
 		Render_Backend_Texture,
 		bool,
@@ -105,7 +106,11 @@ Render_Backend_Interface :: struct #all_or_none {
 
 	load_texture: proc(
 		s: ^Render_Backend_State,
-		data: []u8,
+
+		// The mip levels for the texture. You can leave a slice empty to not have any data for that
+		// level.
+		data: [][]u8,
+
 		width: int,
 		height: int,
 		format: Pixel_Format,
@@ -117,8 +122,10 @@ Render_Backend_Interface :: struct #all_or_none {
 		data: []u8,
 		rect: Rect,
 		pitch: int,
+		mip_level: int,
 	) -> bool,
 
+	generate_mipmaps: proc(s: ^Render_Backend_State, handle: Render_Backend_Texture) -> bool,
 	destroy_texture: proc(s: ^Render_Backend_State, handle: Render_Backend_Texture),
 	flip_render_textures: bool,
 
@@ -126,6 +133,7 @@ Render_Backend_Interface :: struct #all_or_none {
 		s: ^Render_Backend_State,
 		width: int,
 		height: int,
+		mip_levels: int,
 	) -> (Render_Backend_Texture, Render_Target_Handle, bool),
 	
 	destroy_render_target: proc(s: ^Render_Backend_State, render_texture: Render_Target_Handle),

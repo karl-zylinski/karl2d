@@ -505,7 +505,9 @@ draw_text :: proc(
 // TEXTURE MANAGEMENT //
 //--------------------//
 
-// Create an empty texture.
+// Create a blank texture of some size. `format` is the format the texture will have on the GPU.
+//
+// `mip_levels` must be in the range between `1` and `k2.full_mip_chain_length(width, height, format)`
 //
 // The second return value is `true` if the texture was created correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -514,12 +516,14 @@ create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
+	mip_levels := 1,
 ) -> (Texture, bool) #optional_ok
 
 // Load a texture from disk and upload it to the GPU so you can draw it to the screen.
 // Supports PNG, BMP, TGA and baseline PNG. Note that progressive PNG files are not supported!
 //
-// The `options` parameter can be used to specify things things such as premultiplication of alpha.
+// The `options` parameter can be used to specify things things such as premultiplication of alpha
+// and mipmap options.
 //
 // The second return value is `true` if the texture was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -554,6 +558,7 @@ load_texture_from_bytes_raw :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
+	options: Load_Texture_Options = {},
 ) -> (Texture, bool) #optional_ok
 
 // Create a GPU texture from an image stored in RAM. There are currently no procedures to manipulate
@@ -562,7 +567,12 @@ load_texture_from_bytes_raw :: proc(
 // The second return value is `true` if the texture was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
 // possible to use, but it won't draw anything.
-load_texture_from_image :: proc(image: Image) -> (Texture, bool) #optional_ok
+load_texture_from_image :: proc(
+	image: Image,
+	options: Load_Texture_Options = {},
+) -> (Texture, bool) #optional_ok
+
+load_texture_from_mipmap_images :: proc(images: []Image) -> (Texture, bool) #optional_ok
 
 // Load an image from disk into RAM. Supports the same formats as `load_texture_from_file`. The
 // image is always RGBA8 with straight (non-premultiplied) alpha.
@@ -623,14 +633,27 @@ get_texture_size :: proc(texture: Texture) -> Vec2
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
 // `texture` where the new pixels should end up. `pitch` is the number of bytes between the start of
 // two rows, the default of `0` means that the rows are tightly packed.
-update_texture :: proc(texture: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool
+update_texture :: proc(
+	texture: Texture,
+	bytes: []u8,
+	rect: Rect,
+	pitch := 0,
+	mip_level := 0,
+) -> bool
+
+generate_mipmaps :: proc(texture: Texture) -> bool
+
+get_full_mip_chain_length :: proc(width: int, height: int) -> int
+
+get_texture_mip_levels :: proc(texture: Texture) -> int
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
 destroy_texture :: proc(texture: Texture)
 
 // Controls how a texture should be filtered. You can choose "point" or "linear" filtering. Which
-// means "pixly" or "smooth". This filter will be used for up and down-scaling. If you want to
-// control up and down-scaling separately, then use `set_texture_sampler`.
+// means "pixly" or "smooth". This filter will be used for up and down-scaling as well as for mipmap
+// scaling. If you want to control up-, down- and mipmap-scaling separately, then use
+// `set_texture_sampler`.
 set_texture_filter :: proc(t: Texture, filter: Texture_Filter)
 
 // The the texture wrap mode of the texture. This controls what happens if you try to draw pixels
@@ -1010,7 +1033,11 @@ update_audio :: proc()
 // The second return value is `true` if the render texture was created correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Render_Texture`
 // will still be possible to use, but setting it does nothing, so drawing stays where it was.
-create_render_texture :: proc(width: int, height: int) -> (Render_Texture, bool) #optional_ok
+create_render_texture :: proc(
+	width: int,
+	height: int,
+	mipmaps := false,
+) -> (Render_Texture, bool) #optional_ok
 
 // Destroy a Render_Texture previously created using `create_render_texture`.
 destroy_render_texture :: proc(render_texture: Render_Texture)
@@ -1478,19 +1505,26 @@ color_alpha :: proc(c: Color, a: u8) -> Color
 
 Texture :: distinct Handle
 
-Load_Texture_Option :: enum {
+Load_Texture_Options :: struct {
 	// Will multiply the alpha value of the each pixel into the its RGB values. Useful if you want
 	// to use `set_blend_mode(.Premultiplied_Alpha)`
-	Premultiply_Alpha,
-}
+	premultiply_alpha: bool,
 
-Load_Texture_Options :: bit_set[Load_Texture_Option]
+	// If true, then mipmaps will be generated (smaller versions for scaling down the texture in a
+	// nicer way). A full mipmap chain will be generated if `mip_levels` is `0`.
+	generate_mipmaps: bool,
+
+	// Only to be used when `generate_mipmaps` is true. If zero, then a full mipmap chain will be
+	// generated. If greater than zero, then only that many mip levels will be generated. Maximum
+	// value is given by `full_mip_chain_length(width, height, format)`.
+	mip_levels: int,
+}
 
 Blend_Mode :: enum {
 	Alpha,
 
 	// Requires the alpha-channel to be multiplied into texture RGB channels. You can automatically
-	// do this using the `Premultiply_Alpha` option when loading a texture.
+	// do this using the `premultiply_alpha` option when loading a texture.
 	Premultiplied_Alpha,
 
 	// Adds the source color, multiplied by its alpha, to the color already drawn.
@@ -1548,6 +1582,8 @@ Texture_Sampler :: struct {
 	// How the texture is filtered when it is scaled up.
 	scale_up_filter: Texture_Filter,
 
+	mip_filter: Texture_Filter,
+
 	// The wrapping mode along the horizontal axis of the texture.
 	wrap_x: Texture_Wrap,
 
@@ -1563,6 +1599,7 @@ Texture_Object :: struct {
 	rb_texture: Render_Backend_Texture,
 	width: int,
 	height: int,
+	mip_levels: int,
 	flip_y: bool,
 	sampler: Texture_Sampler,
 	sampler_overrides: bit_set[Texture_Sampler_Field],
@@ -1571,6 +1608,7 @@ Texture_Object :: struct {
 Texture_Sampler_Field :: enum {
 	Scale_Down_Filter,
 	Scale_Up_Filter,
+	Mip_Filter,
 	Wrap_X,
 	Wrap_Y,
 	Wrap_Border_Color,
