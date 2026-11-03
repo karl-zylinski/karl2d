@@ -142,6 +142,7 @@ gl_init :: proc(
 
 	gl.Enable(gl.BLEND)
 	gl.Disable(gl.CULL_FACE)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 
 	// Note that AA also requires setup when choosing format for backbuffer, see for example
 	// SAMPLE_BUFFER etc in the glue files.
@@ -473,13 +474,13 @@ _gl_create_texture :: proc(
 
 	gl_drain_errors()
 
-	pf := gl_translate_pixel_format(format)
+	internal_format, pixel_format, pixel_type := gl_translate_pixel_format(format)
 	level_width := width
 	level_height := height
 
 	for level_data, level in data {
 		level_data_ptr := len(level_data) > 0 ? raw_data(level_data) : nil
-		gl.TexImage2D(gl.TEXTURE_2D, i32(level), pf, i32(level_width), i32(level_height), 0, gl.RGBA, gl.UNSIGNED_BYTE, level_data_ptr)
+		gl.TexImage2D(gl.TEXTURE_2D, i32(level), internal_format, i32(level_width), i32(level_height), 0, pixel_format, pixel_type, level_data_ptr)
 		level_width = max(level_width / 2, 1)
 		level_height = max(level_height / 2, 1)
 	}
@@ -563,9 +564,10 @@ gl_update_texture :: proc(
 		return false
 	}
 
+	_, pixel_format, pixel_type := gl_translate_pixel_format(tex.format)
 	gl.BindTexture(gl.TEXTURE_2D, tex.id)
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, i32(pitch / pixel_format_size(tex.format)))
-	gl.TexSubImage2D(gl.TEXTURE_2D, i32(mip_level), i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
+	gl.TexSubImage2D(gl.TEXTURE_2D, i32(mip_level), i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), pixel_format, pixel_type, raw_data(data))
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
 	return true
 }
@@ -1126,24 +1128,23 @@ gl_uniform_size :: proc(t: u32) -> int {
 	return sz
 }
 
-gl_translate_pixel_format :: proc(f: Pixel_Format) -> i32 {
+gl_translate_pixel_format :: proc(f: Pixel_Format) -> (internal_format: i32, format: u32, type: u32) {
 	switch f {
-	case .RGBA_32_Float: return gl.RGBA
-	case .RGB_32_Float: return gl.RGB
-	case .RG_32_Float: return gl.RG
-	case .R_32_Float: return gl.R
+	case .RGBA_32_Float: return gl.RGBA32F, gl.RGBA, gl.FLOAT
+	case .RGB_32_Float: return gl.RGB32F, gl.RGB, gl.FLOAT
+	case .RG_32_Float: return gl.RG32F, gl.RG, gl.FLOAT
+	case .R_32_Float: return gl.R32F, gl.RED, gl.FLOAT
 
-	// THIS SEEMS WRONG -- Am I putting the 8 bit info in the wrong place?
-	case .RGBA_8_Norm: return gl.RGBA
-	case .RG_8_Norm: return gl.RG
-	case .R_8_Norm: return gl.R
-	case .R_8_UInt: return gl.R
+	case .RGBA_8_Norm: return gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE
+	case .RG_8_Norm: return gl.RG8, gl.RG, gl.UNSIGNED_BYTE
+	case .R_8_Norm: return gl.R8, gl.RED, gl.UNSIGNED_BYTE
+	case .R_8_UInt: return gl.R8UI, gl.RED_INTEGER, gl.UNSIGNED_BYTE
 
 	case .Unknown: fallthrough
-	case: log.error("Unhandled pixel format %v", f) 
+	case: log.error("Unhandled pixel format %v", f)
 	}
-	
-	return 0
+
+	return 0, 0, 0
 }
 
 

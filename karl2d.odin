@@ -2052,11 +2052,6 @@ create_texture :: proc(
 		return TEXTURE_NONE, false
 	}
 
-	if mip_levels > 1 && (format == .RGB_32_Float || format == .R_8_UInt) {
-		log.errorf("Pixel format %v does not support mipmaps", format)
-		return TEXTURE_NONE, false
-	}
-
 	if mip_levels > MAX_MIP_LEVELS {
 		log.errorf("Too many mip levels: %v, the maximum is %v", mip_levels, MAX_MIP_LEVELS)
 		return TEXTURE_NONE, false
@@ -2079,6 +2074,7 @@ create_texture :: proc(
 		rb_texture = h,
 		width = width,
 		height = height,
+		format = format,
 		mip_levels = mip_levels,
 	})
 
@@ -2247,11 +2243,6 @@ load_texture_from_bytes_raw :: proc(
 		}
 	}
 
-	if mip_levels > 1 && (format == .RGB_32_Float || format == .R_8_UInt) {
-		log.errorf("Pixel format %v does not support mipmaps", format)
-		return TEXTURE_NONE, false
-	}
-
 	if mip_levels > MAX_MIP_LEVELS {
 		log.errorf("Too many mip levels: %v, the maximum is %v", mip_levels, MAX_MIP_LEVELS)
 		return TEXTURE_NONE, false
@@ -2288,6 +2279,7 @@ load_texture_from_bytes_raw :: proc(
 		rb_texture = backend_tex,
 		width = width,
 		height = height,
+		format = format,
 		mip_levels = mip_levels,
 	})
 
@@ -2409,6 +2401,7 @@ load_texture_from_mipmap_images :: proc(images: []Image) -> (Texture, bool) #opt
 		rb_texture = backend_tex,
 		width = width,
 		height = height,
+		format = .RGBA_8_Norm,
 		mip_levels = mip_levels,
 	})
 
@@ -2604,6 +2597,48 @@ update_texture :: proc(
 			mip_level,
 			texture,
 			tex.mip_levels,
+		)
+
+		return false
+	}
+
+	level_width := max(tex.width >> uint(mip_level), 1)
+	level_height := max(tex.height >> uint(mip_level), 1)
+	x := int(rect.x)
+	y := int(rect.y)
+	w := int(rect.w)
+	h := int(rect.h)
+
+	if x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > level_width || y + h > level_height {
+		log.errorf(
+			"Trying to update texture %v with rect %v, which does not fit inside mip level %v of size %v x %v",
+			texture,
+			rect,
+			mip_level,
+			level_width,
+			level_height,
+		)
+
+		return false
+	}
+
+	pixel_size := pixel_format_size(tex.format)
+	row_size := w * pixel_size
+	row_pitch := pitch == 0 ? row_size : pitch
+
+	if row_pitch < row_size {
+		log.errorf("Trying to update texture %v with pitch %v, which is less than the row size %v", texture, pitch, row_size)
+		return false
+	}
+
+	required_size := row_pitch * (h - 1) + row_size
+
+	if len(bytes) < required_size {
+		log.errorf(
+			"Trying to update texture %v with %v bytes, but the rect and pitch require %v bytes",
+			texture,
+			len(bytes),
+			required_size,
 		)
 
 		return false
@@ -5571,6 +5606,7 @@ create_render_texture :: proc(
 		rb_texture = rb_texture,
 		width = width,
 		height = height,
+		format = .RGBA_32_Float,
 		mip_levels = mip_levels,
 		flip_y = s.rb.flip_render_textures,
 	})
@@ -6653,7 +6689,7 @@ pixel_format_size :: proc(f: Pixel_Format) -> int {
 	switch f {
 	case .Unknown: return 0
 
-	case .RGBA_32_Float: return 32
+	case .RGBA_32_Float: return 16
 	case .RGB_32_Float: return 12
 	case .RG_32_Float: return 8
 	case .R_32_Float: return 4
@@ -7208,6 +7244,7 @@ Texture_Object :: struct {
 	rb_texture: Render_Backend_Texture,
 	width: int,
 	height: int,
+	format: Pixel_Format,
 	mip_levels: int,
 	flip_y: bool,
 	sampler: Texture_Sampler,

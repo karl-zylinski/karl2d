@@ -617,6 +617,11 @@ _d3d11_create_texture :: proc(
 ) {
 	mip_levels := len(data)
 
+	if mip_levels < 1 {
+		log.error("Trying to create a texture with zero mip levels")
+		return RENDER_BACKEND_TEXTURE_NONE, false
+	}
+
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
 		Height     = u32(height),
@@ -628,9 +633,18 @@ _d3d11_create_texture :: proc(
 		BindFlags  = {.SHADER_RESOURCE},
 	}
 
+	can_generate_mips := false
+
 	if mip_levels > 1 {
-		texture_desc.BindFlags += {.RENDER_TARGET}
-		texture_desc.MiscFlags = {.GENERATE_MIPS}
+		format_support: u32
+		s.device->CheckFormatSupport(texture_desc.Format, &format_support)
+		required := u32(d3d11.FORMAT_SUPPORT.MIP_AUTOGEN) | u32(d3d11.FORMAT_SUPPORT.RENDER_TARGET)
+		can_generate_mips = format_support & required == required
+
+		if can_generate_mips {
+			texture_desc.BindFlags += {.RENDER_TARGET}
+			texture_desc.MiscFlags = {.GENERATE_MIPS}
+		}
 	}
 
 	texture: ^d3d11.ITexture2D
@@ -701,6 +715,7 @@ _d3d11_create_texture :: proc(
 		tex = texture,
 		format = format,
 		view = texture_view,
+		can_generate_mips = can_generate_mips,
 	}
 
 	tex_handle, tex_add_err := hm.add(&s.textures, tex)
@@ -747,8 +762,16 @@ d3d11_create_render_texture :: proc(
 		BindFlags  = {.SHADER_RESOURCE, .RENDER_TARGET},
 	}
 
+	can_generate_mips := false
+
 	if mip_levels > 1 {
-		texture_desc.MiscFlags = {.GENERATE_MIPS}
+		format_support: u32
+		s.device->CheckFormatSupport(texture_desc.Format, &format_support)
+		can_generate_mips = format_support & u32(d3d11.FORMAT_SUPPORT.MIP_AUTOGEN) != 0
+
+		if can_generate_mips {
+			texture_desc.MiscFlags = {.GENERATE_MIPS}
+		}
 	}
 
 	texture: ^d3d11.ITexture2D
@@ -789,6 +812,7 @@ d3d11_create_render_texture :: proc(
 		tex = texture,
 		view = texture_view,
 		format = .RGBA_32_Float,
+		can_generate_mips = can_generate_mips,
 	}
 
 	d3d11_render_target := D3D11_Render_Target {
@@ -942,6 +966,11 @@ d3d11_generate_mipmap :: proc(s: ^D3D11_State, th: Render_Backend_Texture) -> bo
 
 	if tex == nil || tex.view == nil {
 		log.errorf("Trying to generate mipmap for texture %v, but it is invalid.", th)
+		return false
+	}
+
+	if !tex.can_generate_mips {
+		log.errorf("Pixel format %v does not support generating mipmaps", tex.format)
 		return false
 	}
 
@@ -1665,6 +1694,7 @@ D3D11_Texture :: struct {
 	tex: ^d3d11.ITexture2D,
 	view: ^d3d11.IShaderResourceView,
 	format: Pixel_Format,
+	can_generate_mips: bool,
 }
 
 D3D11_Render_Target :: struct {

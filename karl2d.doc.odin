@@ -1604,6 +1604,7 @@ Texture_Object :: struct {
 	rb_texture: Render_Backend_Texture,
 	width: int,
 	height: int,
+	format: Pixel_Format,
 	mip_levels: int,
 	flip_y: bool,
 	sampler: Texture_Sampler,

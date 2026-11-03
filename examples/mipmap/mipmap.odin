@@ -1,4 +1,4 @@
-package karl2d_mipmaps_example
+package karl2d_mipmap_example
 
 import k2 "../.."
 import "core:math"
@@ -72,7 +72,7 @@ step :: proc() -> bool {
 	source_code_rect := k2.rect_cut_right(&bottom_bar, k2.ui_button_width("Source Code", bottom_bar.h) + 50, 0)
 
 	if k2.ui_button(source_code_rect, "Source Code") {
-		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/mipmaps/mipmaps.odin")
+		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/mipmap/mipmap.odin")
 	}
 
 	k2.present()
