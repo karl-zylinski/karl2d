@@ -23,6 +23,7 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	create_texture = gl_create_texture,
 	load_texture = gl_load_texture,
 	update_texture = gl_update_texture,
+	generate_mipmap = gl_generate_mipmap,
 	destroy_texture = gl_destroy_texture,
 	flip_render_textures = true,
 	create_render_texture = gl_create_render_texture,
@@ -141,6 +142,7 @@ gl_init :: proc(
 
 	gl.Enable(gl.BLEND)
 	gl.Disable(gl.CULL_FACE)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 
 	// Note that AA also requires setup when choosing format for backbuffer, see for example
 	// SAMPLE_BUFFER etc in the glue files.
@@ -464,7 +466,7 @@ _gl_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-	data: rawptr,
+	data: [][]u8,
 ) -> (GL_Texture, bool) {
 	id: u32
 	gl.GenTextures(1, &id)
@@ -472,8 +474,18 @@ _gl_create_texture :: proc(
 
 	gl_drain_errors()
 
-	pf := gl_translate_pixel_format(format)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, data)
+	internal_format, pixel_format, pixel_type := gl_translate_pixel_format(format)
+	level_width := width
+	level_height := height
+
+	for level_data, level in data {
+		level_data_ptr := len(level_data) > 0 ? raw_data(level_data) : nil
+		gl.TexImage2D(gl.TEXTURE_2D, i32(level), internal_format, i32(level_width), i32(level_height), 0, pixel_format, pixel_type, level_data_ptr)
+		level_width = max(level_width / 2, 1)
+		level_height = max(level_height / 2, 1)
+	}
+
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, i32(len(data) - 1))
 
 	// This is where a texture that is too big for the GPU, or one the GPU has no memory left for,
 	// gets caught. Without the check it would become a texture that silently draws nothing.
@@ -494,8 +506,10 @@ gl_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
+	mip_levels: int,
 ) -> (Render_Backend_Texture, bool) {
-	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, nil)
+	@(static, rodata) empty_data: [MAX_MIP_LEVELS][]u8
+	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, empty_data[:mip_levels])
 
 	if !gl_tex_ok {
 		return {}, false
@@ -514,12 +528,12 @@ gl_create_texture :: proc(
 
 gl_load_texture :: proc(
 	s: ^GL_State,
-	data: []u8,
+	data: [][]u8,
 	width: int,
 	height: int,
 	format: Pixel_Format,
 ) -> (Render_Backend_Texture, bool) {
-	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, raw_data(data))
+	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, data)
 
 	if !gl_tex_ok {
 		return {}, false
@@ -542,6 +556,7 @@ gl_update_texture :: proc(
 	data: []u8,
 	rect: Rect,
 	pitch: int,
+	mip_level: int,
 ) -> bool {
 	tex := hm.get(&s.textures, th)
 
@@ -549,10 +564,31 @@ gl_update_texture :: proc(
 		return false
 	}
 
+	_, pixel_format, pixel_type := gl_translate_pixel_format(tex.format)
 	gl.BindTexture(gl.TEXTURE_2D, tex.id)
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, i32(pitch / pixel_format_size(tex.format)))
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
+	gl.TexSubImage2D(gl.TEXTURE_2D, i32(mip_level), i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), pixel_format, pixel_type, raw_data(data))
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
+	return true
+}
+
+gl_generate_mipmap :: proc(s: ^GL_State, th: Render_Backend_Texture) -> bool {
+	tex := hm.get(&s.textures, th)
+
+	if tex == nil {
+		log.errorf("Trying to generate mipmap for texture %v, but it is invalid.", th)
+		return false
+	}
+
+	gl.BindTexture(gl.TEXTURE_2D, tex.id)
+	gl_drain_errors()
+	gl.GenerateMipmap(gl.TEXTURE_2D)
+
+	if err := gl.GetError(); err != gl.NO_ERROR {
+		log.errorf("Failed generating mipmap. GL error: 0x%x", err)
+		return false
+	}
+
 	return true
 }
 
@@ -571,8 +607,10 @@ gl_create_render_texture :: proc(
 	s: ^GL_State,
 	width: int,
 	height: int,
+	mip_levels: int,
 ) -> (Render_Backend_Texture, Render_Target_Handle, bool) {
-	texture, texture_ok := _gl_create_texture(width, height, .RGBA_32_Float, nil)
+	@(static, rodata) empty_data: [MAX_MIP_LEVELS][]u8
+	texture, texture_ok := _gl_create_texture(width, height, .RGBA_32_Float, empty_data[:mip_levels])
 
 	if !texture_ok {
 		return {}, {}, false
@@ -671,7 +709,13 @@ gl_get_texture_sampler :: proc(s: ^GL_State, sampler: Texture_Sampler) -> u32 {
 	smp: u32
 	gl.GenSamplers(1, &smp)
 
-	min_filter: i32 = sampler.scale_down_filter == .Point ? gl.NEAREST : gl.LINEAR
+	min_filter: i32
+
+	switch sampler.scale_down_filter {
+	case .Point: min_filter = sampler.mip_filter == .Point ? gl.NEAREST_MIPMAP_NEAREST : gl.NEAREST_MIPMAP_LINEAR
+	case .Linear: min_filter = sampler.mip_filter == .Point ? gl.LINEAR_MIPMAP_NEAREST : gl.LINEAR_MIPMAP_LINEAR
+	}
+
 	mag_filter: i32 = sampler.scale_up_filter == .Point ? gl.NEAREST : gl.LINEAR
 
 	wrap_border_color: [4]f32
@@ -1084,24 +1128,23 @@ gl_uniform_size :: proc(t: u32) -> int {
 	return sz
 }
 
-gl_translate_pixel_format :: proc(f: Pixel_Format) -> i32 {
+gl_translate_pixel_format :: proc(f: Pixel_Format) -> (internal_format: i32, format: u32, type: u32) {
 	switch f {
-	case .RGBA_32_Float: return gl.RGBA
-	case .RGB_32_Float: return gl.RGB
-	case .RG_32_Float: return gl.RG
-	case .R_32_Float: return gl.R
+	case .RGBA_32_Float: return gl.RGBA32F, gl.RGBA, gl.FLOAT
+	case .RGB_32_Float: return gl.RGB32F, gl.RGB, gl.FLOAT
+	case .RG_32_Float: return gl.RG32F, gl.RG, gl.FLOAT
+	case .R_32_Float: return gl.R32F, gl.RED, gl.FLOAT
 
-	// THIS SEEMS WRONG -- Am I putting the 8 bit info in the wrong place?
-	case .RGBA_8_Norm: return gl.RGBA
-	case .RG_8_Norm: return gl.RG
-	case .R_8_Norm: return gl.R
-	case .R_8_UInt: return gl.R
+	case .RGBA_8_Norm: return gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE
+	case .RG_8_Norm: return gl.RG8, gl.RG, gl.UNSIGNED_BYTE
+	case .R_8_Norm: return gl.R8, gl.RED, gl.UNSIGNED_BYTE
+	case .R_8_UInt: return gl.R8UI, gl.RED_INTEGER, gl.UNSIGNED_BYTE
 
 	case .Unknown: fallthrough
-	case: log.error("Unhandled pixel format %v", f) 
+	case: log.error("Unhandled pixel format %v", f)
 	}
-	
-	return 0
+
+	return 0, 0, 0
 }
 
 

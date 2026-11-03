@@ -27,6 +27,7 @@ RENDER_BACKEND_D3D11 :: Render_Backend_Interface {
 	create_texture = d3d11_create_texture,
 	load_texture = d3d11_load_texture,
 	update_texture = d3d11_update_texture,
+	generate_mipmap = d3d11_generate_mipmap,
 	destroy_texture = d3d11_destroy_texture,
 	flip_render_textures = false,
 	create_render_texture = d3d11_create_render_texture,
@@ -609,15 +610,22 @@ _d3d11_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-	data: rawptr,
+	data: [][]u8,
 ) -> (
 	Render_Backend_Texture,
 	bool,
 ) {
+	mip_levels := len(data)
+
+	if mip_levels < 1 {
+		log.error("Trying to create a texture with zero mip levels")
+		return RENDER_BACKEND_TEXTURE_NONE, false
+	}
+
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
 		Height     = u32(height),
-		MipLevels  = 1,
+		MipLevels  = u32(mip_levels),
 		ArraySize  = 1,
 		Format     = dxgi_format_from_pixel_format(format),
 		SampleDesc = {Count = 1},
@@ -625,16 +633,45 @@ _d3d11_create_texture :: proc(
 		BindFlags  = {.SHADER_RESOURCE},
 	}
 
+	can_generate_mips := false
+
+	if mip_levels > 1 {
+		format_support: u32
+		s.device->CheckFormatSupport(texture_desc.Format, &format_support)
+		required := u32(d3d11.FORMAT_SUPPORT.MIP_AUTOGEN) | u32(d3d11.FORMAT_SUPPORT.RENDER_TARGET)
+		can_generate_mips = format_support & required == required
+
+		if can_generate_mips {
+			texture_desc.BindFlags += {.RENDER_TARGET}
+			texture_desc.MiscFlags = {.GENERATE_MIPS}
+		}
+	}
+
 	texture: ^d3d11.ITexture2D
 	err: d3d11.HRESULT
 
-	if data != nil {
-		texture_data := d3d11.SUBRESOURCE_DATA{
-			pSysMem     = data,
-			SysMemPitch = u32(width * pixel_format_size(format)),
+	has_all_levels := true
+
+	for level_data in data {
+		if len(level_data) == 0 {
+			has_all_levels = false
+		}
+	}
+
+	if has_all_levels {
+		texture_data: [MAX_MIP_LEVELS]d3d11.SUBRESOURCE_DATA
+		level_width := width
+
+		for level_data, level in data {
+			texture_data[level] = {
+				pSysMem     = raw_data(level_data),
+				SysMemPitch = u32(level_width * pixel_format_size(format)),
+			}
+
+			level_width = max(level_width / 2, 1)
 		}
 
-		err = s.device->CreateTexture2D(&texture_desc, &texture_data, &texture)
+		err = s.device->CreateTexture2D(&texture_desc, &texture_data[0], &texture)
 
 		if !d3d11_check(s, err) {
 			return {}, false
@@ -644,6 +681,24 @@ _d3d11_create_texture :: proc(
 
 		if !d3d11_check(s, err) {
 			return {}, false
+		}
+
+		level_width := width
+
+		for level_data, level in data {
+			if len(level_data) > 0 {
+				row_pitch := u32(level_width * pixel_format_size(format))
+				s.device_context->UpdateSubresource(
+					texture,
+					u32(level),
+					nil,
+					raw_data(level_data),
+					row_pitch,
+					0,
+				)
+			}
+
+			level_width = max(level_width / 2, 1)
 		}
 	}
 
@@ -660,6 +715,7 @@ _d3d11_create_texture :: proc(
 		tex = texture,
 		format = format,
 		view = texture_view,
+		can_generate_mips = can_generate_mips,
 	}
 
 	tex_handle, tex_add_err := hm.add(&s.textures, tex)
@@ -679,14 +735,17 @@ d3d11_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
+	mip_levels: int,
 ) -> (Render_Backend_Texture, bool) {
-	return _d3d11_create_texture(s, width, height, format, nil)
+	@(static, rodata) empty_data: [MAX_MIP_LEVELS][]u8
+	return _d3d11_create_texture(s, width, height, format, empty_data[:mip_levels])
 }
 
 d3d11_create_render_texture :: proc(
 	s: ^D3D11_State,
 	width: int,
 	height: int,
+	mip_levels: int,
 ) -> (
 	_rt_texture: Render_Backend_Texture,
 	_rt: Render_Target_Handle,
@@ -695,12 +754,24 @@ d3d11_create_render_texture :: proc(
 	texture_desc := d3d11.TEXTURE2D_DESC{
 		Width      = u32(width),
 		Height     = u32(height),
-		MipLevels  = 1,
+		MipLevels  = u32(mip_levels),
 		ArraySize  = 1,
 		Format     = dxgi_format_from_pixel_format(.RGBA_32_Float),
 		SampleDesc = {Count = 1},
 		Usage      = .DEFAULT,
 		BindFlags  = {.SHADER_RESOURCE, .RENDER_TARGET},
+	}
+
+	can_generate_mips := false
+
+	if mip_levels > 1 {
+		format_support: u32
+		s.device->CheckFormatSupport(texture_desc.Format, &format_support)
+		can_generate_mips = format_support & u32(d3d11.FORMAT_SUPPORT.MIP_AUTOGEN) != 0
+
+		if can_generate_mips {
+			texture_desc.MiscFlags = {.GENERATE_MIPS}
+		}
 	}
 
 	texture: ^d3d11.ITexture2D
@@ -741,6 +812,7 @@ d3d11_create_render_texture :: proc(
 		tex = texture,
 		view = texture_view,
 		format = .RGBA_32_Float,
+		can_generate_mips = can_generate_mips,
 	}
 
 	d3d11_render_target := D3D11_Render_Target {
@@ -839,12 +911,12 @@ d3d11_destroy_render_target :: proc(s: ^D3D11_State, render_target: Render_Targe
 
 d3d11_load_texture :: proc(
 	s: ^D3D11_State,
-	data: []u8,
+	data: [][]u8,
 	width: int,
 	height: int,
 	format: Pixel_Format,
 ) -> (Render_Backend_Texture, bool) {
-	return _d3d11_create_texture(s, width, height, format, raw_data(data))
+	return _d3d11_create_texture(s, width, height, format, data)
 }
 
 d3d11_update_texture :: proc(
@@ -853,6 +925,7 @@ d3d11_update_texture :: proc(
 	data: []u8,
 	rect: Rect,
 	pitch: int,
+	mip_level: int,
 ) -> bool {
 	tex := hm.get(&s.textures, th)
 
@@ -876,7 +949,32 @@ d3d11_update_texture :: proc(
 		row_pitch = pixel_format_size(tex.format) * int(rect.w)
 	}
 
-	s.device_context->UpdateSubresource(tex.tex, 0, &box, raw_data(data), u32(row_pitch), 0)
+	s.device_context->UpdateSubresource(
+		tex.tex,
+		u32(mip_level),
+		&box,
+		raw_data(data),
+		u32(row_pitch),
+		0,
+	)
+
+	return true
+}
+
+d3d11_generate_mipmap :: proc(s: ^D3D11_State, th: Render_Backend_Texture) -> bool {
+	tex := hm.get(&s.textures, th)
+
+	if tex == nil || tex.view == nil {
+		log.errorf("Trying to generate mipmap for texture %v, but it is invalid.", th)
+		return false
+	}
+
+	if !tex.can_generate_mips {
+		log.errorf("Pixel format %v does not support generating mipmaps", tex.format)
+		return false
+	}
+
+	s.device_context->GenerateMips(tex.view)
 	return true
 }
 
@@ -896,15 +994,24 @@ d3d11_get_texture_sampler :: proc(s: ^D3D11_State, sampler: Texture_Sampler) -> 
 
 	d := sampler.scale_down_filter
 	u := sampler.scale_up_filter
+	m := sampler.mip_filter
 	f: d3d11.FILTER
 
-	if d == .Point && u == .Point {
+	if d == .Point && u == .Point && m == .Point {
 		f = .MIN_MAG_MIP_POINT
-	} else if d == .Linear && u == .Linear {
+	} else if d == .Linear && u == .Linear && m == .Linear {
+		f = .MIN_MAG_MIP_LINEAR
+	} else if d == .Point && u == .Point && m == .Linear {
+		f = .MIN_MAG_POINT_MIP_LINEAR
+	} else if d == .Point && u == .Linear && m == .Linear {
+		f = .MIN_POINT_MAG_MIP_LINEAR
+	} else if d == .Linear && u == .Linear && m == .Point {
 		f = .MIN_MAG_LINEAR_MIP_POINT
-	} else if d == .Linear && u == .Point {
+	} else if d == .Linear && u == .Point && m == .Point {
 		f = .MIN_LINEAR_MAG_MIP_POINT
-	} else if d == .Point && u == .Linear {
+	} else if d == .Linear && u == .Point && m == .Linear {
+		f = .MIN_LINEAR_MAG_POINT_MIP_LINEAR
+	} else if d == .Point && u == .Linear && m == .Point {
 		f = .MIN_POINT_MAG_LINEAR_MIP_POINT
 	}
 
@@ -933,6 +1040,7 @@ d3d11_get_texture_sampler :: proc(s: ^D3D11_State, sampler: Texture_Sampler) -> 
 		AddressW = .CLAMP,
 		ComparisonFunc = .NEVER,
 		BorderColor = wrap_color,
+		MaxLOD = d3d11.FLOAT32_MAX,
 	}
 
 	smp: ^d3d11.ISamplerState
@@ -1586,6 +1694,7 @@ D3D11_Texture :: struct {
 	tex: ^d3d11.ITexture2D,
 	view: ^d3d11.IShaderResourceView,
 	format: Pixel_Format,
+	can_generate_mips: bool,
 }
 
 D3D11_Render_Target :: struct {

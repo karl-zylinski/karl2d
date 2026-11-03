@@ -23,6 +23,7 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 	create_texture = webgl_create_texture,
 	load_texture = webgl_load_texture,
 	update_texture = webgl_update_texture,
+	generate_mipmap = webgl_generate_mipmap,
 	destroy_texture = webgl_destroy_texture,
 	flip_render_textures = true,
 	create_render_texture = webgl_create_render_texture,
@@ -161,6 +162,9 @@ webgl_init :: proc(
 
 	gl.Disable(gl.CULL_FACE)
 	gl.Enable(gl.BLEND)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+	gl.GetExtension("EXT_color_buffer_float")
+	gl.GetExtension("OES_texture_float_linear")
 
 	if s.depth_test {
 		gl.Enable(gl.DEPTH_TEST)
@@ -451,17 +455,25 @@ _webgl_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
-	data: rawptr,
+	data: [][]u8,
 ) -> (WebGL_Texture, bool) {
 	id := gl.CreateTexture()
 	gl.BindTexture(gl.TEXTURE_2D, id)
 
-	pf := webgl_translate_pixel_format(format)
+	internal_format, pixel_format, pixel_type := webgl_translate_pixel_format(format)
 
 	webgl_drain_errors()
 
-	data_size := width*height*pixel_format_size(format)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, pf, i32(width), i32(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, data_size, data)
+	level_width := width
+	level_height := height
+
+	for level_data, level in data {
+		gl.TexImage2D(gl.TEXTURE_2D, i32(level), internal_format, i32(level_width), i32(level_height), 0, pixel_format, pixel_type, len(level_data), raw_data(level_data))
+		level_width = max(level_width / 2, 1)
+		level_height = max(level_height / 2, 1)
+	}
+
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, i32(len(data) - 1))
 
 	// This is where a texture that is too big for the GPU, or one the GPU has no memory left for,
 	// gets caught. Without the check it would become a texture that silently draws nothing.
@@ -482,8 +494,10 @@ webgl_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
+	mip_levels: int,
 ) -> (Render_Backend_Texture, bool) {
-	texture, texture_ok := _webgl_create_texture(width, height, format, nil)
+	@(static, rodata) empty_data: [MAX_MIP_LEVELS][]u8
+	texture, texture_ok := _webgl_create_texture(width, height, format, empty_data[:mip_levels])
 
 	if !texture_ok {
 		return RENDER_BACKEND_TEXTURE_NONE, false
@@ -502,12 +516,12 @@ webgl_create_texture :: proc(
 
 webgl_load_texture :: proc(
 	s: ^WebGL_State,
-	data: []u8,
+	data: [][]u8,
 	width: int,
 	height: int,
 	format: Pixel_Format,
 ) -> (Render_Backend_Texture, bool) {
-	texture, texture_ok := _webgl_create_texture(width, height, format, raw_data(data))
+	texture, texture_ok := _webgl_create_texture(width, height, format, data)
 
 	if !texture_ok {
 		return RENDER_BACKEND_TEXTURE_NONE, false
@@ -530,6 +544,7 @@ webgl_update_texture :: proc(
 	data: []u8,
 	rect: Rect,
 	pitch: int,
+	mip_level: int,
 ) -> bool {
 	tex := hm.get(&s.textures, th)
 
@@ -537,10 +552,31 @@ webgl_update_texture :: proc(
 		return false
 	}
 
+	_, pixel_format, pixel_type := webgl_translate_pixel_format(tex.format)
 	gl.BindTexture(gl.TEXTURE_2D, tex.id)
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, i32(pitch / pixel_format_size(tex.format)))
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), gl.RGBA, gl.UNSIGNED_BYTE, len(data), raw_data(data))
+	gl.TexSubImage2D(gl.TEXTURE_2D, i32(mip_level), i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), pixel_format, pixel_type, len(data), raw_data(data))
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
+	return true
+}
+
+webgl_generate_mipmap :: proc(s: ^WebGL_State, th: Render_Backend_Texture) -> bool {
+	tex := hm.get(&s.textures, th)
+
+	if tex == nil {
+		log.errorf("Trying to generate mipmap for texture %v, but it is invalid.", th)
+		return false
+	}
+
+	gl.BindTexture(gl.TEXTURE_2D, tex.id)
+	webgl_drain_errors()
+	gl.GenerateMipmap(gl.TEXTURE_2D)
+
+	if err := gl.GetError(); err != gl.NO_ERROR {
+		log.errorf("Failed generating mipmap. GL error: %v", err)
+		return false
+	}
+
 	return true
 }
 
@@ -559,8 +595,10 @@ webgl_create_render_texture :: proc(
 	s: ^WebGL_State,
 	width: int,
 	height: int,
+	mip_levels: int,
 ) -> (Render_Backend_Texture, Render_Target_Handle, bool) {
-	texture, texture_ok := _webgl_create_texture(width, height, .RGBA_32_Float, nil)
+	@(static, rodata) empty_data: [MAX_MIP_LEVELS][]u8
+	texture, texture_ok := _webgl_create_texture(width, height, .RGBA_32_Float, empty_data[:mip_levels])
 
 	if !texture_ok {
 		return RENDER_BACKEND_TEXTURE_NONE, RENDER_TARGET_NONE, false
@@ -662,7 +700,13 @@ webgl_get_texture_sampler :: proc(s: ^WebGL_State, sampler: Texture_Sampler) -> 
 
 	smp := gl.CreateSampler()
 
-	min_filter := sampler.scale_down_filter == .Point ? gl.NEAREST : gl.LINEAR
+	min_filter: gl.Enum
+
+	switch sampler.scale_down_filter {
+	case .Point: min_filter = sampler.mip_filter == .Point ? gl.NEAREST_MIPMAP_NEAREST : gl.NEAREST_MIPMAP_LINEAR
+	case .Linear: min_filter = sampler.mip_filter == .Point ? gl.LINEAR_MIPMAP_NEAREST : gl.LINEAR_MIPMAP_LINEAR
+	}
+
 	mag_filter := sampler.scale_up_filter == .Point ? gl.NEAREST : gl.LINEAR
 
 	gl.SamplerParameteri(smp, gl.TEXTURE_MIN_FILTER, i32(min_filter))
@@ -985,25 +1029,23 @@ webgl_uniform_size :: proc(t: gl.Enum) -> int {
 	return sz
 }
 
-webgl_translate_pixel_format :: proc(f: Pixel_Format) -> gl.Enum {
+webgl_translate_pixel_format :: proc(f: Pixel_Format) -> (internal_format: gl.Enum, format: gl.Enum, type: gl.Enum) {
 	switch f {
-	case .RGBA_32_Float: return gl.RGBA
-	case .RGB_32_Float: return gl.RGB
-	case .RG_32_Float: return gl.RG
-	case .R_32_Float: return gl.RED
+	case .RGBA_32_Float: return gl.RGBA32F, gl.RGBA, gl.FLOAT
+	case .RGB_32_Float: return gl.RGB32F, gl.RGB, gl.FLOAT
+	case .RG_32_Float: return gl.RG32F, gl.RG, gl.FLOAT
+	case .R_32_Float: return gl.R32F, gl.RED, gl.FLOAT
 
-	// IS THIS STUFF CORRECT? Compare to GL backend
-	// Do we need float textures? What is happening...
-	case .RGBA_8_Norm: return gl.RGBA
-	case .RG_8_Norm: return gl.RG
-	case .R_8_Norm: return gl.RED
-	case .R_8_UInt: return gl.RED
+	case .RGBA_8_Norm: return gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE
+	case .RG_8_Norm: return gl.RG8, gl.RG, gl.UNSIGNED_BYTE
+	case .R_8_Norm: return gl.R8, gl.RED, gl.UNSIGNED_BYTE
+	case .R_8_UInt: return gl.R8UI, gl.RED_INTEGER, gl.UNSIGNED_BYTE
 
 	case .Unknown: fallthrough
-	case: log.error("Unhandled pixel format %v", f) 
+	case: log.error("Unhandled pixel format %v", f)
 	}
-	
-	return 0
+
+	return 0, 0, 0
 }
 
 

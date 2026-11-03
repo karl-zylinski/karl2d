@@ -7,7 +7,7 @@ main :: proc() {
 	k2.set_window_position(300, 100)
 
 	// Load a texture and premultiply the alpha while loading it.
-	tex := k2.load_texture_from_file("plop.png", options = { .Premultiply_Alpha })
+	tex := k2.load_texture_from_file("plop.png", options = { premultiply_alpha = true })
 	
 	// Set the rendering to use premultiplied alpha when blending.
 	k2.set_blend_mode(.Premultiplied_Alpha)

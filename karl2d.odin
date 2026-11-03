@@ -2025,7 +2025,12 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 // TEXTURE MANAGEMENT //
 //--------------------//
 
-// Create an empty texture.
+// Create a blank texture of some size. `format` is the format the texture will have on the GPU.
+//
+// `mip_levels` must be in the range between `1` and `get_max_mip_levels(width, height)`. Each mip
+// level is a smaller and smaller version of the texture. It helps with avoiding artifacts when
+// drawing the texture scaled down. `mip_levels := 1` means that no extra levels except the "full
+// size texture" are created.
 //
 // The second return value is `true` if the texture was created correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -2034,8 +2039,28 @@ create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
+	mip_levels := 1,
 ) -> (Texture, bool) #optional_ok {
-	h, h_ok := s.rb.create_texture(s.rb_state, width, height, format)
+	max_mip_levels := get_max_mip_levels(width, height)
+
+	if mip_levels < 1 || mip_levels > max_mip_levels {
+		log.errorf(
+			"Invalid mip level count %v for a %v x %v texture, it must be between 1 and %v",
+			mip_levels,
+			width,
+			height,
+			max_mip_levels,
+		)
+
+		return TEXTURE_NONE, false
+	}
+
+	if mip_levels > MAX_MIP_LEVELS {
+		log.errorf("Too many mip levels: %v, the maximum is %v", mip_levels, MAX_MIP_LEVELS)
+		return TEXTURE_NONE, false
+	}
+
+	h, h_ok := s.rb.create_texture(s.rb_state, width, height, format, mip_levels)
 
 	if !h_ok {
 		log.errorf(
@@ -2052,6 +2077,8 @@ create_texture :: proc(
 		rb_texture = h,
 		width = width,
 		height = height,
+		format = format,
+		mip_levels = mip_levels,
 	})
 
 	if add_err != nil {
@@ -2066,7 +2093,8 @@ create_texture :: proc(
 // Load a texture from disk and upload it to the GPU so you can draw it to the screen.
 // Supports PNG, BMP, TGA and baseline PNG. Note that progressive PNG files are not supported!
 //
-// The `options` parameter can be used to specify things things such as premultiplication of alpha.
+// The `options` parameter can be used to specify things such as premultiplication of alpha and
+// mipmap options.
 //
 // The second return value is `true` if the texture was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -2086,7 +2114,7 @@ load_texture_from_file :: proc(
 		.alpha_add_if_missing,
 	}
 
-	if .Premultiply_Alpha in options {
+	if options.premultiply_alpha {
 		load_options += { .alpha_premultiply }
 	}
 
@@ -2097,13 +2125,16 @@ load_texture_from_file :: proc(
 		return {}, false
 	}
 
-	return load_texture_from_bytes_raw(img.pixels[:], img.width, img.height, .RGBA_8_Norm)
+	raw_options := options
+	raw_options.premultiply_alpha = false
+	return load_texture_from_bytes_raw(img.pixels[:], img.width, img.height, .RGBA_8_Norm, raw_options)
 }
 
 // Load a texture from a byte slice and upload it to the GPU so you can draw it to the screen.
 // Supports PNG, BMP, TGA and baseline PNG. Note that progressive PNG files are not supported!
 //
-// The `options` parameter can be used to specify things things such as premultiplication of alpha.
+// The `options` parameter can be used to specify things such as premultiplication of alpha and
+// mipmap options.
 //
 // The second return value is `true` if the texture was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -2116,7 +2147,7 @@ load_texture_from_bytes :: proc(
 		.alpha_add_if_missing,
 	}
 
-	if .Premultiply_Alpha in options {
+	if options.premultiply_alpha {
 		load_options += { .alpha_premultiply }
 	}
 
@@ -2127,12 +2158,17 @@ load_texture_from_bytes :: proc(
 		return {}, false
 	}
 
-	return load_texture_from_bytes_raw(img.pixels[:], img.width, img.height, .RGBA_8_Norm)
+	raw_options := options
+	raw_options.premultiply_alpha = false
+	return load_texture_from_bytes_raw(img.pixels[:], img.width, img.height, .RGBA_8_Norm, raw_options)
 }
 
 // Load raw texture data. You need to specify the data, size and format of the texture yourself.
 // This assumes that there is no header in the data. If your data has a header (you read the data
 // from a file on disk), then please use `load_texture_from_bytes` instead.
+//
+// The `options` parameter can be used to specify things such as premultiplication of alpha and
+// mipmap options.
 //
 // The second return value is `true` if the texture was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -2142,10 +2178,89 @@ load_texture_from_bytes_raw :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
+	options: Load_Texture_Options = {},
 ) -> (Texture, bool) #optional_ok {
+	expected_size := width * height * pixel_format_size(format)
+
+	if len(bytes) != expected_size {
+		log.errorf(
+			"Expected %v bytes for a %v x %v texture with pixel format %v, got %v",
+			expected_size,
+			width,
+			height,
+			format,
+			len(bytes),
+		)
+
+		return TEXTURE_NONE, false
+	}
+
+	pixel_bytes := bytes
+
+	if options.premultiply_alpha {
+		#partial switch format {
+		case .RGBA_8_Norm:
+			pixel_bytes = slice.clone(bytes, frame_allocator)
+
+			for i := 0; i + 3 < len(pixel_bytes); i += 4 {
+				alpha := u32(pixel_bytes[i + 3])
+				pixel_bytes[i] = u8((u32(pixel_bytes[i]) * alpha + 127) / 255)
+				pixel_bytes[i + 1] = u8((u32(pixel_bytes[i + 1]) * alpha + 127) / 255)
+				pixel_bytes[i + 2] = u8((u32(pixel_bytes[i + 2]) * alpha + 127) / 255)
+			}
+
+		case .RGBA_32_Float:
+			pixel_bytes = slice.clone(bytes, frame_allocator)
+			pixel_floats := slice.reinterpret([]f32, pixel_bytes)
+
+			for i := 0; i + 3 < len(pixel_floats); i += 4 {
+				alpha := pixel_floats[i + 3]
+				pixel_floats[i] *= alpha
+				pixel_floats[i + 1] *= alpha
+				pixel_floats[i + 2] *= alpha
+			}
+
+		case:
+			log.errorf("The premultiply_alpha option requires a pixel format with alpha, got %v", format)
+			return TEXTURE_NONE, false
+		}
+	}
+
+	if options.mip_levels != 0 && !options.generate_mipmap {
+		log.errorf("mip_levels is %v, but generate_mipmap is false", options.mip_levels)
+		return TEXTURE_NONE, false
+	}
+
+	mip_levels := 1
+
+	if options.generate_mipmap {
+		max_mip_levels := get_max_mip_levels(width, height)
+		mip_levels = options.mip_levels == 0 ? max_mip_levels : options.mip_levels
+
+		if mip_levels < 1 || mip_levels > max_mip_levels {
+			log.errorf(
+				"Invalid mip level count %v for a %v x %v texture, it must be between 1 and %v",
+				mip_levels,
+				width,
+				height,
+				max_mip_levels,
+			)
+
+			return TEXTURE_NONE, false
+		}
+	}
+
+	if mip_levels > MAX_MIP_LEVELS {
+		log.errorf("Too many mip levels: %v, the maximum is %v", mip_levels, MAX_MIP_LEVELS)
+		return TEXTURE_NONE, false
+	}
+
+	levels: [MAX_MIP_LEVELS][]u8
+	levels[0] = pixel_bytes
+
 	backend_tex, backend_tex_ok := s.rb.load_texture(
 		s.rb_state,
-		bytes[:],
+		levels[:mip_levels],
 		width,
 		height,
 		format,
@@ -2162,10 +2277,17 @@ load_texture_from_bytes_raw :: proc(
 		return TEXTURE_NONE, false
 	}
 
+	if mip_levels > 1 && !s.rb.generate_mipmap(s.rb_state, backend_tex) {
+		s.rb.destroy_texture(s.rb_state, backend_tex)
+		return TEXTURE_NONE, false
+	}
+
 	texture, add_err := hm.add(&s.textures, {
 		rb_texture = backend_tex,
 		width = width,
 		height = height,
+		format = format,
+		mip_levels = mip_levels,
 	})
 
 	if add_err != nil {
@@ -2180,10 +2302,16 @@ load_texture_from_bytes_raw :: proc(
 // Create a GPU texture from an image stored in RAM. There are currently no procedures to manipulate
 // the image. However, you can create an `Image` struct manually and fill out the data as needed.
 //
+// The `options` parameter can be used to specify things such as premultiplication of alpha and
+// mipmap options.
+//
 // The second return value is `true` if the texture was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
 // possible to use, but it won't draw anything.
-load_texture_from_image :: proc(image: Image) -> (Texture, bool) #optional_ok {
+load_texture_from_image :: proc(
+	image: Image,
+	options: Load_Texture_Options = {},
+) -> (Texture, bool) #optional_ok {
 	if image.width == 0 || image.height == 0 {
 		log.error("Invalid image: Height or width is zero")
 		return {}, false
@@ -2194,22 +2322,101 @@ load_texture_from_image :: proc(image: Image) -> (Texture, bool) #optional_ok {
 		return TEXTURE_NONE, false
 	}
 
-	backend_tex, backend_tex_ok := s.rb.load_texture(
-		s.rb_state,
+	return load_texture_from_bytes_raw(
 		slice.reinterpret([]u8, image.pixels[:]),
 		image.width,
 		image.height,
 		.RGBA_8_Norm,
+		options,
+	)
+}
+
+// Create a texture with a mipmap from a series of images. The first image in the slice is the full
+// size of the texture. That texture is referred to as "mip level 0". Each image provided after that
+// is smaller than the previous, and must have a specific size. The size is given by
+// `get_mip_level_width`/`get_mip_level_height`.
+load_texture_from_mipmap_images :: proc(images: []Image) -> (Texture, bool) #optional_ok {
+	if len(images) == 0 {
+		log.error("Invalid mipmap images: The slice is empty")
+		return TEXTURE_NONE, false
+	}
+
+	for img, level in images {
+		if img.width == 0 || img.height == 0 {
+			log.errorf("Invalid mipmap image at level %v: Height or width is zero", level)
+			return TEXTURE_NONE, false
+		}
+
+		if len(img.pixels) != (img.width*img.height) {
+			log.errorf(
+				"Invalid mipmap image at level %v: the pixels array is not of size image.width*image.height",
+				level,
+			)
+
+			return TEXTURE_NONE, false
+		}
+
+		if level == 0 {
+			continue
+		}
+
+		prev := images[level - 1]
+
+		if prev.width == 1 && prev.height == 1 {
+			log.errorf("Invalid mipmap image at level %v: The previous level is already 1 x 1", level)
+			return TEXTURE_NONE, false
+		}
+
+		expected_width := max(prev.width / 2, 1)
+		expected_height := max(prev.height / 2, 1)
+
+		if img.width != expected_width || img.height != expected_height {
+			log.errorf(
+				"Invalid mipmap image at level %v: Size is %v x %v, expected %v x %v",
+				level,
+				img.width,
+				img.height,
+				expected_width,
+				expected_height,
+			)
+
+			return TEXTURE_NONE, false
+		}
+	}
+
+	if len(images) > MAX_MIP_LEVELS {
+		log.errorf("Too many mip levels: %v, the maximum is %v", len(images), MAX_MIP_LEVELS)
+		return TEXTURE_NONE, false
+	}
+
+	width := images[0].width
+	height := images[0].height
+	mip_levels := len(images)
+	levels: [MAX_MIP_LEVELS][]u8
+
+	for img, level in images {
+		levels[level] = slice.reinterpret([]u8, img.pixels)
+	}
+
+	backend_tex, backend_tex_ok := s.rb.load_texture(
+		s.rb_state,
+		levels[:mip_levels],
+		width,
+		height,
+		.RGBA_8_Norm,
 	)
 
 	if !backend_tex_ok {
+		log.errorf("Failed loading texture with dimensions %v x %v", width, height)
 		return TEXTURE_NONE, false
 	}
 
 	texture, add_err := hm.add(&s.textures, {
 		rb_texture = backend_tex,
-		width = image.width,
-		height = image.height,
+		width = width,
+		height = height,
+		format = .RGBA_8_Norm,
+		mip_levels = mip_levels,
 	})
 
 	if add_err != nil {
@@ -2381,7 +2588,18 @@ get_texture_size :: proc(texture: Texture) -> Vec2 {
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
 // `texture` where the new pixels should end up. `pitch` is the number of bytes between the start of
 // two rows, the default of `0` means that the rows are tightly packed.
-update_texture :: proc(texture: Texture, bytes: []u8, rect: Rect, pitch := 0) -> bool {
+//
+// `mip_level` is only relevant if you've created the texture with more than one mip level. In that
+// case it is the index of the mip level you want to update. Note that the `rect` needs to be
+// smaller for higher mip levels. Get the size for a specific mip level using `get_mip_level_width`
+// and `get_mip_level_height`.
+update_texture :: proc(
+	texture: Texture,
+	bytes: []u8,
+	rect: Rect,
+	pitch := 0,
+	mip_level := 0,
+) -> bool {
 	tex := _get_texture_or_error(
 		texture,
 		"Trying to update invalid texture with handle %v",
@@ -2392,12 +2610,145 @@ update_texture :: proc(texture: Texture, bytes: []u8, rect: Rect, pitch := 0) ->
 		return false
 	}
 
+	if mip_level < 0 || mip_level >= tex.mip_levels {
+		log.errorf(
+			"Trying to update mip level %v of texture %v, which has %v mip levels",
+			mip_level,
+			texture,
+			tex.mip_levels,
+		)
+
+		return false
+	}
+
+	level_width := get_mip_level_width(tex.width, mip_level)
+	level_height := get_mip_level_height(tex.height, mip_level)
+	x := int(rect.x)
+	y := int(rect.y)
+	w := int(rect.w)
+	h := int(rect.h)
+
+	if x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > level_width || y + h > level_height {
+		log.errorf(
+			"Trying to update texture %v with rect %v, which does not fit inside mip level %v of size %v x %v",
+			texture,
+			rect,
+			mip_level,
+			level_width,
+			level_height,
+		)
+
+		return false
+	}
+
+	pixel_size := pixel_format_size(tex.format)
+	row_size := w * pixel_size
+	row_pitch := pitch == 0 ? row_size : pitch
+
+	if row_pitch < row_size {
+		log.errorf("Trying to update texture %v with pitch %v, which is less than the row size %v", texture, pitch, row_size)
+		return false
+	}
+
+	required_size := row_pitch * (h - 1) + row_size
+
+	if len(bytes) < required_size {
+		log.errorf(
+			"Trying to update texture %v with %v bytes, but the rect and pitch require %v bytes",
+			texture,
+			len(bytes),
+			required_size,
+		)
+
+		return false
+	}
+
 	// Recorded draw calls may still be waiting to use the old pixels.
 	if _is_texture_used_in_batch(tex) {
 		draw_current_batch()
 	}
 
-	return s.rb.update_texture(s.rb_state, tex.rb_texture, bytes, rect, pitch)
+	return s.rb.update_texture(s.rb_state, tex.rb_texture, bytes, rect, pitch, mip_level)
+}
+
+// Generate mipmap for a texture. This requires that the texture was created with at least 2 mip
+// levels. See the `mip_levels` parameter of `create_texture` and the `mip_levels` option in
+// `Load_Texture_Options`.
+generate_mipmap :: proc(texture: Texture) -> bool {
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to generate mipmap for invalid texture with handle %v",
+		texture,
+	)
+
+	if tex == nil {
+		return false
+	}
+
+	if tex.mip_levels < 2 {
+		log.errorf("Trying to generate mipmap for texture %v, which has no mip levels", texture)
+		return false
+	}
+
+	needs_draw_batch := _is_texture_used_in_batch(tex)
+
+	// We can't check if this texture is related to a render target because the render target set
+	// has no texture to check against. Perhaps we can change render targets in the draw call so
+	// that they have a texture. Or put render textures behind a handle and use that.
+	if s.current_draw_call.render_target != RENDER_TARGET_NONE {
+		needs_draw_batch = true
+	}
+	for &dc in s.batch_draw_calls {
+		if dc.render_target != RENDER_TARGET_NONE {
+			needs_draw_batch = true
+		}
+	}
+
+	if needs_draw_batch {
+		draw_current_batch()
+	}
+
+	return s.rb.generate_mipmap(s.rb_state, tex.rb_texture)
+}
+
+// Given the width of the first mip level, get the width of a smaller one. The first mip level is
+// equivalent to the full width of the texture.
+get_mip_level_width :: proc(level_0_width: int, mip_level: int) -> int {
+	return max(level_0_width >> uint(mip_level), 1)
+}
+
+// Given the height of the first mip level, get the height of a smaller one. The first mip level is
+// equivalent to the full height of the texture.
+get_mip_level_height :: proc(level_0_height: int, mip_level: int) -> int {
+	return max(level_0_height >> uint(mip_level), 1)
+}
+
+// Tells you how many images a full mipmap chain can maximally contain.
+get_max_mip_levels :: proc(width: int, height: int) -> int {
+	levels := 1
+	size := max(width, height)
+
+	for size > 1 {
+		size /= 2
+		levels += 1
+	}
+
+	return levels
+}
+
+// How many mipmap levels a texture was created with.
+get_texture_mip_levels :: proc(texture: Texture) -> int {
+	tex := _get_texture_or_error(
+		texture,
+		"Trying to get mip levels of invalid texture with handle %v",
+		texture,
+	)
+
+	if tex == nil {
+		return 0
+	}
+
+	return tex.mip_levels
 }
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
@@ -2421,8 +2772,9 @@ destroy_texture :: proc(texture: Texture) {
 }
 
 // Controls how a texture should be filtered. You can choose "point" or "linear" filtering. Which
-// means "pixly" or "smooth". This filter will be used for up and down-scaling. If you want to
-// control up and down-scaling separately, then use `set_texture_sampler`.
+// means "pixly" or "smooth". This filter will be used for up and down-scaling as well as for mipmap
+// scaling. If you want to control up-, down- and mipmap-scaling separately, then use
+// `set_texture_sampler`.
 set_texture_filter :: proc(t: Texture, filter: Texture_Filter) {
 	tex := _get_texture_or_error(
 		t,
@@ -2438,7 +2790,8 @@ set_texture_filter :: proc(t: Texture, filter: Texture_Filter) {
 	prev_sampler_overrides := tex.sampler_overrides
 	tex.sampler.scale_up_filter = filter
 	tex.sampler.scale_down_filter = filter
-	tex.sampler_overrides += { .Scale_Up_Filter, .Scale_Down_Filter }
+	tex.sampler.mip_filter = filter
+	tex.sampler_overrides += { .Scale_Up_Filter, .Scale_Down_Filter, .Mip_Filter }
 
 	if tex.sampler != prev_sampler || tex.sampler_overrides != prev_sampler_overrides {
 		s.draw_call_changes += { .Textures }
@@ -2466,7 +2819,8 @@ set_texture_filter_ex :: proc(
 	prev_sampler_overrides := tex.sampler_overrides
 	tex.sampler.scale_down_filter = scale_down_filter
 	tex.sampler.scale_up_filter = scale_up_filter
-	tex.sampler_overrides += { .Scale_Down_Filter, .Scale_Up_Filter }
+	tex.sampler.mip_filter = mip_filter
+	tex.sampler_overrides += { .Scale_Down_Filter, .Scale_Up_Filter, .Mip_Filter }
 
 	if tex.sampler != prev_sampler || tex.sampler_overrides != prev_sampler_overrides {
 		s.draw_call_changes += { .Textures }
@@ -2530,6 +2884,7 @@ set_texture_sampler :: proc(texture: Texture, sampler: Maybe(Texture_Sampler)) {
 		tex.sampler_overrides = {
 			.Scale_Down_Filter,
 			.Scale_Up_Filter,
+			.Mip_Filter,
 			.Wrap_X,
 			.Wrap_Y,
 			.Wrap_Border_Color,
@@ -2568,6 +2923,10 @@ _get_texture_sampler :: proc(tex: ^Texture_Object) -> Texture_Sampler {
 
 	if .Scale_Up_Filter in tex.sampler_overrides {
 		sampler.scale_up_filter = tex.sampler.scale_up_filter
+	}
+
+	if .Mip_Filter in tex.sampler_overrides {
+		sampler.mip_filter = tex.sampler.mip_filter
 	}
 
 	if .Wrap_X in tex.sampler_overrides {
@@ -5264,14 +5623,44 @@ _audio_thread_context :: proc() -> runtime.Context {
 // Create a texture that you can render into. Meaning that you can draw into it instead of drawing
 // onto the screen. Use `set_render_texture` to enable this Render Texture for drawing.
 //
+// `mip_levels` must be in the range between `1` and `get_max_mip_levels(width, height)`. Each mip
+// level is a smaller and smaller version of the texture. It helps with avoiding artifacts when
+// drawing the texture scaled down. `mip_levels := 1` means that no extra levels except the "full
+// size texture" are created. Note that the mip levels are not filled automatically, you need to
+// call `generate_mipmap` to do that.
+//
 // The second return value is `true` if the render texture was created correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Render_Texture`
 // will still be possible to use, but setting it does nothing, so drawing stays where it was.
-create_render_texture :: proc(width: int, height: int) -> (Render_Texture, bool) #optional_ok {
+create_render_texture :: proc(
+	width: int,
+	height: int,
+	mip_levels := 1,
+) -> (Render_Texture, bool) #optional_ok {
+	max_mip_levels := get_max_mip_levels(width, height)
+
+	if mip_levels < 1 || mip_levels > max_mip_levels {
+		log.errorf(
+			"Invalid mip level count %v for a %v x %v render texture, it must be between 1 and %v",
+			mip_levels,
+			width,
+			height,
+			max_mip_levels,
+		)
+
+		return {}, false
+	}
+
+	if mip_levels > MAX_MIP_LEVELS {
+		log.errorf("Too many mip levels: %v, the maximum is %v", mip_levels, MAX_MIP_LEVELS)
+		return {}, false
+	}
+
 	rb_texture, render_target, render_texture_ok := s.rb.create_render_texture(
 		s.rb_state,
 		width,
 		height,
+		mip_levels,
 	)
 
 	if !render_texture_ok {
@@ -5283,6 +5672,8 @@ create_render_texture :: proc(width: int, height: int) -> (Render_Texture, bool)
 		rb_texture = rb_texture,
 		width = width,
 		height = height,
+		format = .RGBA_32_Float,
+		mip_levels = mip_levels,
 		flip_y = s.rb.flip_render_textures,
 	})
 
@@ -6364,7 +6755,7 @@ pixel_format_size :: proc(f: Pixel_Format) -> int {
 	switch f {
 	case .Unknown: return 0
 
-	case .RGBA_32_Float: return 32
+	case .RGBA_32_Float: return 16
 	case .RGB_32_Float: return 12
 	case .RG_32_Float: return 8
 	case .R_32_Float: return 4
@@ -6825,19 +7216,27 @@ color_alpha :: proc(c: Color, a: u8) -> Color {
 
 Texture :: distinct Handle
 
-Load_Texture_Option :: enum {
+Load_Texture_Options :: struct {
 	// Will multiply the alpha value of the each pixel into the its RGB values. Useful if you want
 	// to use `set_blend_mode(.Premultiplied_Alpha)`
-	Premultiply_Alpha,
-}
+	premultiply_alpha: bool,
 
-Load_Texture_Options :: bit_set[Load_Texture_Option]
+	// If true, then a mipmap will be generated (a chain of smaller versions for scaling down the
+	// texture in a nicer way). A full mipmap chain will be generated if this is `true` and
+	// `mip_levels` is `0`.
+	generate_mipmap: bool,
+
+	// Only to be used when `generate_mipmap` is true. If zero, then a full mipmap chain will be
+	// generated. If greater than zero, then only that many mip levels will be generated. Maximum
+	// value is given by `get_max_mip_levels(width, height)`.
+	mip_levels: int,
+}
 
 Blend_Mode :: enum {
 	Alpha,
 
 	// Requires the alpha-channel to be multiplied into texture RGB channels. You can automatically
-	// do this using the `Premultiply_Alpha` option when loading a texture.
+	// do this using the `premultiply_alpha` option when loading a texture.
 	Premultiplied_Alpha,
 
 	// Adds the source color, multiplied by its alpha, to the color already drawn.
@@ -6895,6 +7294,10 @@ Texture_Sampler :: struct {
 	// How the texture is filtered when it is scaled up.
 	scale_up_filter: Texture_Filter,
 
+	// Decides how to pick between mip levels. `Point` uses the nearest mip level. `Linear` blends
+	// between the two nearest mip levels.
+	mip_filter: Texture_Filter,
+
 	// The wrapping mode along the horizontal axis of the texture.
 	wrap_x: Texture_Wrap,
 
@@ -6910,6 +7313,8 @@ Texture_Object :: struct {
 	rb_texture: Render_Backend_Texture,
 	width: int,
 	height: int,
+	format: Pixel_Format,
+	mip_levels: int,
 	flip_y: bool,
 	sampler: Texture_Sampler,
 	sampler_overrides: bit_set[Texture_Sampler_Field],
@@ -6918,6 +7323,7 @@ Texture_Object :: struct {
 Texture_Sampler_Field :: enum {
 	Scale_Down_Filter,
 	Scale_Up_Filter,
+	Mip_Filter,
 	Wrap_X,
 	Wrap_Y,
 	Wrap_Border_Color,
@@ -8461,6 +8867,8 @@ _is_texture_used_in_batch :: proc(texture: ^Texture_Object) -> bool {
 
 VERTEX_BUFFER_MAX :: 1000000
 
+MAX_MIP_LEVELS :: 16
+
 // How much room the batch arena starts with. A draw call needs a handful of bytes for its
 // textures. It only copies the constants when they actually changed. This therefore covers a frame
 // with thousands of draw calls in it. The arena grows if a frame needs more.
@@ -8634,6 +9042,7 @@ _sync_font_atlas_texture :: proc() {
 		cache.width,
 		cache.height,
 		.RGBA_8_Norm,
+		1,
 	)
 
 	if !rb_texture_ok {
@@ -8692,6 +9101,7 @@ _update_font_atlas :: proc() {
 		slice.reinterpret([]u8, pixels),
 		r,
 		pitch,
+		0,
 	)
 	cache.dirty_min = { cache.width, cache.height }
 	cache.dirty_max = {}
