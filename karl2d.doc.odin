@@ -509,8 +509,8 @@ draw_text :: proc(
 //
 // `mip_levels` must be in the range between `1` and `get_max_mip_levels(width, height)`. Each mip
 // level is a smaller and smaller version of the texture. It helps with avoiding artifacts when
-// drawing the texture scaled down. `mip_levlels := 1` means that no extra levels except the "full
-// size texture" is created.
+// drawing the texture scaled down. `mip_levels := 1` means that no extra levels except the "full
+// size texture" are created.
 //
 // The second return value is `true` if the texture was created correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -525,8 +525,8 @@ create_texture :: proc(
 // Load a texture from disk and upload it to the GPU so you can draw it to the screen.
 // Supports PNG, BMP, TGA and baseline PNG. Note that progressive PNG files are not supported!
 //
-// The `options` parameter can be used to specify things things such as premultiplication of alpha
-// and mipmap options.
+// The `options` parameter can be used to specify things such as premultiplication of alpha and
+// mipmap options.
 //
 // The second return value is `true` if the texture was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -539,8 +539,8 @@ load_texture_from_file :: proc(
 // Load a texture from a byte slice and upload it to the GPU so you can draw it to the screen.
 // Supports PNG, BMP, TGA and baseline PNG. Note that progressive PNG files are not supported!
 //
-// The `options` parameter can be used to specify things things such as premultiplication of alpha
-// and mipmap options.
+// The `options` parameter can be used to specify things such as premultiplication of alpha and
+// mipmap options.
 //
 // The second return value is `true` if the texture was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -554,8 +554,8 @@ load_texture_from_bytes :: proc(
 // This assumes that there is no header in the data. If your data has a header (you read the data
 // from a file on disk), then please use `load_texture_from_bytes` instead.
 //
-// The `options` parameter can be used to specify things things such as premultiplication of alpha
-// and mipmap options.
+// The `options` parameter can be used to specify things such as premultiplication of alpha and
+// mipmap options.
 //
 // The second return value is `true` if the texture was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -571,8 +571,8 @@ load_texture_from_bytes_raw :: proc(
 // Create a GPU texture from an image stored in RAM. There are currently no procedures to manipulate
 // the image. However, you can create an `Image` struct manually and fill out the data as needed.
 //
-// The `options` parameter can be used to specify things things such as premultiplication of alpha
-// and mipmap options.
+// The `options` parameter can be used to specify things such as premultiplication of alpha and
+// mipmap options.
 //
 // The second return value is `true` if the texture was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -582,6 +582,10 @@ load_texture_from_image :: proc(
 	options: Load_Texture_Options = {},
 ) -> (Texture, bool) #optional_ok
 
+// Create a texture with a mipmap from a series of images. The first image in the slice is the full
+// size of the texture. That texture is referred to as "mip level 0". Each image provided after that
+// is smaller than the previous, and must have a specific size. The size is given by
+// `get_mip_level_width`/`get_mip_level_height`.
 load_texture_from_mipmap_images :: proc(images: []Image) -> (Texture, bool) #optional_ok
 
 // Load an image from disk into RAM. Supports the same formats as `load_texture_from_file`. The
@@ -619,10 +623,6 @@ is_texture_valid :: proc(texture: Texture) -> bool
 // error is logged.
 get_texture_rect :: proc(texture: Texture) -> Rect
 
-// Get the rectangle that spans a whole mip level of a texture. This can be used in combination 
-// with `update_texture` to update a specific mip level.
-get_texture_mip_level_rect :: proc(texture: Texture, mip_level: int) -> Rect
-
 // Get the pixel width of a texture.
 //
 // Returns a zero width for invalid textures. For invalid textures that are not TEXTURE_NONE, an
@@ -648,10 +648,10 @@ get_texture_size :: proc(texture: Texture) -> Vec2
 // `texture` where the new pixels should end up. `pitch` is the number of bytes between the start of
 // two rows, the default of `0` means that the rows are tightly packed.
 //
-// `mip_level` is only relevant if you've created the texture with more than 1 mip levels. In that
+// `mip_level` is only relevant if you've created the texture with more than one mip level. In that
 // case it is the index of the mip level you want to update. Note that the `rect` needs to be
-// smaller for higher mip levels. Get the rect for a specific mip level using
-// `get_texture_mip_level_rect`
+// smaller for higher mip levels. Get the size for a specific mip level using `get_mip_level_width`
+// and `get_mip_level_height`.
 update_texture :: proc(
 	texture: Texture,
 	bytes: []u8,
@@ -664,6 +664,14 @@ update_texture :: proc(
 // levels. See the `mip_levels` parameter of `create_texture` and the `mip_levels` option in
 // `Load_Texture_Options`.
 generate_mipmap :: proc(texture: Texture) -> bool
+
+// Given the width of the first mip level, get the width of a smaller one. The first mip level is
+// equivalent to the full width of the texture.
+get_mip_level_width :: proc(level_0_width: int, mip_level: int) -> int
+
+// Given the height of the first mip level, get the height of a smaller one. The first mip level is
+// equivalent to the full height of the texture.
+get_mip_level_height :: proc(level_0_height: int, mip_level: int) -> int
 
 // Tells you how many images a full mipmap chain can maximally contain.
 get_max_mip_levels :: proc(width: int, height: int) -> int
@@ -1056,8 +1064,9 @@ update_audio :: proc()
 //
 // `mip_levels` must be in the range between `1` and `get_max_mip_levels(width, height)`. Each mip
 // level is a smaller and smaller version of the texture. It helps with avoiding artifacts when
-// drawing the texture scaled down. `mip_levlels := 1` means that no extra levels except the "full
-// size texture" is created.
+// drawing the texture scaled down. `mip_levels := 1` means that no extra levels except the "full
+// size texture" are created. Note that the mip levels are not filled automatically, you need to
+// call `generate_mipmap` to do that.
 //
 // The second return value is `true` if the render texture was created correctly. It's optional to
 // handle this error, it will also be logged. In case of failure, the returned `Render_Texture`
@@ -1613,7 +1622,7 @@ Texture_Sampler :: struct {
 	scale_up_filter: Texture_Filter,
 
 	// Decides how to pick between mip levels. `Point` uses the nearest mip level. `Linear` blends
-	// between two nearest mip levels.
+	// between the two nearest mip levels.
 	mip_filter: Texture_Filter,
 
 	// The wrapping mode along the horizontal axis of the texture.
