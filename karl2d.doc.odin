@@ -1041,7 +1041,7 @@ update_audio :: proc()
 create_render_texture :: proc(
 	width: int,
 	height: int,
-	generate_mipmap := false,
+	mip_levels := 1,
 ) -> (Render_Texture, bool) #optional_ok
 
 // Destroy a Render_Texture previously created using `create_render_texture`.

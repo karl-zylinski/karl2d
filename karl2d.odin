@@ -2671,7 +2671,24 @@ generate_mipmap :: proc(texture: Texture) -> bool {
 		return false
 	}
 
-	draw_current_batch()
+	needs_draw_batch := _is_texture_used_in_batch(tex)
+
+	// We can't check if this texture is related to a render target because the render target set
+	// has no texture to check against. Perhaps we can change render targets in the draw call so
+	// that they have a texture. Or put render textures behind a handle and use that.
+	if s.current_draw_call.render_target != RENDER_TARGET_NONE {
+		needs_draw_batch = true
+	}
+	for &dc in s.batch_draw_calls {
+		if dc.render_target != RENDER_TARGET_NONE {
+			needs_draw_batch = true
+		}
+	}
+
+	if needs_draw_batch {
+		draw_current_batch()
+	}
+
 	return s.rb.generate_mipmap(s.rb_state, tex.rb_texture)
 }
 
@@ -5581,9 +5598,21 @@ _audio_thread_context :: proc() -> runtime.Context {
 create_render_texture :: proc(
 	width: int,
 	height: int,
-	generate_mipmap := false,
+	mip_levels := 1,
 ) -> (Render_Texture, bool) #optional_ok {
-	mip_levels := generate_mipmap ? get_max_mip_levels(width, height) : 1
+	max_mip_levels := get_max_mip_levels(width, height)
+
+	if mip_levels < 1 || mip_levels > max_mip_levels {
+		log.errorf(
+			"Invalid mip level count %v for a %v x %v render texture, it must be between 1 and %v",
+			mip_levels,
+			width,
+			height,
+			max_mip_levels,
+		)
+
+		return {}, false
+	}
 
 	if mip_levels > MAX_MIP_LEVELS {
 		log.errorf("Too many mip levels: %v, the maximum is %v", mip_levels, MAX_MIP_LEVELS)
