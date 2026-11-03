@@ -18,7 +18,7 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	create_texture = rbnil_create_texture,
 	load_texture = rbnil_load_texture,
 	update_texture = rbnil_update_texture,
-	generate_mipmaps = rbnil_generate_mipmaps,
+	generate_mipmap = rbnil_generate_mipmap,
 	destroy_texture = rbnil_destroy_texture,
 	flip_render_textures = false,
 	create_render_texture = rbnil_create_render_texture,
@@ -121,7 +121,7 @@ rbnil_update_texture :: proc(
 	return true
 }
 
-rbnil_generate_mipmaps :: proc(s: ^RBNil_State, th: Render_Backend_Texture) -> bool {
+rbnil_generate_mipmap :: proc(s: ^RBNil_State, th: Render_Backend_Texture) -> bool {
 	return true
 }
 

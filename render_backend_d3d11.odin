@@ -27,7 +27,7 @@ RENDER_BACKEND_D3D11 :: Render_Backend_Interface {
 	create_texture = d3d11_create_texture,
 	load_texture = d3d11_load_texture,
 	update_texture = d3d11_update_texture,
-	generate_mipmaps = d3d11_generate_mipmaps,
+	generate_mipmap = d3d11_generate_mipmap,
 	destroy_texture = d3d11_destroy_texture,
 	flip_render_textures = false,
 	create_render_texture = d3d11_create_render_texture,
@@ -937,11 +937,11 @@ d3d11_update_texture :: proc(
 	return true
 }
 
-d3d11_generate_mipmaps :: proc(s: ^D3D11_State, th: Render_Backend_Texture) -> bool {
+d3d11_generate_mipmap :: proc(s: ^D3D11_State, th: Render_Backend_Texture) -> bool {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil || tex.view == nil {
-		log.errorf("Trying to generate mipmaps for texture %v, but it is invalid.", th)
+		log.errorf("Trying to generate mipmap for texture %v, but it is invalid.", th)
 		return false
 	}
 

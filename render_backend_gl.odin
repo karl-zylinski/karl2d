@@ -23,7 +23,7 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	create_texture = gl_create_texture,
 	load_texture = gl_load_texture,
 	update_texture = gl_update_texture,
-	generate_mipmaps = gl_generate_mipmaps,
+	generate_mipmap = gl_generate_mipmap,
 	destroy_texture = gl_destroy_texture,
 	flip_render_textures = true,
 	create_render_texture = gl_create_render_texture,
@@ -570,11 +570,11 @@ gl_update_texture :: proc(
 	return true
 }
 
-gl_generate_mipmaps :: proc(s: ^GL_State, th: Render_Backend_Texture) -> bool {
+gl_generate_mipmap :: proc(s: ^GL_State, th: Render_Backend_Texture) -> bool {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil {
-		log.errorf("Trying to generate mipmaps for texture %v, but it is invalid.", th)
+		log.errorf("Trying to generate mipmap for texture %v, but it is invalid.", th)
 		return false
 	}
 
@@ -583,7 +583,7 @@ gl_generate_mipmaps :: proc(s: ^GL_State, th: Render_Backend_Texture) -> bool {
 	gl.GenerateMipmap(gl.TEXTURE_2D)
 
 	if err := gl.GetError(); err != gl.NO_ERROR {
-		log.errorf("Failed generating mipmaps. GL error: 0x%x", err)
+		log.errorf("Failed generating mipmap. GL error: 0x%x", err)
 		return false
 	}
 

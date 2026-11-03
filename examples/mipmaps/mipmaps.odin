@@ -38,7 +38,7 @@ init :: proc() {
 	}
 
 	tex_without_mipmaps = k2.load_texture_from_image(pattern)
-	tex_with_mipmaps = k2.load_texture_from_image(pattern, { generate_mipmaps = true })
+	tex_with_mipmaps = k2.load_texture_from_image(pattern, { generate_mipmap = true })
 }
 
 step :: proc() -> bool {

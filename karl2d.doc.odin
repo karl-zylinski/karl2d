@@ -507,7 +507,7 @@ draw_text :: proc(
 
 // Create a blank texture of some size. `format` is the format the texture will have on the GPU.
 //
-// `mip_levels` must be in the range between `1` and `k2.full_mip_chain_length(width, height, format)`
+// `mip_levels` must be in the range between `1` and `get_max_mip_levels(width, height)`
 //
 // The second return value is `true` if the texture was created correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -641,10 +641,15 @@ update_texture :: proc(
 	mip_level := 0,
 ) -> bool
 
-generate_mipmaps :: proc(texture: Texture) -> bool
+// Generate mipmap for a texture. This requires that the texture was created with at least 2 mip
+// levels. See the `mip_levels` parameter of `create_texture` and the `mip_levels` option in
+// `Load_Texture_Options`.
+generate_mipmap :: proc(texture: Texture) -> bool
 
-get_full_mip_chain_length :: proc(width: int, height: int) -> int
+// Tells you how many images a full mipmap chain can maximally contain.
+get_max_mip_levels :: proc(width: int, height: int) -> int
 
+// How many mipmap levels a texture was created with.
 get_texture_mip_levels :: proc(texture: Texture) -> int
 
 // Destroy a texture, freeing up any memory it has used on the GPU.
@@ -1036,7 +1041,7 @@ update_audio :: proc()
 create_render_texture :: proc(
 	width: int,
 	height: int,
-	mipmaps := false,
+	generate_mipmap := false,
 ) -> (Render_Texture, bool) #optional_ok
 
 // Destroy a Render_Texture previously created using `create_render_texture`.
@@ -1510,13 +1515,13 @@ Load_Texture_Options :: struct {
 	// to use `set_blend_mode(.Premultiplied_Alpha)`
 	premultiply_alpha: bool,
 
-	// If true, then mipmaps will be generated (smaller versions for scaling down the texture in a
-	// nicer way). A full mipmap chain will be generated if `mip_levels` is `0`.
-	generate_mipmaps: bool,
+	// If true, then a mipmap will be generated (a chain of smaller versions for scaling down the
+	// texture in a nicer way). A full mipmap chain will be generated if `mip_levels` is `0`.
+	generate_mipmap: bool,
 
-	// Only to be used when `generate_mipmaps` is true. If zero, then a full mipmap chain will be
+	// Only to be used when `generate_mipmap` is true. If zero, then a full mipmap chain will be
 	// generated. If greater than zero, then only that many mip levels will be generated. Maximum
-	// value is given by `full_mip_chain_length(width, height, format)`.
+	// value is given by `get_max_mip_levels(width, height)`.
 	mip_levels: int,
 }
 

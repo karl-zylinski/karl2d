@@ -2027,7 +2027,7 @@ draw_text_ex :: proc(font_handle: Font, text: string, pos: Vec2, font_size: f32,
 
 // Create a blank texture of some size. `format` is the format the texture will have on the GPU.
 //
-// `mip_levels` must be in the range between `1` and `k2.full_mip_chain_length(width, height, format)`
+// `mip_levels` must be in the range between `1` and `get_max_mip_levels(width, height)`
 //
 // The second return value is `true` if the texture was created correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -2038,15 +2038,15 @@ create_texture :: proc(
 	format: Pixel_Format,
 	mip_levels := 1,
 ) -> (Texture, bool) #optional_ok {
-	full_mip_chain_length := get_full_mip_chain_length(width, height)
+	max_mip_levels := get_max_mip_levels(width, height)
 
-	if mip_levels < 1 || mip_levels > full_mip_chain_length {
+	if mip_levels < 1 || mip_levels > max_mip_levels {
 		log.errorf(
 			"Invalid mip level count %v for a %v x %v texture, it must be between 1 and %v",
 			mip_levels,
 			width,
 			height,
-			full_mip_chain_length,
+			max_mip_levels,
 		)
 
 		return TEXTURE_NONE, false
@@ -2223,24 +2223,24 @@ load_texture_from_bytes_raw :: proc(
 		}
 	}
 
-	if options.mip_levels != 0 && !options.generate_mipmaps {
-		log.errorf("mip_levels is %v, but generate_mipmaps is false", options.mip_levels)
+	if options.mip_levels != 0 && !options.generate_mipmap {
+		log.errorf("mip_levels is %v, but generate_mipmap is false", options.mip_levels)
 		return TEXTURE_NONE, false
 	}
 
 	mip_levels := 1
 
-	if options.generate_mipmaps {
-		full_mip_chain_length := get_full_mip_chain_length(width, height)
-		mip_levels = options.mip_levels == 0 ? full_mip_chain_length : options.mip_levels
+	if options.generate_mipmap {
+		max_mip_levels := get_max_mip_levels(width, height)
+		mip_levels = options.mip_levels == 0 ? max_mip_levels : options.mip_levels
 
-		if mip_levels < 1 || mip_levels > full_mip_chain_length {
+		if mip_levels < 1 || mip_levels > max_mip_levels {
 			log.errorf(
 				"Invalid mip level count %v for a %v x %v texture, it must be between 1 and %v",
 				mip_levels,
 				width,
 				height,
-				full_mip_chain_length,
+				max_mip_levels,
 			)
 
 			return TEXTURE_NONE, false
@@ -2279,7 +2279,7 @@ load_texture_from_bytes_raw :: proc(
 		return TEXTURE_NONE, false
 	}
 
-	if mip_levels > 1 && !s.rb.generate_mipmaps(s.rb_state, backend_tex) {
+	if mip_levels > 1 && !s.rb.generate_mipmap(s.rb_state, backend_tex) {
 		s.rb.destroy_texture(s.rb_state, backend_tex)
 		return TEXTURE_NONE, false
 	}
@@ -2617,10 +2617,13 @@ update_texture :: proc(
 	return s.rb.update_texture(s.rb_state, tex.rb_texture, bytes, rect, pitch, mip_level)
 }
 
-generate_mipmaps :: proc(texture: Texture) -> bool {
+// Generate mipmap for a texture. This requires that the texture was created with at least 2 mip
+// levels. See the `mip_levels` parameter of `create_texture` and the `mip_levels` option in
+// `Load_Texture_Options`.
+generate_mipmap :: proc(texture: Texture) -> bool {
 	tex := _get_texture_or_error(
 		texture,
-		"Trying to generate mipmaps for invalid texture with handle %v",
+		"Trying to generate mipmap for invalid texture with handle %v",
 		texture,
 	)
 
@@ -2629,15 +2632,16 @@ generate_mipmaps :: proc(texture: Texture) -> bool {
 	}
 
 	if tex.mip_levels < 2 {
-		log.errorf("Trying to generate mipmaps for texture %v, which has no mip levels", texture)
+		log.errorf("Trying to generate mipmap for texture %v, which has no mip levels", texture)
 		return false
 	}
 
 	draw_current_batch()
-	return s.rb.generate_mipmaps(s.rb_state, tex.rb_texture)
+	return s.rb.generate_mipmap(s.rb_state, tex.rb_texture)
 }
 
-get_full_mip_chain_length :: proc(width: int, height: int) -> int {
+// Tells you how many images a full mipmap chain can maximally contain.
+get_max_mip_levels :: proc(width: int, height: int) -> int {
 	levels := 1
 	size := max(width, height)
 
@@ -2649,6 +2653,7 @@ get_full_mip_chain_length :: proc(width: int, height: int) -> int {
 	return levels
 }
 
+// How many mipmap levels a texture was created with.
 get_texture_mip_levels :: proc(texture: Texture) -> int {
 	tex := _get_texture_or_error(
 		texture,
@@ -5541,9 +5546,9 @@ _audio_thread_context :: proc() -> runtime.Context {
 create_render_texture :: proc(
 	width: int,
 	height: int,
-	mipmaps := false,
+	generate_mipmap := false,
 ) -> (Render_Texture, bool) #optional_ok {
-	mip_levels := mipmaps ? get_full_mip_chain_length(width, height) : 1
+	mip_levels := generate_mipmap ? get_max_mip_levels(width, height) : 1
 
 	if mip_levels > MAX_MIP_LEVELS {
 		log.errorf("Too many mip levels: %v, the maximum is %v", mip_levels, MAX_MIP_LEVELS)
@@ -7114,13 +7119,13 @@ Load_Texture_Options :: struct {
 	// to use `set_blend_mode(.Premultiplied_Alpha)`
 	premultiply_alpha: bool,
 
-	// If true, then mipmaps will be generated (smaller versions for scaling down the texture in a
-	// nicer way). A full mipmap chain will be generated if `mip_levels` is `0`.
-	generate_mipmaps: bool,
+	// If true, then a mipmap will be generated (a chain of smaller versions for scaling down the
+	// texture in a nicer way). A full mipmap chain will be generated if `mip_levels` is `0`.
+	generate_mipmap: bool,
 
-	// Only to be used when `generate_mipmaps` is true. If zero, then a full mipmap chain will be
+	// Only to be used when `generate_mipmap` is true. If zero, then a full mipmap chain will be
 	// generated. If greater than zero, then only that many mip levels will be generated. Maximum
-	// value is given by `full_mip_chain_length(width, height, format)`.
+	// value is given by `get_max_mip_levels(width, height)`.
 	mip_levels: int,
 }
 

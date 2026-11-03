@@ -23,7 +23,7 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 	create_texture = webgl_create_texture,
 	load_texture = webgl_load_texture,
 	update_texture = webgl_update_texture,
-	generate_mipmaps = webgl_generate_mipmaps,
+	generate_mipmap = webgl_generate_mipmap,
 	destroy_texture = webgl_destroy_texture,
 	flip_render_textures = true,
 	create_render_texture = webgl_create_render_texture,
@@ -556,11 +556,11 @@ webgl_update_texture :: proc(
 	return true
 }
 
-webgl_generate_mipmaps :: proc(s: ^WebGL_State, th: Render_Backend_Texture) -> bool {
+webgl_generate_mipmap :: proc(s: ^WebGL_State, th: Render_Backend_Texture) -> bool {
 	tex := hm.get(&s.textures, th)
 
 	if tex == nil {
-		log.errorf("Trying to generate mipmaps for texture %v, but it is invalid.", th)
+		log.errorf("Trying to generate mipmap for texture %v, but it is invalid.", th)
 		return false
 	}
 
@@ -569,7 +569,7 @@ webgl_generate_mipmaps :: proc(s: ^WebGL_State, th: Render_Backend_Texture) -> b
 	gl.GenerateMipmap(gl.TEXTURE_2D)
 
 	if err := gl.GetError(); err != gl.NO_ERROR {
-		log.errorf("Failed generating mipmaps. GL error: %v", err)
+		log.errorf("Failed generating mipmap. GL error: %v", err)
 		return false
 	}
 

@@ -125,7 +125,7 @@ Render_Backend_Interface :: struct #all_or_none {
 		mip_level: int,
 	) -> bool,
 
-	generate_mipmaps: proc(s: ^Render_Backend_State, handle: Render_Backend_Texture) -> bool,
+	generate_mipmap: proc(s: ^Render_Backend_State, handle: Render_Backend_Texture) -> bool,
 	destroy_texture: proc(s: ^Render_Backend_State, handle: Render_Backend_Texture),
 	flip_render_textures: bool,
 
