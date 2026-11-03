@@ -536,7 +536,8 @@ load_texture_from_file :: proc(
 // Load a texture from a byte slice and upload it to the GPU so you can draw it to the screen.
 // Supports PNG, BMP, TGA and baseline PNG. Note that progressive PNG files are not supported!
 //
-// The `options` parameter can be used to specify things things such as premultiplication of alpha.
+// The `options` parameter can be used to specify things things such as premultiplication of alpha
+// and mipmap options.
 //
 // The second return value is `true` if the texture was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -549,6 +550,9 @@ load_texture_from_bytes :: proc(
 // Load raw texture data. You need to specify the data, size and format of the texture yourself.
 // This assumes that there is no header in the data. If your data has a header (you read the data
 // from a file on disk), then please use `load_texture_from_bytes` instead.
+//
+// The `options` parameter can be used to specify things things such as premultiplication of alpha
+// and mipmap options.
 //
 // The second return value is `true` if the texture was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -563,6 +567,9 @@ load_texture_from_bytes_raw :: proc(
 
 // Create a GPU texture from an image stored in RAM. There are currently no procedures to manipulate
 // the image. However, you can create an `Image` struct manually and fill out the data as needed.
+//
+// The `options` parameter can be used to specify things things such as premultiplication of alpha
+// and mipmap options.
 //
 // The second return value is `true` if the texture was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Texture` will still be
@@ -609,6 +616,10 @@ is_texture_valid :: proc(texture: Texture) -> bool
 // error is logged.
 get_texture_rect :: proc(texture: Texture) -> Rect
 
+// Get the rectangle that spans a whole mip level of a texture. This can be used in combination 
+// with `update_texture` to update a specific mip level.
+get_texture_mip_level_rect :: proc(texture: Texture, mip_level: int) -> Rect
+
 // Get the pixel width of a texture.
 //
 // Returns a zero width for invalid textures. For invalid textures that are not TEXTURE_NONE, an
@@ -633,6 +644,11 @@ get_texture_size :: proc(texture: Texture) -> Vec2
 // Update a texture with new pixels. `bytes` is the new pixel data. `rect` is the rectangle in
 // `texture` where the new pixels should end up. `pitch` is the number of bytes between the start of
 // two rows, the default of `0` means that the rows are tightly packed.
+//
+// `mip_level` is only relevant if you've created the texture with more than 1 mip levels. In that
+// case it is the index of the mip level you want to update. Note that the `rect` needs to be
+// smaller for higher mip levels. Get the rect for a specific mip level using
+// `get_texture_mip_level_rect`
 update_texture :: proc(
 	texture: Texture,
 	bytes: []u8,
