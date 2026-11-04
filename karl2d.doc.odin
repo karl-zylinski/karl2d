@@ -1130,6 +1130,14 @@ rect_bottom_middle :: proc(r: Rect) -> Vec2
 // Get the bottom right corner of a rectangle.
 rect_bottom_right :: proc(r: Rect) -> Vec2
 
+// Get the left middle point of a rectangle. That is, the mid-point between the top left and bottom
+// left corners.
+rect_left_middle :: proc(r: Rect) -> Vec2
+
+// Get the right middle point of a rectangle. That is, the mid-point between the top right and
+// bottom right corners.
+rect_right_middle :: proc(r: Rect) -> Vec2
+
 // Make a rectangle smaller by `x` pixels in the horizontal direction and `y` pixels in the vertical
 rect_shrink :: proc(r: Rect, x: f32, y: f32) -> Rect
 
