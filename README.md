@@ -15,6 +15,7 @@ Support the project by becoming a sponsor here on [GitHub](https://github.com/sp
 - Support for mouse, keyboard and gamepad
 - Platforms: Windows, Linux, Mac, Web
 - Touch support on web
+- Few dependencies: The library attempts to contain all the code down to the OS/rendering APIs.
 
 ## Getting started
 
