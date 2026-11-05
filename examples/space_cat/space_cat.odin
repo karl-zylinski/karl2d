@@ -105,6 +105,9 @@ current_room_idx: int
 editing: bool
 game_camera: k2.Camera
 ui_camera: k2.Camera
+game_render_texture: k2.Render_Texture
+game_screen_rect: k2.Rect
+game_mouse_position: k2.Vec2
 
 // Dual-grid tileset
 space_tileset: k2.Texture
@@ -304,34 +307,94 @@ step :: proc() -> bool {
 		editing = !editing
 	}
 
-	// These cameras zoom everything so the height of the screen fits SCREEN_HEIGHT number of world-
-	// space pixels.
-	game_camera = {
-		zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
-		target = {0, -STATUS_BAR_HEIGHT},
-	}
-
-	ui_camera = {
-		zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
-	}
-
-	k2.set_scissor_rect(k2.Rect{
-		0, 0,
-		SCREEN_WIDTH*game_camera.zoom,
-		SCREEN_HEIGHT*game_camera.zoom,
-	})
-
 	if editing {
+		// These cameras zoom everything so the height of the screen fits SCREEN_HEIGHT number of world-
+		// space pixels.
+		game_camera = {
+			zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
+			target = {0, -STATUS_BAR_HEIGHT},
+		}
+
+		ui_camera = {
+			zoom = f32(k2.get_screen_height())/SCREEN_HEIGHT,
+		}
+
+		k2.set_scissor_rect(k2.Rect{
+			0, 0,
+			SCREEN_WIDTH*game_camera.zoom,
+			SCREEN_HEIGHT*game_camera.zoom,
+		})
+
 		editor_update()
 	} else {
+		update_game_render_texture()
+		rt_rect := k2.get_texture_rect(game_render_texture.texture)
+
+		game_camera = {
+			zoom = rt_rect.h/SCREEN_HEIGHT,
+			target = {0, -STATUS_BAR_HEIGHT},
+		}
+
+		ui_camera = {
+			zoom = rt_rect.h/SCREEN_HEIGHT,
+		}
+
+		k2.set_scissor_rect(nil)
+		game_mouse_position = (k2.get_mouse_position() - k2.rect_top_left(game_screen_rect)) * (rt_rect.w/game_screen_rect.w)
+
+		// We draw into a render texture so that we can center it vertically/horzontally.
+		k2.set_render_texture(game_render_texture)
+
 		update()
 		draw()
+		k2.set_render_texture(nil)
+		k2.set_camera(nil)
+		k2.clear(k2.BLACK)
+		k2.draw_texture_fit(game_render_texture.texture, rt_rect, game_screen_rect)
+		k2.present()
 	}
 
 	return true
 }
 
+update_game_render_texture :: proc() {
+	wanted_ar := f32(SCREEN_HEIGHT)/SCREEN_WIDTH
+	sw := f32(k2.get_screen_width())
+	sh := f32(k2.get_screen_height())
+	w, h: int
+
+	if sw <= 0 || sh <= 0 {
+		return
+	}
+
+	if sh/sw > wanted_ar {
+		w = int(sw)
+		h = int(math.ceil(sw*wanted_ar))
+		game_screen_rect = {0, sh/2 - (sw*wanted_ar)/2, sw, sw*wanted_ar}
+	} else {
+		w = int(math.ceil(sh/wanted_ar))
+		h = int(sh)
+		game_screen_rect = {sw/2 - (sh/wanted_ar)/2, 0, sh/wanted_ar, sh}
+	}
+
+	if game_render_texture.texture != k2.TEXTURE_NONE {
+		rt_rect := k2.get_texture_rect(game_render_texture.texture)
+
+		if int(rt_rect.w) == w && int(rt_rect.h) == h {
+			return
+		}
+
+		k2.destroy_render_texture(game_render_texture)
+	}
+
+	game_render_texture = k2.create_render_texture(w, h)
+}
+
 shutdown :: proc() {
+	if game_render_texture.texture != k2.TEXTURE_NONE {
+		k2.destroy_render_texture(game_render_texture)
+	}
+
 	destroy_world(world)
 	editor_shutdown()
 
@@ -547,7 +610,7 @@ update :: proc() {
 
 	world_rect := k2.rect_from_pos_size(
 		{0, 0},
-		k2.get_screen_size()/game_camera.zoom,
+		{SCREEN_WIDTH, SCREEN_HEIGHT},
 	)
 
 	// Despawn plasma balls that have left screen.
@@ -709,7 +772,6 @@ draw :: proc() {
 			k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/space_cat/space_cat.odin")
 		}
 
-		k2.present()
 		return
 	}
 
@@ -921,8 +983,6 @@ draw :: proc() {
 	if ui_button({100, 3, 60, (STATUS_BAR_HEIGHT)/2}, "Source code", ui_camera) {
 		k2.open_url("https://github.com/karl-zylinski/karl2d/blob/master/examples/space_cat/space_cat.odin")
 	}
-
-	k2.present()
 }
 
 // There is a separate example called dual_grid_tilemap that explains this technique in more detail.
@@ -1001,7 +1061,7 @@ DUAL_GRID_MASK_TO_TXTY := [16][2]int {
 }
 
 ui_button :: proc(r: k2.Rect, text: string, camera: k2.Camera) -> bool {
-	in_rect := k2.point_in_rect(k2.screen_to_camera(k2.get_mouse_position(), camera), r)
+	in_rect := k2.point_in_rect(k2.screen_to_camera(game_mouse_position, camera), r)
 	bg_color := k2.DARK_GRAY
 	border_color := k2.WHITE
 	text_color := k2.WHITE
