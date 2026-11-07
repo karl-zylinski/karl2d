@@ -1125,7 +1125,7 @@ d3d11_load_shader :: proc(
 	err = d3d_compiler.Reflect(
 		vs_blob->GetBufferPointer(),
 		vs_blob->GetBufferSize(),
-		d3d11.ID3D11ShaderReflection_UUID,
+		d3d11.IShaderReflection_UUID,
 		(^rawptr)(&vs_ref),
 	)
 
@@ -1305,7 +1305,7 @@ d3d11_load_shader :: proc(
 	err = d3d_compiler.Reflect(
 		ps_blob->GetBufferPointer(),
 		ps_blob->GetBufferSize(),
-		d3d11.ID3D11ShaderReflection_UUID,
+		d3d11.IShaderReflection_UUID,
 		(^rawptr)(&ps_ref),
 	)
 
