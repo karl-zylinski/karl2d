@@ -9,6 +9,8 @@ import hm "core:container/handle_map"
 import "log"
 import "core:strings"
 
+GL_ES :: #config(KARL2D_GL_ES, ODIN_PLATFORM_SUBTARGET == .Android)
+
 RENDER_BACKEND_GL :: Render_Backend_Interface {
 	state_type = GL_State,
 	init = gl_init,
@@ -48,6 +50,9 @@ GL_State :: struct {
 	render_targets: hm.Dynamic_Handle_Map(GL_Render_Target, Render_Target_Handle),
 	depth_test: bool,
 	texture_samplers: map[Texture_Sampler]u32,
+	border_wrap_supported: bool,
+	border_wrap_warning_shown: bool,
+	render_texture_internal_format: i32,
 }
 
 GL_Shader_Constant_Buffer :: struct {
@@ -81,6 +86,13 @@ GL_Texture :: struct {
 	handle: Render_Backend_Texture,
 	id: u32,
 	format: Pixel_Format,
+	internal_format: i32,
+}
+
+GL_Pixel_Format :: struct {
+	internal_format: i32,
+	format: u32,
+	type: u32,
 }
 
 GL_Texture_Binding :: struct {
@@ -146,10 +158,12 @@ gl_init :: proc(
 
 	// Note that AA also requires setup when choosing format for backbuffer, see for example
 	// SAMPLE_BUFFER etc in the glue files.
-	if options.anti_alias {
-		gl.Enable(gl.MULTISAMPLE)
-	} else {
-		gl.Disable(gl.MULTISAMPLE)
+	when !GL_ES {
+		if options.anti_alias {
+			gl.Enable(gl.MULTISAMPLE)
+		} else {
+			gl.Disable(gl.MULTISAMPLE)
+		}
 	}
 
 	if s.depth_test {
@@ -158,7 +172,52 @@ gl_init :: proc(
 		// Higher z ends up in front. GEQUAL instead of GREATER so that things drawn at the same z
 		// fall back to drawing order, like when depth testing is off.
 		gl.DepthFunc(gl.GEQUAL)
-		gl.ClearDepth(0)
+
+		when GL_ES {
+			gl.ClearDepthf(0)
+		} else {
+			gl.ClearDepth(0)
+		}
+	}
+
+	s.border_wrap_supported = true
+	s.render_texture_internal_format = gl.RGBA32F
+
+	when GL_ES {
+		has_extension :: proc(name: string) -> bool {
+			num_extensions: i32
+			gl.GetIntegerv(gl.NUM_EXTENSIONS, &num_extensions)
+
+			for extension_idx in 0..<num_extensions {
+				if string(gl.GetStringi(gl.EXTENSIONS, u32(extension_idx))) == name {
+					return true
+				}
+			}
+
+			return false
+		}
+
+		version_major: i32
+		version_minor: i32
+		gl.GetIntegerv(gl.MAJOR_VERSION, &version_major)
+		gl.GetIntegerv(gl.MINOR_VERSION, &version_minor)
+
+		s.border_wrap_supported = (
+			version_major > 3 ||
+			(version_major == 3 && version_minor >= 2) ||
+			has_extension("GL_EXT_texture_border_clamp") ||
+			has_extension("GL_OES_texture_border_clamp")
+		)
+
+		color_buffer_float := has_extension("GL_EXT_color_buffer_float")
+
+		if color_buffer_float && has_extension("GL_OES_texture_float_linear") {
+			s.render_texture_internal_format = gl.RGBA32F
+		} else if color_buffer_float || has_extension("GL_EXT_color_buffer_half_float") {
+			s.render_texture_internal_format = gl.RGBA16F
+		} else {
+			s.render_texture_internal_format = 0
+		}
 	}
 }
 
@@ -466,6 +525,7 @@ _gl_create_texture :: proc(
 	width: int,
 	height: int,
 	format: Pixel_Format,
+	internal_format: i32,
 	data: [][]u8,
 ) -> (GL_Texture, bool) {
 	id: u32
@@ -474,13 +534,25 @@ _gl_create_texture :: proc(
 
 	gl_drain_errors()
 
-	internal_format, pixel_format, pixel_type := gl_translate_pixel_format(format)
+	gl_format := gl_translate_pixel_format(format)
 	level_width := width
 	level_height := height
 
 	for level_data, level in data {
 		level_data_ptr := len(level_data) > 0 ? raw_data(level_data) : nil
-		gl.TexImage2D(gl.TEXTURE_2D, i32(level), internal_format, i32(level_width), i32(level_height), 0, pixel_format, pixel_type, level_data_ptr)
+
+		gl.TexImage2D(
+			gl.TEXTURE_2D,
+			i32(level),
+			internal_format,
+			i32(level_width),
+			i32(level_height),
+			0,
+			gl_format.format,
+			gl_format.type,
+			level_data_ptr,
+		)
+
 		level_width = max(level_width / 2, 1)
 		level_height = max(level_height / 2, 1)
 	}
@@ -498,6 +570,7 @@ _gl_create_texture :: proc(
 	return {
 		id = id,
 		format = format,
+		internal_format = internal_format,
 	}, true
 }
 
@@ -509,7 +582,13 @@ gl_create_texture :: proc(
 	mip_levels: int,
 ) -> (Render_Backend_Texture, bool) {
 	@(static, rodata) empty_data: [MAX_MIP_LEVELS][]u8
-	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, empty_data[:mip_levels])
+	gl_tex, gl_tex_ok := _gl_create_texture(
+		width,
+		height,
+		format,
+		gl_translate_pixel_format(format).internal_format,
+		empty_data[:mip_levels],
+	)
 
 	if !gl_tex_ok {
 		return {}, false
@@ -533,7 +612,13 @@ gl_load_texture :: proc(
 	height: int,
 	format: Pixel_Format,
 ) -> (Render_Backend_Texture, bool) {
-	gl_tex, gl_tex_ok := _gl_create_texture(width, height, format, data)
+	gl_tex, gl_tex_ok := _gl_create_texture(
+		width,
+		height,
+		format,
+		gl_translate_pixel_format(format).internal_format,
+		data,
+	)
 
 	if !gl_tex_ok {
 		return {}, false
@@ -564,10 +649,22 @@ gl_update_texture :: proc(
 		return false
 	}
 
-	_, pixel_format, pixel_type := gl_translate_pixel_format(tex.format)
+	gl_format := gl_translate_pixel_format(tex.format)
 	gl.BindTexture(gl.TEXTURE_2D, tex.id)
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, i32(pitch / pixel_format_size(tex.format)))
-	gl.TexSubImage2D(gl.TEXTURE_2D, i32(mip_level), i32(rect.x), i32(rect.y), i32(rect.w), i32(rect.h), pixel_format, pixel_type, raw_data(data))
+
+	gl.TexSubImage2D(
+		gl.TEXTURE_2D,
+		i32(mip_level),
+		i32(rect.x),
+		i32(rect.y),
+		i32(rect.w),
+		i32(rect.h),
+		gl_format.format,
+		gl_format.type,
+		raw_data(data),
+	)
+
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
 	return true
 }
@@ -610,7 +707,18 @@ gl_create_render_texture :: proc(
 	mip_levels: int,
 ) -> (Render_Backend_Texture, Render_Target_Handle, bool) {
 	@(static, rodata) empty_data: [MAX_MIP_LEVELS][]u8
-	texture, texture_ok := _gl_create_texture(width, height, .RGBA_32_Float, empty_data[:mip_levels])
+	if s.render_texture_internal_format == 0 {
+		log.error("Can't create render texture: This GPU can't render to float textures.")
+		return {}, {}, false
+	}
+
+	texture, texture_ok := _gl_create_texture(
+		width,
+		height,
+		.RGBA_32_Float,
+		s.render_texture_internal_format,
+		empty_data[:mip_levels],
+	)
 
 	if !texture_ok {
 		return {}, {}, false
@@ -620,7 +728,7 @@ gl_create_render_texture :: proc(
 	gl.GenFramebuffers(1, &framebuffer)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, framebuffer)
 
-	gl.FramebufferTexture(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, texture.id, 0)
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture.id, 0)
 	draw_buffers := u32(gl.COLOR_ATTACHMENT0)
 	gl.DrawBuffers(1, &draw_buffers)
 
@@ -706,6 +814,24 @@ gl_get_texture_sampler :: proc(s: ^GL_State, sampler: Texture_Sampler) -> u32 {
 		return smp
 	}
 
+	wrap_x := sampler.wrap_x
+	wrap_y := sampler.wrap_y
+
+	if !s.border_wrap_supported {
+		if (wrap_x == .Border || wrap_y == .Border) && !s.border_wrap_warning_shown {
+			log.warn("This GPU does not support the Border texture wrap mode. Using Clamp instead.")
+			s.border_wrap_warning_shown = true
+		}
+
+		if wrap_x == .Border {
+			wrap_x = .Clamp
+		}
+
+		if wrap_y == .Border {
+			wrap_y = .Clamp
+		}
+	}
+
 	smp: u32
 	gl.GenSamplers(1, &smp)
 
@@ -740,9 +866,12 @@ gl_get_texture_sampler :: proc(s: ^GL_State, sampler: Texture_Sampler) -> u32 {
 		return gl.CLAMP_TO_EDGE
 	}
 
-	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_S, gl_translate_texture_wrap(sampler.wrap_x))
-	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_T, gl_translate_texture_wrap(sampler.wrap_y))
-	gl.SamplerParameterfv(smp, gl.TEXTURE_BORDER_COLOR, &wrap_border_color[0])
+	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_S, gl_translate_texture_wrap(wrap_x))
+	gl.SamplerParameteri(smp, gl.TEXTURE_WRAP_T, gl_translate_texture_wrap(wrap_y))
+
+	if s.border_wrap_supported {
+		gl.SamplerParameterfv(smp, gl.TEXTURE_BORDER_COLOR, &wrap_border_color[0])
+	}
 
 	s.texture_samplers[sampler] = smp
 	return smp
@@ -894,13 +1023,40 @@ gl_load_shader :: proc(
 	gl.GenVertexArrays(1, &gl_shd.vao)
 	gl.BindVertexArray(gl_shd.vao)
 
+	translate_attrib_format :: proc(f: Pixel_Format) -> (type: u32, components: i32, norm: bool) {
+		switch f {
+		case .RGBA_32_Float: return gl.FLOAT, 4, false
+		case .RGB_32_Float: return gl.FLOAT, 3, false
+		case .RG_32_Float: return gl.FLOAT, 2, false
+		case .R_32_Float: return gl.FLOAT, 1, false
+
+		case .RGBA_8_Norm: return gl.UNSIGNED_BYTE, 4, true
+		case .RG_8_Norm: return gl.UNSIGNED_BYTE, 2, true
+		case .R_8_Norm: return gl.UNSIGNED_BYTE, 1, true
+		case .R_8_UInt: return gl.BYTE, 1, false
+
+		case .Unknown:
+		}
+
+		log.errorf("Unknown format %v", f)
+		return 0, 0, false
+	}
+
 	offset: int
 	for idx in 0..<len(desc.inputs) {
 		input := desc.inputs[idx]
 		format_size := pixel_format_size(input.format)
-		gl.EnableVertexAttribArray(u32(input.register))	
-		format, num_components, norm := gl_describe_pixel_format(input.format)
-		gl.VertexAttribPointer(u32(input.register), num_components, format, norm ? gl.TRUE : gl.FALSE, i32(stride), uintptr(offset))
+		gl.EnableVertexAttribArray(u32(input.register))
+		attrib_type, attrib_components, attrib_norm := translate_attrib_format(input.format)
+
+		gl.VertexAttribPointer(
+			u32(input.register),
+			attrib_components,
+			attrib_type,
+			attrib_norm ? gl.TRUE : gl.FALSE,
+			i32(stride),
+			uintptr(offset),
+		)
 		offset += format_size
 	}
 
@@ -1039,7 +1195,17 @@ gl_load_shader :: proc(
 				gl.GetActiveUniformsiv(program, 1, &uniform_idx, gl.UNIFORM_TYPE, (^i32)(&uniform_type))
 
 				variable_name_len: i32
-				gl.GetActiveUniformName(program, uniform_idx, len(uniform_name_buf), &variable_name_len, raw_data(&uniform_name_buf))
+				variable_array_size: i32
+				variable_type: u32
+				gl.GetActiveUniform(
+					program,
+					uniform_idx,
+					len(uniform_name_buf),
+					&variable_name_len,
+					&variable_array_size,
+					&variable_type,
+					raw_data(&uniform_name_buf),
+				)
 
 				append(&constant_descs, Shader_Constant_Desc {
 					name = strings.clone(string(uniform_name_buf[:variable_name_len]), desc_allocator),
@@ -1128,43 +1294,23 @@ gl_uniform_size :: proc(t: u32) -> int {
 	return sz
 }
 
-gl_translate_pixel_format :: proc(f: Pixel_Format) -> (internal_format: i32, format: u32, type: u32) {
+gl_translate_pixel_format :: proc(f: Pixel_Format) -> GL_Pixel_Format {
 	switch f {
-	case .RGBA_32_Float: return gl.RGBA32F, gl.RGBA, gl.FLOAT
-	case .RGB_32_Float: return gl.RGB32F, gl.RGB, gl.FLOAT
-	case .RG_32_Float: return gl.RG32F, gl.RG, gl.FLOAT
-	case .R_32_Float: return gl.R32F, gl.RED, gl.FLOAT
+	case .RGBA_32_Float: return { gl.RGBA32F, gl.RGBA, gl.FLOAT }
+	case .RGB_32_Float: return { gl.RGB32F, gl.RGB, gl.FLOAT }
+	case .RG_32_Float: return { gl.RG32F, gl.RG, gl.FLOAT }
+	case .R_32_Float: return { gl.R32F, gl.RED, gl.FLOAT }
 
-	case .RGBA_8_Norm: return gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE
-	case .RG_8_Norm: return gl.RG8, gl.RG, gl.UNSIGNED_BYTE
-	case .R_8_Norm: return gl.R8, gl.RED, gl.UNSIGNED_BYTE
-	case .R_8_UInt: return gl.R8UI, gl.RED_INTEGER, gl.UNSIGNED_BYTE
+	case .RGBA_8_Norm: return { gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE }
+	case .RG_8_Norm: return { gl.RG8, gl.RG, gl.UNSIGNED_BYTE }
+	case .R_8_Norm: return { gl.R8, gl.RED, gl.UNSIGNED_BYTE }
+	case .R_8_UInt: return { gl.R8UI, gl.RED_INTEGER, gl.UNSIGNED_BYTE }
 
 	case .Unknown: fallthrough
 	case: log.error("Unhandled pixel format %v", f)
 	}
 
-	return 0, 0, 0
-}
-
-
-gl_describe_pixel_format :: proc(f: Pixel_Format) -> (format: u32, num_components: i32, normalized: bool) {
-	switch f {
-	case .RGBA_32_Float: return gl.FLOAT, 4, false
-	case .RGB_32_Float: return gl.FLOAT, 3, false
-	case .RG_32_Float: return gl.FLOAT, 2, false
-	case .R_32_Float: return gl.FLOAT, 1, false
-
-	case .RGBA_8_Norm: return gl.UNSIGNED_BYTE, 4, true
-	case .RG_8_Norm: return gl.UNSIGNED_BYTE, 2, true
-	case .R_8_Norm: return gl.UNSIGNED_BYTE, 1, true
-	case .R_8_UInt: return gl.BYTE, 1, false
-	
-	case .Unknown: 
-	}
-
-	log.errorf("Unknown format %x", format)
-	return 0, 0, false
+	return {}
 }
 
 gl_destroy_shader :: proc(s: ^GL_State, h: Shader_Handle) {
@@ -1181,12 +1327,22 @@ gl_destroy_shader :: proc(s: ^GL_State, h: Shader_Handle) {
 }
 
 gl_default_shader_vertex_source :: proc() -> []byte {
-	vertex_source := #load("default_shaders/default_shader_gl_vertex.glsl")
+	when GL_ES {
+		vertex_source := #load("default_shaders/default_shader_webgl_vertex.glsl")
+	} else {
+		vertex_source := #load("default_shaders/default_shader_gl_vertex.glsl")
+	}
+
 	return vertex_source
 }
 
 gl_default_shader_fragment_source :: proc() -> []byte {
-	fragment_source := #load("default_shaders/default_shader_gl_fragment.glsl")
+	when GL_ES {
+		fragment_source := #load("default_shaders/default_shader_webgl_fragment.glsl")
+	} else {
+		fragment_source := #load("default_shaders/default_shader_gl_fragment.glsl")
+	}
+
 	return fragment_source
 }
 

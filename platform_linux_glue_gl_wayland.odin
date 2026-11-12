@@ -83,7 +83,7 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue, options: I
 			egl.BLUE_SIZE, 8,
 			egl.ALPHA_SIZE, 0, // Disable surface alpha for now
 			egl.DEPTH_SIZE, 24, // Request 24-bit depth buffer
-			egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
+			egl.RENDERABLE_TYPE, egl.OPENGL_ES3_BIT when GL_ES else egl.OPENGL_BIT,
 		},
 		frame_allocator,
 	)
@@ -129,7 +129,7 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue, options: I
 		return false
 	}
 	// This call must be here before CreateContext
-	egl.BindAPI(egl.OPENGL_API)
+	egl.BindAPI(egl.OPENGL_ES_API when GL_ES else egl.OPENGL_API)
 
 	s.egl_context = egl.CreateContext(
 		s.egl_display,
@@ -142,7 +142,11 @@ linux_gl_wayland_glue_make_context :: proc(s: ^Linux_GL_Wayland_Glue, options: I
 	}
 
 	if egl.MakeCurrent(s.egl_display, s.egl_surface, s.egl_surface, s.egl_context) {
-		gl.load_up_to(3, 3, egl.gl_set_proc_address)
+		when GL_ES {
+			gl.load_gles_up_to(3, 0, egl.gl_set_proc_address)
+		} else {
+			gl.load_up_to(3, 3, egl.gl_set_proc_address)
+		}
 
 		// No vsync on wayland. We implement it ourselves using `linux_gl_wayland_wait_for_frame`. This is
 		// because windows that are unfocused tend to block forever otherwise.
