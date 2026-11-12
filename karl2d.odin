@@ -18,7 +18,6 @@ import "core:encoding/endian"
 import fc "font_cache"
 import stbv "vendor:stb/vorbis"
 import stbtt "vendor:stb/truetype"
-import stbrp "vendor:stb/rect_pack"
 
 import "core:image"
 import "core:image/jpeg"
@@ -6125,14 +6124,28 @@ load_static_font_from_bytes :: proc(
 
 	append(&glyph_ranges, cur_glyph_range)
 
-	Glyph_Image_Data :: struct {
+	Glyph_Bitmap :: struct {
+		glyph_idx: int,
 		pixels: [^]byte,
-		width: i32,
-		height: i32,
+		width: int,
+		height: int,
 	}
 
-	glyphs_img_data := make([]Glyph_Image_Data, len(glyphs), s.frame_allocator)
-	glyphs_pack_rects := make([]stbrp.Rect, len(glyphs), s.frame_allocator)
+	// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
+	GLYPH_PADDING :: 1
+
+	glyph_bitmaps := make([]Glyph_Bitmap, len(glyphs), s.frame_allocator)
+
+	defer {
+		for gb in glyph_bitmaps {
+			if gb.pixels != nil {
+				stbtt.FreeBitmap(gb.pixels, nil)
+			}
+		}
+	}
+
+	pack_total_area := 0
+	pack_max_side := 0
 
 	for &g, g_idx in glyphs {
 		x_off, y_off: i32
@@ -6149,10 +6162,11 @@ load_static_font_from_bytes :: proc(
 			&y_off,
 		)
 
-		glyphs_img_data[g_idx] = {
+		glyph_bitmaps[g_idx] = {
+			glyph_idx = g_idx,
 			pixels = pixels,
-			width = w,
-			height = h,
+			width = int(w),
+			height = int(h),
 		}
 
 		g.offset = {
@@ -6160,37 +6174,126 @@ load_static_font_from_bytes :: proc(
 			f32(y_off) + f32(ascent) * scale_factor,
 		}
 
-		glyphs_pack_rects[g_idx] = {
-			// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
-			w = stbrp.Coord(w) + 1,
-			h = stbrp.Coord(h) + 1,
-		}
+		padded_w := int(w) + GLYPH_PADDING
+		padded_h := int(h) + GLYPH_PADDING
+		pack_total_area += padded_w * padded_h
+		pack_max_side = max(pack_max_side, padded_w, padded_h)
 	}
 
-	atlas_size := 128
+	// The packing below is based on the skyline bottom-left packer of stb_rect_pack v1.01 by Sean
+	// Barrett: https://github.com/nothings/stb/blob/master/stb_rect_pack.h
+	// stb_rect_pack is public domain (Unlicense) or MIT licensed, at your choice.
+
+	Skyline_Segment :: struct {
+		x: int,
+		y: int,
+	}
+
+	slice.sort_by(
+		glyph_bitmaps,
+		proc(i, j: Glyph_Bitmap) -> bool {
+			if i.height != j.height {
+				return i.height > j.height
+			}
+
+			return i.width > j.width
+		},
+	)
+
 	MAX_ATLAS_SIZE :: 4096
+	atlas_size := 128
+
+	for atlas_size * atlas_size < pack_total_area || atlas_size < pack_max_side {
+		atlas_size *= 2
+	}
+
+	segments := make([]Skyline_Segment, len(glyph_bitmaps) + 1, s.frame_allocator)
 	atlas_packed := false
 
 	for atlas_size <= MAX_ATLAS_SIZE {
-		rp_ctx: stbrp.Context
-		rp_nodes := make([]stbrp.Node, i32(atlas_size), s.frame_allocator)
-		
-		stbrp.init_target(
-			&rp_ctx,
-			i32(atlas_size),
-			i32(atlas_size),
-			raw_data(rp_nodes),
-			i32(len(rp_nodes)),
-		)
-		
-		rect_pack_res := stbrp.pack_rects(
-			&rp_ctx,
-			raw_data(glyphs_pack_rects),
-			i32(len(glyphs_pack_rects)),
-		)
+		segments[0] = {}
+		num_segments := 1
+		atlas_packed = true
 
-		if rect_pack_res == 1 {
-			atlas_packed = true
+		for gb in glyph_bitmaps {
+			w := gb.width + GLYPH_PADDING
+			h := gb.height + GLYPH_PADDING
+			best_segment := -1
+			best_y := max(int)
+
+			for i in 0..<num_segments {
+				x1 := segments[i].x + w
+
+				if x1 > atlas_size {
+					break
+				}
+
+				y := segments[i].y
+
+				for j in i + 1..<num_segments {
+					if segments[j].x >= x1 || y >= best_y {
+						break
+					}
+
+					y = max(y, segments[j].y)
+				}
+
+				if y < best_y {
+					best_y = y
+					best_segment = i
+				}
+			}
+
+			if best_segment == -1 || best_y + h > atlas_size {
+				atlas_packed = false
+				break
+			}
+
+			x0 := segments[best_segment].x
+			x1 := x0 + w
+			end := best_segment + 1
+
+			for end < num_segments && segments[end].x < x1 {
+				end += 1
+			}
+
+			last_covered_y := segments[end - 1].y
+			last_covered_right := atlas_size
+
+			if end < num_segments {
+				last_covered_right = segments[end].x
+			}
+
+			num_new := 1
+
+			if last_covered_right > x1 {
+				num_new = 2
+			}
+
+			copy(segments[best_segment + num_new:], segments[end:num_segments])
+			num_segments += num_new - (end - best_segment)
+
+			segments[best_segment] = {
+				x = x0,
+				y = best_y + h,
+			}
+
+			if num_new == 2 {
+				segments[best_segment + 1] = {
+					x = x1,
+					y = last_covered_y,
+				}
+			}
+
+			glyphs[gb.glyph_idx].rect = {
+				f32(x0),
+				f32(best_y),
+				f32(gb.width),
+				f32(gb.height),
+			}
+		}
+
+		if atlas_packed {
 			break
 		}
 
@@ -6204,78 +6307,23 @@ load_static_font_from_bytes :: proc(
 
 	atlas := make([]Color, atlas_size*atlas_size, s.frame_allocator)
 
-	if options.premultiply_alpha {
-		for pr, pr_idx in glyphs_pack_rects {
-			g := &glyphs[pr_idx]
+	for gb in glyph_bitmaps {
+		atlas_x := int(glyphs[gb.glyph_idx].rect.x)
+		atlas_y := int(glyphs[gb.glyph_idx].rect.y)
 
-			g.rect = {
-				f32(pr.x),
-				f32(pr.y),
-				// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
-				f32(pr.w) - 1,
-				f32(pr.h) - 1,
-			}
+		for sy in 0..<gb.height {
+			src := gb.pixels[sy * gb.width:][:gb.width]
+			dst := atlas[(atlas_y + sy) * atlas_size + atlas_x:][:gb.width]
 
-			gimg := glyphs_img_data[pr_idx]
-
-			for sx in 0..<gimg.width {
-				for sy in 0..<gimg.height {
-					dx := int(pr.x) + int(sx)
-					dy := int(pr.y) + int(sy)
-
-					assert(dx >= 0 && dx < atlas_size)
-					assert(dy >= 0 && dy < atlas_size)
-
-					alpha := gimg.pixels[sy * gimg.width + sx]
-					alpha_norm := f32(alpha)/255
-
-					atlas[dy * atlas_size + dx] = {
-						u8(255 * alpha_norm),
-						u8(255 * alpha_norm),
-						u8(255 * alpha_norm),
-						alpha,
-					}
+			if options.premultiply_alpha {
+				for alpha, i in src {
+					dst[i] = {alpha, alpha, alpha, alpha}
+				}
+			} else {
+				for alpha, i in src {
+					dst[i] = {255, 255, 255, alpha}
 				}
 			}
-		}
-	} else {
-		for pr, pr_idx in glyphs_pack_rects {
-			g := &glyphs[pr_idx]
-
-			g.rect = {
-				f32(pr.x),
-				f32(pr.y),
-				// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
-				f32(pr.w) - 1,
-				f32(pr.h) - 1,
-			}
-
-			gimg := glyphs_img_data[pr_idx]
-
-			for sx in 0..<gimg.width {
-				for sy in 0..<gimg.height {
-					dx := int(pr.x) + int(sx)
-					dy := int(pr.y) + int(sy)
-
-					assert(dx >= 0 && dx < atlas_size)
-					assert(dy >= 0 && dy < atlas_size)
-
-					alpha := gimg.pixels[sy * gimg.width + sx]
-
-					atlas[dy * atlas_size + dx] = {
-						255,
-						255,
-						255,
-						alpha,
-					}
-				}
-			}
-		}
-	}
-
-	for gimg in glyphs_img_data {
-		if gimg.pixels != nil {
-			stbtt.FreeBitmap(gimg.pixels, nil)
 		}
 	}
 
