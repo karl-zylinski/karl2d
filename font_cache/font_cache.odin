@@ -249,11 +249,18 @@ get_glyph :: proc(
 }
 
 make_room :: proc(cache: ^Cache, time: f64) -> bool {
-	if cache.width < ATLAS_MAX_SIZE {
+	if cache.width < ATLAS_MAX_SIZE || cache.height < ATLAS_MAX_SIZE {
 		old_width := cache.width
 		old_height := cache.height
-		new_width := old_width * 2
-		new_height := old_height * 2
+		new_width := old_width
+		new_height := old_height
+
+		if old_width == old_height {
+			new_width = old_width * 2
+		} else {
+			new_height = old_height * 2
+		}
+
 		new_pixels := make([][4]u8, new_width * new_height, cache.allocator)
 
 		for y in 0..<old_height {
@@ -267,11 +274,13 @@ make_room :: proc(cache: ^Cache, time: f64) -> bool {
 		cache.dirty_min = {}
 		cache.dirty_max = { old_width, old_height }
 
-		append(&cache.nodes, Skyline_Node {
-			x = old_width,
-			y = 0,
-			width = new_width - old_width,
-		})
+		if new_width > old_width {
+			append(&cache.nodes, Skyline_Node {
+				x = old_width,
+				y = 0,
+				width = new_width - old_width,
+			})
+		}
 
 		return true
 	}
