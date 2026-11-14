@@ -7,25 +7,59 @@ import "core:math"
 import "core:slice"
 
 Font_Info :: struct {
-	data: [^]u8,
-	num_glyphs: int,
-	loca: int,
-	glyf: int,
-	hmtx: int,
-	kern: int,
-	gpos_lookup_list: int,
-	index_map: int,
-	index_to_loc_format: int,
-	num_long_hor_metrics: int,
+	// Maps runes to glyph indices. `find_glyph_index` uses this.
+	character_map: []u8,
+
+	// Says if the glyph outline data is stored is True Type or Comapct Font Format.
+	outline_format: Outline_Format,
+
+	// Only used when `outline_format` is `True_Type`
+	tt: True_Type_Info,
+
+	// Only used when `outline_format` is `Compact_Font_Format`
+	cff: Compact_Font_Format_Info,
+
+	// The advance width for each glyph. Also stores left side bearing, but that is not used.
+	horizontal_metrics: []u8,
+
+	num_advances: int,
 	ascent: int,
 	descent: int,
 	line_gap: int,
-	cff: Buf,
+	kerning_pairs: []u8,
+	gpos_lookups: []u8,
+}
+
+Outline_Format :: enum {
+	True_Type,
+	Compact_Font_Format,
+}
+
+True_Type_Info :: struct {
+	// Says where in `glyph_outlines` the outlines or contours for a glyph lives.
+	glyph_locations: []u8,
+
+	// Says if the entries in `glyph_locations` are 16 or 32 bit.
+	glyph_location_format: Glyph_Location_Format,
+	
+	glyph_outlines: []u8,
+}
+
+Glyph_Location_Format :: enum {
+	// u16 number that is halved. So you'd have to multiply it by 2.
+	Short,
+
+	// u32 number
+	Long,
+}
+
+Compact_Font_Format_Info :: struct {
+	table: Buf,
 	charstrings: Buf,
-	gsubrs: Buf,
-	subrs: Buf,
-	fontdicts: Buf,
-	fdselect: Buf,
+	global_subroutines: Buf,
+	local_subroutines: Buf,
+	font_dicts: Buf,
+	font_dict_select: Buf,
 }
 
 Init_Error :: enum {
@@ -67,22 +101,24 @@ Rasterizer :: struct {
 }
 
 get_number_of_fonts :: proc(data: []u8) -> int {
-	if len(data) < 4 {
-		return 0
-	}
-
-	font := raw_data(data)
-
-	if tag(font, "1\x00\x00\x00") ||
-	   tag(font, "typ1") ||
-	   tag(font, "OTTO") ||
-	   tag(font, "\x00\x01\x00\x00") ||
-	   tag(font, "true") {
+	if is_font_start(data, 0) {
 		return 1
 	}
 
 	if is_font_collection(data) {
-		return int(i32(read_u32(font[8:])))
+		num_fonts := read_u32(data, 8)
+
+		if 12 + num_fonts * 4 > len(data) {
+			return 0
+		}
+
+		for i in 0..<num_fonts {
+			if !is_font_start(data, read_u32(data, 12 + i*4)) {
+				return 0
+			}
+		}
+
+		return num_fonts
 	}
 
 	return 0
@@ -99,61 +135,94 @@ init_font :: proc(info: ^Font_Info, font_data: []u8, font_index: int) -> Init_Er
 		return .Font_Index_Out_Of_Range
 	}
 
-	data := raw_data(font_data)
+	data := font_data
 	fontstart := 0
 
 	if is_font_collection(font_data) {
-		fontstart = read_u32(data[12+font_index*4:])
+		fontstart = read_u32(data, 12+font_index*4)
 	}
 
-	info^ = {
-		data = data,
+	find_table :: proc(data: []u8, fontstart: int, table_tag: string) -> []u8 {
+		num_tables := read_u16(data, fontstart+4)
+		tabledir := fontstart + 12
+
+		if tabledir + 16*num_tables > len(data) {
+			return nil
+		}
+
+		for i in 0..<num_tables {
+			loc := tabledir + 16*i
+
+			if tag(data, loc, table_tag) {
+				offset := read_u32(data, loc+8)
+				length := read_u32(data, loc+12)
+
+				if offset + length > len(data) {
+					return nil
+				}
+
+				return data[offset:offset + length]
+			}
+		}
+
+		return nil
 	}
 
-	cmap := find_table(data, fontstart, "cmap")
-	head := find_table(data, fontstart, "head")
-	hhea := find_table(data, fontstart, "hhea")
-	kern := find_table(data, fontstart, "kern")
-	gpos := find_table(data, fontstart, "GPOS")
-	info.loca = find_table(data, fontstart, "loca")
-	info.glyf = find_table(data, fontstart, "glyf")
-	info.hmtx = find_table(data, fontstart, "hmtx")
+	info^ = {}
+	character_map := find_table(data, fontstart, "cmap")
+	font_header := find_table(data, fontstart, "head")
+	horizontal_header := find_table(data, fontstart, "hhea")
+	kerning := find_table(data, fontstart, "kern")
+	glyph_positioning := find_table(data, fontstart, "GPOS")
+	info.tt.glyph_locations = find_table(data, fontstart, "loca")
+	info.tt.glyph_outlines = find_table(data, fontstart, "glyf")
+	info.horizontal_metrics = find_table(data, fontstart, "hmtx")
 
-	if cmap == 0 || head == 0 || hhea == 0 || info.hmtx == 0 {
+	if len(character_map) == 0 ||
+	   len(font_header) == 0 ||
+	   len(horizontal_header) == 0 ||
+	   len(info.horizontal_metrics) == 0 {
 		return .Invalid_Font_Data
 	}
 
-	if info.glyf != 0 {
-		info.index_to_loc_format = read_u16(data[head + 50:])
+	if len(info.tt.glyph_outlines) != 0 {
+		if len(info.tt.glyph_locations) == 0 {
+			return .Invalid_Font_Data
+		}
 
-		if info.loca == 0 || info.index_to_loc_format >= 2 {
+		switch read_u16(font_header, 50) {
+		case 0:
+			info.tt.glyph_location_format = .Short
+		case 1:
+			info.tt.glyph_location_format = .Long
+		case:
 			return .Invalid_Font_Data
 		}
 	} else {
 		cff := find_table(data, fontstart, "CFF ")
 
-		if cff == 0 {
+		if len(cff) == 0 {
 			return .Invalid_Font_Data
 		}
 
-		info.cff = {
-			data = data[cff:],
-			size = 512*1024*1024,
+		info.outline_format = .Compact_Font_Format
+		info.cff.table = {
+			data = cff,
 		}
 
-		b := info.cff
+		b := info.cff.table
 		buf_skip(&b, 2)
 		buf_seek(&b, int(buf_get8(&b)))
 		cff_get_index(&b)
 		topdict := cff_index_get(cff_get_index(&b), 0)
 		cff_get_index(&b)
-		info.gsubrs = cff_get_index(&b)
+		info.cff.global_subroutines = cff_get_index(&b)
 
 		charstrings, _ := dict_get_ints(topdict, 17)
 		cstype, cstype_count := dict_get_ints(topdict, 0x100 | 6)
 		fdarray, _ := dict_get_ints(topdict, 0x100 | 36)
 		fdselect, _ := dict_get_ints(topdict, 0x100 | 37)
-		info.subrs = get_subrs(b, topdict)
+		info.cff.local_subroutines = get_subrs(b, topdict)
 
 		if (cstype_count > 0 && cstype[0] != 2) || charstrings[0] == 0 {
 			return .Invalid_Font_Data
@@ -165,57 +234,64 @@ init_font :: proc(info: ^Font_Info, font_data: []u8, font_index: int) -> Init_Er
 			}
 
 			buf_seek(&b, int(fdarray[0]))
-			info.fontdicts = cff_get_index(&b)
-			info.fdselect = buf_range(b, int(fdselect[0]), b.size-int(fdselect[0]))
+			info.cff.font_dicts = cff_get_index(&b)
+			info.cff.font_dict_select = buf_range(
+				b,
+				int(fdselect[0]),
+				len(b.data)-int(fdselect[0]),
+			)
 		}
 
 		buf_seek(&b, int(charstrings[0]))
-		info.charstrings = cff_get_index(&b)
+		info.cff.charstrings = cff_get_index(&b)
 	}
 
-	if gpos != 0 {
-		if read_u16(data[gpos:]) == 1 && read_u16(data[gpos+2:]) == 0 {
-			info.gpos_lookup_list = gpos + read_u16(data[gpos+8:])
-		}
-	} else if kern != 0 && read_u16(data[kern+2:]) >= 1 && read_u16(data[kern+8:]) == 1 {
-		info.kern = kern
+	if len(glyph_positioning) != 0 &&
+	   read_u16(glyph_positioning, 0) == 1 &&
+	   read_u16(glyph_positioning, 2) <= 1 {
+		info.gpos_lookups = glyph_positioning[read_u16(glyph_positioning, 8):]
 	}
 
-	maxp := find_table(data, fontstart, "maxp")
-	info.num_glyphs = 0xffff
-
-	if maxp != 0 {
-		info.num_glyphs = read_u16(data[maxp+4:])
+	if len(kerning) != 0 && read_u16(kerning, 2) >= 1 && read_u16(kerning, 8) == 1 {
+		info.kerning_pairs = kerning
 	}
 
-	num_tables := read_u16(data[cmap + 2:])
+	num_tables := read_u16(character_map, 2)
+	symbol_map: []u8
 
 	for i in 0..<num_tables {
-		encoding_record := cmap + 4 + 8 * i
-		platform := read_u16(data[encoding_record:])
-		encoding := read_u16(data[encoding_record+2:])
+		encoding_record := 4 + 8 * i
+		platform := read_u16(character_map, encoding_record)
+		encoding := read_u16(character_map, encoding_record+2)
+		subtable := character_map[read_u32(character_map, encoding_record+4):]
 
 		if platform == PLATFORM_ID_UNICODE ||
 		   (platform == PLATFORM_ID_MICROSOFT &&
 		    (encoding == MS_EID_UNICODE_BMP || encoding == MS_EID_UNICODE_FULL)) {
-			info.index_map = cmap + read_u32(data[encoding_record+4:])
+			info.character_map = subtable
+		} else if platform == PLATFORM_ID_MICROSOFT && encoding == MS_EID_SYMBOL {
+			symbol_map = subtable
 		}
 	}
 
-	if info.index_map == 0 {
+	if len(info.character_map) == 0 {
+		info.character_map = symbol_map
+	}
+
+	if len(info.character_map) == 0 {
 		return .Invalid_Font_Data
 	}
 
-	switch read_u16(data[info.index_map:]) {
+	switch read_u16(info.character_map, 0) {
 	case 0, 4, 6, 12, 13:
 	case:
 		return .Invalid_Font_Data
 	}
 
-	info.ascent = read_i16(data[hhea + 4:])
-	info.descent = read_i16(data[hhea + 6:])
-	info.line_gap = read_i16(data[hhea + 8:])
-	info.num_long_hor_metrics = read_u16(data[hhea + 34:])
+	info.ascent = read_i16(horizontal_header, 4)
+	info.descent = read_i16(horizontal_header, 6)
+	info.line_gap = read_i16(horizontal_header, 8)
+	info.num_advances = read_u16(horizontal_header, 34)
 	return .None
 }
 
@@ -225,39 +301,38 @@ scale_for_pixel_height :: proc(info: ^Font_Info, height: f32) -> f32 {
 
 find_glyph_index :: proc(info: ^Font_Info, unicode_codepoint: rune) -> int {
 	codepoint := int(unicode_codepoint)
-	data := info.data
-	index_map := info.index_map
-	format := read_u16(data[index_map:])
+	cmap := info.character_map
+	format := read_u16(cmap, 0)
 
 	switch format {
 	case 0:
-		bytes := read_u16(data[index_map + 2:])
+		bytes := read_u16(cmap, 2)
 
 		if codepoint < bytes-6 {
-			return int(data[index_map + 6 + codepoint])
+			return int(cmap[6 + codepoint])
 		}
 
 	case 6:
-		first := read_u16(data[index_map + 6:])
-		count := read_u16(data[index_map + 8:])
+		first := read_u16(cmap, 6)
+		count := read_u16(cmap, 8)
 
 		if codepoint >= first && codepoint < first+count {
-			return read_u16(data[index_map + 10 + (codepoint - first)*2:])
+			return read_u16(cmap, 10 + (codepoint - first)*2)
 		}
 
 	case 4:
-		segcount := read_u16(data[index_map+6:]) >> 1
-		search_range := read_u16(data[index_map+8:]) >> 1
-		entry_selector := read_u16(data[index_map+10:])
-		range_shift := read_u16(data[index_map+12:]) >> 1
-		end_count := index_map + 14
+		segcount := read_u16(cmap, 6) >> 1
+		search_range := read_u16(cmap, 8) >> 1
+		entry_selector := read_u16(cmap, 10)
+		range_shift := read_u16(cmap, 12) >> 1
+		end_count := 14
 		search := end_count
 
 		if codepoint > 0xffff {
 			return 0
 		}
 
-		if codepoint >= read_u16(data[search + range_shift*2:]) {
+		if codepoint >= read_u16(cmap, search + range_shift*2) {
 			search += range_shift*2
 		}
 
@@ -265,7 +340,7 @@ find_glyph_index :: proc(info: ^Font_Info, unicode_codepoint: rune) -> int {
 
 		for entry_selector != 0 {
 			search_range >>= 1
-			end := read_u16(data[search + search_range*2:])
+			end := read_u16(cmap, search + search_range*2)
 
 			if codepoint > end {
 				search += search_range*2
@@ -277,39 +352,43 @@ find_glyph_index :: proc(info: ^Font_Info, unicode_codepoint: rune) -> int {
 		search += 2
 
 		item := int(u16((search - end_count) >> 1))
-		start := read_u16(data[index_map + 14 + segcount*2 + 2 + 2*item:])
-		last := read_u16(data[end_count + 2*item:])
+		start := read_u16(cmap, 14 + segcount*2 + 2 + 2*item)
+		last := read_u16(cmap, end_count + 2*item)
 
 		if codepoint < start || codepoint > last {
 			return 0
 		}
 
-		offset := read_u16(data[index_map + 14 + segcount*6 + 2 + 2*item:])
+		offset := read_u16(cmap, 14 + segcount*6 + 2 + 2*item)
+		id_delta := read_i16(cmap, 14 + segcount*4 + 2 + 2*item)
 
 		if offset == 0 {
-			id_delta := read_i16(data[index_map + 14 + segcount*4 + 2 + 2*item:])
 			return int(u16(codepoint + id_delta))
 		}
 
-		return read_u16(
-			data[offset + (codepoint-start)*2 + index_map + 14 + segcount*6 + 2 + 2*item:],
-		)
+		index := read_u16(cmap, offset + (codepoint-start)*2 + 14 + segcount*6 + 2 + 2*item)
+
+		if index == 0 {
+			return 0
+		}
+
+		return int(u16(index + id_delta))
 
 	case 12, 13:
 		low := 0
-		high := read_u32(data[index_map+12:])
+		high := read_u32(cmap, 12)
 
 		for low < high {
 			mid := low + ((high-low) >> 1)
-			start_char := read_u32(data[index_map+16+mid*12:])
-			end_char := read_u32(data[index_map+16+mid*12+4:])
+			start_char := read_u32(cmap, 16+mid*12)
+			end_char := read_u32(cmap, 16+mid*12+4)
 
 			if codepoint < start_char {
 				high = mid
 			} else if codepoint > end_char {
 				low = mid+1
 			} else {
-				start_glyph := read_u32(data[index_map+16+mid*12+8:])
+				start_glyph := read_u32(cmap, 16+mid*12+8)
 
 				if format == 12 {
 					return start_glyph + codepoint-start_char
@@ -324,34 +403,38 @@ find_glyph_index :: proc(info: ^Font_Info, unicode_codepoint: rune) -> int {
 }
 
 get_glyph_advance :: proc(info: ^Font_Info, glyph: int) -> int {
-	i := min(glyph, info.num_long_hor_metrics - 1)
-	return read_i16(info.data[info.hmtx + 4*i:])
+	i := min(glyph, info.num_advances - 1)
+	return read_i16(info.horizontal_metrics, 4*i)
 }
 
 get_glyph_kern_advance :: proc(info: ^Font_Info, glyph1: int, glyph2: int) -> int {
-	if info.gpos_lookup_list != 0 {
-		return get_glyph_gpos_advance(info, glyph1, glyph2)
+	if len(info.gpos_lookups) != 0 {
+		advance := get_glyph_gpos_advance(info, glyph1, glyph2)
+
+		if advance != 0 {
+			return advance
+		}
 	}
 
-	if info.kern == 0 {
+	if len(info.kerning_pairs) == 0 {
 		return 0
 	}
 
-	data := info.data[info.kern:]
+	data := info.kerning_pairs
 	l := 0
-	r := read_u16(data[10:]) - 1
+	r := read_u16(data, 10) - 1
 	needle := glyph1 << 16 | glyph2
 
 	for l <= r {
 		m := (l + r) >> 1
-		straw := read_u32(data[18+(m*6):])
+		straw := read_u32(data, 18+(m*6))
 
 		if needle < straw {
 			r = m - 1
 		} else if needle > straw {
 			l = m + 1
 		} else {
-			return read_i16(data[22+(m*6):])
+			return read_i16(data, 22+(m*6))
 		}
 	}
 
@@ -359,27 +442,27 @@ get_glyph_kern_advance :: proc(info: ^Font_Info, glyph1: int, glyph2: int) -> in
 }
 
 get_glyph_box :: proc(info: ^Font_Info, glyph: int) -> Glyph_Box {
-	if info.cff.size != 0 {
-		c: Charstring_Context
+	if info.outline_format == .Compact_Font_Format {
+		c: CFF_Charstring_Context
 
-		if !run_charstring(info, glyph, &c) {
+		if !run_cff_charstring(info, glyph, &c) {
 			return {}
 		}
 
 		return {c.min_x, c.min_y, c.max_x, c.max_y}
 	}
 
-	g := get_glyf_offset(info, glyph)
+	outline := get_glyph_outline(info, glyph)
 
-	if g < 0 {
+	if len(outline) == 0 {
 		return {}
 	}
 
 	return {
-		x0 = read_i16(info.data[g + 2:]),
-		y0 = read_i16(info.data[g + 4:]),
-		x1 = read_i16(info.data[g + 6:]),
-		y1 = read_i16(info.data[g + 8:]),
+		x0 = read_i16(outline, 2),
+		y0 = read_i16(outline, 4),
+		x1 = read_i16(outline, 6),
+		y1 = read_i16(outline, 8),
 	}
 }
 
@@ -539,9 +622,8 @@ rasterize_glyph :: proc(
 //
 
 Buf :: struct {
-	data: [^]u8,
+	data: []u8,
 	cursor: int,
-	size: int,
 }
 
 Vertex_Type :: enum u8 {
@@ -563,11 +645,12 @@ Vertex :: struct {
 
 PLATFORM_ID_UNICODE :: 0
 PLATFORM_ID_MICROSOFT :: 3
+MS_EID_SYMBOL :: 0
 MS_EID_UNICODE_BMP :: 1
 MS_EID_UNICODE_FULL :: 10
 
 buf_get8 :: proc(b: ^Buf) -> u8 {
-	if b.cursor >= b.size {
+	if b.cursor >= len(b.data) {
 		return 0
 	}
 
@@ -577,7 +660,7 @@ buf_get8 :: proc(b: ^Buf) -> u8 {
 }
 
 buf_peek8 :: proc(b: ^Buf) -> u8 {
-	if b.cursor >= b.size {
+	if b.cursor >= len(b.data) {
 		return 0
 	}
 
@@ -585,8 +668,8 @@ buf_peek8 :: proc(b: ^Buf) -> u8 {
 }
 
 buf_seek :: proc(b: ^Buf, o: int) {
-	assert(!(o > b.size || o < 0))
-	b.cursor = (o > b.size || o < 0) ? b.size : o
+	assert(!(o > len(b.data) || o < 0))
+	b.cursor = (o > len(b.data) || o < 0) ? len(b.data) : o
 }
 
 buf_skip :: proc(b: ^Buf, o: int) {
@@ -605,13 +688,12 @@ buf_get :: proc(b: ^Buf, n: int) -> u32 {
 }
 
 buf_range :: proc(b: Buf, o: int, s: int) -> Buf {
-	if o < 0 || s < 0 || o > b.size || s > b.size - o {
+	if o < 0 || s < 0 || o > len(b.data) || s > len(b.data) - o {
 		return {}
 	}
 
 	return {
-		data = b.data[o:],
-		size = s,
+		data = b.data[o:o + s],
 	}
 }
 
@@ -652,14 +734,14 @@ dict_get_ints :: proc(dict: Buf, key: int) -> (values: [2]u32, count: int) {
 	b := dict
 	b.cursor = 0
 
-	for b.cursor < b.size {
+	for b.cursor < len(b.data) {
 		start := b.cursor
 
 		for buf_peek8(&b) >= 28 {
 			if buf_peek8(&b) == 30 {
 				buf_skip(&b, 1)
 
-				for b.cursor < b.size {
+				for b.cursor < len(b.data) {
 					v := buf_get8(&b)
 
 					if (v & 0xF) == 0xF || (v >> 4) == 0xF {
@@ -681,7 +763,7 @@ dict_get_ints :: proc(dict: Buf, key: int) -> (values: [2]u32, count: int) {
 		if op == key {
 			operands := buf_range(b, start, end-start)
 
-			for count < len(values) && operands.cursor < operands.size {
+			for count < len(values) && operands.cursor < len(operands.data) {
 				values[count] = cff_int(&operands)
 				count += 1
 			}
@@ -706,44 +788,41 @@ cff_index_get :: proc(b: Buf, i: int) -> Buf {
 	return buf_range(b, 2+(count+1)*offsize+start, end - start)
 }
 
-read_u16 :: #force_inline proc(p: [^]u8) -> int {
-	return int(intrinsics.unaligned_load((^u16be)(p)))
+read_u16 :: #force_inline proc(data: []u8, offset: int) -> int {
+	return int(intrinsics.unaligned_load((^u16be)(raw_data(data[offset:offset + 2]))))
 }
 
-read_i16 :: #force_inline proc(p: [^]u8) -> int {
-	return int(intrinsics.unaligned_load((^i16be)(p)))
+read_i16 :: #force_inline proc(data: []u8, offset: int) -> int {
+	return int(intrinsics.unaligned_load((^i16be)(raw_data(data[offset:offset + 2]))))
 }
 
-read_u32 :: #force_inline proc(p: [^]u8) -> int {
-	return int(intrinsics.unaligned_load((^u32be)(p)))
+read_u32 :: #force_inline proc(data: []u8, offset: int) -> int {
+	return int(intrinsics.unaligned_load((^u32be)(raw_data(data[offset:offset + 4]))))
 }
 
-tag :: proc(p: [^]u8, str: string) -> bool {
-	return p[0] == str[0] && p[1] == str[1] && p[2] == str[2] && p[3] == str[3]
+tag :: proc(data: []u8, offset: int, str: string) -> bool {
+	return string(data[offset:offset + 4]) == str
 }
 
-is_font_collection :: proc(data: []u8) -> bool {
-	if len(data) < 12 || !tag(raw_data(data), "ttcf") {
+is_font_start :: proc(data: []u8, offset: int) -> bool {
+	if offset + 12 > len(data) {
 		return false
 	}
 
-	version := read_u32(raw_data(data)[4:])
-	return version == 0x00010000 || version == 0x00020000
+	return tag(data, offset, "1\x00\x00\x00") ||
+	       tag(data, offset, "typ1") ||
+	       tag(data, offset, "OTTO") ||
+	       tag(data, offset, "\x00\x01\x00\x00") ||
+	       tag(data, offset, "true")
 }
 
-find_table :: proc(data: [^]u8, fontstart: int, table_tag: string) -> int {
-	num_tables := read_u16(data[fontstart+4:])
-	tabledir := fontstart + 12
-
-	for i in 0..<num_tables {
-		loc := tabledir + 16*i
-
-		if tag(data[loc:], table_tag) {
-			return read_u32(data[loc+8:])
-		}
+is_font_collection :: proc(data: []u8) -> bool {
+	if len(data) < 12 || !tag(data, 0, "ttcf") {
+		return false
 	}
 
-	return 0
+	version := read_u32(data, 4)
+	return version == 0x00010000 || version == 0x00020000
 }
 
 get_subrs :: proc(cff: Buf, fontdict: Buf) -> Buf {
@@ -781,22 +860,31 @@ set_vertex :: #force_inline proc(
 	v.cy = i16(cy)
 }
 
-get_glyf_offset :: proc(info: ^Font_Info, glyph_index: int) -> int {
-	g1, g2: int
+get_glyph_outline :: proc(info: ^Font_Info, glyph: int) -> []u8 {
+	start, end: int
 
-	if glyph_index >= info.num_glyphs {
-		return -1
+	switch info.tt.glyph_location_format {
+	case .Short:
+		if glyph < 0 || glyph >= len(info.tt.glyph_locations) / 2 - 1 {
+			return nil
+		}
+
+		start = read_u16(info.tt.glyph_locations, glyph * 2) * 2
+		end = read_u16(info.tt.glyph_locations, glyph * 2 + 2) * 2
+	case .Long:
+		if glyph < 0 || glyph >= len(info.tt.glyph_locations) / 4 - 1 {
+			return nil
+		}
+
+		start = read_u32(info.tt.glyph_locations, glyph * 4)
+		end = read_u32(info.tt.glyph_locations, glyph * 4 + 4)
 	}
 
-	if info.index_to_loc_format == 0 {
-		g1 = info.glyf + read_u16(info.data[info.loca + glyph_index * 2:]) * 2
-		g2 = info.glyf + read_u16(info.data[info.loca + glyph_index * 2 + 2:]) * 2
-	} else {
-		g1 = info.glyf + read_u32(info.data[info.loca + glyph_index * 4:])
-		g2 = info.glyf + read_u32(info.data[info.loca + glyph_index * 4 + 4:])
+	if end <= start || end > len(info.tt.glyph_outlines) {
+		return nil
 	}
 
-	return g1==g2 ? -1 : g1
+	return info.tt.glyph_outlines[start:end]
 }
 
 close_shape :: proc(
@@ -835,28 +923,27 @@ close_shape :: proc(
 }
 
 get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dynamic]Vertex) {
-	if info.cff.size != 0 {
+	if info.outline_format == .Compact_Font_Format {
 		first_vertex := len(all_vertices)
 
-		c := Charstring_Context {
+		c := CFF_Charstring_Context {
 			vertices = all_vertices,
 		}
 
-		if !run_charstring(info, glyph_index, &c) {
+		if !run_cff_charstring(info, glyph_index, &c) {
 			resize(all_vertices, first_vertex)
 		}
 
 		return
 	}
 
-	data := info.data
-	g := get_glyf_offset(info, glyph_index)
+	outline := get_glyph_outline(info, glyph_index)
 
-	if g < 0 {
+	if len(outline) == 0 {
 		return
 	}
 
-	number_of_contours := read_i16(data[g:])
+	number_of_contours := read_i16(outline, 0)
 
 	if number_of_contours > 0 {
 		flags: u8 = 0
@@ -865,11 +952,11 @@ get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dyna
 		was_off := false
 		start_off := false
 		x, y, cx, cy, sx, sy, scx, scy: int
-		end_pts_of_contours := data[g + 10:]
-		ins := read_u16(data[g + 10 + number_of_contours * 2:])
-		points := data[g + 10 + number_of_contours * 2 + 2 + ins:]
+		end_pts_of_contours := outline[10:]
+		ins := read_u16(outline, 10 + number_of_contours * 2)
+		points := outline[10 + number_of_contours * 2 + 2 + ins:]
 
-		n := 1 + read_u16(end_pts_of_contours[number_of_contours*2-2:])
+		n := 1 + read_u16(end_pts_of_contours, number_of_contours*2-2)
 
 		m := n + 2*number_of_contours
 		first_vertex := len(all_vertices)
@@ -905,7 +992,7 @@ get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dyna
 				points = points[1:]
 				x += (flags & 16) != 0 ? dx : -dx
 			} else if flags & 16 == 0 {
-				x += read_i16(points)
+				x += read_i16(points, 0)
 				points = points[2:]
 			}
 
@@ -922,7 +1009,7 @@ get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dyna
 				points = points[1:]
 				y += (flags & 32) != 0 ? dy : -dy
 			} else if flags & 32 == 0 {
-				y += read_i16(points)
+				y += read_i16(points, 0)
 				points = points[2:]
 			}
 
@@ -952,7 +1039,7 @@ get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dyna
 					)
 				}
 
-				start_off = flags & 1 == 0
+				start_off = flags & 1 == 0 && i < read_u16(end_pts_of_contours, j*2)
 
 				if start_off {
 					scx = x
@@ -974,7 +1061,7 @@ get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dyna
 				set_vertex(&vertices[num_vertices], .Move, sx, sy, 0, 0)
 				num_vertices += 1
 				was_off = false
-				next_move = 1 + read_u16(end_pts_of_contours[j*2:])
+				next_move = 1 + read_u16(end_pts_of_contours, j*2)
 				j += 1
 			} else if flags & 1 == 0 {
 				if was_off {
@@ -1013,21 +1100,21 @@ get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dyna
 		resize(all_vertices, first_vertex + num_vertices)
 	} else if number_of_contours < 0 {
 		more := true
-		comp := data[g + 10:]
+		comp := outline[10:]
 
 		for more {
 			mtx := [6]f32{1, 0, 0, 1, 0, 0}
 
-			flags := read_u16(comp)
+			flags := read_u16(comp, 0)
 			comp = comp[2:]
-			gidx := read_u16(comp)
+			gidx := read_u16(comp, 0)
 			comp = comp[2:]
 
 			if flags & 2 != 0 {
 				if flags & 1 != 0 {
-					mtx[4] = f32(read_i16(comp))
+					mtx[4] = f32(read_i16(comp, 0))
 					comp = comp[2:]
-					mtx[5] = f32(read_i16(comp))
+					mtx[5] = f32(read_i16(comp, 0))
 					comp = comp[2:]
 				} else {
 					mtx[4] = f32(i8(comp[0]))
@@ -1040,31 +1127,33 @@ get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dyna
 			}
 
 			if flags & (1<<3) != 0 {
-				mtx[0] = f32(read_i16(comp))/16384.0
+				mtx[0] = f32(read_i16(comp, 0))/16384.0
 				mtx[3] = mtx[0]
 				comp = comp[2:]
 				mtx[1] = 0
 				mtx[2] = 0
 			} else if flags & (1<<6) != 0 {
-				mtx[0] = f32(read_i16(comp))/16384.0
+				mtx[0] = f32(read_i16(comp, 0))/16384.0
 				comp = comp[2:]
 				mtx[1] = 0
 				mtx[2] = 0
-				mtx[3] = f32(read_i16(comp))/16384.0
+				mtx[3] = f32(read_i16(comp, 0))/16384.0
 				comp = comp[2:]
 			} else if flags & (1<<7) != 0 {
-				mtx[0] = f32(read_i16(comp))/16384.0
+				mtx[0] = f32(read_i16(comp, 0))/16384.0
 				comp = comp[2:]
-				mtx[1] = f32(read_i16(comp))/16384.0
+				mtx[1] = f32(read_i16(comp, 0))/16384.0
 				comp = comp[2:]
-				mtx[2] = f32(read_i16(comp))/16384.0
+				mtx[2] = f32(read_i16(comp, 0))/16384.0
 				comp = comp[2:]
-				mtx[3] = f32(read_i16(comp))/16384.0
+				mtx[3] = f32(read_i16(comp, 0))/16384.0
 				comp = comp[2:]
 			}
 
-			m := math.sqrt(mtx[0]*mtx[0] + mtx[1]*mtx[1])
-			n := math.sqrt(mtx[2]*mtx[2] + mtx[3]*mtx[3])
+			if flags & (1<<11) != 0 && flags & (1<<12) == 0 {
+				mtx[4] *= math.sqrt(mtx[0]*mtx[0] + mtx[1]*mtx[1])
+				mtx[5] *= math.sqrt(mtx[2]*mtx[2] + mtx[3]*mtx[3])
+			}
 
 			first_comp_vertex := len(all_vertices)
 			get_glyph_shape(info, gidx, all_vertices)
@@ -1072,12 +1161,12 @@ get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dyna
 			for &v in all_vertices[first_comp_vertex:] {
 				x := f32(v.x)
 				y := f32(v.y)
-				v.x = i16(i32(m * (mtx[0]*x + mtx[2]*y + mtx[4])))
-				v.y = i16(i32(n * (mtx[1]*x + mtx[3]*y + mtx[5])))
+				v.x = i16(i32(mtx[0]*x + mtx[2]*y + mtx[4]))
+				v.y = i16(i32(mtx[1]*x + mtx[3]*y + mtx[5]))
 				x = f32(v.cx)
 				y = f32(v.cy)
-				v.cx = i16(i32(m * (mtx[0]*x + mtx[2]*y + mtx[4])))
-				v.cy = i16(i32(n * (mtx[1]*x + mtx[3]*y + mtx[5])))
+				v.cx = i16(i32(mtx[0]*x + mtx[2]*y + mtx[4]))
+				v.cy = i16(i32(mtx[1]*x + mtx[3]*y + mtx[5]))
 			}
 
 			more = flags & (1<<5) != 0
@@ -1085,7 +1174,7 @@ get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dyna
 	}
 }
 
-Charstring_Context :: struct {
+CFF_Charstring_Context :: struct {
 	started: bool,
 	first_x: f32,
 	first_y: f32,
@@ -1098,7 +1187,7 @@ Charstring_Context :: struct {
 	vertices: ^[dynamic]Vertex,
 }
 
-track_vertex :: proc(c: ^Charstring_Context, x: int, y: int) {
+track_vertex :: proc(c: ^CFF_Charstring_Context, x: int, y: int) {
 	if x > c.max_x || !c.started {
 		c.max_x = x
 	}
@@ -1118,8 +1207,8 @@ track_vertex :: proc(c: ^Charstring_Context, x: int, y: int) {
 	c.started = true
 }
 
-csctx_v :: proc(
-	c: ^Charstring_Context,
+cff_vertex :: proc(
+	c: ^CFF_Charstring_Context,
 	type: Vertex_Type,
 	x: int,
 	y: int,
@@ -1150,29 +1239,29 @@ csctx_v :: proc(
 	})
 }
 
-csctx_close_shape :: proc(ctx: ^Charstring_Context) {
+cff_close_shape :: proc(ctx: ^CFF_Charstring_Context) {
 	if ctx.first_x != ctx.x || ctx.first_y != ctx.y {
-		csctx_v(ctx, .Line, int(ctx.first_x), int(ctx.first_y), 0, 0, 0, 0)
+		cff_vertex(ctx, .Line, int(ctx.first_x), int(ctx.first_y), 0, 0, 0, 0)
 	}
 }
 
-csctx_rmove_to :: proc(ctx: ^Charstring_Context, dx: f32, dy: f32) {
-	csctx_close_shape(ctx)
+cff_move_to :: proc(ctx: ^CFF_Charstring_Context, dx: f32, dy: f32) {
+	cff_close_shape(ctx)
 	ctx.x += dx
 	ctx.y += dy
 	ctx.first_x = ctx.x
 	ctx.first_y = ctx.y
-	csctx_v(ctx, .Move, int(ctx.x), int(ctx.y), 0, 0, 0, 0)
+	cff_vertex(ctx, .Move, int(ctx.x), int(ctx.y), 0, 0, 0, 0)
 }
 
-csctx_rline_to :: proc(ctx: ^Charstring_Context, dx: f32, dy: f32) {
+cff_line_to :: proc(ctx: ^CFF_Charstring_Context, dx: f32, dy: f32) {
 	ctx.x += dx
 	ctx.y += dy
-	csctx_v(ctx, .Line, int(ctx.x), int(ctx.y), 0, 0, 0, 0)
+	cff_vertex(ctx, .Line, int(ctx.x), int(ctx.y), 0, 0, 0, 0)
 }
 
-csctx_rccurve_to :: proc(
-	ctx: ^Charstring_Context,
+cff_curve_to :: proc(
+	ctx: ^CFF_Charstring_Context,
 	dx1: f32,
 	dy1: f32,
 	dx2: f32,
@@ -1186,10 +1275,10 @@ csctx_rccurve_to :: proc(
 	cy2 := cy1 + dy2
 	ctx.x = cx2 + dx3
 	ctx.y = cy2 + dy3
-	csctx_v(ctx, .Cubic, int(ctx.x), int(ctx.y), int(cx1), int(cy1), int(cx2), int(cy2))
+	cff_vertex(ctx, .Cubic, int(ctx.x), int(ctx.y), int(cx1), int(cy1), int(cx2), int(cy2))
 }
 
-run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Context) -> bool {
+run_cff_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^CFF_Charstring_Context) -> bool {
 	in_header := true
 	maskbits := 0
 	subr_stack_height := 0
@@ -1197,12 +1286,12 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 	has_subrs := false
 	s: [48]f32 = ---
 	subr_stack: [10]Buf = ---
-	subrs := info.subrs
+	subrs := info.cff.local_subroutines
 	f: f32
 
-	b := cff_index_get(info.charstrings, glyph_index)
+	b := cff_index_get(info.cff.charstrings, glyph_index)
 
-	for b.cursor < b.size {
+	for b.cursor < len(b.data) {
 		i := 0
 		clear_stack := true
 		b0 := int(buf_get8(&b))
@@ -1226,7 +1315,7 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 				return false
 			}
 
-			csctx_rmove_to(c, s[sp-2], s[sp-1])
+			cff_move_to(c, s[sp-2], s[sp-1])
 
 		case 0x04:
 			in_header = false
@@ -1235,7 +1324,7 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 				return false
 			}
 
-			csctx_rmove_to(c, 0, s[sp-1])
+			cff_move_to(c, 0, s[sp-1])
 
 		case 0x16:
 			in_header = false
@@ -1244,7 +1333,7 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 				return false
 			}
 
-			csctx_rmove_to(c, s[sp-1], 0)
+			cff_move_to(c, s[sp-1], 0)
 
 		case 0x05:
 			if sp < 2 {
@@ -1252,7 +1341,7 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 			}
 
 			for ; i + 1 < sp; i += 2 {
-				csctx_rline_to(c, s[i], s[i+1])
+				cff_line_to(c, s[i], s[i+1])
 			}
 
 		case 0x07, 0x06:
@@ -1268,7 +1357,7 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 						break
 					}
 
-					csctx_rline_to(c, s[i], 0)
+					cff_line_to(c, s[i], 0)
 					i += 1
 				}
 
@@ -1278,7 +1367,7 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 					break
 				}
 
-				csctx_rline_to(c, 0, s[i])
+				cff_line_to(c, 0, s[i])
 				i += 1
 			}
 
@@ -1295,7 +1384,7 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 						break
 					}
 
-					csctx_rccurve_to(
+					cff_curve_to(
 						c,
 						0,
 						s[i],
@@ -1314,7 +1403,7 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 					break
 				}
 
-				csctx_rccurve_to(
+				cff_curve_to(
 					c,
 					s[i],
 					0,
@@ -1333,7 +1422,7 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 			}
 
 			for ; i + 5 < sp; i += 6 {
-				csctx_rccurve_to(c, s[i], s[i+1], s[i+2], s[i+3], s[i+4], s[i+5])
+				cff_curve_to(c, s[i], s[i+1], s[i+2], s[i+3], s[i+4], s[i+5])
 			}
 
 		case 0x18:
@@ -1342,14 +1431,14 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 			}
 
 			for ; i + 5 < sp - 2; i += 6 {
-				csctx_rccurve_to(c, s[i], s[i+1], s[i+2], s[i+3], s[i+4], s[i+5])
+				cff_curve_to(c, s[i], s[i+1], s[i+2], s[i+3], s[i+4], s[i+5])
 			}
 
 			if i + 1 >= sp {
 				return false
 			}
 
-			csctx_rline_to(c, s[i], s[i+1])
+			cff_line_to(c, s[i], s[i+1])
 
 		case 0x19:
 			if sp < 8 {
@@ -1357,14 +1446,14 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 			}
 
 			for ; i + 1 < sp - 6; i += 2 {
-				csctx_rline_to(c, s[i], s[i+1])
+				cff_line_to(c, s[i], s[i+1])
 			}
 
 			if i + 5 >= sp {
 				return false
 			}
 
-			csctx_rccurve_to(c, s[i], s[i+1], s[i+2], s[i+3], s[i+4], s[i+5])
+			cff_curve_to(c, s[i], s[i+1], s[i+2], s[i+3], s[i+4], s[i+5])
 
 		case 0x1A, 0x1B:
 			if sp < 4 {
@@ -1380,9 +1469,9 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 
 			for ; i + 3 < sp; i += 4 {
 				if b0 == 0x1B {
-					csctx_rccurve_to(c, s[i], f, s[i+1], s[i+2], s[i+3], 0.0)
+					cff_curve_to(c, s[i], f, s[i+1], s[i+2], s[i+3], 0.0)
 				} else {
-					csctx_rccurve_to(c, f, s[i], s[i+1], s[i+2], 0.0, s[i+3])
+					cff_curve_to(c, f, s[i], s[i+1], s[i+2], 0.0, s[i+3])
 				}
 
 				f = 0.0
@@ -1390,9 +1479,9 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 
 		case 0x0A:
 			if !has_subrs {
-				if info.fdselect.size != 0 {
+				if len(info.cff.font_dict_select.data) != 0 {
 					subrs = {}
-					fdselect := info.fdselect
+					fdselect := info.cff.font_dict_select
 					fdselector := -1
 					buf_seek(&fdselect, 0)
 					fmt := buf_get8(&fdselect)
@@ -1418,8 +1507,8 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 					}
 
 					if fdselector != -1 {
-						fontdict := cff_index_get(info.fontdicts, fdselector)
-						subrs = get_subrs(info.cff, fontdict)
+						fontdict := cff_index_get(info.cff.font_dicts, fdselector)
+						subrs = get_subrs(info.cff.table, fontdict)
 					}
 				}
 
@@ -1434,7 +1523,7 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 			}
 
 			sp -= 1
-			subr_index := b0 == 0x0A ? subrs : info.gsubrs
+			subr_index := b0 == 0x0A ? subrs : info.cff.global_subroutines
 			buf_seek(&subr_index, 0)
 			count := int(buf_get(&subr_index, 2))
 			bias := 107
@@ -1455,7 +1544,7 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 			subr_stack_height += 1
 			b = cff_index_get(subr_index, subr)
 
-			if b.size == 0 {
+			if len(b.data) == 0 {
 				return false
 			}
 
@@ -1471,7 +1560,7 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 			clear_stack = false
 
 		case 0x0E:
-			csctx_close_shape(c)
+			cff_close_shape(c)
 			return true
 
 		case 0x0C:
@@ -1491,8 +1580,8 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 				dx4 = s[4]
 				dx5 = s[5]
 				dx6 = s[6]
-				csctx_rccurve_to(c, dx1, 0, dx2, dy2, dx3, 0)
-				csctx_rccurve_to(c, dx4, 0, dx5, -dy2, dx6, 0)
+				cff_curve_to(c, dx1, 0, dx2, dy2, dx3, 0)
+				cff_curve_to(c, dx4, 0, dx5, -dy2, dx6, 0)
 
 			case 0x23:
 				if sp < 13 {
@@ -1511,8 +1600,8 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 				dy5 = s[9]
 				dx6 = s[10]
 				dy6 = s[11]
-				csctx_rccurve_to(c, dx1, dy1, dx2, dy2, dx3, dy3)
-				csctx_rccurve_to(c, dx4, dy4, dx5, dy5, dx6, dy6)
+				cff_curve_to(c, dx1, dy1, dx2, dy2, dx3, dy3)
+				cff_curve_to(c, dx4, dy4, dx5, dy5, dx6, dy6)
 
 			case 0x24:
 				if sp < 9 {
@@ -1528,8 +1617,8 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 				dx5 = s[6]
 				dy5 = s[7]
 				dx6 = s[8]
-				csctx_rccurve_to(c, dx1, dy1, dx2, dy2, dx3, 0)
-				csctx_rccurve_to(c, dx4, 0, dx5, dy5, dx6, -(dy1+dy2+dy5))
+				cff_curve_to(c, dx1, dy1, dx2, dy2, dx3, 0)
+				cff_curve_to(c, dx4, 0, dx5, dy5, dx6, -(dy1+dy2+dy5))
 
 			case 0x25:
 				if sp < 11 {
@@ -1557,8 +1646,8 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 					dx6 = -dx
 				}
 
-				csctx_rccurve_to(c, dx1, dy1, dx2, dy2, dx3, dy3)
-				csctx_rccurve_to(c, dx4, dy4, dx5, dy5, dx6, dy6)
+				cff_curve_to(c, dx1, dy1, dx2, dy2, dx3, dy3)
+				cff_curve_to(c, dx4, dy4, dx5, dy5, dx6, dy6)
 
 			case:
 				return false
@@ -1593,16 +1682,16 @@ run_charstring :: proc(info: ^Font_Info, glyph_index: int, c: ^Charstring_Contex
 	return false
 }
 
-get_coverage_index :: proc(coverage_table: [^]u8, glyph: int) -> int {
-	switch read_u16(coverage_table) {
+get_coverage_index :: proc(coverage_table: []u8, glyph: int) -> int {
+	switch read_u16(coverage_table, 0) {
 	case 1:
 		glyph_array := coverage_table[4:]
 		l := 0
-		r := read_u16(coverage_table[2:]) - 1
+		r := read_u16(coverage_table, 2) - 1
 
 		for l <= r {
 			m := (l + r) >> 1
-			straw := read_u16(glyph_array[2 * m:])
+			straw := read_u16(glyph_array, 2 * m)
 
 			if glyph < straw {
 				r = m - 1
@@ -1616,20 +1705,20 @@ get_coverage_index :: proc(coverage_table: [^]u8, glyph: int) -> int {
 	case 2:
 		range_array := coverage_table[4:]
 		l := 0
-		r := read_u16(coverage_table[2:]) - 1
+		r := read_u16(coverage_table, 2) - 1
 
 		for l <= r {
 			m := (l + r) >> 1
 			range_record := range_array[6 * m:]
-			straw_start := read_u16(range_record)
-			straw_end := read_u16(range_record[2:])
+			straw_start := read_u16(range_record, 0)
+			straw_end := read_u16(range_record, 2)
 
 			if glyph < straw_start {
 				r = m - 1
 			} else if glyph > straw_end {
 				l = m + 1
 			} else {
-				return read_u16(range_record[4:]) + glyph - straw_start
+				return read_u16(range_record, 4) + glyph - straw_start
 			}
 		}
 	}
@@ -1637,33 +1726,33 @@ get_coverage_index :: proc(coverage_table: [^]u8, glyph: int) -> int {
 	return -1
 }
 
-get_glyph_class :: proc(class_def_table: [^]u8, glyph: int) -> int {
-	switch read_u16(class_def_table) {
+get_glyph_class :: proc(class_def_table: []u8, glyph: int) -> int {
+	switch read_u16(class_def_table, 0) {
 	case 1:
-		start_glyph_id := read_u16(class_def_table[2:])
-		glyph_count := read_u16(class_def_table[4:])
+		start_glyph_id := read_u16(class_def_table, 2)
+		glyph_count := read_u16(class_def_table, 4)
 
 		if glyph >= start_glyph_id && glyph < start_glyph_id + glyph_count {
-			return read_u16(class_def_table[6 + 2 * (glyph - start_glyph_id):])
+			return read_u16(class_def_table, 6 + 2 * (glyph - start_glyph_id))
 		}
 
 	case 2:
 		class_range_records := class_def_table[4:]
 		l := 0
-		r := read_u16(class_def_table[2:]) - 1
+		r := read_u16(class_def_table, 2) - 1
 
 		for l <= r {
 			m := (l + r) >> 1
 			class_range_record := class_range_records[6 * m:]
-			straw_start := read_u16(class_range_record)
-			straw_end := read_u16(class_range_record[2:])
+			straw_start := read_u16(class_range_record, 0)
+			straw_end := read_u16(class_range_record, 2)
 
 			if glyph < straw_start {
 				r = m - 1
 			} else if glyph > straw_end {
 				l = m + 1
 			} else {
-				return read_u16(class_range_record[4:])
+				return read_u16(class_range_record, 4)
 			}
 		}
 
@@ -1675,60 +1764,80 @@ get_glyph_class :: proc(class_def_table: [^]u8, glyph: int) -> int {
 }
 
 get_glyph_gpos_advance :: proc(info: ^Font_Info, glyph1: int, glyph2: int) -> int {
-	lookup_list := info.data[info.gpos_lookup_list:]
-	lookup_count := read_u16(lookup_list)
+	lookup_list := info.gpos_lookups
+	lookup_count := read_u16(lookup_list, 0)
 
 	for i in 0..<lookup_count {
-		lookup_table := lookup_list[read_u16(lookup_list[2 + 2 * i:]):]
+		lookup_table := lookup_list[read_u16(lookup_list, 2 + 2 * i):]
 
-		if read_u16(lookup_table) != 2 {
+		lookup_type := read_u16(lookup_table, 0)
+
+		if lookup_type != 2 && lookup_type != 9 {
 			continue
 		}
 
-		sub_table_count := read_u16(lookup_table[4:])
+		sub_table_count := read_u16(lookup_table, 4)
 
 		for sti in 0..<sub_table_count {
-			table := lookup_table[read_u16(lookup_table[6 + 2 * sti:]):]
-			coverage_index := get_coverage_index(table[read_u16(table[2:]):], glyph1)
+			table := lookup_table[read_u16(lookup_table, 6 + 2 * sti):]
+
+			if lookup_type == 9 {
+				if read_u16(table, 0) != 1 || read_u16(table, 2) != 2 {
+					continue
+				}
+
+				table = table[read_u32(table, 4):]
+			}
+
+			coverage_index := get_coverage_index(table[read_u16(table, 2):], glyph1)
 
 			if coverage_index == -1 {
 				continue
 			}
 
-			if read_u16(table[4:]) != 4 || read_u16(table[6:]) != 0 {
+			value_size := 0
+
+			switch read_u16(table, 4) {
+			case 4:
+				value_size = 2
+			case 68:
+				value_size = 4
+			}
+
+			if value_size == 0 || read_u16(table, 6) != 0 {
 				return 0
 			}
 
-			switch read_u16(table) {
+			switch read_u16(table, 0) {
 			case 1:
-				if coverage_index >= read_u16(table[8:]) {
+				if coverage_index >= read_u16(table, 8) {
 					return 0
 				}
 
-				pair_value_table := table[read_u16(table[10 + 2 * coverage_index:]):]
+				pair_value_table := table[read_u16(table, 10 + 2 * coverage_index):]
 				pair_value_array := pair_value_table[2:]
 				l := 0
-				r := read_u16(pair_value_table) - 1
+				r := read_u16(pair_value_table, 0) - 1
 
 				for l <= r {
 					m := (l + r) >> 1
-					pair_value := pair_value_array[4 * m:]
-					straw := read_u16(pair_value)
+					pair_value := pair_value_array[(2 + value_size) * m:]
+					straw := read_u16(pair_value, 0)
 
 					if glyph2 < straw {
 						r = m - 1
 					} else if glyph2 > straw {
 						l = m + 1
 					} else {
-						return read_i16(pair_value[2:])
+						return read_i16(pair_value, 2)
 					}
 				}
 
 			case 2:
-				glyph1_class := get_glyph_class(table[read_u16(table[8:]):], glyph1)
-				glyph2_class := get_glyph_class(table[read_u16(table[10:]):], glyph2)
-				class1_count := read_u16(table[12:])
-				class2_count := read_u16(table[14:])
+				glyph1_class := get_glyph_class(table[read_u16(table, 8):], glyph1)
+				glyph2_class := get_glyph_class(table[read_u16(table, 10):], glyph2)
+				class1_count := read_u16(table, 12)
+				class2_count := read_u16(table, 14)
 
 				if glyph1_class < 0 || glyph1_class >= class1_count {
 					return 0
@@ -1738,7 +1847,10 @@ get_glyph_gpos_advance :: proc(info: ^Font_Info, glyph1: int, glyph2: int) -> in
 					return 0
 				}
 
-				return read_i16(table[16 + 2 * (glyph1_class * class2_count + glyph2_class):])
+				return read_i16(
+					table,
+					16 + value_size * (glyph1_class * class2_count + glyph2_class),
+				)
 
 			case:
 				return 0

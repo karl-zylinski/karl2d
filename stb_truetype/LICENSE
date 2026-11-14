@@ -1,4 +1,4 @@
-This package is based on stb_truetype.h v1.26 by Sean Barrett / RAD Game Tools:
+This package is based on stb_truetype.h v1.28 by Sean Barrett / RAD Game Tools:
 https://github.com/nothings/stb/blob/master/stb_truetype.h
 
 stb_truetype.h has the following license:
