@@ -1,6 +1,5 @@
-// This is based on stb_truetype.h by Sean Barrett. See the LICENSE file in this folder.
 #+private package
-package karl2d_stb_truetype
+package karl2d_opentype
 
 CFF_Info :: struct {
 	table: []u8,
