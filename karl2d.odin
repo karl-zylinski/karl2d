@@ -6272,7 +6272,7 @@ load_static_font_from_bytes :: proc(
 
 	atlas := make([]Color, atlas_size*atlas_height, s.frame_allocator)
 	atlas_bytes := slice.reinterpret([]u8, atlas)
-	bitmap_format := stbtt.Bitmap_Format.RGBA_White
+	bitmap_format: stbtt.Rasterizer_Pixel_Format = .RGBA_White
 
 	if options.premultiply_alpha {
 		bitmap_format = .RGBA_Premultiplied

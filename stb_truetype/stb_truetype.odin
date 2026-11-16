@@ -83,60 +83,11 @@ Init_Error :: enum {
 	Invalid_Font_Data,
 }
 
-Bitmap_Format :: enum {
-	Alpha,
-	RGBA_White,
-	RGBA_Premultiplied,
-}
-
 Glyph_Box :: struct {
 	x0: int,
 	y0: int,
 	x1: int,
 	y1: int,
-}
-
-Bitmap_Rect :: struct {
-	x: int,
-	y: int,
-	width: int,
-	height: int,
-}
-
-Rasterizer :: struct {
-	vertices: [dynamic]Vertex,
-	accumulation: [dynamic]f32,
-	width: int,
-	height: int,
-	scale: f32,
-	x_off: f32,
-	y_off: f32,
-	x: f32,
-	y: f32,
-}
-
-get_number_of_fonts :: proc(data: []u8) -> int {
-	if is_font_start(data, 0) {
-		return 1
-	}
-
-	if is_font_collection(data) {
-		num_fonts := read_u32(data, 8)
-
-		if 12 + num_fonts * 4 > len(data) {
-			return 0
-		}
-
-		for i in 0..<num_fonts {
-			if !is_font_start(data, read_u32(data, 12 + i*4)) {
-				return 0
-			}
-		}
-
-		return num_fonts
-	}
-
-	return 0
 }
 
 init_font :: proc(info: ^Font_Info, font_data: []u8, font_index: int) -> Init_Error {
@@ -455,6 +406,56 @@ get_glyph_bitmap_rect :: proc(info: ^Font_Info, glyph: int, scale: f32) -> Bitma
 	}
 }
 
+Rasterizer_Pixel_Format :: enum {
+	Alpha,
+	RGBA_White,
+	RGBA_Premultiplied,
+}
+
+Bitmap_Rect :: struct {
+	x: int,
+	y: int,
+	width: int,
+	height: int,
+}
+
+Rasterizer :: struct {
+	vertices: [dynamic]Vertex,
+	accumulation: [dynamic]f32,
+	width: int,
+	height: int,
+	scale: f32,
+	x_off: f32,
+	y_off: f32,
+	x: f32,
+	y: f32,
+}
+
+get_number_of_fonts :: proc(data: []u8) -> int {
+	if is_font_start(data, 0) {
+		return 1
+	}
+
+	if is_font_collection(data) {
+		num_fonts := read_u32(data, 8)
+
+		if 12 + num_fonts * 4 > len(data) {
+			return 0
+		}
+
+		for i in 0..<num_fonts {
+			if !is_font_start(data, read_u32(data, 12 + i*4)) {
+				return 0
+			}
+		}
+
+		return num_fonts
+	}
+
+	return 0
+}
+
+
 init_rasterizer :: proc(r: ^Rasterizer, allocator: runtime.Allocator) {
 	r^ = {
 		vertices = make([dynamic]Vertex, allocator),
@@ -476,7 +477,7 @@ rasterize_glyph :: proc(
 	rect: Bitmap_Rect,
 	output: []u8,
 	stride: int,
-	format: Bitmap_Format,
+	format: Rasterizer_Pixel_Format,
 ) #no_bounds_check {
 	width := rect.width
 	height := rect.height
@@ -655,19 +656,24 @@ is_font_collection :: proc(data: []u8) -> bool {
 	return version == 0x00010000 || version == 0x00020000
 }
 
-set_vertex :: #force_inline proc(
-	v: ^Vertex,
+make_vertex :: #force_inline proc(
 	type: Vertex_Type,
 	x: int,
 	y: int,
 	cx: int,
 	cy: int,
-) {
-	v.type = type
-	v.x = i16(x)
-	v.y = i16(y)
-	v.cx = i16(cx)
-	v.cy = i16(cy)
+	cx1: int = 0,
+	cy1: int = 0,
+) -> Vertex {
+	return {
+		x = i16(x),
+		y = i16(y),
+		cx = i16(cx),
+		cy = i16(cy),
+		cx1 = i16(cx1),
+		cy1 = i16(cy1),
+		type = type,
+	}
 }
 
 get_glyph_outline :: proc(info: ^Font_Info, glyph: int) -> []u8 {
@@ -713,17 +719,17 @@ close_shape :: proc(
 
 	if start_off {
 		if was_off {
-			set_vertex(&vertices[num_vertices], .Curve, (cx+scx)>>1, (cy+scy)>>1, cx, cy)
+			vertices[num_vertices] = make_vertex(.Curve, (cx+scx)>>1, (cy+scy)>>1, cx, cy)
 			num_vertices += 1
 		}
 
-		set_vertex(&vertices[num_vertices], .Curve, sx, sy, scx, scy)
+		vertices[num_vertices] = make_vertex(.Curve, sx, sy, scx, scy)
 		num_vertices += 1
 	} else {
 		if was_off {
-			set_vertex(&vertices[num_vertices], .Curve, sx, sy, cx, cy)
+			vertices[num_vertices] = make_vertex(.Curve, sx, sy, cx, cy)
 		} else {
-			set_vertex(&vertices[num_vertices], .Line, sx, sy, 0, 0)
+			vertices[num_vertices] = make_vertex(.Line, sx, sy, 0, 0)
 		}
 
 		num_vertices += 1
@@ -864,14 +870,14 @@ get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dyna
 					sy = y
 				}
 
-				set_vertex(&vertices[num_vertices], .Move, sx, sy, 0, 0)
+				vertices[num_vertices] = make_vertex(.Move, sx, sy, 0, 0)
 				num_vertices += 1
 				was_off = false
 				next_move = 1 + read_u16(end_pts_of_contours, j*2)
 				j += 1
 			} else if flags & 1 == 0 {
 				if was_off {
-					set_vertex(&vertices[num_vertices], .Curve, (cx+x)>>1, (cy+y)>>1, cx, cy)
+					vertices[num_vertices] = make_vertex(.Curve, (cx+x)>>1, (cy+y)>>1, cx, cy)
 					num_vertices += 1
 				}
 
@@ -880,9 +886,9 @@ get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dyna
 				was_off = true
 			} else {
 				if was_off {
-					set_vertex(&vertices[num_vertices], .Curve, x, y, cx, cy)
+					vertices[num_vertices] = make_vertex(.Curve, x, y, cx, cy)
 				} else {
-					set_vertex(&vertices[num_vertices], .Line, x, y, 0, 0)
+					vertices[num_vertices] = make_vertex(.Line, x, y, 0, 0)
 				}
 
 				num_vertices += 1

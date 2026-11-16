@@ -250,15 +250,7 @@ cff_run_charstring :: proc(
 			return
 		}
 
-		append(c.vertices, Vertex {
-			x = i16(x),
-			y = i16(y),
-			cx = i16(cx),
-			cy = i16(cy),
-			cx1 = i16(cx1),
-			cy1 = i16(cy1),
-			type = type,
-		})
+		append(c.vertices, make_vertex(type, x, y, cx, cy, cx1, cy1))
 	}
 
 	close_shape :: proc(ctx: ^CFF_Charstring_Context) {

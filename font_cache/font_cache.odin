@@ -207,7 +207,7 @@ get_glyph :: proc(
 		atlas_bytes := slice.reinterpret([]u8, cache.pixels)
 		bitmap_x := x + GLYPH_PADDING
 		bitmap_y := y + GLYPH_PADDING
-		bitmap_format := stbtt.Bitmap_Format.RGBA_White
+		bitmap_format: stbtt.Rasterizer_Pixel_Format = .RGBA_White
 
 		if font.premultiply_alpha {
 			bitmap_format = .RGBA_Premultiplied
