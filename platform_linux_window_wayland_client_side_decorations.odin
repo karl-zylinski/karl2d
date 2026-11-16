@@ -16,7 +16,7 @@ package karl2d
 import "core:math"
 import "core:strings"
 import "base:runtime"
-import stbtt "stb_truetype"
+import ot "opentype"
 
 import "log"
 import "platform_bindings/linux/dbus"
@@ -174,7 +174,7 @@ WLCSD_State :: struct {
 	icon: Image,
 
 	// Used for rendering the title.
-	font: stbtt.Font_Info,
+	font: ot.Font_Info,
 	font_ok: bool,
 
 	// If true, then `wlcsd_paint` will repaint the window. Otherwise it will do nothing.
@@ -267,7 +267,7 @@ wlcsd_init :: proc(
 	csd.theme = wlcsd_pick_theme()
 
 	// We use the Karl2D default font for the title.
-	csd.font_ok = stbtt.init_font(&csd.font, DEFAULT_FONT_DATA, 0) == .None
+	csd.font_ok = ot.init_font(&csd.font, DEFAULT_FONT_DATA, 0) == .None
 
 	if !csd.font_ok {
 		log.error("Failed reading the built in font. The window title will not be drawn.")
@@ -663,7 +663,7 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 	}
 
 	font := &csd.font
-	font_scale_factor := stbtt.scale_for_pixel_height(font, WLCSD_TITLE_FONT_SIZE * scale)
+	font_scale_factor := ot.scale_for_pixel_height(font, WLCSD_TITLE_FONT_SIZE * scale)
 
 	left_most_button_rect := wlcsd_button_rect(csd, button_idx - 1)
 	title_margin := int(math.round(WLCSD_TITLE_HORIZONTAL_MARGIN * scale))
@@ -678,7 +678,7 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 	title_width := 0
 
 	for r in csd.title {
-		advance := stbtt.get_glyph_advance(font, stbtt.find_glyph_index(font, r))
+		advance := ot.get_glyph_advance(font, ot.find_glyph_index(font, r))
 		title_width += int(math.round(f32(advance) * font_scale_factor))
 	}
 
@@ -732,21 +732,21 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 		}
 	}
 
-	cap_box := stbtt.get_glyph_box(font, stbtt.find_glyph_index(font, 'H'))
+	cap_box := ot.get_glyph_box(font, ot.find_glyph_index(font, 'H'))
 	cap_height := f32(cap_box.y1) * font_scale_factor
 	title_baseline_y := titlebar_top + int(math.round((f32(titlebar_height) + cap_height)/2))
 
-	rasterizer: stbtt.Rasterizer
-	stbtt.init_rasterizer(&rasterizer, csd.allocator)
+	rasterizer: ot.Rasterizer
+	ot.init_rasterizer(&rasterizer, csd.allocator)
 	coverage := make([dynamic]u8, csd.allocator)
 
 	for r in csd.title {
-		glyph := stbtt.find_glyph_index(font, r)
-		advance := stbtt.get_glyph_advance(font, glyph)
-		rect := stbtt.get_glyph_bitmap_rect(font, glyph, font_scale_factor)
+		glyph := ot.find_glyph_index(font, r)
+		advance := ot.get_glyph_advance(font, glyph)
+		rect := ot.get_glyph_bitmap_rect(font, glyph, font_scale_factor)
 		resize(&coverage, rect.width * rect.height)
 
-		stbtt.rasterize_glyph(
+		ot.rasterize_glyph(
 			&rasterizer,
 			font,
 			glyph,
@@ -781,7 +781,7 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 	}
 
 	delete(coverage)
-	stbtt.destroy_rasterizer(&rasterizer)
+	ot.destroy_rasterizer(&rasterizer)
 }
 
 wlcsd_text_color :: proc(csd: ^WLCSD_State) -> u32 {

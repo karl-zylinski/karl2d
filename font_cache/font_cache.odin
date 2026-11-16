@@ -10,7 +10,7 @@ import "base:runtime"
 import "core:math"
 import "core:slice"
 import "core:unicode/utf8"
-import stbtt "../stb_truetype"
+import ot "../opentype"
 
 ATLAS_START_SIZE :: 256
 ATLAS_MAX_SIZE :: 4096
@@ -25,12 +25,12 @@ Cache :: struct {
 	dirty_min: [2]int,
 	dirty_max: [2]int,
 	last_compact: f64,
-	rasterizer: stbtt.Rasterizer,
+	rasterizer: ot.Rasterizer,
 	allocator: runtime.Allocator,
 }
 
 Font :: struct {
-	info: stbtt.Font_Info,
+	info: ot.Font_Info,
 	data: []u8,
 	id: u32,
 	premultiply_alpha: bool,
@@ -68,7 +68,7 @@ Skyline_Node :: struct {
 	width: int,
 }
 
-Init_Error :: stbtt.Init_Error
+Init_Error :: ot.Init_Error
 
 init_cache :: proc(cache: ^Cache, allocator: runtime.Allocator) {
 	cache^ = {
@@ -85,11 +85,11 @@ init_cache :: proc(cache: ^Cache, allocator: runtime.Allocator) {
 		width = ATLAS_START_SIZE,
 	})
 
-	stbtt.init_rasterizer(&cache.rasterizer, allocator)
+	ot.init_rasterizer(&cache.rasterizer, allocator)
 }
 
 destroy_cache :: proc(cache: ^Cache) {
-	stbtt.destroy_rasterizer(&cache.rasterizer)
+	ot.destroy_rasterizer(&cache.rasterizer)
 	delete(cache.pixels, cache.allocator)
 	delete(cache.nodes)
 	delete(cache.glyphs)
@@ -112,7 +112,7 @@ init_font :: proc(
 		allocator = allocator,
 	}
 
-	init_err := stbtt.init_font(&font.info, font.data, font_index)
+	init_err := ot.init_font(&font.info, font.data, font_index)
 
 	if init_err != .None {
 		destroy_font(font)
@@ -160,13 +160,13 @@ get_glyph :: proc(
 ) {
 	key := glyph_key(font.id, codepoint, size)
 	glyph := &cache.glyphs[key]
-	rect: stbtt.Bitmap_Rect
+	rect: ot.Bitmap_Rect
 
 	if glyph == nil {
 		scale := f32(size) / font.height_units
-		index := stbtt.find_glyph_index(&font.info, codepoint)
-		advance := stbtt.get_glyph_advance(&font.info, index)
-		rect = stbtt.get_glyph_bitmap_rect(&font.info, index, scale)
+		index := ot.find_glyph_index(&font.info, codepoint)
+		advance := ot.get_glyph_advance(&font.info, index)
+		rect = ot.get_glyph_bitmap_rect(&font.info, index, scale)
 		padded_width := rect.width + GLYPH_PADDING * 2
 		padded_height := rect.height + GLYPH_PADDING * 2
 
@@ -201,19 +201,19 @@ get_glyph :: proc(
 		scale := f32(size) / font.height_units
 
 		if rect.width == 0 {
-			rect = stbtt.get_glyph_bitmap_rect(&font.info, int(glyph.index), scale)
+			rect = ot.get_glyph_bitmap_rect(&font.info, int(glyph.index), scale)
 		}
 
 		atlas_bytes := slice.reinterpret([]u8, cache.pixels)
 		bitmap_x := x + GLYPH_PADDING
 		bitmap_y := y + GLYPH_PADDING
-		bitmap_format: stbtt.Rasterizer_Pixel_Format = .RGBA_White
+		bitmap_format: ot.Rasterizer_Pixel_Format = .RGBA_White
 
 		if font.premultiply_alpha {
 			bitmap_format = .RGBA_Premultiplied
 		}
 
-		stbtt.rasterize_glyph(
+		ot.rasterize_glyph(
 			&cache.rasterizer,
 			&font.info,
 			int(glyph.index),
@@ -365,7 +365,7 @@ kern :: proc(font: ^Font, prev_index: i32, index: i32, size: int) -> f32 {
 	advance, advance_ok := font.kerning[pair]
 
 	if !advance_ok {
-		advance = i32(stbtt.get_glyph_kern_advance(&font.info, int(prev_index), int(index)))
+		advance = i32(ot.get_glyph_kern_advance(&font.info, int(prev_index), int(index)))
 		font.kerning[pair] = advance
 	}
 

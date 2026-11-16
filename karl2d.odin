@@ -17,7 +17,7 @@ import "core:encoding/endian"
 
 import fc "font_cache"
 import stbv "vendor:stb/vorbis"
-import stbtt "stb_truetype"
+import ot "opentype"
 
 import "core:image"
 import "core:image/jpeg"
@@ -6025,15 +6025,15 @@ load_static_font_from_bytes :: proc(
 	options: Font_Options = {},
 ) -> (_font: Font, _ok: bool) #optional_ok {
 	codepoints := codepoints
-	font_info: stbtt.Font_Info
+	font_info: ot.Font_Info
 
-	switch stbtt.init_font(&font_info, data, options.font_index) {
+	switch ot.init_font(&font_info, data, options.font_index) {
 	case .None:
 	case .Font_Index_Out_Of_Range:
 		log.errorf(
 			"Cannot load font index %v, the font data contains %v fonts",
 			options.font_index,
-			stbtt.get_number_of_fonts(data),
+			ot.get_number_of_fonts(data),
 		)
 		return
 	case .Invalid_Font_Data:
@@ -6041,7 +6041,7 @@ load_static_font_from_bytes :: proc(
 		return
 	}
 
-	scale_factor := stbtt.scale_for_pixel_height(&font_info, font_size)
+	scale_factor := ot.scale_for_pixel_height(&font_info, font_size)
 
 	default_codepoints: [95]rune
 
@@ -6057,13 +6057,13 @@ load_static_font_from_bytes :: proc(
 	glyphs := make([dynamic]Font_Baked_Glyph, s.frame_allocator)
 
 	for c in codepoints {
-		idx := stbtt.find_glyph_index(&font_info, c)
+		idx := ot.find_glyph_index(&font_info, c)
 
 		if idx > 0 {
 			append(&glyphs, Font_Baked_Glyph {
 				value = c,
 				index = idx,
-				advance = f32(stbtt.get_glyph_advance(&font_info, idx)) * scale_factor,
+				advance = f32(ot.get_glyph_advance(&font_info, idx)) * scale_factor,
 			})
 		}
 	}
@@ -6108,7 +6108,7 @@ load_static_font_from_bytes :: proc(
 
 	Glyph_Bitmap :: struct {
 		glyph_idx: int,
-		rect: stbtt.Bitmap_Rect,
+		rect: ot.Bitmap_Rect,
 	}
 
 	// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
@@ -6119,7 +6119,7 @@ load_static_font_from_bytes :: proc(
 	pack_max_side := 0
 
 	for &g, g_idx in glyphs {
-		rect := stbtt.get_glyph_bitmap_rect(&font_info, g.index, scale_factor)
+		rect := ot.get_glyph_bitmap_rect(&font_info, g.index, scale_factor)
 
 		g.offset = {
 			f32(rect.x),
@@ -6272,20 +6272,20 @@ load_static_font_from_bytes :: proc(
 
 	atlas := make([]Color, atlas_size*atlas_height, s.frame_allocator)
 	atlas_bytes := slice.reinterpret([]u8, atlas)
-	bitmap_format: stbtt.Rasterizer_Pixel_Format = .RGBA_White
+	bitmap_format: ot.Rasterizer_Pixel_Format = .RGBA_White
 
 	if options.premultiply_alpha {
 		bitmap_format = .RGBA_Premultiplied
 	}
 
-	rasterizer: stbtt.Rasterizer
-	stbtt.init_rasterizer(&rasterizer, s.frame_allocator)
+	rasterizer: ot.Rasterizer
+	ot.init_rasterizer(&rasterizer, s.frame_allocator)
 
 	for gb in glyph_bitmaps {
 		atlas_x := int(glyphs[gb.glyph_idx].rect.x)
 		atlas_y := int(glyphs[gb.glyph_idx].rect.y)
 
-		stbtt.rasterize_glyph(
+		ot.rasterize_glyph(
 			&rasterizer,
 			&font_info,
 			glyphs[gb.glyph_idx].index,
@@ -6367,7 +6367,7 @@ load_dynamic_font_from_bytes :: proc(
 		log.errorf(
 			"Cannot load font index %v, the font data contains %v fonts",
 			options.font_index,
-			stbtt.get_number_of_fonts(data),
+			ot.get_number_of_fonts(data),
 		)
 		return FONT_DEFAULT, false
 	case .Invalid_Font_Data:
