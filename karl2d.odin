@@ -6025,9 +6025,9 @@ load_static_font_from_bytes :: proc(
 	options: Font_Options = {},
 ) -> (_font: Font, _ok: bool) #optional_ok {
 	codepoints := codepoints
-	font_info: ot.Font_Info
+	ot_font, ot_font_err := ot.load_font(data, options.font_index)
 
-	switch ot.init_font(&font_info, data, options.font_index) {
+	switch ot_font_err {
 	case .None:
 	case .Font_Index_Out_Of_Range:
 		log.errorf(
@@ -6041,7 +6041,7 @@ load_static_font_from_bytes :: proc(
 		return
 	}
 
-	scale_factor := ot.scale_for_pixel_height(&font_info, font_size)
+	scale_factor := ot.scale_for_pixel_height(&ot_font, font_size)
 
 	default_codepoints: [95]rune
 
@@ -6057,13 +6057,13 @@ load_static_font_from_bytes :: proc(
 	glyphs := make([dynamic]Font_Baked_Glyph, s.frame_allocator)
 
 	for c in codepoints {
-		idx := ot.find_glyph_index(&font_info, c)
+		idx := ot.find_glyph_index(&ot_font, c)
 
 		if idx > 0 {
 			append(&glyphs, Font_Baked_Glyph {
 				value = c,
 				index = idx,
-				advance = f32(ot.get_glyph_advance(&font_info, idx)) * scale_factor,
+				advance = f32(ot.get_glyph_advance(&ot_font, idx)) * scale_factor,
 			})
 		}
 	}
@@ -6119,11 +6119,11 @@ load_static_font_from_bytes :: proc(
 	pack_max_side := 0
 
 	for &g, g_idx in glyphs {
-		rect := ot.get_glyph_bitmap_rect(&font_info, g.index, scale_factor)
+		rect := ot.get_glyph_bitmap_rect(&ot_font, g.index, scale_factor)
 
 		g.offset = {
 			f32(rect.x),
-			f32(rect.y) + f32(font_info.ascent) * scale_factor,
+			f32(rect.y) + f32(ot_font.ascent) * scale_factor,
 		}
 
 		if rect.width <= 0 || rect.height <= 0 {
@@ -6287,7 +6287,7 @@ load_static_font_from_bytes :: proc(
 
 		ot.rasterize_glyph(
 			&rasterizer,
-			&font_info,
+			&ot_font,
 			glyphs[gb.glyph_idx].index,
 			scale_factor,
 			gb.rect,
@@ -6313,7 +6313,7 @@ load_static_font_from_bytes :: proc(
 		static_glyphs = slice.clone(glyphs[:], s.allocator),
 		static_glyph_ranges = slice.clone(glyph_ranges[:], s.allocator),
 		static_font_size = font_size,
-		static_line_spacing = f32(font_info.ascent - font_info.descent + font_info.line_gap) * scale_factor,
+		static_line_spacing = f32(ot_font.ascent - ot_font.descent + ot_font.line_gap) * scale_factor,
 	}
 
 	font_handle := Font(len(s.fonts))

@@ -1,7 +1,7 @@
 #+private package
 package karl2d_opentype
 
-CFF_Info :: struct {
+Compact_Font_Format :: struct {
 	table: []u8,
 	charstrings: []u8,
 	global_subroutines: []u8,
@@ -10,12 +10,12 @@ CFF_Info :: struct {
 	font_dict_select: []u8,
 }
 
-cff_init :: proc(table: []u8) -> (CFF_Info, bool) {
+cff_load_format :: proc(table: []u8) -> (Compact_Font_Format, bool) {
 	if len(table) == 0 {
 		return {}, false
 	}
 
-	cff := CFF_Info {
+	cff := Compact_Font_Format {
 		table = table,
 	}
 
@@ -191,7 +191,7 @@ cff_local_subroutines :: proc(table: []u8, fontdict: []u8) -> []u8 {
 }
 
 cff_run_charstring :: proc(
-	cff: ^CFF_Info,
+	cff: ^Compact_Font_Format,
 	glyph_index: int,
 	vertices: ^[dynamic]Vertex,
 ) -> (Glyph_Box, bool) {

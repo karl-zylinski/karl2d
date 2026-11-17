@@ -30,7 +30,7 @@ Cache :: struct {
 }
 
 Font :: struct {
-	info: ot.Font_Info,
+	ot_font: ot.Font,
 	data: []u8,
 	id: u32,
 	premultiply_alpha: bool,
@@ -68,7 +68,7 @@ Skyline_Node :: struct {
 	width: int,
 }
 
-Init_Error :: ot.Init_Error
+Init_Error :: ot.Load_Error
 
 init_cache :: proc(cache: ^Cache, allocator: runtime.Allocator) {
 	cache^ = {
@@ -112,15 +112,17 @@ init_font :: proc(
 		allocator = allocator,
 	}
 
-	init_err := ot.init_font(&font.info, font.data, font_index)
+	ot_font, init_err := ot.load_font(font.data, font_index)
 
 	if init_err != .None {
 		destroy_font(font)
 		return init_err
 	}
 
-	height_units := font.info.ascent - font.info.descent
-	font.ascent = f32(font.info.ascent) / f32(height_units)
+	font.ot_font = ot_font
+
+	height_units := font.ot_font.ascent - font.ot_font.descent
+	font.ascent = f32(font.ot_font.ascent) / f32(height_units)
 	font.height_units = f32(height_units)
 	return .None
 }
@@ -164,9 +166,9 @@ get_glyph :: proc(
 
 	if glyph == nil {
 		scale := f32(size) / font.height_units
-		index := ot.find_glyph_index(&font.info, codepoint)
-		advance := ot.get_glyph_advance(&font.info, index)
-		rect = ot.get_glyph_bitmap_rect(&font.info, index, scale)
+		index := ot.find_glyph_index(&font.ot_font, codepoint)
+		advance := ot.get_glyph_advance(&font.ot_font, index)
+		rect = ot.get_glyph_bitmap_rect(&font.ot_font, index, scale)
 		padded_width := rect.width + GLYPH_PADDING * 2
 		padded_height := rect.height + GLYPH_PADDING * 2
 
@@ -201,7 +203,7 @@ get_glyph :: proc(
 		scale := f32(size) / font.height_units
 
 		if rect.width == 0 {
-			rect = ot.get_glyph_bitmap_rect(&font.info, int(glyph.index), scale)
+			rect = ot.get_glyph_bitmap_rect(&font.ot_font, int(glyph.index), scale)
 		}
 
 		atlas_bytes := slice.reinterpret([]u8, cache.pixels)
@@ -215,7 +217,7 @@ get_glyph :: proc(
 
 		ot.rasterize_glyph(
 			&cache.rasterizer,
-			&font.info,
+			&font.ot_font,
 			int(glyph.index),
 			scale,
 			rect,
@@ -365,7 +367,7 @@ kern :: proc(font: ^Font, prev_index: i32, index: i32, size: int) -> f32 {
 	advance, advance_ok := font.kerning[pair]
 
 	if !advance_ok {
-		advance = i32(ot.get_glyph_kern_advance(&font.info, int(prev_index), int(index)))
+		advance = i32(ot.get_glyph_kern_advance(&font.ot_font, int(prev_index), int(index)))
 		font.kerning[pair] = advance
 	}
 

@@ -5,7 +5,7 @@ package karl2d_opentype
 import "base:intrinsics"
 import "core:math"
 
-Font_Info :: struct {
+Font :: struct {
 	// Maps runes to glyph indices. `find_glyph_index` uses this.
 	character_map: []u8,
 
@@ -37,22 +37,16 @@ Font_Info :: struct {
 	// kerning advance. See `get_glyph_gpos_advance` for the logic.
 	gpos_lookups: []u8,
 
-	// Says if the glyph outline data is stored is True Type or Compact Font Format.
-	outline_format: Outline_Format,
-
-	// Only used when `outline_format` is `True_Type`
-	tt: TrueType_Info,
-
-	// Only used when `outline_format` is `Compact_Font_Format`
-	cff: CFF_Info,
+	// Data for TTF and CFF fonts. We figure this out during `load_font`.
+	format: Font_Format,
 }
 
-Outline_Format :: enum {
-	TrueType,
+Font_Format :: union {
+	True_Type_Format,
 	Compact_Font_Format,
 }
 
-TrueType_Info :: struct {
+True_Type_Format :: struct {
 	// Gives you the location in `glyph_outlines` where a glyph's outlines (contours) live.
 	glyph_locations: []u8,
 
@@ -76,7 +70,7 @@ Glyph_Location_Format :: enum {
 	Long,
 }
 
-Init_Error :: enum {
+Load_Error :: enum {
 	None,
 	Font_Index_Out_Of_Range,
 	Invalid_Font_Data,
@@ -89,15 +83,23 @@ Glyph_Box :: struct {
 	y1: int,
 }
 
-init_font :: proc(info: ^Font_Info, font_data: []u8, font_index: int) -> Init_Error {
+// Load a font from a slice of bytes. The bytes should be the contents of a TTF, OTF or TTC file.
+// Use `font_index` to specify which font to load within a TTC file. Leave it as zero for TTF and
+// OTF.
+//
+// The passed `font_data` slice needs to stay alive for as long as the font is used.
+//
+// If the returned error is `.None`, then the returned Font can be used with the other procs in this
+// library that require a `Font` object.
+load_font :: proc(font_data: []u8, font_index: int = 0) -> (Font, Load_Error) {
 	num_fonts := get_number_of_fonts(font_data)
 
 	if num_fonts == 0 {
-		return .Invalid_Font_Data
+		return {}, .Invalid_Font_Data
 	}
 
 	if font_index < 0 || font_index >= num_fonts {
-		return .Font_Index_Out_Of_Range
+		return {}, .Font_Index_Out_Of_Range
 	}
 
 	data := font_data
@@ -133,56 +135,60 @@ init_font :: proc(info: ^Font_Info, font_data: []u8, font_index: int) -> Init_Er
 		return nil
 	}
 
-	info^ = {}
 	character_map := find_table(data, fontstart, "cmap")
-	font_header := find_table(data, fontstart, "head")
 	horizontal_header := find_table(data, fontstart, "hhea")
-	kerning := find_table(data, fontstart, "kern")
-	glyph_positioning := find_table(data, fontstart, "GPOS")
-	info.tt.glyph_locations = find_table(data, fontstart, "loca")
-	info.tt.glyph_outlines = find_table(data, fontstart, "glyf")
-	info.horizontal_metrics = find_table(data, fontstart, "hmtx")
+	horizontal_metrics := find_table(data, fontstart, "hmtx")
 
-	if len(character_map) == 0 ||
-	   len(font_header) == 0 ||
-	   len(horizontal_header) == 0 ||
-	   len(info.horizontal_metrics) == 0 {
-		return .Invalid_Font_Data
+	if (
+		len(character_map) == 0 ||
+		len(horizontal_header) == 0 ||
+		len(horizontal_metrics) == 0
+	) {
+		return {}, .Invalid_Font_Data
 	}
 
-	if len(info.tt.glyph_outlines) != 0 {
-		if len(info.tt.glyph_locations) == 0 {
-			return .Invalid_Font_Data
+	format: Font_Format
+	glyph_outlines := find_table(data, fontstart, "glyf")
+	is_ttf := len(glyph_outlines) > 0
+
+	if is_ttf {
+		glyph_locations := find_table(data, fontstart, "loca")
+		font_header := find_table(data, fontstart, "head")
+
+		if len(glyph_locations) == 0 || len(font_header) == 0 {
+			return {}, .Invalid_Font_Data
 		}
+
+		glyph_location_format: Glyph_Location_Format
 
 		switch read_u16(font_header, 50) {
 		case 0:
-			info.tt.glyph_location_format = .Short
+			glyph_location_format = .Short
 		case 1:
-			info.tt.glyph_location_format = .Long
+			glyph_location_format = .Long
 		case:
-			return .Invalid_Font_Data
+			return {}, .Invalid_Font_Data
+		}
+
+		format = True_Type_Format {
+			glyph_locations = glyph_locations,
+			glyph_location_format = glyph_location_format,
+			glyph_outlines = glyph_outlines,
 		}
 	} else {
-		if cff, cff_ok := cff_init(find_table(data, fontstart, "CFF ")); cff_ok {
-			info.cff = cff
-			info.outline_format = .Compact_Font_Format
+		if cff, cff_ok := cff_load_format(find_table(data, fontstart, "CFF ")); cff_ok {
+			format = cff
 		} else {
-			return .Invalid_Font_Data
+			return {}, .Invalid_Font_Data
 		}
 	}
 
-	if len(glyph_positioning) != 0 &&
-	   read_u16(glyph_positioning, 0) == 1 &&
-	   read_u16(glyph_positioning, 2) <= 1 {
-		info.gpos_lookups = glyph_positioning[read_u16(glyph_positioning, 8):]
-	}
-
-	if len(kerning) != 0 && read_u16(kerning, 2) >= 1 && read_u16(kerning, 8) == 1 {
-		info.kerning_pairs = kerning
+	if format == nil {
+		return {}, .Invalid_Font_Data
 	}
 
 	num_tables := read_u16(character_map, 2)
+	unicode_map: []u8
 	symbol_map: []u8
 
 	for i in 0..<num_tables {
@@ -194,40 +200,62 @@ init_font :: proc(info: ^Font_Info, font_data: []u8, font_index: int) -> Init_Er
 		if platform == PLATFORM_ID_UNICODE ||
 		   (platform == PLATFORM_ID_MICROSOFT &&
 		    (encoding == MS_EID_UNICODE_BMP || encoding == MS_EID_UNICODE_FULL)) {
-			info.character_map = subtable
+			unicode_map = subtable
 		} else if platform == PLATFORM_ID_MICROSOFT && encoding == MS_EID_SYMBOL {
 			symbol_map = subtable
 		}
 	}
 
-	if len(info.character_map) == 0 {
-		info.character_map = symbol_map
+	if len(unicode_map) == 0 {
+		unicode_map = symbol_map
 	}
 
-	if len(info.character_map) == 0 {
-		return .Invalid_Font_Data
+	if len(unicode_map) == 0 {
+		return {}, .Invalid_Font_Data
 	}
 
-	switch read_u16(info.character_map, 0) {
+	switch read_u16(unicode_map, 0) {
 	case 0, 4, 6, 12, 13:
 	case:
-		return .Invalid_Font_Data
+		return {}, .Invalid_Font_Data
 	}
 
-	info.ascent = read_i16(horizontal_header, 4)
-	info.descent = read_i16(horizontal_header, 6)
-	info.line_gap = read_i16(horizontal_header, 8)
-	info.num_advances = read_u16(horizontal_header, 34)
-	return .None
+	gpos_table := find_table(data, fontstart, "GPOS")
+	gpos_lookups: []u8
+	if (
+		len(gpos_table) != 0 &&
+		read_u16(gpos_table, 0) == 1 &&
+		read_u16(gpos_table, 2) <= 1
+	) {
+		gpos_lookups = gpos_table[read_u16(gpos_table, 8):]
+	}
+
+	kern_table := find_table(data, fontstart, "kern")
+	kerning_pairs: []u8
+	if len(kern_table) != 0 && read_u16(kern_table, 2) >= 1 && read_u16(kern_table, 8) == 1 {
+		kerning_pairs = kern_table
+	}
+
+	return {
+		ascent = read_i16(horizontal_header, 4),
+		descent = read_i16(horizontal_header, 6),
+		line_gap = read_i16(horizontal_header, 8),
+		num_advances = read_u16(horizontal_header, 34),
+		format = format,
+		character_map = unicode_map,
+		horizontal_metrics = horizontal_metrics,
+		gpos_lookups = gpos_lookups,
+		kerning_pairs = kerning_pairs,
+	}, .None
 }
 
-scale_for_pixel_height :: proc(info: ^Font_Info, height: f32) -> f32 {
-	return height / f32(info.ascent - info.descent)
+scale_for_pixel_height :: proc(font: ^Font, height: f32) -> f32 {
+	return height / f32(font.ascent - font.descent)
 }
 
-find_glyph_index :: proc(info: ^Font_Info, unicode_codepoint: rune) -> int {
+find_glyph_index :: proc(font: ^Font, unicode_codepoint: rune) -> int {
 	codepoint := int(unicode_codepoint)
-	cmap := info.character_map
+	cmap := font.character_map
 	format := read_u16(cmap, 0)
 
 	switch format {
@@ -328,23 +356,23 @@ find_glyph_index :: proc(info: ^Font_Info, unicode_codepoint: rune) -> int {
 	return 0
 }
 
-get_glyph_advance :: proc(info: ^Font_Info, glyph: int) -> int {
-	i := min(glyph, info.num_advances - 1)
-	return read_i16(info.horizontal_metrics, 4*i)
+get_glyph_advance :: proc(font: ^Font, glyph: int) -> int {
+	i := min(glyph, font.num_advances - 1)
+	return read_i16(font.horizontal_metrics, 4*i)
 }
 
-get_glyph_kern_advance :: proc(info: ^Font_Info, glyph1: int, glyph2: int) -> int {
-	gpos_advance, gpos_advance_found := get_glyph_gpos_advance(info, glyph1, glyph2)
+get_glyph_kern_advance :: proc(font: ^Font, glyph1: int, glyph2: int) -> int {
+	gpos_advance, gpos_advance_found := get_glyph_gpos_advance(font, glyph1, glyph2)
 
 	if gpos_advance_found {
 		return gpos_advance
 	}
 
-	if len(info.kerning_pairs) == 0 {
+	if len(font.kerning_pairs) == 0 {
 		return 0
 	}
 
-	data := info.kerning_pairs
+	data := font.kerning_pairs
 	l := 0
 	r := read_u16(data, 10) - 1
 	needle := glyph1 << 16 | glyph2
@@ -365,29 +393,32 @@ get_glyph_kern_advance :: proc(info: ^Font_Info, glyph1: int, glyph2: int) -> in
 	return 0
 }
 
-get_glyph_box :: proc(info: ^Font_Info, glyph: int) -> Glyph_Box {
-	if info.outline_format == .Compact_Font_Format {
-		box, ok := cff_run_charstring(&info.cff, glyph, nil)
+get_glyph_box :: proc(font: ^Font, glyph: int) -> Glyph_Box {
+	switch &f in font.format {
+	case Compact_Font_Format:
+		box, ok := cff_run_charstring(&f, glyph, nil)
 
 		if !ok {
 			return {}
 		}
 
 		return box
+	case True_Type_Format:
+		outline := get_glyph_outline(font, glyph)
+
+		if len(outline) == 0 {
+			return {}
+		}
+
+		return {
+			x0 = read_i16(outline, 2),
+			y0 = read_i16(outline, 4),
+			x1 = read_i16(outline, 6),
+			y1 = read_i16(outline, 8),
+		}
 	}
 
-	outline := get_glyph_outline(info, glyph)
-
-	if len(outline) == 0 {
-		return {}
-	}
-
-	return {
-		x0 = read_i16(outline, 2),
-		y0 = read_i16(outline, 4),
-		x1 = read_i16(outline, 6),
-		y1 = read_i16(outline, 8),
-	}
+	return {}
 }
 
 get_number_of_fonts :: proc(data: []u8) -> int {
@@ -498,31 +529,37 @@ make_vertex :: #force_inline proc(
 	}
 }
 
-get_glyph_outline :: proc(info: ^Font_Info, glyph: int) -> []u8 {
-	start, end: int
+get_glyph_outline :: proc(font: ^Font, glyph: int) -> []u8 {
+	tt, is_tt := font.format.(True_Type_Format)
 
-	switch info.tt.glyph_location_format {
-	case .Short:
-		if glyph < 0 || glyph >= len(info.tt.glyph_locations) / 2 - 1 {
-			return nil
-		}
-
-		start = read_u16(info.tt.glyph_locations, glyph * 2) * 2
-		end = read_u16(info.tt.glyph_locations, glyph * 2 + 2) * 2
-	case .Long:
-		if glyph < 0 || glyph >= len(info.tt.glyph_locations) / 4 - 1 {
-			return nil
-		}
-
-		start = read_u32(info.tt.glyph_locations, glyph * 4)
-		end = read_u32(info.tt.glyph_locations, glyph * 4 + 4)
-	}
-
-	if end <= start || end > len(info.tt.glyph_outlines) {
+	if !is_tt {
 		return nil
 	}
 
-	return info.tt.glyph_outlines[start:end]
+	start, end: int
+
+	switch tt.glyph_location_format {
+	case .Short:
+		if glyph < 0 || glyph >= len(tt.glyph_locations) / 2 - 1 {
+			return nil
+		}
+
+		start = read_u16(tt.glyph_locations, glyph * 2) * 2
+		end = read_u16(tt.glyph_locations, glyph * 2 + 2) * 2
+	case .Long:
+		if glyph < 0 || glyph >= len(tt.glyph_locations) / 4 - 1 {
+			return nil
+		}
+
+		start = read_u32(tt.glyph_locations, glyph * 4)
+		end = read_u32(tt.glyph_locations, glyph * 4 + 4)
+	}
+
+	if end <= start || end > len(tt.glyph_outlines) {
+		return nil
+	}
+
+	return tt.glyph_outlines[start:end]
 }
 
 close_shape :: proc(
@@ -560,18 +597,18 @@ close_shape :: proc(
 	return num_vertices
 }
 
-get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dynamic]Vertex) {
-	if info.outline_format == .Compact_Font_Format {
+get_glyph_shape :: proc(font: ^Font, glyph_index: int, all_vertices: ^[dynamic]Vertex) {
+	if cff, is_cff := &font.format.(Compact_Font_Format); is_cff {
 		first_vertex := len(all_vertices)
 
-		if _, ok := cff_run_charstring(&info.cff, glyph_index, all_vertices); !ok {
+		if _, ok := cff_run_charstring(cff, glyph_index, all_vertices); !ok {
 			resize(all_vertices, first_vertex)
 		}
 
 		return
 	}
 
-	outline := get_glyph_outline(info, glyph_index)
+	outline := get_glyph_outline(font, glyph_index)
 
 	if len(outline) == 0 {
 		return
@@ -790,7 +827,7 @@ get_glyph_shape :: proc(info: ^Font_Info, glyph_index: int, all_vertices: ^[dyna
 			}
 
 			first_comp_vertex := len(all_vertices)
-			get_glyph_shape(info, gidx, all_vertices)
+			get_glyph_shape(font, gidx, all_vertices)
 
 			for &v in all_vertices[first_comp_vertex:] {
 				x := f32(v.x)
@@ -889,8 +926,8 @@ get_glyph_class :: proc(class_def_table: []u8, glyph: int) -> int {
 	return 0
 }
 
-get_glyph_gpos_advance :: proc(info: ^Font_Info, glyph1: int, glyph2: int) -> (int, bool) {
-	lookup_list := info.gpos_lookups
+get_glyph_gpos_advance :: proc(font: ^Font, glyph1: int, glyph2: int) -> (int, bool) {
+	lookup_list := font.gpos_lookups
 
 	if len(lookup_list) == 0 {
 		return 0, false

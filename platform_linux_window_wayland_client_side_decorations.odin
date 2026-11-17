@@ -174,7 +174,7 @@ WLCSD_State :: struct {
 	icon: Image,
 
 	// Used for rendering the title.
-	font: ot.Font_Info,
+	font: ot.Font,
 	font_ok: bool,
 
 	// If true, then `wlcsd_paint` will repaint the window. Otherwise it will do nothing.
@@ -267,7 +267,9 @@ wlcsd_init :: proc(
 	csd.theme = wlcsd_pick_theme()
 
 	// We use the Karl2D default font for the title.
-	csd.font_ok = ot.init_font(&csd.font, DEFAULT_FONT_DATA, 0) == .None
+	font, font_err := ot.load_font(DEFAULT_FONT_DATA, 0)
+	csd.font = font
+	csd.font_ok = font_err == .None
 
 	if !csd.font_ok {
 		log.error("Failed reading the built in font. The window title will not be drawn.")

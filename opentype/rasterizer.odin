@@ -29,8 +29,8 @@ Rasterizer :: struct {
 	y: f32,
 }
 
-get_glyph_bitmap_rect :: proc(info: ^Font_Info, glyph: int, scale: f32) -> Bitmap_Rect {
-	box := get_glyph_box(info, glyph)
+get_glyph_bitmap_rect :: proc(font: ^Font, glyph: int, scale: f32) -> Bitmap_Rect {
+	box := get_glyph_box(font, glyph)
 	x0 := int(math.floor(f32(box.x0) * scale))
 	y0 := int(math.floor(f32(-box.y1) * scale))
 	x1 := int(math.ceil(f32(box.x1) * scale))
@@ -59,7 +59,7 @@ destroy_rasterizer :: proc(r: ^Rasterizer) {
 
 rasterize_glyph :: proc(
 	r: ^Rasterizer,
-	info: ^Font_Info,
+	font: ^Font,
 	glyph: int,
 	scale: f32,
 	rect: Bitmap_Rect,
@@ -79,7 +79,7 @@ rasterize_glyph :: proc(
 	assert(len(output) >= (height - 1) * stride + width * bytes_per_pixel)
 
 	clear(&r.vertices)
-	get_glyph_shape(info, glyph, &r.vertices)
+	get_glyph_shape(font, glyph, &r.vertices)
 
 	r.width = width
 	r.height = height
