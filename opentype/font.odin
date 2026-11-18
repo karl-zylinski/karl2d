@@ -97,7 +97,8 @@ load_font :: proc(font_data: []u8, font_index: int = 0) -> (Font, Load_Error) {
 	if (
 		len(cmap_table) < 4 ||
 		len(horizontal_header) < 36 ||
-		len(font.horizontal_metrics) == 0
+		len(font.horizontal_metrics) == 0 ||
+		len(font.head) == 0
 	) {
 		return {}, .Invalid_Font_Data
 	}
