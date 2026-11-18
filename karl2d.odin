@@ -6041,7 +6041,7 @@ load_static_font_from_bytes :: proc(
 		return
 	}
 
-	scale_factor := ot.scale_for_pixel_height(&ot_font, font_size)
+	scale_factor := ot.pixel_scale_from_font_size(ot_font, font_size)
 
 	default_codepoints: [95]rune
 
@@ -6057,13 +6057,13 @@ load_static_font_from_bytes :: proc(
 	glyphs := make([dynamic]Font_Baked_Glyph, s.frame_allocator)
 
 	for c in codepoints {
-		idx := ot.find_glyph_index(&ot_font, c)
+		idx := ot.find_glyph_index(ot_font, c)
 
-		if idx > 0 {
+		if idx != ot.GLYPH_NONE {
 			append(&glyphs, Font_Baked_Glyph {
 				value = c,
 				index = idx,
-				advance = f32(ot.get_glyph_advance(&ot_font, idx)) * scale_factor,
+				advance = f32(ot.get_glyph_advance(ot_font, idx)) * scale_factor,
 			})
 		}
 	}
@@ -6119,7 +6119,7 @@ load_static_font_from_bytes :: proc(
 	pack_max_side := 0
 
 	for &g, g_idx in glyphs {
-		rect := ot.get_glyph_bitmap_rect(&ot_font, g.index, scale_factor)
+		rect := ot.get_glyph_bitmap_rect(ot_font, g.index, scale_factor)
 
 		g.offset = {
 			f32(rect.x),
@@ -6278,8 +6278,7 @@ load_static_font_from_bytes :: proc(
 		bitmap_format = .RGBA_Premultiplied
 	}
 
-	rasterizer: ot.Rasterizer
-	ot.init_rasterizer(&rasterizer, s.frame_allocator)
+	rasterizer := ot.make_rasterizer(s.frame_allocator)
 
 	for gb in glyph_bitmaps {
 		atlas_x := int(glyphs[gb.glyph_idx].rect.x)
@@ -6287,7 +6286,7 @@ load_static_font_from_bytes :: proc(
 
 		ot.rasterize_glyph(
 			&rasterizer,
-			&ot_font,
+			ot_font,
 			glyphs[gb.glyph_idx].index,
 			scale_factor,
 			gb.rect,
@@ -7664,7 +7663,7 @@ Font_Baked_Glyph_Range :: struct {
 Font_Baked_Glyph :: struct {
 	value: rune,
 	// stbtt index, for faster lookup
-	index: int,
+	index: ot.Glyph_Index,
 	rect: Rect,
 	offset: Vec2,
 	advance: f32,

@@ -10,7 +10,9 @@ Compact_Font_Format :: struct {
 	font_dict_select: []u8,
 }
 
-cff_load_format :: proc(table: []u8) -> (Compact_Font_Format, bool) {
+cff_load :: proc(data: []u8, fontstart: int) -> (Compact_Font_Format, bool) {
+	table := find_table(data, fontstart, "CFF ")
+
 	if len(table) == 0 {
 		return {}, false
 	}
@@ -191,7 +193,7 @@ cff_local_subroutines :: proc(table: []u8, fontdict: []u8) -> []u8 {
 }
 
 cff_run_charstring :: proc(
-	cff: ^Compact_Font_Format,
+	cff: Compact_Font_Format,
 	glyph_index: int,
 	vertices: ^[dynamic]Vertex,
 ) -> (Glyph_Box, bool) {

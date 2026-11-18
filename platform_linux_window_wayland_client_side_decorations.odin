@@ -664,8 +664,8 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 		return
 	}
 
-	font := &csd.font
-	font_scale_factor := ot.scale_for_pixel_height(font, WLCSD_TITLE_FONT_SIZE * scale)
+	font := csd.font
+	font_scale_factor := ot.pixel_scale_from_font_size(font, WLCSD_TITLE_FONT_SIZE * scale)
 
 	left_most_button_rect := wlcsd_button_rect(csd, button_idx - 1)
 	title_margin := int(math.round(WLCSD_TITLE_HORIZONTAL_MARGIN * scale))
@@ -738,8 +738,7 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 	cap_height := f32(cap_box.y1) * font_scale_factor
 	title_baseline_y := titlebar_top + int(math.round((f32(titlebar_height) + cap_height)/2))
 
-	rasterizer: ot.Rasterizer
-	ot.init_rasterizer(&rasterizer, csd.allocator)
+	rasterizer := ot.make_rasterizer(csd.allocator)
 	coverage := make([dynamic]u8, csd.allocator)
 
 	for r in csd.title {
@@ -783,7 +782,7 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 	}
 
 	delete(coverage)
-	ot.destroy_rasterizer(&rasterizer)
+	ot.delete_rasterizer(&rasterizer)
 }
 
 wlcsd_text_color :: proc(csd: ^WLCSD_State) -> u32 {

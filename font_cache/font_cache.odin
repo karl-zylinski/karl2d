@@ -35,8 +35,7 @@ Font :: struct {
 	id: u32,
 	premultiply_alpha: bool,
 	ascent: f32,
-	height_units: f32,
-	kerning: map[[2]i32]i32,
+	kerning: map[[2]ot.Glyph_Index]i32,
 	allocator: runtime.Allocator,
 }
 
@@ -57,7 +56,7 @@ Glyph :: struct {
 	height: int,
 	offset: [2]f32,
 	advance: f32,
-	index: i32,
+	index: ot.Glyph_Index,
 	last_used: f64,
 	in_atlas: bool,
 }
@@ -85,11 +84,11 @@ init_cache :: proc(cache: ^Cache, allocator: runtime.Allocator) {
 		width = ATLAS_START_SIZE,
 	})
 
-	ot.init_rasterizer(&cache.rasterizer, allocator)
+	cache.rasterizer = ot.make_rasterizer(allocator)
 }
 
 destroy_cache :: proc(cache: ^Cache) {
-	ot.destroy_rasterizer(&cache.rasterizer)
+	ot.delete_rasterizer(&cache.rasterizer)
 	delete(cache.pixels, cache.allocator)
 	delete(cache.nodes)
 	delete(cache.glyphs)
@@ -108,7 +107,7 @@ init_font :: proc(
 		data = slice.clone(data, allocator),
 		id = id,
 		premultiply_alpha = premultiply_alpha,
-		kerning = make(map[[2]i32]i32, allocator),
+		kerning = make(map[[2]ot.Glyph_Index]i32, allocator),
 		allocator = allocator,
 	}
 
@@ -121,9 +120,7 @@ init_font :: proc(
 
 	font.ot_font = ot_font
 
-	height_units := font.ot_font.ascent - font.ot_font.descent
-	font.ascent = f32(font.ot_font.ascent) / f32(height_units)
-	font.height_units = f32(height_units)
+	font.ascent = f32(font.ot_font.ascent) * ot.pixel_scale_from_font_size(font.ot_font, 1)
 	return .None
 }
 
@@ -165,10 +162,10 @@ get_glyph :: proc(
 	rect: ot.Bitmap_Rect
 
 	if glyph == nil {
-		scale := f32(size) / font.height_units
-		index := ot.find_glyph_index(&font.ot_font, codepoint)
-		advance := ot.get_glyph_advance(&font.ot_font, index)
-		rect = ot.get_glyph_bitmap_rect(&font.ot_font, index, scale)
+		scale := ot.pixel_scale_from_font_size(font.ot_font, f32(size))
+		index := ot.find_glyph_index(font.ot_font, codepoint)
+		advance := ot.get_glyph_advance(font.ot_font, index)
+		rect = ot.get_glyph_bitmap_rect(font.ot_font, index, scale)
 		padded_width := rect.width + GLYPH_PADDING * 2
 		padded_height := rect.height + GLYPH_PADDING * 2
 
@@ -178,7 +175,7 @@ get_glyph :: proc(
 				f32(rect.y - GLYPH_PADDING) + math.round(font.ascent * f32(size)),
 			},
 			advance = f32(advance) * scale,
-			index = i32(index),
+			index = index,
 		}
 
 		if rect.width > 0 && rect.height > 0 &&
@@ -200,10 +197,10 @@ get_glyph :: proc(
 			return glyph^, false
 		}
 
-		scale := f32(size) / font.height_units
+		scale := ot.pixel_scale_from_font_size(font.ot_font, f32(size))
 
 		if rect.width == 0 {
-			rect = ot.get_glyph_bitmap_rect(&font.ot_font, int(glyph.index), scale)
+			rect = ot.get_glyph_bitmap_rect(font.ot_font, glyph.index, scale)
 		}
 
 		atlas_bytes := slice.reinterpret([]u8, cache.pixels)
@@ -217,8 +214,8 @@ get_glyph :: proc(
 
 		ot.rasterize_glyph(
 			&cache.rasterizer,
-			&font.ot_font,
-			int(glyph.index),
+			font.ot_font,
+			glyph.index,
 			scale,
 			rect,
 			atlas_bytes[(bitmap_y * cache.width + bitmap_x) * size_of([4]u8):],
@@ -362,16 +359,16 @@ make_room :: proc(cache: ^Cache, time: f64) -> bool {
 	return true
 }
 
-kern :: proc(font: ^Font, prev_index: i32, index: i32, size: int) -> f32 {
-	pair := [2]i32 { prev_index, index }
+kern :: proc(font: ^Font, prev_index: ot.Glyph_Index, index: ot.Glyph_Index, size: int) -> f32 {
+	pair := [2]ot.Glyph_Index { prev_index, index }
 	advance, advance_ok := font.kerning[pair]
 
 	if !advance_ok {
-		advance = i32(ot.get_glyph_kern_advance(&font.ot_font, int(prev_index), int(index)))
+		advance = i32(ot.get_glyph_kern_advance(font.ot_font, prev_index, index))
 		font.kerning[pair] = advance
 	}
 
-	return f32(advance) * (f32(size) / font.height_units)
+	return f32(advance) * ot.pixel_scale_from_font_size(font.ot_font, f32(size))
 }
 
 // ---
@@ -383,7 +380,7 @@ Place_Text_Iterator :: struct {
 	time: f64,
 	x: f32,
 	y: f32,
-	prev_index: i32,
+	prev_index: ot.Glyph_Index,
 	rasterize: bool,
 }
 
