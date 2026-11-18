@@ -1727,13 +1727,7 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 		}
 
 		render_size := _font_render_size(font_size)
-		size := fc.measure(
-			&s.font_cache,
-			&font_object.dynamic_font,
-			text,
-			render_size,
-			s.time,
-		)
+		size := fc.measure(&font_object.dynamic_font, text, render_size)
 
 		return size * (font_size / f32(render_size))
 	}
@@ -1812,7 +1806,7 @@ draw_text :: proc(
 		font_object := &s.fonts[font]
 
 		// Laid out top-down: `char_offset` walks right along a line and down between lines, matching
-		// the offsets stbtt baked into the glyphs.
+		// the offsets opentype baked into the glyphs.
 		char_offset: Vec2
 		scl := font_size / font_object.static_font_size
 
@@ -1856,9 +1850,9 @@ draw_text :: proc(
 				w := src.w * scl
 				h := src.h * scl
 
-				// `g.offset` is stbtt's top-down offset from the top of the line to the top of the
-				// glyph bitmap. It is what makes descenders hang below the baseline, so it counts
-				// down from the top of the block whichever way the Y axis points.
+				// `g.offset` is opentypes's top-down offset from the top of the line to the top of
+				// the glyph bitmap. It is what makes descenders hang below the baseline, so it
+				// counts down from the top of the block whichever way the Y axis points.
 				offset_from_top := char_offset.y + g.offset.y*scl
 				glyph_y := y_up ? block_top - offset_from_top - h : block_top + offset_from_top
 
@@ -1936,7 +1930,7 @@ draw_text :: proc(
 		}
 
 		// The font_cache iterator will go through the text and lay the letters out.
-		it := fc.place_text_iterator_init(text, render_size, s.time, true)
+		it := fc.place_text_iterator_init(text, render_size, s.time)
 
 		for {
 			placed, place_res := fc.place_text_iterate(
@@ -6111,19 +6105,20 @@ load_static_font_from_bytes :: proc(
 		rect: ot.Bitmap_Rect,
 	}
 
-	// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
+	// w & h are packed with 1 pixel padding around the glyph. I.e. 2 pixels extra in each direction
 	GLYPH_PADDING :: 1
 
 	glyph_bitmaps := make([dynamic]Glyph_Bitmap, 0, len(glyphs), s.frame_allocator)
 	pack_total_area := 0
 	pack_max_side := 0
+	baseline := math.round(f32(ot_font.ascent) * scale_factor)
 
 	for &g, g_idx in glyphs {
 		rect := ot.get_glyph_bitmap_rect(ot_font, g.index, scale_factor)
 
 		g.offset = {
-			f32(rect.x),
-			f32(rect.y) + f32(ot_font.ascent) * scale_factor,
+			f32(rect.x - GLYPH_PADDING),
+			f32(rect.y - GLYPH_PADDING) + baseline,
 		}
 
 		if rect.width <= 0 || rect.height <= 0 {
@@ -6135,8 +6130,8 @@ load_static_font_from_bytes :: proc(
 			rect = rect,
 		})
 
-		padded_w := rect.width + GLYPH_PADDING
-		padded_h := rect.height + GLYPH_PADDING
+		padded_w := rect.width + GLYPH_PADDING * 2
+		padded_h := rect.height + GLYPH_PADDING * 2
 		pack_total_area += padded_w * padded_h
 		pack_max_side = max(pack_max_side, padded_w, padded_h)
 	}
@@ -6179,8 +6174,8 @@ load_static_font_from_bytes :: proc(
 		atlas_height = 1
 
 		for gb in glyph_bitmaps {
-			w := gb.rect.width + GLYPH_PADDING
-			h := gb.rect.height + GLYPH_PADDING
+			w := gb.rect.width + GLYPH_PADDING * 2
+			h := gb.rect.height + GLYPH_PADDING * 2
 			best_segment := -1
 			best_y := max(int)
 
@@ -6251,8 +6246,8 @@ load_static_font_from_bytes :: proc(
 			glyphs[gb.glyph_idx].rect = {
 				f32(x0),
 				f32(best_y),
-				f32(gb.rect.width),
-				f32(gb.rect.height),
+				f32(w),
+				f32(h),
 			}
 
 			atlas_height = max(atlas_height, best_y + h)
@@ -6276,13 +6271,15 @@ load_static_font_from_bytes :: proc(
 
 	if options.premultiply_alpha {
 		bitmap_format = .RGBA_Premultiplied
+	} else {
+		slice.fill(atlas, Color { 255, 255, 255, 0 })
 	}
 
 	rasterizer := ot.make_rasterizer(s.frame_allocator)
 
 	for gb in glyph_bitmaps {
-		atlas_x := int(glyphs[gb.glyph_idx].rect.x)
-		atlas_y := int(glyphs[gb.glyph_idx].rect.y)
+		atlas_x := int(glyphs[gb.glyph_idx].rect.x) + GLYPH_PADDING
+		atlas_y := int(glyphs[gb.glyph_idx].rect.y) + GLYPH_PADDING
 
 		ot.rasterize_glyph(
 			&rasterizer,
@@ -6312,7 +6309,9 @@ load_static_font_from_bytes :: proc(
 		static_glyphs = slice.clone(glyphs[:], s.allocator),
 		static_glyph_ranges = slice.clone(glyph_ranges[:], s.allocator),
 		static_font_size = font_size,
-		static_line_spacing = f32(ot_font.ascent - ot_font.descent + ot_font.line_gap) * scale_factor,
+		static_line_spacing = f32(
+			ot_font.ascent - ot_font.descent + ot_font.line_gap,
+		) * scale_factor,
 	}
 
 	font_handle := Font(len(s.fonts))
@@ -7662,7 +7661,6 @@ Font_Baked_Glyph_Range :: struct {
 
 Font_Baked_Glyph :: struct {
 	value: rune,
-	// stbtt index, for faster lookup
 	index: ot.Glyph_Index,
 	rect: Rect,
 	offset: Vec2,

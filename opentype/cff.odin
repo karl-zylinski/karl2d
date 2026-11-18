@@ -89,7 +89,11 @@ cff_read_index :: proc(data: []u8, offset: int) -> (index: []u8, next: int) {
 
 	if count != 0 {
 		offsize := cff_read_uint(data, &cursor, 1)
-		assert(offsize >= 1 && offsize <= 4)
+
+		if offsize < 1 || offsize > 4 {
+			return nil, cursor
+		}
+
 		cursor = cff_clamp_offset(data, cursor + offsize * count)
 		last := cff_read_uint(data, &cursor, offsize)
 		cursor = cff_clamp_offset(data, cursor + last - 1)
@@ -101,8 +105,11 @@ cff_read_index :: proc(data: []u8, offset: int) -> (index: []u8, next: int) {
 cff_index_item :: proc(index: []u8, i: int) -> []u8 {
 	count := cff_uint(index, 0, 2)
 	offsize := cff_uint(index, 2, 1)
-	assert(i >= 0 && i < count)
-	assert(offsize >= 1 && offsize <= 4)
+
+	if i < 0 || i >= count || offsize < 1 || offsize > 4 {
+		return nil
+	}
+
 	offset := 3 + i * offsize
 	start := cff_uint(index, offset, offsize)
 	end := cff_uint(index, offset + offsize, offsize)
@@ -124,7 +131,6 @@ cff_int :: proc(data: []u8, cursor: ^int) -> u32 {
 		return u32(cff_read_uint(data, cursor, 4))
 	}
 
-	assert(false)
 	return 0
 }
 

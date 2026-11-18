@@ -152,7 +152,6 @@ get_glyph :: proc(
 	codepoint: rune,
 	size: int,
 	time: f64,
-	rasterize: bool,
 ) -> (
 	Glyph,
 	bool,
@@ -190,7 +189,7 @@ get_glyph :: proc(
 
 	glyph.last_used = time
 
-	if rasterize && !glyph.in_atlas && glyph.width > 0 {
+	if !glyph.in_atlas && glyph.width > 0 {
 		x, y, fits := add_rect(cache, glyph.width, glyph.height)
 
 		if !fits {
@@ -381,7 +380,6 @@ Place_Text_Iterator :: struct {
 	x: f32,
 	y: f32,
 	prev_index: ot.Glyph_Index,
-	rasterize: bool,
 }
 
 Place_Text_Iterator_Result :: enum {
@@ -401,18 +399,12 @@ Placed_Glyph :: struct {
 	y: f32,
 }
 
-place_text_iterator_init :: proc(
-	text: string,
-	size: int,
-	time: f64,
-	rasterize: bool,
-) -> Place_Text_Iterator {
+place_text_iterator_init :: proc(text: string, size: int, time: f64) -> Place_Text_Iterator {
 	return {
 		text = text,
 		size = size,
 		time = time,
 		prev_index = -1,
-		rasterize = rasterize,
 	}
 }
 
@@ -446,7 +438,7 @@ place_text_iterate :: proc(
 			continue
 		}
 
-		glyph, glyph_ok := get_glyph(cache, font, codepoint, it.size, it.time, it.rasterize)
+		glyph, glyph_ok := get_glyph(cache, font, codepoint, it.size, it.time)
 
 		if !glyph_ok {
 			return {}, .No_Room
@@ -475,24 +467,43 @@ place_text_iterate :: proc(
 	return {}, .Done
 }
 
-measure :: proc(
-	cache: ^Cache,
-	font: ^Font,
-	text: string,
-	size: int,
-	time: f64,
-) -> [2]f32 {
-	it := place_text_iterator_init(text, size, time, false)
+measure :: proc(font: ^Font, text: string, size: int) -> [2]f32 {
+	scale := ot.pixel_scale_from_font_size(font.ot_font, f32(size))
+	prev_index := ot.Glyph_Index(-1)
+	x: f32
+	y: f32
 	width: f32
 
-	place_res := Place_Text_Iterator_Result.Placed
+	for codepoint in text {
+		switch codepoint {
+		case '\r':
+			continue
 
-	for place_res == .Placed {
-		_, place_res = place_text_iterate(cache, font, &it)
-		width = max(width, it.x)
+		case '\n':
+			x = 0
+			y += f32(size)
+			prev_index = -1
+			continue
+
+		case '\t':
+			x += 2 * f32(size)
+			width = max(width, x)
+			prev_index = -1
+			continue
+		}
+
+		index := ot.find_glyph_index(font.ot_font, codepoint)
+
+		if prev_index != -1 {
+			x += kern(font, prev_index, index, size)
+		}
+
+		x += f32(ot.get_glyph_advance(font.ot_font, index)) * scale
+		width = max(width, x)
+		prev_index = index
 	}
 
-	return { width, it.y + f32(size) }
+	return { width, y + f32(size) }
 }
 
 add_rect :: proc(cache: ^Cache, width: int, height: int) -> (x: int, y: int, ok: bool) {

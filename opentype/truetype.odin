@@ -15,7 +15,7 @@ True_Type_Format :: struct {
 	// box, which `get_glyph_box` returns.
 	//
 	// if `number_of_contours` is negative, then it is a composite glyph. It's then built from
-	// the outlines of several other glyphs. See `get_glyph_box`.
+	// the outlines of several other glyphs. See `tt_get_glyph_shape`.
 	glyph_outlines: []u8,
 }
 
@@ -26,6 +26,8 @@ True_Type_Glyph_Location_Format :: enum {
 	// u32 number
 	Long,
 }
+
+TT_MAX_COMPOSITE_DEPTH :: 16
 
 tt_load :: proc(data: []u8, fontstart: int) -> (True_Type_Format, bool) {
 	glyph_outlines := find_table(data, fontstart, "glyf")
@@ -120,7 +122,12 @@ tt_get_glyph_shape :: proc(
 	tt: True_Type_Format,
 	glyph_index: int,
 	all_vertices: ^[dynamic]Vertex,
+	composite_depth: int,
 ) {
+	if composite_depth > TT_MAX_COMPOSITE_DEPTH {
+		return
+	}
+
 	outline := tt_get_glyph_outline(tt, glyph_index)
 
 	if len(outline) == 0 {
@@ -136,9 +143,9 @@ tt_get_glyph_shape :: proc(
 		was_off := false
 		start_off := false
 		x, y, cx, cy, sx, sy, scx, scy: int
-		end_pts_of_contours := outline[10:]
+		end_pts_of_contours := skip_bytes(outline, 10)
 		ins := read_u16(outline, 10 + number_of_contours * 2)
-		points := outline[10 + number_of_contours * 2 + 2 + ins:]
+		points := skip_bytes(outline, 10 + number_of_contours * 2 + 2 + ins)
 
 		n := 1 + read_u16(end_pts_of_contours, number_of_contours*2-2)
 
@@ -152,12 +159,12 @@ tt_get_glyph_shape :: proc(
 
 		for i in 0..<n {
 			if flagcount == 0 {
-				flags = points[0]
-				points = points[1:]
+				flags = u8(read_u8(points, 0))
+				points = skip_bytes(points, 1)
 
 				if flags & 8 != 0 {
-					flagcount = points[0]
-					points = points[1:]
+					flagcount = u8(read_u8(points, 0))
+					points = skip_bytes(points, 1)
 				}
 			} else {
 				flagcount -= 1
@@ -172,12 +179,12 @@ tt_get_glyph_shape :: proc(
 			flags = u8(vertices[off+i].type)
 
 			if flags & 2 != 0 {
-				dx := int(points[0])
-				points = points[1:]
+				dx := read_u8(points, 0)
+				points = skip_bytes(points, 1)
 				x += (flags & 16) != 0 ? dx : -dx
 			} else if flags & 16 == 0 {
 				x += read_i16(points, 0)
-				points = points[2:]
+				points = skip_bytes(points, 2)
 			}
 
 			vertices[off+i].x = i16(x)
@@ -189,12 +196,12 @@ tt_get_glyph_shape :: proc(
 			flags = u8(vertices[off+i].type)
 
 			if flags & 4 != 0 {
-				dy := int(points[0])
-				points = points[1:]
+				dy := read_u8(points, 0)
+				points = skip_bytes(points, 1)
 				y += (flags & 32) != 0 ? dy : -dy
 			} else if flags & 32 == 0 {
 				y += read_i16(points, 0)
-				points = points[2:]
+				points = skip_bytes(points, 2)
 			}
 
 			vertices[off+i].y = i16(y)
@@ -208,6 +215,11 @@ tt_get_glyph_shape :: proc(
 			y = int(vertices[off+i].y)
 
 			if next_move == i {
+				if j >= number_of_contours {
+					resize(all_vertices, first_vertex)
+					return
+				}
+
 				if i != 0 {
 					num_vertices = tt_close_shape(
 						vertices,
@@ -284,54 +296,54 @@ tt_get_glyph_shape :: proc(
 		resize(all_vertices, first_vertex + num_vertices)
 	} else if number_of_contours < 0 {
 		more := true
-		comp := outline[10:]
+		comp := skip_bytes(outline, 10)
 
 		for more {
 			mtx := [6]f32{1, 0, 0, 1, 0, 0}
 
 			flags := read_u16(comp, 0)
-			comp = comp[2:]
+			comp = skip_bytes(comp, 2)
 			gidx := read_u16(comp, 0)
-			comp = comp[2:]
+			comp = skip_bytes(comp, 2)
 
 			if flags & 2 != 0 {
 				if flags & 1 != 0 {
 					mtx[4] = f32(read_i16(comp, 0))
-					comp = comp[2:]
+					comp = skip_bytes(comp, 2)
 					mtx[5] = f32(read_i16(comp, 0))
-					comp = comp[2:]
+					comp = skip_bytes(comp, 2)
 				} else {
-					mtx[4] = f32(i8(comp[0]))
-					comp = comp[1:]
-					mtx[5] = f32(i8(comp[0]))
-					comp = comp[1:]
+					mtx[4] = f32(i8(read_u8(comp, 0)))
+					comp = skip_bytes(comp, 1)
+					mtx[5] = f32(i8(read_u8(comp, 0)))
+					comp = skip_bytes(comp, 1)
 				}
 			} else {
-				assert(false)
+				comp = skip_bytes(comp, flags & 1 != 0 ? 4 : 2)
 			}
 
 			if flags & (1<<3) != 0 {
 				mtx[0] = f32(read_i16(comp, 0))/16384.0
 				mtx[3] = mtx[0]
-				comp = comp[2:]
+				comp = skip_bytes(comp, 2)
 				mtx[1] = 0
 				mtx[2] = 0
 			} else if flags & (1<<6) != 0 {
 				mtx[0] = f32(read_i16(comp, 0))/16384.0
-				comp = comp[2:]
+				comp = skip_bytes(comp, 2)
 				mtx[1] = 0
 				mtx[2] = 0
 				mtx[3] = f32(read_i16(comp, 0))/16384.0
-				comp = comp[2:]
+				comp = skip_bytes(comp, 2)
 			} else if flags & (1<<7) != 0 {
 				mtx[0] = f32(read_i16(comp, 0))/16384.0
-				comp = comp[2:]
+				comp = skip_bytes(comp, 2)
 				mtx[1] = f32(read_i16(comp, 0))/16384.0
-				comp = comp[2:]
+				comp = skip_bytes(comp, 2)
 				mtx[2] = f32(read_i16(comp, 0))/16384.0
-				comp = comp[2:]
+				comp = skip_bytes(comp, 2)
 				mtx[3] = f32(read_i16(comp, 0))/16384.0
-				comp = comp[2:]
+				comp = skip_bytes(comp, 2)
 			}
 
 			if flags & (1<<11) != 0 && flags & (1<<12) == 0 {
@@ -340,7 +352,7 @@ tt_get_glyph_shape :: proc(
 			}
 
 			first_comp_vertex := len(all_vertices)
-			tt_get_glyph_shape(tt, gidx, all_vertices)
+			tt_get_glyph_shape(tt, gidx, all_vertices, composite_depth + 1)
 
 			for &v in all_vertices[first_comp_vertex:] {
 				x := f32(v.x)

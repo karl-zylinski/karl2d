@@ -328,7 +328,7 @@ rasterize_glyph :: proc(
 
 	switch f in font.format {
 	case True_Type_Format:
-		tt_get_glyph_shape(f, int(glyph), &r.vertices)
+		tt_get_glyph_shape(f, int(glyph), &r.vertices, 0)
 	case Compact_Font_Format:
 		if _, ok := cff_run_charstring(f, int(glyph), &r.vertices); !ok {
 			clear(&r.vertices)

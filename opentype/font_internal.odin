@@ -26,16 +26,44 @@ MS_EID_SYMBOL :: 0
 MS_EID_UNICODE_BMP :: 1
 MS_EID_UNICODE_FULL :: 10
 
-read_u16 :: #force_inline proc(data: []u8, offset: int) -> int {
-	return int(intrinsics.unaligned_load((^u16be)(raw_data(data[offset:offset + 2]))))
+read_u8 :: #force_inline proc(data: []u8, offset: int) -> int #no_bounds_check {
+	if offset < 0 || offset >= len(data) {
+		return 0
+	}
+
+	return int(data[offset])
 }
 
-read_i16 :: #force_inline proc(data: []u8, offset: int) -> int {
-	return int(intrinsics.unaligned_load((^i16be)(raw_data(data[offset:offset + 2]))))
+read_u16 :: #force_inline proc(data: []u8, offset: int) -> int #no_bounds_check {
+	if offset < 0 || offset + 2 > len(data) {
+		return 0
+	}
+
+	return int(intrinsics.unaligned_load((^u16be)(&data[offset])))
 }
 
-read_u32 :: #force_inline proc(data: []u8, offset: int) -> int {
-	return int(intrinsics.unaligned_load((^u32be)(raw_data(data[offset:offset + 4]))))
+read_i16 :: #force_inline proc(data: []u8, offset: int) -> int #no_bounds_check {
+	if offset < 0 || offset + 2 > len(data) {
+		return 0
+	}
+
+	return int(intrinsics.unaligned_load((^i16be)(&data[offset])))
+}
+
+read_u32 :: #force_inline proc(data: []u8, offset: int) -> int #no_bounds_check {
+	if offset < 0 || offset + 4 > len(data) {
+		return 0
+	}
+
+	return int(intrinsics.unaligned_load((^u32be)(&data[offset])))
+}
+
+skip_bytes :: #force_inline proc(data: []u8, count: int) -> []u8 {
+	if count < 0 || count > len(data) {
+		return nil
+	}
+
+	return data[count:]
 }
 
 find_table :: proc(data: []u8, fontstart: int, table_tag: string) -> []u8 {
@@ -112,7 +140,7 @@ make_vertex :: #force_inline proc(
 get_coverage_index :: proc(coverage_table: []u8, glyph: int) -> int {
 	switch read_u16(coverage_table, 0) {
 	case 1:
-		glyph_array := coverage_table[4:]
+		glyph_array := skip_bytes(coverage_table, 4)
 		l := 0
 		r := read_u16(coverage_table, 2) - 1
 
@@ -130,13 +158,13 @@ get_coverage_index :: proc(coverage_table: []u8, glyph: int) -> int {
 		}
 
 	case 2:
-		range_array := coverage_table[4:]
+		range_array := skip_bytes(coverage_table, 4)
 		l := 0
 		r := read_u16(coverage_table, 2) - 1
 
 		for l <= r {
 			m := (l + r) >> 1
-			range_record := range_array[6 * m:]
+			range_record := skip_bytes(range_array, 6 * m)
 			straw_start := read_u16(range_record, 0)
 			straw_end := read_u16(range_record, 2)
 
@@ -164,13 +192,13 @@ get_glyph_class :: proc(class_def_table: []u8, glyph: int) -> int {
 		}
 
 	case 2:
-		class_range_records := class_def_table[4:]
+		class_range_records := skip_bytes(class_def_table, 4)
 		l := 0
 		r := read_u16(class_def_table, 2) - 1
 
 		for l <= r {
 			m := (l + r) >> 1
-			class_range_record := class_range_records[6 * m:]
+			class_range_record := skip_bytes(class_range_records, 6 * m)
 			straw_start := read_u16(class_range_record, 0)
 			straw_end := read_u16(class_range_record, 2)
 
@@ -200,7 +228,7 @@ get_glyph_gpos_advance :: proc(font: Font, glyph1: int, glyph2: int) -> (int, bo
 	lookup_count := read_u16(lookup_list, 0)
 
 	for i in 0..<lookup_count {
-		lookup_table := lookup_list[read_u16(lookup_list, 2 + 2 * i):]
+		lookup_table := skip_bytes(lookup_list, read_u16(lookup_list, 2 + 2 * i))
 
 		lookup_type := read_u16(lookup_table, 0)
 
@@ -211,17 +239,18 @@ get_glyph_gpos_advance :: proc(font: Font, glyph1: int, glyph2: int) -> (int, bo
 		sub_table_count := read_u16(lookup_table, 4)
 
 		for sti in 0..<sub_table_count {
-			table := lookup_table[read_u16(lookup_table, 6 + 2 * sti):]
+			table := skip_bytes(lookup_table, read_u16(lookup_table, 6 + 2 * sti))
 
 			if lookup_type == 9 {
 				if read_u16(table, 0) != 1 || read_u16(table, 2) != 2 {
 					continue
 				}
 
-				table = table[read_u32(table, 4):]
+				table = skip_bytes(table, read_u32(table, 4))
 			}
 
-			coverage_index := get_coverage_index(table[read_u16(table, 2):], glyph1)
+			coverage_table := skip_bytes(table, read_u16(table, 2))
+			coverage_index := get_coverage_index(coverage_table, glyph1)
 
 			if coverage_index == -1 {
 				continue
@@ -246,14 +275,14 @@ get_glyph_gpos_advance :: proc(font: Font, glyph1: int, glyph2: int) -> (int, bo
 					return 0, false
 				}
 
-				pair_value_table := table[read_u16(table, 10 + 2 * coverage_index):]
-				pair_value_array := pair_value_table[2:]
+				pair_value_table := skip_bytes(table, read_u16(table, 10 + 2 * coverage_index))
+				pair_value_array := skip_bytes(pair_value_table, 2)
 				l := 0
 				r := read_u16(pair_value_table, 0) - 1
 
 				for l <= r {
 					m := (l + r) >> 1
-					pair_value := pair_value_array[(2 + value_size) * m:]
+					pair_value := skip_bytes(pair_value_array, (2 + value_size) * m)
 					straw := read_u16(pair_value, 0)
 
 					if glyph2 < straw {
@@ -266,8 +295,10 @@ get_glyph_gpos_advance :: proc(font: Font, glyph1: int, glyph2: int) -> (int, bo
 				}
 
 			case 2:
-				glyph1_class := get_glyph_class(table[read_u16(table, 8):], glyph1)
-				glyph2_class := get_glyph_class(table[read_u16(table, 10):], glyph2)
+				class_def1 := skip_bytes(table, read_u16(table, 8))
+				class_def2 := skip_bytes(table, read_u16(table, 10))
+				glyph1_class := get_glyph_class(class_def1, glyph1)
+				glyph2_class := get_glyph_class(class_def2, glyph2)
 				class1_count := read_u16(table, 12)
 				class2_count := read_u16(table, 14)
 

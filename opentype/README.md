@@ -1,4 +1,4 @@
-Package for reading `.otf`, `.ttf` and `.ttc` files and rasterizing them. These formats can contain both TrueType glyph contours and CFF (Compact Font Format) contours.
+Package for reading `.otf`, `.ttf` and `.ttc` files and rasterizing them. These formats can contain both TrueType glyph contours and CFF (Compact Font Format) contours. This package only cotains the features that Karl2D needs, it's not as general as stb_truetype.
 
 ---
 

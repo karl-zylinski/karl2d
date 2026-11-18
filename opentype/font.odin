@@ -99,10 +99,15 @@ load_font :: proc(font_data: []u8, font_index: int = 0) -> (Font, Load_Error) {
 		return {}, .Invalid_Font_Data
 	}
 
-	font.ascent = read_i16(horizontal_header, 4)	
+	font.ascent = read_i16(horizontal_header, 4)
 	font.descent = read_i16(horizontal_header, 6)
 	font.line_gap = read_i16(horizontal_header, 8)
 	font.num_advances = read_u16(horizontal_header, 34)
+
+	if font.ascent - font.descent <= 0 {
+		return {}, .Invalid_Font_Data
+	}
+
 	if tt, tt_ok := tt_load(data, fontstart); tt_ok {
 		font.format = tt
 	} else if cff, cff_ok := cff_load(data, fontstart); cff_ok {
@@ -131,6 +136,12 @@ load_font :: proc(font_data: []u8, font_index: int = 0) -> (Font, Load_Error) {
 
 		subtable := cmap_table[subtable_offset:]
 
+		switch read_u16(subtable, 0) {
+		case 0, 4, 6, 12, 13:
+		case:
+			continue
+		}
+
 		switch platform {
 		case PLATFORM_ID_UNICODE:
 			font.character_map = subtable
@@ -149,12 +160,6 @@ load_font :: proc(font_data: []u8, font_index: int = 0) -> (Font, Load_Error) {
 	}
 
 	if len(font.character_map) == 0 {
-		return {}, .Invalid_Font_Data
-	}
-
-	switch read_u16(font.character_map, 0) {
-	case 0, 4, 6, 12, 13:
-	case:
 		return {}, .Invalid_Font_Data
 	}
 
@@ -192,7 +197,7 @@ find_glyph_index :: proc(font: Font, codepoint: rune) -> Glyph_Index {
 		bytes := read_u16(cmap, 2)
 
 		if cp < bytes-6 {
-			return Glyph_Index(cmap[6 + cp])
+			return Glyph_Index(read_u8(cmap, 6 + cp))
 		}
 
 	case 6:

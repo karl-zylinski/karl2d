@@ -6,7 +6,7 @@
 // implement so-called client-side decorations (CSD): The application draws the frame.
 //
 // This frame drawing is not done using Karl2D itself. Rather, it is done using Wayland surfaces.
-// stb_truetype is used for drawing the title. We don't use Karl2D itself to draw the frame because
+// opentype is used for drawing the title. We don't use Karl2D itself to draw the frame because
 // it creates a weird circular dependency. 
 
 #+build linux
