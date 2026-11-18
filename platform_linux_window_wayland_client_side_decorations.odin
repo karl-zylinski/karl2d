@@ -881,6 +881,7 @@ wlcsd_destroy :: proc(csd: ^WLCSD_State) {
 
 	delete(csd.title, csd.allocator)
 	delete(csd.icon.pixels, csd.allocator)
+	free(csd, csd.allocator)
 }
 
 // Use dbus to ask which theme to use. If we fail to ask it, then we get light theme.
