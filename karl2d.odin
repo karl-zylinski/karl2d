@@ -3506,7 +3506,7 @@ _load_audio_buffer_from_ogg :: proc(
 	offset := bytes_used
 
 	for num_decoded < num_samples {
-		used, output, decode_err := vorbis.decode_frame(&decoder, bytes[offset:])
+		used, output, decode_err := vorbis.decode_chunk(&decoder, bytes[offset:])
 		offset += used
 
 		if decode_err != .None {
@@ -4266,7 +4266,7 @@ _decode_audio_stream :: proc(
 	switch sd.mode {
 	case .From_File:
 		for buffered + decoded < AUDIO_STREAM_BUFFER_SIZE / 2 {
-			bytes_used, output, decode_err := vorbis.decode_frame(
+			bytes_used, output, decode_err := vorbis.decode_chunk(
 				&sd.vorbis,
 				sd.file_read_buf[sd.file_read_buf_offset:sd.file_read_buf_len],
 			)
@@ -4375,7 +4375,7 @@ _decode_audio_stream :: proc(
 		}
 	case .From_Bytes:
 		for buffered + decoded < AUDIO_STREAM_BUFFER_SIZE / 2 {
-			bytes_used, output, decode_err := vorbis.decode_frame(
+			bytes_used, output, decode_err := vorbis.decode_chunk(
 				&sd.vorbis,
 				sd.bytes[sd.bytes_offset:],
 			)
@@ -8424,7 +8424,7 @@ _seek_file_stream :: proc(
 		vorbis.flush(&sd.vorbis)
 
 		for _ in 0..<MAX_READS {
-			bytes_used, output, decode_err := vorbis.decode_frame(
+			bytes_used, output, decode_err := vorbis.decode_chunk(
 				&sd.vorbis,
 				sd.file_read_buf[sd.file_read_buf_offset:sd.file_read_buf_len],
 			)

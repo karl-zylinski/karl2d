@@ -14,12 +14,26 @@ Error :: enum {
 }
 
 Decoder :: struct {
+	// 1 or 2 channels (mono or stereo)
 	channels: int,
+
+	// Sample rate in Hz. Read from the file, but not used by the decoder. The user needs it to
+	// convert between seconds and frames, and to know how fast to play the decoded frames.
 	sample_rate: int,
+
+	// The frame that the next call to `decode_chunk` will output. A frame is a sample in mono, or
+	// two samples in stereo.
 	current_frame: int,
+
+	// `true` if `current_frame` holds a real position. `false` after a flush/seek before the
+	// decoder has been able to figure out where it is.
 	current_frame_valid: bool,
 
-	arena: mem.Dynamic_Arena,
+	// The arena used to allocate things like `codebooks`, `floors` etc.
+	setup_arena: mem.Dynamic_Arena,
+
+	// Each packet can have one of two block sizes, which is a number of frames. A sudden sound
+	// uses the shorter blocksize, while a long smooth sound uses the longer blocksize.
 	blocksize: [2]int,
 	codebooks: []Codebook,
 	floors: []Floor,
@@ -135,8 +149,8 @@ make_decoder :: proc(
 		}
 	}
 
-	mem.dynamic_arena_init(&d.arena, allocator, allocator)
-	setup_err := parse_setup(&d, mem.dynamic_arena_allocator(&d.arena), temp_allocator)
+	mem.dynamic_arena_init(&d.setup_arena, allocator, allocator)
+	setup_err := parse_setup(&d, mem.dynamic_arena_allocator(&d.setup_arena), temp_allocator)
 
 	if setup_err != .None {
 		delete_decoder(&d)
@@ -149,11 +163,11 @@ make_decoder :: proc(
 
 delete_decoder :: proc(d: ^Decoder) {
 	delete(d.packet)
-	mem.dynamic_arena_destroy(&d.arena)
+	mem.dynamic_arena_destroy(&d.setup_arena)
 	d^ = {}
 }
 
-decode_frame :: proc(
+decode_chunk :: proc(
 	d: ^Decoder,
 	data: []u8,
 ) -> (
