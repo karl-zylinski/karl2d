@@ -17,8 +17,7 @@ import "core:encoding/endian"
 
 import fc "font_cache"
 import stbv "vendor:stb/vorbis"
-import stbtt "vendor:stb/truetype"
-import stbrp "vendor:stb/rect_pack"
+import ot "opentype"
 
 import "core:image"
 import "core:image/jpeg"
@@ -1728,29 +1727,7 @@ measure_text :: proc(text: string, font_size: f32, font: Font = FONT_DEFAULT) ->
 		}
 
 		render_size := _font_render_size(font_size)
-		size, size_ok := fc.measure(
-			&s.font_cache,
-			&font_object.dynamic_font,
-			text,
-			render_size,
-			s.time,
-		)
-
-		for !size_ok {
-			draw_current_batch()
-
-			if !fc.make_room(&s.font_cache, s.time) {
-				break
-			}
-
-			size, size_ok = fc.measure(
-				&s.font_cache,
-				&font_object.dynamic_font,
-				text,
-				render_size,
-				s.time,
-			)
-		}
+		size := fc.measure(&font_object.dynamic_font, text, render_size)
 
 		return size * (font_size / f32(render_size))
 	}
@@ -1829,7 +1806,7 @@ draw_text :: proc(
 		font_object := &s.fonts[font]
 
 		// Laid out top-down: `char_offset` walks right along a line and down between lines, matching
-		// the offsets stbtt baked into the glyphs.
+		// the offsets opentype baked into the glyphs.
 		char_offset: Vec2
 		scl := font_size / font_object.static_font_size
 
@@ -1873,9 +1850,9 @@ draw_text :: proc(
 				w := src.w * scl
 				h := src.h * scl
 
-				// `g.offset` is stbtt's top-down offset from the top of the line to the top of the
-				// glyph bitmap. It is what makes descenders hang below the baseline, so it counts
-				// down from the top of the block whichever way the Y axis points.
+				// `g.offset` is opentypes's top-down offset from the top of the line to the top of
+				// the glyph bitmap. It is what makes descenders hang below the baseline, so it
+				// counts down from the top of the block whichever way the Y axis points.
 				offset_from_top := char_offset.y + g.offset.y*scl
 				glyph_y := y_up ? block_top - offset_from_top - h : block_top + offset_from_top
 
@@ -1977,22 +1954,20 @@ draw_text :: proc(
 				continue
 			}
 
-			g := placed.glyph
-
-			if g.width == 0 {
+			if placed.width == 0 {
 				continue
 			}
 
 			src := Rect {
-				f32(g.x), f32(g.y),
-				f32(g.width), f32(g.height),
+				f32(placed.atlas_x), f32(placed.atlas_y),
+				f32(placed.width), f32(placed.height),
 			}
 
 			// Unscale quad positions from render-size space back to text-local world units.
 			offset_from_left := placed.x * inv_render_scale
 			offset_from_top := placed.y * inv_render_scale
-			glyph_w := f32(g.width) * inv_render_scale
-			glyph_h := f32(g.height) * inv_render_scale
+			glyph_w := f32(placed.width) * inv_render_scale
+			glyph_h := f32(placed.height) * inv_render_scale
 
 			glyph_y := y_up ? block_top - offset_from_top - glyph_h : block_top + offset_from_top
 
@@ -6044,30 +6019,23 @@ load_static_font_from_bytes :: proc(
 	options: Font_Options = {},
 ) -> (_font: Font, _ok: bool) #optional_ok {
 	codepoints := codepoints
-	num_fonts := int(stbtt.GetNumberOfFonts(raw_data(data)))
+	ot_font, ot_font_err := ot.load_font(data, options.font_index)
 
-	if num_fonts > 0 && (options.font_index < 0 || options.font_index >= num_fonts) {
+	switch ot_font_err {
+	case .None:
+	case .Font_Index_Out_Of_Range:
 		log.errorf(
 			"Cannot load font index %v, the font data contains %v fonts",
 			options.font_index,
-			num_fonts,
+			ot.get_number_of_fonts(data),
 		)
 		return
-	}
-
-	font_info: stbtt.fontinfo
-	font_offset := stbtt.GetFontOffsetForIndex(raw_data(data), i32(options.font_index))
-	init_ok := stbtt.InitFont(&font_info, raw_data(data), font_offset)
-
-	if !init_ok {
+	case .Invalid_Font_Data:
 		log.error("Failed loading TTF/TTC font")
 		return
 	}
 
-	scale_factor := stbtt.ScaleForPixelHeight(&font_info, font_size)
-
-	ascent, descent, line_gap: i32
-	stbtt.GetFontVMetrics(&font_info, &ascent, &descent, &line_gap)
+	scale_factor := ot.pixel_scale_from_font_size(ot_font, font_size)
 
 	default_codepoints: [95]rune
 
@@ -6083,16 +6051,13 @@ load_static_font_from_bytes :: proc(
 	glyphs := make([dynamic]Font_Baked_Glyph, s.frame_allocator)
 
 	for c in codepoints {
-		idx := stbtt.FindGlyphIndex(&font_info, c)
-		
-		if idx > 0 {
-			advance: i32
-			stbtt.GetGlyphHMetrics(&font_info, idx, &advance, nil)
+		idx := ot.find_glyph_index(ot_font, c)
 
+		if idx != ot.GLYPH_NONE {
 			append(&glyphs, Font_Baked_Glyph {
 				value = c,
-				index = int(idx),
-				advance = f32(advance) * scale_factor,
+				index = idx,
+				advance = f32(ot.get_glyph_advance(ot_font, idx)) * scale_factor,
 			})
 		}
 	}
@@ -6104,6 +6069,16 @@ load_static_font_from_bytes :: proc(
 		},
 	)
 
+	num_unique_glyphs := 0
+
+	for g, g_idx in glyphs {
+		if g_idx == 0 || g.value != glyphs[num_unique_glyphs - 1].value {
+			glyphs[num_unique_glyphs] = g
+			num_unique_glyphs += 1
+		}
+	}
+
+	resize(&glyphs, num_unique_glyphs)
 	cur_glyph_range: Font_Baked_Glyph_Range
 
 	for g, g_idx in glyphs {
@@ -6125,72 +6100,160 @@ load_static_font_from_bytes :: proc(
 
 	append(&glyph_ranges, cur_glyph_range)
 
-	Glyph_Image_Data :: struct {
-		pixels: [^]byte,
-		width: i32,
-		height: i32,
+	Glyph_Bitmap :: struct {
+		glyph_idx: int,
+		rect: ot.Bitmap_Rect,
 	}
 
-	glyphs_img_data := make([]Glyph_Image_Data, len(glyphs), s.frame_allocator)
-	glyphs_pack_rects := make([]stbrp.Rect, len(glyphs), s.frame_allocator)
+	// w & h are packed with 1 pixel padding around the glyph. I.e. 2 pixels extra in each direction
+	GLYPH_PADDING :: 1
+
+	glyph_bitmaps := make([dynamic]Glyph_Bitmap, 0, len(glyphs), s.frame_allocator)
+	pack_total_area := 0
+	pack_max_side := 0
+	baseline := math.round(f32(ot_font.ascent) * scale_factor)
 
 	for &g, g_idx in glyphs {
-		x_off, y_off: i32
-		w, h: i32
-
-		pixels := stbtt.GetGlyphBitmap(
-			&font_info,
-			scale_factor,
-			scale_factor,
-			i32(g.index),
-			&w,
-			&h,
-			&x_off,
-			&y_off,
-		)
-
-		glyphs_img_data[g_idx] = {
-			pixels = pixels,
-			width = w,
-			height = h,
-		}
+		rect := ot.get_glyph_bitmap_rect(ot_font, g.index, scale_factor)
 
 		g.offset = {
-			f32(x_off),
-			f32(y_off) + f32(ascent) * scale_factor,
+			f32(rect.x - GLYPH_PADDING),
+			f32(rect.y - GLYPH_PADDING) + baseline,
 		}
 
-		glyphs_pack_rects[g_idx] = {
-			// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
-			w = stbrp.Coord(w) + 1,
-			h = stbrp.Coord(h) + 1,
+		if rect.width <= 0 || rect.height <= 0 {
+			continue
 		}
+
+		append(&glyph_bitmaps, Glyph_Bitmap {
+			glyph_idx = g_idx,
+			rect = rect,
+		})
+
+		padded_w := rect.width + GLYPH_PADDING * 2
+		padded_h := rect.height + GLYPH_PADDING * 2
+		pack_total_area += padded_w * padded_h
+		pack_max_side = max(pack_max_side, padded_w, padded_h)
 	}
 
-	atlas_size := 128
+	// The packing below is based on the skyline bottom-left packer of stb_rect_pack v1.01 by Sean
+	// Barrett: https://github.com/nothings/stb/blob/master/stb_rect_pack.h
+	// stb_rect_pack is public domain (Unlicense) or MIT licensed, at your choice.
+
+	Skyline_Segment :: struct {
+		x: int,
+		y: int,
+	}
+
+	slice.sort_by(
+		glyph_bitmaps[:],
+		proc(i, j: Glyph_Bitmap) -> bool {
+			if i.rect.height != j.rect.height {
+				return i.rect.height > j.rect.height
+			}
+
+			return i.rect.width > j.rect.width
+		},
+	)
+
 	MAX_ATLAS_SIZE :: 4096
+	atlas_size := 128
+
+	for atlas_size * atlas_size < pack_total_area || atlas_size < pack_max_side {
+		atlas_size *= 2
+	}
+
+	segments := make([]Skyline_Segment, len(glyph_bitmaps) + 1, s.frame_allocator)
 	atlas_packed := false
+	atlas_height := 0
 
 	for atlas_size <= MAX_ATLAS_SIZE {
-		rp_ctx: stbrp.Context
-		rp_nodes := make([]stbrp.Node, i32(atlas_size), s.frame_allocator)
-		
-		stbrp.init_target(
-			&rp_ctx,
-			i32(atlas_size),
-			i32(atlas_size),
-			raw_data(rp_nodes),
-			i32(len(rp_nodes)),
-		)
-		
-		rect_pack_res := stbrp.pack_rects(
-			&rp_ctx,
-			raw_data(glyphs_pack_rects),
-			i32(len(glyphs_pack_rects)),
-		)
+		segments[0] = {}
+		num_segments := 1
+		atlas_packed = true
+		atlas_height = 1
 
-		if rect_pack_res == 1 {
-			atlas_packed = true
+		for gb in glyph_bitmaps {
+			w := gb.rect.width + GLYPH_PADDING * 2
+			h := gb.rect.height + GLYPH_PADDING * 2
+			best_segment := -1
+			best_y := max(int)
+
+			for i in 0..<num_segments {
+				x1 := segments[i].x + w
+
+				if x1 > atlas_size {
+					break
+				}
+
+				y := segments[i].y
+
+				for j in i + 1..<num_segments {
+					if segments[j].x >= x1 || y >= best_y {
+						break
+					}
+
+					y = max(y, segments[j].y)
+				}
+
+				if y < best_y {
+					best_y = y
+					best_segment = i
+				}
+			}
+
+			if best_segment == -1 || best_y + h > atlas_size {
+				atlas_packed = false
+				break
+			}
+
+			x0 := segments[best_segment].x
+			x1 := x0 + w
+			end := best_segment + 1
+
+			for end < num_segments && segments[end].x < x1 {
+				end += 1
+			}
+
+			last_covered_y := segments[end - 1].y
+			last_covered_right := atlas_size
+
+			if end < num_segments {
+				last_covered_right = segments[end].x
+			}
+
+			num_new := 1
+
+			if last_covered_right > x1 {
+				num_new = 2
+			}
+
+			copy(segments[best_segment + num_new:], segments[end:num_segments])
+			num_segments += num_new - (end - best_segment)
+
+			segments[best_segment] = {
+				x = x0,
+				y = best_y + h,
+			}
+
+			if num_new == 2 {
+				segments[best_segment + 1] = {
+					x = x1,
+					y = last_covered_y,
+				}
+			}
+
+			glyphs[gb.glyph_idx].rect = {
+				f32(x0),
+				f32(best_y),
+				f32(w),
+				f32(h),
+			}
+
+			atlas_height = max(atlas_height, best_y + h)
+		}
+
+		if atlas_packed {
 			break
 		}
 
@@ -6202,87 +6265,38 @@ load_static_font_from_bytes :: proc(
 		return
 	}
 
-	atlas := make([]Color, atlas_size*atlas_size, s.frame_allocator)
+	atlas := make([]Color, atlas_size*atlas_height, s.frame_allocator)
+	atlas_bytes := slice.reinterpret([]u8, atlas)
+	bitmap_format: ot.Rasterizer_Pixel_Format = .RGBA_White
 
 	if options.premultiply_alpha {
-		for pr, pr_idx in glyphs_pack_rects {
-			g := &glyphs[pr_idx]
-
-			g.rect = {
-				f32(pr.x),
-				f32(pr.y),
-				// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
-				f32(pr.w) - 1,
-				f32(pr.h) - 1,
-			}
-
-			gimg := glyphs_img_data[pr_idx]
-
-			for sx in 0..<gimg.width {
-				for sy in 0..<gimg.height {
-					dx := int(pr.x) + int(sx)
-					dy := int(pr.y) + int(sy)
-
-					assert(dx >= 0 && dx < atlas_size)
-					assert(dy >= 0 && dy < atlas_size)
-
-					alpha := gimg.pixels[sy * gimg.width + sx]
-					alpha_norm := f32(alpha)/255
-
-					atlas[dy * atlas_size + dx] = {
-						u8(255 * alpha_norm),
-						u8(255 * alpha_norm),
-						u8(255 * alpha_norm),
-						alpha,
-					}
-				}
-			}
-		}
+		bitmap_format = .RGBA_Premultiplied
 	} else {
-		for pr, pr_idx in glyphs_pack_rects {
-			g := &glyphs[pr_idx]
-
-			g.rect = {
-				f32(pr.x),
-				f32(pr.y),
-				// w & h are packed with 1 pixel padding, so we get 1 px spacing betwen characters.
-				f32(pr.w) - 1,
-				f32(pr.h) - 1,
-			}
-
-			gimg := glyphs_img_data[pr_idx]
-
-			for sx in 0..<gimg.width {
-				for sy in 0..<gimg.height {
-					dx := int(pr.x) + int(sx)
-					dy := int(pr.y) + int(sy)
-
-					assert(dx >= 0 && dx < atlas_size)
-					assert(dy >= 0 && dy < atlas_size)
-
-					alpha := gimg.pixels[sy * gimg.width + sx]
-
-					atlas[dy * atlas_size + dx] = {
-						255,
-						255,
-						255,
-						alpha,
-					}
-				}
-			}
-		}
+		slice.fill(atlas, Color { 255, 255, 255, 0 })
 	}
 
-	for gimg in glyphs_img_data {
-		if gimg.pixels != nil {
-			stbtt.FreeBitmap(gimg.pixels, nil)
-		}
+	rasterizer := ot.make_rasterizer(s.frame_allocator)
+
+	for gb in glyph_bitmaps {
+		atlas_x := int(glyphs[gb.glyph_idx].rect.x) + GLYPH_PADDING
+		atlas_y := int(glyphs[gb.glyph_idx].rect.y) + GLYPH_PADDING
+
+		ot.rasterize_glyph(
+			&rasterizer,
+			ot_font,
+			glyphs[gb.glyph_idx].index,
+			scale_factor,
+			gb.rect,
+			atlas_bytes[(atlas_y * atlas_size + atlas_x) * size_of(Color):],
+			atlas_size * size_of(Color),
+			bitmap_format,
+		)
 	}
 
 	img := Image {
 		pixels = atlas,
 		width = atlas_size,
-		height = atlas_size,
+		height = atlas_height,
 	}
 
 	tex := load_texture_from_image(img)
@@ -6295,9 +6309,9 @@ load_static_font_from_bytes :: proc(
 		static_glyphs = slice.clone(glyphs[:], s.allocator),
 		static_glyph_ranges = slice.clone(glyph_ranges[:], s.allocator),
 		static_font_size = font_size,
-
-		// Fomula from stbtt.GetFontVMetrics docs 
-		static_line_spacing = f32(ascent - descent + line_gap) * scale_factor,
+		static_line_spacing = f32(
+			ot_font.ascent - ot_font.descent + ot_font.line_gap,
+		) * scale_factor,
 	}
 
 	font_handle := Font(len(s.fonts))
@@ -6351,7 +6365,7 @@ load_dynamic_font_from_bytes :: proc(
 		log.errorf(
 			"Cannot load font index %v, the font data contains %v fonts",
 			options.font_index,
-			stbtt.GetNumberOfFonts(raw_data(data)),
+			ot.get_number_of_fonts(data),
 		)
 		return FONT_DEFAULT, false
 	case .Invalid_Font_Data:
@@ -7647,8 +7661,7 @@ Font_Baked_Glyph_Range :: struct {
 
 Font_Baked_Glyph :: struct {
 	value: rune,
-	// stbtt index, for faster lookup
-	index: int,
+	index: ot.Glyph_Index,
 	rect: Rect,
 	offset: Vec2,
 	advance: f32,

@@ -23,10 +23,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           release: nightly
 
-      - name: Install lld (macos)
-        if: matrix.os == 'macos-latest'
-        run: brew install lld
-
       - name: Install lld (ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y lld
@@ -43,6 +39,10 @@ jobs:
 
       - name: test_all_examples
         run: odin run tools/test_examples
+
+      - name: test_all_examples (web)
+        if: matrix.os == 'ubuntu-latest'
+        run: odin run tools/test_examples -- web
 
       # These open a window, so they only run where one can be created.
       - name: coordinate_system tests
@@ -65,7 +65,7 @@ jobs:
       - name: raylib_ports/shaders_texture_waves (gl, debug)
         run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
 
-      - name: raylib_ports/shaders_texture_waves (gl)
+      - name: raylib_ports/shaders_texture_waves (nil)
         run: odin check examples/raylib_ports/shaders_texture_waves -no-threaded-checker -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
 
       - name: raylib_ports/shaders_texture_waves (nil, debug)
@@ -83,16 +83,18 @@ jobs:
       - name: raylib_ports/bunnymark (gl, debug)
         run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=gl
 
-      - name: raylib_ports/bunnymark (gl)
+      - name: raylib_ports/bunnymark (nil)
         run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style -define:KARL2D_RENDER_BACKEND=nil
 
       - name: raylib_ports/bunnymark (nil, debug)
         run: odin check examples/raylib_ports/bunnymark -no-threaded-checker -vet -strict-style -debug -define:KARL2D_RENDER_BACKEND=nil
 
       - name: raylib_ports/bunnymark (web)
+        if: matrix.os == 'ubuntu-latest'
         run: odin run build_web -no-threaded-checker -vet -strict-style -- examples/raylib_ports/bunnymark
 
       - name: raylib_ports/bunnymark (web, debug)
+        if: matrix.os == 'ubuntu-latest'
         run: odin run build_web -no-threaded-checker -vet -strict-style -- examples/raylib_ports/bunnymark -debug
 
       - name: verify karl2d.doc.odin

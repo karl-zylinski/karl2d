@@ -10,7 +10,7 @@ import "base:runtime"
 import "core:math"
 import "core:slice"
 import "core:unicode/utf8"
-import stbtt "vendor:stb/truetype"
+import ot "../opentype"
 
 ATLAS_START_SIZE :: 256
 ATLAS_MAX_SIZE :: 4096
@@ -25,17 +25,17 @@ Cache :: struct {
 	dirty_min: [2]int,
 	dirty_max: [2]int,
 	last_compact: f64,
+	rasterizer: ot.Rasterizer,
 	allocator: runtime.Allocator,
 }
 
 Font :: struct {
-	info: stbtt.fontinfo,
+	ot_font: ot.Font,
 	data: []u8,
 	id: u32,
 	premultiply_alpha: bool,
 	ascent: f32,
-	height_units: f32,
-	kerning: map[[2]i32]i32,
+	kerning: map[[2]ot.Glyph_Index]i32,
 	allocator: runtime.Allocator,
 }
 
@@ -56,8 +56,9 @@ Glyph :: struct {
 	height: int,
 	offset: [2]f32,
 	advance: f32,
-	index: i32,
+	index: ot.Glyph_Index,
 	last_used: f64,
+	in_atlas: bool,
 }
 
 Skyline_Node :: struct {
@@ -66,11 +67,7 @@ Skyline_Node :: struct {
 	width: int,
 }
 
-Init_Error :: enum {
-	None,
-	Font_Index_Out_Of_Range,
-	Invalid_Font_Data,
-}
+Init_Error :: ot.Load_Error
 
 init_cache :: proc(cache: ^Cache, allocator: runtime.Allocator) {
 	cache^ = {
@@ -86,9 +83,12 @@ init_cache :: proc(cache: ^Cache, allocator: runtime.Allocator) {
 	append(&cache.nodes, Skyline_Node {
 		width = ATLAS_START_SIZE,
 	})
+
+	cache.rasterizer = ot.make_rasterizer(allocator)
 }
 
 destroy_cache :: proc(cache: ^Cache) {
+	ot.delete_rasterizer(&cache.rasterizer)
 	delete(cache.pixels, cache.allocator)
 	delete(cache.nodes)
 	delete(cache.glyphs)
@@ -103,31 +103,24 @@ init_font :: proc(
 	premultiply_alpha: bool,
 	allocator: runtime.Allocator,
 ) -> Init_Error {
-	num_fonts := int(stbtt.GetNumberOfFonts(raw_data(data)))
-
-	if num_fonts > 0 && (font_index < 0 || font_index >= num_fonts) {
-		return .Font_Index_Out_Of_Range
-	}
-
 	font^ = {
 		data = slice.clone(data, allocator),
 		id = id,
 		premultiply_alpha = premultiply_alpha,
-		kerning = make(map[[2]i32]i32, allocator),
+		kerning = make(map[[2]ot.Glyph_Index]i32, allocator),
 		allocator = allocator,
 	}
 
-	font_offset := stbtt.GetFontOffsetForIndex(raw_data(font.data), i32(font_index))
+	ot_font, init_err := ot.load_font(font.data, font_index)
 
-	if !stbtt.InitFont(&font.info, raw_data(font.data), font_offset) {
+	if init_err != .None {
 		destroy_font(font)
-		return .Invalid_Font_Data
+		return init_err
 	}
 
-	ascent, descent, line_gap: i32
-	stbtt.GetFontVMetrics(&font.info, &ascent, &descent, &line_gap)
-	font.ascent = f32(ascent) / f32(ascent - descent)
-	font.height_units = f32(ascent - descent)
+	font.ot_font = ot_font
+
+	font.ascent = f32(font.ot_font.ascent) * ot.pixel_scale_from_font_size(font.ot_font, 1)
 	return .None
 }
 
@@ -164,96 +157,96 @@ get_glyph :: proc(
 	bool,
 ) {
 	key := glyph_key(font.id, codepoint, size)
+	glyph := &cache.glyphs[key]
+	rect: ot.Bitmap_Rect
 
-	if glyph := &cache.glyphs[key]; glyph != nil {
-		glyph.last_used = time
-		return glyph^, true
+	if glyph == nil {
+		scale := ot.pixel_scale_from_font_size(font.ot_font, f32(size))
+		index := ot.find_glyph_index(font.ot_font, codepoint)
+		advance := ot.get_glyph_advance(font.ot_font, index)
+		rect = ot.get_glyph_bitmap_rect(font.ot_font, index, scale)
+		padded_width := rect.width + GLYPH_PADDING * 2
+		padded_height := rect.height + GLYPH_PADDING * 2
+
+		new_glyph := Glyph {
+			offset = {
+				f32(rect.x - GLYPH_PADDING),
+				f32(rect.y - GLYPH_PADDING) + math.round(font.ascent * f32(size)),
+			},
+			advance = f32(advance) * scale,
+			index = index,
+		}
+
+		if rect.width > 0 && rect.height > 0 &&
+		   padded_width <= ATLAS_MAX_SIZE && padded_height <= ATLAS_MAX_SIZE {
+			new_glyph.width = padded_width
+			new_glyph.height = padded_height
+		}
+
+		cache.glyphs[key] = new_glyph
+		glyph = &cache.glyphs[key]
 	}
 
-	index := stbtt.FindGlyphIndex(&font.info, codepoint)
-	scale := f32(size) / font.height_units
+	glyph.last_used = time
 
-	advance, left_side_bearing: i32
-	stbtt.GetGlyphHMetrics(&font.info, index, &advance, &left_side_bearing)
-
-	x0, y0, x1, y1: i32
-	stbtt.GetGlyphBitmapBox(&font.info, index, scale, scale, &x0, &y0, &x1, &y1)
-
-	glyph := Glyph {
-		offset = {
-			f32(x0 - GLYPH_PADDING),
-			f32(y0 - GLYPH_PADDING) + math.round(font.ascent * f32(size)),
-		},
-		advance = f32(advance) * scale,
-		index = index,
-		last_used = time,
-	}
-
-	bitmap_width := int(x1 - x0)
-	bitmap_height := int(y1 - y0)
-	padded_width := bitmap_width + GLYPH_PADDING * 2
-	padded_height := bitmap_height + GLYPH_PADDING * 2
-
-	if bitmap_width > 0 && bitmap_height > 0 &&
-	   padded_width <= ATLAS_MAX_SIZE && padded_height <= ATLAS_MAX_SIZE {
-		x, y, fits := add_rect(cache, padded_width, padded_height)
+	if !glyph.in_atlas && glyph.width > 0 {
+		x, y, fits := add_rect(cache, glyph.width, glyph.height)
 
 		if !fits {
-			return glyph, false
+			return glyph^, false
 		}
 
-		coverage := make([]u8, bitmap_width * bitmap_height, cache.allocator)
+		scale := ot.pixel_scale_from_font_size(font.ot_font, f32(size))
 
-		stbtt.MakeGlyphBitmap(
-			&font.info,
-			raw_data(coverage),
-			i32(bitmap_width),
-			i32(bitmap_height),
-			i32(bitmap_width),
-			scale,
-			scale,
-			index,
-		)
+		if rect.width == 0 {
+			rect = ot.get_glyph_bitmap_rect(font.ot_font, glyph.index, scale)
+		}
 
+		atlas_bytes := slice.reinterpret([]u8, cache.pixels)
 		bitmap_x := x + GLYPH_PADDING
 		bitmap_y := y + GLYPH_PADDING
+		bitmap_format: ot.Rasterizer_Pixel_Format = .RGBA_White
 
-		for py in 0..<bitmap_height {
-			for px in 0..<bitmap_width {
-				a := coverage[px + py * bitmap_width]
-				dst := &cache.pixels[(bitmap_x + px) + (bitmap_y + py) * cache.width]
-
-				if font.premultiply_alpha {
-					dst^ = { a, a, a, a }
-				} else {
-					dst^ = { 255, 255, 255, a }
-				}
-			}
+		if font.premultiply_alpha {
+			bitmap_format = .RGBA_Premultiplied
 		}
 
-		delete(coverage, cache.allocator)
+		ot.rasterize_glyph(
+			&cache.rasterizer,
+			font.ot_font,
+			glyph.index,
+			scale,
+			rect,
+			atlas_bytes[(bitmap_y * cache.width + bitmap_x) * size_of([4]u8):],
+			cache.width * size_of([4]u8),
+			bitmap_format,
+		)
 
 		glyph.x = x
 		glyph.y = y
-		glyph.width = padded_width
-		glyph.height = padded_height
-
+		glyph.in_atlas = true
 		cache.dirty_min.x = min(cache.dirty_min.x, x)
 		cache.dirty_min.y = min(cache.dirty_min.y, y)
-		cache.dirty_max.x = max(cache.dirty_max.x, x + padded_width)
-		cache.dirty_max.y = max(cache.dirty_max.y, y + padded_height)
+		cache.dirty_max.x = max(cache.dirty_max.x, x + glyph.width)
+		cache.dirty_max.y = max(cache.dirty_max.y, y + glyph.height)
 	}
 
-	cache.glyphs[key] = glyph
-	return glyph, true
+	return glyph^, true
 }
 
 make_room :: proc(cache: ^Cache, time: f64) -> bool {
-	if cache.width < ATLAS_MAX_SIZE {
+	if cache.width < ATLAS_MAX_SIZE || cache.height < ATLAS_MAX_SIZE {
 		old_width := cache.width
 		old_height := cache.height
-		new_width := old_width * 2
-		new_height := old_height * 2
+		new_width := old_width
+		new_height := old_height
+
+		if old_width == old_height {
+			new_width = old_width * 2
+		} else {
+			new_height = old_height * 2
+		}
+
 		new_pixels := make([][4]u8, new_width * new_height, cache.allocator)
 
 		for y in 0..<old_height {
@@ -267,11 +260,13 @@ make_room :: proc(cache: ^Cache, time: f64) -> bool {
 		cache.dirty_min = {}
 		cache.dirty_max = { old_width, old_height }
 
-		append(&cache.nodes, Skyline_Node {
-			x = old_width,
-			y = 0,
-			width = new_width - old_width,
-		})
+		if new_width > old_width {
+			append(&cache.nodes, Skyline_Node {
+				x = old_width,
+				y = 0,
+				width = new_width - old_width,
+			})
+		}
 
 		return true
 	}
@@ -288,7 +283,7 @@ make_room :: proc(cache: ^Cache, time: f64) -> bool {
 	kept := make([dynamic]Kept_Glyph, cache.allocator)
 
 	for key, glyph in cache.glyphs {
-		if glyph.width > 0 {
+		if glyph.in_atlas {
 			append(&kept, Kept_Glyph {
 				key = key,
 				glyph = glyph,
@@ -363,16 +358,16 @@ make_room :: proc(cache: ^Cache, time: f64) -> bool {
 	return true
 }
 
-kern :: proc(font: ^Font, prev_index: i32, index: i32, size: int) -> f32 {
-	pair := [2]i32 { prev_index, index }
+kern :: proc(font: ^Font, prev_index: ot.Glyph_Index, index: ot.Glyph_Index, size: int) -> f32 {
+	pair := [2]ot.Glyph_Index { prev_index, index }
 	advance, advance_ok := font.kerning[pair]
 
 	if !advance_ok {
-		advance = stbtt.GetGlyphKernAdvance(&font.info, prev_index, index)
+		advance = i32(ot.get_glyph_kern_advance(font.ot_font, prev_index, index))
 		font.kerning[pair] = advance
 	}
 
-	return f32(advance) * (f32(size) / font.height_units)
+	return f32(advance) * ot.pixel_scale_from_font_size(font.ot_font, f32(size))
 }
 
 // ---
@@ -384,7 +379,7 @@ Place_Text_Iterator :: struct {
 	time: f64,
 	x: f32,
 	y: f32,
-	prev_index: i32,
+	prev_index: ot.Glyph_Index,
 }
 
 Place_Text_Iterator_Result :: enum {
@@ -396,7 +391,10 @@ Place_Text_Iterator_Result :: enum {
 // A glyph that has been placed by the iterator. The x and y are the top-left of the glyph, relative
 // to the start of the text.
 Placed_Glyph :: struct {
-	glyph: Glyph,
+	atlas_x: int,
+	atlas_y: int,
+	width: int,
+	height: int,
 	x: f32,
 	y: f32,
 }
@@ -453,7 +451,10 @@ place_text_iterate :: proc(
 		}
 
 		placed := Placed_Glyph {
-			glyph = glyph,
+			atlas_x = glyph.x,
+			atlas_y = glyph.y,
+			width = glyph.width,
+			height = glyph.height,
 			x = it.x + glyph.offset.x,
 			y = it.y + glyph.offset.y,
 		}
@@ -466,27 +467,43 @@ place_text_iterate :: proc(
 	return {}, .Done
 }
 
-measure :: proc(
-	cache: ^Cache,
-	font: ^Font,
-	text: string,
-	size: int,
-	time: f64,
-) -> (
-	[2]f32,
-	bool,
-) {
-	it := place_text_iterator_init(text, size, time)
+measure :: proc(font: ^Font, text: string, size: int) -> [2]f32 {
+	scale := ot.pixel_scale_from_font_size(font.ot_font, f32(size))
+	prev_index := ot.Glyph_Index(-1)
+	x: f32
+	y: f32
 	width: f32
 
-	place_res := Place_Text_Iterator_Result.Placed
+	for codepoint in text {
+		switch codepoint {
+		case '\r':
+			continue
 
-	for place_res == .Placed {
-		_, place_res = place_text_iterate(cache, font, &it)
-		width = max(width, it.x)
+		case '\n':
+			x = 0
+			y += f32(size)
+			prev_index = -1
+			continue
+
+		case '\t':
+			x += 2 * f32(size)
+			width = max(width, x)
+			prev_index = -1
+			continue
+		}
+
+		index := ot.find_glyph_index(font.ot_font, codepoint)
+
+		if prev_index != -1 {
+			x += kern(font, prev_index, index, size)
+		}
+
+		x += f32(ot.get_glyph_advance(font.ot_font, index)) * scale
+		width = max(width, x)
+		prev_index = index
 	}
 
-	return { width, it.y + f32(size) }, place_res == .Done
+	return { width, y + f32(size) }
 }
 
 add_rect :: proc(cache: ^Cache, width: int, height: int) -> (x: int, y: int, ok: bool) {

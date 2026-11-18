@@ -1970,8 +1970,7 @@ Font_Baked_Glyph_Range :: struct {
 
 Font_Baked_Glyph :: struct {
 	value: rune,
-	// stbtt index, for faster lookup
-	index: int,
+	index: ot.Glyph_Index,
 	rect: Rect,
 	offset: Vec2,
 	advance: f32,
