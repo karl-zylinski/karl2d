@@ -10,6 +10,8 @@ Font :: struct {
 	// is not used.
 	horizontal_metrics: []u8,
 
+	head: []u8,
+
 	// How many unique advances there are in `horizontal_metrics`. For glyphs that have index larger
 	// than `num_advances`, they use the width of the last `horizontal_metrics`.
 	num_advances: int,
@@ -90,6 +92,7 @@ load_font :: proc(font_data: []u8, font_index: int = 0) -> (Font, Load_Error) {
 	cmap_table := find_table(data, fontstart, "cmap")
 	horizontal_header := find_table(data, fontstart, "hhea")
 	font.horizontal_metrics = find_table(data, fontstart, "hmtx")
+	font.head = find_table(data, fontstart, "head")
 
 	if (
 		len(cmap_table) < 4 ||
@@ -183,6 +186,11 @@ load_font :: proc(font_data: []u8, font_index: int = 0) -> (Font, Load_Error) {
 
 pixel_scale_from_font_size :: proc(font: Font, font_size: f32) -> f32 {
 	return font_size / f32(font.ascent - font.descent)
+}
+
+point_pixel_scale_from_font_size :: proc(font: Font, pixels: f32) -> f32 {
+	units_per_em := read_u16(font.head, 18)
+	return pixels / f32(units_per_em)
 }
 
 // For a given rune (unicode codepoint), find the glyph index. The index can later be used with
