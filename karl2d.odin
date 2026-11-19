@@ -3486,7 +3486,11 @@ _load_audio_buffer_from_ogg :: proc(
 	_audio_buffer_object: Audio_Buffer_Object,
 	_ok: bool,
 ) {
-	decoder, bytes_used, decoder_err := vorbis.make_decoder(bytes, frame_allocator, frame_allocator)
+	decoder, bytes_used, decoder_err := vorbis.create_decoder(
+		bytes,
+		frame_allocator,
+		frame_allocator,
+	)
 
 	if decoder_err != .None {
 		log.errorf("Failed loading audio clip from ogg data. Error: %v", decoder_err)
@@ -3497,7 +3501,7 @@ _load_audio_buffer_from_ogg :: proc(
 
 	if num_samples == 0 {
 		log.error("Failed loading audio clip from ogg data. It contains no samples.")
-		vorbis.delete_decoder(&decoder)
+		vorbis.destroy_decoder(&decoder)
 		return
 	}
 
@@ -3506,25 +3510,14 @@ _load_audio_buffer_from_ogg :: proc(
 	offset := bytes_used
 
 	for num_decoded < num_samples {
-		used, output, decode_err := vorbis.decode_chunk(&decoder, bytes[offset:])
+		used, decoded, decode_err := vorbis.decode_chunk(&decoder, bytes[offset:])
 		offset += used
 
 		if decode_err != .None {
 			break
 		}
 
-		frames := min(len(output[0]), (num_samples - num_decoded) / decoder.channels)
-
-		if decoder.channels == 1 {
-			copy(samples[num_decoded:], output[0][:frames])
-		} else {
-			for i in 0..<frames {
-				samples[num_decoded + i * 2] = output[0][i]
-				samples[num_decoded + i * 2 + 1] = output[1][i]
-			}
-		}
-
-		num_decoded += frames * decoder.channels
+		num_decoded += copy(samples[num_decoded:], decoded)
 	}
 
 	if num_decoded != num_samples {
@@ -3542,7 +3535,7 @@ _load_audio_buffer_from_ogg :: proc(
 		channels = decoder.channels,
 	}
 
-	vorbis.delete_decoder(&decoder)
+	vorbis.destroy_decoder(&decoder)
 	return audio_buffer_object, true
 }
 
@@ -3891,12 +3884,12 @@ load_audio_stream_from_file :: proc(
 	decoder: vorbis.Decoder
 
 	// This loop tries to read in just enough from the file so that it has enough info to play it.
-	// `vorbis.make_decoder` returns an error if it needs more data, in which case the the loop
+	// `vorbis.create_decoder` returns an error if it needs more data, in which case the the loop
 	// might continue.
 	for {
 		consumed: int
 		decoder_err: vorbis.Error
-		decoder, consumed, decoder_err = vorbis.make_decoder(buf[:], s.allocator, frame_allocator)
+		decoder, consumed, decoder_err = vorbis.create_decoder(buf[:], s.allocator, frame_allocator)
 
 		if decoder_err == .None {
 			// The file was properly loaded!
@@ -3905,13 +3898,13 @@ load_audio_stream_from_file :: proc(
 			if seek_err != nil {
 				log.errorf("Failed seeking in audio stream file %v. Error: %v", filename, seek_err)
 				file_close(f)
-				vorbis.delete_decoder(&decoder)
+				vorbis.destroy_decoder(&decoder)
 				return
 			}
 
 			break
 		} else if decoder_err == .Need_More_Data {
-			// Read in more data from the file so that maybe `vorbis.make_decoder` succeeds next
+			// Read in more data from the file so that maybe `vorbis.create_decoder` succeeds next
 			// iteration.
 			nbytes_read, read_err = file_read(f, read_buf[:])
 
@@ -3954,7 +3947,7 @@ load_audio_stream_from_file :: proc(
 		}
 
 		delete(audio_buffer.samples, s.allocator)
-		vorbis.delete_decoder(&decoder)
+		vorbis.destroy_decoder(&decoder)
 		return
 	}
 
@@ -3977,7 +3970,7 @@ load_audio_stream_from_file :: proc(
 		delete(asd.file_read_buf, s.allocator)
 		delete(audio_buffer.samples, s.allocator)
 		hm.remove(&s.audio_buffers, audio_buffer_handle)
-		vorbis.delete_decoder(&decoder)
+		vorbis.destroy_decoder(&decoder)
 		return
 	}
 
@@ -4017,7 +4010,7 @@ load_audio_stream_from_bytes :: proc(
 	_stream: Audio_Stream,
 	_ok: bool,
 ) #optional_ok {
-	decoder, bytes_used, decoder_err := vorbis.make_decoder(bytes, s.allocator, frame_allocator)
+	decoder, bytes_used, decoder_err := vorbis.create_decoder(bytes, s.allocator, frame_allocator)
 
 	if decoder_err != .None {
 		log.errorf("Failed opening audio stream from bytes. Error: %v", decoder_err)
@@ -4037,7 +4030,7 @@ load_audio_stream_from_bytes :: proc(
 	if audio_buffer_handle_add_err != nil {
 		log.errorf("Failed to load audio stream. Error: %v", audio_buffer_handle_add_err)
 		delete(audio_buffer.samples, s.allocator)
-		vorbis.delete_decoder(&decoder)
+		vorbis.destroy_decoder(&decoder)
 		return
 	}
 
@@ -4058,7 +4051,7 @@ load_audio_stream_from_bytes :: proc(
 		log.errorf("Failed to create audio stream from bytes. Error: %v", stream_add_err)
 		delete(audio_buffer.samples, s.allocator)
 		hm.remove(&s.audio_buffers, audio_buffer_handle)
-		vorbis.delete_decoder(&decoder)
+		vorbis.destroy_decoder(&decoder)
 		return
 	}
 
@@ -4097,7 +4090,7 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 		// don't free the bytes, they are owned by the game
 	}
 
-	vorbis.delete_decoder(&sd.vorbis)
+	vorbis.destroy_decoder(&sd.vorbis)
 	sync.mutex_unlock(&sd.decode_mutex)
 	hm.remove(&s.audio_streams, stream)
 }
@@ -4258,6 +4251,20 @@ _decode_audio_stream :: proc(
 	_end_reached: bool,
 	_ok: bool,
 ) {
+	// A pending seek throws away decoded samples instead of writing them, until the decoder has
+	// caught up to the target position.
+	write :: proc(ab: ^Audio_Buffer_Object, cursor: ^Audio_Stream_Cursor, chunk: []f32) -> int {
+		discard := clamp(cursor.seek_discard, 0, len(chunk))
+		cursor.seek_discard -= discard
+		cursor.decode_cursor += len(chunk)
+		src := chunk[discard:]
+		first := min(len(src), len(ab.samples) - cursor.buffer_write_pos)
+		copy(ab.samples[cursor.buffer_write_pos:], src[:first])
+		copy(ab.samples, src[first:])
+		cursor.buffer_write_pos = (cursor.buffer_write_pos + len(src)) % len(ab.samples)
+		return len(src)
+	}
+
 	cursor := cursor
 	buffered := (cursor.buffer_write_pos - play_offset + len(ab.samples)) % len(ab.samples)
 	decoded := 0
@@ -4266,13 +4273,11 @@ _decode_audio_stream :: proc(
 	switch sd.mode {
 	case .From_File:
 		for buffered + decoded < AUDIO_STREAM_BUFFER_SIZE / 2 {
-			bytes_used, output, decode_err := vorbis.decode_chunk(
+			bytes_used, chunk, decode_err := vorbis.decode_chunk(
 				&sd.vorbis,
 				sd.file_read_buf[sd.file_read_buf_offset:sd.file_read_buf_len],
 			)
 
-			channels := sd.vorbis.channels
-			samples := len(output[0])
 			sd.file_read_buf_offset += bytes_used
 
 			if decode_err == .Need_More_Data {
@@ -4335,53 +4340,16 @@ _decode_audio_stream :: proc(
 				log.error("Invalid vorbis")
 				return
 			} else {
-				if channels == 1 {
-					mono := output[0]
-
-					for samp_idx in 0..<samples {
-						// A pending seek throws away decoded samples instead of writing them,
-						// until the decoder has caught up to the target position.
-						if cursor.seek_discard > 0 {
-							cursor.seek_discard -= 1
-						} else {
-							ab.samples[cursor.buffer_write_pos] = mono[samp_idx]
-							cursor.buffer_write_pos = (cursor.buffer_write_pos + 1) % len(ab.samples)
-							decoded += 1
-						}
-
-						cursor.decode_cursor += 1
-					}
-				} else if channels == 2 {
-					left := output[0]
-					right := output[1]
-
-					for samp_idx in 0..<samples {
-						if cursor.seek_discard > 0 {
-							cursor.seek_discard -= 2
-						} else {
-							ab.samples[cursor.buffer_write_pos] = left[samp_idx]
-							ab.samples[cursor.buffer_write_pos + 1] = right[samp_idx]
-							cursor.buffer_write_pos = (cursor.buffer_write_pos + 2) % len(ab.samples)
-							decoded += 2
-						}
-
-						cursor.decode_cursor += 2
-					}
-				} else {
-					log.error("Invalid num channels")
-					return
-				}
+				decoded += write(ab, &cursor, chunk)
 			}
 		}
 	case .From_Bytes:
 		for buffered + decoded < AUDIO_STREAM_BUFFER_SIZE / 2 {
-			bytes_used, output, decode_err := vorbis.decode_chunk(
+			bytes_used, chunk, decode_err := vorbis.decode_chunk(
 				&sd.vorbis,
 				sd.bytes[sd.bytes_offset:],
 			)
 
-			channels := sd.vorbis.channels
-			samples := len(output[0])
 			sd.bytes_offset += bytes_used
 
 			if decode_err == .Need_More_Data {
@@ -4413,40 +4381,7 @@ _decode_audio_stream :: proc(
 				return
 			}
 
-			if channels == 1 {
-				mono := output[0]
-
-				for samp_idx in 0..<samples {
-					if cursor.seek_discard > 0 {
-						cursor.seek_discard -= 1
-					} else {
-						ab.samples[cursor.buffer_write_pos] = mono[samp_idx]
-						cursor.buffer_write_pos = (cursor.buffer_write_pos + 1) % len(ab.samples)
-						decoded += 1
-					}
-
-					cursor.decode_cursor += 1
-				}
-			} else if channels == 2 {
-				left := output[0]
-				right := output[1]
-
-				for samp_idx in 0..<samples {
-					if cursor.seek_discard > 0 {
-						cursor.seek_discard -= 2
-					} else {
-						ab.samples[cursor.buffer_write_pos] = left[samp_idx]
-						ab.samples[cursor.buffer_write_pos + 1] = right[samp_idx]
-						cursor.buffer_write_pos = (cursor.buffer_write_pos + 2) % len(ab.samples)
-						decoded += 2
-					}
-
-					cursor.decode_cursor += 2
-				}
-			} else {
-				log.error("Invalid num channels")
-				return
-			}
+			decoded += write(ab, &cursor, chunk)
 		}
 	}
 
@@ -8424,14 +8359,14 @@ _seek_file_stream :: proc(
 		vorbis.flush(&sd.vorbis)
 
 		for _ in 0..<MAX_READS {
-			bytes_used, output, decode_err := vorbis.decode_chunk(
+			bytes_used, chunk, decode_err := vorbis.decode_chunk(
 				&sd.vorbis,
 				sd.file_read_buf[sd.file_read_buf_offset:sd.file_read_buf_len],
 			)
 
 			sd.file_read_buf_offset += bytes_used
 
-			if len(output[0]) > 0 {
+			if len(chunk) > 0 {
 				if !sd.vorbis.current_frame_valid {
 					return -1
 				}
