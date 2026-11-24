@@ -1,3 +1,4 @@
+// This is based on stb_vorbis.c by Sean Barrett. See the LICENSE file in this folder.
 #+private package
 package karl2d_vorbis
 
