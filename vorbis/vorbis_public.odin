@@ -17,7 +17,7 @@ Decoder :: struct {
 	// two samples in stereo.
 	current_frame: int,
 
-	// `true` if `current_frame` holds a real position. `false` after a flush/seek before the
+	// `true` if `current_frame` holds a real position. `false` after a force_resync/seek before the
 	// decoder has been able to figure out where it is.
 	current_frame_valid: bool,
 
@@ -36,7 +36,7 @@ Error :: enum {
 // creation of the decoder succeeds, then `bytes_used` tells you how many bytes of `data` that it
 // ended up using.
 //
-// Use the returned `Decoder` with `decode_chunk`, `flush` or `seek` to control the stream.
+// Use the returned `Decoder` with `decode_chunk`, `force_resync` and `find_seek_point`.
 //
 // The decoder allocates memory using `allocator`. Destroy the decoder using `delete_
 create_decoder :: proc(
@@ -72,8 +72,11 @@ decode_chunk :: proc(
 	return _decode_chunk(d, data)
 }
 
-// Seek the stream to a specific target frame.
-seek :: proc(
+// Given that you'd like to seek your file to `target_frame`, this gives you the earliest offset in
+// the data that can make you land there. The `frame` return value is the frame number at that
+// offset. To get to the frame you actually wanted, decode from the offset returned until and throw
+// away `target_frame - frame` frames.
+find_seek_point :: proc(
 	d: ^Decoder,
 	data: []u8,
 	target_frame: int,
@@ -81,14 +84,21 @@ seek :: proc(
 	offset: int,
 	frame: int,
 ) {
-	return _seek(d, data, target_frame)
+	return _find_seek_point(d, data, target_frame)
 }
 
-// Flushing
-flush :: proc(d: ^Decoder) {
-	_flush(d)
+// Forces the next call to `decode_chunk` to resync. This means that the decoding will start off
+// with finding an ogg page.
+force_resync :: proc(d: ^Decoder, skip_to_frame := NO_SEEK_TARGET) {
+	_force_resync(d, skip_to_frame)
 }
 
+// Starts the decoder over from the first frame that it found when setting up. Useful for looping.
+restart :: proc(d: ^Decoder) -> (offset: int) {
+	return _restart(d)
+}
+
+// Counts the total number of vorbis frames in the provided data.
 total_frames :: proc(data: []u8) -> int {
 	return _total_frames(data)
 }

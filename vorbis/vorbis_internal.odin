@@ -9,6 +9,129 @@ import "core:simd"
 import "core:slice"
 import "base:runtime"
 
+Decoder_Internal :: struct {
+	setup_arena: mem.Dynamic_Arena,
+
+	blocksize: [2]int,
+	codebooks: []Codebook,
+	floors: []Floor,
+	residues: []Residue,
+	mappings: []Mapping,
+	modes: [64]Mode,
+	mode_count: int,
+	mode_bits: int,
+
+	window: [2][]f32,
+	imdct_scratch: []f32,
+	imdct_tables: [2]Imdct_Tables,
+	interleaved: []f32,
+
+	channel_buffers: [2][MAX_CHANNELS][]f32,
+	buffer_index: int,
+	previous_start: int,
+	previous_length: int,
+	final_y: [MAX_CHANNELS][MAX_FLOOR_VALUES]i16,
+	part_classes: [MAX_CHANNELS][]i32,
+
+	first_decode: bool,
+	discard_frames_deferred: int,
+
+	needs_sync: bool,
+	stream_ended: bool,
+	restart_offset: int,
+	seek_target: int,
+	segments: [MAX_PAGE_SEGMENTS]u8,
+	segment_count: int,
+	next_segment: int,
+	page_flags: u8,
+	end_segment_with_known_frame: int,
+	known_frame: int,
+	packet_ends_known_frame: bool,
+	packet: [dynamic]u8,
+}
+
+MAX_FLOOR_VALUES :: 31 * 8 + 2
+RESIDUE_PASSES :: 8
+MAX_PAGE_SEGMENTS :: 255
+
+Codebook :: struct {
+	dimensions: int,
+	entries: int,
+	fast_mask: u64,
+	max_length: int,
+	fast: []u32,
+	long_codewords: []u32,
+	long_values: []u32,
+	multiplicands: []f32,
+}
+
+Floor :: struct {
+	partitions: int,
+	partition_class_list: [32]u8,
+	class_dimensions: [16]u8,
+	class_subclasses: [16]u8,
+	class_masterbooks: [16]u8,
+	subclass_books: [16][8]i16,
+	x_list: [MAX_FLOOR_VALUES]u16,
+	sorted_order: [MAX_FLOOR_VALUES]u8,
+	neighbors: [MAX_FLOOR_VALUES][2]u8,
+	predict_dx: [MAX_FLOOR_VALUES]u16,
+	predict_inverse: [MAX_FLOOR_VALUES]u64,
+	multiplier: int,
+	range_bits: int,
+	values: int,
+}
+
+Residue :: struct {
+	type: int,
+	begin: int,
+	end: int,
+	part_size: int,
+	classifications: int,
+	classbook: int,
+	classdata: []u8,
+	residue_books: [][RESIDUE_PASSES]i16,
+	partition_bits: [][RESIDUE_PASSES]i32,
+	stages: int,
+}
+
+Mapping :: struct {
+	coupling_steps: int,
+	magnitude: [MAX_CHANNELS]u8,
+	angle: [MAX_CHANNELS]u8,
+	mux: [MAX_CHANNELS]u8,
+	submaps: int,
+	submap_floor: [16]u8,
+	submap_residue: [16]u8,
+}
+
+Mode :: struct {
+	blockflag: int,
+	mapping: int,
+}
+
+Imdct_Tables :: struct {
+	pre: []f32,
+	post: []f32,
+	positions: []u16,
+	fft_twiddles: []f32,
+}
+
+Page_Start :: struct {
+	decoder_frame: int,
+	output_frame: int,
+	packets_to_skip: int,
+}
+
+Bit_Reader :: struct {
+	data: [^]u8,
+	last: int,
+	pos: int,
+	acc: u64,
+	valid: int,
+	total_bits: int,
+}
+
 _create_decoder :: proc(
 	data: []u8,
 	allocator: runtime.Allocator,
@@ -24,43 +147,63 @@ _create_decoder :: proc(
 		mantissa := x & 0x1fffff
 		sign := x & 0x80000000
 		exp := (x & 0x7fe00000) >> 21
-		res := sign != 0 ? -f64(mantissa) : f64(mantissa)
-		return f32(math.ldexp(f64(f32(res)), int(exp) - 788))
+		value := sign != 0 ? -f64(mantissa) : f64(mantissa)
+		return f32(math.ldexp(f64(f32(value)), int(exp) - 788))
 	}
 
-	ID_PAGE_SIZE :: 28 + 30
+	ID_HEADER :: 1
+	COMMENT_HEADER :: 3
+	SETUP_HEADER :: 5
+	HEADER_PREFIX_SIZE :: 7
+
+	ID_OFFSET_VERSION :: 7
+	ID_OFFSET_CHANNELS :: 11
+	ID_OFFSET_SAMPLE_RATE :: 12
+	ID_OFFSET_BLOCKSIZES :: 28
+	ID_OFFSET_FRAMING :: 29
+	ID_PACKET_SIZE :: 30
+	ID_PAGE_SIZE :: PAGE_HEADER_SIZE + 1 + ID_PACKET_SIZE
+
+	MIN_BLOCKSIZE_LOG2 :: 6
+	MAX_BLOCKSIZE_LOG2 :: 13
 
 	if len(data) < ID_PAGE_SIZE {
 		return {}, 0, .Need_More_Data
 	}
 
-	if string(data[:4]) != "OggS" || data[4] != 0 || data[5] != PAGE_FLAG_FIRST_PAGE {
+	if string(data[:4]) != "OggS" || data[PAGE_OFFSET_VERSION] != 0 {
 		return {}, 0, .Invalid_Stream
 	}
 
-	packet_start := 27 + int(data[26])
+	if data[PAGE_OFFSET_FLAGS] != PAGE_FLAG_FIRST_PAGE {
+		return {}, 0, .Invalid_Stream
+	}
 
-	if len(data) < packet_start + 7 {
+	packet_start := PAGE_HEADER_SIZE + int(data[PAGE_OFFSET_SEGMENT_COUNT])
+
+	if len(data) < packet_start + HEADER_PREFIX_SIZE {
 		return {}, 0, .Need_More_Data
 	}
 
-	if data[packet_start] != 1 || string(data[packet_start + 1:packet_start + 7]) != "vorbis" {
+	prefix := data[packet_start:][:HEADER_PREFIX_SIZE]
+
+	if prefix[0] != ID_HEADER || string(prefix[1:]) != "vorbis" {
 		return {}, 0, .Unsupported_Stream
 	}
 
-	if data[26] != 1 || data[27] != 30 || data[28] != 1 || string(data[29:35]) != "vorbis" {
+	if data[PAGE_OFFSET_SEGMENT_COUNT] != 1 || data[PAGE_HEADER_SIZE] != ID_PACKET_SIZE {
 		return {}, 0, .Invalid_Stream
 	}
 
-	id := data[28:ID_PAGE_SIZE]
+	id := data[packet_start:ID_PAGE_SIZE]
 
-	if read_u32(id, 7) != 0 || id[29] & 1 == 0 {
+	if read_u32(id, ID_OFFSET_VERSION) != 0 || id[ID_OFFSET_FRAMING] & 1 == 0 {
 		return {}, 0, .Invalid_Stream
 	}
 
 	d: Decoder
-	d.channels = int(id[11])
-	d.sample_rate = int(read_u32(id, 12))
+	d.channels = int(id[ID_OFFSET_CHANNELS])
+	d.sample_rate = int(read_u32(id, ID_OFFSET_SAMPLE_RATE))
 
 	if d.channels == 0 || d.sample_rate == 0 {
 		return {}, 0, .Invalid_Stream
@@ -70,148 +213,165 @@ _create_decoder :: proc(
 		return {}, 0, .Unsupported_Stream
 	}
 
-	log0 := uint(id[28] & 15)
-	log1 := uint(id[28] >> 4)
+	short_log2 := uint(id[ID_OFFSET_BLOCKSIZES] & 15)
+	long_log2 := uint(id[ID_OFFSET_BLOCKSIZES] >> 4)
 
-	if log0 < 6 || log0 > 13 || log1 < 6 || log1 > 13 || log0 > log1 {
+	if short_log2 < MIN_BLOCKSIZE_LOG2 || long_log2 > MAX_BLOCKSIZE_LOG2 || short_log2 > long_log2 {
 		return {}, 0, .Invalid_Stream
 	}
 
-	d.blocksize = { 1 << log0, 1 << log1 }
-	d.next_segment = -1
+	d.blocksize = { 1 << short_log2, 1 << long_log2 }
+	d.next_segment = NO_SEGMENT
 	d.packet = make([dynamic]u8, allocator)
 	mem.dynamic_arena_init(&d.setup_arena, allocator, allocator)
 	setup_allocator := mem.dynamic_arena_allocator(&d.setup_arena)
+
 	defer if _err != .None {
 		_destroy_decoder(&d)
 	}
 
 	bytes_used := ID_PAGE_SIZE
 
-	for packet_type in ([2]u8 { 3, 5 }) {
-		used, packet_err := read_packet(&d, data[bytes_used:])
+	packet_bytes, packet_err := read_packet(&d, data[bytes_used:])
 
-		if packet_err != .None {
-			return {}, 0, packet_err
-		}
+	if packet_err != .None {
+		return {}, 0, packet_err
+	}
 
-		bytes_used += used
+	bytes_used += packet_bytes
 
-		if len(d.packet) < 7 + PACKET_PADDING || d.packet[0] != packet_type {
-			return {}, 0, .Invalid_Stream
-		}
+	if len(d.packet) < HEADER_PREFIX_SIZE + PACKET_PADDING || d.packet[0] != COMMENT_HEADER {
+		return {}, 0, .Invalid_Stream
+	}
+
+	packet_bytes, packet_err = read_packet(&d, data[bytes_used:])
+
+	if packet_err != .None {
+		return {}, 0, packet_err
+	}
+
+	bytes_used += packet_bytes
+
+	if len(d.packet) < HEADER_PREFIX_SIZE + PACKET_PADDING || d.packet[0] != SETUP_HEADER {
+		return {}, 0, .Invalid_Stream
 	}
 
 	MAX_CODEBOOK_FLOATS :: 1 << 22
 
-	b: Bit_Reader
-	bits_init(&b, d.packet[:])
+	reader: Bit_Reader
+	bits_init(&reader, d.packet[:])
 
-	if get_bits(&b, 8) != 5 {
+	if get_bits(&reader, 8) != SETUP_HEADER {
 		return {}, 0, .Invalid_Stream
 	}
 
 	for ch in "vorbis" {
-		if get_bits(&b, 8) != u32(ch) {
+		if get_bits(&reader, 8) != u32(ch) {
 			return {}, 0, .Invalid_Stream
 		}
 	}
 
-	codebook_count := int(get_bits(&b, 8)) + 1
+	codebook_count := int(get_bits(&reader, 8)) + 1
 	d.codebooks = make([]Codebook, codebook_count, setup_allocator)
 
-	for &c in d.codebooks {
+	for &book in d.codebooks {
+		CODEBOOK_SYNC :: 0x564342
 		NO_CODE :: 255
+		MAX_CODEWORD_LENGTH :: 31
+		LOOKUP_NONE :: 0
+		LOOKUP_LATTICE :: 1
+		LOOKUP_EXPLICIT :: 2
 
 		Long_Code :: struct {
 			codeword: u32,
 			value: u32,
 		}
 
-		if get_bits(&b, 24) != 0x564342 {
+		if get_bits(&reader, 24) != CODEBOOK_SYNC {
 			return {}, 0, .Invalid_Stream
 		}
 
-		c.dimensions = int(get_bits(&b, 16))
-		c.entries = int(get_bits(&b, 24))
-		ordered := get_bits(&b, 1) != 0
-		sparse := ordered ? false : get_bits(&b, 1) != 0
+		book.dimensions = int(get_bits(&reader, 16))
+		book.entries = int(get_bits(&reader, 24))
+		ordered := get_bits(&reader, 1) != 0
+		sparse := ordered ? false : get_bits(&reader, 1) != 0
 
-		if c.dimensions == 0 && c.entries != 0 {
+		if book.dimensions == 0 && book.entries != 0 {
 			return {}, 0, .Invalid_Stream
 		}
 
-		if bits_eop(&b) || c.entries > b.total_bits {
+		if bits_eop(&reader) || book.entries > reader.total_bits {
 			return {}, 0, .Invalid_Stream
 		}
 
-		lengths := make([]u8, c.entries, temp_allocator)
+		lengths := make([]u8, book.entries, temp_allocator)
 
 		if ordered {
 			current_entry := 0
-			current_length := int(get_bits(&b, 5)) + 1
+			current_length := int(get_bits(&reader, 5)) + 1
 
-			for current_entry < c.entries {
-				limit := c.entries - current_entry
-				n := int(get_bits(&b, ilog(limit)))
+			for current_entry < book.entries {
+				limit := book.entries - current_entry
+				count := int(get_bits(&reader, ilog(limit)))
+				end := current_entry + count
 
-				if current_length >= 32 || current_entry + n > c.entries || bits_eop(&b) {
+				if current_length > MAX_CODEWORD_LENGTH || end > book.entries || bits_eop(&reader) {
 					return {}, 0, .Invalid_Stream
 				}
 
-				slice.fill(lengths[current_entry:current_entry + n], u8(current_length))
-				current_entry += n
+				slice.fill(lengths[current_entry:end], u8(current_length))
+				current_entry = end
 				current_length += 1
 			}
 		} else {
 			for &length in lengths {
 				length = NO_CODE
 
-				if !sparse || get_bits(&b, 1) != 0 {
-					length = u8(get_bits(&b, 5)) + 1
+				if !sparse || get_bits(&reader, 1) != 0 {
+					length = u8(get_bits(&reader, 5)) + 1
 
-					if length == 32 {
+					if length > MAX_CODEWORD_LENGTH {
 						return {}, 0, .Invalid_Stream
 					}
 				}
 			}
 		}
 
-		codewords := make([]u32, c.entries, temp_allocator)
-		available: [32]u32
+		codewords := make([]u32, book.entries, temp_allocator)
+		available: [MAX_CODEWORD_LENGTH + 1]u32
 		first := 0
 
-		for first < c.entries && lengths[first] == NO_CODE {
+		for first < book.entries && lengths[first] == NO_CODE {
 			first += 1
 		}
 
-		if first < c.entries {
+		if first < book.entries {
 			for i in 1..=int(lengths[first]) {
 				available[i] = u32(1) << u32(32 - i)
 			}
 		}
 
-		for i in first + 1..<c.entries {
-			z := int(lengths[i])
+		for i in first + 1..<book.entries {
+			level := int(lengths[i])
 
-			if z == NO_CODE {
+			if level == NO_CODE {
 				continue
 			}
 
-			for z > 0 && available[z] == 0 {
-				z -= 1
+			for level > 0 && available[level] == 0 {
+				level -= 1
 			}
 
-			if z == 0 {
+			if level == 0 {
 				return {}, 0, .Invalid_Stream
 			}
 
-			res := available[z]
-			available[z] = 0
-			codewords[i] = bits.reverse_bits(res)
+			code := available[level]
+			available[level] = 0
+			codewords[i] = bits.reverse_bits(code)
 
-			for y := int(lengths[i]); y > z; y -= 1 {
-				available[y] = res + (u32(1) << u32(32 - y))
+			for y := int(lengths[i]); y > level; y -= 1 {
+				available[y] = code + (u32(1) << u32(32 - y))
 			}
 		}
 
@@ -228,10 +388,10 @@ _create_decoder :: proc(
 			}
 		}
 
-		c.max_length = max_length
+		book.max_length = max_length
 		fast_bits := min(max_length, FAST_HUFFMAN_BITS)
-		c.fast = make([]u32, 1 << uint(fast_bits), setup_allocator)
-		c.fast_mask = u64(len(c.fast) - 1)
+		book.fast = make([]u32, 1 << uint(fast_bits), setup_allocator)
+		book.fast_mask = u64(len(book.fast) - 1)
 		long_codes := make([]Long_Code, long_count, temp_allocator)
 		long_count = 0
 
@@ -240,11 +400,11 @@ _create_decoder :: proc(
 				continue
 			}
 
-			value := u32(i) << 8 | u32(length)
+			value := u32(i) << CODE_LENGTH_BITS | u32(length)
 
 			if int(length) <= fast_bits {
-				for z := codewords[i]; z < u32(len(c.fast)); z += u32(1) << length {
-					c.fast[z] = value
+				for slot := codewords[i]; slot < u32(len(book.fast)); slot += u32(1) << length {
+					book.fast[slot] = value
 				}
 			} else {
 				long_codes[long_count] = { bits.reverse_bits(codewords[i]), value }
@@ -256,47 +416,49 @@ _create_decoder :: proc(
 			return a.codeword < b.codeword
 		})
 
-		c.long_codewords = make([]u32, long_count, setup_allocator)
-		c.long_values = make([]u32, long_count, setup_allocator)
+		book.long_codewords = make([]u32, long_count, setup_allocator)
+		book.long_values = make([]u32, long_count, setup_allocator)
 
 		for long_code, i in long_codes {
-			c.long_codewords[i] = long_code.codeword
-			c.long_values[i] = long_code.value
+			book.long_codewords[i] = long_code.codeword
+			book.long_values[i] = long_code.value
 		}
 
-		lookup_type := get_bits(&b, 4)
+		lookup_type := get_bits(&reader, 4)
 
-		if lookup_type > 2 {
+		if lookup_type > LOOKUP_EXPLICIT {
 			return {}, 0, .Invalid_Stream
 		}
 
-		if lookup_type > 0 {
-			minimum_value := float32_unpack(get_bits(&b, 32))
-			delta_value := float32_unpack(get_bits(&b, 32))
-			value_bits := int(get_bits(&b, 4)) + 1
-			sequence_p := get_bits(&b, 1) != 0
+		if lookup_type != LOOKUP_NONE {
+			minimum_value := float32_unpack(get_bits(&reader, 32))
+			delta_value := float32_unpack(get_bits(&reader, 32))
+			value_bits := int(get_bits(&reader, 4)) + 1
+			sequence_p := get_bits(&reader, 1) != 0
 
-			if c.dimensions == 0 || i64(c.entries) * i64(c.dimensions) > MAX_CODEBOOK_FLOATS {
+			book_floats := i64(book.entries) * i64(book.dimensions)
+
+			if book.dimensions == 0 || book_floats > MAX_CODEBOOK_FLOATS {
 				return {}, 0, .Invalid_Stream
 			}
 
-			lookup_values := c.entries * c.dimensions
+			lookup_values := book.entries * book.dimensions
 
-			if lookup_type == 1 {
+			if lookup_type == LOOKUP_LATTICE {
 				lookup_values = 0
 
 				for {
 					power := i64(1)
 
-					for _ in 0..<c.dimensions {
+					for _ in 0..<book.dimensions {
 						power *= i64(lookup_values + 1)
 
-						if power > i64(c.entries) {
+						if power > i64(book.entries) {
 							break
 						}
 					}
 
-					if power > i64(c.entries) {
+					if power > i64(book.entries) {
 						break
 					}
 
@@ -308,19 +470,19 @@ _create_decoder :: proc(
 				return {}, 0, .Invalid_Stream
 			}
 
-			if bits_eop(&b) || i64(lookup_values) * i64(value_bits) > i64(b.total_bits) {
+			if bits_eop(&reader) || i64(lookup_values) * i64(value_bits) > i64(reader.total_bits) {
 				return {}, 0, .Invalid_Stream
 			}
 
 			mults := make([]u16, lookup_values, temp_allocator)
 
 			for &m in mults {
-				m = u16(get_bits(&b, value_bits))
+				m = u16(get_bits(&reader, value_bits))
 			}
 
-			c.multiplicands = make([]f32, c.entries * c.dimensions, setup_allocator)
+			book.multiplicands = make([]f32, book.entries * book.dimensions, setup_allocator)
 
-			for j in 0..<c.entries {
+			for j in 0..<book.entries {
 				if lengths[j] == NO_CODE {
 					continue
 				}
@@ -328,21 +490,21 @@ _create_decoder :: proc(
 				div := i64(1)
 				last: f32
 
-				for k in 0..<c.dimensions {
-					off := j * c.dimensions + k
+				for k in 0..<book.dimensions {
+					index := j * book.dimensions + k
 
-					if lookup_type == 1 {
-						off = int((i64(j) / div) % i64(lookup_values))
+					if lookup_type == LOOKUP_LATTICE {
+						index = int((i64(j) / div) % i64(lookup_values))
 					}
 
-					val := f32(mults[off]) * delta_value + minimum_value + last
-					c.multiplicands[j * c.dimensions + k] = val
+					value := f32(mults[index]) * delta_value + minimum_value + last
+					book.multiplicands[j * book.dimensions + k] = value
 
 					if sequence_p {
-						last = val
+						last = value
 					}
 
-					if lookup_type == 1 && k + 1 < c.dimensions {
+					if lookup_type == LOOKUP_LATTICE && k + 1 < book.dimensions {
 						if div > i64(max(u32)) / i64(lookup_values) {
 							return {}, 0, .Invalid_Stream
 						}
@@ -354,19 +516,19 @@ _create_decoder :: proc(
 		}
 	}
 
-	time_count := int(get_bits(&b, 6)) + 1
+	time_count := int(get_bits(&reader, 6)) + 1
 
 	for _ in 0..<time_count {
-		if get_bits(&b, 16) != 0 {
+		if get_bits(&reader, 16) != 0 {
 			return {}, 0, .Invalid_Stream
 		}
 	}
 
-	floor_count := int(get_bits(&b, 6)) + 1
+	floor_count := int(get_bits(&reader, 6)) + 1
 	d.floors = make([]Floor, floor_count, setup_allocator)
 
-	for &g in d.floors {
-		floor_type := get_bits(&b, 16)
+	for &floor in d.floors {
+		floor_type := get_bits(&reader, 16)
 
 		if floor_type == 0 {
 			return {}, 0, .Unsupported_Stream
@@ -377,274 +539,276 @@ _create_decoder :: proc(
 		}
 
 		max_class := -1
-		g.partitions = int(get_bits(&b, 5))
+		floor.partitions = int(get_bits(&reader, 5))
 
-		for j in 0..<g.partitions {
-			g.partition_class_list[j] = u8(get_bits(&b, 4))
-			max_class = max(max_class, int(g.partition_class_list[j]))
+		for j in 0..<floor.partitions {
+			floor.partition_class_list[j] = u8(get_bits(&reader, 4))
+			max_class = max(max_class, int(floor.partition_class_list[j]))
 		}
 
 		for j in 0..=max_class {
-			g.class_dimensions[j] = u8(get_bits(&b, 3)) + 1
-			g.class_subclasses[j] = u8(get_bits(&b, 2))
+			floor.class_dimensions[j] = u8(get_bits(&reader, 3)) + 1
+			floor.class_subclasses[j] = u8(get_bits(&reader, 2))
 
-			if g.class_subclasses[j] != 0 {
-				g.class_masterbooks[j] = u8(get_bits(&b, 8))
+			if floor.class_subclasses[j] != 0 {
+				floor.class_masterbooks[j] = u8(get_bits(&reader, 8))
 
-				if int(g.class_masterbooks[j]) >= codebook_count {
+				if int(floor.class_masterbooks[j]) >= codebook_count {
 					return {}, 0, .Invalid_Stream
 				}
 			}
 
-			for k in 0..<1 << g.class_subclasses[j] {
-				g.subclass_books[j][k] = i16(get_bits(&b, 8)) - 1
+			for k in 0..<1 << floor.class_subclasses[j] {
+				floor.subclass_books[j][k] = i16(get_bits(&reader, 8)) - 1
 
-				if int(g.subclass_books[j][k]) >= codebook_count {
+				if int(floor.subclass_books[j][k]) >= codebook_count {
 					return {}, 0, .Invalid_Stream
 				}
 			}
 		}
 
-		g.multiplier = int(get_bits(&b, 2)) + 1
-		g.range_bits = int(get_bits(&b, 4))
-		g.x_list[0] = 0
-		g.x_list[1] = u16(1) << uint(g.range_bits)
-		g.values = 2
+		floor.multiplier = int(get_bits(&reader, 2)) + 1
+		floor.range_bits = int(get_bits(&reader, 4))
+		floor.x_list[0] = 0
+		floor.x_list[1] = u16(1) << uint(floor.range_bits)
+		floor.values = 2
 
-		for j in 0..<g.partitions {
-			class := g.partition_class_list[j]
+		for j in 0..<floor.partitions {
+			class := floor.partition_class_list[j]
 
-			for _ in 0..<g.class_dimensions[class] {
-				if g.values >= MAX_FLOOR_VALUES {
+			for _ in 0..<floor.class_dimensions[class] {
+				if floor.values >= MAX_FLOOR_VALUES {
 					return {}, 0, .Invalid_Stream
 				}
 
-				g.x_list[g.values] = u16(get_bits(&b, g.range_bits))
-				g.values += 1
+				floor.x_list[floor.values] = u16(get_bits(&reader, floor.range_bits))
+				floor.values += 1
 			}
 		}
 
-		for j in 0..<g.values {
-			g.sorted_order[j] = u8(j)
+		for j in 0..<floor.values {
+			floor.sorted_order[j] = u8(j)
 		}
 
-		for j in 1..<g.values {
-			id := g.sorted_order[j]
+		for j in 1..<floor.values {
+			point := floor.sorted_order[j]
 			k := j
 
-			for k > 0 && g.x_list[g.sorted_order[k - 1]] > g.x_list[id] {
-				g.sorted_order[k] = g.sorted_order[k - 1]
+			for k > 0 && floor.x_list[floor.sorted_order[k - 1]] > floor.x_list[point] {
+				floor.sorted_order[k] = floor.sorted_order[k - 1]
 				k -= 1
 			}
 
-			g.sorted_order[k] = id
+			floor.sorted_order[k] = point
 		}
 
-		for j in 0..<g.values - 1 {
-			if g.x_list[g.sorted_order[j]] == g.x_list[g.sorted_order[j + 1]] {
+		for j in 0..<floor.values - 1 {
+			if floor.x_list[floor.sorted_order[j]] == floor.x_list[floor.sorted_order[j + 1]] {
 				return {}, 0, .Invalid_Stream
 			}
 		}
 
-		for j in 2..<g.values {
+		for j in 2..<floor.values {
 			low := -1
-			high := 65536
+			high := max(int)
 
 			for i in 0..<j {
-				x := int(g.x_list[i])
+				x := int(floor.x_list[i])
 
-				if x > low && x < int(g.x_list[j]) {
-					g.neighbors[j][0] = u8(i)
+				if x > low && x < int(floor.x_list[j]) {
+					floor.neighbors[j][0] = u8(i)
 					low = x
 				}
 
-				if x < high && x > int(g.x_list[j]) {
-					g.neighbors[j][1] = u8(i)
+				if x < high && x > int(floor.x_list[j]) {
+					floor.neighbors[j][1] = u8(i)
 					high = x
 				}
 			}
 
 			adx := u64(high - low)
-			g.predict_dx[j] = u16(int(g.x_list[j]) - low)
-			g.predict_inverse[j] = (1 << 40 + adx - 1) / adx
+			floor.predict_dx[j] = u16(int(floor.x_list[j]) - low)
+			floor.predict_inverse[j] = (1 << PREDICT_SHIFT + adx - 1) / adx
 		}
 	}
 
-	residue_count := int(get_bits(&b, 6)) + 1
+	residue_count := int(get_bits(&reader, 6)) + 1
 	d.residues = make([]Residue, residue_count, setup_allocator)
 
-	for &r in d.residues {
+	for &residue in d.residues {
 		residue_cascade: [64]u8
-		r.type = int(get_bits(&b, 16))
+		residue.type = int(get_bits(&reader, 16))
 
-		if r.type > 2 {
+		if residue.type > 2 {
 			return {}, 0, .Invalid_Stream
 		}
 
-		r.begin = int(get_bits(&b, 24))
-		r.end = int(get_bits(&b, 24))
+		residue.begin = int(get_bits(&reader, 24))
+		residue.end = int(get_bits(&reader, 24))
 
-		if r.end < r.begin {
+		if residue.end < residue.begin {
 			return {}, 0, .Invalid_Stream
 		}
 
-		r.part_size = int(get_bits(&b, 24)) + 1
-		r.classifications = int(get_bits(&b, 6)) + 1
-		r.classbook = int(get_bits(&b, 8))
+		residue.part_size = int(get_bits(&reader, 24)) + 1
+		residue.classifications = int(get_bits(&reader, 6)) + 1
+		residue.classbook = int(get_bits(&reader, 8))
 
-		if r.classbook >= codebook_count {
+		if residue.classbook >= codebook_count {
 			return {}, 0, .Invalid_Stream
 		}
 
-		for j in 0..<r.classifications {
+		for j in 0..<residue.classifications {
 			high_bits: u8
-			low_bits := u8(get_bits(&b, 3))
+			low_bits := u8(get_bits(&reader, 3))
 
-			if get_bits(&b, 1) != 0 {
-				high_bits = u8(get_bits(&b, 5))
+			if get_bits(&reader, 1) != 0 {
+				high_bits = u8(get_bits(&reader, 5))
 			}
 
 			residue_cascade[j] = high_bits * 8 + low_bits
 		}
 
-		r.residue_books = make([][8]i16, r.classifications, setup_allocator)
-		r.partition_bits = make([][8]i32, r.classifications, setup_allocator)
+		class_count := residue.classifications
+		residue.residue_books = make([][RESIDUE_PASSES]i16, class_count, setup_allocator)
+		residue.partition_bits = make([][RESIDUE_PASSES]i32, class_count, setup_allocator)
 
-		for j in 0..<r.classifications {
-			for k in 0..<8 {
+		for j in 0..<residue.classifications {
+			for k in 0..<RESIDUE_PASSES {
 				if residue_cascade[j] & (1 << uint(k)) != 0 {
-					r.residue_books[j][k] = i16(get_bits(&b, 8))
+					residue.residue_books[j][k] = i16(get_bits(&reader, 8))
 
-					if int(r.residue_books[j][k]) >= codebook_count {
+					if int(residue.residue_books[j][k]) >= codebook_count {
 						return {}, 0, .Invalid_Stream
 					}
 
-					book := &d.codebooks[r.residue_books[j][k]]
+					book := &d.codebooks[residue.residue_books[j][k]]
 
 					if len(book.multiplicands) == 0 {
 						return {}, 0, .Invalid_Stream
 					}
 
-					if r.part_size % book.dimensions != 0 {
+					if residue.part_size % book.dimensions != 0 {
 						return {}, 0, .Unsupported_Stream
 					}
 
-					r.stages = max(r.stages, k + 1)
-					r.partition_bits[j][k] = i32(r.part_size / book.dimensions * book.max_length)
+					residue.stages = max(residue.stages, k + 1)
+					partition_vectors := residue.part_size / book.dimensions
+					residue.partition_bits[j][k] = i32(partition_vectors * book.max_length)
 				} else {
-					r.residue_books[j][k] = -1
+					residue.residue_books[j][k] = -1
 				}
 			}
 		}
 
-		classbook := &d.codebooks[r.classbook]
+		classbook := &d.codebooks[residue.classbook]
 		classwords := classbook.dimensions
 
 		if i64(classbook.entries) * i64(classwords) > MAX_CODEBOOK_FLOATS || classwords == 0 {
 			return {}, 0, .Invalid_Stream
 		}
 
-		r.classdata = make([]u8, classbook.entries * classwords, setup_allocator)
+		residue.classdata = make([]u8, classbook.entries * classwords, setup_allocator)
 
 		for j in 0..<classbook.entries {
-			temp := j
+			remaining := j
 
 			for k := classwords - 1; k >= 0; k -= 1 {
-				r.classdata[j * classwords + k] = u8(temp % r.classifications)
-				temp /= r.classifications
+				residue.classdata[j * classwords + k] = u8(remaining % residue.classifications)
+				remaining /= residue.classifications
 			}
 		}
 	}
 
-	mapping_count := int(get_bits(&b, 6)) + 1
+	mapping_count := int(get_bits(&reader, 6)) + 1
 	d.mappings = make([]Mapping, mapping_count, setup_allocator)
 
-	for &m in d.mappings {
-		if get_bits(&b, 16) != 0 {
+	for &mapping in d.mappings {
+		if get_bits(&reader, 16) != 0 {
 			return {}, 0, .Invalid_Stream
 		}
 
-		m.submaps = 1
+		mapping.submaps = 1
 
-		if get_bits(&b, 1) != 0 {
-			m.submaps = int(get_bits(&b, 4)) + 1
+		if get_bits(&reader, 1) != 0 {
+			mapping.submaps = int(get_bits(&reader, 4)) + 1
 		}
 
-		if get_bits(&b, 1) != 0 {
-			m.coupling_steps = int(get_bits(&b, 8)) + 1
+		if get_bits(&reader, 1) != 0 {
+			mapping.coupling_steps = int(get_bits(&reader, 8)) + 1
 
-			if m.coupling_steps > d.channels {
+			if mapping.coupling_steps > d.channels {
 				return {}, 0, .Invalid_Stream
 			}
 
-			for k in 0..<m.coupling_steps {
-				m.magnitude[k] = u8(get_bits(&b, ilog(d.channels - 1)))
-				m.angle[k] = u8(get_bits(&b, ilog(d.channels - 1)))
+			for k in 0..<mapping.coupling_steps {
+				mapping.magnitude[k] = u8(get_bits(&reader, ilog(d.channels - 1)))
+				mapping.angle[k] = u8(get_bits(&reader, ilog(d.channels - 1)))
 
-				if int(m.magnitude[k]) >= d.channels || int(m.angle[k]) >= d.channels {
+				if int(mapping.magnitude[k]) >= d.channels || int(mapping.angle[k]) >= d.channels {
 					return {}, 0, .Invalid_Stream
 				}
 
-				if m.magnitude[k] == m.angle[k] {
+				if mapping.magnitude[k] == mapping.angle[k] {
 					return {}, 0, .Invalid_Stream
 				}
 			}
 		}
 
-		if get_bits(&b, 2) != 0 {
+		if get_bits(&reader, 2) != 0 {
 			return {}, 0, .Invalid_Stream
 		}
 
-		if m.submaps > 1 {
+		if mapping.submaps > 1 {
 			for j in 0..<d.channels {
-				m.mux[j] = u8(get_bits(&b, 4))
+				mapping.mux[j] = u8(get_bits(&reader, 4))
 
-				if int(m.mux[j]) >= m.submaps {
+				if int(mapping.mux[j]) >= mapping.submaps {
 					return {}, 0, .Invalid_Stream
 				}
 			}
 		}
 
-		for j in 0..<m.submaps {
-			get_bits(&b, 8)
-			m.submap_floor[j] = u8(get_bits(&b, 8))
-			m.submap_residue[j] = u8(get_bits(&b, 8))
+		for j in 0..<mapping.submaps {
+			get_bits(&reader, 8)
+			mapping.submap_floor[j] = u8(get_bits(&reader, 8))
+			mapping.submap_residue[j] = u8(get_bits(&reader, 8))
 
-			if int(m.submap_floor[j]) >= floor_count {
+			if int(mapping.submap_floor[j]) >= floor_count {
 				return {}, 0, .Invalid_Stream
 			}
 
-			if int(m.submap_residue[j]) >= residue_count {
+			if int(mapping.submap_residue[j]) >= residue_count {
 				return {}, 0, .Invalid_Stream
 			}
 		}
 	}
 
-	d.mode_count = int(get_bits(&b, 6)) + 1
+	d.mode_count = int(get_bits(&reader, 6)) + 1
 	d.mode_bits = ilog(d.mode_count - 1)
 
-	for &m in d.modes[:d.mode_count] {
-		m.blockflag = int(get_bits(&b, 1))
-		window_type := get_bits(&b, 16)
-		transform_type := get_bits(&b, 16)
-		m.mapping = int(get_bits(&b, 8))
+	for &mode in d.modes[:d.mode_count] {
+		mode.blockflag = int(get_bits(&reader, 1))
+		window_type := get_bits(&reader, 16)
+		transform_type := get_bits(&reader, 16)
+		mode.mapping = int(get_bits(&reader, 8))
 
-		if window_type != 0 || transform_type != 0 || m.mapping >= mapping_count {
+		if window_type != 0 || transform_type != 0 || mode.mapping >= mapping_count {
 			return {}, 0, .Invalid_Stream
 		}
 	}
 
-	if bits_eop(&b) {
+	if bits_eop(&reader) {
 		return {}, 0, .Invalid_Stream
 	}
 
 	max_part_read := 0
 
-	for r in d.residues {
+	for residue in d.residues {
 		actual_size := d.blocksize[1]
-		limit_begin := min(r.begin, actual_size)
-		limit_end := min(r.end, actual_size)
-		max_part_read = max(max_part_read, (limit_end - limit_begin) / r.part_size)
+		limit_begin := min(residue.begin, actual_size)
+		limit_end := min(residue.end, actual_size)
+		max_part_read = max(max_part_read, (limit_end - limit_begin) / residue.part_size)
 	}
 
 	for i in 0..<d.channels {
@@ -666,11 +830,15 @@ _create_decoder :: proc(
 		}
 
 		d.window[blocktype] = window
-
 		d.imdct_tables[blocktype] = make_imdct_tables(n, setup_allocator)
 	}
 
 	d.first_decode = true
+
+	if d.next_segment == NO_SEGMENT {
+		d.restart_offset = bytes_used
+	}
+
 	return d, bytes_used, .None
 }
 
@@ -688,79 +856,30 @@ _decode_chunk :: proc(
 	samples: []f32,
 	err: Error,
 ) {
-	if d.needs_sync {
-		offset, size, found := find_page(data, 0)
-
-		if !found {
-			return offset, {}, .Need_More_Data
-		}
-
-		page := data[offset:offset + size]
-		segment_count := int(page[26])
-		copy(d.segments[:], page[27:27 + segment_count])
-		d.segment_count = segment_count
-		d.page_flags = page[5]
-		d.end_segment_with_known_frame = -2
-		granule := read_granule(page)
-		bytes_used = offset + 27 + segment_count
-		d.next_segment = 0
-
-		if granule != -1 {
-			for i := segment_count - 1; i >= 0; i -= 1 {
-				if d.segments[i] < 255 {
-					d.end_segment_with_known_frame = i
-					d.known_frame = granule
-					break
-				}
-			}
-		}
-
-		if d.page_flags & PAGE_FLAG_CONTINUED_PACKET != 0 {
-			for d.next_segment < segment_count {
-				length := int(d.segments[d.next_segment])
-				bytes_used += length
-				d.next_segment += 1
-
-				if length < 255 {
-					break
-				}
-			}
-		}
-
-		if d.page_flags & PAGE_FLAG_FIRST_PAGE != 0 {
-			d.first_decode = true
-		} else if frame, _, skip, frame_ok := page_frames(d, page, d.seek_target); frame_ok {
-			d.current_frame = frame
-			d.current_frame_valid = true
-
-			for _ in 0..<skip {
-				for {
-					length := int(d.segments[d.next_segment])
-					bytes_used += length
-					d.next_segment += 1
-
-					if length < 255 {
-						break
-					}
-				}
-			}
-		}
-
-		if d.next_segment >= segment_count {
-			d.next_segment = -1
-		}
-
-		d.seek_target = min(int)
-		d.needs_sync = false
+	if d.stream_ended {
+		return len(data), {}, len(data) == 0 ? .Need_More_Data : .None
 	}
 
-	used, packet_err := read_packet(d, data[bytes_used:])
+	if d.needs_sync {
+		found: bool
+		bytes_used, found = sync_to_page(d, data)
+
+		if !found {
+			return bytes_used, {}, .Need_More_Data
+		}
+	}
+
+	packet_bytes, packet_err := read_packet(d, data[bytes_used:])
+
+	if d.stream_ended {
+		return len(data), {}, .None
+	}
 
 	if packet_err != .None {
 		return bytes_used, {}, packet_err
 	}
 
-	bytes_used += used
+	bytes_used += packet_bytes
 
 	if len(d.packet) == PACKET_PADDING {
 		return bytes_used, {}, .None
@@ -775,6 +894,73 @@ _decode_chunk :: proc(
 	return bytes_used, finish_frame(d, length, left_start, right_start), .None
 }
 
+sync_to_page :: proc(d: ^Decoder, data: []u8) -> (bytes_used: int, found: bool) {
+	offset, size, page_found := find_page(data, 0)
+
+	if !page_found {
+		return offset, false
+	}
+
+	page := data[offset:offset + size]
+	segment_count := int(page[PAGE_OFFSET_SEGMENT_COUNT])
+	copy(d.segments[:], page[PAGE_HEADER_SIZE:][:segment_count])
+	d.segment_count = segment_count
+	d.page_flags = page[PAGE_OFFSET_FLAGS]
+	d.end_segment_with_known_frame = NO_KNOWN_FRAME
+	granule := read_granule(page)
+	bytes_used = offset + PAGE_HEADER_SIZE + segment_count
+	d.next_segment = 0
+
+	if granule != NO_GRANULE {
+		for i := segment_count - 1; i >= 0; i -= 1 {
+			if d.segments[i] < FULL_SEGMENT {
+				d.end_segment_with_known_frame = i
+				d.known_frame = granule
+				break
+			}
+		}
+	}
+
+	if d.page_flags & PAGE_FLAG_CONTINUED_PACKET != 0 {
+		for d.next_segment < segment_count {
+			length := int(d.segments[d.next_segment])
+			bytes_used += length
+			d.next_segment += 1
+
+			if length < FULL_SEGMENT {
+				break
+			}
+		}
+	}
+
+	if d.page_flags & PAGE_FLAG_FIRST_PAGE != 0 {
+		d.first_decode = true
+	} else if start, start_ok := page_start(d, page, d.seek_target); start_ok {
+		d.current_frame = start.decoder_frame
+		d.current_frame_valid = true
+
+		for _ in 0..<start.packets_to_skip {
+			for {
+				length := int(d.segments[d.next_segment])
+				bytes_used += length
+				d.next_segment += 1
+
+				if length < FULL_SEGMENT {
+					break
+				}
+			}
+		}
+	}
+
+	if d.next_segment >= segment_count {
+		d.next_segment = NO_SEGMENT
+	}
+
+	d.seek_target = NO_SEEK_TARGET
+	d.needs_sync = false
+	return bytes_used, true
+}
+
 decode_packet :: proc(
 	d: ^Decoder,
 ) -> (
@@ -783,12 +969,19 @@ decode_packet :: proc(
 	right: int,
 	ok: bool,
 ) {
-	b: Bit_Reader
-	bits_init(&b, d.packet[:])
+	couple :: #force_inline proc(m: F32x4, a: F32x4) -> (F32x4, F32x4) {
+		zero: F32x4
+		delta := simd.select(simd.lanes_gt(m, zero), a, -a)
+		a_positive := simd.lanes_gt(a, zero)
+		return simd.select(a_positive, m, m + delta), simd.select(a_positive, m - delta, m)
+	}
+
+	reader: Bit_Reader
+	bits_init(&reader, d.packet[:])
 	header := u32(d.packet[0]) | u32(d.packet[1]) << 8
 	mode, left_start, right_start, right_end := packet_window(d, header) or_return
 
-	get_bits(&b, 1 + d.mode_bits + (mode.blockflag != 0 ? 2 : 0))
+	get_bits(&reader, 1 + d.mode_bits + (mode.blockflag != 0 ? 2 : 0))
 	n := d.blocksize[mode.blockflag]
 	n2 := n >> 1
 	d.buffer_index = 1 - d.buffer_index
@@ -798,94 +991,8 @@ decode_packet :: proc(
 	really_zero_channel: [MAX_CHANNELS]bool
 
 	for i in 0..<d.channels {
-		g := &d.floors[mapping.submap_floor[mapping.mux[i]]]
-
-		if get_bits(&b, 1) == 0 {
-			zero_channel[i] = true
-			continue
-		}
-
-		RANGE_LIST := [4]int { 256, 128, 86, 64 }
-		RANGE_BITS := [4]int { 8, 7, 7, 6 }
-		range := RANGE_LIST[g.multiplier - 1]
-		range_bits := RANGE_BITS[g.multiplier - 1]
-		final_y := &d.final_y[i]
-		step2_flag: [MAX_FLOOR_VALUES]bool
-		offset := 2
-		final_y[0] = i16(get_bits(&b, range_bits))
-		final_y[1] = i16(get_bits(&b, range_bits))
-
-		for j in 0..<g.partitions {
-			pclass := g.partition_class_list[j]
-			cdim := int(g.class_dimensions[pclass])
-			cbits := g.class_subclasses[pclass]
-			csub := (1 << cbits) - 1
-			cval := 0
-
-			if cbits != 0 {
-				cval = codebook_decode(&b, &d.codebooks[g.class_masterbooks[pclass]])
-			}
-
-			for _ in 0..<cdim {
-				book := g.subclass_books[pclass][cval & csub]
-				cval >>= cbits
-
-				if book >= 0 {
-					final_y[offset] = i16(codebook_decode(&b, &d.codebooks[book]))
-				} else {
-					final_y[offset] = 0
-				}
-
-				offset += 1
-			}
-		}
-
-		if bits_eop(&b) {
-			zero_channel[i] = true
-			continue
-		}
-
-		step2_flag[0] = true
-		step2_flag[1] = true
-
-		for j in 2..<g.values {
-			low := g.neighbors[j][0]
-			high := g.neighbors[j][1]
-			y0 := int(final_y[low])
-			dy := int(final_y[high]) - y0
-			off := int((u64(abs(dy)) * u64(g.predict_dx[j]) * g.predict_inverse[j]) >> 40)
-			pred := dy < 0 ? y0 - off : y0 + off
-			val := int(final_y[j])
-			highroom := range - pred
-			lowroom := pred
-			room := min(highroom, lowroom) * 2
-
-			if val != 0 {
-				step2_flag[low] = true
-				step2_flag[high] = true
-				step2_flag[j] = true
-
-				if val >= room {
-					if highroom > lowroom {
-						final_y[j] = i16(val - lowroom + pred)
-					} else {
-						final_y[j] = i16(pred - val + highroom - 1)
-					}
-				} else if val & 1 != 0 {
-					final_y[j] = i16(pred - ((val + 1) >> 1))
-				} else {
-					final_y[j] = i16(pred + (val >> 1))
-				}
-			} else {
-				final_y[j] = i16(pred)
-			}
-		}
-
-		for j in 0..<g.values {
-			if !step2_flag[j] {
-				final_y[j] = -1
-			}
-		}
+		floor := &d.floors[mapping.submap_floor[mapping.mux[i]]]
+		zero_channel[i] = !decode_floor(d, &reader, floor, &d.final_y[i])
 	}
 
 	really_zero_channel = zero_channel
@@ -912,11 +1019,10 @@ decode_packet :: proc(
 			}
 		}
 
-		r := &d.residues[mapping.submap_residue[i]]
+		residue := &d.residues[mapping.submap_residue[i]]
 
-		if r.type != 2 || ch != 2 {
-			decode_residue(d, &b, residue_buffers, ch, n2, r)
-
+		if residue.type != 2 || ch != 2 {
+			decode_residue(d, &reader, residue_buffers, ch, n2, residue)
 			continue
 		}
 
@@ -924,7 +1030,7 @@ decode_packet :: proc(
 			continue
 		}
 
-		decode_residue_stereo(d, &b, r, n2)
+		decode_residue_stereo(d, &reader, residue, n2)
 
 		interleaved := raw_data(d.interleaved)
 		c0 := raw_data(buffers[0])
@@ -956,11 +1062,9 @@ decode_packet :: proc(
 				m, a = a, m
 			}
 
-			zero: F32x4
-			delta := simd.select(simd.lanes_gt(m, zero), a, -a)
-			a_positive := simd.lanes_gt(a, zero)
-			store(magnitude, j, simd.select(a_positive, m, m + delta))
-			store(angle, j, simd.select(a_positive, m - delta, m))
+			m, a = couple(m, a)
+			store(magnitude, j, m)
+			store(angle, j, a)
 		}
 	}
 
@@ -969,13 +1073,9 @@ decode_packet :: proc(
 		angle := raw_data(buffers[mapping.angle[i]])
 
 		#no_bounds_check for j := 0; j < n2; j += 4 {
-			m := load(magnitude, j)
-			a := load(angle, j)
-			zero: F32x4
-			delta := simd.select(simd.lanes_gt(m, zero), a, -a)
-			a_positive := simd.lanes_gt(a, zero)
-			store(magnitude, j, simd.select(a_positive, m, m + delta))
-			store(angle, j, simd.select(a_positive, m - delta, m))
+			m, a := couple(load(magnitude, j), load(angle, j))
+			store(magnitude, j, m)
+			store(angle, j, a)
 		}
 	}
 
@@ -987,9 +1087,8 @@ decode_packet :: proc(
 			continue
 		}
 
-		g := &d.floors[mapping.submap_floor[mapping.mux[i]]]
-
-		do_floor(g, n2, buffer, &d.final_y[i])
+		floor := &d.floors[mapping.submap_floor[mapping.mux[i]]]
+		apply_floor(floor, n2, buffer, &d.final_y[i])
 		inverse_mdct(d, buffer, n, mode.blockflag)
 	}
 
@@ -1013,7 +1112,8 @@ decode_packet :: proc(
 			current_end := d.known_frame
 
 			if current_end < d.current_frame + (right_end - left_start) {
-				length = max(current_end - d.current_frame, 0) + left_start
+				length = max(current_end - d.current_frame, 0)
+				length += left_start
 				length = min(length, right_end)
 				d.current_frame += length
 				return length, left_start, right_start, true
@@ -1029,6 +1129,100 @@ decode_packet :: proc(
 	}
 
 	return right_end, left_start, right_start, true
+}
+
+decode_floor :: proc(
+	d: ^Decoder,
+	reader: ^Bit_Reader,
+	floor: ^Floor,
+	final_y: ^[MAX_FLOOR_VALUES]i16,
+) -> bool {
+	if get_bits(reader, 1) == 0 {
+		return false
+	}
+
+	RANGE_LIST := [4]int { 256, 128, 86, 64 }
+	RANGE_BITS := [4]int { 8, 7, 7, 6 }
+	range := RANGE_LIST[floor.multiplier - 1]
+	range_bits := RANGE_BITS[floor.multiplier - 1]
+	step2_flag: [MAX_FLOOR_VALUES]bool
+	offset := 2
+	final_y[0] = i16(get_bits(reader, range_bits))
+	final_y[1] = i16(get_bits(reader, range_bits))
+
+	for j in 0..<floor.partitions {
+		class := floor.partition_class_list[j]
+		class_dims := int(floor.class_dimensions[class])
+		subclass_bits := floor.class_subclasses[class]
+		subclass_mask := (1 << subclass_bits) - 1
+		class_value := 0
+
+		if subclass_bits != 0 {
+			class_value = codebook_decode(reader, &d.codebooks[floor.class_masterbooks[class]])
+		}
+
+		for _ in 0..<class_dims {
+			book := floor.subclass_books[class][class_value & subclass_mask]
+			class_value >>= subclass_bits
+
+			if book >= 0 {
+				final_y[offset] = i16(codebook_decode(reader, &d.codebooks[book]))
+			} else {
+				final_y[offset] = 0
+			}
+
+			offset += 1
+		}
+	}
+
+	if bits_eop(reader) {
+		return false
+	}
+
+	step2_flag[0] = true
+	step2_flag[1] = true
+
+	for j in 2..<floor.values {
+		low := floor.neighbors[j][0]
+		high := floor.neighbors[j][1]
+		y0 := int(final_y[low])
+		dy := int(final_y[high]) - y0
+		prediction := u64(abs(dy)) * u64(floor.predict_dx[j]) * floor.predict_inverse[j]
+		predicted_offset := int(prediction >> PREDICT_SHIFT)
+		predicted := dy < 0 ? y0 - predicted_offset : y0 + predicted_offset
+		delta := int(final_y[j])
+		highroom := range - predicted
+		lowroom := predicted
+		room := min(highroom, lowroom) * 2
+
+		if delta != 0 {
+			step2_flag[low] = true
+			step2_flag[high] = true
+			step2_flag[j] = true
+
+			if delta >= room {
+				if highroom > lowroom {
+					final_y[j] = i16(delta - lowroom + predicted)
+				} else {
+					final_y[j] = i16(predicted - delta + highroom - 1)
+				}
+			} else if delta & 1 != 0 {
+				final_y[j] = i16(predicted - ((delta + 1) >> 1))
+			} else {
+				final_y[j] = i16(predicted + (delta >> 1))
+			}
+		} else {
+			final_y[j] = i16(predicted)
+		}
+	}
+
+	for j in 0..<floor.values {
+		if !step2_flag[j] {
+			final_y[j] = -1
+		}
+	}
+
+	return true
 }
 
 finish_frame :: proc(
@@ -1095,19 +1289,19 @@ finish_frame :: proc(
 
 decode_residue :: proc(
 	d: ^Decoder,
-	b: ^Bit_Reader,
+	source: ^Bit_Reader,
 	residue_buffers: [MAX_CHANNELS][^]f32,
 	ch: int,
 	n: int,
-	r: ^Residue,
+	residue: ^Residue,
 ) #no_bounds_check {
-	classbook := &d.codebooks[r.classbook]
+	classbook := &d.codebooks[residue.classbook]
 	classwords := classbook.dimensions
-	part_size := r.part_size
-	part_read := (min(r.end, n) - min(r.begin, n)) / part_size
-	br := b^
+	part_size := residue.part_size
+	part_read := (min(residue.end, n) - min(residue.begin, n)) / part_size
+	reader := source^
 
-	defer b^ = br
+	defer source^ = reader
 
 	for j in 0..<ch {
 		if residue_buffers[j] != nil {
@@ -1115,47 +1309,47 @@ decode_residue :: proc(
 		}
 	}
 
-	for pass in 0..<r.stages {
-		pcount := 0
+	for pass in 0..<residue.stages {
+		partition := 0
 		class_set := 0
 
-		for pcount < part_read {
+		for partition < part_read {
 			if pass == 0 {
 				for j in 0..<ch {
 					if residue_buffers[j] != nil {
-						q := codebook_decode(&br, classbook)
+						classification := codebook_decode(&reader, classbook)
 
-						if bits_eop(&br) {
+						if bits_eop(&reader) {
 							return
 						}
 
-						d.part_classes[j][class_set] = i32(q)
+						d.part_classes[j][class_set] = i32(classification)
 					}
 				}
 			}
 
-			for word := 0; word < classwords && pcount < part_read; word += 1 {
+			for word := 0; word < classwords && partition < part_read; word += 1 {
 				for j in 0..<ch {
 					if residue_buffers[j] == nil {
 						continue
 					}
 
 					class_index := int(d.part_classes[j][class_set]) * classwords + word
-					class := r.classdata[class_index]
-					book_index := r.residue_books[class][pass]
+					class := residue.classdata[class_index]
+					book_index := residue.residue_books[class][pass]
 
 					if book_index < 0 {
 						continue
 					}
 
 					book := &d.codebooks[book_index]
-					target := residue_buffers[j][r.begin + pcount * part_size:]
+					target := residue_buffers[j][residue.begin + partition * part_size:]
 
-					if r.type != 0 {
-						worst_case_bits := int(r.partition_bits[class][pass])
+					if residue.type != 0 {
+						worst_case_bits := int(residue.partition_bits[class][pass])
 
 						partition_ok := decode_partition(
-							&br,
+							&reader,
 							book,
 							target,
 							part_size,
@@ -1173,9 +1367,9 @@ decode_residue :: proc(
 					step := part_size / dims
 
 					for k in 0..<step {
-						entry := codebook_decode(&br, book)
+						entry := codebook_decode(&reader, book)
 
-						if bits_eop(&br) {
+						if bits_eop(&reader) {
 							return
 						}
 
@@ -1185,7 +1379,7 @@ decode_residue :: proc(
 					}
 				}
 
-				pcount += 1
+				partition += 1
 			}
 
 			class_set += 1
@@ -1195,53 +1389,53 @@ decode_residue :: proc(
 
 decode_residue_stereo :: proc(
 	d: ^Decoder,
-	b: ^Bit_Reader,
-	r: ^Residue,
+	source: ^Bit_Reader,
+	residue: ^Residue,
 	n: int,
 ) #no_bounds_check {
 	out := raw_data(d.interleaved)
 	intrinsics.mem_zero(out, n * 2 * size_of(f32))
-	classbook := &d.codebooks[r.classbook]
+	classbook := &d.codebooks[residue.classbook]
 	classwords := classbook.dimensions
 	part_classes := raw_data(d.part_classes[0])
-	part_size := r.part_size
-	part_read := (min(r.end, n * 2) - min(r.begin, n * 2)) / part_size
-	br := b^
+	part_size := residue.part_size
+	part_read := (min(residue.end, n * 2) - min(residue.begin, n * 2)) / part_size
+	reader := source^
 
-	defer b^ = br
+	defer source^ = reader
 
-	for pass in 0..<r.stages {
-		pcount := 0
+	for pass in 0..<residue.stages {
+		partition := 0
 		class_set := 0
 
-		for pcount < part_read {
+		for partition < part_read {
 			if pass == 0 {
-				q := codebook_decode(&br, classbook)
+				classification := codebook_decode(&reader, classbook)
 
-				if bits_eop(&br) {
+				if bits_eop(&reader) {
 					return
 				}
 
-				part_classes[class_set] = i32(q)
+				part_classes[class_set] = i32(classification)
 			}
 
-			class_row := r.classdata[int(part_classes[class_set]) * classwords:]
+			class_row := residue.classdata[int(part_classes[class_set]) * classwords:]
 
-			for word := 0; word < classwords && pcount < part_read; word += 1 {
+			for word := 0; word < classwords && partition < part_read; word += 1 {
 				class := class_row[word]
-				book_index := r.residue_books[class][pass]
+				book_index := residue.residue_books[class][pass]
 
 				if book_index >= 0 {
 					book := &d.codebooks[book_index]
-					target := out[r.begin + pcount * part_size:]
-					worst_case_bits := int(r.partition_bits[class][pass])
+					target := out[residue.begin + partition * part_size:]
+					worst_case_bits := int(residue.partition_bits[class][pass])
 
-					if !decode_partition(&br, book, target, part_size, worst_case_bits) {
+					if !decode_partition(&reader, book, target, part_size, worst_case_bits) {
 						return
 					}
 				}
 
-				pcount += 1
+				partition += 1
 			}
 
 			class_set += 1
@@ -1250,16 +1444,17 @@ decode_residue_stereo :: proc(
 }
 
 decode_partition :: #force_no_inline proc(
-	b: ^Bit_Reader,
+	source: ^Bit_Reader,
 	book: ^Codebook,
 	target: [^]f32,
 	part_size: int,
 	worst_case_bits: int,
 ) -> bool #no_bounds_check {
-	refill :: #force_inline proc(b: ^Bit_Reader) #no_bounds_check {
-		b.acc |= u64(intrinsics.unaligned_load((^u64le)(&b.data[b.pos]))) << uint(b.valid & 63)
-		b.pos += (63 - b.valid) >> 3
-		b.valid |= 56
+	refill :: #force_inline proc(reader: ^Bit_Reader) #no_bounds_check {
+		word := u64(intrinsics.unaligned_load((^u64le)(&reader.data[reader.pos])))
+		reader.acc |= word << uint(reader.valid & 63)
+		reader.pos += (63 - reader.valid) >> 3
+		reader.valid |= 56
 	}
 
 	add :: #force_inline proc(target: [^]f32, values: [^]f32, $DIMS: int) #no_bounds_check {
@@ -1277,7 +1472,7 @@ decode_partition :: #force_no_inline proc(
 	}
 
 	decode_vectors :: #force_inline proc(
-		br: ^Bit_Reader,
+		reader: ^Bit_Reader,
 		book: ^Codebook,
 		target: [^]f32,
 		part_size: int,
@@ -1292,43 +1487,43 @@ decode_partition :: #force_no_inline proc(
 
 		if book.max_length <= MAX_LENGTH_FOR_TWO_PER_REFILL {
 			for ; k + DIMS < part_size; k += DIMS * 2 {
-				refill(br)
-				first := codebook_decode_refilled(br, book, fast, fast_mask)
-				second := codebook_decode_refilled(br, book, fast, fast_mask)
+				refill(reader)
+				first := codebook_decode_refilled(reader, book, fast, fast_mask)
+				second := codebook_decode_refilled(reader, book, fast, fast_mask)
 				add(target[k:], values[first * DIMS:], DIMS)
 				add(target[k + DIMS:], values[second * DIMS:], DIMS)
 			}
 		}
 
 		for ; k < part_size; k += DIMS {
-			refill(br)
-			entry := codebook_decode_refilled(br, book, fast, fast_mask)
+			refill(reader)
+			entry := codebook_decode_refilled(reader, book, fast, fast_mask)
 			add(target[k:], values[entry * DIMS:], DIMS)
 		}
 	}
 
-	br := b^
+	reader := source^
 
-	defer b^ = br
+	defer source^ = reader
 
 	dims := book.dimensions
 
-	if br.total_bits - (br.pos * 8 - br.valid) >= worst_case_bits {
+	if reader.total_bits - (reader.pos * 8 - reader.valid) >= worst_case_bits {
 		switch dims {
 		case 1:
-			decode_vectors(&br, book, target, part_size, 1)
+			decode_vectors(&reader, book, target, part_size, 1)
 			return true
 
 		case 2:
-			decode_vectors(&br, book, target, part_size, 2)
+			decode_vectors(&reader, book, target, part_size, 2)
 			return true
 
 		case 4:
-			decode_vectors(&br, book, target, part_size, 4)
+			decode_vectors(&reader, book, target, part_size, 4)
 			return true
 
 		case 8:
-			decode_vectors(&br, book, target, part_size, 8)
+			decode_vectors(&reader, book, target, part_size, 8)
 			return true
 		}
 	}
@@ -1336,9 +1531,9 @@ decode_partition :: #force_no_inline proc(
 	values := raw_data(book.multiplicands)
 
 	for k := 0; k < part_size; k += dims {
-		entry := codebook_decode(&br, book)
+		entry := codebook_decode(&reader, book)
 
-		if bits_eop(&br) {
+		if bits_eop(&reader) {
 			return false
 		}
 
@@ -1350,8 +1545,8 @@ decode_partition :: #force_no_inline proc(
 	return true
 }
 
-do_floor :: proc(
-	g: ^Floor,
+apply_floor :: proc(
+	floor: ^Floor,
 	n2: int,
 	target: [^]f32,
 	final_y: ^[MAX_FLOOR_VALUES]i16,
@@ -1439,34 +1634,30 @@ do_floor :: proc(
 	}
 
 	lx := 0
-	ly := int(final_y[0]) * g.multiplier
+	ly := int(final_y[0]) * floor.multiplier
 
-	for q in 1..<g.values {
-		j := g.sorted_order[q]
+	for order in 1..<floor.values {
+		point := floor.sorted_order[order]
 
-		if final_y[j] < 0 {
+		if final_y[point] < 0 {
 			continue
 		}
 
-		hy := int(final_y[j]) * g.multiplier
-		hx := int(g.x_list[j])
+		hy := int(final_y[point]) * floor.multiplier
+		hx := int(floor.x_list[point])
 		dy := hy - ly
 		adx := hx - lx
 		ady := abs(dy)
 		x1 := min(hx, n2)
 
-		if ady * RUN_THRESHOLD <= adx {
+		if ady == 0 {
+			scale(target, lx, x1, INVERSE_DB_TABLE[ly & 255])
+		} else if ady * RUN_THRESHOLD <= adx {
 			step := dy < 0 ? -1 : 1
 			x := lx
 			y := ly
-			run := 0
-			run_rem := 0
-
-			if ady != 0 {
-				run = int(u32(adx) / u32(ady))
-				run_rem = int(u32(adx) % u32(ady))
-			}
-
+			run := int(u32(adx) / u32(ady))
+			run_rem := int(u32(adx) % u32(ady))
 			k := 0
 			err := ady - 1
 
@@ -1483,10 +1674,6 @@ do_floor :: proc(
 				scale(target, x, end, INVERSE_DB_TABLE[y & 255])
 				x = end
 				y += step
-			}
-
-			if ady == 0 {
-				scale(target, x, x1, INVERSE_DB_TABLE[y & 255])
 			}
 		} else if lx < x1 {
 			base := int(i32(dy) / i32(adx))
@@ -1529,26 +1716,26 @@ make_imdct_tables :: proc(n: int, allocator: runtime.Allocator) -> Imdct_Tables 
 	m := n / 2
 	q := n / 4
 	radix_2 := ilog(q) & 1 == 0
-	t: Imdct_Tables
-	t.pre = make([]f32, q * 2, allocator)
-	t.post = make([]f32, q * 2, allocator)
-	t.positions = make([]u16, q, allocator)
-	t.fft_twiddles = make([]f32, q * 3, allocator)
+	tables: Imdct_Tables
+	tables.pre = make([]f32, q * 2, allocator)
+	tables.post = make([]f32, q * 2, allocator)
+	tables.positions = make([]u16, q, allocator)
+	tables.fft_twiddles = make([]f32, q * 3, allocator)
 
 	for k in 0..<q {
 		slot := k / 4 * 8 + k % 4
 		pre_angle := math.PI * f64(4 * k + 1) / f64(4 * m)
 		post_angle := math.PI * f64(k) / f64(m)
-		t.pre[slot] = f32(math.cos(pre_angle))
-		t.pre[slot + 4] = f32(math.sin(pre_angle))
-		t.post[slot] = f32(math.cos(post_angle))
-		t.post[slot + 4] = f32(math.sin(post_angle))
+		tables.pre[slot] = f32(math.cos(pre_angle))
+		tables.pre[slot + 4] = f32(math.sin(pre_angle))
+		tables.post[slot] = f32(math.cos(post_angle))
+		tables.post[slot + 4] = f32(math.sin(post_angle))
 	}
 
 	for natural in 0..<q {
 		group := natural - natural % 16
 		position := group + 4 * (natural % 4) + natural % 16 / 4
-		t.positions[output_index(natural, q, radix_2)] = u16(position)
+		tables.positions[output_index(natural, q, radix_2)] = u16(position)
 	}
 
 	length := q
@@ -1558,8 +1745,8 @@ make_imdct_tables :: proc(n: int, allocator: runtime.Allocator) -> Imdct_Tables 
 		for j in 0..<length / 2 {
 			angle := 2 * math.PI * f64(j) / f64(length)
 			slot := w + j / 4 * 8 + j % 4
-			t.fft_twiddles[slot] = f32(math.cos(angle))
-			t.fft_twiddles[slot + 4] = f32(-math.sin(angle))
+			tables.fft_twiddles[slot] = f32(math.cos(angle))
+			tables.fft_twiddles[slot + 4] = f32(-math.sin(angle))
 		}
 
 		w += length
@@ -1571,8 +1758,8 @@ make_imdct_tables :: proc(n: int, allocator: runtime.Allocator) -> Imdct_Tables 
 			for power in 1..=3 {
 				angle := 2 * math.PI * f64(j * power) / f64(length)
 				slot := w + j / 4 * 24 + (power - 1) * 8 + j % 4
-				t.fft_twiddles[slot] = f32(math.cos(angle))
-				t.fft_twiddles[slot + 4] = f32(-math.sin(angle))
+				tables.fft_twiddles[slot] = f32(math.cos(angle))
+				tables.fft_twiddles[slot + 4] = f32(-math.sin(angle))
 			}
 		}
 
@@ -1580,7 +1767,7 @@ make_imdct_tables :: proc(n: int, allocator: runtime.Allocator) -> Imdct_Tables 
 		length /= 4
 	}
 
-	return t
+	return tables
 }
 
 inverse_mdct :: proc(d: ^Decoder, buffer: [^]f32, n: int, blocktype: int) #no_bounds_check {
@@ -1588,12 +1775,12 @@ inverse_mdct :: proc(d: ^Decoder, buffer: [^]f32, n: int, blocktype: int) #no_bo
 		return { p[positions[0]], p[positions[1]], p[positions[2]], p[positions[3]] }
 	}
 
-	t := &d.imdct_tables[blocktype]
+	tables := &d.imdct_tables[blocktype]
 	m := n / 2
 	q := n / 4
 	re := raw_data(d.imdct_scratch)
 	im := re[q:]
-	pre := raw_data(t.pre)
+	pre := raw_data(tables.pre)
 
 	for k := 0; k < q; k += 4 {
 		x0 := load(buffer, 2 * k)
@@ -1609,7 +1796,7 @@ inverse_mdct :: proc(d: ^Decoder, buffer: [^]f32, n: int, blocktype: int) #no_bo
 	}
 
 	length := q
-	twiddles := raw_data(t.fft_twiddles)
+	twiddles := raw_data(tables.fft_twiddles)
 
 	if ilog(q) & 1 == 0 {
 		half := length / 2
@@ -1727,8 +1914,8 @@ inverse_mdct :: proc(d: ^Decoder, buffer: [^]f32, n: int, blocktype: int) #no_bo
 		store(im, j + 12, t1i + t3r)
 	}
 
-	post := raw_data(t.post)
-	positions := raw_data(t.positions)
+	post := raw_data(tables.post)
+	positions := raw_data(tables.positions)
 	negate := U32x4 { SIGN, SIGN, SIGN, SIGN }
 
 	for k := 0; k < q / 2; k += 4 {
@@ -1763,17 +1950,29 @@ inverse_mdct :: proc(d: ^Decoder, buffer: [^]f32, n: int, blocktype: int) #no_bo
 	}
 }
 
-_flush :: proc(d: ^Decoder) {
+_restart :: proc(d: ^Decoder) -> int {
+	force_resync(d)
+
+	if d.restart_offset != 0 {
+		d.needs_sync = false
+		d.first_decode = true
+	}
+
+	return d.restart_offset
+}
+
+_force_resync :: proc(d: ^Decoder, skip_to_frame: int) {
+	d.stream_ended = false
 	d.previous_length = 0
 	d.needs_sync = true
-	d.next_segment = -1
+	d.next_segment = NO_SEGMENT
 	d.first_decode = false
 	d.discard_frames_deferred = 0
 	d.current_frame_valid = false
-	d.seek_target = min(int)
+	d.seek_target = skip_to_frame
 }
 
-_seek :: proc(
+_find_seek_point :: proc(
 	d: ^Decoder,
 	data: []u8,
 	target_frame: int,
@@ -1804,18 +2003,16 @@ _seek :: proc(
 				return
 			}
 
-			frame_ok: bool
-			_, frame, _, frame_ok = page_frames(d, data[offset:offset + size], min(int))
+			start, start_ok := page_start(d, data[offset:offset + size], NO_SEEK_TARGET)
 
-			if frame_ok {
-				return offset, size, frame, true
+			if start_ok {
+				return offset, size, start.output_frame, true
 			}
 
 			offset += size
 		}
 	}
 
-	flush(d)
 	lo := 0
 	hi := len(data)
 	size := 0
@@ -1851,17 +2048,15 @@ _seek :: proc(
 	}
 
 	if size != 0 {
-		_, frame, _, _ = page_frames(d, data[offset:offset + size], target_frame)
-		d.seek_target = target_frame
+		start, _ := page_start(d, data[offset:offset + size], target_frame)
+		frame = start.output_frame
 	}
 
 	return
 }
 
 _total_frames :: proc(data: []u8) -> int {
-	MIN_OGG_PAGE_SIZE :: 27
-
-	for idx := len(data) - MIN_OGG_PAGE_SIZE; idx >= 0; idx -= 1 {
+	for idx := len(data) - PAGE_HEADER_SIZE; idx >= 0; idx -= 1 {
 		if string(data[idx:idx + 4]) != "OggS" {
 			continue
 		}
@@ -1876,110 +2071,6 @@ _total_frames :: proc(data: []u8) -> int {
 	return 0
 }
 
-Decoder_Internal :: struct {
-	setup_arena: mem.Dynamic_Arena,
-
-	blocksize: [2]int,
-	codebooks: []Codebook,
-	floors: []Floor,
-	residues: []Residue,
-	mappings: []Mapping,
-	modes: [64]Mode,
-	mode_count: int,
-	mode_bits: int,
-
-	window: [2][]f32,
-	imdct_scratch: []f32,
-	imdct_tables: [2]Imdct_Tables,
-	interleaved: []f32,
-
-	channel_buffers: [2][MAX_CHANNELS][]f32,
-	buffer_index: int,
-	previous_start: int,
-	previous_length: int,
-	final_y: [MAX_CHANNELS][MAX_FLOOR_VALUES]i16,
-	part_classes: [MAX_CHANNELS][]i32,
-
-	first_decode: bool,
-	discard_frames_deferred: int,
-
-	needs_sync: bool,
-	seek_target: int,
-	segments: [255]u8,
-	segment_count: int,
-	next_segment: int,
-	page_flags: u8,
-	end_segment_with_known_frame: int,
-	known_frame: int,
-	packet_ends_known_frame: bool,
-	packet: [dynamic]u8,
-}
-
-MAX_FLOOR_VALUES :: 31 * 8 + 2
-
-Codebook :: struct {
-	dimensions: int,
-	entries: int,
-	fast_mask: u64,
-	max_length: int,
-	fast: []u32,
-	long_codewords: []u32,
-	long_values: []u32,
-	multiplicands: []f32,
-}
-
-Floor :: struct {
-	partitions: int,
-	partition_class_list: [32]u8,
-	class_dimensions: [16]u8,
-	class_subclasses: [16]u8,
-	class_masterbooks: [16]u8,
-	subclass_books: [16][8]i16,
-	x_list: [MAX_FLOOR_VALUES]u16,
-	sorted_order: [MAX_FLOOR_VALUES]u8,
-	neighbors: [MAX_FLOOR_VALUES][2]u8,
-	predict_dx: [MAX_FLOOR_VALUES]u16,
-	predict_inverse: [MAX_FLOOR_VALUES]u64,
-	multiplier: int,
-	range_bits: int,
-	values: int,
-}
-
-Residue :: struct {
-	type: int,
-	begin: int,
-	end: int,
-	part_size: int,
-	classifications: int,
-	classbook: int,
-	classdata: []u8,
-	residue_books: [][8]i16,
-	partition_bits: [][8]i32,
-	stages: int,
-}
-
-Mapping :: struct {
-	coupling_steps: int,
-	magnitude: [MAX_CHANNELS]u8,
-	angle: [MAX_CHANNELS]u8,
-	mux: [MAX_CHANNELS]u8,
-	submaps: int,
-	submap_floor: [16]u8,
-	submap_residue: [16]u8,
-}
-
-Mode :: struct {
-	blockflag: int,
-	mapping: int,
-}
-
-Imdct_Tables :: struct {
-	pre: []f32,
-	post: []f32,
-	positions: []u16,
-	fft_twiddles: []f32,
-}
-
 ilog :: proc(n: int) -> int {
 	if n <= 0 {
 		return 0
@@ -1987,6 +2078,23 @@ ilog :: proc(n: int) -> int {
 
 	return 64 - int(bits.count_leading_zeros(u64(n)))
 }
+
+PAGE_OFFSET_VERSION :: 4
+PAGE_OFFSET_FLAGS :: 5
+PAGE_OFFSET_GRANULE :: 6
+PAGE_OFFSET_CHECKSUM :: 22
+PAGE_OFFSET_SEGMENT_COUNT :: 26
+PAGE_HEADER_SIZE :: 27
+
+NO_KNOWN_FRAME :: -2
+NO_GRANULE :: -1
+NO_SEGMENT :: -1
+NO_SEEK_TARGET :: min(int)
+FULL_SEGMENT :: 255
+
+CODE_LENGTH_BITS :: 8
+CODE_LENGTH_MASK :: 255
+PREDICT_SHIFT :: 40
 
 PAGE_FLAG_CONTINUED_PACKET :: 1
 PAGE_FLAG_FIRST_PAGE :: 2
@@ -1997,7 +2105,7 @@ read_u32 :: proc(data: []u8, offset: int) -> u32 {
 }
 
 read_granule :: proc(page: []u8) -> int {
-	return int(intrinsics.unaligned_load((^i64le)(raw_data(page[6:14]))))
+	return int(intrinsics.unaligned_load((^i64le)(raw_data(page[PAGE_OFFSET_GRANULE:][:8]))))
 }
 
 find_page :: proc(data: []u8, from: int) -> (offset: int, size: int, found: bool) {
@@ -2013,24 +2121,24 @@ find_page :: proc(data: []u8, from: int) -> (offset: int, size: int, found: bool
 
 	i := from
 
-	search: for ; i + 27 <= len(data); i += 1 {
+	search: for ; i + PAGE_HEADER_SIZE <= len(data); i += 1 {
 		if data[i] != 'O' || data[i + 1] != 'g' || data[i + 2] != 'g' || data[i + 3] != 'S' {
 			continue
 		}
 
-		if data[i + 4] != 0 {
+		if data[i + PAGE_OFFSET_VERSION] != 0 {
 			continue
 		}
 
-		segment_count := int(data[i + 26])
+		segment_count := int(data[i + PAGE_OFFSET_SEGMENT_COUNT])
 
-		if i + 27 + segment_count > len(data) {
+		if i + PAGE_HEADER_SIZE + segment_count > len(data) {
 			return i, 0, false
 		}
 
-		size = 27 + segment_count
+		size = PAGE_HEADER_SIZE + segment_count
 
-		for length in data[i + 27:i + 27 + segment_count] {
+		for length in data[i + PAGE_HEADER_SIZE:][:segment_count] {
 			size += int(length)
 		}
 
@@ -2041,11 +2149,11 @@ find_page :: proc(data: []u8, from: int) -> (offset: int, size: int, found: bool
 		crc: u32
 
 		for value, j in data[i:i + size] {
-			byte := j >= 22 && j < 26 ? 0 : value
+			byte := j >= PAGE_OFFSET_CHECKSUM && j < PAGE_OFFSET_CHECKSUM + 4 ? 0 : value
 			crc = (crc << 8) ~ crc_table[byte ~ u8(crc >> 24)]
 		}
 
-		if crc == read_u32(data, i + 22) {
+		if crc == read_u32(data, i + PAGE_OFFSET_CHECKSUM) {
 			return i, size, true
 		}
 	}
@@ -2053,34 +2161,34 @@ find_page :: proc(data: []u8, from: int) -> (offset: int, size: int, found: bool
 	return i, 0, false
 }
 
-page_frames :: proc(
+page_start :: proc(
 	d: ^Decoder,
 	page: []u8,
 	target_frame: int,
 ) -> (
-	decoder_frame: int,
-	output_frame: int,
-	packets_to_skip: int,
+	start: Page_Start,
 	ok: bool,
 ) {
 	granule := read_granule(page)
 
-	if granule == -1 || page[5] & (PAGE_FLAG_FIRST_PAGE | PAGE_FLAG_LAST_PAGE) != 0 {
+	flags := page[PAGE_OFFSET_FLAGS]
+
+	if granule == NO_GRANULE || flags & (PAGE_FLAG_FIRST_PAGE | PAGE_FLAG_LAST_PAGE) != 0 {
 		return
 	}
 
-	segment_count := int(page[26])
-	table := page[27:27 + segment_count]
-	p := 27 + segment_count
-	seg := 0
+	segment_count := int(page[PAGE_OFFSET_SEGMENT_COUNT])
+	table := page[PAGE_HEADER_SIZE:][:segment_count]
+	position := PAGE_HEADER_SIZE + segment_count
+	segment := 0
 
-	if page[5] & PAGE_FLAG_CONTINUED_PACKET != 0 {
+	if flags & PAGE_FLAG_CONTINUED_PACKET != 0 {
 		ended := false
 
-		for seg < segment_count && !ended {
-			p += int(table[seg])
-			ended = table[seg] < 255
-			seg += 1
+		for segment < segment_count && !ended {
+			position += int(table[segment])
+			ended = table[segment] < FULL_SEGMENT
+			segment += 1
 		}
 
 		if !ended {
@@ -2088,33 +2196,33 @@ page_frames :: proc(
 		}
 	}
 
-	advances: [255]i32
+	advances: [MAX_PAGE_SEGMENTS]i32
 	advance := 0
 	last_right_start := 0
 	last_n2 := 0
 	packets := 0
 
-	for seg < segment_count {
-		start := p
+	for segment < segment_count {
+		start := position
 		complete := false
 
-		for seg < segment_count && !complete {
-			p += int(table[seg])
-			complete = table[seg] < 255
-			seg += 1
+		for segment < segment_count && !complete {
+			position += int(table[segment])
+			complete = table[segment] < FULL_SEGMENT
+			segment += 1
 		}
 
 		if !complete {
 			break
 		}
 
-		if p == start {
+		if position == start {
 			return
 		}
 
 		header := u32(page[start])
 
-		if p - start > 1 {
+		if position - start > 1 {
 			header |= u32(page[start + 1]) << 8
 		}
 
@@ -2131,33 +2239,33 @@ page_frames :: proc(
 		return
 	}
 
-	decoder_frame = granule - last_n2 + last_right_start - advance
+	start.decoder_frame = granule - last_n2 + last_right_start - advance
 
-	if decoder_frame < 0 {
+	if start.decoder_frame < 0 {
 		return
 	}
 
-	output_frame = decoder_frame + int(advances[0])
+	start.output_frame = start.decoder_frame + int(advances[0])
 
-	for packets_to_skip + 1 < packets {
-		next_output_frame := output_frame + int(advances[packets_to_skip + 1])
+	for start.packets_to_skip + 1 < packets {
+		next_output_frame := start.output_frame + int(advances[start.packets_to_skip + 1])
 
 		if next_output_frame > target_frame {
 			break
 		}
 
-		decoder_frame = output_frame
-		output_frame = next_output_frame
-		packets_to_skip += 1
+		start.decoder_frame = start.output_frame
+		start.output_frame = next_output_frame
+		start.packets_to_skip += 1
 	}
 
-	return decoder_frame, output_frame, packets_to_skip, true
+	return start, true
 }
 
 read_packet :: proc(d: ^Decoder, data: []u8) -> (bytes_used: int, err: Error) {
 	clear(&d.packet)
-	p := 0
-	seg := d.next_segment
+	position := 0
+	segment := d.next_segment
 	table := d.segments[:d.segment_count]
 	flags := d.page_flags
 	end_segment_with_known_frame := d.end_segment_with_known_frame
@@ -2166,33 +2274,39 @@ read_packet :: proc(d: ^Decoder, data: []u8) -> (bytes_used: int, err: Error) {
 	started := false
 
 	for {
-		if seg == -1 {
-			if p + 27 > len(data) {
+		if segment == NO_SEGMENT {
+			if position + PAGE_HEADER_SIZE > len(data) {
 				return 0, .Need_More_Data
 			}
 
-			if data[p] != 'O' || data[p + 1] != 'g' || data[p + 2] != 'g' || data[p + 3] != 'S' {
+			if string(data[position:position + 4]) != "OggS" {
 				return 0, .Invalid_Stream
 			}
 
-			if data[p + 4] != 0 {
+			if data[position + PAGE_OFFSET_VERSION] != 0 {
 				return 0, .Invalid_Stream
 			}
 
-			segment_count := int(data[p + 26])
+			segment_count := int(data[position + PAGE_OFFSET_SEGMENT_COUNT])
 
-			if p + 27 + segment_count > len(data) {
+			if position + PAGE_HEADER_SIZE + segment_count > len(data) {
 				return 0, .Need_More_Data
 			}
 
-			flags = data[p + 5]
-			table = data[p + 27:p + 27 + segment_count]
-			granule := read_granule(data[p:])
-			end_segment_with_known_frame = -2
+			flags = data[position + PAGE_OFFSET_FLAGS]
 
-			if granule != -1 {
+			if flags & PAGE_FLAG_FIRST_PAGE != 0 {
+				d.stream_ended = true
+				return 0, .None
+			}
+
+			table = data[position + PAGE_HEADER_SIZE:][:segment_count]
+			granule := read_granule(data[position:])
+			end_segment_with_known_frame = NO_KNOWN_FRAME
+
+			if granule != NO_GRANULE {
 				for i := segment_count - 1; i >= 0; i -= 1 {
-					if table[i] < 255 {
+					if table[i] < FULL_SEGMENT {
 						end_segment_with_known_frame = i
 						known_frame = granule
 						break
@@ -2200,8 +2314,8 @@ read_packet :: proc(d: ^Decoder, data: []u8) -> (bytes_used: int, err: Error) {
 				}
 			}
 
-			p += 27 + segment_count
-			seg = 0
+			position += PAGE_HEADER_SIZE + segment_count
+			segment = 0
 			new_page = true
 
 			if started && flags & PAGE_FLAG_CONTINUED_PACKET == 0 {
@@ -2209,44 +2323,44 @@ read_packet :: proc(d: ^Decoder, data: []u8) -> (bytes_used: int, err: Error) {
 			}
 
 			if !started && flags & PAGE_FLAG_CONTINUED_PACKET != 0 {
-				for seg < segment_count {
-					length := int(table[seg])
-					p += length
-					seg += 1
+				for segment < segment_count {
+					length := int(table[segment])
+					position += length
+					segment += 1
 
-					if length < 255 {
+					if length < FULL_SEGMENT {
 						break
 					}
 				}
 
-				if p > len(data) {
+				if position > len(data) {
 					return 0, .Need_More_Data
 				}
 			}
 
-			if seg >= segment_count {
-				seg = -1
+			if segment >= segment_count {
+				segment = NO_SEGMENT
 				continue
 			}
 		}
 
 		started = true
-		length := int(table[seg])
+		length := int(table[segment])
 
-		if p + length > len(data) {
+		if position + length > len(data) {
 			return 0, .Need_More_Data
 		}
 
-		append(&d.packet, ..data[p:p + length])
-		p += length
-		d.packet_ends_known_frame = seg == end_segment_with_known_frame
-		seg += 1
+		append(&d.packet, ..data[position:position + length])
+		position += length
+		d.packet_ends_known_frame = segment == end_segment_with_known_frame
+		segment += 1
 
-		if seg == len(table) {
-			seg = -1
+		if segment == len(table) {
+			segment = NO_SEGMENT
 		}
 
-		if length < 255 {
+		if length < FULL_SEGMENT {
 			break
 		}
 	}
@@ -2256,7 +2370,7 @@ read_packet :: proc(d: ^Decoder, data: []u8) -> (bytes_used: int, err: Error) {
 		d.segment_count = len(table)
 	}
 
-	d.next_segment = seg
+	d.next_segment = segment
 	d.page_flags = flags
 	d.end_segment_with_known_frame = end_segment_with_known_frame
 	d.known_frame = known_frame
@@ -2265,7 +2379,7 @@ read_packet :: proc(d: ^Decoder, data: []u8) -> (bytes_used: int, err: Error) {
 		append(&d.packet, 0)
 	}
 
-	return p, .None
+	return position, .None
 }
 
 F32x4 :: #simd[4]f32
@@ -2286,50 +2400,42 @@ flip :: #force_inline proc(v: F32x4, mask: U32x4) -> F32x4 {
 
 PACKET_PADDING :: 16
 
-Bit_Reader :: struct {
-	data: [^]u8,
-	last: int,
-	pos: int,
-	acc: u64,
-	valid: int,
-	total_bits: int,
+bits_init :: proc(reader: ^Bit_Reader, padded_packet: []u8) {
+	reader.data = raw_data(padded_packet)
+	reader.last = len(padded_packet) - 8
+	reader.pos = 0
+	reader.acc = 0
+	reader.valid = 0
+	reader.total_bits = (len(padded_packet) - PACKET_PADDING) * 8
 }
 
-bits_init :: proc(b: ^Bit_Reader, padded_packet: []u8) {
-	b.data = raw_data(padded_packet)
-	b.last = len(padded_packet) - 8
-	b.pos = 0
-	b.acc = 0
-	b.valid = 0
-	b.total_bits = (len(padded_packet) - PACKET_PADDING) * 8
-}
-
-bits_refill :: #force_inline proc(b: ^Bit_Reader) #no_bounds_check {
-	if b.pos <= b.last {
-		b.acc |= u64(intrinsics.unaligned_load((^u64le)(&b.data[b.pos]))) << uint(b.valid & 63)
+bits_refill :: #force_inline proc(reader: ^Bit_Reader) #no_bounds_check {
+	if reader.pos <= reader.last {
+		word := u64(intrinsics.unaligned_load((^u64le)(&reader.data[reader.pos])))
+		reader.acc |= word << uint(reader.valid & 63)
 	}
 
-	b.pos += (63 - b.valid) >> 3
-	b.valid |= 56
+	reader.pos += (63 - reader.valid) >> 3
+	reader.valid |= 56
 }
 
-bits_eop :: #force_inline proc(b: ^Bit_Reader) -> bool {
-	return b.pos * 8 - b.valid > b.total_bits
+bits_eop :: #force_inline proc(reader: ^Bit_Reader) -> bool {
+	return reader.pos * 8 - reader.valid > reader.total_bits
 }
 
-get_bits :: #force_inline proc(b: ^Bit_Reader, n: int) -> u32 {
-	if b.valid < n {
-		bits_refill(b)
+get_bits :: #force_inline proc(reader: ^Bit_Reader, n: int) -> u32 {
+	if reader.valid < n {
+		bits_refill(reader)
 	}
 
-	z := u32(b.acc & (u64(1) << uint(n & 63) - 1))
-	b.acc >>= uint(n & 63)
-	b.valid -= n
+	z := u32(reader.acc & (u64(1) << uint(n & 63) - 1))
+	reader.acc >>= uint(n & 63)
+	reader.valid -= n
 	return z
 }
 
-codebook_decode_long :: proc(c: ^Codebook, acc: u32) -> u32 #no_bounds_check {
-	count := len(c.long_codewords)
+codebook_decode_long :: proc(book: ^Codebook, acc: u32) -> u32 #no_bounds_check {
+	count := len(book.long_codewords)
 
 	if count == 0 {
 		return 0
@@ -2341,7 +2447,7 @@ codebook_decode_long :: proc(c: ^Codebook, acc: u32) -> u32 #no_bounds_check {
 	for count > 1 {
 		m := x + (count >> 1)
 
-		if c.long_codewords[m] <= code {
+		if book.long_codewords[m] <= code {
 			x = m
 			count -= count >> 1
 		} else {
@@ -2349,9 +2455,9 @@ codebook_decode_long :: proc(c: ^Codebook, acc: u32) -> u32 #no_bounds_check {
 		}
 	}
 
-	value := c.long_values[x]
+	value := book.long_values[x]
 
-	if (code ~ c.long_codewords[x]) >> (32 - (value & 255)) != 0 {
+	if (code ~ book.long_codewords[x]) >> (32 - (value & CODE_LENGTH_MASK)) != 0 {
 		return 0
 	}
 
@@ -2359,29 +2465,29 @@ codebook_decode_long :: proc(c: ^Codebook, acc: u32) -> u32 #no_bounds_check {
 }
 
 codebook_decode_refilled :: #force_inline proc(
-	b: ^Bit_Reader,
-	c: ^Codebook,
+	reader: ^Bit_Reader,
+	book: ^Codebook,
 	fast: [^]u32,
 	fast_mask: u64,
 ) -> int #no_bounds_check {
-	value := fast[b.acc & fast_mask]
+	value := fast[reader.acc & fast_mask]
 
 	if value == 0 {
-		value = codebook_decode_long(c, u32(b.acc))
+		value = codebook_decode_long(book, u32(reader.acc))
 	}
 
-	n := int(value & 255)
-	b.acc >>= uint(n & 63)
-	b.valid -= n
-	return int(value >> 8)
+	n := int(value & CODE_LENGTH_MASK)
+	reader.acc >>= uint(n & 63)
+	reader.valid -= n
+	return int(value >> CODE_LENGTH_BITS)
 }
 
-codebook_decode :: #force_inline proc(b: ^Bit_Reader, c: ^Codebook) -> int {
-	if b.valid < 32 {
-		bits_refill(b)
+codebook_decode :: #force_inline proc(reader: ^Bit_Reader, book: ^Codebook) -> int {
+	if reader.valid < 32 {
+		bits_refill(reader)
 	}
 
-	return codebook_decode_refilled(b, c, raw_data(c.fast), c.fast_mask)
+	return codebook_decode_refilled(reader, book, raw_data(book.fast), book.fast_mask)
 }
 
 packet_window :: proc(

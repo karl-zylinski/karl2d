@@ -4151,7 +4151,8 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 		switch sd.mode {
 		case .From_Bytes:
 			landed: int
-			sd.bytes_offset, landed = vorbis.seek(&sd.vorbis, sd.bytes, target_frame)
+			sd.bytes_offset, landed = vorbis.find_seek_point(&sd.vorbis, sd.bytes, target_frame)
+			vorbis.force_resync(&sd.vorbis, target_frame)
 			cursor.decode_cursor = landed * abo.channels
 			cursor.seek_discard = (target_frame - landed) * abo.channels
 
@@ -4174,7 +4175,9 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 			}
 
 			// The file could not be searched, so go back to the start and decode from there.
-			if _, seek_err := file_seek(sd.file, 0, .Start); seek_err != nil {
+			restart_offset := i64(vorbis.restart(&sd.vorbis))
+
+			if _, seek_err := file_seek(sd.file, restart_offset, .Start); seek_err != nil {
 				log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
 				stream_ok = false
 				break
@@ -4182,7 +4185,6 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 			sd.file_read_buf_len = 0
 			sd.file_read_buf_offset = 0
-			vorbis.flush(&sd.vorbis)
 			cursor.decode_cursor = 0
 			cursor.seek_discard = target
 		}
@@ -4311,7 +4313,8 @@ _decode_audio_stream :: proc(
 							}
 
 							decoded_at_last_rewind = decoded
-							_, seek_err := file_seek(sd.file, 0, .Start)
+							restart_offset := i64(vorbis.restart(&sd.vorbis))
+							_, seek_err := file_seek(sd.file, restart_offset, .Start)
 
 							if seek_err != nil {
 								log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
@@ -4320,8 +4323,6 @@ _decode_audio_stream :: proc(
 
 							sd.file_read_buf_len = 0
 							sd.file_read_buf_offset = 0
-
-							vorbis.flush(&sd.vorbis)
 							cursor.decode_cursor = 0
 
 							// A discard larger than the file would otherwise spin forever.
@@ -4361,8 +4362,7 @@ _decode_audio_stream :: proc(
 
 					decoded_at_last_rewind = decoded
 
-					sd.bytes_offset = 0
-					vorbis.flush(&sd.vorbis)
+					sd.bytes_offset = vorbis.restart(&sd.vorbis)
 					cursor.decode_cursor = 0
 
 					// A discard larger than the file would otherwise spin forever.
@@ -4451,7 +4451,9 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 
 	switch sd.mode {
 	case .From_File:
-		if _, seek_err := file_seek(sd.file, 0, .Start); seek_err != nil {
+		restart_offset := i64(vorbis.restart(&sd.vorbis))
+
+		if _, seek_err := file_seek(sd.file, restart_offset, .Start); seek_err != nil {
 			log.errorf("Failed seeking in audio stream file. Cannot play it. Error: %v", seek_err)
 			stream_ok = false
 			break
@@ -4459,11 +4461,9 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 
 		sd.file_read_buf_len = 0
 		sd.file_read_buf_offset = 0
-		vorbis.flush(&sd.vorbis)
 
 	case .From_Bytes:
-		sd.bytes_offset = 0
-		vorbis.flush(&sd.vorbis)
+		sd.bytes_offset = vorbis.restart(&sd.vorbis)
 	}
 
 	post_decode_cursor: Audio_Stream_Cursor
@@ -8356,7 +8356,7 @@ _seek_file_stream :: proc(
 
 		sd.file_read_buf_len = 0
 		sd.file_read_buf_offset = 0
-		vorbis.flush(&sd.vorbis)
+		vorbis.force_resync(&sd.vorbis)
 
 		for _ in 0..<MAX_READS {
 			bytes_used, chunk, decode_err := vorbis.decode_chunk(
