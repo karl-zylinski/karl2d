@@ -16,8 +16,8 @@ import "core:sync"
 import "core:encoding/endian"
 
 import fc "font_cache"
-import stbv "vendor:stb/vorbis"
 import ot "opentype"
+import "vorbis"
 
 import "core:image"
 import "core:image/jpeg"
@@ -3486,50 +3486,39 @@ _load_audio_buffer_from_ogg :: proc(
 	_audio_buffer_object: Audio_Buffer_Object,
 	_ok: bool,
 ) {
-	vorbis_buffer := stbv.vorbis_alloc {
-		alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, frame_allocator),
-		alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
-	}
-
-	vorbis_err: stbv.Error
-	vorbis := stbv.open_memory(
-		raw_data(bytes),
-		i32(len(bytes)),
-		&vorbis_err,
-		&vorbis_buffer,
+	decoder, bytes_used, decoder_err := vorbis.create_decoder(
+		bytes,
+		frame_allocator,
+		frame_allocator,
 	)
 
-	if vorbis_err != nil {
-		log.errorf("Failed loading audio clip from ogg data. Error: %v", vorbis_err)
+	if decoder_err != .None {
+		log.errorf("Failed loading audio clip from ogg data. Error: %v", decoder_err)
 		return
 	}
 
-	info := stbv.get_info(vorbis)
-
-	if info.channels != 1 && info.channels != 2 {
-		log.errorf("Unsupported number of channels in ogg data: %v", info.channels)
-		stbv.close(vorbis)
-		return
-	}
-
-	num_samples := int(stbv.stream_length_in_samples(vorbis)) * int(info.channels)
+	num_samples := vorbis.total_frames(bytes) * decoder.channels
 
 	if num_samples == 0 {
 		log.error("Failed loading audio clip from ogg data. It contains no samples.")
-		stbv.close(vorbis)
+		vorbis.destroy_decoder(&decoder)
 		return
 	}
 
 	samples := make([]Audio_Sample, num_samples, s.allocator)
+	num_decoded := 0
+	offset := bytes_used
 
-	num_decoded := int(stbv.get_samples_float_interleaved(
-		vorbis,
-		info.channels,
-		raw_data(samples),
-		i32(num_samples),
-	)) * int(info.channels)
+	for num_decoded < num_samples {
+		used, decoded, decode_err := vorbis.decode_chunk(&decoder, bytes[offset:])
+		offset += used
 
-	stbv.close(vorbis)
+		if decode_err != .None {
+			break
+		}
+
+		num_decoded += copy(samples[num_decoded:], decoded)
+	}
 
 	if num_decoded != num_samples {
 		log.warnf(
@@ -3541,11 +3530,12 @@ _load_audio_buffer_from_ogg :: proc(
 	}
 
 	audio_buffer_object := Audio_Buffer_Object {
-		sample_rate = int(info.sample_rate),
+		sample_rate = decoder.sample_rate,
 		samples = samples,
-		channels = int(info.channels),
+		channels = decoder.channels,
 	}
 
+	vorbis.destroy_decoder(&decoder)
 	return audio_buffer_object, true
 }
 
@@ -3890,89 +3880,61 @@ load_audio_stream_from_file :: proc(
 		return
 	}
 
-	vorbis_buffer := stbv.vorbis_alloc {
-		alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
-		alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
-	}
-
 	append(&buf, ..read_buf[:nbytes_read])
-	vorbis_res: ^stbv.vorbis
+	decoder: vorbis.Decoder
 
 	// This loop tries to read in just enough from the file so that it has enough info to play it.
-	// `stbv.open_pushdata` returns an error if it needs more data, in which case the the loop
+	// `vorbis.create_decoder` returns an error if it needs more data, in which case the the loop
 	// might continue.
 	for {
-		vorbis_err: stbv.Error
-		consumed: i32
-		vorbis := stbv.open_pushdata(
-			raw_data(buf),
-			i32(len(buf)),
-			&consumed,
-			&vorbis_err,
-			&vorbis_buffer,
-		)
+		consumed: int
+		decoder_err: vorbis.Error
+		decoder, consumed, decoder_err = vorbis.create_decoder(buf[:], s.allocator, frame_allocator)
 
-		if vorbis_err == nil {
+		if decoder_err == .None {
 			// The file was properly loaded!
-			vorbis_res = vorbis
 			_, seek_err := file_seek(f, i64(consumed), .Start)
 
 			if seek_err != nil {
 				log.errorf("Failed seeking in audio stream file %v. Error: %v", filename, seek_err)
 				file_close(f)
-				free(vorbis_buffer.alloc_buffer, s.allocator)
+				vorbis.destroy_decoder(&decoder)
 				return
 			}
 
 			break
-		} else if vorbis_err == .need_more_data {
-			// Read in more data from the file so that maybe `stbv.open_pushdata` succeeds next
+		} else if decoder_err == .Need_More_Data {
+			// Read in more data from the file so that maybe `vorbis.create_decoder` succeeds next
 			// iteration.
 			nbytes_read, read_err = file_read(f, read_buf[:])
 
 			if read_err != nil {
 				log.errorf("Failed reading from audio stream file %v. Error: %v", filename, read_err)
 				file_close(f)
-				free(vorbis_buffer.alloc_buffer, s.allocator)
 				return
 			}
 
 			if nbytes_read == 0 {
 				log.errorf("Failed to load audio stream. Reached end of file before stream could be loaded.")
 				file_close(f)
-				free(vorbis_buffer.alloc_buffer, s.allocator)
 				return
 			}
 
 			append(&buf, ..read_buf[:nbytes_read])
 		} else {
-			log.errorf("Failed to load audio stream. Error: %v", vorbis_err)
+			log.errorf("Failed to load audio stream. Error: %v", decoder_err)
 			file_close(f)
-			free(vorbis_buffer.alloc_buffer, s.allocator)
 			return
 		}
 	}
 
-	info := stbv.get_info(vorbis_res)
-
-	if info.channels != 1 && info.channels != 2 {
-		log.errorf("Unsupported number of channels: %v", info.channels)
-
-		if close_err := file_close(f); close_err != nil {
-			log.errorf("Failed closing file. Error: %v", close_err)
-		}
-				
-		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return
-	}
-
 	audio_buffer := Audio_Buffer_Object {
-		sample_rate = int(info.sample_rate),
+		sample_rate = decoder.sample_rate,
 		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
-		channels = int(info.channels),
+		channels = decoder.channels,
 	}
 
-	total_samples := _ogg_file_total_frames(f) * int(info.channels)
+	total_samples := _ogg_file_total_frames(f) * decoder.channels
 	sync.mutex_guard(&s.audio_mutex)
 
 	audio_buffer_handle, audio_buffer_handle_add_err := hm.add(&s.audio_buffers, audio_buffer)
@@ -3985,15 +3947,14 @@ load_audio_stream_from_file :: proc(
 		}
 
 		delete(audio_buffer.samples, s.allocator)
-		free(vorbis_buffer.alloc_buffer, s.allocator)
+		vorbis.destroy_decoder(&decoder)
 		return
 	}
 
 	asd := Audio_Stream_Data {
 		mode = .From_File,
 		file = f,
-		vorbis = vorbis_res,
-		vorbis_buffer = vorbis_buffer,
+		vorbis = decoder,
 		buffer = audio_buffer_handle,
 		total_samples = total_samples,
 		file_read_buf = make([]u8, AUDIO_STREAM_READ_BUF_SIZE, s.allocator),
@@ -4009,7 +3970,7 @@ load_audio_stream_from_file :: proc(
 		delete(asd.file_read_buf, s.allocator)
 		delete(audio_buffer.samples, s.allocator)
 		hm.remove(&s.audio_buffers, audio_buffer_handle)
-		free(vorbis_buffer.alloc_buffer, s.allocator)
+		vorbis.destroy_decoder(&decoder)
 		return
 	}
 
@@ -4049,40 +4010,17 @@ load_audio_stream_from_bytes :: proc(
 	_stream: Audio_Stream,
 	_ok: bool,
 ) #optional_ok {
-	vorbis_err: stbv.Error
+	decoder, bytes_used, decoder_err := vorbis.create_decoder(bytes, s.allocator, frame_allocator)
 
-	vorbis_buffer := stbv.vorbis_alloc {
-		alloc_buffer = make([^]u8, VORBIS_STATE_SIZE, s.allocator),
-		alloc_buffer_length_in_bytes = VORBIS_STATE_SIZE,
-	}
-
-	// This procedure is specifically made for our use case: Streaming from a file that is already
-	// completely in memory.
-	vorbis_res := stbv.open_memory(
-		raw_data(bytes),
-		i32(len(bytes)),
-		&vorbis_err,
-		&vorbis_buffer,
-	)
-
-	if vorbis_err != nil {
-		log.errorf("Failed opening audio stream from bytes. Error: %v", vorbis_err)
-		free(vorbis_buffer.alloc_buffer, s.allocator)
-		return
-	}
-
-	info := stbv.get_info(vorbis_res)
-
-	if info.channels != 1 && info.channels != 2 {
-		log.errorf("Unsupported number of channels: %v", info.channels)
-		free(vorbis_buffer.alloc_buffer, s.allocator)
+	if decoder_err != .None {
+		log.errorf("Failed opening audio stream from bytes. Error: %v", decoder_err)
 		return
 	}
 
 	audio_buffer := Audio_Buffer_Object {
-		sample_rate = int(info.sample_rate),
+		sample_rate = decoder.sample_rate,
 		samples = make([]Audio_Sample, AUDIO_STREAM_BUFFER_SIZE, s.allocator),
-		channels = int(info.channels),
+		channels = decoder.channels,
 	}
 
 	sync.mutex_guard(&s.audio_mutex)
@@ -4092,17 +4030,17 @@ load_audio_stream_from_bytes :: proc(
 	if audio_buffer_handle_add_err != nil {
 		log.errorf("Failed to load audio stream. Error: %v", audio_buffer_handle_add_err)
 		delete(audio_buffer.samples, s.allocator)
-		free(vorbis_buffer.alloc_buffer, s.allocator)
+		vorbis.destroy_decoder(&decoder)
 		return
 	}
 
 	asd := Audio_Stream_Data {
 		mode = .From_Bytes,
 		bytes = bytes,
-		vorbis = vorbis_res,
+		vorbis = decoder,
 		buffer = audio_buffer_handle,
-		vorbis_buffer = vorbis_buffer,
-		total_samples = int(stbv.stream_length_in_samples(vorbis_res)) * int(info.channels),
+		bytes_offset = bytes_used,
+		total_samples = vorbis.total_frames(bytes) * decoder.channels,
 		volume = 1,
 		pitch = 1,
 	}
@@ -4113,7 +4051,7 @@ load_audio_stream_from_bytes :: proc(
 		log.errorf("Failed to create audio stream from bytes. Error: %v", stream_add_err)
 		delete(audio_buffer.samples, s.allocator)
 		hm.remove(&s.audio_buffers, audio_buffer_handle)
-		free(vorbis_buffer.alloc_buffer, s.allocator)
+		vorbis.destroy_decoder(&decoder)
 		return
 	}
 
@@ -4152,7 +4090,7 @@ destroy_audio_stream :: proc(stream: Audio_Stream) {
 		// don't free the bytes, they are owned by the game
 	}
 
-	free(sd.vorbis_buffer.alloc_buffer, s.allocator)
+	vorbis.destroy_decoder(&sd.vorbis)
 	sync.mutex_unlock(&sd.decode_mutex)
 	hm.remove(&s.audio_streams, stream)
 }
@@ -4212,13 +4150,9 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 		switch sd.mode {
 		case .From_Bytes:
-			if stbv.seek_frame(sd.vorbis, u32(target_frame)) == 0 {
-				log.error("Failed seeking in audio stream. Stopping it.")
-				stream_ok = false
-				break
-			}
-
-			landed := int(stbv.get_sample_offset(sd.vorbis))
+			landed: int
+			sd.bytes_offset, landed = vorbis.find_seek_point(&sd.vorbis, sd.bytes, target_frame)
+			vorbis.force_resync(&sd.vorbis, target_frame)
 			cursor.decode_cursor = landed * abo.channels
 			cursor.seek_discard = (target_frame - landed) * abo.channels
 
@@ -4241,7 +4175,9 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 			}
 
 			// The file could not be searched, so go back to the start and decode from there.
-			if _, seek_err := file_seek(sd.file, 0, .Start); seek_err != nil {
+			restart_offset := i64(vorbis.restart(&sd.vorbis))
+
+			if _, seek_err := file_seek(sd.file, restart_offset, .Start); seek_err != nil {
 				log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
 				stream_ok = false
 				break
@@ -4249,7 +4185,6 @@ update_audio_stream :: proc(stream: Audio_Stream) {
 
 			sd.file_read_buf_len = 0
 			sd.file_read_buf_offset = 0
-			stbv.flush_pushdata(sd.vorbis)
 			cursor.decode_cursor = 0
 			cursor.seek_discard = target
 		}
@@ -4318,6 +4253,20 @@ _decode_audio_stream :: proc(
 	_end_reached: bool,
 	_ok: bool,
 ) {
+	// A pending seek throws away decoded samples instead of writing them, until the decoder has
+	// caught up to the target position.
+	write :: proc(ab: ^Audio_Buffer_Object, cursor: ^Audio_Stream_Cursor, chunk: []f32) -> int {
+		discard := clamp(cursor.seek_discard, 0, len(chunk))
+		cursor.seek_discard -= discard
+		cursor.decode_cursor += len(chunk)
+		src := chunk[discard:]
+		first := min(len(src), len(ab.samples) - cursor.buffer_write_pos)
+		copy(ab.samples[cursor.buffer_write_pos:], src[:first])
+		copy(ab.samples, src[first:])
+		cursor.buffer_write_pos = (cursor.buffer_write_pos + len(src)) % len(ab.samples)
+		return len(src)
+	}
+
 	cursor := cursor
 	buffered := (cursor.buffer_write_pos - play_offset + len(ab.samples)) % len(ab.samples)
 	decoded := 0
@@ -4326,21 +4275,14 @@ _decode_audio_stream :: proc(
 	switch sd.mode {
 	case .From_File:
 		for buffered + decoded < AUDIO_STREAM_BUFFER_SIZE / 2 {
-			channels: i32
-			samples: i32
-			output: [^]^f32
-
-			bytes_used := stbv.decode_frame_pushdata(
-				sd.vorbis,
-				raw_data(sd.file_read_buf[sd.file_read_buf_offset:]),
-				i32(sd.file_read_buf_len - sd.file_read_buf_offset),
-				&channels,
-				&output,
-				&samples,
+			bytes_used, chunk, decode_err := vorbis.decode_chunk(
+				&sd.vorbis,
+				sd.file_read_buf[sd.file_read_buf_offset:sd.file_read_buf_len],
 			)
 
-			if bytes_used == 0 && samples == 0 {
-				// ^ 0 bytes used, 0 samples output (need more data)
+			sd.file_read_buf_offset += bytes_used
+
+			if decode_err == .Need_More_Data {
 
 				copy(
 					sd.file_read_buf[:],
@@ -4371,7 +4313,8 @@ _decode_audio_stream :: proc(
 							}
 
 							decoded_at_last_rewind = decoded
-							_, seek_err := file_seek(sd.file, 0, .Start)
+							restart_offset := i64(vorbis.restart(&sd.vorbis))
+							_, seek_err := file_seek(sd.file, restart_offset, .Start)
 
 							if seek_err != nil {
 								log.errorf("Failed seeking in audio stream file. Stopping it. Error: %v", seek_err)
@@ -4380,8 +4323,6 @@ _decode_audio_stream :: proc(
 
 							sd.file_read_buf_len = 0
 							sd.file_read_buf_offset = 0
-
-							stbv.flush_pushdata(sd.vorbis)
 							cursor.decode_cursor = 0
 
 							// A discard larger than the file would otherwise spin forever.
@@ -4396,62 +4337,23 @@ _decode_audio_stream :: proc(
 						return
 					}
 				}
-			} else if bytes_used > 0 && samples == 0 {
-				// ^ N bytes used, 0 samples output (resynching the stream, keep going)
-				sd.file_read_buf_offset += int(bytes_used)
-			} else if bytes_used > 0 && samples > 0 {
-				// ^ N bytes used, M samples output (one frame of data)
-
-				if channels == 1 {
-					mono: [^]f32 = output[0]
-
-					for samp_idx in 0..<samples {
-						// A pending seek throws away decoded samples instead of writing them,
-						// until the decoder has caught up to the target position.
-						if cursor.seek_discard > 0 {
-							cursor.seek_discard -= 1
-						} else {
-							ab.samples[cursor.buffer_write_pos] = mono[samp_idx]
-							cursor.buffer_write_pos = (cursor.buffer_write_pos + 1) % len(ab.samples)
-							decoded += 1
-						}
-
-						cursor.decode_cursor += 1
-					}
-				} else if channels == 2 {
-					left: [^]f32 = output[0]
-					right: [^]f32 = output[1]
-
-					for samp_idx in 0..<samples {
-						if cursor.seek_discard > 0 {
-							cursor.seek_discard -= 2
-						} else {
-							ab.samples[cursor.buffer_write_pos] = left[samp_idx]
-							ab.samples[cursor.buffer_write_pos + 1] = right[samp_idx]
-							cursor.buffer_write_pos = (cursor.buffer_write_pos + 2) % len(ab.samples)
-							decoded += 2
-						}
-
-						cursor.decode_cursor += 2
-					}
-				} else {
-					log.error("Invalid num channels")
-					return
-				}
-				sd.file_read_buf_offset += int(bytes_used)
-			} else {
+			} else if decode_err != .None {
 				log.error("Invalid vorbis")
 				return
+			} else {
+				decoded += write(ab, &cursor, chunk)
 			}
 		}
 	case .From_Bytes:
-		channels: i32
-		output: [^]^f32
-
 		for buffered + decoded < AUDIO_STREAM_BUFFER_SIZE / 2 {
-			samples := stbv.get_frame_float(sd.vorbis, &channels, &output)
+			bytes_used, chunk, decode_err := vorbis.decode_chunk(
+				&sd.vorbis,
+				sd.bytes[sd.bytes_offset:],
+			)
 
-			if samples == 0 {
+			sd.bytes_offset += bytes_used
+
+			if decode_err == .Need_More_Data {
 				if loop {
 					if decoded == decoded_at_last_rewind {
 						log.error("Audio stream contains no audio samples. Stopping it.")
@@ -4460,11 +4362,7 @@ _decode_audio_stream :: proc(
 
 					decoded_at_last_rewind = decoded
 
-					if stbv.seek_start(sd.vorbis) == 0 {
-						log.error("Failed seeking in audio stream. Stopping it.")
-						return
-					}
-
+					sd.bytes_offset = vorbis.restart(&sd.vorbis)
 					cursor.decode_cursor = 0
 
 					// A discard larger than the file would otherwise spin forever.
@@ -4478,40 +4376,12 @@ _decode_audio_stream :: proc(
 				}
 			}
 
-			if channels == 1 {
-				mono: [^]f32 = output[0]
-
-				for samp_idx in 0..<samples {
-					if cursor.seek_discard > 0 {
-						cursor.seek_discard -= 1
-					} else {
-						ab.samples[cursor.buffer_write_pos] = mono[samp_idx]
-						cursor.buffer_write_pos = (cursor.buffer_write_pos + 1) % len(ab.samples)
-						decoded += 1
-					}
-
-					cursor.decode_cursor += 1
-				}
-			} else if channels == 2 {
-				left: [^]f32 = output[0]
-				right: [^]f32 = output[1]
-
-				for samp_idx in 0..<samples {
-					if cursor.seek_discard > 0 {
-						cursor.seek_discard -= 2
-					} else {
-						ab.samples[cursor.buffer_write_pos] = left[samp_idx]
-						ab.samples[cursor.buffer_write_pos + 1] = right[samp_idx]
-						cursor.buffer_write_pos = (cursor.buffer_write_pos + 2) % len(ab.samples)
-						decoded += 2
-					}
-
-					cursor.decode_cursor += 2
-				}
-			} else {
-				log.error("Invalid num channels")
+			if decode_err != .None {
+				log.error("Invalid vorbis")
 				return
 			}
+
+			decoded += write(ab, &cursor, chunk)
 		}
 	}
 
@@ -4581,7 +4451,9 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 
 	switch sd.mode {
 	case .From_File:
-		if _, seek_err := file_seek(sd.file, 0, .Start); seek_err != nil {
+		restart_offset := i64(vorbis.restart(&sd.vorbis))
+
+		if _, seek_err := file_seek(sd.file, restart_offset, .Start); seek_err != nil {
 			log.errorf("Failed seeking in audio stream file. Cannot play it. Error: %v", seek_err)
 			stream_ok = false
 			break
@@ -4589,13 +4461,9 @@ play_audio_stream :: proc(stream: Audio_Stream) {
 
 		sd.file_read_buf_len = 0
 		sd.file_read_buf_offset = 0
-		stbv.flush_pushdata(sd.vorbis)
 
 	case .From_Bytes:
-		if stbv.seek_start(sd.vorbis) == 0 {
-			log.error("Failed seeking in audio stream. Cannot play it.")
-			stream_ok = false
-		}
+		sd.bytes_offset = vorbis.restart(&sd.vorbis)
 	}
 
 	post_decode_cursor: Audio_Stream_Cursor
@@ -7728,9 +7596,6 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
-// From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
-VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
-
 Audio_Stream_Cursor :: struct {
 	// Where in `Audio_Stream_Data.buffer` we have most recently written samples. Together with
 	// `Audio_Voice_Object.offset`, this forms a circular buffer. This field is the 'head' and the
@@ -7753,8 +7618,7 @@ Audio_Stream_Cursor :: struct {
 Audio_Stream_Data :: struct {
 	handle: Audio_Stream,
 	
-	vorbis: ^stbv.vorbis,
-	vorbis_buffer: stbv.vorbis_alloc,
+	vorbis: vorbis.Decoder,
 	voice: Audio_Voice,
 	bus: Audio_Bus,
 	volume: f32,
@@ -7794,6 +7658,7 @@ Audio_Stream_Data :: struct {
 
 	// use if mode == .From_Bytes
 	bytes: []u8,
+	bytes_offset: int,
 }
 
 // The format used to describe that data passed to `load_audio_clip_from_bytes_raw`.
@@ -8491,31 +8356,27 @@ _seek_file_stream :: proc(
 
 		sd.file_read_buf_len = 0
 		sd.file_read_buf_offset = 0
-		stbv.flush_pushdata(sd.vorbis)
+		vorbis.force_resync(&sd.vorbis)
 
 		for _ in 0..<MAX_READS {
-			decoded_channels: i32
-			samples: i32
-			output: [^]^f32
-
-			bytes_used := stbv.decode_frame_pushdata(
-				sd.vorbis,
-				raw_data(sd.file_read_buf[sd.file_read_buf_offset:]),
-				i32(sd.file_read_buf_len - sd.file_read_buf_offset),
-				&decoded_channels,
-				&output,
-				&samples,
+			bytes_used, chunk, decode_err := vorbis.decode_chunk(
+				&sd.vorbis,
+				sd.file_read_buf[sd.file_read_buf_offset:sd.file_read_buf_len],
 			)
 
-			sd.file_read_buf_offset += int(bytes_used)
+			sd.file_read_buf_offset += bytes_used
 
-			if samples > 0 {
+			if len(chunk) > 0 {
+				if !sd.vorbis.current_frame_valid {
+					return -1
+				}
+
 				// The decoder has found a page and decoded a frame from it, so it can now say
 				// where in the audio the next frame starts.
-				return int(stbv.get_sample_offset(sd.vorbis))
+				return sd.vorbis.current_frame
 			}
 
-			if bytes_used == 0 {
+			if decode_err == .Need_More_Data {
 				copy(
 					sd.file_read_buf[:],
 					sd.file_read_buf[sd.file_read_buf_offset:sd.file_read_buf_len],
@@ -8539,6 +8400,8 @@ _seek_file_stream :: proc(
 				}
 
 				sd.file_read_buf_len += read
+			} else if decode_err != .None {
+				return -1
 			}
 		}
 
