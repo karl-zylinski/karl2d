@@ -7,6 +7,8 @@ import "core:compress/deflate"
 import "core:crypto/legacy/sha1"
 import "core:crypto/sha2"
 import "core:encoding/hex"
+import "core:encoding/json"
+import "core:encoding/xml"
 import "core:fmt"
 import "core:hash"
 import os "core:os"
@@ -15,119 +17,38 @@ import curl "vendor:curl"
 
 SDK_DIR :: #directory + "../sdk"
 JRE_DIR_NAME :: "jre"
-ANDROID_URL :: "https://dl.google.com/android/repository/"
-JRE_URL :: "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13.1%2B2/"
+ANDROID_INDEX_URL :: "https://dl.google.com/android/repository/repository2-3.xml"
+ANDROID_DOWNLOAD_URL :: "https://dl.google.com/android/repository/"
+JAVA_VERSION :: "21"
+
+ANDROID_PACKAGES :: [?]string {
+	"platform-tools",
+	"build-tools;37.0.0",
+	"platforms;android-36",
+	"ndk;30.0.16248370",
+}
+
+when ODIN_OS == .Windows {
+	ANDROID_HOST_OS :: "windows"
+	JAVA_OS :: "windows"
+} else when ODIN_OS == .Darwin {
+	ANDROID_HOST_OS :: "macosx"
+	JAVA_OS :: "mac"
+} else {
+	ANDROID_HOST_OS :: "linux"
+	JAVA_OS :: "linux"
+}
+
+JAVA_ARCH :: "aarch64" when ODIN_ARCH == .arm64 else "x64"
+
+JAVA_INDEX_URL ::
+	"https://api.adoptium.net/v3/assets/latest/" + JAVA_VERSION + "/hotspot" +
+	"?image_type=jre&vendor=eclipse&os=" + JAVA_OS + "&architecture=" + JAVA_ARCH
 
 Package :: struct {
 	dest_dir: string,
 	url: string,
 	checksum: string,
-}
-
-when ODIN_OS == .Windows {
-	PACKAGES :: [?]Package {
-		{
-			"platform-tools",
-			ANDROID_URL + "platform-tools_r37.0.3-win.zip",
-			"7fea85bc18d0480bc81d3603952d666f49496e5a",
-		},
-		{
-			"build-tools/37.0.0",
-			ANDROID_URL + "build-tools_r37_windows.zip",
-			"e9c97e26b5b5678002e9d3fed632c841ae62d99f",
-		},
-		{
-			"platforms/android-36",
-			ANDROID_URL + "platform-36_r02.zip",
-			"2c1a80dd4d9f7d0e6dd336ec603d9b5c55a6f576",
-		},
-		{
-			"ndk/30.0.16248370",
-			ANDROID_URL + "android-ndk-r30-windows.zip",
-			"9bf167a1985fa7d4a036186b78f702eab9179408",
-		},
-		{
-			JRE_DIR_NAME,
-			JRE_URL + "OpenJDK21U-jre_x64_windows_hotspot_21.0.13.1_2.zip",
-			"e15ee1e54a5a3b38027a09cedfa87bc3348d7dd3ce50866dd3d9671d7fffc6c1",
-		},
-	}
-} else when ODIN_OS == .Darwin {
-	when ODIN_ARCH == .arm64 {
-		JRE_PACKAGE :: Package {
-			JRE_DIR_NAME,
-			JRE_URL + "OpenJDK21U-jre_aarch64_mac_hotspot_21.0.13.1_2.tar.gz",
-			"848feb1906c7de79de4f8391636042193fbd46eff86e26299506c4656f62c260",
-		}
-	} else {
-		JRE_PACKAGE :: Package {
-			JRE_DIR_NAME,
-			JRE_URL + "OpenJDK21U-jre_x64_mac_hotspot_21.0.13.1_2.tar.gz",
-			"10cee6ba4cd83fd4613a3f0bb3ef9dddd68c68d5f3ccfcc7e456707c9e1eafe0",
-		}
-	}
-
-	PACKAGES :: [?]Package {
-		{
-			"platform-tools",
-			ANDROID_URL + "platform-tools_r37.0.3-darwin.zip",
-			"d48920e2650321710b4d15d3acd9e277d59cd55b",
-		},
-		{
-			"build-tools/37.0.0",
-			ANDROID_URL + "build-tools_r37_macosx.zip",
-			"eb080751b2b2028eb3604f571027d6f7b3c46321",
-		},
-		{
-			"platforms/android-36",
-			ANDROID_URL + "platform-36_r02.zip",
-			"2c1a80dd4d9f7d0e6dd336ec603d9b5c55a6f576",
-		},
-		{
-			"ndk/30.0.16248370",
-			ANDROID_URL + "android-ndk-r30-darwin.zip",
-			"c060be96767eefbb8e0a27796d6f43115fc1a0c4",
-		},
-		JRE_PACKAGE,
-	}
-} else {
-	when ODIN_ARCH == .arm64 {
-		JRE_PACKAGE :: Package {
-			JRE_DIR_NAME,
-			JRE_URL + "OpenJDK21U-jre_aarch64_linux_hotspot_21.0.13.1_2.tar.gz",
-			"52bc58323d9266538a6361a3cf8365fc1186dd9510d7f33f623681c4aabb7e72",
-		}
-	} else {
-		JRE_PACKAGE :: Package {
-			JRE_DIR_NAME,
-			JRE_URL + "OpenJDK21U-jre_x64_linux_hotspot_21.0.13.1_2.tar.gz",
-			"18f44fab9065217f3ba61d0eef8a7b5f3c3713aa7293001b0d4ac10ede3850f0",
-		}
-	}
-
-	PACKAGES :: [?]Package {
-		{
-			"platform-tools",
-			ANDROID_URL + "platform-tools_r37.0.3-linux.zip",
-			"e1579b288a7ae4e9bc28dedec6a154d78b3c04ed",
-		},
-		{
-			"build-tools/37.0.0",
-			ANDROID_URL + "build-tools_r37_linux.zip",
-			"70954e99f4c3d9d46ee70fa32624672fe7cd6ebe",
-		},
-		{
-			"platforms/android-36",
-			ANDROID_URL + "platform-36_r02.zip",
-			"2c1a80dd4d9f7d0e6dd336ec603d9b5c55a6f576",
-		},
-		{
-			"ndk/30.0.16248370",
-			ANDROID_URL + "android-ndk-r30-linux.zip",
-			"5107f898313790e449e87eee2183d9a20602dee9",
-		},
-		JRE_PACKAGE,
-	}
 }
 
 path_join :: proc(parts: []string) -> string {
@@ -711,7 +632,146 @@ main :: proc() {
 	fmt.ensuref(os.is_directory(sdk_dir), "Failed creating %v", sdk_dir)
 	curl.global_init(curl.GLOBAL_DEFAULT)
 
-	for pkg in PACKAGES {
+	packages: [dynamic]Package
+
+	android_index_path := path_join({sdk_dir, "android_index.xml"})
+	fmt.printfln("Downloading %v", ANDROID_INDEX_URL)
+
+	if _, _, index_ok := download_file(ANDROID_INDEX_URL, android_index_path); !index_ok {
+		os.exit(1)
+	}
+
+	android_index, android_index_err := xml.load_from_file(android_index_path)
+	os.remove(android_index_path)
+
+	fmt.ensuref(
+		android_index_err == nil,
+		"Failed reading the Android package index. Error: %v",
+		android_index_err,
+	)
+
+	xml_text :: proc(doc: ^xml.Document, parent: xml.Element_ID, ident: string) -> string {
+		child, child_found := xml.find_child_by_ident(doc, parent, ident)
+
+		if !child_found || len(doc.elements[child].value) == 0 {
+			return ""
+		}
+
+		text, _ := doc.elements[child].value[0].(string)
+		return text
+	}
+
+	for android_package in ANDROID_PACKAGES {
+		pkg: Package
+
+		for &element, element_idx in android_index.elements {
+			if element.ident != "remotePackage" {
+				continue
+			}
+
+			element_id := xml.Element_ID(element_idx)
+			path, _ := xml.find_attribute_val_by_key(android_index, element_id, "path")
+
+			if path != android_package {
+				continue
+			}
+
+			archives, archives_found := xml.find_child_by_ident(
+				android_index,
+				element_id,
+				"archives",
+			)
+
+			if !archives_found {
+				continue
+			}
+
+			for archive_idx := 0; pkg.url == ""; archive_idx += 1 {
+				archive, archive_found := xml.find_child_by_ident(
+					android_index,
+					archives,
+					"archive",
+					archive_idx,
+				)
+
+				if !archive_found {
+					break
+				}
+
+				host_os := xml_text(android_index, archive, "host-os")
+
+				if host_os != "" && host_os != ANDROID_HOST_OS {
+					continue
+				}
+
+				complete, complete_found := xml.find_child_by_ident(
+					android_index,
+					archive,
+					"complete",
+				)
+
+				if !complete_found {
+					continue
+				}
+
+				dest_dir, _ := strings.replace_all(android_package, ";", "/", context.allocator)
+
+				pkg = {
+					dest_dir = dest_dir,
+					url = fmt.aprintf(
+						"%v%v",
+						ANDROID_DOWNLOAD_URL,
+						xml_text(android_index, complete, "url"),
+					),
+					checksum = xml_text(android_index, complete, "checksum"),
+				}
+			}
+		}
+
+		fmt.ensuref(
+			pkg.url != "",
+			"Could not find %v for %v in the Android package index",
+			android_package,
+			ANDROID_HOST_OS,
+		)
+
+		append(&packages, pkg)
+	}
+
+	java_index_path := path_join({sdk_dir, "java_index.json"})
+	fmt.printfln("Downloading %v", JAVA_INDEX_URL)
+
+	if _, _, index_ok := download_file(JAVA_INDEX_URL, java_index_path); !index_ok {
+		os.exit(1)
+	}
+
+	java_index_data, _ := os.read_entire_file(java_index_path, context.allocator)
+	os.remove(java_index_path)
+	java_index, _ := json.parse(java_index_data, allocator = context.allocator)
+	java_assets, _ := java_index.(json.Array)
+
+	fmt.ensuref(
+		len(java_assets) > 0,
+		"Could not find Java %v for %v %v in the Adoptium index",
+		JAVA_VERSION,
+		JAVA_OS,
+		JAVA_ARCH,
+	)
+
+	java_asset, _ := java_assets[0].(json.Object)
+	java_binary, _ := java_asset["binary"].(json.Object)
+	java_package, _ := java_binary["package"].(json.Object)
+	java_url, _ := java_package["link"].(json.String)
+	java_checksum, _ := java_package["checksum"].(json.String)
+	fmt.ensuref(java_url != "", "The Adoptium index has no download link for Java")
+
+	append(&packages, Package {
+		dest_dir = JRE_DIR_NAME,
+		url = java_url,
+		checksum = java_checksum,
+	})
+
+	for pkg in packages {
 		dest_dir := path_join({sdk_dir, pkg.dest_dir})
 
 		if os.is_directory(dest_dir) {
