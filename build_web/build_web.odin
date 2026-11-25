@@ -47,7 +47,9 @@ main :: proc() {
 	}
 
 	if print_usage {
-		fmt.eprintfln("Usage: 'odin run karl2d/build_web -- directory_name -extra -parameters' Any extra parameter that start with a dash will be passed on to Odin compiler.\nExample: 'odin run karl2d/build_web -- my_game -o:size'")
+		USAGE :: `Usage: 'odin run karl2d/build_web -- directory_name -extra -parameters' Any extra parameter that start with a dash will be passed on to Odin compiler.
+Example: 'odin run karl2d/build_web -- my_game -o:size'`
+		fmt.eprintfln("")
 		return
 	}
 

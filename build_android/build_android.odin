@@ -1,3 +1,4 @@
+// This program builds a Karl2D game as an Android version.
 package karl2d_build_android_tool
 
 import "core:fmt"
@@ -22,44 +23,19 @@ DEFAULT_MINIMUM_OS_VERSION :: "29"
 LIB_NAME :: "main"
 ACTIVITY_NAME :: "org.odin_lang.OdinActivity"
 
-USAGE :: `Usage: 'odin run karl2d/build_android -- directory_name -extra -parameters'
+USAGE :: `Usage: 'odin run karl2d/build_android -- directory_name -extra -parameters' Any extra parameter that start with a dash will be passed on to Odin compiler.
 
-Builds the game in 'directory_name' into 'directory_name/bin/android/<name>.apk'.
+Special parameters (goes after the '--'):
+	-run         Install the APK on a connected Android device (USB debugging must be on).
+	-setup       Download Android SDKs and Java and put them in the 'build_android/sdk' folder. build_android will use these automatically.
+	-abis:<list> Comma separated list of CPU types to build for. Available: arm64-v8a (default), armeabi-v7a, x86_64, x86.
 
-Needs the Android SDK and NDK. The SDK needs build-tools and a platform, plus platform-tools if
-you use -run. Run 'odin run karl2d/build_android/setup' to download them.
-
-The SDK is looked for in this order:
-    1. The -android-sdk:<path> parameter
-    2. The environment variable ODIN_ANDROID_SDK
-    3. The environment variable ANDROID_HOME
-    4. The default install location of Android Studio
-    5. The 'android_sdk' folder that the setup program creates inside build_android
-The NDK is looked for in this order:
-    1. The -android-ndk:<path> parameter
-    2. The environment variable ODIN_ANDROID_NDK
-    3. The environment variable ANDROID_NDK_HOME
-    4. The newest version in the 'ndk' folder of the SDK
-
-Parameters this tool handles itself:
-    -abis:<list>   Comma separated list of CPU types to build for. Default: arm64-v8a
-                   Available: arm64-v8a, armeabi-v7a, x86_64, x86
-    -run           Install the apk on the connected device using adb and start it.
-
-Building needs a JDK, because 'odin bundle' signs the apk with it.
-
--minimum-os-version is passed on to both 'odin build' and 'odin bundle'. It defaults to 29.
-Parameters that start with -android-keystore are passed on to 'odin bundle'. Without any of
-those the debug keystore in ~/.android/debug.keystore is used.
-Any other parameter that starts with a dash is passed on to 'odin build'.
-
-If 'directory_name/android/AndroidManifest.xml' exists, then it is used instead of the built-in
-manifest. It must use the activity org.odin_lang.OdinActivity and the lib_name 'main'.
+If 'directory_name/android/AndroidManifest.xml' exists, then it is used. A default manifest is used otherwise.
 
 Example: 'odin run karl2d/build_android -- my_game -o:speed -run'`
 
-SETUP_SDK_DIR :: #directory + "android_sdk"
-SETUP_HINT :: "Run 'odin run karl2d/build_android/setup' to download the SDK and NDK."
+SETUP_SDK_DIR :: #directory + "sdk"
+SETUP_HINT :: "Run 'odin run karl2d/build_android/setup' to download the SDK, NDK and Java."
 
 path_join :: proc(parts: []string) -> string {
 	p, err := os.join_path(parts, allocator = context.allocator)
@@ -203,15 +179,15 @@ main :: proc() {
 	if sdk_path == "" {
 		fmt.eprintfln(
 			"Could not find the Android SDK. Looked in:\n" +
-			"    -android-sdk parameter: %v\n" +
-			"    ODIN_ANDROID_SDK: %v\n" +
-			"    ANDROID_HOME: %v\n" +
-			"    Default location: %v\n" +
-			"    Location used by the setup program: %v\n" +
+			"- The -android-sdk parameter (%v)\n" +
+			"- The environment variable ODIN_ANDROID_SDK (%v)\n" +
+			"- The environment variable ANDROID_HOME (%v)\n" +
+			"- %v\n" +
+			"- %v\n" +
 			SETUP_HINT,
-			sdk_candidates[0],
-			sdk_candidates[1],
-			sdk_candidates[2],
+			sdk_candidates[0] == "" ? "not given" : sdk_candidates[0],
+			sdk_candidates[1] == "" ? "not set" : sdk_candidates[1],
+			sdk_candidates[2] == "" ? "not set" : sdk_candidates[2],
 			sdk_candidates[3],
 			sdk_candidates[4],
 		)
@@ -272,16 +248,15 @@ main :: proc() {
 	if ndk_path == "" {
 		fmt.eprintfln(
 			"Could not find the Android NDK. Looked in:\n" +
-			"    -android-ndk parameter: %v\n" +
-			"    ODIN_ANDROID_NDK: %v\n" +
-			"    ANDROID_NDK_HOME: %v\n" +
-			"    Newest version in %v: %v\n" +
+			"- The -android-ndk parameter (%v)\n" +
+			"- The environment variable ODIN_ANDROID_NDK (%v)\n" +
+			"- The environment variable ANDROID_NDK_HOME (%v)\n" +
+			"- %v\n" +
 			SETUP_HINT,
-			ndk_candidates[0],
-			ndk_candidates[1],
-			ndk_candidates[2],
+			ndk_candidates[0] == "" ? "not given" : ndk_candidates[0],
+			ndk_candidates[1] == "" ? "not set" : ndk_candidates[1],
+			ndk_candidates[2] == "" ? "not set" : ndk_candidates[2],
 			sdk_ndk_dir,
-			ndk_candidates[3],
 		)
 
 		os.exit(1)
@@ -290,6 +265,31 @@ main :: proc() {
 	os.set_env("ODIN_ANDROID_SDK", sdk_path)
 	os.set_env("ODIN_ANDROID_NDK", ndk_path)
 	fmt.printfln("Android SDK: %v\nAndroid NDK: %v", sdk_path, ndk_path)
+
+	when ODIN_OS == .Darwin {
+		setup_java_home := path_join({SETUP_SDK_DIR, "jre", "Contents", "Home"})
+	} else {
+		setup_java_home := path_join({SETUP_SDK_DIR, "jre"})
+	}
+
+	if os.is_directory(setup_java_home) {
+		PATH_SEPARATOR :: ";" when ODIN_OS == .Windows else ":"
+		setup_java_bin := path_join({setup_java_home, "bin"})
+		path_env := os.get_env("PATH", context.allocator)
+		os.set_env("JAVA_HOME", setup_java_home)
+		os.set_env("PATH", fmt.tprintf("%v%v%v", setup_java_bin, PATH_SEPARATOR, path_env))
+		fmt.printfln("Java: %v", setup_java_home)
+	} else {
+		_, _, _, java_err := os.process_exec(
+			{ command = { "java", "-version" } },
+			context.allocator,
+		)
+
+		if java_err != nil {
+			fmt.eprintln("Could not find Java. It is needed for signing the apk.\n" + SETUP_HINT)
+			os.exit(1)
+		}
+	}
 
 	bin_android_dir := path_join({dir, "bin", "android"})
 	app_dir := path_join({dir, "build", "android", "app"})

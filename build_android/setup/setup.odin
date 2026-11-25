@@ -1,9 +1,11 @@
+// Downloads Android SDK things and Java
 package karl2d_build_android_setup
 
 import "base:runtime"
 import "core:c"
 import "core:compress/deflate"
 import "core:crypto/legacy/sha1"
+import "core:crypto/sha2"
 import "core:encoding/hex"
 import "core:fmt"
 import "core:hash"
@@ -11,91 +13,120 @@ import os "core:os"
 import "core:strings"
 import curl "vendor:curl"
 
-USAGE :: `Usage: 'odin run karl2d/build_android/setup'
-
-Downloads the Android SDK and NDK from Google into the 'android_sdk' folder inside
-build_android. The build_android tool looks for them there.
-
-Also creates the debug keystore ~/.android/debug.keystore if it is missing. That needs keytool,
-which is part of the JDK. Building needs the JDK too.`
-
-SDK_DIR :: #directory + "../android_sdk"
-REPOSITORY_URL :: "https://dl.google.com/android/repository/"
+SDK_DIR :: #directory + "../sdk"
+JRE_DIR_NAME :: "jre"
+ANDROID_URL :: "https://dl.google.com/android/repository/"
+JRE_URL :: "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13.1%2B2/"
 
 Package :: struct {
 	dest_dir: string,
-	zip_name: string,
-	sha1: string,
+	url: string,
+	checksum: string,
 }
 
 when ODIN_OS == .Windows {
 	PACKAGES :: [?]Package {
 		{
 			"platform-tools",
-			"platform-tools_r37.0.3-win.zip",
+			ANDROID_URL + "platform-tools_r37.0.3-win.zip",
 			"7fea85bc18d0480bc81d3603952d666f49496e5a",
 		},
 		{
 			"build-tools/37.0.0",
-			"build-tools_r37_windows.zip",
+			ANDROID_URL + "build-tools_r37_windows.zip",
 			"e9c97e26b5b5678002e9d3fed632c841ae62d99f",
 		},
 		{
 			"platforms/android-36",
-			"platform-36_r02.zip",
+			ANDROID_URL + "platform-36_r02.zip",
 			"2c1a80dd4d9f7d0e6dd336ec603d9b5c55a6f576",
 		},
 		{
 			"ndk/30.0.16248370",
-			"android-ndk-r30-windows.zip",
+			ANDROID_URL + "android-ndk-r30-windows.zip",
 			"9bf167a1985fa7d4a036186b78f702eab9179408",
+		},
+		{
+			JRE_DIR_NAME,
+			JRE_URL + "OpenJDK21U-jre_x64_windows_hotspot_21.0.13.1_2.zip",
+			"e15ee1e54a5a3b38027a09cedfa87bc3348d7dd3ce50866dd3d9671d7fffc6c1",
 		},
 	}
 } else when ODIN_OS == .Darwin {
+	when ODIN_ARCH == .arm64 {
+		JRE_PACKAGE :: Package {
+			JRE_DIR_NAME,
+			JRE_URL + "OpenJDK21U-jre_aarch64_mac_hotspot_21.0.13.1_2.tar.gz",
+			"848feb1906c7de79de4f8391636042193fbd46eff86e26299506c4656f62c260",
+		}
+	} else {
+		JRE_PACKAGE :: Package {
+			JRE_DIR_NAME,
+			JRE_URL + "OpenJDK21U-jre_x64_mac_hotspot_21.0.13.1_2.tar.gz",
+			"10cee6ba4cd83fd4613a3f0bb3ef9dddd68c68d5f3ccfcc7e456707c9e1eafe0",
+		}
+	}
+
 	PACKAGES :: [?]Package {
 		{
 			"platform-tools",
-			"platform-tools_r37.0.3-darwin.zip",
+			ANDROID_URL + "platform-tools_r37.0.3-darwin.zip",
 			"d48920e2650321710b4d15d3acd9e277d59cd55b",
 		},
 		{
 			"build-tools/37.0.0",
-			"build-tools_r37_macosx.zip",
+			ANDROID_URL + "build-tools_r37_macosx.zip",
 			"eb080751b2b2028eb3604f571027d6f7b3c46321",
 		},
 		{
 			"platforms/android-36",
-			"platform-36_r02.zip",
+			ANDROID_URL + "platform-36_r02.zip",
 			"2c1a80dd4d9f7d0e6dd336ec603d9b5c55a6f576",
 		},
 		{
 			"ndk/30.0.16248370",
-			"android-ndk-r30-darwin.zip",
+			ANDROID_URL + "android-ndk-r30-darwin.zip",
 			"c060be96767eefbb8e0a27796d6f43115fc1a0c4",
 		},
+		JRE_PACKAGE,
 	}
 } else {
+	when ODIN_ARCH == .arm64 {
+		JRE_PACKAGE :: Package {
+			JRE_DIR_NAME,
+			JRE_URL + "OpenJDK21U-jre_aarch64_linux_hotspot_21.0.13.1_2.tar.gz",
+			"52bc58323d9266538a6361a3cf8365fc1186dd9510d7f33f623681c4aabb7e72",
+		}
+	} else {
+		JRE_PACKAGE :: Package {
+			JRE_DIR_NAME,
+			JRE_URL + "OpenJDK21U-jre_x64_linux_hotspot_21.0.13.1_2.tar.gz",
+			"18f44fab9065217f3ba61d0eef8a7b5f3c3713aa7293001b0d4ac10ede3850f0",
+		}
+	}
+
 	PACKAGES :: [?]Package {
 		{
 			"platform-tools",
-			"platform-tools_r37.0.3-linux.zip",
+			ANDROID_URL + "platform-tools_r37.0.3-linux.zip",
 			"e1579b288a7ae4e9bc28dedec6a154d78b3c04ed",
 		},
 		{
 			"build-tools/37.0.0",
-			"build-tools_r37_linux.zip",
+			ANDROID_URL + "build-tools_r37_linux.zip",
 			"70954e99f4c3d9d46ee70fa32624672fe7cd6ebe",
 		},
 		{
 			"platforms/android-36",
-			"platform-36_r02.zip",
+			ANDROID_URL + "platform-36_r02.zip",
 			"2c1a80dd4d9f7d0e6dd336ec603d9b5c55a6f576",
 		},
 		{
 			"ndk/30.0.16248370",
-			"android-ndk-r30-linux.zip",
+			ANDROID_URL + "android-ndk-r30-linux.zip",
 			"5107f898313790e449e87eee2183d9a20602dee9",
 		},
+		JRE_PACKAGE,
 	}
 }
 
@@ -108,6 +139,7 @@ path_join :: proc(parts: []string) -> string {
 Download :: struct {
 	file: ^os.File,
 	sha1_context: sha1.Context,
+	sha256_context: sha2.Context_256,
 	write_failed: bool,
 	percent_shown: int,
 }
@@ -128,6 +160,7 @@ download_write :: proc "c" (
 	}
 
 	sha1.update(&download.sha1_context, data)
+	sha2.update(&download.sha256_context, data)
 	return size * nitems
 }
 
@@ -155,12 +188,19 @@ download_progress :: proc "c" (
 	return 0
 }
 
-download_file :: proc(url: string, dest_path: string) -> (sha1_hex: string, ok: bool) {
+download_file :: proc(
+	url: string,
+	dest_path: string,
+) -> (
+	sha1_hex: string,
+	sha256_hex: string,
+	ok: bool,
+) {
 	file, open_err := os.open(dest_path, { .Write, .Create, .Trunc })
 
 	if open_err != nil {
 		fmt.eprintfln("Failed creating %v. Error: %v", dest_path, open_err)
-		return "", false
+		return
 	}
 
 	download := Download {
@@ -169,13 +209,14 @@ download_file :: proc(url: string, dest_path: string) -> (sha1_hex: string, ok: 
 	}
 
 	sha1.init(&download.sha1_context)
+	sha2.init_256(&download.sha256_context)
 
 	handle := curl.easy_init()
 
 	if handle == nil {
 		fmt.eprintln("Failed starting curl")
 		os.close(file)
-		return "", false
+		return
 	}
 
 	curl.easy_setopt(handle, .URL, strings.clone_to_cstring(url, context.temp_allocator))
@@ -194,12 +235,204 @@ download_file :: proc(url: string, dest_path: string) -> (sha1_hex: string, ok: 
 
 	if perform_res != .E_OK {
 		fmt.eprintfln("Failed downloading %v. curl error: %v", url, curl.easy_strerror(perform_res))
-		return "", false
+		return
 	}
 
 	sha1_digest: [sha1.DIGEST_SIZE]u8
+	sha256_digest: [sha2.DIGEST_SIZE_256]u8
 	sha1.final(&download.sha1_context, sha1_digest[:])
-	return string(hex.encode(sha1_digest[:], context.allocator)), true
+	sha2.final(&download.sha256_context, sha256_digest[:])
+	sha1_hex = string(hex.encode(sha1_digest[:], context.allocator))
+	sha256_hex = string(hex.encode(sha256_digest[:], context.allocator))
+	return sha1_hex, sha256_hex, true
+}
+
+extract_tar_gz :: proc(tar_gz_path: string, dest_dir: string) -> bool {
+	TAR_BLOCK_SIZE :: 512
+	TAR_TYPE_FILE :: '0'
+	TAR_TYPE_FILE_OLD :: 0
+	TAR_TYPE_SYMLINK :: '2'
+	TAR_TYPE_DIRECTORY :: '5'
+	TAR_TYPE_GNU_LONG_NAME :: 'L'
+	TAR_TYPE_PAX_HEADER :: 'x'
+
+	Tar_Header :: struct #packed {
+		name: [100]u8,
+		mode: [8]u8,
+		uid: [8]u8,
+		gid: [8]u8,
+		size: [12]u8,
+		modified_time: [12]u8,
+		checksum: [8]u8,
+		type: u8,
+		link_name: [100]u8,
+		magic: [6]u8,
+		version: [2]u8,
+		user_name: [32]u8,
+		group_name: [32]u8,
+		device_major: [8]u8,
+		device_minor: [8]u8,
+		prefix: [155]u8,
+		padding: [12]u8,
+	}
+
+	#assert(size_of(Tar_Header) == TAR_BLOCK_SIZE)
+
+	tar_string :: proc(field: []u8) -> string {
+		return strings.truncate_to_byte(string(field), 0)
+	}
+
+	tar_octal :: proc(field: []u8) -> int {
+		value: int
+
+		for digit in field {
+			if digit < '0' || digit > '7' {
+				if value != 0 {
+					break
+				}
+
+				continue
+			}
+
+			value = value * 8 + int(digit - '0')
+		}
+
+		return value
+	}
+
+	tar_gz, read_err := os.read_entire_file(tar_gz_path, context.allocator)
+
+	if read_err != nil {
+		fmt.eprintfln("Failed reading %v. Error: %v", tar_gz_path, read_err)
+		return false
+	}
+
+	defer delete(tar_gz)
+	tar: [dynamic]u8
+	defer delete(tar)
+
+	if gzip_err := deflate.decompress_gzip(&tar, tar_gz); gzip_err != nil {
+		fmt.eprintfln("Failed unpacking %v. Error: %v", tar_gz_path, gzip_err)
+		return false
+	}
+
+	tar_pos: int
+	long_name: string
+
+	for tar_pos + TAR_BLOCK_SIZE <= len(tar) {
+		header := (^Tar_Header)(&tar[tar_pos])
+		tar_pos += TAR_BLOCK_SIZE
+
+		if header.name[0] == 0 {
+			break
+		}
+
+		size := tar_octal(header.size[:])
+		data_blocks_size := (size + TAR_BLOCK_SIZE - 1) / TAR_BLOCK_SIZE * TAR_BLOCK_SIZE
+
+		if tar_pos + size > len(tar) {
+			fmt.eprintfln("%v is cut short", tar_gz_path)
+			return false
+		}
+
+		data := tar[tar_pos:][:size]
+		tar_pos += data_blocks_size
+
+		if header.type == TAR_TYPE_GNU_LONG_NAME {
+			long_name = tar_string(data)
+			continue
+		}
+
+		if header.type == TAR_TYPE_PAX_HEADER {
+			records := string(data)
+
+			for len(records) > 0 {
+				length_end := strings.index(records, " ")
+
+				if length_end == -1 {
+					break
+				}
+
+				record_length: int
+
+				for digit in records[:length_end] {
+					record_length = record_length * 10 + int(digit - '0')
+				}
+
+				if record_length <= length_end || record_length > len(records) {
+					break
+				}
+
+				record := records[length_end + 1:record_length - 1]
+
+				if strings.has_prefix(record, "path=") {
+					long_name = record[len("path="):]
+				}
+
+				records = records[record_length:]
+			}
+
+			continue
+		}
+
+		name := tar_string(header.name[:])
+		prefix := tar_string(header.prefix[:])
+
+		if prefix != "" {
+			name = fmt.tprintf("%v/%v", prefix, name)
+		}
+
+		if long_name != "" {
+			name = long_name
+			long_name = ""
+		}
+
+		top_dir_end := strings.index(name, "/")
+
+		if top_dir_end == -1 || top_dir_end == len(name) - 1 {
+			continue
+		}
+
+		if strings.contains(name, "..") {
+			fmt.eprintfln("Refusing to extract %v from %v", name, tar_gz_path)
+			return false
+		}
+
+		dest_path := path_join({dest_dir, name[top_dir_end + 1:]})
+
+		switch header.type {
+		case TAR_TYPE_DIRECTORY:
+			os.make_directory_all(dest_path)
+
+		case TAR_TYPE_SYMLINK:
+			dest_parent, _ := os.split_path(dest_path)
+			os.make_directory_all(dest_parent)
+			os.remove(dest_path)
+			link_target := tar_string(header.link_name[:])
+
+			if symlink_err := os.symlink(link_target, dest_path); symlink_err != nil {
+				fmt.eprintfln("Failed creating symlink %v. Error: %v", dest_path, symlink_err)
+				return false
+			}
+
+		case TAR_TYPE_FILE, TAR_TYPE_FILE_OLD:
+			dest_parent, _ := os.split_path(dest_path)
+			os.make_directory_all(dest_parent)
+
+			if write_err := os.write_entire_file(dest_path, data); write_err != nil {
+				fmt.eprintfln("Failed writing %v. Error: %v", dest_path, write_err)
+				return false
+			}
+
+			mode := tar_octal(header.mode[:])
+
+			if mode & 0o111 != 0 {
+				os.change_mode(dest_path, os.perm_number(mode & 0o777))
+			}
+		}
+	}
+
+	return true
 }
 
 extract_zip :: proc(zip_path: string, dest_dir: string) -> bool {
@@ -454,17 +687,11 @@ extract_zip :: proc(zip_path: string, dest_dir: string) -> bool {
 }
 
 main :: proc() {
-	for a in os.args[1:] {
-		if a == "-help" || a == "--help" {
-			fmt.println(USAGE)
-			return
-		}
-	}
-
 	sdk_dir, _ := os.clean_path(SDK_DIR, context.allocator)
 
 	fmt.printfln(
-		"This downloads the Android SDK and NDK from Google into %v\n" +
+		"This downloads the Android SDK and NDK from Google, and a Java runtime (Eclipse " +
+		"Temurin), into %v\n" +
 		"By continuing you accept the Android SDK terms and licenses:\n" +
 		"    https://developer.android.com/studio/terms\n" +
 		"Continue? (y/N)",
@@ -492,37 +719,52 @@ main :: proc() {
 			continue
 		}
 
-		url := fmt.tprintf("%v%v", REPOSITORY_URL, pkg.zip_name)
-		zip_path := path_join({sdk_dir, pkg.zip_name})
-		fmt.printfln("Downloading %v", url)
-		sha1_hex, download_ok := download_file(url, zip_path)
+		archive_name := pkg.url[strings.last_index(pkg.url, "/") + 1:]
+		archive_path := path_join({sdk_dir, archive_name})
+		fmt.printfln("Downloading %v", pkg.url)
+		sha1_hex, sha256_hex, download_ok := download_file(pkg.url, archive_path)
 
 		if !download_ok {
 			os.exit(1)
 		}
 
-		if sha1_hex != pkg.sha1 {
+		checksum := sha1_hex
+
+		if len(pkg.checksum) == len(sha256_hex) {
+			checksum = sha256_hex
+		}
+
+		if checksum != pkg.checksum {
 			fmt.eprintfln(
 				"%v has the wrong checksum. Expected %v, got %v.",
-				zip_path,
-				pkg.sha1,
-				sha1_hex,
+				archive_path,
+				pkg.checksum,
+				checksum,
 			)
 
 			os.exit(1)
 		}
 
+		dest_parent, _ := os.split_path(dest_dir)
+		os.make_directory_all(dest_parent)
 		unpack_dir := fmt.tprintf("%v_unpacking", dest_dir)
 		os.remove_all(unpack_dir)
 		fmt.printfln("Unpacking into %v", dest_dir)
+		extract_ok: bool
 
-		if !extract_zip(zip_path, unpack_dir) {
+		if strings.has_suffix(archive_name, ".tar.gz") {
+			extract_ok = extract_tar_gz(archive_path, unpack_dir)
+		} else {
+			extract_ok = extract_zip(archive_path, unpack_dir)
+		}
+
+		if !extract_ok {
 			os.exit(1)
 		}
 
 		rename_err := os.rename(unpack_dir, dest_dir)
 		fmt.ensuref(rename_err == nil, "Failed creating %v. Error: %v", dest_dir, rename_err)
-		os.remove(zip_path)
+		os.remove(archive_path)
 	}
 
 	curl.global_cleanup()
@@ -535,9 +777,15 @@ main :: proc() {
 		fmt.printfln("Creating debug keystore %v", keystore_path)
 		os.make_directory_all(keystore_dir)
 
+		when ODIN_OS == .Darwin {
+			keytool_path := path_join({sdk_dir, JRE_DIR_NAME, "Contents", "Home", "bin", "keytool"})
+		} else {
+			keytool_path := path_join({sdk_dir, JRE_DIR_NAME, "bin", "keytool"})
+		}
+
 		keytool_process, keytool_start_err := os.process_start({
 			command = {
-				"keytool",
+				keytool_path,
 				"-genkeypair",
 				"-keystore", keystore_path,
 				"-storepass", "android",
@@ -560,10 +808,7 @@ main :: proc() {
 		}
 
 		if !keytool_ok {
-			fmt.eprintln(
-				"Failed creating the debug keystore using keytool. keytool is part of the JDK, " +
-				"which is also needed for building. Install a JDK and run this again.",
-			)
+			fmt.eprintfln("Failed creating the debug keystore using %v", keytool_path)
 
 			os.exit(1)
 		}
