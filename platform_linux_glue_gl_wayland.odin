@@ -1,6 +1,7 @@
 // Glues together OpenGL with a Wayland window. This is done by making an EGL context and using
 // it to SwapBuffers etc.
 #+build linux
+#+build !linux:android
 #+private package
 package karl2d
 

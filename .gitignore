@@ -17,6 +17,7 @@ karl2d.doc.compare.odin
 .vscode
 .sublime
 scrap/
+build_android/android_sdk/
 .DS_Store
 .claude
 

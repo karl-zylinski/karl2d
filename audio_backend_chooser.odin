@@ -8,6 +8,9 @@ when ODIN_OS == .Windows {
 } else when ODIN_OS == .JS {
 	DEFAULT_AUDIO_BACKEND_NAME :: "web_audio"
 	AVAILABLE_AUDIO_BACKENDS :: "web_audio, nil"
+} else when ODIN_OS == .Linux && ODIN_PLATFORM_SUBTARGET == .Android {
+	DEFAULT_AUDIO_BACKEND_NAME :: "nil"
+	AVAILABLE_AUDIO_BACKENDS :: "nil"
 } else when ODIN_OS == .Linux {
 	DEFAULT_AUDIO_BACKEND_NAME :: "alsa"
 	AVAILABLE_AUDIO_BACKENDS :: "alsa, nil"

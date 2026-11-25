@@ -8771,6 +8771,9 @@ when ODIN_OS == .Windows {
 } else when ODIN_OS == .JS {
 	PLATFORM :: PLATFORM_WEB
 	Platform_State_Type :: Web_State
+} else when ODIN_OS == .Linux && ODIN_PLATFORM_SUBTARGET == .Android {
+	PLATFORM :: PLATFORM_ANDROID
+	Platform_State_Type :: Android_State
 } else when ODIN_OS == .Linux {
 	PLATFORM :: PLATFORM_LINUX
 	Platform_State_Type :: Linux_State

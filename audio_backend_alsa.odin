@@ -1,4 +1,5 @@
 #+build linux
+#+build !linux:android
 #+vet explicit-allocators
 #+private package
 package karl2d

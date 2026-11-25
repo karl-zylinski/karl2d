@@ -1,4 +1,5 @@
 #+build linux
+#+build !linux:android
 #+private package
 package karl2d
 
