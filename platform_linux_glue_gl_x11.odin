@@ -101,15 +101,20 @@ linux_gl_x11_glue_make_context :: proc(s: ^Linux_GL_X11_Glue, options: Init_Opti
 
 	context_attribs := []i32 {
 		glx.CONTEXT_MAJOR_VERSION_ARB, 3,
-		glx.CONTEXT_MINOR_VERSION_ARB, 3,
-		glx.CONTEXT_PROFILE_MASK_ARB, glx.CONTEXT_CORE_PROFILE_BIT_ARB,
+		glx.CONTEXT_MINOR_VERSION_ARB, 0 when GL_ES else 3,
+		glx.CONTEXT_PROFILE_MASK_ARB,
+		glx.CONTEXT_ES2_PROFILE_BIT_EXT when GL_ES else glx.CONTEXT_CORE_PROFILE_BIT_ARB,
 		0,
 	}
 
 	s.gl_ctx = glxCreateContextAttribsARB(s.display, fbc[0], nil, true, raw_data(context_attribs))
 
 	if glx.MakeCurrent(s.display, s.window, s.gl_ctx) {
-		gl.load_up_to(3, 3, glx.SetProcAddress)
+		when GL_ES {
+			gl.load_gles_up_to(3, 0, glx.SetProcAddress)
+		} else {
+			gl.load_up_to(3, 3, glx.SetProcAddress)
+		}
 
 		// vsync
 		s.swap_interval_ext(s.display, s.window, options.disable_vsync ? 0 : 1)

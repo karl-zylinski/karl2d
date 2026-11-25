@@ -19,6 +19,7 @@ NO_CONTEXT :: Context(uintptr(0))
 
 WINDOW_BIT :: 0x0004
 OPENGL_BIT :: 0x0008
+OPENGL_ES3_BIT :: 0x0040
 
 ALPHA_SIZE :: 0x3021
 BLUE_SIZE :: 0x3022
@@ -31,6 +32,7 @@ NONE :: 0x3038
 RENDERABLE_TYPE :: 0x3040
 
 CONTEXT_CLIENT_VERSION :: 0x3098
+OPENGL_ES_API :: 0x30A0
 OPENGL_API :: 0x30A2
 
 GetDisplay: proc "c" (display: NativeDisplayType) -> Display
