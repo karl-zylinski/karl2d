@@ -1970,8 +1970,7 @@ Font_Baked_Glyph_Range :: struct {
 
 Font_Baked_Glyph :: struct {
 	value: rune,
-	// stbtt index, for faster lookup
-	index: int,
+	index: ot.Glyph_Index,
 	rect: Rect,
 	offset: Vec2,
 	advance: f32,
@@ -2038,9 +2037,6 @@ Audio_Stream_Mode :: enum {
 	From_Bytes,
 }
 
-// From stb_vorbis.odin "In my test files the maximal-size usage is ~150KB.)"
-VORBIS_STATE_SIZE :: 300 * mem.Kilobyte
-
 Audio_Stream_Cursor :: struct {
 	// Where in `Audio_Stream_Data.buffer` we have most recently written samples. Together with
 	// `Audio_Voice_Object.offset`, this forms a circular buffer. This field is the 'head' and the
@@ -2063,8 +2059,7 @@ Audio_Stream_Cursor :: struct {
 Audio_Stream_Data :: struct {
 	handle: Audio_Stream,
 	
-	vorbis: ^stbv.vorbis,
-	vorbis_buffer: stbv.vorbis_alloc,
+	vorbis: vorbis.Decoder,
 	voice: Audio_Voice,
 	bus: Audio_Bus,
 	volume: f32,
@@ -2104,6 +2099,7 @@ Audio_Stream_Data :: struct {
 
 	// use if mode == .From_Bytes
 	bytes: []u8,
+	bytes_offset: int,
 }
 
 // The format used to describe that data passed to `load_audio_clip_from_bytes_raw`.

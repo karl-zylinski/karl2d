@@ -333,8 +333,8 @@ draw_text_is_placed_like_a_rect :: proc(t: ^testing.T) {
 		flip_y = flip
 		expect_text(t, "Ag", k2.FONT_DEFAULT, 12, 99, 102, 120.79, 120.99)
 		expect_text(t, "Ag\nBh", k2.FONT_DEFAULT, 24, 99, 102, 120.85, 137.01)
-		expect_text(t, "Ag", the_static_font, 12, 100, 102.84, 119.80, 119.82)
-		expect_text(t, "Ag\nBh", the_static_font, 24, 100, 102.84, 119.84, 135.84)
+		expect_text(t, "Ag", the_static_font, 12, 99, 102, 120.79, 121.00)
+		expect_text(t, "Ag\nBh", the_static_font, 24, 99, 102, 120.85, 137.00)
 	}
 }
 

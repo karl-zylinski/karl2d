@@ -1,5 +1,8 @@
 // Displays some texts and draws rectangles by measuring the size of the text. Lets you switch
 // between four different fonts.
+//
+// You can also switch between dynamic and static font. The dynamic will always be crisp. The static
+// will be pre-loaded at 50px font size with all the glyphs used.
 package karl2d_fonts_example
 
 // Fonts used:
@@ -13,6 +16,7 @@ package karl2d_fonts_example
 
 import k2 "../.."
 import "core:fmt"
+import "core:slice"
 
 Vec2 :: k2.Vec2
 
@@ -20,7 +24,12 @@ Font :: struct {
 	name: string,
 	bytes: []u8,
 	font: k2.Font,
+	static_font: k2.Font,
 }
+
+STATIC_FONT_SIZE :: 50
+DEFAULT_TEXT :: "Hellöpe Karl2D!\nNext line goes here\nAnd one more"
+CHINESE_JAPANESE_TEXT :: "\n道可道非常道。\n义、礼、说、选、权吾輩は猫である。"
 
 fonts := [?]Font {
 	{ name="<Default>" },
@@ -35,16 +44,38 @@ fonts := [?]Font {
 
 current_font_idx: int
 current_font_size := f32(50)
+use_static_font: bool
 
 init :: proc() {
 	k2.init(1280, 720, "Karl2D: Fonts", { window_mode = .Windowed_Resizable })
 
+	static_codepoints := make([dynamic]rune, context.temp_allocator)
+
+	for r in ' '..='~' {
+		append(&static_codepoints, r)
+	}
+
+	for r in DEFAULT_TEXT + CHINESE_JAPANESE_TEXT {
+		if r != '\n' && !slice.contains(static_codepoints[:], r) {
+			append(&static_codepoints, r)
+		}
+	}
+
 	for &f in fonts {
+		static_font_bytes := f.bytes
+
 		if f.bytes == nil {
 			f.font = k2.FONT_DEFAULT
+			static_font_bytes = k2.DEFAULT_FONT_DATA
 		} else {
 			f.font = k2.load_dynamic_font_from_bytes(f.bytes)
 		}
+
+		f.static_font = k2.load_static_font_from_bytes(
+			static_font_bytes,
+			STATIC_FONT_SIZE,
+			static_codepoints[:],
+		)
 	}
 }
 
@@ -94,10 +125,30 @@ step :: proc() -> bool {
 		k2.draw_text(text, pos, UI_FONT_SIZE, k2.BLACK)
 	}
 
+	// STATIC / DYNAMIC FONT TOGGLE
+	{
+		if k2.key_went_down(.S) {
+			use_static_font = !use_static_font
+		}
+
+		text := fmt.tprintf(
+			"[S] Static font (%v px): %v",
+			STATIC_FONT_SIZE,
+			use_static_font ? "on" : "off",
+		)
+
+		pos := Vec2 { 40, 30 + (len(fonts)+2)*UI_FONT_SIZE }
+		k2.draw_text(text, pos, UI_FONT_SIZE, k2.BLACK)
+	}
+
 	// CURRENT FONT FACE
 	{
 		LEFT, TOP :: 400, 30
 		font := fonts[current_font_idx].font
+
+		if use_static_font {
+			font = fonts[current_font_idx].static_font
+		}
 
 		pos := Vec2 { LEFT, TOP }
 		for char in ' '..='~' {
@@ -129,11 +180,10 @@ step :: proc() -> bool {
 		add_chinese_japanese := current_font_idx == 4
 
 		pos = { LEFT+8*current_font_size, pos.y + 2*current_font_size }
-		DEFAULT_TEXT :: "Hellöpe Karl2D!\nNext line goes here\nAnd one more"
 		text := DEFAULT_TEXT
 
 		if add_chinese_japanese {
-			text = DEFAULT_TEXT + "\n道可道非常道。\n义、礼、说、选、权吾輩は猫である。"
+			text = DEFAULT_TEXT + CHINESE_JAPANESE_TEXT
 		}
 
 		size := k2.measure_text(text, current_font_size, font)
@@ -143,8 +193,12 @@ step :: proc() -> bool {
 
 	// HINTS
 	{
-		hits_text := fmt.tprintf("Press 1..%i to change font\nPress +/- to change size", len(fonts))
-		hits_pos := Vec2 { 40, screen_size.y-30-2*UI_FONT_SIZE }
+		hits_text := fmt.tprintf(
+			"Press 1..%i to change font\nPress +/- to change size\nPress S to toggle static font",
+			len(fonts),
+		)
+
+		hits_pos := Vec2 { 40, screen_size.y-30-3*UI_FONT_SIZE }
 		k2.draw_text(hits_text, hits_pos, UI_FONT_SIZE, k2.BLACK)
 	}
 
@@ -158,6 +212,8 @@ shutdown :: proc() {
 		if f.bytes != nil {
 			k2.destroy_font(f.font)
 		}
+
+		k2.destroy_font(f.static_font)
 	}
 	k2.shutdown()
 }

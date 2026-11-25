@@ -6,7 +6,7 @@
 // implement so-called client-side decorations (CSD): The application draws the frame.
 //
 // This frame drawing is not done using Karl2D itself. Rather, it is done using Wayland surfaces.
-// stb_truetype is used for drawing the title. We don't use Karl2D itself to draw the frame because
+// opentype is used for drawing the title. We don't use Karl2D itself to draw the frame because
 // it creates a weird circular dependency. 
 
 #+build linux
@@ -16,7 +16,7 @@ package karl2d
 import "core:math"
 import "core:strings"
 import "base:runtime"
-import stbtt "vendor:stb/truetype"
+import ot "opentype"
 
 import "log"
 import "platform_bindings/linux/dbus"
@@ -174,7 +174,7 @@ WLCSD_State :: struct {
 	icon: Image,
 
 	// Used for rendering the title.
-	font: stbtt.fontinfo,
+	font: ot.Font,
 	font_ok: bool,
 
 	// If true, then `wlcsd_paint` will repaint the window. Otherwise it will do nothing.
@@ -267,12 +267,9 @@ wlcsd_init :: proc(
 	csd.theme = wlcsd_pick_theme()
 
 	// We use the Karl2D default font for the title.
-	offset := stbtt.GetFontOffsetForIndex(raw_data(DEFAULT_FONT_DATA), 0)
-	csd.font_ok = bool(stbtt.InitFont(
-		&csd.font,
-		raw_data(DEFAULT_FONT_DATA),
-		offset,
-	))
+	font, font_err := ot.load_font(DEFAULT_FONT_DATA, 0)
+	csd.font = font
+	csd.font_ok = font_err == .None
 
 	if !csd.font_ok {
 		log.error("Failed reading the built in font. The window title will not be drawn.")
@@ -667,8 +664,8 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 		return
 	}
 
-	font := &csd.font
-	font_scale_factor := stbtt.ScaleForPixelHeight(font, WLCSD_TITLE_FONT_SIZE * scale)
+	font := csd.font
+	font_scale_factor := ot.pixel_scale_from_font_size(font, WLCSD_TITLE_FONT_SIZE * scale)
 
 	left_most_button_rect := wlcsd_button_rect(csd, button_idx - 1)
 	title_margin := int(math.round(WLCSD_TITLE_HORIZONTAL_MARGIN * scale))
@@ -683,8 +680,7 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 	title_width := 0
 
 	for r in csd.title {
-		advance, left_bearing: i32
-		stbtt.GetCodepointHMetrics(font, r, &advance, &left_bearing)
+		advance := ot.get_glyph_advance(font, ot.find_glyph_index(font, r))
 		title_width += int(math.round(f32(advance) * font_scale_factor))
 	}
 
@@ -738,47 +734,44 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 		}
 	}
 
-	cap_x0, cap_y0, cap_x1, cap_y1: i32
-	stbtt.GetCodepointBox(font, 'H', &cap_x0, &cap_y0, &cap_x1, &cap_y1)
-	cap_height := f32(cap_y1) * font_scale_factor
+	cap_box := ot.get_glyph_box(font, ot.find_glyph_index(font, 'H'))
+	cap_height := f32(cap_box.y1) * font_scale_factor
 	title_baseline_y := titlebar_top + int(math.round((f32(titlebar_height) + cap_height)/2))
 
-	for r in csd.title {
-		advance, left_bearing: i32
-		stbtt.GetCodepointHMetrics(font, r, &advance, &left_bearing)
+	rasterizer := ot.make_rasterizer(csd.allocator)
+	coverage := make([dynamic]u8, csd.allocator)
 
-		glyph_width, glyph_height, glyph_x, glyph_y: i32
-		coverage := stbtt.GetCodepointBitmap(
+	for r in csd.title {
+		glyph := ot.find_glyph_index(font, r)
+		advance := ot.get_glyph_advance(font, glyph)
+		rect := ot.get_glyph_bitmap_rect(font, glyph, font_scale_factor)
+		resize(&coverage, rect.width * rect.height)
+
+		ot.rasterize_glyph(
+			&rasterizer,
 			font,
-			0,
+			glyph,
 			font_scale_factor,
-			r,
-			&glyph_width,
-			&glyph_height,
-			&glyph_x,
-			&glyph_y,
+			rect,
+			coverage[:],
+			rect.width,
+			.Alpha,
 		)
 
-		if coverage != nil {
-			for i in 0..<int(glyph_width*glyph_height) {
-				alpha := coverage[i]
-
-				if alpha == 0 {
-					continue
-				}
-
-				x := title_pen_x + int(glyph_x) + i%int(glyph_width)
-				y := title_baseline_y + int(glyph_y) + i/int(glyph_width)
-
-				if x < title_area_left || x >= title_area_right || y < 0 || y >= buf.height {
-					continue
-				}
-
-				at := y*buf.width + x
-				buf.pixels[at] = wlcsd_blend(buf.pixels[at], text_color, f32(alpha)/255)
+		for alpha, i in coverage {
+			if alpha == 0 {
+				continue
 			}
 
-			stbtt.FreeBitmap(coverage, nil)
+			x := title_pen_x + rect.x + i%rect.width
+			y := title_baseline_y + rect.y + i/rect.width
+
+			if x < title_area_left || x >= title_area_right || y < 0 || y >= buf.height {
+				continue
+			}
+
+			at := y*buf.width + x
+			buf.pixels[at] = wlcsd_blend(buf.pixels[at], text_color, f32(alpha)/255)
 		}
 
 		title_pen_x += int(math.round(f32(advance) * font_scale_factor))
@@ -787,6 +780,9 @@ wlcsd_paint_title :: proc(csd: ^WLCSD_State, d: ^WLCSD_Part, scale: f32) {
 			break
 		}
 	}
+
+	delete(coverage)
+	ot.delete_rasterizer(&rasterizer)
 }
 
 wlcsd_text_color :: proc(csd: ^WLCSD_State) -> u32 {
@@ -881,6 +877,7 @@ wlcsd_destroy :: proc(csd: ^WLCSD_State) {
 
 	delete(csd.title, csd.allocator)
 	delete(csd.icon.pixels, csd.allocator)
+	free(csd, csd.allocator)
 }
 
 // Use dbus to ask which theme to use. If we fail to ask it, then we get light theme.
