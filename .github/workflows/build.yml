@@ -95,3 +95,44 @@ jobs:
 
       - name: verify karl2d.doc.odin
         run: odin run tools/api_verifier
+
+  android:
+    name: android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: laytan/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release: nightly
+
+      - name: Install libcurl
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+
+      - uses: actions/checkout@v4
+
+      - name: Cache Android SDK
+        id: cache-android-sdk
+        uses: actions/cache@v4
+        with:
+          path: build_android/sdk
+          key: android-sdk-${{ runner.os }}-${{ hashFiles('build_android/setup/setup.odin') }}
+
+      - name: Download Android SDK
+        if: steps.cache-android-sdk.outputs.cache-hit != 'true'
+        run: echo y | odin run build_android/setup
+
+      - name: Compile box2d library (android arm64)
+        run: |
+          BOX2D=$HOME/odin/vendor/box2d
+          VERSION=$(sed -n 's/^VERSION="\(.*\)"/\1/p' $BOX2D/build_box2d.sh)
+          BIN=$(echo $PWD/build_android/sdk/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/bin)
+          cd $(mktemp -d)
+          curl -sL "https://github.com/erincatto/box2d/archive/refs/tags/v$VERSION.tar.gz" | tar -xz
+          cd box2d-$VERSION
+          for s in src/*.c; do
+            $BIN/clang --target=aarch64-linux-android26 -c -O2 -DNDEBUG -ffp-contract=off -std=gnu17 -fPIC -Iinclude -Isrc $s -o $(basename $s .c).o
+          done
+          $BIN/llvm-ar rcs $BOX2D/lib/box2d_other.a *.o
+
+      - name: build_all_examples (android)
+        run: odin run tools/test_examples -- android

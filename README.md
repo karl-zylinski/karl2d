@@ -13,8 +13,8 @@ Support the project by becoming a sponsor here on [GitHub](https://github.com/sp
 - Cameras for moving, rotating and scaling the view
 - Audio playback of audio clips and music
 - Support for mouse, keyboard and gamepad
-- Platforms: Windows, Linux, Mac, Web
-- Touch support on web
+- Platforms: Windows, Linux, Mac, Web, and Android (see [Running on Android](#running-on-android) section)
+- Touch support on Web and Android
 - Few dependencies: The library attempts to contain all the code down to the OS/rendering APIs.
 
 ## Getting started
@@ -170,6 +170,38 @@ load_texture :: proc($name: string) -> k2.Texture {
 ```
 
 The `$` in front of the `name` parameter ensures that you're passing a compile-time constant, which makes it possible to use `#load` within the web version.
+
+## Running on Android
+
+To run your game on your Android phone, use the `build_android` tool that Karl2D comes with. For example, if you are currently in the Karl2D folder, then you can run the `touch` example on your Android phone by executing:
+
+```bash
+odin run build_android -- examples/touch -run
+```
+
+This assumes that you have the phone available for USB or Wireless debugging, so that `adb` can control it. The `-run` argument will install the app and start it on your connected phone. Skip `-run` to just produce a `.apk` file.
+
+> NOTE: If you have `karl2d` as a subfolder inside your game directory, then you probably want to run:
+>
+> `odin run karl2d/build_android -- . -run`
+
+If you do not have the Android SDK or Java installed, then you can download a portable copy of it all into the `build_android/sdk` folder by running:
+```bash
+odin run build_android/setup
+```
+
+After this completes, `build_android` will look inside the `build_android/sdk` folder for the SDK and Java.
+
+### Android assets folder
+
+There is an assets folder within an Android app. You can make `build_android` bundle things into it like so:
+```bash
+odin run build_android -- examples/audio -assets:*.ogg -run
+```
+
+You can also point out an entire folder using `-assets`. You can use `-assets` multiple times to include those things. The path you pass to `-assets` is relative to the root of the program you are building, in this case relative to `examples/audio`.
+
+Procedures like `k2.load_texture_from_file` will automatically find the bundled assets. However, if you write your own code that loads them at runtime using for example `os.read_entire_file`, then use the `/android_asset/` prefix on your path. The Karl2D procs resource loading procedures use that prefix automatically.
 
 ## Hot reload
 Some kind of gameplay code hot reload is planned as part of the library. Currently, there is an experimental implementation of this in a separate repository: https://github.com/karl-zylinski/karl2d-hot-reload-template

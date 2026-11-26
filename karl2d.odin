@@ -413,6 +413,11 @@ calculate_frame_time :: proc() {
 	s.time = time.duration_seconds(time.tick_since(s.start_time))
 }
 
+@(private="package")
+_reset_frame_time :: proc() {
+	s.prev_frame_tick = time.tick_now()
+}
+
 // Present the graphics drawn on the screen to the player. Also known as "flipping the backbuffer":
 // Call at end of frame to make everything you've drawn appear on the screen.
 //
@@ -5459,6 +5464,24 @@ _audio_thread_context :: proc() -> runtime.Context {
 	}
 }
 
+@(private="package")
+_suspend_audio :: proc() {
+	if s.ab.suspend == nil {
+		return
+	}
+
+	s.ab.suspend(s.ab_state)
+}
+
+@(private="package")
+_resume_audio :: proc() {
+	if s.ab.resume == nil {
+		return
+	}
+
+	s.ab.resume(s.ab_state)
+}
+
 //-----------------//
 // RENDER TEXTURES //
 //-----------------//
@@ -8771,6 +8794,9 @@ when ODIN_OS == .Windows {
 } else when ODIN_OS == .JS {
 	PLATFORM :: PLATFORM_WEB
 	Platform_State_Type :: Web_State
+} else when ODIN_OS == .Linux && ODIN_PLATFORM_SUBTARGET == .Android {
+	PLATFORM :: PLATFORM_ANDROID
+	Platform_State_Type :: Android_State
 } else when ODIN_OS == .Linux {
 	PLATFORM :: PLATFORM_LINUX
 	Platform_State_Type :: Linux_State

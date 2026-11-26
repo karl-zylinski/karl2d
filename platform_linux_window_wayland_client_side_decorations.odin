@@ -10,6 +10,7 @@
 // it creates a weird circular dependency. 
 
 #+build linux
+#+build !linux:android
 #+private package
 package karl2d
 

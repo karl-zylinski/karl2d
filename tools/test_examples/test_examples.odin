@@ -1,5 +1,5 @@
 // Goes through all the examples and checks that they compile, both with and without `-debug`. Pass
-// `web` as argument to check them for the web target instead of the native one:
+// `web` or `android` as argument to check them for the web/android target instead of the native one:
 //
 //    odin run tools/test_examples -- web
 //
@@ -47,13 +47,19 @@ main :: proc() {
 	}
 
 	web := len(os.args) > 1 && os.args[1] == "web"
+	android := len(os.args) > 1 && os.args[1] == "android"
 
 	for e in examples {
 		if e.type != .Directory {
 			continue
 		}
 
-		if web {
+		if android {
+			if e.name not_in no_check {
+				build_android(e.name, e.fullpath, {})
+				build_android(e.name, e.fullpath, {"-debug"})
+			}
+		} else if web {
 			if e.name not_in no_web {
 				check(e.name, e.fullpath, {"-target:js_wasm32", "-no-entry-point"})
 				check(e.name, e.fullpath, {"-target:js_wasm32", "-no-entry-point", "-debug"})
@@ -85,8 +91,33 @@ check :: proc(name: string, fullpath: string, extra_params: []string) {
 	}
 
 	append(&build_command, ..extra_params)
-	
-	build_status, build_std_out, build_std_err, _ := os.process_exec({ command = build_command[:] }, allocator = context.allocator)
+	run_command(build_command[:])
+}
+
+build_android :: proc(name: string, fullpath: string, extra_params: []string) {
+	if len(extra_params) > 0 {
+		fmt.printfln("examples/%v: Building for Android. Extra options: %v", name, extra_params)
+	} else {
+		fmt.printfln("examples/%v: Building for Android", name)
+	}
+
+	build_command := [dynamic]string {
+		"odin",
+		"run",
+		"build_android",
+		"--",
+		fullpath,
+		"-vet",
+		"-strict-style",
+		"-vet-tabs",
+	}
+
+	append(&build_command, ..extra_params)
+	run_command(build_command[:])
+}
+
+run_command :: proc(command: []string) {
+	build_status, build_std_out, build_std_err, _ := os.process_exec({ command = command }, allocator = context.allocator)
 
 	if len(build_std_out) > 0 {
 		fmt.eprint(string(build_std_out))

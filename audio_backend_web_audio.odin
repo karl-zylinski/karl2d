@@ -11,6 +11,8 @@ AUDIO_BACKEND_WEB :: Audio_Backend_Interface {
 	has_mixer_thread = false,
 	push_samples = web_audio_push_samples,
 	pushed_samples_remaining = web_audio_pushed_samples_remaining,
+	suspend = nil,
+	resume = nil,
 }
 
 import "core:slice"
