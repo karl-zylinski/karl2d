@@ -11,8 +11,18 @@ import "core:os"
 import "log"
 import "base:runtime"
 import "core:io"
+import "core:strings"
 
 read_entire_file :: proc(path: string, allocator: runtime.Allocator) -> ([]u8, bool) {
+	when ODIN_PLATFORM_SUBTARGET == .Android {
+		assets_path := strings.concatenate({"/android_asset/", path}, frame_allocator)
+		asset_content, asset_err := os.read_entire_file(assets_path, allocator)
+
+		if asset_err == nil {
+			return asset_content, true
+		}
+	}
+
 	content, err := os.read_entire_file(path, allocator)
 	
 	if err != nil {
@@ -27,6 +37,15 @@ File :: os.File
 File_Error :: os.Error
 
 file_open :: proc(filename: string) -> (^File, File_Error) {
+	when ODIN_PLATFORM_SUBTARGET == .Android {
+		assets_path := strings.concatenate({"/android_asset/", filename}, frame_allocator)
+		h, err := os.open(assets_path)
+
+		if err == nil {
+			return h, nil
+		}
+	}
+
 	return os.open(filename)
 }
 
