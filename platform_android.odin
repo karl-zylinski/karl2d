@@ -418,6 +418,11 @@ android_get_events :: proc(s: ^Android_State, events: ^[dynamic]Event) {
 	if android_is_suspended(s) {
 		for gamepad in 0..<MAX_GAMEPADS {
 			android_set_gamepad_vibration(s, gamepad, 0, 0)
+			gp := &s.gamepads[gamepad]
+			gp.axes = {}
+			gp.key_buttons = {}
+			gp.axis_buttons = {}
+			android_send_gamepad_button_events(s, gamepad)
 		}
 
 		_suspend_audio()
