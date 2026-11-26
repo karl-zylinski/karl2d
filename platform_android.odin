@@ -5,6 +5,7 @@ package karl2d
 
 import "base:runtime"
 import "log"
+import "core:slice"
 import "core:strings"
 import "core:sys/android"
 import app_glue "core:sys/android/native_app_glue"
@@ -57,6 +58,21 @@ Android_State :: struct {
 	height: int,
 	scale: f32,
 	mouse_buttons: android.AMotionEventButtons,
+	gamepads: [MAX_GAMEPADS]Android_Gamepad,
+	input_device_ids: [dynamic]i32,
+}
+
+Android_Gamepad :: struct {
+	active: bool,
+	device_id: i32,
+	axes: [Gamepad_Axis]f32,
+	key_buttons: bit_set[Gamepad_Button],
+	axis_buttons: bit_set[Gamepad_Button],
+	held_buttons: bit_set[Gamepad_Button],
+	vibrator_manager: ^java.VibratorManager,
+	vibrator_ids: [2]i32,
+	num_vibrators: int,
+	vibration: [2]f32,
 }
 
 android_init :: proc(
@@ -69,6 +85,7 @@ android_init :: proc(
 ) {
 	s.allocator = allocator
 	s.events = make([dynamic]Event, allocator)
+	s.input_device_ids = make([dynamic]i32, allocator)
 	s.app = app_glue.app()
 	s.app.userData = s
 	s.app.onAppCmd = android_on_app_cmd
@@ -99,6 +116,12 @@ android_shutdown :: proc(s: ^Android_State) {
 	s.app.userData = nil
 	s.app.onAppCmd = nil
 	s.app.onInputEvent = nil
+
+	for &gp in s.gamepads {
+		android_destroy_gamepad(&gp)
+	}
+
+	delete(s.input_device_ids)
 	delete(s.events)
 }
 
@@ -115,7 +138,11 @@ android_process_app_events :: proc(s: ^Android_State, block: bool) {
 			source.process(s.app, source)
 		}
 
-		if block || poll_res < 0 {
+		if block {
+			return
+		}
+
+		if poll_res < 0 {
 			return
 		}
 	}
@@ -173,6 +200,24 @@ android_on_input_event :: proc(app: ^app_glue.android_app, event: ^android.AInpu
 			return 0
 		}
 
+		gamepad_idx := android_find_gamepad(s, android.AInputEvent_getDeviceId(event))
+		gamepad_button := ANDROID_GAMEPAD_BUTTON_MAP[key_code]
+
+		if gamepad_idx != -1 && gamepad_button != .None {
+			gp := &s.gamepads[gamepad_idx]
+
+			#partial switch android.AKeyEvent_getAction(event) {
+			case .DOWN:
+				gp.key_buttons += {gamepad_button}
+
+			case .UP:
+				gp.key_buttons -= {gamepad_button}
+			}
+
+			android_send_gamepad_button_events(s, gamepad_idx)
+			return 1
+		}
+
 		key := ANDROID_KEY_MAP[key_code]
 
 		if key == .None {
@@ -196,6 +241,66 @@ android_on_input_event :: proc(app: ^app_glue.android_app, event: ^android.AInpu
 	case .MOTION:
 		source := android.AInputEvent_getSource(event)
 		packed_action := android.AMotionEvent_getAction(event)
+
+		if .JOYSTICK in source {
+			gamepad_idx := android_find_gamepad(s, android.AInputEvent_getDeviceId(event))
+
+			if gamepad_idx == -1 {
+				return 0
+			}
+
+			gp := &s.gamepads[gamepad_idx]
+
+			gp.axes[.Left_Stick_X] = android.AMotionEvent_getAxisValue(event, .X, 0)
+			gp.axes[.Left_Stick_Y] = android.AMotionEvent_getAxisValue(event, .Y, 0)
+			gp.axes[.Right_Stick_X] = android.AMotionEvent_getAxisValue(event, .Z, 0)
+			gp.axes[.Right_Stick_Y] = android.AMotionEvent_getAxisValue(event, .RZ, 0)
+
+			gp.axes[.Left_Trigger] = max(
+				android.AMotionEvent_getAxisValue(event, .LTRIGGER, 0),
+				android.AMotionEvent_getAxisValue(event, .BRAKE, 0),
+			)
+
+			gp.axes[.Right_Trigger] = max(
+				android.AMotionEvent_getAxisValue(event, .RTRIGGER, 0),
+				android.AMotionEvent_getAxisValue(event, .GAS, 0),
+			)
+
+			hat_x := android.AMotionEvent_getAxisValue(event, .HAT_X, 0)
+			hat_y := android.AMotionEvent_getAxisValue(event, .HAT_Y, 0)
+
+			TRIGGER_THRESHOLD :: 30.0 / 255.0
+			HAT_THRESHOLD :: 0.5
+
+			gp.axis_buttons = {}
+
+			if gp.axes[.Left_Trigger] >= TRIGGER_THRESHOLD {
+				gp.axis_buttons += {.Left_Trigger}
+			}
+
+			if gp.axes[.Right_Trigger] >= TRIGGER_THRESHOLD {
+				gp.axis_buttons += {.Right_Trigger}
+			}
+
+			if hat_x <= -HAT_THRESHOLD {
+				gp.axis_buttons += {.Left_Face_Left}
+			}
+
+			if hat_x >= HAT_THRESHOLD {
+				gp.axis_buttons += {.Left_Face_Right}
+			}
+
+			if hat_y <= -HAT_THRESHOLD {
+				gp.axis_buttons += {.Left_Face_Up}
+			}
+
+			if hat_y >= HAT_THRESHOLD {
+				gp.axis_buttons += {.Left_Face_Down}
+			}
+
+			android_send_gamepad_button_events(s, gamepad_idx)
+			return 1
+		}
 
 		if .MOUSE in source {
 			#partial switch packed_action.action {
@@ -295,6 +400,7 @@ android_before_present :: proc(s: ^Android_State) {
 }
 
 android_get_events :: proc(s: ^Android_State, events: ^[dynamic]Event) {
+	android_update_gamepads(s)
 	android_process_app_events(s, false)
 
 	for s.app.destroyRequested == 0 &&
@@ -433,14 +539,252 @@ android_destroy_custom_cursor :: proc(s: ^Android_State, custom_cursor: Custom_C
 }
 
 android_is_gamepad_active :: proc(s: ^Android_State, gamepad: int) -> bool {
-	return false
+	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
+		return false
+	}
+
+	return s.gamepads[gamepad].active
 }
 
 android_get_gamepad_axis :: proc(s: ^Android_State, gamepad: int, axis: Gamepad_Axis) -> f32 {
-	return 0
+	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
+		return 0
+	}
+
+	if axis < min(Gamepad_Axis) || axis > max(Gamepad_Axis) {
+		return 0
+	}
+
+	return s.gamepads[gamepad].axes[axis]
 }
 
 android_set_gamepad_vibration :: proc(s: ^Android_State, gamepad: int, left: f32, right: f32) {
+	if gamepad < 0 || gamepad >= MAX_GAMEPADS {
+		return
+	}
+
+	gp := &s.gamepads[gamepad]
+
+	if !gp.active {
+		return
+	}
+
+	if gp.vibrator_manager == nil {
+		return
+	}
+
+	vibration := [2]f32 { clamp(left, 0, 1), clamp(right, 0, 1) }
+
+	if vibration == gp.vibration {
+		return
+	}
+
+	gp.vibration = vibration
+
+	vibrate :: proc(gp: ^Android_Gamepad) -> (exception: ^java.Throwable) {
+		if gp.vibration == {} {
+			return java.VibratorManager_cancel(gp.vibrator_manager)
+		}
+
+		combination := java.CombinedVibration_startParallel() or_return
+
+		for vibrator_idx in 0..<gp.num_vibrators {
+			strength := gp.vibration[vibrator_idx]
+
+			if gp.num_vibrators == 1 {
+				strength = max(gp.vibration[0], gp.vibration[1])
+			}
+
+			amplitude := i32(strength * 255)
+
+			if amplitude <= 0 {
+				continue
+			}
+
+			timings := java.array_new(java.LongArray, 1) or_return
+			java.array_set_region(timings, 0, []i64 { 1000 }) or_return
+			amplitudes := java.array_new(java.IntArray, 1) or_return
+			java.array_set_region(amplitudes, 0, []i32 { amplitude }) or_return
+			effect := java.VibrationEffect_createWaveform(timings, amplitudes, 0) or_return
+
+			combination = java.CombinedVibration_ParallelCombination_addVibrator(
+				combination,
+				gp.vibrator_ids[vibrator_idx],
+				effect,
+			) or_return
+		}
+
+		combined := java.CombinedVibration_ParallelCombination_combine(combination) or_return
+		return java.VibratorManager_vibrate(gp.vibrator_manager, combined)
+	}
+
+	java.push_local_frame()
+	exception := vibrate(gp)
+
+	if exception != nil {
+		message := java.exception_message(exception, frame_allocator)
+		log.errorf("Failed setting gamepad vibration: %v", message)
+	}
+
+	java.pop_local_frame()
+}
+
+android_find_gamepad :: proc(s: ^Android_State, device_id: i32) -> int {
+	for &gp, gp_idx in s.gamepads {
+		if gp.active && gp.device_id == device_id {
+			return gp_idx
+		}
+	}
+
+	return -1
+}
+
+android_send_gamepad_button_events :: proc(s: ^Android_State, gamepad: int) {
+	gp := &s.gamepads[gamepad]
+	held := gp.key_buttons + gp.axis_buttons
+
+	for button in Gamepad_Button {
+		is_held := button in held
+		was_held := button in gp.held_buttons
+
+		if is_held && !was_held {
+			append(&s.events, Event_Gamepad_Button_Went_Down { gamepad = gamepad, button = button })
+		}
+
+		if !is_held && was_held {
+			append(&s.events, Event_Gamepad_Button_Went_Up { gamepad = gamepad, button = button })
+		}
+	}
+
+	gp.held_buttons = held
+}
+
+android_update_gamepads :: proc(s: ^Android_State) {
+	java.push_local_frame()
+	defer java.pop_local_frame()
+
+	ids_array, ids_exception := java.InputDevice_getDeviceIds()
+
+	if ids_exception != nil {
+		message := java.exception_message(ids_exception, frame_allocator)
+		log.errorf("Failed listing Android input devices: %v", message)
+		return
+	}
+
+	ids := make([]i32, java.array_length(ids_array), frame_allocator)
+
+	if java.array_get_region(ids_array, 0, ids) != nil {
+		return
+	}
+
+	if slice.equal(ids, s.input_device_ids[:]) {
+		return
+	}
+
+	runtime.clear(&s.input_device_ids)
+	append(&s.input_device_ids, ..ids)
+
+	for &gp, gp_idx in s.gamepads {
+		if !gp.active {
+			continue
+		}
+
+		if slice.contains(ids, gp.device_id) {
+			continue
+		}
+
+		gp.key_buttons = {}
+		gp.axis_buttons = {}
+		android_send_gamepad_button_events(s, gp_idx)
+		android_destroy_gamepad(&gp)
+		log.debugf("Gamepad %v disconnected", gp_idx)
+	}
+
+	for id in ids {
+		if android_find_gamepad(s, id) != -1 {
+			continue
+		}
+
+		device, device_exception := java.InputDevice_getDevice(id)
+
+		if device_exception != nil || device == nil {
+			continue
+		}
+
+		sources, sources_exception := java.InputDevice_getSources(device)
+
+		if sources_exception != nil {
+			continue
+		}
+
+		GAMEPAD_SOURCES :: java.InputDevice_Sources { .CLASS_BUTTON, .GAMEPAD }
+		JOYSTICK_SOURCES :: java.InputDevice_Sources { .CLASS_JOYSTICK, .JOYSTICK }
+
+		is_gamepad := GAMEPAD_SOURCES <= sources
+		is_joystick := JOYSTICK_SOURCES <= sources
+
+		if !is_gamepad && !is_joystick {
+			continue
+		}
+
+		slot := -1
+
+		for &gp, gp_idx in s.gamepads {
+			if !gp.active {
+				slot = gp_idx
+				break
+			}
+		}
+
+		if slot == -1 {
+			log.errorf("A maximum of %v gamepads is supported", MAX_GAMEPADS)
+			return
+		}
+
+		s.gamepads[slot] = {
+			active = true,
+			device_id = id,
+		}
+
+		android_init_gamepad_vibration(&s.gamepads[slot], device)
+		log.debugf("Gamepad %v connected", slot)
+	}
+}
+
+android_init_gamepad_vibration :: proc(gp: ^Android_Gamepad, device: ^java.InputDevice) {
+	vibrator_manager, manager_exception := java.InputDevice_getVibratorManager(device)
+
+	if manager_exception != nil || vibrator_manager == nil {
+		return
+	}
+
+	ids_array, ids_exception := java.VibratorManager_getVibratorIds(vibrator_manager)
+
+	if ids_exception != nil || ids_array == nil {
+		return
+	}
+
+	gp.num_vibrators = min(int(java.array_length(ids_array)), len(gp.vibrator_ids))
+
+	if gp.num_vibrators == 0 {
+		return
+	}
+
+	if java.array_get_region(ids_array, 0, gp.vibrator_ids[:gp.num_vibrators]) != nil {
+		gp.num_vibrators = 0
+		return
+	}
+
+	gp.vibrator_manager = java.new_global(vibrator_manager)
+}
+
+android_destroy_gamepad :: proc(gp: ^Android_Gamepad) {
+	if gp.vibrator_manager != nil {
+		java.VibratorManager_cancel(gp.vibrator_manager)
+		java.delete_global(gp.vibrator_manager)
+	}
+
+	gp^ = {}
 }
 
 android_open_url :: proc(s: ^Android_State, url: string) -> bool {
@@ -531,7 +875,32 @@ ANDROID_MOUSE_BUTTONS := [?]Android_Mouse_Button {
 }
 
 @(rodata)
-ANDROID_KEY_MAP := #partial [android.AKeyCode]Keyboard_Key {
+ANDROID_GAMEPAD_BUTTON_MAP := #partial [android.AKeyCode]Gamepad_Button {
+	.DPAD_UP    = .Left_Face_Up,
+	.DPAD_DOWN  = .Left_Face_Down,
+	.DPAD_LEFT  = .Left_Face_Left,
+	.DPAD_RIGHT = .Left_Face_Right,
+
+	.BUTTON_Y = .Right_Face_Up,
+	.BUTTON_A = .Right_Face_Down,
+	.BUTTON_X = .Right_Face_Left,
+	.BUTTON_B = .Right_Face_Right,
+
+	.BUTTON_L1 = .Left_Shoulder,
+	.BUTTON_L2 = .Left_Trigger,
+	.BUTTON_R1 = .Right_Shoulder,
+	.BUTTON_R2 = .Right_Trigger,
+
+	.BUTTON_THUMBL = .Left_Stick_Press,
+	.BUTTON_THUMBR = .Right_Stick_Press,
+
+	.BUTTON_SELECT = .Middle_Face_Left,
+	.BUTTON_MODE   = .Middle_Face_Middle,
+	.BUTTON_START  = .Middle_Face_Right,
+}
+
+@(rodata)
+ANDROID_KEY_MAP :=#partial [android.AKeyCode]Keyboard_Key {
 	.NUM0 = .N0,
 	.NUM1 = .N1,
 	.NUM2 = .N2,

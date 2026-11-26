@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="KARL2D_PACKAGE_NAME">
 	<uses-feature android:glEsVersion="0x00030000" android:required="true"/>
+	<uses-permission android:name="android.permission.VIBRATE"/>
 	<application android:label="KARL2D_APP_LABEL" android:hasCode="true">
 		<activity
 			android:name="org.odin_lang.OdinActivity"
