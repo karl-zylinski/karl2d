@@ -13,6 +13,8 @@ import "base:runtime"
 import "core:io"
 import "core:strings"
 
+_ :: strings
+
 read_entire_file :: proc(path: string, allocator: runtime.Allocator) -> ([]u8, bool) {
 	when ODIN_PLATFORM_SUBTARGET == .Android {
 		assets_path := strings.concatenate({"/android_asset/", path}, frame_allocator)
