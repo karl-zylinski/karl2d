@@ -29,6 +29,7 @@ Special parameters (goes after the '--'):
 	-run         Install the APK on a connected Android device (USB debugging must be on).
 	-setup       Download Android SDKs and Java and put them in the 'build_android/sdk' folder. build_android will use these automatically.
 	-abis:<list> Comma separated list of CPU types to build for. Available: arm64-v8a (default), armeabi-v7a, x86_64, x86.
+	-assets:<path> A file, directory or pattern such as 'sprites/*.png', relative to 'directory_name'. It is put into the APK at the same relative path, so the game can load it using that path. Can be used multiple times.
 
 If 'directory_name/android/AndroidManifest.xml' exists, then it is used. A default manifest is used otherwise.
 
@@ -82,6 +83,7 @@ main :: proc() {
 	has_keystore_param: bool
 	build_params: [dynamic]string
 	bundle_params: [dynamic]string
+	asset_patterns: [dynamic]string
 
 	for a in os.args[1:] {
 		if a == "-help" || a == "--help" {
@@ -92,6 +94,8 @@ main :: proc() {
 			sdk_param = a[len("-android-sdk:"):]
 		} else if strings.has_prefix(a, "-android-ndk:") {
 			ndk_param = a[len("-android-ndk:"):]
+		} else if strings.has_prefix(a, "-assets:") {
+			append(&asset_patterns, a[len("-assets:"):])
 		} else if a == "-run" {
 			run_on_device = true
 		} else if strings.has_prefix(a, "-minimum-os-version:") {
@@ -311,6 +315,56 @@ main :: proc() {
 
 	os.make_directory_all(app_dir)
 	fmt.ensuref(os.is_directory(app_dir), "Failed creating %v", app_dir)
+
+	assets_dir := path_join({app_dir, "assets"})
+	os.remove_all(assets_dir)
+
+	for pattern in asset_patterns {
+		matches, glob_err := os.glob(path_join({dir, pattern}), context.allocator)
+		fmt.ensuref(glob_err == nil, "Failed finding assets %v. Error: %v", pattern, glob_err)
+
+		num_copied := 0
+
+		for match in matches {
+			if !os.exists(match) {
+				continue
+			}
+
+			relative_path, relative_err := os.get_relative_path(dir, match, context.allocator)
+
+			fmt.ensuref(
+				relative_err == nil,
+				"Failed finding path of %v relative to %v. Error: %v",
+				match,
+				dir,
+				relative_err,
+			)
+
+			fmt.ensuref(
+				!strings.has_prefix(relative_path, ".."),
+				"Asset %v is outside %v. Assets must be inside the game directory.",
+				match,
+				dir,
+			)
+
+			asset_path := path_join({assets_dir, relative_path})
+			asset_parent_dir, _ := os.split_path(asset_path)
+			os.make_directory_all(asset_parent_dir)
+
+			copy_err: os.Error
+
+			if os.is_directory(match) {
+				copy_err = os.copy_directory_all(asset_path, match)
+			} else {
+				copy_err = os.copy_file(asset_path, match)
+			}
+
+			fmt.ensuref(copy_err == nil, "Failed copying asset %v. Error: %v", match, copy_err)
+			num_copied += 1
+		}
+
+		fmt.ensuref(num_copied > 0, "No assets found for -assets:%v", pattern)
+	}
 
 	manifest: string
 	custom_manifest_path := path_join({dir, "android", "AndroidManifest.xml"})

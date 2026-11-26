@@ -9,8 +9,8 @@ when ODIN_OS == .Windows {
 	DEFAULT_AUDIO_BACKEND_NAME :: "web_audio"
 	AVAILABLE_AUDIO_BACKENDS :: "web_audio, nil"
 } else when ODIN_OS == .Linux && ODIN_PLATFORM_SUBTARGET == .Android {
-	DEFAULT_AUDIO_BACKEND_NAME :: "nil"
-	AVAILABLE_AUDIO_BACKENDS :: "nil"
+	DEFAULT_AUDIO_BACKEND_NAME :: "aaudio"
+	AVAILABLE_AUDIO_BACKENDS :: "aaudio, nil"
 } else when ODIN_OS == .Linux {
 	DEFAULT_AUDIO_BACKEND_NAME :: "alsa"
 	AVAILABLE_AUDIO_BACKENDS :: "alsa, nil"
@@ -34,6 +34,8 @@ when AUDIO_BACKEND_NAME == "waveout" {
 	AUDIO_BACKEND :: AUDIO_BACKEND_WEB
 } else when AUDIO_BACKEND_NAME == "alsa" {
 	AUDIO_BACKEND :: AUDIO_BACKEND_ALSA
+} else when AUDIO_BACKEND_NAME == "aaudio" {
+	AUDIO_BACKEND :: AUDIO_BACKEND_AAUDIO
 } else when AUDIO_BACKEND_NAME == "core_audio" {
 	AUDIO_BACKEND :: AUDIO_BACKEND_CORE_AUDIO
 } else when AUDIO_BACKEND_NAME == "nil" {
