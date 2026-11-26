@@ -181,6 +181,10 @@ odin run build_android -- examples/touch -run
 
 This assumes that you have the phone available for USB or Wireless debugging, so that `adb` can control it. The `-run` argument will install the app and start it on your connected phone. Skip `-run` to just produce a `.apk` file.
 
+> NOTE: If you have `karl2d` as a subfolder inside your game directory, then you probably want to run:
+>
+> `odin run karl2d/build_android -- . -run`
+
 If you do not have the Android SDK or Java installed, then you can download a portable copy of it all into the `build_android/sdk` folder by running:
 ```bash
 odin run build_android/setup
