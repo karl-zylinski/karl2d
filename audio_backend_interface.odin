@@ -20,4 +20,7 @@ Audio_Backend_Interface :: struct #all_or_none {
 	// samples using these procs.
 	push_samples: proc(s: ^Audio_Backend_State, samples: [][2]Audio_Sample),
 	pushed_samples_remaining: proc(s: ^Audio_Backend_State) -> int,
+
+	suspend: proc(s: ^Audio_Backend_State),
+	resume: proc(s: ^Audio_Backend_State),
 }

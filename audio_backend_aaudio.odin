@@ -19,6 +19,8 @@ AUDIO_BACKEND_AAUDIO :: Audio_Backend_Interface {
 	has_mixer_thread = true,
 	push_samples = nil,
 	pushed_samples_remaining = nil,
+	suspend = aaudio_suspend,
+	resume = aaudio_resume,
 }
 
 AAudio_State :: struct {
@@ -30,6 +32,7 @@ AAudio_State :: struct {
 	reopen_thread: ^thread.Thread,
 	reopen_sema: sync.Sema,
 	running: bool,
+	suspended: bool,
 }
 
 aaudio_init :: proc(s: ^AAudio_State) -> bool {
@@ -67,6 +70,44 @@ aaudio_shutdown :: proc(s: ^AAudio_State) {
 	aaudio_close_stream(s.stream)
 	s.stream = nil
 	sync.mutex_unlock(&s.stream_mutex)
+}
+
+aaudio_suspend :: proc(s: ^AAudio_State) {
+	sync.mutex_lock(&s.stream_mutex)
+	defer sync.mutex_unlock(&s.stream_mutex)
+	s.suspended = true
+
+	if s.stream == nil {
+		return
+	}
+
+	pause_res := aa.AAudioStream_requestPause(s.stream)
+
+	if pause_res != .OK {
+		log.errorf(
+			"AAudio: AAudioStream_requestPause failed: %v",
+			aa.AAudio_convertResultToText(pause_res),
+		)
+	}
+}
+
+aaudio_resume :: proc(s: ^AAudio_State) {
+	sync.mutex_lock(&s.stream_mutex)
+	defer sync.mutex_unlock(&s.stream_mutex)
+	s.suspended = false
+
+	if s.stream == nil {
+		return
+	}
+
+	start_res := aa.AAudioStream_requestStart(s.stream)
+
+	if start_res != .OK {
+		log.errorf(
+			"AAudio: AAudioStream_requestStart failed: %v",
+			aa.AAudio_convertResultToText(start_res),
+		)
+	}
 }
 
 aaudio_stop_reopen_thread :: proc(s: ^AAudio_State) {
@@ -138,6 +179,10 @@ aaudio_open_stream :: proc(s: ^AAudio_State) -> (^aa.AAudioStream, bool) {
 		log.errorf("AAudio: Stream opened with %v channels, but 2 are required", channel_count)
 		aa.AAudioStream_close(stream)
 		return nil, false
+	}
+
+	if s.suspended {
+		return stream, true
 	}
 
 	start_res := aa.AAudioStream_requestStart(stream)

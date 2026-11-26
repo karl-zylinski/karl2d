@@ -413,6 +413,11 @@ calculate_frame_time :: proc() {
 	s.time = time.duration_seconds(time.tick_since(s.start_time))
 }
 
+@(private="package")
+_reset_frame_time :: proc() {
+	s.prev_frame_tick = time.tick_now()
+}
+
 // Present the graphics drawn on the screen to the player. Also known as "flipping the backbuffer":
 // Call at end of frame to make everything you've drawn appear on the screen.
 //
@@ -5457,6 +5462,24 @@ _audio_thread_context :: proc() -> runtime.Context {
 		logger = s.audio_thread_logger,
 		user_index = _AUDIO_THREAD_CONTEXT_MARKER,
 	}
+}
+
+@(private="package")
+_suspend_audio :: proc() {
+	if s.ab.suspend == nil {
+		return
+	}
+
+	s.ab.suspend(s.ab_state)
+}
+
+@(private="package")
+_resume_audio :: proc() {
+	if s.ab.resume == nil {
+		return
+	}
+
+	s.ab.resume(s.ab_state)
 }
 
 //-----------------//

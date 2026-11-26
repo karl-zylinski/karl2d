@@ -20,6 +20,8 @@ AUDIO_BACKEND_WAVEOUT :: Audio_Backend_Interface {
 	mix_chunk_size = WAVEOUT_BUFFER_SAMPLES,
 	has_mixer_thread = true,
 	pushed_samples_remaining = nil,
+	suspend = nil,
+	resume = nil,
 	push_samples = nil,
 }
 

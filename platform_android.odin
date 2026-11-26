@@ -399,13 +399,35 @@ android_on_input_event :: proc(app: ^app_glue.android_app, event: ^android.AInpu
 android_before_present :: proc(s: ^Android_State) {
 }
 
+android_is_suspended :: proc(s: ^Android_State) -> bool {
+	if s.app.destroyRequested != 0 {
+		return false
+	}
+
+	if s.app.window == nil {
+		return true
+	}
+
+	return s.app.activityState != app_glue.APP_CMD_RESUME
+}
+
 android_get_events :: proc(s: ^Android_State, events: ^[dynamic]Event) {
 	android_update_gamepads(s)
 	android_process_app_events(s, false)
 
-	for s.app.destroyRequested == 0 &&
-	    (s.app.window == nil || s.app.activityState != app_glue.APP_CMD_RESUME) {
-		android_process_app_events(s, true)
+	if android_is_suspended(s) {
+		for gamepad in 0..<MAX_GAMEPADS {
+			android_set_gamepad_vibration(s, gamepad, 0, 0)
+		}
+
+		_suspend_audio()
+
+		for android_is_suspended(s) {
+			android_process_app_events(s, true)
+		}
+
+		_resume_audio()
+		_reset_frame_time()
 	}
 
 	if s.app.destroyRequested != 0 {

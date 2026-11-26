@@ -20,6 +20,8 @@ AUDIO_BACKEND_ALSA :: Audio_Backend_Interface {
 	has_mixer_thread = true,
 	push_samples = nil,
 	pushed_samples_remaining = nil,
+	suspend = nil,
+	resume = nil,
 }
 
 Alsa_State :: struct {

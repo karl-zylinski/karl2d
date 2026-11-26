@@ -18,6 +18,8 @@ AUDIO_BACKEND_NIL :: Audio_Backend_Interface {
 	has_mixer_thread = false,
 	push_samples = abnil_push_samples,
 	pushed_samples_remaining = abnil_pushed_samples_remaining,
+	suspend = nil,
+	resume = nil,
 }
 
 abnil_init :: proc(s: ^ABNil_State) -> bool {
