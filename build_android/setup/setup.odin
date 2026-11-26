@@ -168,6 +168,7 @@ download_file :: proc(
 	return sha1_hex, sha256_hex, true
 }
 
+// temp until core:archive comes out
 extract_tar_gz :: proc(tar_gz_path: string, dest_dir: string) -> bool {
 	TAR_BLOCK_SIZE :: 512
 	TAR_TYPE_FILE :: '0'
@@ -356,6 +357,7 @@ extract_tar_gz :: proc(tar_gz_path: string, dest_dir: string) -> bool {
 	return true
 }
 
+// temp until core:archive comes out
 extract_zip :: proc(zip_path: string, dest_dir: string) -> bool {
 	Zip_End_Of_Central_Directory :: struct #packed {
 		signature: u32le,
@@ -829,13 +831,10 @@ main :: proc() {
 
 	curl.global_cleanup()
 
-	home_dir, _ := os.user_home_dir(context.allocator)
-	keystore_dir := path_join({home_dir, ".android"})
-	keystore_path := path_join({keystore_dir, "debug.keystore"})
+	keystore_path := path_join({sdk_dir, "debug.keystore"})
 
 	if !os.exists(keystore_path) {
 		fmt.printfln("Creating debug keystore %v", keystore_path)
-		os.make_directory_all(keystore_dir)
 
 		when ODIN_OS == .Darwin {
 			keytool_path := path_join({sdk_dir, JRE_DIR_NAME, "Contents", "Home", "bin", "keytool"})

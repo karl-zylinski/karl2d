@@ -124,6 +124,13 @@ main :: proc() {
 	}
 
 	if !has_keystore_param {
+		setup_keystore_path := path_join({SETUP_SDK_DIR, "debug.keystore"})
+
+		if os.exists(setup_keystore_path) {
+			append(&bundle_params, fmt.tprintf("-android-keystore:%v", setup_keystore_path))
+			append(&bundle_params, "-android-keystore-alias:androiddebugkey")
+		}
+
 		append(&bundle_params, "-android-keystore-password:android")
 	}
 
@@ -160,11 +167,11 @@ main :: proc() {
 	}
 
 	sdk_candidates := [?]string {
+		SETUP_SDK_DIR,
 		sdk_param,
 		os.get_env("ODIN_ANDROID_SDK", context.allocator),
 		os.get_env("ANDROID_HOME", context.allocator),
 		default_sdk_path,
-		SETUP_SDK_DIR,
 	}
 
 	sdk_path: string
@@ -179,16 +186,16 @@ main :: proc() {
 	if sdk_path == "" {
 		fmt.eprintfln(
 			"Could not find the Android SDK. Looked in:\n" +
+			"- %v\n" +
 			"- The -android-sdk parameter (%v)\n" +
 			"- The environment variable ODIN_ANDROID_SDK (%v)\n" +
 			"- The environment variable ANDROID_HOME (%v)\n" +
 			"- %v\n" +
-			"- %v\n" +
 			SETUP_HINT,
-			sdk_candidates[0] == "" ? "not given" : sdk_candidates[0],
-			sdk_candidates[1] == "" ? "not set" : sdk_candidates[1],
+			sdk_candidates[0],
+			sdk_candidates[1] == "" ? "not given" : sdk_candidates[1],
 			sdk_candidates[2] == "" ? "not set" : sdk_candidates[2],
-			sdk_candidates[3],
+			sdk_candidates[3] == "" ? "not set" : sdk_candidates[3],
 			sdk_candidates[4],
 		)
 
@@ -230,6 +237,7 @@ main :: proc() {
 	}
 
 	ndk_candidates := [?]string {
+		sdk_path == SETUP_SDK_DIR ? newest_sdk_ndk_path : "",
 		ndk_param,
 		os.get_env("ODIN_ANDROID_NDK", context.allocator),
 		os.get_env("ANDROID_NDK_HOME", context.allocator),
@@ -248,14 +256,16 @@ main :: proc() {
 	if ndk_path == "" {
 		fmt.eprintfln(
 			"Could not find the Android NDK. Looked in:\n" +
+			"- %v\n" +
 			"- The -android-ndk parameter (%v)\n" +
 			"- The environment variable ODIN_ANDROID_NDK (%v)\n" +
 			"- The environment variable ANDROID_NDK_HOME (%v)\n" +
 			"- %v\n" +
 			SETUP_HINT,
-			ndk_candidates[0] == "" ? "not given" : ndk_candidates[0],
-			ndk_candidates[1] == "" ? "not set" : ndk_candidates[1],
+			path_join({SETUP_SDK_DIR, "ndk"}),
+			ndk_candidates[1] == "" ? "not given" : ndk_candidates[1],
 			ndk_candidates[2] == "" ? "not set" : ndk_candidates[2],
+			ndk_candidates[3] == "" ? "not set" : ndk_candidates[3],
 			sdk_ndk_dir,
 		)
 
