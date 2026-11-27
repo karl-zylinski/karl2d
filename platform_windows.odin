@@ -175,7 +175,7 @@ windows_init :: proc(
 
 	s.gamepad_quick_rescan_tick = time.tick_now()
 
-	when RENDER_BACKEND_NAME == "d3d11" {
+	when RENDER_BACKEND_NAME == "d3d11" || RENDER_BACKEND_NAME == "vulkan" {
 		s.window_render_glue = (^Window_Render_Glue)(s.hwnd)
 	} else when RENDER_BACKEND_NAME == "gl" {
 		s.window_render_glue = create_windows_gl_glue(s.hwnd, s.allocator)

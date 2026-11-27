@@ -8,6 +8,7 @@ import gl "vendor:wasm/WebGL"
 import hm "core:container/handle_map"
 import "log"
 import "core:strings"
+import sc "shader_compiler"
 
 RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 	state_type = WebGL_State,
@@ -28,11 +29,11 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 	flip_render_textures = true,
 	create_render_texture = webgl_create_render_texture,
 	destroy_render_target = webgl_destroy_render_target,
+	shader_target = .GLSL_ES_300,
 	load_shader = webgl_load_shader,
 	destroy_shader = webgl_destroy_shader,
+	read_backbuffer = webgl_read_backbuffer,
 
-	default_shader_vertex_source = webgl_default_shader_vertex_source,
-	default_shader_fragment_source = webgl_default_shader_fragment_source,
 	get_depth_clip_range = webgl_get_depth_clip_range,
 }
 
@@ -49,33 +50,6 @@ WebGL_State :: struct {
 	depth_test: bool,
 	border_wrap_warning_shown: bool,
 	texture_samplers: map[Texture_Sampler]gl.Sampler,
-}
-
-WebGL_Shader_Constant_Buffer :: struct {
-	buffer: gl.Buffer,
-	size: int,
-	block_index: i32,
-}
-
-WebGL_Shader_Constant_Type :: enum {
-	Uniform,
-	Block_Variable,
-}
-
-// OpenGL can have constants both in blocks (like constant buffers in D3D11), or as stand-alone
-// uniforms. We support both.
-WebGL_Shader_Constant :: struct {
-	type: WebGL_Shader_Constant_Type,
-
-	// if type is Uniform, then this is the uniform loc
-	// if type is Block_Variable, then this is the block loc
-	loc: i32, 
-
-	// if this is a block variable, then this is the offset to it
-	block_variable_offset: u32,
-
-	// if type is Uniform, then this contains the GL type of the uniform
-	uniform_type: gl.Enum,
 }
 
 WebGL_Texture :: struct {
@@ -106,8 +80,8 @@ WebGL_Shader :: struct {
 
 	program: gl.Program,
 
-	constant_buffers: []WebGL_Shader_Constant_Buffer,
-	constants: []WebGL_Shader_Constant,
+	constant_buffer: gl.Buffer,
+	has_constant_buffer: bool,
 	texture_bindings: []WebGL_Texture_Binding, 
 }
 
@@ -262,7 +236,7 @@ webgl_draw :: proc(s: ^WebGL_State, vertex_buffer: []u8, draw_calls: []Draw_Call
 		}
 
 		if .Constants in changed {
-			webgl_set_constants(call.constants, call.constants_data, gl_shd^)
+			webgl_set_constants(call.constants_data, gl_shd^)
 		}
 
 		if .Textures in changed {
@@ -316,91 +290,16 @@ webgl_draw :: proc(s: ^WebGL_State, vertex_buffer: []u8, draw_calls: []Draw_Call
 }
 
 webgl_set_constants :: proc(
-	constants: []Shader_Constant_Location,
 	constants_data: []u8,
 	gl_shd: WebGL_Shader,
 ) {
-	assert(len(constants) == len(gl_shd.constants))
-
-	for cidx in 0..<len(gl_shd.constants) {
-		cpu_loc := constants[cidx]
-
-		if cpu_loc.size == 0 {
-			continue
-		}
-
-		gpu_loc := gl_shd.constants[cidx]
-
-		switch gpu_loc.type {
-		case .Block_Variable:
-			gpu_buffer_info := gl_shd.constant_buffers[gpu_loc.loc]
-			gpu_data := gpu_buffer_info.buffer
-			gl.BindBuffer(gl.UNIFORM_BUFFER, gpu_data)
-			src := constants_data[cpu_loc.offset:cpu_loc.offset+cpu_loc.size]
-			gl.BufferData(gl.UNIFORM_BUFFER, len(src), raw_data(src), gl.DYNAMIC_DRAW)
-			gl.BindBufferBase(gl.UNIFORM_BUFFER, gpu_loc.loc, gpu_data)	
-
-		case .Uniform:
-			loc := i32(gpu_loc.loc)
-			ptr := (rawptr)(&constants_data[cpu_loc.offset])
-			uptr: [^]u32 = (^u32)(ptr)
-			iptr: [^]i32 = (^i32)(ptr)
-			fptr: [^]f32 = (^f32)(ptr)
-
-			switch gpu_loc.uniform_type {
-			case gl.FLOAT:
-				gl.Uniform1f(loc, fptr[0])
-
-			case gl.FLOAT_VEC2:
-				gl.Uniform2f(loc, fptr[0], fptr[1])
-			case gl.FLOAT_MAT2:
-				gl.UniformMatrix2fv(loc, (^matrix[2,2]f32)(ptr)^)
-			case gl.FLOAT_MAT2x3:
-				gl.UniformMatrix2x3fv(loc, (^matrix[3,2]f32)(ptr)^)
-			case gl.FLOAT_MAT2x4:
-				gl.UniformMatrix2x4fv(loc, (^matrix[4,2]f32)(ptr)^)
-
-			case gl.FLOAT_VEC3:
-				gl.Uniform3f(loc, fptr[0], fptr[1], fptr[2])
-			case gl.FLOAT_MAT3x2:
-				gl.UniformMatrix3x2fv(loc, (^matrix[2,3]f32)(ptr)^)
-			case gl.FLOAT_MAT3:
-				gl.UniformMatrix3fv(loc, (^matrix[3,3]f32)(ptr)^)
-			case gl.FLOAT_MAT3x4:
-				gl.UniformMatrix3x4fv(loc, (^matrix[4,3]f32)(ptr)^)
-
-			case gl.FLOAT_VEC4:
-				gl.Uniform4f(loc, fptr[0], fptr[1], fptr[2], fptr[3])
-			case gl.FLOAT_MAT4x2:
-				gl.UniformMatrix4x2fv(loc, (^matrix[2,4]f32)(ptr)^)
-			case gl.FLOAT_MAT4x3:
-				gl.UniformMatrix4x3fv(loc, (^matrix[3,4]f32)(ptr)^)
-			case gl.FLOAT_MAT4:
-				gl.UniformMatrix4fv(loc, (^matrix[4,4]f32)(ptr)^)
-
-			case gl.INT:
-				gl.Uniform1i(loc, iptr[0])
-			case gl.INT_VEC2:
-				gl.Uniform2i(loc, iptr[0], iptr[1])
-			case gl.INT_VEC3:
-				gl.Uniform3i(loc, iptr[0], iptr[1], iptr[2])
-			case gl.INT_VEC4:
-				gl.Uniform4i(loc, iptr[0], iptr[1], iptr[2], iptr[3])
-
-			case gl.UNSIGNED_INT:
-				gl.Uniform1ui(loc, uptr[0])
-			case gl.UNSIGNED_INT_VEC2:
-				gl.Uniform2ui(loc, uptr[0], uptr[1])
-			case gl.UNSIGNED_INT_VEC3:
-				gl.Uniform3ui(loc, uptr[0], uptr[1], uptr[2])
-			case gl.UNSIGNED_INT_VEC4:
-				gl.Uniform4ui(loc, uptr[0], uptr[1], uptr[2], uptr[3])
-
-			case: log.errorf("Unknown type: %x", gpu_loc.uniform_type)
-			}
-
-		}
+	if !gl_shd.has_constant_buffer {
+		return
 	}
+
+	gl.BindBuffer(gl.UNIFORM_BUFFER, gl_shd.constant_buffer)
+	gl.BufferData(gl.UNIFORM_BUFFER, len(constants_data), raw_data(constants_data), gl.DYNAMIC_DRAW)
+	gl.BindBufferBase(gl.UNIFORM_BUFFER, 0, gl_shd.constant_buffer)
 }
 
 webgl_bind_textures :: proc(s: ^WebGL_State, textures: []Draw_Call_Texture, gl_shd: WebGL_Shader) {
@@ -765,37 +664,34 @@ webgl_link_shader :: proc(vs_shader: gl.Shader, fs_shader: gl.Shader, err_buf: [
 
 webgl_load_shader :: proc(
 	s: ^WebGL_State,
-	vs_source: []byte,
-	fs_source: []byte,
-	desc_allocator := frame_allocator,
-	layout_formats: []Pixel_Format = {},
+	compiled: sc.Compiled_Shader,
+	inputs: []Shader_Input,
 ) -> (
 	_handle: Shader_Handle,
-	_desc: Shader_Desc,
 	_ok: bool,
 ) {
-	// Built up as the shaders are reflected over, and only handed back once everything worked.
-	// Filling in a named return value instead would mean the naked returns below hand out a
-	// half-built description alongside their `false`.
-	desc: Shader_Desc
+	code := compiled.code[.GLSL_ES_300]
 
 	@static err: [1024]u8
 	err_msg: string
-	vs_shader, vs_shader_ok := webgl_compile_shader_from_source(vs_source, gl.VERTEX_SHADER, err[:], &err_msg)
+	vs_shader, vs_shader_ok := webgl_compile_shader_from_source(code.vertex, gl.VERTEX_SHADER, err[:], &err_msg)
 
 	if !vs_shader_ok  {
 		log.error(err_msg)
 		return
 	}
 	
-	fs_shader, fs_shader_ok := webgl_compile_shader_from_source(fs_source, gl.FRAGMENT_SHADER, err[:], &err_msg)
+	fs_shader, fs_shader_ok := webgl_compile_shader_from_source(code.fragment, gl.FRAGMENT_SHADER, err[:], &err_msg)
 
 	if !fs_shader_ok {
 		log.error(err_msg)
+		gl.DeleteShader(vs_shader)
 		return
 	}
 
 	program, program_ok := webgl_link_shader(vs_shader, fs_shader, err[:], &err_msg)
+	gl.DeleteShader(vs_shader)
+	gl.DeleteShader(fs_shader)
 
 	if !program_ok {
 		log.error(err_msg)
@@ -804,51 +700,8 @@ webgl_load_shader :: proc(
 
 	stride: int
 
-	{
-		num_attribs := gl.GetProgramParameter(program, gl.ACTIVE_ATTRIBUTES)
-		desc.inputs = make([]Shader_Input, num_attribs, desc_allocator)
-
-		for i in 0..<num_attribs {
-			attrib_info := gl.GetActiveAttrib(program, u32(i), frame_allocator)
-			loc := gl.GetAttribLocation(program, attrib_info.name)
-
-			type: Shader_Input_Type
-
-			switch attrib_info.type {
-			case gl.FLOAT: type = .F32
-			case gl.FLOAT_VEC2: type = .Vec2
-			case gl.FLOAT_VEC3: type = .Vec3
-			case gl.FLOAT_VEC4: type = .Vec4
-			
-			/* Possible (gl.) types:
-
-			   FLOAT, FLOAT_VEC2, FLOAT_VEC3, FLOAT_VEC4, FLOAT_MAT2,
-			   FLOAT_MAT3, FLOAT_MAT4, FLOAT_MAT2x3, FLOAT_MAT2x4,
-			   FLOAT_MAT3x2, FLOAT_MAT3x4, FLOAT_MAT4x2, FLOAT_MAT4x3,
-			   INT, INT_VEC2, INT_VEC3, INT_VEC4, UNSIGNED_INT, 
-			   UNSIGNED_INT_VEC2, UNSIGNED_INT_VEC3, UNSIGNED_INT_VEC4,
-			   DOUBLE, DOUBLE_VEC2, DOUBLE_VEC3, DOUBLE_VEC4, DOUBLE_MAT2,
-			   DOUBLE_MAT3, DOUBLE_MAT4, DOUBLE_MAT2x3, DOUBLE_MAT2x4,
-			   DOUBLE_MAT3x2, DOUBLE_MAT3x4, DOUBLE_MAT4x2, or DOUBLE_MAT4x3 */
-
-			case: log.errorf("Unknown type: %v", attrib_info.type)
-			}
-
-			name := strings.clone(attrib_info.name, desc_allocator)
-			
-			format := len(layout_formats) > 0 ? layout_formats[loc] : get_shader_input_format(name, type)
-			desc.inputs[i] = {
-				name = name,
-				register = int(loc),
-				format = format,
-				type = type,
-			}
-
-			input_format := get_shader_input_format(name, type)
-			format_size := pixel_format_size(input_format)
-
-			stride += format_size
-		}
+	for input in inputs {
+		stride += pixel_format_size(input.format)
 	}
 
 	gl_shd := WebGL_Shader {
@@ -856,13 +709,11 @@ webgl_load_shader :: proc(
 		vao = gl.CreateVertexArray(),
 	}
 
-
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)
 	gl.BindVertexArray(gl_shd.vao)
 
 	offset: int
-	for idx in 0..<len(desc.inputs) {
-		input := desc.inputs[idx]
+	for input in inputs {
 		format_size := pixel_format_size(input.format)
 		gl.EnableVertexAttribArray(i32(input.register))	
 		format, num_components, norm := webgl_describe_pixel_format(input.format)
@@ -872,161 +723,32 @@ webgl_load_shader :: proc(
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
-	constant_descs := make([dynamic]Shader_Constant_Desc, desc_allocator)
-	gl_constants := make([dynamic]WebGL_Shader_Constant, s.allocator)
-	texture_bindpoint_descs := make([dynamic]Shader_Texture_Bindpoint_Desc, desc_allocator)
-	gl_texture_bindings := make([dynamic]WebGL_Texture_Binding, s.allocator)
+	if compiled.constants_size > 0 {
+		block_index := gl.GetUniformBlockIndex(program, sc.CONSTANTS_BLOCK_NAME)
 
-	{
-		num_active_uniforms := gl.GetProgramParameter(program, gl.ACTIVE_UNIFORMS)
-
-		for cidx in 0..<num_active_uniforms {
-			uniform_info := gl.GetActiveUniform(program, u32(cidx), frame_allocator)
-			loc := gl.GetUniformLocation(program, uniform_info.name)
-
-			if uniform_info.type == gl.SAMPLER_2D {
-				append(&texture_bindpoint_descs, Shader_Texture_Bindpoint_Desc {
-					name = strings.clone(uniform_info.name, desc_allocator),
-				})
-
-				append(&gl_texture_bindings, WebGL_Texture_Binding {
-					loc = loc,
-				})
-			} else {
-				append(&constant_descs, Shader_Constant_Desc {
-					name = strings.clone(uniform_info.name, desc_allocator),
-					size = webgl_uniform_size(uniform_info.type),
-				})
-
-				append(&gl_constants, WebGL_Shader_Constant {
-					type = .Uniform,
-					loc = loc,
-					uniform_type = uniform_info.type,
-				})
-			}
+		if block_index >= 0 {
+			gl.UniformBlockBinding(program, block_index, 0)
+			gl_shd.constant_buffer = gl.CreateBuffer()
+			gl_shd.has_constant_buffer = true
+			gl.BindBuffer(gl.UNIFORM_BUFFER, gl_shd.constant_buffer)
+			gl.BufferData(gl.UNIFORM_BUFFER, compiled.constants_size, nil, gl.DYNAMIC_DRAW)
+			gl.BindBuffer(gl.UNIFORM_BUFFER, 0)
 		}
 	}
 
-	// Blocks are like constant buffers in D3D, it's like a struct with multiple uniforms inside
-	{
-		num_active_uniform_blocks := gl.GetProgramParameter(program, gl.ACTIVE_UNIFORM_BLOCKS)
-		gl_shd.constant_buffers = make([]WebGL_Shader_Constant_Buffer, num_active_uniform_blocks, s.allocator)
+	gl_shd.texture_bindings = make([]WebGL_Texture_Binding, compiled.num_textures, s.allocator)
 
-		for cb_idx in 0..<num_active_uniform_blocks {
-			name := gl.GetActiveUniformBlockName(program, i32(cb_idx), frame_allocator)
-			idx := gl.GetUniformBlockIndex(program, name)
-
-			if i32(idx) >= num_active_uniform_blocks {
-				continue
-			}
-
-			size: i32
-
-			// TODO investigate if we need std140 layout in the shader or what is fine?
-			gl.GetActiveUniformBlockParameter(program, idx, gl.UNIFORM_BLOCK_DATA_SIZE, &size)
-
-			if size == 0 {
-				log.errorf("Uniform block %v has size 0", name)
-				continue
-			}
-
-			buf := gl.CreateBuffer()
-			gl.BindBuffer(gl.UNIFORM_BUFFER, buf)
-			gl.BufferData(gl.UNIFORM_BUFFER, int(size), nil, gl.DYNAMIC_DRAW)
-			gl.BindBufferBase(gl.UNIFORM_BUFFER, idx, buf)
-
-			gl_shd.constant_buffers[cb_idx] = {
-				block_index = idx,
-				buffer = buf,
-				size = int(size),
-			}
-
-			num_uniforms: i32
-			gl.GetActiveUniformBlockParameter(program, idx, gl.UNIFORM_BLOCK_ACTIVE_UNIFORMS, &num_uniforms)
-
-			uniform_indices := make([]i32, num_uniforms, frame_allocator)
-			gl.GetActiveUniformBlockParameter(program, idx, gl.UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES, raw_data(uniform_indices))
-
-			for var_idx in 0..<num_uniforms {
-				uniform_idx := u32(uniform_indices[var_idx])
-
-				offset: i32
-				gl.GetActiveUniforms(program, { uniform_idx }, gl.UNIFORM_OFFSET, &offset)
-
-				uniform_info := gl.GetActiveUniform(program, uniform_idx, desc_allocator)
-
-				append(&constant_descs, Shader_Constant_Desc {
-					name = uniform_info.name,
-					size = webgl_uniform_size(uniform_info.type),
-				})
-
-				append(&gl_constants, WebGL_Shader_Constant {
-					type = .Block_Variable,
-					loc = idx,
-					block_variable_offset = u32(offset),
-				})
-			}
-		}
+	for &binding, binding_idx in gl_shd.texture_bindings {
+		binding.loc = gl.GetUniformLocation(program, sc.compiled_shader_texture(compiled, binding_idx).name)
 	}
 
-	assert(len(constant_descs) == len(gl_constants))
-	desc.constants = constant_descs[:]
-	desc.texture_bindpoints = texture_bindpoint_descs[:]
-	gl_shd.constants = gl_constants[:]
-	gl_shd.texture_bindings = gl_texture_bindings[:]
-
-	shader_handle, shader_handle_err := hm.add(&s.shaders, gl_shd)
-
-	if shader_handle_err != nil {
-		log.errorf("Failed adding shader to handle map: %v", shader_handle_err)
-		gl.DeleteProgram(program)
-		gl.DeleteShader(vs_shader)
-		gl.DeleteShader(fs_shader)
+	shader_handle, shader_add_err := hm.add(&s.shaders, gl_shd)
+	if shader_add_err != nil {
+		log.errorf("Failed to add shader. Error: %v", shader_add_err)
 		return
 	}
 
-	return shader_handle, desc, true
-}
-
-// I might have missed something. But it doesn't seem like GL gives you this information.
-webgl_uniform_size :: proc(t: gl.Enum) -> int {
-	sz: int
-	switch t {
-	case gl.FLOAT:        sz = 4*1
-
-	case gl.FLOAT_VEC2:   sz = 4*2*1
-	case gl.FLOAT_MAT2:   sz = 4*2*2
-	case gl.FLOAT_MAT2x3: sz = 4*2*3
-	case gl.FLOAT_MAT2x4: sz = 4*2*4
-
-	case gl.FLOAT_VEC3:   sz = 4*3*1
-	case gl.FLOAT_MAT3x2: sz = 4*3*2
-	case gl.FLOAT_MAT3:   sz = 4*3*3
-	case gl.FLOAT_MAT3x4: sz = 4*3*4
-
-	case gl.FLOAT_VEC4:   sz = 4*4*1
-	case gl.FLOAT_MAT4x2: sz = 4*4*2
-	case gl.FLOAT_MAT4x3: sz = 4*4*3
-	case gl.FLOAT_MAT4:   sz = 4*4*4
-
-	case gl.BOOL:      sz = 4*1
-	case gl.BOOL_VEC2: sz = 4*2
-	case gl.BOOL_VEC3: sz = 4*3
-	case gl.BOOL_VEC4: sz = 4*4
-
-	case gl.INT:      sz = 4*1
-	case gl.INT_VEC2: sz = 4*2
-	case gl.INT_VEC3: sz = 4*3
-	case gl.INT_VEC4: sz = 4*4
-
-	case gl.UNSIGNED_INT:      sz = 4*1
-	case gl.UNSIGNED_INT_VEC2: sz = 4*2
-	case gl.UNSIGNED_INT_VEC3: sz = 4*3
-	case gl.UNSIGNED_INT_VEC4: sz = 4*4
-	case: log.errorf("Unhandled uniform type: %x", t)
-	}
-
-	return sz
+	return shader_handle, true
 }
 
 webgl_translate_pixel_format :: proc(f: Pixel_Format) -> (internal_format: gl.Enum, format: gl.Enum, type: gl.Enum) {
@@ -1076,19 +798,11 @@ webgl_destroy_shader :: proc(s: ^WebGL_State, h: Shader_Handle) {
 		return
 	}
 
-	delete(shd.constant_buffers, s.allocator)
-	delete(shd.constants, s.allocator)
 	delete(shd.texture_bindings, s.allocator)
 }
 
-webgl_default_shader_vertex_source :: proc() -> []byte {
-	vertex_source := #load("default_shaders/default_shader_webgl_vertex.glsl")
-	return vertex_source
-}
-
-webgl_default_shader_fragment_source :: proc() -> []byte {
-	fragment_source := #load("default_shaders/default_shader_webgl_fragment.glsl")
-	return fragment_source
+webgl_read_backbuffer :: proc(s: ^WebGL_State, pixels: []u8) -> bool {
+	return false
 }
 
 webgl_get_depth_clip_range :: proc() -> (min: f32, max: f32) {

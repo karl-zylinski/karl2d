@@ -20,13 +20,7 @@ tex2: k2.Texture
 init :: proc() {
 	k2.init(1080, 1080, "Karl2D Multitexture Example")
 
-	when k2.RENDER_BACKEND_NAME == "gl" {
-		shd = k2.load_shader_from_file("gl_multitexture_vertex_shader.glsl", "gl_multitexture_fragment_shader.glsl")
-	} else when k2.RENDER_BACKEND_NAME == "webgl" {
-		shd = k2.load_shader_from_bytes(#load("webgl_multitexture_vertex_shader.glsl"), #load("webgl_multitexture_fragment_shader.glsl"))
-	} else {
-		shd = k2.load_shader_from_file("multitexture_shader.hlsl", "multitexture_shader.hlsl")	
-	}
+	shd = k2.load_shader_from_source(#load("multitexture_shader.glsl"), "multitexture_shader.glsl")
 	
 	tex1 = k2.load_texture_from_bytes(#load("../basics/sixten.jpg"))
 	tex2 = k2.load_texture_from_bytes(#load("../snake/food.png"))

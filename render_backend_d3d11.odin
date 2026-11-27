@@ -5,7 +5,7 @@ package karl2d
 
 import d3d11 "vendor:directx/d3d11"
 import dxgi "vendor:directx/dxgi"
-import "vendor:directx/d3d_compiler"
+import sc "shader_compiler"
 import "core:strings"
 import "log"
 import "core:slice"
@@ -32,10 +32,10 @@ RENDER_BACKEND_D3D11 :: Render_Backend_Interface {
 	flip_render_textures = false,
 	create_render_texture = d3d11_create_render_texture,
 	destroy_render_target = d3d11_destroy_render_target,
+	shader_target = .DXBC,
 	load_shader = d3d11_load_shader,
 	destroy_shader = d3d11_destroy_shader,
-	default_shader_vertex_source = d3d11_default_shader_vertex_source,
-	default_shader_fragment_source = d3d11_default_shader_fragment_source,
+	read_backbuffer = d3d11_read_backbuffer,
 	get_depth_clip_range = d3d11_get_depth_clip_range,
 }
 
@@ -438,18 +438,21 @@ d3d11_draw :: proc(s: ^D3D11_State, vertex_buffer: []u8, draw_calls: []Draw_Call
 		}
 
 		if .Constants in changed {
-			d3d11_set_constants(s, call.constants, call.constants_data, d3d_shd^)
+			d3d11_set_constants(s, call.constants_data, d3d_shd)
 		}
 
 		if .Textures in changed {
-			if len(call.textures) == len(d3d_shd.texture_bindings) {
+			if len(call.textures) == d3d_shd.num_textures {
 				for t, t_idx in call.textures {
-					d3d_t := d3d_shd.texture_bindings[t_idx]
-
 					if tex := hm.get(&s.textures, t.handle); tex != nil {
 						smp := d3d11_get_texture_sampler(s, t.sampler)
-						dc->PSSetShaderResources(d3d_t.bind_point, 1, &tex.view)
-						dc->PSSetSamplers(d3d_t.sampler_bind_point, 1, &smp)
+						dc->PSSetShaderResources(u32(t_idx), 1, &tex.view)
+						dc->PSSetSamplers(u32(t_idx), 1, &smp)
+
+						if t_idx in d3d_shd.vertex_textures {
+							dc->VSSetShaderResources(u32(t_idx), 1, &tex.view)
+							dc->VSSetSamplers(u32(t_idx), 1, &smp)
+						}
 					}
 				}
 			}
@@ -530,55 +533,26 @@ d3d11_draw :: proc(s: ^D3D11_State, vertex_buffer: []u8, draw_calls: []Draw_Call
 
 d3d11_set_constants :: proc(
 	s: ^D3D11_State,
-	constants: []Shader_Constant_Location,
 	constants_data: []u8,
-	d3d_shd: D3D11_Shader,
+	d3d_shd: ^D3D11_Shader,
 ) {
 	dc := s.device_context
-	assert(len(constants) == len(d3d_shd.constants))
 
-	maps := make([]rawptr, len(d3d_shd.constant_buffers), frame_allocator)
-
-	for cidx in 0..<len(constants) {
-		cpu_loc := constants[cidx]
-		gpu_loc := d3d_shd.constants[cidx]//cpu_loc.gpu_constant_idx]
-		gpu_buffer_info := d3d_shd.constant_buffers[gpu_loc.buffer_idx]
-		gpu_data := gpu_buffer_info.gpu_data
-
-		if gpu_data == nil {
-			continue
-		}
-
-		if maps[gpu_loc.buffer_idx] == nil {
-			// We do this little dance with the 'maps' array so we only have to map the memory once.
-			// There can be multiple constants within a single constant buffer. So mapping and
-			// unmapping for each one is slow.
-			map_data: d3d11.MAPPED_SUBRESOURCE
-			err := dc->Map(gpu_data, 0, .WRITE_DISCARD, {}, &map_data)
-			d3d11_check(s, err)
-			maps[gpu_loc.buffer_idx] = map_data.pData
-		}
-
-		data_slice := slice.bytes_from_ptr(maps[gpu_loc.buffer_idx], gpu_buffer_info.size)
-		dst := data_slice[gpu_loc.offset:gpu_loc.offset+u32(cpu_loc.size)]
-		src := constants_data[cpu_loc.offset:cpu_loc.offset+cpu_loc.size]
-		copy(dst, src)
+	if d3d_shd.constant_buffer == nil {
+		return
 	}
 
-	for &cb, cb_idx in d3d_shd.constant_buffers {
-		if .Vertex in cb.bound_shaders {
-			dc->VSSetConstantBuffers(cb.bind_point, 1, &cb.gpu_data)
-		}
+	map_data: d3d11.MAPPED_SUBRESOURCE
+	err := dc->Map(d3d_shd.constant_buffer, 0, .WRITE_DISCARD, {}, &map_data)
 
-		if .Pixel in cb.bound_shaders {
-			dc->PSSetConstantBuffers(cb.bind_point, 1, &cb.gpu_data)
-		}
-
-		if maps[cb_idx] != nil {
-			dc->Unmap(cb.gpu_data, 0)
-			maps[cb_idx] = nil
-		}
+	if !d3d11_check(s, err) {
+		return
 	}
+
+	mem.copy(map_data.pData, raw_data(constants_data), len(constants_data))
+	dc->Unmap(d3d_shd.constant_buffer, 0)
+	dc->VSSetConstantBuffers(0, 1, &d3d_shd.constant_buffer)
+	dc->PSSetConstantBuffers(0, 1, &d3d_shd.constant_buffer)
 }
 
 d3d11_resize_swapchain :: proc(s: ^D3D11_State, w, h: int) {
@@ -1059,478 +1033,109 @@ d3d11_get_texture_sampler :: proc(s: ^D3D11_State, sampler: Texture_Sampler) -> 
 
 d3d11_load_shader :: proc(
 	s: ^D3D11_State,
-	vs_source: []byte,
-	ps_source: []byte,
-	desc_allocator := frame_allocator,
-	layout_formats: []Pixel_Format = {},
+	compiled: sc.Compiled_Shader,
+	inputs: []Shader_Input,
 ) -> (
 	_handle: Shader_Handle,
-	_desc: Shader_Desc,
 	_ok: bool,
 ) {
-	// Built up as the two shaders are reflected over, and only handed back once everything worked.
-	// Filling in a named return value instead would mean the naked returns above hand out a
-	// half-built description alongside their `false`.
-	desc: Shader_Desc
+	code := compiled.code[.DXBC]
+	d3d_shd: D3D11_Shader
 
-	vs_blob: ^d3d11.IBlob
-	vs_blob_errors: ^d3d11.IBlob
-	err := d3d_compiler.Compile(
-		raw_data(vs_source),
-		len(vs_source),
+	err := s.device->CreateVertexShader(
+		raw_data(code.vertex),
+		len(code.vertex),
 		nil,
-		nil,
-		nil,
-		"vs_main",
-		"vs_5_0",
-		0,
-		0,
-		&vs_blob,
-		&vs_blob_errors,
-	)
-
-	d3d11_check(s, err)
-
-	if vs_blob_errors != nil {
-		log.error("Failed compiling shader:")
-		log.error(strings.string_from_ptr((^u8)(vs_blob_errors->GetBufferPointer()), int(vs_blob_errors->GetBufferSize())))
-		return
-	}
-
-	// The compiler can fail without producing an error blob, for example when it cannot even start
-	// on the source. There is no bytecode in that case, so there is nothing to make a shader from.
-	if err < 0 || vs_blob == nil {
-		log.error("Failed compiling vertex shader.")
-		return
-	}
-
-	// VERTEX SHADER
-
-	vertex_shader: ^d3d11.IVertexShader
-
-	err = s.device->CreateVertexShader(
-		vs_blob->GetBufferPointer(),
-		vs_blob->GetBufferSize(),
-		nil,
-		&vertex_shader,
+		&d3d_shd.vertex_shader,
 	)
 
 	if !d3d11_check(s, err) {
-		vs_blob->Release()
 		return
 	}
 
-	vs_ref: ^d3d11.IShaderReflection
+	input_layout_desc := make([]d3d11.INPUT_ELEMENT_DESC, len(inputs), frame_allocator)
 
-	err = d3d_compiler.Reflect(
-		vs_blob->GetBufferPointer(),
-		vs_blob->GetBufferSize(),
-		d3d11.IShaderReflection_UUID,
-		(^rawptr)(&vs_ref),
-	)
-
-	if !d3d11_check(s, err) {
-		vertex_shader->Release()
-		vs_blob->Release()
-		return
-	}
-
-	vs_desc: d3d11.SHADER_DESC
-	err = vs_ref->GetDesc(&vs_desc)
-	d3d11_check(s, err)
-
-	{
-		desc.inputs = make([]Shader_Input, vs_desc.InputParameters, desc_allocator)
-		assert(len(layout_formats) == 0 || len(layout_formats) == len(desc.inputs))
-
-		for in_idx in 0..<vs_desc.InputParameters {
-			in_desc: d3d11.SIGNATURE_PARAMETER_DESC
-			
-			err = vs_ref->GetInputParameterDesc(in_idx, &in_desc)
-
-			if !d3d11_check(s, err) {
-				log.errorf("Invalid shader input: %v", in_idx)
-				continue
-			}
-
-			type: Shader_Input_Type
-
-			if in_desc.SemanticIndex > 0 {
-				log.errorf("Matrix shader input types not yet implemented")
-				continue
-			}
-
-			switch in_desc.ComponentType {
-			case .UNKNOWN: log.errorf("Unknown component type")
-			case .UINT32: log.errorf("Not implemented")
-			case .SINT32: log.errorf("Not implemented")
-			case .FLOAT32:
-				switch in_desc.Mask {
-				case 0: log.errorf("Invalid input mask"); continue
-				case 1: type = .F32
-				case 3: type = .Vec2
-				case 7: type = .Vec3
-				case 15: type = .Vec4
-				}
-			}
-
-			name := strings.clone_from_cstring(in_desc.SemanticName, desc_allocator)
-
-			format := len(layout_formats) > 0 ? layout_formats[in_idx] : get_shader_input_format(name, type)
-			desc.inputs[in_idx] = {
-				name = name,
-				register = int(in_idx),
-				format = format,
-				type = type,
-			}
-		}
-	}
-
-	constant_descs := make([dynamic]Shader_Constant_Desc, desc_allocator)
-	d3d_constants := make([dynamic]D3D11_Shader_Constant, s.allocator)
-	d3d_constant_buffers := make([dynamic]D3D11_Shader_Constant_Buffer, s.allocator)
-	d3d_texture_bindings := make([dynamic]D3D11_Texture_Binding, s.allocator)
-	texture_bindpoint_descs := make([dynamic]Shader_Texture_Bindpoint_Desc, desc_allocator)
-	vs_constants_ok := d3d11_reflect_shader_constants(
-		s,
-		vs_desc,
-		vs_ref,
-		&constant_descs,
-		&d3d_constants,
-		&d3d_constant_buffers,
-		&d3d_texture_bindings,
-		&texture_bindpoint_descs,
-		desc_allocator,
-		.Vertex,
-	)
-
-	// Everything the reflection had to say has been copied out by now, names included.
-	vs_ref->Release()
-
-	if !vs_constants_ok {
-		d3d11_release_constant_buffers(d3d_constant_buffers[:])
-		vertex_shader->Release()
-		vs_blob->Release()
-		return
-	}
-
-	input_layout_desc := make([]d3d11.INPUT_ELEMENT_DESC, len(desc.inputs), frame_allocator)
-
-	for idx in 0..<len(desc.inputs) {
-		input := desc.inputs[idx]
+	for input, idx in inputs {
 		input_layout_desc[idx] = {
-			SemanticName = frame_cstring(input.name),
+			SemanticName = sc.DXBC_INPUT_SEMANTIC,
+			SemanticIndex = u32(input.register),
 			Format = dxgi_format_from_pixel_format(input.format),
 			AlignedByteOffset = idx == 0 ? 0 : d3d11.APPEND_ALIGNED_ELEMENT,
 			InputSlotClass = .VERTEX_DATA,
 		}
 	}
 
-	input_layout: ^d3d11.IInputLayout
-
 	err = s.device->CreateInputLayout(
 		raw_data(input_layout_desc),
 		u32(len(input_layout_desc)),
-		vs_blob->GetBufferPointer(),
-		vs_blob->GetBufferSize(),
-		&input_layout,
+		raw_data(code.vertex),
+		len(code.vertex),
+		&d3d_shd.input_layout,
 	)
 
 	if !d3d11_check(s, err) {
-		d3d11_release_constant_buffers(d3d_constant_buffers[:])
-		vertex_shader->Release()
-		vs_blob->Release()
+		d3d11_release_shader(d3d_shd)
 		return
 	}
-
-	// The blob only holds the compiled bytecode. Nothing needs it after the input layout is made.
-	vs_blob->Release()
-
-	// PIXEL SHADER
-
-	ps_blob: ^d3d11.IBlob
-	ps_blob_errors: ^d3d11.IBlob
-	err = d3d_compiler.Compile(
-		raw_data(ps_source),
-		len(ps_source),
-		nil,
-		nil,
-		nil,
-		"ps_main",
-		"ps_5_0",
-		0,
-		0,
-		&ps_blob,
-		&ps_blob_errors,
-	)
-
-	d3d11_check(s, err)
-
-	if ps_blob_errors != nil {
-		log.error("Failed compiling shader:")
-		log.error(strings.string_from_ptr((^u8)(ps_blob_errors->GetBufferPointer()), int(ps_blob_errors->GetBufferSize())))
-		d3d11_release_constant_buffers(d3d_constant_buffers[:])
-		input_layout->Release()
-		vertex_shader->Release()
-		return
-	}
-
-	if err < 0 || ps_blob == nil {
-		log.error("Failed compiling pixel shader.")
-		d3d11_release_constant_buffers(d3d_constant_buffers[:])
-		input_layout->Release()
-		vertex_shader->Release()
-		return
-	}
-
-	pixel_shader: ^d3d11.IPixelShader
 
 	err = s.device->CreatePixelShader(
-		ps_blob->GetBufferPointer(),
-		ps_blob->GetBufferSize(),
+		raw_data(code.fragment),
+		len(code.fragment),
 		nil,
-		&pixel_shader,
+		&d3d_shd.pixel_shader,
 	)
 
 	if !d3d11_check(s, err) {
-		d3d11_release_constant_buffers(d3d_constant_buffers[:])
-		ps_blob->Release()
-		input_layout->Release()
-		vertex_shader->Release()
+		d3d11_release_shader(d3d_shd)
 		return
 	}
 
-	ps_ref: ^d3d11.IShaderReflection
+	if compiled.constants_size > 0 {
+		constant_buffer_desc := d3d11.BUFFER_DESC{
+			ByteWidth      = u32(compiled.constants_size),
+			Usage          = .DYNAMIC,
+			BindFlags      = {.CONSTANT_BUFFER},
+			CPUAccessFlags = {.WRITE},
+		}
 
-	err = d3d_compiler.Reflect(
-		ps_blob->GetBufferPointer(),
-		ps_blob->GetBufferSize(),
-		d3d11.IShaderReflection_UUID,
-		(^rawptr)(&ps_ref),
-	)
+		err = s.device->CreateBuffer(&constant_buffer_desc, nil, &d3d_shd.constant_buffer)
 
-	if !d3d11_check(s, err) {
-		d3d11_release_constant_buffers(d3d_constant_buffers[:])
-		pixel_shader->Release()
-		ps_blob->Release()
-		input_layout->Release()
-		vertex_shader->Release()
-		return
+		if !d3d11_check(s, err) {
+			log.error("Failed creating constant buffer.")
+			d3d11_release_shader(d3d_shd)
+			return
+		}
 	}
 
-	ps_blob->Release()
-
-	ps_desc: d3d11.SHADER_DESC
-	err = ps_ref->GetDesc(&ps_desc)
-	d3d11_check(s, err)
-
-	ps_constants_ok := d3d11_reflect_shader_constants(
-		s,
-		ps_desc,
-		ps_ref,
-		&constant_descs,
-		&d3d_constants,
-		&d3d_constant_buffers,
-		&d3d_texture_bindings,
-		&texture_bindpoint_descs,
-		desc_allocator,
-		.Pixel,
-	)
-
-	ps_ref->Release()
-
-	if !ps_constants_ok {
-		d3d11_release_constant_buffers(d3d_constant_buffers[:])
-		pixel_shader->Release()
-		input_layout->Release()
-		vertex_shader->Release()
-		return
-	}
-
-	// Done with vertex and pixel shader. Just combine all the state.
-
-	desc.constants = constant_descs[:]
-	desc.texture_bindpoints = texture_bindpoint_descs[:]
-
-	d3d_shd := D3D11_Shader {
-		constants = d3d_constants[:],
-		constant_buffers = d3d_constant_buffers[:],
-		vertex_shader = vertex_shader,
-		pixel_shader = pixel_shader,
-		input_layout = input_layout,
-		texture_bindings = d3d_texture_bindings[:],
-	}
-
+	d3d_shd.num_textures = compiled.num_textures
+	d3d_shd.vertex_textures = compiled.vertex_textures
 	h, h_add_err := hm.add(&s.shaders, d3d_shd)
 
 	if h_add_err != nil {
 		log.errorf("Failed to add shader. Error: %v", h_add_err)
-		d3d11_release_constant_buffers(d3d_constant_buffers[:])
-		input_layout->Release()
-		vertex_shader->Release()
-		pixel_shader->Release()
+		d3d11_release_shader(d3d_shd)
 		return
 	}
 
-	return h, desc, true
+	return h, true
 }
 
-D3D11_Shader_Type :: enum {
-	Vertex,
-	Pixel,
-}
-
-// Shader loading creates constant buffers as it reflects over the vertex shader, so anything that
-// gives up after that point has to hand them back.
-d3d11_release_constant_buffers :: proc(constant_buffers: []D3D11_Shader_Constant_Buffer) {
-	for c in constant_buffers {
-		if c.gpu_data != nil {
-			c.gpu_data->Release()
-		}
-	}
-}
-
-d3d11_reflect_shader_constants :: proc(
-	s: ^D3D11_State,
-	d3d_desc: d3d11.SHADER_DESC,
-	ref: ^d3d11.IShaderReflection,
-	constant_descs: ^[dynamic]Shader_Constant_Desc,
-	d3d_constants: ^[dynamic]D3D11_Shader_Constant,
-	d3d_constant_buffers: ^[dynamic]D3D11_Shader_Constant_Buffer,
-	d3d_texture_bindings: ^[dynamic]D3D11_Texture_Binding,
-	texture_bindpoint_descs: ^[dynamic]Shader_Texture_Bindpoint_Desc,
-	desc_allocator: runtime.Allocator,
-	shader_type: D3D11_Shader_Type,
-) -> bool {
-	found_sampler_bindpoints := make([dynamic]u32, frame_allocator)
-
-	for br_idx in 0..<d3d_desc.BoundResources {
-		bind_desc: d3d11.SHADER_INPUT_BIND_DESC
-		ref->GetResourceBindingDesc(br_idx, &bind_desc)
-
-		#partial switch bind_desc.Type {
-		case .SAMPLER:
-			append(&found_sampler_bindpoints, bind_desc.BindPoint)
-
-		case .TEXTURE:
-			append(d3d_texture_bindings, D3D11_Texture_Binding {
-				bind_point = bind_desc.BindPoint,
-			})
-
-			append(texture_bindpoint_descs, Shader_Texture_Bindpoint_Desc {
-				name = strings.clone_from_cstring(bind_desc.Name, desc_allocator),
-			})
-			
-		case .CBUFFER:
-			cb_info := ref->GetConstantBufferByName(bind_desc.Name)
-
-			if cb_info == nil {
-				continue
-			}
-
-			cb_desc: d3d11.SHADER_BUFFER_DESC
-			cb_info->GetDesc(&cb_desc)
-
-			if cb_desc.Size == 0 {
-				continue
-			}
-
-			constant_buffer_desc := d3d11.BUFFER_DESC{
-				ByteWidth      = cb_desc.Size,
-				Usage          = .DYNAMIC,
-				BindFlags      = {.CONSTANT_BUFFER},
-				CPUAccessFlags = {.WRITE},
-			}
-			buffer_idx := -1
-
-			for &existing, existing_idx in d3d_constant_buffers {
-				if existing.bind_point == bind_desc.BindPoint {
-					existing.bound_shaders += {shader_type}
-					buffer_idx = existing_idx
-					break
-				}
-			}
-
-			if buffer_idx == -1 {
-				buffer_idx = len(d3d_constant_buffers)
-
-				buf := D3D11_Shader_Constant_Buffer {
-					bound_shaders = {shader_type},
-				}
-
-				// Without this buffer the shader never receives its constants, not even the
-				// view-projection matrix, so it would draw in the wrong place rather than fail.
-				err := s.device->CreateBuffer(&constant_buffer_desc, nil, &buf.gpu_data)
-
-				if !d3d11_check(s, err) {
-					log.errorf("Failed creating constant buffer '%v'.", bind_desc.Name)
-					return false
-				}
-
-				buf.size = int(cb_desc.Size)
-				buf.bind_point = bind_desc.BindPoint
-				append(d3d_constant_buffers, buf)
-			}
-
-			for var_idx in 0..<cb_desc.Variables {
-				var_info := cb_info->GetVariableByIndex(var_idx)
-
-				if var_info == nil {
-					continue
-				}
-
-				var_desc: d3d11.SHADER_VARIABLE_DESC
-				var_info->GetDesc(&var_desc)
-
-				if var_desc.Name != "" {
-					default_value: []u8
-
-					if var_desc.DefaultValue != nil {
-						default_value = slice.clone(slice.bytes_from_ptr(var_desc.DefaultValue, int(var_desc.Size)), desc_allocator)
-					}
-
-					append(constant_descs, Shader_Constant_Desc {
-						name = strings.clone_from_cstring(var_desc.Name, desc_allocator),
-						size = int(var_desc.Size),
-						default_value = default_value,
-					})
-
-					append(d3d_constants, D3D11_Shader_Constant {
-						buffer_idx = u32(buffer_idx),
-						offset = var_desc.StartOffset,
-					})
-				}
-			}
-		case:
-			log.errorf("Type is %v", bind_desc.Type)
-		}
+d3d11_release_shader :: proc(shd: D3D11_Shader) {
+	if shd.input_layout != nil {
+		shd.input_layout->Release()
 	}
 
-	// The way Karl2D is built, we need one sampler per texture. In GL this is how it always works,
-	// for D3D we use this loop to ensure it.
-	for &t, t_idx in d3d_texture_bindings {
-		found := false
-
-		for sampler_bindpoint in found_sampler_bindpoints {
-			if t.bind_point == sampler_bindpoint {
-				t.sampler_bind_point = sampler_bindpoint
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			log.errorf(
-				"Texture %v at bindpoint %v does not have a dedicated sampler at " +
-				"the sampler register with the same bindpoint number. This is required to " +
-				"in order to make D3D11 behave the same way as OpenGL etc",
-				texture_bindpoint_descs[t_idx].name,
-				t.bind_point,
-			)
-		}
+	if shd.vertex_shader != nil {
+		shd.vertex_shader->Release()
 	}
 
-	return true
+	if shd.pixel_shader != nil {
+		shd.pixel_shader->Release()
+	}
+
+	if shd.constant_buffer != nil {
+		shd.constant_buffer->Release()
+	}
 }
 
 d3d11_destroy_shader :: proc(s: ^D3D11_State, h: Shader_Handle) {
@@ -1541,49 +1146,20 @@ d3d11_destroy_shader :: proc(s: ^D3D11_State, h: Shader_Handle) {
 		return
 	}
 
-	shd.input_layout->Release()
-	shd.vertex_shader->Release()
-	shd.pixel_shader->Release()
-
-	for c in shd.constant_buffers {
-		if c.gpu_data != nil {
-			c.gpu_data->Release()
-		}
-	}
-
-	delete(shd.texture_bindings, s.allocator)
-	delete(shd.constants, s.allocator)
-	delete(shd.constant_buffers, s.allocator)
+	d3d11_release_shader(shd^)
 	hm.remove(&s.shaders, h)
 }
 
 // API END
-
-D3D11_Shader_Constant_Buffer :: struct {
-	gpu_data: ^d3d11.IBuffer,
-	size: int,
-	bound_shaders: bit_set[D3D11_Shader_Type],
-	bind_point: u32,
-}
-
-D3D11_Texture_Binding :: struct {
-	bind_point: u32,
-	sampler_bind_point: u32,
-}
-
-D3D11_Shader_Constant :: struct {
-	buffer_idx: u32,
-	offset: u32,
-}
 
 D3D11_Shader :: struct {
 	handle: Shader_Handle,
 	vertex_shader: ^d3d11.IVertexShader,
 	pixel_shader: ^d3d11.IPixelShader,
 	input_layout: ^d3d11.IInputLayout,
-	constant_buffers: []D3D11_Shader_Constant_Buffer,
-	constants: []D3D11_Shader_Constant,
-	texture_bindings: []D3D11_Texture_Binding,
+	constant_buffer: ^d3d11.IBuffer,
+	num_textures: int,
+	vertex_textures: bit_set[0..<32; u32],
 }
 
 D3D11_State :: struct {
@@ -1774,16 +1350,60 @@ d3d11_log_messages :: proc(s: ^D3D11_State, loc := #caller_location) {
 	iq->ClearStoredMessages()
 }
 
-D3D11_DEFAULT_SHADER_SOURCE :: #load("default_shaders/default_shader_d3d11.hlsl")
+d3d11_read_backbuffer :: proc(s: ^D3D11_State, pixels: []u8) -> bool {
+	if len(pixels) != s.width * s.height * 4 {
+		return false
+	}
 
-d3d11_default_shader_vertex_source :: proc() -> []byte {
-	s := D3D11_DEFAULT_SHADER_SOURCE
-	return s
-}
+	backbuffer: ^d3d11.ITexture2D
+	err := s.swapchain->GetBuffer(0, d3d11.ITexture2D_UUID, (^rawptr)(&backbuffer))
 
-d3d11_default_shader_fragment_source :: proc() -> []byte {
-	s := D3D11_DEFAULT_SHADER_SOURCE
-	return s
+	if !d3d11_check(s, err) {
+		return false
+	}
+
+	desc: d3d11.TEXTURE2D_DESC
+	backbuffer->GetDesc(&desc)
+	bgra := desc.Format == .B8G8R8A8_UNORM || desc.Format == .B8G8R8A8_UNORM_SRGB
+	desc.Usage = .STAGING
+	desc.BindFlags = {}
+	desc.CPUAccessFlags = {.READ}
+	desc.MiscFlags = {}
+	desc.SampleDesc = { Count = 1 }
+	staging: ^d3d11.ITexture2D
+	err = s.device->CreateTexture2D(&desc, nil, &staging)
+
+	if !d3d11_check(s, err) {
+		backbuffer->Release()
+		return false
+	}
+
+	s.device_context->CopyResource(staging, backbuffer)
+	mapped: d3d11.MAPPED_SUBRESOURCE
+	err = s.device_context->Map(staging, 0, .READ, {}, &mapped)
+
+	if !d3d11_check(s, err) {
+		staging->Release()
+		backbuffer->Release()
+		return false
+	}
+
+	for y in 0..<s.height {
+		src := ([^]u8)(mapped.pData)[y * int(mapped.RowPitch):]
+		dst := pixels[y * s.width * 4:]
+
+		for x in 0..<s.width {
+			dst[x * 4 + 0] = bgra ? src[x * 4 + 2] : src[x * 4 + 0]
+			dst[x * 4 + 1] = src[x * 4 + 1]
+			dst[x * 4 + 2] = bgra ? src[x * 4 + 0] : src[x * 4 + 2]
+			dst[x * 4 + 3] = src[x * 4 + 3]
+		}
+	}
+
+	s.device_context->Unmap(staging, 0)
+	staging->Release()
+	backbuffer->Release()
+	return true
 }
 
 d3d11_get_depth_clip_range :: proc() -> (min: f32, max: f32) {

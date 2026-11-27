@@ -1,0 +1,28 @@
+uniform mat4 view_projection;
+uniform sampler2D tex;
+uniform vec4 tint = vec4(1.0);
+
+#vertex
+
+in vec3 position;
+in vec2 texcoord;
+in vec4 color;
+
+out vec2 uv;
+
+void main() {
+	uv = texcoord;
+	gl_Position = view_projection * vec4(position, 1.0);
+}
+
+#fragment
+
+in vec2 uv;
+
+out vec4 final_color;
+
+vec3 tone_map(vec3 c);
+
+void main() {
+	final_color = vec4(tone_map(texture(tex, uv).rgb), 1.0);
+}

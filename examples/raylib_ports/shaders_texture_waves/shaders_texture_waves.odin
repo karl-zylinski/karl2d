@@ -12,9 +12,7 @@ main :: proc() {
 
 	texture := k2.load_texture_from_file("space.png")
 
-	WAVE_SHADER_DATA :: #load("wave.hlsl")
-
-	shader := k2.load_shader_from_bytes(WAVE_SHADER_DATA, WAVE_SHADER_DATA)
+	shader := k2.load_shader_from_source(#load("wave.glsl"), "wave.glsl")
 	seconds_loc := shader.constant_lookup["seconds"]
 	freq_x_loc := shader.constant_lookup["freqX"]
 	freq_y_loc := shader.constant_lookup["freqY"]

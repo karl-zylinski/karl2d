@@ -18,6 +18,7 @@ import "core:encoding/endian"
 import fc "font_cache"
 import ot "opentype"
 import "vorbis"
+import sc "shader_compiler"
 
 import "core:image"
 import "core:image/jpeg"
@@ -190,12 +191,11 @@ init :: proc(
 	) 
 	s.shape_drawing_texture = shape_drawing_texture
 
+	// TODO-UPDATE-COMMENT: The default shader is now a single source that is compiled for the backend.
+	//---
 	// The default shader will arrive in a different format depending on backend. GLSL for GL,
 	// HLSL for d3d etc.
-	s.default_shader = load_shader_from_bytes(
-		s.rb.default_shader_vertex_source(),
-		s.rb.default_shader_fragment_source(),
-	)
+	s.default_shader = load_shader_from_source(#load("default_shaders/default_shader.glsl"), "default_shader.glsl")
 	s.current_shader = s.default_shader
 	s.draw_call_changes = DRAW_CALL_CHANGE_ALL
 
@@ -6382,6 +6382,8 @@ is_cursor_hidden :: proc() -> bool {
 // SHADERS //
 //---------//
 
+// TODO-UPDATE-COMMENT: Takes a single file in the Karl2D shader format (GLSL with #vertex and #fragment sections) that is compiled for the current backend.
+//---
 // Load a shader from a vertex and fragment shader file. If the vertex and fragment shaders live in
 // the same file, then pass it twice.
 //
@@ -6392,109 +6394,142 @@ is_cursor_hidden :: proc() -> bool {
 // this error, it will also be logged. In case of failure, the returned `Shader` will still be
 // possible to use, but setting it does nothing: drawing carries on with the shader already set.
 load_shader_from_file :: proc(
-	vertex_filename: string,
-	fragment_filename: string,
+	filename: string,
 	layout_formats: []Pixel_Format = {},
 ) -> (Shader, bool) #optional_ok {
-	vertex_source, vertex_source_ok := read_entire_file(vertex_filename, frame_allocator)
+	source, source_ok := read_entire_file(filename, frame_allocator)
 
-	if !vertex_source_ok {
-		log.errorf("Failed loading shader %s", vertex_filename)
+	if !source_ok {
+		log.errorf("Failed loading shader %s", filename)
 		return {}, false
 	}
 
-	fragment_source: []byte
-	
-	if fragment_filename == vertex_filename {
-		fragment_source = vertex_source
-	} else {
-		fragment_source_ok: bool
-		fragment_source, fragment_source_ok = read_entire_file(fragment_filename, frame_allocator)
-
-		if !fragment_source_ok {
-			log.errorf("Failed loading shader %s", fragment_filename)
-			return {}, false
-		}
-	}
-
-	return load_shader_from_bytes(vertex_source, fragment_source, layout_formats)
+	return load_shader_from_source(source, filename, layout_formats)
 }
 
+// TODO-UPDATE-COMMENT: Was load_shader_from_bytes. Now compiles one source in the Karl2D shader format. `filename` is used for error messages and for finding #include files.
+//---
 // Load a vertex and fragment shader from a block of memory. See `load_shader_from_file` for what
 // `layout_formats` means.
 //
 // The second return value is `true` if the shader was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Shader` will still be
 // possible to use, but setting it does nothing: drawing carries on with the shader already set.
-load_shader_from_bytes :: proc(
-	vertex_shader_bytes: []byte,
-	fragment_shader_bytes: []byte,
+load_shader_from_source :: proc(
+	source: []byte,
+	filename: string = "",
 	layout_formats: []Pixel_Format = {},
 ) -> (Shader, bool) #optional_ok {
-	handle, desc, shader_ok := s.rb.load_shader(
-		s.rb_state,
-		vertex_shader_bytes,
-		fragment_shader_bytes,
-		s.frame_allocator,
-		layout_formats,
-	)
+	read_include :: proc(path: string, user_data: rawptr, allocator: runtime.Allocator) -> ([]u8, bool) {
+		return read_entire_file(path, allocator)
+	}
 
-	if !shader_ok {
+	options := sc.Compile_Options {
+		targets = { s.rb.shader_target },
+		read_file = read_include,
+	}
+
+	compiled, compile_error, compile_ok := sc.compile(source, filename, options, frame_allocator, frame_allocator)
+
+	if !compile_ok {
+		log.error(compile_error)
 		return {}, false
 	}
 
-	constants_size: int
+	return load_shader_from_compiled(compiled, layout_formats)
+}
 
-	for c in desc.constants {
-		constants_size += c.size
+load_shader_from_compiled_bytes :: proc(
+	bytes: []byte,
+	layout_formats: []Pixel_Format = {},
+) -> (Shader, bool) #optional_ok {
+	compiled, compiled_ok := sc.compiled_shader_from_bytes(bytes)
+
+	if !compiled_ok {
+		log.error("Failed loading shader: The bytes are not a compiled shader, or they come from another version of the shader compiler.")
+		return {}, false
+	}
+
+	return load_shader_from_compiled(compiled, layout_formats)
+}
+
+load_shader_from_compiled :: proc(
+	compiled: sc.Compiled_Shader,
+	layout_formats: []Pixel_Format = {},
+) -> (Shader, bool) #optional_ok {
+	if s.rb.shader_target not_in compiled.targets {
+		log.errorf("Failed loading shader: It was not compiled for %v, which the current render backend needs.", s.rb.shader_target)
+		return {}, false
+	}
+
+	if len(layout_formats) != 0 && len(layout_formats) != compiled.num_inputs {
+		log.errorf("Failed loading shader: Got %v layout formats, but the shader has %v vertex inputs.", len(layout_formats), compiled.num_inputs)
+		return {}, false
+	}
+
+	inputs := make([]Shader_Input, compiled.num_inputs, s.allocator)
+
+	for &input, input_idx in inputs {
+		compiled_input := sc.compiled_shader_input(compiled, input_idx)
+		type := Shader_Input_Type(compiled_input.type)
+
+		input = {
+			name = strings.clone(compiled_input.name, s.allocator),
+			register = compiled_input.location,
+			type = type,
+			format = len(layout_formats) > 0 ? layout_formats[input_idx] : get_shader_input_format(compiled_input.name, type),
+		}
+	}
+
+	handle, shader_ok := s.rb.load_shader(s.rb_state, compiled, inputs)
+
+	if !shader_ok {
+		for i in inputs {
+			delete(i.name, s.allocator)
+		}
+
+		delete(inputs, s.allocator)
+		return {}, false
 	}
 
 	shd := Shader {
 		handle = handle,
-		constants_data = make([]u8, constants_size, s.allocator),
-		constants = make([]Shader_Constant_Location, len(desc.constants), s.allocator),
+		constants_data = make([]u8, compiled.constants_size, s.allocator),
+		constants = make([]Shader_Constant_Location, compiled.num_constants, s.allocator),
 		constant_lookup = make(map[string]Shader_Constant_Location, s.allocator),
-		inputs = slice.clone(desc.inputs, s.allocator),
-		input_overrides = make([]Shader_Input_Value_Override, len(desc.inputs), s.allocator),
-		texture_bindpoints = make([]Texture, len(desc.texture_bindpoints), s.allocator),
+		inputs = inputs,
+		input_overrides = make([]Shader_Input_Value_Override, len(inputs), s.allocator),
+		texture_bindpoints = make([]Texture, compiled.num_textures, s.allocator),
 		texture_lookup = make(map[string]int, s.allocator),
 	}
 
-	for &input in shd.inputs {
-		input.name = strings.clone(input.name, s.allocator)
-	}
-
-	constant_offset: int
-
-	for cidx in 0..<len(desc.constants) {
-		constant_desc := &desc.constants[cidx]
+	for cidx in 0..<compiled.num_constants {
+		constant := sc.compiled_shader_constant(compiled, cidx)
 
 		loc := Shader_Constant_Location {
-			offset = constant_offset,
-			size = constant_desc.size,
+			offset = constant.offset,
+			size = constant.size,
+			rows = constant.rows,
+			columns = constant.columns,
+			array_len = constant.array_len,
+			array_stride = constant.array_stride,
 		}
 
 		shd.constants[cidx] = loc
-		constant_offset += constant_desc.size
+		copy(shd.constants_data[loc.offset:], constant.default_value)
+		shd.constant_lookup[strings.clone(constant.name, s.allocator)] = loc
 
-		if len(constant_desc.default_value) == constant_desc.size {
-			copy(shd.constants_data[loc.offset:], constant_desc.default_value)
-		}
-
-		if constant_desc.name != "" {
-			shd.constant_lookup[strings.clone(constant_desc.name, s.allocator)] = loc
-
-			switch constant_desc.name {
-			case "view_projection":
-				shd.constant_builtin_locations[.View_Projection_Matrix] = loc
-			}
+		switch constant.name {
+		case "view_projection":
+			shd.constant_builtin_locations[.View_Projection_Matrix] = loc
 		}
 	}
 
-	for tbp, tbp_idx in desc.texture_bindpoints {
-		shd.texture_lookup[strings.clone(tbp.name, s.allocator)] = tbp_idx
+	for tbp_idx in 0..<compiled.num_textures {
+		name := sc.compiled_shader_texture(compiled, tbp_idx).name
+		shd.texture_lookup[strings.clone(name, s.allocator)] = tbp_idx
 
-		if tbp.name == "tex" {
+		if name == "tex" {
 			shd.default_texture_index = tbp_idx
 		}
 	}
@@ -6519,6 +6554,13 @@ load_shader_from_bytes :: proc(
 	return shd, true
 }
 
+read_backbuffer :: proc(pixels: []u8) -> bool {
+	draw_current_batch()
+	return s.rb.read_backbuffer(s.rb_state, pixels)
+}
+
+// TODO-UPDATE-COMMENT: load_shader_from_bytes no longer exists. The loaders are load_shader_from_file, load_shader_from_source, load_shader_from_compiled and load_shader_from_compiled_bytes.
+//---
 // Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
 destroy_shader :: proc(shader: Shader) {
 	if s.current_draw_call.shader == shader.handle {
@@ -6603,13 +6645,26 @@ set_shader_constant :: proc(shd: Shader, loc: Shader_Constant_Location, val: any
 	}
 
 	sz := reflect.size_of_typeid(val.id)
+	column_size := loc.rows * 4
+	element_count := max(loc.array_len, 1)
+	packed_size := element_count * loc.columns * column_size
 
-	if sz != loc.size {
+	if sz == loc.size {
+		mem.copy(&shd.constants_data[loc.offset], val.data, sz)
+	} else if column_size > 0 && sz == packed_size {
+		element_stride := loc.array_len > 0 ? loc.array_stride : loc.size
+
+		for element in 0..<element_count {
+			for column in 0..<loc.columns {
+				src := rawptr(uintptr(val.data) + uintptr((element * loc.columns + column) * column_size))
+				dst := &shd.constants_data[loc.offset + element * element_stride + column * 16]
+				mem.copy(dst, src, column_size)
+			}
+		}
+	} else {
 		log.errorf("Trying to set constant of type %v, but it is not of correct size %v", val.id, loc.size)
 		return
 	}
-
-	mem.copy(&shd.constants_data[loc.offset], val.data, sz)
 
 	// Draw calls recorded before this point keep the old value. The next one takes a fresh copy.
 	s.draw_call_changes += { .Constants }
@@ -7372,6 +7427,10 @@ SHADER_NONE :: Shader_Handle {}
 Shader_Constant_Location :: struct {
 	offset: int,
 	size: int,
+	rows: int,
+	columns: int,
+	array_len: int,
+	array_stride: int,
 }
 
 Shader :: struct {

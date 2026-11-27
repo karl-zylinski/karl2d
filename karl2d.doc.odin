@@ -1291,6 +1291,8 @@ is_cursor_hidden :: proc() -> bool
 // SHADERS //
 //---------//
 
+// TODO-UPDATE-COMMENT: Takes a single file in the Karl2D shader format (GLSL with #vertex and #fragment sections) that is compiled for the current backend.
+//---
 // Load a shader from a vertex and fragment shader file. If the vertex and fragment shaders live in
 // the same file, then pass it twice.
 //
@@ -1301,23 +1303,38 @@ is_cursor_hidden :: proc() -> bool
 // this error, it will also be logged. In case of failure, the returned `Shader` will still be
 // possible to use, but setting it does nothing: drawing carries on with the shader already set.
 load_shader_from_file :: proc(
-	vertex_filename: string,
-	fragment_filename: string,
+	filename: string,
 	layout_formats: []Pixel_Format = {},
 ) -> (Shader, bool) #optional_ok
 
+// TODO-UPDATE-COMMENT: Was load_shader_from_bytes. Now compiles one source in the Karl2D shader format. `filename` is used for error messages and for finding #include files.
+//---
 // Load a vertex and fragment shader from a block of memory. See `load_shader_from_file` for what
 // `layout_formats` means.
 //
 // The second return value is `true` if the shader was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Shader` will still be
 // possible to use, but setting it does nothing: drawing carries on with the shader already set.
-load_shader_from_bytes :: proc(
-	vertex_shader_bytes: []byte,
-	fragment_shader_bytes: []byte,
+load_shader_from_source :: proc(
+	source: []byte,
+	filename: string = "",
 	layout_formats: []Pixel_Format = {},
 ) -> (Shader, bool) #optional_ok
 
+load_shader_from_compiled_bytes :: proc(
+	bytes: []byte,
+	layout_formats: []Pixel_Format = {},
+) -> (Shader, bool) #optional_ok
+
+load_shader_from_compiled :: proc(
+	compiled: sc.Compiled_Shader,
+	layout_formats: []Pixel_Format = {},
+) -> (Shader, bool) #optional_ok
+
+read_backbuffer :: proc(pixels: []u8) -> bool
+
+// TODO-UPDATE-COMMENT: load_shader_from_bytes no longer exists. The loaders are load_shader_from_file, load_shader_from_source, load_shader_from_compiled and load_shader_from_compiled_bytes.
+//---
 // Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
 destroy_shader :: proc(shader: Shader)
 
@@ -1790,6 +1807,10 @@ SHADER_NONE :: Shader_Handle {}
 Shader_Constant_Location :: struct {
 	offset: int,
 	size: int,
+	rows: int,
+	columns: int,
+	array_len: int,
+	array_stride: int,
 }
 
 Shader :: struct {

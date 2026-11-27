@@ -1,22 +1,7 @@
 package karl2d
 
 import "base:runtime"
-
-Shader_Constant_Desc :: struct {
-	name: string,
-	size: int,
-	default_value: []u8,
-}
-
-Shader_Texture_Bindpoint_Desc :: struct {
-	name: string,
-}
-
-Shader_Desc :: struct {
-	constants: []Shader_Constant_Desc,
-	texture_bindpoints: []Shader_Texture_Bindpoint_Desc,
-	inputs: []Shader_Input,
-}
+import sc "shader_compiler"
 
 // Used by draw calls to keep track of what things changed since the previous draw call. The render
 // backend uses this to figure out what state it needs to set.
@@ -138,26 +123,23 @@ Render_Backend_Interface :: struct #all_or_none {
 	
 	destroy_render_target: proc(s: ^Render_Backend_State, render_texture: Render_Target_Handle),
 	
+	shader_target: sc.Target,
+
 	load_shader: proc(
 		s: ^Render_Backend_State,
-		vertex_shader_data: []byte,
-		pixel_shader_data: []byte,
-		desc_allocator: runtime.Allocator,
-		layout_formats: []Pixel_Format = {},
+		compiled: sc.Compiled_Shader,
+		inputs: []Shader_Input,
 	) -> (
 		handle: Shader_Handle,
-		desc: Shader_Desc,
 		ok: bool,
 	),
 
 	destroy_shader: proc(s: ^Render_Backend_State, shader: Shader_Handle),
+	read_backbuffer: proc(s: ^Render_Backend_State, pixels: []u8) -> bool,
 
 	resize_swapchain: proc(s: ^Render_Backend_State, width, height: int),
 	get_swapchain_width: proc(s: ^Render_Backend_State) -> int,
 	get_swapchain_height: proc(s: ^Render_Backend_State) -> int,
-
-	default_shader_vertex_source: proc() -> []byte,
-	default_shader_fragment_source: proc() -> []byte,
 
 	// The z range the backend's clip space uses, so the projection matrix can map the user's
 	// `depth_range_min`/`depth_range_max` onto it. Called before `init`, so this must return a
