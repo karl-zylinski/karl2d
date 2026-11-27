@@ -77,6 +77,10 @@ const_components :: proc(c: ^Compiler, e: Expr_Index, vals: ^[16]Const_Scalar, c
 	case .Unary:
 		start := count^
 
+		if ex.op != .Minus {
+			return false
+		}
+
 		if !const_components(c, ex.a, vals, count) {
 			return false
 		}
@@ -118,11 +122,12 @@ const_components :: proc(c: ^Compiler, e: Expr_Index, vals: ^[16]Const_Scalar, c
 			}
 
 			as_float := a.scalar == .Float ? a.fval : f64(a.ival)
+			as_int := a.scalar == .Float ? i64(a.fval) : a.ival
 
 			#partial switch ty.scalar {
 			case .Float: args[i] = { .Float, 0, f64(f32(as_float)) }
-			case .Int: args[i] = { .Int, i64(i32(as_float)), 0 }
-			case .Uint: args[i] = { .Uint, i64(u32(as_float)), 0 }
+			case .Int: args[i] = { .Int, i64(i32(as_int)), 0 }
+			case .Uint: args[i] = { .Uint, i64(u32(as_int)), 0 }
 			case .Bool: args[i] = { .Bool, as_float != 0 ? 1 : 0, 0 }
 			}
 		}
@@ -312,7 +317,7 @@ serialize_compiled_shader :: proc(c: ^Compiler, code: [Target]Target_Code, alloc
 
 		if shape.kind == .Array {
 			array_len = int(shape.len)
-			array_stride = size / array_len
+			array_stride = type_array_stride(c, v.type)
 			shape = c.types[shape.elem]
 		}
 

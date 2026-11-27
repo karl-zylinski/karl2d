@@ -58,7 +58,7 @@ bool run_cell(int cell) {
 	}
 
 	if (cell == 3) {
-		ivec2 a = ivec2(12, 10 + z);
+		ivec2 a = ivec2(12 + z, 10 + z);
 		return (a & ivec2(10)) == ivec2(8, 10) && (a | 1) == ivec2(13, 11) && (a ^ ivec2(5, 5)) == ivec2(9, 15) && ~ivec2(z, -1) == ivec2(-1, 0) && (3 & a) == ivec2(0, 2);
 	}
 
@@ -75,7 +75,7 @@ bool run_cell(int cell) {
 		uvec2 m = uvec2(0u + zu) - 1u;
 		bool ok = a / 3u == uvec3(3u, 6u, 10u) && a % 7u == uvec3(3u, 6u, 2u) && m == uvec2(0xFFFFFFFFu);
 		ok = ok && (uvec2(0xF0F0F0F0u + zu) ^ uvec2(0xFFFFFFFFu)) == uvec2(0x0F0F0F0Fu) && ~uvec2(zu) == uvec2(4294967295u);
-		ok = ok && (uvec2(0xFF00u, 0x0FF0u + zu) & uvec2(0x0FF0u)) == uvec2(0x0F00u, 0x0FF0u) && (uvec2(1u, 2u + zu) | 4u) == uvec2(5u, 6u);
+		ok = ok && (uvec2(0xFF00u + zu, 0x0FF0u + zu) & uvec2(0x0FF0u)) == uvec2(0x0F00u, 0x0FF0u) && (uvec2(1u + zu, 2u + zu) | 4u) == uvec2(5u, 6u);
 		return ok;
 	}
 

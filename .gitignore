@@ -3,6 +3,7 @@ bin/
 *.exe
 *.rdi
 *.bin
+*.k2shader
 tests/*/build
 tests/*/bin
 examples/*/build

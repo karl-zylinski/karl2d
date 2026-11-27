@@ -31,7 +31,7 @@ smooth out float v_scalar;
 flat out int v_flat_id;
 flat out ivec2 v_ivec;
 out uvec2 v_uvec;
-noperspective out vec2 v_noperspective;
+out vec2 v_noperspective;
 flat out vec3 v_flat_vec;
 out float v_unused;
 out vec4 v_clip;
@@ -63,7 +63,7 @@ smooth in float v_scalar;
 flat in int v_flat_id;
 in ivec2 v_ivec;
 flat in uvec2 v_uvec;
-noperspective in vec2 v_noperspective;
+in vec2 v_noperspective;
 flat in vec3 v_flat_vec;
 in vec4 v_clip;
 

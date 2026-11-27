@@ -16,7 +16,10 @@ spv_is_addressable :: proc(g: ^Spv, e: Expr_Index) -> bool {
 	case .Var:
 		return true
 
-	case .Index, .Field, .Swizzle:
+	case .Index:
+		return g.c.exprs[ex.a].kind != .Swizzle && spv_is_addressable(g, ex.a)
+
+	case .Field, .Swizzle:
 		return spv_is_addressable(g, ex.a)
 	}
 
@@ -100,14 +103,8 @@ spv_swizzle :: proc(g: ^Spv, value: u32, scalar: Scalar, count: int, swizzle: [4
 		return spv_value(g, 81, spv_type(g, type_vec(scalar, 1)), value, u32(swizzle[0]))
 	}
 
-	type := spv_type(g, type_vec(scalar, count))
-
-	switch count {
-	case 2: return spv_value(g, 79, type, value, value, u32(swizzle[0]), u32(swizzle[1]))
-	case 3: return spv_value(g, 79, type, value, value, u32(swizzle[0]), u32(swizzle[1]), u32(swizzle[2]))
-	}
-
-	return spv_value(g, 79, type, value, value, u32(swizzle[0]), u32(swizzle[1]), u32(swizzle[2]), u32(swizzle[3]))
+	operands := [6]u32 { value, value, u32(swizzle[0]), u32(swizzle[1]), u32(swizzle[2]), u32(swizzle[3]) }
+	return spv_value(g, 79, spv_type(g, type_vec(scalar, count)), ..operands[:2 + count])
 }
 
 spv_load :: proc(g: ^Spv, lv: Spv_Lvalue) -> u32 {
@@ -155,15 +152,8 @@ spv_store :: proc(g: ^Spv, lv: Spv_Lvalue, value: u32) {
 		mapping[lv.swizzle[i]] = u32(int(ty.size) + i)
 	}
 
-	merged: u32
-
-	switch ty.size {
-	case 2: merged = spv_value(g, 79, type, old, value, mapping[0], mapping[1])
-	case 3: merged = spv_value(g, 79, type, old, value, mapping[0], mapping[1], mapping[2])
-	case 4: merged = spv_value(g, 79, type, old, value, mapping[0], mapping[1], mapping[2], mapping[3])
-	}
-
-	spv_code(g, 62, lv.ptr, merged)
+	operands := [6]u32 { old, value, mapping[0], mapping[1], mapping[2], mapping[3] }
+	spv_code(g, 62, lv.ptr, spv_value(g, 79, type, ..operands[:2 + int(ty.size)]))
 }
 
 spv_splat :: proc(g: ^Spv, value: u32, from: Type_Index, to: Type_Index) -> u32 {
@@ -173,25 +163,8 @@ spv_splat :: proc(g: ^Spv, value: u32, from: Type_Index, to: Type_Index) -> u32 
 		return value
 	}
 
-	type := spv_type(g, to)
-
-	switch c.types[to].size {
-	case 2: return spv_value(g, 80, type, value, value)
-	case 3: return spv_value(g, 80, type, value, value, value)
-	}
-
-	return spv_value(g, 80, type, value, value, value, value)
-}
-
-spv_construct :: proc(g: ^Spv, type: Type_Index, parts: []u32) -> u32 {
-	if g.terminated {
-		spv_label(g, spv_id(g))
-	}
-
-	id := spv_id(g)
-	append(&g.body, u32(len(parts) + 3) << 16 | 80, spv_type(g, type), id)
-	append(&g.body, ..parts)
-	return id
+	parts := [4]u32 { value, value, value, value }
+	return spv_value(g, 80, spv_type(g, to), ..parts[:c.types[to].size])
 }
 
 spv_matrix_columns :: proc(g: ^Spv, op: u32, t: Type_Index, ta: Type_Index, tb: Type_Index, a: u32, b: u32) -> u32 {
@@ -220,7 +193,7 @@ spv_matrix_columns :: proc(g: ^Spv, op: u32, t: Type_Index, ta: Type_Index, tb: 
 		columns[i] = spv_value(g, op, column, ca, cb)
 	}
 
-	return spv_construct(g, t, columns[:n])
+	return spv_value(g, 80, spv_type(g, t), ..columns[:n])
 }
 
 spv_equal :: proc(g: ^Spv, t: Type_Index, a: u32, b: u32) -> u32 {
@@ -279,6 +252,30 @@ spv_equal :: proc(g: ^Spv, t: Type_Index, a: u32, b: u32) -> u32 {
 	return spv_const(g, T_BOOL, 1)
 }
 
+spv_compare :: proc(g: ^Spv, op: Token_Kind, scalar: Scalar, type: u32, a: u32, b: u32) -> u32 {
+	codes: [6]u32
+
+	switch scalar {
+	case .Float: codes = { 184, 186, 188, 190, 180, 183 }
+	case .Int: codes = { 177, 173, 179, 175, 170, 171 }
+	case .Uint: codes = { 176, 172, 178, 174, 170, 171 }
+	case .Bool: codes = { 0, 0, 0, 0, 164, 165 }
+	case .None:
+	}
+
+	index := 0
+
+	#partial switch op {
+	case .Gt: index = 1
+	case .Le: index = 2
+	case .Ge: index = 3
+	case .Eq_Eq: index = 4
+	case .Not_Eq: index = 5
+	}
+
+	return spv_value(g, codes[index], type, a, b)
+}
+
 spv_binop :: proc(g: ^Spv, op: Token_Kind, t: Type_Index, ta: Type_Index, tb: Type_Index, a: u32, b: u32) -> u32 {
 	c := g.c
 	result := c.types[t]
@@ -297,37 +294,7 @@ spv_binop :: proc(g: ^Spv, op: Token_Kind, t: Type_Index, ta: Type_Index, tb: Ty
 		return spv_value(g, 165, type, a, b)
 
 	case .Lt, .Gt, .Le, .Ge:
-		code: u32
-
-		switch at.scalar {
-		case .Float:
-			#partial switch op {
-			case .Lt: code = 184
-			case .Gt: code = 186
-			case .Le: code = 188
-			case .Ge: code = 190
-			}
-
-		case .Int:
-			#partial switch op {
-			case .Lt: code = 177
-			case .Gt: code = 173
-			case .Le: code = 179
-			case .Ge: code = 175
-			}
-
-		case .Uint:
-			#partial switch op {
-			case .Lt: code = 176
-			case .Gt: code = 172
-			case .Le: code = 178
-			case .Ge: code = 174
-			}
-
-		case .Bool, .None:
-		}
-
-		return spv_value(g, code, type, a, b)
+		return spv_compare(g, op, at.scalar, type, a, b)
 
 	case .Shl, .Shr:
 		code := u32(196)
@@ -487,7 +454,7 @@ spv_construct_expr :: proc(g: ^Spv, ex: Expr) -> u32 {
 			parts[a_idx] = spv_expr(g, a)
 		}
 
-		return spv_construct(g, ex.type, parts)
+		return spv_value(g, 80, spv_type(g, ex.type), ..parts)
 	}
 
 	if len(args) == 1 && (ty.kind == .Scalar || ty.kind == .Vector) && first.kind == ty.kind && first.size == ty.size {
@@ -536,7 +503,7 @@ spv_construct_expr :: proc(g: ^Spv, ex: Expr) -> u32 {
 	}
 
 	if ty.kind == .Vector {
-		return spv_construct(g, ex.type, scalars[:int(ty.size)])
+		return spv_value(g, 80, spv_type(g, ex.type), ..scalars[:int(ty.size)])
 	}
 
 	n := int(ty.size)
@@ -544,10 +511,10 @@ spv_construct_expr :: proc(g: ^Spv, ex: Expr) -> u32 {
 	column_type := type_vec(.Float, n)
 
 	for col in 0..<n {
-		columns[col] = spv_construct(g, column_type, scalars[col * n:col * n + n])
+		columns[col] = spv_value(g, 80, spv_type(g, column_type), ..scalars[col * n:col * n + n])
 	}
 
-	return spv_construct(g, ex.type, columns[:n])
+	return spv_value(g, 80, spv_type(g, ex.type), ..columns[:n])
 }
 
 spv_sampler_ptr :: proc(g: ^Spv, e: Expr_Index) -> u32 {
@@ -562,24 +529,21 @@ spv_sampler_ptr :: proc(g: ^Spv, e: Expr_Index) -> u32 {
 }
 
 spv_ext :: proc(g: ^Spv, type: u32, inst: u32, args: ..u32) -> u32 {
-	switch len(args) {
-	case 1: return spv_value(g, 12, type, g.ext_glsl, inst, args[0])
-	case 2: return spv_value(g, 12, type, g.ext_glsl, inst, args[0], args[1])
-	}
-
-	return spv_value(g, 12, type, g.ext_glsl, inst, args[0], args[1], args[2])
+	operands := [5]u32 { g.ext_glsl, inst, 0, 0, 0 }
+	copy(operands[2:], args)
+	return spv_value(g, 12, type, ..operands[:2 + len(args)])
 }
 
 spv_builtin :: proc(g: ^Spv, ex: Expr) -> u32 {
 	c := g.c
 	arg_exprs := c.expr_args[ex.args_start:ex.args_start + ex.args_count]
 	type := spv_type(g, ex.type)
-	a: [3]u32
-	t: [3]Type_Index
+	a: [4]u32
+	t: [4]Type_Index
 	first := 0
 
 	#partial switch ex.builtin {
-	case .Texture, .Texture_Lod, .Texel_Fetch, .Texture_Size:
+	case .Texture, .Texture_Lod, .Texture_Grad, .Texel_Fetch, .Texture_Size:
 		first = 1
 	}
 
@@ -604,7 +568,25 @@ spv_builtin :: proc(g: ^Spv, ex: Expr) -> u32 {
 	case .Sinh: simple = 19
 	case .Cosh: simple = 20
 	case .Tanh: simple = 21
-	case .Pow: simple = 26
+	case .Pow:
+		exponent, exponent_ok := opt_splat_value(c, arg_exprs[1])
+
+		if exponent_ok && (exponent == 2 || exponent == 3 || exponent == 4) {
+			r := spv_value(g, 133, type, a[0], a[0])
+
+			if exponent == 3 {
+				r = spv_value(g, 133, type, r, a[0])
+			}
+
+			if exponent == 4 {
+				r = spv_value(g, 133, type, r, r)
+			}
+
+			return r
+		}
+
+		simple = 26
+
 	case .Exp: simple = 27
 	case .Log: simple = 28
 	case .Exp2: simple = 29
@@ -672,46 +654,7 @@ spv_builtin :: proc(g: ^Spv, ex: Expr) -> u32 {
 		return spv_value(g, 84, type, a[0])
 
 	case .Less_Than, .Less_Than_Equal, .Greater_Than, .Greater_Than_Equal, .Equal, .Not_Equal:
-		code: u32
-
-		switch scalar {
-		case .Float:
-			#partial switch ex.builtin {
-			case .Less_Than: code = 184
-			case .Less_Than_Equal: code = 188
-			case .Greater_Than: code = 186
-			case .Greater_Than_Equal: code = 190
-			case .Equal: code = 180
-			case .Not_Equal: code = 183
-			}
-
-		case .Int:
-			#partial switch ex.builtin {
-			case .Less_Than: code = 177
-			case .Less_Than_Equal: code = 179
-			case .Greater_Than: code = 173
-			case .Greater_Than_Equal: code = 175
-			case .Equal: code = 170
-			case .Not_Equal: code = 171
-			}
-
-		case .Uint:
-			#partial switch ex.builtin {
-			case .Less_Than: code = 176
-			case .Less_Than_Equal: code = 178
-			case .Greater_Than: code = 172
-			case .Greater_Than_Equal: code = 174
-			case .Equal: code = 170
-			case .Not_Equal: code = 171
-			}
-
-		case .Bool:
-			code = ex.builtin == .Equal ? 164 : 165
-
-		case .None:
-		}
-
-		return spv_value(g, code, type, a[0], a[1])
+		return spv_compare(g, builtin_compare_op(ex.builtin), scalar, type, a[0], a[1])
 
 	case .Any:
 		return spv_value(g, 154, type, a[0])
@@ -731,7 +674,7 @@ spv_builtin :: proc(g: ^Spv, ex: Expr) -> u32 {
 	case .Fwidth:
 		return spv_value(g, 209, type, a[0])
 
-	case .Texture, .Texture_Lod, .Texel_Fetch, .Texture_Size:
+	case .Texture, .Texture_Lod, .Texture_Grad, .Texel_Fetch, .Texture_Size:
 		sampled := spv_value(g, 61, spv_type(g, T_SAMPLER_2D), spv_sampler_ptr(g, arg_exprs[0]))
 
 		#partial switch ex.builtin {
@@ -748,6 +691,9 @@ spv_builtin :: proc(g: ^Spv, ex: Expr) -> u32 {
 
 		case .Texture_Lod:
 			return spv_value(g, 88, type, sampled, a[1], 2, a[2])
+
+		case .Texture_Grad:
+			return spv_value(g, 88, type, sampled, a[1], 4, a[2], a[3])
 
 		case .Texel_Fetch:
 			image := spv_value(g, 100, g.image_type, sampled)
@@ -908,19 +854,19 @@ spv_expr :: proc(g: ^Spv, e: Expr_Index) -> u32 {
 	case .Call:
 		f := c.funcs[ex.func]
 		args := c.expr_args[ex.args_start:ex.args_start + ex.args_count]
-		words := make([]u32, len(args) + 3, c.allocator)
+		words := make([]u32, len(args) + 1, c.allocator)
 		lvalues := make([]Spv_Lvalue, len(args), c.allocator)
 
 		for arg, arg_idx in args {
 			param := c.vars[f.params[arg_idx]]
 
 			if param.type == T_SAMPLER_2D {
-				words[arg_idx + 3] = spv_sampler_ptr(g, arg)
+				words[arg_idx + 1] = spv_sampler_ptr(g, arg)
 				continue
 			}
 
 			if param.param_qualifier == .In {
-				words[arg_idx + 3] = spv_expr(g, arg)
+				words[arg_idx + 1] = spv_expr(g, arg)
 				continue
 			}
 
@@ -931,19 +877,11 @@ spv_expr :: proc(g: ^Spv, e: Expr_Index) -> u32 {
 				spv_code(g, 62, temp, spv_load(g, lvalues[arg_idx]))
 			}
 
-			words[arg_idx + 3] = temp
+			words[arg_idx + 1] = temp
 		}
 
-		if g.terminated {
-			spv_label(g, spv_id(g))
-		}
-
-		result := spv_id(g)
-		words[0] = type
-		words[1] = result
-		words[2] = g.func_ids[ex.func]
-		append(&g.body, u32(len(words) + 1) << 16 | 57)
-		append(&g.body, ..words)
+		words[0] = g.func_ids[ex.func]
+		result := spv_value(g, 57, type, ..words)
 
 		for arg_idx in 0..<len(args) {
 			param := c.vars[f.params[arg_idx]]
@@ -952,7 +890,7 @@ spv_expr :: proc(g: ^Spv, e: Expr_Index) -> u32 {
 				continue
 			}
 
-			value := spv_value(g, 61, spv_type(g, param.type), words[arg_idx + 3])
+			value := spv_value(g, 61, spv_type(g, param.type), words[arg_idx + 1])
 			spv_store(g, lvalues[arg_idx], value)
 		}
 

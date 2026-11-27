@@ -1,5 +1,7 @@
 package karl2d_shader_compiler
 
+MAX_TEXTURES :: 16
+
 Qualifiers :: struct {
 	is_const: bool,
 	is_uniform: bool,
@@ -62,7 +64,9 @@ parse_qualifiers :: proc(c: ^Compiler) -> Qualifiers {
 		case .Kw_Inout: q.is_inout = true
 		case .Kw_Flat: q.interpolation = .Flat
 		case .Kw_Smooth: q.interpolation = .Smooth
-		case .Kw_Noperspective: q.interpolation = .Noperspective
+		case .Kw_Noperspective:
+			compile_error(c, tok.file, tok.line, "'noperspective' is not supported, because GLSL ES (web and Android) does not have it. Remove it: when gl_Position.w is 1, as it is in 2D, it makes no difference. With a perspective projection, multiply the value by gl_Position.w in the vertex stage and by gl_FragCoord.w in the fragment stage")
+			return q
 		case .Kw_Highp, .Kw_Mediump, .Kw_Lowp:
 
 		case .Kw_Layout:
@@ -124,7 +128,7 @@ parse_type :: proc(c: ^Compiler) -> Type_Index {
 		return T_NONE
 	}
 
-	type := lookup_type(c, tok.text)
+	type := lookup_type(c, tok)
 
 	if type == T_NONE {
 		if is_unsupported_type_name(tok.text) {
@@ -161,6 +165,10 @@ is_unsupported_type_name :: proc(name: string) -> bool {
 
 is_reserved_name :: proc(name: string) -> bool {
 	if len(name) >= 3 && name[:3] == "gl_" {
+		return true
+	}
+
+	if len(name) >= 7 && name[:7] == "karl2d_" {
 		return true
 	}
 
@@ -246,7 +254,7 @@ parse_struct :: proc(c: ^Compiler) {
 		return
 	}
 
-	if lookup_type(c, name.text) != T_NONE {
+	if lookup_type(c, name) != T_NONE {
 		compile_error(c, name.file, name.line, "The type '%s' is already declared", name.text)
 		return
 	}
@@ -308,8 +316,8 @@ parse_struct :: proc(c: ^Compiler) {
 		offset += field_size
 	}
 
-	append(&c.types, Type { kind = .Struct, name = name.text, fields = fields[:], stage = c.stage })
-	append(&c.decls, Decl { kind = .Struct, stage = c.stage, index = i32(len(c.types) - 1) })
+	append(&c.types, Type { kind = .Struct, name = name.text, fields = fields[:] })
+	append(&c.decls, Decl { kind = .Struct, index = i32(len(c.types) - 1) })
 }
 
 parse_global :: proc(c: ^Compiler) {
@@ -410,6 +418,11 @@ declare_global :: proc(c: ^Compiler, q: Qualifiers, type: Type_Index, name: Toke
 		v.kind = .Uniform
 		list := is_sampler ? &c.textures : &c.uniforms
 
+		if is_sampler && len(c.textures) >= MAX_TEXTURES {
+			compile_error(c, name.file, name.line, "Too many textures, a shader can use at most %d", MAX_TEXTURES)
+			return
+		}
+
 		if init != 0 && !is_const_expr(c, init) {
 			compile_error(c, name.file, name.line, "The default value of the uniform '%s' must be constant", name.text)
 			return
@@ -445,7 +458,7 @@ declare_global :: proc(c: ^Compiler, q: Qualifiers, type: Type_Index, name: Toke
 
 		if idx != 0 {
 			append(list, idx)
-			append(&c.decls, Decl { kind = .Var, stage = c.stage, index = i32(idx) })
+			append(&c.decls, Decl { kind = .Var, index = i32(idx) })
 		}
 
 		return
@@ -563,7 +576,7 @@ declare_global :: proc(c: ^Compiler, q: Qualifiers, type: Type_Index, name: Toke
 	idx := declare_var(c, v)
 
 	if idx != 0 {
-		append(&c.decls, Decl { kind = .Var, stage = c.stage, index = i32(idx) })
+		append(&c.decls, Decl { kind = .Var, index = i32(idx) })
 	}
 }
 
@@ -603,7 +616,7 @@ is_const_expr :: proc(c: ^Compiler, e: Expr_Index) -> bool {
 	case .Construct, .Builtin_Call:
 		if ex.kind == .Builtin_Call {
 			#partial switch ex.builtin {
-			case .Texture, .Texture_Lod, .Texel_Fetch, .Texture_Size, .DFdx, .DFdy, .Fwidth:
+			case .Texture, .Texture_Lod, .Texture_Grad, .Texel_Fetch, .Texture_Size, .DFdx, .DFdy, .Fwidth:
 				return false
 			}
 		}
@@ -784,7 +797,7 @@ parse_function :: proc(c: ^Compiler, q: Qualifiers, return_type: Type_Index, nam
 	c.cur_func = 0
 	c.funcs[func_idx].body = body
 	pop_scope(c)
-	append(&c.decls, Decl { kind = .Func, stage = c.stage, index = i32(func_idx) })
+	append(&c.decls, Decl { kind = .Func, index = i32(func_idx) })
 }
 
 parse_block :: proc(c: ^Compiler, new_scope: bool) -> Stmt_Index {
@@ -838,7 +851,7 @@ is_declaration_start :: proc(c: ^Compiler) -> bool {
 		return true
 
 	case .Ident:
-		if lookup_type(c, tok.text) == T_NONE {
+		if lookup_type(c, tok) == T_NONE {
 			return false
 		}
 
@@ -1083,7 +1096,7 @@ parse_statement :: proc(c: ^Compiler) -> Stmt_Index {
 	case .Kw_Break, .Kw_Continue:
 		advance(c)
 
-		if c.loop_depth == 0 {
+		if c.loop_depth == 0 && (tok.kind == .Kw_Continue || c.switch_depth == 0) {
 			compile_error(c, tok.file, tok.line, "'%s' can only be used inside a loop", tok.text)
 			return 0
 		}
@@ -1097,8 +1110,110 @@ parse_statement :: proc(c: ^Compiler) -> Stmt_Index {
 		mark_fragment_only(c, tok)
 		return new_stmt(c, Stmt { kind = .Discard, file = tok.file, line = tok.line })
 
-	case .Kw_Switch, .Kw_Case, .Kw_Default:
-		compile_error(c, tok.file, tok.line, "'switch' is not supported, use 'if' instead")
+	case .Kw_Switch:
+		advance(c)
+		expect(c, .LParen, "'('")
+		selector := parse_expr(c)
+		expect(c, .RParen, "')'")
+		expect(c, .LBrace, "'{'")
+
+		if c.failed {
+			return 0
+		}
+
+		selector_type := c.exprs[selector].type
+
+		if selector_type != T_INT && selector_type != T_UINT {
+			compile_error(c, tok.file, tok.line, "A switch needs an int but got '%s'", type_name(c, selector_type))
+			return 0
+		}
+
+		push_scope(c)
+		c.switch_depth += 1
+		first := Stmt_Index(0)
+		last := Stmt_Index(0)
+		values := make([dynamic]i64, 0, 8, c.allocator)
+		has_default := false
+
+		for peek(c) != .RBrace && peek(c) != .EOF && !c.failed {
+			label := c.tokens[c.tok]
+			s: Stmt_Index
+
+			if label.kind == .Kw_Case {
+				advance(c)
+				value := parse_ternary(c)
+				expect(c, .Colon, "':'")
+
+				if c.failed {
+					break
+				}
+
+				if c.exprs[value].kind != .Literal || !can_convert(c, c.exprs[value].type, selector_type) {
+					compile_error(c, label.file, label.line, "A case needs a constant of the same type as the switch")
+					break
+				}
+
+				for v in values {
+					if v == c.exprs[value].ival {
+						compile_error(c, label.file, label.line, "The case %d appears twice", v)
+					}
+				}
+
+				append(&values, c.exprs[value].ival)
+				s = new_stmt(c, Stmt { kind = .Case, expr = make_cast(c, value, selector_type), file = label.file, line = label.line })
+			} else if label.kind == .Kw_Default {
+				advance(c)
+				expect(c, .Colon, "':'")
+
+				if has_default {
+					compile_error(c, label.file, label.line, "The switch already has a default")
+				}
+
+				has_default = true
+				s = new_stmt(c, Stmt { kind = .Default, file = label.file, line = label.line })
+			} else {
+				if first == 0 {
+					compile_error(c, label.file, label.line, "A switch must start with 'case' or 'default'")
+					break
+				}
+
+				s = parse_statement(c)
+			}
+
+			if c.failed || s == 0 {
+				continue
+			}
+
+			if first == 0 {
+				first = s
+			} else {
+				c.stmts[last].next = s
+			}
+
+			last = s
+
+			for c.stmts[last].next != 0 {
+				last = c.stmts[last].next
+			}
+		}
+
+		close := expect(c, .RBrace, "'}'")
+		c.switch_depth -= 1
+		pop_scope(c)
+
+		if c.failed {
+			return 0
+		}
+
+		if last != 0 && (c.stmts[last].kind == .Case || c.stmts[last].kind == .Default) {
+			compile_error(c, close.file, close.line, "The last case of the switch has no statements. Add a 'break;'")
+			return 0
+		}
+
+		return new_stmt(c, Stmt { kind = .Switch, expr = selector, first = first, file = tok.file, line = tok.line })
+
+	case .Kw_Case, .Kw_Default:
+		compile_error(c, tok.file, tok.line, "'%s' can only be used inside a switch", tok.text)
 		return 0
 
 	case .Kw_Struct:
@@ -1235,6 +1350,19 @@ finish_program :: proc(c: ^Compiler) {
 	if c.frag_output == 0 {
 		compile_error(c, 0, last.line, "The fragment stage has no output. Declare one such as 'out vec4 final_color;'")
 		return
+	}
+
+	if c.uses_frag_coord_flip {
+		append(&c.vars, Var {
+			name = FRAG_COORD_FLIP_NAME,
+			type = T_VEC2,
+			kind = .Uniform,
+			stage = .Shared,
+			used = { .Vertex, .Fragment },
+			location = -1,
+		})
+
+		append(&c.uniforms, Var_Index(len(c.vars) - 1))
 	}
 
 	offset := 0

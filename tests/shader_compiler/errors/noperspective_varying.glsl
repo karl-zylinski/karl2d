@@ -1,8 +1,8 @@
-#define SCALE 2.0
-
 uniform mat4 view_projection;
 uniform sampler2D tex;
 uniform vec4 tint = vec4(1.0);
+
+const float strength = 0.5;
 
 #vertex
 
@@ -10,7 +10,7 @@ in vec3 position;
 in vec2 texcoord;
 in vec4 color;
 
-out vec2 uv;
+noperspective out vec2 uv;
 
 void main() {
 	uv = texcoord;
@@ -24,5 +24,6 @@ in vec2 uv;
 out vec4 final_color;
 
 void main() {
-	final_color = texture(tex, uv * SCALE);
+	strength = 1.0;
+	final_color = texture(tex, uv) * strength;
 }

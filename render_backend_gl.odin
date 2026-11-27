@@ -802,14 +802,14 @@ gl_load_shader :: proc(
 	vs_shader, vs_shader_ok := gl_compile_shader_from_source(code.vertex, gl.Shader_Type.VERTEX_SHADER, err[:], &err_msg)
 
 	if !vs_shader_ok  {
-		log.error(err_msg)
+		log.errorf("Vertex shader failed to compile: %s", err_msg)
 		return
 	}
 	
 	fs_shader, fs_shader_ok := gl_compile_shader_from_source(code.fragment, gl.Shader_Type.FRAGMENT_SHADER, err[:], &err_msg)
 
 	if !fs_shader_ok {
-		log.error(err_msg)
+		log.errorf("Fragment shader failed to compile: %s", err_msg)
 		gl.DeleteShader(vs_shader)
 		return
 	}
@@ -819,7 +819,7 @@ gl_load_shader :: proc(
 	gl.DeleteShader(fs_shader)
 
 	if !program_ok {
-		log.error(err_msg)
+		log.errorf("Shader failed to link: %s", err_msg)
 		return
 	}
 

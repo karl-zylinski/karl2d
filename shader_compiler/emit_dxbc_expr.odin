@@ -1,35 +1,7 @@
 package karl2d_shader_compiler
 
-dx_pure :: proc(c: ^Compiler, e: Expr_Index) -> bool {
-	if e == 0 {
-		return true
-	}
-
-	ex := c.exprs[e]
-
-	if ex.kind == .Assign || ex.kind == .Call {
-		return false
-	}
-
-	if ex.kind == .Unary && (ex.op == .Inc || ex.op == .Dec) {
-		return false
-	}
-
-	if !dx_pure(c, ex.a) || !dx_pure(c, ex.b) || !dx_pure(c, ex.c) {
-		return false
-	}
-
-	for i in 0..<ex.args_count {
-		if !dx_pure(c, c.expr_args[ex.args_start + i]) {
-			return false
-		}
-	}
-
-	return true
-}
-
 dx_keep :: proc(g: ^Dx, v: Dx_Value, later: Expr_Index) -> Dx_Value {
-	if v.space == .Imm || dx_pure(g.c, later) {
+	if v.space == .Imm || expr_is_pure(g.c, later) {
 		return v
 	}
 
@@ -38,26 +10,56 @@ dx_keep :: proc(g: ^Dx, v: Dx_Value, later: Expr_Index) -> Dx_Value {
 	return t
 }
 
-dx_index_register :: proc(g: ^Dx, index: Dx_Value, scale: u32, base: Dx_Value) -> (reg: u32, comp: u8) {
+dx_imul :: proc(g: ^Dx, d: Dx_Value, a: Dx_Value, b: Dx_Value) {
+	start := len(g.code)
+	append(&g.code, DX_IMUL, 0x0000d000)
+	dx_dst(g, d)
+	dx_src(g, a, d)
+	dx_src(g, b, d)
+	dx_end(g, start)
+}
+
+dx_compare :: proc(g: ^Dx, op: Token_Kind, scalar: Scalar, t: Type_Index, a: Dx_Value, b: Dx_Value) -> Dx_Value {
+	if op == .Eq_Eq {
+		return dx_new(g, scalar == .Float ? DX_EQ : DX_IEQ, t, a, b)
+	}
+
+	if op == .Not_Eq {
+		return dx_new(g, scalar == .Float ? DX_NE : DX_INE, t, a, b)
+	}
+
+	less := op == .Lt || op == .Gt
+	code: u32
+
+	switch scalar {
+	case .Float: code = less ? DX_LT : DX_GE
+	case .Int: code = less ? DX_ILT : DX_IGE
+	case .Uint: code = less ? DX_ULT : DX_UGE
+	case .Bool, .None:
+	}
+
+	if op == .Gt || op == .Le {
+		return dx_new(g, code, t, b, a)
+	}
+
+	return dx_new(g, code, t, a, b)
+}
+
+dx_index_register :: proc(g: ^Dx, index: Dx_Value, scale: u32, base: Dx_Value) -> u32 {
 	t := dx_temp(g, T_INT)
 
 	if scale == 1 {
 		dx_ins(g, DX_MOV, t, index)
 	} else {
-		start := len(g.code)
-		append(&g.code, DX_IMUL, 0x0000d000)
-		dx_dst(g, t)
-		dx_src(g, index, t)
-		dx_src(g, dx_imm_u(scale), t)
-		dx_end(g, start)
+		dx_imul(g, t, index, dx_imm_u(scale))
 	}
 
 	if base.has_dyn {
-		previous := Dx_Value { space = .Temp, reg = base.dyn_reg, count = 1, swizzle = { base.dyn_comp, 0, 0, 0 }, type = T_INT }
+		previous := Dx_Value { space = .Temp, reg = base.dyn_reg, count = 1, swizzle = { 0, 0, 0, 0 }, type = T_INT }
 		dx_ins(g, DX_IADD, t, t, previous)
 	}
 
-	return t.reg, 0
+	return t.reg
 }
 
 dx_place :: proc(g: ^Dx, e: Expr_Index) -> Dx_Value {
@@ -96,22 +98,19 @@ dx_place :: proc(g: ^Dx, e: Expr_Index) -> Dx_Value {
 				return dx_swizzle(g, base, { u8(index_expr.ival) })
 			}
 
-			index := dx_keep(g, dx_expr(g, ex.b), 0)
+			index := dx_expr(g, ex.b)
 			t := dx_temp(g, T_INT)
 			dx_ins(g, DX_MOV, t, index)
 			r := base
 			r.dyn_component = true
 			r.component_reg = t.reg
-			r.component_comp = 0
 			return r
 		}
 
 		stride := 16
 
 		if base_type.kind == .Array {
-			elem_size, elem_align := type_std140_layout(c, base_type.elem)
-			elem_align = max(elem_align, 16)
-			stride = (elem_size + elem_align - 1) / elem_align * elem_align
+			stride = type_array_stride(c, c.exprs[ex.a].type)
 		}
 
 		if index_expr.kind == .Literal {
@@ -126,7 +125,7 @@ dx_place :: proc(g: ^Dx, e: Expr_Index) -> Dx_Value {
 
 		index := dx_expr(g, ex.b)
 		r := dx_sub(g, base, 0, ex.type)
-		r.dyn_reg, r.dyn_comp = dx_index_register(g, index, u32(stride / 16), base)
+		r.dyn_reg = dx_index_register(g, index, u32(stride / 16), base)
 		r.has_dyn = true
 		return r
 	}
@@ -182,7 +181,7 @@ dx_convert :: proc(g: ^Dx, v: Dx_Value, from: Type_Index, to: Type_Index) -> Dx_
 	return r
 }
 
-dx_column :: proc(g: ^Dx, m: Dx_Value, k: int, n: int) -> Dx_Value {
+dx_column :: proc(m: Dx_Value, k: int, n: int) -> Dx_Value {
 	return dx_reg_at(m, u32(k), n, type_vec(.Float, n))
 }
 
@@ -236,7 +235,7 @@ dx_matrix_times_vector :: proc(g: ^Dx, m: Dx_Value, v: Dx_Value, n: int) -> Dx_V
 	result := dx_temp(g, t)
 
 	for k in 0..<n {
-		column := dx_column(g, m, k, n)
+		column := dx_column(m, k, n)
 		comp := dx_swizzle(g, v, { u8(k) })
 
 		if k == 0 {
@@ -260,8 +259,8 @@ dx_dot :: proc(g: ^Dx, a: Dx_Value, b: Dx_Value, n: int) -> Dx_Value {
 	start := len(g.code)
 	append(&g.code, u32(DX_DP2 + n - 2))
 	dx_dst(g, result)
-	dx_src_n(g, a, n)
-	dx_src_n(g, b, n)
+	dx_src(g, a, dx_positional(n))
+	dx_src(g, b, dx_positional(n))
 	dx_end(g, start)
 	return result
 }
@@ -281,9 +280,7 @@ dx_equal :: proc(g: ^Dx, t: Type_Index, a: Dx_Value, b: Dx_Value) -> Dx_Value {
 		stride := 16
 
 		if ty.kind == .Array {
-			elem_size, elem_align := type_std140_layout(c, ty.elem)
-			elem_align = max(elem_align, 16)
-			stride = (elem_size + elem_align - 1) / elem_align * elem_align
+			stride = type_array_stride(c, t)
 		}
 
 		for i in 0..<count {
@@ -341,22 +338,7 @@ dx_binop :: proc(g: ^Dx, op: Token_Kind, t: Type_Index, ta: Type_Index, tb: Type
 		return dx_new(g, DX_XOR, T_BOOL, a, b)
 
 	case .Lt, .Gt, .Le, .Ge:
-		less := op == .Lt || op == .Gt
-		swap := op == .Gt || op == .Le
-		code: u32
-
-		switch at.scalar {
-		case .Float: code = less ? DX_LT : DX_GE
-		case .Int: code = less ? DX_ILT : DX_IGE
-		case .Uint: code = less ? DX_ULT : DX_UGE
-		case .Bool, .None:
-		}
-
-		if swap {
-			return dx_new(g, code, T_BOOL, b, a)
-		}
-
-		return dx_new(g, code, T_BOOL, a, b)
+		return dx_compare(g, op, at.scalar, T_BOOL, a, b)
 
 	case .Shl:
 		return dx_new(g, DX_ISHL, t, a, b)
@@ -380,17 +362,17 @@ dx_binop :: proc(g: ^Dx, op: Token_Kind, t: Type_Index, ta: Type_Index, tb: Type
 
 		if op == .Star && at.kind == .Matrix && bt.kind == .Matrix {
 			for k in 0..<n {
-				column := dx_matrix_times_vector(g, a, dx_column(g, b, k, n), n)
-				dx_ins(g, DX_MOV, dx_column(g, out, k, n), column)
+				column := dx_matrix_times_vector(g, a, dx_column(b, k, n), n)
+				dx_ins(g, DX_MOV, dx_column(out, k, n), column)
 			}
 
 			return out
 		}
 
 		for k in 0..<n {
-			ca := at.kind == .Matrix ? dx_column(g, a, k, n) : a
-			cb := bt.kind == .Matrix ? dx_column(g, b, k, n) : b
-			d := dx_column(g, out, k, n)
+			ca := at.kind == .Matrix ? dx_column(a, k, n) : a
+			cb := bt.kind == .Matrix ? dx_column(b, k, n) : b
+			d := dx_column(out, k, n)
 
 			#partial switch op {
 			case .Plus: dx_ins(g, DX_ADD, d, ca, cb)
@@ -412,7 +394,7 @@ dx_binop :: proc(g: ^Dx, op: Token_Kind, t: Type_Index, ta: Type_Index, tb: Type
 		out := dx_temp(g, t)
 
 		for k in 0..<n {
-			dx_ins(g, DX_MOV, dx_swizzle(g, out, { u8(k) }), dx_dot(g, a, dx_column(g, b, k, n), n))
+			dx_ins(g, DX_MOV, dx_swizzle(g, out, { u8(k) }), dx_dot(g, a, dx_column(b, k, n), n))
 		}
 
 		return out
@@ -422,27 +404,34 @@ dx_binop :: proc(g: ^Dx, op: Token_Kind, t: Type_Index, ta: Type_Index, tb: Type
 
 	#partial switch op {
 	case .Plus:
-		return dx_new(g, is_float ? DX_ADD : DX_IADD, t, a, b)
+		if is_float {
+			return dx_new_folded(g, DX_ADD, t, a, b)
+		}
+
+		return dx_new(g, DX_IADD, t, a, b)
 
 	case .Minus:
-		return dx_new(g, is_float ? DX_ADD : DX_IADD, t, a, dx_neg(g, b))
+		if is_float {
+			return dx_new_folded(g, DX_ADD, t, a, dx_neg(g, b))
+		}
+
+		return dx_new(g, DX_IADD, t, a, dx_neg(g, b))
 
 	case .Star:
 		if is_float {
-			return dx_new(g, DX_MUL, t, a, b)
+			return dx_new_folded(g, DX_MUL, t, a, b)
 		}
 
 		out := dx_temp(g, t)
-		start := len(g.code)
-		append(&g.code, DX_IMUL, 0x0000d000)
-		dx_dst(g, out)
-		dx_src(g, a, out)
-		dx_src(g, b, out)
-		dx_end(g, start)
+		dx_imul(g, out, a, b)
 		return out
 
 	case .Slash:
 		if is_float {
+			if inverse, ok := dx_reciprocal(b); ok {
+				return dx_new_folded(g, DX_MUL, t, a, inverse)
+			}
+
 			return dx_new(g, DX_DIV, t, a, b)
 		}
 
@@ -467,9 +456,7 @@ dx_construct :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 		stride := 16
 
 		if ty.kind == .Array {
-			elem_size, elem_align := type_std140_layout(c, ty.elem)
-			elem_align = max(elem_align, 16)
-			stride = (elem_size + elem_align - 1) / elem_align * elem_align
+			stride = type_array_stride(c, ex.type)
 		}
 
 		for a, a_idx in args {
@@ -487,6 +474,28 @@ dx_construct :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 		}
 
 		return out
+	}
+
+	if ty.kind == .Vector {
+		literals := true
+
+		for a in args {
+			if c.exprs[a].kind != .Literal {
+				literals = false
+				break
+			}
+		}
+
+		if literals && (len(args) == 1 || len(args) == int(ty.size)) {
+			imm := Dx_Value { space = .Imm, count = ty.size, swizzle = { 0, 1, 2, 3 }, type = ex.type }
+
+			for i in 0..<int(ty.size) {
+				literal := dx_expr(g, args[len(args) == 1 ? 0 : i])
+				imm.imm[i] = literal.imm[0]
+			}
+
+			return imm
+		}
 	}
 
 	if len(args) == 1 && (ty.kind == .Scalar || ty.kind == .Vector) && first.kind == ty.kind && first.size == ty.size {
@@ -557,7 +566,7 @@ dx_construct :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 		m := int(first.size)
 
 		for col in 0..<n {
-			d := dx_column(g, out, col, n)
+			d := dx_column(out, col, n)
 			identity := dx_imm4(0, 0, 0, 0, T_VEC4)
 			identity.imm[col] = transmute(u32)f32(1)
 			dx_ins(g, DX_MOV, d, identity)
@@ -565,7 +574,7 @@ dx_construct :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 			if col < m {
 				keep := min(n, m)
 				comps := [4]u8 { 0, 1, 2, 3 }
-				dx_ins(g, DX_MOV, dx_swizzle(g, d, comps[:keep]), dx_swizzle(g, dx_column(g, source, col, m), comps[:keep]))
+				dx_ins(g, DX_MOV, dx_swizzle(g, d, comps[:keep]), dx_swizzle(g, dx_column(source, col, m), comps[:keep]))
 			}
 		}
 
@@ -576,7 +585,7 @@ dx_construct :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 		value := dx_expr(g, args[0])
 
 		for col in 0..<n {
-			d := dx_column(g, out, col, n)
+			d := dx_column(out, col, n)
 			dx_ins(g, DX_MOV, d, dx_imm_f(0))
 			dx_ins(g, DX_MOV, dx_swizzle(g, d, { u8(col) }), value)
 		}
@@ -594,7 +603,7 @@ dx_construct :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 				break
 			}
 
-			d := dx_swizzle(g, dx_column(g, out, at / n, n), { u8(at % n) })
+			d := dx_swizzle(g, dx_column(out, at / n, n), { u8(at % n) })
 			dx_ins(g, DX_MOV, d, dx_swizzle(g, value, { u8(i) }))
 			at += 1
 		}
@@ -604,7 +613,7 @@ dx_construct :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 }
 
 dx_element :: proc(g: ^Dx, m: Dx_Value, col: int, row: int, n: int) -> Dx_Value {
-	return dx_swizzle(g, dx_column(g, m, col, n), { u8(row) })
+	return dx_swizzle(g, dx_column(m, col, n), { u8(row) })
 }
 
 dx_determinant :: proc(g: ^Dx, m: Dx_Value, n: int, rows: []int, cols: []int) -> Dx_Value {
@@ -761,11 +770,11 @@ dx_sample :: proc(g: ^Dx, opcode: u32, texture: Dx_Value, coord: Dx_Value, extra
 	start := len(g.code)
 	append(&g.code, opcode)
 	dx_dst(g, out)
-	dx_src_n(g, coord, 2)
+	dx_src(g, coord, dx_positional(2))
 	append(&g.code, 0x00107e46, texture.reg, 0x00106000, texture.reg)
 
 	if has_extra {
-		dx_src_n(g, extra, 1)
+		dx_src(g, extra, dx_positional(1))
 	}
 
 	dx_end(g, start)
@@ -776,8 +785,8 @@ dx_builtin :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 	c := g.c
 	arg_exprs := c.expr_args[ex.args_start:ex.args_start + ex.args_count]
 	t := ex.type
-	a: [3]Dx_Value
-	at: [3]Type_Index
+	a: [4]Dx_Value
+	at: [4]Type_Index
 
 	for arg, i in arg_exprs {
 		at[i] = c.exprs[arg].type
@@ -809,7 +818,26 @@ dx_builtin :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 	case .Degrees:
 		return dx_new(g, DX_MUL, t, a[0], dx_imm_f(57.2957802))
 
-	case .Sin, .Cos, .Tan:
+	case .Sin, .Cos:
+		r := dx_temp(g, t)
+		start := len(g.code)
+		append(&g.code, DX_SINCOS)
+
+		if ex.builtin == .Cos {
+			append(&g.code, 0x0000d000)
+		}
+
+		dx_dst(g, r)
+
+		if ex.builtin == .Sin {
+			append(&g.code, 0x0000d000)
+		}
+
+		dx_src(g, a[0], r)
+		dx_end(g, start)
+		return r
+
+	case .Tan:
 		sine := dx_temp(g, t)
 		cosine := dx_temp(g, t)
 		start := len(g.code)
@@ -818,15 +846,6 @@ dx_builtin :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 		dx_dst(g, cosine)
 		dx_src(g, a[0], sine)
 		dx_end(g, start)
-
-		if ex.builtin == .Sin {
-			return sine
-		}
-
-		if ex.builtin == .Cos {
-			return cosine
-		}
-
 		return dx_new(g, DX_DIV, t, sine, cosine)
 
 	case .Asin:
@@ -861,6 +880,22 @@ dx_builtin :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 		return dx_new(g, DX_DIV, t, diff, sum)
 
 	case .Pow:
+		exponent, exponent_ok := opt_splat_value(c, arg_exprs[1])
+
+		if exponent_ok && (exponent == 2 || exponent == 3 || exponent == 4) {
+			r := dx_new(g, DX_MUL, t, a[0], a[0])
+
+			if exponent == 3 {
+				dx_ins(g, DX_MUL, r, r, a[0])
+			}
+
+			if exponent == 4 {
+				dx_ins(g, DX_MUL, r, r, r)
+			}
+
+			return r
+		}
+
 		r := dx_new(g, DX_LOG, t, a[0])
 		dx_ins(g, DX_MUL, r, r, a[1])
 		dx_ins(g, DX_EXP, r, r)
@@ -946,8 +981,8 @@ dx_builtin :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 			return dx_new(g, DX_MOVC, t, a[2], a[1], a[0])
 		}
 
-		r := dx_new(g, DX_ADD, t, a[1], dx_neg(g, a[0]))
-		dx_ins(g, DX_MAD, r, a[2], r, a[0])
+		r := dx_temp(g, t)
+		dx_ins(g, DX_MAD, r, a[2], dx_new_folded(g, DX_ADD, t, a[1], dx_neg(g, a[0])), a[0])
 		return r
 
 	case .Step:
@@ -956,9 +991,13 @@ dx_builtin :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 		return r
 
 	case .Smoothstep:
-		range := dx_new(g, DX_ADD, t, a[1], dx_neg(g, a[0]))
+		range := dx_new_folded(g, DX_ADD, t, a[1], dx_neg(g, a[0]))
 		r := dx_new(g, DX_ADD, t, a[2], dx_neg(g, a[0]))
-		dx_ins(g, DX_DIV, r, r, range)
+		if inverse, ok := dx_reciprocal(range); ok {
+			dx_ins(g, DX_MUL, r, r, inverse)
+		} else {
+			dx_ins(g, DX_DIV, r, r, range)
+		}
 		dx_ins(g, DX_MAX, r, r, dx_imm_f(0))
 		dx_ins(g, DX_MIN, r, r, dx_imm_f(1))
 		curve := dx_new(g, DX_MAD, t, r, dx_imm_f(-2), dx_imm_f(3))
@@ -987,6 +1026,33 @@ dx_builtin :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 		return r
 
 	case .Dot:
+		for i in 0..<2 {
+			if a[i].space != .Imm {
+				continue
+			}
+
+			used := 0
+			last := 0
+			sum := f32(0)
+
+			for k in 0..<n {
+				if transmute(f32)a[i].imm[a[i].count == 1 ? 0 : k] != 0 {
+					used += 1
+					last = k
+				}
+
+				sum += transmute(f32)a[0].imm[a[0].count == 1 ? 0 : k] * transmute(f32)a[1].imm[a[1].count == 1 ? 0 : k]
+			}
+
+			if a[1 - i].space == .Imm {
+				return dx_imm_f(sum)
+			}
+
+			if used == 1 {
+				return dx_new_folded(g, DX_MUL, T_FLOAT, dx_swizzle(g, a[1 - i], { u8(last) }), dx_swizzle(g, a[i], { u8(last) }))
+			}
+		}
+
 		return dx_dot(g, a[0], a[1], n)
 
 	case .Cross:
@@ -1020,7 +1086,7 @@ dx_builtin :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 		out := dx_temp(g, t)
 
 		for k in 0..<n {
-			dx_ins(g, DX_MUL, dx_column(g, out, k, n), dx_column(g, a[0], k, n), dx_column(g, a[1], k, n))
+			dx_ins(g, DX_MUL, dx_column(out, k, n), dx_column(a[0], k, n), dx_column(a[1], k, n))
 		}
 
 		return out
@@ -1044,29 +1110,8 @@ dx_builtin :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 	case .Inverse:
 		return dx_inverse(g, a[0], n, t)
 
-	case .Less_Than, .Less_Than_Equal, .Greater_Than, .Greater_Than_Equal:
-		less := ex.builtin == .Less_Than || ex.builtin == .Greater_Than
-		swap := ex.builtin == .Greater_Than || ex.builtin == .Less_Than_Equal
-		code: u32
-
-		switch scalar {
-		case .Float: code = less ? DX_LT : DX_GE
-		case .Int: code = less ? DX_ILT : DX_IGE
-		case .Uint: code = less ? DX_ULT : DX_UGE
-		case .Bool, .None:
-		}
-
-		if swap {
-			return dx_new(g, code, t, a[1], a[0])
-		}
-
-		return dx_new(g, code, t, a[0], a[1])
-
-	case .Equal:
-		return dx_new(g, scalar == .Float ? DX_EQ : DX_IEQ, t, a[0], a[1])
-
-	case .Not_Equal:
-		return dx_new(g, scalar == .Float ? DX_NE : DX_INE, t, a[0], a[1])
+	case .Less_Than, .Less_Than_Equal, .Greater_Than, .Greater_Than_Equal, .Equal, .Not_Equal:
+		return dx_compare(g, builtin_compare_op(ex.builtin), scalar, t, a[0], a[1])
 
 	case .Any:
 		copy := dx_new(g, DX_MOV, at[0], a[0])
@@ -1093,6 +1138,19 @@ dx_builtin :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 	case .Texture_Lod:
 		return dx_sample(g, DX_SAMPLE_L, a[0], a[1], a[2], true)
 
+	case .Texture_Grad:
+		out := dx_temp(g, T_VEC4)
+		g.textures_used += { int(a[0].reg) }
+		start := len(g.code)
+		append(&g.code, 73)
+		dx_dst(g, out)
+		dx_src(g, a[1], dx_positional(2))
+		append(&g.code, 0x00107e46, a[0].reg, 0x00106000, a[0].reg)
+		dx_src(g, a[2], dx_positional(2))
+		dx_src(g, a[3], dx_positional(2))
+		dx_end(g, start)
+		return out
+
 	case .Texel_Fetch:
 		coord := dx_temp(g, T_IVEC4)
 		dx_ins(g, DX_MOV, coord, dx_imm_u(0))
@@ -1103,7 +1161,7 @@ dx_builtin :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 		start := len(g.code)
 		append(&g.code, DX_LD)
 		dx_dst(g, out)
-		dx_src_n(g, coord, 4)
+		dx_src(g, coord, dx_positional(4))
 		append(&g.code, 0x00107e46, a[0].reg)
 		dx_end(g, start)
 		return out
@@ -1114,7 +1172,7 @@ dx_builtin :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 		start := len(g.code)
 		append(&g.code, DX_RESINFO | 0x1000)
 		dx_dst(g, out)
-		dx_src_n(g, a[1], 1)
+		dx_src(g, a[1], dx_positional(1))
 		append(&g.code, 0x00107e46, a[0].reg)
 		dx_end(g, start)
 		return dx_swizzle(g, out, { 0, 1 })
@@ -1132,6 +1190,25 @@ dx_builtin :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 	}
 
 	return a[0]
+}
+
+dx_assign :: proc(g: ^Dx, ex: Expr, is_statement: bool, fresh_from: u32) -> Dx_Value {
+	c := g.c
+	loc := dx_place(g, ex.a)
+	value := dx_expr(g, ex.b)
+
+	if ex.op != .Assign {
+		old := dx_load(g, loc)
+		value = dx_binop(g, compound_op(ex.op), ex.type, ex.type, c.exprs[ex.b].type, old, value)
+	}
+
+	if is_statement && !loc.dyn_component {
+		dx_move_result(g, loc, value, fresh_from)
+	} else {
+		dx_store(g, loc, value)
+	}
+
+	return value
 }
 
 dx_expr :: proc(g: ^Dx, e: Expr_Index) -> Dx_Value {
@@ -1158,7 +1235,7 @@ dx_expr :: proc(g: ^Dx, e: Expr_Index) -> Dx_Value {
 	case .Binary:
 		short_circuit := ex.op == .And_And || ex.op == .Or_Or
 
-		if short_circuit && !dx_pure(c, ex.b) {
+		if short_circuit && !expr_is_pure(c, ex.b) {
 			result := dx_temp(g, T_BOOL)
 			dx_ins(g, DX_MOV, result, dx_expr(g, ex.a))
 			dx_test(g, ex.op == .And_And ? DX_IF | DX_TEST_NZ : DX_IF, result)
@@ -1202,7 +1279,7 @@ dx_expr :: proc(g: ^Dx, e: Expr_Index) -> Dx_Value {
 				out := dx_temp(g, ex.type)
 
 				for k in 0..<n {
-					dx_ins(g, DX_MOV, dx_column(g, out, k, n), dx_neg(g, dx_column(g, a, k, n)))
+					dx_ins(g, DX_MOV, dx_column(out, k, n), dx_neg(g, dx_column(a, k, n)))
 				}
 
 				return out
@@ -1222,22 +1299,13 @@ dx_expr :: proc(g: ^Dx, e: Expr_Index) -> Dx_Value {
 		return a
 
 	case .Assign:
-		loc := dx_place(g, ex.a)
-		value := dx_expr(g, ex.b)
-
-		if ex.op != .Assign {
-			old := dx_load(g, loc)
-			value = dx_binop(g, compound_op(ex.op), ex.type, ex.type, c.exprs[ex.b].type, old, value)
-		}
-
-		dx_store(g, loc, value)
-		return value
+		return dx_assign(g, ex, false, 0)
 
 	case .Ternary:
 		cond := dx_expr(g, ex.a)
 		ty := c.types[ex.type]
 
-		if dx_pure(c, ex.b) && dx_pure(c, ex.c) && (ty.kind == .Scalar || ty.kind == .Vector) {
+		if expr_is_pure(c, ex.b) && expr_is_pure(c, ex.c) && (ty.kind == .Scalar || ty.kind == .Vector) {
 			a := dx_expr(g, ex.b)
 			b := dx_expr(g, ex.c)
 			return dx_new(g, DX_MOVC, ex.type, cond, a, b)

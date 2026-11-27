@@ -23,6 +23,7 @@ Compile_Options :: struct {
 	read_file: Read_File_Proc,
 	read_file_user_data: rawptr,
 	no_debug_info: bool,
+	no_optimization: bool,
 }
 
 Source_File :: struct {
@@ -57,7 +58,6 @@ Expr :: struct {
 	kind: Expr_Kind,
 	op: Token_Kind,
 	postfix: bool,
-	is_const: bool,
 	swizzle_count: u8,
 	swizzle: [4]u8,
 	builtin: Builtin,
@@ -89,6 +89,9 @@ Stmt_Kind :: enum u8 {
 	Break,
 	Continue,
 	Discard,
+	Switch,
+	Case,
+	Default,
 }
 
 Stmt :: struct {
@@ -123,7 +126,6 @@ Param_Qualifier :: enum u8 {
 Interpolation :: enum u8 {
 	Smooth,
 	Flat,
-	Noperspective,
 }
 
 Builtin_Var :: enum u8 {
@@ -144,6 +146,8 @@ Var :: struct {
 	is_const: bool,
 	has_const_value: bool,
 	dynamic_index: bool,
+	written: bool,
+	keep_decl: bool,
 	param_qualifier: Param_Qualifier,
 	interpolation: Interpolation,
 	builtin: Builtin_Var,
@@ -183,7 +187,6 @@ Decl_Kind :: enum u8 {
 
 Decl :: struct {
 	kind: Decl_Kind,
-	stage: Stage,
 	index: i32,
 }
 
@@ -192,6 +195,7 @@ Compiler :: struct {
 	options: Compile_Options,
 	files: [dynamic]Source_File,
 	tokens: [dynamic]Token,
+	macros: [dynamic]Macro,
 	tok: int,
 	types: [dynamic]Type,
 	exprs: [dynamic]Expr,
@@ -207,6 +211,8 @@ Compiler :: struct {
 	seen_stages: bit_set[Stage],
 	cur_func: Func_Index,
 	loop_depth: int,
+	switch_depth: int,
+	uses_frag_coord_flip: bool,
 	main_funcs: [Stage]Func_Index,
 	uniforms: [dynamic]Var_Index,
 	textures: [dynamic]Var_Index,
@@ -286,6 +292,10 @@ compile :: proc(
 
 	if !c.failed {
 		parse_program(c)
+	}
+
+	if !c.failed && !options.no_optimization {
+		optimize_program(c)
 	}
 
 	if !c.failed {

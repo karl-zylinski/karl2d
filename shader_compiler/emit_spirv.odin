@@ -50,6 +50,7 @@ Spv :: struct {
 	var_storage: []u32,
 	var_member: []i32,
 	func_ids: []u32,
+	stmt_labels: []u32,
 	file_ids: []u32,
 	constants_var: u32,
 	image_type: u32,
@@ -83,6 +84,15 @@ spv_op_string :: proc(buf: ^[dynamic]u32, opcode: u32, before: []u32, str: strin
 	bytes := slice.to_bytes(buf[start:])
 	copy(bytes, str)
 	append(buf, ..after)
+}
+
+spv_name :: proc(g: ^Spv, id: u32, name: string) {
+	spv_op_string(&g.debug, 5, { id }, name)
+}
+
+spv_decorate :: proc(g: ^Spv, id: u32, decoration: u32, values: ..u32) {
+	append(&g.annotations, u32(len(values) + 3) << 16 | 71, id, decoration)
+	append(&g.annotations, ..values)
 }
 
 spv_label :: proc(g: ^Spv, id: u32) {
@@ -170,9 +180,7 @@ spv_type :: proc(g: ^Spv, t: Type_Index) -> u32 {
 		length := spv_const(g, T_UINT, u32(ty.len))
 		id = spv_id(g)
 		spv_op(&g.globals, 28, id, elem, length)
-		elem_size, elem_align := type_std140_layout(c, ty.elem)
-		elem_align = max(elem_align, 16)
-		spv_op(&g.annotations, 71, id, 6, u32((elem_size + elem_align - 1) / elem_align * elem_align))
+		spv_decorate(g, id, 6, u32(type_array_stride(c, t)))
 
 	case .Struct:
 		members := make([]u32, len(ty.fields) + 1, c.allocator)
@@ -184,7 +192,7 @@ spv_type :: proc(g: ^Spv, t: Type_Index) -> u32 {
 		id = spv_id(g)
 		members[0] = id
 		spv_op(&g.globals, 30, ..members)
-		spv_op_string(&g.debug, 5, { id }, ty.name)
+		spv_name(g, id, ty.name)
 
 		for f, f_idx in ty.fields {
 			spv_member_layout(g, id, f_idx, f.type, int(f.offset))
@@ -261,12 +269,8 @@ spv_const_splat :: proc(g: ^Spv, t: Type_Index, value: u32) -> u32 {
 	}
 
 	id := spv_id(g)
-
-	switch ty.size {
-	case 2: spv_op(&g.globals, 44, type, id, scalar, scalar)
-	case 3: spv_op(&g.globals, 44, type, id, scalar, scalar, scalar)
-	case 4: spv_op(&g.globals, 44, type, id, scalar, scalar, scalar, scalar)
-	}
+	words := [6]u32 { type, id, scalar, scalar, scalar, scalar }
+	spv_op(&g.globals, 44, ..words[:2 + int(ty.size)])
 
 	append(&g.composite_consts, Spv_Const { type, scalar, id })
 	return id
@@ -302,7 +306,7 @@ spv_global :: proc(g: ^Spv, v: Var_Index, storage: u32) -> u32 {
 	var := g.c.vars[v]
 	id := spv_id(g)
 	spv_op(&g.globals, 59, spv_ptr_type(g, spv_type(g, var.type), storage), id, storage)
-	spv_op_string(&g.debug, 5, { id }, var.name)
+	spv_name(g, id, var.name)
 	g.var_ids[v] = id
 	g.var_storage[v] = storage
 
@@ -369,7 +373,7 @@ spv_stmts :: proc(g: ^Spv, first: Stmt_Index) {
 	for s != 0 {
 		st := c.stmts[s]
 
-		if st.kind != .Block {
+		if st.kind != .Block && st.kind != .Case && st.kind != .Default {
 			spv_line(g, st.file, st.line)
 		}
 
@@ -381,7 +385,7 @@ spv_stmts :: proc(g: ^Spv, first: Stmt_Index) {
 
 		case .Decl:
 			id := spv_local(g, c.vars[st.var].type)
-			spv_op_string(&g.debug, 5, { id }, c.vars[st.var].name)
+			spv_name(g, id, c.vars[st.var].name)
 			g.var_ids[st.var] = id
 			g.var_storage[st.var] = SPV_STORAGE_FUNCTION
 
@@ -499,6 +503,56 @@ spv_stmts :: proc(g: ^Spv, first: Stmt_Index) {
 		case .Discard:
 			spv_code(g, 252)
 			g.terminated = true
+
+		case .Switch:
+			selector := spv_expr(g, st.expr)
+			merge_label := spv_id(g)
+			default_label := merge_label
+			targets := make([dynamic]u32, 0, 16, c.allocator)
+			label: u32
+			previous_was_label := false
+			each := st.first
+
+			for each != 0 {
+				es := c.stmts[each]
+
+				if es.kind != .Case && es.kind != .Default {
+					previous_was_label = false
+					each = es.next
+					continue
+				}
+
+				if !previous_was_label {
+					label = spv_id(g)
+				}
+
+				previous_was_label = true
+				g.stmt_labels[each] = label
+
+				if es.kind == .Default {
+					default_label = label
+				} else {
+					append(&targets, u32(c.exprs[es.expr].ival), label)
+				}
+
+				each = es.next
+			}
+
+			spv_code(g, 247, merge_label, 0)
+			append(&g.body, u32(len(targets) + 3) << 16 | 251, selector, default_label)
+			append(&g.body, ..targets[:])
+			g.terminated = true
+			append(&g.loop_merges, merge_label)
+			spv_stmts(g, st.first)
+			pop(&g.loop_merges)
+			spv_branch(g, merge_label)
+			spv_label(g, merge_label)
+
+		case .Case, .Default:
+			if g.terminated || g.cur_label != g.stmt_labels[s] {
+				spv_branch(g, g.stmt_labels[s])
+				spv_label(g, g.stmt_labels[s])
+			}
 		}
 
 		s = st.next
@@ -516,7 +570,7 @@ spv_function :: proc(g: ^Spv, fi: Func_Index) {
 	entry_label := spv_id(g)
 	g.cur_label = entry_label
 	spv_op(&g.code, 54, spv_type(g, f.return_type), g.func_ids[fi], 0, fn_type)
-	spv_op_string(&g.debug, 5, { g.func_ids[fi] }, f.name)
+	spv_name(g, g.func_ids[fi], f.name)
 
 	for p in f.params {
 		v := c.vars[p]
@@ -544,7 +598,7 @@ spv_function :: proc(g: ^Spv, fi: Func_Index) {
 		g.var_ids[p] = local
 
 		if v.name != "" {
-			spv_op_string(&g.debug, 5, { local }, v.name)
+			spv_name(g, local, v.name)
 		}
 	}
 
@@ -594,6 +648,7 @@ emit_spirv :: proc(c: ^Compiler, stage: Stage) -> []u8 {
 		var_storage = make([]u32, len(c.vars)),
 		var_member = make([]i32, len(c.vars)),
 		func_ids = make([]u32, len(c.funcs)),
+		stmt_labels = make([]u32, len(c.stmts)),
 		file_ids = make([]u32, len(c.files)),
 	}
 
@@ -637,8 +692,8 @@ emit_spirv :: proc(c: ^Compiler, stage: Stage) -> []u8 {
 		block := spv_id(g)
 		members[0] = block
 		spv_op(&g.globals, 30, ..members)
-		spv_op_string(&g.debug, 5, { block }, CONSTANTS_BLOCK_NAME)
-		spv_op(&g.annotations, 71, block, 2)
+		spv_name(g, block, CONSTANTS_BLOCK_NAME)
+		spv_decorate(g, block, 2)
 
 		for u, u_idx in c.uniforms {
 			v := c.vars[u]
@@ -648,8 +703,8 @@ emit_spirv :: proc(c: ^Compiler, stage: Stage) -> []u8 {
 
 		g.constants_var = spv_id(g)
 		spv_op(&g.globals, 59, spv_ptr_type(g, block, SPV_STORAGE_UNIFORM), g.constants_var, SPV_STORAGE_UNIFORM)
-		spv_op(&g.annotations, 71, g.constants_var, 34, 0)
-		spv_op(&g.annotations, 71, g.constants_var, 33, SPV_CONSTANTS_BINDING)
+		spv_decorate(g, g.constants_var, 34, 0)
+		spv_decorate(g, g.constants_var, 33, SPV_CONSTANTS_BINDING)
 	}
 
 	for t, t_idx in c.textures {
@@ -658,14 +713,14 @@ emit_spirv :: proc(c: ^Compiler, stage: Stage) -> []u8 {
 		}
 
 		id := spv_global(g, t, SPV_STORAGE_UNIFORM_CONSTANT)
-		spv_op(&g.annotations, 71, id, 34, 0)
-		spv_op(&g.annotations, 71, id, 33, u32(SPV_FIRST_TEXTURE_BINDING + t_idx))
+		spv_decorate(g, id, 34, 0)
+		spv_decorate(g, id, 33, u32(SPV_FIRST_TEXTURE_BINDING + t_idx))
 	}
 
 	if stage == .Vertex {
 		for i in c.inputs {
 			id := spv_global(g, i, SPV_STORAGE_INPUT)
-			spv_op(&g.annotations, 71, id, 30, u32(c.vars[i].location))
+			spv_decorate(g, id, 30, u32(c.vars[i].location))
 		}
 	}
 
@@ -677,18 +732,17 @@ emit_spirv :: proc(c: ^Compiler, stage: Stage) -> []u8 {
 		}
 
 		id := spv_global(g, v, stage == .Vertex ? SPV_STORAGE_OUTPUT : SPV_STORAGE_INPUT)
-		spv_op(&g.annotations, 71, id, 30, u32(vary_idx))
+		spv_decorate(g, id, 30, u32(vary_idx))
 
 		switch c.vars[v].interpolation {
 		case .Smooth:
-		case .Flat: spv_op(&g.annotations, 71, id, 14)
-		case .Noperspective: spv_op(&g.annotations, 71, id, 13)
+		case .Flat: spv_decorate(g, id, 14)
 		}
 	}
 
 	if stage == .Fragment {
 		id := spv_global(g, c.frag_output, SPV_STORAGE_OUTPUT)
-		spv_op(&g.annotations, 71, id, 30, 0)
+		spv_decorate(g, id, 30, 0)
 	}
 
 	for vi in 1..<len(c.vars) {
@@ -727,7 +781,7 @@ emit_spirv :: proc(c: ^Compiler, stage: Stage) -> []u8 {
 		}
 
 		id := spv_global(g, Var_Index(vi), storage)
-		spv_op(&g.annotations, 71, id, 11, builtin)
+		spv_decorate(g, id, 11, builtin)
 	}
 
 	for fi in 1..<len(c.funcs) {

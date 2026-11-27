@@ -16,6 +16,7 @@ main :: proc() {
 	output: string
 	dump_dir: string
 	targets: bit_set[Target]
+	no_optimization := false
 
 	for arg in os.args[1:] {
 		if strings.has_prefix(arg, "-out:") {
@@ -30,6 +31,8 @@ main :: proc() {
 			targets += { .SPIRV }
 		} else if arg == "-dxbc" {
 			targets += { .DXBC }
+		} else if arg == "-no-opt" {
+			no_optimization = true
 		} else if strings.has_prefix(arg, "-") {
 			fmt.eprintfln("Unknown option %s", arg)
 			os.exit(1)
@@ -39,7 +42,7 @@ main :: proc() {
 	}
 
 	if input == "" {
-		fmt.eprintln("Usage: shader_compiler shader.glsl [-out:shader.k2shader] [-dump:folder] [-glsl] [-glsl-es] [-spirv] [-dxbc]")
+		fmt.eprintln("Usage: shader_compiler shader.glsl [-out:shader.k2shader] [-dump:folder] [-glsl] [-glsl-es] [-spirv] [-dxbc] [-no-opt]")
 		fmt.eprintln("All targets are compiled when none is chosen.")
 		os.exit(1)
 	}
@@ -57,6 +60,7 @@ main :: proc() {
 
 	options := Compile_Options {
 		targets = targets,
+		no_optimization = no_optimization,
 		read_file = read_file_from_disk,
 	}
 

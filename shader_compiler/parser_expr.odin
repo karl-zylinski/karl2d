@@ -65,7 +65,6 @@ new_literal :: proc(c: ^Compiler, type: Type_Index, ival: i64, fval: f64, file: 
 	return new_expr(c, Expr {
 		kind = .Literal,
 		type = type,
-		is_const = true,
 		ival = ival,
 		fval = fval,
 		file = file,
@@ -73,39 +72,15 @@ new_literal :: proc(c: ^Compiler, type: Type_Index, ival: i64, fval: f64, file: 
 	})
 }
 
-lookup_type :: proc(c: ^Compiler, name: string) -> Type_Index {
-	switch name {
-	case "void": return T_VOID
-	case "bool": return T_BOOL
-	case "int": return T_INT
-	case "uint": return T_UINT
-	case "float": return T_FLOAT
-	case "bvec2": return T_BVEC2
-	case "bvec3": return T_BVEC3
-	case "bvec4": return T_BVEC4
-	case "ivec2": return T_IVEC2
-	case "ivec3": return T_IVEC3
-	case "ivec4": return T_IVEC4
-	case "uvec2": return T_UVEC2
-	case "uvec3": return T_UVEC3
-	case "uvec4": return T_UVEC4
-	case "vec2": return T_VEC2
-	case "vec3": return T_VEC3
-	case "vec4": return T_VEC4
-	case "mat2": return T_MAT2
-	case "mat3": return T_MAT3
-	case "mat4": return T_MAT4
-	case "sampler2D": return T_SAMPLER_2D
+lookup_type :: proc(c: ^Compiler, tok: Token) -> Type_Index {
+	if known_names[tok.known].type != T_NONE {
+		return known_names[tok.known].type
 	}
 
 	for i in int(T_FIRST_USER)..<len(c.types) {
 		t := c.types[i]
 
-		if t.kind != .Struct {
-			continue
-		}
-
-		if t.name == name {
+		if t.kind == .Struct && t.name == tok.text {
 			return Type_Index(i)
 		}
 	}
@@ -443,14 +418,14 @@ fold_binary :: proc(c: ^Compiler, op: Token_Kind, a: Expr_Index, b: Expr_Index, 
 		case .Minus: ival = i64(x - y)
 		case .Star: ival = i64(x * y)
 		case .Slash:
-			if y == 0 {
+			if y == 0 || (y == -1 && x == min(i32)) {
 				return
 			}
 
 			ival = i64(x / y)
 
 		case .Percent:
-			if y == 0 {
+			if y == 0 || (y == -1 && x == min(i32)) {
 				return
 			}
 
@@ -599,6 +574,64 @@ is_lvalue :: proc(c: ^Compiler, e: Expr_Index) -> bool {
 	return false
 }
 
+expr_root :: proc(c: ^Compiler, e: Expr_Index) -> Expr_Index {
+	root := e
+
+	for {
+		ex := c.exprs[root]
+
+		if ex.kind != .Index && ex.kind != .Field && ex.kind != .Swizzle {
+			return root
+		}
+
+		root = ex.a
+	}
+}
+
+mark_written :: proc(c: ^Compiler, e: Expr_Index) {
+	root := c.exprs[expr_root(c, e)]
+
+	if root.kind == .Var {
+		c.vars[root.var].written = true
+	}
+}
+
+mark_dynamic_index :: proc(c: ^Compiler, e: Expr_Index) {
+	root := c.exprs[expr_root(c, e)]
+
+	if root.kind == .Var {
+		c.vars[root.var].dynamic_index = true
+	}
+}
+
+expr_is_pure :: proc(c: ^Compiler, e: Expr_Index) -> bool {
+	if e == 0 {
+		return true
+	}
+
+	ex := c.exprs[e]
+
+	if ex.kind == .Assign || ex.kind == .Call {
+		return false
+	}
+
+	if ex.kind == .Unary && (ex.op == .Inc || ex.op == .Dec) {
+		return false
+	}
+
+	if !expr_is_pure(c, ex.a) || !expr_is_pure(c, ex.b) || !expr_is_pure(c, ex.c) {
+		return false
+	}
+
+	for i in 0..<ex.args_count {
+		if !expr_is_pure(c, c.expr_args[ex.args_start + i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
 compound_op :: proc(kind: Token_Kind) -> Token_Kind {
 	#partial switch kind {
 	case .Add_Assign: return .Plus
@@ -626,6 +659,7 @@ check_assign :: proc(c: ^Compiler, op_tok: Token, lhs: Expr_Index, rhs: Expr_Ind
 		return lhs
 	}
 
+	mark_written(c, lhs)
 	lhs_type := c.exprs[lhs].type
 	value := rhs
 
@@ -826,6 +860,8 @@ parse_unary :: proc(c: ^Compiler) -> Expr_Index {
 			compile_error(c, tok.file, tok.line, "Operator '%s' needs a numeric variable", tok.text)
 			return a
 		}
+
+		mark_written(c, a)
 	}
 
 	return new_expr(c, Expr {
@@ -909,22 +945,7 @@ parse_postfix :: proc(c: ^Compiler) -> Expr_Index {
 			}
 
 			if idx_expr.kind != .Literal && base.kind != .Vector {
-				root := e
-
-				for {
-					root_expr := c.exprs[root]
-
-					if root_expr.kind == .Var {
-						c.vars[root_expr.var].dynamic_index = true
-						break
-					}
-
-					if root_expr.kind != .Index && root_expr.kind != .Field && root_expr.kind != .Swizzle {
-						break
-					}
-
-					root = root_expr.a
-				}
+				mark_dynamic_index(c, e)
 			}
 
 			e = new_expr(c, Expr {
@@ -1026,6 +1047,8 @@ parse_postfix :: proc(c: ^Compiler) -> Expr_Index {
 				compile_error(c, tok.file, tok.line, "Operator '%s' needs a numeric variable", tok.text)
 				return e
 			}
+
+			mark_written(c, e)
 
 			e = new_expr(c, Expr {
 				kind = .Unary,
@@ -1135,13 +1158,13 @@ parse_primary :: proc(c: ^Compiler) -> Expr_Index {
 		return e
 
 	case .Ident:
-		type := lookup_type(c, tok.text)
+		type := lookup_type(c, tok)
 
 		if type != T_NONE {
 			return parse_construct(c, tok, type)
 		}
 
-		v := lookup_var(c, tok.text)
+		v := lookup_var(c, tok)
 
 		if peek(c) == .LParen {
 			if v != 0 && c.vars[v].kind != .Global && c.vars[v].kind != .Uniform {
@@ -1188,43 +1211,35 @@ parse_primary :: proc(c: ^Compiler) -> Expr_Index {
 	return 0
 }
 
-lookup_var :: proc(c: ^Compiler, name: string) -> Var_Index {
+lookup_var :: proc(c: ^Compiler, tok: Token) -> Var_Index {
 	#reverse for v in c.scope {
-		if c.vars[v].name == name {
+		if c.vars[v].name == tok.text {
 			return v
 		}
 	}
 
-	builtin: Builtin_Var
+	builtin := known_names[tok.known].builtin_var
 	type: Type_Index
 
-	switch name {
-	case "gl_Position":
-		builtin = .Position
+	switch builtin {
+	case .None:
+		return 0
+
+	case .Position, .Frag_Coord:
 		type = T_VEC4
 
-	case "gl_FragCoord":
-		builtin = .Frag_Coord
-		type = T_VEC4
-
-	case "gl_VertexID":
-		builtin = .Vertex_ID
+	case .Vertex_ID, .Instance_ID:
 		type = T_INT
 
-	case "gl_InstanceID":
-		builtin = .Instance_ID
-		type = T_INT
-
-	case "gl_FrontFacing":
-		builtin = .Front_Facing
+	case .Front_Facing:
 		type = T_BOOL
 
-	case "gl_FragDepth":
-		builtin = .Frag_Depth
+	case .Frag_Depth:
 		type = T_FLOAT
+	}
 
-	case:
-		return 0
+	if builtin == .Frag_Coord {
+		c.uses_frag_coord_flip = true
 	}
 
 	for i in 1..<len(c.vars) {
@@ -1234,7 +1249,7 @@ lookup_var :: proc(c: ^Compiler, name: string) -> Var_Index {
 	}
 
 	append(&c.vars, Var {
-		name = name,
+		name = tok.text,
 		type = type,
 		kind = .Builtin,
 		builtin = builtin,
@@ -1482,6 +1497,7 @@ parse_call :: proc(c: ^Compiler, tok: Token) -> Expr_Index {
 					return 0
 				}
 
+				mark_written(c, args[p_idx])
 				continue
 			}
 
@@ -1516,7 +1532,7 @@ parse_call :: proc(c: ^Compiler, tok: Token) -> Expr_Index {
 		return 0
 	}
 
-	builtin := builtin_from_name(tok.text)
+	builtin := known_names[tok.known].builtin
 
 	if builtin == .None {
 		compile_error(c, tok.file, tok.line, "'%s' is not a known function", tok.text)
@@ -1531,6 +1547,10 @@ parse_call :: proc(c: ^Compiler, tok: Token) -> Expr_Index {
 
 	if builtin == .DFdx || builtin == .DFdy || builtin == .Fwidth {
 		mark_fragment_only(c, tok)
+	}
+
+	if builtin == .DFdy {
+		c.uses_frag_coord_flip = true
 	}
 
 	args_start, args_count := store_args(c, args[:count])

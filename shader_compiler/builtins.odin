@@ -56,6 +56,7 @@ Builtin :: enum u8 {
 	Not,
 	Texture,
 	Texture_Lod,
+	Texture_Grad,
 	Texel_Fetch,
 	Texture_Size,
 	DFdx,
@@ -119,6 +120,7 @@ builtin_names := [Builtin]string {
 	.Not = "not",
 	.Texture = "texture",
 	.Texture_Lod = "textureLod",
+	.Texture_Grad = "textureGrad",
 	.Texel_Fetch = "texelFetch",
 	.Texture_Size = "textureSize",
 	.DFdx = "dFdx",
@@ -126,70 +128,16 @@ builtin_names := [Builtin]string {
 	.Fwidth = "fwidth",
 }
 
-builtin_from_name :: proc(name: string) -> Builtin {
-	switch name {
-	case "radians": return .Radians
-	case "degrees": return .Degrees
-	case "sin": return .Sin
-	case "cos": return .Cos
-	case "tan": return .Tan
-	case "asin": return .Asin
-	case "acos": return .Acos
-	case "atan": return .Atan
-	case "sinh": return .Sinh
-	case "cosh": return .Cosh
-	case "tanh": return .Tanh
-	case "pow": return .Pow
-	case "exp": return .Exp
-	case "log": return .Log
-	case "exp2": return .Exp2
-	case "log2": return .Log2
-	case "sqrt": return .Sqrt
-	case "inversesqrt": return .Inversesqrt
-	case "abs": return .Abs
-	case "sign": return .Sign
-	case "floor": return .Floor
-	case "trunc": return .Trunc
-	case "round": return .Round
-	case "ceil": return .Ceil
-	case "fract": return .Fract
-	case "mod": return .Mod
-	case "min": return .Min
-	case "max": return .Max
-	case "clamp": return .Clamp
-	case "mix": return .Mix
-	case "step": return .Step
-	case "smoothstep": return .Smoothstep
-	case "length": return .Length
-	case "distance": return .Distance
-	case "dot": return .Dot
-	case "cross": return .Cross
-	case "normalize": return .Normalize
-	case "reflect": return .Reflect
-	case "refract": return .Refract
-	case "matrixCompMult": return .Matrix_Comp_Mult
-	case "transpose": return .Transpose
-	case "determinant": return .Determinant
-	case "inverse": return .Inverse
-	case "lessThan": return .Less_Than
-	case "lessThanEqual": return .Less_Than_Equal
-	case "greaterThan": return .Greater_Than
-	case "greaterThanEqual": return .Greater_Than_Equal
-	case "equal": return .Equal
-	case "notEqual": return .Not_Equal
-	case "any": return .Any
-	case "all": return .All
-	case "not": return .Not
-	case "texture": return .Texture
-	case "textureLod": return .Texture_Lod
-	case "texelFetch": return .Texel_Fetch
-	case "textureSize": return .Texture_Size
-	case "dFdx": return .DFdx
-	case "dFdy": return .DFdy
-	case "fwidth": return .Fwidth
+builtin_compare_op :: proc(b: Builtin) -> Token_Kind {
+	#partial switch b {
+	case .Less_Than: return .Lt
+	case .Less_Than_Equal: return .Le
+	case .Greater_Than: return .Gt
+	case .Greater_Than_Equal: return .Ge
+	case .Equal: return .Eq_Eq
 	}
 
-	return .None
+	return .Not_Eq
 }
 
 unify_builtin_args :: proc(
@@ -254,6 +202,10 @@ check_builtin_call :: proc(c: ^Compiler, b: Builtin, args: []Expr_Index, tok: To
 	case .Texture:
 		min_args = 2
 		max_args = 3
+
+	case .Texture_Grad:
+		min_args = 4
+		max_args = 4
 	}
 
 	if count < min_args || count > max_args {
@@ -423,7 +375,7 @@ check_builtin_call :: proc(c: ^Compiler, b: Builtin, args: []Expr_Index, tok: To
 
 		return T_BOOL
 
-	case .Texture, .Texture_Lod, .Texel_Fetch, .Texture_Size:
+	case .Texture, .Texture_Lod, .Texture_Grad, .Texel_Fetch, .Texture_Size:
 		if c.exprs[args[0]].type != T_SAMPLER_2D {
 			compile_error(c, tok.file, tok.line, "The first argument of '%s' must be a sampler2D", tok.text)
 			return T_NONE
@@ -441,6 +393,12 @@ check_builtin_call :: proc(c: ^Compiler, b: Builtin, args: []Expr_Index, tok: To
 		}
 
 		args[1] = convert_to(c, args[1], T_VEC2, "the texture coordinate")
+
+		if b == .Texture_Grad {
+			args[2] = convert_to(c, args[2], T_VEC2, "the x gradient")
+			args[3] = convert_to(c, args[3], T_VEC2, "the y gradient")
+			return T_VEC4
+		}
 
 		if count == 3 {
 			args[2] = convert_to(c, args[2], T_FLOAT, b == .Texture ? "the mip bias" : "the mip level")

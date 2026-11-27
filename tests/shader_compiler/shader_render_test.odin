@@ -3,6 +3,7 @@ package karl2d_shader_render_test
 import k2 "../.."
 import sc "../../shader_compiler"
 import "base:runtime"
+import "../../log"
 import "core:dynlib"
 import "core:fmt"
 import "core:os"
@@ -160,7 +161,108 @@ capture :: proc(capture_path: string, shader_path: string) {
 	k2.shutdown()
 }
 
+run_on_device :: proc() {
+	files := #load_directory("shaders")
+	k2.init(SIZE, SIZE, "Shader render test")
+	texels: [8 * 8 * 4]u8
+
+	for y in 0..<8 {
+		for x in 0..<8 {
+			i := (y * 8 + x) * 4
+			texels[i + 0] = u8(x * 36)
+			texels[i + 1] = u8(y * 36)
+			texels[i + 2] = (x + y) % 2 == 0 ? 255 : 32
+			texels[i + 3] = 255
+		}
+	}
+
+	tex := k2.load_texture_from_bytes_raw(texels[:], 8, 8, .RGBA_8_Norm)
+	k2.set_texture_sampler(tex, k2.Texture_Sampler { scale_up_filter = .Point, scale_down_filter = .Point })
+	failures := 0
+	count := 0
+
+	for f in files {
+		if !strings.has_suffix(f.name, ".glsl") {
+			continue
+		}
+
+		if strings.has_suffix(f.name, ".inc.glsl") {
+			continue
+		}
+
+		k2.update()
+		width := k2.get_screen_width()
+		height := k2.get_screen_height()
+		pixels := make([]u8, width * height * 4, context.temp_allocator)
+		count += 1
+		shd, shd_ok := k2.load_shader_from_file(fmt.tprintf("shaders/%s", f.name))
+
+		if !shd_ok {
+			log.errorf("SHADERTEST %s FAILED TO LOAD", f.name)
+			failures += 1
+			continue
+		}
+
+		k2.clear(k2.BLACK)
+		k2.set_shader(shd)
+
+		if loc, loc_ok := shd.constant_lookup["time"]; loc_ok {
+			k2.set_shader_constant(shd, loc, f32(1.25))
+		}
+
+		if loc, loc_ok := shd.constant_lookup["resolution"]; loc_ok {
+			k2.set_shader_constant(shd, loc, k2.Vec2 { SIZE, SIZE })
+		}
+
+		k2.draw_texture_ex(tex, { 0, 0, 8, 8 }, { 0, 0, SIZE, SIZE }, {}, 0)
+		read_ok := k2.read_backbuffer(pixels)
+		k2.present()
+		k2.set_shader(nil)
+		k2.destroy_shader(shd)
+		bad := 0
+		bad_cells: bit_set[0..<16]
+
+		for y in 0..<SIZE {
+			for x in 0..<SIZE {
+				i := (y * width + x) * 4
+
+				if pixels[i] != 0 || pixels[i + 1] != 255 || pixels[i + 2] != 0 {
+					bad += 1
+					bad_cells += { y / 64 * 4 + x / 64 }
+				}
+			}
+		}
+
+		middle := (SIZE / 2 * width + SIZE / 2) * 4
+
+		if !strings.has_prefix(f.name, "check_") {
+			log.infof("SHADERTEST %s rendered, read %v, middle pixel %v", f.name, read_ok, pixels[middle:middle + 4])
+		} else if bad == 0 && read_ok {
+			log.infof("SHADERTEST %s ok", f.name)
+		} else {
+			log.errorf("SHADERTEST %s %d PIXELS FAILED in cells %v, read %v", f.name, bad, bad_cells, read_ok)
+			failures += 1
+		}
+
+		free_all(context.temp_allocator)
+	}
+
+	log.infof("SHADERTEST DONE %d shaders, %d failures, screen %dx%d", count, failures, k2.get_screen_width(), k2.get_screen_height())
+
+	for k2.update() {
+		k2.clear(failures == 0 ? k2.GREEN : k2.RED)
+		k2.present()
+	}
+
+	k2.shutdown()
+}
+
 main :: proc() {
+	when ODIN_PLATFORM_SUBTARGET == .Android {
+		run_on_device()
+		return
+	}
+
 	if len(os.args) == 4 && os.args[1] == "capture" {
 		capture(os.args[2], os.args[3])
 		return

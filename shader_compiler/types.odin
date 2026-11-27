@@ -29,7 +29,6 @@ Type :: struct {
 	kind: Type_Kind,
 	scalar: Scalar,
 	size: u8,
-	stage: Stage,
 	elem: Type_Index,
 	len: i32,
 	name: string,
@@ -183,6 +182,12 @@ type_component_count :: proc(c: ^Compiler, t: Type_Index) -> int {
 	return 0
 }
 
+type_array_stride :: proc(c: ^Compiler, array: Type_Index) -> int {
+	elem_size, elem_align := type_std140_layout(c, c.types[array].elem)
+	elem_align = max(elem_align, 16)
+	return (elem_size + elem_align - 1) / elem_align * elem_align
+}
+
 type_std140_layout :: proc(c: ^Compiler, t: Type_Index) -> (size: int, align: int) {
 	ty := c.types[t]
 
@@ -201,10 +206,7 @@ type_std140_layout :: proc(c: ^Compiler, t: Type_Index) -> (size: int, align: in
 		return 16 * int(ty.size), 16
 
 	case .Array:
-		elem_size, elem_align := type_std140_layout(c, ty.elem)
-		elem_align = max(elem_align, 16)
-		stride := (elem_size + elem_align - 1) / elem_align * elem_align
-		return stride * int(ty.len), elem_align
+		return type_array_stride(c, t) * int(ty.len), 16
 
 	case .Struct:
 		offset := 0

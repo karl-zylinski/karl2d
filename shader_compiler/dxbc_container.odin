@@ -9,14 +9,14 @@ Dxbc_Chunk :: struct {
 }
 
 dxbc_md5_transform :: proc(state: ^[4]u32, block: []u8) {
-	shifts := [64]u32 {
+	@(static, rodata) shifts := [64]u32 {
 		7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
 		5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
 		4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
 		6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
 	}
 
-	sines := [64]u32 {
+	@(static, rodata) sines := [64]u32 {
 		0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
 		0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
 		0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
@@ -27,40 +27,38 @@ dxbc_md5_transform :: proc(state: ^[4]u32, block: []u8) {
 		0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
 	}
 
-	words: [16]u32
-
-	for i in 0..<16 {
-		words[i] = get_u32(block, i * 4)
-	}
-
+	words := (^[16]u32)(raw_data(block))
 	a := state[0]
 	b := state[1]
 	c := state[2]
 	d := state[3]
 
-	for i in 0..<64 {
-		f: u32
-		word: int
+	#no_bounds_check for i in 0..<16 {
+		f := ((b & c) | (~b & d)) + a + sines[i] + words[i]
+		a = d
+		d = c
+		c = b
+		b += bits.rotate_left32(f, int(shifts[i]))
+	}
 
-		switch i / 16 {
-		case 0:
-			f = (b & c) | (~b & d)
-			word = i
+	#no_bounds_check for i in 16..<32 {
+		f := ((d & b) | (~d & c)) + a + sines[i] + words[(5 * i + 1) & 15]
+		a = d
+		d = c
+		c = b
+		b += bits.rotate_left32(f, int(shifts[i]))
+	}
 
-		case 1:
-			f = (d & b) | (~d & c)
-			word = (5 * i + 1) % 16
+	#no_bounds_check for i in 32..<48 {
+		f := (b ~ c ~ d) + a + sines[i] + words[(3 * i + 5) & 15]
+		a = d
+		d = c
+		c = b
+		b += bits.rotate_left32(f, int(shifts[i]))
+	}
 
-		case 2:
-			f = b ~ c ~ d
-			word = (3 * i + 5) % 16
-
-		case 3:
-			f = c ~ (b | ~d)
-			word = (7 * i) % 16
-		}
-
-		f += a + sines[i] + words[word]
+	#no_bounds_check for i in 48..<64 {
+		f := (c ~ (b | ~d)) + a + sines[i] + words[(7 * i) & 15]
 		a = d
 		d = c
 		c = b

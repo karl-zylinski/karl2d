@@ -61,7 +61,7 @@ void main() {
 		vec4 t = texture(tex, vec2(0.3125, 0.5625));
 		vec4 f = texelFetch(tex, ivec2(2, 4), 0);
 		ivec2 size = textureSize(tex, 0);
-		ok = near(t.r, 72.0 / 255.0) && near(t.g, 144.0 / 255.0) && near(f.r, 72.0 / 255.0) && near(f.b, 1.0) && size == ivec2(8, 8) && near(textureLod(tex, vec2(0.3125, 0.5625), 0.0).g, 144.0 / 255.0);
+		ok = near(t.r, 72.0 / 255.0) && near(t.g, 144.0 / 255.0) && near(f.r, 72.0 / 255.0) && near(f.b, 1.0) && size == ivec2(8, 8) && near(textureLod(tex, vec2(0.3125, 0.5625), 0.0).g, 144.0 / 255.0) && near(textureGrad(tex, vec2(0.3125, 0.5625), vec2(0.001, 0.0), vec2(0.0, 0.001)).r, 72.0 / 255.0);
 	} else if (cell == 13) {
 		float dx = dFdx(uv.x * 256.0);
 		float w = fwidth(uv.x * 256.0 + uv.y * 256.0);

@@ -4,16 +4,16 @@ import "core:math"
 import "core:strings"
 
 CONSTANTS_BLOCK_NAME :: "Karl2D_Constants"
+FRAG_COORD_FLIP_NAME :: "karl2d_frag_coord_flip"
 
 Glsl_Emitter :: struct {
 	c: ^Compiler,
 	b: strings.Builder,
-	stage: Stage,
-	es: bool,
 	file: u16,
 	line: i32,
 	synced_line: i32,
 	indent: int,
+	frag_coord_prologue: bool,
 }
 
 glsl_w :: proc(g: ^Glsl_Emitter, s: string) {
@@ -217,10 +217,14 @@ glsl_expr :: proc(g: ^Glsl_Emitter, e: Expr_Index, top: bool) {
 		}
 
 	case .Var:
-		glsl_w(g, c.vars[ex.var].name)
+		if c.vars[ex.var].builtin == .Frag_Coord {
+			glsl_w(g, "karl2d_frag_coord")
+		} else {
+			glsl_w(g, c.vars[ex.var].name)
+		}
 
 	case .Binary:
-		if ex.op == .Percent && c.types[ex.type].scalar == .Int && dx_pure(c, ex.a) && dx_pure(c, ex.b) {
+		if ex.op == .Percent && c.types[ex.type].scalar == .Int && expr_is_pure(c, ex.a) && expr_is_pure(c, ex.b) {
 			glsl_w(g, "(")
 			glsl_expr(g, ex.a, false)
 			glsl_w(g, " - (")
@@ -289,8 +293,14 @@ glsl_expr :: proc(g: ^Glsl_Emitter, e: Expr_Index, top: bool) {
 		glsl_args(g, ex)
 
 	case .Builtin_Call:
-		glsl_w(g, builtin_names[ex.builtin])
-		glsl_args(g, ex)
+		if ex.builtin == .DFdy {
+			glsl_w(g, "(dFdy")
+			glsl_args(g, ex)
+			glsl_w(g, " * " + FRAG_COORD_FLIP_NAME + ".x)")
+		} else {
+			glsl_w(g, builtin_names[ex.builtin])
+			glsl_args(g, ex)
+		}
 
 	case .Construct:
 		glsl_type(g, ex.type)
@@ -344,6 +354,12 @@ glsl_body :: proc(g: ^Glsl_Emitter, s: Stmt_Index) {
 	glsl_nl(g)
 	g.indent += 1
 
+	if g.frag_coord_prologue {
+		g.frag_coord_prologue = false
+		glsl_w(g, "\tkarl2d_frag_coord = vec4(gl_FragCoord.x, gl_FragCoord.y * " + FRAG_COORD_FLIP_NAME + ".x + " + FRAG_COORD_FLIP_NAME + ".y, gl_FragCoord.zw);")
+		glsl_nl(g)
+	}
+
 	if s != 0 {
 		if g.c.stmts[s].kind == .Block {
 			glsl_stmts(g, g.c.stmts[s].first)
@@ -363,6 +379,12 @@ glsl_stmts :: proc(g: ^Glsl_Emitter, first: Stmt_Index) {
 
 	for s != 0 {
 		st := c.stmts[s]
+
+		if st.kind == .None {
+			s = st.next
+			continue
+		}
+
 		glsl_sync_line(g, st.file, st.line)
 		glsl_indent(g)
 
@@ -469,6 +491,25 @@ glsl_stmts :: proc(g: ^Glsl_Emitter, first: Stmt_Index) {
 
 		case .Discard:
 			glsl_w(g, "discard;")
+
+		case .Switch:
+			glsl_w(g, "switch (")
+			glsl_expr(g, st.expr, true)
+			glsl_w(g, ") {")
+			glsl_nl(g)
+			g.indent += 1
+			glsl_stmts(g, st.first)
+			g.indent -= 1
+			glsl_indent(g)
+			glsl_w(g, "}")
+
+		case .Case:
+			glsl_w(g, "case ")
+			glsl_expr(g, st.expr, true)
+			glsl_w(g, ":")
+
+		case .Default:
+			glsl_w(g, "default:")
 		}
 
 		glsl_nl(g)
@@ -511,18 +552,12 @@ glsl_interpolation :: proc(g: ^Glsl_Emitter, v: Var) {
 	switch v.interpolation {
 	case .Smooth:
 	case .Flat: glsl_w(g, "flat ")
-	case .Noperspective:
-		if !g.es {
-			glsl_w(g, "noperspective ")
-		}
 	}
 }
 
 emit_glsl :: proc(c: ^Compiler, stage: Stage, es: bool) -> []u8 {
 	g := Glsl_Emitter {
 		c = c,
-		stage = stage,
-		es = es,
 		line = 1,
 	}
 
@@ -633,6 +668,11 @@ emit_glsl :: proc(c: ^Compiler, stage: Stage, es: bool) -> []u8 {
 		glsl_w(&g, out.name)
 		glsl_w(&g, ";")
 		glsl_nl(&g)
+
+		if c.uses_frag_coord_flip {
+			glsl_w(&g, "vec4 karl2d_frag_coord;")
+			glsl_nl(&g)
+		}
 	}
 
 	for d in c.decls {
@@ -675,6 +715,7 @@ emit_glsl :: proc(c: ^Compiler, stage: Stage, es: bool) -> []u8 {
 			}
 
 			glsl_sync_line(&g, f.file, f.line)
+			g.frag_coord_prologue = c.uses_frag_coord_flip && stage == .Fragment && Func_Index(d.index) == c.main_funcs[stage]
 			glsl_signature(&g, f)
 			glsl_body(&g, f.body)
 			glsl_nl(&g)

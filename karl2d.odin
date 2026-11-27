@@ -6522,6 +6522,9 @@ load_shader_from_compiled :: proc(
 		switch constant.name {
 		case "view_projection":
 			shd.constant_builtin_locations[.View_Projection_Matrix] = loc
+
+		case sc.FRAG_COORD_FLIP_NAME:
+			shd.constant_builtin_locations[.Frag_Coord_Flip] = loc
 		}
 	}
 
@@ -7486,6 +7489,7 @@ Shader_Input_Type :: enum {
 
 Shader_Builtin_Constant :: enum {
 	View_Projection_Matrix,
+	Frag_Coord_Flip,
 }
 
 Shader_Default_Inputs :: enum {
@@ -8718,6 +8722,15 @@ _begin_textured_draw :: proc(tex: ^Texture_Object, vertices_needed: int) -> bool
 				if constant.size == size_of(Mat4) {
 					(^Mat4)(&constants_data[constant.offset])^ = s.view_projection
 				}
+
+			case .Frag_Coord_Flip:
+				flip := Vec2 { 1, 0 }
+
+				if s.rb.flip_render_textures && s.current_render_target == RENDER_TARGET_NONE {
+					flip = { -1, f32(s.rb.get_swapchain_height(s.rb_state)) }
+				}
+
+				(^Vec2)(&constants_data[constant.offset])^ = flip
 			}
 		}
 	}

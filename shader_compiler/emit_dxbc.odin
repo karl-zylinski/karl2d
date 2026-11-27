@@ -86,9 +86,7 @@ Dx_Value :: struct {
 	neg: bool,
 	abs: bool,
 	has_dyn: bool,
-	dyn_comp: u8,
 	dyn_component: bool,
-	component_comp: u8,
 	bool_as_uint: bool,
 	type: Type_Index,
 	reg: u32,
@@ -99,16 +97,10 @@ Dx_Value :: struct {
 }
 
 Dx_Frame :: struct {
-	func: Func_Index,
 	result: Dx_Value,
 	wrap: bool,
 	has_flag: bool,
 	flag: Dx_Value,
-	loop_depth: int,
-}
-
-Dx_Loop :: struct {
-	stmt: Stmt_Index,
 }
 
 Dx_Local :: struct {
@@ -134,7 +126,14 @@ Dx :: struct {
 	indexables: [dynamic]u32,
 	var_values: []Dx_Value,
 	frames: [dynamic]Dx_Frame,
-	loops: [dynamic]Dx_Loop,
+	loops: [dynamic]Stmt_Index,
+	last_dst_register_index: int,
+	last_dst: Dx_Value,
+	pending_dst_register_index: int,
+	pending_dst: Dx_Value,
+	pending_dst_count: int,
+	has_call_result: bool,
+	call_result: Dx_Value,
 	markers: [dynamic]Dx_Marker,
 	locals: [dynamic]Dx_Local,
 	mark_file: u16,
@@ -398,7 +397,7 @@ dx_operand :: proc(g: ^Dx, v: Dx_Value, selection: u32) {
 	}
 
 	if v.has_dyn {
-		append(&g.code, 0x0010000a | u32(v.dyn_comp) << 4, v.dyn_reg)
+		append(&g.code, 0x0010000a, v.dyn_reg)
 	}
 }
 
@@ -412,6 +411,9 @@ dx_dst :: proc(g: ^Dx, d: Dx_Value) {
 	clean := d
 	clean.neg = false
 	clean.abs = false
+	g.pending_dst_count += 1
+	g.pending_dst_register_index = len(g.code) + 1
+	g.pending_dst = d
 	dx_operand(g, clean, mask << 4)
 }
 
@@ -451,43 +453,25 @@ dx_src :: proc(g: ^Dx, v: Dx_Value, d: Dx_Value) {
 	dx_operand(g, v, 4 | (u32(swz[0]) | u32(swz[1]) << 2 | u32(swz[2]) << 4 | u32(swz[3]) << 6) << 4)
 }
 
-dx_src_n :: proc(g: ^Dx, v: Dx_Value, n: int) {
-	if v.space == .Imm {
-		if n == 1 {
-			append(&g.code, 0x00004001, v.imm[0])
-			return
-		}
-
-		values: [4]u32
-
-		for i in 0..<n {
-			values[i] = v.imm[v.count == 1 ? 0 : i]
-		}
-
-		append(&g.code, 0x00004002, values[0], values[1], values[2], values[3])
-		return
-	}
-
-	if n == 1 {
-		dx_operand(g, v, 8 | u32(v.swizzle[0]) << 4)
-		return
-	}
-
-	swz := [4]u8 { v.swizzle[0], v.swizzle[0], v.swizzle[0], v.swizzle[0] }
-
-	for i in 0..<n {
-		swz[i] = v.swizzle[v.count == 1 ? 0 : i]
-	}
-
-	dx_operand(g, v, 4 | (u32(swz[0]) | u32(swz[1]) << 2 | u32(swz[2]) << 4 | u32(swz[3]) << 6) << 4)
+dx_positional :: proc(count: int) -> Dx_Value {
+	return { count = u8(count), swizzle = { 0, 1, 2, 3 } }
 }
 
 dx_end :: proc(g: ^Dx, start: int) {
 	g.code[start] |= u32(len(g.code) - start) << 24
+	g.last_dst_register_index = -1
+
+	if g.pending_dst_count == 1 && g.pending_dst.space == .Temp {
+		g.last_dst_register_index = g.pending_dst_register_index
+		g.last_dst = g.pending_dst
+	}
+
+	g.pending_dst_count = 0
 }
 
 dx_bare :: proc(g: ^Dx, opcode: u32) {
 	append(&g.code, opcode | 1 << 24)
+	g.last_dst_register_index = -1
 }
 
 dx_ins :: proc(g: ^Dx, opcode: u32, d: Dx_Value, srcs: ..Dx_Value) {
@@ -502,6 +486,102 @@ dx_ins :: proc(g: ^Dx, opcode: u32, d: Dx_Value, srcs: ..Dx_Value) {
 	dx_end(g, start)
 }
 
+dx_is_whole_temp :: proc(g: ^Dx, v: Dx_Value) -> bool {
+	ty := g.c.types[v.type]
+
+	if v.space != .Temp || v.neg || v.abs || v.dyn_component || v.bool_as_uint {
+		return false
+	}
+
+	if ty.kind != .Scalar && ty.kind != .Vector {
+		return false
+	}
+
+	for i in 0..<int(v.count) {
+		if int(v.swizzle[i]) != i {
+			return false
+		}
+	}
+
+	return true
+}
+
+dx_move_result :: proc(g: ^Dx, dst: Dx_Value, src: Dx_Value, fresh_from: u32) {
+	if g.last_dst_register_index >= 0 && dx_is_whole_temp(g, dst) && dx_is_whole_temp(g, src) {
+		last := g.last_dst
+
+		if src.reg >= fresh_from && src.reg == last.reg && src.count == last.count && dst.count == src.count && dx_is_whole_temp(g, last) {
+			g.code[g.last_dst_register_index] = dst.reg
+			g.last_dst.reg = dst.reg
+			return
+		}
+	}
+
+	dx_copy(g, dst, src)
+}
+
+dx_imm_is :: proc(v: Dx_Value, n: int, value: f32) -> bool {
+	if v.space != .Imm {
+		return false
+	}
+
+	for i in 0..<n {
+		if transmute(f32)v.imm[v.count == 1 ? 0 : i] != value {
+			return false
+		}
+	}
+
+	return true
+}
+
+dx_reciprocal :: proc(v: Dx_Value) -> (r: Dx_Value, ok: bool) {
+	if v.space != .Imm {
+		return v, false
+	}
+
+	r = v
+
+	for i in 0..<(v.count == 1 ? 4 : int(v.count)) {
+		x := transmute(f32)v.imm[i]
+
+		if x == 0 {
+			return v, false
+		}
+
+		r.imm[i] = transmute(u32)(1 / x)
+	}
+
+	return r, true
+}
+
+dx_new_folded :: proc(g: ^Dx, opcode: u32, t: Type_Index, a: Dx_Value, b: Dx_Value) -> Dx_Value {
+	n := int(g.c.types[t].size)
+	identity := opcode == DX_ADD ? f32(0) : f32(1)
+
+	if a.space == .Imm && b.space == .Imm {
+		r := dx_imm4(0, 0, 0, 0, t)
+		r.count = u8(n)
+
+		for i in 0..<n {
+			x := transmute(f32)a.imm[a.count == 1 ? 0 : i]
+			y := transmute(f32)b.imm[b.count == 1 ? 0 : i]
+			r.imm[i] = transmute(u32)(opcode == DX_ADD ? x + y : x * y)
+		}
+
+		return r
+	}
+
+	if int(b.count) == n && dx_imm_is(a, n, identity) {
+		return b
+	}
+
+	if int(a.count) == n && dx_imm_is(b, n, identity) {
+		return a
+	}
+
+	return dx_new(g, opcode, t, a, b)
+}
+
 dx_new :: proc(g: ^Dx, opcode: u32, t: Type_Index, srcs: ..Dx_Value) -> Dx_Value {
 	d := dx_temp(g, t)
 	dx_ins(g, opcode, d, ..srcs)
@@ -511,7 +591,7 @@ dx_new :: proc(g: ^Dx, opcode: u32, t: Type_Index, srcs: ..Dx_Value) -> Dx_Value
 dx_test :: proc(g: ^Dx, opcode: u32, cond: Dx_Value) {
 	start := len(g.code)
 	append(&g.code, opcode)
-	dx_src_n(g, cond, 1)
+	dx_src(g, cond, dx_positional(1))
 	dx_end(g, start)
 }
 
@@ -545,6 +625,11 @@ dx_reduce :: proc(g: ^Dx, v: Dx_Value, opcode: u32) -> Dx_Value {
 	return first
 }
 
+dx_component_mask :: proc(g: ^Dx, loc: Dx_Value) -> Dx_Value {
+	index := Dx_Value { space = .Temp, reg = loc.component_reg, count = 1, type = T_INT }
+	return dx_new(g, DX_IEQ, type_vec(.Int, int(loc.count)), index, dx_imm4(0, 1, 2, 3, T_IVEC4))
+}
+
 dx_load :: proc(g: ^Dx, loc: Dx_Value) -> Dx_Value {
 	c := g.c
 
@@ -554,8 +639,7 @@ dx_load :: proc(g: ^Dx, loc: Dx_Value) -> Dx_Value {
 		vec := loc
 		vec.dyn_component = false
 		source := dx_load(g, vec)
-		index := Dx_Value { space = .Temp, reg = loc.component_reg, count = 1, swizzle = { loc.component_comp, 0, 0, 0 }, type = T_INT }
-		mask := dx_new(g, DX_IEQ, type_vec(.Int, n), index, dx_imm4(0, 1, 2, 3, T_IVEC4))
+		mask := dx_component_mask(g, loc)
 		picked := dx_new(g, DX_AND, type_vec(.Int, n), mask, source)
 		result := dx_reduce(g, picked, DX_OR)
 		result.type = type_vec(scalar, 1)
@@ -573,11 +657,9 @@ dx_load :: proc(g: ^Dx, loc: Dx_Value) -> Dx_Value {
 
 dx_store :: proc(g: ^Dx, loc: Dx_Value, value: Dx_Value) {
 	if loc.dyn_component {
-		n := int(loc.count)
 		vec := loc
 		vec.dyn_component = false
-		index := Dx_Value { space = .Temp, reg = loc.component_reg, count = 1, swizzle = { loc.component_comp, 0, 0, 0 }, type = T_INT }
-		mask := dx_new(g, DX_IEQ, type_vec(.Int, n), index, dx_imm4(0, 1, 2, 3, T_IVEC4))
+		mask := dx_component_mask(g, loc)
 		dx_ins(g, DX_MOVC, vec, mask, value, vec)
 		return
 	}
@@ -609,6 +691,51 @@ dx_var_value :: proc(g: ^Dx, vi: Var_Index) -> Dx_Value {
 	return g.var_values[vi]
 }
 
+dx_always_returns :: proc(c: ^Compiler, first: Stmt_Index) -> bool {
+	s := first
+
+	for s != 0 {
+		st := c.stmts[s]
+
+		#partial switch st.kind {
+		case .Return:
+			return true
+
+		case .Block:
+			if dx_always_returns(c, st.first) {
+				return true
+			}
+
+		case .If:
+			if st.else_body != 0 && dx_always_returns(c, st.body) && dx_always_returns(c, st.else_body) {
+				return true
+			}
+		}
+
+		s = st.next
+	}
+
+	return false
+}
+
+dx_is_guard :: proc(c: ^Compiler, st: Stmt) -> bool {
+	if st.kind != .If || st.else_body != 0 || st.next == 0 {
+		return false
+	}
+
+	s := st.next
+
+	for s != 0 {
+		if c.stmts[s].kind == .Case || c.stmts[s].kind == .Default {
+			return false
+		}
+
+		s = c.stmts[s].next
+	}
+
+	return dx_always_returns(c, st.body)
+}
+
 dx_returns :: proc(c: ^Compiler, first: Stmt_Index, tail: bool, in_loop: bool, wrap: ^bool, flag: ^bool) {
 	s := first
 
@@ -631,11 +758,14 @@ dx_returns :: proc(c: ^Compiler, first: Stmt_Index, tail: bool, in_loop: bool, w
 			dx_returns(c, st.first, is_tail, in_loop, wrap, flag)
 
 		case .If:
-			dx_returns(c, st.body, is_tail, in_loop, wrap, flag)
+			dx_returns(c, st.body, is_tail || (tail && dx_is_guard(c, st)), in_loop, wrap, flag)
 			dx_returns(c, st.else_body, is_tail, in_loop, wrap, flag)
 
 		case .For, .While, .Do_While:
 			dx_returns(c, st.body, false, true, wrap, flag)
+
+		case .Switch:
+			dx_returns(c, st.first, false, true, wrap, flag)
 		}
 
 		s = st.next
@@ -660,7 +790,7 @@ dx_epilogue :: proc(g: ^Dx) {
 		if g.uses_frag_depth {
 			start := len(g.code)
 			append(&g.code, DX_MOV, 0x0000c001)
-			dx_src_n(g, g.frag_depth, 1)
+			dx_src(g, g.frag_depth, dx_positional(1))
 			dx_end(g, start)
 		}
 	}
@@ -678,12 +808,20 @@ dx_output :: proc(g: ^Dx, register: u32, shape: Dx_Value, value: Dx_Value) {
 	dx_end(g, start)
 }
 
+dx_loop_step :: proc(g: ^Dx, loop: Stmt) {
+	if loop.kind == .Do_While {
+		dx_test(g, DX_BREAKC, dx_expr(g, loop.expr))
+	} else if loop.post != 0 {
+		dx_expr(g, loop.post)
+	}
+}
+
 dx_stmts :: proc(g: ^Dx, first: Stmt_Index) {
 	c := g.c
 	s := first
 	first_local := len(g.locals)
 
-	for s != 0 && !c.failed {
+	stmts: for s != 0 && !c.failed {
 		st := c.stmts[s]
 		mark := g.top
 
@@ -705,13 +843,31 @@ dx_stmts :: proc(g: ^Dx, first: Stmt_Index) {
 			dx_local(g, st.var, value)
 
 			if st.expr != 0 {
-				dx_copy(g, value, dx_expr(g, st.expr))
+				if c.exprs[st.expr].kind == .Call && value.space == .Temp {
+					g.has_call_result = true
+					g.call_result = value
+				}
+
+				init := dx_expr(g, st.expr)
+				g.has_call_result = false
+				v := c.vars[st.var]
+
+				if init.space == .Imm && init.count == c.types[v.type].size && !v.written && !v.dynamic_index {
+					g.var_values[st.var] = init
+				} else if init.space != value.space || init.reg != value.reg || init.space != .Temp {
+					dx_move_result(g, value, init, decl_mark)
+				}
 			}
 
 			g.top = decl_mark
 
 		case .Expr:
-			dx_expr(g, st.expr)
+			if c.exprs[st.expr].kind == .Assign {
+				dx_assign(g, c.exprs[st.expr], true, mark)
+			} else {
+				dx_expr(g, st.expr)
+			}
+
 			g.top = mark
 
 		case .If:
@@ -720,6 +876,14 @@ dx_stmts :: proc(g: ^Dx, first: Stmt_Index) {
 			g.top = mark
 			dx_stmts(g, st.body)
 			g.top = mark
+
+			if dx_is_guard(c, st) {
+				dx_bare(g, DX_ELSE)
+				dx_stmts(g, st.next)
+				g.top = mark
+				dx_bare(g, DX_ENDIF)
+				break stmts
+			}
 
 			if st.else_body != 0 {
 				dx_bare(g, DX_ELSE)
@@ -747,21 +911,13 @@ dx_stmts :: proc(g: ^Dx, first: Stmt_Index) {
 				g.top = loop_mark
 			}
 
-			frame := &g.frames[len(g.frames) - 1]
-			frame.loop_depth += 1
-			append(&g.loops, Dx_Loop { stmt = s })
+			frame := g.frames[len(g.frames) - 1]
+			append(&g.loops, s)
 			dx_stmts(g, st.body)
 			pop(&g.loops)
-			frame = &g.frames[len(g.frames) - 1]
-			frame.loop_depth -= 1
 			g.top = loop_mark
 
-			if st.kind == .Do_While {
-				cond := dx_expr(g, st.expr)
-				dx_test(g, DX_BREAKC, cond)
-			} else if st.post != 0 {
-				dx_expr(g, st.post)
-			}
+			dx_loop_step(g, st)
 
 			g.top = loop_mark
 			dx_bare(g, DX_ENDLOOP)
@@ -782,7 +938,7 @@ dx_stmts :: proc(g: ^Dx, first: Stmt_Index) {
 			}
 
 			if st.expr != 0 {
-				dx_copy(g, frame.result, dx_expr(g, st.expr))
+				dx_move_result(g, frame.result, dx_expr(g, st.expr), mark)
 			}
 
 			g.top = mark
@@ -801,20 +957,32 @@ dx_stmts :: proc(g: ^Dx, first: Stmt_Index) {
 			dx_bare(g, DX_BREAK)
 
 		case .Continue:
-			loop := c.stmts[g.loops[len(g.loops) - 1].stmt]
+			loop := c.stmts[g.loops[len(g.loops) - 1]]
 
-			if loop.kind == .Do_While {
-				cond := dx_expr(g, loop.expr)
-				dx_test(g, DX_BREAKC, cond)
-			} else if loop.post != 0 {
-				dx_expr(g, loop.post)
-			}
+			dx_loop_step(g, loop)
 
 			g.top = mark
 			dx_bare(g, DX_CONTINUE)
 
 		case .Discard:
 			dx_test(g, DX_DISCARD | DX_TEST_NZ, dx_imm_u(0xffffffff))
+
+		case .Switch:
+			dx_test(g, 76, dx_expr(g, st.expr))
+			g.top = mark
+			frame := g.frames[len(g.frames) - 1]
+			dx_stmts(g, st.first)
+			dx_bare(g, 23)
+
+			if frame.has_flag {
+				dx_test(g, DX_BREAKC | DX_TEST_NZ, frame.flag)
+			}
+
+		case .Case:
+			dx_test(g, 6, dx_expr(g, st.expr))
+
+		case .Default:
+			dx_bare(g, 10)
 		}
 
 		s = st.next
@@ -829,7 +997,10 @@ dx_call :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 	args := c.expr_args[ex.args_start:ex.args_start + ex.args_count]
 	result: Dx_Value
 
-	if f.return_type != T_VOID {
+	if g.has_call_result {
+		result = g.call_result
+		g.has_call_result = false
+	} else if f.return_type != T_VOID {
 		result = dx_temp(g, f.return_type)
 	}
 
@@ -845,15 +1016,35 @@ dx_call :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 			continue
 		}
 
-		storage[arg_idx] = dx_alloc_var(g, f.params[arg_idx])
+		if param.param_qualifier == .In {
+			arg_mark := g.top
+			value := dx_expr(g, arg)
+			root := c.exprs[arg]
 
-		if param.param_qualifier != .In {
-			targets[arg_idx] = dx_place(g, arg)
+			for root.kind == .Index || root.kind == .Field || root.kind == .Swizzle {
+				root = c.exprs[root.a]
+			}
+
+			from_global := root.kind == .Var && c.vars[root.var].kind == .Global
+
+			if !param.written && !param.dynamic_index && !from_global {
+				for later in args[arg_idx + 1:] {
+					value = dx_keep(g, value, later)
+				}
+
+				storage[arg_idx] = value
+				continue
+			}
+
+			storage[arg_idx] = dx_alloc_var(g, f.params[arg_idx])
+			dx_move_result(g, storage[arg_idx], value, arg_mark)
+			continue
 		}
 
-		if param.param_qualifier == .In {
-			dx_copy(g, storage[arg_idx], dx_expr(g, arg))
-		} else if param.param_qualifier == .Inout {
+		storage[arg_idx] = dx_alloc_var(g, f.params[arg_idx])
+		targets[arg_idx] = dx_place(g, arg)
+
+		if param.param_qualifier == .Inout {
 			dx_copy(g, storage[arg_idx], dx_load(g, targets[arg_idx]))
 		}
 	}
@@ -865,7 +1056,7 @@ dx_call :: proc(g: ^Dx, ex: Expr) -> Dx_Value {
 		dx_local(g, p, storage[p_idx])
 	}
 
-	frame := Dx_Frame { func = ex.func, result = result }
+	frame := Dx_Frame { result = result }
 	dx_returns(c, c.stmts[f.body].first, true, false, &frame.wrap, &frame.has_flag)
 
 	if frame.has_flag {
@@ -1098,7 +1289,7 @@ emit_dxbc :: proc(c: ^Compiler, stage: Stage) -> []u8 {
 
 	main := c.funcs[c.main_funcs[stage]]
 	dx_mark(g, main.file, main.line)
-	append(&g.frames, Dx_Frame { func = c.main_funcs[stage] })
+	append(&g.frames, Dx_Frame {})
 	dx_stmts(g, c.stmts[main.body].first)
 	dx_epilogue(g)
 
@@ -1200,7 +1391,6 @@ emit_dxbc :: proc(c: ^Compiler, stage: Stage) -> []u8 {
 			switch v.interpolation {
 			case .Smooth:
 			case .Flat: interpolation = 1
-			case .Noperspective: interpolation = 4
 			}
 
 			dx_decl(&shader, 98 | interpolation << 11, 0x00101002 | mask << 4, varying_base + u32(vary_idx))

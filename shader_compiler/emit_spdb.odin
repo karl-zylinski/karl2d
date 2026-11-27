@@ -118,7 +118,7 @@ spdb_type_id :: proc(types: ^Spdb_Types, t: Type_Index) -> u32 {
 		start := spdb_type_begin(types, 0x1516)
 		put_u32(&types.records, elem)
 		put_u32(&types.records, 0x22)
-		put_u32(&types.records, u32(size / int(ty.len)))
+		put_u32(&types.records, u32(type_array_stride(c, t)))
 		spdb_numeric(&types.records, size)
 		append(&types.records, 0)
 		id = spdb_type_end(types, start, "", false)
@@ -196,8 +196,7 @@ spdb_def_ranges :: proc(c: ^Compiler, buf: ^[dynamic]u8, local: Spdb_Local, t: T
 		}
 
 	case .Array:
-		size, _ := type_std140_layout(c, t)
-		stride := size / int(ty.len)
+		stride := type_array_stride(c, t)
 
 		for i in 0..<int(ty.len) {
 			spdb_def_ranges(c, buf, local, ty.elem, offset + i * stride, true)
@@ -508,7 +507,6 @@ emit_spdb :: proc(c: ^Compiler, stage: Stage, shader: []u32, body_start: int, li
 	STREAM_TPI_HASH :: 7
 	STREAM_IPI_HASH :: 8
 	STREAM_MODULE :: 9
-	STREAM_SECTIONS :: 10
 	STREAM_GLOBALS :: 11
 	STREAM_PUBLICS :: 12
 	STREAM_SYMBOLS :: 13
@@ -685,17 +683,6 @@ emit_spdb :: proc(c: ^Compiler, stage: Stage, shader: []u32, body_start: int, li
 
 	append(&publics, ..globals[:])
 	streams[STREAM_PUBLICS] = publics[:]
-	sections := make([dynamic]u8, 0, 40)
-	append(&sections, "D3DSHDR")
-	append(&sections, 0)
-	put_u32(&sections, u32(len(shader_bytes)))
-
-	for _ in 0..<6 {
-		put_u32(&sections, 0)
-	}
-
-	put_u32(&sections, 0x60000020)
-	streams[STREAM_SECTIONS] = sections[:]
 	dbi := make([dynamic]u8, 0, 512)
 	put_u32(&dbi, 0xffffffff)
 	put_u32(&dbi, 19990903)
@@ -796,8 +783,8 @@ emit_spdb :: proc(c: ^Compiler, stage: Stage, shader: []u32, body_start: int, li
 	put_u32(&dbi, 0)
 	optional_start := len(dbi)
 
-	for i in 0..<11 {
-		put_u16(&dbi, i == 5 ? STREAM_SECTIONS : 0xffff)
+	for _ in 0..<11 {
+		put_u16(&dbi, 0xffff)
 	}
 
 	set_u32(dbi[:], sizes_at, u32(contributions_start - modules_start))
