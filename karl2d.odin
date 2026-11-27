@@ -5926,7 +5926,12 @@ load_static_font_from_bytes :: proc(
 		return
 	}
 
-	scale_factor := ot.pixel_scale_from_font_size(ot_font, font_size)
+	scale_factor: f32
+	if .Point == options.filter {
+		scale_factor = ot.point_pixel_scale_from_font_size(ot_font, font_size)
+	} else {
+		scale_factor = ot.pixel_scale_from_font_size(ot_font, font_size)
+	}
 
 	default_codepoints: [95]rune
 
