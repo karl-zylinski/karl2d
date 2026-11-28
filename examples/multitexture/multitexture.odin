@@ -20,7 +20,8 @@ tex2: k2.Texture
 init :: proc() {
 	k2.init(1080, 1080, "Karl2D Multitexture Example")
 
-	shd = k2.load_shader_from_source(#load("multitexture_shader.glsl"), "multitexture_shader.glsl")
+	compiled := k2.compile_shader_from_bytes(#load("multitexture_shader.glsl"), context.temp_allocator)
+	shd = k2.load_shader(compiled)
 	
 	tex1 = k2.load_texture_from_bytes(#load("../basics/sixten.jpg"))
 	tex2 = k2.load_texture_from_bytes(#load("../snake/food.png"))

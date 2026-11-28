@@ -16,12 +16,10 @@ Stage :: enum u8 {
 	Fragment,
 }
 
-Read_File_Proc :: proc(path: string, user_data: rawptr, allocator: runtime.Allocator) -> (data: []u8, ok: bool)
+Load_Include_Proc :: proc(filename: string) -> (data: []u8, ok: bool)
 
 Compile_Options :: struct {
 	targets: bit_set[Target],
-	read_file: Read_File_Proc,
-	read_file_user_data: rawptr,
 	no_debug_info: bool,
 	no_optimization: bool,
 }
@@ -193,6 +191,7 @@ Decl :: struct {
 Compiler :: struct {
 	allocator: runtime.Allocator,
 	options: Compile_Options,
+	load_include: Load_Include_Proc,
 	files: [dynamic]Source_File,
 	tokens: [dynamic]Token,
 	macros: [dynamic]Macro,
@@ -221,7 +220,7 @@ Compiler :: struct {
 	frag_output: Var_Index,
 	constants_size: int,
 	failed: bool,
-	error: string,
+	error: Compile_Error,
 }
 
 Varying :: struct {
@@ -241,25 +240,46 @@ compile_error :: proc(c: ^Compiler, file: u16, line: i32, format: string, args: 
 		name = c.files[file].name
 	}
 
-	msg := fmt.aprintf(format, ..args, allocator = c.allocator)
-	c.error = fmt.aprintf("%s(%d): %s", name, line, msg, allocator = c.allocator)
+	c.error = {
+		message = fmt.aprintf(format, ..args, allocator = c.allocator),
+		file = name,
+		line = int(line),
+	}
 
 	if len(c.tokens) > 0 {
 		c.tok = len(c.tokens) - 1
 	}
 }
 
+compile_from_bytes :: proc(
+	bytes: []u8,
+	options := Compile_Options {},
+	allocator := context.allocator,
+	temp_allocator := context.temp_allocator,
+	error_allocator := context.temp_allocator,
+	load_include: Load_Include_Proc = nil,
+) -> (Compiled_Shader, Compile_Error, bool) {
+	return compile(bytes, "", load_include, options, allocator, temp_allocator, error_allocator)
+}
+
 compile :: proc(
 	source: []u8,
 	filename: string,
+	load_include: Load_Include_Proc,
 	options: Compile_Options,
 	allocator := context.allocator,
-	scratch_allocator := context.temp_allocator,
-) -> (compiled: Compiled_Shader, error: string, ok: bool) {
-	c := new(Compiler, scratch_allocator)
-	c.allocator = scratch_allocator
+	temp_allocator := context.temp_allocator,
+	error_allocator := context.temp_allocator,
+) -> (Compiled_Shader, Compile_Error, bool) {
+	c := new(Compiler, temp_allocator)
+	c.allocator = temp_allocator
 	c.options = options
-	context.allocator = scratch_allocator
+	c.load_include = load_include
+	context.allocator = temp_allocator
+
+	if c.options.targets == {} {
+		c.options.targets = ~bit_set[Target]{}
+	}
 
 	c.files = make([dynamic]Source_File, 0, 4)
 	c.tokens = make([dynamic]Token, 0, len(source) / 3 + 16)
@@ -294,7 +314,7 @@ compile :: proc(
 		parse_program(c)
 	}
 
-	if !c.failed && !options.no_optimization {
+	if !c.failed && !c.options.no_optimization {
 		optimize_program(c)
 	}
 
@@ -303,36 +323,47 @@ compile :: proc(
 	}
 
 	if c.failed {
-		return {}, fmt.aprint(c.error, allocator = allocator), false
+		error := Compile_Error {
+			message = fmt.aprint(c.error.message, allocator = error_allocator),
+			file = fmt.aprint(c.error.file, allocator = error_allocator),
+			line = c.error.line,
+		}
+
+		return nil, error, false
 	}
 
 	code: [Target]Target_Code
 
-	if .GLSL_330 in options.targets {
+	if .GLSL_330 in c.options.targets {
 		code[.GLSL_330].vertex = emit_glsl(c, .Vertex, false)
 		code[.GLSL_330].fragment = emit_glsl(c, .Fragment, false)
 	}
 
-	if .GLSL_ES_300 in options.targets {
+	if .GLSL_ES_300 in c.options.targets {
 		code[.GLSL_ES_300].vertex = emit_glsl(c, .Vertex, true)
 		code[.GLSL_ES_300].fragment = emit_glsl(c, .Fragment, true)
 	}
 
-	if .DXBC in options.targets {
+	if .DXBC in c.options.targets {
 		code[.DXBC].vertex = emit_dxbc(c, .Vertex)
 		code[.DXBC].fragment = emit_dxbc(c, .Fragment)
 	}
 
-	if .SPIRV in options.targets {
+	if .SPIRV in c.options.targets {
 		code[.SPIRV].vertex = emit_spirv(c, .Vertex)
 		code[.SPIRV].fragment = emit_spirv(c, .Fragment)
 	}
 
 	if c.failed {
-		return {}, fmt.aprint(c.error, allocator = allocator), false
+		error := Compile_Error {
+			message = fmt.aprint(c.error.message, allocator = error_allocator),
+			file = fmt.aprint(c.error.file, allocator = error_allocator),
+			line = c.error.line,
+		}
+
+		return nil, error, false
 	}
 
 	bytes := serialize_compiled_shader(c, code, allocator)
-	compiled, ok = compiled_shader_from_bytes(bytes)
-	return compiled, "", ok
+	return bytes, {}, true
 }

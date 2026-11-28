@@ -934,12 +934,12 @@ lex_include :: proc(c: ^Compiler, from_file: int, line: i32, path: string) {
 		}
 	}
 
-	if c.options.read_file == nil {
-		compile_error(c, u16(from_file), line, "Cannot #include \"%s\": no file reader was supplied", path)
+	if c.load_include == nil {
+		compile_error(c, u16(from_file), line, "Cannot #include \"%s\": no load_include procedure was supplied", path)
 		return
 	}
 
-	data, data_ok := c.options.read_file(full_path, c.options.read_file_user_data, c.allocator)
+	data, data_ok := c.load_include(full_path)
 
 	if !data_ok {
 		compile_error(c, u16(from_file), line, "Cannot read included file \"%s\"", full_path)

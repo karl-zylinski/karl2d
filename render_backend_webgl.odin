@@ -29,7 +29,7 @@ RENDER_BACKEND_WEBGL :: Render_Backend_Interface {
 	flip_render_textures = true,
 	create_render_texture = webgl_create_render_texture,
 	destroy_render_target = webgl_destroy_render_target,
-	shader_target = .GLSL_ES_300,
+	shader_format = .GLSL_ES_300,
 	load_shader = webgl_load_shader,
 	destroy_shader = webgl_destroy_shader,
 	read_backbuffer = webgl_read_backbuffer,
@@ -83,6 +83,8 @@ WebGL_Shader :: struct {
 	constant_buffer: gl.Buffer,
 	has_constant_buffer: bool,
 	texture_bindings: []WebGL_Texture_Binding, 
+	frag_coord_flip_loc: i32,
+	frag_coord_flip: [2]f32,
 }
 
 webgl_init :: proc(
@@ -233,6 +235,19 @@ webgl_draw :: proc(s: ^WebGL_State, vertex_buffer: []u8, draw_calls: []Draw_Call
 		if .Shader in changed {
 			gl.BindVertexArray(gl_shd.vao)
 			gl.UseProgram(gl_shd.program)
+		}
+
+		if gl_shd.frag_coord_flip_loc >= 0 {
+			flip := [2]f32 { 1, 0 }
+
+			if call.render_target == RENDER_TARGET_NONE {
+				flip = { -1, f32(s.height) }
+			}
+
+			if flip != gl_shd.frag_coord_flip {
+				gl_shd.frag_coord_flip = flip
+				gl.Uniform2f(gl_shd.frag_coord_flip_loc, flip.x, flip.y)
+			}
 		}
 
 		if .Constants in changed {
@@ -664,7 +679,7 @@ webgl_link_shader :: proc(vs_shader: gl.Shader, fs_shader: gl.Shader, err_buf: [
 
 webgl_load_shader :: proc(
 	s: ^WebGL_State,
-	compiled: sc.Compiled_Shader,
+	compiled: sc.Compiled_Shader_View,
 	inputs: []Shader_Input,
 ) -> (
 	_handle: Shader_Handle,
@@ -707,6 +722,7 @@ webgl_load_shader :: proc(
 	gl_shd := WebGL_Shader {
 		program = program,
 		vao = gl.CreateVertexArray(),
+		frag_coord_flip_loc = gl.GetUniformLocation(program, sc.FRAG_COORD_FLIP_NAME),
 	}
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)

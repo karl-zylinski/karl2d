@@ -11,7 +11,7 @@ import "core:strings"
 import sc "shader_compiler"
 
 GL_ES :: #config(KARL2D_GL_ES, ODIN_PLATFORM_SUBTARGET == .Android)
-GL_SHADER_TARGET :: sc.Target.GLSL_ES_300 when GL_ES else sc.Target.GLSL_330
+GL_SHADER_FORMAT :: sc.Target.GLSL_ES_300 when GL_ES else sc.Target.GLSL_330
 
 RENDER_BACKEND_GL :: Render_Backend_Interface {
 	state_type = GL_State,
@@ -32,7 +32,7 @@ RENDER_BACKEND_GL :: Render_Backend_Interface {
 	flip_render_textures = true,
 	create_render_texture = gl_create_render_texture,
 	destroy_render_target = gl_destroy_render_target,
-	shader_target = GL_SHADER_TARGET,
+	shader_format = GL_SHADER_FORMAT,
 	load_shader = gl_load_shader,
 	destroy_shader = gl_destroy_shader,
 	read_backbuffer = gl_read_backbuffer,
@@ -94,6 +94,8 @@ GL_Shader :: struct {
 
 	constant_buffer: u32,
 	texture_bindings: []GL_Texture_Binding, 
+	frag_coord_flip_loc: i32,
+	frag_coord_flip: [2]f32,
 }
 
 gl_init :: proc(
@@ -272,6 +274,19 @@ gl_draw :: proc(s: ^GL_State, vertex_buffer: []u8, draw_calls: []Draw_Call) {
 		if .Shader in changed {
 			gl.BindVertexArray(gl_shd.vao)
 			gl.UseProgram(gl_shd.program)
+		}
+
+		if gl_shd.frag_coord_flip_loc >= 0 {
+			flip := [2]f32 { 1, 0 }
+
+			if call.render_target == RENDER_TARGET_NONE {
+				flip = { -1, f32(s.height) }
+			}
+
+			if flip != gl_shd.frag_coord_flip {
+				gl_shd.frag_coord_flip = flip
+				gl.Uniform2f(gl_shd.frag_coord_flip_loc, flip.x, flip.y)
+			}
 		}
 
 		if .Constants in changed {
@@ -789,13 +804,13 @@ gl_link_shader :: proc(vs_shader: u32, fs_shader: u32, err_buf: []u8, err_msg: ^
 
 gl_load_shader :: proc(
 	s: ^GL_State,
-	compiled: sc.Compiled_Shader,
+	compiled: sc.Compiled_Shader_View,
 	inputs: []Shader_Input,
 ) -> (
 	_handle: Shader_Handle,
 	_ok: bool,
 ) {
-	code := compiled.code[GL_SHADER_TARGET]
+	code := compiled.code[GL_SHADER_FORMAT]
 
 	@static err: [1024]u8
 	err_msg: string
@@ -831,6 +846,7 @@ gl_load_shader :: proc(
 
 	gl_shd := GL_Shader {
 		program = program,
+		frag_coord_flip_loc = gl.GetUniformLocation(program, sc.FRAG_COORD_FLIP_NAME),
 	}
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, s.vertex_buffer_gpu)

@@ -12,7 +12,8 @@ main :: proc() {
 
 	texture := k2.load_texture_from_file("space.png")
 
-	shader := k2.load_shader_from_source(#load("wave.glsl"), "wave.glsl")
+	compiled := k2.compile_shader_from_bytes(#load("wave.glsl"), context.temp_allocator)
+	shader := k2.load_shader(compiled)
 	seconds_loc := shader.constant_lookup["seconds"]
 	freq_x_loc := shader.constant_lookup["freqX"]
 	freq_y_loc := shader.constant_lookup["freqY"]
@@ -46,6 +47,8 @@ main :: proc() {
 
 		k2.set_shader(nil)
 		k2.present()
+
+		free_all(context.temp_allocator)
 	}
 
 	k2.destroy_shader(shader)

@@ -191,11 +191,9 @@ init :: proc(
 	) 
 	s.shape_drawing_texture = shape_drawing_texture
 
-	// TODO-UPDATE-COMMENT: The default shader is now a single source that is compiled for the backend.
-	//---
-	// The default shader will arrive in a different format depending on backend. GLSL for GL,
-	// HLSL for d3d etc.
-	s.default_shader = load_shader_from_source(#load("default_shaders/default_shader.glsl"), "default_shader.glsl")
+	default_shader_compiled := compile_shader_from_bytes(#load("default_shaders/default_shader.glsl"), frame_allocator)
+	
+	s.default_shader = load_shader(default_shader_compiled)
 	s.current_shader = s.default_shader
 	s.draw_call_changes = DRAW_CALL_CHANGE_ALL
 
@@ -6382,10 +6380,66 @@ is_cursor_hidden :: proc() -> bool {
 // SHADERS //
 //---------//
 
-// TODO-UPDATE-COMMENT: Takes a single file in the Karl2D shader format (GLSL with #vertex and #fragment sections) that is compiled for the current backend.
-//---
-// Load a shader from a vertex and fragment shader file. If the vertex and fragment shaders live in
-// the same file, then pass it twice.
+compile_shader_from_file :: proc(
+	filename: string,
+	allocator := context.allocator,
+) -> (sc.Compiled_Shader, bool) #optional_ok {
+	load_include :: proc(filename: string) -> ([]u8, bool) {
+		return read_entire_file(filename, context.allocator)
+	}
+
+	source, source_ok := read_entire_file(filename, frame_allocator)
+
+	if !source_ok {
+		return nil, false
+	}
+
+	compiled, error, ok := sc.compile(
+		source,
+		filename,
+		load_include,
+		{ targets = { s.rb.shader_format } },
+		allocator,
+		frame_allocator,
+		frame_allocator,
+	)
+
+	if !ok {
+		log.errorf("Failed compiling shader: %s(%d): %s", error.file, error.line, error.message)
+	}
+
+	return compiled, ok
+}
+
+compile_shader_from_bytes :: proc(
+	bytes: []u8,
+	allocator := context.allocator,
+	load_include: sc.Load_Include_Proc = nil,
+) -> (sc.Compiled_Shader, bool) #optional_ok {
+	compiled, error, ok := sc.compile_from_bytes(
+		bytes,
+		{ targets = { s.rb.shader_format } },
+		allocator,
+		frame_allocator,
+		frame_allocator,
+		load_include,
+	)
+
+	if !ok {
+		log.errorf("Failed compiling shader: %s(%d): %s", error.file, error.line, error.message)
+	}
+
+	return compiled, ok
+}
+
+// Load a shader from a shader compiled using `compile_shader_from_file` or
+// `compile_shader_from_bytes`. You can also directly use the `karl2d/shader_compiler` package to
+// compile shaders, that package can be run as a separate program in order to compile shaders ahead
+// of running the game.
+//
+// All shaders are written in "almost GLSL". See `karl2d/default_shader.glsl` for an example of the
+// format. It's just GLSL with both vertex and fragment shader dumped into one file, plus support
+// for importing files using `#include`.
 //
 // `layout_formats` can in many cases be left default initialized. It is used to specify the format
 // of the vertex shader inputs. By formats this means the format that you pass on the CPU side.
@@ -6393,78 +6447,41 @@ is_cursor_hidden :: proc() -> bool {
 // The second return value is `true` if the shader was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Shader` will still be
 // possible to use, but setting it does nothing: drawing carries on with the shader already set.
-load_shader_from_file :: proc(
-	filename: string,
-	layout_formats: []Pixel_Format = {},
+load_shader :: proc(
+	compiled_shader: sc.Compiled_Shader,
+	input_formats: []Shader_Input_Format = {},
 ) -> (Shader, bool) #optional_ok {
-	source, source_ok := read_entire_file(filename, frame_allocator)
-
-	if !source_ok {
-		log.errorf("Failed loading shader %s", filename)
+	if len(compiled_shader) == 0 {
+		log.error("Failed loading shader: The compiled shader is empty.")
 		return {}, false
 	}
 
-	return load_shader_from_source(source, filename, layout_formats)
-}
-
-// TODO-UPDATE-COMMENT: Was load_shader_from_bytes. Now compiles one source in the Karl2D shader format. `filename` is used for error messages and for finding #include files.
-//---
-// Load a vertex and fragment shader from a block of memory. See `load_shader_from_file` for what
-// `layout_formats` means.
-//
-// The second return value is `true` if the shader was loaded correctly. It's optional to handle
-// this error, it will also be logged. In case of failure, the returned `Shader` will still be
-// possible to use, but setting it does nothing: drawing carries on with the shader already set.
-load_shader_from_source :: proc(
-	source: []byte,
-	filename: string = "",
-	layout_formats: []Pixel_Format = {},
-) -> (Shader, bool) #optional_ok {
-	read_include :: proc(path: string, user_data: rawptr, allocator: runtime.Allocator) -> ([]u8, bool) {
-		return read_entire_file(path, allocator)
-	}
-
-	options := sc.Compile_Options {
-		targets = { s.rb.shader_target },
-		read_file = read_include,
-	}
-
-	compiled, compile_error, compile_ok := sc.compile(source, filename, options, frame_allocator, frame_allocator)
-
-	if !compile_ok {
-		log.error(compile_error)
-		return {}, false
-	}
-
-	return load_shader_from_compiled(compiled, layout_formats)
-}
-
-load_shader_from_compiled_bytes :: proc(
-	bytes: []byte,
-	layout_formats: []Pixel_Format = {},
-) -> (Shader, bool) #optional_ok {
-	compiled, compiled_ok := sc.compiled_shader_from_bytes(bytes)
+	compiled, compiled_ok := sc.compiled_shader_view(compiled_shader)
 
 	if !compiled_ok {
-		log.error("Failed loading shader: The bytes are not a compiled shader, or they come from another version of the shader compiler.")
+		log.error("Failed loading shader: Not a compiled shader, or it comes from another version of the shader compiler.")
 		return {}, false
 	}
 
-	return load_shader_from_compiled(compiled, layout_formats)
-}
-
-load_shader_from_compiled :: proc(
-	compiled: sc.Compiled_Shader,
-	layout_formats: []Pixel_Format = {},
-) -> (Shader, bool) #optional_ok {
-	if s.rb.shader_target not_in compiled.targets {
-		log.errorf("Failed loading shader: It was not compiled for %v, which the current render backend needs.", s.rb.shader_target)
+	if s.rb.shader_format not_in compiled.targets {
+		log.errorf("Failed loading shader: It was not compiled for %v, which the current render backend needs.", s.rb.shader_format)
 		return {}, false
 	}
 
-	if len(layout_formats) != 0 && len(layout_formats) != compiled.num_inputs {
-		log.errorf("Failed loading shader: Got %v layout formats, but the shader has %v vertex inputs.", len(layout_formats), compiled.num_inputs)
-		return {}, false
+	for f in input_formats {
+		found := false
+
+		for input_idx in 0..<compiled.num_inputs {
+			if sc.compiled_shader_input(compiled, input_idx).name == f.name {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			log.errorf("Failed loading shader: Got an input format for '%s', but the shader has no vertex input with that name.", f.name)
+			return {}, false
+		}
 	}
 
 	inputs := make([]Shader_Input, compiled.num_inputs, s.allocator)
@@ -6472,12 +6489,19 @@ load_shader_from_compiled :: proc(
 	for &input, input_idx in inputs {
 		compiled_input := sc.compiled_shader_input(compiled, input_idx)
 		type := Shader_Input_Type(compiled_input.type)
+		format := get_shader_input_format(compiled_input.name, type)
+
+		for f in input_formats {
+			if f.name == compiled_input.name {
+				format = f.format
+			}
+		}
 
 		input = {
 			name = strings.clone(compiled_input.name, s.allocator),
 			register = compiled_input.location,
 			type = type,
-			format = len(layout_formats) > 0 ? layout_formats[input_idx] : get_shader_input_format(compiled_input.name, type),
+			format = format,
 		}
 	}
 
@@ -6522,9 +6546,6 @@ load_shader_from_compiled :: proc(
 		switch constant.name {
 		case "view_projection":
 			shd.constant_builtin_locations[.View_Projection_Matrix] = loc
-
-		case sc.FRAG_COORD_FLIP_NAME:
-			shd.constant_builtin_locations[.Frag_Coord_Flip] = loc
 		}
 	}
 
@@ -6557,14 +6578,17 @@ load_shader_from_compiled :: proc(
 	return shd, true
 }
 
+Shader_Input_Format :: struct {
+	name: string,
+	format: Pixel_Format,
+}
+
 read_backbuffer :: proc(pixels: []u8) -> bool {
 	draw_current_batch()
 	return s.rb.read_backbuffer(s.rb_state, pixels)
 }
 
-// TODO-UPDATE-COMMENT: load_shader_from_bytes no longer exists. The loaders are load_shader_from_file, load_shader_from_source, load_shader_from_compiled and load_shader_from_compiled_bytes.
-//---
-// Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
+// Destroy a shader previously loaded using `load_shader`
 destroy_shader :: proc(shader: Shader) {
 	if s.current_draw_call.shader == shader.handle {
 		draw_current_batch()
@@ -6704,7 +6728,7 @@ set_shader_texture :: proc(shd: Shader, bindpoint: int, texture: Texture) {
 //
 // `input` should be the index of the input and `val` should be a value of the correct size.
 //
-// You can modify which type that is expected for `val` by passing a custom `layout_formats` when
+// You can modify which type that is expected for `val` by passing a custom `input_formats` when
 // you load the shader.
 override_shader_input :: proc(shader: Shader, input: int, val: any) {
 	sz := reflect.size_of_typeid(val.id)
@@ -7489,7 +7513,6 @@ Shader_Input_Type :: enum {
 
 Shader_Builtin_Constant :: enum {
 	View_Projection_Matrix,
-	Frag_Coord_Flip,
 }
 
 Shader_Default_Inputs :: enum {
@@ -8722,15 +8745,6 @@ _begin_textured_draw :: proc(tex: ^Texture_Object, vertices_needed: int) -> bool
 				if constant.size == size_of(Mat4) {
 					(^Mat4)(&constants_data[constant.offset])^ = s.view_projection
 				}
-
-			case .Frag_Coord_Flip:
-				flip := Vec2 { 1, 0 }
-
-				if s.rb.flip_render_textures && s.current_render_target == RENDER_TARGET_NONE {
-					flip = { -1, f32(s.rb.get_swapchain_height(s.rb_state)) }
-				}
-
-				(^Vec2)(&constants_data[constant.offset])^ = flip
 			}
 		}
 	}

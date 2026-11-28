@@ -1352,19 +1352,6 @@ finish_program :: proc(c: ^Compiler) {
 		return
 	}
 
-	if c.uses_frag_coord_flip {
-		append(&c.vars, Var {
-			name = FRAG_COORD_FLIP_NAME,
-			type = T_VEC2,
-			kind = .Uniform,
-			stage = .Shared,
-			used = { .Vertex, .Fragment },
-			location = -1,
-		})
-
-		append(&c.uniforms, Var_Index(len(c.vars) - 1))
-	}
-
 	offset := 0
 
 	for u in c.uniforms {

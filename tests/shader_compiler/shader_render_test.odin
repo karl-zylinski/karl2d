@@ -2,7 +2,6 @@ package karl2d_shader_render_test
 
 import k2 "../.."
 import sc "../../shader_compiler"
-import "base:runtime"
 import "../../log"
 import "core:dynlib"
 import "core:fmt"
@@ -58,11 +57,6 @@ compare :: proc(dir_a: string, dir_b: string) {
 }
 
 check_errors :: proc() {
-	read_file :: proc(path: string, user_data: rawptr, allocator: runtime.Allocator) -> ([]u8, bool) {
-		data, err := os.read_entire_file_from_path(path, allocator)
-		return data, err == nil
-	}
-
 	error_dir := #directory + "errors"
 	files, files_err := os.read_all_directory_by_path(error_dir, context.allocator)
 
@@ -81,14 +75,13 @@ check_errors :: proc() {
 			continue
 		}
 
-		options := sc.Compile_Options { targets = ~bit_set[sc.Target]{}, read_file = read_file }
-		_, message, ok := sc.compile(source, f.name, options)
+		_, error, ok := sc.compile(source, f.name, sc.load_include_from_disk, {})
 
 		if ok {
 			fmt.printfln("%-44s WAS ACCEPTED", f.name)
 			accepted += 1
 		} else {
-			fmt.println(message)
+			fmt.printfln("%s(%d): %s", error.file, error.line, error.message)
 		}
 	}
 
@@ -134,7 +127,14 @@ capture :: proc(capture_path: string, shader_path: string) {
 	}
 
 	tex := k2.load_texture_from_bytes_raw(texels[:], 4, 4, .RGBA_8_Norm)
-	shd, shd_ok := k2.load_shader_from_file(shader_path)
+	compiled, compiled_ok := k2.compile_shader_from_file(shader_path, context.temp_allocator)
+
+	if !compiled_ok {
+		fmt.eprintln("Cannot compile the shader")
+		os.exit(1)
+	}
+
+	shd, shd_ok := k2.load_shader(compiled)
 
 	if !shd_ok {
 		fmt.eprintln("Cannot load the shader")
@@ -162,6 +162,10 @@ capture :: proc(capture_path: string, shader_path: string) {
 }
 
 run_on_device :: proc() {
+	load_include :: proc(filename: string) -> ([]u8, bool) {
+		return k2.read_entire_file(fmt.tprintf("shaders/%s", filename), context.allocator)
+	}
+
 	files := #load_directory("shaders")
 	k2.init(SIZE, SIZE, "Shader render test")
 	texels: [8 * 8 * 4]u8
@@ -195,9 +199,10 @@ run_on_device :: proc() {
 		height := k2.get_screen_height()
 		pixels := make([]u8, width * height * 4, context.temp_allocator)
 		count += 1
-		shd, shd_ok := k2.load_shader_from_file(fmt.tprintf("shaders/%s", f.name))
+		compiled, compiled_ok := k2.compile_shader_from_bytes(f.data, context.temp_allocator, load_include)
+		shd, shd_ok := k2.load_shader(compiled)
 
-		if !shd_ok {
+		if !compiled_ok || !shd_ok {
 			log.errorf("SHADERTEST %s FAILED TO LOAD", f.name)
 			failures += 1
 			continue
@@ -325,9 +330,10 @@ main :: proc() {
 
 		k2.update()
 		count += 1
-		shd, shd_ok := k2.load_shader_from_file(f.fullpath)
+		compiled, compiled_ok := k2.compile_shader_from_file(f.fullpath, context.temp_allocator)
+		shd, shd_ok := k2.load_shader(compiled)
 
-		if !shd_ok {
+		if !compiled_ok || !shd_ok {
 			fmt.printfln("%-32s FAILED TO LOAD", f.name)
 			failures += 1
 			continue

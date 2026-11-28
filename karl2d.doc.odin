@@ -1290,11 +1290,25 @@ is_cursor_hidden :: proc() -> bool
 //---------//
 // SHADERS //
 //---------//
+compile_shader_from_file :: proc(
+	filename: string,
+	allocator := context.allocator,
+) -> (sc.Compiled_Shader, bool) #optional_ok
 
-// TODO-UPDATE-COMMENT: Takes a single file in the Karl2D shader format (GLSL with #vertex and #fragment sections) that is compiled for the current backend.
-//---
-// Load a shader from a vertex and fragment shader file. If the vertex and fragment shaders live in
-// the same file, then pass it twice.
+compile_shader_from_bytes :: proc(
+	bytes: []u8,
+	allocator := context.allocator,
+	load_include: sc.Load_Include_Proc = nil,
+) -> (sc.Compiled_Shader, bool) #optional_ok
+
+// Load a shader from a shader compiled using `compile_shader_from_file` or
+// `compile_shader_from_bytes`. You can also directly use the `karl2d/shader_compiler` package to
+// compile shaders, that package can be run as a separate program in order to compile shaders ahead
+// of running the game.
+//
+// All shaders are written in "almost GLSL". See `karl2d/default_shader.glsl` for an example of the
+// format. It's just GLSL with both vertex and fragment shader dumped into one file, plus support
+// for importing files using `#include`.
 //
 // `layout_formats` can in many cases be left default initialized. It is used to specify the format
 // of the vertex shader inputs. By formats this means the format that you pass on the CPU side.
@@ -1302,40 +1316,19 @@ is_cursor_hidden :: proc() -> bool
 // The second return value is `true` if the shader was loaded correctly. It's optional to handle
 // this error, it will also be logged. In case of failure, the returned `Shader` will still be
 // possible to use, but setting it does nothing: drawing carries on with the shader already set.
-load_shader_from_file :: proc(
-	filename: string,
-	layout_formats: []Pixel_Format = {},
+load_shader :: proc(
+	compiled_shader: sc.Compiled_Shader,
+	input_formats: []Shader_Input_Format = {},
 ) -> (Shader, bool) #optional_ok
 
-// TODO-UPDATE-COMMENT: Was load_shader_from_bytes. Now compiles one source in the Karl2D shader format. `filename` is used for error messages and for finding #include files.
-//---
-// Load a vertex and fragment shader from a block of memory. See `load_shader_from_file` for what
-// `layout_formats` means.
-//
-// The second return value is `true` if the shader was loaded correctly. It's optional to handle
-// this error, it will also be logged. In case of failure, the returned `Shader` will still be
-// possible to use, but setting it does nothing: drawing carries on with the shader already set.
-load_shader_from_source :: proc(
-	source: []byte,
-	filename: string = "",
-	layout_formats: []Pixel_Format = {},
-) -> (Shader, bool) #optional_ok
-
-load_shader_from_compiled_bytes :: proc(
-	bytes: []byte,
-	layout_formats: []Pixel_Format = {},
-) -> (Shader, bool) #optional_ok
-
-load_shader_from_compiled :: proc(
-	compiled: sc.Compiled_Shader,
-	layout_formats: []Pixel_Format = {},
-) -> (Shader, bool) #optional_ok
+Shader_Input_Format :: struct {
+	name: string,
+	format: Pixel_Format,
+}
 
 read_backbuffer :: proc(pixels: []u8) -> bool
 
-// TODO-UPDATE-COMMENT: load_shader_from_bytes no longer exists. The loaders are load_shader_from_file, load_shader_from_source, load_shader_from_compiled and load_shader_from_compiled_bytes.
-//---
-// Destroy a shader previously loaded using `load_shader_from_file` or `load_shader_from_bytes`
+// Destroy a shader previously loaded using `load_shader`
 destroy_shader :: proc(shader: Shader)
 
 // Fetches the shader that Karl2D uses by default.
@@ -1363,7 +1356,7 @@ set_shader_texture :: proc(shd: Shader, bindpoint: int, texture: Texture)
 //
 // `input` should be the index of the input and `val` should be a value of the correct size.
 //
-// You can modify which type that is expected for `val` by passing a custom `layout_formats` when
+// You can modify which type that is expected for `val` by passing a custom `input_formats` when
 // you load the shader.
 override_shader_input :: proc(shader: Shader, input: int, val: any)
 

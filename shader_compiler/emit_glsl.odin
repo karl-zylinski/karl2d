@@ -670,6 +670,8 @@ emit_glsl :: proc(c: ^Compiler, stage: Stage, es: bool) -> []u8 {
 		glsl_nl(&g)
 
 		if c.uses_frag_coord_flip {
+			glsl_w(&g, "uniform vec2 " + FRAG_COORD_FLIP_NAME + ";")
+			glsl_nl(&g)
 			glsl_w(&g, "vec4 karl2d_frag_coord;")
 			glsl_nl(&g)
 		}

@@ -32,7 +32,7 @@ RENDER_BACKEND_D3D11 :: Render_Backend_Interface {
 	flip_render_textures = false,
 	create_render_texture = d3d11_create_render_texture,
 	destroy_render_target = d3d11_destroy_render_target,
-	shader_target = .DXBC,
+	shader_format = .DXBC,
 	load_shader = d3d11_load_shader,
 	destroy_shader = d3d11_destroy_shader,
 	read_backbuffer = d3d11_read_backbuffer,
@@ -1033,7 +1033,7 @@ d3d11_get_texture_sampler :: proc(s: ^D3D11_State, sampler: Texture_Sampler) -> 
 
 d3d11_load_shader :: proc(
 	s: ^D3D11_State,
-	compiled: sc.Compiled_Shader,
+	compiled: sc.Compiled_Shader_View,
 	inputs: []Shader_Input,
 ) -> (
 	_handle: Shader_Handle,

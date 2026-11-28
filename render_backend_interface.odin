@@ -123,11 +123,11 @@ Render_Backend_Interface :: struct #all_or_none {
 	
 	destroy_render_target: proc(s: ^Render_Backend_State, render_texture: Render_Target_Handle),
 	
-	shader_target: sc.Target,
+	shader_format: sc.Target,
 
 	load_shader: proc(
 		s: ^Render_Backend_State,
-		compiled: sc.Compiled_Shader,
+		compiled: sc.Compiled_Shader_View,
 		inputs: []Shader_Input,
 	) -> (
 		handle: Shader_Handle,

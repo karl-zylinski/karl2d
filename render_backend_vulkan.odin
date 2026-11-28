@@ -32,7 +32,7 @@ RENDER_BACKEND_VULKAN :: Render_Backend_Interface {
 	flip_render_textures = false,
 	create_render_texture = vk_create_render_texture,
 	destroy_render_target = vk_destroy_render_target,
-	shader_target = .SPIRV,
+	shader_format = .SPIRV,
 	load_shader = vk_load_shader,
 	destroy_shader = vk_destroy_shader,
 	read_backbuffer = vk_read_backbuffer,
@@ -1463,7 +1463,7 @@ vk_create_shader_module :: proc(s: ^VK_State, code: []u8) -> (vk.ShaderModule, b
 
 vk_load_shader :: proc(
 	s: ^VK_State,
-	compiled: sc.Compiled_Shader,
+	compiled: sc.Compiled_Shader_View,
 	inputs: []Shader_Input,
 ) -> (
 	_handle: Shader_Handle,

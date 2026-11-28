@@ -1,14 +1,29 @@
 #+build !js
 package karl2d_shader_compiler
 
-import "base:runtime"
 import "core:fmt"
 import "core:os"
 import "core:strings"
 
-read_file_from_disk :: proc(path: string, user_data: rawptr, allocator: runtime.Allocator) -> (data: []u8, ok: bool) {
-	file_data, err := os.read_entire_file_from_path(path, allocator)
+load_include_from_disk :: proc(filename: string) -> (data: []u8, ok: bool) {
+	file_data, err := os.read_entire_file_from_path(filename, context.allocator)
 	return file_data, err == nil
+}
+
+compile_from_file :: proc(
+	filename: string,
+	options := Compile_Options {},
+	allocator := context.allocator,
+	temp_allocator := context.temp_allocator,
+	error_allocator := context.temp_allocator,
+) -> (Compiled_Shader, Compile_Error, bool) {
+	source, source_err := os.read_entire_file_from_path(filename, temp_allocator)
+
+	if source_err != nil {
+		return nil, { message = "Cannot read the file", file = filename }, false
+	}
+
+	return compile(source, filename, load_include_from_disk, options, allocator, temp_allocator, error_allocator)
 }
 
 main :: proc() {
@@ -47,27 +62,15 @@ main :: proc() {
 		os.exit(1)
 	}
 
-	if targets == {} {
-		targets = ~bit_set[Target]{}
-	}
-
-	source, source_err := os.read_entire_file_from_path(input, context.allocator)
-
-	if source_err != nil {
-		fmt.eprintfln("Cannot read %s", input)
-		os.exit(1)
-	}
-
 	options := Compile_Options {
 		targets = targets,
 		no_optimization = no_optimization,
-		read_file = read_file_from_disk,
 	}
 
-	compiled, error, ok := compile(source, input, options)
+	compiled, error, ok := compile_from_file(input, options)
 
 	if !ok {
-		fmt.eprintln(error)
+		fmt.eprintfln("%s(%d): %s", error.file, error.line, error.message)
 		os.exit(1)
 	}
 
@@ -75,7 +78,7 @@ main :: proc() {
 		output = strings.concatenate({ input, ".k2shader" })
 	}
 
-	if os.write_entire_file(output, compiled.bytes) != nil {
+	if os.write_entire_file(output, compiled) != nil {
 		fmt.eprintfln("Cannot write %s", output)
 		os.exit(1)
 	}
@@ -92,14 +95,15 @@ main :: proc() {
 	}
 
 	os.make_directory(dump_dir)
+	view, _ := compiled_shader_view(compiled)
 
 	for target in Target {
-		if target not_in compiled.targets {
+		if target not_in view.targets {
 			continue
 		}
 
-		vertex_err := os.write_entire_file(fmt.tprintf("%s/%s", dump_dir, names[target][0]), compiled.code[target].vertex)
-		fragment_err := os.write_entire_file(fmt.tprintf("%s/%s", dump_dir, names[target][1]), compiled.code[target].fragment)
+		vertex_err := os.write_entire_file(fmt.tprintf("%s/%s", dump_dir, names[target][0]), view.code[target].vertex)
+		fragment_err := os.write_entire_file(fmt.tprintf("%s/%s", dump_dir, names[target][1]), view.code[target].fragment)
 
 		if vertex_err != nil || fragment_err != nil {
 			fmt.eprintfln("Cannot write to %s", dump_dir)

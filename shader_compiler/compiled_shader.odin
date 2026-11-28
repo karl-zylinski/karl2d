@@ -39,7 +39,9 @@ Target_Code :: struct {
 	fragment: []u8,
 }
 
-Compiled_Shader :: struct {
+Compiled_Shader :: []u8
+
+Compiled_Shader_View :: struct {
 	bytes: []u8,
 	targets: bit_set[Target],
 	code: [Target]Target_Code,
@@ -50,6 +52,12 @@ Compiled_Shader :: struct {
 	num_files: int,
 	vertex_textures: bit_set[0..<32; u32],
 	tables_offset: int,
+}
+
+Compile_Error :: struct {
+	message: string,
+	file: string,
+	line: int,
 }
 
 Const_Scalar :: struct {
@@ -383,7 +391,7 @@ get_blob :: proc(bytes: []u8, ref_offset: int) -> (data: []u8, ok: bool) {
 	return bytes[offset:offset + length], true
 }
 
-compiled_shader_from_bytes :: proc(bytes: []u8) -> (cs: Compiled_Shader, ok: bool) {
+compiled_shader_view :: proc(bytes: Compiled_Shader) -> (cs: Compiled_Shader_View, ok: bool) {
 	if len(bytes) < HEADER_SIZE + len(Target) * TARGET_ENTRY_SIZE {
 		return
 	}
@@ -444,7 +452,7 @@ compiled_shader_from_bytes :: proc(bytes: []u8) -> (cs: Compiled_Shader, ok: boo
 	return cs, true
 }
 
-compiled_shader_input :: proc(cs: Compiled_Shader, index: int) -> Compiled_Input {
+compiled_shader_input :: proc(cs: Compiled_Shader_View, index: int) -> Compiled_Input {
 	at := cs.tables_offset + index * INPUT_ENTRY_SIZE
 	name, _ := get_blob(cs.bytes, at)
 
@@ -455,7 +463,7 @@ compiled_shader_input :: proc(cs: Compiled_Shader, index: int) -> Compiled_Input
 	}
 }
 
-compiled_shader_constant :: proc(cs: Compiled_Shader, index: int) -> Compiled_Constant {
+compiled_shader_constant :: proc(cs: Compiled_Shader_View, index: int) -> Compiled_Constant {
 	at := cs.tables_offset + cs.num_inputs * INPUT_ENTRY_SIZE + index * CONSTANT_ENTRY_SIZE
 	name, _ := get_blob(cs.bytes, at)
 	default_value, _ := get_blob(cs.bytes, at + 16)
@@ -472,14 +480,14 @@ compiled_shader_constant :: proc(cs: Compiled_Shader, index: int) -> Compiled_Co
 	}
 }
 
-compiled_shader_texture :: proc(cs: Compiled_Shader, index: int) -> Compiled_Texture {
+compiled_shader_texture :: proc(cs: Compiled_Shader_View, index: int) -> Compiled_Texture {
 	at := cs.tables_offset + cs.num_inputs * INPUT_ENTRY_SIZE + cs.num_constants * CONSTANT_ENTRY_SIZE
 	at += index * TEXTURE_ENTRY_SIZE
 	name, _ := get_blob(cs.bytes, at)
 	return { name = string(name) }
 }
 
-compiled_shader_file :: proc(cs: Compiled_Shader, index: int) -> string {
+compiled_shader_file :: proc(cs: Compiled_Shader_View, index: int) -> string {
 	at := cs.tables_offset + cs.num_inputs * INPUT_ENTRY_SIZE + cs.num_constants * CONSTANT_ENTRY_SIZE
 	at += (cs.num_textures + index) * TEXTURE_ENTRY_SIZE
 	name, _ := get_blob(cs.bytes, at)

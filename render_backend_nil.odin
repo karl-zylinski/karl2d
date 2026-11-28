@@ -24,7 +24,7 @@ RENDER_BACKEND_NIL :: Render_Backend_Interface {
 	flip_render_textures = false,
 	create_render_texture = rbnil_create_render_texture,
 	destroy_render_target = rbnil_destroy_render_target,
-	shader_target = .GLSL_330,
+	shader_format = .GLSL_330,
 	load_shader = rbnil_load_shader,
 	destroy_shader = rbnil_destroy_shader,
 	read_backbuffer = rbnil_read_backbuffer,
@@ -150,7 +150,7 @@ rbnil_destroy_render_target :: proc(s: ^RBNil_State, render_target: Render_Targe
 // with a different vertex layout will be reported as if they had the default one.
 rbnil_load_shader :: proc(
 	s: ^RBNil_State,
-	compiled: sc.Compiled_Shader,
+	compiled: sc.Compiled_Shader_View,
 	inputs: []Shader_Input,
 ) -> (
 	handle: Shader_Handle,
